@@ -30,7 +30,7 @@ jobs:
           version: 11.9.0
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: crewscope-web/pnpm-lock.yaml
       - name: Install dependencies

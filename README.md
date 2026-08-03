@@ -9,7 +9,7 @@ CrewScope 是面向技术团队的协作式 AI 工作执行平台。成员、Per
 - AgentScope Java 2.0.0
 - PostgreSQL 17
 - Redis 7.4
-- Vue 3、TypeScript、Vite 和 pnpm
+- Node.js 24、Vue 3、TypeScript、Vite 和 pnpm
 
 ## 工程结构
 
@@ -52,7 +52,7 @@ pnpm install
 pnpm dev
 ```
 
-前端使用 Node.js 20。通过 nvm 初始化环境：
+前端使用 Node.js 24。通过 nvm 初始化环境：
 
 ```bash
 cd crewscope-web
