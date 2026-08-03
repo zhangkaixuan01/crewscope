@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: crewscope
+      POSTGRES_USER: crewscope
+      POSTGRES_PASSWORD: crewscope
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crewscope -d crewscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - crewscope-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - crewscope-redis:/data
+
+volumes:
+  crewscope-postgres:
+  crewscope-redis:

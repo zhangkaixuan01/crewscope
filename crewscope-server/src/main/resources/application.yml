@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: crewscope-server
+  datasource:
+    url: ${CREWSCOPE_DB_URL:jdbc:postgresql://localhost:5432/crewscope}
+    username: ${CREWSCOPE_DB_USERNAME:crewscope}
+    password: ${CREWSCOPE_DB_PASSWORD:crewscope}
+  flyway:
+    enabled: true
+    schemas: crewscope
+    create-schemas: true
+    locations: classpath:db/migration
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: crewscope
+  threads:
+    virtual:
+      enabled: false
+
+server:
+  port: ${CREWSCOPE_SERVER_PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+crewscope:
+  security:
+    bootstrap:
+      username: ${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope}
+      password: ${CREWSCOPE_BOOTSTRAP_PASSWORD:crewscope}
+  runtime:
+    agentscope-version: 2.0.0
+    execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
