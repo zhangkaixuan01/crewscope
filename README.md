@@ -23,6 +23,14 @@ crewscope-server          Spring Boot、REST、AG-UI 与管理端点
 crewscope-web             Vue 3 团队工作台
 ```
 
+## 项目文档
+
+- [产品与技术设计](docs/CrewScope-团队协作式AI工作执行平台设计文档.md)
+- [实施计划](docs/CrewScope-实施计划.md)
+- [前端设计规范](docs/CrewScope-前端设计规范.md)
+- [里程碑执行清单](docs/plans/README.md)
+- [架构决策记录](docs/adr/README.md)
+
 ## 本地启动
 
 准备 Java 17 和 Docker，然后执行：

@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v3.7  
+> 文档版本：v4.0<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -16,6 +16,8 @@ CrewScope 是面向技术团队的协作式 AI 工作执行平台。
 
 CrewScope 把自然语言目标转换为可观察、可协作、可确认、可暂停、可恢复的跨系统任务。AgentScope 承载对话、推理、规划、工具和多 Agent 运行；CrewScope 承载团队、责任、协作、任务、身份授权、耐久执行、制品、观测和审计。
 
+CrewScope 以 AgentScope Java 构建原生执行 Agent。原生 Coding Agent 直接理解 WorkItem、责任、验收标准、仓库范围、PolicySnapshot 和 Review Gate，在隔离的 Git Worktree 与 Sandbox 中完成代码分析、修改、测试、自检和结构化交付。
+
 CrewScope 的核心结构：
 
 ```text
@@ -23,6 +25,7 @@ Team Workspace
   -> 创建 WorkItem 并指定 Owner
   -> 成员通过对话发起 Agent Task
   -> Personal Agent / Team Agent 制定计划
+  -> AgentScope 原生 Specialist Agent 执行分析、编码、测试和复核
   -> 成员、Agent 和子 Agent 并行贡献
   -> Review、Handoff、确认和审批
   -> Provider 执行跨系统动作
@@ -83,6 +86,7 @@ CrewScope 采用个人执行、团队协作与企业治理结合的产品形态�
 7. 一条审计链记录成员、Agent、Provider、身份、动作、确认和外部回执。
 8. 一套 Provider、Plugin 和 Skill 机制连接系统并沉淀团队工作方法。
 9. 一套 Team Memory 和 Skill Promotion 机制形成团队知识资产。
+10. 一组 AgentScope 原生执行 Agent 把责任、权限、代码上下文、Review 和交付证据纳入统一运行时。
 
 AgentScope Java 2.0.0 提供智能运行时：
 
@@ -117,6 +121,8 @@ CrewScope 的产品竞争力来自团队执行网络：
 4. 团队实时观测：负责人查看进度、阻塞、风险、成本、身份、动作和审计；成员查看自己的任务、协作和 Review 队列。
 5. 企业执行能力：Provider、Connector、Connection 和 PolicyPack 把 GitHub、飞书与内部系统变成受身份和策略约束的执行能力。
 6. 团队知识复利：成功任务沉淀为 Team Skill、Team Memory 和可复用 Artifact，持续提升团队执行效率。
+7. 原生可治理 Agent：AgentScope 原生 Agent 在服务端可信责任、PolicySnapshot、任务级身份和结构化交付协议内运行。
+8. 受控代码交付：Git Worktree、Sandbox、Diff Stream、Test Evidence、Review Gate、Draft PR 和 ActionReceipt 形成可恢复、可审计的研发闭环。
 
 ### 1.5 对话到团队交付
 
@@ -144,13 +150,27 @@ MVP 的首条产品闭环：
 ```text
 团队对话提出研发目标
   -> Agent 建议创建 WorkItem、Owner 和 Reviewer
-  -> Personal Agent 读取代码并生成计划
-  -> Sandbox 修改代码、测试并生成 Diff
+  -> Task Runtime 领取执行并签发任务级短期身份
+  -> Personal Agent 与 Coding Specialist 读取代码并生成计划
+  -> 隔离 Git Worktree 与 Sandbox 修改代码、测试并流式生成 Diff
   -> 同级成员完成 Review
   -> Owner 确认源码写操作
   -> GitHub Provider 创建 Draft PR
   -> WorkItem、Activity、Notification 和 Audit 同步更新
 ```
+
+### 1.6 产品范围
+
+| 范围 | 首期实现 | 后续扩展 |
+|---|---|---|
+| 交互端 | Web 团队工作台与飞书通知 | Desktop、Mobile 和更多企业 IM |
+| Agent Runtime | AgentScope Java 原生 Personal、Task Orchestrator、Coding 与 Reviewer Agent | 经评测接入外部 Coding Runtime Adapter |
+| 代码场景 | Java/Spring Boot 仓库的缺陷修复、小功能、测试和 Draft PR | 多语言、复杂重构、预览和发布 |
+| Provider | Native WorkItem、GitHub SourceCode、Lark Collaboration | GitLab、Gitee、禅道、TAPD、CI/CD 与可观测系统 |
+| 自动化 | 用户发起的对话任务和 Webhook 恢复 | 定时任务、Autopilot 和团队主动工作 |
+| 扩展机制 | 内置 Provider 与稳定应用 Port | Plugin 市场、第三方 Connector 和私有扩展仓库 |
+
+首期代码交付到 Draft PR 结束。PR 合并、生产发布和生产变更进入高风险 Provider Action 与后续阶段。
 
 ## 2. 建设目标
 
@@ -170,6 +190,10 @@ MVP 的首条产品闭环：
 14. 通过 Sandbox、短期凭证和网络策略提供隔离执行环境。
 15. 通过 Team Skill、Team Memory 和 Artifact 沉淀可审核的团队知识。
 16. 通过企业策略层支持 SSO、权限、审批、数据边界和私有化部署。
+17. 通过 AgentScope 原生 Coding Agent 与 Reviewer Agent 承载代码分析、修改、测试、自检和结构化交付。
+18. 通过 Runtime Port 保持执行内核可扩展，后续按效果、安全和成本评测接入外部 Coding Runtime。
+19. 通过 TaskExecution Claim、ExecutionLease、Heartbeat、Retry 和 Recovery 实现多实例耐久执行。
+20. 通过 Git Worktree、Diff Stream、Test Evidence 和 Review Gate 实现可审查的代码交付。
 
 ## 3. 设计原则
 
@@ -229,6 +253,14 @@ AgentScope 负责语义理解、开放式分析、计划生成、工具选择和
 
 Team、Workspace、WorkItem、Responsibility、Collaboration、ProviderBinding、Conversation、AgentRun、Task、Action、Confirmation 和 ExternalOperation 共享统一关联链。
 
+### 3.15 AgentScope 原生优先
+
+Personal Agent、Team Agent、Task Orchestrator、Coding Specialist 和 Reviewer Specialist 使用 AgentScope Java 原生运行时。Agent 的 Plan、Todo、ToolCall、Structured Output、Memory、Subagent、Interrupt 和 Resume 直接映射到 CrewScope 任务事实。Runtime Port 保持边界稳定，扩展运行时遵循同一责任、策略、制品和审计协议。
+
+### 3.16 执行工作区隔离
+
+每个代码 TaskExecution 使用独立 Git Worktree、稳定分支、Sandbox 和 Artifact 路径。Workspace Manager 对创建、并发锁、校验、重试、冷恢复、归档和清理负责。Diff Stream 通过文件系统事件、Git 状态和周期对账保持最终一致。
+
 ## 4. 核心领域模型
 
 | 概念 | 定义 |
@@ -237,6 +269,7 @@ Team、Workspace、WorkItem、Responsibility、Collaboration、ProviderBinding�
 | `Team` | 成员、角色、资源、策略和协作的团队边界 |
 | `TeamMember` | 用户在 Team 中的身份、角色和状态 |
 | `TeamRole` | 团队级管理、配置、观测和审计权限集合 |
+| `Principal` | 用户、Personal Agent、Team Agent、Specialist Agent 和 Service Principal 的统一行为主体 |
 | `Workspace` | `PERSONAL` 或 `TEAM` 类型的长期工作边界 |
 | `AgentProfile` | Personal、Team 或 Specialist Agent 的角色、模型、Prompt 和能力配置 |
 | `WorkGraph` | 从领域事实生成的 WorkItem、Task、责任、依赖、贡献、Artifact 和外部资源关系读模型 |
@@ -265,6 +298,9 @@ Team、Workspace、WorkItem、Responsibility、Collaboration、ProviderBinding�
 | `TaskExecution` | Task 的一次执行尝试 |
 | `StepDefinition` | 任务模板中的步骤定义 |
 | `StepExecution` | 步骤运行实例和检查点 |
+| `ExecutionRuntime` | AgentScope 原生或扩展 Coding Runtime 的能力、版本、健康、并发和运行位置 |
+| `ExecutionLease` | Worker 对 TaskExecution 的有期执行所有权；MVP 的 Step 由所属 TaskExecution 串行驱动 |
+| `ExecutionWorkspace` | TaskExecution 的 Git Worktree、分支、Sandbox、路径、仓库基线和恢复状态 |
 | `PlanVersion` | 校验并确认后的固化执行计划 |
 | `PluginDefinition` | Provider 实现、Connector、Tool、Skill、事件和 UI 扩展的发布包 |
 | `PluginInstallation` | Plugin 在组织或 Workspace 中的安装实例 |
@@ -286,6 +322,7 @@ Team、Workspace、WorkItem、Responsibility、Collaboration、ProviderBinding�
 | `PolicySnapshot` | Task 创建及责任、计划或能力变更时生成的不可变策略、配置和能力版本快照 |
 | `SafetyEnforcementOverlay` | 对运行中任务实时生效的撤权、禁用和 Kill Switch |
 | `RuntimeArtifact` | 报告、文件、Plan、日志、Diff、Patch 和工具大结果 |
+| `DiffArtifact` | 基线 Commit、当前 Commit、变更文件、行统计、Patch、流游标与 Review 状态 |
 | `AuditEvent` | 面向安全、治理和合规检索的追加写投影 |
 | `DomainEvent` | 领域状态变化产生的版本化事实事件和 Outbox 来源 |
 
@@ -350,6 +387,8 @@ ResponsibilityAssignment 管理工作对象上的动态责任。TeamRole 决定�
 | `WATCHER` | TeamMember | 接收进度和结果通知 |
 
 `POLICY_AUTO_GRANT` 由 Policy Engine 产生，记录策略版本和授权条件。它与 TeamMember 的 Approver 身份分别记录。
+
+责任不变式由应用层和数据库共同保证：一个 WorkItem 只有一个有效 Owner；Owner、Gate Reviewer 和 Approver 必须是有效 TeamMember；每个成员只有一个有效默认 Personal Agent Principal 与 AgentProfile；Gate Reviewer 是否可以同时担任 Owner/Executor 由 ReviewerEligibilityPolicy 决定，MVP 默认要求职责分离，单人团队只能通过显式 PolicyPack 降级。ResponsibilityAssignment 是责任事实源，WorkItem 中的 Owner 引用属于受约束引用或读模型字段。
 
 ```text
 ResponsibilityAssignment
@@ -460,6 +499,35 @@ Takeover 流程：
 | Specialist Agent | 父 Agent/Task | 继承后的范围化身份 | Coder、Reviewer、Analyst、Researcher 和 Writer |
 
 Task Orchestrator 与 Contribution Agent 是任务级运行实例，责任主体沿用对应的 Personal Agent、Team Agent 或 TeamMember。Personal Agent 向其他成员发起 CollaborationRequest。接收者确认或 TeamPolicy 授权后，Collaboration Service 创建共享上下文和权限。Team Agent 可以向成员分配 Step、请求 Review 和汇总 Contribution。
+
+#### 4.5.1 AgentScope 原生 Coding Agent
+
+Coding Agent 是 Specialist Agent 的内置类型，使用 AgentScope `HarnessAgent`、Plan Mode、Todo、Structured Output、Toolkit、Sandbox Filesystem、Compaction、Tool Result Eviction 和 Subagent 能力。执行输入由服务端组装：
+
+```text
+WorkItem + AcceptanceCriteria
+ResponsibilitySnapshot
+RepositoryBaseline + AllowedPaths
+PlanVersion + PolicySnapshot
+ProviderBindings + ConnectionGrants
+PriorSession + PriorWorkspace
+ReviewFindings + HandoffContext
+```
+
+Coding Agent 执行稳定循环：
+
+```text
+仓库分析
+  -> 结构化实现计划
+  -> 范围与风险校验
+  -> 文件修改与命令执行
+  -> 测试、静态检查与失败修复
+  -> Git Diff 与自检
+  -> CodeChangeResult + TestEvidence + DiffArtifact
+  -> ReviewRequest
+```
+
+Coding Agent 使用范围化文件、Shell、Git 和构建工具。推送分支、创建 PR、合并和发布使用 SourceCodeProvider 的 PlannedAction 链路。Reviewer Agent 基于精确基线、Diff、测试证据和验收标准生成 `ADVISORY` Finding，TeamMember 提交 `GATE` Decision。
 
 ### 4.6 对话模式
 
@@ -725,9 +793,9 @@ Lark Plugin
   └── LarkCollaborationProvider implements CollaborationProvider
 ```
 
-ProviderBinding 保存所有者类型、Provider 类型、实现版本、Connection、执行身份、资源范围和默认用途。绑定选择顺序为 Task 显式绑定、WorkProject 绑定、Team Workspace 绑定、Personal Workspace 绑定、Organization 默认绑定。
+ProviderBinding 保存所有者类型、Provider 类型、实现版本、Connection、执行身份、资源范围和默认用途。Binding Resolver 按动作所需执行身份解析：Action 显式绑定、Task 显式绑定、WorkProject 绑定、当前执行身份对应的 Team/Personal Workspace 绑定、Organization 默认绑定。
 
-选择顺序只处理默认值优先级。最终 Binding 必须位于当前主体、责任、ConnectionGrant、PolicySnapshot、SafetyEnforcementOverlay 和目标资源的权限交集内，Task 显式绑定无法扩大授权范围。
+选择顺序只处理默认值优先级，不把用户级、团队级和组织级身份互相替换。最终 Binding 必须位于当前主体、责任、ConnectionGrant、PolicySnapshot、SafetyEnforcementOverlay 和目标资源的权限交集内。相同优先级出现多个匹配项时拒绝执行并要求用户选择，任何显式绑定都无法扩大授权范围。解析结果固化 ProviderBinding、ConnectionGrant、Credential Subject 和资源范围，写入 PolicySnapshot 与 ActionDigest。
 
 Agent 使用标准 Tool：
 
@@ -784,7 +852,7 @@ flowchart TB
   PERSONAL --> CONTROL
   TEAMAGENT --> CONTROL
 
-  WEB --> MARKET["Plugin / Provider Market"]
+  WEB --> MARKET["Provider & Connection Center"]
   MARKET --> CONNECTION["Connection & OAuth Service"]
   CONTROL --> ENGINE["Durable Task Runtime"]
   CONTROL --> CONFIRM["Confirmation & Takeover"]
@@ -792,11 +860,23 @@ flowchart TB
   CONTROL --> OBSERVE["Team Observability"]
   CONTROL --> AUDIT["Policy / Audit"]
 
-  ENGINE --> ADAPTER["AgentScope Runtime Adapter"]
+  ENGINE --> RUNTIME["Execution Runtime Registry"]
+  RUNTIME --> ADAPTER["AgentScope Native Runtime"]
   ADAPTER --> TASKAGENT["Task HarnessAgent"]
+  ADAPTER --> CODER["Coding Specialist"]
+  ADAPTER --> REVIEWER["Reviewer Specialist"]
   PERSONAL --> AS["AgentScope Java 2.0.0"]
   TEAMAGENT --> AS
   TASKAGENT --> AS
+  CODER --> AS
+  REVIEWER --> AS
+
+  ENGINE --> WSMANAGER["Execution Workspace Manager"]
+  WSMANAGER --> WORKTREE["Git Worktree"]
+  WSMANAGER --> SANDBOX["Sandbox"]
+  WORKTREE --> DIFF["Diff Stream / Reconcile"]
+  SANDBOX --> DIFF
+  DIFF --> ARTIFACT
 
   AS --> SKILL["Skill / ToolGroup / Subagent"]
   AS --> PTOOL["Provider Tool Adapter"]
@@ -861,8 +941,12 @@ flowchart TB
 | Provider Registry | Provider 契约、实现发现、Binding、标准 Tool 和能力路由 |
 | Connector Registry | Connector、Connection、认证、API 操作和 Webhook 管理 |
 | Task Control Plane | 任务创建、计划固化、状态查询和用户控制入口 |
-| Durable Task Runtime | 状态机、调度、租约、检查点、超时和 Outbox |
+| Durable Task Runtime | 队列、Claim、状态机、并发配额、租约、Heartbeat、重试、检查点、超时和 Outbox |
+| Execution Runtime Registry | 运行时类型、能力、版本、健康、可用位置、并发和任务路由 |
 | AgentScope Adapter | Agent 构建、调用、恢复、中断、事件和工具结果映射 |
+| AgentScope Native Runtime | Personal、Team、Task Orchestrator、Coding、Reviewer 和其他 Specialist Agent 的原生运行时 |
+| Execution Workspace Manager | Git Worktree、分支、Sandbox、文件锁、创建回滚、冷恢复、归档和清理 |
+| Diff Stream | 文件变更监视、Git 状态检查、周期 Reconcile、变更统计、Patch 流和内容上限 |
 | PlannedAction Service | 写操作规范化、确认、审批、调度和对账 |
 | Tool Worker | 使用用户委托身份或企业服务身份执行外部动作 |
 | Artifact Service | 报告、文件、Diff、Patch、日志结果和预览元数据 |
@@ -899,8 +983,9 @@ Sandbox Executor
 2. JPA、JDBC、文件、同步 SDK 和 Sandbox 调用进入有界专用线程池；
 3. 数据库事务只包含领域状态、DomainEvent 和 Outbox 写入；
 4. 模型、Connector、MCP 和外部系统调用在数据库事务提交后执行；
-5. Worker 使用租约、并发配额、超时和背压保护外部系统；
+5. Worker 使用 Claim Token、租约、Heartbeat、并发配额、超时和背压保护执行资源与外部系统；
 6. `all` Profile 继续使用隔离线程池，`server/worker` Profile 使用相同执行语义。
+7. Worker 仅持有当前 TaskExecution 签发的短期执行身份，凭证解析与 Provider 写操作在服务端或 Connector Worker 完成。
 
 ### 5.3 领域事件与投影
 
@@ -973,7 +1058,7 @@ Web 工作台采用三区域布局：左侧承载 Team、WorkProject、WorkItem 
 - 用户可见子 Agent 会话；
 - DistributedStore 跨节点恢复。
 
-Channel 负责用户与 Agent 的消息入口。CollaborationProvider 负责搜索消息、发送通知、上传文件和操作协作资源。飞书可以同时提供 Lark Channel 和 LarkCollaborationProvider。
+Channel 负责用户与 Agent 的消息入口。CollaborationProvider 负责搜索消息、发送通知、上传文件和操作协作资源。MVP 只提供 LarkCollaborationProvider 的成员查询与固定模板出站通知；Lark Channel 入站对话、消息驱动任务和自由文本发送进入后续里程碑。
 
 ### 6.3 Provider 绑定与 Connector 授权
 
@@ -983,7 +1068,7 @@ Channel 负责用户与 Agent 的消息入口。CollaborationProvider 负责搜�
 2. 动态实现先安装包含 ProviderImplementation 与 Connector 的 Plugin；
 3. 使用 OAuth、GitHub App、PAT、API Key 或企业 SSO 创建 Connection；
 4. 查看并确认请求的 Scope 和可访问资源；
-5. 平台把密钥保存到 Credential Vault；
+5. 平台通过 CredentialStore 把密钥保存到开发加密存储或部署环境 Vault/KMS；
 6. Connection Service 校验外部身份和连接健康状态；
 7. 创建 ProviderBinding，绑定实现、Connection、资源范围和默认用途；
 8. Policy Engine 计算当前 Workspace 可用的标准 ToolGroup；
@@ -1036,6 +1121,8 @@ RISK_DETECTED
 
 客户端按 `team_event_cursor` 断线续传。当前状态、DomainEvent 和 Outbox 在同一事务提交，ActivityEvent 与团队游标由投影器生成。评论、责任变更、Review、Handoff 和 Takeover 使用实体版本执行乐观并发控制。
 
+AG-UI、Conversation Event 与 Team Event 使用统一事件信封：`event_id`、`domain_event_id`、`stream_type`、`aggregate_type`、`aggregate_id`、`aggregate_version`、`correlation_id`、`causation_id`、`occurred_at` 和 Payload。一个 DomainEvent 进入多个流时保持相同 `domain_event_id`，前端按 `event_id` 去重并按各自 Cursor 续传。
+
 ### 6.5 事件与定时入口
 
 内置 WorkItem 事件、GitHub、飞书、告警和 CI/CD Webhook，以及用户定时任务进入 Task Entry Service。Jira、禅道和 TAPD Provider 实现与 Connector 使用相同事件入口：
@@ -1075,6 +1162,8 @@ Task Orchestrator Session 保存任务级 Plan、Todo 和执行摘要，Step Age
 | Team Agent | Team/Conversation/定时任务级 | 团队协调、WorkGraph 分析、责任建议、共享任务和团队 Provider |
 | Task Orchestrator | TaskExecution 级 | 保存任务级 Plan、Todo、进度摘要并编排 Step、协作和交付 |
 | Step Agent | StepExecution 级 | 隔离执行单个步骤、重试和并行分支，结构化回写 Task Orchestrator |
+| Coding Specialist | StepExecution/ExecutionWorkspace 级 | 仓库分析、计划、修改、测试、Diff 自检和交付证据 |
+| Reviewer Specialist | ReviewRequest 级 | 对精确基线、Diff、测试证据和验收标准生成 Advisory Finding |
 | Contribution Agent | CollaborationRequest/TeamMember 级 | 使用接收成员身份、ContextPackage 和 CollaborationGrant 完成范围化贡献 |
 | 专家子 Agent | 父 Agent 委派 | Researcher、Coder、Reviewer、Analyst 和 Writer |
 
@@ -1156,6 +1245,13 @@ connectionGrantSet
 allowedResourceScopes
 modelBudget
 toolBudget
+executionRuntimeId
+executionWorkspaceId
+claimTokenRef
+repositoryBaseline
+allowedRepositoryIds
+allowedPaths
+allowedCommands
 ```
 
 `userId` 与 `sessionId` 构成 AgentScope 状态隔离键。CrewScope 通过 RuntimeContext 类型化属性注入 `PlatformExecutionContext`。组织、Team、TeamMember、角色、Workspace、责任、CollaborationGrant、ProviderBinding、Connection、资源范围、凭证引用和确认结论均由服务端解析。RuntimeContext 属性只在单次调用内有效，每次调用、恢复和唤醒都从 PostgreSQL、Policy Service 与 Credential Service 重建。
@@ -1184,6 +1280,56 @@ AgentScope 提供 `ModelRegistry`、`ModelCard`、Model Provider Starter、Retry
 - Token、次数、时长和成本预算；
 - Prompt 和 Structured Output Schema 版本。
 
+### 7.6 Execution Runtime Port
+
+CrewScope 对执行运行时使用稳定 Port：
+
+```java
+public interface ExecutionRuntime {
+    RuntimeDescriptor descriptor();
+    RuntimeCapabilities capabilities();
+    ExecutionHandle start(ExecutionRequest request);
+    ExecutionHandle resume(ResumeRequest request);
+    void cancel(CancelRequest request);
+    RuntimeHealth health();
+}
+```
+
+`RuntimeCapabilities` 声明 `SESSION_RESUME`、`SESSION_FORK`、`PLAN`、`STRUCTURED_OUTPUT`、`TOOL_APPROVAL`、`CONTEXT_USAGE`、`SANDBOX`、`WORKTREE`、`MULTI_REPOSITORY` 和支持的语言/构建系统。Task Scheduler 使用能力交集路由任务，PolicySnapshot 固化本次选中的 Runtime 类型、实现版本和能力快照。
+
+`ExecutionRequest` 携带 TaskExecution、StepExecution、Principal、Initiator、ResponsibilitySnapshot、PolicySnapshot、PlanVersion、ExecutionWorkspace、ProviderBinding、任务级短期身份和恢复上下文。运行时返回统一事件：
+
+```text
+TEXT_DELTA
+THINKING_SUMMARY
+PLAN_CHANGED
+TOOL_STARTED
+TOOL_RESULT
+PROGRESS
+ARTIFACT_CREATED
+APPROVAL_REQUIRED
+STATUS_CHANGED
+USAGE_REPORTED
+ERROR
+```
+
+Phase 0 和 Phase 1 只注册 `AgentScopeNativeRuntime`。扩展 Coding Runtime 通过同一 Port 接入，使用相同 ExecutionWorkspace、Task Token、Artifact、Review Gate、PlannedAction 和 Audit 协议。
+
+### 7.7 原生 Coding Agent 工具面
+
+| 工具组 | 原子能力 | 控制边界 |
+|---|---|---|
+| Repository Read | 仓库元数据、目录、文件、搜索、Git 历史和基线 | RepositoryBinding、AllowedPaths、数据分类 |
+| Workspace Write | 创建、修改、Patch、重命名和删除 Worktree 内文件 | Worktree 根目录、路径规则、文件数和体积限制 |
+| Shell | 构建、测试、静态检查和受控辅助命令 | 命令策略、超时、CPU/内存、网络和凭证隔离 |
+| Git Local | status、diff、log、show、本地 commit 和基线校验 | 当前 Worktree 和稳定 Branch |
+| Validation | Maven 测试、项目校验、验收标准映射 | PlanVersion 验证步骤和预算 |
+| SourceCode Provider | Push、Draft PR、PR 查询与 Review 回写 | PlannedAction、Confirmation、Worker、Receipt 和 Reconcile |
+
+Coding Agent 对每次文件变更记录 ToolCall 与路径，对每次命令记录退出码、耗时和脱敏输出引用。大日志进入 RuntimeArtifact，Agent 上下文保留摘要和 Artifact 引用。
+
+HarnessAgent 原生 workspace 文件与 Shell 工具继续复用 AgentScope 能力。CrewScope 通过 Sandbox FilesystemSpec、Tool allow/deny、PermissionContext、PlatformPolicyMiddleware、Task Token、AllowedPaths 和命令策略收紧工具面，不再并行注册可绕过这些边界的原始文件或 Shell Tool。Provider 写操作只注册 SchemaOnly External Tool，由 PlannedAction Worker 执行。
+
 ## 8. 结构化输出与执行计划
 
 ### 8.1 Structured Output
@@ -1193,6 +1339,7 @@ AgentScope 提供 `ModelRegistry`、`ModelCard`、Model Provider Starter、Retry
 ```text
 TaskIntentV1
 ClarificationRequestV1
+RepositoryAnalysisV1
 ConnectionRequirementV1
 ProviderRequirementV1
 WorkItemCreateV1
@@ -1205,6 +1352,9 @@ ReviewDecisionV1
 HandoffSummaryV1
 TakeoverRequestProposalV1
 ProposedPlanV1
+CodeChangeResultV1
+TestEvidenceV1
+DiffManifestV1
 PlannedActionProposalV1
 EvidenceSummaryV1
 ReviewFindingListV1
@@ -1576,6 +1726,8 @@ DRAFT -> REVIEWING -> APPROVED -> ACTIVE -> DEPRECATED -> REVOKED
 - Promotion Gate 完成内容、安全、工具引用和数据范围审核；
 - Curator 整理已批准内容；
 - SkillBinding 保存版本、哈希、来源、所有者和适用 PolicyPack；
+- SkillVersion 保存 Manifest 与多 SkillFile，文件路径、内容和哈希共同确定不可变版本；
+- Runtime Skill Bundle 按 Runtime 能力与 Task 快照组装，使用 Bundle Hash 缓存并在 TaskExecution 中固化；
 - 成员可以把成功 Task 或 Contribution 提炼为 Skill 草稿；
 - Team Reviewer 审核后发布为 Team Skill；
 - Organization Curator 审核后提升为企业共享 Skill；
@@ -1593,7 +1745,7 @@ DRAFT -> REVIEWING -> APPROVED -> ACTIVE -> DEPRECATED -> REVOKED
 
 PolicyPack 控制子 Agent 类型、数量、深度、并行度、预算、工具、Sandbox、责任角色、协作范围、持久会话和用户可见性。
 
-AgentScope 后台子任务使用 `agent_spawn`、`agent_send`、`task_output`、`task_cancel` 和 `task_list`。CrewScope 的耐久 Subflow 由任务引擎调度。
+AgentScope 后台子任务使用 `agent_spawn`、`agent_send`、`task_output`、`task_cancel` 和 `task_list`，限定为短时、可重算、无外部副作用的内部分析。CrewScope 的耐久 Subflow、Coding Specialist、Reviewer Specialist 和任何会修改制品或触发外部动作的执行均由任务引擎创建 StepExecution 并调度。AgentScope 子任务状态不是耐久任务事实源。
 
 ### 11.5 Async Tool、MessageBus Inbox 与 Wakeup
 
@@ -1616,16 +1768,29 @@ External Event / TaskEvent 写入领域状态、DomainEvent 和 Outbox
 
 ## 12. 耐久任务执行
 
-### 12.1 Task 状态
+### 12.1 Task 与 TaskExecution 状态
+
+Task 表示业务目标生命周期：
+
+```text
+CREATED -> ACTIVE -> WAITING -> COMPLETED
+CREATED / ACTIVE / WAITING -> CANCELLED
+ACTIVE / WAITING -> FAILED
+```
+
+Task 的 `WAITING` 由当前 TaskExecution、Review、Confirmation 或外部事件解释具体等待原因。Task 不承载 Claim、Worker、Lease、Prepare、Recover 和执行尝试状态。
+
+TaskExecution 表示一次执行尝试：
 
 ```text
 CREATED
 READY
+CLAIMED
+PREPARING
 RUNNING
+WAITING_RUNTIME
 WAITING_COLLABORATION
 WAITING_REVIEW
-WAITING_HANDOFF
-WAITING_TAKEOVER
 WAITING_CONFIRMATION
 WAITING_USER_INPUT
 WAITING_EXTERNAL_EXECUTION
@@ -1633,6 +1798,7 @@ WAITING_EVENT
 WAITING_MANUAL
 PAUSE_REQUESTED
 PAUSED
+RECOVERING
 COMPLETED
 FAILED
 CANCEL_REQUESTED
@@ -1640,18 +1806,20 @@ CANCELLED
 MANUAL_TAKEOVER
 ```
 
-主状态迁移：
+TaskExecution 主状态迁移：
 
 ```text
-CREATED -> READY -> RUNNING -> COMPLETED
+CREATED -> READY -> CLAIMED -> PREPARING -> RUNNING -> COMPLETED
+READY -> WAITING_RUNTIME -> READY
 RUNNING -> FAILED
 RUNNING -> WAITING_* -> READY
 RUNNING -> PAUSE_REQUESTED -> PAUSED -> READY
+CLAIMED / PREPARING / RUNNING -> RECOVERING -> READY
 RUNNING / WAITING_* / PAUSED -> CANCEL_REQUESTED -> CANCELLED
 RUNNING / WAITING_* -> MANUAL_TAKEOVER -> COMPLETED / FAILED / CANCELLED
 ```
 
-状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。终态保持不可逆；失败重试创建新的 TaskExecution；已发送 Action 在 Task 取消后继续进入 Reconcile。
+状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。`CLAIMED` 表示 Worker 获得短期领取权，`PREPARING` 表示准备 Runtime、Task Token 和 ExecutionWorkspace，`RECOVERING` 表示租约过期后的恢复判定。TaskExecution 终态不可逆；失败重试创建带 `parent_execution_id` 的新 TaskExecution，Task 继续关联当前有效尝试；已发送 Action 在 Task 取消后继续进入 Reconcile。
 
 ### 12.2 Step 状态
 
@@ -1676,7 +1844,7 @@ SKIPPED
 CANCELLED
 ```
 
-Step 从任一明确 `WAITING_*` 状态返回 `READY` 后重新获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。Task 聚合根据关键 Step、可选 Step 和补偿结果计算最终状态。
+Step 从任一明确 `WAITING_*` 状态返回 `READY` 后重新校验所属 TaskExecution 的有效 Lease 与 Claim Token，不单独获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。TaskExecution 根据关键 Step、可选 Step 和补偿结果计算尝试终态，Task 再根据当前有效尝试计算业务状态。
 
 ### 12.3 Action 状态
 
@@ -1776,9 +1944,90 @@ NotificationDelivery
 
 CollaborationRequest 撤回或过期时立即撤销对应 CollaborationGrant。Contribution 接受、Review 完成、Handoff 完成和 Takeover 完成时，领域状态、DomainEvent 和 Outbox 在同一事务提交；Activity、WorkGraph、Inbox、Notification 和 Audit 通过投影更新。
 
-### 12.6 检查点
+### 12.6 调度、Claim 与租约
 
-- Step 运行前获取 owner、version 和过期时间组成的租约；
+TaskExecution 使用 PostgreSQL 作为耐久队列事实源。Worker 按优先级、可运行时间和创建时间排序，在事务内完成候选选择、运行时能力匹配、并发配额检查和 Claim：
+
+MVP 采用 TaskExecution 级 Lease。一个 Worker 在一次有效 Lease 内串行驱动该 TaskExecution 的 StepExecution；StepExecution 使用状态、检查点和乐观锁，不单独 Claim 或续租。Phase 2 引入并行 Step 时再增加独立 Step Lease 协议，TaskExecution Lease 与 Step Lease 使用不同表意和条件更新。
+
+```text
+READY
+  -> SELECT ... FOR UPDATE SKIP LOCKED
+  -> 校验 RuntimeCapabilities / Agent 配额 / Team 配额
+  -> 生成 claim_token_hash
+  -> 写入 runtime_id / worker_id / lease_expires_at
+  -> CLAIMED
+```
+
+调度规则：
+
+1. Claim Token 是本次领取的一次性随机值，数据库仅保存哈希；
+2. Worker 调用 Start、Heartbeat、Progress、Complete 和 Fail 时同时校验 `task_execution_id + attempt + claim_token`；
+3. `PREPARING` 使用独立短租约，用于准备 Sandbox、Worktree、Skill Bundle 和 Agent Session；
+4. `RUNNING` 使用可续租约，Worker 按固定间隔更新 `last_heartbeat_at` 和 `lease_expires_at`；
+5. Complete、Fail、Cancel 与 Lease Sweeper 使用条件更新处理终态竞争；
+6. 租约过期后进入 `RECOVERING`，先对账 AgentRun、ExecutionWorkspace 和 PlannedAction，再决定续租、重新排队、创建后继尝试或转人工；
+7. RetryPolicy 保存 `attempt`、`max_attempts`、`parent_execution_id`、`failure_class`、退避和可恢复条件；
+8. Runtime 及 Agent 的并发上限由数据库运行事实与定期 Reconcile 共同维护。
+
+TaskExecution Claim 返回范围化执行快照：
+
+```text
+Task / TaskExecution / StepExecution
+Principal / Initiator / RequestingMember
+WorkItem / ResponsibilitySnapshot / AcceptanceCriteria
+PlanVersion / PolicySnapshot
+ExecutionRuntime / ExecutionWorkspace
+ProviderBindings / ConnectionGrants
+RepositoryBindings / ProjectResources
+PriorSession / PriorWorktree / Checkpoint
+TriggerMessage / CoalescedMessages
+ReviewFindings / HandoffContext
+TaskScopedToken
+```
+
+任务在 `READY` 期间收到的多条连续追加消息可按 Conversation 和 Task 合并为一次执行输入。合并保留每条消息的 ID、作者、时间、Thread 和内容引用，执行结果显式回应所有输入。
+
+### 12.7 任务级身份
+
+Claim 完成后由 Credential Service 签发短期 Task Token。Token 绑定：
+
+- Organization、Team、Workspace、TaskExecution 和 StepExecution；
+- Principal、Initiator、ResponsibilitySnapshot 和委托用户；
+- Runtime、Worker、ProviderBinding、ConnectionGrant 和资源范围；
+- Tool、路径、命令、网络、动作类型和有效期；
+- PolicySnapshot、SafetyEnforcementOverlay 版本和 Claim Token 引用。
+
+Runtime 向 Agent 注入 Task Token，Provider 和 Connector 使用 Token 换取当前动作需要的短期访问能力。Runtime 凭证、Worker 服务凭证和用户长期 OAuth Token 不进入 Agent 环境。Task Token 缺失、过期、与 Claim 不匹配或范围不足时，写任务终止并生成安全审计事件。
+
+### 12.8 ExecutionWorkspace 生命周期
+
+```text
+ALLOCATING
+  -> CREATING_BRANCH
+  -> CREATING_WORKTREE
+  -> PREPARING_SANDBOX
+  -> READY
+  -> IN_USE
+  -> ARCHIVED
+  -> CLEANED
+
+ALLOCATING / CREATING_* / PREPARING_SANDBOX
+  -> FAILED
+  -> ROLLED_BACK
+```
+
+Workspace Manager 使用 `repository_id + task_execution_id` 级锁串行同一 Worktree 的创建与恢复。每次使用前校验目录、Git 元数据、分支、基线 Commit 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理已创建 Worktree 与分支记录。
+
+Diff Stream 同时消费文件系统事件、Git HEAD/索引变化和定时 Reconcile，按游标输出变更文件、新增行、删除行、Patch 和重置事件。单文件和累计 Diff 超过配额时只保留统计、哈希和可按需读取的 Artifact 引用。
+
+MVP 的物理拓扑固定为同机 Execution Worker：Worker、Git Worktree、Docker Sandbox bind mount 和 Diff Watcher 位于同一台受控执行节点，Worktree 是代码变更的唯一文件事实源。AgentScope Kubernetes Sandbox 不进入 MVP 交付路径。
+
+Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker DaemonSet、节点级 Worktree 根目录、Sandbox Pod 节点亲和性和 SandboxExecutionGuard。使用 RWX PVC 时，Workspace Manager、Watcher、锁、调度和清理统一按共享存储语义设计。禁止让普通 API Pod 创建本地 Worktree 后交给任意节点的 Sandbox Pod 挂载。
+
+### 12.9 检查点
+
+- Step 运行前校验所属 TaskExecution 的有效 Lease、Claim Token、Step owner 和 version；
 - 状态迁移使用乐观锁；
 - Step 结果、下一状态、DomainEvent 和 Outbox 在同一事务提交；
 - Webhook 以外部事件 ID 和 Source Key 去重；
@@ -1786,7 +2035,7 @@ CollaborationRequest 撤回或过期时立即撤销对应 CollaborationGrant。C
 - AgentState 保存 Agent 上下文；
 - StepExecution 保存耐久任务检查点。
 
-### 12.7 Agent 恢复
+### 12.10 Agent 恢复
 
 - RedisDistributedStore 优先恢复 AgentState、MessageBus、Workspace 运行态和子 Agent 绑定；
 - PostgreSQL 中的 Message、PlanVersion、Task、Step、Action、Receipt 与对象存储中的 AgentStateSnapshot 提供二级恢复；
@@ -1798,8 +2047,10 @@ CollaborationRequest 撤回或过期时立即撤销对应 CollaborationGrant。C
 - CollaborationRequest 通过 ContextPackage 恢复协作者上下文；
 - Handoff 与 Takeover 接收者使用新的 ResponsibilityAssignment、后继 PolicySnapshot、当前 ConnectionGrant 和 Agent Session 恢复；
 - ReviewRequest 从固化的 Plan、Contribution、Artifact 和 Evidence 版本恢复。
+- Coding Agent 从 PriorSession、ExecutionWorkspace、基线 Commit、当前 Diff、测试证据和未完成 Todo 恢复；
+- Session 无法精确续接时，新 AgentRun 显式记录 continuity gap，基于已提交领域事实和 Worktree 状态继续。
 
-### 12.8 取消流程
+### 12.11 取消流程
 
 1. Task 写入 `CANCEL_REQUESTED` 过渡状态；
 2. 调度器停止分配新 Step 和 Action；
@@ -1809,7 +2060,7 @@ CollaborationRequest 撤回或过期时立即撤销对应 CollaborationGrant。C
 6. 已发送 Action 进入结果确认；
 7. 所有运行单元到达安全点后写入 `CANCELLED`。
 
-### 12.9 恢复优先级与交付语义
+### 12.12 恢复优先级与交付语义
 
 恢复优先级：
 
@@ -1888,6 +2139,8 @@ action_digest = SHA-256(
 
 Confirmation 绑定 `action_digest`。Team、发起成员、执行 Agent、执行身份、责任版本、ProviderBinding、工具、参数、目标、Task 和策略版本共同确定授权对象。
 
+ActionBundle 使用有序 PlannedAction ActionDigest 计算 `bundle_digest`。用户可以一次确认整个 Bundle，Confirmation 绑定 `bundle_digest` 和全部子 ActionDigest；任一动作的参数、顺序、依赖、目标前置版本、责任、Binding 或策略变化都会使整个 Bundle 授权失效。每个 PlannedAction 仍独立执行、重试、对账并保存 ActionReceipt。
+
 ### 13.4 Confirmation
 
 Confirmation 类型：
@@ -1903,7 +2156,7 @@ Confirmation 保存：
 
 - Task、Step、Action 和 AgentInterrupt；
 - Team、WorkProject、WorkItem 和 ResponsibilityAssignment；
-- `action_digest`；
+- `action_digest` 或 `bundle_digest` 及其全部子 ActionDigest；
 - 工具、目标和参数摘要；
 - ProviderBinding、Connection、外部身份和授权 Scope；
 - 证据、风险、预期影响、验证方法和回滚建议；
@@ -1916,6 +2169,10 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 
 ### 13.5 幂等与对账
 
+- 一个用户确认可以授权一个 `ActionBundle`，Bundle 内每个 PlannedAction 拥有独立 ActionDigest、幂等键、状态和 ActionReceipt；
+- MVP 的源码交付 Bundle 包含 `PUSH_BRANCH` 与 `CREATE_DRAFT_PR` 两个动作，按依赖顺序执行；
+- Push 成功后保存远端 Branch 与 Head SHA，Draft PR 创建失败时只重试第二个动作；
+- GitHub Connector Worker 使用系统 Git 的类型化参数数组、一次性 GitHub App installation token 和临时 `GIT_ASKPASS`，Agent Sandbox 不获得 Provider 凭证；
 - PlannedAction 生成稳定 `idempotency_key`；
 - Connector 在外部系统支持时传递幂等键；
 - 外部系统缺少原生幂等能力时使用执行前查询、稳定业务唯一键和执行记录去重；
@@ -1928,12 +2185,40 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 
 所有核心表包含 `organization_id`。团队数据包含 `team_id` 和 `workspace_id`，成员行为包含 `principal_id`。高频查询字段使用显式列，动态配置和快照使用 JSONB。
 
-### 14.1 Team、Workspace 与连接数据
+### 14.1 审计与生命周期字段
+
+成员或 Agent 可以直接创建和修改的业务事实表统一包含：
+
+```text
+created_at
+created_by_principal_id
+updated_at
+updated_by_principal_id
+version
+```
+
+`created_by_principal_id` 和 `updated_by_principal_id` 指向统一 Principal，能够表示用户、Personal Agent、Team Agent、Specialist Agent 和 Service。快照字段保存实际执行修改的 Principal；Initiator、Actor、Agent、授权上下文、变更原因和前后版本由 DomainEvent 与 AuditEvent 保存。历史迁移、系统引导和投影重建允许操作者为空，新业务 Command 必须提供服务端解析的可信 Principal。
+
+`updated_at` 由 Repository 在成功更新时显式写入，并与乐观锁版本在同一语句中提交。数据库默认值只负责初始化，不承担自动更新时间语义。
+
+团队业务表的数据库外键携带完整 Scope。Workspace 校验 Organization 与 Team，WorkProject 校验
+Organization、Team 与 Workspace，WorkItem 校验 Organization、Team、Workspace 与 WorkProject。
+单列主键外键只负责对象存在性，复合外键负责范围一致性；Repository 查询条件和数据库复合外键共同
+构成租户隔离的纵深防御。
+
+业务生命周期使用明确状态表达：Organization、Team、Workspace 和 WorkProject 使用 `ARCHIVED`，WorkItem 使用 `CANCELLED/ARCHIVED`，Principal 使用 `DISABLED/ARCHIVED`，TeamMember 使用 `LEFT/REMOVED`，授权和凭证使用 `REVOKED/EXPIRED`。MVP 不为所有表增加通用 `is_deleted`、`deleted_at`、`deleted_by` 或 `delete_reason`。
+
+支持回收站与恢复的资源可以单独增加 `deleted_at` 和 `deleted_by_principal_id`，删除状态以 `deleted_at IS NOT NULL` 为唯一判定，不增加重复的 `is_deleted`。删除原因使用 AuditEvent 的结构化 `reason_code` 和可选 `reason_note`；只有存在高频当前状态查询时才在业务表冗余 `delete_reason_code`。
+
+DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox、ProjectionCheckpoint、缓存、快照和临时执行数据按照投递、重建与保留策略清理，不套用业务创建人、修改人和逻辑删除字段。
+
+### 14.2 Team、Workspace 与连接数据
 
 | 表 | 核心内容 |
 |---|---|
 | `organization` | 企业、部署、域名、数据区域和状态 |
 | `team` | 名称、组织、Owner、状态、默认策略和默认 Workspace |
+| `principal` | `USER/PERSONAL_AGENT/TEAM_AGENT/SPECIALIST_AGENT/SERVICE`、所有者、可见性、状态和审计标识 |
 | `team_member` | Team、用户、成员状态、加入方式、加入时间和最后活动 |
 | `team_role` | 内置/自定义角色、权限集合、作用范围、版本和状态 |
 | `team_member_role` | TeamRole、作用范围、授予人、有效期和状态 |
@@ -1948,7 +2233,7 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 | `connection` | 所有者类型、Workspace、外部实例、外部身份、凭证引用和健康状态 |
 | `connection_grant` | OAuth Scope、资源范围、用途、有效期和撤销状态 |
 
-### 14.2 责任与协作数据
+### 14.3 责任与协作数据
 
 | 表 | 核心内容 |
 |---|---|
@@ -1966,7 +2251,7 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 
 ResponsibilityAssignment、CollaborationRequest、Contribution、ReviewRequest、Handoff 和 TakeoverRequest 使用乐观锁。协作对象完成状态迁移时写入 DomainEvent 与 Outbox。
 
-### 14.3 WorkItem 数据
+### 14.4 WorkItem 数据
 
 | 表 | 核心内容 |
 |---|---|
@@ -1981,7 +2266,7 @@ ResponsibilityAssignment、CollaborationRequest、Contribution、ReviewRequest�
 
 `source_provider=CREWSCOPE` 时，`work_item` 是事实源。使用 Jira、禅道或 TAPD Provider 时，外部系统是事实源，`work_item` 保存本地投影，`work_item_provider_binding` 保存外部引用和同步位置。所有状态更新携带期望版本，Webhook 和主动同步使用外部事件 ID 去重。
 
-### 14.4 对话数据
+### 14.5 对话数据
 
 `conversation`：Team、Workspace、参与者、Agent 配置、可见性、标题、状态、最后活动和摘要引用。
 
@@ -2009,41 +2294,54 @@ ERROR_NOTICE
 
 `conversation_task_link`：Conversation 与 Task 的关联原因、创建消息、主任务标记和可见性。
 
-### 14.5 任务数据
+### 14.6 任务数据
 
 | 表 | 核心内容 |
 |---|---|
 | `task_definition` | 定义键、版本、输入输出 Schema、步骤图和发布状态 |
 | `task` | Team、Workspace、WorkItem、目标、类型、策略、Owner、可见性和关联 ID |
-| `task_execution` | 执行尝试、PlanVersion、当前 PolicySnapshot、责任快照、参与者、状态、预算和恢复信息 |
-| `step_execution` | 步骤类型、Executor、状态、租约、输入输出、错误和 Agent 会话 |
+| `task_execution` | 执行尝试、父尝试、PlanVersion、PolicySnapshot、责任快照、Runtime、状态、预算、失败分类和恢复信息 |
+| `step_execution` | 步骤类型、Executor、Runtime、状态、输入输出、错误、检查点和 Agent 会话 |
+| `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、租约期限、Heartbeat、续租和释放信息；MVP 不创建 Step Lease |
+| `task_credential_grant` | TaskExecution、Principal、Runtime、Provider/Tool/资源范围、Token JTI Hash、签发、过期、撤销和使用状态 |
+| `execution_workspace` | TaskExecution、仓库、分支、基线 Commit、Worktree、Sandbox、状态、归档和清理信息 |
+| `task_input_message` | 触发消息、Thread、作者、合并批次、执行处理状态和结果引用 |
 | `plan_version` | 候选来源、结构化计划、校验、确认、父版本和差异 |
 
-### 14.6 Agent 数据
+### 14.7 Agent 数据
 
 | 表 | 核心内容 |
 |---|---|
 | `agent_runtime_session` | `PERSONAL/TEAM/TASK/STEP/CONTRIBUTION/SPECIALIST` 运行类型、Owner、配置版本、userId、sessionId 和状态引用 |
+| `execution_runtime` | `AGENTSCOPE_NATIVE/EXTERNAL_CODING`、实现版本、能力、运行位置、健康、所有者、可见性和并发上限 |
+| `runtime_worker` | Runtime、Worker Instance、Profile、能力、状态、Heartbeat、容量和当前负载 |
 | `agent_run` | Team、发起成员、执行身份、责任、协作请求、输入输出、模型、成本、状态和 Trace |
 | `agent_interrupt` | Interrupt 类型、ToolCall、Action、Confirmation、Resume 和时间 |
 | `agent_state_snapshot` | Agent Session、检查点版本、对象存储引用、哈希、创建时间和保留期限 |
 
-### 14.7 动作与制品数据
+### 14.8 动作与制品数据
 
 | 表 | 核心内容 |
 |---|---|
 | `planned_action` | Team、发起成员、执行 Agent、Plan/Step/责任版本、目标前置版本、ProviderBinding、身份、Tool、参数、风险、幂等键和状态 |
+| `action_bundle` | 一次精确确认覆盖的动作集合、动作顺序、依赖、整体摘要和状态 |
 | `action_receipt` | PlannedAction、请求尝试、外部 Operation ID、结果、目标版本、响应哈希、证据、接收时间和对账状态 |
 | `confirmation` | 类型、摘要、ActionDigest、PolicySnapshot、安全覆盖版本、用户确认、审批路由、结论、有效期和执行结果 |
 | `tool_binding` | Plugin、Provider、ProviderImplementation、Connector、AgentScope Tool、平台 Tool、MCP、版本和风险 |
 | `skill_binding` | Skill、仓库、版本、哈希、可见性和发布状态 |
+| `skill_definition` | 所有者、名称、描述、能力需求、可见性和生命周期 |
+| `skill_version` | Skill、版本、Manifest、内容哈希、审核状态和发布时间 |
+| `skill_file` | SkillVersion、相对路径、内容、大小、哈希和媒体类型 |
+| `runtime_skill_bundle` | Runtime、SkillVersion 集合、Bundle Hash、存储引用、缓存状态和生成时间 |
 | `policy_pack` | Agent、模型、工具、资源、审批、预算和保留策略 |
 | `policy_snapshot` | Task、父快照、变化原因、责任版本、PolicyPack、Agent、ProviderBinding、ConnectionGrant、Tool、Skill、授权证据和版本快照 |
 | `safety_enforcement_overlay` | 实时禁用成员、Connection、Provider、Plugin、模型、工具和资源的安全覆盖 |
 | `runtime_artifact` | Team、Workspace、Task、Contribution、可见性、URI、类型、版本、哈希、敏感级别和保留期限 |
+| `diff_artifact` | ExecutionWorkspace、基线/当前 Commit、文件和行统计、Patch Artifact、流游标、截断标记和 Review 状态 |
+| `test_evidence` | TaskExecution、命令、环境、退出码、耗时、摘要、日志 Artifact 和验收标准映射 |
 | `change_request` | 仓库、分支、commit、PR/MR、CI、Review 和制品 |
 
-### 14.8 事件、收件箱与通知数据
+### 14.9 事件、收件箱与通知数据
 
 | 表 | 核心内容 |
 |---|---|
@@ -2054,10 +2352,11 @@ ERROR_NOTICE
 | `notification_preference` | 成员、事件类型、Channel、免打扰时间、值班规则、频率和升级策略 |
 | `notification_delivery` | InboxItem、Channel、ProviderBinding、PlannedAction、去重键、投递状态、外部回执和重试信息 |
 | `event_projection_checkpoint` | 投影名称、分区、最后事件游标、版本和更新时间 |
+| `audit_event` | 追加写安全事实、Initiator、Actor、Agent、Credential Subject、授权、结果、Correlation 和时间 |
 
 InboxItem 类型覆盖 Collaboration、Review、Handoff、Takeover、Confirmation、Assignment、Mention、Failure 和 Risk。通知策略根据成员偏好、值班状态、免打扰时间、风险等级和升级规则选择站内、邮件或 CollaborationProvider。
 
-### 14.9 AuditEvent
+### 14.10 AuditEvent
 
 AuditEvent 追加记录：
 
@@ -2065,6 +2364,7 @@ AuditEvent 追加记录：
 - Responsibility、Collaboration、Contribution、ReviewRequest、ReviewDecision、Handoff、Takeover、Watch、Inbox 和 NotificationDelivery 状态；
 - WorkItem、Plugin、ProviderBinding、Connection 和授权状态；
 - Conversation、Task、Step、Artifact 和 Action 状态；
+- Runtime 路由、TaskExecution Claim、ExecutionLease、Heartbeat、Task Token 和 ExecutionWorkspace 生命周期；
 - Plan 生成、校验、确认和变更；
 - AgentRun、模型、Token、Retry 和 Fallback；
 - ToolGroup、Skill、MCP 和 Subagent；
@@ -2096,6 +2396,11 @@ work_item_id
 task_id
 task_execution_id
 step_execution_id
+execution_runtime_id
+runtime_worker_id
+execution_lease_id
+execution_workspace_id
+task_credential_grant_id
 agent_run_id
 planned_action_id
 action_receipt_id
@@ -2130,7 +2435,7 @@ occurred_at
 }
 ```
 
-API 与事件 Schema 独立版本化。服务端生成 `correlation_id`，并接收标准 `traceparent` 继续调用链。
+API 与事件 Schema 独立版本化。服务端生成 `correlation_id`，并接收标准 `traceparent` 继续调用链。命令成功响应统一返回 `commandId`、`domainEventId`、`committedVersion` 和 `correlationId`。前端在目标投影 Cursor 到达对应 `domainEventId/committedVersion` 后清理 optimistic state；超时则回读当前事实，不用瞬时 AG-UI 事件覆盖领域状态。
 
 ### 15.2 Team、Workspace、Provider 与连接 API
 
@@ -2259,7 +2564,7 @@ GET  /api/v1/me/notification-deliveries?after={cursor}&status={status}
 POST /api/v1/me/notification-deliveries/{deliveryId}/retry
 ```
 
-AG-UI SSE 提供当前 AgentRun 实时事件。Conversation Event API 按游标补发持久化业务事件。
+AG-UI SSE 提供当前 AgentRun 的瞬时推理和工具事件。Conversation Event API 按游标补发持久化业务事件，Team Event API 补发团队投影事件。AG-UI 不作为 WorkItem、Task、Review、Action 和责任状态的事实源；三条流通过统一事件信封、DomainEvent ID 和投影版本完成合并与去重。
 
 ### 15.6 任务与制品 API
 
@@ -2278,6 +2583,10 @@ GET  /api/v1/tasks/{taskId}/takeover-requests
 
 GET  /api/v1/executions/{executionId}/timeline
 GET  /api/v1/executions/{executionId}/events
+GET  /api/v1/executions/{executionId}/workspace
+GET  /api/v1/executions/{executionId}/diff
+GET  /api/v1/executions/{executionId}/diff/events?after={cursor}
+GET  /api/v1/executions/{executionId}/test-evidence
 POST /api/v1/steps/{stepExecutionId}/retry
 POST /api/v1/manual-steps/{stepExecutionId}/complete
 
@@ -2319,6 +2628,16 @@ Webhook 处理包含验签、ProviderBinding 与 Connection 映射、限流、�
 
 ```text
 PrepareExternalToolCall
+ClaimTaskExecution
+StartTaskExecution
+HeartbeatExecutionLease
+ReportExecutionProgress
+CompleteTaskExecution
+FailTaskExecution
+RecoverExpiredLease
+AllocateExecutionWorkspace
+ReconcileExecutionWorkspace
+ArchiveExecutionWorkspace
 AssignResponsibility
 CreateCollaborationRequest
 BuildContextPackage
@@ -2353,10 +2672,14 @@ DeliverNotification
 - ProviderBinding 提供能力实现、Connection 和资源范围；
 - ConnectionGrant 提供外部身份、Scope 和资源范围；
 - TaskExecution 当前 PolicySnapshot 提供已固化的工具、数据、环境、确认和预算范围；
+- ExecutionLease 与 Claim Token 提供当前 Worker 的有期执行所有权；
+- Task Token 提供当前 TaskExecution、Runtime、Provider、工具和资源的短期访问范围；
 - SafetyEnforcementOverlay 提供实时撤权、禁用和 Kill Switch；
 - Confirmation 提供写操作授权事实；
 - Tool Worker 获取用户委托身份、Team Service Account 或组织服务身份；
 - 客户端参数只参与 UI 展示和交互关联，授权判定统一使用服务端可信上下文。
+- Application Service 分离可信 Command Context 与业务 Command。Organization、Team、Workspace、
+  Principal、Correlation 和授权事实只从服务端 Context 进入领域对象，请求体不直接绑定这些字段。
 
 有效权限取以下范围的交集：
 
@@ -2370,6 +2693,7 @@ DeliverNotification
 ∩ PolicySnapshot
 ∩ SafetyEnforcementOverlay
 ∩ 当前 Task/Step 资源范围
+∩ ExecutionLease / Task Token
 ∩ SubjectAuthorization
 
 SubjectAuthorization =
@@ -2407,11 +2731,16 @@ WorkItem、网页、消息、日志、代码、MCP、Skill 和工具结果进入
 
 ### 16.4 凭证
 
-- Agent 接收 `provider_binding_id` 和 `connection_id`；
+- 应用层定义 `CredentialStore` Port，Credential Service 只依赖该 Port；
+- 开发与 Team Beta 使用 `DatabaseEnvelopeCredentialStore`：凭证采用 AES-256-GCM 信封加密，数据库保存 ciphertext、key_id 和算法元数据，主密钥由进程外 Secret 注入；生产加固通过同一 Port 接入 Vault/KMS；
+- Agent 接收 ProviderBinding 引用、Connection 引用和 Task Token；
 - OAuth Token、PAT、API Key 和企业密钥保存在 Credential Vault；
-- Tool Worker 获取任务级短期凭证；
+- Credential Service 根据 Task Token、PlannedAction 和 ProviderBinding 为 Tool Worker 签发动作级短期凭证；
+- Agent 环境只获得 Task Token，不获得 Runtime Worker 凭证、Vault 凭证或用户长期 Token；
+- Task Token 不可用时将当前 TaskExecution 转入安全失败，Runtime 不回退使用 Worker 或 Workspace Owner 凭证；
 - 凭证绑定组织、Team、成员或 Service Principal、ProviderBinding、Connection、资源、动作和有效期；
 - Git 使用 GitHub App 或 GitLab OAuth；
+- Git Push 由 Connector Worker 使用一次性 installation token 和临时 `GIT_ASKPASS` 执行，凭证不写入远端 URL，执行后立即清理临时文件和环境变量；
 - MCP/Higress 使用服务身份和 Tool Scope；
 - 日志、模型上下文、Memory 和 Artifact 不保存凭证明文；
 - AuditEvent 保存凭证引用、授权范围和使用结果。
@@ -2419,9 +2748,11 @@ WorkItem、网页、消息、日志、代码、MCP、Skill 和工具结果进入
 ### 16.5 Sandbox
 
 - Coding 和高风险分析运行在短生命周期容器；
+- 开发与 CI 默认使用 Docker Sandbox；本地进程仅允许显式 `trusted-repository` Profile，不能用于 CI、故障测试和 MVP 验收；
 - 容器使用普通用户、只读镜像层和资源限额；
 - 网络按域名、端口和协议白名单开放；
-- Workspace 按组织、Team、WorkProject、用户、Agent 或 Session 隔离；
+- ExecutionWorkspace 按 TaskExecution 与 Repository 隔离，Git Worktree 仅挂载当前仓库和允许路径；
+- Sandbox 启动时校验基线 Commit、Worktree 元数据、挂载、Task Token 和网络策略；
 - DistributedStore 提供 Snapshot 和 Execution Guard；
 - 产物离开 Sandbox 前完成敏感信息和恶意内容扫描；
 - 镜像、代码基线、模型、Skill 和 Tool 版本进入审计链。
@@ -2435,7 +2766,17 @@ WorkItem、网页、消息、日志、代码、MCP、Skill 和工具结果进入
 - 成员退出、Team 删除、Connection 撤销与组织清退覆盖 PostgreSQL、Vault、AgentState、Workspace、Memory 和对象存储；
 - 审计导出通过授权流程完成。
 
-### 16.7 Plugin 供应链
+### 16.7 Artifact 与 Snapshot 存储
+
+- 应用层定义 `ArtifactStore` Port，RuntimeArtifact、DiffArtifact、测试日志和 AgentStateSnapshot 只保存不可变对象引用、哈希、大小、数据分类和保留期限；
+- 开发环境使用 `FilesystemArtifactStore`，部署环境使用 `S3/MinIOArtifactStore`；
+- AgentScope Sandbox Snapshot 通过同一 ArtifactStore 的 Snapshot Adapter 保存，避免平台制品与 AgentScope Snapshot 形成两套生命周期；
+- 上传采用内容哈希校验和原子提交，读取执行授权、完整性与恶意内容校验；
+- 部署存储启用服务端加密或信封加密，密钥由 KMS/Vault 管理；
+- 清理采用保留期限、引用计数和 Tombstone，删除动作进入 AuditEvent；
+- Redis 只保存运行态和小型短期数据，不保存大 Workspace Snapshot。
+
+### 16.8 Plugin 供应链
 
 - Plugin 包使用发布者签名和内容哈希；
 - Provider 实现声明接口版本、标准能力、Connector 依赖和扩展 Tool；
@@ -2446,7 +2787,7 @@ WorkItem、网页、消息、日志、代码、MCP、Skill 和工具结果进入
 - 高风险升级需要重新审核与重新授权；
 - 已撤销版本停止新任务；SafetyEnforcementOverlay 阻止运行中任务继续调用并使待执行 Action 过期；运行审计完整保留。
 
-### 16.8 管理面
+### 16.9 管理面
 
 AgentScope Admin Starter 部署在内部管理网络。CrewScope IAM 包装以下能力：
 
@@ -2460,7 +2801,7 @@ AgentScope Admin Starter 部署在内部管理网络。CrewScope IAM 包装以�
 - Team Agent、CollaborationRequest、Contribution、Review、Handoff、Takeover 和 Inbox 查询；
 - Agent、模型、工具和 Usage 运行状态。
 
-### 16.9 模型与数据出站
+### 16.10 模型与数据出站
 
 - Model Registry 记录模型 Provider、区域、数据保留、训练使用、日志策略和支持的数据分类；
 - PolicySnapshot 根据 Workspace、数据分类和组织策略选择可用模型；
@@ -2484,6 +2825,8 @@ correlation_id
   -> conversation_id / AG-UI threadId
   -> agent_run_id / AG-UI runId
   -> task_id / task_execution_id / step_execution_id
+  -> execution_runtime_id / runtime_worker_id / execution_lease_id
+  -> execution_workspace_id / task_credential_grant_id
   -> tool_call_id / planned_action_id
   -> confirmation_id / external_operation_id
 ```
@@ -2511,10 +2854,13 @@ correlation_id
 - Async Tool 完成和 Wakeup 延迟；
 - AgentState 恢复和 Shutdown Interrupt；
 - Task 吞吐、Step 延迟、租约冲突和恢复；
+- Claim 延迟、Prepare Lease 超时、Heartbeat 中断、后继尝试和并发配额；
+- ExecutionWorkspace 创建、回滚、冷恢复、归档和清理；
+- Diff Stream 延迟、重置、Reconcile、截断和游标续传；
 - Action 超时、UNKNOWN 和对账耗时；
 - Sandbox 启动、资源和退出状态。
 
-MVP 发布 SLO：
+上线后的目标 SLO：
 
 | 指标 | 目标 |
 |---|---|
@@ -2522,9 +2868,13 @@ MVP 发布 SLO：
 | Team Activity 与 Inbox 投影延迟 | P95 小于 2 秒 |
 | AgentRun 中断恢复成功率 | 大于等于 `99%` |
 | Worker 租约冲突后的自动恢复率 | 大于等于 `99%` |
+| READY TaskExecution 的 Claim 延迟 | P95 小于 2 秒 |
+| Worktree 创建失败后回滚完整率 | 故障注入测试 `100%` |
 | UNKNOWN Action 在 5 分钟内进入确定状态或人工队列 | 大于等于 `99%` |
 | 越权工具与资源访问阻断率 | 安全测试集 `100%` |
 | 平台重复 Action Dispatch | 故障注入测试为 0 |
+
+月度可用性和线上延迟属于发布后的运营 SLO。MVP 发布前使用固定样本量、并发量、故障注入次数和通过率作为 Release Gate；每项测试保存环境、版本、随机种子和运行证据，不能用尚未产生的月度数据阻塞发布。
 
 ### 17.3 团队观测面
 
@@ -2579,6 +2929,11 @@ MVP 发布 SLO：
 - External Tool 参数；
 - 外部内容安全与确认欺骗；
 - Personal/Team Memory 准确性、Promotion、组织隔离和 PII；
+- 仓库理解、文件定位、Patch 正确性、构建成功率和测试通过率；
+- AllowedPaths、命令、网络、Task Token 和 Provider 资源越权阻断；
+- Diff 自检、TestEvidence 完整性、Review Finding 准确性和验收标准覆盖；
+- 暂停、进程退出、租约过期、Session 续接失败和 Worktree 恢复；
+- AgentScope Native Runtime 与候选外部 Coding Runtime 在固定任务集上的成功率、规范遵循、成本和延迟；
 - 模型、Prompt、Skill 和 Policy 版本对比；
 - 效果、成本和延迟。
 
@@ -2624,9 +2979,11 @@ MVP 发布 SLO：
 - 实时 Plan、可编辑 Todo、责任分配和协作 Step；
 - ToolCall、Evidence、Contribution、Artifact、成本和风险；
 - Markdown、代码、Diff、终端结果、报告和网页预览；
+- 仓库基线、执行分支、Worktree、Sandbox 和 Runtime 状态；
+- 实时 Diff 文件列表、行内评论、测试证据、验收标准和 Review Gate；
 - Personal Agent、Team Agent 和 Specialist Agent 标签页。
 
-桌面端采用左侧团队导航、中间对话协作、右侧责任与执行制品的三区域布局。移动端使用对话、协作、进度和制品四个标签页。
+Web 工作台采用左侧团队导航、中间对话协作、右侧责任与执行制品的三区域布局。后续 Desktop 和 Mobile 复用相同对话、协作、执行和制品模型。
 
 ### 18.5 任务观测中心
 
@@ -2674,6 +3031,88 @@ MVP 发布 SLO：
 4. 服务端重建 Collaboration、Review、Handoff、Takeover、Inbox、Confirmation 和 Interrupt 卡片；
 5. UI 从 WorkItem、Responsibility、Task、Contribution、Review、Handoff、Takeover、Inbox、Action 和 Artifact API 读取当前事实。
 
+### 18.10 双入口界面模型
+
+Web 产品采用“对话执行入口 + 管理控制入口”，两个入口操作同一份领域事实。
+
+**对话执行入口（Conversation Mode）**
+
+- 通过 Personal Agent 接收目标、补充上下文和生成 TaskIntent；
+- 在同一工作区展示 Plan、Step、ToolCall、Diff、Evidence、Artifact、Review 和 Confirmation；
+- 支持从对话卡片进入 WorkItem、Task、Review、Action 和 Artifact 详情；
+- 支持把传统管理页面中的对象引用回对话，继续分析或执行。
+
+**管理控制入口（Control Mode）**
+
+- 通过列表、看板、表格、WorkGraph 和时间线管理 Team、WorkItem、责任与执行；
+- 提供 Inbox、Review、Task、Activity、Audit、Provider、Agent、Usage 和 Policy 管理页面；
+- 所有关键对象提供“与 Agent 讨论”“继续执行”和“查看对话上下文”入口；
+- 适合批量筛选、分配责任、状态维护、治理配置和审计检索。
+
+两个入口调用相同的 Application Command 和 Query。命令提交后依据 `domainEventId/committedVersion` 等待投影，AG-UI 负责流式体验，领域 API 负责最终事实。
+
+### 18.11 信息架构与工作区布局
+
+一级导航按团队工作流组织：
+
+| 导航域 | 主要页面 | 用户目标 |
+|---|---|---|
+| Today | 团队首页、我的工作、待处理 | 聚合当日责任、风险和下一步动作 |
+| Work | WorkGraph、WorkItem、WorkProject | 组织目标、依赖、责任和交付物 |
+| Collaborate | Conversation、Inbox、Review | 对话、协助、Handoff 和同级 Review |
+| Observe | Task、Activity、Audit | 观察执行、回执、成本、故障和审计链 |
+| Capabilities | Agent、Skill、Provider、Connection | 管理执行能力和系统连接 |
+| Governance | Member、Policy、Usage、Settings | 管理团队、授权、额度和组织策略 |
+
+桌面端使用可折叠主导航、中央主工作区和上下文抽屉。上下文抽屉根据页面显示责任链、Agent 状态、Task Timeline、Review Gate、Action Receipt 或 Artifact。对话执行页可扩展为多面板工作台；日常管理页保持主列表与详情抽屉的稳定结构。页面、筛选、视图、选中对象和抽屉状态进入 URL，支持分享与恢复。
+
+### 18.12 CrewScope 视觉语言
+
+CrewScope 的视觉身份表达可靠协作、持续执行和责任透明：
+
+- 森林绿作为品牌与主动作色，薄荷绿用于 Agent 在线和安全完成状态；
+- 暖灰作为应用背景和分隔层，减少长时间工作时的视觉疲劳；
+- 琥珀、红、蓝、紫分别表达等待/风险、失败/阻断、信息/人工动作、Agent/自动化；
+- 品牌标题和关键空状态可使用克制的 Serif，导航、正文和数据使用 Sans Serif，代码、ID、Commit 和日志使用 Monospace；
+- 工作页面采用中高信息密度，依靠层级、留白、描边和局部底色组织内容；
+- 状态同时使用文字、图标和颜色，责任与风险信息不依赖颜色单独传达；
+- 动效用于状态变化、流式执行和面板切换，常规时长控制在 120–240ms，并支持 `prefers-reduced-motion`。
+
+详细 Token、组件、响应式和验收规则见 [CrewScope 前端设计规范](CrewScope-前端设计规范.md)。
+
+### 18.13 核心界面对象
+
+CrewScope 优先建立与领域语言一致的界面组件：
+
+- `ResponsibilityChain`：Owner、Executor、Collaborator、Reviewer 和 Approver 的责任关系；
+- `AgentPresence`：Personal、Team 和 Specialist Agent 的状态、当前动作与接管入口；
+- `WorkItemCard`：目标、责任、依赖、进度、风险和交付证据；
+- `TaskTimeline`：Plan、Step、ToolCall、等待、恢复、成本和 Artifact；
+- `ReviewGateCard`：Reviewer 资格、检查项、Finding、决策和修改请求；
+- `ActionReceiptCard`：动作内容、授权主体、Confirmation、外部回执和对账状态；
+- `ArtifactPreview`：Diff、代码、测试日志、报告和网页制品；
+- `TeamActivityItem`：成员与 Agent 对共享事实的变更记录。
+
+这些组件共享领域状态、权限规则和事件语义，在对话卡片、详情页、抽屉、列表和时间线中复用。
+
+### 18.14 竞品参考边界
+
+前端交互研究参考 `vibe-kanban` 和 `multica`：
+
+| 参考来源 | 吸收的设计模式 | CrewScope 的领域化实现 |
+|---|---|---|
+| `vibe-kanban` | 对话、执行状态、Diff 与 Git 上下文联动；高密度工作台；快捷操作 | 围绕 WorkItem、责任链、Task Timeline、Review Gate 和 Action Receipt 组织执行工作区 |
+| `multica` | 列表/看板/表格等多视图；Agent、Runtime、Usage 等传统管理页面 | 围绕 Today、Work、Collaborate、Observe、Capabilities 和 Governance 建立控制面 |
+
+实现遵循以下边界：
+
+1. 参考用户目标、信息关系和交互反馈，形成 CrewScope 自己的任务流；
+2. 使用独立的导航分组、页面命名、路由结构、Design Token 和 Vue 组件；
+3. 使用独立的配色、字体层级、图标组合、间距、圆角、阴影、动效和响应式方案；
+4. 不复用竞品 DOM、组件源码、CSS/Tailwind 组合、品牌资产、文案和空状态；
+5. 每个参考模式必须映射到 CrewScope 领域对象，并体现责任、协作、Review、授权或审计价值；
+6. 主要页面在合并前执行视觉回归与参考截图对比，记录设计来源和差异说明。
+
 ## 19. 工程结构
 
 CrewScope 首期采用模块化单体。业务能力保持清晰边界，后端收敛为 6 个 Maven 模块，运行时使用一个 Spring Boot 应用。Vue 工程使用独立的前端构建链。
@@ -2716,7 +3155,7 @@ crewscope-java/
 | `crewscope-application` | 应用服务、命令、查询、事务、Provider SPI、Repository Port 和领域事件编排 | 依赖 `crewscope-domain` |
 | `crewscope-agentscope` | HarnessAgent 工厂、PlatformExecutionContext、RuntimeContext Middleware、AG-UI、Gateway、Tool、Skill、Memory、Subagent 和恢复适配 | 依赖 `crewscope-application` 与 AgentScope Java |
 | `crewscope-integration` | NativeWorkItemProvider、GitHubSourceCodeProvider、LarkCollaborationProvider、GitHubConnector 和 LarkConnector | 实现 `crewscope-application` 中的 Provider 与 Connector Port |
-| `crewscope-infrastructure` | Spring Data JPA/JDBC、PostgreSQL、Flyway、RedisDistributedStore、Outbox、对象存储、Credential Vault、调度和 Worker 基础设施 | 实现 `crewscope-application` 中的 Repository 与运行时 Port |
+| `crewscope-infrastructure` | Spring Data JPA/JDBC、PostgreSQL、Flyway、RedisDistributedStore、Outbox、ArtifactStore、CredentialStore、调度和 Worker 基础设施 | 实现 `crewscope-application` 中的 Repository 与运行时 Port |
 | `crewscope-server` | Spring Boot 装配、REST、Webhook、SSE/WebSocket、安全配置、后台 Worker 和管理端点 | 聚合其余模块并生成可执行 Jar |
 
 模块依赖方向：
@@ -2795,7 +3234,7 @@ server  REST、AG-UI、Webhook 与实时事件入口
 worker  Step 调度、Provider Action、Connector 调用、Sandbox 和对账
 ```
 
-MVP 使用 `all` 模式部署一个应用实例。生产环境可以使用同一镜像分别启动 `server` 和 `worker`，按交互流量与任务负载独立扩缩容。
+MVP 使用 `all` 模式部署一个应用实例，Execution Worker、Worktree 根目录、Docker Daemon 和 Diff Watcher 位于同一执行主机。生产环境可以使用同一镜像分别启动 `server` 和 `worker`，按交互流量与任务负载独立扩缩容；进入 Kubernetes 前必须先实现专用 Worker 节点调度与共享/节点存储 ADR。
 
 ### 19.6 编码与注释规范
 
@@ -2878,11 +3317,6 @@ MVP 使用 `all` 模式部署一个应用实例。生产环境可以使用同一
 <dependency>
     <groupId>io.agentscope</groupId>
     <artifactId>agentscope-extensions-redis</artifactId>
-</dependency>
-
-<dependency>
-    <groupId>io.agentscope</groupId>
-    <artifactId>agentscope-extensions-sandbox-kubernetes</artifactId>
 </dependency>
 
 <dependency>
@@ -2979,6 +3413,8 @@ MVP 使用 `all` 模式部署一个应用实例。生产环境可以使用同一
 
 Spring Boot `4.0.4` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。模型 Provider 可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
 
+MVP 的 Docker Sandbox 由 `agentscope-harness` 内置 `DockerFilesystemSpec` 提供，不需要 Kubernetes Sandbox 扩展。仓库中现有 `agentscope-extensions-sandbox-kubernetes` 依赖保持未启用状态，完成 Kubernetes 执行拓扑 ADR 后再进入运行配置。
+
 ### 20.3 Maven 模块依赖归属
 
 父工程只负责模块聚合、BOM、插件版本和统一构建规则。每个子模块声明自己编译和运行所需的直接依赖：
@@ -2988,7 +3424,7 @@ Spring Boot `4.0.4` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致�
 | 根 `pom.xml` | Spring Boot BOM、AgentScope BOM、Compiler、Surefire、JaCoCo 和 Spring Boot Plugin 版本管理 |
 | `crewscope-domain` | Java 标准库；核心领域模型保持框架独立 |
 | `crewscope-application` | `spring-tx`、`jakarta.validation-api`；事务边界、命令校验和 Port |
-| `crewscope-agentscope` | `agentscope-harness`、模型 Provider Starter、Sandbox Extension；Agent、Middleware、Tool、Skill、Memory、Sandbox 和恢复适配 |
+| `crewscope-agentscope` | `agentscope-harness`、模型 Provider Starter、Harness 内置 Docker Sandbox；Agent、Middleware、Tool、Skill、Memory、Sandbox 和恢复适配 |
 | `crewscope-integration` | WebClient、OAuth Client、GitHub/Lark SDK；Provider 与 Connector 实现 |
 | `crewscope-infrastructure` | `agentscope-extensions-redis`、Spring Data JPA/JDBC、Flyway、PostgreSQL、对象存储和凭证实现 |
 | `crewscope-server` | AG-UI Starter、WebFlux、Security、OAuth2 Resource Server、Validation、Actuator 和 Prometheus |
@@ -3145,26 +3581,31 @@ flowchart LR
 2. AG-UI WebFlux、Token Usage、Custom Event、Interrupt 和 Resume；
 3. RuntimeContext 使用 `userId/sessionId` 和类型化 `PlatformExecutionContext` 注入可信上下文；
 4. Structured Output、Plan Mode、Todo 和 PlanVersion；
-5. SchemaOnly External Tool、ActionDigest、Confirmation、Worker、ToolResult Resume 和 Reconcile；
-6. RedisDistributedStore 恢复与 AgentStateSnapshot 二级重建；
-7. Sandbox 文件、命令、网络、凭证和资源隔离；
-8. OTel Agent、Task、Action、Connector 和 Worker Trace。
+5. AgentScope 原生 Coding Specialist 完成 Java/Spring Boot 样例仓库的分析、Patch、Maven 测试、Diff 自检和结构化交付；
+6. ExecutionRuntime Port、统一运行事件与 AgentScopeNativeRuntime；
+7. PostgreSQL 耐久队列、TaskExecution Claim、Prepare/Run Lease、Heartbeat、Retry 和过期恢复；
+8. ExecutionWorkspace Manager、Git Worktree 创建回滚、Sandbox 和 Diff Stream/Reconcile；
+9. Task Token、AllowedPaths、命令策略、网络、凭证和资源隔离；
+10. SchemaOnly External Tool、ActionDigest、Confirmation、Worker、ToolResult Resume 和 Reconcile；
+11. RedisDistributedStore 恢复与 AgentStateSnapshot 二级重建；
+12. OTel Agent、Task、Lease、Workspace、Action、Connector 和 Worker Trace。
 
 ### Phase 1：团队协作 MVP
 
 - 基础 OIDC 登录、Team、TeamMember、内置 TeamRole 和 Team Workspace；
 - 团队对话、TaskIntent 和 Conversation 到 Task/WorkItem 的升级确认；
 - WorkProject、Native WorkItem、Owner、Executor、Gate Reviewer、评论和看板；
-- Personal Agent、Task Orchestrator、Step Agent 和只读 Team Agent；
+- Personal Agent、Task Orchestrator、Coding Specialist、Reviewer Specialist 和只读 Team Agent；
 - ReviewRequest、ContextPackage、ADVISORY Finding 和 GATE ReviewDecision；
 - NativeWorkItemProvider、SourceCodeProvider 与 CollaborationProvider SPI；
 - 内置 GitHub 集成提供仓库读取、代码读取、Branch、Push 和 Draft PR；
 - 内置 Lark 集成提供成员查询和消息通知；
 - 用户级/团队级 ProviderBinding、ConnectionGrant 和 Credential Vault；
-- Sandbox 代码修改、测试、Diff 和共享 Artifact；
+- Principal、Task Token、ExecutionRuntime、RuntimeWorker、TaskExecution Claim、ExecutionLease 和 Heartbeat；
+- 同机 Execution Worker、Git Worktree、Docker Sandbox、Maven 测试、Diff Stream、TestEvidence 和共享 Artifact；
 - Inline Read Tool、External Write Tool、Confirmation、Pause、Resume 和 Cancel；
 - DomainEvent、Outbox、最小 WorkGraph、Team Activity、Inbox、Notification 和 Audit；
-- PostgreSQL、Flyway、Redis 恢复、AgentStateSnapshot 和故障注入；
+- PostgreSQL、Flyway、Redis 恢复、ArtifactStore、AgentStateSnapshot、Worktree 冷恢复和故障注入；
 - “团队对话到同级 Review 再到 Draft PR”纵向验收用例。
 
 ### Phase 2：协作与 WorkGraph 深化
@@ -3177,6 +3618,9 @@ flowchart LR
 - Team Skill、Team Memory、Promotion Gate 和知识治理；
 - Team Agent 写操作、定时任务、协作协调和主动风险提示；
 - Compaction、Eviction、Memory、Subagent、Async Tool、MessageBus Inbox 和 Wakeup 深化；
+- 实时 Diff 行内评论、Dev Server、隔离 Preview Proxy 和端内调试；
+- 固定 Coding 任务集建设，对比 AgentScope Native Runtime 与候选执行器的效果、越权、成本和延迟；
+- 根据评测结果接入一个 External Coding Runtime Adapter，继续使用 CrewScope 责任、Workspace、Artifact、Review 和审计协议；
 - 成员/Agent 负载、Review 队列、协作效率和成本看板；
 - 团队周报、项目状态和交付趋势。
 
@@ -3201,6 +3645,7 @@ flowchart LR
 - Analyst、Researcher 和 Operations 子 Agent；
 - Incident Owner、并行 Contribution、Review 和升级规则；
 - 高风险操作审批、对账和补偿。
+- 基于 Schedule、Webhook 和 API 的 Autopilot，支持 `SKIP/QUEUE/REPLACE` 并发策略与独立 Run 时间线。
 
 ### Phase 5：企业规模化
 
@@ -3210,6 +3655,7 @@ flowchart LR
 - Plugin 供应链、安全扫描和权限变更审核；
 - Admin Starter、Higress、A2A、Nacos 和企业 Agent 生态；
 - Helm、多租户隔离、容灾、审计导出和安全运营。
+- 根据 Web 使用数据评估 Desktop 与 Mobile 客户端，复用统一 API、事件和权限模型。
 
 ## 23. 验收标准
 
@@ -3218,24 +3664,28 @@ flowchart LR
 1. 成员通过基础 OIDC 登录，创建 Team、WorkProject 和 Team Workspace。
 2. 成员在团队对话中提出研发目标，Agent 生成 TaskIntent，并在确认后创建 WorkItem、Owner 和 Gate Reviewer。
 3. Owner 与 Approver 始终为 TeamMember；Agent 以 Executor、Collaborator 或 Advisory Reviewer 身份参与。
-4. Personal Agent 读取 GitHub 代码，在 Sandbox 中修改、测试并生成 Diff Artifact。
-5. 指定 TeamMember 完成 GATE Review，ReviewRequest 绑定精确 Diff、Commit 基线和版本。
-6. Owner 确认 ActionDigest 后，GitHubSourceCodeProvider 创建 Draft PR。
-7. NativeWorkItemProvider 更新状态，LarkCollaborationProvider 投递团队通知。
-8. DomainEvent 和 Outbox 驱动 WorkGraph、Activity、Inbox、Notification 与 Audit 投影。
-9. 进程退出后能够恢复 AgentRun、Task、Step 和 External Tool；Redis 丢失时能够从二级快照重建。
-10. MVP 发布 SLO、安全测试和故障注入测试全部达标。
+4. TaskExecution 由 AgentScopeNativeRuntime 通过 Claim、ExecutionLease 和 Task Token 领取，执行期间持续 Heartbeat。
+5. Personal Agent 与 AgentScope 原生 Coding Specialist 读取 GitHub 代码，完成仓库分析、计划、修改、测试、Diff 自检和结构化交付。
+6. ExecutionWorkspace 创建独立分支、Git Worktree 和 Sandbox，Diff Stream 生成可续传 DiffArtifact 与 TestEvidence。
+7. 指定 TeamMember 完成 GATE Review，ReviewRequest 绑定精确 Diff、Commit 基线和版本。
+8. Owner 一次确认包含 Push Branch 与 Create Draft PR 的 ActionBundle，两个 PlannedAction 分别保存 Receipt 并最终创建唯一 Draft PR。
+9. NativeWorkItemProvider 更新状态，LarkCollaborationProvider 投递团队通知。
+10. DomainEvent 和 Outbox 驱动 WorkGraph、Activity、Inbox、Notification 与 Audit 投影。
+11. 进程退出后能够恢复 AgentRun、Task、Step、ExecutionWorkspace 和 External Tool；Redis 丢失时能够从二级快照与领域事实重建。
+12. MVP 预发布功能、安全、性能与故障注入 Release Gate 全部达标，上线后开始计算目标 SLO。
 
-### 23.2 产品体验
+### 23.2 MVP 产品体验
 
 1. Team Owner 完成 Team 创建、成员邀请、角色配置和 Team Workspace 初始化。
 2. 团队完成 WorkProject、ProviderBinding 和 Team Agent 配置。
 3. 成员通过 WorkItem 或共享对话发起团队任务。
-4. Agent 实时展示责任、参与者、计划、步骤、协作、Review、工具和结果。
-5. 成员完成 REQUEST_HELP、ReviewRequest、Contribution、Handoff 和 Takeover 交互。
+4. Agent 实时展示责任、参与者、计划、步骤、Review、工具和结果。
+5. 成员完成 ReviewRequest、Advisory Finding、Gate Decision、修改轮次和动作确认交互。
 6. Team Lead 查看任务责任、阻塞、风险、成本和交付趋势。
 7. 报告、代码 Diff、测试结果和外部链接以共享 Artifact 交付。
 8. Team Activity Stream 和 AuditEvent 展示完整团队执行链。
+
+REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 Phase 2 产品体验，不进入 MVP 发布门槛。
 
 ### 23.3 WorkItem
 
@@ -3286,6 +3736,8 @@ flowchart LR
 7. Compaction、Eviction、Personal Memory 和 Team Memory 按可见范围隔离。
 8. Team Agent 使用 Team Service Principal、Team Provider 和 Team Policy。
 9. 子 Agent 遵循父任务的责任、CollaborationGrant、工具、预算和数据范围。
+10. Coding Specialist 输出 RepositoryAnalysis、CodeChangeResult、TestEvidence 和 DiffManifest，Reviewer Specialist 只输出 ADVISORY Finding。
+11. AgentScopeNativeRuntime 与扩展 Runtime 使用相同运行事件、Task Token、Artifact、Review 和 Audit 协议。
 
 ### 23.7 任务与动作
 
@@ -3297,6 +3749,10 @@ flowchart LR
 6. ToolResultBlock 恢复原 ToolCall。
 7. `UNKNOWN` Action 完成对账或人工确认。
 8. Pause、Resume、Cancel、Handoff 和 Takeover 到达安全状态，旧责任版本的待执行授权自动过期。
+9. TaskExecution Claim 在单事务内完成运行时匹配、并发检查、Claim Token Hash 和 ExecutionLease 写入。
+10. Heartbeat、Complete、Fail、Cancel 和 Lease Sweeper 通过 Claim Token 与条件更新处理竞争。
+11. Task Token 只允许访问当前 TaskExecution、ProviderBinding、工具和资源范围。
+12. ExecutionWorkspace 支持创建回滚、冷恢复、Diff Reconcile、归档和可审计清理。
 
 ### 23.8 团队观测与审计
 
@@ -3354,25 +3810,33 @@ flowchart LR
 - Notification 投递超时、回执丢失和重试；
 - REST 命令使用相同 Idempotency-Key 重复到达；
 - Async Tool 进程退出；
-- Sandbox 和 Connector Worker 失联。
+- Sandbox 和 Connector Worker 失联；
+- 两个 Worker 并发 Claim 同一 TaskExecution；
+- Worker 在 `CLAIMED`、`PREPARING` 和 `RUNNING` 各状态中失联；
+- Heartbeat 丢失、延迟与 Complete/Lease Sweeper 终态竞争；
+- Task Token 缺失、过期、范围不足与 Claim 不匹配；
+- 多仓库 Worktree 部分创建失败与回滚；
+- Worktree 目录存在但 Git 元数据缺失；
+- 文件事件丢失、Git HEAD 重置与 Diff Reconcile。
 
 “团队对话到同级 Review 再到 Draft PR”用例的平台重复 Assignment、Review、Action Dispatch、WorkItem 更新、InboxItem 和通知投递数量为 0。外部结果最终进入成功、失败、UNKNOWN 对账或人工处理，并保存唯一 ActionReceipt 或明确的多回执关联。
 
 ## 24. 首个里程碑
 
-> Team Lead 创建研发 Team、邀请张三和李四，并启用内置 GitHub 与飞书集成。张三在团队对话中提出研发目标，Personal Agent 生成 TaskIntent，并建议创建 WorkItem `CRW-1024`、由张三担任 Owner/Executor、李四担任 Gate Reviewer。张三确认后，Agent 生成计划，在 Sandbox 中修改代码并运行测试。完成 Diff 后，平台创建绑定精确版本的 ReviewRequest。李四通过自己的 Personal Agent 查看 ContextPackage，由 Agent 提交 Advisory Finding，李四提交 Gate ReviewDecision。张三的 Agent 根据意见完成修改。张三确认源码写操作后，SourceCodeProvider 创建 Draft PR，NativeWorkItemProvider 更新状态，CollaborationProvider 通知团队。Team Lead 在工作台查看责任、Review、Agent、成本、风险、Artifact、Inbox 和完整审计链。
+> Team Lead 创建研发 Team、邀请张三和李四，并启用内置 GitHub 与飞书集成。张三在团队对话中提出研发目标，Personal Agent 生成 TaskIntent，并建议创建 WorkItem `CRW-1024`、由张三担任 Owner/Executor、李四担任 Gate Reviewer。张三确认后，AgentScopeNativeRuntime 通过 Claim、ExecutionLease 和 Task Token 领取任务。ExecutionWorkspace Manager 创建专用分支、Git Worktree 和 Sandbox。Task Orchestrator 生成计划，Coding Specialist 分析仓库、修改代码、运行 Maven 测试并生成实时 DiffArtifact 与 TestEvidence。平台创建绑定精确版本的 ReviewRequest。李四通过自己的 Personal Agent 查看 ContextPackage，Reviewer Specialist 提交 Advisory Finding，李四提交 Gate ReviewDecision。Coding Specialist 根据意见完成修改。张三确认源码写操作后，SourceCodeProvider 创建 Draft PR，NativeWorkItemProvider 更新状态，CollaborationProvider 通知团队。Team Lead 在工作台查看责任、Runtime、Worktree、Review、成本、风险、Artifact、Inbox 和完整审计链。
 
 里程碑验证：
 
 - Team、TeamMember、TeamRole、Personal/Team Workspace 和 WorkProject；
 - Conversation、TaskIntent、WorkItem、Owner、Executor、Gate Reviewer 和最小 WorkGraph；
-- Personal Agent、Task Orchestrator、Step Agent、只读 Team Agent 和 Reviewer 子 Agent；
+- Personal Agent、Task Orchestrator、Coding Specialist、Reviewer Specialist 和只读 Team Agent；
 - ReviewRequest、ContextPackage、Advisory Finding 和 Gate ReviewDecision；
 - Team Activity Stream、Inbox、Notification、事件游标和断线恢复；
 - 内置 Provider、ProviderBinding、Connector、Connection 和团队/用户执行身份；
 - Structured Output、Plan Mode、Todo、责任校验和 PlanVersion；
 - WorkItem、SourceCode、Collaboration 标准 Tool 与 External Tool；
-- Sandbox、代码 Diff、测试和共享 Artifact；
+- AgentScopeNativeRuntime、RuntimeWorker、TaskExecution Claim、ExecutionLease、Heartbeat 和 Task Token；
+- ExecutionWorkspace、Git Worktree、Sandbox、Diff Stream、TestEvidence 和共享 Artifact；
 - RedisDistributedStore 与 AgentStateSnapshot 二级恢复；
 - AgentInterrupt、Confirmation 和 ToolResult Resume；
 - Worker 幂等、UNKNOWN 和 Reconcile；
@@ -3385,6 +3849,7 @@ CrewScope 直接复用 AgentScope 的对话式 Agent Runtime、Harness、Middlew
 | 能力 | AgentScope 模块或入口 | CrewScope 落点 |
 |---|---|---|
 | ReAct/Harness | `ReActAgent`、`HarnessAgent` | `crewscope-agentscope` 的 Agent 工厂与运行适配 |
+| 原生 Coding Agent | `HarnessAgent`、Plan Mode、Todo、Structured Output、Toolkit、Sandbox、Compaction 和 Subagent | `crewscope-agentscope` 的 Coding/Reviewer Specialist 与 `crewscope-application/execution` 交付协议 |
 | 调用上下文 | `RuntimeContext` 的 `userId`、`sessionId` 与类型化属性 | `crewscope-agentscope` 的 `PlatformExecutionContext` |
 | 会话隔离 | `(userId, sessionId)`、`AgentStateStore` | Personal/Team/Task/Step/Contribution Session 与 `crewscope-infrastructure` 状态存储 |
 | Middleware 扩展 | `MiddlewareBase`、`HarnessRuntimeMiddleware` | 责任、协作授权、PolicySnapshot、安全覆盖、Audit 和 Budget Middleware |
@@ -3410,7 +3875,7 @@ CrewScope 直接复用 AgentScope 的对话式 Agent Runtime、Harness、Middlew
 | A2A | A2A Client/Server 和 Starter | `crewscope-agentscope` 与 Phase 5 企业 Agent 接入 |
 | Scheduler | Quartz/XXL-Job AgentScheduler | `crewscope-infrastructure` 定时任务入口 |
 
-Team、WorkItem、Responsibility、Collaboration、Review、Handoff、Takeover、PolicyPack、DomainEvent、Outbox、WorkGraph、InboxItem、NotificationDelivery、PlannedAction 和 AuditEvent 由 CrewScope 原生领域与应用层实现。AgentScope 专注 Agent 运行，CrewScope 专注团队协作与企业执行控制，两层通过稳定 Adapter 契约组合。
+Team、WorkItem、Responsibility、Collaboration、Review、Handoff、Takeover、ExecutionRuntime、ExecutionLease、ExecutionWorkspace、Task Token、PolicyPack、DomainEvent、Outbox、WorkGraph、InboxItem、NotificationDelivery、PlannedAction 和 AuditEvent 由 CrewScope 原生领域与应用层实现。AgentScope 专注 Agent 运行，CrewScope 专注团队协作与企业执行控制，两层通过稳定 Adapter 契约组合。
 
 ## 附录 B：参考实现
 
@@ -3419,3 +3884,5 @@ Team、WorkItem、Responsibility、Collaboration、Review、Handoff、Takeover�
 | `agentscope-dataagent` | WebFlux、JWT、Redis、Workspace、Overlay、能力审核、SSE 和管理页 |
 | `agentscope-codingagent` | 稳定 Thread ID、Webhook 去重、忙时排队、预算、Fallback、Sandbox 和 Structured Finding |
 | `agentscope-builder` | Agent 配置、ACL、Workspace、Skill、Subagent、MCP 和 Session UI |
+| `vibe-kanban` | 对话、执行反馈、Diff、Git 上下文和高信息密度工作台的交互研究；不复用源码与视觉资产 |
+| `multica` | 多视图工作项、Agent/Runtime/Usage 管理控制面的产品研究；不复用源码与视觉资产 |
