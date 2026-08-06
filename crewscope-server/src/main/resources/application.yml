@@ -2,7 +2,8 @@ spring:
   application:
     name: crewscope-server
   datasource:
-    url: ${CREWSCOPE_DB_URL:jdbc:postgresql://localhost:5432/crewscope}
+    # currentSchema makes JDBC and native queries use the owned schema while retaining public for extensions.
+    url: ${CREWSCOPE_DB_URL:jdbc:postgresql://localhost:5432/crewscope?currentSchema=crewscope,public}
     username: ${CREWSCOPE_DB_USERNAME:crewscope}
     password: ${CREWSCOPE_DB_PASSWORD:crewscope}
   flyway:

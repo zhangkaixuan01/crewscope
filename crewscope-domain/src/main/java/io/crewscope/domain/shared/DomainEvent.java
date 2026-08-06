@@ -1,6 +1,6 @@
 package io.crewscope.domain.shared;
 
-import java.time.Instant;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.UUID;
 
 public interface DomainEvent {
@@ -9,5 +9,5 @@ public interface DomainEvent {
 
     String eventType();
 
-    Instant occurredAt();
+    UtcTimestamp occurredAt();
 }

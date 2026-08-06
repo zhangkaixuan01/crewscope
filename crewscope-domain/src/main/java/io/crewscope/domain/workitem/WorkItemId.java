@@ -1,15 +1,25 @@
 package io.crewscope.domain.workitem;
 
-import java.util.Objects;
+import io.crewscope.domain.shared.id.AggregateId;
 import java.util.UUID;
 
-public record WorkItemId(UUID value) {
+/** Strongly typed WorkItem aggregate identifier. */
+public record WorkItemId(UUID value) implements AggregateId {
 
     public WorkItemId {
-        Objects.requireNonNull(value, "value");
+        value = AggregateId.requireValue(value, "WorkItemId");
     }
 
     public static WorkItemId generate() {
-        return new WorkItemId(UUID.randomUUID());
+        return new WorkItemId(AggregateId.generateValue());
+    }
+
+    public static WorkItemId from(String value) {
+        return new WorkItemId(AggregateId.parseCanonical(value, "WorkItemId"));
+    }
+
+    @Override
+    public String toString() {
+        return value.toString();
     }
 }
