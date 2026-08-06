@@ -1,8 +1,14 @@
 package io.crewscope.application.workitem;
 
+import io.crewscope.domain.workitem.WorkItem;
+import io.crewscope.domain.workitem.WorkItemKey;
+import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public record CreateWorkItemCommand(
-        @NotBlank @Pattern(regexp = "[A-Z][A-Z0-9]{1,9}-[1-9][0-9]*") String key,
-        @NotBlank String title) {}
+        @NotNull WorkProjectId projectId,
+        @NotBlank @Pattern(regexp = WorkItemKey.FORMAT_REGEX) String key,
+        @NotBlank @Size(max = WorkItem.MAX_TITLE_LENGTH) String title) {}
