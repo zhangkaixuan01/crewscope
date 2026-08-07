@@ -46,6 +46,8 @@ GitHub Actions 包含四个 Job：
 
 后端 Surefire 报告与前端 Coverage、应用产物、Histoire、Playwright Report 和 Test Results 保存 14 天。失败时仍上传已经生成的证据。
 
+Push 的 Whitespace 检查覆盖 `before..sha` 完整推送范围，Pull Request 覆盖 Base SHA 到 Head SHA。Quality Job 使用完整 Git 历史，避免浅克隆把 Head 误判为根提交后扫描仓库既有文件。Maven Wrapper 在运行测试前执行最多三次 Bootstrap 探测，只重试 Maven 分发包初始化；测试和构建本身只执行一次。后端未产生测试报告时 Artifact 步骤给出 Warning，不覆盖原始失败原因。
+
 视觉回归使用与本地基线一致的 macOS 光栅化环境。截图路径不包含操作系统名称，桌面与窄屏按 Project 独立保存；浏览器补丁版本产生的文字栅格差异允许最多 2% 像素差，布局、尺寸和明显视觉变化仍会使 Gate 失败。
 
 ## 本次验证证据

@@ -19,6 +19,17 @@ jobs:
         run: |
           docker info
           docker pull maven@sha256:29a1658b1f3078e07c2b17f7b519b45eb47f65d9628e887eac45a8c5c8f939d4
+      - name: Prepare Maven Wrapper
+        run: |
+          for attempt in 1 2 3; do
+            if ./mvnw --batch-mode --no-transfer-progress --version; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
       - name: Verify backend
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
       - name: Upload backend test evidence
@@ -29,7 +40,7 @@ jobs:
           path: |
             **/target/surefire-reports/
             **/target/failsafe-reports/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
   frontend:
@@ -78,11 +89,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Check whitespace and patch integrity
-        run: git show --check --oneline HEAD
+      - name: Check pushed patch integrity
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: git diff --check "$BEFORE_SHA" "$HEAD_SHA"
+      - name: Check pull request patch integrity
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA" "$HEAD_SHA"
       - name: Check documentation links
         run: node scripts/check-doc-links.mjs
 
