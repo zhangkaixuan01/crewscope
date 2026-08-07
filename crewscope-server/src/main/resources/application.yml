@@ -21,6 +21,9 @@ spring:
   threads:
     virtual:
       enabled: false
+  reactor:
+    # Restore the request logging context across asynchronous Reactor operators.
+    context-propagation: auto
 
 server:
   port: ${CREWSCOPE_SERVER_PORT:8080}
@@ -32,11 +35,55 @@ management:
       exposure:
         include: health,info,prometheus
   endpoint:
+    configprops:
+      show-values: never
+    env:
+      show-values: never
     health:
+      show-details: never
       probes:
         enabled: true
+  tracing:
+    sampling:
+      probability: ${CREWSCOPE_TRACE_SAMPLING_PROBABILITY:1.0}
+    propagation:
+      type: w3c
+    export:
+      # M0 creates and propagates traces without requiring an external collector.
+      otlp:
+        enabled: ${CREWSCOPE_OTLP_TRACING_ENABLED:false}
+
+logging:
+  structured:
+    format:
+      console: ${CREWSCOPE_LOG_FORMAT:logstash}
+    json:
+      context:
+        include: true
+      stacktrace:
+        max-length: 8192
+        max-throwable-depth: 20
 
 crewscope:
+  artifact:
+    filesystem:
+      root: ${CREWSCOPE_ARTIFACT_ROOT:./var/crewscope/artifacts}
+  credential:
+    encryption:
+      # No development fallback: startup fails until the process receives an external key ring.
+      current-key-id: ${CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID:}
+      keys: ${CREWSCOPE_CREDENTIAL_KEYS:}
+  outbox:
+    # M0-E03 registers the durable AuditEvent projection consumer.
+    enabled: ${CREWSCOPE_OUTBOX_ENABLED:true}
+    worker-id: ${CREWSCOPE_OUTBOX_WORKER_ID:}
+    poll-interval: ${CREWSCOPE_OUTBOX_POLL_INTERVAL:1000}
+    batch-size: ${CREWSCOPE_OUTBOX_BATCH_SIZE:100}
+    parallelism: ${CREWSCOPE_OUTBOX_PARALLELISM:4}
+    claim-lease: ${CREWSCOPE_OUTBOX_CLAIM_LEASE:30s}
+    max-attempts: ${CREWSCOPE_OUTBOX_MAX_ATTEMPTS:8}
+    initial-backoff: ${CREWSCOPE_OUTBOX_INITIAL_BACKOFF:1s}
+    maximum-backoff: ${CREWSCOPE_OUTBOX_MAXIMUM_BACKOFF:5m}
   security:
     bootstrap:
       username: ${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope}

@@ -22,6 +22,8 @@ class AggregateIdTest {
                 TeamId.generate(),
                 WorkspaceId.generate(),
                 PrincipalId.generate(),
+                ArtifactId.generate(),
+                CredentialId.generate(),
                 WorkProjectId.generate(),
                 WorkItemId.generate());
 
@@ -34,10 +36,20 @@ class AggregateIdTest {
         AggregateId teamId = TeamId.from(CANONICAL_UUID);
         AggregateId workspaceId = WorkspaceId.from(CANONICAL_UUID);
         AggregateId principalId = PrincipalId.from(CANONICAL_UUID);
+        AggregateId artifactId = ArtifactId.from(CANONICAL_UUID);
+        AggregateId credentialId = CredentialId.from(CANONICAL_UUID);
         AggregateId workProjectId = WorkProjectId.from(CANONICAL_UUID);
         AggregateId workItemId = WorkItemId.from(CANONICAL_UUID);
 
-        List.of(organizationId, teamId, workspaceId, principalId, workProjectId, workItemId)
+        List.of(
+                        organizationId,
+                        teamId,
+                        workspaceId,
+                        principalId,
+                        artifactId,
+                        credentialId,
+                        workProjectId,
+                        workItemId)
                 .forEach(identifier -> {
                     assertEquals(UUID.fromString(CANONICAL_UUID), identifier.value());
                     assertEquals(CANONICAL_UUID, identifier.toString());
