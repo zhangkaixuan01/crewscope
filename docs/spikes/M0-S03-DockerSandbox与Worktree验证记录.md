@@ -110,6 +110,8 @@ readOnly = false
 
 不需要通过 `additionalRunArgs` 手工组装挂载参数。
 
+Docker 默认使用 root 运行容器。Linux Bind Mount 会保留容器写入文件的 UID/GID，root 创建的构建目录会使宿主 Runner 无法清理 Worktree。测试通过 `additionalRunArgs("--user", "<hostUid>:<hostGid>")` 让 Sandbox 使用宿主进程身份，并把 `HOME/MAVEN_CONFIG` 指向容器内可写的 `/tmp`。容器生成的源码和构建产物因此可以由宿主继续 Diff、归档和清理。
+
 ### 5.2 ToolUseBlock 参数
 
 AgentScope 2.0.0 的 `ToolExecutor`：
@@ -183,6 +185,7 @@ M0-S03 已验证通过：
 
 - `DockerFilesystemSpec + WorkspaceSpec + BindMountEntry` 适合 MVP 同机拓扑；
 - Worktree 修改在容器和宿主之间同步可见；
+- Sandbox 使用宿主 UID/GID，Linux Bind Mount 产物可以由宿主清理；
 - Maven 命令在无网络 Sandbox 内成功执行；
 - 宿主 Git Diff Watcher 能观察到一致变更；
 - Worktree 是代码文件事实源，Sandbox 是受控执行环境；

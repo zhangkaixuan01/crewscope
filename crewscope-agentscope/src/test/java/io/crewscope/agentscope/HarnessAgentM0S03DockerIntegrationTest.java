@@ -56,6 +56,7 @@ class HarnessAgentM0S03DockerIntegrationTest {
 
         Path repository = initializeFixtureRepository();
         assertTrue(runHost(repository, "git", "status", "--porcelain").output().isBlank());
+        String hostUser = hostUser(repository);
 
         ScriptedModel model =
                 new ScriptedModel(
@@ -83,7 +84,7 @@ class HarnessAgentM0S03DockerIntegrationTest {
                         .build();
 
         Msg result;
-        try (HarnessAgent agent = newSandboxAgent(model, repository)) {
+        try (HarnessAgent agent = newSandboxAgent(model, repository, hostUser)) {
             // This isolated fixture is the explicit M0-S03 bypass boundary. Production shell
             // actions remain on the M0-S02 confirmation path.
             agent.setPermissionMode(runtimeContext, PermissionMode.BYPASS);
@@ -119,7 +120,8 @@ class HarnessAgentM0S03DockerIntegrationTest {
                 runHost(repository, "git", "diff", "--name-only").requireSuccess().output().strip());
     }
 
-    private HarnessAgent newSandboxAgent(ScriptedModel model, Path repository) throws IOException {
+    private HarnessAgent newSandboxAgent(
+            ScriptedModel model, Path repository, String hostUser) throws IOException {
         BindMountEntry worktreeMount = new BindMountEntry();
         worktreeMount.setHostPath(repository.toRealPath().toString());
         worktreeMount.setReadOnly(false);
@@ -132,6 +134,10 @@ class HarnessAgentM0S03DockerIntegrationTest {
                 new DockerFilesystemSpec()
                         .image(IMAGE)
                         .workspaceRoot("/workspace")
+                        // Linux bind mounts preserve container ownership. Matching the host
+                        // process keeps generated build outputs removable by JUnit and Workers.
+                        .environment(Map.of("HOME", "/tmp", "MAVEN_CONFIG", "/tmp/.m2"))
+                        .additionalRunArgs("--user", hostUser)
                         .network("none")
                         .workspaceSpec(workspaceSpec);
         filesystem.isolationScope(IsolationScope.SESSION);
@@ -278,6 +284,16 @@ class HarnessAgentM0S03DockerIntegrationTest {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    private static String hostUser(Path workingDirectory)
+            throws IOException, InterruptedException {
+        String userId = runHost(workingDirectory, "id", "-u").requireSuccess().output().strip();
+        String groupId = runHost(workingDirectory, "id", "-g").requireSuccess().output().strip();
+        if (!userId.matches("[0-9]+") || !groupId.matches("[0-9]+")) {
+            throw new IllegalStateException("Host UID and GID must be numeric");
+        }
+        return userId + ":" + groupId;
     }
 
     private static ProcessResult runHost(Path workingDirectory, String... command)
