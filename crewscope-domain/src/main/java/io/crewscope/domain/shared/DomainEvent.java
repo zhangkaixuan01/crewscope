@@ -1,13 +1,9 @@
 package io.crewscope.domain.shared;
 
-import io.crewscope.domain.shared.time.UtcTimestamp;
-import java.util.UUID;
-
-public interface DomainEvent {
-
-    UUID eventId();
-
-    String eventType();
-
-    UtcTimestamp occurredAt();
-}
+/**
+ * Marker for an immutable business fact carried by a {@code DomainEventEnvelope}.
+ *
+ * <p>Identity, type, schema version, actor and correlation metadata belong to the envelope so an
+ * event payload contains business data only and can evolve independently.
+ */
+public interface DomainEvent {}

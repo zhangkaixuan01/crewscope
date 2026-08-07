@@ -32,6 +32,7 @@ class V2IdentityPlatformMigrationIntegrationTest
     private static final String APPLICATION_SCHEMA = "crewscope";
     private static final String ALTERNATE_SCHEMA = "migration_probe";
     private static final MigrationVersion VERSION_1 = MigrationVersion.fromVersion("1");
+    private static final MigrationVersion VERSION_2 = MigrationVersion.fromVersion("2");
     private static final Set<String> V2_TABLES =
             Set.of(
                     "principal",
@@ -145,7 +146,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void createsV2ObjectsOnlyInCrewscopeSchema() throws SQLException {
-        Flyway flyway = latestFlyway();
+        Flyway flyway = versionTwoFlyway();
         MigrateResult result = flyway.migrate();
 
         assertTrue(result.success);
@@ -199,7 +200,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void createsValidatedForeignKeysAndRequiredIndexes() throws SQLException {
-        latestFlyway().migrate();
+        versionTwoFlyway().migrate();
 
         Set<String> indexes =
                 queryStrings(
@@ -251,7 +252,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void bootstrapsOrganizationAndItsFirstPrincipalInOneTransaction() throws SQLException {
-        latestFlyway().migrate();
+        versionTwoFlyway().migrate();
         UUID organizationId = UUID.randomUUID();
         UUID principalId = UUID.randomUUID();
 
@@ -293,7 +294,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void enforcesTenantIdentityRoleAuditAndCredentialInvariants() throws SQLException {
-        latestFlyway().migrate();
+        versionTwoFlyway().migrate();
         BaselineIds ids = seedIdentityGraph();
 
         execute(
@@ -686,14 +687,16 @@ class V2IdentityPlatformMigrationIntegrationTest
                 UUID.randomUUID(),
                 domainEventId);
 
-        Flyway latest = latestFlyway();
+        Flyway latest = versionTwoFlyway();
         assertEquals(1, latest.info().pending().length);
         MigrateResult result = latest.migrate();
 
         assertTrue(result.success);
         assertEquals(1, result.migrationsExecuted);
         assertEquals("2", latest.info().current().getVersion().getVersion());
-        assertEquals("Keep this row", queryString("SELECT title FROM crewscope.work_item WHERE id = ?", workItemId));
+        assertEquals(
+                "Keep this row",
+                queryString("SELECT title FROM crewscope.work_item WHERE id = ?", workItemId));
         assertEquals(0, queryInt("SELECT version FROM crewscope.outbox_event"));
         assertNotNull(queryString("SELECT updated_at::TEXT FROM crewscope.outbox_event"));
         assertEquals(
@@ -782,8 +785,8 @@ class V2IdentityPlatformMigrationIntegrationTest
         return ids;
     }
 
-    private static Flyway latestFlyway() {
-        return flyway(null);
+    private static Flyway versionTwoFlyway() {
+        return flyway(VERSION_2);
     }
 
     private static Flyway flyway(MigrationVersion target) {
