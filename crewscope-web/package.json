@@ -9,16 +9,31 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "story": "histoire dev",
+    "story:build": "histoire build"
   },
   "dependencies": {
-    "vue": "^3.5.22"
+    "@lucide/vue": "^1.29.0",
+    "vue": "^3.5.22",
+    "vue-router": "^5.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.1",
+    "@histoire/plugin-vue": "1.0.0-beta.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.10.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vue/test-utils": "^2.4.11",
+    "histoire": "1.0.0-beta.1",
+    "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.1.12",
+    "vitest": "^4.1.10",
     "vue-tsc": "^3.1.1"
   },
   "packageManager": "pnpm@11.9.0"

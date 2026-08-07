@@ -1,0 +1,51 @@
+:root {
+  color-scheme: light;
+  --cs-brand-950: #15231d;
+  --cs-brand-900: #1b2c24;
+  --cs-brand-800: #263a31;
+  --cs-brand-700: #315944;
+  --cs-brand-600: #3f7257;
+  --cs-brand-400: #66b684;
+  --cs-brand-300: #8ed5a7;
+  --cs-brand-200: #b8efca;
+  --cs-brand-100: #dff6e7;
+  --cs-brand-50: #f0fbf4;
+  --cs-canvas: #f3f5f2;
+  --cs-surface: #ffffff;
+  --cs-surface-subtle: #fafbf9;
+  --cs-surface-raised: #ffffff;
+  --cs-border: #dce2dd;
+  --cs-border-strong: #c7d0c9;
+  --cs-text: #17202a;
+  --cs-text-secondary: #445149;
+  --cs-text-muted: #68766e;
+  --cs-text-on-dark: #f3f7f4;
+  --cs-info: #3f78b5;
+  --cs-info-soft: #edf5fd;
+  --cs-agent: #7257b5;
+  --cs-agent-soft: #f3effb;
+  --cs-warning: #a86820;
+  --cs-warning-soft: #fff6e9;
+  --cs-danger: #b84c4c;
+  --cs-danger-soft: #fff0f0;
+  --cs-success: #43845e;
+  --cs-success-soft: #edf8f1;
+  --cs-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cs-font-display: Georgia, "Times New Roman", ui-serif, serif;
+  --cs-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --cs-radius-sm: 8px;
+  --cs-radius-md: 12px;
+  --cs-radius-lg: 16px;
+  --cs-radius-pill: 999px;
+  --cs-shadow-float: 0 18px 50px rgb(21 35 29 / 12%);
+  --cs-focus-ring: 0 0 0 3px rgb(142 213 167 / 42%);
+  --cs-transition-fast: 120ms ease;
+  --cs-transition-panel: 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --cs-transition-fast: 0ms;
+    --cs-transition-panel: 0ms;
+  }
+}

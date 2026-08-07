@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">CrewScope</title>
+  <rect width="48" height="48" rx="14" fill="#15231d"/>
+  <path d="M14 17.5c3.2-4.6 8.2-6.6 14.1-5.4 2.5.5 4.8 1.7 6.8 3.5l-4.2 4.3a10.3 10.3 0 0 0-5.9-2.1c-4.4 0-7.5 2.7-7.5 6.4 0 3.8 3.1 6.5 7.5 6.5 2.3 0 4.3-.7 6-2.2l4.2 4.3a15 15 0 0 1-10.5 4c-6 0-10.8-2.8-13.2-7.4" fill="none" stroke="#b8efca" stroke-width="4.5" stroke-linecap="round"/>
+  <circle cx="35.5" cy="12.5" r="3.5" fill="#8ed5a7"/>
+</svg>
