@@ -3,7 +3,8 @@
 > 对应总计划：[CrewScope 实施计划](../CrewScope-实施计划.md) M1<br>
 > 前置条件：M0 Release Gate 通过<br>
 > 目标周期：2 周<br>
-> 目标结果：成员可以创建 Team、WorkProject、WorkItem，并建立 Owner、Executor、Gate Reviewer 责任链
+> 目标结果：成员可以创建 Team、WorkProject、WorkItem，并建立 Owner、Executor、Gate Reviewer 责任链<br>
+> 当前进度：`M1-D04` 已完成（2026-08-07），下一项为 `M1-D05`
 
 ## 1. 出口结果
 
@@ -38,24 +39,24 @@ API 稳定 -> M1-F01 -> M1-F02 -> M1-F03 -> M1-F04
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M1-D01` | TASK | M0 | domain | 实现 Principal、TeamMember、TeamRole、MemberRole、状态和值对象 | 主体类型、成员停用和角色范围单元测试 |
-| `M1-D02` | TASK | D01 | domain/application | 实现 Team 创建、Team Owner、默认 Team Workspace 和成员加入规则 | 创建事务与唯一 Owner 规则测试 |
-| `M1-D03` | TASK | D01,D02 | domain/application | 实现默认 Personal Agent Principal、AgentProfile 和幂等创建策略 | 同一成员并发初始化只产生一个默认 Agent |
-| `M1-D04` | TASK | D01 | domain | 扩展 WorkProject、WorkItem、Comment、ResourceLink 与状态机 | 状态迁移、Key、权限和版本单元测试 |
+| `M1-D01` | TASK | M0 | domain | 实现 Principal、TeamMember、TeamRole、MemberRole、状态和值对象 | [身份与团队角色领域模型](../testing/M1-D01-身份与团队角色领域模型.md)与 35 个新增单元测试覆盖五类主体、成员生命周期、内置角色、Role Scope、有效期、撤销和终态时间一致性边界 |
+| `M1-D02` | TASK | D01 | domain/application | 实现 Team 创建、Team Owner、默认 Team Workspace 和成员加入规则 | [Team 创建与初始化领域模型](../testing/M1-D02-Team创建与初始化领域模型.md)与 16 个新增测试覆盖完整初始化事务、唯一 Owner、Workspace Scope 和成员加入边界 |
+| `M1-D03` | TASK | D01,D02 | domain/application | 实现默认 Personal Agent Principal、AgentProfile 和幂等创建策略 | [默认 Personal Agent 领域模型](../testing/M1-D03-默认Personal-Agent领域模型.md)与 11 个新增测试覆盖稳定身份、成员和 Workspace 边界、生命周期、事务接入及 12 路并发初始化 |
+| `M1-D04` | TASK | D01 | domain/application | 扩展 WorkProject、WorkItem、Comment、ResourceLink 与状态机 | [WorkProject 与 WorkItem 领域模型](../testing/M1-D04-WorkProject与WorkItem领域模型.md)与 22 个新增测试覆盖 Scope、Key、字段、来源、权限边界、版本、归档、评论和资源链接 |
 | `M1-D05` | TASK | D04 | domain/application | 实现 ResponsibilityAssignment、唯一 active Owner 与 Executor/Reviewer 分配 | 责任创建、释放、版本冲突和主体资格测试 |
 | `M1-D06` | TASK | D02,D03,D05 | domain/application | 实现 ReviewerEligibilityPolicy，默认 Gate Reviewer 与 Owner/Executor 分离，支持单人团队 PolicyPack 降级 | 正常、冲突、停用成员和降级策略测试 |
-| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V6__team_work_and_responsibility.sql`、部分唯一索引、外键和乐观锁字段 | 空库、V5→V6 和数据库约束测试 |
+| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V6__team_work_and_responsibility.sql`、Team Owner/默认 Workspace 延后外键、部分唯一索引、其他外键和乐观锁字段 | 空库、V5→V6 和数据库约束测试 |
 | `M1-D08` | TASK | D07 | infrastructure | 实现 Team、Member、AgentProfile、WorkProject、WorkItem、Comment、ResourceLink 与 Assignment Repository Entity/Mapper | Repository CRUD、分页、版本和映射集成测试 |
 
 数据库约束至少覆盖：
 
 - Team 中唯一成员身份；
-- 成员唯一 active 默认 Personal Agent；
+- 成员唯一 active 默认 Personal Agent；Principal ID 与 AgentProfile ID 由稳定 TeamMember ID 分别派生，数据库仍以 active 默认 Profile 唯一约束作为最终并发裁决；
 - WorkProject 中唯一 WorkItem Key；
 - WorkItem 唯一 active Owner Assignment；
 - Assignment 的 Subject、Role、Actor 和状态查询索引。
 
-Gate Reviewer 的 active TeamMember、可见性和职责分离由应用规则校验，数据库保证引用完整性和并发唯一性。
+Gate Reviewer 的 active TeamMember、可见性和职责分离由应用规则校验，数据库保证引用完整性和并发唯一性。`DefaultPersonalAgentRepository.initializeIfAbsent` 必须在同一事务内原子写入 Principal 与 AgentProfile，发生并发竞争时返回已提交的完整 Agent 对，不允许留下孤立 Principal 或 Profile。
 
 ## 4. 应用用例与 API
 
