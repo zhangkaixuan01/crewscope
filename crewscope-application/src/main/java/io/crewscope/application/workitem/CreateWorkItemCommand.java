@@ -10,5 +10,8 @@ import jakarta.validation.constraints.Size;
 
 public record CreateWorkItemCommand(
         @NotNull WorkProjectId projectId,
-        @NotBlank @Pattern(regexp = WorkItemKey.FORMAT_REGEX) String key,
+        @NotBlank
+                @Size(max = WorkItemKey.MAX_LENGTH)
+                @Pattern(regexp = WorkItemKey.FORMAT_REGEX)
+                String key,
         @NotBlank @Size(max = WorkItem.MAX_TITLE_LENGTH) String title) {}

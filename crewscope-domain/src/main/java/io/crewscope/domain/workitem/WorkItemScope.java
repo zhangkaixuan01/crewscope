@@ -18,4 +18,13 @@ public record WorkItemScope(
         workspaceId = Objects.requireNonNull(workspaceId, "workspaceId");
         projectId = Objects.requireNonNull(projectId, "projectId");
     }
+
+    public static WorkItemScope from(WorkProject project) {
+        WorkProject requiredProject = Objects.requireNonNull(project, "project");
+        return new WorkItemScope(
+                requiredProject.scope().organizationId(),
+                requiredProject.scope().teamId(),
+                requiredProject.scope().workspaceId(),
+                requiredProject.id());
+    }
 }

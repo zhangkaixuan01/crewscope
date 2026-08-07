@@ -7,5 +7,6 @@ public enum WorkItemStatus {
     IN_REVIEW,
     BLOCKED,
     DONE,
-    CANCELLED
+    CANCELLED,
+    ARCHIVED
 }
