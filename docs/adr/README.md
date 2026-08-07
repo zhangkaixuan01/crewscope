@@ -21,6 +21,8 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-004](ADR-004-CredentialStore与动作凭证.md) | CredentialStore 与动作级凭证 | ACCEPTED |
 | [ADR-005](ADR-005-事件与投影协议.md) | DomainEvent、Outbox、Audit 与实时事件 | ACCEPTED |
 | [ADR-006](ADR-006-ProviderBinding解析与授权.md) | ProviderBinding 解析与授权固化 | ACCEPTED |
+| [ADR-007](ADR-007-API命令与并发协议.md) | API 错误、幂等、版本、Cursor 与 Command Receipt | ACCEPTED |
+| [ADR-008](ADR-008-可观测性与日志安全协议.md) | Correlation、Trace、结构化日志、脱敏与指标 | ACCEPTED |
 
 ## ADR 内容要求
 

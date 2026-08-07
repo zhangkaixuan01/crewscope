@@ -44,7 +44,7 @@ API 稳定 -> M1-F01 -> M1-F02 -> M1-F03 -> M1-F04
 | `M1-D04` | TASK | D01 | domain | 扩展 WorkProject、WorkItem、Comment、ResourceLink 与状态机 | 状态迁移、Key、权限和版本单元测试 |
 | `M1-D05` | TASK | D04 | domain/application | 实现 ResponsibilityAssignment、唯一 active Owner 与 Executor/Reviewer 分配 | 责任创建、释放、版本冲突和主体资格测试 |
 | `M1-D06` | TASK | D02,D03,D05 | domain/application | 实现 ReviewerEligibilityPolicy，默认 Gate Reviewer 与 Owner/Executor 分离，支持单人团队 PolicyPack 降级 | 正常、冲突、停用成员和降级策略测试 |
-| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V3__team_work_and_responsibility.sql`、部分唯一索引、外键和乐观锁字段 | 空库、V2→V3 和数据库约束测试 |
+| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V6__team_work_and_responsibility.sql`、部分唯一索引、外键和乐观锁字段 | 空库、V5→V6 和数据库约束测试 |
 | `M1-D08` | TASK | D07 | infrastructure | 实现 Team、Member、AgentProfile、WorkProject、WorkItem、Comment、ResourceLink 与 Assignment Repository Entity/Mapper | Repository CRUD、分页、版本和映射集成测试 |
 
 数据库约束至少覆盖：

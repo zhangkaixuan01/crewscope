@@ -177,7 +177,7 @@ flowchart LR
 
 #### 领域与应用
 
-- 统一 `AggregateId`、`PrincipalId`、`OrganizationId`、`TeamId`、`WorkspaceId` 和时间类型；
+- 统一 `AggregateId`、`PrincipalId`、`OrganizationId`、`TeamId`、`WorkspaceId`、`ArtifactId` 和时间类型；
 - 定义领域错误、乐观锁错误和幂等冲突错误；
 - 统一 Application Command、Query、Port 和事务边界；
 - 定义 DomainEvent Envelope、统一实时事件信封与 Outbox Port；
@@ -186,14 +186,15 @@ flowchart LR
 
 #### 数据与基础设施
 
-- 保留 `V1__bootstrap.sql`，新增 `V2__identity_and_platform_baseline.sql`；
+- 保留已发布迁移，通过 V2 建立身份与平台基线、V3 增加 DomainEvent 聚合版本、V4 增加 Outbox 租约与消费回执、V5 增加 Command Receipt；
 - 增加 `principal`、`team_member`、`team_role`、`team_member_role`、`audit_event`、`event_projection_checkpoint`、开发环境 `credential_secret` 与必要索引；
 - 为成员或 Agent 可修改的业务事实表增加乐观锁、审计时间、`created_by_principal_id`、`updated_by_principal_id` 和租户一致外键；
 - 使用领域状态表达归档、取消、离开、移除、撤销和过期，删除原因写入 AuditEvent，MVP 不建立全表通用逻辑删除字段；
 - 为 V1 中延后解析的 Principal 引用补齐外键；
 - 实现 WorkItem JPA Entity、Mapper 和 Repository Adapter；
 - 实现领域状态、DomainEvent 和 Outbox 同事务提交；
-- 实现最小 Outbox Publisher、Projection Runner、幂等消费和 AuditEvent 追加写；
+- 实现最小 Outbox Publisher：`SKIP LOCKED` Claim、租约 Token、分区顺序、并发发布、指数退避、过期回收、Dead Letter 和 `consumerName + eventId` 幂等消费；
+- 实现 Projection Runner、ProjectionCheckpoint 和 AuditEvent 追加写；
 - 实现 FilesystemArtifactStore 和开发环境加密 CredentialStore，主密钥从外部配置注入；
 - 增加 PostgreSQL 与 Redis Testcontainers 测试基类；
 - 增加数据库空库迁移、逐版本升级、非默认 `search_path` 与 Repository 集成测试；
@@ -202,7 +203,7 @@ flowchart LR
 #### 服务端与前端
 
 - 定义 `/api/v1` 错误信封、Cursor 分页和 `Idempotency-Key`；
-- 引入 Correlation ID、结构化日志和请求 Trace；
+- 按 ADR-008 引入全请求 Correlation ID、W3C Trace、Logstash JSON 结构化日志、字段级脱敏和低基数 API 指标；
 - 建立 Vue Router、API Client、统一错误处理和双入口 AppShell；
 - 建立 CrewScope Design Token、基础组件和 Responsibility/Agent/Task 状态语义；
 - 增加 Histoire、Vitest、Playwright 与关键尺寸截图基线；
@@ -249,7 +250,7 @@ flowchart LR
 - 使用部分唯一索引保证每个 WorkItem 只有一个 active Owner；
 - 使用唯一约束保证每个成员只有一个 active 默认 Personal Agent Principal 与 AgentProfile；
 - Gate Reviewer 必须是 active TeamMember，ReviewerEligibilityPolicy 默认要求 Reviewer 与 Owner/Executor 分离，单人团队通过显式 PolicyPack 降级；
-- `V3__team_work_and_responsibility.sql` 及索引、唯一约束和乐观锁。
+- `V6__team_work_and_responsibility.sql` 及索引、唯一约束和乐观锁。
 
 #### 用例与 API
 
@@ -295,7 +296,7 @@ flowchart LR
 - Conversation、Participant、Message 和 ConversationTaskLink；
 - Personal/Team 可见性和消息游标；
 - ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 最小模型与只读 BindingResolver；
-- `V4__conversation_agent_and_provider_binding.sql`；
+- `V7__conversation_agent_and_provider_binding.sql`；
 - Conversation REST API 和 AG-UI Run 映射；
 - 消息、Agent Run 与业务事件分层持久化。
 
@@ -349,7 +350,7 @@ flowchart LR
 - ExecutionRuntime、RuntimeWorker 和 RuntimeCapabilities；
 - TaskExecution 级 ExecutionLease、TaskCredentialGrant 和 AgentRuntimeSession；
 - AgentRun、AgentInterrupt 和 AgentStateSnapshot；
-- `V5__durable_task_runtime.sql`；
+- `V8__durable_task_runtime.sql`；
 - READY 队列索引、过期租约索引与终态条件约束。
 
 ### 9.3 调度与 Worker
@@ -406,7 +407,7 @@ flowchart LR
 ### 10.2 ExecutionWorkspace
 
 - RepositoryBinding、ExecutionWorkspace、DiffArtifact 和 TestEvidence 数据模型；
-- `V6__execution_workspace_and_artifacts.sql`；
+- `V9__execution_workspace_and_artifacts.sql`；
 - 基于系统 Git 命令实现类型化 `GitCommandExecutor`；
 - 命令参数使用数组构建，命令执行不经过 Shell 字符串拼接；
 - 实现分支命名、Worktree 创建、路径级锁、Git 元数据校验和重试；
@@ -469,7 +470,7 @@ flowchart LR
 ### 11.2 Review
 
 - ContextPackage、ReviewRequest、ReviewFinding 和 ReviewDecision；
-- `V7__review_action_and_github.sql`；
+- `V10__review_action_and_github.sql`；
 - Review Subject 绑定基线 Commit、DiffArtifact、TestEvidence 和验收标准；
 - Reviewer Specialist 使用独立 Session 生成 `ADVISORY` Finding；
 - TeamMember 提交 `APPROVED/CHANGES_REQUESTED/REJECTED` Gate Decision；
@@ -603,12 +604,15 @@ MVP 的飞书能力仅为 CollaborationProvider 出站成员查询和固定模�
 |---|---|---|
 | `V1__bootstrap.sql` | Organization、Team、Workspace、WorkProject、WorkItem、DomainEvent、Outbox | 已有 |
 | `V2__identity_and_platform_baseline.sql` | Principal、TeamMember、TeamRole、MemberRole、业务事实创建/修改 Principal、AuditEvent、ProjectionCheckpoint、开发加密 CredentialSecret、延后外键 | M0 |
-| `V3__team_work_and_responsibility.sql` | WorkItem 扩展、Comment、ResourceLink、ResponsibilityAssignment、AgentProfile | M1 |
-| `V4__conversation_agent_and_provider_binding.sql` | Conversation、Participant、Message、ConversationTaskLink、Agent Session、Provider/Connection/Binding 最小模型 | M2 |
-| `V5__durable_task_runtime.sql` | Task、TaskExecution、StepExecution、PlanVersion、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
-| `V6__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
-| `V7__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
-| `V8__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
+| `V3__domain_event_aggregate_version.sql` | DomainEvent 聚合版本、幂等键与 Outbox 路由约束 | M0 |
+| `V4__outbox_publication_lease.sql` | Outbox Claim 租约、状态约束、投递索引和消费回执 | M0 |
+| `V5__command_receipt.sql` | 组织内命令幂等占位、Request Hash 和持久化 Command Receipt | M0 |
+| `V6__team_work_and_responsibility.sql` | WorkItem 扩展、Comment、ResourceLink、ResponsibilityAssignment、AgentProfile | M1 |
+| `V7__conversation_agent_and_provider_binding.sql` | Conversation、Participant、Message、ConversationTaskLink、Agent Session、Provider/Connection/Binding 最小模型 | M2 |
+| `V8__durable_task_runtime.sql` | Task、TaskExecution、StepExecution、PlanVersion、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
+| `V9__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
+| `V10__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
+| `V11__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
