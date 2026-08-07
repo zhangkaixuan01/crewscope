@@ -68,6 +68,14 @@ nvm use
 pnpm install --frozen-lockfile
 ```
 
+执行完整 M0 Release Gate：
+
+```bash
+./scripts/m0-release-gate.sh
+```
+
+该命令要求 Docker 可用且已准备设计文档中固定摘要的 Maven Sandbox 镜像，并依次验证文档链接、后端 Reactor、Testcontainers、AgentScope Docker Sandbox、前端覆盖率、生产构建、Histoire 和 Playwright 视觉基线。
+
 使用 IntelliJ IDEA 时，打开仓库根目录并导入根 `pom.xml`。Project SDK 可使用
 JDK 17 或更高版本，Language level 保持 Java 17；Maven 可选择工程自带的 Wrapper，
 也可以选择本机 Maven 3.9.6。
@@ -79,3 +87,4 @@ JDK 17 或更高版本，Language level 保持 Java 17；Maven 可选择工程�
 - 外部系统能力通过 Provider 与 Connector Port 接入。
 - 外部副作用统一进入 PlannedAction、授权、Worker、Receipt 和 Reconcile 链路。
 - 领域状态、DomainEvent 和 Outbox 在同一事务提交。
+- 合并前执行与当前里程碑对应的 Release Gate。
