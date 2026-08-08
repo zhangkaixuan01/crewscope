@@ -114,7 +114,7 @@ jobs:
     needs: [backend, frontend, quality]
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce all M0 verification jobs
+      - name: Enforce the current milestone release gate
         env:
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
