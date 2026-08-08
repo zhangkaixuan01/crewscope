@@ -1,5 +1,6 @@
-package io.crewscope.application.provider;
+package io.crewscope.domain.provider;
 
+/** Stable business capability families implemented by native or external providers. */
 public enum ProviderType {
     WORK_ITEM,
     SOURCE_CODE,
