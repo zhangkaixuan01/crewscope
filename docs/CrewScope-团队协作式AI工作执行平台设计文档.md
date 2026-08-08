@@ -396,19 +396,26 @@ ResponsibilityAssignment 管理工作对象上的动态责任。TeamRole 决定�
 
 ```text
 ResponsibilityAssignment
-  subject_type       WORK_ITEM / TASK / STEP / ACTION
+  subject_type       WORK_ITEM（M1） / TASK / STEP / ACTION
   subject_id
   role               OWNER / EXECUTOR / COLLABORATOR / REVIEWER / APPROVER / WATCHER
   actor_type         USER / PERSONAL_AGENT / TEAM_AGENT / SPECIALIST_AGENT / SERVICE
   actor_id
+  actor_member_id    USER 在 Team 内的资格引用，Agent 为空
+  status             ACTIVE / RELEASED
   assigned_by
   assigned_at
   accepted_at
+  released_by
   released_at
   version
 ```
 
-Owner 变更通过 Handoff 完成。Executor 可以按 Step 分配。Reviewer 与 Approver 根据 WorkProject、PolicyPack 和动作风险自动建议或人工选择。
+M1 直接分配在创建时即生效，`accepted_at` 与 `assigned_at` 相同。Assignment 释放后进入 `RELEASED` 终态，历史责任不覆盖和复活。Owner 替换在一个事务内释放旧 Assignment 并创建新 Assignment，不提供使 WorkItem 失去 Owner 的单独释放入口。Handoff 接受后使用相同的原子替换语义。Executor 可以按 Step 分配。Reviewer 与 Approver 根据 WorkProject、PolicyPack 和动作风险自动建议或人工选择。
+
+Gate Reviewer 必须是同 Team 的 Active TeamMember，默认不能同时担任当前 Owner 或 Executor。单人团队降级必须引用明确的 PolicyPack ID、版本和原因，且只在 Reviewer 是唯一 Active TeamMember 时生效。策略决策记录 `STRICT_SEPARATION/SINGLE_MEMBER_OVERRIDE`、冲突角色和 PolicyPack 证据。Specialist Agent Reviewer 只具有 `ADVISORY` 效力，不能通过降级获得 `GATE` 效力。
+
+Owner、Executor 和 Gate Reviewer 的变更共享 WorkItem 责任链串行化边界。应用服务在同一事务内锁定 WorkItem，读取 Active Assignment，执行职责分离策略，再写入新责任。Owner/Executor 变更也反向检查 Active Gate Reviewer，防止通过变更其他角色绕过策略。
 
 ### 4.3 横向协作模型
 
@@ -2269,6 +2276,10 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `connection` | 所有者类型、Workspace、外部实例、外部身份、凭证引用和健康状态 |
 | `connection_grant` | OAuth Scope、资源范围、用途、有效期和撤销状态 |
 
+M1 的 `agent_profile` 保存 Organization、Team、Team Workspace、Agent Principal、Owner TeamMember、类型、默认标记、状态、版本和审计字段。一个 Agent Principal 只对应一个 Profile；每个 TeamMember 最多存在一个 active 默认 Personal Profile。模型、Prompt、Tool、Skill、Memory 与 Policy 配置在 M2 扩展。
+
+Team 的 `owner_member_id/default_workspace_id` 使用完整 Scope 延后外键。V5 升级数据允许两列成对为空，新 Team 初始化事务必须成对写入，并在提交时证明 Owner 属于当前 Team、默认 Workspace 属于当前 Team。M1 Repository 读取未补全的遗留 Team 时返回带 Team ID 的初始化待补全异常，Team API 将该状态转换为可查询、可授权补全的产品流程。
+
 ### 14.3 责任与协作数据
 
 | 表 | 核心内容 |
@@ -2287,6 +2298,8 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 
 ResponsibilityAssignment、CollaborationRequest、Contribution、ReviewRequest、Handoff 和 TakeoverRequest 使用乐观锁。协作对象完成状态迁移时写入 DomainEvent 与 Outbox。
 
+M1 的 ResponsibilityAssignment Subject 固定为 WorkItem，并直接保存完整 WorkItem Scope。数据库使用部分唯一索引保证每个 WorkItem 最多一个 active Owner，以及同一 WorkItem、Role、Actor 最多一个 active Assignment。USER Actor 必须关联匹配的 TeamMember；Actor 类型、责任角色、接受/释放时间和状态由检查约束保护。Repository 使用只读取 WorkItem ID 的 `SELECT ... FOR UPDATE` 串行化责任链变更，不加载 WorkItem 内容快照。
+
 ### 14.4 WorkItem 数据
 
 | 表 | 核心内容 |
@@ -2301,6 +2314,8 @@ ResponsibilityAssignment、CollaborationRequest、Contribution、ReviewRequest�
 | `work_graph_edge_projection` | 可重建的节点、关系、来源、版本、可见性和更新时间 |
 
 `source_provider=CREWSCOPE` 时，`work_item` 是事实源。使用 Jira、禅道或 TAPD Provider 时，外部系统是事实源，`work_item` 保存本地投影，`work_item_provider_binding` 保存外部引用和同步位置。所有状态更新携带期望版本，Webhook 和主动同步使用外部事件 ID 去重。
+
+M1 使用 JSONB 数组保存最多 20 个规范化 Label，并为 Label 查询建立 GIN 索引。Comment 和 ResourceLink 保存完整 WorkItem Scope 并使用复合外键约束；外部 Comment 必须携带 Provider 外部 ID，同一 WorkItem 内按 Provider 去重。WorkProject、WorkItem、AgentProfile 和 ResponsibilityAssignment 使用乐观锁版本。
 
 ### 14.5 对话数据
 

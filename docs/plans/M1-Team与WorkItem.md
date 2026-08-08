@@ -4,7 +4,7 @@
 > 前置条件：M0 Release Gate 通过<br>
 > 目标周期：2 周<br>
 > 目标结果：成员可以创建 Team、WorkProject、WorkItem，并建立 Owner、Executor、Gate Reviewer 责任链<br>
-> 当前进度：`M1-D04` 已完成（2026-08-07），下一项为 `M1-D05`
+> 当前进度：`M1-D08` 已完成（2026-08-08），下一项为 `M1-A01`
 
 ## 1. 出口结果
 
@@ -43,10 +43,10 @@ API 稳定 -> M1-F01 -> M1-F02 -> M1-F03 -> M1-F04
 | `M1-D02` | TASK | D01 | domain/application | 实现 Team 创建、Team Owner、默认 Team Workspace 和成员加入规则 | [Team 创建与初始化领域模型](../testing/M1-D02-Team创建与初始化领域模型.md)与 16 个新增测试覆盖完整初始化事务、唯一 Owner、Workspace Scope 和成员加入边界 |
 | `M1-D03` | TASK | D01,D02 | domain/application | 实现默认 Personal Agent Principal、AgentProfile 和幂等创建策略 | [默认 Personal Agent 领域模型](../testing/M1-D03-默认Personal-Agent领域模型.md)与 11 个新增测试覆盖稳定身份、成员和 Workspace 边界、生命周期、事务接入及 12 路并发初始化 |
 | `M1-D04` | TASK | D01 | domain/application | 扩展 WorkProject、WorkItem、Comment、ResourceLink 与状态机 | [WorkProject 与 WorkItem 领域模型](../testing/M1-D04-WorkProject与WorkItem领域模型.md)与 22 个新增测试覆盖 Scope、Key、字段、来源、权限边界、版本、归档、评论和资源链接 |
-| `M1-D05` | TASK | D04 | domain/application | 实现 ResponsibilityAssignment、唯一 active Owner 与 Executor/Reviewer 分配 | 责任创建、释放、版本冲突和主体资格测试 |
-| `M1-D06` | TASK | D02,D03,D05 | domain/application | 实现 ReviewerEligibilityPolicy，默认 Gate Reviewer 与 Owner/Executor 分离，支持单人团队 PolicyPack 降级 | 正常、冲突、停用成员和降级策略测试 |
-| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V6__team_work_and_responsibility.sql`、Team Owner/默认 Workspace 延后外键、部分唯一索引、其他外键和乐观锁字段 | 空库、V5→V6 和数据库约束测试 |
-| `M1-D08` | TASK | D07 | infrastructure | 实现 Team、Member、AgentProfile、WorkProject、WorkItem、Comment、ResourceLink 与 Assignment Repository Entity/Mapper | Repository CRUD、分页、版本和映射集成测试 |
+| `M1-D05` | TASK | D04 | domain/application | 实现 ResponsibilityAssignment、唯一 active Owner 与 Executor/Reviewer 分配 | [责任分配领域模型](../testing/M1-D05-责任分配领域模型.md)与 16 个新增测试覆盖责任创建、释放、审计、主体资格、唯一 Owner、版本冲突和 ABA 防护 |
+| `M1-D06` | TASK | D02,D03,D05 | domain/application | 实现 ReviewerEligibilityPolicy，默认 Gate Reviewer 与 Owner/Executor 分离，支持单人团队 PolicyPack 降级 | [ReviewerEligibilityPolicy](../testing/M1-D06-ReviewerEligibilityPolicy.md)与 19 个新增测试覆盖职责分离、停用成员、Advisory Agent、PolicyPack 降级证据、双向绕过防护和责任链锁 |
+| `M1-D07` | TASK | D03,D05,D06 | infrastructure | 新增 `V6__team_work_and_responsibility.sql`、Team Owner/默认 Workspace 延后外键、部分唯一索引、其他外键和乐观锁字段 | [Team 与责任数据迁移](../testing/M1-D07-Team与责任数据迁移.md)与 4 个新增 PostgreSQL 集成测试覆盖空库、V5→V6、Scope 外键和并发唯一约束 |
+| `M1-D08` | TASK | D07 | infrastructure | 实现 Team、Member、AgentProfile、WorkProject、WorkItem、Comment、ResourceLink 与 Assignment Repository Entity/Mapper，使用 WorkItem 行锁实现责任链串行化 Port | [M1 持久化适配](../testing/M1-D08-M1持久化适配.md)，覆盖 Repository CRUD、分页、版本、映射和并发责任链集成测试 |
 
 数据库约束至少覆盖：
 
@@ -58,11 +58,13 @@ API 稳定 -> M1-F01 -> M1-F02 -> M1-F03 -> M1-F04
 
 Gate Reviewer 的 active TeamMember、可见性和职责分离由应用规则校验，数据库保证引用完整性和并发唯一性。`DefaultPersonalAgentRepository.initializeIfAbsent` 必须在同一事务内原子写入 Principal 与 AgentProfile，发生并发竞争时返回已提交的完整 Agent 对，不允许留下孤立 Principal 或 Profile。
 
+V6 升级保留无法推断责任人的 V5 Team，`owner_member_id/default_workspace_id` 允许成对为空。新 Team 在同一初始化事务中写入两项引用，延后外键在事务提交时校验 Owner TeamMember 和默认 Team Workspace 的完整 Scope。WorkItem 责任链以 WorkItem 行作为 D08 的串行化锁点，不创建独立锁表。
+
 ## 4. 应用用例与 API
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M1-A01` | FEATURE | D02,D03,D08 | application/server | Team 创建、成员加入、Workspace 初始化和查询 API | 幂等创建、越权、重复成员和停用成员测试 |
+| `M1-A01` | FEATURE | D02,D03,D08 | application/server | Team 创建、成员加入、Workspace 初始化和查询 API；识别 V5 遗留 Team 的待初始化状态并提供 Owner/默认 Workspace 补全入口 | 幂等创建、越权、重复成员、停用成员、遗留 Team 查询与补全测试 |
 | `M1-A02` | TASK | A01 | server | Bootstrap 用户与基础 OIDC Subject 映射到 USER Principal、TeamMember | 新用户、已有用户、Subject 冲突和禁用账户测试 |
 | `M1-A03` | FEATURE | D04,D08 | application/server | WorkProject 创建、列表、详情和项目 Key API | 幂等创建、唯一 Key、Cursor 和权限测试 |
 | `M1-A04` | FEATURE | A03,D04,D08 | application/server | WorkItem 创建、状态迁移和乐观并发 Command API | If-Match、Idempotency-Key、状态机和权限测试 |
