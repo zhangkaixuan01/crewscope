@@ -256,12 +256,13 @@ flowchart LR
 
 - Team 创建、成员加入、Workspace 初始化；
 - WorkProject 创建和仓库引用配置；
-- WorkItem 创建、查询、列表、看板、转移状态和评论；
+- WorkItem 创建时原子建立创建者 Owner，并提供查询、列表、看板、状态迁移和评论；
 - Owner、Executor 和 Reviewer 分配；
 - WorkItem 乐观锁、权限检查和事件时间线；
-- M1 时间线直接读取 DomainEvent/Audit 基线，M6 再物化为 Activity 读模型；
-- 开发 Profile 的 Bootstrap 用户映射到 Principal 与 TeamMember；
-- 部署 Profile 接入基础 OIDC 登录与 Principal 映射。
+- M1 时间线直接读取 DomainEvent/Audit 基线，按 DomainEvent ID 去重，并以 `occurredAt + canonicalEventId` 专用 Cursor 续传；M6 再物化为 Activity 读模型；
+- 开发 Profile 使用 Bootstrap Basic 登录，将用户名原子映射为 USER Principal；创建 Team 时绑定 Owner TeamMember；
+- 部署 Profile 使用基础 OIDC Login，按 Registration 与 `sub` 原子映射 USER Principal；TeamMember 通过 Team 创建和成员管理用例绑定；
+- 身份首次映射提交隐私安全的 DomainEvent 与 Outbox，认证访问不自动创建 TeamMember。
 
 #### 前端
 
@@ -598,6 +599,8 @@ MVP 的飞书能力仅为 CollaborationProvider 出站成员查询和固定模�
 
 领域层保持纯 Java。应用层定义 Port。AgentScope、JPA、GitHub、飞书、Redis、Git 和 Sandbox 均作为外部适配器实现。
 
+Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/Identity/Team/WorkItem/<Business>` 拆分 `config/application/*ApplicationConfiguration`。Application Service 保持纯 Java，通过 `@Bean` 显式注册；Controller 使用 `@RestController` 和单构造器注入；基础设施 Adapter 使用 `@Repository` 与边界事务注解。禁止在 Domain/Application 引入 Spring 组件注解、使用字段注入，或重新创建聚合全部业务 Bean 的集中配置类。每个新业务边界同步维护 Spring Context 装配测试。
+
 ## 14. 数据库迁移计划
 
 | 迁移 | 主要内容 | 里程碑 |
@@ -678,6 +681,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - 公开类、公开方法、领域不变式、状态迁移、并发、恢复、幂等和安全逻辑编写注释；
 - 注释说明意图、边界和原因；
 - 领域层不依赖 Spring、JPA、AgentScope 和外部 SDK；
+- 应用层不使用 Spring 组件注解，Application Service 在 `crewscope-server` 按业务边界通过 `@Bean` 装配；
+- Controller 使用 `@RestController` 和单构造器注入，不使用字段注入和非必要的 `@Autowired`；
+- 新业务边界使用独立 `<Business>ApplicationConfiguration`，不向集中式配置类持续追加 Bean；
 - 所有时间、ID、状态和错误使用明确类型；
 - 外部调用不放入数据库事务；
 - 凭证、Token、完整命令输出和敏感 Provider 响应不进入日志；
@@ -689,12 +695,13 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 1. 代码已实现并通过编译；
 2. 复杂逻辑和公开 API 已按约定添加注释；
 3. 领域单元测试与必要集成测试已添加；
-4. 数据库变更通过空库迁移测试；
-5. API、事件、配置和错误码已更新文档；
-6. 权限、幂等、并发、失败与恢复路径已验证；
-7. 日志、指标、Trace 和 Audit 覆盖关键路径；
-8. `./mvnw clean verify` 与 `pnpm build` 通过；
-9. 可在当前里程碑演示流程中完成验证。
+4. 新增或调整 Application Service 时，Spring Context 装配测试已覆盖唯一 Bean、缺失依赖和循环依赖；
+5. 数据库变更通过空库迁移测试；
+6. API、事件、配置和错误码已更新文档；
+7. 权限、幂等、并发、失败与恢复路径已验证；
+8. 日志、指标、Trace 和 Audit 覆盖关键路径；
+9. `./mvnw clean verify` 与 `pnpm build` 通过；
+10. 可在当前里程碑演示流程中完成验证。
 
 ## 17. 风险与决策点
 

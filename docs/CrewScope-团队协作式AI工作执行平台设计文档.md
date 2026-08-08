@@ -417,6 +417,14 @@ Gate Reviewer 必须是同 Team 的 Active TeamMember，默认不能同时担任
 
 Owner、Executor 和 Gate Reviewer 的变更共享 WorkItem 责任链串行化边界。应用服务在同一事务内锁定 WorkItem，读取 Active Assignment，执行职责分离策略，再写入新责任。Owner/Executor 变更也反向检查 Active Gate Reviewer，防止通过变更其他角色绕过策略。
 
+责任管理 API 只接受目标 Principal ID，Principal 类型、状态、Team Scope 和 USER Membership 由服务端解析。读取责任链要求 ACTIVE Membership；写入要求 Team Scope 或目标 WorkProject Scope 的 `RESPONSIBILITY_MANAGE`。Owner 替换同时比较当前 Assignment ID 和 Version，防止 ABA 覆盖；非 Owner 释放使用 Assignment 强 ETag。每个写命令以 `Idempotency-Key` 原子提交 ResponsibilityAssignment、DomainEvent、Outbox 和 CommandReceipt。
+
+Gate Reviewer Policy 由服务端 Provider 根据 Team、WorkProject 和 PolicyPack 解析。默认严格分离 Owner、Executor 与 Gate Reviewer；客户端不能提交 PolicyPack 或降级理由。单人团队降级决策把 PolicyPack ID、版本、冲突角色和原因固化到领域事件，作为时间线和 Audit 证据。SPECIALIST_AGENT Reviewer 始终是 Advisory，不具有 Gate 效力。
+
+WorkItem 时间线通过完整 Organization/Team/WorkProject/WorkItem Scope 路径读取，要求当前 USER 具有目标 Team ACTIVE Membership。M1 直接合并 DomainEvent 与对应 AuditEvent，以 DomainEvent ID 作为规范事件身份，在分页前去重并优先保留 DomainEvent 事实；M6 在保持 Application Port 与 HTTP 契约稳定的前提下切换到物化 Activity 读模型。
+
+时间线只公开当前里程碑已评审的 WorkItem、Comment、ResourceLink 和 Responsibility 业务事件。返回值包含 Event、Aggregate、Actor、Correlation、Causation、Outcome 和结构化 Payload，不将 Idempotency Key、认证凭证和未知安全审计暴露给 WorkItem 详情页。列表按 `occurredAt + canonicalEventId` 倒序 Keyset 分页，使用时间线专用、带类型版本的不透明 Cursor；DomainEvent/Audit 重复投影只展示一次，同一微秒内使用 PostgreSQL UUID 顺序保证断点续传稳定。
+
 ### 4.3 横向协作模型
 
 CollaborationRequest 类型：
@@ -660,7 +668,13 @@ version                乐观锁版本
 
 WorkProject Key 使用 2–10 位大写字母或数字并以字母开头。WorkItem Key 使用 `{projectKey}-{sequence}`，总长度不超过 32。WorkProject 归档后停止创建 WorkItem；WorkItem 的 Organization、Team、Workspace 和 WorkProject Scope 必须完整一致。
 
+Native WorkItem 创建者自动成为初始 Owner。WorkItem 与 ACTIVE Owner ResponsibilityAssignment 在同一事务内创建，`WORK_ITEM_CREATED` Payload 固化初始 Owner Assignment ID 和 Principal ID，并与 Outbox、CommandReceipt 原子提交。生产组合根只暴露执行完整 Membership、Role Scope、项目锁和 Owner 初始化规则的 M1 WorkItem Command Service。
+
 原生 Comment 是不可变 Markdown 记录，保存作者 Principal、Scope、创建审计和 `CREWSCOPE` 来源。外部 Comment 额外保存 Provider 来源和外部 Comment ID，用于同步幂等。ResourceLink 是不可变 WorkGraph 关系，首批支持 Task、Conversation、Repository、Branch、Commit、Pull Request、Artifact 和 External URL。角色与 TeamMember 授权由应用层解析，领域对象始终校验 Principal ACTIVE 状态以及 Organization/Team Scope。
+
+WorkItem 列表固定在 Team 下的指定 WorkProject，使用状态筛选和 `updatedAt + WorkItemId` Keyset Cursor。详情在同一事务快照中返回 WorkItem、Comment 和 ResourceLink。查询要求目标 Team ACTIVE Membership；追加 Comment 和 ResourceLink 要求 Team Scope 或目标 WorkProject Scope 的 `WORK_PARTICIPATE`。其他 WorkProject Grant 不提供权限。所有 Scope 不匹配按不可见资源处理。
+
+Comment 与 ResourceLink 创建使用 `Idempotency-Key`，在一个事务内提交业务事实、DomainEvent、Outbox 和 CommandReceipt。Native 与外部来源 WorkItem 均可追加 CrewScope 协作信息；归档 WorkItem 拒绝新增协作事实。External URL 只允许无嵌入凭证、无控制字符、具有有效 Host 的绝对 HTTP/HTTPS URL。
 
 统一 Provider 接口：
 
@@ -2031,7 +2045,26 @@ TaskScopedToken
 
 任务在 `READY` 期间收到的多条连续追加消息可按 Conversation 和 Task 合并为一次执行输入。合并保留每条消息的 ID、作者、时间、Thread 和内容引用，执行结果显式回应所有输入。
 
-### 12.7 任务级身份
+### 12.7 登录身份映射
+
+CrewScope 使用 Principal 统一承载用户、Agent 和服务身份。登录认证只处理 USER Principal：
+
+```text
+Bootstrap Basic -> bootstrap + username
+OIDC Login      -> oidc/{registrationId} + sub
+```
+
+外部身份唯一键为 `Organization + Provider + Subject`。OIDC `sub` 是稳定 Subject，`name/preferred_username/email` 只用于显示名。首次认证通过 PostgreSQL `INSERT ... ON CONFLICT DO NOTHING` 原子创建 ACTIVE、Organization Scope、ORGANIZATION 可见的 USER Principal；并发请求返回同一个 Principal。
+
+MVP 的一个 OIDC 部署实例通过 `CREWSCOPE_OIDC_ORGANIZATION_ID` 绑定一个 Organization。认证解析同时产生 Organization Constraint，请求路径中的 Organization 必须匹配该约束。单实例多 Organization 登录在后续里程碑使用持久化 Issuer/Registration Binding 扩展。
+
+首次映射在同一事务写入 Principal、`USER_IDENTITY_MAPPED` DomainEvent 和 Outbox。事件保存 Provider，不保存原始 Subject。已有映射必须保持 USER 类型、Organization Scope 和相同 ExternalIdentity；类型或 Scope 冲突返回稳定冲突；`SUSPENDED/DISABLED/ARCHIVED` 账户拒绝访问。
+
+登录建立 Principal，Team 业务用例建立 TeamMember。Team 创建为当前 Principal 创建 Owner Membership；成员管理命令为目标 Principal 创建 MEMBER Membership；读取 Team 资源要求已有 ACTIVE Membership。该边界阻止认证用户通过访问 Team URL 获得成员权限。
+
+`crewscope.security.mode` 支持 `bootstrap` 与 `oidc`。Bootstrap Profile 启用 HTTP Basic 和服务端管理员 Authority。OIDC Profile 启用 OAuth2 Login、浏览器 Session 和 Cookie CSRF Token。未知模式、缺少 OIDC Organization Binding 和缺少 OIDC ClientRegistration 的部署配置在启动阶段失败。
+
+### 12.8 任务级身份
 
 Claim 完成后由 Credential Service 签发短期 Task Token。Token 绑定：
 
@@ -2043,7 +2076,7 @@ Claim 完成后由 Credential Service 签发短期 Task Token。Token 绑定：
 
 Runtime 向 Agent 注入 Task Token，Provider 和 Connector 使用 Token 换取当前动作需要的短期访问能力。Runtime 凭证、Worker 服务凭证和用户长期 OAuth Token 不进入 Agent 环境。Task Token 缺失、过期、与 Claim 不匹配或范围不足时，写任务终止并生成安全审计事件。
 
-### 12.8 ExecutionWorkspace 生命周期
+### 12.9 ExecutionWorkspace 生命周期
 
 ```text
 ALLOCATING
@@ -2068,7 +2101,7 @@ MVP 的物理拓扑固定为同机 Execution Worker：Worker、Git Worktree、Do
 
 Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker DaemonSet、节点级 Worktree 根目录、Sandbox Pod 节点亲和性和 SandboxExecutionGuard。使用 RWX PVC 时，Workspace Manager、Watcher、锁、调度和清理统一按共享存储语义设计。禁止让普通 API Pod 创建本地 Worktree 后交给任意节点的 Sandbox Pod 挂载。
 
-### 12.9 检查点
+### 12.10 检查点
 
 - Step 运行前校验所属 TaskExecution 的有效 Lease、Claim Token、Step owner 和 version；
 - 状态迁移使用乐观锁；
@@ -2078,7 +2111,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 - AgentState 保存 Agent 上下文；
 - StepExecution 保存耐久任务检查点。
 
-### 12.10 Agent 恢复
+### 12.11 Agent 恢复
 
 - RedisDistributedStore 优先恢复 AgentState、MessageBus、Workspace 运行态和子 Agent 绑定；
 - PostgreSQL 中的 Message、PlanVersion、Task、Step、Action、Receipt 与对象存储中的 AgentStateSnapshot 提供二级恢复；
@@ -2093,7 +2126,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 - Coding Agent 从 PriorSession、ExecutionWorkspace、基线 Commit、当前 Diff、测试证据和未完成 Todo 恢复；
 - Session 无法精确续接时，新 AgentRun 显式记录 continuity gap，基于已提交领域事实和 Worktree 状态继续。
 
-### 12.11 取消流程
+### 12.12 取消流程
 
 1. Task 写入 `CANCEL_REQUESTED` 过渡状态；
 2. 调度器停止分配新 Step 和 Action；
@@ -2103,7 +2136,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 6. 已发送 Action 进入结果确认；
 7. 所有运行单元到达安全点后写入 `CANCELLED`。
 
-### 12.12 恢复优先级与交付语义
+### 12.13 恢复优先级与交付语义
 
 恢复优先级：
 
@@ -2278,7 +2311,15 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 
 M1 的 `agent_profile` 保存 Organization、Team、Team Workspace、Agent Principal、Owner TeamMember、类型、默认标记、状态、版本和审计字段。一个 Agent Principal 只对应一个 Profile；每个 TeamMember 最多存在一个 active 默认 Personal Profile。模型、Prompt、Tool、Skill、Memory 与 Policy 配置在 M2 扩展。
 
-Team 的 `owner_member_id/default_workspace_id` 使用完整 Scope 延后外键。V5 升级数据允许两列成对为空，新 Team 初始化事务必须成对写入，并在提交时证明 Owner 属于当前 Team、默认 Workspace 属于当前 Team。M1 Repository 读取未补全的遗留 Team 时返回带 Team ID 的初始化待补全异常，Team API 将该状态转换为可查询、可授权补全的产品流程。
+Team 的 `owner_member_id/default_workspace_id` 使用完整 Scope 延后外键。V5 升级数据允许两列成对为空，新 Team 初始化事务必须成对写入，并在提交时证明 Owner 属于当前 Team、默认 Workspace 属于当前 Team。M1 Repository 使用专用初始化状态查询读取未补全的遗留 Team，Team API 将该状态转换为可查询、可授权补全的产品流程。
+
+Team 基础 API 使用 `/api/v1/organizations/{organizationId}/teams` 作为资源根。Team 创建自动闭合 Owner、默认 Team Workspace、五个内置角色、Owner Grant 和默认 Personal Agent；成员加入自动闭合 Membership、MEMBER Grant 和默认 Personal Agent。Team 列表和详情按当前 ACTIVE Membership 授权，成员管理只接受有效 Team Scope Grant 提供的 `MEMBER_MANAGE` 权限，WorkProject Scope Grant 不提升为 Team 管理权限。成员加入使用 Team 行锁串行化并发写入，保证重复请求收敛为稳定业务结果。
+
+WorkProject 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects` 作为资源根。创建者必须是 ACTIVE TeamMember，并通过有效 Team Scope Grant 具有 `WORK_PROJECT_MANAGE`；项目固定使用 Team 默认 Workspace。列表和详情要求 ACTIVE Membership，列表使用 `updated_at + id` 降序 Keyset Cursor。Key 可用性查询用于创建表单即时反馈，创建命令仍在 Team 行锁内检查唯一性，并由数据库 `(team_id, project_key)` 唯一约束兜底。创建事务原子提交 WorkProject、`WORK_PROJECT_CREATED`、Outbox 和 CommandReceipt。
+
+WorkItem 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items` 作为资源根。Native WorkItem 创建要求 ACTIVE Membership 以及 Team Scope 或目标 WorkProject Scope 的 `WORK_CREATE`，状态迁移要求 `WORK_PARTICIPATE`。创建事务以 WorkProject 行串行化项目内 Key，并由 `(project_id, item_key)` 唯一约束兜底。状态迁移只接受强 `If-Match` 版本，使用版本条件原子更新；外部 Provider 投影的状态通过 Provider 同步，不接受本地迁移。成功命令原子提交 WorkItem、DomainEvent、Outbox 和 CommandReceipt。
+
+V5 遗留 Team 的 `owner_member_id/default_workspace_id` 成对为空时，对外状态为 `INITIALIZATION_REQUIRED`。平台管理员通过补全命令选择同 Organization 的 ACTIVE USER Owner，服务在同一事务内补齐 Owner Membership、默认 Workspace、内置角色、Owner Grant 和默认 Personal Agent。遗留状态不进入要求完整引用的 Team Aggregate Mapper。
 
 ### 14.3 责任与协作数据
 
@@ -2298,7 +2339,7 @@ Team 的 `owner_member_id/default_workspace_id` 使用完整 Scope 延后外键�
 
 ResponsibilityAssignment、CollaborationRequest、Contribution、ReviewRequest、Handoff 和 TakeoverRequest 使用乐观锁。协作对象完成状态迁移时写入 DomainEvent 与 Outbox。
 
-M1 的 ResponsibilityAssignment Subject 固定为 WorkItem，并直接保存完整 WorkItem Scope。数据库使用部分唯一索引保证每个 WorkItem 最多一个 active Owner，以及同一 WorkItem、Role、Actor 最多一个 active Assignment。USER Actor 必须关联匹配的 TeamMember；Actor 类型、责任角色、接受/释放时间和状态由检查约束保护。Repository 使用只读取 WorkItem ID 的 `SELECT ... FOR UPDATE` 串行化责任链变更，不加载 WorkItem 内容快照。
+M1 的 ResponsibilityAssignment Subject 固定为 WorkItem，并直接保存完整 WorkItem Scope。数据库使用部分唯一索引保证每个 WorkItem 最多一个 active Owner，以及同一 WorkItem、Role、Actor 最多一个 active Assignment。Native WorkItem 创建事务同步建立创建者的初始 Owner Assignment，后续 Owner 通过原子替换变更。USER Actor 必须关联匹配的 TeamMember；Actor 类型、责任角色、接受/释放时间和状态由检查约束保护。Repository 使用只读取 WorkItem ID 的 `SELECT ... FOR UPDATE` 串行化责任链变更，不加载 WorkItem 内容快照。
 
 ### 14.4 WorkItem 数据
 
@@ -2577,26 +2618,28 @@ DELETE /api/v1/subjects/{subjectType}/{subjectId}/watchers/{memberId}
 ### 15.4 WorkGraph 与 WorkItem API
 
 ```text
-POST /api/v1/work-projects
-GET  /api/v1/work-projects/{projectId}
-GET  /api/v1/work-projects/{projectId}/work-items
-GET  /api/v1/work-projects/{projectId}/graph?after={cursor}
+POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects?after={cursor}&limit={limit}
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/keys/{projectKey}
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/graph?after={cursor}
 
-POST  /api/v1/work-items
-GET   /api/v1/work-items/{workItemId}
-PATCH /api/v1/work-items/{workItemId}
-POST  /api/v1/work-items/{workItemId}/transitions
-POST  /api/v1/work-items/{workItemId}/comments
-POST  /api/v1/work-items/{workItemId}/attachments
-POST  /api/v1/work-items/{workItemId}/resource-links
-POST  /api/v1/work-items/{workItemId}/responsibilities
-POST  /api/v1/work-items/{workItemId}/agent-tasks
-POST  /api/v1/work-items/{workItemId}/collaboration-requests
-GET   /api/v1/work-items/{workItemId}/timeline
-GET   /api/v1/work-items/{workItemId}/graph?depth={depth}
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items
+GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}
+PATCH /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/transitions
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/comments
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/attachments
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/resource-links
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/responsibilities
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/agent-tasks
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/collaboration-requests
+GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/timeline?after={cursor}&limit={limit}
+GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/graph?depth={depth}
 ```
 
-`POST /api/v1/work-items/{workItemId}/agent-tasks` 根据 WorkItem、仓库绑定和用户指令创建 Conversation、Task 与首个 TaskExecution。
+`POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/agent-tasks` 根据 WorkItem、仓库绑定和用户指令创建 Conversation、Task 与首个 TaskExecution。
 
 ### 15.5 对话、收件箱与通知 API
 
@@ -3200,7 +3243,7 @@ crewscope-java/
 ├── crewscope-agentscope/           AgentScope、AG-UI、Channel、Tool 和 Agent 适配
 ├── crewscope-integration/          Provider、Connector 和外部系统实现
 ├── crewscope-infrastructure/       JPA、PostgreSQL、Redis、Outbox、对象存储和凭证设施
-├── crewscope-server/               Spring Boot 启动、REST、Webhook、实时事件和 Worker
+├── crewscope-server/               Spring Boot 启动、按业务边界装配、REST、Webhook、实时事件和 Worker
 ├── crewscope-web/                  Vue 3 + AG-UI 工作台，使用 pnpm 构建
 └── deploy/                         Docker Compose、Helm 和环境配置
 ```
@@ -3270,7 +3313,36 @@ io.crewscope
 
 同一业务边界可以在 `domain`、`application` 和外层模块中拥有对应包。例如 WorkItem 的领域对象位于 `crewscope-domain/.../workitem`，用例位于 `crewscope-application/.../workitem`，API 位于 `crewscope-server/.../workitem`。
 
-### 19.4 Provider 与 Connector 组织
+### 19.4 Spring Boot 装配规范
+
+Spring Boot 是模块化单体的运行容器，依赖注入集中在 `crewscope-server` 组合根。Spring 注解按模块边界使用：
+
+| 位置 | Spring 使用规则 |
+|---|---|
+| `crewscope-domain` | 保持纯 Java，不使用 `@Component`、`@Service`、`@Repository`、`@Transactional` 或 Spring 类型 |
+| `crewscope-application` | Application Service、Command、Query 和 Port 保持纯 Java，不使用组件扫描注解；依赖通过构造器显式声明 |
+| `crewscope-infrastructure` | Adapter 使用 `@Repository`，基础设施配置使用 `@Configuration`，事务注解只放在持久化和基础设施边界 |
+| `crewscope-integration` | Provider/Connector Adapter 通过专用配置或外层组件注册，不向应用层泄漏 SDK 类型 |
+| `crewscope-server` | `@RestController`、Security、Web 配置和 Application Service 的 `@Bean` 装配；作为唯一应用组合根 |
+
+Application Service 按业务边界装配：
+
+```text
+crewscope-server/src/main/java/io/crewscope/server/config/application/
+├── PlatformApplicationConfiguration.java
+├── IdentityApplicationConfiguration.java
+├── TeamApplicationConfiguration.java
+├── WorkItemApplicationConfiguration.java
+└── <Business>ApplicationConfiguration.java
+```
+
+每个 `<Business>ApplicationConfiguration` 使用 `@Configuration(proxyBeanMethods = false)`，只创建该业务边界的 Application Service。跨业务共享的 `TimeProvider` 等基础依赖由 `PlatformApplicationConfiguration` 提供。禁止重新建立包含所有业务 Bean 的集中式 `ApplicationServiceConfiguration`。
+
+Controller 使用 `@RestController` 和构造器注入；`@RestController` 是 `@Controller + @ResponseBody` 的组合注解。单构造器不写 `@Autowired`，不使用字段注入。配置方法通过参数接收已注册 Port/Adapter，由 Spring 完成依赖解析。新增业务边界时同步新增或扩展对应配置类，并在 Spring Context 契约测试中证明关键 Application Service 恰好装配一次、无循环依赖和缺失 Port。
+
+这种装配方式让 Domain/Application 可以脱离 Spring 进行快速单元测试，同时让运行时实现、事务、HTTP 和安全能力留在外层。需要 Spring AOP 的事务、缓存、重试和观测能力由外层 Adapter、Decorator 或显式 Executor 提供，不通过给领域对象添加注解实现。
+
+### 19.5 Provider 与 Connector 组织
 
 MVP 的实现集中在 `crewscope-integration`：
 
@@ -3297,7 +3369,7 @@ crewscope-plugin-lark
 
 独立 Plugin 拥有版本、Manifest、签名、权限声明、依赖隔离和升级生命周期。
 
-### 19.5 运行与部署
+### 19.6 运行与部署
 
 `crewscope-server` 生成一个可执行 Jar，通过 Spring Profile 支持三种运行方式：
 
@@ -3309,7 +3381,7 @@ worker  Step 调度、Provider Action、Connector 调用、Sandbox 和对账
 
 MVP 使用 `all` 模式部署一个应用实例，Execution Worker、Worktree 根目录、Docker Daemon 和 Diff Watcher 位于同一执行主机。生产环境可以使用同一镜像分别启动 `server` 和 `worker`，按交互流量与任务负载独立扩缩容；进入 Kubernetes 前必须先实现专用 Worker 节点调度与共享/节点存储 ADR。
 
-### 19.6 编码与注释规范
+### 19.7 编码与注释规范
 
 新增和修改代码必须同步补充必要注释。注释说明业务意图、设计原因、边界条件和风险约束，代码本身负责表达具体实现。
 
@@ -3322,10 +3394,11 @@ MVP 使用 `all` 模式部署一个应用实例，Execution Worker、Worktree �
 7. 配置项需要说明用途、可选值、默认值、生效范围和安全影响，敏感信息不得写入注释或示例。
 8. `TODO` 和 `FIXME` 必须关联 Issue 或明确责任与触发条件，不保留无上下文的临时标记。
 9. 修改实现时同步修改失效注释。与实现不一致的注释按缺陷处理。
+10. 新增 Application Service 时同步维护对应 `<Business>ApplicationConfiguration` 和 Spring Context 装配测试，不使用字段注入或跨业务集中配置类。
 
 禁止对赋值、循环、条件分支和方法调用进行逐行复述。代码评审同时检查注释的完整性、准确性和时效性。
 
-### 19.7 拆分条件
+### 19.8 拆分条件
 
 以下条件触发物理模块或独立服务拆分：
 
