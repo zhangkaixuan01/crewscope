@@ -6,10 +6,13 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
- * JPA persistence model for the M0 WorkItem subset.
+ * JPA persistence model for the complete M1 WorkItem snapshot.
  *
  * <p>Scope identifiers remain scalar UUID columns so the adapter cannot cross tenant boundaries
  * through implicit ORM relationships. M1 extends the product fields while retaining this mapping.
@@ -58,6 +61,13 @@ public class WorkItemEntity {
     @Column(name = "source_ref", length = 500)
     private String sourceRef;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "labels", nullable = false, columnDefinition = "jsonb")
+    private List<String> labels;
+
+    @Column(name = "due_at")
+    private Instant dueAt;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -90,6 +100,8 @@ public class WorkItemEntity {
             String priority,
             String sourceProvider,
             String sourceRef,
+            List<String> labels,
+            Instant dueAt,
             long version,
             Instant createdAt,
             UUID createdByPrincipalId,
@@ -108,6 +120,8 @@ public class WorkItemEntity {
         this.priority = priority;
         this.sourceProvider = sourceProvider;
         this.sourceRef = sourceRef;
+        this.labels = List.copyOf(labels);
+        this.dueAt = dueAt;
         this.version = version;
         this.createdAt = createdAt;
         this.createdByPrincipalId = createdByPrincipalId;
@@ -147,6 +161,10 @@ public class WorkItemEntity {
         return title;
     }
 
+    String description() {
+        return description;
+    }
+
     String status() {
         return status;
     }
@@ -157,6 +175,18 @@ public class WorkItemEntity {
 
     String sourceProvider() {
         return sourceProvider;
+    }
+
+    String sourceRef() {
+        return sourceRef;
+    }
+
+    List<String> labels() {
+        return labels;
+    }
+
+    Instant dueAt() {
+        return dueAt;
     }
 
     long version() {

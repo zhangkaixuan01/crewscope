@@ -66,8 +66,15 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
                         """
                         UPDATE WorkItemEntity item
                         SET item.itemKey = :itemKey,
+                            item.itemType = :itemType,
                             item.title = :title,
+                            item.description = :description,
                             item.status = :status,
+                            item.priority = :priority,
+                            item.labels = :labels,
+                            item.dueAt = :dueAt,
+                            item.sourceProvider = :sourceProvider,
+                            item.sourceRef = :sourceRef,
                             item.updatedByPrincipalId = :updatedBy,
                             item.updatedAt = :updatedAt,
                             item.version = :committedVersion
@@ -79,8 +86,20 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
                           AND item.version = :expectedVersion
                         """)
                 .setParameter("itemKey", required.key().value())
+                .setParameter("itemType", required.type().name())
                 .setParameter("title", required.title())
+                .setParameter("description", required.description().orElse(null))
                 .setParameter("status", required.status().name())
+                .setParameter("priority", required.priority().name())
+                .setParameter(
+                        "labels",
+                        required.labels().stream()
+                                .map(io.crewscope.domain.workitem.WorkItemLabel::value)
+                                .sorted()
+                                .toList())
+                .setParameter("dueAt", required.dueAt().map(UtcTimestamp::value).orElse(null))
+                .setParameter("sourceProvider", required.source().name())
+                .setParameter("sourceRef", required.sourceReference().orElse(null))
                 .setParameter("updatedBy", updatedBy.value())
                 .setParameter("updatedAt", required.audit().updatedAt().value())
                 .setParameter("committedVersion", required.version())
