@@ -85,9 +85,14 @@ crewscope:
     initial-backoff: ${CREWSCOPE_OUTBOX_INITIAL_BACKOFF:1s}
     maximum-backoff: ${CREWSCOPE_OUTBOX_MAXIMUM_BACKOFF:5m}
   security:
+    # bootstrap uses operator Basic auth; oidc enables OAuth2 Login and browser-session CSRF.
+    mode: ${CREWSCOPE_SECURITY_MODE:bootstrap}
     bootstrap:
       username: ${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope}
       password: ${CREWSCOPE_BOOTSTRAP_PASSWORD:crewscope}
+    oidc:
+      # One OIDC deployment registration is bound to one Organization tenant boundary.
+      organization-id: ${CREWSCOPE_OIDC_ORGANIZATION_ID:}
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
