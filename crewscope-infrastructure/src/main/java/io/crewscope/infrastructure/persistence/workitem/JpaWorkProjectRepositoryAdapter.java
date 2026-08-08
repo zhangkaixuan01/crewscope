@@ -1,6 +1,9 @@
 package io.crewscope.infrastructure.persistence.workitem;
 
 import io.crewscope.application.workitem.WorkProjectRepository;
+import io.crewscope.application.workitem.WorkProjectCursor;
+import io.crewscope.application.workitem.WorkProjectPage;
+import io.crewscope.application.workitem.WorkProjectQuery;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
@@ -8,14 +11,17 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.domain.workitem.WorkProjectKey;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -96,6 +102,46 @@ public class JpaWorkProjectRepositoryAdapter implements WorkProjectRepository {
     }
 
     @Override
+    @Transactional
+    public Optional<WorkProject> lockById(
+            OrganizationId organizationId, WorkProjectId id) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM WorkProjectEntity value
+                        WHERE value.organizationId = :organizationId AND value.id = :id
+                        """,
+                        WorkProjectEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("id", Objects.requireNonNull(id).value())
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .getResultStream()
+                .findFirst()
+                .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<WorkProject> findByKey(
+            OrganizationId organizationId, TeamId teamId, WorkProjectKey key) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM WorkProjectEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.teamId = :teamId
+                          AND value.projectKey = :projectKey
+                        """,
+                        WorkProjectEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("projectKey", Objects.requireNonNull(key).value())
+                .getResultStream()
+                .findFirst()
+                .map(mapper::toDomain);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<WorkProject> findByTeam(OrganizationId organizationId, TeamId teamId) {
         return entityManager
@@ -112,6 +158,44 @@ public class JpaWorkProjectRepositoryAdapter implements WorkProjectRepository {
                 .stream()
                 .map(mapper::toDomain)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkProjectPage findPage(WorkProjectQuery query) {
+        WorkProjectQuery required = Objects.requireNonNull(query, "query");
+        StringBuilder jpql = new StringBuilder(
+                """
+                SELECT value FROM WorkProjectEntity value
+                WHERE value.organizationId = :organizationId AND value.teamId = :teamId
+                """);
+        required.cursor().ifPresent(ignored -> jpql.append(
+                """
+                 AND (value.updatedAt < :cursorTime
+                      OR (value.updatedAt = :cursorTime AND value.id < :cursorId))
+                """));
+        jpql.append(" ORDER BY value.updatedAt DESC, value.id DESC");
+
+        var persistenceQuery = entityManager
+                .createQuery(jpql.toString(), WorkProjectEntity.class)
+                .setParameter("organizationId", required.organizationId().value())
+                .setParameter("teamId", required.teamId().value())
+                .setMaxResults(required.limit() + 1);
+        required.cursor().ifPresent(cursor -> {
+            persistenceQuery.setParameter("cursorTime", cursor.updatedAt().value());
+            persistenceQuery.setParameter("cursorId", cursor.id().value());
+        });
+
+        List<WorkProjectEntity> rows = new ArrayList<>(persistenceQuery.getResultList());
+        boolean hasNext = rows.size() > required.limit();
+        if (hasNext) {
+            rows.remove(rows.size() - 1);
+        }
+        List<WorkProject> projects = rows.stream().map(mapper::toDomain).toList();
+        Optional<WorkProjectCursor> nextCursor = hasNext
+                ? Optional.of(toCursor(rows.get(rows.size() - 1)))
+                : Optional.empty();
+        return new WorkProjectPage(projects, nextCursor);
     }
 
     private void verify(int affected, WorkProject value, long expected) {
@@ -138,5 +222,11 @@ public class JpaWorkProjectRepositoryAdapter implements WorkProjectRepository {
         }
         throw new OptimisticLockConflictException(
                 "WorkProject", value.id(), expected, actual.orElseThrow());
+    }
+
+    private static WorkProjectCursor toCursor(WorkProjectEntity entity) {
+        return new WorkProjectCursor(
+                io.crewscope.domain.shared.time.UtcTimestamp.from(entity.updatedAt()),
+                new WorkProjectId(entity.id()));
     }
 }

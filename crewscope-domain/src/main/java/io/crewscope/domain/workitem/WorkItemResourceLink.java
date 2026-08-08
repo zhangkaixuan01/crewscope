@@ -5,6 +5,8 @@ import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -34,7 +36,7 @@ public final class WorkItemResourceLink {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.workItemId = Objects.requireNonNull(workItemId, "workItemId");
         this.resourceType = Objects.requireNonNull(resourceType, "resourceType");
-        this.resourceReference = requireReference(resourceReference);
+        this.resourceReference = requireReference(this.resourceType, resourceReference);
         this.label = normalizeLabel(label);
         this.audit = Objects.requireNonNull(audit, "audit");
     }
@@ -116,7 +118,7 @@ public final class WorkItemResourceLink {
         return audit;
     }
 
-    private static String requireReference(String value) {
+    private static String requireReference(WorkItemResourceType resourceType, String value) {
         if (value == null || value.isBlank()) {
             throw new DomainValidationException(
                     "workItemResourceLink.resourceReference", "must not be blank");
@@ -127,7 +129,38 @@ public final class WorkItemResourceLink {
                     "workItemResourceLink.resourceReference",
                     "must contain at most " + MAX_REFERENCE_LENGTH + " characters");
         }
+        if (normalized.codePoints().anyMatch(Character::isISOControl)) {
+            throw new DomainValidationException(
+                    "workItemResourceLink.resourceReference",
+                    "must not contain control characters");
+        }
+        if (resourceType == WorkItemResourceType.EXTERNAL_URL) {
+            requireSafeExternalUrl(normalized);
+        }
         return normalized;
+    }
+
+    private static void requireSafeExternalUrl(String value) {
+        try {
+            URI uri = new URI(value);
+            String scheme = uri.getScheme();
+            if (!uri.isAbsolute()
+                    || scheme == null
+                    || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
+                    || uri.getHost() == null
+                    || uri.getHost().isBlank()
+                    || uri.getUserInfo() != null) {
+                throw invalidExternalUrl();
+            }
+        } catch (URISyntaxException exception) {
+            throw invalidExternalUrl();
+        }
+    }
+
+    private static DomainValidationException invalidExternalUrl() {
+        return new DomainValidationException(
+                "workItemResourceLink.resourceReference",
+                "must be an absolute HTTP(S) URL without embedded credentials");
     }
 
     private static Optional<String> normalizeLabel(Optional<String> value) {

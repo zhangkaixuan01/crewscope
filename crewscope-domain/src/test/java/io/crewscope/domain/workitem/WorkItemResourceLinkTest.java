@@ -63,6 +63,51 @@ class WorkItemResourceLinkTest {
     }
 
     @Test
+    void acceptsSafeAbsoluteHttpUrls() {
+        WorkItemDomainFixture fixture = WorkItemDomainFixture.create();
+
+        WorkItemResourceLink link = WorkItemResourceLink.link(
+                WorkItemResourceLinkId.generate(),
+                fixture.nativeWorkItem(),
+                WorkItemResourceType.EXTERNAL_URL,
+                " https://example.com/releases/42?view=summary ",
+                Optional.empty(),
+                fixture.owner,
+                WorkItemDomainFixture.CREATED_AT);
+
+        assertEquals(
+                "https://example.com/releases/42?view=summary",
+                link.resourceReference());
+    }
+
+    @Test
+    void rejectsUnsafeExternalUrlsAndControlCharacters() {
+        WorkItemDomainFixture fixture = WorkItemDomainFixture.create();
+
+        for (String reference : new String[] {
+                "javascript:alert(1)",
+                "/relative/path",
+                "https://user:secret@example.com/private",
+                "https://example.com/path\nheader"
+        }) {
+            DomainValidationException failure = assertThrows(
+                    DomainValidationException.class,
+                    () -> WorkItemResourceLink.link(
+                            WorkItemResourceLinkId.generate(),
+                            fixture.nativeWorkItem(),
+                            WorkItemResourceType.EXTERNAL_URL,
+                            reference,
+                            Optional.empty(),
+                            fixture.owner,
+                            WorkItemDomainFixture.CREATED_AT));
+
+            assertEquals(
+                    "workItemResourceLink.resourceReference",
+                    failure.error().details().get("field"));
+        }
+    }
+
+    @Test
     void rejectsCreatorOutsideWorkItemScope() {
         WorkItemDomainFixture fixture = WorkItemDomainFixture.create();
         Principal outside = WorkItemDomainFixture.activeUser(

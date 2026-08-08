@@ -13,6 +13,8 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemScope;
+import io.crewscope.domain.workitem.WorkItemKey;
+import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.ArrayList;
@@ -131,6 +133,27 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
         return findEntity(
                         Objects.requireNonNull(organizationId, "organizationId"),
                         Objects.requireNonNull(id, "id"))
+                .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<WorkItem> findByKey(
+            OrganizationId organizationId, WorkProjectId projectId, WorkItemKey key) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT item FROM WorkItemEntity item
+                        WHERE item.organizationId = :organizationId
+                          AND item.projectId = :projectId
+                          AND item.itemKey = :itemKey
+                        """,
+                        WorkItemEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("projectId", Objects.requireNonNull(projectId).value())
+                .setParameter("itemKey", Objects.requireNonNull(key).value())
+                .getResultStream()
+                .findFirst()
                 .map(mapper::toDomain);
     }
 

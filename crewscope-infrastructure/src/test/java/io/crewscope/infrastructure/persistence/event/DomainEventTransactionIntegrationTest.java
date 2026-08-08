@@ -155,13 +155,14 @@ class DomainEventTransactionIntegrationTest
         assertEquals(CORRELATION_ID, event.get("correlation_id"));
         assertEquals(CAUSATION_ID, event.get("causation_id"));
         assertEquals("create-atomic-1", event.get("idempotency_key"));
-        assertEquals(
-                objectMapper.readTree(
-                        """
-                        {"projectId":"%s","itemKey":"CRW-100",\
-                        "title":"Atomic transaction baseline","status":"BACKLOG"}
-                        """.formatted(fixture.projectId())),
-                objectMapper.readTree((String) event.get("payload")));
+        var payload = objectMapper.readTree((String) event.get("payload"));
+        assertEquals(fixture.projectId().toString(), payload.get("projectId").asText());
+        assertEquals("CRW-100", payload.get("itemKey").asText());
+        assertEquals("Atomic transaction baseline", payload.get("title").asText());
+        assertEquals("BACKLOG", payload.get("status").asText());
+        // The pre-M1 compatibility service deliberately does not enter the production Owner flow.
+        assertTrue(payload.get("initialOwnerAssignmentId").isNull());
+        assertTrue(payload.get("initialOwnerPrincipalId").isNull());
         assertEquals(event.get("event_id"), outbox.get("domain_event_id"));
         assertEquals(PendingOutboxEvent.DOMAIN_EVENTS_TOPIC, outbox.get("topic"));
         assertEquals(
@@ -309,7 +310,9 @@ class DomainEventTransactionIntegrationTest
                         fixture.projectId().value(),
                         "CRW-102",
                         "Mandatory",
-                        WorkItemStatus.BACKLOG));
+                        WorkItemStatus.BACKLOG,
+                        Optional.empty(),
+                        Optional.empty()));
 
         assertThrows(IllegalTransactionStateException.class, () -> domainEventStore.append(event));
         assertThrows(
