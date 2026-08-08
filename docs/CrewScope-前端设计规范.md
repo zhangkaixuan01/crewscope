@@ -56,6 +56,20 @@ Control Mode ─────── Command / Query ──┘
 
 AG-UI 展示增量输出，领域 Query 展示最终事实。页面在接收 Command Receipt 后等待目标投影追上 `domainEventId/committedVersion`，随后清理 optimistic state。
 
+### 2.4 能力成熟度与预览语义
+
+界面中的业务状态、执行状态和交付证据必须来自已接入的服务端事实。页面不得使用演示数据模拟真实 Conversation、TaskIntent、TaskExecution、AgentRun、工具调用或制品结果。
+
+尚未接入的能力统一使用“原型预览”或“规划中”语义，并同时满足以下要求：
+
+- 在页面主要状态区直接标明能力阶段，不只在局部显示“演示数据”；
+- 使用“交互蓝图”“计划示例”“预期证据”等静态说明，不使用“执行中”“运行中”“已完成”等实时状态；
+- 不展示运行 ID、完成比例、耗时、文件变更数、测试结果和在线 Agent 等可能被理解为真实事实的数据；
+- 所有按钮明确说明当前是否产生服务端命令或外部副作用；
+- 接入真实能力后，以领域 Query、AG-UI 事件、Command Receipt 和持久化 Artifact 替换预览内容。
+
+M1 的 Conversation 页面属于 M2 交互蓝图，只负责验证双入口、Scope 与 Focus 联动，不创建或暗示已创建 Conversation、TaskIntent、TaskExecution 和 AgentRun。
+
 ## 3. 信息架构
 
 ### 3.1 全局框架
@@ -78,6 +92,19 @@ AppShell
 
 导航分组随权限裁剪，URL 始终保留当前 Team 和目标对象。对话入口在所有工作页面可见。
 
+M1-F01 固化首批管理路由：
+
+```text
+/today        当前 Team/WorkProject 的当日工作入口
+/work         WorkProject 范围与后续 WorkItem 管理入口
+/team/members Team Membership 管理
+/control      保留 Query 并兼容跳转到 /today
+```
+
+`team` 与 `project` Query 使用服务端 UUID。Scope Store 按 Team → WorkProject 顺序恢复范围；未知范围回落到第一个可访问对象并替换为规范 URL。切换 Team 清除旧 Project 与 Focus，切换 Project 保留当前页面。Conversation 与管理入口复用完整范围 Query。
+
+路由守卫和按钮权限来自当前会话，只负责裁剪界面和给出明确的 Access Denied 反馈。所有资源读取和命令继续由服务端执行 Membership、Role Scope 与 Principal 校验。
+
 ### 3.2 页面模板
 
 | 模板 | 适用页面 | 结构 |
@@ -97,6 +124,34 @@ AppShell
 - Timeline：展示执行、协作、Review、动作和审计顺序。
 
 M1 交付 List 与 Board，Table 随字段体系稳定后交付，WorkGraph 和执行 Timeline 按对应里程碑交付。
+
+### 3.4 M1 WorkItem Collection 契约
+
+M1-F02 的 `/work` 以当前 Team/WorkProject 为集合范围，List 与 Board 共享 `WorkItemStore` 和 `WorkItemCard`。List 用于紧凑扫描，Board 按 Status 分列并在窄屏横向滚动。集合通过显式“加载更多”消费服务端不透明 Cursor，不推断总数和页码。
+
+URL 使用 `view/status/type/priority` 保存可分享视图。状态筛选进入服务端 Query；A05 尚未提供类型和优先级参数，因此两者只筛选当前已加载集合，续页数据进入后再次应用。缺失或非法值规范化为 `list/all/all/all`，规范化在 Team/WorkProject 恢复完成后执行。
+
+创建表单提交 Native WorkItem Command，客户端只发送业务字段和 `Idempotency-Key`。创建者、Owner、权限和 Scope 事实由服务端解析。收到 Receipt 后刷新集合，不使用客户端构造对象冒充已提交事实。
+
+创建表单的 WorkItem Key 仅根据当前已加载集合给出可编辑建议。Cursor 尚未加载完整时客户端不保证建议值全局可用，服务端项目范围唯一约束负责最终裁决；后续可由专用 Key Suggestion API 替代本地建议。
+
+### 3.5 M1 WorkItem Detail 契约
+
+M1-F03 使用 `workItem={UUID}` 控制详情抽屉，使用 `focus={WorkItem Key}` 在 Conversation 与 Control Mode 之间共享对象上下文。卡片打开详情时同时写入两项；关闭详情只清除 `workItem`；Team 或 WorkProject 切换清除两项。
+
+详情从 A05 一次读取 WorkItem、Comment 和 ResourceLink 一致性快照。状态迁移使用详情版本作为强 `If-Match`，收到 Receipt 后刷新详情和集合。评论与资源命令成功后刷新详情，不用客户端临时对象替代服务端事实。`409 optimistic_lock_conflict` 触发详情回读，并同时展示提交版本和服务端当前版本。
+
+详情抽屉是模态对象视图：打开后移动焦点、约束 Tab、支持 Escape、锁定背景滚动，关闭后把焦点恢复到发起卡片。桌面从右侧覆盖，窄屏占满可用宽度。外部 Provider WorkItem 的状态由来源系统管理；非归档对象仍可追加 CrewScope 评论和 ResourceLink。
+
+### 3.6 M1 Responsibility 与 Timeline 契约
+
+M1-F04 在详情打开时并行读取 A06 ACTIVE ResponsibilityAssignment 和 A07 第一屏业务时间线。详情、责任链、时间线分别维护 Loading、Empty、Error 和 Ready 状态；对象切换或抽屉关闭后，旧请求不能回写当前视图。时间线使用专用不透明 Cursor，续页按 `eventId` 去重，失败保留已展示活动。
+
+责任组件直接消费服务端 DTO。Owner 替换同时提交当前 Assignment ID 与 Version；Executor/Reviewer 释放使用 Assignment Version 的强 `If-Match`。`REVIEWER + USER` 表达 Gate Reviewer，`REVIEWER + SPECIALIST_AGENT` 表达无 Gate 效力的 Advisory Reviewer。前端只提示明显的 Owner/Executor 职责冲突，ReviewerEligibilityPolicy 与 PolicyPack 降级由服务端裁决。
+
+人类候选来自 ACTIVE TeamMember。A06 尚未提供 Agent 目录查询，M1 使用折叠的高级 Principal ID 输入，不构造模拟 Agent。WorkItem 列表契约也未返回责任摘要，M1 在详情展示完整责任；卡片的 Owner/Executor 摘要等待集合 Query 提供批量投影后交付，避免逐卡 N+1 请求。
+
+“与 Personal Agent 讨论”保留对象与 Scope Query 进入 Conversation。“交给 Agent 处理（规划中）”只说明后续 TaskExecution 接入，不创建客户端假任务或虚假运行状态。
 
 ## 4. 视觉身份
 
@@ -159,7 +214,8 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 |---|---|---|
 | `ResponsibilityChain` | 角色、主体、有效期、来源、冲突和待接手状态 | WorkItem、Task、Review、Handoff |
 | `AgentPresence` | Agent 类型、状态、当前步骤、模型/Runtime、接管入口 | 对话、执行画布、团队首页 |
-| `WorkItemCard` | Key、目标、状态、Owner、Executor、风险、证据 | 列表、看板、对话引用 |
+| `WorkItemCard` | M1-F02：Key、目标、状态、类型、优先级、标签、Due Date；责任摘要等待集合批量投影，避免逐卡 N+1 | 列表、看板、对话引用 |
+| `WorkItemDetailDrawer` | 一致性详情、版本、合法迁移、评论、ResourceLink、责任链、时间线、并发冲突和 Personal Agent 跳转 | WorkItem List/Board 详情 |
 | `TaskTimeline` | PlanVersion、Step、Tool、等待、恢复、耗时和成本 | Task 详情、执行抽屉 |
 | `ReviewGateCard` | Reviewer、资格、检查项、Finding、Decision | Inbox、对话、WorkItem 详情 |
 | `ActionReceiptCard` | 动作、风险、确认人、外部回执、对账状态 | 对话、Task、Audit |

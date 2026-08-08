@@ -4,7 +4,7 @@
 > 前置条件：M0 Release Gate 通过<br>
 > 目标周期：2 周<br>
 > 目标结果：成员可以创建 Team、WorkProject、WorkItem，并建立 Owner、Executor、Gate Reviewer 责任链<br>
-> 当前进度：`M1-A01`–`M1-A07` 已完成提交前审查，下一项 `M1-F01`（2026-08-08）
+> 当前进度：M1 全部完成，下一里程碑 `M2` Conversation 与 Personal Agent（2026-08-08）
 
 ## 1. 出口结果
 
@@ -210,16 +210,16 @@ M1 Repository Port 统一读取 DomainEvent 和 AuditEvent。DomainEvent 与其 
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M1-F01` | FEATURE | A01,A03 | web | 实现 ScopeSwitcher、Today/Work 导航、Team/WorkProject 切换、成员管理视图和权限守卫 | Store/组件测试、URL 状态恢复、响应式与未授权跳转测试 |
-| `M1-F02` | FEATURE | A04,A05,F01 | web | 实现 WorkItem 创建、筛选、List/Board 视图和共享 WorkItemCard；视图状态进入 URL | Vitest 与 Playwright 覆盖创建、Cursor、视图切换、筛选恢复和看板分组 |
-| `M1-F03` | FEATURE | A04,A05,F02 | web | 实现 WorkItem 详情模板、详情抽屉、状态迁移、评论、ResourceLink 和 Conversation 占位跳转 | 版本冲突、键盘/Focus、评论、深链接和详情刷新测试 |
-| `M1-F04` | FEATURE | A06,A07,F03 | web | 实现 ResponsibilityChain、Owner/Executor/Reviewer 分配、资格提示、时间线及“与 Personal Agent 讨论/交给 Agent 处理”占位入口 | 责任分配、职责分离提示、冲突刷新、Timeline Cursor 和组件状态测试 |
+| `M1-F01` | FEATURE | A01,A03 | web | 实现 ScopeSwitcher、Today/Work 导航、Team/WorkProject 切换、成员管理视图和权限守卫 | [Scope 与团队管理前端](../testing/M1-F01-Scope与团队管理前端.md)，23 个 Vitest 与 8 个 Playwright 场景覆盖 API Gateway、Store、URL 恢复、范围切换、异步竞态、成员视图、权限跳转、OIDC CSRF 和桌面/窄屏视觉基线 |
+| `M1-F02` | FEATURE | A04,A05,F01 | web | 实现 WorkItem 创建、筛选、List/Board 视图和共享 WorkItemCard；视图状态进入 URL | [WorkItem 集合前端](../testing/M1-F02-WorkItem集合前端.md)，30 个 Vitest 与桌面/窄屏 14 次 Playwright 执行覆盖真实 API Gateway、创建刷新、Cursor 去重、视图切换、筛选恢复、看板分组和跨 Scope 竞态 |
+| `M1-F03` | FEATURE | A04,A05,F02 | web | 实现 WorkItem 详情模板、详情抽屉、状态迁移、评论、ResourceLink 和 Conversation 占位跳转 | [WorkItem 详情与协作前端](../testing/M1-F03-WorkItem详情与协作前端.md)，40 个 Vitest 与桌面/窄屏 20 次 Playwright 执行覆盖强版本前置条件、冲突刷新、评论、ResourceLink、键盘/Focus、深链接和 Conversation 跳转 |
+| `M1-F04` | FEATURE | A06,A07,F03 | web | 实现 ResponsibilityChain、Owner/Executor/Reviewer 分配、资格提示、时间线及“与 Personal Agent 讨论/交给 Agent 处理”占位入口 | [责任链与时间线前端](../testing/M1-F04-责任链与时间线前端.md)，55 个 Vitest 与桌面/窄屏 24 次 Playwright 执行覆盖 Owner ABA 期望、Assignment ETag、职责分离提示、冲突刷新、Timeline Cursor 去重和 Agent 占位边界 |
 
 ## 6. 质量与验收
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M1-Q01` | HARDENING | 全部 | 全模块 | 建立 M1 纵向 E2E、权限矩阵、并发约束、迁移回归、视觉回归、可访问性和竞品非雷同检查 | 干净环境创建 Team 到责任完整 WorkItem 的流程通过，关键截图和设计差异记录归档 |
+| `M1-Q01` | HARDENING | 全部 | 全模块 | 建立 M1 纵向 E2E、权限矩阵、并发约束、迁移回归、视觉回归、可访问性和竞品非雷同检查 | [M1 Release Gate](../testing/M1-Q01-Release-Gate.md) 十二项验收全部通过；真实 PostgreSQL 纵向链路、405 个后端测试、55 个前端测试、32 次浏览器执行、Axe WCAG 扫描、6 份 M1 视觉基线及[竞品差异审查](../reviews/M1-Q01-前端竞品差异与可访问性审查.md)归档 |
 
 M1-Q01 至少覆盖：
 

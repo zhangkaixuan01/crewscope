@@ -1,9 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.3<br>
+> 文档版本：v1.4<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
-> 首个目标：团队对话到同级 Review 再到 GitHub Draft PR
+> 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
+> 当前进度：M0、M1 已完成，下一里程碑为 M2 Conversation 与 Personal Agent（2026-08-08）
 
 ## 1. 实施目标
 
@@ -38,20 +39,22 @@ CrewScope 首个可用版本交付一条完整闭环：
 
 ### 2.1 已具备
 
-- 六个后端 Maven 模块与 Vue 前端工程；
+- 七模块 Maven Reactor 与 Vue 前端工程；
 - Java 17、Spring Boot 4.0.4 和 AgentScope Java 2.0.0 BOM；
 - AgentScope Harness、AG-UI、OpenAI Starter、Redis 与可选 Kubernetes Sandbox 依赖；MVP 实际使用 Harness 内置 Docker Sandbox；
 - PostgreSQL、Redis 与 Docker Compose；
-- Organization、Team、Workspace、WorkProject、WorkItem、DomainEvent 和 Outbox 首版表；
-- WorkItem 基础领域状态机与单元测试；
+- Organization、Principal、Team、TeamMember、Workspace、AgentProfile、WorkProject、WorkItem、Responsibility、DomainEvent、Outbox、Audit 与 CommandReceipt 持久化基线；
+- Team 创建、默认 Workspace、默认 Personal Agent、成员加入、Bootstrap/OIDC 身份映射和 Scope 权限边界；
+- Native WorkItem、评论、ResourceLink、责任链、ReviewerEligibilityPolicy、Timeline、幂等命令和并发控制；
 - AgentRuntime、CapabilityProvider 与三个内置 Provider 描述符；
-- Spring Security 开发环境基础认证；
-- Maven 后端验证与 pnpm 前端构建 CI。
+- Spring Security Bootstrap/OIDC 双模式与 Spring Application Configuration 分业务装配；
+- Conversation/Control 双入口、ScopeSwitcher、Today、Work List/Board、成员管理、WorkItem 详情、责任链和 Timeline Web；
+- Maven、Vitest Coverage、Histoire、Playwright、视觉回归、Axe WCAG 和文档检查组成的 Release Gate。
 
-### 2.2 待实现
+### 2.2 M2 及后续待实现
 
-- 领域对象的 PostgreSQL Repository 适配器与事务边界；
-- TeamMember、Principal、Conversation、Responsibility、TaskExecution、Review 和 Action 领域；
+- Conversation、Participant、Message、ConversationTaskLink、Agent Session、Provider Binding 与 TaskIntent；
+- TaskExecution、Review、Action 和团队观察领域；
 - 真实 AgentScope Agent 创建、调用、事件、中断和恢复；
 - TaskExecution Claim、ExecutionLease、Heartbeat、Retry 和 Recovery；
 - Task Token 与凭证换取；
@@ -266,10 +269,11 @@ flowchart LR
 
 #### 前端
 
-- Team/WorkProject ScopeSwitcher、Today 与 Work 管理导航；
-- WorkItem List/Board、筛选、详情抽屉和 URL 状态恢复；
-- ResponsibilityChain 展示 Owner、Executor、Reviewer 及其分配规则；
-- 评论、状态历史和“与 Personal Agent 讨论/交给 Agent 处理”占位入口；
+- Team/WorkProject ScopeSwitcher、Today 与 Work 管理导航；M1-F01 已交付真实 A01/A03 API Gateway、URL 范围恢复、成员管理与权限守卫，验证见[Scope 与团队管理前端](testing/M1-F01-Scope与团队管理前端.md)；
+- WorkItem List/Board、筛选、详情抽屉和 URL 状态恢复；M1-F02 已交付真实 A04/A05 API Gateway、Native WorkItem 创建、Cursor、List/Board、共享 WorkItemCard 与 URL 视图状态，验证见[WorkItem 集合前端](testing/M1-F02-WorkItem集合前端.md)；
+- M1-F03 已交付 WorkItem 一致性详情、状态迁移、评论、ResourceLink、版本冲突刷新、详情深链接与 Conversation 对象级跳转，验证见[WorkItem 详情与协作前端](testing/M1-F03-WorkItem详情与协作前端.md)；
+- M1-F04 已交付 ResponsibilityChain、Owner/Executor/Gate/Advisory 分配与释放、资格提示、冲突刷新、业务时间线和 Personal Agent/执行占位入口，验证见[责任链与时间线前端](testing/M1-F04-责任链与时间线前端.md)；
+- 评论、状态历史和责任活动统一进入 WorkItem 详情观察面；
 - 桌面/窄屏响应式、键盘操作、视觉回归与竞品差异检查。
 
 ### 7.3 验收
@@ -739,9 +743,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M0 执行清单](plans/M0-工程与数据基线.md)：20 个 SPIKE/TASK/HARDENING，覆盖 AgentScope 验证、数据库、事件、Artifact、Credential、API、前端和 CI；
 - [M1 执行清单](plans/M1-Team与WorkItem.md)：20 个 TASK/FEATURE/HARDENING，覆盖 Team、Personal Agent、WorkItem、责任、API、OIDC、前端和 E2E。
 
-执行顺序优先完成 M0 的 AgentScope/Docker Spike、Testcontainers 和领域基础。`S`、`D/E`、`I` 工作流并行推进，M0-Q01 汇总 Release Gate。M1 在 M0 验收后启动，领域与数据库优先，API 和前端基于稳定契约并行。
+M0 与 M1 已通过各自 Release Gate。M2 从 Conversation、Message、Personal Agent Session 和 Provider Binding 的领域与迁移开始，API 与对话前端基于稳定契约并行推进。
 
-M0 与 M1 完成后进入对话与 AgentScope 实施。M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
+M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 
 ## 19. 项目管理与进度跟踪
 

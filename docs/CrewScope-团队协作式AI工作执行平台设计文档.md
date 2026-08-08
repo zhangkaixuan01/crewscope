@@ -3182,6 +3182,10 @@ Web 产品采用“对话执行入口 + 管理控制入口”，两个入口操�
 
 桌面端使用可折叠主导航、中央主工作区和上下文抽屉。上下文抽屉根据页面显示责任链、Agent 状态、Task Timeline、Review Gate、Action Receipt 或 Artifact。对话执行页可扩展为多面板工作台；日常管理页保持主列表与详情抽屉的稳定结构。页面、筛选、视图、选中对象和抽屉状态进入 URL，支持分享与恢复。
 
+M1 的管理入口使用 `/today`、`/work` 和 `/team/members`，`/control` 只作为保留 Query 的兼容跳转。`team` 与 `project` Query 保存稳定 UUID；Scope Store 先读取当前账号可访问的 Team，再读取选中 Team 的 WorkProject，并把无效或缺失范围规范化为第一个可访问范围。Team 切换清除不兼容的 Project 与 Focus，Project 切换保留当前入口。Conversation 与管理入口共享完整 Query，因此成员可以带着同一 Team、WorkProject 和 Focus 在两种工作模式之间切换。
+
+前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。Bootstrap 前端身份从环境读取 Organization/Principal ID；OIDC Session API 进入后替换该开发边界，不改变 Scope Store 与路由契约。
+
 ### 18.12 CrewScope 视觉语言
 
 CrewScope 的视觉身份表达可靠协作、持续执行和责任透明：
