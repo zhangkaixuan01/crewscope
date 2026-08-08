@@ -292,6 +292,7 @@ Personal Agent、Team Agent、Task Orchestrator、Coding Specialist 和 Reviewer
 | `ActivityEvent` | 面向团队协作的可读活动时间线事件 |
 | `Conversation` | 成员与 Agent 的私有或共享持续会话 |
 | `Message` | 文本、多模态内容、任务卡片、确认卡片和系统事件 |
+| `ConversationWorkItemLink` | Conversation 与已建档 WorkItem 的稳定关联 |
 | `ConversationTaskLink` | Conversation 与 Task 的多对多关联 |
 | `TaskDefinition` | 可选的版本化任务模板和步骤图 |
 | `Task` | Agent 为用户执行的一次具体目标 |
@@ -337,6 +338,10 @@ TEAM
 ```
 
 CrewScope Workspace 是产品中的成员与团队工作边界。AgentScope `Workspace` 是 Agent 运行时访问文件和制品的抽象。`AgentRuntimeSession` 把产品 Workspace 映射到隔离的 AgentScope Workspace、Sandbox 和 Artifact 路径。
+
+Conversation 级 `AgentRuntimeSession` 由 Organization、TeamMember、Personal Agent、AgentProfile、Workspace 和 Conversation 服务端事实共同建立。Session ID 从 Conversation、TeamMember 和 Personal Agent 的规范 UUID 确定性派生；应用层在事务内执行 `initializeIfAbsent`，数据库通过唯一约束裁决并发初始化。Repository 返回的既有 Session 必须重新与当前服务端事实闭合校验，客户端提交的 Agent、Thread、Session 或状态引用不能参与绑定。
+
+Session 保存 AgentProfile 配置版本、版本化 AgentScope `userId/sessionId`、外部 Agent State 引用、ACTIVE/DISABLED/ARCHIVED 生命周期、乐观锁版本与审计元数据。DISABLED 保留原状态槽以支持恢复；重新启用与配置刷新必须重新解析当前 ACTIVE Personal Agent；ARCHIVED 仅在 Conversation 已归档后进入并保持终态。AgentScope Key 和状态引用在生命周期内保持不变，防止恢复到其他成员、Team 或 Conversation 的运行态。
 
 MVP 为每个 TeamMember 创建一个默认 Personal Agent，而不是为同一用户创建一个跨所有 Team 的全局执行身份。Personal Agent Principal 使用当前 Team Scope、成员 USER Principal 作为 Owner，并保持 PRIVATE 可发现性；AgentProfile 绑定该 TeamMember 和 Team Workspace。这样同一用户加入不同 Team 时拥有隔离的 Agent 身份、权限、ProviderBinding 和审计链，同时仍由同一个 USER Principal 统一承担最终责任。
 
@@ -567,7 +572,7 @@ Coding Agent 使用范围化文件、Shell、Git 和构建工具。推送分支�
 2. 目标需要后台运行、两个以上步骤、工具写入或暂停恢复时创建 Task；
 3. 目标需要 Owner、期限、团队可见性、多人参与或正式交付时创建 WorkItem；
 4. Agent 提出升级建议，成员确认目标、Owner、Reviewer、可见性和 ProviderBinding；
-5. Conversation 继续作为 Task 和 WorkItem 的对话入口，历史关联由 ConversationTaskLink 与 WorkGraph 保存。
+5. Conversation 继续作为 Task 和 WorkItem 的对话入口，历史关联由 ConversationWorkItemLink、ConversationTaskLink 与 WorkGraph 保存。
 
 ### 4.7 步骤类型
 
@@ -836,6 +841,16 @@ Lark Plugin
 ```
 
 ProviderBinding 保存所有者类型、Provider 类型、实现版本、Connection、执行身份、资源范围和默认用途。Binding Resolver 按动作所需执行身份解析：Action 显式绑定、Task 显式绑定、WorkProject 绑定、当前执行身份对应的 Team/Personal Workspace 绑定、Organization 默认绑定。
+
+Provider 领域契约按以下事实分层：
+
+- `ProviderDefinition` 保存 Organization、稳定 Key、ProviderType、接口版本和标准能力全集；
+- `ProviderImplementation` 绑定精确 Definition 与接口版本，只能声明 Definition 能力子集，并明确 `NONE/REQUIRED` Connection 要求和 Connector Key；
+- `Connection` 保存 USER、TEAM 或 ORGANIZATION 外部身份所有权、Connector、外部账户引用、Credential 引用、有效期和 ACTIVE/SUSPENDED/REVOKED/EXPIRED 生命周期；
+- `ConnectionGrant` 保存 Connection Owner 向明确 Grantee 授予的能力、资源、有效期和撤销事实；Organization 可向同组织 Team 或 USER 下放，Team 与 USER 不能向其他 Owner 扩权；
+- `ProviderBinding` 保存 Team Workspace 或 WorkProject 目标、Binding Owner、Definition/Implementation/Connection/Grant ID 与版本、执行身份、授权交集、默认用途和 ACTIVE/DISABLED/ARCHIVED 生命周期。
+
+外部 Provider 的 Binding 能力必须属于 Implementation 能力，并与当前 ConnectionGrant 的能力和资源取非空交集。Native Provider 使用 connectionless Binding，不保存 Connection、Grant 或外部执行身份。Binding 读取时重新校验所有固化 ID、版本与实时状态；Definition/Implementation 变更、Connection/Grant 撤销或过期立即使 Candidate 失效，不等待 Binding 状态异步更新。
 
 选择顺序只处理默认值优先级，不把用户级、团队级和组织级身份互相替换。最终 Binding 必须位于当前主体、责任、ConnectionGrant、PolicySnapshot、SafetyEnforcementOverlay 和目标资源的权限交集内。相同优先级出现多个匹配项时拒绝执行并要求用户选择，任何显式绑定都无法扩大授权范围。解析结果固化 ProviderBinding、ConnectionGrant、Credential Subject 和资源范围，写入 PolicySnapshot 与 ActionDigest。
 
@@ -1151,6 +1166,8 @@ ORGANIZATION_SERVICE_ACCOUNT
 
 每次 ToolCall 和 PlannedAction 保存发起成员、执行 Agent、ProviderBinding、Credential Subject、确认人和审批人。
 
+Conversation、Participant、TaskIntent、AgentRuntimeSession 和 ProviderBinding 的可变事实使用 Organization、Team、Workspace 与 Aggregate ID 组成完整持久化更新谓词。乐观锁失败后的实际版本查询使用同一 Scope：作用域内的并发写入返回版本冲突，Scope 不匹配返回资源不可见。ProviderDefinition、ProviderImplementation、Connection 和 ConnectionGrant 使用 Organization Scope。
+
 ### 6.4 团队实时协作协议
 
 AG-UI 提供单次 AgentRun 流式事件。Team Realtime Gateway 提供共享工作对象事件：
@@ -1420,6 +1437,10 @@ TaskResultSummaryV1
 ```
 
 AgentScope 使用模型原生 JSON Schema；模型能力缺少原生支持时使用合成 `generate_response` 工具。CrewScope 对结果执行 Bean Validation、业务规则和 PolicyPack 校验。
+
+M2 的 `TaskIntentV1` 固定 `schemaVersion=1`，包含 Objective、Acceptance Criteria、WorkProjectId、OwnerMemberId、可选 ExecutorPrincipalId 和可选 GateReviewerMemberId。`ClarificationRequestV1` 固定 `schemaVersion=1`，包含 Summary 与 1–10 个具有稳定 FieldKey、问题、上下文、Required 和候选选项的问题。结构化输出中的 ID 只是候选引用；服务端必须重新解析 WorkProject、Principal、TeamMember、Scope 和 ReviewerEligibilityPolicy，模型不能声明身份类型、成员状态或职责分离结果。
+
+TaskIntent 以 Proposal Revision 区分内容版本，以 Aggregate Version 承担乐观并发。生命周期为 `DRAFT -> READY -> CONFIRMED`，DRAFT/READY 可以修订后回到 DRAFT，也可以进入 REJECTED/EXPIRED；三个终态不可逆。CONFIRMED 只能由提案中的人类 Owner 作出，最终迁移与 WorkItem、责任关系、ConversationWorkItemLink、DomainEvent、Outbox 和 CommandReceipt 在同一事务提交。
 
 ### 8.2 Plan Mode
 
@@ -2300,6 +2321,12 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `team_member_role` | TeamRole、作用范围、授予人、有效期和状态 |
 | `workspace` | `PERSONAL/TEAM`、所有者、名称、默认 Agent、配额、可见性和状态 |
 | `agent_profile` | `PERSONAL/TEAM/SPECIALIST`、所有者、模型、Prompt、能力、Memory 和版本 |
+| `conversation` | Team Workspace、Owner、Personal Agent、可见性、消息序号、生命周期和审计 |
+| `conversation_participant` | Conversation 内 USER/Agent 身份、角色、加入/离开边界和 active 唯一性 |
+| `message` | 单调序号、作者参与事实、Markdown、客户端幂等键和撤回/脱敏状态 |
+| `task_intent` | 目标 WorkProject、目标、验收标准、责任提案、修订、决策和确认 WorkItem |
+| `conversation_work_item_link` | Conversation 与同 Scope WorkItem 的稳定双向关联和来源 |
+| `agent_runtime_session` | Conversation、Personal Agent、AgentProfile 版本快照、AgentScope Key 和状态引用 |
 | `plugin_definition` | Manifest、版本、签名、来源、依赖和发布状态 |
 | `plugin_installation` | 安装范围、配置、版本、状态和升级策略 |
 | `provider_definition` | Provider 类型、接口版本、标准资源、命令和 Tool Schema |
@@ -2308,6 +2335,12 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `connector_definition` | 认证方式、API Operation、Webhook、Event 和网络要求 |
 | `connection` | 所有者类型、Workspace、外部实例、外部身份、凭证引用和健康状态 |
 | `connection_grant` | OAuth Scope、资源范围、用途、有效期和撤销状态 |
+
+V7 为 Conversation、Participant、Message、TaskIntent、ConversationWorkItemLink、AgentRuntimeSession、ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 建立真实数据表。所有 Team 业务关系使用 Organization、Team、Workspace 复合外键；Provider 授权关系使用 Organization、Owner、Definition、Implementation、Connection 和 Grant 复合外键。消息序号、客户端消息键、active Participant、active AgentRuntimeSession、确认 WorkItem 和 active 默认 Binding 由唯一约束完成并发裁决。
+
+AgentRuntimeSession 和 ProviderBinding 保存依赖聚合的版本快照。数据库外键约束稳定身份和 Scope，不把快照版本引用到可变聚合的当前版本；AgentProfile、ProviderDefinition、ProviderImplementation、Connection 或 ConnectionGrant 可以正常推进版本，读取 Session 或 Binding 时由服务端比较快照与当前版本并失败关闭。
+
+M2 持久化适配使用标量 UUID Entity 和显式 Organization、Team、Workspace 查询条件，不建立可隐式跨 Scope 导航的 ORM 关联。可变聚合通过版本条件原子更新；消息追加先锁定 Conversation 行再分配序号；TaskIntent 确认同时写入唯一 WorkItem 关联并要求数据库当前状态仍为 READY；AgentRuntimeSession 初始化锁定 Conversation 并将所有并发候选收敛为同一已提交绑定。Conversation 与 Message 列表使用 Keyset 分页，ProviderBinding 候选查询只返回当前 Scope、Owner、ProviderType 和目标层级内的 ACTIVE 事实，优先级与歧义裁决由只读 BindingResolver 完成。
 
 M1 的 `agent_profile` 保存 Organization、Team、Team Workspace、Agent Principal、Owner TeamMember、类型、默认标记、状态、版本和审计字段。一个 Agent Principal 只对应一个 Profile；每个 TeamMember 最多存在一个 active 默认 Personal Profile。模型、Prompt、Tool、Skill、Memory 与 Policy 配置在 M2 扩展。
 
@@ -2384,7 +2417,9 @@ ARTIFACT_CARD
 ERROR_NOTICE
 ```
 
-`conversation_task_link`：Conversation 与 Task 的关联原因、创建消息、主任务标记和可见性。
+`conversation_work_item_link`：Conversation 与 WorkItem 的关联来源、创建人和完整 Team/Workspace Scope；M2 使用稳定 Conversation/WorkItem Pair ID 保证重试一致。
+
+`conversation_task_link`：Conversation 与 Task 的关联原因、创建消息、主任务标记和可见性；随 M3 Task 聚合建立受约束关联。
 
 ### 14.6 任务数据
 

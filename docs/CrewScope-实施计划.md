@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1 已完成，下一里程碑为 M2 Conversation 与 Personal Agent（2026-08-08）
+> 当前进度：M0、M1 已完成；M2-D01 至 M2-D07 已完成，下一项为 M2-S01（2026-08-08）
 
 ## 1. 实施目标
 
@@ -53,7 +53,7 @@ CrewScope 首个可用版本交付一条完整闭环：
 
 ### 2.2 M2 及后续待实现
 
-- Conversation、Participant、Message、ConversationTaskLink、Agent Session、Provider Binding 与 TaskIntent；
+- Conversation、Participant、Message、ConversationWorkItemLink、ConversationTaskLink、Agent Session、Provider Binding 与 TaskIntent；
 - TaskExecution、Review、Action 和团队观察领域；
 - 真实 AgentScope Agent 创建、调用、事件、中断和恢复；
 - TaskExecution Claim、ExecutionLease、Heartbeat、Retry 和 Recovery；
@@ -298,7 +298,7 @@ flowchart LR
 
 #### 对话领域
 
-- Conversation、Participant、Message 和 ConversationTaskLink；
+- Conversation、Participant、Message 和 ConversationWorkItemLink；
 - Personal/Team 可见性和消息游标；
 - ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 最小模型与只读 BindingResolver；
 - `V7__conversation_agent_and_provider_binding.sql`；
@@ -326,6 +326,8 @@ flowchart LR
 - 用户确认后创建 WorkItem 与责任关系；
 - WorkItem 详情页与 Conversation 互相跳转。
 
+M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的真实关联。`ConversationTaskLink` 随 M3 的 Task 聚合一起建立，V7 不保存缺少 Task 外键约束的悬空关联。
+
 ### 8.3 测试
 
 - 使用可控测试 Model 或录制 Fixture 验证 AgentScope 事件映射；
@@ -352,6 +354,7 @@ flowchart LR
 ### 9.2 数据模型
 
 - Task 业务生命周期、TaskExecution 执行尝试、StepExecution 和 PlanVersion；
+- ConversationTaskLink，将已有 Conversation 与 M3 Task 建立受外键约束的多对多关联；
 - ExecutionRuntime、RuntimeWorker 和 RuntimeCapabilities；
 - TaskExecution 级 ExecutionLease、TaskCredentialGrant 和 AgentRuntimeSession；
 - AgentRun、AgentInterrupt 和 AgentStateSnapshot；
@@ -615,8 +618,8 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V4__outbox_publication_lease.sql` | Outbox Claim 租约、状态约束、投递索引和消费回执 | M0 |
 | `V5__command_receipt.sql` | 组织内命令幂等占位、Request Hash 和持久化 Command Receipt | M0 |
 | `V6__team_work_and_responsibility.sql` | WorkItem 扩展、Comment、ResourceLink、ResponsibilityAssignment、AgentProfile | M1 |
-| `V7__conversation_agent_and_provider_binding.sql` | Conversation、Participant、Message、ConversationTaskLink、Agent Session、Provider/Connection/Binding 最小模型 | M2 |
-| `V8__durable_task_runtime.sql` | Task、TaskExecution、StepExecution、PlanVersion、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
+| `V7__conversation_agent_and_provider_binding.sql` | Conversation、Participant、Message、ConversationWorkItemLink、TaskIntent、Agent Session、Provider/Connection/Binding 最小模型 | M2 |
+| `V8__durable_task_runtime.sql` | Task、ConversationTaskLink、TaskExecution、StepExecution、PlanVersion、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
 | `V9__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
 | `V10__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
 | `V11__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
@@ -741,9 +744,10 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 详细任务位于：
 
 - [M0 执行清单](plans/M0-工程与数据基线.md)：20 个 SPIKE/TASK/HARDENING，覆盖 AgentScope 验证、数据库、事件、Artifact、Credential、API、前端和 CI；
-- [M1 执行清单](plans/M1-Team与WorkItem.md)：20 个 TASK/FEATURE/HARDENING，覆盖 Team、Personal Agent、WorkItem、责任、API、OIDC、前端和 E2E。
+- [M1 执行清单](plans/M1-Team与WorkItem.md)：20 个 TASK/FEATURE/HARDENING，覆盖 Team、Personal Agent、WorkItem、责任、API、OIDC、前端和 E2E；
+- [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 
-M0 与 M1 已通过各自 Release Gate。M2 从 Conversation、Message、Personal Agent Session 和 Provider Binding 的领域与迁移开始，API 与对话前端基于稳定契约并行推进。
+M0 与 M1 已通过各自 Release Gate。M2 已完成任务细化；`M2-D01` 至 `M2-D07` 的 Conversation、TaskIntent、AgentRuntimeSession、Provider/Connection/Binding 领域、V7 数据契约与 JPA 持久化边界已交付，验证见 [Conversation 领域模型](testing/M2-D01-Conversation领域模型.md)、[Conversation 可见性与 Cursor](testing/M2-D02-Conversation可见性与Cursor.md)、[TaskIntent 与澄清契约](testing/M2-D03-TaskIntent与澄清契约.md)、[AgentRuntimeSession 绑定与生命周期](testing/M2-D04-AgentRuntimeSession绑定与生命周期.md)、[Provider、Connection 与 Binding 领域契约](testing/M2-D05-Provider与Binding领域契约.md)、[V7 Conversation、Agent 与 Provider 数据迁移](testing/M2-D06-V7-Conversation-Agent与Provider数据迁移.md)和 [M2 JPA 持久化适配](testing/M2-D07-M2-JPA持久化适配.md)。下一项为 `M2-S01` 受控 AG-UI Bridge 验证。
 
 M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 
