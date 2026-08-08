@@ -40,10 +40,17 @@ export class CrewScopeApiClient {
     if (expectedVersion !== undefined) {
       headers.set('If-Match', `"${expectedVersion}"`)
     }
+    const csrfToken = csrfTokenFor(requestInit.method)
+    if (csrfToken && !headers.has('X-XSRF-TOKEN')) {
+      // Spring Security's CookieServerCsrfTokenRepository uses this cookie/header pair in OIDC mode.
+      headers.set('X-XSRF-TOKEN', csrfToken)
+    }
 
     let response: Response
     try {
-      response = await this.fetcher(`${this.baseUrl}${normalizePath(path)}`, {
+      // Native browser fetch performs a receiver brand check in some engines. Calling the stored
+      // function with globalThis avoids an "Illegal invocation" when the client owns the reference.
+      response = await this.fetcher.call(globalThis, `${this.baseUrl}${normalizePath(path)}`, {
         ...requestInit,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -69,6 +76,21 @@ export class CrewScopeApiClient {
       return undefined as T
     }
     return response.json() as Promise<T>
+  }
+}
+
+function csrfTokenFor(method?: string): string | null {
+  const normalizedMethod = method?.toUpperCase() ?? 'GET'
+  if (['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod) || typeof document === 'undefined') return null
+  const cookie = document.cookie
+    .split(';')
+    .map(value => value.trim())
+    .find(value => value.startsWith('XSRF-TOKEN='))
+  if (!cookie) return null
+  try {
+    return decodeURIComponent(cookie.slice('XSRF-TOKEN='.length))
+  } catch {
+    return null
   }
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SemanticTone } from '../../domains/demo/fixtures'
+import type { SemanticTone } from './types'
 
 withDefaults(defineProps<{
   tone?: SemanticTone

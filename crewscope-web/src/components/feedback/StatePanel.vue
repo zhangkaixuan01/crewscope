@@ -34,6 +34,7 @@ const presentation = computed(() => ({
       <template #icon><RefreshCw :size="14" aria-hidden="true" /></template>
       刷新事实
     </BaseButton>
+    <slot name="action" />
   </section>
 </template>
 

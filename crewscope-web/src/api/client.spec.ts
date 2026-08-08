@@ -26,6 +26,31 @@ describe('CrewScopeApiClient', () => {
     expect(request).not.toHaveProperty('expectedVersion')
   })
 
+  it('invokes a stored fetch function with the browser global receiver', async () => {
+    const receivers: unknown[] = []
+    const fetcher = vi.fn(function (this: unknown) {
+      receivers.push(this)
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    }) as unknown as typeof fetch
+    const client = new CrewScopeApiClient('/api/v1', fetcher)
+
+    await client.get('/teams')
+
+    expect(receivers).toEqual([globalThis])
+  })
+
+  it('forwards Spring Security Cookie CSRF tokens on state-changing OIDC requests', async () => {
+    document.cookie = 'XSRF-TOKEN=csrf-token%3D42; path=/'
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const client = new CrewScopeApiClient('/api/v1', fetcher)
+
+    await client.post('/teams/team-1/members', { userPrincipalId: 'principal-1' })
+
+    const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers)
+    expect(headers.get('X-XSRF-TOKEN')).toBe('csrf-token=42')
+    document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/'
+  })
+
   it('preserves a valid service error envelope', async () => {
     const envelope = {
       code: 'version_conflict',
