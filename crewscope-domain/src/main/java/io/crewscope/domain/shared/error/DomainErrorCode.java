@@ -4,9 +4,11 @@ package io.crewscope.domain.shared.error;
 public enum DomainErrorCode {
     INVALID_VALUE("invalid_value", DomainErrorCategory.VALIDATION),
     RULE_VIOLATION("rule_violation", DomainErrorCategory.VALIDATION),
+    POLICY_DENIED("policy_denied", DomainErrorCategory.POLICY),
     INVALID_STATE_TRANSITION("invalid_state_transition", DomainErrorCategory.CONFLICT),
     AGGREGATE_NOT_FOUND("aggregate_not_found", DomainErrorCategory.NOT_FOUND),
     OPTIMISTIC_LOCK_CONFLICT("optimistic_lock_conflict", DomainErrorCategory.CONFLICT),
+    RESPONSIBILITY_CONFLICT("responsibility_conflict", DomainErrorCategory.CONFLICT),
     IDEMPOTENCY_CONFLICT("idempotency_conflict", DomainErrorCategory.CONFLICT);
 
     private final String value;
