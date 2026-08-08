@@ -24,6 +24,7 @@ class V5CommandReceiptMigrationIntegrationTest
         extends AbstractPostgresRedisContainerIntegrationTest {
 
     private static final MigrationVersion VERSION_4 = MigrationVersion.fromVersion("4");
+    private static final MigrationVersion VERSION_5 = MigrationVersion.fromVersion("5");
 
     @BeforeEach
     void resetSchema() throws SQLException {
@@ -35,7 +36,7 @@ class V5CommandReceiptMigrationIntegrationTest
 
     @Test
     void addsTheCommandReceiptShapeConstraintsAndIndexes() throws SQLException {
-        Flyway flyway = flyway(null);
+        Flyway flyway = flyway(VERSION_5);
         flyway.migrate();
 
         assertEquals("5", flyway.info().current().getVersion().getVersion());
@@ -90,7 +91,7 @@ class V5CommandReceiptMigrationIntegrationTest
                 "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Org', 'ACTIVE')",
                 organizationId);
 
-        flyway(null).migrate();
+        flyway(VERSION_5).migrate();
 
         UUID commandId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
