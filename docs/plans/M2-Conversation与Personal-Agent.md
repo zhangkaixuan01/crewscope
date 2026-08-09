@@ -4,7 +4,7 @@
 > 前置条件：M1 Release Gate 通过<br>
 > 目标周期：2 周，多工作流并行推进<br>
 > 目标结果：成员可在 Web 与自己的 Personal Agent 持续对话，Agent 可澄清目标、生成结构化 TaskIntent，并在成员确认后创建带责任关系的 WorkItem<br>
-> 当前进度：`M2-D01` 至 `M2-D07` 已完成，下一项为 `M2-S01`（2026-08-08）
+> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07` 已完成，下一项为 `M2-A01`（2026-08-09）
 
 ## 1. 出口结果
 
@@ -59,9 +59,9 @@ M2-A07 + M2-F04 -> M2-F05 -> M2-F06
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M2-S01` | SPIKE | M0-S02 | agentscope/server | 验证 CrewScope 受控 AG-UI Bridge：服务端解析 Agent、Conversation、Session 和 Principal，固定 `ToolMergeMode.AGENT_ONLY`，关闭 Reasoning 输出，拒绝客户端 Agent/Thread/Tool 注入 | 可控请求测试证明 path/header/forwardedProps 无法替换服务端身份和 Session；形成 AG-UI 安全边界记录并更新 ADR-005 |
-| `M2-S02` | SPIKE | M0-S01 | agentscope/infrastructure | 验证 HarnessAgent 同 Session FIFO、不同 Session 并行、取消、进程中断与 Redis State 恢复；明确 `SessionTurnGate` 的单 JVM 边界和 M2 部署约束 | 并发测试记录顺序、并行度、取消清理与恢复结果；多实例策略写入 ADR，测试环境不依赖时间等待猜测 |
-| `M2-S03` | SPIKE | M0-S02 | agentscope/application | 使用 M2 Schema 验证 `TaskIntentV1`、`ClarificationRequestV1` Structured Output、Bean Validation、Interrupt/Resume 和重复 Resume | Fixture Model 集成测试覆盖合法输出、Schema 错误、业务校验、澄清中断、恢复、重复确认和过期输入 |
+| `M2-S01` | SPIKE | M0-S02 | agentscope/server | 验证 CrewScope 受控 AG-UI Bridge：服务端解析 Agent、Conversation、Session 和 Principal，固定 `ToolMergeMode.AGENT_ONLY`，关闭 Reasoning 输出，拒绝客户端 Agent/Thread/Tool 注入 | [受控 AG-UI Bridge 验证记录](../spikes/M2-S01-受控AG-UI-Bridge验证记录.md)与 9 个专项测试证明通用 path/header Agent 路由关闭，未知控制字段、非 USER 消息、客户端 Tool/ForwardedProps 被拒绝，服务端 Agent/Thread/Run/RuntimeContext Session 不可替换，Thinking 不输出 |
+| `M2-S02` | SPIKE | M0-S01 | agentscope/infrastructure | 验证 HarnessAgent 同 Session FIFO、不同 Session 并行、取消、进程中断与 Redis State 恢复；明确 `SessionTurnGate` 的单 JVM 边界和 M2 部署约束 | [会话并发与 Redis 恢复验证记录](../spikes/M2-S02-会话并发与Redis恢复验证记录.md)、[ADR-009](../adr/ADR-009-会话执行所有权与恢复协议.md)与 8 个专项测试证明 FIFO、跨 Session 并行、取消/异常清理、JVM Gate 边界、新进程恢复、User 隔离和最后成功检查点恢复；测试使用受控 Publisher/Latch，不依赖时间等待猜测 |
+| `M2-S03` | SPIKE | M0-S02 | agentscope/application | 使用 M2 Schema 验证 `TaskIntentV1`、`ClarificationRequestV1` Structured Output、Bean Validation、Interrupt/Resume 和重复 Resume | [结构化意图与澄清恢复验证记录](../spikes/M2-S03-结构化意图与澄清恢复验证记录.md)与 7 个专项测试覆盖合法嵌套输出、Schema 修正、Bean/Domain 校验、澄清中断、回答绑定恢复、重复/冲突确认、过期和错配输入；固定 Resume 在 AgentScope 前幂等裁决 |
 
 Spike 结论直接约束正式 Adapter。验证发现框架默认行为与平台安全边界不一致时，由 CrewScope Bridge 收紧入口并保留 AgentScope 内部运行能力。
 
@@ -92,13 +92,13 @@ Message、TaskIntent 和 DomainEvent 分层保存：Message 是用户可见的�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M2-I01` | TASK | D05,D07 | application/infrastructure | 实现 ADR-006 的只读 BindingResolver，按执行身份、能力、Workspace 和 WorkProject 解析候选；同级多匹配返回歧义并失败关闭 | 契约与 PostgreSQL 测试覆盖优先级、身份隔离、Grant 交集、暂停/撤销、跨 Team、显式 Binding 收窄和歧义结果 |
-| `M2-I02` | TASK | M0-S01,D03,D04 | application/agentscope | 将现有 `AgentRuntime` 演进为 `ExecutionRuntime` Port，定义 Conversation 调用、流式事件、Structured Output、Interrupt、Resume、Cancel 和能力描述 | Port 契约测试覆盖输入输出、背压、取消、终态、错误分类和无 TaskExecution 的 Conversation 调用边界 |
-| `M2-I03` | FEATURE | S03,I02 | agentscope | 实现 `AgentScopeNativeRuntime`、PersonalAgentFactory 和按 AgentProfile/模型配置创建的 HarnessAgent；接入 Structured Output 与中断恢复 | 可控 Model 集成测试覆盖多轮对话、TaskIntent、澄清、恢复、模型错误和 Agent 实例复用边界 |
-| `M2-I04` | TASK | S01,I01,I03 | agentscope/server | 实现 `PlatformExecutionContext` 到 AgentScope `RuntimeContext` 的类型化注入，以及 Team/Workspace/Principal/Conversation/ProviderBinding 安全中间件和 Audit Middleware | 测试证明所有可信事实来自服务端，客户端字段无法覆盖；缺少 Membership、Scope 或 Binding 时调用在模型执行前失败 |
-| `M2-I05` | TASK | S02,I03,I04 | agentscope/infrastructure/server | 装配 `RedisDistributedStore`/`RedisAgentStateStore`、稳定 Session Key、同 Session FIFO、跨 Session 并行和取消清理；固化 M2 单实例或会话粘滞部署约束 | Redis Testcontainers 与并发测试覆盖状态保存、重启恢复、FIFO、公平性、并行、重复提交、取消和过期清理 |
-| `M2-I06` | TASK | I03,I04 | agentscope/application/server | 实现 AgentScope Event 到 AG-UI 瞬时事件、Message、TaskIntent 与 CrewScope 实时事件信封的映射；过滤原始 Thinking/Reasoning 与敏感参数 | Fixture 契约测试覆盖事件映射、DomainEvent 关联、未知事件、乱序、重复、脱敏、终态和协议兼容 |
-| `M2-I07` | TASK | I06 | agentscope/infrastructure | 记录 Model、Token Usage、Latency、Error、Retry、Fallback、Conversation/Session/Trace 关联和低基数指标，不生成 M3 AgentRun 事实 | 可观测性测试覆盖成功、流中断、重试、Fallback、取消、脱敏和指标标签基数；日志可由 correlationId 定位完整调用 |
+| `M2-I01` | TASK | D05,D07 | application/infrastructure | 实现 ADR-006 的只读 BindingResolver，按执行身份、能力、Workspace 和 WorkProject 解析候选；同级多匹配返回歧义并失败关闭 | [BindingResolver 验证记录](../testing/M2-I01-BindingResolver.md)；Application 契约与 PostgreSQL 测试覆盖优先级、身份隔离、Grant 交集、暂停/撤销、Scope 收口、显式 Binding 收窄和歧义结果 |
+| `M2-I02` | TASK | M0-S01,D03,D04 | application/agentscope | 将现有 `AgentRuntime` 演进为 `ExecutionRuntime` Port，定义 Conversation 调用、流式事件、Structured Output、Interrupt、Resume、Cancel 和能力描述 | [ExecutionRuntime Port 验证记录](../testing/M2-I02-ExecutionRuntime-Port.md)；11 个专项测试覆盖可信输入、Structured Output、背压、单订阅、传输/业务取消、终态、恢复、错误分类和 Conversation Invocation 边界 |
+| `M2-I03` | FEATURE | S03,I02 | agentscope | 实现 `AgentScopeNativeRuntime`、PersonalAgentFactory 和按 AgentProfile/模型配置创建的 HarnessAgent；接入 Structured Output 与中断恢复 | [AgentScopeNativeRuntime 验证记录](../testing/M2-I03-AgentScopeNativeRuntime.md)；16 个专项测试覆盖实例复用、版本隔离、多轮对话、Session 隔离、TaskIntent、连续澄清、恢复校验、传输断开、精确取消、安全失败、异常流闭合和终态淘汰 |
+| `M2-I04` | TASK | S01,I01,I03 | application/agentscope/server | 实现 `PlatformExecutionContext` 到 AgentScope `RuntimeContext` 的类型化注入，以及 Team/Workspace/Principal/Conversation/ProviderBinding 安全中间件和 Audit Middleware | [PlatformExecutionContext 与 Middleware 验证记录](../testing/M2-I04-PlatformExecutionContext与Middleware.md)；所有可信事实来自服务端，客户端字段无法覆盖，缺少 Membership、Scope 或 Binding 时调用在模型执行前失败 |
+| `M2-I05` | TASK | S02,I03,I04 | agentscope/infrastructure/server | 装配 `RedisDistributedStore`/`RedisAgentStateStore`、稳定 Session Key、同 Session FIFO、跨 Session 并行和取消清理；执行 Redis 读写预检并固化 M2 单活动执行实例约束 | [Redis AgentStateStore 与单活动实例验证记录](../testing/M2-I05-Redis-AgentStateStore与单活动实例.md)；Redis Testcontainers 与确定性并发测试覆盖状态保存、重启恢复、FIFO、公平性、并行、重复提交、取消、显式状态清理、Redis 不可用失败关闭、崩溃租约过期和双实例启动拒绝 |
+| `M2-I06` | TASK | I03,I04 | agentscope/application/server | 实现 AgentScope Event 到 AG-UI 瞬时事件、Message、TaskIntent 与 CrewScope 实时事件信封的映射；过滤原始 Thinking/Reasoning 与敏感参数 | [AgentScope 事件映射与脱敏验证记录](../testing/M2-I06-AgentScope事件映射与脱敏.md)；Fixture 契约测试覆盖事件映射、DomainEvent 关联、未知事件、乱序、重复、脱敏、终态和协议兼容 |
+| `M2-I07` | TASK | I06 | agentscope/infrastructure | 记录 Model、Token Usage、Latency、Error、Retry、Fallback、Conversation/Session/Trace 关联和低基数指标，不生成 M3 AgentRun 事实 | [Agent 调用可观测性验证记录](../testing/M2-I07-Agent调用可观测性.md)；测试覆盖成功、流中断、真实重试、Fallback、取消、脱敏、指标标签基数和 correlationId 完整调用定位 |
 
 M2 使用 AgentScope 2.0.0 的 HarnessAgent、RuntimeContext、Structured Output、Interrupt/Resume、Middleware、Hook、流式事件和 Redis DistributedStore。Plan Mode、Workspace 文件操作、Skill、Subagent、Async Tool、Sandbox 与 Coding Agent 在 M3/M4 按耐久执行和最小权限边界接入。
 
@@ -123,7 +123,7 @@ Correlation / Causation / Domain Event metadata
 
 AG-UI 仅承担 Agent 调用的流式传输和渲染。Conversation、Message、TaskIntent、WorkItem 与责任关系以 CrewScope PostgreSQL 事实为准。客户端提交的 `agentId`、`threadId`、`runId`、Principal、Role、ProviderBinding 和 Tool 定义不参与授权裁决。
 
-AgentScope `SessionTurnGate` 提供单 JVM 的同 Session 串行。M2 Release Gate 固化实际部署方式：单实例部署可以直接使用该 Gate；多实例部署必须启用会话粘滞路由或额外的分布式会话裁决，Redis AgentStateStore 只负责状态存储，不替代执行所有权。
+AgentScope `ReActAgent` 通过 `AgentBase` 会话尾链按 `(userId, sessionId)` 串行直接 HarnessAgent 调用，Harness Gateway 再通过 `SessionTurnGate` 提供公平 Turn Gate；两者都是单 JVM 能力。M2 Agent 调用固定由一个活动 CrewScope Server 实例执行，滚动发布先排空或中断保存旧实例，再由新实例接管。Redis AgentStateStore 负责每轮重载、成功保存和进程恢复。横向执行进入后续带 fencing token 的分布式 Session Lease，详细决策见 [ADR-009](../adr/ADR-009-会话执行所有权与恢复协议.md)。
 
 ## 6. 应用用例与 API
 

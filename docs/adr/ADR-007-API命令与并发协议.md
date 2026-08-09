@@ -2,6 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-07<br>
+> 更新：2026-08-09（M2-S03 固化 Agent Invocation Resume 幂等与过期边界）<br>
 > 影响里程碑：M0–M6
 
 ## 背景
@@ -66,7 +67,30 @@ committedVersion
 correlationId
 ```
 
-Request Hash 使用可影响副作的可信 Scope、Actor、Causation 与应用命令规范值生成，不保存请求体、Secret 和非规范原文。Correlation ID 用于调用链而不改变命令语义，重试时可使用新 Correlation ID 并返回首次提交的 Receipt。
+Request Hash 使用可影响副作用的可信 Scope、Actor、Causation 与应用命令规范值生成，不保存请求体、Secret 和非规范原文。Correlation ID 用于调用链而不改变命令语义，重试时可使用新 Correlation ID 并返回首次提交的 Receipt。
+
+### Agent Invocation Resume
+
+Conversation 下的 Agent Invocation Resume 是状态变更命令，必须携带 `Idempotency-Key`。服务端以当前 Organization、Conversation、Invocation、认证成员和规范化回答计算 Request Hash，并在进入 AgentScope 前完成以下裁决：
+
+```text
+认证与 Conversation Scope
+  -> Pending Invocation 与 AgentRuntimeSession
+  -> Pending Clarification 的 replyId/toolCallId/schemaVersion
+  -> expiresAt 与当前服务端事实
+  -> Idempotency-Key / Request Hash
+  -> AgentScope Resume
+```
+
+- 首次有效 Resume 取得执行权；相同 Key 和 Request Hash 的重放返回首次结果，不再次进入 Model 或执行 Tool；
+- 相同 Key 对应不同回答、Invocation 或 Clarification 时返回 `409 idempotency_conflict`；
+- 已过期的 Clarification 在进入 AgentScope 前转为 `EXPIRED`，返回稳定业务错误，不执行 Tool 和 Model；
+- 非当前 Pending Invocation、错误 Conversation/Session、错误 `replyId`、错误 `toolCallId` 或错误 SchemaVersion 失败关闭；
+- 客户端只提交受约束的回答，不提交 AgentScope `ConfirmResult`、ToolUseBlock、PermissionRule 或 Session 标识；
+- CrewScope Bridge 从持久化 Pending Tool 重建 `ConfirmResult`，保持原 `toolCallId` 和 Tool Name，只把已验证回答写入允许修改的 `answers` 字段；
+- 完成、拒绝和过期结果均可稳定重放；Receipt 和可见结果的持久化由 M2 Application Service 与 PostgreSQL 事务实现。
+
+AgentScope 2.0.0 原生重复 Resume 不会重复执行已经完成的 Tool，但会把重复确认当成新一轮输入并再次调用 Model。因此 Resume 幂等不能由 AgentStateStore 或 AgentScope 内存状态代替。
 
 ### If-Match
 
@@ -98,6 +122,8 @@ M0 WorkItem Cursor 固化 `updatedAt DESC, id DESC` 的位置。Cursor 不承载
 4. 业务失败不留下 PENDING 占位；
 5. WebTestClient 覆盖成功、重放、版本冲突、Header 和 Bean Validation 失败；
 6. Cursor 往返与非法 Token 拒绝经过单元测试。
+7. Agent Resume 的首次请求只执行一次，相同重放返回首次结果，不同 Payload 冲突；
+8. 过期、错误 Invocation/Session/replyId/toolCallId 在 AgentScope 调用前拒绝，Model 和 Tool 计数不增加。
 
 ## 重新评估条件
 

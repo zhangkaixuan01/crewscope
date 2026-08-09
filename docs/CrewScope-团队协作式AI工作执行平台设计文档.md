@@ -343,6 +343,8 @@ Conversation 级 `AgentRuntimeSession` 由 Organization、TeamMember、Personal 
 
 Session 保存 AgentProfile 配置版本、版本化 AgentScope `userId/sessionId`、外部 Agent State 引用、ACTIVE/DISABLED/ARCHIVED 生命周期、乐观锁版本与审计元数据。DISABLED 保留原状态槽以支持恢复；重新启用与配置刷新必须重新解析当前 ACTIVE Personal Agent；ARCHIVED 仅在 Conversation 已归档后进入并保持终态。AgentScope Key 和状态引用在生命周期内保持不变，防止恢复到其他成员、Team 或 Conversation 的运行态。
 
+AgentScope `ReActAgent` 以 `(userId, sessionId)` 为键在单 JVM 内串行同一 Session 调用，不同 Session 并行运行。Harness Gateway 的 `SessionTurnGate` 提供额外的单 JVM 公平 Turn Gate。M2 采用单活动 CrewScope Server 执行 Agent 调用，Redis 环境级所有权租约在启动时拒绝第二个活动实例，并通过续期、Token 原子释放和有限 TTL 处理正常退出与崩溃。滚动发布按“停止接收、排空或中断保存、旧实例退出、新实例接管”切换所有权。Redis AgentStateStore 使用 `crewscope:{environment}:agentscope:v1:session:` 前缀保存最后一次检查点并支持新进程重载；Invoke 和 Resume 在模型前复验所有权、目标状态可读性和隔离写探针。AgentState 不设置 TTL，Conversation 归档或生命周期过期后显式删除完整状态槽。横向执行由后续带 fencing token 的分布式 Session Lease 裁决。完整边界见 [ADR-009](adr/ADR-009-会话执行所有权与恢复协议.md)。
+
 MVP 为每个 TeamMember 创建一个默认 Personal Agent，而不是为同一用户创建一个跨所有 Team 的全局执行身份。Personal Agent Principal 使用当前 Team Scope、成员 USER Principal 作为 Owner，并保持 PRIVATE 可发现性；AgentProfile 绑定该 TeamMember 和 Team Workspace。这样同一用户加入不同 Team 时拥有隔离的 Agent 身份、权限、ProviderBinding 和审计链，同时仍由同一个 USER Principal 统一承担最终责任。
 
 默认 Personal Agent 的 Principal ID 与 AgentProfile ID 分别由稳定 TeamMember ID 派生。重复请求生成同一候选身份，持久化 Port 在事务内执行 `initializeIfAbsent`，数据库通过 active 默认 Profile 唯一约束完成并发裁决。Principal 与 AgentProfile 必须同时提交或同时回滚。M1 的 AgentProfile 保存稳定身份、Owner、Workspace、类型、状态、版本和审计字段；模型、Prompt、Tool、Skill、Memory 与 Policy 配置在 M2 运行时接入时扩展并生成 PolicySnapshot。
@@ -840,7 +842,7 @@ Lark Plugin
   └── LarkCollaborationProvider implements CollaborationProvider
 ```
 
-ProviderBinding 保存所有者类型、Provider 类型、实现版本、Connection、执行身份、资源范围和默认用途。Binding Resolver 按动作所需执行身份解析：Action 显式绑定、Task 显式绑定、WorkProject 绑定、当前执行身份对应的 Team/Personal Workspace 绑定、Organization 默认绑定。
+ProviderBinding 保存所有者类型、Provider 类型、实现版本、Connection、执行身份、资源范围和默认用途。只读 Binding Resolver 按 Action 显式绑定、Task 显式绑定、WorkProject、Workspace、Organization Owner 默认项的顺序解析；Organization 默认项是 Organization Owner 的 Workspace Binding，USER/TEAM 查询不自动切换 Owner。
 
 Provider 领域契约按以下事实分层：
 
@@ -852,7 +854,7 @@ Provider 领域契约按以下事实分层：
 
 外部 Provider 的 Binding 能力必须属于 Implementation 能力，并与当前 ConnectionGrant 的能力和资源取非空交集。Native Provider 使用 connectionless Binding，不保存 Connection、Grant 或外部执行身份。Binding 读取时重新校验所有固化 ID、版本与实时状态；Definition/Implementation 变更、Connection/Grant 撤销或过期立即使 Candidate 失效，不等待 Binding 状态异步更新。
 
-选择顺序只处理默认值优先级，不把用户级、团队级和组织级身份互相替换。最终 Binding 必须位于当前主体、责任、ConnectionGrant、PolicySnapshot、SafetyEnforcementOverlay 和目标资源的权限交集内。相同优先级出现多个匹配项时拒绝执行并要求用户选择，任何显式绑定都无法扩大授权范围。解析结果固化 ProviderBinding、ConnectionGrant、Credential Subject 和资源范围，写入 PolicySnapshot 与 ActionDigest。
+选择顺序只处理默认值优先级，不把用户级、团队级和组织级身份互相替换。最高存在的 ACTIVE 层级形成授权占位：该层候选因 Grant 撤销、Connection 暂停、版本变化或能力交集为空而失效时返回 `NOT_FOUND`，不回退到更宽层级；显式 Binding 失效时同样不回退。同层唯一默认项优先且默认项失效时失败关闭；没有默认项时，一个当前有效候选返回 `RESOLVED`，多个返回 `AMBIGUOUS`。最终 Binding 必须位于当前主体、责任、ConnectionGrant、PolicySnapshot、SafetyEnforcementOverlay 和目标资源的权限交集内。解析结果固化 ProviderBinding、ConnectionGrant、Credential Subject 和资源范围，写入 PolicySnapshot 与 ActionDigest。协议与实现证据见 [ADR-006](adr/ADR-006-ProviderBinding解析与授权.md)和 [M2-I01 验证记录](testing/M2-I01-BindingResolver.md)。
 
 Agent 使用标准 Tool：
 
@@ -888,7 +890,7 @@ flowchart TB
   MEMBER["TeamMember"] --> WEB["Vue Team Workspace"]
   LEAD["Team Lead / Observer"] --> WEB
   MEMBER --> IM["飞书 / Slack / 企业 IM"]
-  WEB --> AGUI["AG-UI Spring Boot Starter"]
+  WEB --> AGUI["CrewScope Controlled AG-UI Bridge"]
   WEB --> REALTIME["Team Realtime Gateway"]
   IM --> CHANNEL["Harness Gateway + Channel"]
 
@@ -1100,10 +1102,10 @@ DomainEvent 是业务变化事实，ActivityEvent 是团队可读投影，AuditE
 
 ### 6.1 Web 工作台
 
-Web 工作台使用 `agentscope-agui-spring-boot-starter`：
+Web 工作台通过 CrewScope 受控 AG-UI Bridge 使用 AgentScope AG-UI 协议。AgentScope Starter 的通用 `/agui/run` 和 `/agui/run/{agentId}` 自动路由保持关闭，正式入口位于 Conversation Scope API 下：
 
 - `RUN_STARTED / RUN_FINISHED / RUN_ERROR`；
-- 文本和推理增量；
+- 文本增量；
 - Tool Call 和 Tool Result；
 - State 和 Custom Event；
 - Token Usage；
@@ -1114,7 +1116,22 @@ CrewScope 扩展：
 - `AgentEventConverter`：计划、步骤、确认、证据和制品语义转换；
 - `AguiEventEnricher`：时间、Organization、Workspace、Conversation、Correlation 和事件游标；
 - `AguiRuntimeContextResolver`：从 Spring Security 主体注入可信运行上下文；
-- `ToolMergeMode.AGENT_ONLY`：生产默认工具合并策略。
+- `ControlledAguiBridge`：只接收消息，使用服务端解析的 Agent、Conversation、AgentRuntimeSession、Principal 和 ProviderBinding 重建 AgentScope 输入；
+- `AgentScopeEventMapper`：仅允许顶层公开文本和内部控制/终态信号进入平台执行协议；
+- `ConversationExecutionEventMapper`：验证 Segment 顺序与精确重放，生成 AG-UI 瞬时信封和 Message/TaskIntent Candidate；
+- `AguiEventSanitizer`：对官方 Adapter 输出执行最终白名单、ID 不透明化和安全错误替换；
+- `ToolMergeMode.AGENT_ONLY`：生产固定工具合并策略；
+- `emitStateEvents(false)`：生产固定关闭内部 State 输出；
+- `emitToolCallArgs(false)`：生产固定关闭 Tool 参数输出；
+- `enableReasoning(false)`：生产固定关闭 Thinking/Reasoning 输出。
+
+客户端 Agent ID、Thread/Run ID、Tool、Context、State、ForwardedProps、Principal、Role、ProviderBinding、Connection 和 Session 不进入授权裁决或 RuntimeContext。AgentScope `userId/sessionId` 只读取持久化 AgentRuntimeSession 的版本化 Session Key。Thinking、Tool 参数与原始结果、State、Custom、Provider 原始错误和内部授权事实不进入 Web 协议。受控边界见 [ADR-005](adr/ADR-005-事件与投影协议.md)、[ADR-013](adr/ADR-013-AgentScope事件映射与披露协议.md)、[M2-S01 验证记录](spikes/M2-S01-受控AG-UI-Bridge验证记录.md)和 [M2-I06 验证记录](testing/M2-I06-AgentScope事件映射与脱敏.md)。
+
+M2 Agent 调用只在单个活动 CrewScope Server 实例上执行。实例内同 Session FIFO、跨 Session 并行；Redis 使用 CrewScope 环境与 Schema 版本前缀保存 AgentState。正常完成和 Graceful Shutdown 检查点可以跨进程恢复，硬中断从最后保存的检查点与 PostgreSQL Conversation 事实继续。部署和恢复协议见 [ADR-009](adr/ADR-009-会话执行所有权与恢复协议.md)。
+
+Personal Agent 的任务提案使用 `TaskIntentV1` Structured Output，需要澄清时使用平台内置 `request_clarification` Tool 输出 `ClarificationRequestV1`。模型输出依次通过 AgentScope JSON Schema、CrewScope Bean Validation 和当前服务端领域事实校验。澄清 Tool 通过 AgentScope Permission ASK 进入中断，Web 只提交回答；Bridge 将回答绑定到服务端保存的 Pending Tool 后恢复，Tool Result 把回答送回模型，再生成 TaskIntent。客户端不能提交原生 ConfirmResult、ToolUseBlock、PermissionRule、replyId、Session 或 Tool 参数。
+
+Agent Invocation Resume 以 Conversation Scope、Invocation、Pending Clarification 和 `Idempotency-Key` 定位。重复请求返回首次结果，不再次进入 Model；过期、终态、错误 Session、错误 replyId/toolCallId 在 AgentScope 前失败关闭。协议见 [ADR-007](adr/ADR-007-API命令与并发协议.md)，AgentScope 2.0.0 行为证据见 [M2-S03 验证记录](spikes/M2-S03-结构化意图与澄清恢复验证记录.md)。
 
 Web 工作台采用三区域布局：左侧承载 Team、WorkProject、WorkItem 和成员导航；中间承载对话与协作；右侧承载责任、计划、实时步骤、工具调用、Review、确认和 Artifact。成员可以评论、@协作者、提交 Contribution、请求 Review、发起 Handoff、暂停、恢复、取消或接管。
 
@@ -1255,7 +1272,7 @@ HarnessAgent.Builder builder = HarnessAgent.builder()
     .filesystem(remoteFilesystemSpec)
     .enablePlanMode(agentConfig.planModeEnabled())
     .enableTaskList(true)
-    .enablePendingToolRecovery(true)
+    .enablePendingToolRecovery(agentConfig.orphanedToolRecoveryEnabled())
     .enableMetaTool(agentConfig.metaToolEnabled())
     .compaction(compactionConfig)
     .toolResultEviction(toolResultEvictionConfig)
@@ -1281,6 +1298,8 @@ return builder.build();
 ```
 
 Coding、数据处理和高风险内容分析 Agent 使用 `SandboxFilesystemSpec`。当前 2.0.0 Builder 默认配置 Compaction、Tool Result Eviction 和 Memory，CrewScope 对每项能力显式配置开关与参数。
+
+M2 Personal Agent 使用 Redis AgentState 恢复完整对话，关闭 Memory、Compaction、文件、Shell、Subagent、动态 Skill 和 Workspace Context。Compaction 在 Workspace Memory、摘要披露、原始 Session Log 和保留策略落地后启用。主模型与 Fallback Model 由 `ObservableAgentScopeModel` 包装，保留 AgentScope `ExecutionConfig` 的有限重试语义并记录真实 attempt。
 
 ### 7.3 RuntimeContext
 
@@ -1362,12 +1381,15 @@ CrewScope 对执行运行时使用稳定 Port：
 public interface ExecutionRuntime {
     RuntimeDescriptor descriptor();
     RuntimeCapabilities capabilities();
-    ExecutionHandle start(ExecutionRequest request);
-    ExecutionHandle resume(ResumeRequest request);
-    void cancel(CancelRequest request);
-    RuntimeHealth health();
+    ExecutionHandle invokeConversation(ConversationExecutionRequest request);
+    ExecutionHandle resumeConversation(ConversationResumeRequest request);
+    CompletionStage<ExecutionCancelResult> cancel(ConversationCancelRequest request);
 }
 ```
+
+M2 的请求由 ACTIVE AgentRuntimeSession、已提交 USER Message、可选 Structured Output 类型和 Correlation ID 组成，直接表达 Conversation Invocation。每次 Invoke 或 Resume 返回单订阅有限事件流，事件序号严格递增并以 `COMPLETED/INTERRUPTED/CANCELED/FAILED` 唯一终态结束。Subscription Cancel 关闭当前传输订阅，显式 Runtime Cancel 取消业务调用。调用、流与错误协议见 [ADR-010](adr/ADR-010-ExecutionRuntime调用与流协议.md)，实现验证见 [M2-I02 ExecutionRuntime Port](testing/M2-I02-ExecutionRuntime-Port.md)。
+
+M2 的 `PersonalAgentFactory` 按 AgentRuntimeSession 固化的 `AgentProfileId + AgentProfileVersion` 解析模型、备用模型、System Prompt、最大迭代和重试配置，并按该版本复用 HarnessAgent。Conversation 状态使用持久化 AgentScope `userId/sessionId` 隔离。`AgentScopeNativeRuntime` 内部持有 AgentScope 调用订阅，将文本、Structured Output、中断、恢复、取消与安全失败映射到 ExecutionRuntime 有限流；Web 订阅断开只影响传输，显式 Cancel 使用同一 RuntimeContext 精确中断。实例与恢复协议见 [ADR-011](adr/ADR-011-AgentScopeNativeRuntime实例与恢复协议.md)。
 
 `RuntimeCapabilities` 声明 `SESSION_RESUME`、`SESSION_FORK`、`PLAN`、`STRUCTURED_OUTPUT`、`TOOL_APPROVAL`、`CONTEXT_USAGE`、`SANDBOX`、`WORKTREE`、`MULTI_REPOSITORY` 和支持的语言/构建系统。Task Scheduler 使用能力交集路由任务，PolicySnapshot 固化本次选中的 Runtime 类型、实现版本和能力快照。
 
@@ -2136,7 +2158,8 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 
 - RedisDistributedStore 优先恢复 AgentState、MessageBus、Workspace 运行态和子 Agent 绑定；
 - PostgreSQL 中的 Message、PlanVersion、Task、Step、Action、Receipt 与对象存储中的 AgentStateSnapshot 提供二级恢复；
-- `enablePendingToolRecovery(true)` 为孤立 ToolCall 补充合成错误结果；
+- Pending Tool Recovery 只在进程恢复后开始新 Turn、需要收敛孤立 ToolCall 时开启，为其补充合成错误结果；
+- 正在等待 Permission ASK 的 Conversation 保持原生 Pending Tool，并通过 `ConfirmResult` 恢复，恢复前不开启孤立 ToolCall 修复；
 - External Tool 恢复先读取 PlannedAction、Confirmation 和 ActionReceipt；
 - Graceful Shutdown 使用 `PartialReasoningPolicy.SAVE` 保存部分推理；
 - 用户暂停和取消使用 `interrupt(userId, sessionId)`；
@@ -2698,7 +2721,7 @@ GET  /api/v1/me/notification-deliveries?after={cursor}&status={status}
 POST /api/v1/me/notification-deliveries/{deliveryId}/retry
 ```
 
-AG-UI SSE 提供当前 AgentRun 的瞬时推理和工具事件。Conversation Event API 按游标补发持久化业务事件，Team Event API 补发团队投影事件。AG-UI 不作为 WorkItem、Task、Review、Action 和责任状态的事实源；三条流通过统一事件信封、DomainEvent ID 和投影版本完成合并与去重。
+AG-UI SSE 提供当前 AgentRun 的公开文本、受控中断和脱敏运行/工具进度。Conversation Event API 按游标补发持久化业务事件，Team Event API 补发团队投影事件。AG-UI 不作为 WorkItem、Task、Review、Action 和责任状态的事实源；三条流通过统一事件信封、DomainEvent ID 和投影版本完成合并与去重。
 
 ### 15.6 任务与制品 API
 
@@ -2980,7 +3003,9 @@ correlation_id
   -> confirmation_id / external_operation_id
 ```
 
-`OtelTracingMiddleware` 记录模型与工具 Span。CrewScope 在 Application Service、Worker 和 Connector 上继续相同 Trace。
+M2 通过 `AgentCallTraceContextProvider` 把当前 Micrometer Trace ID 与 Span ID 写入模型观测记录。`PlatformAuditMiddleware` 记录逻辑模型调用和 `ChatUsage`，`ObservableAgentScopeModel` 记录真实 Retry 与 Fallback，并在 Provider 异常离开 Model 边界前转换为稳定安全错误。完整模型与工具 Span 在启用 `OtelTracingMiddleware` 后继续相同 Trace。协议见 [ADR-014](adr/ADR-014-Agent模型调用可观测与安全重试协议.md)。
+
+模型观测日志包含 Organization、Team、Workspace、Conversation、RuntimeSession、Invocation、Correlation、Trace、Model、Role、Attempt、Retry、Fallback、Token、Latency、Outcome 和稳定错误码。Prompt、Reasoning、Tool 参数/结果、Credential 与 Provider 原始错误不进入日志。M2 记录属于遥测，不生成 M3 AgentRun 事实。
 
 ### 17.2 技术指标
 
@@ -2997,6 +3022,7 @@ correlation_id
 - Plugin 安装、升级、签名和 Schema 校验；
 - Gateway 会话队列、FIFO 等待和 Channel 投递；
 - 模型延迟、Retry、Fallback、Token 和成本；
+- M2 模型指标仅使用 outcome、fallback、role、code 和 token type 标签；租户、Conversation、Session、Invocation、Correlation、Trace、Model 与原始错误禁止作为标签；
 - Structured Output 校验成功率；
 - Plan 校验和版本变更；
 - ToolGroup、Skill、MCP 和 Subagent 使用；
@@ -3308,7 +3334,8 @@ crewscope-java/
 |---|---|---|
 | `crewscope-domain` | Team、Workspace、WorkItem、Responsibility、Collaboration、Task、Action、Artifact、Policy 和 Audit 核心模型 | 保持纯 Java，承载最稳定的业务规则 |
 | `crewscope-application` | 应用服务、命令、查询、事务、Provider SPI、Repository Port 和领域事件编排 | 依赖 `crewscope-domain` |
-| `crewscope-agentscope` | HarnessAgent 工厂、PlatformExecutionContext、RuntimeContext Middleware、AG-UI、Gateway、Tool、Skill、Memory、Subagent 和恢复适配 | 依赖 `crewscope-application` 与 AgentScope Java |
+| `crewscope-application` | PlatformExecutionContext、ExecutionRuntime Port、可信事实解析和业务用例 | 依赖 `crewscope-domain` |
+| `crewscope-agentscope` | HarnessAgent 工厂、RuntimeContext Middleware、AG-UI、Gateway、Tool、Skill、Memory、Subagent 和恢复适配 | 依赖 `crewscope-application` 与 AgentScope Java |
 | `crewscope-integration` | NativeWorkItemProvider、GitHubSourceCodeProvider、LarkCollaborationProvider、GitHubConnector 和 LarkConnector | 实现 `crewscope-application` 中的 Provider 与 Connector Port |
 | `crewscope-infrastructure` | Spring Data JPA/JDBC、PostgreSQL、Flyway、RedisDistributedStore、Outbox、ArtifactStore、CredentialStore、调度和 Worker 基础设施 | 实现 `crewscope-application` 中的 Repository 与运行时 Port |
 | `crewscope-server` | Spring Boot 装配、REST、Webhook、SSE/WebSocket、安全配置、后台 Worker 和管理端点 | 聚合其余模块并生成可执行 Jar |
@@ -4035,7 +4062,7 @@ CrewScope 直接复用 AgentScope 的对话式 Agent Runtime、Harness、Middlew
 |---|---|---|
 | ReAct/Harness | `ReActAgent`、`HarnessAgent` | `crewscope-agentscope` 的 Agent 工厂与运行适配 |
 | 原生 Coding Agent | `HarnessAgent`、Plan Mode、Todo、Structured Output、Toolkit、Sandbox、Compaction 和 Subagent | `crewscope-agentscope` 的 Coding/Reviewer Specialist 与 `crewscope-application/execution` 交付协议 |
-| 调用上下文 | `RuntimeContext` 的 `userId`、`sessionId` 与类型化属性 | `crewscope-agentscope` 的 `PlatformExecutionContext` |
+| 调用上下文 | `RuntimeContext` 的 `userId`、`sessionId` 与类型化属性 | `crewscope-application` 定义可信 `PlatformExecutionContext`，`crewscope-agentscope` 负责注入与校验 |
 | 会话隔离 | `(userId, sessionId)`、`AgentStateStore` | Personal/Team/Task/Step/Contribution Session 与 `crewscope-infrastructure` 状态存储 |
 | Middleware 扩展 | `MiddlewareBase`、`HarnessRuntimeMiddleware` | 责任、协作授权、PolicySnapshot、安全覆盖、Audit 和 Budget Middleware |
 | AG-UI | `agentscope-extensions-agui`、AG-UI Starter | `crewscope-agentscope` 事件适配与 `crewscope-server` SSE 入口 |
@@ -4046,7 +4073,7 @@ CrewScope 直接复用 AgentScope 的对话式 Agent Runtime、Harness、Middlew
 | Plan/Todo | `PlanModeMiddleware`、`PlanModeTools`、`PlanModeContextState` | `crewscope-agentscope` Plan 适配与 `crewscope-application/execution` PlanVersion |
 | Distributed Runtime | `DistributedStore`、`RedisDistributedStore` | Redis Agent 运行态与 AgentStateSnapshot 二级恢复 |
 | Interrupt/Shutdown | `InterruptControl`、`GracefulShutdownMiddleware` | `crewscope-agentscope` 与 `crewscope-application/execution` |
-| Pending Tool Recovery | `enablePendingToolRecovery` | `crewscope-agentscope` Agent 上下文恢复 |
+| Pending Tool Recovery | `enablePendingToolRecovery` | `crewscope-agentscope` 进程恢复后的孤立 ToolCall 修复；Permission ASK 使用原生 Pending Tool 与 `ConfirmResult` 恢复 |
 | Memory/Compaction | `MemoryConfig`、`CompactionConfig`、`ToolResultEvictionMiddleware` | `crewscope-agentscope` 上下文治理与 `crewscope-infrastructure` Memory 存储 |
 | Async/Wakeup | `AsyncToolMiddleware`、`InboxMiddleware`、`MessageBus`、`WakeupDispatcher` | `crewscope-agentscope` 只读后台分析和事件唤醒 |
 | Sandbox | `SandboxClient`、`AbstractBaseSandbox`、Kubernetes/AgentRun/Daytona/E2B Extension | `crewscope-agentscope` Sandbox 适配与 `crewscope-infrastructure` 隔离执行设施 |
