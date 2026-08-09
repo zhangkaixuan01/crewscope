@@ -472,9 +472,16 @@ public class JpaProviderRepositoryAdapter
                   AND (value.targetType = 'WORKSPACE'
                 """);
         if (required.workProjectId().isPresent()) {
-            jpql.append(" OR (value.targetType = 'WORK_PROJECT' AND value.workProjectId = :workProjectId)");
+            jpql.append(
+                    " OR (value.targetType = 'WORK_PROJECT' AND value.workProjectId = :workProjectId)");
         }
-        jpql.append(") ORDER BY value.targetType, value.defaultUsage DESC, value.id");
+        jpql.append(")");
+        if (required.executionIdentity().isPresent()) {
+            jpql.append(" AND value.executionIdentity = :executionIdentity");
+        } else {
+            jpql.append(" AND value.executionIdentity IS NULL");
+        }
+        jpql.append(" ORDER BY value.targetType, value.defaultUsage DESC, value.id");
         var persistenceQuery = entityManager
                 .createQuery(jpql.toString(), ProviderBindingEntity.class)
                 .setParameter("organizationId", required.organizationId().value())
@@ -483,7 +490,10 @@ public class JpaProviderRepositoryAdapter
                 .setParameter("ownerType", required.owner().type().name())
                 .setParameter("ownerId", required.owner().ownerId())
                 .setParameter("providerType", required.providerType().name());
-        required.workProjectId().ifPresent(value -> persistenceQuery.setParameter("workProjectId", value.value()));
+        required.workProjectId().ifPresent(
+                value -> persistenceQuery.setParameter("workProjectId", value.value()));
+        required.executionIdentity().ifPresent(
+                value -> persistenceQuery.setParameter("executionIdentity", value.name()));
         return persistenceQuery.getResultList().stream().map(mapper::toDomain).toList();
     }
 

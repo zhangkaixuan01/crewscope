@@ -96,3 +96,12 @@ crewscope:
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
+    redis:
+      # Agent state is a required M2 dependency; disable only in isolated non-runtime tests.
+      enabled: ${CREWSCOPE_AGENT_STATE_REDIS_ENABLED:true}
+      url: ${CREWSCOPE_REDIS_URL:redis://localhost:6379}
+      environment: ${CREWSCOPE_ENVIRONMENT:development}
+      instance-id: ${CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID:}
+      ownership-lease: ${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_LEASE:30s}
+      ownership-renewal: ${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_RENEWAL:5s}
+      write-probe-ttl: ${CREWSCOPE_AGENT_STATE_WRITE_PROBE_TTL:10s}

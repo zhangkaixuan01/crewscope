@@ -51,4 +51,17 @@ public record ProviderBindingCandidate(
                 connectionGrant,
                 access);
     }
+
+    /** Narrows current Binding access to the capability and resource envelope requested now. */
+    public Optional<ProviderBindingCandidate> narrowTo(ProviderAccessScope requestedAccess) {
+        return effectiveAccess
+                .intersection(Objects.requireNonNull(requestedAccess, "requestedAccess"))
+                .map(access -> new ProviderBindingCandidate(
+                        binding,
+                        definition,
+                        implementation,
+                        connection,
+                        connectionGrant,
+                        access));
+    }
 }
