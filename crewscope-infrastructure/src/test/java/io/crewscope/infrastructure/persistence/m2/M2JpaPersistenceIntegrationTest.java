@@ -17,6 +17,11 @@ import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.provider.ProviderBindingQuery;
 import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.provider.ProviderBindingResolution;
+import io.crewscope.application.provider.ProviderBindingResolutionLevel;
+import io.crewscope.application.provider.ProviderBindingResolutionRequest;
+import io.crewscope.application.provider.ProviderBindingResolutionStatus;
+import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.provider.ProviderDefinitionRepository;
 import io.crewscope.application.provider.ProviderImplementationRepository;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
@@ -61,6 +66,7 @@ import io.crewscope.domain.provider.ProviderCapabilities;
 import io.crewscope.domain.provider.ProviderConnectionRequirement;
 import io.crewscope.domain.provider.ProviderDefinition;
 import io.crewscope.domain.provider.ProviderDefinitionId;
+import io.crewscope.domain.provider.ProviderExecutionIdentity;
 import io.crewscope.domain.provider.ProviderImplementation;
 import io.crewscope.domain.provider.ProviderImplementationId;
 import io.crewscope.domain.provider.ProviderOwner;
@@ -503,6 +509,38 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 fixture, definition, implementation, owner, ProviderBindingTargetType.WORKSPACE, false));
         bindingRepository.create(providerBinding(
                 fixture, definition, implementation, owner, ProviderBindingTargetType.WORK_PROJECT, true));
+        CredentialId credentialId = seedCredential(fixture);
+        Connection connection = connectionRepository.create(Connection.reconstitute(
+                ConnectionId.generate(),
+                fixture.organizationId(),
+                owner,
+                "github-oauth",
+                "organization-account",
+                credentialId,
+                ConnectionStatus.ACTIVE,
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME)));
+        ProviderAccessScope externalAccess = new ProviderAccessScope(
+                ProviderCapabilities.of("repository.read"), ProviderResourceScope.allResources());
+        ConnectionGrant grant = connectionGrantRepository.create(ConnectionGrant.reconstitute(
+                ConnectionGrantId.generate(),
+                fixture.organizationId(),
+                connection.id(),
+                owner,
+                owner,
+                externalAccess,
+                BASE_TIME,
+                Optional.empty(),
+                ConnectionGrantStatus.ACTIVE,
+                Optional.empty(),
+                0,
+                AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME)));
+        ProviderImplementation externalImplementation = implementationRepository.create(
+                externalProviderImplementation(fixture, definition));
+        bindingRepository.create(externalProviderBinding(
+                fixture, definition, externalImplementation, owner, connection, grant));
 
         List<ProviderBinding> candidates = bindingRepository.findCandidates(new ProviderBindingQuery(
                 fixture.organizationId(),
@@ -510,17 +548,32 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 fixture.workspaceId(),
                 Optional.of(fixture.workProjectId()),
                 owner,
-                ProviderType.SOURCE_CODE));
+                ProviderType.SOURCE_CODE,
+                Optional.empty()));
         List<ProviderBinding> workspaceOnly = bindingRepository.findCandidates(new ProviderBindingQuery(
                 fixture.organizationId(),
                 fixture.teamId(),
                 fixture.workspaceId(),
                 Optional.empty(),
                 owner,
-                ProviderType.SOURCE_CODE));
+                ProviderType.SOURCE_CODE,
+                Optional.empty()));
+        List<ProviderBinding> organizationIdentity = bindingRepository.findCandidates(
+                new ProviderBindingQuery(
+                        fixture.organizationId(),
+                        fixture.teamId(),
+                        fixture.workspaceId(),
+                        Optional.of(fixture.workProjectId()),
+                        owner,
+                        ProviderType.SOURCE_CODE,
+                        Optional.of(ProviderExecutionIdentity.ORGANIZATION_SERVICE_ACCOUNT)));
 
         assertEquals(2, candidates.size());
         assertEquals(1, workspaceOnly.size());
+        assertEquals(1, organizationIdentity.size());
+        assertEquals(
+                ProviderExecutionIdentity.ORGANIZATION_SERVICE_ACCOUNT,
+                organizationIdentity.get(0).executionIdentity().orElseThrow());
         jdbcTemplate.execute("SET enable_seqscan = off");
         String plan = String.join(
                 "\n",
@@ -537,6 +590,71 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                         fixture.workspaceId().value(),
                         fixture.organizationId().value()));
         assertTrue(plan.contains("ix_provider_binding_resolver"), plan);
+    }
+
+    @Test
+    void resolvesProjectCandidateAndFailsClosedThroughJpaFacts() {
+        Fixture fixture = seedFixture("resolver");
+        ProviderDefinition definition = definitionRepository.create(providerDefinition(fixture));
+        ProviderImplementation implementation = implementationRepository.create(
+                providerImplementation(fixture, definition));
+        ProviderOwner owner = ProviderOwner.organization(fixture.organizationId());
+        bindingRepository.create(providerBinding(
+                fixture,
+                definition,
+                implementation,
+                owner,
+                ProviderBindingTargetType.WORKSPACE,
+                true));
+        ProviderBinding project = bindingRepository.create(providerBinding(
+                fixture,
+                definition,
+                implementation,
+                owner,
+                ProviderBindingTargetType.WORK_PROJECT,
+                false));
+        ProviderBindingResolver resolver = new ProviderBindingResolver(
+                bindingRepository,
+                definitionRepository,
+                implementationRepository,
+                connectionRepository,
+                connectionGrantRepository,
+                () -> BASE_TIME);
+        ProviderBindingResolutionRequest request = new ProviderBindingResolutionRequest(
+                fixture.organizationId(),
+                fixture.teamId(),
+                fixture.workspaceId(),
+                Optional.of(fixture.workProjectId()),
+                owner,
+                ProviderType.SOURCE_CODE,
+                Optional.empty(),
+                new ProviderAccessScope(
+                        ProviderCapabilities.of("repository.read"),
+                        ProviderResourceScope.allResources()),
+                Optional.empty(),
+                Optional.empty());
+
+        ProviderBindingResolution resolved = resolver.resolve(request);
+        ProviderBinding secondProject = bindingRepository.create(providerBinding(
+                fixture,
+                definition,
+                implementation,
+                owner,
+                ProviderBindingTargetType.WORK_PROJECT,
+                false));
+        ProviderBindingResolution ambiguous = resolver.resolve(request);
+        definitionRepository.update(definition.disable(0, fixture.ownerPrincipal(), BASE_TIME));
+        ProviderBindingResolution stale = resolver.resolve(request);
+
+        assertEquals(ProviderBindingResolutionStatus.RESOLVED, resolved.status());
+        assertEquals(ProviderBindingResolutionLevel.WORK_PROJECT, resolved.level());
+        assertEquals(project.id(), resolved.candidate().orElseThrow().binding().id());
+        assertEquals(ProviderBindingResolutionStatus.AMBIGUOUS, ambiguous.status());
+        assertEquals(
+                Set.of(project.id(), secondProject.id()),
+                Set.copyOf(ambiguous.ambiguousBindingIds()));
+        assertEquals(ProviderBindingResolutionStatus.NOT_FOUND, stale.status());
+        assertEquals(ProviderBindingResolutionLevel.WORK_PROJECT, stale.level());
     }
 
     @Test
@@ -866,6 +984,24 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));
     }
 
+    private static ProviderImplementation externalProviderImplementation(
+            Fixture fixture, ProviderDefinition definition) {
+        return ProviderImplementation.reconstitute(
+                ProviderImplementationId.generate(),
+                fixture.organizationId(),
+                definition.id(),
+                definition.type(),
+                definition.interfaceVersion(),
+                "github-oauth",
+                "1.0",
+                ProviderCapabilities.of("repository.read"),
+                ProviderConnectionRequirement.REQUIRED,
+                Optional.of("github-oauth"),
+                ProviderRegistrationStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));
+    }
+
     private static ProviderBinding providerBinding(
             Fixture fixture,
             ProviderDefinition definition,
@@ -900,6 +1036,43 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 Optional.empty(),
                 access,
                 defaultUsage,
+                ProviderRegistrationStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));
+    }
+
+    private static ProviderBinding externalProviderBinding(
+            Fixture fixture,
+            ProviderDefinition definition,
+            ProviderImplementation implementation,
+            ProviderOwner owner,
+            Connection connection,
+            ConnectionGrant grant) {
+        ProviderBindingTarget target = new ProviderBindingTarget(
+                fixture.organizationId(),
+                fixture.teamId(),
+                fixture.workspaceId(),
+                ProviderBindingTargetType.WORKSPACE,
+                Optional.empty());
+        ProviderAccessScope access = new ProviderAccessScope(
+                ProviderCapabilities.of("repository.read"), ProviderResourceScope.allResources());
+        return ProviderBinding.reconstitute(
+                ProviderBindingId.generate(),
+                fixture.organizationId(),
+                target,
+                owner,
+                definition.id(),
+                definition.version(),
+                definition.type(),
+                implementation.id(),
+                implementation.version(),
+                Optional.of(connection.id()),
+                Optional.of(connection.version()),
+                Optional.of(grant.id()),
+                Optional.of(grant.version()),
+                Optional.of(ProviderExecutionIdentity.ORGANIZATION_SERVICE_ACCOUNT),
+                access,
+                false,
                 ProviderRegistrationStatus.ACTIVE,
                 0,
                 AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));

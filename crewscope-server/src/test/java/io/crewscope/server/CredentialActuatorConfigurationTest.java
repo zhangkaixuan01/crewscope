@@ -32,6 +32,19 @@ class CredentialActuatorConfigurationTest {
         assertEquals("${CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID:}", currentKeyId);
         assertEquals("${CREWSCOPE_CREDENTIAL_KEYS:}", keys);
         assertFalse(keys.matches(".*=[A-Za-z0-9+/]{43}=?.*"));
+
+        assertEquals(
+                "${CREWSCOPE_REDIS_URL:redis://localhost:6379}",
+                property(sources, "crewscope.runtime.redis.url"));
+        assertEquals(
+                "${CREWSCOPE_ENVIRONMENT:development}",
+                property(sources, "crewscope.runtime.redis.environment"));
+        assertEquals(
+                "${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_LEASE:30s}",
+                property(sources, "crewscope.runtime.redis.ownership-lease"));
+        assertEquals(
+                "${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_RENEWAL:5s}",
+                property(sources, "crewscope.runtime.redis.ownership-renewal"));
     }
 
     private static String property(List<PropertySource<?>> sources, String name) {
