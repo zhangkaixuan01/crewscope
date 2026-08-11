@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-07<br>
-> 更新：2026-08-09（M2-S03 固化 Agent Invocation Resume 幂等与过期边界）<br>
+> 更新：2026-08-11（M2-A05 固化结构化澄清与 TaskIntent 并发协议）<br>
 > 影响里程碑：M0–M6
 
 ## 背景
@@ -71,24 +71,24 @@ Request Hash 使用可影响副作用的可信 Scope、Actor、Causation 与应�
 
 ### Agent Invocation Resume
 
-Conversation 下的 Agent Invocation Resume 是状态变更命令，必须携带 `Idempotency-Key`。服务端以当前 Organization、Conversation、Invocation、认证成员和规范化回答计算 Request Hash，并在进入 AgentScope 前完成以下裁决：
+Conversation 下的 Agent Invocation Resume 是状态变更命令，必须携带 `Idempotency-Key`。请求只包含 1–10 个 `fieldKey -> answer`，服务端以当前 Organization、Conversation、Invocation、认证成员和排序后的规范化回答计算 Request Hash，并在进入 AgentScope 前完成以下裁决：
 
 ```text
 认证与 Conversation Scope
   -> Pending Invocation 与 AgentRuntimeSession
-  -> Pending Clarification 的 replyId/toolCallId/schemaVersion
-  -> expiresAt 与当前服务端事实
+  -> 当前 Interrupt Token 与 AgentScope Pending Clarification
+  -> 当前服务端身份与 Scope 事实
   -> Idempotency-Key / Request Hash
   -> AgentScope Resume
 ```
 
 - 首次有效 Resume 取得执行权；相同 Key 和 Request Hash 的重放返回首次结果，不再次进入 Model 或执行 Tool；
 - 相同 Key 对应不同回答、Invocation 或 Clarification 时返回 `409 idempotency_conflict`；
-- 已过期的 Clarification 在进入 AgentScope 前转为 `EXPIRED`，返回稳定业务错误，不执行 Tool 和 Model；
-- 非当前 Pending Invocation、错误 Conversation/Session、错误 `replyId`、错误 `toolCallId` 或错误 SchemaVersion 失败关闭；
+- 非当前 Pending Invocation、终态 Invocation、错误 Conversation/Session 或错误 Interrupt Token 失败关闭；
 - 客户端只提交受约束的回答，不提交 AgentScope `ConfirmResult`、ToolUseBlock、PermissionRule 或 Session 标识；
 - CrewScope Bridge 从持久化 Pending Tool 重建 `ConfirmResult`，保持原 `toolCallId` 和 Tool Name，只把已验证回答写入允许修改的 `answers` 字段；
-- 完成、拒绝和过期结果均可稳定重放；Receipt 和可见结果的持久化由 M2 Application Service 与 PostgreSQL 事务实现。
+- 回答先通过 Conversation USER Message Command 持久化；活动 Server 实例在有界 Invocation Registry 中重放原 Segment，不重复调用 Model 或 Tool；
+- M2 固定单活动执行实例，Interrupt Token 与 Segment 协调属于进程内事实，AgentScope Pending Tool 与会话状态保存在 Redis。跨实例耐久 Invocation、过期时间、Lease 和恢复 Receipt 由 M3 AgentRun 交付。
 
 AgentScope 2.0.0 原生重复 Resume 不会重复执行已经完成的 Tool，但会把重复确认当成新一轮输入并再次调用 Model。因此 Resume 幂等不能由 AgentStateStore 或 AgentScope 内存状态代替。
 
@@ -100,6 +100,17 @@ AgentScope 2.0.0 原生重复 Resume 不会重复执行已经完成的 Tool，�
 - Weak ETag、`*`、多值和非负版本以外的格式返回 `400 invalid_if_match`；
 - 预期版本与已提交版本不同时返回 `409 optimistic_lock_conflict` 和 `currentVersion`；
 - 事实查询响应使用同格式 `ETag` 返回当前版本。
+
+### TaskIntent 修订、拒绝与确认预检
+
+TaskIntent 是 Conversation 嵌套资源。GET、修订、拒绝和确认预检先验证当前 Conversation 可见性，再验证 TaskIntent 的 Organization、Team、Workspace 与 Conversation 归属；跨 Scope ID 按资源不存在处理。
+
+- 修订和拒绝同时要求 `Idempotency-Key` 与 `If-Match`；Request Hash 包含 Actor、Team、Conversation、TaskIntent、期望版本、Causation 和规范命令内容；
+- 完整修订执行 `READY -> DRAFT -> READY`，一次业务命令原子推进两个 Aggregate Version，Receipt 返回最终 READY Version；
+- 拒绝只允许当前 Proposal 的人类 Owner，进入不可逆 REJECTED，并记录用户可见原因；
+- 确认预检要求 `If-Match`，但不要求 `Idempotency-Key`，因为它只重新解析当前事实并执行未落库的领域验证，不产生状态、事件、Receipt 或 WorkItem；
+- GET 和确认预检返回当前强 ETag 与 `Cache-Control: no-store`；
+- 最终确认 Command 继续遵循 `Idempotency-Key` 与 `If-Match`，由 M2-A07 同时提交 TaskIntent、WorkItem、责任、关联、事件、Outbox 和 Receipt。
 
 ### Cursor
 
@@ -123,7 +134,9 @@ M0 WorkItem Cursor 固化 `updatedAt DESC, id DESC` 的位置。Cursor 不承载
 5. WebTestClient 覆盖成功、重放、版本冲突、Header 和 Bean Validation 失败；
 6. Cursor 往返与非法 Token 拒绝经过单元测试。
 7. Agent Resume 的首次请求只执行一次，相同重放返回首次结果，不同 Payload 冲突；
-8. 过期、错误 Invocation/Session/replyId/toolCallId 在 AgentScope 调用前拒绝，Model 和 Tool 计数不增加。
+8. 终态、错误 Invocation/Session/Interrupt Token 在 AgentScope 调用前拒绝，Model 和 Tool 计数不增加；
+9. TaskIntent 修订原子推进两个版本，Outbox 故障不留下 DRAFT、事件或 Receipt；
+10. 确认预检验证当前事实和版本且不产生任何持久副作用。
 
 ## 重新评估条件
 

@@ -4,7 +4,7 @@
 > 前置条件：M1 Release Gate 通过<br>
 > 目标周期：2 周，多工作流并行推进<br>
 > 目标结果：成员可在 Web 与自己的 Personal Agent 持续对话，Agent 可澄清目标、生成结构化 TaskIntent，并在成员确认后创建带责任关系的 WorkItem<br>
-> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07` 已完成，下一项为 `M2-A01`（2026-08-09）
+> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07`、`M2-A01` 至 `M2-A07` 已完成，下一项为 `M2-F01`（2026-08-11）
 
 ## 1. 出口结果
 
@@ -129,13 +129,13 @@ AgentScope `ReActAgent` 通过 `AgentBase` 会话尾链按 `(userId, sessionId)`
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M2-A01` | FEATURE | D02,D07 | application/server | 实现 Conversation 创建、列表、详情、参与者和消息历史 Query/API；从当前 TeamMember 解析默认 Personal Agent | 应用与 HTTP 测试覆盖 PRIVATE/TEAM、默认参与者、Membership、分页、归档、Scope 隐藏和缓存策略 |
-| `M2-A02` | FEATURE | A01 | application/server | 实现追加用户消息 Command，提交 Message、DomainEvent、Outbox 和 CommandReceipt；服务端分配消息序号 | 测试覆盖 `Idempotency-Key`、内容校验、作者资格、并发顺序、归档拒绝、同键冲突、事务回滚和安全 Markdown |
-| `M2-A03` | FEATURE | A02,I04,I05,I06 | application/agentscope/server | 实现受控 Personal Agent Invocation/Resume/Cancel 入口和 AG-UI SSE；在用户消息提交后调用 AgentScope 并持久化可见回复 | 测试覆盖认证解析、受控 Session、流式文本、TaskIntent/Interrupt、取消、背压、模型失败、客户端注入拒绝和最终 Message 一致性 |
-| `M2-A04` | FEATURE | A03 | application/infrastructure/server | 实现 Conversation Event 历史 API、SSE `Last-Event-ID`/Cursor 补发、投影追平和 AG-UI/Conversation/Team 跨流去重契约 | 集成测试覆盖断开、重连、重复、乱序、Cursor 过期、慢消费者、跨 Conversation Cursor 和历史后实时无缝切换 |
-| `M2-A05` | FEATURE | D03,A02,I06 | application/server | 实现 Clarification、TaskIntent 查询/修订/拒绝和确认预检 API；定义确认 Command Port，最终确认路由由 A07 接入同一原子事务 | 测试覆盖多轮澄清、Schema 错误、期望版本、重复修订/拒绝、过期、Owner/Reviewer 资格、职责分离与服务端事实覆盖 |
-| `M2-A06` | TASK | I01,D07,M1-A01 | application/integration/server | 注册内置 NativeWorkItem ProviderDefinition/Implementation，为新旧 Team 默认 Workspace 幂等初始化 connectionless ProviderBinding，并提供只读能力与 Binding 查询 API | 应用、迁移后补全与 HTTP 测试覆盖新 Team、既有 Team、并发初始化、重复执行、Scope 权限、唯一默认 Binding、停用和歧义返回 |
-| `M2-A07` | FEATURE | A05,A06,D07,M1-A06 | application/integration/server | 实现 TaskIntent 确认路由；同一事务完成 READY→CONFIRMED、解析 NativeWorkItem ProviderBinding、创建 Native WorkItem、Owner、可选 Executor/Gate Reviewer、ConversationWorkItemLink、DomainEvent、Outbox 和 CommandReceipt，并提供双向关联查询 | PostgreSQL 与 HTTP 测试覆盖完整成功、幂等重放、If-Match、WorkItem Key 并发、Binding 歧义、责任失败全回滚、关联唯一性、越权和双向读取 |
+| `M2-A01` | FEATURE | D02,D07 | application/server | 实现 Conversation 创建、列表、详情、参与者和消息历史 Query/API；从当前 TeamMember 解析默认 Personal Agent | [Conversation 应用与 API](../testing/M2-A01-Conversation应用与API.md)与 25 项专项测试覆盖 PRIVATE/TEAM、默认参与者、Membership、分页、归档、Scope 隐藏、并发变更收口和缓存策略 |
+| `M2-A02` | FEATURE | A01 | application/server | 实现追加用户消息 Command，提交 Message、DomainEvent、Outbox 和 CommandReceipt；服务端分配消息序号 | [用户消息追加](../testing/M2-A02-用户消息追加.md)与 38 项专项测试覆盖 `Idempotency-Key`、内容校验、作者资格、并发顺序、归档拒绝、同键冲突、事务回滚和安全 Markdown |
+| `M2-A03` | FEATURE | A02,I04,I05,I06 | application/agentscope/server | 实现受控 Personal Agent Invocation/Resume/Cancel 入口和 AG-UI SSE；在用户消息提交后调用 AgentScope 并持久化可见回复 | [Personal Agent 调用](../testing/M2-A03-Personal-Agent调用.md)与 9 项新增测试覆盖 Owner、受控 Session/Context、流式重放、Interrupt/Resume、Cancel、背压、断开、客户端注入、最终 Message 原子提交与回滚 |
+| `M2-A04` | FEATURE | A03 | application/infrastructure/server | 实现 Conversation Event 历史 API、SSE `Last-Event-ID`/Cursor 补发、投影追平和 AG-UI/Conversation/Team 跨流去重契约 | [Conversation Event 与断线补发](../testing/M2-A04-Conversation-Event与断线补发.md)与 9 项新增测试覆盖稳定事件 ID、历史分页、断线重连、Cursor 过期、跨 Conversation 防护、长连接身份复验、事务回滚、历史可见截止和 V7→V8 回填 |
+| `M2-A05` | FEATURE | D03,A02,I06 | application/agentscope/infrastructure/server | 实现 Clarification、TaskIntent 查询/修订/拒绝和确认预检 API；定义确认 Command Port，最终确认路由由 A07 接入同一原子事务 | [TaskIntent 与确认预检](../testing/M2-A05-TaskIntent与确认预检.md)与 18 项新增测试覆盖生产澄清 Tool、结构化回答、Schema、Candidate 幂等、期望版本、修订/拒绝、Owner/Reviewer 当前资格、职责分离、HTTP 和 PostgreSQL 原子回滚 |
+| `M2-A06` | TASK | I01,D07,M1-A01 | application/integration/server | 注册内置 NativeWorkItem ProviderDefinition/Implementation，为新旧 Team 默认 Workspace 幂等初始化 connectionless ProviderBinding，并提供只读能力与 Binding 查询 API | [NativeWorkItem Provider 初始化与 Binding 查询](../testing/M2-A06-NativeWorkItem-Provider.md)与 13 项新增测试覆盖新 Team、既有 Team、并发初始化、重复执行、Scope 权限、唯一默认 Binding、停用、歧义返回和事务回滚 |
+| `M2-A07` | FEATURE | A05,A06,D07,M1-A06 | application/integration/server | 实现 TaskIntent 确认路由；同一事务完成 READY→CONFIRMED、解析 NativeWorkItem ProviderBinding、创建 Native WorkItem、Owner、可选 Executor/Gate Reviewer、ConversationWorkItemLink、DomainEvent、Outbox 和 CommandReceipt，并提供双向关联查询 | [TaskIntent 确认与 Native WorkItem 原子创建](../testing/M2-A07-TaskIntent确认与Native-WorkItem.md)与 14 项新增测试覆盖完整成功、空请求体、非空请求体拒绝、幂等重放、If-Match、WorkItem Key 并发、Binding 歧义、责任失败全回滚、越权和双向读取 |
 
 ### 6.1 M2 API 契约
 
@@ -172,6 +172,89 @@ commandId / domainEventId / committedVersion / correlationId
 ```
 
 PRIVATE Conversation 仅对 Owner USER、其当前 Team 的 Personal Agent 和显式有效参与者可见。TEAM Conversation 对当前 Team ACTIVE Member 可发现，消息写入要求有效 Participant。参与者增删要求 Team Scope 权限；成员停用后立即失去读取与写入权限。
+
+### 6.2 M2-A01 Conversation 应用契约
+
+M2-A01 使用当前认证 USER 和 TeamMember 建立服务端可信的 Conversation 上下文。创建命令只接收标题与 `PRIVATE/TEAM` 可见性，应用层从 Team 默认 Workspace、当前 TeamMember 的 ACTIVE 默认 Personal Agent Profile 和对应 Principal 重建 `PersonalConversationInitialization`，在同一事务提交 Conversation、OWNER Participant、AGENT Participant、DomainEvent、Outbox 与 CommandReceipt。客户端不能指定 Owner、Workspace、Personal Agent 或初始 Participant。
+
+Conversation 列表在持久化 Keyset 查询中按当前 USER Principal 约束可见范围：`TEAM` 或存在该 Principal 的 Participant；应用层再使用 `ConversationVisibilityPolicy` 复验当前 ACTIVE Membership 与 Participant 生命周期。详情和消息历史将不可见的 PRIVATE Conversation 映射为资源不存在，跨 Team 的 Conversation ID 和跨 Conversation 的 Message Cursor 同样失败关闭。
+
+参与者管理采用以下规则：
+
+- 添加参与者只接受当前 Team 的 ACTIVE TeamMember/USER；Conversation Owner 必须具有有效 `COLLABORATION_REQUEST` Team Permission；
+- 已退出的同一 Participant 使用稳定 ID 重新激活，ACTIVE Participant 的重复添加由 Idempotency-Key 重放或业务冲突裁决；
+- Conversation Owner 可以移除普通 MEMBER Participant，普通 Participant 可以退出自身；OWNER 与 AGENT Participant 不允许退出；
+- Participant 变更先锁定 Conversation 行，串行化同一 Conversation 的加入、重新加入和退出；
+- 归档 Conversation 只读，不接受 Participant 变更；成员或 Principal 停用后立即失去发现和读取资格。
+
+消息历史使用 `(conversationId, sequence)` 版本化 Base64URL Cursor，并把 LEFT Participant 的 `leftAt` 作为数据库查询截止条件。Conversation 列表、详情、参与者和消息响应统一返回 `Cache-Control: no-store`；所有 POST/DELETE 命令继续遵循 `/api/v1` 的 `Idempotency-Key`、CommandReceipt 和安全错误信封。
+
+### 6.3 M2-A02 用户消息追加契约
+
+用户消息命令只接收 Markdown `content`。USER Principal、TeamMember、ConversationParticipant、MessageType、MessageId 和 Sequence 全部由服务端解析或生成，客户端不能覆盖作者、角色、Scope 或排序事实。当前 USER 必须是同一 Team 的 ACTIVE TeamMember，并在目标 ACTIVE Conversation 中具有 ACTIVE USER Participant；TEAM Conversation 的可发现权限不自动获得消息写入权限。
+
+`Idempotency-Key` 同时作为 CommandReceipt 预留键和 Message `clientMessageKey`。相同键与相同规范化内容返回原回执且不新增事实；相同键与不同内容返回 `idempotency_conflict`。请求哈希包含 Organization 隔离下的 Actor、Team、Conversation、Causation 和规范化 Markdown，避免同键跨命令或跨资源复用。
+
+追加过程在一个事务内完成：预留 CommandReceipt，锁定 Conversation 行，复验 TeamMember 与 Participant，分配下一个 Message Sequence，更新 Conversation，插入不可变 USER_MESSAGE，追加 `CONVERSATION_MESSAGE_POSTED` DomainEvent，写入 Outbox，最后完成 CommandReceipt。事件以 Conversation 为聚合引用并使用更新后的 Conversation Version，保证消息事件与单调序号一致。任一步失败时全部回滚。
+
+Markdown 作为不可变文本事实保存，服务端只执行非空、长度、控制字符和 Unicode 规范边界校验，不解释或执行 HTML、链接和代码。HTTP 始终通过 JSON 传输内容，不把消息正文写入日志或错误详情。M2-F02 渲染时禁用原始 HTML，并对链接协议和生成节点执行白名单清理；安全策略不以有损改写持久化原文为代价。
+
+### 6.4 M2-A03 Personal Agent 调用契约
+
+Invocation 与 Resume 请求只接收 Markdown `message` 和 `Idempotency-Key`。服务端先复用 M2-A02 提交 USER Message，再以已提交 Message、当前 Owner USER、Personal Agent、ACTIVE AgentRuntimeSession 和重新解析的 `PlatformExecutionContext` 构造 `ExecutionRuntime` 请求。客户端不能提交 Agent、Principal、Participant、RuntimeSession、Thread、Run、InterruptToken、Tool、Context、State、ProviderBinding 或 Structured Output 类型。
+
+Personal Agent 由 Conversation Owner 独占驱动；TEAM Conversation 的普通 Participant 可以追加消息，但不能调用 Owner 的 Personal Agent。Invocation ID 从已提交 USER Message 稳定派生，同一消息只对应一个逻辑 Invocation。Invoke、Resume 与 Cancel 每次都从当前 PostgreSQL 事实重验 Membership、Role、Participant、AgentProfile 与 Scope。M2-A03 默认使用自然对话文本模式，TaskIntent Structured Output 的领域落库与管理由 M2-A05 接入既有 Candidate 边界。
+
+应用层只订阅一次 `ExecutionRuntime` 流，经 `ConversationExecutionEventMapper` 生成安全 AG-UI 信封并写入有界内存重放流。相同幂等请求返回原 Segment，不再次进入 Model；HTTP 断开只取消当前重放订阅，不取消 AgentScope 业务调用。M2-A04 在此基础上增加持久事件历史、Cursor 补发与跨进程恢复。
+
+M2-A04 使用事务内 `conversation_event` 投影索引保存单调 Position、稳定 Conversation Stream Event ID 和源 DomainEvent ID。历史 JSON 与 SSE 共用升序 Keyset 查询；SSE `id` 是绑定 Organization、Team、Conversation、Position 和 Event ID 的版本化 Cursor，`Last-Event-ID` 与 `after` 均可恢复。服务端先补历史再串行轮询耐久水位，慢消费者只合并空 tick，不丢业务事件。首页和每轮读取都重新解析认证主体，并复验 Principal、Membership、Participant 与 Conversation 的当前可见性；任一授权事实失效都会终止该长连接。跨持久流按 DomainEvent ID 合并，单流按 Event ID 去重；过期 Cursor 返回 `410 cursor_expired`，非法或跨 Conversation Cursor 返回 `400 invalid_cursor`。验证见 [Conversation Event 与断线补发](../testing/M2-A04-Conversation-Event与断线补发.md)。
+
+Agent `COMPLETED` 产生的 Message Candidate 必须先锁定 Conversation，并在一个事务内提交 Conversation Sequence、AGENT Message、`CONVERSATION_MESSAGE_POSTED` DomainEvent 与 Outbox，随后才发布 `RUN_FINISHED`。回复提交失败时发布安全 `RUN_ERROR`；中断、取消和失败不创建 AGENT Message。Resume 回答继续作为 USER Message 提交，应用层使用服务端保存的 Pending Interrupt Token；Cancel 返回真实 Runtime 结果，不构造 DomainEvent 或 CommandReceipt。
+
+### 6.5 M2-A05 TaskIntent 与确认预检契约
+
+生产 Personal Agent Toolkit 注册只读 `request_clarification` Tool。Resume HTTP 只接收 `answers: fieldKey -> value`，Bridge 以 AgentScope 保存的 Pending Tool 为基线绑定回答；内置 Tool 验证 Field Key 属于原始 `ClarificationRequestV1`，并要求所有 Required 问题获得回答。客户端不能提交 Tool Name、Tool Input、ConfirmResult、PermissionRule、replyId、toolCallId 或 Session。相同 Resume Key 与相同规范回答重放原 Segment，同 Key 不同回答返回幂等冲突。
+
+Agent 完成并通过 Bean Validation 的 `TaskIntentV1` 在 `RUN_FINISHED` 前进入应用事务。服务端重新解析当前 WorkProject、Principal、TeamMember、Conversation Scope 和职责分离事实，使用 Invocation 与 Segment 派生稳定 TaskIntent ID，依次提交 DRAFT 与 READY、`TASK_INTENT_PROPOSED`、Conversation Event 和 Outbox。相同 Candidate 不重复副作用；稳定 ID 对应不同内容时失败关闭。
+
+TaskIntent GET、完整修订、拒绝和确认预检均通过嵌套 Conversation 可见性。修订、拒绝和预检只允许 Proposal 中的人类 Owner；修订执行 `READY -> DRAFT -> READY`，Proposal Revision 增加 1，Aggregate Version 增加 2。确认预检要求强 `If-Match`，从当前事实重建 Proposal，再调用未落库的领域确认迁移验证 READY、版本、Proposal 一致性和 Owner，不创建 WorkItem、不写事件。
+
+修订与拒绝要求 `Idempotency-Key` 和 `If-Match`，返回 CommandReceipt；GET 与预检返回 `Cache-Control: no-store` 和强 ETag。最终确认闭环见 6.7。完整预检契约与验证见 [TaskIntent 与确认预检](../testing/M2-A05-TaskIntent与确认预检.md)。
+
+### 6.6 M2-A06 NativeWorkItem Provider 初始化与查询契约
+
+内置 NativeWorkItem 注册为 Organization 级 `work-item` Definition 与 `native-work-item` Implementation，接口和实现版本均为 `1.0.0`。能力全集固定为读取、创建、更新、评论和资源关联。Implementation 的 Connection Requirement 为 `NONE`。
+
+每个 READY Team 的默认 Workspace 获得一个 TEAM Owner、`defaultUsage=true` 的 connectionless Binding。Binding 的资源范围精确为 `workspace:{workspaceId}`，不保存 Connection、ConnectionGrant 或外部执行身份。Definition、Implementation 与 Binding ID 从 Organization、Team 和稳定产品 Key 派生；Java 与 Flyway 使用相同 raw MD5 UUID 算法。
+
+新 Team 在 Team foundation 的 REQUIRED 事务中完成初始化；Provider 初始化任一步失败时 Team、Workspace、Membership、Role、Personal Agent 和 Provider 事实一起回滚。Organization 级 PostgreSQL advisory transaction lock 串行化并发注册。重复执行只验证已提交事实与产品契约，不重复写入，也不自动恢复被停用的 Binding。V9 为迁移前已有的完整 ACTIVE Team 补齐同一组稳定事实，不处理未完成 Team。
+
+只读 API 为 `GET /api/v1/organizations/{organizationId}/teams/{teamId}/provider-bindings`。服务端从当前 ACTIVE Membership、Team 默认 Workspace 和 TEAM Owner 解析，返回 `RESOLVED`、`NOT_FOUND` 或 `AMBIGUOUS`，并携带注册能力、固化版本、connectionless 状态、有效能力与资源。响应使用 `Cache-Control: no-store`，不执行隐式修复。完整契约与验证见 [NativeWorkItem Provider 初始化与 Binding 查询](../testing/M2-A06-NativeWorkItem-Provider.md)。
+
+### 6.7 M2-A07 TaskIntent 确认与 Native WorkItem 原子创建契约
+
+确认 API 为：
+
+```text
+POST /api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/task-intents/{taskIntentId}/confirmations
+```
+
+请求要求 `Idempotency-Key` 和强 `If-Match`，请求体为空。客户端不能提交 WorkItem ID、Key、ProviderBinding、Owner、Executor、Gate Reviewer 或关联事实。服务端锁定 TaskIntent 后复用 A05 确认预检，重新验证当前 Proposal、确认人、WorkProject、Principal、TeamMember、职责分离和 `WORK_CREATE` 权限。
+
+确认事务按以下顺序执行：预留 CommandReceipt；锁定 READY TaskIntent；复验当前事实；锁定 WorkProject；解析唯一可用的内置 connectionless `native-work-item` Binding；按项目内最大数字后缀分配下一个 WorkItem Key；创建 `TASK/MEDIUM` Native WorkItem；创建 Owner、可选 Executor 和可选 Gate Reviewer；以当前 `GateReviewerPolicyProvider` 重新验证 Reviewer；执行 `READY -> CONFIRMED` 并写入 `confirmed_work_item_id`；创建 `TASK_INTENT_CONFIRMATION` 来源的 ConversationWorkItemLink；提交 DomainEvent、Conversation Event、Outbox 和 CommandReceipt。任一步失败时完整回滚。
+
+WorkItem Key 分配要求 WorkProject 行锁、数字后缀读取和插入处于同一事务，数据库 `(project_id, item_key)` 唯一约束兜底。WorkItem 标题由 Objective 规范化并安全截断至 500 字符，描述保存完整 Objective 与 Acceptance Criteria；Type、Priority、Labels 和 DueAt 分别固定为 `TASK`、`MEDIUM`、空集合和空值。
+
+复合命令可以产生 `WORK_ITEM_CREATED`、可选责任事件和根 `TASK_INTENT_CONFIRMED`。只有根确认事件携带命令 `Idempotency-Key`，所有事件共享 Correlation/Causation；CommandReceipt 指向根确认事件。幂等重放直接返回原回执，不重新读取事实、分配 Key 或创建业务图。
+
+双向查询为：
+
+```text
+GET /api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/work-items
+GET /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/conversations
+```
+
+Conversation 方向先验证 Conversation 可见性，再逐项验证 WorkItem 可见性；WorkItem 方向先验证 WorkItem 可见性，再过滤调用者不可发现的 PRIVATE Conversation。Repository 返回跨 Organization、Team、Workspace、Conversation、WorkProject 或 WorkItem Scope 的关联时失败关闭。响应只返回两端摘要和关联事实，并使用 `Cache-Control: no-store`。完整契约与验证见 [TaskIntent 确认与 Native WorkItem 原子创建](../testing/M2-A07-TaskIntent确认与Native-WorkItem.md)。
 
 ## 7. 前端
 
