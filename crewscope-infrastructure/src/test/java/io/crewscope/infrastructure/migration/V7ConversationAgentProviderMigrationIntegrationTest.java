@@ -5,6 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.application.execution.RealtimeStreamEventIds;
+import io.crewscope.application.provider.BuiltInProviderRegistration;
+import io.crewscope.domain.provider.ProviderCapabilities;
+import io.crewscope.domain.provider.ProviderType;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.event.StreamType;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -26,6 +33,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
 
     private static final MigrationVersion VERSION_6 = MigrationVersion.fromVersion("6");
     private static final MigrationVersion VERSION_7 = MigrationVersion.fromVersion("7");
+    private static final MigrationVersion VERSION_8 = MigrationVersion.fromVersion("8");
+    private static final MigrationVersion VERSION_9 = MigrationVersion.fromVersion("9");
     private static final String ALTERNATE_SCHEMA = "v7_probe";
 
     @BeforeEach
@@ -149,6 +158,109 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 "SELECT COUNT(*) FROM crewscope.credential_secret WHERE organization_id = ?",
                 fixture.organizationId()));
         assertEquals(0, queryInt("SELECT COUNT(*) FROM crewscope.conversation"));
+    }
+
+    @Test
+    void backfillsOneStableConnectionlessNativeBindingForEveryReadyTeam() throws SQLException {
+        flyway(POSTGRES.getJdbcUrl(), VERSION_8).migrate();
+        Fixture ready = seedFixture("NAT");
+        Fixture incomplete = seedFixture("INC");
+        execute(
+                "UPDATE crewscope.team SET owner_member_id = ?, default_workspace_id = ? WHERE id = ?",
+                ready.memberId(),
+                ready.workspaceId(),
+                ready.teamId());
+
+        Flyway versionNine = flyway(POSTGRES.getJdbcUrl(), VERSION_9);
+        assertEquals(1, versionNine.migrate().migrationsExecuted);
+
+        BuiltInProviderRegistration registration = nativeRegistration();
+        UUID expectedDefinitionId = registration
+                .definitionId(new OrganizationId(ready.organizationId()))
+                .value();
+        UUID expectedImplementationId = registration
+                .implementationId(new OrganizationId(ready.organizationId()))
+                .value();
+        UUID expectedBindingId = registration
+                .workspaceBindingId(
+                        new OrganizationId(ready.organizationId()),
+                        new TeamId(ready.teamId()))
+                .value();
+        assertEquals(expectedDefinitionId, queryUuid(
+                "SELECT id FROM crewscope.provider_definition WHERE organization_id = ? AND provider_key = 'work-item'",
+                ready.organizationId()));
+        assertEquals(expectedImplementationId, queryUuid(
+                "SELECT id FROM crewscope.provider_implementation WHERE organization_id = ? AND implementation_key = 'native-work-item'",
+                ready.organizationId()));
+        assertEquals(expectedBindingId, queryUuid(
+                "SELECT id FROM crewscope.provider_binding WHERE organization_id = ? AND team_id = ? AND provider_type = 'WORK_ITEM'",
+                ready.organizationId(),
+                ready.teamId()));
+        assertEquals(1, queryInt(
+                """
+                SELECT COUNT(*)
+                FROM crewscope.provider_binding
+                WHERE id = ?
+                  AND workspace_id = ?
+                  AND target_type = 'WORKSPACE'
+                  AND owner_type = 'TEAM'
+                  AND owner_id = ?
+                  AND connection_requirement = 'NONE'
+                  AND connection_id IS NULL
+                  AND connection_grant_id IS NULL
+                  AND execution_identity IS NULL
+                  AND effective_resources = JSONB_BUILD_ARRAY('workspace:' || ?::TEXT)
+                  AND default_usage
+                  AND status = 'ACTIVE'
+                """,
+                expectedBindingId,
+                ready.workspaceId(),
+                ready.teamId(),
+                ready.workspaceId()));
+        assertEquals(0, queryInt(
+                "SELECT COUNT(*) FROM crewscope.provider_binding WHERE organization_id = ?",
+                incomplete.organizationId()));
+    }
+
+    @Test
+    void upgradesV7ConversationFactsIntoStableOrderedEventStreams() throws SQLException {
+        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        Fixture fixture = seedFixture("EVT");
+        UUID conversationId = insertConversation(fixture);
+        UUID directEventId = UUID.randomUUID();
+        UUID participantEventId = UUID.randomUUID();
+        insertConversationDomainEvent(
+                fixture,
+                directEventId,
+                "CONVERSATION_CREATED",
+                "CONVERSATION",
+                conversationId,
+                0,
+                "2026-08-10T08:00:00Z",
+                "{}");
+        insertConversationDomainEvent(
+                fixture,
+                participantEventId,
+                "CONVERSATION_PARTICIPANT_JOINED",
+                "CONVERSATION_PARTICIPANT",
+                UUID.randomUUID(),
+                0,
+                "2026-08-10T08:01:00Z",
+                "{\"conversationId\":\"" + conversationId + "\"}");
+
+        Flyway versionEight = flyway(POSTGRES.getJdbcUrl(), VERSION_8);
+        assertEquals(1, versionEight.migrate().migrationsExecuted);
+
+        assertEquals(2, queryInt("SELECT COUNT(*) FROM crewscope.conversation_event"));
+        assertEquals(
+                Set.of("1", "2"),
+                queryStrings(
+                        "SELECT position FROM crewscope.conversation_event ORDER BY position"));
+        assertEquals(
+                RealtimeStreamEventIds.forDomain(StreamType.CONVERSATION, directEventId),
+                queryUuid(
+                        "SELECT event_id FROM crewscope.conversation_event WHERE domain_event_id = ?",
+                        directEventId));
     }
 
     @Test
@@ -551,6 +663,22 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 workItemId);
     }
 
+    private static BuiltInProviderRegistration nativeRegistration() {
+        return new BuiltInProviderRegistration(
+                "work-item",
+                ProviderType.WORK_ITEM,
+                "1.0.0",
+                "CrewScope WorkItem",
+                "native-work-item",
+                "1.0.0",
+                ProviderCapabilities.of(
+                        "workitem.read",
+                        "workitem.create",
+                        "workitem.update",
+                        "workitem.comment",
+                        "workitem.resource-link"));
+    }
+
     private static UUID insertConversation(Fixture fixture) throws SQLException {
         UUID id = UUID.randomUUID();
         execute(
@@ -596,6 +724,41 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 fixture.userPrincipalId(),
                 fixture.userPrincipalId());
         return id;
+    }
+
+    private static void insertConversationDomainEvent(
+            Fixture fixture,
+            UUID eventId,
+            String eventType,
+            String subjectType,
+            UUID subjectId,
+            long aggregateVersion,
+            String occurredAt,
+            String payload)
+            throws SQLException {
+        execute(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version,
+                    organization_id, team_id, workspace_id,
+                    subject_type, subject_id, aggregate_version,
+                    actor_type, actor_id, correlation_id,
+                    occurred_at, payload
+                ) VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, 'USER', ?, ?,
+                          CAST(? AS TIMESTAMPTZ), CAST(? AS JSONB))
+                """,
+                eventId,
+                eventType,
+                fixture.organizationId(),
+                fixture.teamId(),
+                fixture.workspaceId(),
+                subjectType,
+                subjectId,
+                aggregateVersion,
+                fixture.userPrincipalId(),
+                UUID.randomUUID(),
+                occurredAt,
+                payload);
     }
 
     private static String participantInsertSql() {
@@ -1090,6 +1253,17 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 ResultSet resultSet = statement.executeQuery(sql)) {
             assertTrue(resultSet.next());
             return resultSet.getString(1);
+        }
+    }
+
+    private static UUID queryUuid(String sql, Object... values) throws SQLException {
+        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            bind(statement, values);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertTrue(resultSet.next());
+                return resultSet.getObject(1, UUID.class);
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.provider.ProviderBindingQuery;
 import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.provider.ProviderBootstrapLock;
 import io.crewscope.application.provider.ProviderDefinitionRepository;
 import io.crewscope.application.provider.ProviderImplementationRepository;
 import io.crewscope.domain.provider.Connection;
@@ -37,7 +38,8 @@ public class JpaProviderRepositoryAdapter
                 ProviderImplementationRepository,
                 ConnectionRepository,
                 ConnectionGrantRepository,
-                ProviderBindingRepository {
+                ProviderBindingRepository,
+                ProviderBootstrapLock {
 
     private final EntityManager entityManager;
     private final ProviderPersistenceMapper mapper;
@@ -46,6 +48,22 @@ public class JpaProviderRepositoryAdapter
             EntityManager entityManager, ProviderPersistenceMapper mapper) {
         this.entityManager = Objects.requireNonNull(entityManager, "entityManager");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
+    }
+
+    /** Serializes product registry creation across concurrent Team transactions in one Organization. */
+    @Override
+    @Transactional
+    public void acquire(OrganizationId organizationId) {
+        String lockKey = "crewscope:provider-bootstrap:" +
+                Objects.requireNonNull(organizationId, "organizationId");
+        entityManager
+                // PostgreSQL returns void for the lock function; select a scalar after acquisition
+                // so Hibernate never attempts to coerce the empty JDBC value into a number.
+                .createNativeQuery(
+                        "SELECT 1::BIGINT FROM pg_advisory_xact_lock(hashtextextended(:lockKey, 0))",
+                        Long.class)
+                .setParameter("lockKey", lockKey)
+                .getSingleResult();
     }
 
     @Override

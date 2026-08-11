@@ -11,7 +11,10 @@ public final class ApiHeaders {
 
     public static final String IDEMPOTENCY_KEY = "Idempotency-Key";
     public static final String IDEMPOTENCY_REPLAYED = "Idempotency-Replayed";
+    public static final String INVOCATION_ID = "X-CrewScope-Invocation-Id";
+    public static final String ETAG = "ETag";
     public static final String IF_MATCH = "If-Match";
+    public static final String LAST_EVENT_ID = "Last-Event-ID";
 
     private static final Pattern STRONG_VERSION_ETAG = Pattern.compile("\"(0|[1-9][0-9]*)\"");
 

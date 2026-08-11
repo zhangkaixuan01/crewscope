@@ -138,6 +138,14 @@ public class JpaConversationRepositoryAdapter
                 SELECT value FROM ConversationEntity value
                 WHERE value.organizationId = :organizationId
                   AND value.teamId = :teamId
+                  AND (value.visibility = 'TEAM' OR EXISTS (
+                      SELECT participant.id FROM ConversationParticipantEntity participant
+                      WHERE participant.organizationId = value.organizationId
+                        AND participant.teamId = value.teamId
+                        AND participant.workspaceId = value.workspaceId
+                        AND participant.conversationId = value.id
+                        AND participant.principalId = :viewerPrincipalId
+                  ))
                 """);
         required.ownerMemberId().ifPresent(ignored -> jpql.append(" AND value.ownerMemberId = :ownerMemberId"));
         required.status().ifPresent(ignored -> jpql.append(" AND value.status = :status"));
@@ -152,6 +160,7 @@ public class JpaConversationRepositoryAdapter
                 .createQuery(jpql.toString(), ConversationEntity.class)
                 .setParameter("organizationId", required.organizationId().value())
                 .setParameter("teamId", required.teamId().value())
+                .setParameter("viewerPrincipalId", required.viewerPrincipalId().value())
                 .setMaxResults(required.limit() + 1);
         required.ownerMemberId().ifPresent(value -> persistenceQuery.setParameter("ownerMemberId", value.value()));
         required.status().ifPresent(value -> persistenceQuery.setParameter("status", value.name()));
@@ -337,6 +346,7 @@ public class JpaConversationRepositoryAdapter
                   AND value.conversationId = :conversationId
                   AND value.moderationStatus = 'VISIBLE'
                 """);
+        required.visibleThrough().ifPresent(ignored -> jpql.append(" AND value.createdAt <= :visibleThrough"));
         required.cursor().ifPresent(ignored -> jpql.append(" AND value.sequence < :cursorSequence"));
         jpql.append(" ORDER BY value.sequence DESC, value.id DESC");
         var persistenceQuery = entityManager
@@ -346,6 +356,7 @@ public class JpaConversationRepositoryAdapter
                 .setParameter("workspaceId", required.scope().workspaceId().value())
                 .setParameter("conversationId", required.conversationId().value())
                 .setMaxResults(required.limit() + 1);
+        required.visibleThrough().ifPresent(value -> persistenceQuery.setParameter("visibleThrough", value.value()));
         required.cursor().ifPresent(value -> persistenceQuery.setParameter("cursorSequence", value.sequence().value()));
         List<MessageEntity> rows = trimExtra(persistenceQuery.getResultList(), required.limit());
         boolean hasNext = rows.size() > required.limit();

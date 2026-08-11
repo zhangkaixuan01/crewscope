@@ -408,7 +408,14 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             ToolUseBlock pending, ConversationResumeRequest request) {
         Map<String, Object> input = new LinkedHashMap<>(pending.getInput());
         if ("request_clarification".equals(pending.getName())) {
-            input.put("answer", request.answerMessage().content().markdown());
+            request.clarificationAnswers()
+                    .ifPresentOrElse(
+                            answers -> {
+                                input.remove("answer");
+                                input.put("answers", answers.values());
+                            },
+                            () -> input.put(
+                                    "answer", request.answerMessage().content().markdown()));
         }
         return ToolUseBlock.builder()
                 .id(pending.getId())

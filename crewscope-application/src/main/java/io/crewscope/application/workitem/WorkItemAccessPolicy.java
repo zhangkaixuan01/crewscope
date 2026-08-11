@@ -65,6 +65,26 @@ public final class WorkItemAccessPolicy {
     return requireProject(organizationId, teamId, projectId);
   }
 
+  /** Requires the same effective permission used by the native WorkItem creation command. */
+  public WorkProject requireCreatePermission(
+      TeamAccessContext context,
+      OrganizationId organizationId,
+      TeamId teamId,
+      WorkProjectId projectId,
+      UtcTimestamp occurredAt) {
+    Principal actor = requireAccess(context, organizationId);
+    Team team = requireTeam(organizationId, teamId);
+    TeamMember member = requireActiveMember(actor, team);
+    WorkProject project = requireProject(organizationId, teamId, projectId);
+    requirePermission(
+        member,
+        TeamPermission.WORK_CREATE,
+        projectId,
+        Objects.requireNonNull(occurredAt, "occurredAt"),
+        "create WorkItems in this WorkProject");
+    return project;
+  }
+
   /** Returns one visible WorkItem only when every URL and persisted scope component agrees. */
   public WorkItem requireVisibleWorkItem(
       TeamAccessContext context,

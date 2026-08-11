@@ -65,6 +65,9 @@ logging:
         max-throwable-depth: 20
 
 crewscope:
+  conversation-events:
+    poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
+    batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
   artifact:
     filesystem:
       root: ${CREWSCOPE_ARTIFACT_ROOT:./var/crewscope/artifacts}
@@ -96,6 +99,13 @@ crewscope:
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
+    personal-agent:
+      model-id: ${CREWSCOPE_PERSONAL_AGENT_MODEL_ID:crewscope-primary}
+      fallback-model-id: ${CREWSCOPE_PERSONAL_AGENT_FALLBACK_MODEL_ID:}
+      system-prompt: ${CREWSCOPE_PERSONAL_AGENT_SYSTEM_PROMPT:You are the member's Personal Agent in CrewScope. Collaborate clearly and only use server-authorized tools and context.}
+      max-iterations: ${CREWSCOPE_PERSONAL_AGENT_MAX_ITERATIONS:20}
+      max-retries: ${CREWSCOPE_PERSONAL_AGENT_MAX_RETRIES:3}
+      runtime-root: ${CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT:./var/crewscope/agent-runtime}
     redis:
       # Agent state is a required M2 dependency; disable only in isolated non-runtime tests.
       enabled: ${CREWSCOPE_AGENT_STATE_REDIS_ENABLED:true}

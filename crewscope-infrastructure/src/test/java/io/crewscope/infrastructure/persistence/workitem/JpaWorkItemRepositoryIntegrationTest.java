@@ -10,6 +10,7 @@ import io.crewscope.application.workitem.WorkItemQuery;
 import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
+import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -21,6 +22,10 @@ import io.crewscope.domain.workitem.WorkItemKey;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.domain.workitem.WorkProject;
+import io.crewscope.domain.workitem.WorkProjectKey;
+import io.crewscope.domain.workitem.WorkProjectScope;
+import io.crewscope.domain.workitem.WorkProjectStatus;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
 import java.util.HashSet;
 import java.util.List;
@@ -273,6 +278,30 @@ class JpaWorkItemRepositoryIntegrationTest
                 .sorted()
                 .toList();
         assertEquals(List.of("CRW-10", "CRW-11"), keys);
+    }
+
+    @Test
+    void allocatesTheNextNumericProjectKeyWithoutLexicalOrderingErrors() {
+        Fixture fixture = seedFixture("key-allocation");
+        String prefix = jdbcTemplate.queryForObject(
+                "SELECT project_key FROM crewscope.work_project WHERE id = ?",
+                String.class,
+                fixture.projectId().value());
+        repository.create(newWorkItem(fixture, prefix + "-2", BASE_TIME));
+        repository.create(newWorkItem(fixture, prefix + "-10", BASE_TIME));
+        WorkProject project = WorkProject.reconstitute(
+                fixture.projectId(),
+                new WorkProjectScope(
+                        fixture.organizationId(), fixture.teamId(), fixture.workspaceId()),
+                new WorkProjectKey(prefix),
+                "Key allocation",
+                WorkProjectStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(fixture.actorId(), BASE_TIME));
+
+        assertEquals(
+                new WorkItemKey(prefix + "-11"),
+                repository.nextKey(fixture.organizationId(), project));
     }
 
     private Fixture seedFixture(String suffix) {

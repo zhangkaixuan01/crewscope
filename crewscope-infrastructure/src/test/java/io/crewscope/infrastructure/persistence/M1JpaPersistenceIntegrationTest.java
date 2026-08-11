@@ -13,6 +13,11 @@ import io.crewscope.application.identity.IdentityMappingRequest;
 import io.crewscope.application.identity.IdentityMappingResult;
 import io.crewscope.application.identity.IdentityMappingService;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.provider.BuiltInProviderInitializationService;
+import io.crewscope.application.provider.BuiltInProviderRegistration;
+import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.provider.ProviderDefinitionRepository;
+import io.crewscope.application.provider.ProviderImplementationRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.responsibility.AssignResponsibilityCommand;
 import io.crewscope.application.responsibility.GateReviewerAssignmentService;
@@ -63,6 +68,8 @@ import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
+import io.crewscope.domain.provider.ProviderCapabilities;
+import io.crewscope.domain.provider.ProviderType;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityAssignmentId;
 import io.crewscope.domain.responsibility.ResponsibilityConflictException;
@@ -109,6 +116,8 @@ import io.crewscope.domain.workspace.WorkspaceStatus;
 import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
 import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
 import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
+import io.crewscope.infrastructure.persistence.provider.JpaProviderRepositoryAdapter;
+import io.crewscope.infrastructure.persistence.provider.ProviderPersistenceMapper;
 import io.crewscope.infrastructure.persistence.responsibility.JpaResponsibilityAssignmentRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.responsibility.ResponsibilityPersistenceMapper;
 import io.crewscope.infrastructure.persistence.team.JpaAgentProfileRepositoryAdapter;
@@ -182,6 +191,10 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   @Autowired private DomainEventStore domainEventStore;
   @Autowired private OutboxRepository outboxRepository;
   @Autowired private CommandReceiptStore commandReceiptStore;
+  @Autowired private ProviderDefinitionRepository providerDefinitionRepository;
+  @Autowired private ProviderImplementationRepository providerImplementationRepository;
+  @Autowired private ProviderBindingRepository providerBindingRepository;
+  @Autowired private JpaProviderRepositoryAdapter providerBootstrapLock;
   @Autowired private JdbcTemplate jdbcTemplate;
 
   @BeforeEach
@@ -262,6 +275,125 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             .update(
                 value.ownerPersonalAgent().agentProfile().disable(foundation.creator().id(), LATER))
             .version());
+  }
+
+  @Test
+  void createsTheNativeProviderFoundationAtomicallyAndReplaysConcurrentInitialization()
+      throws Exception {
+    OrganizationId organizationId = OrganizationId.generate();
+    jdbcTemplate.update(
+        "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Native', 'ACTIVE')",
+        organizationId.value());
+    Principal creator = createUser(organizationId, "Native Owner");
+    BuiltInProviderRegistration registration = nativeRegistration();
+    BuiltInProviderInitializationService providerInitializer =
+        new BuiltInProviderInitializationService(
+            registration,
+            providerDefinitionRepository,
+            providerImplementationRepository,
+            providerBindingRepository,
+            providerBootstrapLock,
+            transactionExecutor,
+            () -> NOW);
+    TeamCreationService teamCreation =
+        new TeamCreationService(
+            teamRepository,
+            workspaceRepository,
+            teamMemberRepository,
+            teamRoleRepository,
+            memberRoleRepository,
+            defaultPersonalAgentRepository,
+            providerInitializer::initialize,
+            transactionExecutor,
+            () -> NOW);
+
+    TeamInitialization foundation =
+        teamCreation.create(creator, new CreateTeamCommand("Native Team"));
+    CountDownLatch start = new CountDownLatch(1);
+    var executor = Executors.newFixedThreadPool(4);
+    try {
+      var futures =
+          java.util.stream.IntStream.range(0, 4)
+              .mapToObj(
+                  ignored ->
+                      executor.submit(
+                          () -> {
+                            await(start);
+                            return providerInitializer.initialize(
+                                foundation.team(), foundation.defaultWorkspace(), creator);
+                          }))
+              .toList();
+      start.countDown();
+      for (var future : futures) {
+        assertEquals(
+            registration.workspaceBindingId(organizationId, foundation.team().id()),
+            future.get(10, TimeUnit.SECONDS).binding().id());
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.provider_definition WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.provider_implementation WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.provider_binding
+            WHERE organization_id = ? AND team_id = ? AND default_usage AND status = 'ACTIVE'
+            """,
+            Integer.class,
+            organizationId.value(),
+            foundation.team().id().value()));
+  }
+
+  @Test
+  void rollsBackTheWholeTeamFoundationWhenProviderInitializationFails() {
+    OrganizationId organizationId = OrganizationId.generate();
+    jdbcTemplate.update(
+        "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Rollback', 'ACTIVE')",
+        organizationId.value());
+    Principal creator = createUser(organizationId, "Rollback Owner");
+    TeamCreationService teamCreation =
+        new TeamCreationService(
+            teamRepository,
+            workspaceRepository,
+            teamMemberRepository,
+            teamRoleRepository,
+            memberRoleRepository,
+            defaultPersonalAgentRepository,
+            (team, workspace, actor) -> {
+              throw new IllegalStateException("provider bootstrap failed");
+            },
+            transactionExecutor,
+            () -> NOW);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> teamCreation.create(creator, new CreateTeamCommand("Rolled Back Team")));
+    assertEquals(
+        0,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.team WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        0,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.workspace WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
   }
 
   @Test
@@ -1953,6 +2085,22 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     return user;
   }
 
+  private static BuiltInProviderRegistration nativeRegistration() {
+    return new BuiltInProviderRegistration(
+        "work-item",
+        ProviderType.WORK_ITEM,
+        "1.0.0",
+        "CrewScope WorkItem",
+        "native-work-item",
+        "1.0.0",
+        ProviderCapabilities.of(
+            "workitem.read",
+            "workitem.create",
+            "workitem.update",
+            "workitem.comment",
+            "workitem.resource-link"));
+  }
+
   private WorkProject createProject(Foundation foundation) {
     return projectRepository.create(
         WorkProject.create(
@@ -2003,6 +2151,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     JdbcWorkItemTimelineRepository.class,
     ResponsibilityPersistenceMapper.class,
     JpaResponsibilityAssignmentRepositoryAdapter.class,
+    ProviderPersistenceMapper.class,
+    JpaProviderRepositoryAdapter.class,
     SpringTransactionExecutor.class
   })
   static class TestApplication {}

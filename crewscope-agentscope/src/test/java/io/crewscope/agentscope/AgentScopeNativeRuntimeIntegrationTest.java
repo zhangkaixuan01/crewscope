@@ -26,6 +26,7 @@ import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.crewscope.application.conversation.TaskIntentV1;
+import io.crewscope.application.conversation.ClarificationAnswers;
 import io.crewscope.application.execution.ConversationCancelRequest;
 import io.crewscope.application.execution.ConversationExecutionRequest;
 import io.crewscope.application.execution.ConversationResumeRequest;
@@ -200,6 +201,54 @@ class AgentScopeNativeRuntimeIntegrationTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> runtime.resumeConversation(resume));
+        }
+    }
+
+    @Test
+    void bindsFieldKeyedAnswersIntoTheProductionClarificationTool() {
+        AgentProfileId profileId = AgentProfileId.generate();
+        io.crewscope.agentscope.ClarificationTool clarificationTool =
+                new io.crewscope.agentscope.ClarificationTool();
+        ScriptedModel model = new ScriptedModel(
+                clarificationV1Response("clarification-v1", clarificationTool.getName()),
+                structuredResponse("task-after-v1-answer", validTaskIntent()));
+        AgentRuntimeSession session = AgentScopeRuntimeTestFixture.session(profileId, 4);
+        StructuredOutputSpec<TaskIntentV1> spec =
+                new StructuredOutputSpec<>("task-intent/v1", TaskIntentV1.class);
+
+        try (AgentScopeNativeRuntime runtime = new AgentScopeNativeRuntime(
+                factory(profileId, model, () -> toolkitWith(clarificationTool)), CLOCK)) {
+            RuntimeInvocationId invocationId = RuntimeInvocationId.generate();
+            List<ExecutionEvent> interrupted = collect(runtime.invokeConversation(executionRequest(
+                    invocationId,
+                    session,
+                    AgentScopeRuntimeTestFixture.userMessage(
+                            session, "prepare repository task", 1),
+                    Optional.of(spec))));
+            ExecutionEventPayload.Interrupted terminal = assertInstanceOf(
+                    ExecutionEventPayload.Interrupted.class,
+                    interrupted.get(interrupted.size() - 1).payload());
+            Message answer = AgentScopeRuntimeTestFixture.userMessage(
+                    session, "structured clarification answer", 2);
+            UUID correlationId = UUID.randomUUID();
+            ConversationResumeRequest resume = new ConversationResumeRequest(
+                    invocationId,
+                    session,
+                    terminal.token(),
+                    UUID.randomUUID(),
+                    answer,
+                    Optional.of(new ClarificationAnswers(
+                            Map.of("repository", "crewscope-java"))),
+                    correlationId,
+                    AgentScopeRuntimeTestFixture.platformContext(
+                            session, invocationId, correlationId));
+
+            List<ExecutionEvent> resumed = collect(runtime.resumeConversation(resume));
+
+            assertInstanceOf(
+                    ExecutionEventPayload.StructuredOutput.class, resumed.get(1).payload());
+            assertTrue(containsToolResult(model.request(1), "crewscope-java"));
+            assertFalse(containsToolResult(model.request(1), "structured clarification answer"));
         }
     }
 
@@ -914,6 +963,29 @@ class AgentScopeNativeRuntimeIntegrationTest {
                 Map.of("request", Map.of(
                         "summary", "Repository is required",
                         "question", "Which repository should be changed?")));
+    }
+
+    private static ChatResponse clarificationV1Response(String toolCallId, String toolName) {
+        return toolResponse(
+                toolCallId,
+                toolName,
+                Map.of(
+                        "request",
+                        Map.of(
+                                "schemaVersion",
+                                "1",
+                                "summary",
+                                "Repository is required",
+                                "questions",
+                                List.of(Map.of(
+                                        "fieldKey",
+                                        "repository",
+                                        "question",
+                                        "Which repository should be changed?",
+                                        "required",
+                                        true,
+                                        "choices",
+                                        List.of())))));
     }
 
     private static ChatResponse toolResponse(

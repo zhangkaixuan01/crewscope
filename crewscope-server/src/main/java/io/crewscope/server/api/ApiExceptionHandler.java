@@ -1,6 +1,8 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.error.ApplicationErrorMapper;
+import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
+import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
 import io.crewscope.server.observability.ApiObservabilityContext;
@@ -38,6 +40,28 @@ public class ApiExceptionHandler {
                     false,
                     null,
                     apiFailure.details(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof ConversationEventCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The Conversation Event cursor is no longer retained",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof PlatformExecutionContextResolutionException) {
+            return response(
+                    HttpStatus.FORBIDDEN,
+                    "execution_context_unavailable",
+                    "The Personal Agent cannot be invoked with the current authorization facts",
+                    false,
+                    null,
+                    Map.of(),
                     correlationId,
                     exchange);
         }

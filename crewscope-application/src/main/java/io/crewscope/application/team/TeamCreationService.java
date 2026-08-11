@@ -1,6 +1,7 @@
 package io.crewscope.application.team;
 
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.team.MemberRole;
@@ -23,6 +24,7 @@ public final class TeamCreationService {
   private final TeamRoleRepository teamRoleRepository;
   private final MemberRoleRepository memberRoleRepository;
   private final DefaultPersonalAgentRepository defaultPersonalAgentRepository;
+  private final TeamProviderInitializer providerInitializer;
   private final TransactionExecutor transactionExecutor;
   private final TimeProvider timeProvider;
 
@@ -35,6 +37,28 @@ public final class TeamCreationService {
       DefaultPersonalAgentRepository defaultPersonalAgentRepository,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
+    this(
+        teamRepository,
+        workspaceRepository,
+        teamMemberRepository,
+        teamRoleRepository,
+        memberRoleRepository,
+        defaultPersonalAgentRepository,
+        (team, workspace, actor) -> {},
+        transactionExecutor,
+        timeProvider);
+  }
+
+  public TeamCreationService(
+      TeamRepository teamRepository,
+      WorkspaceRepository workspaceRepository,
+      TeamMemberRepository teamMemberRepository,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      DefaultPersonalAgentRepository defaultPersonalAgentRepository,
+      TeamProviderInitializer providerInitializer,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
     this.teamRepository = Objects.requireNonNull(teamRepository, "teamRepository");
     this.workspaceRepository = Objects.requireNonNull(workspaceRepository, "workspaceRepository");
     this.teamMemberRepository =
@@ -44,6 +68,7 @@ public final class TeamCreationService {
         Objects.requireNonNull(memberRoleRepository, "memberRoleRepository");
     this.defaultPersonalAgentRepository =
         Objects.requireNonNull(defaultPersonalAgentRepository, "defaultPersonalAgentRepository");
+    this.providerInitializer = Objects.requireNonNull(providerInitializer, "providerInitializer");
     this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
     this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
   }
@@ -60,7 +85,8 @@ public final class TeamCreationService {
         () ->
             persist(
                 TeamInitialization.create(
-                    requiredCreator, requiredCommand.name(), timeProvider.now())));
+                    requiredCreator, requiredCommand.name(), timeProvider.now()),
+                requiredCreator));
   }
 
   /** Completes one locked migrated Team using the same atomic foundation as normal creation. */
@@ -73,10 +99,11 @@ public final class TeamCreationService {
         () ->
             persist(
                 TeamInitialization.completeLegacy(
-                    requiredTeam, requiredOwner, requiredActor, timeProvider.now())));
+                    requiredTeam, requiredOwner, requiredActor, timeProvider.now()),
+                requiredActor));
   }
 
-  private TeamInitialization persist(TeamInitialization initialization) {
+  private TeamInitialization persist(TeamInitialization initialization, Principal actor) {
     // Team carries deferred references to its owner Member and default Workspace. The remaining
     // writes then close that graph before the required transaction reaches commit.
     Team team =
@@ -93,6 +120,7 @@ public final class TeamCreationService {
                     initialization.ownerPersonalAgent()),
                 "DefaultPersonalAgentRepository.initializeIfAbsent result")
             .requireDefaultFor(ownerMember, workspace);
+    providerInitializer.initialize(team, workspace, actor);
     return new TeamInitialization(team, workspace, ownerMember, roles, ownerRole, personalAgent);
   }
 }

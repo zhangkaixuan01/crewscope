@@ -10,6 +10,17 @@ import java.util.UUID;
 /** Projects committed business facts while preserving their stable DomainEvent correlation. */
 public final class RealtimeDomainEventProjector {
 
+    /** Projects with the stable stream-specific ID used by durable realtime feeds. */
+    public <T extends DomainEvent> RealtimeEventEnvelope<T> project(
+            StreamType streamType,
+            DomainEventEnvelope<T> domainEvent) {
+        DomainEventEnvelope<T> source = Objects.requireNonNull(domainEvent, "domainEvent");
+        return project(
+                RealtimeStreamEventIds.forDomain(streamType, source.eventId()),
+                streamType,
+                source);
+    }
+
     public <T extends DomainEvent> RealtimeEventEnvelope<T> project(
             UUID realtimeEventId,
             StreamType streamType,

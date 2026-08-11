@@ -3,6 +3,7 @@ package io.crewscope.application.workitem;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemKey;
+import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import java.util.Optional;
@@ -23,6 +24,14 @@ public interface WorkItemRepository {
     default Optional<WorkItem> findByKey(
             OrganizationId organizationId, WorkProjectId projectId, WorkItemKey key) {
         throw new UnsupportedOperationException("WorkItem key lookup is not implemented");
+    }
+
+    /**
+     * Returns the next project-prefixed key while the caller holds the WorkProject write lock.
+     * The lock, lookup and subsequent insert must share one transaction.
+     */
+    default WorkItemKey nextKey(OrganizationId organizationId, WorkProject project) {
+        throw new UnsupportedOperationException("WorkItem key allocation is not implemented");
     }
 
     /** Returns one deterministic keyset-paginated slice. */

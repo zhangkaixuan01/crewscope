@@ -1,17 +1,22 @@
 package io.crewscope.application.execution;
 
-import java.util.Objects;
+import io.crewscope.domain.shared.id.AggregateId;
 import java.util.UUID;
 
 /** Logical Conversation invocation retained across an interrupt and one or more resume segments. */
-public record RuntimeInvocationId(UUID value) {
+public record RuntimeInvocationId(UUID value) implements AggregateId {
 
     public RuntimeInvocationId {
-        value = Objects.requireNonNull(value, "value");
+        value = AggregateId.requireValue(value, "RuntimeInvocationId");
     }
 
     public static RuntimeInvocationId generate() {
-        return new RuntimeInvocationId(UUID.randomUUID());
+        return new RuntimeInvocationId(AggregateId.generateValue());
+    }
+
+    public static RuntimeInvocationId from(String value) {
+        return new RuntimeInvocationId(
+                AggregateId.parseCanonical(value, "RuntimeInvocationId"));
     }
 
     @Override

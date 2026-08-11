@@ -3,6 +3,7 @@ package io.crewscope.application.conversation;
 import io.crewscope.domain.conversation.ConversationStatus;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMemberId;
 import java.util.Objects;
@@ -12,6 +13,7 @@ import java.util.Optional;
 public record ConversationQuery(
         OrganizationId organizationId,
         TeamId teamId,
+        PrincipalId viewerPrincipalId,
         Optional<TeamMemberId> ownerMemberId,
         Optional<ConversationStatus> status,
         Optional<ConversationListCursor> cursor,
@@ -20,6 +22,7 @@ public record ConversationQuery(
     public ConversationQuery {
         organizationId = Objects.requireNonNull(organizationId, "organizationId");
         teamId = Objects.requireNonNull(teamId, "teamId");
+        viewerPrincipalId = Objects.requireNonNull(viewerPrincipalId, "viewerPrincipalId");
         ownerMemberId = Objects.requireNonNull(ownerMemberId, "ownerMemberId");
         status = Objects.requireNonNull(status, "status");
         cursor = Objects.requireNonNull(cursor, "cursor");

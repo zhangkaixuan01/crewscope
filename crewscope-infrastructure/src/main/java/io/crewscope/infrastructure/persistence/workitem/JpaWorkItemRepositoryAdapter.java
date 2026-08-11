@@ -17,6 +17,7 @@ import io.crewscope.domain.workitem.WorkItemKey;
 import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -155,6 +156,43 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
                 .getResultStream()
                 .findFirst()
                 .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkItemKey nextKey(
+            OrganizationId organizationId,
+            io.crewscope.domain.workitem.WorkProject project) {
+        OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
+        io.crewscope.domain.workitem.WorkProject required =
+                Objects.requireNonNull(project, "project");
+        if (!required.scope().organizationId().equals(organization)) {
+            throw new DomainValidationException(
+                    "workItem.key", "project must belong to the requested Organization");
+        }
+        String prefix = required.key().value();
+        Object raw = entityManager
+                .createNativeQuery(
+                        """
+                        SELECT COALESCE(
+                            MAX(CAST(SUBSTRING(item_key FROM CHAR_LENGTH(:prefix) + 2) AS NUMERIC)),
+                            0
+                        )
+                        FROM crewscope.work_item
+                        WHERE organization_id = :organizationId
+                          AND project_id = :projectId
+                          AND item_key ~ :pattern
+                        """)
+                .setParameter("prefix", prefix)
+                .setParameter("organizationId", organization.value())
+                .setParameter("projectId", required.id().value())
+                .setParameter("pattern", "^" + prefix + "-[1-9][0-9]*$")
+                .getSingleResult();
+        BigDecimal maximum = raw instanceof BigDecimal decimal
+                ? decimal
+                : new BigDecimal(raw.toString());
+        return new WorkItemKey(
+                prefix + "-" + maximum.toBigIntegerExact().add(java.math.BigInteger.ONE));
     }
 
     @Override

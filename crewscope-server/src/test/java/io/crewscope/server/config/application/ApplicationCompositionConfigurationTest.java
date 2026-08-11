@@ -3,24 +3,42 @@ package io.crewscope.server.config.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.IdentityMappingService;
 import io.crewscope.application.conversation.AgentRuntimeSessionRepository;
+import io.crewscope.application.conversation.AgentRuntimeSessionService;
 import io.crewscope.application.conversation.ConversationParticipantRepository;
 import io.crewscope.application.conversation.ConversationRepository;
+import io.crewscope.application.conversation.ConversationApplicationService;
+import io.crewscope.application.conversation.ConversationEventRepository;
+import io.crewscope.application.conversation.ConversationWorkItemLinkRepository;
+import io.crewscope.application.conversation.ConversationWorkItemQueryService;
+import io.crewscope.application.conversation.MessageRepository;
+import io.crewscope.application.conversation.TaskIntentApplicationService;
+import io.crewscope.application.conversation.TaskIntentConfirmationCommandPort;
+import io.crewscope.application.conversation.TaskIntentRepository;
 import io.crewscope.application.execution.PlatformExecutionContextResolver;
+import io.crewscope.application.execution.ExecutionRuntime;
+import io.crewscope.application.execution.PersonalAgentExecutionContextResolver;
+import io.crewscope.application.execution.PersonalAgentInvocationService;
 import io.crewscope.application.execution.AgentStatePreflight;
 import io.crewscope.application.execution.ConversationExecutionEventMapper;
 import io.crewscope.application.execution.RealtimeDomainEventProjector;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
+import io.crewscope.application.provider.BuiltInProviderInitializationService;
+import io.crewscope.application.provider.BuiltInProviderRegistration;
+import io.crewscope.application.provider.ProviderBindingQueryService;
 import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
+import io.crewscope.application.provider.ProviderBootstrapLock;
 import io.crewscope.application.provider.ProviderDefinitionRepository;
 import io.crewscope.application.provider.ProviderImplementationRepository;
+import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.responsibility.GateReviewerAssignmentService;
 import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
@@ -55,9 +73,11 @@ import io.crewscope.agentscope.AgentStatePreflightMiddleware;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.PlatformAuditMiddleware;
 import io.crewscope.agentscope.PlatformRuntimeContextMiddleware;
+import io.crewscope.agentscope.PersonalAgentFactory;
 import io.crewscope.agentscope.ProviderBindingSecurityMiddleware;
 import io.crewscope.agentscope.agui.ControlledAguiBridge;
 import io.crewscope.domain.shared.time.TimeProvider;
+import io.crewscope.integration.provider.workitem.NativeWorkItemProvider;
 import io.crewscope.server.observability.AgentCallObservabilityMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.tracing.Tracer;
@@ -75,6 +95,7 @@ class ApplicationCompositionConfigurationTest {
               IdentityApplicationConfiguration.class,
               TeamApplicationConfiguration.class,
               ProviderApplicationConfiguration.class,
+              ConversationApplicationConfiguration.class,
               AgentScopeApplicationConfiguration.class,
               WorkItemApplicationConfiguration.class)
           .withBean(PrincipalRepository.class, () -> mock(PrincipalRepository.class))
@@ -93,6 +114,13 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               ConversationParticipantRepository.class,
               () -> mock(ConversationParticipantRepository.class))
+          .withBean(MessageRepository.class, () -> mock(MessageRepository.class))
+          .withBean(
+              ConversationEventRepository.class,
+              () -> mock(ConversationEventRepository.class))
+          .withBean(
+              ConversationWorkItemLinkRepository.class,
+              () -> mock(ConversationWorkItemLinkRepository.class))
           .withBean(
               AgentRuntimeSessionRepository.class,
               () -> mock(AgentRuntimeSessionRepository.class))
@@ -108,6 +136,7 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               WorkItemTimelineRepository.class, () -> mock(WorkItemTimelineRepository.class))
           .withBean(WorkProjectRepository.class, () -> mock(WorkProjectRepository.class))
+          .withBean(TaskIntentRepository.class, () -> mock(TaskIntentRepository.class))
           .withBean(
               ProviderBindingRepository.class, () -> mock(ProviderBindingRepository.class))
           .withBean(
@@ -116,6 +145,7 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               ProviderImplementationRepository.class,
               () -> mock(ProviderImplementationRepository.class))
+          .withBean(ProviderBootstrapLock.class, () -> mock(ProviderBootstrapLock.class))
           .withBean(ConnectionRepository.class, () -> mock(ConnectionRepository.class))
           .withBean(
               ConnectionGrantRepository.class, () -> mock(ConnectionGrantRepository.class))
@@ -123,6 +153,7 @@ class ApplicationCompositionConfigurationTest {
               ResponsibilityAssignmentRepository.class,
               () -> mock(ResponsibilityAssignmentRepository.class))
           .withBean(AgentStatePreflight.class, () -> mock(AgentStatePreflight.class))
+          .withBean(AgentStateStore.class, () -> mock(AgentStateStore.class))
           .withBean(Validator.class, () -> mock(Validator.class))
           .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new)
           .withBean(Tracer.class, () -> mock(Tracer.class));
@@ -135,7 +166,17 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(TimeProvider.class);
           assertThat(context).hasSingleBean(IdentityMappingService.class);
           assertThat(context).hasSingleBean(ProviderBindingResolver.class);
+          assertThat(context).hasSingleBean(NativeWorkItemProvider.class);
+          assertThat(context).hasSingleBean(BuiltInProviderRegistration.class);
+          assertThat(context).hasSingleBean(BuiltInProviderInitializationService.class);
+          assertThat(context).hasSingleBean(TeamProviderInitializer.class);
+          assertThat(context).hasSingleBean(ProviderBindingQueryService.class);
           assertThat(context).hasSingleBean(PlatformExecutionContextResolver.class);
+          assertThat(context).hasSingleBean(AgentRuntimeSessionService.class);
+          assertThat(context).hasSingleBean(PersonalAgentExecutionContextResolver.class);
+          assertThat(context).hasSingleBean(PersonalAgentFactory.class);
+          assertThat(context).hasSingleBean(ExecutionRuntime.class);
+          assertThat(context).hasSingleBean(PersonalAgentInvocationService.class);
           assertThat(context).hasSingleBean(ConversationExecutionEventMapper.class);
           assertThat(context).hasSingleBean(RealtimeDomainEventProjector.class);
           assertThat(context).hasSingleBean(ControlledAguiBridge.class);
@@ -155,6 +196,10 @@ class ApplicationCompositionConfigurationTest {
                   context.getBean(PlatformAuditMiddleware.class),
                   context.getBean(AgentStatePreflightMiddleware.class));
           assertThat(context).hasSingleBean(TeamApplicationService.class);
+          assertThat(context).hasSingleBean(ConversationApplicationService.class);
+          assertThat(context).hasSingleBean(TaskIntentApplicationService.class);
+          assertThat(context).hasSingleBean(TaskIntentConfirmationCommandPort.class);
+          assertThat(context).hasSingleBean(ConversationWorkItemQueryService.class);
           assertThat(context).hasSingleBean(WorkProjectApplicationService.class);
           assertThat(context).hasSingleBean(WorkItemCommandService.class);
           assertThat(context).hasSingleBean(WorkItemAccessPolicy.class);

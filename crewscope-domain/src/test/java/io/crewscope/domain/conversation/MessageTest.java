@@ -148,6 +148,18 @@ class MessageTest {
     }
 
     @Test
+    void rejectsUnsafeControlsButKeepsMarkdownAndMultilineText() {
+        MessageContent content = new MessageContent("## Plan\n\n- `safe`\titem");
+
+        assertEquals("## Plan\n\n- `safe`\titem", content.markdown());
+        assertThrows(DomainValidationException.class, () -> new MessageContent("hidden\u0000text"));
+        assertThrows(DomainValidationException.class, () -> new MessageContent("hidden\u061Ctext"));
+        assertThrows(DomainValidationException.class, () -> new MessageContent("hidden\u200Ftext"));
+        assertThrows(DomainValidationException.class, () -> new MessageContent("safe\u202Etxt"));
+        assertThrows(DomainValidationException.class, () -> new MessageContent("broken\uD800"));
+    }
+
+    @Test
     void rejectsAuthoredMessageWhoseAuditActorWasChanged() {
         ConversationDomainFixture fixture = ConversationDomainFixture.create();
 

@@ -4,6 +4,7 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamApplicationService;
@@ -30,6 +31,7 @@ public class TeamApplicationConfiguration {
       TeamRoleRepository teamRoleRepository,
       MemberRoleRepository memberRoleRepository,
       DefaultPersonalAgentRepository defaultPersonalAgentRepository,
+      TeamProviderInitializer teamProviderInitializer,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
     return new TeamCreationService(
@@ -39,6 +41,7 @@ public class TeamApplicationConfiguration {
         teamRoleRepository,
         memberRoleRepository,
         defaultPersonalAgentRepository,
+        teamProviderInitializer,
         transactionExecutor,
         timeProvider);
   }
