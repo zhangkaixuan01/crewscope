@@ -294,7 +294,8 @@ class ExecutionRuntimeContractTest {
                 new ExecutionEventPayload.Interrupted(
                                 token,
                                 ExecutionInterruptKind.TOOL_APPROVAL,
-                                "Approve repository write")
+                                "Approve repository write",
+                                Optional.empty())
                         .terminalStatus()
                         .orElseThrow());
         assertEquals(

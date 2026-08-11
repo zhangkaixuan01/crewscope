@@ -14,6 +14,8 @@ import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.crewscope.application.conversation.ClarificationQuestionV1;
+import io.crewscope.application.conversation.ClarificationRequestV1;
 import io.crewscope.application.execution.ConversationCancelRequest;
 import io.crewscope.application.execution.ConversationExecutionRequest;
 import io.crewscope.application.execution.ConversationResumeRequest;
@@ -36,13 +38,16 @@ import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.time.Clock;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -509,6 +514,92 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
         };
     }
 
+    /**
+     * Reduces the built-in clarification Tool input to the public, bounded application DTO.
+     * Runtime-only Tool metadata and undeclared input fields never cross this boundary.
+     */
+    private static Optional<ClarificationRequestV1> publicClarification(
+            List<ToolUseBlock> toolCalls, ExecutionInterruptKind kind) {
+        if (kind != ExecutionInterruptKind.CLARIFICATION) {
+            return Optional.empty();
+        }
+        List<ToolUseBlock> clarificationTools = toolCalls.stream()
+                .filter(call -> ClarificationTool.NAME.equals(call.getName()))
+                .toList();
+        if (clarificationTools.size() != 1) {
+            throw new IllegalArgumentException(
+                    "clarification interrupt must retain exactly one built-in Tool request");
+        }
+        ToolUseBlock tool = clarificationTools.get(0);
+        Map<?, ?> request = requirePublicMap(tool.getInput().get("request"), "request");
+        String schemaVersion = requirePublicText(
+                request.get("schemaVersion"), "schemaVersion", 1, 1);
+        if (!ClarificationRequestV1.SCHEMA_VERSION.equals(schemaVersion)) {
+            throw new IllegalArgumentException("clarification schemaVersion must be 1");
+        }
+        String summary = requirePublicText(request.get("summary"), "summary", 1, 1_000);
+        Object rawQuestions = request.get("questions");
+        if (!(rawQuestions instanceof List<?> questions)
+                || questions.isEmpty()
+                || questions.size() > 10) {
+            throw new IllegalArgumentException("clarification questions must contain 1 to 10 items");
+        }
+        List<ClarificationQuestionV1> publicQuestions = new ArrayList<>();
+        Set<String> fieldKeys = new HashSet<>();
+        for (Object rawQuestion : questions) {
+            Map<?, ?> question = requirePublicMap(rawQuestion, "question");
+            String fieldKey = requirePublicText(question.get("fieldKey"), "fieldKey", 1, 64);
+            if (!fieldKey.matches("[a-z][a-z0-9_]{0,63}") || !fieldKeys.add(fieldKey)) {
+                throw new IllegalArgumentException(
+                        "clarification fieldKey must be unique and use the supported format");
+            }
+            String prompt = requirePublicText(question.get("question"), "question", 1, 500);
+            String context = optionalPublicText(question.get("context"), "context", 1_000);
+            if (!(question.get("required") instanceof Boolean required)) {
+                throw new IllegalArgumentException("clarification required must be boolean");
+            }
+            Object rawChoices = question.get("choices");
+            if (!(rawChoices instanceof List<?> choices) || choices.size() > 5) {
+                throw new IllegalArgumentException("clarification choices must contain at most 5 items");
+            }
+            List<String> publicChoices = choices.stream()
+                    .map(choice -> requirePublicText(choice, "choice", 1, 200))
+                    .toList();
+            publicQuestions.add(new ClarificationQuestionV1(
+                    fieldKey, prompt, context, required, publicChoices));
+        }
+        return Optional.of(new ClarificationRequestV1(
+                schemaVersion, summary, publicQuestions));
+    }
+
+    private static Map<?, ?> requirePublicMap(Object value, String field) {
+        if (value instanceof Map<?, ?> map) {
+            return map;
+        }
+        throw new IllegalArgumentException("clarification " + field + " must be an object");
+    }
+
+    private static String requirePublicText(
+            Object value, String field, int minimumLength, int maximumLength) {
+        if (!(value instanceof String text)) {
+            throw new IllegalArgumentException("clarification " + field + " must be text");
+        }
+        String normalized = text.strip();
+        if (normalized.length() < minimumLength
+                || normalized.length() > maximumLength
+                || normalized.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("clarification " + field + " is outside its public bounds");
+        }
+        return normalized;
+    }
+
+    private static String optionalPublicText(Object value, String field, int maximumLength) {
+        if (value == null) {
+            return null;
+        }
+        return requirePublicText(value, field, 0, maximumLength);
+    }
+
     private static ExecutionFailure configurationFailure(Throwable failure) {
         return new ExecutionFailure(
                 ExecutionFailureCategory.CAPABILITY_UNAVAILABLE,
@@ -780,7 +871,10 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             resumeRequestId = null;
             phase = InvocationPhase.INTERRUPTED;
             return new ExecutionEventPayload.Interrupted(
-                    pending.token(), pending.kind(), pending.safePrompt());
+                    pending.token(),
+                    pending.kind(),
+                    pending.safePrompt(),
+                    pending.clarification());
         }
 
         private synchronized ExecutionEventPayload interruptedOrCanceledPayload() {
@@ -892,7 +986,8 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             Optional<String> replyId,
             List<ToolUseBlock> toolCalls,
             ExecutionInterruptKind kind,
-            String safePrompt) {
+            String safePrompt,
+            Optional<ClarificationRequestV1> clarification) {
 
         private PendingInterrupt {
             token = Objects.requireNonNull(token, "token");
@@ -900,6 +995,7 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             toolCalls = List.copyOf(Objects.requireNonNull(toolCalls, "toolCalls"));
             kind = Objects.requireNonNull(kind, "kind");
             safePrompt = Objects.requireNonNull(safePrompt, "safePrompt");
+            clarification = Objects.requireNonNull(clarification, "clarification");
         }
 
         private static PendingInterrupt create(
@@ -911,7 +1007,8 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
                     replyId,
                     toolCalls,
                     kind,
-                    AgentScopeNativeRuntime.safePrompt(kind));
+                    AgentScopeNativeRuntime.safePrompt(kind),
+                    publicClarification(toolCalls, kind));
         }
     }
 

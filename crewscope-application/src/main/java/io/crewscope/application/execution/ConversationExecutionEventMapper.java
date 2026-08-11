@@ -145,7 +145,8 @@ public final class ConversationExecutionEventMapper {
                                 context.segmentId(),
                                 interrupted.token().value(),
                                 interrupted.kind(),
-                                interrupted.safePrompt())));
+                                interrupted.safePrompt(),
+                                interrupted.clarification())));
             } else if (event.payload() instanceof ExecutionEventPayload.Canceled) {
                 terminalStatus = ExecutionTerminalStatus.CANCELED;
                 transientEvent = Optional.of(transientEvent(

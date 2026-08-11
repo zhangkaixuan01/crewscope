@@ -165,6 +165,9 @@ class AgentScopeNativeRuntimeIntegrationTest {
             ExecutionEventPayload.Interrupted terminal = assertInstanceOf(
                     ExecutionEventPayload.Interrupted.class,
                     interrupted.get(interrupted.size() - 1).payload());
+            assertEquals(
+                    "repository",
+                    terminal.clarification().orElseThrow().questions().get(0).fieldKey());
 
             assertEquals(ExecutionInterruptKind.CLARIFICATION, terminal.kind());
             assertFalse(terminal.token().value().contains("clarification-call"));
@@ -957,12 +960,7 @@ class AgentScopeNativeRuntimeIntegrationTest {
     }
 
     private static ChatResponse clarificationResponse(String toolCallId, String toolName) {
-        return toolResponse(
-                toolCallId,
-                toolName,
-                Map.of("request", Map.of(
-                        "summary", "Repository is required",
-                        "question", "Which repository should be changed?")));
+        return clarificationV1Response(toolCallId, toolName);
     }
 
     private static ChatResponse clarificationV1Response(String toolCallId, String toolName) {

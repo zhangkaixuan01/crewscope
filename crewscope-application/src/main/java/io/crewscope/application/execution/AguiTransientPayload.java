@@ -1,5 +1,6 @@
 package io.crewscope.application.execution;
 
+import io.crewscope.application.conversation.ClarificationRequestV1;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -61,7 +62,8 @@ public sealed interface AguiTransientPayload {
             UUID segmentId,
             String interruptToken,
             ExecutionInterruptKind kind,
-            String safePrompt)
+            String safePrompt,
+            Optional<ClarificationRequestV1> clarification)
             implements AguiTransientPayload {
 
         public RunInterrupted {
@@ -71,6 +73,11 @@ public sealed interface AguiTransientPayload {
             interruptToken = requireProtocolId(interruptToken, "interruptToken");
             kind = Objects.requireNonNull(kind, "kind");
             safePrompt = requireSafeText(safePrompt, "safePrompt", 1_000);
+            clarification = Objects.requireNonNull(clarification, "clarification");
+            if ((kind == ExecutionInterruptKind.CLARIFICATION) != clarification.isPresent()) {
+                throw new IllegalArgumentException(
+                        "only clarification interrupts must carry a clarification request");
+            }
         }
     }
 

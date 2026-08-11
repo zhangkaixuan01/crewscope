@@ -14,6 +14,8 @@ import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.conversation.ConversationApplicationService;
+import io.crewscope.application.conversation.ClarificationQuestionV1;
+import io.crewscope.application.conversation.ClarificationRequestV1;
 import io.crewscope.application.conversation.MessageRepository;
 import io.crewscope.application.conversation.TaskIntentApplicationService;
 import io.crewscope.application.team.TeamAccessContext;
@@ -206,7 +208,16 @@ class PersonalAgentInvocationServiceTest {
                     new ExecutionEventPayload.Interrupted(
                             new ExecutionInterruptToken("pending-clarification"),
                             ExecutionInterruptKind.CLARIFICATION,
-                            "Which repository should I use?"));
+                            "Which repository should I use?",
+                            Optional.of(new ClarificationRequestV1(
+                                    "1",
+                                    "Repository selection is required",
+                                    List.of(new ClarificationQuestionV1(
+                                            "repository",
+                                            "Which repository should I use?",
+                                            null,
+                                            true,
+                                            List.of()))))));
         }
 
         @Override

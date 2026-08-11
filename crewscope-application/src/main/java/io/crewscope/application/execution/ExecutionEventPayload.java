@@ -1,5 +1,6 @@
 package io.crewscope.application.execution;
 
+import io.crewscope.application.conversation.ClarificationRequestV1;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -44,12 +45,18 @@ public sealed interface ExecutionEventPayload {
     record Interrupted(
             ExecutionInterruptToken token,
             ExecutionInterruptKind kind,
-            String safePrompt)
+            String safePrompt,
+            Optional<ClarificationRequestV1> clarification)
             implements ExecutionEventPayload {
         public Interrupted {
             token = Objects.requireNonNull(token, "token");
             kind = Objects.requireNonNull(kind, "kind");
             safePrompt = requireReason(safePrompt, "safePrompt", 1_000);
+            clarification = Objects.requireNonNull(clarification, "clarification");
+            if ((kind == ExecutionInterruptKind.CLARIFICATION) != clarification.isPresent()) {
+                throw new IllegalArgumentException(
+                        "only clarification interrupts must carry a clarification request");
+            }
         }
 
         @Override

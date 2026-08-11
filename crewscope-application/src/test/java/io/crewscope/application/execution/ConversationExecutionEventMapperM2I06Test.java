@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.crewscope.application.conversation.ClarificationQuestionV1;
+import io.crewscope.application.conversation.ClarificationRequestV1;
 import io.crewscope.application.conversation.TaskIntentV1;
 import io.crewscope.application.event.json.RealtimeEventEnvelopeJsonCodec;
 import io.crewscope.domain.conversation.AgentRuntimeSessionId;
@@ -214,7 +216,12 @@ class ConversationExecutionEventMapperM2I06Test {
             new ExecutionEventPayload.Interrupted(
                     new ExecutionInterruptToken("resume-coordinate"),
                     ExecutionInterruptKind.CLARIFICATION,
-                    "Please clarify the target"),
+                    "Please clarify the target",
+                    Optional.of(new ClarificationRequestV1(
+                            "1",
+                            "Please clarify the target",
+                            List.of(new ClarificationQuestionV1(
+                                    "target", "Which target?", null, true, List.of()))))),
             new ExecutionEventPayload.Canceled("private cancellation reason"),
             new ExecutionEventPayload.Failed(new ExecutionFailure(
                     ExecutionFailureCategory.MODEL_RATE_LIMITED,
