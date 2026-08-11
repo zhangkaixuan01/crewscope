@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails } from '../../test/workItemFixtures'
+import { fixtureConversationWorkItemAssociation } from '../../test/conversationWorkItemFixtures'
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
 
 describe('WorkItemDetailDrawer', () => {
@@ -50,6 +51,18 @@ describe('WorkItemDetailDrawer', () => {
     expect(wrapper.text()).toContain('当前不会创建虚假执行')
     await wrapper.get('.detail-footer button:first-of-type').trigger('click')
     expect(wrapper.emitted('conversation')).toBeTruthy()
+  })
+
+  it('shows visible source Conversations beside responsibility facts', async () => {
+    const wrapper = mount(WorkItemDetailDrawer, {
+      props: props({ associationPhase: 'ready', associations: [fixtureConversationWorkItemAssociation] }),
+    })
+
+    expect(wrapper.text()).toContain('关联对话')
+    expect(wrapper.text()).toContain('团队责任链')
+    await wrapper.get('button[aria-label^="返回对话"]').trigger('click')
+    expect(wrapper.emitted('openConversation')?.[0]).toEqual([fixtureConversationWorkItemAssociation])
+    wrapper.unmount()
   })
 
   it('keeps drafts on command failure and validates empty collaboration forms', async () => {
@@ -135,6 +148,9 @@ function props(overrides: Record<string, unknown> = {}) {
     timelineNextCursor: null,
     timelineLoadingMore: false,
     timelineErrorMessage: null,
+    associationPhase: 'empty' as const,
+    associations: [],
+    associationErrorMessage: null,
     onRetry: vi.fn(),
     onTransition: vi.fn().mockResolvedValue(undefined),
     onAddComment: vi.fn().mockResolvedValue(undefined),
@@ -145,6 +161,7 @@ function props(overrides: Record<string, unknown> = {}) {
     onAssignAdvisoryReviewer: vi.fn().mockResolvedValue(undefined),
     onReleaseResponsibility: vi.fn().mockResolvedValue(undefined),
     onLoadTimelineMore: vi.fn().mockResolvedValue(undefined),
+    onRetryAssociations: vi.fn(),
     ...overrides,
   }
 }

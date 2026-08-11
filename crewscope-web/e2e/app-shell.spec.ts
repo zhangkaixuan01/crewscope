@@ -15,6 +15,10 @@ const ids = {
   secondPrincipal: '00000000-0000-0000-0000-000000000102',
   thirdPrincipal: '00000000-0000-0000-0000-000000000103',
   specialistAgent: '00000000-0000-0000-0000-000000000104',
+  personalAgent: '00000000-0000-0000-0000-000000000105',
+  conversation: '00000000-0000-0000-0000-000000001101',
+  secondConversation: '00000000-0000-0000-0000-000000001102',
+  taskIntent: '00000000-0000-0000-0000-000000001201',
 }
 
 test.beforeEach(async ({ page }) => {
@@ -38,6 +42,22 @@ test.beforeEach(async ({ page }) => {
     timelineEvent('00000000-0000-0000-0000-000000001001', 'RESPONSIBILITY_ASSIGNED', '2026-08-08T03:20:00Z', '林晨'),
     timelineEvent('00000000-0000-0000-0000-000000001002', 'WORK_ITEM_CREATED', '2026-08-08T01:00:00Z', '张凯旋'),
   ]
+  const conversations = [
+    conversation(ids.conversation, ids.team, ids.workspace, '规划 GitHub Provider 接入', 'PRIVATE', 4),
+    conversation(ids.secondConversation, ids.team, ids.workspace, '协作准备 M2 发布', 'TEAM', null),
+  ]
+  const associations = [conversationWorkItemAssociation()]
+  const messagesByConversation: Record<string, Array<ReturnType<typeof conversationMessage>>> = {
+    [ids.conversation]: [
+      conversationMessage('00000000-0000-0000-0000-000000001301', ids.conversation, 1, 'USER_MESSAGE', ids.principal, '**目标**：规划 GitHub Provider 接入。', '2026-08-08T01:10:00Z'),
+      conversationMessage('00000000-0000-0000-0000-000000001302', ids.conversation, 2, 'AGENT_MESSAGE', ids.personalAgent, '已收到。我会先梳理 `Connection`、权限和审计边界。', '2026-08-08T01:11:00Z'),
+      conversationMessage('00000000-0000-0000-0000-000000001303', ids.conversation, 3, 'SYSTEM_NOTICE', null, 'Conversation 已切换为真实消息模式。', '2026-08-08T01:12:00Z'),
+      conversationMessage('00000000-0000-0000-0000-000000001304', ids.conversation, 4, 'USER_MESSAGE', ids.principal, '请保留团队协作与最小权限原则。', '2026-08-08T01:13:00Z'),
+    ],
+    [ids.secondConversation]: [],
+  }
+  const acceptedMessageKeys = new Set<string>()
+  const acceptedInvocations = new Map<string, { invocationId: string; userMessageId: string; agentMessageId: string }>()
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -60,6 +80,105 @@ test.beforeEach(async ({ page }) => {
         { id: '00000000-0000-0000-0000-000000000302', userPrincipalId: ids.secondPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:10:00Z', version: 0 },
         { id: '00000000-0000-0000-0000-000000000303', userPrincipalId: ids.thirdPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:20:00Z', version: 0 },
       ])
+      return
+    }
+    const workItemConversationMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/conversations$/)
+    if (workItemConversationMatch && request.method() === 'GET') {
+      await fulfillJson(route, associations.filter(item => (
+        item.workItem.projectId === workItemConversationMatch[1]
+        && item.workItem.id === workItemConversationMatch[2]
+      )))
+      return
+    }
+    const conversationWorkItemMatch = path.match(/\/conversations\/([^/]+)\/work-items$/)
+    if (conversationWorkItemMatch && request.method() === 'GET') {
+      await fulfillJson(route, associations.filter(item => item.conversation.id === conversationWorkItemMatch[1]))
+      return
+    }
+    if (path.endsWith('/conversations') && request.method() === 'GET') {
+      const teamId = path.split('/teams/')[1]?.split('/')[0]
+      await fulfillJson(route, { items: teamId === ids.team ? conversations : [conversation(crypto.randomUUID(), ids.secondTeam, ids.secondWorkspace, '检查 Runtime 身份边界', 'TEAM', 2)], nextCursor: null })
+      return
+    }
+    if (path.endsWith('/conversations') && request.method() === 'POST') {
+      const input = request.postDataJSON() as { title: string; visibility: 'PRIVATE' | 'TEAM' }
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const created = conversation(crypto.randomUUID(), ids.team, ids.workspace, input.title, input.visibility, null)
+      conversations.unshift(created)
+      messagesByConversation[created.id] = []
+      await fulfillReceipt(route, 0)
+      return
+    }
+    const conversationEventMatch = path.match(/\/conversations\/([^/]+)\/events$/)
+    if (conversationEventMatch && request.method() === 'GET') {
+      await fulfillSse(route, [])
+      return
+    }
+    const cancelMatch = path.match(/\/conversations\/([^/]+)\/agent-invocations\/([^/]+)\/cancel$/)
+    if (cancelMatch && request.method() === 'POST') {
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ invocationId: cancelMatch[2], result: 'ACCEPTED', correlationId: crypto.randomUUID() }),
+      })
+      return
+    }
+    const invocationMatch = path.match(/\/conversations\/([^/]+)\/agent-invocations$/)
+    if (invocationMatch && request.method() === 'POST') {
+      const input = request.postDataJSON() as { message: string }
+      const idempotencyKey = request.headers()['idempotency-key']!
+      expect(idempotencyKey).toBeTruthy()
+      let accepted = acceptedInvocations.get(idempotencyKey)
+      const items = messagesByConversation[invocationMatch[1]!] ?? []
+      if (!accepted) {
+        accepted = { invocationId: crypto.randomUUID(), userMessageId: crypto.randomUUID(), agentMessageId: crypto.randomUUID() }
+        acceptedInvocations.set(idempotencyKey, accepted)
+        const userSequence = items.reduce((latest, item) => Math.max(latest, item.sequence), 0) + 1
+        items.push(conversationMessage(accepted.userMessageId, invocationMatch[1]!, userSequence, 'USER_MESSAGE', ids.principal, input.message, '2026-08-08T04:00:00Z'))
+        items.push(conversationMessage(accepted.agentMessageId, invocationMatch[1]!, userSequence + 1, 'AGENT_MESSAGE', ids.personalAgent, `已收到：${input.message}`, '2026-08-08T04:00:01Z'))
+        messagesByConversation[invocationMatch[1]!] = items
+      }
+      const segmentId = crypto.randomUUID()
+      await fulfillSse(route, [
+        realtimeEvent('RUN_STARTED', { threadId: invocationMatch[1], runId: accepted.invocationId, segmentId, segmentKind: 'INVOKE' }),
+        realtimeEvent('TEXT_MESSAGE_CONTENT', { threadId: invocationMatch[1], runId: accepted.invocationId, segmentId, messageId: accepted.agentMessageId, delta: `已收到：${input.message}` }),
+        realtimeEvent('RUN_FINISHED', { threadId: invocationMatch[1], runId: accepted.invocationId, segmentId, status: 'COMPLETED' }),
+      ], { 'X-CrewScope-Invocation-Id': accepted.invocationId })
+      return
+    }
+    const messageMatch = path.match(/\/conversations\/([^/]+)\/messages$/)
+    if (messageMatch && request.method() === 'GET') {
+      const items = [...(messagesByConversation[messageMatch[1]!] ?? [])].sort((left, right) => right.sequence - left.sequence)
+      await fulfillJson(route, { items, nextCursor: null })
+      return
+    }
+    if (messageMatch && request.method() === 'POST') {
+      const input = request.postDataJSON() as { content: string }
+      const idempotencyKey = request.headers()['idempotency-key']
+      expect(idempotencyKey).toBeTruthy()
+      const items = messagesByConversation[messageMatch[1]!] ?? []
+      if (!acceptedMessageKeys.has(idempotencyKey!)) {
+        acceptedMessageKeys.add(idempotencyKey!)
+        const sequence = items.reduce((latest, item) => Math.max(latest, item.sequence), 0) + 1
+        items.push(conversationMessage(crypto.randomUUID(), messageMatch[1]!, sequence, 'USER_MESSAGE', ids.principal, input.content, '2026-08-08T04:00:00Z'))
+        messagesByConversation[messageMatch[1]!] = items
+        const conversation = conversations.find(item => item.id === messageMatch[1])
+        if (conversation) conversation.lastMessageSequence = sequence
+      }
+      await fulfillReceipt(route, items.at(-1)?.sequence ?? 0)
+      return
+    }
+    const conversationMatch = path.match(/\/conversations\/([^/]+)$/)
+    if (conversationMatch && request.method() === 'GET') {
+      const item = conversations.find(candidate => candidate.id === conversationMatch[1])
+      if (!item) return fulfillError(route, 404, 'conversation_not_found', 'Conversation not found')
+      await fulfillJson(route, {
+        conversation: item,
+        participants: [
+          participant(crypto.randomUUID(), item.id, ids.principal, ids.member, 'OWNER'),
+          participant(crypto.randomUUID(), item.id, ids.personalAgent, null, 'AGENT'),
+        ],
+      })
       return
     }
     if (path.endsWith('/work-items') && request.method() === 'GET') {
@@ -157,16 +276,498 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('Conversation and Today share the focused scope', async ({ page }) => {
-  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByRole('heading', { name: 'CRW-18 · 对话工作区预览' })).toBeVisible()
-  await expect(page.getByText(/不会创建 Conversation、TaskIntent、TaskExecution、AgentRun/)).toBeVisible()
-  await expect(page.getByText('执行中', { exact: true })).toHaveCount(0)
+test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }) => {
+  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+  await expect(page.getByText('请保留团队协作与最小权限原则。', { exact: true })).toBeVisible()
+  await expect(page.getByText('Connection', { exact: true })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
 
   await page.getByRole('link', { name: '工作台', exact: true }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/today\\?.*focus=CRW-18.*team=${ids.team}.*project=${ids.project}`))
+  await expect(page).toHaveURL(/\/today\?/)
+  const restoredQuery = new URL(page.url()).searchParams
+  expect(restoredQuery.get('focus')).toBe('CRW-18')
+  expect(restoredQuery.get('team')).toBe(ids.team)
+  expect(restoredQuery.get('project')).toBe(ids.project)
+  expect(restoredQuery.get('conversation')).toBe(ids.conversation)
   await expect(page.getByRole('heading', { name: 'Platform Engineering', exact: true })).toBeVisible()
+})
+
+test('Conversation reloads current server facts when returning from Control Mode', async ({ page }) => {
+  let collectionReads = 0
+  await page.route(/\/conversations(?:\?.*)?$/, async route => {
+    collectionReads += 1
+    const items = [
+      conversation(ids.conversation, ids.team, ids.workspace, '规划 GitHub Provider 接入', 'PRIVATE', 4),
+      conversation(ids.secondConversation, ids.team, ids.workspace, '协作准备 M2 发布', 'TEAM', null),
+    ]
+    if (collectionReads > 1) {
+      items.unshift(conversation(
+        '00000000-0000-0000-0000-000000001103',
+        ids.team,
+        ids.workspace,
+        '返回页面后读取的新对话',
+        'TEAM',
+        null,
+      ))
+    }
+    await fulfillJson(route, { items, nextCursor: null })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })).toBeVisible()
+
+  await page.getByRole('link', { name: '工作台', exact: true }).click()
+  await page.getByRole('link', { name: '对话', exact: true }).click()
+
+  await expect(page.getByRole('button', { name: '打开对话 返回页面后读取的新对话' })).toBeVisible()
+  expect(collectionReads).toBe(2)
+})
+
+test('Conversation sends Markdown with Enter and restores the committed message after refresh', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const composer = page.getByLabel('消息内容')
+
+  await composer.fill('**请补充** OAuth 边界。')
+  await composer.press('Enter')
+
+  await expect(page.getByText('请补充 OAuth 边界。', { exact: true })).toBeVisible()
+  await expect(composer).toHaveValue('')
+  await page.reload()
+  await expect(page.getByText('请补充 OAuth 边界。', { exact: true })).toBeVisible()
+})
+
+test('Conversation shows the submitted owner message before the Agent stream is reconciled', async ({ page }) => {
+  let releasePost!: () => void
+  const postGate = new Promise<void>(resolve => { releasePost = resolve })
+  await page.route(/\/agent-invocations$/, async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await postGate
+    await route.fallback()
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await page.getByLabel('消息内容').fill('验证 Pending 消息收口。')
+  await page.getByLabel('消息内容').press('Enter')
+  await expect(page.getByText('验证 Pending 消息收口。', { exact: true })).toBeVisible()
+  await expect(page.getByText('正在连接 Personal Agent', { exact: true })).toBeVisible()
+
+  releasePost()
+  await expect(page.getByText('已收到：验证 Pending 消息收口。', { exact: true })).toBeVisible()
+  await expect(page.getByText('正在连接 Personal Agent', { exact: true })).toBeHidden()
+})
+
+test('Conversation retains input after failure and retries the original message idempotently', async ({ page }) => {
+  let attempts = 0
+  await page.route(new RegExp(`/conversations/${ids.conversation}$`), route => fulfillJson(route, {
+    conversation: { ...conversation(ids.conversation, ids.team, ids.workspace, '规划 GitHub Provider 接入', 'PRIVATE', 4), ownerPrincipalId: ids.secondPrincipal },
+    participants: [
+      participant(crypto.randomUUID(), ids.conversation, ids.principal, ids.member, 'MEMBER'),
+      participant(crypto.randomUUID(), ids.conversation, ids.personalAgent, null, 'AGENT'),
+    ],
+  }))
+  await page.route(/\/messages$/, async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    attempts += 1
+    if (attempts === 1) return fulfillError(route, 503, 'message_unavailable', '消息服务暂时不可用')
+    await route.fallback()
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const composer = page.getByLabel('消息内容')
+
+  await composer.fill('需要可靠重试的消息。')
+  await composer.press('Enter')
+  await expect(page.getByText('发送失败', { exact: true })).toBeVisible()
+  await expect(composer).toHaveValue('需要可靠重试的消息。')
+
+  await composer.fill('发送期间继续保留的新草稿。')
+  await page.getByRole('button', { name: '重试发送' }).click()
+  await expect(page.getByText('需要可靠重试的消息。', { exact: true })).toBeVisible()
+  await expect(page.getByText('发送失败', { exact: true })).toBeHidden()
+  await expect(composer).toHaveValue('发送期间继续保留的新草稿。')
+})
+
+test('Conversation loads older history from its opaque Cursor without duplicates', async ({ page }) => {
+  const history = [
+    conversationMessage('message-1', ids.conversation, 1, 'USER_MESSAGE', ids.principal, '最早的范围确认。', '2026-08-08T01:00:00Z'),
+    conversationMessage('message-2', ids.conversation, 2, 'AGENT_MESSAGE', ids.personalAgent, '第一轮 Agent 回复。', '2026-08-08T01:01:00Z'),
+    conversationMessage('message-3', ids.conversation, 3, 'SYSTEM_NOTICE', null, '中间系统消息。', '2026-08-08T01:02:00Z'),
+    conversationMessage('message-4', ids.conversation, 4, 'USER_MESSAGE', ids.principal, '最新消息。', '2026-08-08T01:03:00Z'),
+  ]
+  await page.route(/\/messages(?:\?.*)?$/, async route => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const after = new URL(route.request().url()).searchParams.get('after')
+    await fulfillJson(route, after
+      ? { items: [history[2], history[1], history[0]], nextCursor: null }
+      : { items: [history[3], history[2]], nextCursor: 'opaque+/older' })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await page.getByRole('button', { name: '加载更早消息' }).click()
+
+  await expect(page.getByText('最早的范围确认。', { exact: true })).toBeVisible()
+  await expect(page.getByText('中间系统消息。', { exact: true })).toHaveCount(1)
+})
+
+test('Conversation streams only public Agent text and reconciles the committed reply', async ({ page }) => {
+  const history = [conversationMessage('stream-base', ids.conversation, 1, 'USER_MESSAGE', ids.principal, '开始流式验证。', '2026-08-08T01:00:00Z')]
+  let invocationBody: unknown
+  await page.route(/\/messages(?:\?.*)?$/, route => fulfillJson(route, { items: [...history].reverse(), nextCursor: null }))
+  await page.route(/\/agent-invocations$/, async route => {
+    invocationBody = route.request().postDataJSON()
+    const input = invocationBody as { message: string }
+    history.push(conversationMessage('stream-user', ids.conversation, 2, 'USER_MESSAGE', ids.principal, input.message, '2026-08-08T04:00:00Z'))
+    history.push(conversationMessage('stream-agent', ids.conversation, 3, 'AGENT_MESSAGE', ids.personalAgent, '只展示公开回复。', '2026-08-08T04:00:01Z'))
+    await fulfillSse(route, [
+      realtimeEvent('RUN_STARTED', { segmentId: 'segment-stream' }),
+      realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '只展示' }),
+      realtimeEvent('REASONING_CONTENT', { reasoning: 'internal chain must stay hidden' }),
+      realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '公开回复。' }),
+      realtimeEvent('RUN_FINISHED', { status: 'COMPLETED' }),
+    ], { 'X-CrewScope-Invocation-Id': 'invocation-stream' })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await page.getByLabel('消息内容').fill('请生成公开回复。')
+  await page.getByLabel('消息内容').press('Enter')
+
+  await expect(page.getByText('只展示公开回复。', { exact: true })).toBeVisible()
+  await expect(page.getByText('internal chain must stay hidden', { exact: true })).toHaveCount(0)
+  expect(invocationBody).toEqual({ message: '请生成公开回复。' })
+})
+
+test('Conversation answers a structured clarification without exposing runtime Tool coordinates', async ({ page }) => {
+  let resumeBody: unknown
+  await page.route(/\/agent-invocations$/, route => fulfillSse(route, [
+    realtimeEvent('RUN_INTERRUPTED', {
+      safePrompt: 'Additional information is required to continue.',
+      clarification: {
+        schemaVersion: '1',
+        summary: '需要确定仓库和目标分支。',
+        questions: [
+          { fieldKey: 'repository', question: '使用哪个仓库？', context: '选择 Team 已授权的仓库', required: true, choices: ['crewscope-java', 'agentscope-java'] },
+          { fieldKey: 'branch', question: '使用哪个分支？', context: null, required: true, choices: [] },
+        ],
+      },
+    }, { eventId: 'clarification-interrupted' }),
+  ], { 'X-CrewScope-Invocation-Id': 'invocation-clarification' }))
+  await page.route(/\/agent-invocations\/invocation-clarification\/resume$/, async route => {
+    resumeBody = route.request().postDataJSON()
+    await fulfillSse(route, [
+      realtimeEvent('RUN_STARTED', {}, { eventId: 'clarification-resumed' }),
+      realtimeEvent('RUN_FINISHED', { status: 'COMPLETED' }, { eventId: 'clarification-finished' }),
+    ], { 'X-CrewScope-Invocation-Id': 'invocation-clarification' })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await page.getByLabel('消息内容').fill('请规划仓库改造。')
+  await page.getByLabel('消息内容').press('Enter')
+
+  await page.getByLabel('crewscope-java').check()
+  await page.getByLabel('使用哪个分支？').fill('main')
+  await page.getByRole('button', { name: '提交并继续' }).click()
+
+  expect(resumeBody).toEqual({ answers: { repository: 'crewscope-java', branch: 'main' } })
+  expect(JSON.stringify(resumeBody)).not.toContain('toolCallId')
+  expect(JSON.stringify(resumeBody)).not.toContain('interruptToken')
+})
+
+test('Conversation reviews the latest TaskIntent and confirms with an empty request body', async ({ page }) => {
+  let intent = taskIntent('READY', 2)
+  let confirmationBody: string | null = 'not-called'
+  let confirmedAssociationVisible = false
+  const proposed = realtimeEvent('TASK_INTENT_PROPOSED', {}, {
+    eventId: 'task-intent-event', domainEventId: 'task-intent-domain', streamType: 'CONVERSATION', aggregateVersion: 2,
+  })
+  proposed.aggregateType = 'TASK_INTENT'
+  proposed.aggregateId = ids.taskIntent
+  await page.route(/\/events(?:\?.*)?$/, route => fulfillSse(route, [proposed]))
+  await page.route(new RegExp(`/task-intents/${ids.taskIntent}$`), route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { ETag: `"${intent.version}"`, 'Cache-Control': 'no-store' },
+    body: JSON.stringify(intent),
+  }))
+  await page.route(/\/confirmation-previews$/, route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { ETag: `"${intent.version}"` },
+    body: JSON.stringify({ confirmable: true, taskIntentId: intent.id, proposalRevision: intent.proposalRevision, version: intent.version, confirmingPrincipalId: ids.principal, proposal: intent.proposal }),
+  }))
+  await page.route(/\/confirmations$/, async route => {
+    confirmationBody = route.request().postData()
+    confirmedAssociationVisible = true
+    intent = { ...intent, status: 'CONFIRMED', version: 3, decision: { status: 'CONFIRMED', decidedByPrincipalId: ids.principal, decidedAt: '2026-08-08T04:10:00Z', reason: null } }
+    await fulfillReceipt(route, 3)
+  })
+  await page.route(new RegExp(`/conversations/${ids.conversation}/work-items$`), route => (
+    fulfillJson(route, confirmedAssociationVisible ? [conversationWorkItemAssociation()] : [])
+  ))
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await expect(page.getByRole('heading', { name: '结构化任务提案' })).toBeVisible()
+  await expect(page.getByText('关键操作进入审计记录', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '预检并确认' }).click()
+
+  await expect(page.getByText('已确认', { exact: true }).first()).toBeVisible()
+  expect(confirmationBody).toBeNull()
+
+  await page.getByRole('button', { name: '查看工作项 CRW-18' }).click()
+  await expect(page).toHaveURL(/\/work\?/)
+  expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
+  expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
+  const drawer = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(drawer.getByText('规划 GitHub Provider 接入', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('张凯旋', { exact: true }).first()).toBeVisible()
+
+  await drawer.getByRole('button', { name: '返回对话 规划 GitHub Provider 接入' }).click()
+  await expect(page).toHaveURL(/\/conversation\?/)
+  expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '查看工作项 CRW-18' })).toBeVisible()
+})
+
+test('Conversation replays a disconnected invocation with the same key and removes duplicate deltas', async ({ page }) => {
+  const history: Array<ReturnType<typeof conversationMessage>> = []
+  const keys: string[] = []
+  let attempts = 0
+  const started = realtimeEvent('RUN_STARTED', { segmentId: 'segment-replay' }, { eventId: 'replay-started' })
+  const first = realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '第一段' }, { eventId: 'replay-first' })
+  await page.route(/\/messages(?:\?.*)?$/, route => fulfillJson(route, { items: [...history].reverse(), nextCursor: null }))
+  await page.route(/\/agent-invocations$/, async route => {
+    attempts += 1
+    keys.push(route.request().headers()['idempotency-key']!)
+    if (attempts === 1) return fulfillSse(route, [started, first], { 'X-CrewScope-Invocation-Id': 'invocation-replay' })
+    history.push(conversationMessage('replay-user', ids.conversation, 1, 'USER_MESSAGE', ids.principal, '验证断线重放。', '2026-08-08T04:00:00Z'))
+    history.push(conversationMessage('replay-agent', ids.conversation, 2, 'AGENT_MESSAGE', ids.personalAgent, '第一段第二段', '2026-08-08T04:00:01Z'))
+    await fulfillSse(route, [
+      started,
+      first,
+      realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '第二段' }, { eventId: 'replay-second' }),
+      realtimeEvent('RUN_FINISHED', { status: 'COMPLETED' }, { eventId: 'replay-finished' }),
+    ], { 'X-CrewScope-Invocation-Id': 'invocation-replay', 'Idempotency-Replayed': 'true' })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await page.getByLabel('消息内容').fill('验证断线重放。')
+  await page.getByLabel('消息内容').press('Enter')
+
+  await expect(page.getByText('第一段第二段', { exact: true })).toBeVisible()
+  expect(attempts).toBe(2)
+  expect(new Set(keys).size).toBe(1)
+  await expect(page.getByText('第一段第一段第二段', { exact: true })).toHaveCount(0)
+})
+
+test('Conversation restores an in-flight invocation after refresh', async ({ page }) => {
+  const history: Array<ReturnType<typeof conversationMessage>> = []
+  const keys: string[] = []
+  let attempts = 0
+  await page.route(/\/messages(?:\?.*)?$/, route => fulfillJson(route, { items: [...history].reverse(), nextCursor: null }))
+  await page.route(/\/agent-invocations$/, async route => {
+    attempts += 1
+    keys.push(route.request().headers()['idempotency-key']!)
+    if (attempts === 1) {
+      return fulfillSse(route, [
+        realtimeEvent('RUN_STARTED', {}, { eventId: 'refresh-started' }),
+        realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '刷新前' }, { eventId: 'refresh-first' }),
+      ], { 'X-CrewScope-Invocation-Id': 'invocation-refresh' })
+    }
+    history.push(conversationMessage('refresh-user', ids.conversation, 1, 'USER_MESSAGE', ids.principal, '刷新后继续。', '2026-08-08T04:00:00Z'))
+    history.push(conversationMessage('refresh-agent', ids.conversation, 2, 'AGENT_MESSAGE', ids.personalAgent, '刷新前刷新后', '2026-08-08T04:00:01Z'))
+    return fulfillSse(route, [
+      realtimeEvent('RUN_STARTED', {}, { eventId: 'refresh-started' }),
+      realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '刷新前' }, { eventId: 'refresh-first' }),
+      realtimeEvent('TEXT_MESSAGE_CONTENT', { delta: '刷新后' }, { eventId: 'refresh-second' }),
+      realtimeEvent('RUN_FINISHED', { status: 'COMPLETED' }, { eventId: 'refresh-finished' }),
+    ], { 'X-CrewScope-Invocation-Id': 'invocation-refresh', 'Idempotency-Replayed': 'true' })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await page.getByLabel('消息内容').fill('刷新后继续。')
+  await page.getByLabel('消息内容').press('Enter')
+  await expect(page.getByText('连接中断，正在安全重连', { exact: true })).toBeVisible()
+
+  await page.reload()
+
+  await expect(page.getByText('刷新前刷新后', { exact: true })).toBeVisible()
+  expect(attempts).toBe(2)
+  expect(new Set(keys).size).toBe(1)
+})
+
+test('Conversation resumes its durable event stream from the last opaque Cursor', async ({ page }) => {
+  const resumes: Array<string | null> = []
+  await page.route(/\/events(?:\?.*)?$/, async route => {
+    const after = new URL(route.request().url()).searchParams.get('after')
+    resumes.push(after)
+    if (resumes.length === 1) {
+      const event = realtimeEvent('CONVERSATION_MESSAGE_POSTED', { messageId: 'durable-message' }, {
+        eventId: 'durable-event-id', domainEventId: 'durable-domain-id', streamType: 'CONVERSATION', aggregateVersion: 5,
+      })
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: `id:opaque+/conversation-cursor\nevent:CONVERSATION_MESSAGE_POSTED\ndata:${JSON.stringify(event)}\n\n` })
+    }
+    return fulfillSse(route, [])
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+
+  await expect.poll(() => resumes.length).toBeGreaterThanOrEqual(2)
+  expect(resumes[1]).toBe('opaque+/conversation-cursor')
+})
+
+test('Conversation cancels an active Agent invocation explicitly', async ({ page }) => {
+  let invocationAttempts = 0
+  let cancelled = false
+  await page.route(/\/agent-invocations$/, async route => {
+    invocationAttempts += 1
+    if (invocationAttempts === 1) {
+      return fulfillSse(route, [realtimeEvent('RUN_STARTED', {}, { eventId: 'cancel-started' })], { 'X-CrewScope-Invocation-Id': 'invocation-cancel' })
+    }
+    await expect.poll(() => cancelled).toBe(true)
+    return fulfillSse(route, [realtimeEvent('RUN_FINISHED', { status: 'CANCELED' }, { eventId: 'cancel-finished' })], { 'X-CrewScope-Invocation-Id': 'invocation-cancel', 'Idempotency-Replayed': 'true' })
+  })
+  await page.route(/\/agent-invocations\/invocation-cancel\/cancel$/, async route => {
+    cancelled = true
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ invocationId: 'invocation-cancel', result: 'ACCEPTED', correlationId: 'cancel-correlation' }) })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await page.getByLabel('消息内容').fill('请取消这次调用。')
+  await page.getByLabel('消息内容').press('Enter')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+
+  await expect(page.getByText('本次 Agent 调用已取消', { exact: true })).toBeVisible()
+  expect(cancelled).toBe(true)
+})
+
+test('Conversation exposes loading and empty states without inventing local facts', async ({ page }) => {
+  let releaseRequest!: () => void
+  const requestGate = new Promise<void>(resolve => { releaseRequest = resolve })
+  await page.route(/\/conversations(?:\?.*)?$/, async route => {
+    await requestGate
+    await fulfillJson(route, { items: [], nextCursor: null })
+  })
+
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  // Vite may still be warming the Conversation chunk on the first desktop test in a full run.
+  await expect(page.getByText('正在加载对话', { exact: true })).toBeVisible({ timeout: 15_000 })
+
+  releaseRequest()
+  await expect(page.getByText('这个 Team 还没有对话', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '创建第一个对话' })).toBeVisible()
+})
+
+test('Conversation redirects API-level forbidden responses to the access boundary', async ({ page }) => {
+  await page.route(/\/conversations(?:\?.*)?$/, route => fulfillError(route, 403, 'conversation_forbidden', 'Conversation access denied'))
+
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+
+  // Keep the assertion local: API denial redirects after the cold-start request settles.
+  await expect(page).toHaveURL(/\/access-denied\?from=/, { timeout: 15_000 })
+  expect(new URL(page.url()).searchParams.get('from')).toContain('/conversation?')
+})
+
+test('Conversation list remains operable at the configured viewport', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+
+  await expect(page.getByRole('region', { name: '对话列表' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新建对话', exact: true }).last()).toBeVisible()
+})
+
+test('Conversation preserves its draft offline and resumes submission online', async ({ page, context }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const composer = page.getByRole('form', { name: '发送消息' })
+  const message = composer.getByLabel('消息内容')
+  await expect(message).toBeEditable()
+  await message.fill('保留这份离线草稿')
+
+  await context.setOffline(true)
+
+  await expect(page.getByText(/当前离线：已加载事实和草稿已保留/)).toBeVisible()
+  await expect(message).toBeEditable()
+  await expect(message).toHaveValue('保留这份离线草稿')
+  await expect(composer.getByRole('button', { name: '发送' })).toBeDisabled()
+  await expect(message).toHaveAttribute('placeholder', /当前离线，可继续编辑草稿/)
+
+  await context.setOffline(false)
+
+  await expect(page.getByText(/当前离线：已加载事实和草稿已保留/)).toBeHidden()
+  await expect(message).toHaveValue('保留这份离线草稿')
+  await expect(composer.getByRole('button', { name: '发送' })).toBeEnabled()
+})
+
+test('Conversation manages detail and create-dialog focus for keyboard users', async ({ page }, testInfo) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  const skipLink = page.getByRole('link', { name: '跳到主要内容' })
+  await skipLink.focus()
+  await expect(skipLink).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#main-workspace')).toBeFocused()
+
+  const conversationButton = page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })
+  await conversationButton.click()
+
+  const detailHeading = page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true, level: 2 })
+  await expect(detailHeading).toBeFocused()
+  if (testInfo.project.name === 'narrow-chromium') {
+    await page.getByRole('button', { name: '返回对话列表' }).click()
+    await expect(conversationButton).toBeFocused()
+  }
+
+  const createTrigger = page.getByRole('button', { name: '新建对话', exact: true }).last()
+  await createTrigger.click()
+  const dialog = page.getByRole('dialog', { name: '新建对话' })
+  await expect(dialog.getByLabel('标题')).toBeFocused()
+
+  const closeButton = dialog.getByRole('button', { name: '关闭新建对话' })
+  await closeButton.focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: '创建对话' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(closeButton).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(createTrigger).toBeFocused()
+})
+
+test('Conversation loading animation honors reduced-motion preference', async ({ page }) => {
+  let releaseRequest!: () => void
+  const requestGate = new Promise<void>(resolve => { releaseRequest = resolve })
+  await page.route(/\/conversations(?:\?.*)?$/, async route => {
+    await requestGate
+    await fulfillJson(route, { items: [], nextCursor: null })
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  const spinner = page.locator('.spinning').first()
+  await expect(spinner).toBeVisible({ timeout: 15_000 })
+  await expect(spinner).toHaveCSS('animation-name', 'none')
+  releaseRequest()
+})
+
+test('Conversation creates a server-backed Team conversation and opens it', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  await page.getByRole('button', { name: '新建对话', exact: true }).first().click()
+
+  const dialog = page.getByRole('dialog', { name: '新建对话' })
+  await dialog.getByLabel('标题').fill('检查下一阶段发布边界')
+  await dialog.getByLabel('团队对话').check()
+  await dialog.getByRole('button', { name: '创建对话' }).click()
+
+  await expect(dialog).toBeHidden()
+  const createdHeading = page.getByRole('heading', { name: '检查下一阶段发布边界', exact: true, level: 2 })
+  await expect(createdHeading).toBeVisible()
+  await expect(createdHeading).toBeFocused()
+  await expect(page.getByText('开始这个对话', { exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('conversation')).toBeTruthy()
+})
+
+test('Conversation clears an incompatible deep link when switching Team Scope', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+
+  await expect(page).not.toHaveURL(/conversation=00000000-0000-0000-0000-000000001101/)
+  await expect(page.getByRole('button', { name: /打开对话 检查 Runtime 身份边界/ })).toBeVisible()
 })
 
 test('Work restores URL scope and ScopeSwitcher changes the Team', async ({ page }) => {
@@ -346,8 +947,8 @@ test('WorkItem detail refreshes after an optimistic version conflict', async ({ 
 })
 
 test('AppShell visual baseline', async ({ page }, testInfo) => {
-  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByRole('heading', { name: /CRW-18/ })).toBeVisible()
+  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
   await expect(page).toHaveScreenshot(`conversation-${testInfo.project.name}.png`, { fullPage: true })
 
   await page.goto(`/today?team=${ids.team}&project=${ids.project}`)
@@ -371,6 +972,7 @@ test('M1 Work visual baseline', async ({ page }, testInfo) => {
 
 test('M1 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   const routes = [
+    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
@@ -399,6 +1001,51 @@ function workItem(id: string, key: string, title: string, type: string, status: 
   return { id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key, type, title, description: `${title}的协作说明`, status, priority, labels: ['team-work'], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-08-08T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-08-08T02:00:00Z', updatedByPrincipalId: ids.principal }
 }
 
+function conversation(id: string, teamId: string, workspaceId: string, title: string, visibility: string, lastMessageSequence: number | null) {
+  return { id, organizationId: ids.organization, teamId, workspaceId, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility, status: 'ACTIVE', lastMessageSequence, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
+}
+
+function participant(id: string, conversationId: string, principalId: string, teamMemberId: string | null, role: string) {
+  return { id, conversationId, principalId, teamMemberId, role, status: 'ACTIVE', joinedByPrincipalId: ids.principal, joinedAt: '2026-08-08T01:00:00Z', leftAt: null, version: 0 }
+}
+
+function conversationMessage(id: string, conversationId: string, sequence: number, type: string, authorPrincipalId: string | null, content: string, createdAt: string) {
+  return { id, conversationId, sequence, type, participantId: type === 'SYSTEM_NOTICE' ? null : crypto.randomUUID(), authorPrincipalId, content, createdAt }
+}
+
+function taskIntent(status: 'READY' | 'CONFIRMED', version: number) {
+  return {
+    id: ids.taskIntent,
+    conversationId: ids.conversation,
+    proposedByPrincipalId: ids.personalAgent,
+    schemaVersion: 1,
+    proposalRevision: 1,
+    status,
+    version,
+    proposal: {
+      workProjectId: ids.project,
+      objective: '完成 GitHub Provider 接入并验证团队协作流程',
+      acceptanceCriteria: ['能够读取仓库元数据', '关键操作进入审计记录'],
+      owner: { role: 'OWNER', principalId: ids.principal, principalType: 'HUMAN', teamMemberId: ids.member },
+      executor: null,
+      gateReviewer: null,
+    },
+    decision: null as null | { status: string; decidedByPrincipalId: string; decidedAt: string; reason: string | null },
+    createdAt: '2026-08-08T04:00:00Z',
+    updatedAt: '2026-08-08T04:00:00Z',
+  }
+}
+
+function conversationWorkItemAssociation() {
+  return {
+    linkId: '00000000-0000-0000-0000-000000001401',
+    origin: 'TASK_INTENT_CONFIRMATION',
+    createdAt: '2026-08-08T04:10:00Z',
+    conversation: { id: ids.conversation, title: '规划 GitHub Provider 接入', visibility: 'PRIVATE', status: 'ACTIVE' },
+    workItem: { id: ids.workItem, projectId: ids.project, key: 'CRW-18', title: '共享范围与筛选状态', status: 'IN_PROGRESS' },
+  }
+}
+
 function responsibility(id: string, role: string, actorPrincipalId: string, actorType: string, actorDisplayName: string) {
   return { id, workItemId: ids.workItem, role, actorPrincipalId, actorType, actorMemberId: actorType === 'USER' ? crypto.randomUUID() : null, actorDisplayName, status: 'ACTIVE', assignedByPrincipalId: ids.principal, assignedAt: '2026-08-08T03:20:00Z', acceptedAt: '2026-08-08T03:20:00Z', version: 0 }
 }
@@ -413,6 +1060,32 @@ function fulfillJson(route: Route, value: unknown): Promise<void> {
 
 function fulfillReceipt(route: Route, committedVersion: number): Promise<void> {
   return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion, correlationId: crypto.randomUUID() }) })
+}
+
+function fulfillSse(route: Route, events: unknown[], headers: Record<string, string> = {}): Promise<void> {
+  const body = events.map((event, index) => {
+    const envelope = event as { eventId?: string; eventType?: string }
+    return `id:${envelope.eventId ?? `event-${index}`}\nevent:${envelope.eventType ?? 'message'}\ndata:${JSON.stringify(event)}\n\n`
+  }).join('')
+  return route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'Cache-Control': 'no-store', ...headers }, body })
+}
+
+function realtimeEvent(eventType: string, payload: Record<string, unknown>, options: { eventId?: string; domainEventId?: string | null; streamType?: string; aggregateVersion?: number | null } = {}) {
+  const streamType = options.streamType ?? 'AG_UI'
+  return {
+    eventId: options.eventId ?? crypto.randomUUID(),
+    domainEventId: options.domainEventId ?? null,
+    streamType,
+    eventType,
+    schemaVersion: 'v1',
+    aggregateType: streamType === 'CONVERSATION' ? 'CONVERSATION' : null,
+    aggregateId: streamType === 'CONVERSATION' ? ids.conversation : null,
+    aggregateVersion: options.aggregateVersion ?? null,
+    correlationId: crypto.randomUUID(),
+    causationId: null,
+    occurredAt: '2026-08-08T04:00:00Z',
+    payload,
+  }
 }
 
 function fulfillError(route: Route, status: number, code: string, message: string, currentVersion: number | null = null): Promise<void> {

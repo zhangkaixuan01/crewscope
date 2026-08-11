@@ -17,6 +17,7 @@ import {
 import { computed, inject, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
+import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
@@ -34,6 +35,7 @@ const activeMode = computed(() => route.meta.mode)
 const activeSection = computed(() => route.meta.section)
 const modeTarget = (name: 'conversation' | 'today') => ({ name, query: route.query })
 const canReadScope = computed(() => Boolean(principal && can(principal, permissions.scopeRead)))
+const isOnline = useNetworkStatus()
 let scopeSynchronizationVersion = 0
 
 const navigation = [
@@ -73,6 +75,7 @@ watch(
       // Object identity belongs to the original Scope and cannot survive URL canonicalization.
       delete nextQuery.workItem
       delete nextQuery.focus
+      delete nextQuery.conversation
       await router.replace({ query: nextQuery })
     }
   },
@@ -86,6 +89,7 @@ function queryValue(value: unknown): string | null {
 
 <template>
   <div class="app-shell">
+    <a class="skip-link" href="#main-workspace">跳到主要内容</a>
     <aside class="app-shell__rail" aria-label="主导航">
       <RouterLink class="brand" :to="modeTarget('conversation')" aria-label="CrewScope 首页">
         <img :src="crewScopeMark" alt="" width="34" height="34">
@@ -125,6 +129,9 @@ function queryValue(value: unknown): string | null {
     </aside>
 
     <div class="app-shell__body">
+      <div v-if="!isOnline" class="network-banner" role="status" aria-live="polite" aria-atomic="true">
+        <span aria-hidden="true">●</span>当前离线：已加载事实和草稿已保留，联网后可继续提交。
+      </div>
       <header class="topbar">
         <div class="mode-switcher" aria-label="工作模式">
           <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')">
@@ -149,7 +156,7 @@ function queryValue(value: unknown): string | null {
         <div class="context-header__actions"><slot name="actions" /></div>
       </header>
 
-      <main class="app-shell__workspace"><slot /></main>
+      <main id="main-workspace" class="app-shell__workspace" tabindex="-1"><slot /></main>
     </div>
 
     <nav class="mobile-mode" aria-label="移动端工作模式">
@@ -161,6 +168,8 @@ function queryValue(value: unknown): string | null {
 
 <style scoped>
 .app-shell { min-height: 100vh; background: var(--cs-canvas); }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; padding: 9px 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-950); color: var(--cs-text-on-dark); font-size: 11px; transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
+.network-banner { position: relative; z-index: 40; display: flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid #d9a8a2; background: #fff4f2; color: #8f332b; font-size: 10px; font-weight: 700; text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid #d8e4db; background: #f5faf6; color: var(--cs-text); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 5px; font-family: var(--cs-font-display); font-size: 18px; }
 .brand img { border: 1px solid rgb(184 239 202 / 24%); border-radius: 11px; }
@@ -209,5 +218,6 @@ function queryValue(value: unknown): string | null {
   .mobile-mode { position: fixed; inset: auto 0 0; z-index: 20; display: grid; height: 60px; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--cs-border); background: rgb(255 255 255 / 96%); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--cs-text-muted); font-size: 11px; font-weight: 700; }
   .mobile-mode a.active { color: var(--cs-brand-700); }
+  .network-banner { min-height: 40px; padding-inline: 12px; font-size: 9px; }
 }
 </style>

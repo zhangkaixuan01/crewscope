@@ -1,100 +1,868 @@
 <script setup lang="ts">
-import { ArrowRight, Circle, GitPullRequest, Paperclip, Send, ShieldCheck, Sparkles } from '@lucide/vue'
-import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import AppShell from '../components/layout/AppShell.vue'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  ChevronRight,
+  CircleStop,
+  LockKeyhole,
+  MessageSquarePlus,
+  Plus,
+  UsersRound,
+  X,
+} from '@lucide/vue'
+import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { AUTH_PRINCIPAL } from '../app/auth'
+import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
+import ConversationComposer from '../components/domain/ConversationComposer.vue'
+import ClarificationCard from '../components/domain/ClarificationCard.vue'
+import SafeMarkdown from '../components/domain/SafeMarkdown.vue'
+import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
+import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
+import StatePanel from '../components/feedback/StatePanel.vue'
+import AppShell from '../components/layout/AppShell.vue'
+import { useConversationMessageStore } from '../domains/conversation/messageStore'
+import { useConversationRealtimeStore } from '../domains/conversation/realtimeStore'
+import { useConversationStore } from '../domains/conversation/store'
+import { useTaskIntentStore } from '../domains/conversation/taskIntentStore'
+import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
+import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
+import type {
+  ConversationMessage,
+  ConversationMessageScope,
+  ConversationParticipant,
+  ConversationScope,
+  ConversationVisibility,
+  TaskIntentRevisionInput,
+} from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
 
 const route = useRoute()
+const router = useRouter()
+const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
-const focus = computed(() => String(route.query.focus || 'CRW-18'))
-const teamName = computed(() => scopeStore.selectedTeam.value?.name ?? 'Team workspace')
+const conversationStore = useConversationStore()
+const messageStore = useConversationMessageStore()
+const realtimeStore = useConversationRealtimeStore()
+const taskIntentStore = useTaskIntentStore()
+const linkStore = useConversationWorkItemLinkStore()
+const isOnline = useNetworkStatus()
+const createOpen = ref(false)
+const createTitle = ref('')
+const createVisibility = ref<ConversationVisibility>('PRIVATE')
+const createError = ref<string | null>(null)
+const createDialog = ref<HTMLElement | null>(null)
+const createTitleInput = ref<HTMLInputElement | null>(null)
+const detailHeading = ref<HTMLElement | null>(null)
+const drafts = reactive(new Map<string, string>())
+let createReturnFocus: HTMLElement | null = null
+let conversationReturnFocus: HTMLElement | null = null
+let pendingDetailFocus = false
+let pendingListFocusConversationId: string | null = null
+let synchronizationVersion = 0
+
+const teamName = computed(() => scopeStore.selectedTeam.value?.name ?? '团队工作区')
+const selected = computed(() => conversationStore.state.details?.conversation ?? null)
+const activeParticipants = computed(
+  () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
+)
+const focus = computed(() => queryValue(route.query.focus))
+const pageTitle = computed(() => {
+  if (selected.value) return selected.value.title
+  return focus.value ? `团队对话 · ${focus.value}` : '团队对话'
+})
+const workspaceClass = computed(() => ({ 'has-selection': Boolean(conversationStore.state.selectedConversationId) }))
+const currentDraft = computed({
+  get: () => selected.value ? (drafts.get(selected.value.id) ?? '') : '',
+  set: value => { if (selected.value) drafts.set(selected.value.id, value) },
+})
+const canPostMessages = computed(() => Boolean(
+  selected.value?.status === 'ACTIVE'
+  && principal
+  && activeParticipants.value.some(participant => participant.principalId === principal.id && participant.role !== 'AGENT'),
+))
+const canInvokeAgent = computed(() => Boolean(canPostMessages.value && selected.value?.ownerPrincipalId === principal?.id))
+const agentBusy = computed(() => ['connecting', 'running', 'reconnecting', 'cancelling'].includes(realtimeStore.state.invocationPhase))
+const agentNeedsRecovery = computed(() => realtimeStore.state.invocationPhase === 'error' && realtimeStore.state.retryable)
+const agentAwaitingClarification = computed(() => realtimeStore.state.invocationPhase === 'interrupted')
+const sendingMessage = computed(() => agentBusy.value || messageStore.state.pending.some(message => message.status === 'sending'))
+const composerPlaceholder = computed(() => {
+  if (!canPostMessages.value) return '加入此 Conversation 后才能发送消息'
+  if (!isOnline.value) return '当前离线，可继续编辑草稿，联网后发送…'
+  return canInvokeAgent.value ? '向 Personal Agent 描述目标或补充上下文…' : '向 Conversation 追加团队消息…'
+})
+const visibleInvocationMessage = computed(() => {
+  const content = realtimeStore.state.submittedContent
+  if (!content) return null
+  return messageStore.state.items.some(message =>
+    message.sequence > realtimeStore.state.baselineSequence
+    && message.type === 'USER_MESSAGE'
+    && message.authorPrincipalId === realtimeStore.state.submittedAuthorPrincipalId
+    && message.content === content,
+  ) ? null : content
+})
+const visibleStreamedReply = computed(() => {
+  const content = realtimeStore.state.streamedContent
+  return content && !messageStore.state.items.some(message => message.type === 'AGENT_MESSAGE' && message.content === content)
+    ? content
+    : null
+})
+const agentStatusText = computed(() => ({
+  idle: null,
+  connecting: '正在连接 Personal Agent',
+  running: 'Personal Agent 正在回复',
+  reconnecting: '连接中断，正在安全重连',
+  cancelling: '正在取消本次调用',
+  interrupted: 'Personal Agent 需要补充信息',
+  completed: '回复已完成，正在同步事实',
+  cancelled: '本次 Agent 调用已取消',
+  error: realtimeStore.state.errorMessage ?? 'Agent 暂时无法回复',
+}[realtimeStore.state.invocationPhase]))
+const messageAnnouncement = computed(() => {
+  if (agentStatusText.value) return ''
+  const pending = messageStore.state.pending.at(-1)
+  if (pending) return pending.status === 'sending' ? '消息正在发送' : '消息发送失败，可以重试'
+  const latest = messageStore.state.items.at(-1)
+  return latest ? `消息历史已更新，最新消息来自${messageAuthor(latest)}` : ''
+})
+
+watch(
+  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation] as const,
+  async ([phase, teamId, conversation]) => {
+    if (phase !== 'ready' || !teamId || !principal) {
+      if (phase === 'empty') {
+        conversationStore.reset()
+        messageStore.reset()
+        realtimeStore.reset()
+        taskIntentStore.reset()
+      }
+      return
+    }
+    const version = ++synchronizationVersion
+    const scope = { organizationId: principal.organizationId, teamId }
+    const conversationId = queryValue(conversation)
+    await conversationStore.synchronize(scope, conversationId)
+    if (version !== synchronizationVersion) return
+    if (conversationId && conversationStore.state.detailPhase === 'ready') {
+      const messageScope = { ...scope, conversationId }
+      await Promise.all([
+        messageStore.synchronize(messageScope),
+        linkStore.loadByConversation(messageScope),
+      ])
+      realtimeStore.synchronize(messageScope)
+      await taskIntentStore.synchronize(messageScope, realtimeStore.state.latestTaskIntentId)
+      realtimeStore.reconcile(messageStore.state.items)
+    } else {
+      messageStore.reset()
+      realtimeStore.reset()
+      taskIntentStore.reset()
+      linkStore.reset()
+    }
+    if (version !== synchronizationVersion) return
+    if (isForbidden()) {
+      await router.replace({ name: 'access-denied', query: { from: route.fullPath } })
+      return
+    }
+    if (pendingDetailFocus && selected.value?.id === conversationId) {
+      await nextTick()
+      detailHeading.value?.focus()
+      pendingDetailFocus = false
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => conversationStore.state.selectedConversationId,
+  async conversationId => {
+    if (conversationId || !pendingListFocusConversationId) return
+    await nextTick()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    const returnTarget = conversationReturnFocus?.isConnected
+      ? conversationReturnFocus
+      : document.querySelector<HTMLButtonElement>(`[data-conversation-id="${pendingListFocusConversationId}"]`)
+    returnTarget?.focus({ preventScroll: true })
+    conversationReturnFocus = null
+    pendingListFocusConversationId = null
+  },
+)
+
+// Leaving Conversation closes only browser subscriptions; the server-side invocation keeps running.
+onUnmounted(() => {
+  realtimeStore.reset()
+  taskIntentStore.reset()
+  linkStore.reset()
+  messageStore.reset()
+  conversationStore.reset()
+})
+
+watch(
+  () => realtimeStore.state.messageRefreshVersion,
+  async version => {
+    if (version === 0) return
+    const scope = currentMessageScope()
+    if (!scope) return
+    try {
+      await messageStore.refresh(scope)
+      realtimeStore.reconcile(messageStore.state.items)
+    } catch {
+      // The stores retain the safe status; route-level authorization still needs immediate handling.
+    }
+    await redirectIfForbidden()
+  },
+)
+
+watch(
+  () => [realtimeStore.state.taskIntentRefreshVersion, realtimeStore.state.latestTaskIntentId] as const,
+  async ([, taskIntentId]) => {
+    const scope = currentMessageScope()
+    if (!scope || !taskIntentId) return
+    await taskIntentStore.load(scope, taskIntentId, true)
+    if (taskIntentStore.state.intent?.status === 'CONFIRMED') {
+      await linkStore.loadByConversation(scope, true)
+    }
+    await redirectIfForbidden()
+  },
+)
+
+async function selectConversation(conversationId: string): Promise<void> {
+  conversationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  pendingDetailFocus = true
+  await router.push({ query: { ...route.query, conversation: conversationId } })
+  if (selected.value?.id === conversationId && conversationStore.state.detailPhase === 'ready') {
+    await nextTick()
+    detailHeading.value?.focus()
+    pendingDetailFocus = false
+  }
+}
+
+async function clearConversation(): Promise<void> {
+  const conversationId = conversationStore.state.selectedConversationId
+  pendingListFocusConversationId = conversationId
+  const query = { ...route.query }
+  delete query.conversation
+  await router.push({ query })
+}
+
+function openCreate(): void {
+  createReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  createTitle.value = ''
+  createVisibility.value = 'PRIVATE'
+  createError.value = null
+  createOpen.value = true
+  void nextTick(() => createTitleInput.value?.focus())
+}
+
+function closeCreate(restoreFocus = true): void {
+  createOpen.value = false
+  if (!restoreFocus) {
+    createReturnFocus = null
+    return
+  }
+  const returnTarget = createReturnFocus
+  createReturnFocus = null
+  void nextTick(() => returnTarget?.focus())
+}
+
+function handleCreateDialogKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeCreate()
+    return
+  }
+  if (event.key !== 'Tab' || !createDialog.value) return
+  const focusable = [...createDialog.value.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+  )].filter(element => !element.hasAttribute('hidden'))
+  if (focusable.length === 0) return
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+
+async function submitCreate(): Promise<void> {
+  const title = createTitle.value.trim()
+  if (!title) {
+    createError.value = '请输入对话标题'
+    return
+  }
+  const scope = currentScope()
+  if (!scope) return
+  createError.value = null
+  try {
+    const conversationId = await conversationStore.create(scope, {
+      title,
+      visibility: createVisibility.value,
+    })
+    closeCreate(false)
+    if (conversationId) {
+      pendingDetailFocus = true
+      await router.replace({ query: { ...route.query, conversation: conversationId } })
+    }
+  } catch {
+    createError.value = conversationStore.state.commandErrorMessage
+  }
+}
+
+async function retryCollection(): Promise<void> {
+  const scope = currentScope()
+  if (scope) await conversationStore.load(scope, true)
+}
+
+async function retryDetails(): Promise<void> {
+  const scope = currentScope()
+  const conversationId = conversationStore.state.selectedConversationId
+  if (scope && conversationId) await conversationStore.select(scope, conversationId)
+}
+
+async function retryMessages(): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope) return
+  await messageStore.load(scope, true)
+  await redirectIfForbidden()
+}
+
+async function submitMessage(content: string): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope || !principal || !canPostMessages.value || !isOnline.value) return
+  const conversationId = scope.conversationId
+  currentDraft.value = ''
+  const invokesAgent = canInvokeAgent.value
+  const sent = invokesAgent
+    ? await realtimeStore.invoke(scope, content, principal.id, newestMessageSequence())
+    : await messageStore.send(scope, content, principal.id)
+  if (!invokesAgent && !sent && selected.value?.id === conversationId && !currentDraft.value) currentDraft.value = content
+  realtimeStore.reconcile(messageStore.state.items)
+  await redirectIfForbidden()
+}
+
+async function retryPendingMessage(clientId: string): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope) return
+  await messageStore.retry(scope, clientId)
+  await redirectIfForbidden()
+}
+
+async function cancelAgentInvocation(): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope) return
+  await realtimeStore.cancel(scope)
+  await redirectIfForbidden()
+}
+
+async function retryAgentInvocation(): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope) return
+  await realtimeStore.retry(scope)
+  realtimeStore.reconcile(messageStore.state.items)
+  await redirectIfForbidden()
+}
+
+async function submitClarification(answers: Record<string, string>): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope || !principal) return
+  await realtimeStore.resume(scope, answers, principal.id, newestMessageSequence())
+  realtimeStore.reconcile(messageStore.state.items)
+  await redirectIfForbidden()
+}
+
+async function reviseTaskIntent(input: TaskIntentRevisionInput): Promise<void> {
+  await taskIntentStore.revise(input)
+  await redirectIfForbidden()
+}
+
+async function rejectTaskIntent(reason: string): Promise<void> {
+  await taskIntentStore.reject(reason)
+  await redirectIfForbidden()
+}
+
+async function confirmTaskIntent(): Promise<void> {
+  const confirmed = await taskIntentStore.confirm()
+  const scope = currentMessageScope()
+  // Confirmation returns a receipt; the association query is the source of the created WorkItem identity.
+  if (confirmed && scope) await linkStore.loadByConversation(scope, true)
+  await redirectIfForbidden()
+}
+
+async function retryLinks(): Promise<void> {
+  const scope = currentMessageScope()
+  if (scope) await linkStore.loadByConversation(scope, true)
+  await redirectIfForbidden()
+}
+
+function openLinkedWorkItem(association: ConversationWorkItemAssociation): void {
+  void router.push({
+    name: 'work',
+    query: {
+      ...route.query,
+      conversation: association.conversation.id,
+      project: association.workItem.projectId,
+      workItem: association.workItem.id,
+      focus: association.workItem.key,
+    },
+  })
+}
+
+function newestMessageSequence(): number {
+  return messageStore.state.items.reduce((latest, message) => Math.max(latest, message.sequence), 0)
+}
+
+function currentScope(): ConversationScope | null {
+  if (!principal || !scopeStore.state.selectedTeamId) return null
+  return { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
+}
+
+function currentMessageScope(): ConversationMessageScope | null {
+  const scope = currentScope()
+  const conversationId = selected.value?.id
+  return scope && conversationId ? { ...scope, conversationId } : null
+}
+
+function participantName(participant: ConversationParticipant): string {
+  if (participant.principalId === principal?.id) return principal.displayName
+  if (participant.role === 'AGENT') return 'Personal Agent'
+  return `成员 ${participant.principalId.slice(0, 8)}`
+}
+
+function participantRole(participant: ConversationParticipant): string {
+  return ({ OWNER: 'Owner', MEMBER: '参与者', AGENT: 'Personal Agent' })[participant.role]
+}
+
+function messageAuthor(message: ConversationMessage): string {
+  if (message.type === 'SYSTEM_NOTICE') return 'CrewScope'
+  if (message.authorPrincipalId === principal?.id) return '你'
+  if (message.authorPrincipalId === selected.value?.personalAgentPrincipalId) return 'Personal Agent'
+  const participant = activeParticipants.value.find(item => item.principalId === message.authorPrincipalId)
+  return participant ? participantName(participant) : `成员 ${message.authorPrincipalId?.slice(0, 8) ?? '未知'}`
+}
+
+function isOwnMessage(message: ConversationMessage): boolean {
+  return message.type === 'USER_MESSAGE' && message.authorPrincipalId === principal?.id
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value))
+}
+
+function formatTime(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value))
+}
+
+function isForbidden(): boolean {
+  return conversationStore.state.errorStatus === 403
+    || conversationStore.state.detailErrorStatus === 403
+    || messageStore.state.errorStatus === 403
+    || messageStore.state.commandErrorStatus === 403
+    || realtimeStore.state.errorStatus === 403
+    || taskIntentStore.state.errorStatus === 403
+    || taskIntentStore.state.commandErrorStatus === 403
+    || linkStore.state.errorStatus === 403
+}
+
+async function redirectIfForbidden(): Promise<void> {
+  if (isForbidden()) await router.replace({ name: 'access-denied', query: { from: route.fullPath } })
+}
+
+function queryValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
 </script>
 
 <template>
-  <AppShell :eyebrow="`Conversation · ${teamName}`" :title="`${focus} · 对话工作区预览`">
+  <AppShell :eyebrow="`Conversation · ${teamName}`" :title="pageTitle">
     <template #actions>
-      <StatusBadge tone="neutral">M2 原型预览</StatusBadge>
-      <RouterLink v-slot="{ navigate }" custom :to="{ name: 'today', query: route.query }"><BaseButton variant="secondary" size="small" @click="navigate">在工作台查看<ArrowRight :size="14" /></BaseButton></RouterLink>
+      <BaseButton size="small" @click="openCreate">
+        <template #icon><Plus :size="14" aria-hidden="true" /></template>
+        新建对话
+      </BaseButton>
+      <RouterLink v-slot="{ navigate }" custom :to="{ name: 'today', query: route.query }">
+        <BaseButton variant="secondary" size="small" @click="navigate">
+          在工作台查看<ArrowRight :size="14" aria-hidden="true" />
+        </BaseButton>
+      </RouterLink>
     </template>
 
-    <div class="conversation-layout">
-      <section class="panel conversation-stream" aria-label="对话流">
-        <div class="panel-heading">
-          <div><p class="eyebrow">Personal Agent blueprint</p><h2>和 CrewScope 一起推进工作</h2><p>以下内容用于验证对话、任务事实和 {{ focus }} 的交互结构，不会创建真实对话或执行。</p></div>
-          <StatusBadge tone="neutral">交互示例</StatusBadge>
-        </div>
-        <div class="messages" aria-live="polite">
-          <article class="message message--human">
-            <div class="message__avatar">张</div>
-            <div><header><strong>成员示例</strong><time>输入示例</time></header><p>帮我把 GitHub Provider 接入方案推进起来。先检查认证边界和仓库绑定，再运行测试；涉及真实写操作先让我确认。</p></div>
-          </article>
-          <article class="message message--agent">
-            <div class="message__avatar"><Sparkles :size="16" /></div>
-            <div><header><strong>Personal Agent</strong><StatusBadge tone="agent">规划角色</StatusBadge><time>回复示例</time></header><p>真实能力接入后，Personal Agent 会把目标关联到 <strong>{{ focus }}</strong>，澄清边界并形成可确认的 TaskIntent；当前示例不会调度 Coding Agent。</p>
-              <div class="intent-card"><span>TaskIntent 预览</span><strong>建立 GitHub Provider 最小安全连接</strong><small>预期策略：代码读取可自动执行 · 外部写操作进入 Review Gate</small></div>
+    <div class="conversation-workspace" :class="workspaceClass">
+      <section class="panel conversation-list-panel" aria-label="对话列表">
+        <header class="conversation-list-header">
+          <div>
+            <p class="eyebrow">Collaborate</p>
+            <h2>{{ teamName }}</h2>
+            <span>选择一个对话继续协作</span>
+          </div>
+          <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
+        </header>
+
+        <StatePanel
+          v-if="scopeStore.state.phase === 'loading' || conversationStore.state.phase === 'loading'"
+          state="loading"
+          title="正在加载对话"
+          description="正在恢复当前 Team 的可见对话。"
+        />
+        <StatePanel
+          v-else-if="scopeStore.state.phase === 'empty'"
+          state="empty"
+          title="暂无可用 Team"
+          description="加入 Team 后即可创建对话。"
+        />
+        <StatePanel
+          v-else-if="conversationStore.state.phase === 'error'"
+          state="error"
+          title="无法加载对话"
+          :description="conversationStore.state.errorMessage ?? undefined"
+          @retry="retryCollection"
+        />
+        <StatePanel
+          v-else-if="conversationStore.state.phase === 'empty'"
+          state="empty"
+          title="这个 Team 还没有对话"
+          description="创建一个 PRIVATE 或 TEAM 对话，从自然语言目标开始协作。"
+        >
+          <template #action>
+            <BaseButton size="small" @click="openCreate">创建第一个对话</BaseButton>
+          </template>
+        </StatePanel>
+        <ul v-else class="conversation-list">
+          <li
+            v-for="conversation in conversationStore.state.items"
+            :key="conversation.id"
+          >
+            <button
+              class="conversation-item"
+              type="button"
+              :data-conversation-id="conversation.id"
+              :class="{ active: conversation.id === conversationStore.state.selectedConversationId }"
+              :aria-label="`打开对话 ${conversation.title}`"
+              @click="selectConversation(conversation.id)"
+            >
+              <span class="conversation-list__icon" :class="{ team: conversation.visibility === 'TEAM' }">
+                <UsersRound v-if="conversation.visibility === 'TEAM'" :size="15" aria-hidden="true" />
+                <LockKeyhole v-else :size="15" aria-hidden="true" />
+              </span>
+              <span class="conversation-list__copy">
+                <strong>{{ conversation.title }}</strong>
+                <small>
+                  {{ conversation.visibility === 'TEAM' ? '团队可见' : '私有对话' }}
+                  <template v-if="conversation.lastMessageSequence !== null"> · {{ conversation.lastMessageSequence }} 条消息</template>
+                </small>
+              </span>
+              <time :datetime="conversation.updatedAt">{{ formatDate(conversation.updatedAt) }}</time>
+              <ChevronRight :size="15" aria-hidden="true" />
+            </button>
+          </li>
+          <li v-if="conversationStore.state.nextCursor" class="load-more-item">
+            <BaseButton
+              class="load-more"
+              variant="ghost"
+              size="small"
+              :loading="conversationStore.state.loadingMore"
+              @click="conversationStore.loadMore"
+            >加载更多对话</BaseButton>
+          </li>
+        </ul>
+      </section>
+
+      <section class="panel conversation-detail" aria-label="对话详情">
+        <button v-if="conversationStore.state.selectedConversationId" class="mobile-back" type="button" @click="clearConversation">
+          <ArrowLeft :size="16" aria-hidden="true" />返回对话列表
+        </button>
+        <StatePanel
+          v-if="conversationStore.state.detailPhase === 'loading'"
+          state="loading"
+          title="正在恢复对话"
+          description="正在读取服务端当前会话与参与者事实。"
+        />
+        <StatePanel
+          v-else-if="conversationStore.state.detailPhase === 'error'"
+          state="error"
+          title="无法打开这个对话"
+          :description="conversationStore.state.detailErrorMessage ?? undefined"
+          @retry="retryDetails"
+        />
+        <template v-else-if="selected">
+          <header class="conversation-detail__header">
+            <div>
+              <span class="conversation-kind">
+                <UsersRound v-if="selected.visibility === 'TEAM'" :size="14" />
+                <LockKeyhole v-else :size="14" />
+                {{ selected.visibility === 'TEAM' ? 'TEAM Conversation' : 'PRIVATE Conversation' }}
+              </span>
+              <h2 ref="detailHeading" tabindex="-1">{{ selected.title }}</h2>
+              <p>创建于 {{ formatDate(selected.createdAt) }} · 当前事实版本 v{{ selected.version }}</p>
             </div>
-          </article>
-          <article class="message message--agent message--active">
-            <div class="message__avatar"><Sparkles :size="16" /></div>
-            <div><header><strong>能力边界</strong><StatusBadge tone="neutral">尚未接入</StatusBadge><time>M2</time></header><p>当前仅展示交互蓝图，不会创建 Conversation、TaskIntent、TaskExecution、AgentRun，也不会调用 Provider 或修改代码。</p></div>
-          </article>
+            <StatusBadge tone="success">活跃</StatusBadge>
+          </header>
+          <div
+            class="message-stage"
+            :aria-busy="messageStore.state.phase === 'loading' || agentBusy"
+          >
+            <StatePanel
+              v-if="messageStore.state.phase === 'loading'"
+              state="loading"
+              title="正在加载消息"
+              description="正在按服务端 Sequence 恢复最新会话历史。"
+            />
+            <StatePanel
+              v-else-if="messageStore.state.phase === 'error'"
+              state="error"
+              title="无法加载消息"
+              :description="messageStore.state.errorMessage ?? undefined"
+              @retry="retryMessages"
+            />
+            <div v-else class="message-history">
+              <div
+                v-if="agentStatusText"
+                class="agent-live-status"
+                :class="{
+                  error: realtimeStore.state.invocationPhase === 'error',
+                  cancelled: realtimeStore.state.invocationPhase === 'cancelled',
+                }"
+                :role="realtimeStore.state.invocationPhase === 'error' ? 'alert' : 'status'"
+                :aria-live="realtimeStore.state.invocationPhase === 'error' ? 'assertive' : 'polite'"
+                aria-atomic="true"
+              >
+                <span>
+                  <CircleStop v-if="realtimeStore.state.invocationPhase === 'cancelled'" :size="14" aria-hidden="true" />
+                  <Bot v-else :size="14" aria-hidden="true" />
+                  {{ agentStatusText }}
+                </span>
+                <button
+                  v-if="(agentBusy || agentAwaitingClarification) && realtimeStore.state.invocationId"
+                  type="button"
+                  :disabled="realtimeStore.state.invocationPhase === 'cancelling' || !isOnline"
+                  @click="cancelAgentInvocation"
+                >取消</button>
+                <button
+                  v-else-if="agentNeedsRecovery"
+                  type="button"
+                  :disabled="!isOnline"
+                  @click="retryAgentInvocation"
+                >重新连接</button>
+              </div>
+              <div v-if="messageStore.state.nextCursor" class="older-messages">
+                <BaseButton
+                  variant="ghost"
+                  size="small"
+                  :loading="messageStore.state.loadingOlder"
+                  @click="messageStore.loadOlder"
+                >加载更早消息</BaseButton>
+                <span v-if="messageStore.state.olderErrorMessage" role="alert">{{ messageStore.state.olderErrorMessage }}</span>
+              </div>
+              <ClarificationCard
+                v-if="realtimeStore.state.invocationPhase === 'interrupted' && realtimeStore.state.clarification"
+                :request="realtimeStore.state.clarification"
+                @submit="submitClarification"
+              />
+              <StatePanel
+                v-if="taskIntentStore.state.phase === 'loading'"
+                state="loading"
+                title="正在读取任务提案"
+                description="正在同步服务端最新 TaskIntent 事实。"
+              />
+              <StatePanel
+                v-else-if="taskIntentStore.state.phase === 'error'"
+                state="error"
+                title="无法加载任务提案"
+                :description="taskIntentStore.state.errorMessage ?? undefined"
+                @retry="currentMessageScope() && taskIntentStore.state.taskIntentId && taskIntentStore.load(currentMessageScope()!, taskIntentStore.state.taskIntentId, true)"
+              />
+              <TaskIntentCard
+                v-else-if="taskIntentStore.state.intent && principal"
+                :intent="taskIntentStore.state.intent"
+                :current-principal-id="principal.id"
+                :pending="taskIntentStore.state.commandPending"
+                :error-message="taskIntentStore.state.commandErrorMessage"
+                :version-conflict="taskIntentStore.state.versionConflict"
+                @revise="reviseTaskIntent"
+                @reject="rejectTaskIntent"
+                @confirm="confirmTaskIntent"
+              />
+              <ConversationWorkItemLinks
+                :phase="linkStore.state.phase"
+                :associations="linkStore.state.associations"
+                :error-message="linkStore.state.errorMessage"
+                direction="conversation"
+                @open="openLinkedWorkItem"
+                @retry="retryLinks"
+              />
+              <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
+              <div
+                v-if="messageStore.state.phase === 'empty' && messageStore.state.pending.length === 0 && !visibleInvocationMessage && !visibleStreamedReply && !agentBusy"
+                class="message-empty"
+              >
+                <span><Bot :size="21" aria-hidden="true" /></span>
+                <strong>开始这个对话</strong>
+                <p>发送第一条消息，向 Personal Agent 描述目标或补充团队上下文。</p>
+              </div>
+              <ol v-else class="message-list" aria-label="消息历史">
+                <li
+                  v-for="message in messageStore.state.items"
+                  :key="message.id"
+                  class="message-row"
+                  :class="{ own: isOwnMessage(message), agent: message.type === 'AGENT_MESSAGE', system: message.type === 'SYSTEM_NOTICE' }"
+                >
+                  <div v-if="message.type !== 'SYSTEM_NOTICE'" class="message-avatar">
+                    <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="15" aria-hidden="true" />
+                    <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
+                  </div>
+                  <article>
+                    <header><strong>{{ messageAuthor(message) }}</strong><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time><span>#{{ message.sequence }}</span></header>
+                    <SafeMarkdown :content="message.content" />
+                  </article>
+                </li>
+                <li
+                  v-for="message in messageStore.state.pending"
+                  :key="message.clientId"
+                  class="message-row own pending"
+                  :class="{ failed: message.status === 'failed' }"
+                >
+                  <div class="message-avatar">你</div>
+                  <article>
+                    <header><strong>你</strong><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time><span>{{ message.status === 'sending' ? '发送中' : '发送失败' }}</span></header>
+                    <SafeMarkdown :content="message.content" />
+                    <footer v-if="message.status === 'failed'">
+                      <span role="alert">{{ message.errorMessage }}</span>
+                      <button type="button" :disabled="sendingMessage" @click="retryPendingMessage(message.clientId)">重试发送</button>
+                    </footer>
+                  </article>
+                </li>
+                <li v-if="visibleInvocationMessage" class="message-row own pending invocation-pending">
+                  <div class="message-avatar">你</div>
+                  <article>
+                    <header>
+                      <strong>你</strong>
+                      <time v-if="realtimeStore.state.submittedAt" :datetime="realtimeStore.state.submittedAt">{{ formatTime(realtimeStore.state.submittedAt) }}</time>
+                      <span>{{ realtimeStore.state.invocationPhase === 'connecting' ? '提交中' : '已提交 · 等待事实同步' }}</span>
+                    </header>
+                    <SafeMarkdown :content="visibleInvocationMessage" />
+                  </article>
+                </li>
+                <li
+                  v-if="visibleStreamedReply || agentBusy"
+                  class="message-row agent streaming"
+                  :class="{ reconnecting: realtimeStore.state.invocationPhase === 'reconnecting' }"
+                >
+                  <div class="message-avatar"><Bot :size="15" aria-hidden="true" /></div>
+                  <article>
+                    <header>
+                      <strong>Personal Agent</strong>
+                      <span>{{ realtimeStore.state.invocationPhase === 'reconnecting' ? '重连中' : '实时回复' }}</span>
+                    </header>
+                    <SafeMarkdown v-if="visibleStreamedReply" :content="visibleStreamedReply" />
+                    <p v-else class="stream-placeholder">正在理解目标并准备回复…</p>
+                  </article>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <ConversationComposer
+            v-model="currentDraft"
+            :disabled="!canPostMessages || sendingMessage || agentNeedsRecovery || agentAwaitingClarification || messageStore.state.phase === 'loading' || messageStore.state.phase === 'error'"
+            :submit-disabled="!isOnline"
+            :offline="!isOnline"
+            :sending="sendingMessage"
+            :placeholder="composerPlaceholder"
+            @submit="submitMessage"
+          />
+        </template>
+        <div v-else class="conversation-welcome">
+          <span><MessageSquarePlus :size="26" aria-hidden="true" /></span>
+          <p class="eyebrow">Conversation Mode</p>
+          <h2>从一个对话开始</h2>
+          <p v-if="focus">你正在处理 <strong>{{ focus }}</strong>。选择已有对话，或建立新的协作上下文。</p>
+          <p v-else>选择已有对话，或创建一个新对话向 Personal Agent 表达目标。</p>
+          <BaseButton @click="openCreate">
+            <template #icon><Plus :size="15" /></template>
+            新建对话
+          </BaseButton>
         </div>
-        <form class="composer" aria-label="消息输入预览" @submit.prevent>
-          <label class="sr-only" for="message">给 Personal Agent 发消息</label>
-          <textarea id="message" rows="2" disabled placeholder="M2 接入后可继续说明目标，或 @成员 / Agent 协作…" />
-          <footer><button type="button" disabled aria-label="添加附件（规划中）"><Paperclip :size="17" /></button><span>M2 接入后开放消息与附件</span><button class="send" type="submit" disabled aria-label="发送消息（规划中）"><Send :size="16" /></button></footer>
+      </section>
+
+      <aside class="panel participant-panel" aria-label="对话参与者">
+        <header>
+          <p class="eyebrow">Current facts</p>
+          <h2>参与者</h2>
+          <span>{{ selected ? `${activeParticipants.length} 个当前主体` : '选择对话后查看' }}</span>
+        </header>
+        <ul v-if="selected">
+          <li v-for="participant in activeParticipants" :key="participant.id">
+            <span :class="{ agent: participant.role === 'AGENT' }">
+              <Bot v-if="participant.role === 'AGENT'" :size="15" />
+              <template v-else>{{ participantName(participant).slice(0, 1) }}</template>
+            </span>
+            <div><strong>{{ participantName(participant) }}</strong><small>{{ participantRole(participant) }}</small></div>
+            <StatusBadge :tone="participant.role === 'AGENT' ? 'agent' : 'neutral'">在线范围</StatusBadge>
+          </li>
+        </ul>
+        <div v-else class="participant-placeholder">
+          <UsersRound :size="22" aria-hidden="true" />
+          <span>Owner、Personal Agent 和显式参与者将在这里展示。</span>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="createOpen" class="dialog-backdrop" @keydown="handleCreateDialogKeydown">
+      <section ref="createDialog" class="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-conversation-title">
+        <header>
+          <div><p class="eyebrow">New conversation</p><h2 id="create-conversation-title">新建对话</h2></div>
+          <button type="button" aria-label="关闭新建对话" @click="closeCreate()"><X :size="18" /></button>
+        </header>
+        <form @submit.prevent="submitCreate">
+          <label>
+            <span>标题</span>
+            <input ref="createTitleInput" v-model="createTitle" maxlength="200" autocomplete="off" placeholder="例如：规划 GitHub Provider 接入" />
+          </label>
+          <fieldset>
+            <legend>可见范围</legend>
+            <label :class="{ active: createVisibility === 'PRIVATE' }">
+              <input v-model="createVisibility" type="radio" value="PRIVATE" />
+              <LockKeyhole :size="17" /><span><strong>私有对话</strong><small>仅 Owner、Personal Agent 与显式参与者可见</small></span>
+            </label>
+            <label :class="{ active: createVisibility === 'TEAM' }">
+              <input v-model="createVisibility" type="radio" value="TEAM" />
+              <UsersRound :size="17" /><span><strong>团队对话</strong><small>当前 Team 成员可发现，写入仍需 Participant 资格</small></span>
+            </label>
+          </fieldset>
+          <p v-if="createError" class="form-error" role="alert">{{ createError }}</p>
+          <footer>
+            <BaseButton variant="secondary" @click="closeCreate()">取消</BaseButton>
+            <BaseButton type="submit" :loading="conversationStore.state.commandPending">创建对话</BaseButton>
+          </footer>
         </form>
       </section>
-
-      <section class="panel execution-canvas" aria-label="执行交互蓝图">
-        <div class="panel-heading"><div><p class="eyebrow">Execution blueprint</p><h2>计划与证据结构</h2><p>接入真实 Runtime 后由服务端事实填充</p></div><StatusBadge tone="neutral">规划预览</StatusBadge></div>
-        <ol class="plan-list">
-          <li class="blueprint"><Circle :size="13" /><div><strong>确认 Provider 权限边界</strong><span>预期输出：连接范围与最小权限说明</span></div><time>计划步骤</time></li>
-          <li class="blueprint"><Circle :size="13" /><div><strong>解析仓库绑定关系</strong><span>预期输出：仓库、分支与工作区事实</span></div><time>计划步骤</time></li>
-          <li class="blueprint"><Circle :size="13" /><div><strong>生成并确认 TaskIntent</strong><span>确认后才允许创建受治理的 TaskExecution</span></div><time>Review Gate</time></li>
-          <li class="blueprint"><Circle :size="13" /><div><strong>运行测试与静态检查</strong><span>未来由真实 Step、ToolCall 和 Artifact 提供证据</span></div><time>规划中</time></li>
-          <li class="blueprint"><Circle :size="13" /><div><strong>整理交付证据</strong><span>预期包含 Diff、测试、风险与下一步</span></div><time>规划中</time></li>
-        </ol>
-        <div class="artifact-preview"><header><span><GitPullRequest :size="15" />预期证据区域</span><strong>当前没有真实 Diff</strong></header><div class="code-lines" aria-hidden="true"><i /><i /><i /><i /><i /></div><footer><span>接入后展示可追溯的变更与测试证据</span><span class="artifact-stage">M2 规划</span></footer></div>
-        <div class="review-gate"><div><p class="eyebrow">Planned decision</p><strong>外部写操作进入人工确认</strong><span>真实执行接入后，目标、权限和变更证据会在 Review Gate 中锁定。</span></div><StatusBadge tone="warning">规划中</StatusBadge></div>
-      </section>
-
-      <aside class="context-column" aria-label="规划上下文">
-        <section class="panel compact-panel"><div class="panel-heading"><div><h3>执行者模型</h3><p>真实 Agent Session 接入后显示</p></div></div><div class="panel-body prototype-fact"><Sparkles :size="18" /><div><strong>Personal Agent 负责理解与协作</strong><span>Specialist Agent 只在 TaskExecution 创建后承担具体执行。</span></div></div></section>
-        <section class="panel compact-panel"><div class="panel-heading"><div><h3>责任模型</h3><p>人工责任不会转移给 Agent</p></div></div><div class="panel-body prototype-fact"><ShieldCheck :size="18" /><div><strong>人类 Owner 与 Gate Reviewer</strong><span>服务端裁决责任、资格、职责分离和接管权限。</span></div></div></section>
-        <section class="panel context-facts"><div class="panel-heading"><div><h3>当前范围事实</h3><p>来自已接入的 Scope API</p></div></div><dl><div><dt>Team</dt><dd>{{ teamName }}</dd></div><div><dt>WorkProject</dt><dd class="mono">{{ scopeStore.selectedProject.value?.key ?? '—' }}</dd></div><div><dt>Provider</dt><dd>尚未连接</dd></div><div><dt>风险策略</dt><dd>外部写入需确认</dd></div></dl></section>
-      </aside>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.conversation-layout { display: grid; grid-template-columns: minmax(350px, 1.05fr) minmax(330px, .9fr) 290px; gap: 14px; min-height: calc(100vh - 176px); }
-.conversation-stream { display: grid; min-height: 690px; grid-template-rows: auto 1fr auto; overflow: hidden; }
-.messages { display: grid; align-content: start; gap: 24px; overflow: auto; padding: 22px 20px; }
-.message { display: grid; grid-template-columns: 32px 1fr; gap: 10px; }
-.message__avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-brand-800); color: white; font-size: 11px; font-weight: 750; }
-.message--agent .message__avatar { background: var(--cs-agent-soft); color: var(--cs-agent); }
-.message header { display: flex; align-items: center; gap: 7px; min-height: 25px; }
-.message header strong { font-size: 12px; }.message header time { margin-left: auto; color: var(--cs-text-muted); font-size: 10px; }
-.message p { margin: 5px 0 0; color: var(--cs-text-secondary); font-size: 13px; line-height: 1.65; }
-.message--active > div:last-child { padding: 12px 13px; border: 1px solid #ddd3ef; border-radius: var(--cs-radius-md); background: var(--cs-agent-soft); }
-.intent-card { display: grid; gap: 2px; margin-top: 11px; padding: 11px; border-left: 3px solid var(--cs-brand-400); border-radius: 4px var(--cs-radius-sm) var(--cs-radius-sm) 4px; background: var(--cs-brand-50); }
-.intent-card span { color: var(--cs-brand-600); font-size: 10px; font-weight: 750; text-transform: uppercase; }.intent-card strong { font-size: 12px; }.intent-card small { color: var(--cs-text-muted); }
-.composer { margin: 12px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: 0 7px 22px rgb(21 35 29 / 7%); }
-.composer textarea { width: 100%; resize: none; padding: 12px 13px 4px; border: 0; outline: 0; background: transparent; font-size: 12px; }.composer textarea:disabled { color: var(--cs-text-muted); cursor: not-allowed; }
-.composer footer { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--cs-text-muted); font-size: 9px; }.composer footer button { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 7px; background: transparent; color: inherit; }.composer footer button:disabled { cursor: not-allowed; opacity: .55; }.composer footer span { flex: 1; }.composer footer .send { background: var(--cs-brand-950); color: white; }
-.execution-canvas { overflow: hidden; }
-.plan-list { display: grid; gap: 0; padding: 4px 20px; margin: 0; list-style: none; }
-.plan-list li { position: relative; display: grid; min-height: 61px; grid-template-columns: 23px 1fr auto; align-items: center; gap: 7px; border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); }
-.plan-list li:last-child { border-bottom: 0; }.plan-list li > svg { padding: 3px; border: 1px solid var(--cs-border); border-radius: 50%; box-sizing: content-box; }.plan-list strong, .plan-list span { display: block; }.plan-list strong { color: var(--cs-text-secondary); font-size: 12px; }.plan-list span, .plan-list time { font-size: 10px; }.plan-list .blueprint > svg { border-color: var(--cs-brand-300); background: var(--cs-brand-50); color: var(--cs-brand-700); }.plan-list .blueprint strong { color: var(--cs-text-secondary); }
-.artifact-preview { margin: 11px 20px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.artifact-preview header, .artifact-preview footer { display: flex; align-items: center; justify-content: space-between; padding: 9px 11px; font-size: 10px; }.artifact-preview header span { display: flex; align-items: center; gap: 5px; }.artifact-preview header strong { font-family: var(--cs-font-mono); font-size: 9px; }.code-lines { display: grid; gap: 5px; padding: 12px; border-block: 1px solid var(--cs-border); background: #f7f9f7; }.code-lines i { width: 88%; height: 5px; border-radius: 3px; background: #d7e3da; }.code-lines i:nth-child(2) { width: 61%; background: #c7eacf; }.code-lines i:nth-child(3) { width: 73%; background: #c7eacf; }.code-lines i:nth-child(4) { width: 52%; }.artifact-preview footer { color: var(--cs-text-muted); }.artifact-stage { color: var(--cs-brand-600); font-weight: 700; }
-.review-gate { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 16px 20px; padding: 13px; border: 1px solid #f0d5ad; border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); }.review-gate strong, .review-gate span { display: block; }.review-gate strong { font-size: 12px; }.review-gate span { margin-top: 3px; color: var(--cs-text-muted); font-size: 10px; }
-.context-column { display: grid; align-content: start; gap: 14px; }.compact-panel { overflow: hidden; }.panel-body { padding: 14px; }.prototype-fact { display: flex; align-items: flex-start; gap: 10px; }.prototype-fact > svg { flex: 0 0 auto; color: var(--cs-agent); }.prototype-fact strong, .prototype-fact span { display: block; }.prototype-fact strong { font-size: 11px; }.prototype-fact span { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.context-facts { overflow: hidden; }.context-facts dl { padding: 6px 16px 12px; margin: 0; }.context-facts dl > div { display: flex; justify-content: space-between; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--cs-border); font-size: 10px; }.context-facts dl > div:last-child { border: 0; }.context-facts dt { color: var(--cs-text-muted); }.context-facts dd { margin: 0; font-weight: 650; text-align: right; }
-@media (max-width: 1360px) { .conversation-layout { grid-template-columns: minmax(360px, 1.1fr) minmax(340px, .9fr); }.context-column { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 950px) { .conversation-layout { grid-template-columns: 1fr; }.conversation-stream { min-height: 640px; }.context-column { grid-template-columns: 1fr 1fr; }.context-column > :last-child { grid-column: 1 / -1; } }
-@media (max-width: 767px) { .conversation-stream { min-height: 600px; }.execution-canvas { order: 2; }.context-column { order: 3; grid-template-columns: 1fr; }.context-column > :last-child { grid-column: auto; }.messages { padding: 18px 14px; }.message { grid-template-columns: 28px 1fr; }.message__avatar { width: 28px; height: 28px; }.composer footer span { display: none; } }
+.conversation-workspace { display: grid; min-height: calc(100vh - 176px); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: 14px; }
+.conversation-list-panel, .conversation-detail, .participant-panel { min-height: 640px; overflow: hidden; }.conversation-list-panel { display: flex; height: calc(100vh - 176px); flex-direction: column; }
+.conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px; border-bottom: 1px solid var(--cs-border); }
+.conversation-list-header h2, .participant-panel h2 { margin-bottom: 3px; font-size: 15px; }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: 10px; }
+.conversation-list-header button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-700); cursor: pointer; }
+.conversation-list { display: grid; overflow-y: auto; align-content: start; padding: 7px; margin: 0; list-style: none; }
+.conversation-item { display: grid; width: 100%; min-height: 67px; grid-template-columns: 34px 1fr auto 15px; align-items: center; gap: 9px; padding: 9px; border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
+.conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-brand-200); background: var(--cs-brand-50); }
+.conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-brand-100); color: var(--cs-brand-700); }
+.conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: 12px; }.conversation-list__copy small { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; }
+.conversation-list time { color: var(--cs-text-muted); font-size: 9px; }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: 8px; }
+.conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 15px; border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: 6px 0 4px; border-radius: 4px; font-size: 18px; }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-brand-200); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
+.conversation-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-brand-700); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, #fbfdfb 0%, #f7fbf8 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: 16px 20px 24px; }.older-messages { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 32px; margin-bottom: 8px; }.older-messages > span { color: var(--cs-danger); font-size: 9px; }.message-list { display: grid; gap: 14px; max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: #b9ddc5; background: var(--cs-brand-100); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-weight: 750; }.message-row.own .message-avatar { background: var(--cs-brand-600); color: white; }.message-row article { min-width: 0; padding: 9px 11px; border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: white; font-size: 11px; box-shadow: 0 3px 10px rgb(21 35 29 / 4%); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--cs-text-muted); font-size: 8px; }.message-row article > header strong { color: var(--cs-text-secondary); font-size: 9px; }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: 6px 10px; border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: 9px; }.message-row.system article > header { justify-content: center; margin-bottom: 2px; }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: #ecc7c2; background: #fff6f5; opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--cs-danger); font-size: 8px; }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: 9px; font-weight: 750; cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: 7px; margin: 70px auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid #ddd3ef; border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: 14px; }.message-empty p { color: var(--cs-text-muted); font-size: 10px; line-height: 1.55; }
+.agent-live-status { display: flex; max-width: 740px; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; margin: 0 auto 10px; border: 1px solid var(--cs-brand-200); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-800); font-size: 9px; }.agent-live-status > span { display: inline-flex; align-items: center; gap: 6px; }.agent-live-status button { border: 0; background: transparent; color: var(--cs-brand-800); font-size: 9px; font-weight: 750; cursor: pointer; }.agent-live-status button:disabled { cursor: wait; opacity: .55; }.agent-live-status.error { border-color: #ecc7c2; background: #fff6f5; color: var(--cs-danger); }.agent-live-status.cancelled { border-color: #cbd9cf; background: #f3f7f4; color: var(--cs-text-secondary); }.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
+.conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: 60px 24px; text-align: center; }.conversation-welcome > span { margin-bottom: 18px; }.conversation-welcome h2 { margin-bottom: 9px; font: 22px var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: 20px; color: var(--cs-text-secondary); font-size: 12px; line-height: 1.65; }
+.participant-panel header { padding: 18px; border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: 8px; margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 10px; border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: 10px; }.participant-panel li small { color: var(--cs-text-muted); font-size: 8px; }.participant-placeholder { display: grid; place-items: center; gap: 10px; padding: 54px 28px; color: var(--cs-text-muted); font-size: 10px; line-height: 1.6; text-align: center; }
+.mobile-back { display: none; }.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(21 35 29 / 38%); backdrop-filter: blur(3px); }.create-dialog { width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 15px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 0; font-size: 18px; }.create-dialog header button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--cs-radius-sm); background: transparent; cursor: pointer; }.create-dialog form { display: grid; gap: 18px; padding: 20px 22px 22px; }.create-dialog form > label > span, .create-dialog legend { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 750; }.create-dialog input[type='text'], .create-dialog form > label > input { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.create-dialog fieldset { display: grid; gap: 8px; padding: 0; border: 0; }.create-dialog fieldset label { display: grid; grid-template-columns: 16px 18px 1fr; align-items: start; gap: 9px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); cursor: pointer; }.create-dialog fieldset label.active { border-color: var(--cs-brand-300); background: var(--cs-brand-50); }.create-dialog fieldset strong, .create-dialog fieldset small { display: block; }.create-dialog fieldset strong { font-size: 11px; }.create-dialog fieldset small { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.create-dialog form footer { display: flex; justify-content: flex-end; gap: 8px; }.form-error { margin: -6px 0 0; color: var(--cs-danger); font-size: 10px; }
+@media (max-width: 1280px) { .conversation-workspace { grid-template-columns: 290px minmax(420px, 1fr); }.participant-panel { grid-column: 1 / -1; min-height: auto; }.participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 900px) { .conversation-workspace { grid-template-columns: 270px 1fr; }.participant-panel { display: none; } }
+@media (max-width: 767px) { .conversation-workspace { display: block; min-height: calc(100dvh - 208px); }.conversation-list-panel, .conversation-detail { min-height: calc(100dvh - 208px); }.conversation-list-panel { height: calc(100dvh - 208px); }.conversation-detail { display: none; height: calc(100dvh - 208px); }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 42px; padding: 0 14px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 10px; cursor: pointer; }.conversation-detail__header { padding: 14px 16px; }.message-history { padding: 12px 10px 18px; }.message-row { max-width: 90%; }.dialog-backdrop { align-items: end; padding: 0; }.create-dialog { max-height: calc(100dvh - 12px); padding-bottom: env(safe-area-inset-bottom); border-radius: var(--cs-radius-lg) var(--cs-radius-lg) 0 0; }.create-dialog input[type='text'], .create-dialog form > label > input { font-size: 16px; } }
 </style>

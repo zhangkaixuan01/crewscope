@@ -34,6 +34,9 @@ import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import WorkItemResponsibilityPanel, { type ResponsibilityCandidate } from './WorkItemResponsibilityPanel.vue'
 import WorkItemTimeline from './WorkItemTimeline.vue'
+import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
+import type { ConversationWorkItemAssociation } from '../../domains/conversation/workItemLinkGateway'
+import type { ConversationWorkItemLinkPhase } from '../../domains/conversation/workItemLinkStore'
 
 const props = defineProps<{
   phase: WorkItemPhase
@@ -55,6 +58,9 @@ const props = defineProps<{
   timelineNextCursor: string | null
   timelineLoadingMore: boolean
   timelineErrorMessage: string | null
+  associationPhase: ConversationWorkItemLinkPhase
+  associations: ConversationWorkItemAssociation[]
+  associationErrorMessage: string | null
   onRetry: () => void
   onTransition: (target: WorkItemStatus) => Promise<void>
   onAddComment: (input: AddWorkItemCommentInput) => Promise<void>
@@ -65,9 +71,14 @@ const props = defineProps<{
   onAssignAdvisoryReviewer: (actorPrincipalId: string) => Promise<void>
   onReleaseResponsibility: (assignment: ResponsibilityAssignment) => Promise<void>
   onLoadTimelineMore: () => Promise<void>
+  onRetryAssociations: () => void
 }>()
 
-const emit = defineEmits<{ close: []; conversation: [] }>()
+const emit = defineEmits<{
+  close: []
+  conversation: []
+  openConversation: [association: ConversationWorkItemAssociation]
+}>()
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const drawer = useTemplateRef<HTMLElement>('drawer')
 const transitionTarget = ref<WorkItemStatus | ''>('')
@@ -226,6 +237,15 @@ const statusLabels: Record<WorkItemStatus, string> = {
           <div class="section-heading"><div><p>Facts</p><h3>工作项信息</h3></div></div>
           <dl><div><dt>来源</dt><dd>{{ item.source }}</dd></div><div><dt>更新时间</dt><dd>{{ displayDate(item.updatedAt) }}</dd></div><div><dt>到期时间</dt><dd><CalendarClock :size="12" />{{ item.dueAt ? displayDate(item.dueAt) : '未设置' }}</dd></div><div><dt>创建者</dt><dd class="mono">{{ item.createdByPrincipalId?.slice(0, 8) ?? 'system' }}</dd></div></dl>
         </section>
+
+        <ConversationWorkItemLinks
+          :phase="associationPhase"
+          :associations="associations"
+          :error-message="associationErrorMessage"
+          direction="work-item"
+          @open="emit('openConversation', $event)"
+          @retry="onRetryAssociations"
+        />
 
         <section class="detail-section responsibility-section">
           <div class="section-heading"><div><p>Accountability</p><h3>团队责任链 <span>{{ responsibilities.length }}</span></h3></div><ShieldCheck :size="17" /></div>

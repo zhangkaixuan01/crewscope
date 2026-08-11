@@ -27,10 +27,19 @@ export class CrewScopeApiClient {
   }
 
   async request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+    const response = await this.open(path, options)
+    if (response.status === 204) {
+      return undefined as T
+    }
+    return response.json() as Promise<T>
+  }
+
+  /** Opens a validated response for streaming adapters while retaining CrewScope's HTTP boundary. */
+  async open(path: string, options: ApiRequestOptions = {}, accept = JSON_CONTENT_TYPE): Promise<Response> {
     // Command metadata belongs to CrewScope's client contract and must not leak into Fetch options.
     const { idempotencyKey, expectedVersion, body, ...requestInit } = options
     const headers = new Headers(requestInit.headers)
-    headers.set('Accept', JSON_CONTENT_TYPE)
+    headers.set('Accept', accept)
     if (body !== undefined) {
       headers.set('Content-Type', JSON_CONTENT_TYPE)
     }
@@ -72,10 +81,7 @@ export class CrewScopeApiClient {
     if (!response.ok) {
       throw new CrewScopeApiError(response.status, await readErrorEnvelope(response))
     }
-    if (response.status === 204) {
-      return undefined as T
-    }
-    return response.json() as Promise<T>
+    return response
   }
 }
 

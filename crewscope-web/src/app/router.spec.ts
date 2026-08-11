@@ -4,6 +4,16 @@ import App from '../App.vue'
 import { createCrewScopeRouter } from './router'
 import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from './auth'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
+import { createConversationStore, CONVERSATION_STORE } from '../domains/conversation/store'
+import { createConversationMessageStore, CONVERSATION_MESSAGE_STORE } from '../domains/conversation/messageStore'
+import { createConversationRealtimeStore, CONVERSATION_REALTIME_STORE } from '../domains/conversation/realtimeStore'
+import { createTaskIntentStore, TASK_INTENT_STORE } from '../domains/conversation/taskIntentStore'
+import type { TaskIntentGateway } from '../domains/conversation/taskIntentGateway'
+import { createConversationWorkItemLinkStore, CONVERSATION_WORK_ITEM_LINK_STORE } from '../domains/conversation/workItemLinkStore'
+import type { ConversationWorkItemLinkGateway } from '../domains/conversation/workItemLinkGateway'
+import { FixtureConversationGateway } from '../test/conversationFixtures'
+import { FixtureConversationMessageGateway } from '../test/conversationMessageFixtures'
+import { FixtureConversationRealtimeGateway } from '../test/conversationRealtimeFixtures'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
 
 const principal: AuthenticatedPrincipal = {
@@ -29,12 +39,22 @@ describe('application routing', () => {
     await router.push(`/conversation?focus=CRW-18&team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
     await router.isReady()
     const store = createScopeStore(new FixtureScopeGateway(), principal)
+    const conversationStore = createConversationStore(new FixtureConversationGateway())
+    const messageStore = createConversationMessageStore(new FixtureConversationMessageGateway())
+    const realtimeStore = createConversationRealtimeStore(new FixtureConversationRealtimeGateway(), { storage: null })
+    const taskIntentStore = createTaskIntentStore(quietTaskIntentGateway())
+    const linkStore = createConversationWorkItemLinkStore(quietLinkGateway())
     const wrapper = mount(App, {
       global: {
         plugins: [router],
         provide: {
           [AUTH_PRINCIPAL as symbol]: principal,
           [SCOPE_STORE as symbol]: store,
+          [CONVERSATION_STORE as symbol]: conversationStore,
+          [CONVERSATION_MESSAGE_STORE as symbol]: messageStore,
+          [CONVERSATION_REALTIME_STORE as symbol]: realtimeStore,
+          [TASK_INTENT_STORE as symbol]: taskIntentStore,
+          [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: linkStore,
         },
       },
     })
@@ -69,6 +89,18 @@ describe('application routing', () => {
     expect(router.currentRoute.value.query.from).toBe(`/team/members?team=${fixtureIds.teamPlatform}`)
   })
 
+  it('redirects a principal without Conversation permission before the page loads', async () => {
+    const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
+    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const destination = `/conversation?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
+
+    await router.push(destination)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('access-denied')
+    expect(router.currentRoute.value.query.from).toBe(destination)
+  })
+
   it('keeps the legacy Control URL as a query-preserving Today redirect', async () => {
     const router = createCrewScopeRouter(createMemoryHistory(), principal)
 
@@ -79,3 +111,20 @@ describe('application routing', () => {
     expect(router.currentRoute.value.query.project).toBe(fixtureIds.projectCrewScope)
   })
 })
+
+function quietTaskIntentGateway(): TaskIntentGateway {
+  return {
+    async get() { throw new Error('No TaskIntent is selected in this routing fixture') },
+    async revise() {},
+    async previewConfirmation() { throw new Error('No TaskIntent is selected in this routing fixture') },
+    async confirm() {},
+    async reject() {},
+  }
+}
+
+function quietLinkGateway(): ConversationWorkItemLinkGateway {
+  return {
+    async listByConversation() { return [] },
+    async listByWorkItem() { return [] },
+  }
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Columns3, Filter, List, MessageSquare, Plus, ShieldCheck, X } from '@lucide/vue'
-import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -10,6 +10,8 @@ import WorkItemDetailDrawer from '../components/domain/WorkItemDetailDrawer.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
+import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
+import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
 import {
   workItemPriorities,
@@ -30,6 +32,7 @@ const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const workStore = useWorkItemStore()
+const linkStore = useConversationWorkItemLinkStore()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
@@ -101,11 +104,18 @@ watch(
   ([phase, teamId, projectId, selected]) => {
     const workItemId = queryValue(selected)
     if (phase !== 'ready' || !teamId || !projectId || !principal || !workItemId) {
-      if (!workItemId || phase === 'ready') workStore.closeDetails()
+      if (!workItemId || phase === 'ready') {
+        workStore.closeDetails()
+        linkStore.reset()
+      }
       return
     }
     void scopeStore.loadMembers()
-    void workStore.loadDetails({ organizationId: principal.organizationId, teamId, projectId }, workItemId)
+    const scope = { organizationId: principal.organizationId, teamId, projectId }
+    void Promise.all([
+      workStore.loadDetails(scope, workItemId),
+      linkStore.loadByWorkItem(scope, workItemId),
+    ])
   },
   { immediate: true },
 )
@@ -133,6 +143,10 @@ watch(
   },
   { immediate: true },
 )
+
+// The association Store is shared with Conversation Mode. Do not retain a WorkItem-scoped
+// response after this route leaves the tree; the next entry must read current server facts.
+onUnmounted(() => linkStore.reset())
 
 function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: string): void {
   void router.replace({ query: { ...route.query, [name]: value } })
@@ -184,6 +198,7 @@ function selectItem(item: WorkItemSummary): void {
 async function closeDetails(): Promise<void> {
   await router.replace({ query: { ...route.query, workItem: undefined } })
   workStore.closeDetails()
+  linkStore.reset()
   await nextTick()
   if (detailTriggerId) {
     const triggerId = detailTriggerId
@@ -206,6 +221,28 @@ function retryDetails(): void {
 
 function openConversation(): void {
   void router.push({ name: 'conversation', query: route.query })
+}
+
+function openLinkedConversation(association: ConversationWorkItemAssociation): void {
+  void router.push({
+    name: 'conversation',
+    query: {
+      ...route.query,
+      conversation: association.conversation.id,
+      project: association.workItem.projectId,
+      workItem: association.workItem.id,
+      focus: association.workItem.key,
+    },
+  })
+}
+
+function retryLinks(): void {
+  if (!principal || !team.value || !project.value || !workStore.state.selectedWorkItemId) return
+  void linkStore.loadByWorkItem(
+    { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id },
+    workStore.state.selectedWorkItemId,
+    true,
+  )
 }
 
 function queryValue(value: unknown): string | null {
@@ -330,6 +367,9 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :timeline-next-cursor="workStore.state.timelineNextCursor"
       :timeline-loading-more="workStore.state.timelineLoadingMore"
       :timeline-error-message="workStore.state.timelineErrorMessage"
+      :association-phase="linkStore.state.phase"
+      :associations="linkStore.state.associations"
+      :association-error-message="linkStore.state.errorMessage"
       :on-retry="retryDetails"
       :on-transition="workStore.transition"
       :on-add-comment="workStore.addComment"
@@ -340,8 +380,10 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :on-assign-advisory-reviewer="workStore.assignAdvisoryReviewer"
       :on-release-responsibility="workStore.releaseResponsibility"
       :on-load-timeline-more="workStore.loadTimelineMore"
+      :on-retry-associations="retryLinks"
       @close="closeDetails"
       @conversation="openConversation"
+      @open-conversation="openLinkedConversation"
     />
   </AppShell>
 </template>

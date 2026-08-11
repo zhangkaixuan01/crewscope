@@ -26,4 +26,14 @@ describe('foundation components', () => {
     await wrapper.get('button').trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
+
+  it('exposes offline, reconnecting and cancelled states without color-only meaning', () => {
+    const offline = mount(StatePanel, { props: { state: 'offline' } })
+    const reconnecting = mount(StatePanel, { props: { state: 'reconnecting' } })
+    const cancelled = mount(StatePanel, { props: { state: 'cancelled' } })
+
+    expect(offline.text()).toContain('当前离线')
+    expect(reconnecting.attributes('aria-busy')).toBe('true')
+    expect(cancelled.text()).toContain('已取消')
+  })
 })
