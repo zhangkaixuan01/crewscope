@@ -1133,11 +1133,27 @@ M2 Agent 调用只在单个活动 CrewScope Server 实例上执行。实例内�
 
 Personal Agent 的任务提案使用 `TaskIntentV1` Structured Output，需要澄清时使用平台内置只读 `request_clarification` Tool 输出 `ClarificationRequestV1`。模型输出依次通过 AgentScope JSON Schema、CrewScope Bean Validation 和当前服务端领域事实校验。澄清 Tool 通过 AgentScope Permission ASK 进入中断，Web 只提交 `fieldKey -> answer`；Bridge 以服务端 Pending Tool 为基线绑定回答，内置 Tool 验证答案属于已声明问题且覆盖全部 Required 问题，再通过 Tool Result 把回答送回模型。客户端不能提交原生 ConfirmResult、ToolUseBlock、PermissionRule、replyId、toolCallId、Session 或 Tool 参数。
 
+Clarification 中断只公开经过约束归一化的 `ClarificationRequestV1`，包含 Summary 和 1–10 个结构化问题。AgentScope Adapter 从服务端 Pending Tool 提取公开字段，校验 SchemaVersion、唯一 FieldKey、文本长度、Required 和 Choices 后进入 `RUN_INTERRUPTED`；原始 Tool Input、ToolCallId、ReplyId、Permission、Session 和 Tool Result 保留在服务端。Web 使用原生单选与文本控件收集回答，按 Conversation Scope 保存 Pending Clarification 和 Resume 恢复坐标。
+
 Agent Invocation Resume 以 Conversation Scope、Invocation、Pending Clarification 和 `Idempotency-Key` 定位。相同 Key 与相同规范回答返回首次 Segment，不再次进入 Model；相同 Key 不同回答返回幂等冲突，终态、错误 Session 和错误 Interrupt Token 在 AgentScope 前失败关闭。M2 使用单活动 Server 与有界进程内 Invocation Registry，AgentScope Pending Tool 和会话状态保存在 Redis；耐久 AgentRun、过期时间、Lease 和跨实例恢复 Receipt 由 M3 建立。协议见 [ADR-007](adr/ADR-007-API命令与并发协议.md)，AgentScope 2.0.0 行为证据见 [M2-S03 验证记录](spikes/M2-S03-结构化意图与澄清恢复验证记录.md)。
 
 Invocation 入口只接收 Markdown 消息，M2-A05 Resume 入口只接收字段化澄清回答，两者都要求 `Idempotency-Key` 并先把 USER Message 提交为 PostgreSQL 事实。Personal Agent 只由 Conversation Owner 驱动；普通 TEAM Participant 的消息不会自动取得 Owner Personal Agent 的执行权。Invocation ID 从已提交 USER Message 稳定派生，应用层只消费一次原生运行流并提供有界进程内重放。Agent 完成回复先原子提交 Conversation Sequence、AGENT Message、DomainEvent 与 Outbox，再发送 `RUN_FINISHED`；TaskIntent Structured Output 同样在成功终态前原子提交 READY TaskIntent、DomainEvent、Conversation Event 与 Outbox。提交失败发送安全 `RUN_ERROR`。M2-A04 负责持久事件补发，M3 再建立耐久 AgentRun 与 Lease。
 
 Web 工作台采用三区域布局：左侧承载 Team、WorkProject、WorkItem 和成员导航；中间承载对话与协作；右侧承载责任、计划、实时步骤、工具调用、Review、确认和 Artifact。成员可以评论、@协作者、提交 Contribution、请求 Review、发起 Handoff、暂停、恢复、取消或接管。
+
+M2-F01 的 Conversation 页面交付服务端 Conversation 事实入口：左侧显示当前 Team 的可见 Conversation，中间显示选中 Conversation，右侧显示 ACTIVE Participant。创建入口只提交标题与 PRIVATE/TEAM 可见范围；Store 在 CommandReceipt 后刷新集合并选择新增服务端事实。`team/project/conversation` 进入 URL，Team 切换清除旧 Conversation，Collection 与 Detail 请求通过取消和版本裁决隔离竞态。窄屏在列表与详情之间显式切换。
+
+M2-F02 在同一页面交付 Message 事实与 Composer。服务端倒序消息页按 `sequence` 转为正序展示，不透明 Cursor 用于续读更早历史，合并时按 Message ID 去重。USER、AGENT 和 SYSTEM 消息保留独立样式。用户发送后先建立本地 Pending，CommandReceipt 后回读最新历史并收口；失败项保留原消息与 `Idempotency-Key` 供安全重试，不覆盖用户的新草稿。Composer 支持 Enter 发送、Shift+Enter 换行和 50,000 字符上限。Markdown 禁用原始 HTML，渲染节点、属性和链接协议都经白名单清理。AG-UI 流式回复与 Conversation Event 恢复在 M2-F03 进入页面，TaskIntent 与确认在 M2-F04 进入页面。
+
+M2-F03 把 Personal Agent 流式执行接入 Conversation 工作区。Owner 提交的文本直接进入 `agent-invocations`，非 Owner Participant 只能追加普通 USER Message。前端通过 Fetch 解析 POST SSE，只接收 `RUN_STARTED`、`TEXT_MESSAGE_CONTENT`、`RUN_INTERRUPTED`、`RUN_FINISHED` 和 `RUN_ERROR`，不保存或渲染 Reasoning、Tool、State、Custom 和未知事件。AG-UI 与 Conversation Event 分别维护有界去重坐标；Segment 在首个终态停止消费，公开文本累计不超过 50,000 字符，非法结构化事件失败关闭。断线后使用原 Invocation 内容与原 `Idempotency-Key` 重放，刷新使用 SessionStorage 中的最小恢复坐标继续同一逻辑调用。HTTP 断开不代表业务取消；用户操作只调用显式 Cancel API。
+
+Conversation Event 连接按 Scope 保存最后一个不透明 Cursor，重连使用 `after` 续传。前端在单流内按 `eventId` 去重，跨持久流按 `domainEventId` 合并，按单 Aggregate Version 检测缺口。Message Posted、Agent 终态与缺口均触发最新历史回读。AG-UI 文本作为瞬时进度，持久 AGENT Message 作为最终事实；两者合并后不生成重复气泡。Clarification 和 TaskIntent 从 M2-F04 进入页面。
+
+M2-F04 在 Conversation 工作区展示 Clarification 卡和最新 TaskIntent 卡。TaskIntent ID 来自持久 Conversation Event 的 Aggregate ID，内容始终通过当前事实 API 读取。Gateway 保留强 ETag；Store 在完整修订、拒绝和确认命令后强制 GET。确认先执行 Confirmation Preview 并逐字段核对 Proposal、Revision、Version 和 ETag，随后发送无请求体命令。并发冲突自动刷新当前事实，Owner 资格提示用于交互引导，服务端继续负责最终授权与职责校验。确认后的 WorkItem 结果和双向跳转由 M2-F05 展示。
+
+M2-F05 使用受权限策略过滤的 `ConversationWorkItemAssociation` 把两个入口连成同一业务闭环。Conversation Mode 在 TaskIntent 确认后回读双向关联 API，仅展示服务端返回的已确认 WorkItem；Control Mode 在 WorkItem 详情中同时展示可发现的关联 Conversation 与 Owner、Executor、Reviewer 责任事实。URL 保留 Team、Project、Conversation、WorkItem 和 Focus，支持确认后跳转、跨入口返回和刷新恢复。客户端不从 CommandReceipt 构造 WorkItem 身份，不为被过滤的 PRIVATE Conversation 生成链接。
+
+M2-F06 建立 Conversation 前端状态与可访问性基线。Loading、Empty、Error、Offline、Reconnecting 和 Cancelled 共享统一语义；错误使用紧急播报，运行与恢复使用克制的 Live Region，Message 历史不作为整体重复播报。离线时保留已加载事实和每个 Conversation 的本地草稿，输入可继续编辑，提交需等待网络恢复。选中、返回、弹窗和创建成功都执行对象级焦点转移与恢复。全局尊重 Reduced Motion，窄屏 Composer 使用 16px 字号、安全区和 42px 最小发送触控区。
 
 ### 6.2 企业通信 Channel
 
@@ -3253,6 +3269,10 @@ Web 产品采用“对话执行入口 + 管理控制入口”，两个入口操�
 
 M1 的管理入口使用 `/today`、`/work` 和 `/team/members`，`/control` 只作为保留 Query 的兼容跳转。`team` 与 `project` Query 保存稳定 UUID；Scope Store 先读取当前账号可访问的 Team，再读取选中 Team 的 WorkProject，并把无效或缺失范围规范化为第一个可访问范围。Team 切换清除不兼容的 Project 与 Focus，Project 切换保留当前入口。Conversation 与管理入口共享完整 Query，因此成员可以带着同一 Team、WorkProject 和 Focus 在两种工作模式之间切换。
 
+Conversation 选中对象使用 `conversation` Query 保存服务端 UUID。刷新恢复 Team、WorkProject 与 Conversation；Team 切换或无效 Scope 规范化清除不兼容的 Conversation。桌面 Conversation 页面使用列表、详情和 Participant 三面板，窄屏仅显示列表或详情，并通过显式返回动作恢复列表。
+
+AppShell 在主导航前提供可聚焦的跳过链接。Conversation 从列表进入详情时聚焦对话标题，窄屏返回时聚焦原对话按钮。模态弹窗使用初始焦点、Tab 焦点陷阱、Escape 关闭和触发元素恢复。页面的 Loading 与 Reconnecting 标记忙碌状态，Error 使用紧急播报，其他动态状态使用礼貌播报。
+
 前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。Bootstrap 前端身份从环境读取 Organization/Principal ID；OIDC Session API 进入后替换该开发边界，不改变 Scope Store 与路由契约。
 
 ### 18.12 CrewScope 视觉语言
@@ -3266,6 +3286,8 @@ CrewScope 的视觉身份表达可靠协作、持续执行和责任透明：
 - 工作页面采用中高信息密度，依靠层级、留白、描边和局部底色组织内容；
 - 状态同时使用文字、图标和颜色，责任与风险信息不依赖颜色单独传达；
 - 动效用于状态变化、流式执行和面板切换，常规时长控制在 120–240ms，并支持 `prefers-reduced-motion`。
+- 浅绿色作为工作区、选中和安全恢复的低饱和度底色，不使用深绿色大面积填充内容区；
+- 390px 窄屏与桌面共享 Token 和组件语义，Composer 保留草稿、安全区和最小触控面积。
 
 详细 Token、组件、响应式和验收规则见 [CrewScope 前端设计规范](CrewScope-前端设计规范.md)。
 

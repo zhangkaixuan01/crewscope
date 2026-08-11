@@ -153,6 +153,14 @@ M1-F04 在详情打开时并行读取 A06 ACTIVE ResponsibilityAssignment 和 A0
 
 “与 Personal Agent 讨论”保留对象与 Scope Query 进入 Conversation。“交给 Agent 处理（规划中）”只说明后续 TaskExecution 接入，不创建客户端假任务或虚假运行状态。
 
+### 3.7 M2 Conversation 状态与可访问性契约
+
+Conversation 使用 Loading、Empty、Error、Offline、Reconnecting 和 Cancelled 六类明确状态。Loading 与 Reconnecting 标记忙碌，Error 紧急播报，其他动态变化礼貌播报。Message 历史不作为整体 Live Region，独立状态节点只播报最新变化。
+
+离线提示使用浏览器网络信号，不替代服务端事实。页面保留已加载事实和按 Conversation 分区的草稿；离线时 Textarea 保持可编辑，发送按钮禁用，联网后不自动提交草稿。
+
+从列表选中 Conversation 后聚焦详情标题，窄屏返回后恢复原列表按钮。新建弹窗使用初始焦点、Tab 焦点陷阱、Escape 关闭和触发元素恢复；创建成功后聚焦新 Conversation 标题。
+
 ## 4. 视觉身份
 
 ### 4.1 色彩 Token
@@ -207,6 +215,7 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 - 执行状态迁移：200–240ms；
 - 流式内容使用低干扰增量反馈，避免持续闪烁和大面积骨架动画；
 - `prefers-reduced-motion` 下关闭位移、缩放和非必要循环动画。
+- 全局在 Reduced Motion 下取消平滑滚动，并将必要 Transition 与动画压缩至近即时。
 
 ## 5. CrewScope 核心组件
 
@@ -266,6 +275,8 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 | `< 768px` | 聚焦查看、评论、审批、确认和接管；复杂图与 Diff 提供摘要和跳转 |
 
 桌面端优先交付，所有新组件从 M0 起保留窄屏行为，不使用全局固定最小宽度阻断页面访问。
+
+窄屏 Composer 使用 16px 输入字号避免移动浏览器自动缩放，发送按钮最小高度为 42px，底部间距包含 `safe-area-inset-bottom`。
 
 ### 7.2 可访问性
 
@@ -355,7 +366,7 @@ M0 建立 Histoire 组件工作台，至少覆盖 Token、基础控件与 CrewSc
 一个页面完成需要满足：
 
 1. 对应领域事实、Command、Query、权限和错误状态已接入；
-2. Loading、Empty、Error、Forbidden、Conflict 和 Offline 状态可用；
+2. Loading、Empty、Error、Forbidden、Conflict、Offline、Reconnecting 和 Cancelled 状态可用；
 3. Conversation Mode 与 Control Mode 之间具有对象级跳转；
 4. 键盘、Focus、对比度、Live Region 和 Reduced Motion 通过检查；
 5. 桌面、平板和移动降级策略经过验证；

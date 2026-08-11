@@ -4,7 +4,7 @@
 > 前置条件：M1 Release Gate 通过<br>
 > 目标周期：2 周，多工作流并行推进<br>
 > 目标结果：成员可在 Web 与自己的 Personal Agent 持续对话，Agent 可澄清目标、生成结构化 TaskIntent，并在成员确认后创建带责任关系的 WorkItem<br>
-> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07`、`M2-A01` 至 `M2-A07` 已完成，下一项为 `M2-F01`（2026-08-11）
+> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07`、`M2-A01` 至 `M2-A07`、`M2-F01` 至 `M2-F06` 已完成，下一项为 `M2-Q01`（2026-08-11）
 
 ## 1. 出口结果
 
@@ -260,14 +260,66 @@ Conversation 方向先验证 Conversation 可见性，再逐项验证 WorkItem �
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M2-F01` | FEATURE | A01 | web | 实现 Conversation Gateway/Store、会话列表、创建入口、Team/Conversation 深链接和刷新恢复；替换 M1 Conversation 蓝图数据 | Vitest 与 Playwright 覆盖加载、空态、创建、Scope 切换、URL 恢复、竞态取消、权限跳转和窄屏列表 |
-| `M2-F02` | FEATURE | A02,F01 | web | 实现真实消息历史、Cursor 加载、消息气泡、Composer、发送状态和安全 Markdown 渲染 | 测试覆盖历史续页、幂等发送、optimistic 合并、失败重试、重复消息、长文本、键盘发送与输入保留 |
-| `M2-F03` | FEATURE | A03,A04,F02 | web | 实现 AG-UI 流式回复、Conversation Event 合并、断线恢复、跨流去重、取消和投影版本追平 | Fixture、Vitest 与 Playwright 覆盖 token stream、重连、重复/乱序、慢网、刷新、取消、终态和无 Reasoning 泄露 |
-| `M2-F04` | FEATURE | A05,F03 | web | 实现 Clarification 卡、TaskIntent 结构化预览、字段修订、确认/拒绝、过期和版本冲突刷新 | 测试覆盖完整键盘操作、责任资格提示、服务端错误定位、重复点击、冲突与确认后的事实刷新 |
-| `M2-F05` | FEATURE | A07,F04 | web | 实现 Conversation 与 WorkItem 双向跳转；Conversation Mode 展示已确认结果，Control Mode 展示关联会话和责任事实 | Playwright 覆盖确认后跳转、刷新恢复、跨入口返回、无权链接隐藏、深链接与桌面/窄屏布局 |
-| `M2-F06` | HARDENING | F05 | web | 完成 Loading/Empty/Error/Offline/Reconnecting/Cancelled 状态、ARIA Live、Focus 管理、Reduced Motion、窄屏 Composer 和浅绿色视觉回归 | Axe、键盘、慢网/离线、桌面与窄屏截图回归通过；与 vibe-kanban、multica 在布局、Token、组件和任务流上保持明确差异 |
+| `M2-F01` | FEATURE | A01 | web | 实现 Conversation Gateway/Store、会话列表、创建入口、Team/Conversation 深链接和刷新恢复；替换 M1 Conversation 蓝图数据 | [Conversation 集合与深链接前端](../testing/M2-F01-Conversation集合与深链接前端.md)；Vitest 与 Playwright 覆盖加载、空态、创建、Scope 切换、URL 恢复、竞态取消、权限跳转和窄屏列表 |
+| `M2-F02` | FEATURE | A02,F01 | web | 实现真实消息历史、Cursor 加载、消息气泡、Composer、发送状态和安全 Markdown 渲染 | [消息历史与 Composer 前端](../testing/M2-F02-消息历史与Composer前端.md)；Vitest 与 Playwright 覆盖历史续页、幂等发送、optimistic 收口、失败重试、重复消息、长文本、键盘发送与输入保留 |
+| `M2-F03` | FEATURE | A03,A04,F02 | web | 实现 AG-UI 流式回复、Conversation Event 合并、断线恢复、跨流去重、取消和投影版本追平 | [AG-UI 流式回复与 Conversation Event 恢复](../testing/M2-F03-AG-UI流式回复与Conversation-Event恢复.md)；Fixture、Vitest 与 Playwright 覆盖 token stream、重连、重复/乱序、慢网、刷新、取消、终态和无 Reasoning 泄露 |
+| `M2-F04` | FEATURE | A05,F03 | web | 实现 Clarification 卡、TaskIntent 结构化预览、字段修订、确认/拒绝、过期和版本冲突刷新 | [Clarification 与 TaskIntent 前端](../testing/M2-F04-Clarification与TaskIntent前端.md)；Vitest、Playwright 与 AgentScope 集成测试覆盖结构化问题、同键恢复、完整修订、责任资格、强 ETag、空 Body 确认、重复点击、冲突刷新和安全披露 |
+| `M2-F05` | FEATURE | A07,F04 | web | 实现 Conversation 与 WorkItem 双向跳转；Conversation Mode 展示已确认结果，Control Mode 展示关联会话和责任事实 | [Conversation 与 WorkItem 双向跳转](../testing/M2-F05-Conversation与WorkItem双向跳转.md)；Playwright 覆盖确认后跳转、刷新恢复、跨入口返回、无权链接隐藏、深链接与桌面/窄屏布局 |
+| `M2-F06` | HARDENING | F05 | web | 完成 Loading/Empty/Error/Offline/Reconnecting/Cancelled 状态、ARIA Live、Focus 管理、Reduced Motion、窄屏 Composer 和浅绿色视觉回归 | [前端状态与可访问性硬化](../testing/M2-F06-前端状态与可访问性硬化.md)；Axe、键盘、慢网/离线、桌面与窄屏截图回归通过；与 vibe-kanban、multica 在布局、Token、组件和任务流上保持明确差异 |
 
 前端继续采用浅绿色 Design Token。Conversation Mode 提供自然语言协作入口，Control Mode 提供 Conversation 列表、参与者、关联 WorkItem 和审计事实的传统管理入口；两个入口共享同一 Gateway、Store、权限和服务端事实。
+
+### 7.1 M2-F01 Conversation 前端契约
+
+M2-F01 只读取和展示 M2-A01 已持久化的 Conversation 与 ACTIVE Participant 事实。列表调用 Team Scope 下的 Conversation 集合 API，详情调用同一 Team 下的稳定 Conversation ID；创建命令只提交标题与可见范围，并使用独立 `Idempotency-Key`。创建响应只包含 CommandReceipt 时，Store 强制刷新集合并从新增服务端事实中恢复新 Conversation ID，不生成客户端临时业务身份。
+
+当前 URL 契约为 `?team=<teamId>&project=<projectId>&conversation=<conversationId>`。刷新恢复选中的 Team、WorkProject 和 Conversation；Team 规范化或切换时清除旧 Conversation ID。Collection 与 Detail 使用独立 AbortController、请求版本和同步版本，慢请求、旧深链接与被规范化的 Query 不能覆盖当前 Scope。客户端路由权限拒绝和服务端 `403` 都进入 Access Denied 边界。
+
+桌面端使用 Conversation 列表、当前详情和 Participant 观察面；窄屏端在列表与详情之间切换并提供显式返回入口。M2-F01 不构造 Message、Composer、AgentRun、TaskIntent、执行进度、工具结果或 Artifact；真实消息历史与输入属于 M2-F02，AG-UI 流式回复属于 M2-F03。
+
+### 7.2 M2-F02 Message 与 Composer 前端契约
+
+M2-F02 只展示 M2-A01/A02 已提交的 Message 事实和本地待确认发送状态。历史 API 返回的服务端倒序页按 `sequence` 转为正序展示；`after` 作为不透明 Cursor 原样回传，续页按 Message ID 去重后合并。USER、AGENT 和 SYSTEM 消息使用独立语义与视觉样式，作者、时间和 Sequence 均来自服务端事实。
+
+Composer 支持 Enter 发送、Shift+Enter 换行和 50,000 字符边界。每次新发送生成独立 `Idempotency-Key`；CommandReceipt 后重读最新历史，以新增 Sequence、作者和内容将 Pending 收口到已提交事实。失败消息留在页面，重试复用原 `Idempotency-Key`；发送失败恢复原输入，用户后续编辑的新草稿不被重试覆盖。Scope 切换会取消旧历史和发送请求，不把本地 Pending 带入其他 Conversation。
+
+Markdown 解析禁用原始 HTML，渲染结果再经 DOM 节点与属性白名单清理；链接仅允许 `http`、`https`、`mailto` 和页内锚点，外部链接强制 `noopener noreferrer`。M2-F02 不调用 Personal Agent，不解释 AG-UI 流事件，不生成 AgentRun、TaskIntent、工具调用或执行结果；这些能力从 M2-F03 开始进入界面。
+
+### 7.3 M2-F03 AG-UI 与 Conversation Event 前端契约
+
+Conversation Owner 的 Composer 提交直接调用 M2-A03 `agent-invocations`，由服务端在运行 Agent 前提交 USER Message；非 Owner ACTIVE Participant 继续调用 M2-A02 Message 追加命令，不获得驱动他人 Personal Agent 的权限。Invocation 请求只携带 `message` 和 `Idempotency-Key`，不接受 Agent、Run、Tool、Context、State 或 Binding 等客户端运行控制。
+
+前端使用 Fetch 读取 POST SSE，分块解析支持 CRLF、多行 Data 和任意网络切片。AG-UI 仅处理 `RUN_STARTED`、`TEXT_MESSAGE_CONTENT`、`RUN_INTERRUPTED`、`RUN_FINISHED` 和 `RUN_ERROR`；Reasoning、Tool、State、Custom 及未知事件均不进入前端状态。AG-UI 与 Conversation Event 分别维护有界 `eventId` 去重集合，跨流不共享瞬时坐标。每个 Segment 只接受第一个终态，达到终态后停止消费该响应的后续帧。公开文本累计不超过 `MessageContent.MAX_LENGTH` 对应的 50,000 字符；非法 Clarification、非法终态和超限文本在客户端失败关闭。
+
+断线后使用原请求与原 `Idempotency-Key` 重放 Segment；活动请求的最小恢复坐标保存于 SessionStorage，页面刷新后仍使用同键重建公开文本。恢复前重新校验调用类型、公开文本、Principal、Sequence、Invocation、Answers 和幂等键的结构与长度，异常记录立即清除并安全关闭。取消始终调用显式 Cancel API，HTTP 断开只停止当前订阅。
+
+Conversation Event SSE 的不透明 Cursor 按 Conversation Scope 保存并通过 `after` 恢复。单流按 `eventId` 去重，跨持久流按 `domainEventId` 合并，Aggregate Version 使用单聚合坐标检测缺口。`CONVERSATION_MESSAGE_POSTED`、Agent 终态或投影缺口触发最新 Message 回读；流式文本只是瞬时展示，最终以持久 AGENT Message 收口。M2-F03 不在客户端创建 AgentRun、TaskIntent 或工具事实；Clarification 回答和 TaskIntent 交互属于 M2-F04。
+
+### 7.4 M2-F04 Clarification 与 TaskIntent 前端契约
+
+`RUN_INTERRUPTED` 在 `kind=CLARIFICATION` 时携带经过 AgentScope Tool Schema、CrewScope 字段边界和唯一 Field Key 校验的公开 `ClarificationRequestV1`。公开对象只包含 SchemaVersion、Summary、Question、Context、Required 和 Choices。ToolCallId、ReplyId、Permission、Session、Tool Result 和原始 Tool Input 不进入 Web 状态。前端按声明问题生成原生表单控件，只提交非空 `fieldKey -> answer`；Required、Choice 和长度在客户端先行校验，服务端继续执行最终校验。Pending Clarification 与 Resume 最小坐标按 Conversation Scope 保存，刷新和断线使用原 `Idempotency-Key` 恢复同一 Segment。
+
+TaskIntent 由 Conversation Event 的 `aggregateId` 定位，页面始终通过 GET 读取当前事实并保留强 ETag。修订提交完整 `TaskIntentV1`，命令完成后重新 GET，不根据 CommandReceipt 推断 Revision 或状态。拒绝原因限制为 1–1000 字符。确认先以当前版本执行 Confirmation Preview，逐字段比对 Proposal、Revision、Version 和 ETag，再发送无请求体的 Confirmation 命令。`409/412` 和预检事实不一致都会自动回读最新 TaskIntent 并要求用户重新检查；`403` 进入统一 Access Denied。命令执行期间禁用重复操作，Owner 提示只改善可用性，授权仍由服务端裁决。
+
+### 7.5 M2-F05 Conversation 与 WorkItem 双向跳转前端契约
+
+双向入口只读取 M2-A07 返回的 `ConversationWorkItemAssociation`。共享 Gateway 分别按 Conversation Scope 和 WorkProject/WorkItem Scope 请求，Store 使用资源键、请求版本和 AbortController 阻止旧 Scope 覆盖当前事实。离开 Conversation 或 Work 路由时清理关联查询 Store，重新进入后读取当前服务端事实。客户端不根据 TaskIntent、CommandReceipt 或 URL 构造关联，不推断 WorkItem ID、Project ID 或 Key。
+
+Conversation Mode 在本地 TaskIntent 确认成功或收到其他成员的确认事件后强制回读关联 API，只有服务端返回可见关联时才展示“已确认工作项”。跳转使用关联摘要中的 WorkItem ID、Project ID 和 Key，并在 URL 保留 Team、Conversation、WorkItem 和 Focus，刷新后仍能恢复同一对象。
+
+Control Mode 的 WorkItem 详情同时读取关联 Conversation 和当前 Owner、Executor、Reviewer 责任事实。WorkItem 方向只渲染服务端返回的可发现 Conversation；被策略过滤的 PRIVATE Conversation 不生成链接或本地占位身份。“返回对话”使用同一关联事实恢复 Conversation 深链接。双向页面共享读模型、权限语义和浅绿色组件，不新增客户端授权边界。
+
+### 7.6 M2-F06 状态、离线与可访问性契约
+
+页面统一展示 Loading、Empty、Error、Offline、Reconnecting 和 Cancelled，状态同时使用文字、图标和颜色。Loading 与 Reconnecting 标记 `aria-busy`，可恢复状态使用 `aria-live="polite"`，错误使用 `role="alert"` 和 `aria-live="assertive"`。Message 历史本身不是 Live Region，独立状态节点只播报最新变化，避免重复朗读整段历史。
+
+`navigator.onLine` 只是交互提示，HTTP 响应继续是事实边界。离线时保留已加载事实和按 Conversation 分区的 Composer 草稿，Textarea 保持可编辑，只禁止发送和网络恢复操作。联网后就地恢复提交，不自动发送草稿，不生成本地业务事实。
+
+对话列表选中后焦点进入详情标题；窄屏返回列表后恢复原对话按钮。新建对话弹窗打开后聚焦标题输入，Tab 限定在弹窗内，Escape、取消和关闭恢复触发元素，创建成功后聚焦新 Conversation 标题。AppShell 提供跳过导航入口。
+
+离开 Conversation 路由时关闭浏览器 SSE 订阅并清理 Conversation/Message 查询 Store，保留服务端正在执行的 Invocation。重新进入时依据 URL 与服务端当前事实重建集合、详情和消息，不展示离开前的长期内存快照。
+
+全局尊重 `prefers-reduced-motion: reduce`，缩短或停止动画、Transition 和平滑滚动。窄屏 Composer 使用 16px 输入字号、42px 最小发送触控区、压缩高度和 `safe-area-inset-bottom`。桌面与 390px 窄屏共享浅绿色 Token 和状态语义。
 
 ## 8. 质量与验收
 
