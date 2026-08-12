@@ -1941,7 +1941,7 @@ RUNNING / WAITING_* / PAUSED -> CANCEL_REQUESTED -> CANCELLED
 RUNNING / WAITING_* -> MANUAL_TAKEOVER -> COMPLETED / FAILED / CANCELLED
 ```
 
-状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。`CLAIMED` 表示 Worker 获得短期领取权，`PREPARING` 表示准备 Runtime、Task Token 和 ExecutionWorkspace，`RECOVERING` 表示租约过期后的恢复判定。TaskExecution 终态不可逆；失败重试创建带 `parent_execution_id` 的新 TaskExecution，Task 继续关联当前有效尝试；已发送 Action 在 Task 取消后继续进入 Reconcile。
+状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。`CLAIMED` 表示 Worker 获得短期领取权，`PREPARING` 表示准备当前里程碑已经接通的 Runtime 资源：M3 包含 Task Token、Skill Bundle 和 Agent Session，M4 再增加 ExecutionWorkspace、Worktree 与 Sandbox。`RECOVERING` 表示租约过期后的恢复判定。TaskExecution 终态不可逆；失败重试创建带 `parent_execution_id` 的新 TaskExecution，Task 继续关联当前有效尝试；已发送 Action 在 Task 取消后继续进入 Reconcile。
 
 ### 12.2 Step 状态
 
@@ -1966,7 +1966,7 @@ SKIPPED
 CANCELLED
 ```
 
-Step 从任一明确 `WAITING_*` 状态返回 `READY` 后重新校验所属 TaskExecution 的有效 Lease 与 Claim Token，不单独获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。TaskExecution 根据关键 Step、可选 Step 和补偿结果计算尝试终态，Task 再根据当前有效尝试计算业务状态。
+Step 从任一明确 `WAITING_*` 状态返回 `READY` 后重新校验所属 TaskExecution 的有效 Lease、Claim Token、Fencing Token 和版本，不单独获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。TaskExecution 根据关键 Step、可选 Step 和补偿结果计算尝试终态，Task 再根据当前有效尝试计算业务状态。
 
 ### 12.3 Action 状态
 
@@ -2076,21 +2076,22 @@ MVP 采用 TaskExecution 级 Lease。一个 Worker 在一次有效 Lease 内串�
 READY
   -> SELECT ... FOR UPDATE SKIP LOCKED
   -> 校验 RuntimeCapabilities / Agent 配额 / Team 配额
-  -> 生成 claim_token_hash
+  -> 生成 claim_token_hash / 单调 fencing_token
   -> 写入 runtime_id / worker_id / lease_expires_at
   -> CLAIMED
 ```
 
 调度规则：
 
-1. Claim Token 是本次领取的一次性随机值，数据库仅保存哈希；
-2. Worker 调用 Start、Heartbeat、Progress、Complete 和 Fail 时同时校验 `task_execution_id + attempt + claim_token`；
-3. `PREPARING` 使用独立短租约，用于准备 Sandbox、Worktree、Skill Bundle 和 Agent Session；
+1. Claim Token 是本次领取的一次性随机值，数据库仅保存哈希；Fencing Token 在每次重新领取或接管时单调递增，续租不改变；
+2. Worker 调用 Start、Heartbeat、Progress、Complete 和 Fail 时同时校验 `task_execution_id + attempt + claim_token_hash + fencing_token + expected_version`；
+3. `PREPARING` 使用独立短租约；M3 准备 Runtime、Task Token、Skill Bundle 和 Agent Session，M4 接入后再准备 Sandbox、Worktree 与 ExecutionWorkspace；
 4. `RUNNING` 使用可续租约，Worker 按固定间隔更新 `last_heartbeat_at` 和 `lease_expires_at`；
 5. Complete、Fail、Cancel 与 Lease Sweeper 使用条件更新处理终态竞争；
 6. 租约过期后进入 `RECOVERING`，先对账 AgentRun、ExecutionWorkspace 和 PlannedAction，再决定续租、重新排队、创建后继尝试或转人工；
 7. RetryPolicy 保存 `attempt`、`max_attempts`、`parent_execution_id`、`failure_class`、退避和可恢复条件；
-8. Runtime 及 Agent 的并发上限由数据库运行事实与定期 Reconcile 共同维护。
+8. Runtime 及 Agent 的并发上限由数据库运行事实与定期 Reconcile 共同维护；
+9. Claim Token 明文只返回一次，不进入数据库、日志、事件、Artifact 和查询 API；旧 Fencing Token 不能提交 Step、AgentRun、检查点或 TaskExecution 结果。
 
 TaskExecution Claim 返回范围化执行快照：
 
@@ -2168,7 +2169,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 
 ### 12.10 检查点
 
-- Step 运行前校验所属 TaskExecution 的有效 Lease、Claim Token、Step owner 和 version；
+- Step 运行前校验所属 TaskExecution 的有效 Lease、Claim Token、Fencing Token、Step owner 和 version；
 - 状态迁移使用乐观锁；
 - Step 结果、下一状态、DomainEvent 和 Outbox 在同一事务提交；
 - Webhook 以外部事件 ID 和 Source Key 去重；
@@ -2476,7 +2477,7 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `task` | Team、Workspace、WorkItem、目标、类型、策略、Owner、可见性和关联 ID |
 | `task_execution` | 执行尝试、父尝试、PlanVersion、PolicySnapshot、责任快照、Runtime、状态、预算、失败分类和恢复信息 |
 | `step_execution` | 步骤类型、Executor、Runtime、状态、输入输出、错误、检查点和 Agent 会话 |
-| `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、租约期限、Heartbeat、续租和释放信息；MVP 不创建 Step Lease |
+| `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、单调 Fencing Token、租约期限、Heartbeat、续租和释放信息；MVP 不创建 Step Lease |
 | `task_credential_grant` | TaskExecution、Principal、Runtime、Provider/Tool/资源范围、Token JTI Hash、签发、过期、撤销和使用状态 |
 | `execution_workspace` | TaskExecution、仓库、分支、基线 Commit、Worktree、Sandbox、状态、归档和清理信息 |
 | `task_input_message` | 触发消息、Thread、作者、合并批次、执行处理状态和结果引用 |
@@ -2853,7 +2854,7 @@ DeliverNotification
 - ProviderBinding 提供能力实现、Connection 和资源范围；
 - ConnectionGrant 提供外部身份、Scope 和资源范围；
 - TaskExecution 当前 PolicySnapshot 提供已固化的工具、数据、环境、确认和预算范围；
-- ExecutionLease 与 Claim Token 提供当前 Worker 的有期执行所有权；
+- ExecutionLease、Claim Token 与 Fencing Token 提供当前 Worker 的有期执行所有权；
 - Task Token 提供当前 TaskExecution、Runtime、Provider、工具和资源的短期访问范围；
 - SafetyEnforcementOverlay 提供实时撤权、禁用和 Kill Switch；
 - Confirmation 提供写操作授权事实；
@@ -2909,6 +2910,14 @@ WorkItem、网页、消息、日志、代码、MCP、Skill 和工具结果进入
 - 读取到的外部指令不改变系统策略、授权范围和确认规则；
 - 敏感工具通过 External Tool、用户确认和企业审批执行；
 - 外部内容使用安全标记和引用来源。
+
+M2 对话式 Personal Agent 将用户消息和澄清回答视为不可信业务内容。自然语言内容可以进入模型，但不能参与 Principal、TeamRole、Session、ProviderBinding、Toolkit、RuntimeContext 和披露策略解析。Invocation、Resume 和 Cancel 只接受发布的安全 DTO，未知控制字段在 HTTP 反序列化阶段失败。Agent 使用服务端注册的最小 Toolkit，M2 关闭 Filesystem、Shell、Subagent、Memory、Dynamic Skill、Workspace Context 和 Tools Config。Prompt 注入防护由信任分区、当前授权事实、结构化 Schema 和领域校验完成，不使用关键词拦截。
+
+每次调用、恢复、取消和 Middleware 边界都重新验证 Organization、Team、Workspace、Conversation、Membership、Participant、AgentProfile、Role、Session 与 ProviderBinding。运行中撤权在下一个模型或 Tool 边界生效。跨 Team、跨 Conversation、错 Session、错 Binding、停用成员、退出参与者、过期角色和撤销 Binding 都进入稳定的失败关闭结果。
+
+AgentScope 原始事件传输与应用层 AG-UI 重放分别使用有界缓冲，单 Segment 事件量、公开文本量、澄清字段、答案数量和并发传输订阅者使用固定预算。AG-UI 重放从固定总量中预留一个终态位置；容量耗尽时保留已经公开的事件并追加安全失败，使在线订阅与后续重放观察同一条有序序列。HTTP 客户端断开只移除对应订阅者并释放活动名额，业务调用继续到达终态。
+
+公开映射只接受 Text、Clarification、TaskIntent Candidate 和稳定终态。日志、SSE、Message 与错误响应过滤 Credential、Provider 原始错误、System Prompt、Prompt Template、Reasoning、Thinking、Tool Input、Tool Arguments、Tool Result 和 Tool Output。未知异常统一转换为固定公开错误码与消息。
 
 ### 16.4 凭证
 
@@ -3991,8 +4000,8 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 6. ToolResultBlock 恢复原 ToolCall。
 7. `UNKNOWN` Action 完成对账或人工确认。
 8. Pause、Resume、Cancel、Handoff 和 Takeover 到达安全状态，旧责任版本的待执行授权自动过期。
-9. TaskExecution Claim 在单事务内完成运行时匹配、并发检查、Claim Token Hash 和 ExecutionLease 写入。
-10. Heartbeat、Complete、Fail、Cancel 和 Lease Sweeper 通过 Claim Token 与条件更新处理竞争。
+9. TaskExecution Claim 在单事务内完成运行时匹配、并发检查、Claim Token Hash、单调 Fencing Token 和 ExecutionLease 写入。
+10. Heartbeat、Complete、Fail、Cancel 和 Lease Sweeper 通过 Claim Token、Fencing Token、期望版本与条件更新处理竞争。
 11. Task Token 只允许访问当前 TaskExecution、ProviderBinding、工具和资源范围。
 12. ExecutionWorkspace 支持创建回滚、冷恢复、Diff Reconcile、归档和可审计清理。
 

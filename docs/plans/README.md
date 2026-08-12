@@ -93,5 +93,6 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M0：工程与数据基线](M0-工程与数据基线.md)
 - [M1：Team、WorkItem 与责任基础](M1-Team与WorkItem.md)
 - [M2：Conversation 与 Personal Agent](M2-Conversation与Personal-Agent.md)
+- [M3：耐久 Task Runtime](M3-耐久Task-Runtime.md)
 
-M2 已在 M0 AgentScope Spike 和 M1 Release Gate 通过后完成细化。M3 在 M2 的会话、事件、TaskIntent 和 RuntimeContext 契约稳定后细化。M4 在 Docker Sandbox 与 Coding Agent 评测基线验证后细化。
+M0、M1 和 M2 已完成。M3 已在会话、事件、TaskIntent 和 RuntimeContext 契约稳定后细化，下一项为 `M3-S01`。M4 在 M3 Runtime Release Gate、Docker Sandbox 与 Coding Agent 评测基线验证后细化。

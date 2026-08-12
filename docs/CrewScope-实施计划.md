@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.4<br>
+> 文档版本：v1.5<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1 已完成；M2-D01 至 M2-D07、M2-S01 至 M2-S03、M2-I01 至 M2-I07、M2-A01 至 M2-A07、M2-F01 至 M2-F06 已完成，下一项为 M2-Q01（2026-08-11）
+> 当前进度：M0、M1、M2 已完成；M3 已完成任务细化，下一项为 M3-S01（2026-08-12）
 
 ## 1. 实施目标
 
@@ -97,7 +97,7 @@ Phase 0 到 MVP 只实现 AgentScopeNativeRuntime。原生 Coding Agent 的质�
 
 ### 4.4 可恢复执行
 
-每个长任务先落库再执行。Worker 必须使用 Claim Token、ExecutionLease 和 Heartbeat。任务、Agent、Worktree 和外部动作分别实现恢复与对账。
+每个长任务先落库再执行。Worker 必须使用 Claim Token、Fencing Token、ExecutionLease 和 Heartbeat。任务、Agent、Worktree 和外部动作分别实现恢复与对账。
 
 ### 4.5 安全边界
 
@@ -126,6 +126,8 @@ Agent 运行环境只获得 Task Token。长期 OAuth Token、PAT、GitHub App K
 - [里程碑执行清单与任务规范](plans/README.md)；
 - [M0：工程与数据基线执行清单](plans/M0-工程与数据基线.md)；
 - [M1：Team、WorkItem 与责任基础执行清单](plans/M1-Team与WorkItem.md)；
+- [M2：Conversation 与 Personal Agent 执行清单](plans/M2-Conversation与Personal-Agent.md)；
+- [M3：耐久 Task Runtime 执行清单](plans/M3-耐久Task-Runtime.md)；
 - [CrewScope 前端设计规范](CrewScope-前端设计规范.md)；
 - [Architecture Decision Records](adr/README.md)。
 
@@ -374,7 +376,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - ExecutionRuntime、RuntimeWorker 和 RuntimeCapabilities；
 - TaskExecution 级 ExecutionLease、TaskCredentialGrant 和 AgentRuntimeSession；
 - AgentRun、AgentInterrupt 和 AgentStateSnapshot；
-- `V8__durable_task_runtime.sql`；
+- `V10__durable_task_runtime.sql`；
 - READY 队列索引、过期租约索引与终态条件约束。
 
 ### 9.3 调度与 Worker
@@ -383,8 +385,8 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - MVP 一个 TaskExecution 持有一个 Lease，Worker 在该 Lease 内串行驱动 StepExecution；
 - StepExecution 使用状态、检查点和乐观锁，不独立 Claim、续租或创建 Step Lease；
 - 实现 RuntimeCapabilities、Agent 配额与 Team 配额匹配；
-- 生成一次性 Claim Token，数据库只保存哈希；
-- 实现 `CLAIMED -> PREPARING -> RUNNING` 和 Prepare/Run Lease；
+- 生成一次性 Claim Token 和单调 Fencing Token，数据库只保存 Claim Token 哈希；
+- 实现 `CLAIMED -> PREPARING -> RUNNING` 和 Prepare/Run Lease；M3 的 PREPARING 负责 Runtime、Task Token、Skill Bundle 与 Agent Session，ExecutionWorkspace 在 M4 接入；
 - 实现 Heartbeat、Progress、Complete、Fail 和 Cancel 条件更新；
 - 实现 Lease Sweeper、`RECOVERING` 与失败分类；
 - 实现 `attempt/max_attempts/parent_execution_id` 和指数退避；
@@ -431,7 +433,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 ### 10.2 ExecutionWorkspace
 
 - RepositoryBinding、ExecutionWorkspace、DiffArtifact 和 TestEvidence 数据模型；
-- `V9__execution_workspace_and_artifacts.sql`；
+- `V11__execution_workspace_and_artifacts.sql`；
 - 基于系统 Git 命令实现类型化 `GitCommandExecutor`；
 - 命令参数使用数组构建，命令执行不经过 Shell 字符串拼接；
 - 实现分支命名、Worktree 创建、路径级锁、Git 元数据校验和重试；
@@ -494,7 +496,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 ### 11.2 Review
 
 - ContextPackage、ReviewRequest、ReviewFinding 和 ReviewDecision；
-- `V10__review_action_and_github.sql`；
+- `V12__review_action_and_github.sql`；
 - Review Subject 绑定基线 Commit、DiffArtifact、TestEvidence 和验收标准；
 - Reviewer Specialist 使用独立 Session 生成 `ADVISORY` Finding；
 - TeamMember 提交 `APPROVED/CHANGES_REQUESTED/REJECTED` Gate Decision；
@@ -635,10 +637,12 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V5__command_receipt.sql` | 组织内命令幂等占位、Request Hash 和持久化 Command Receipt | M0 |
 | `V6__team_work_and_responsibility.sql` | WorkItem 扩展、Comment、ResourceLink、ResponsibilityAssignment、AgentProfile | M1 |
 | `V7__conversation_agent_and_provider_binding.sql` | Conversation、Participant、Message、ConversationWorkItemLink、TaskIntent、Agent Session、Provider/Connection/Binding 最小模型 | M2 |
-| `V8__durable_task_runtime.sql` | Task、ConversationTaskLink、TaskExecution、StepExecution、PlanVersion、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
-| `V9__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
-| `V10__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
-| `V11__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
+| `V8__conversation_event_stream.sql` | Conversation Event 耐久历史、Cursor 与断线补发事实 | M2 |
+| `V9__native_work_item_provider.sql` | NativeWorkItem Provider 注册、默认 Workspace Binding 与既有 Team 回填 | M2 |
+| `V10__durable_task_runtime.sql` | Task、ConversationTaskLink、TaskExecution、StepExecution、PlanVersion、PolicySnapshot、Runtime、Worker、TaskExecution Lease、TaskCredentialGrant、Task/Step Agent Session、AgentRun、RuntimeArtifact、AgentStateSnapshot | M3 |
+| `V11__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
+| `V12__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
+| `V13__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
@@ -749,7 +753,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 | Worktree 和 Git 元数据损坏 | 路径锁、使用前校验、重试、回滚、冷恢复与故障注入 | M4 出口 |
 | Kubernetes Pod 无法挂载 Worker 本地 Worktree | MVP 固定同机 Docker Sandbox；Kubernetes 通过单独 ADR 设计节点调度或 RWX PVC | Kubernetes 实施前 |
 | Artifact 与 Snapshot 生命周期分裂 | 统一 ArtifactStore 与 Snapshot Adapter、哈希、TTL 和清理 | M3 入口 |
-| 任务重复执行 | PostgreSQL Claim、Claim Token、ExecutionLease、终态条件更新和幂等键 | M3 出口 |
+| 任务重复执行 | PostgreSQL Claim、Claim Token、Fencing Token、ExecutionLease、终态条件更新和幂等键 | M3 出口 |
 | 外部动作结果不确定 | ActionReceipt、`UNKNOWN`、Webhook、主动查询和 Reconcile | M5 出口 |
 | 凭证进入 Agent 上下文 | Task Token、信封加密、动作级凭证、脱敏和越权测试 | M3–M5 |
 | 三条实时事件流重复或乱序 | 统一事件信封、DomainEvent ID、投影版本和 Cursor 去重 | M2 与 M6 出口 |
@@ -762,8 +766,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M0 执行清单](plans/M0-工程与数据基线.md)：20 个 SPIKE/TASK/HARDENING，覆盖 AgentScope 验证、数据库、事件、Artifact、Credential、API、前端和 CI；
 - [M1 执行清单](plans/M1-Team与WorkItem.md)：20 个 TASK/FEATURE/HARDENING，覆盖 Team、Personal Agent、WorkItem、责任、API、OIDC、前端和 E2E；
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
+- [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
 
-M0 与 M1 已通过各自 Release Gate。M2 已完成任务细化；`M2-D01` 至 `M2-D07` 的 Conversation、TaskIntent、AgentRuntimeSession、Provider/Connection/Binding 领域、V7 数据契约与 JPA 持久化边界已交付，验证见 [Conversation 领域模型](testing/M2-D01-Conversation领域模型.md)、[Conversation 可见性与 Cursor](testing/M2-D02-Conversation可见性与Cursor.md)、[TaskIntent 与澄清契约](testing/M2-D03-TaskIntent与澄清契约.md)、[AgentRuntimeSession 绑定与生命周期](testing/M2-D04-AgentRuntimeSession绑定与生命周期.md)、[Provider、Connection 与 Binding 领域契约](testing/M2-D05-Provider与Binding领域契约.md)、[V7 Conversation、Agent 与 Provider 数据迁移](testing/M2-D06-V7-Conversation-Agent与Provider数据迁移.md)和 [M2 JPA 持久化适配](testing/M2-D07-M2-JPA持久化适配.md)。`M2-S01` 已交付受控 AG-UI Bridge、安全 DTO、服务端 Session Context 覆盖与 Starter 通用路由禁用，验证见 [受控 AG-UI Bridge 验证记录](spikes/M2-S01-受控AG-UI-Bridge验证记录.md)。`M2-S02` 已验证 HarnessAgent 会话 FIFO、跨 Session 并行、取消/异常清理、单 JVM Gate 边界和 Redis 跨进程检查点恢复，并通过 [ADR-009](adr/ADR-009-会话执行所有权与恢复协议.md)固定 M2 单活动执行实例，验证见 [会话并发与 Redis 恢复验证记录](spikes/M2-S02-会话并发与Redis恢复验证记录.md)。`M2-S03` 已使用正式 M2 Schema 验证 Structured Output、Schema 修正、Bean/Domain 校验和澄清 Interrupt/Resume，并固定回答绑定、重复/冲突确认、过期与错配请求在 AgentScope 前裁决，验证见 [结构化意图与澄清恢复验证记录](spikes/M2-S03-结构化意图与澄清恢复验证记录.md)。`M2-I01` 已交付只读 BindingResolver、外部执行身份精确查询、层级占位、当前授权事实重验和失败关闭结果，验证见 [BindingResolver 验证记录](testing/M2-I01-BindingResolver.md)。`M2-I02` 已交付 Conversation `ExecutionRuntime` Port、可信调用请求、单订阅有限流、Structured Output、Interrupt/Resume、显式 Cancel、安全失败分类和 AgentScope 2.0.0 能力 Profile，验证见 [ExecutionRuntime Port 验证记录](testing/M2-I02-ExecutionRuntime-Port.md)。`M2-I03` 已交付版本化 PersonalAgentFactory、AgentScope 原生 Conversation Runtime、多轮与 Structured Output、连续 Interrupt/Resume、精确 Cancel、安全错误映射和有限终态 Registry，验证见 [AgentScopeNativeRuntime 验证记录](testing/M2-I03-AgentScopeNativeRuntime.md)。`M2-I04` 已交付服务端可信 `PlatformExecutionContext`、当前事实解析、AgentScope 类型化注入、ProviderBinding 安全复验、基础 Audit Middleware 和受控 AG-UI 上下文绑定，验证见 [PlatformExecutionContext 与 Middleware 验证记录](testing/M2-I04-PlatformExecutionContext与Middleware.md)。`M2-I05` 已交付环境化 RedisDistributedStore、AgentState 读写预检、显式状态生命周期、单活动实例所有权租约、失败关闭与 Spring Boot 装配，验证见 [Redis AgentStateStore 与单活动实例](testing/M2-I05-Redis-AgentStateStore与单活动实例.md)。`M2-I06` 已交付 AgentScope 原始事件白名单、有限流顺序与精确重放控制、AG-UI 瞬时信封、Message/TaskIntent Candidate、DomainEvent 实时投影和官方 AG-UI 出站脱敏，验证见 [AgentScope 事件映射与脱敏](testing/M2-I06-AgentScope事件映射与脱敏.md)。`M2-I07` 已交付模型调用两层观测、Usage/Latency、真实 Retry/Fallback、Conversation/Session/Trace 关联、安全错误边界和低基数指标，验证见 [Agent 调用可观测性](testing/M2-I07-Agent调用可观测性.md)。`M2-A01` 已交付 Conversation 创建、可见列表、详情、参与者生命周期、消息历史、规范 Cursor、事务事件与 Team Scope HTTP API，验证见 [Conversation 应用与 API](testing/M2-A01-Conversation应用与API.md)。`M2-A02` 已交付受 Participant 写权限保护的用户消息追加命令、服务端消息序号、事务事件、Outbox、CommandReceipt、幂等重放与安全 Markdown 边界，验证见 [用户消息追加](testing/M2-A02-用户消息追加.md)。`M2-A03` 已交付 Owner 专属 Personal Agent Invocation/Resume/Cancel、受控 Session/Context、AG-UI SSE、有界重放和最终 Agent Message 原子提交，验证见 [Personal Agent 调用](testing/M2-A03-Personal-Agent调用.md)。`M2-A04` 已交付耐久 Conversation Event 投影、历史 API、SSE Cursor 断线补发、历史追平、可见性持续复验和跨流去重契约，验证见 [Conversation Event 与断线补发](testing/M2-A04-Conversation-Event与断线补发.md)。`M2-A05` 已交付生产澄清 Tool、字段化回答、TaskIntent Candidate 原子落库、查询、完整修订、拒绝、确认预检、强 ETag、事务事件和 Conversation Event，验证见 [TaskIntent 与确认预检](testing/M2-A05-TaskIntent与确认预检.md)。`M2-A06` 已交付 NativeWorkItem 内置注册、新旧 Team 默认 Workspace 的稳定 connectionless Binding、并发幂等初始化、V9 补全迁移和三态只读查询 API，验证见 [NativeWorkItem Provider 初始化与 Binding 查询](testing/M2-A06-NativeWorkItem-Provider.md)。`M2-A07` 已交付 TaskIntent 确认、Native WorkItem 与责任图原子创建、项目内并发 Key 分配、根事件幂等和 Conversation/WorkItem 双向安全查询，验证见 [TaskIntent 确认与 Native WorkItem 原子创建](testing/M2-A07-TaskIntent确认与Native-WorkItem.md)。`M2-F01` 已交付真实 Conversation 集合、Participant 详情、创建、深链接恢复、Scope 竞态隔离、权限跳转和桌面/窄屏响应式入口，验证见 [Conversation 集合与深链接前端](testing/M2-F01-Conversation集合与深链接前端.md)。`M2-F02` 已交付真实 Message 历史、Cursor、Composer、Pending 收口、幂等重试和安全 Markdown，验证见 [消息历史与 Composer 前端](testing/M2-F02-消息历史与Composer前端.md)。`M2-F03` 已交付 Owner Personal Agent Invocation、AG-UI 安全文本流、同键重放、刷新恢复、显式取消、Conversation Event Cursor 和投影缺口追平，验证见 [AG-UI 流式回复与 Conversation Event 恢复](testing/M2-F03-AG-UI流式回复与Conversation-Event恢复.md)。`M2-F04` 已交付公开 Clarification DTO、字段化 Resume、TaskIntent Gateway/Store、结构化预览、完整修订、拒绝、确认预检、强 ETag、空 Body 确认和冲突事实刷新，验证见 [Clarification 与 TaskIntent 前端](testing/M2-F04-Clarification与TaskIntent前端.md)。`M2-F05` 已交付 Conversation/WorkItem 共享关联 Gateway/Store、确认结果回读、对象级双向深链接、Control Mode 关联对话与责任事实展示、无权关联隐藏和刷新恢复，验证见 [Conversation 与 WorkItem 双向跳转](testing/M2-F05-Conversation与WorkItem双向跳转.md)。`M2-F06` 已交付离线交互、六类页面状态、ARIA Live、焦点恢复、Reduced Motion、窄屏 Composer 和桌面/窄屏视觉回归，验证见 [前端状态与可访问性硬化](testing/M2-F06-前端状态与可访问性硬化.md)。下一项为 `M2-Q01`。
+M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务，下一项为 `M3-S01`。
 
 M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 
