@@ -795,6 +795,32 @@ class AgentScopeNativeRuntimeIntegrationTest {
         }
     }
 
+    @Test
+    void boundsTheInternalTransportBeforeAConsumerSubscribes() {
+        RuntimeInvocationId invocationId = RuntimeInvocationId.generate();
+        Sinks.Many<ExecutionEvent> sink = AgentScopeNativeRuntime.boundedEventSink(2);
+        ExecutionEvent started = new ExecutionEvent(
+                invocationId,
+                1,
+                io.crewscope.domain.shared.time.UtcTimestamp.from(CLOCK.instant()),
+                new ExecutionEventPayload.Started(
+                        io.crewscope.application.execution.ExecutionSegmentKind.INVOKE));
+        ExecutionEvent text = new ExecutionEvent(
+                invocationId,
+                2,
+                io.crewscope.domain.shared.time.UtcTimestamp.from(CLOCK.instant()),
+                new ExecutionEventPayload.TextDelta("safe"));
+        ExecutionEvent overflow = new ExecutionEvent(
+                invocationId,
+                3,
+                io.crewscope.domain.shared.time.UtcTimestamp.from(CLOCK.instant()),
+                new ExecutionEventPayload.TextDelta("provider-secret"));
+
+        assertTrue(sink.tryEmitNext(started).isSuccess());
+        assertTrue(sink.tryEmitNext(text).isSuccess());
+        assertEquals(Sinks.EmitResult.FAIL_ZERO_SUBSCRIBER, sink.tryEmitNext(overflow));
+    }
+
     private PersonalAgentFactory factory(
             AgentProfileId profileId, Model model, java.util.function.Supplier<Toolkit> toolkit) {
         return new PersonalAgentFactory(

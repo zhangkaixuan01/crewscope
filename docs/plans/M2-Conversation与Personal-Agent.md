@@ -4,7 +4,7 @@
 > 前置条件：M1 Release Gate 通过<br>
 > 目标周期：2 周，多工作流并行推进<br>
 > 目标结果：成员可在 Web 与自己的 Personal Agent 持续对话，Agent 可澄清目标、生成结构化 TaskIntent，并在成员确认后创建带责任关系的 WorkItem<br>
-> 当前进度：`M2-D01` 至 `M2-D07`、`M2-S01` 至 `M2-S03`、`M2-I01` 至 `M2-I07`、`M2-A01` 至 `M2-A07`、`M2-F01` 至 `M2-F06` 已完成，下一项为 `M2-Q01`（2026-08-11）
+> 当前进度：M2 全部完成，Release Gate 已通过（2026-08-12）
 
 ## 1. 出口结果
 
@@ -325,8 +325,20 @@ Control Mode 的 WorkItem 详情同时读取关联 Conversation 和当前 Owner�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M2-Q01` | HARDENING | S01,I01,I04,A01-A07 | 全模块 | 建立 Prompt 注入、客户端 Tool 注入、Principal/Role/Binding 伪造、跨 Team/Conversation 越权、撤权、敏感信息和资源耗尽安全专项 | 自动化安全矩阵证明请求在服务端授权边界失败；日志、SSE、Message 和错误响应不暴露凭证、原始 Reasoning 或内部 Prompt |
-| `M2-Q02` | HARDENING | 全部 | 全模块 | 建立 M2 Release Gate，汇总 PostgreSQL、Redis、AgentScope 可控 Model、SSE、浏览器、Axe、视觉、迁移、文档和构建检查 | 纵向 E2E、并发/恢复测试、`./mvnw clean verify`、前端检查、Playwright 与文档链接检查全部通过并形成 Release Gate 记录 |
+| `M2-Q01` | HARDENING | S01,I01,I04,A01-A07 | 全模块 | 建立 Prompt 注入、客户端 Tool 注入、Principal/Role/Binding 伪造、跨 Team/Conversation 越权、撤权、敏感信息和资源耗尽安全专项 | [M2 安全硬化](../testing/M2-Q01-Security-Hardening.md)；自动化安全矩阵证明请求在服务端授权边界失败；日志、SSE、Message 和错误响应不暴露凭证、原始 Reasoning 或内部 Prompt |
+| `M2-Q02` | HARDENING | 全部 | 全模块 | 建立 M2 Release Gate，汇总 PostgreSQL、Redis、AgentScope 可控 Model、SSE、浏览器、Axe、视觉、迁移、文档和构建检查 | [M2 Release Gate](../testing/M2-Q02-Release-Gate.md)；纵向 E2E、并发/恢复测试、`./mvnw clean verify`、前端检查、Playwright 与文档链接检查全部通过 |
+
+### 8.1 M2-Q01 安全硬化契约
+
+M2 将用户消息和澄清回答作为不可信业务内容交给 Personal Agent。Prompt 内容不参与身份、角色、会话、ProviderBinding、Toolkit、RuntimeContext 和披露策略解析。上述控制面数据每次调用、恢复和取消都由服务端依据当前持久化事实重新生成。M2 不使用自然语言关键词拦截，安全结果由结构化输入边界、服务端可信上下文、最小 Toolkit、领域校验和当前授权事实共同保证。
+
+Invocation、Resume 和 Cancel DTO 拒绝未知字段，客户端提交的 Tool、Runtime、Principal、Role、Session、Binding、Context 和 State 字段在进入应用服务前失败。Personal Agent 仅装配 M2 已发布的服务端 Tool，高风险 Filesystem、Shell、Subagent、Memory、Dynamic Skill、Workspace Context 和 Tools Config 能力保持关闭。
+
+授权在 HTTP 入口和 AgentScope Middleware 内分别重验。Organization、Team、Workspace、Conversation、Participant、AgentProfile、Session、Role 与 ProviderBinding 必须组成同一条当前有效关系；成员停用、参与者退出、角色过期和 Binding 撤销在下一次模型或 Tool 边界生效。跨 Team、跨 Conversation、错 Session 和错 Binding 请求统一失败关闭。
+
+Runtime 原生事件传输、应用层 AG-UI 重放、单 Segment 事件数、公开文本、澄清字段、答案数量和并发订阅者都使用固定上限。AG-UI Replay 预算预留一个终态位置，溢出时保留已经公开的事件并追加稳定安全失败，保证在线与重放序列一致。浏览器主动断开只移除对应传输订阅者并释放活动名额，不取消业务调用。
+
+AgentScope 原始事件只映射公开 Text、Clarification、TaskIntent Candidate 和稳定终态。日志、SSE、Message 与错误响应禁止包含 Credential、Provider 原始错误、System Prompt、Prompt Template、Reasoning、Thinking、Tool Input、Tool Arguments、Tool Result 和 Tool Output。未知异常转换为固定公开错误码与消息。
 
 M2-Q02 至少覆盖：
 

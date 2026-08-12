@@ -21,7 +21,14 @@ class StructuredLogSanitizerTest {
                 StructuredLogSanitizer.REDACTED,
                 StructuredLogSanitizer.sanitize("credentialCiphertext", "private"));
         assertTrue(StructuredLogSanitizer.isSensitiveField("current_key_material"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("system_prompt"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("modelReasoning"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("toolCallArguments"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("raw-tool-result"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("correlationId"));
+        assertFalse(StructuredLogSanitizer.isSensitiveField("promptVersion"));
+        assertFalse(StructuredLogSanitizer.isSensitiveField("toolName"));
+        assertFalse(StructuredLogSanitizer.isSensitiveField("message"));
     }
 
     @Test

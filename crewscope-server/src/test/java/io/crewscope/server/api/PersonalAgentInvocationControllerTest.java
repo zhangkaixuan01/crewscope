@@ -115,18 +115,34 @@ class PersonalAgentInvocationControllerTest {
 
   @Test
   void rejectsClientRuntimeControlFieldsBeforeServiceInvocation() {
-    client
-        .post()
-        .uri(root() + "/agent-invocations")
-        .header(ApiHeaders.IDEMPOTENCY_KEY, "invoke-http-injection-1")
-        .contentType(MediaType.APPLICATION_JSON)
-        .bodyValue("{\"message\":\"hello\",\"runId\":\"client-owned\"}")
-        .exchange()
-        .expectStatus()
-        .isBadRequest()
-        .expectBody()
-        .jsonPath("$.code")
-        .isEqualTo("invalid_request");
+    String[] forgedFields = {
+      "\"agentId\":\"client-owned\"",
+      "\"threadId\":\"client-owned\"",
+      "\"runId\":\"client-owned\"",
+      "\"tools\":[{\"name\":\"shell\"}]",
+      "\"runtime\":\"client-owned\"",
+      "\"principalId\":\"client-owned\"",
+      "\"role\":\"TEAM_OWNER\"",
+      "\"sessionId\":\"client-owned\"",
+      "\"providerBindingId\":\"client-owned\"",
+      "\"context\":{\"teamId\":\"client-owned\"}",
+      "\"state\":{\"authorized\":true}",
+      "\"forwardedProps\":{\"authorized\":true}"
+    };
+    for (int index = 0; index < forgedFields.length; index++) {
+      client
+          .post()
+          .uri(root() + "/agent-invocations")
+          .header(ApiHeaders.IDEMPOTENCY_KEY, "invoke-http-injection-" + index)
+          .contentType(MediaType.APPLICATION_JSON)
+          .bodyValue("{\"message\":\"hello\"," + forgedFields[index] + "}")
+          .exchange()
+          .expectStatus()
+          .isBadRequest()
+          .expectBody()
+          .jsonPath("$.code")
+          .isEqualTo("invalid_request");
+    }
 
     verifyNoInteractions(service);
   }

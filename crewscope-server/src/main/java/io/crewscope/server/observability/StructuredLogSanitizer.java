@@ -29,7 +29,16 @@ public final class StructuredLogSanitizer {
             "ciphertext",
             "nonce",
             "authenticationtag",
-            "gcmtag");
+            "gcmtag",
+            "prompt",
+            "systemprompt",
+            "prompttemplate",
+            "reasoning",
+            "thinking",
+            "toolinput",
+            "toolarguments",
+            "toolresult",
+            "tooloutput");
 
     private StructuredLogSanitizer() {}
 
@@ -66,6 +75,19 @@ public final class StructuredLogSanitizer {
                 || canonical.endsWith("privatekey")
                 || canonical.endsWith("keymaterial")
                 || canonical.endsWith("credential")
-                || canonical.endsWith("ciphertext");
+                || canonical.endsWith("ciphertext")
+                || canonical.endsWith("prompt")
+                || canonical.endsWith("reasoning")
+                || canonical.endsWith("thinking")
+                || isToolContentField(canonical);
+    }
+
+    private static boolean isToolContentField(String canonical) {
+        return canonical.contains("tool")
+                && (canonical.endsWith("input")
+                        || canonical.endsWith("arguments")
+                        || canonical.endsWith("args")
+                        || canonical.endsWith("result")
+                        || canonical.endsWith("output"));
     }
 }

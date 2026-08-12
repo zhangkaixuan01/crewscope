@@ -87,6 +87,87 @@ class ReplayableExecutionSegmentTest {
         assertTrue(subscriber.completed);
     }
 
+    @Test
+    void rejectsSubscribersBeyondTheBoundWithoutResubscribingRuntime() {
+        Fixture fixture = Fixture.create();
+        ControlledPublisher runtimeEvents = new ControlledPublisher();
+        ReplayableExecutionSegment segment = fixture.segment(
+                runtimeEvents,
+                candidate -> {},
+                10,
+                2);
+        RecordingSubscriber first = new RecordingSubscriber(new AtomicBoolean());
+        RecordingSubscriber second = new RecordingSubscriber(new AtomicBoolean());
+        RecordingSubscriber rejected = new RecordingSubscriber(new AtomicBoolean());
+
+        segment.subscribe(first);
+        segment.subscribe(second);
+        segment.subscribe(rejected);
+
+        assertNull(first.failure);
+        assertNull(second.failure);
+        assertTrue(rejected.failure instanceof IllegalStateException);
+        assertTrue(rejected.failure.getMessage().contains("subscriber capacity"));
+        assertEquals(1, runtimeEvents.subscriptions);
+
+        first.subscription.cancel();
+        RecordingSubscriber replacement = new RecordingSubscriber(new AtomicBoolean());
+        segment.subscribe(replacement);
+        replacement.subscription.request(Long.MAX_VALUE);
+        assertNull(replacement.failure);
+        assertFalse(replacement.completed);
+        assertEquals(1, runtimeEvents.subscriptions);
+    }
+
+    @Test
+    void convertsReplayEventBudgetExhaustionToSafeRunError() {
+        Fixture fixture = Fixture.create();
+        RecordingSubscriber subscriber = new RecordingSubscriber(new AtomicBoolean());
+        ReplayableExecutionSegment segment = fixture.segment(
+                fixture.completedEvents(),
+                candidate -> {},
+                2,
+                2);
+
+        segment.subscribe(subscriber);
+        subscriber.subscription.request(Long.MAX_VALUE);
+
+        assertEquals(List.of("RUN_STARTED", "RUN_ERROR"), subscriber.eventTypes());
+        assertTrue(subscriber.completed);
+        assertNull(subscriber.failure);
+    }
+
+    @Test
+    void preservesThePublishedPrefixAndReplaysTheSameSafeRunError() {
+        Fixture fixture = Fixture.create();
+        ControlledPublisher runtimeEvents = new ControlledPublisher();
+        RecordingSubscriber subscriber = new RecordingSubscriber(new AtomicBoolean());
+        ReplayableExecutionSegment segment = fixture.segment(
+                runtimeEvents,
+                candidate -> {},
+                2,
+                2);
+
+        segment.subscribe(subscriber);
+        subscriber.subscription.request(Long.MAX_VALUE);
+        runtimeEvents.emit(fixture.event(
+                1, new ExecutionEventPayload.Started(ExecutionSegmentKind.INVOKE)));
+        runtimeEvents.emit(fixture.event(2, new ExecutionEventPayload.TextDelta("answer")));
+
+        assertEquals(
+                List.of("RUN_STARTED", "RUN_ERROR"),
+                subscriber.eventTypes());
+        assertTrue(subscriber.completed);
+        assertNull(subscriber.failure);
+        assertTrue(runtimeEvents.canceled);
+
+        RecordingSubscriber replay = new RecordingSubscriber(new AtomicBoolean());
+        segment.subscribe(replay);
+        replay.subscription.request(Long.MAX_VALUE);
+        assertEquals(subscriber.eventTypes(), replay.eventTypes());
+        assertTrue(replay.completed);
+    }
+
     private record Fixture(
             RuntimeInvocationId invocationId,
             PlatformExecutionContext context,
@@ -136,6 +217,18 @@ class ReplayableExecutionSegmentTest {
         private ReplayableExecutionSegment segment(
                 DemandPublisher source,
                 java.util.function.Consumer<AgentMessageCandidate> committer) {
+            return segment(
+                    source,
+                    committer,
+                    ReplayableExecutionSegment.DEFAULT_EVENT_LIMIT,
+                    ReplayableExecutionSegment.DEFAULT_SUBSCRIBER_LIMIT);
+        }
+
+        private ReplayableExecutionSegment segment(
+                DemandPublisher source,
+                java.util.function.Consumer<AgentMessageCandidate> committer,
+                int eventLimit,
+                int subscriberLimit) {
             return new ReplayableExecutionSegment(
                     new ExecutionHandle(invocationId, source),
                     new ExecutionEventMappingContext(context, segmentId, Optional.empty()),
@@ -144,7 +237,27 @@ class ReplayableExecutionSegmentTest {
                     committer,
                     candidate -> {},
                     (status, token) -> {},
-                    () -> NOW);
+                    () -> NOW,
+                    eventLimit,
+                    subscriberLimit);
+        }
+
+        private ReplayableExecutionSegment segment(
+                Flow.Publisher<ExecutionEvent> source,
+                java.util.function.Consumer<AgentMessageCandidate> committer,
+                int eventLimit,
+                int subscriberLimit) {
+            return new ReplayableExecutionSegment(
+                    new ExecutionHandle(invocationId, source),
+                    new ExecutionEventMappingContext(context, segmentId, Optional.empty()),
+                    new ConversationExecutionEventMapper(
+                            Validation.buildDefaultValidatorFactory().getValidator()),
+                    committer,
+                    candidate -> {},
+                    (status, token) -> {},
+                    () -> NOW,
+                    eventLimit,
+                    subscriberLimit);
         }
 
         private ExecutionEvent event(long sequence, ExecutionEventPayload payload) {
@@ -189,6 +302,39 @@ class ReplayableExecutionSegmentTest {
                     canceled = true;
                 }
             });
+        }
+    }
+
+    private static final class ControlledPublisher implements Flow.Publisher<ExecutionEvent> {
+
+        private Flow.Subscriber<? super ExecutionEvent> subscriber;
+        private int subscriptions;
+        private long demand;
+        private boolean canceled;
+
+        @Override
+        public void subscribe(Flow.Subscriber<? super ExecutionEvent> subscriber) {
+            subscriptions++;
+            this.subscriber = subscriber;
+            subscriber.onSubscribe(new Flow.Subscription() {
+                @Override
+                public void request(long requested) {
+                    demand += requested;
+                }
+
+                @Override
+                public void cancel() {
+                    canceled = true;
+                }
+            });
+        }
+
+        private void emit(ExecutionEvent event) {
+            if (canceled || demand < 1) {
+                throw new IllegalStateException("publisher has no demand");
+            }
+            demand--;
+            subscriber.onNext(event);
         }
     }
 

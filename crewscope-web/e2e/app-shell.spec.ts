@@ -970,7 +970,7 @@ test('M1 Work visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`work-detail-${testInfo.project.name}.png`, { fullPage: true })
 })
 
-test('M1 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+test('M2 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },

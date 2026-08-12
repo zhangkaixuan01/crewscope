@@ -24,6 +24,7 @@ final class ReplayableExecutionSegment
                 Flow.Subscriber<ExecutionEvent> {
 
     static final int DEFAULT_EVENT_LIMIT = 10_000;
+    static final int DEFAULT_SUBSCRIBER_LIMIT = 32;
 
     private final ExecutionEventMappingContext mappingContext;
     private final ConversationExecutionEventMapper.Session mapper;
@@ -32,6 +33,7 @@ final class ReplayableExecutionSegment
     private final SegmentTerminalListener terminalListener;
     private final TimeProvider timeProvider;
     private final int eventLimit;
+    private final int subscriberLimit;
     private final List<RealtimeEventEnvelope<? extends AguiTransientPayload>> events =
             new ArrayList<>();
     private final List<SegmentSubscription> subscribers = new ArrayList<>();
@@ -55,7 +57,8 @@ final class ReplayableExecutionSegment
                 taskIntentCommitter,
                 terminalListener,
                 timeProvider,
-                DEFAULT_EVENT_LIMIT);
+                DEFAULT_EVENT_LIMIT,
+                DEFAULT_SUBSCRIBER_LIMIT);
     }
 
     ReplayableExecutionSegment(
@@ -67,6 +70,28 @@ final class ReplayableExecutionSegment
             SegmentTerminalListener terminalListener,
             TimeProvider timeProvider,
             int eventLimit) {
+        this(
+                handle,
+                mappingContext,
+                eventMapper,
+                messageCommitter,
+                taskIntentCommitter,
+                terminalListener,
+                timeProvider,
+                eventLimit,
+                DEFAULT_SUBSCRIBER_LIMIT);
+    }
+
+    ReplayableExecutionSegment(
+            ExecutionHandle handle,
+            ExecutionEventMappingContext mappingContext,
+            ConversationExecutionEventMapper eventMapper,
+            Consumer<AgentMessageCandidate> messageCommitter,
+            Consumer<TaskIntentOutputCandidate> taskIntentCommitter,
+            SegmentTerminalListener terminalListener,
+            TimeProvider timeProvider,
+            int eventLimit,
+            int subscriberLimit) {
         ExecutionHandle source = Objects.requireNonNull(handle, "handle");
         this.mappingContext = Objects.requireNonNull(mappingContext, "mappingContext");
         if (!source.invocationId().equals(mappingContext.platformContext().invocationId())) {
@@ -82,6 +107,10 @@ final class ReplayableExecutionSegment
             throw new IllegalArgumentException("eventLimit must be positive");
         }
         this.eventLimit = eventLimit;
+        if (subscriberLimit < 1 || subscriberLimit > 1_000) {
+            throw new IllegalArgumentException("subscriberLimit must be between 1 and 1000");
+        }
+        this.subscriberLimit = subscriberLimit;
         // Keep the single-subscriber runtime publisher private; this object is its sole consumer.
         source.events().subscribe(this);
     }
@@ -92,6 +121,11 @@ final class ReplayableExecutionSegment
                     subscriber) {
         Flow.Subscriber<? super RealtimeEventEnvelope<? extends AguiTransientPayload>> required =
                 Objects.requireNonNull(subscriber, "subscriber");
+        if (subscribers.size() >= subscriberLimit) {
+            required.onSubscribe(RejectedSubscription.INSTANCE);
+            required.onError(new IllegalStateException("AG-UI subscriber capacity was exhausted"));
+            return;
+        }
         SegmentSubscription subscription = new SegmentSubscription(required);
         subscribers.add(subscription);
         required.onSubscribe(subscription);
@@ -168,10 +202,20 @@ final class ReplayableExecutionSegment
     }
 
     private void append(RealtimeEventEnvelope<? extends AguiTransientPayload> event) {
-        if (events.size() >= eventLimit) {
+        // Keep one slot available for a stable terminal signal. This avoids retracting an event
+        // already observed by an active subscriber when the replay budget is exhausted.
+        int limit = isTerminal(event) ? eventLimit : eventLimit - 1;
+        if (events.size() >= limit) {
             throw new ExecutionProtocolException("AG-UI segment exceeds the replay limit");
         }
         events.add(event);
+    }
+
+    private static boolean isTerminal(
+            RealtimeEventEnvelope<? extends AguiTransientPayload> event) {
+        return event.payload() instanceof AguiTransientPayload.RunFinished
+                || event.payload() instanceof AguiTransientPayload.RunInterrupted
+                || event.payload() instanceof AguiTransientPayload.RunError;
     }
 
     private void failSafely() {
@@ -183,26 +227,24 @@ final class ReplayableExecutionSegment
             upstream.cancel();
         }
         terminalListener.terminal(ExecutionTerminalStatus.FAILED, Optional.empty());
-        if (events.size() < eventLimit) {
-            PlatformExecutionContext platform = mappingContext.platformContext();
-            UUID eventId = UUID.nameUUIDFromBytes(
-                    ("crewscope:agui:application-error:v1:" + mappingContext.segmentId())
-                            .getBytes(StandardCharsets.UTF_8));
-            append(RealtimeEventEnvelope.transientAgUi(
-                    eventId,
-                    EventType.from("RUN_ERROR"),
-                    SchemaVersion.V1,
-                    platform.correlationId(),
-                    mappingContext.causationDomainEventId(),
-                    timeProvider.now(),
-                    new AguiTransientPayload.RunError(
-                            platform.conversationId().toString(),
-                            platform.invocationId().toString(),
-                            mappingContext.segmentId(),
-                            "The Personal Agent response could not be completed",
-                            Optional.of("APPLICATION_STREAM_FAILED"),
-                            true)));
-        }
+        PlatformExecutionContext platform = mappingContext.platformContext();
+        UUID eventId = UUID.nameUUIDFromBytes(
+                ("crewscope:agui:application-error:v1:" + mappingContext.segmentId())
+                        .getBytes(StandardCharsets.UTF_8));
+        append(RealtimeEventEnvelope.transientAgUi(
+                eventId,
+                EventType.from("RUN_ERROR"),
+                SchemaVersion.V1,
+                platform.correlationId(),
+                mappingContext.causationDomainEventId(),
+                timeProvider.now(),
+                new AguiTransientPayload.RunError(
+                        platform.conversationId().toString(),
+                        platform.invocationId().toString(),
+                        mappingContext.segmentId(),
+                        "The Personal Agent response could not be completed",
+                        Optional.of("APPLICATION_STREAM_FAILED"),
+                        true)));
         drainAll();
     }
 
@@ -217,6 +259,16 @@ final class ReplayableExecutionSegment
     interface SegmentTerminalListener {
         void terminal(
                 ExecutionTerminalStatus status, Optional<ExecutionInterruptToken> interruptToken);
+    }
+
+    private enum RejectedSubscription implements Flow.Subscription {
+        INSTANCE;
+
+        @Override
+        public void request(long requested) {}
+
+        @Override
+        public void cancel() {}
     }
 
     private final class SegmentSubscription implements Flow.Subscription {

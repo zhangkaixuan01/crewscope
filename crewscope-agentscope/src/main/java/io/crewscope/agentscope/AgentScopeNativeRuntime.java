@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,6 +58,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import reactor.adapter.JdkFlowAdapter;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -66,21 +68,35 @@ import reactor.core.publisher.Sinks;
 public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoCloseable {
 
     private static final int DEFAULT_RETAINED_TERMINALS = 1_000;
+    private static final int DEFAULT_EVENT_BUFFER_LIMIT = 10_000;
 
     private final PersonalAgentFactory agentFactory;
     private final Clock clock;
     private final int retainedTerminalLimit;
+    private final int eventBufferLimit;
     private final ConcurrentMap<RuntimeInvocationId, InvocationState> invocations =
             new ConcurrentHashMap<>();
     private final Queue<RuntimeInvocationId> terminalOrder = new ArrayDeque<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public AgentScopeNativeRuntime(PersonalAgentFactory agentFactory, Clock clock) {
-        this(agentFactory, clock, DEFAULT_RETAINED_TERMINALS);
+        this(
+                agentFactory,
+                clock,
+                DEFAULT_RETAINED_TERMINALS,
+                DEFAULT_EVENT_BUFFER_LIMIT);
     }
 
     public AgentScopeNativeRuntime(
             PersonalAgentFactory agentFactory, Clock clock, int retainedTerminalLimit) {
+        this(agentFactory, clock, retainedTerminalLimit, DEFAULT_EVENT_BUFFER_LIMIT);
+    }
+
+    AgentScopeNativeRuntime(
+            PersonalAgentFactory agentFactory,
+            Clock clock,
+            int retainedTerminalLimit,
+            int eventBufferLimit) {
         this.agentFactory = Objects.requireNonNull(agentFactory, "agentFactory");
         this.clock = Objects.requireNonNull(clock, "clock");
         if (retainedTerminalLimit < 1 || retainedTerminalLimit > 100_000) {
@@ -88,6 +104,11 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
                     "retainedTerminalLimit must be between 1 and 100000");
         }
         this.retainedTerminalLimit = retainedTerminalLimit;
+        if (eventBufferLimit < 1 || eventBufferLimit > 100_000) {
+            throw new IllegalArgumentException(
+                    "eventBufferLimit must be between 1 and 100000");
+        }
+        this.eventBufferLimit = eventBufferLimit;
     }
 
     @Override
@@ -183,40 +204,86 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
 
     private ExecutionHandle startSegment(
             InvocationState state, Flux<ExecutionEvent> source) {
-        Sinks.Many<ExecutionEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
+        // The runtime owns execution independently from HTTP, while this bounded queue prevents a
+        // synchronous or non-compliant Provider from filling process memory before transport binds.
+        Sinks.Many<ExecutionEvent> sink = boundedEventSink(eventBufferLimit);
         Flow.Publisher<ExecutionEvent> publisher =
                 JdkFlowAdapter.publisherToFlowPublisher(sink.asFlux());
         ExecutionHandle handle = new ExecutionHandle(state.invocationId(), publisher);
-        Disposable running = source.subscribe(
-                event -> emitNext(sink, event),
-                failure -> {
-                    if (!state.isSegmentTerminal()) {
-                        ExecutionEvent failed = event(
-                                state,
-                                state.nextSequence(),
-                                state.failurePayload(executionFailure(failure)));
-                        emitNext(sink, failed);
-                    }
-                    if (state.isLogicalTerminal()) {
-                        retainTerminal(state.invocationId());
-                    }
-                    sink.tryEmitComplete();
-                },
-                () -> {
-                    if (!state.isSegmentTerminal()) {
-                        ExecutionEvent failed = event(
-                                state,
-                                state.nextSequence(),
-                                state.failurePayload(incompleteStreamFailure()));
-                        emitNext(sink, failed);
-                    }
-                    if (state.isLogicalTerminal()) {
-                        retainTerminal(state.invocationId());
-                    }
-                    sink.tryEmitComplete();
-                });
+        SegmentSourceSubscriber running = new SegmentSourceSubscriber(state, sink);
+        source.subscribe(running);
         state.attach(running);
         return handle;
+    }
+
+    static Sinks.Many<ExecutionEvent> boundedEventSink(int eventBufferLimit) {
+        return Sinks.many()
+                .unicast()
+                .onBackpressureBuffer(new ArrayBlockingQueue<>(eventBufferLimit));
+    }
+
+    private final class SegmentSourceSubscriber extends BaseSubscriber<ExecutionEvent> {
+
+        private final InvocationState state;
+        private final Sinks.Many<ExecutionEvent> sink;
+
+        private SegmentSourceSubscriber(
+                InvocationState state, Sinks.Many<ExecutionEvent> sink) {
+            this.state = state;
+            this.sink = sink;
+        }
+
+        @Override
+        protected void hookOnSubscribe(org.reactivestreams.Subscription subscription) {
+            request(1);
+        }
+
+        @Override
+        protected void hookOnNext(ExecutionEvent event) {
+            Sinks.EmitResult result = emitNext(sink, event);
+            if (result == Sinks.EmitResult.FAIL_OVERFLOW
+                    || result == Sinks.EmitResult.FAIL_NON_SERIALIZED
+                    || result == Sinks.EmitResult.FAIL_ZERO_SUBSCRIBER) {
+                // Capacity exhaustion is an internal execution failure. Stop the AgentScope call
+                // and expose only a fixed transport error to the application mapping boundary.
+                state.failTransport();
+                retainTerminal(state.invocationId());
+                cancel();
+                sink.tryEmitError(new ExecutionTransportCapacityException());
+                return;
+            }
+            request(1);
+        }
+
+        @Override
+        protected void hookOnError(Throwable failure) {
+            if (!state.isSegmentTerminal()) {
+                ExecutionEvent failed = event(
+                        state,
+                        state.nextSequence(),
+                        state.failurePayload(executionFailure(failure)));
+                emitNext(sink, failed);
+            }
+            if (state.isLogicalTerminal()) {
+                retainTerminal(state.invocationId());
+            }
+            sink.tryEmitComplete();
+        }
+
+        @Override
+        protected void hookOnComplete() {
+            if (!state.isSegmentTerminal()) {
+                ExecutionEvent failed = event(
+                        state,
+                        state.nextSequence(),
+                        state.failurePayload(incompleteStreamFailure()));
+                emitNext(sink, failed);
+            }
+            if (state.isLogicalTerminal()) {
+                retainTerminal(state.invocationId());
+            }
+            sink.tryEmitComplete();
+        }
     }
 
     private Flux<ExecutionEvent> plainSegment(
@@ -462,16 +529,19 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
         }
     }
 
-    private static void emitNext(
+    private static Sinks.EmitResult emitNext(
             Sinks.Many<ExecutionEvent> sink, ExecutionEvent event) {
         Sinks.EmitResult result = sink.tryEmitNext(event);
-        if (result == Sinks.EmitResult.FAIL_NON_SERIALIZED
-                || result == Sinks.EmitResult.FAIL_OVERFLOW) {
-            sink.tryEmitError(new IllegalStateException(
-                    "Execution event transport buffer rejected an event"));
-        }
         // FAIL_CANCELLED and FAIL_TERMINATED mean the transport consumer has gone away; the
         // internally owned AgentScope subscription and Invocation state continue independently.
+        return result;
+    }
+
+    private static final class ExecutionTransportCapacityException extends RuntimeException {
+
+        private ExecutionTransportCapacityException() {
+            super("Execution event transport capacity was exhausted");
+        }
     }
 
     private static boolean isResumable(GenerateReason reason) {
@@ -902,6 +972,11 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             phase = InvocationPhase.FAILED;
             pending = null;
             return new ExecutionEventPayload.Failed(failure);
+        }
+
+        private synchronized void failTransport() {
+            phase = InvocationPhase.FAILED;
+            pending = null;
         }
 
         private synchronized CancelDecision requestCancel(String reason) {
