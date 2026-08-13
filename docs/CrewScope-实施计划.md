@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2 已完成；M3 已完成任务细化，下一项为 M3-S01（2026-08-12）
+> 当前进度：M0、M1、M2 已完成；M3-S01、M3-S02、M3-S03 已完成，下一项为 M3-D01（2026-08-13）
 
 ## 1. 实施目标
 
@@ -768,7 +768,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 - [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
 
-M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务，下一项为 `M3-S01`。
+M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，下一项为 `M3-D01`。
 
 M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 

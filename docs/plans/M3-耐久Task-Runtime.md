@@ -4,7 +4,7 @@
 > 前置条件：M2 Release Gate 通过<br>
 > 目标周期：3–4 周，多工作流并行推进<br>
 > 目标结果：成员可从 WorkItem 或 Conversation 创建 Task，Worker 可安全领取并驱动 TaskExecution，成员可观察、暂停、恢复、取消和重试，进程或 Redis 故障后执行可收敛<br>
-> 当前进度：已完成任务细化，下一项为 `M3-S01`（2026-08-12）
+> 当前进度：`M3-S01`、`M3-S02`、`M3-S03` 已完成，下一项为 `M3-D01`（2026-08-13）
 
 ## 1. 出口结果
 
@@ -109,9 +109,9 @@ M3-F02..F06 -> M3-F07
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M3-S01` | SPIKE | M2-Q02, ADR-001 | application/infrastructure | 使用 PostgreSQL 验证 `FOR UPDATE SKIP LOCKED` Claim、配额检查、Claim Token Hash、单调 Fencing Token、Lease 续期和条件终态更新；覆盖两个 Worker、旧 Owner 和 Complete/Sweeper 竞争 | 可复现 Spike 记录与 Testcontainers 测试证明唯一 Claim、旧 Token 全部失败、租约续期不换 Owner、终态竞争仅一个提交成功，并固定事务隔离级别、锁顺序、更新谓词和索引 |
-| `M3-S02` | SPIKE | M2-I03, AgentScope 2.0.0 | agentscope/application | 验证 AgentScope Task Agent 与 CrewScope Task Orchestrator 的映射；覆盖 Plan Mode、TodoTools、RuntimeContext、Interrupt/Resume、进程内恢复和新的 Agent 实例续接 | Spike 记录、最小适配代码和受控 Model 测试明确 ProposedPlan、Todo、PlanVersion、AgentRun、Interrupt Token 与安全检查点的映射；未接通的 AgentScope 能力不写入 RuntimeCapabilities |
-| `M3-S03` | SPIKE | M0-D04, M2-I05, ADR-003 | agentscope/infrastructure | 验证 Redis AgentState、ArtifactStore AgentStateSnapshot 和 PostgreSQL 检查点的二级恢复；注入 Redis 清空、状态损坏、写入中断与进程退出 | Spike 记录与集成测试证明 Snapshot Hash/身份校验、Redis 重建、最近完整快照选择、损坏快照失败关闭和 continuity gap；固定快照一致性点、大小上限、TTL 与清理责任 |
+| `M3-S01` | SPIKE | M2-Q02, ADR-001 | application/infrastructure | 使用 PostgreSQL 验证 `FOR UPDATE SKIP LOCKED` Claim、配额检查、Claim Token Hash、单调 Fencing Token、Lease 续期和条件终态更新；覆盖两个 Worker、旧 Owner 和 Complete/Sweeper 竞争 | [PostgreSQL 领取与租约验证记录](../spikes/M3-S01-PostgreSQL领取与租约验证记录.md)；Testcontainers 测试证明唯一 Claim、旧 Token 全部失败、租约续期不换 Owner、终态竞争仅一个提交成功，并固定事务隔离级别、锁顺序、更新谓词和索引 |
+| `M3-S02` | SPIKE | M2-I03, AgentScope 2.0.0 | agentscope/application | 验证 AgentScope Task Agent 与 CrewScope Task Orchestrator 的映射；覆盖 Plan Mode、TodoTools、RuntimeContext、Interrupt/Resume、进程内恢复和新的 Agent 实例续接 | [AgentScope Task Orchestrator 映射验证记录](../spikes/M3-S02-AgentScope-Task-Orchestrator映射验证记录.md)；最小适配代码和受控 Model 测试明确 ProposedPlan、Todo、PlanVersion、AgentRun、Interrupt Token 与安全检查点的映射；未接通的 AgentScope 能力不写入 RuntimeCapabilities |
+| `M3-S03` | SPIKE | M0-D04, M2-I05, ADR-003 | agentscope/infrastructure | 验证 Redis AgentState、ArtifactStore AgentStateSnapshot 和 PostgreSQL 检查点的二级恢复；注入 Redis 清空、状态损坏、写入中断与进程退出 | [AgentState 二级恢复验证记录](../spikes/M3-S03-AgentState二级恢复验证记录.md)；10 个专项测试证明 Snapshot Hash/身份校验、Scope/Producer 与写入 Descriptor 闭合、实际内容复验、Redis 重建、最近完整快照选择、损坏快照回退、无有效快照失败关闭和 continuity gap；固定快照一致性点、8 MiB 上限、30 天默认 TTL 与清理责任 |
 
 Spike 结论直接约束 D/I 工作流。结论改变已接受 ADR 时先更新 ADR，再进入正式 Adapter。
 
