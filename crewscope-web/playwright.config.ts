@@ -1,8 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Local development reuses installed Chrome; CI installs Playwright Chromium for a reproducible runtime.
-const localBrowser = process.env.CI ? {} : { channel: 'chrome' as const }
-
 export default defineConfig({
   testDir: './e2e',
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
@@ -27,11 +24,11 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-chromium',
-      use: { ...devices['Desktop Chrome'], ...localBrowser, viewport: { width: 1440, height: 960 } },
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 960 } },
     },
     {
       name: 'narrow-chromium',
-      use: { ...devices['iPhone 13'], browserName: 'chromium', ...localBrowser, viewport: { width: 390, height: 844 } },
+      use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 } },
     },
   ],
   webServer: {
