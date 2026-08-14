@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
-> 更新：2026-08-07（M0-I03/I04 固化 CredentialStore、数据库信封和密钥轮换）<br>
+> 更新：2026-08-14（M3-D06 固化领域契约，M3-D08 固化 V10 持久化约束）<br>
 > 影响里程碑：M0、M2、M3、M5
 
 ## 背景
@@ -64,11 +64,18 @@ Key Ring、Key Material、Parser、CredentialSecret 和 ResolvedCredential 的�
 ### Task Token 与动作凭证
 
 - Agent 与 Sandbox 只获得短期 Task Token；
-- Task Token 绑定 TaskExecution、Claim、Principal、ProviderBinding、Tool 和资源；
+- Task Token 生存期为 5 秒至 15 分钟且不超过当前 ExecutionLease；
+- Task Token 通过共享 `TaskTokenGrantScope` 闭合 Organization、Team、Workspace、Task、TaskExecution、attempt、ExecutionLease、Runtime、Worker、Claim Token Hash、Fencing Token、Execution Principal、PolicySnapshot 和 SafetyEnforcementOverlay；
+- Task Token 只包含 Policy 和 Safety 允许的 Tool，Provider 范围固化 Binding/ConnectionGrant 版本、Capability 和显式资源最小子集；
+- JTI 明文只进入一次性签发结果，数据库保存 SHA-256 Hash，字符串输出统一脱敏；
+- `TaskCredentialGrant` 记录使用次数、最后使用时间、撤销/过期终态、乐观锁和审计事实；
+- 使用时校验 Grant/Claims 闭合、当前 Lease 全坐标、Tool、ProviderBinding、Capability、Resource 和 Grant Version；
 - Credential Service 校验 Task Token、PlannedAction、Confirmation、Binding 和 SafetyEnforcementOverlay；
 - Connector Worker 获得动作级短期能力；
 - Git Push 使用一次性 GitHub App installation token 和临时 `GIT_ASKPASS`；
 - 临时文件、环境变量和进程在动作结束后立即清理。
+
+V10 `task_credential_grant` 只保存 JTI Hash 和 Claim Token Hash，两者都是 64 位小写 SHA-256 文本。表中没有 JTI 或 Claim Token 明文列。Grant 使用复合外键闭合 TaskExecution、ExecutionLease、Runtime/Worker、Execution Principal、PolicySnapshot 和 SafetyEnforcementOverlay；Tool 和 Provider 授权使用子表保存最小集合。`ux_task_credential_grant_active_execution` 裁决每个 TaskExecution 的单活动 Grant，轮换在同一事务中终止旧 Grant 并创建新 Grant。
 
 ## 结果
 

@@ -1413,7 +1413,11 @@ M2 的请求由 ACTIVE AgentRuntimeSession、已提交 USER Message、可选 Str
 
 M2 的 `PersonalAgentFactory` 按 AgentRuntimeSession 固化的 `AgentProfileId + AgentProfileVersion` 解析模型、备用模型、System Prompt、最大迭代和重试配置，并按该版本复用 HarnessAgent。Conversation 状态使用持久化 AgentScope `userId/sessionId` 隔离。`AgentScopeNativeRuntime` 内部持有 AgentScope 调用订阅，将文本、Structured Output、中断、恢复、取消与安全失败映射到 ExecutionRuntime 有限流；Web 订阅断开只影响传输，显式 Cancel 使用同一 RuntimeContext 精确中断。实例与恢复协议见 [ADR-011](adr/ADR-011-AgentScopeNativeRuntime实例与恢复协议.md)。
 
-`RuntimeCapabilities` 声明 `SESSION_RESUME`、`SESSION_FORK`、`PLAN`、`STRUCTURED_OUTPUT`、`TOOL_APPROVAL`、`CONTEXT_USAGE`、`SANDBOX`、`WORKTREE`、`MULTI_REPOSITORY` 和支持的语言/构建系统。Task Scheduler 使用能力交集路由任务，PolicySnapshot 固化本次选中的 Runtime 类型、实现版本和能力快照。
+M3 使用 Domain `ExecutionRuntime` 保存可持久的 Runtime Registry 事实。Registry 按 `Organization + RuntimeEnvironment + runtimeKey` 隔离，runtime key 在该边界内唯一且在重启后保持稳定。调用型 Application `ExecutionRuntime` Port 与 Registry 聚合分属不同包：Port 负责 Invoke/Resume/Cancel 协议，Registry 负责部署身份、实现版本、能力和启停状态。
+
+`RuntimeWorker` 保存 Runtime 内的 stable key、`ALL/WORKER` Profile、`REGISTERED/ACTIVE/DRAINING/DISABLED` 显式状态、能力快照、最大并发数、当前负载、最后心跳时间和心跳序号。`DRAINING` 停止新 Claim 并允许在途执行收敛。心跳新鲜度使用 `lastHeartbeatAt + timeout` 派生，不覆盖显式状态。`server` Profile 不注册 Worker，`all` 和 `worker` Profile 使用配置的稳定 Worker Identity。
+
+`RuntimeCapabilities` 是 M2 调用 Port、M3 Registry/Worker、Scheduler 和 PolicySnapshot 共用的 Domain 能力词汇，同时表达平台特性、语言和构建系统。Worker 能力必须是 Runtime 能力的子集。Runtime 能力收缩后，能力尚未对账的 Worker 立即停止路由，下一次心跳可以上报收缩后的子集完成对账。Task Scheduler 只在 Runtime 与 Worker 都为 ACTIVE、心跳未过期、容量可用、能力完整覆盖且 Organization/环境/Runtime 谱系闭合时路由任务。PolicySnapshot 固化本次选中的 Runtime key、实现版本和能力快照。
 
 `ExecutionRequest` 携带 TaskExecution、StepExecution、Principal、Initiator、ResponsibilitySnapshot、PolicySnapshot、PlanVersion、ExecutionWorkspace、ProviderBinding、任务级短期身份和恢复上下文。运行时返回统一事件：
 
@@ -1503,7 +1507,7 @@ flowchart LR
   VERSION --> EXECUTE["任务引擎执行"]
 ```
 
-Plan 文件是候选计划制品。`todo_write` 是 Agent 当前执行清单。PlanVersion 是 CrewScope 的固化执行计划。
+Plan 文件是候选计划制品。`todo_write` 是 Agent 当前执行清单。PlanVersion 是 CrewScope 的固化执行计划。发布时使用 TaskExecution 当前 PolicySnapshot、SafetyEnforcementOverlay 和 ExecutionPrincipal，校验 Step Key、连续序号、仅向后依赖、Validation Step、Capability/Tool 权限交集和 Todo 映射。TaskExecution 使用乐观锁保存当前 PlanVersion 指针。
 
 查询、研究和报告类任务可以按用户偏好自动进入执行。包含代码推送、消息发送、WorkItem 修改、部署和资源变更的计划展示写操作边界，并在实际执行前完成精确动作确认。
 
@@ -1520,7 +1524,7 @@ Plan 文件是候选计划制品。`todo_write` 是 Agent 当前执行清单。P
 9. 步骤、并行、模型、Token、时长和成本预算；
 10. 外部内容和危险动作检查。
 
-计划变更创建新 PlanVersion，保存父版本、差异、原因和重新确认范围。
+计划变更创建新 PlanVersion，保存直接父版本、差异、原因和重新确认范围。PolicySnapshot 或 SafetyEnforcementOverlay 变化时清空当前 Plan 指针，在新策略事实下重新发布计划。Plan、Policy 和 Overlay 使用规范 SHA-256，持久化重建时复验。
 
 ## 9. 长对话与上下文治理
 
@@ -1910,38 +1914,34 @@ READY
 CLAIMED
 PREPARING
 RUNNING
-WAITING_RUNTIME
-WAITING_COLLABORATION
-WAITING_REVIEW
-WAITING_CONFIRMATION
-WAITING_USER_INPUT
-WAITING_EXTERNAL_EXECUTION
-WAITING_EVENT
-WAITING_MANUAL
+WAITING
 PAUSE_REQUESTED
 PAUSED
 RECOVERING
+MANUAL_TAKEOVER
 COMPLETED
 FAILED
 CANCEL_REQUESTED
 CANCELLED
-MANUAL_TAKEOVER
 ```
+
+`WAITING` 使用独立 `wait_reason` 表达 `RUNTIME`、`COLLABORATION`、`REVIEW`、`CONFIRMATION`、`USER_INPUT`、`EXTERNAL_EXECUTION`、`EVENT` 和 `MANUAL`。等待原因只在主状态为 `WAITING` 时存在。暂停与取消请求保存请求类型、请求 Principal、发生时间和规范化原因；完成、失败和取消使用独立终态事实保存决定人、决定时间和安全失败分类。
 
 TaskExecution 主状态迁移：
 
 ```text
 CREATED -> READY -> CLAIMED -> PREPARING -> RUNNING -> COMPLETED
-READY -> WAITING_RUNTIME -> READY
+READY -> WAITING(RUNTIME) -> READY
 RUNNING -> FAILED
-RUNNING -> WAITING_* -> READY
+RUNNING -> WAITING(reason) -> READY
 RUNNING -> PAUSE_REQUESTED -> PAUSED -> READY
 CLAIMED / PREPARING / RUNNING -> RECOVERING -> READY
-RUNNING / WAITING_* / PAUSED -> CANCEL_REQUESTED -> CANCELLED
-RUNNING / WAITING_* -> MANUAL_TAKEOVER -> COMPLETED / FAILED / CANCELLED
+CREATED / READY / CLAIMED / PREPARING / RUNNING / WAITING / PAUSE_REQUESTED / PAUSED / RECOVERING / MANUAL_TAKEOVER
+  -> CANCEL_REQUESTED -> CANCELLED
+RUNNING / WAITING -> MANUAL_TAKEOVER -> COMPLETED / FAILED / CANCEL_REQUESTED
 ```
 
-状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。`CLAIMED` 表示 Worker 获得短期领取权，`PREPARING` 表示准备当前里程碑已经接通的 Runtime 资源：M3 包含 Task Token、Skill Bundle 和 Agent Session，M4 再增加 ExecutionWorkspace、Worktree 与 Sandbox。`RECOVERING` 表示租约过期后的恢复判定。TaskExecution 终态不可逆；失败重试创建带 `parent_execution_id` 的新 TaskExecution，Task 继续关联当前有效尝试；已发送 Action 在 Task 取消后继续进入 Reconcile。
+状态迁移由 Application Service 执行，携带期望版本、Actor、原因和幂等键。`CLAIMED` 表示 Worker 获得短期领取权；TaskExecution 保存最后已提交的 `last_fencing_token`，每次 `READY -> CLAIMED` 在 Claim 事务中严格递增一次。`PREPARING` 表示准备当前里程碑已经接通的 Runtime 资源：M3 包含 Task Token、Skill Bundle 和 Agent Session，M4 再增加 ExecutionWorkspace、Worktree 与 Sandbox。`RECOVERING` 表示租约过期后的恢复判定。调度优先级为独立的 `0..100` 整数，和 WorkItem 产品优先级分离；`not_before` 控制最早可领取时间。TaskExecution 终态不可逆；失败只保存稳定失败类别和安全错误码，不保存原始异常或 Provider 响应。失败重试必须从 Task 当前指向的可重试失败尝试创建，严格形成 `attempt + 1` 的单链并继承 `max_attempts`；Task 再切换到新尝试，旧尝试保持不可变终态。已发送 Action 在 Task 取消后继续进入 Reconcile。
 
 ### 12.2 Step 状态
 
@@ -1949,16 +1949,7 @@ RUNNING / WAITING_* -> MANUAL_TAKEOVER -> COMPLETED / FAILED / CANCELLED
 PENDING
 READY
 RUNNING
-WAITING_AGENT_INTERRUPT
-WAITING_COLLABORATION
-WAITING_REVIEW
-WAITING_HANDOFF
-WAITING_TAKEOVER
-WAITING_CONFIRMATION
-WAITING_EXTERNAL_EXECUTION
-WAITING_EVENT
-WAITING_USER_INPUT
-WAITING_MANUAL
+WAITING
 SUCCEEDED
 FAILED_RETRYABLE
 FAILED_FINAL
@@ -1966,7 +1957,7 @@ SKIPPED
 CANCELLED
 ```
 
-Step 从任一明确 `WAITING_*` 状态返回 `READY` 后重新校验所属 TaskExecution 的有效 Lease、Claim Token、Fencing Token 和版本，不单独获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。TaskExecution 根据关键 Step、可选 Step 和补偿结果计算尝试终态，Task 再根据当前有效尝试计算业务状态。
+`WAITING` 使用独立 `wait_reason` 表达 `AGENT_INTERRUPT`、`COLLABORATION`、`REVIEW`、`HANDOFF`、`TAKEOVER`、`CONFIRMATION`、`EXTERNAL_EXECUTION`、`EVENT`、`USER_INPUT` 和 `MANUAL`。Step 返回 `READY` 后重新校验所属 TaskExecution 的有效 Lease、Claim Token、Fencing Token 和版本，不单独获取租约。`FAILED_RETRYABLE` 根据重试策略返回 `READY`，超过次数进入 `FAILED_FINAL`。非关键 Step 可以在 `PENDING` 或 `READY` 跳过；关键 Step 必须执行。TaskExecution 根据关键 Step、可选 Step 和补偿结果计算尝试终态，Task 再根据当前有效尝试计算业务状态。
 
 ### 12.3 Action 状态
 
@@ -2002,21 +1993,36 @@ CONFIRMED -> REVOKED / EXPIRED
 ### 12.4 AgentRun 状态
 
 ```text
-CREATED
-STREAMING
-INTERRUPTED_CONFIRMATION
-INTERRUPTED_EXTERNAL_TOOL
-INTERRUPTED_SHUTDOWN
-WAITING_ASYNC_RESULT
-WAITING_COLLABORATION
-WAITING_REVIEW
-WAITING_HANDOFF
-WAITING_TAKEOVER
-RESUMING
-SUCCEEDED
+RUNNING
+INTERRUPTED
+COMPLETED
 FAILED
 CANCELLED
 ```
+
+M2 Conversation `AgentRuntimeSession` 固定 Personal Agent、Conversation、Owner 和 AgentProfile。M3 增加 Task-side Session，支持：
+
+- `TASK`：绑定 Task、TaskExecution、Team Agent 和 Team AgentProfile；
+- `STEP`：增加 StepExecution 绑定，并要求 Step 固化的执行 Principal 与 Agent 一致；
+- `SPECIALIST`：增加 StepExecution 绑定，并要求 Specialist Principal 与 Specialist AgentProfile 一致。
+
+Task-side Session ID、AgentScope `userId/sessionId` 和 AgentState Reference 只从服务端 TaskExecution、可选 StepExecution、AgentProfile 和 Agent Principal 派生。相同事实重试得到相同 Session，不接受请求提供的运行时坐标。确定性初始化命中既有 ID 时，Repository 必须重新比对 Scope、Task、TaskExecution、StepExecution、Session Purpose、Agent Principal、AgentProfile ID、AgentScope Key 和 AgentState Reference 等不可变身份坐标；任一坐标不一致都按确定性 ID 碰撞失败关闭。AgentProfile Version、Session Status、乐观锁 Version 和审计信息属于可变状态，不参与初始化身份比较。Session 固化 AgentProfile ID 和 Version；配置刷新只前进 Version，不替换 AgentState 槽位。
+
+AgentRun 是一个跨初始调用和多次 Resume 的耐久逻辑运行。每个 TaskExecution 的 `run_sequence` 从 1 开始严格递增，同一 StepExecution 可以因重试或无法精确续接拥有多个历史 AgentRun。一个 AgentRun 包含一个或多个有限流 Segment：
+
+```text
+INVOKE   sequence=1
+RESUME   sequence=n, resumed_from_interrupt_id 必填
+RECOVERY sequence=1, continuity_gap 必填
+```
+
+Segment Sequence 从 1 连续递增，前一个 Segment 到达 `INTERRUPTED/COMPLETED/FAILED/CANCELLED` 后才能开启后一个 Segment。AgentRun 只有 `RUNNING` 可以提交完成、失败或取消终态；终态与最后一个 Segment 同时提交并保持不可变。更细的 Planning、Streaming、External Tool、Async、Collaboration、Review、Handoff 和 Takeover 阶段由 Segment、AgentInterrupt、TaskExecution、StepExecution 及协作事实投影，不固化为 AgentRun 枚举。
+
+AgentInterrupt 绑定一个 AgentRun 的一个 Segment。数据库对每个 AgentRun 建立 Pending 部分唯一约束。平台只保存 Interrupt Token Hash；Resume 保存全局唯一 `resume_request_id`、规范回答 Hash、处理 Principal 和时间。相同 Resume Request 与相同回答重复提交返回已提交结果，相同 Request 对应不同回答失败关闭。Resolve 后在同一 AgentRun 开启下一个 `RESUME` Segment。
+
+RuntimeArtifact 只保存 ArtifactStore 引用、Scope、Task/Execution/Step/AgentRun 生产者坐标、类型、Content Type、大小、SHA-256、保留期和审计字段。AgentRun 终态只保存可选 RuntimeArtifact ID，不保存模型大结果、Tool 大结果、日志或 AgentState 正文。
+
+AgentStateSnapshot 保存 Session、TaskExecution、AgentRun、AgentProfile ID/Version、Agent Principal、Agent Name、AgentScope Key、Snapshot Sequence、Checkpoint Sequence、RuntimeArtifact ID、大小和 SHA-256。Snapshot 内容固定使用 `application/vnd.crewscope.agent-state-snapshot+json`，大小为 1 byte 至 8 MiB。新 Snapshot 进入 `CURRENT`，旧 Current 进入 `SUPERSEDED` 并继续作为回退候选；损坏候选进入 `INVALID`。同一 Session 只有一个 Current Snapshot。
 
 ### 12.5 协作状态
 
@@ -2070,28 +2076,33 @@ CollaborationRequest 撤回或过期时立即撤销对应 CollaborationGrant。C
 
 TaskExecution 使用 PostgreSQL 作为耐久队列事实源。Worker 按优先级、可运行时间和创建时间排序，在事务内完成候选选择、运行时能力匹配、并发配额检查和 Claim：
 
-MVP 采用 TaskExecution 级 Lease。一个 Worker 在一次有效 Lease 内串行驱动该 TaskExecution 的 StepExecution；StepExecution 使用状态、检查点和乐观锁，不单独 Claim 或续租。Phase 2 引入并行 Step 时再增加独立 Step Lease 协议，TaskExecution Lease 与 Step Lease 使用不同表意和条件更新。
+MVP 只采用 TaskExecution 级 Lease。一个 Worker 在一次有效 Lease 内串行驱动该 TaskExecution 的 StepExecution；StepExecution 使用状态、检查点和乐观锁，不单独 Claim 或续租。Phase 2 引入并行 Step 时再增加独立 Step Lease 协议，TaskExecution Lease 与 Step Lease 使用不同表意和条件更新。
 
 ```text
 READY
   -> SELECT ... FOR UPDATE SKIP LOCKED
   -> 校验 RuntimeCapabilities / Agent 配额 / Team 配额
-  -> 生成 claim_token_hash / 单调 fencing_token
-  -> 写入 runtime_id / worker_id / lease_expires_at
+  -> 递增 TaskExecution.last_fencing_token
+  -> 生成 Claim Token，只保存 claim_token_hash
+  -> 创建绑定当前 Fencing Token 的 PREPARE Lease
   -> CLAIMED
 ```
 
 调度规则：
 
-1. Claim Token 是本次领取的一次性随机值，数据库仅保存哈希；Fencing Token 在每次重新领取或接管时单调递增，续租不改变；
-2. Worker 调用 Start、Heartbeat、Progress、Complete 和 Fail 时同时校验 `task_execution_id + attempt + claim_token_hash + fencing_token + expected_version`；
-3. `PREPARING` 使用独立短租约；M3 准备 Runtime、Task Token、Skill Bundle 和 Agent Session，M4 接入后再准备 Sandbox、Worktree 与 ExecutionWorkspace；
-4. `RUNNING` 使用可续租约，Worker 按固定间隔更新 `last_heartbeat_at` 和 `lease_expires_at`；
-5. Complete、Fail、Cancel 与 Lease Sweeper 使用条件更新处理终态竞争；
-6. 租约过期后进入 `RECOVERING`，先对账 AgentRun、ExecutionWorkspace 和 PlannedAction，再决定续租、重新排队、创建后继尝试或转人工；
-7. RetryPolicy 保存 `attempt`、`max_attempts`、`parent_execution_id`、`failure_class`、退避和可恢复条件；
-8. Runtime 及 Agent 的并发上限由数据库运行事实与定期 Reconcile 共同维护；
-9. Claim Token 明文只返回一次，不进入数据库、日志、事件、Artifact 和查询 API；旧 Fencing Token 不能提交 Step、AgentRun、检查点或 TaskExecution 结果。
+1. Claim Token 是本次领取的一次性随机值，明文只进入领取成功后的一次性 `ClaimReceipt`，数据库仅保存 SHA-256 Hash；
+2. TaskExecution 是 Fencing Epoch 的唯一事实源，每次 Claim 在同一事务递增 `last_fencing_token`；ExecutionLease 只绑定当前已提交纪元，不分配 Fencing Token，续租不更换纪元；
+3. Worker 调用 Start、Heartbeat、Progress、Complete 和 Fail 时同时校验 `task_execution_id + attempt + runtime_id + worker_id + claim_token_hash + fencing_token`，并使用直接修改事实的 `expected_version`；
+4. `PREPARE` Lease 的单次 TTL 为 5 秒至 15 分钟，覆盖 M3 的 Runtime、Task Token、Skill Bundle 和 Agent Session 准备；M4 再接入 Sandbox、Worktree 与 ExecutionWorkspace；
+5. `RUN` Lease 的单次 TTL 为 5 秒至 10 分钟；Heartbeat 只更新 `ExecutionLease.last_heartbeat_at`、`expires_at` 和 Lease Version，不更新 TaskExecution Version，不改变 Runtime、Worker、Claim Token Hash 或 Fencing Token；
+6. 权威数据库时间满足 `now >= expires_at` 时 Lease 立即过期，过期 Sweeper 提交 `status=RELEASED + release_reason=EXPIRED` 的唯一释放事实并使 TaskExecution 进入 `RECOVERING`；Lease 状态只表达是否仍持有所有权，具体终止语义由 Release Reason 表达；
+7. 显式释放原因为 `COMPLETED/FAILED/CANCELLED/PAUSED/WAITING/MANUAL_TAKEOVER/WORKER_SHUTDOWN`，原因必须与 TaskExecution 结果状态闭合；显式释放与过期释放是互斥终态；
+8. Claim 在一个事务中提交 `READY -> CLAIMED`、Fencing Token 递增和 `PREPARE` Lease；Complete、Fail、Cancel、Wait、Pause 在一个事务中提交 TaskExecution 结果与 Lease 释放；
+9. 租约过期后先对账 AgentRun、ExecutionWorkspace 和 PlannedAction，再决定重新排队、创建后继尝试或转人工；
+10. RetryPolicy 保存 `attempt`、`max_attempts`、`parent_execution_id`、`failure_class`、退避和可恢复条件；Runtime 及 Agent 的并发上限由数据库运行事实与定期 Reconcile 共同维护；
+11. Claim Token 明文不进入数据库、日志、事件、Artifact 和查询 API；旧 Fencing Token 不能提交 Step、AgentRun、检查点或 TaskExecution 结果。
+
+Claim、Lease Sweeper 和 Credential Sweeper 的 `FOR UPDATE SKIP LOCKED` 查询都只是所在事务的一部分。调用方必须在同一个外层事务中完成“锁定候选、按数据库权威时间重新校验、条件状态迁移和提交”；Repository 不允许把已锁定的领域对象返回到事务外再执行终止写入。不同 Sweeper 事务通过 `SKIP LOCKED` 分摊批次，版本与完整 Owner 谓词继续裁决 Sweeper、Heartbeat 和显式终态之间的竞争。
 
 TaskExecution Claim 返回范围化执行快照：
 
@@ -2132,13 +2143,21 @@ MVP 的一个 OIDC 部署实例通过 `CREWSCOPE_OIDC_ORGANIZATION_ID` 绑定一
 
 ### 12.8 任务级身份
 
-Claim 完成后由 Credential Service 签发短期 Task Token。Token 绑定：
+Claim 完成后由 Credential Service 签发 5 秒至 15 分钟的 Task Token，Token 有效期不超过当前 ExecutionLease。`TaskTokenClaims` 与数据库中的 `TaskCredentialGrant` 共享同一个不可变 `TaskTokenGrantScope`，签发边界逐字段验证两者闭合。Token 绑定：
 
-- Organization、Team、Workspace、TaskExecution 和 StepExecution；
-- Principal、Initiator、ResponsibilitySnapshot 和委托用户；
-- Runtime、Worker、ProviderBinding、ConnectionGrant 和资源范围；
-- Tool、路径、命令、网络、动作类型和有效期；
-- PolicySnapshot、SafetyEnforcementOverlay 版本和 Claim Token 引用。
+- Organization、Team、Workspace、WorkProject、Task、TaskExecution 和 attempt；
+- ExecutionLease、RuntimeEnvironment、Runtime、Worker、Claim Token Hash 和 Fencing Token；
+- Execution Principal、Executor ResponsibilitySnapshot 引用、PolicySnapshot ID/Hash 和 SafetyEnforcementOverlay ID/Version/Hash；
+- Tool 集合，以及 ProviderBinding Version、ConnectionGrant ID/Version、Capability 和显式资源集合；
+- 固定 Audience、TaskCredentialGrant ID、JTI、签发时间和过期时间。
+
+TaskExecution 级 Task Token 作为 M3 Runtime 的基础授权。StepExecution、PlannedAction、路径、命令、网络和动作类型在后续执行边界与该基础授权再求交集。
+
+JTI 使用 43–128 位 Base64URL 安全值。明文 JTI 只进入一次性 `TaskCredentialIssuance` 和受信签名边界，持久化只保存 SHA-256 Hash。JTI、JTI Hash、Claim Token Hash、Tool 和 Provider 资源不进入字符串输出。
+
+签发只接受当前 PolicySnapshot 允许且 SafetyEnforcementOverlay 未禁用的 Tool。Provider 授权只接受当前 PolicySnapshot 中的 ACTIVE Binding，Binding Scope 与 Task Scope 闭合，Capability 和显式资源集合是 `effectiveAccess` 的最小子集。全资源范围不能进入 Task Token。
+
+每次 Token 使用校验 Grant 为 ACTIVE、Grant/Claims 闭合、当前 Lease ID 与所有权全坐标一致、Lease 有效、Grant Version 一致，并校验 Tool 和可选 ProviderBinding/Capability/Resource 请求。授权成功使用时前进 useCount、lastUsedAt 和 Version。`ACTIVE -> REVOKED` 与 `ACTIVE -> EXPIRED` 为互斥终态，权威时钟满足 `now >= expiresAt` 时进入过期边界。Policy、Safety、Binding、ConnectionGrant 或 Lease 变更触发当前 Grant 撤销或原子轮换。
 
 Runtime 向 Agent 注入 Task Token，Provider 和 Connector 使用 Token 换取当前动作需要的短期访问能力。Runtime 凭证、Worker 服务凭证和用户长期 OAuth Token 不进入 Agent 环境。Task Token 缺失、过期、与 Claim 不匹配或范围不足时，写任务终止并生成安全审计事件。
 
@@ -2181,6 +2200,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 
 - RedisDistributedStore 优先恢复 AgentState、MessageBus、Workspace 运行态和子 Agent 绑定；
 - PostgreSQL 中的 Message、PlanVersion、Task、Step、Action、Receipt 与对象存储中的 AgentStateSnapshot 提供二级恢复；
+- PostgreSQL 按 Checkpoint Sequence 降序提供 `CURRENT/SUPERSEDED` Snapshot 候选，恢复器逐个校验 Session、Run、Agent、AgentScope Key、大小和 SHA-256；
 - Pending Tool Recovery 只在进程恢复后开始新 Turn、需要收敛孤立 ToolCall 时开启，为其补充合成错误结果；
 - 正在等待 Permission ASK 的 Conversation 保持原生 Pending Tool，并通过 `ConfirmResult` 恢复，恢复前不开启孤立 ToolCall 修复；
 - External Tool 恢复先读取 PlannedAction、Confirmation 和 ActionReceipt；
@@ -2191,7 +2211,7 @@ Kubernetes 执行拓扑进入后续里程碑，采用专用 Execution Worker Dae
 - Handoff 与 Takeover 接收者使用新的 ResponsibilityAssignment、后继 PolicySnapshot、当前 ConnectionGrant 和 Agent Session 恢复；
 - ReviewRequest 从固化的 Plan、Contribution、Artifact 和 Evidence 版本恢复。
 - Coding Agent 从 PriorSession、ExecutionWorkspace、基线 Commit、当前 Diff、测试证据和未完成 Todo 恢复；
-- Session 无法精确续接时，新 AgentRun 显式记录 continuity gap，基于已提交领域事实和 Worktree 状态继续。
+- Session 无法精确续接时，旧 AgentRun 先收敛到终态，新 AgentRun 以 `RECOVERY` Segment 启动并记录前一 Run、最后有效 Snapshot、缺失 Checkpoint 区间、稳定原因码和检测时间；后续执行基于已提交领域事实和 Worktree 状态继续。
 
 ### 12.12 取消流程
 
@@ -2241,7 +2261,7 @@ Task 创建时生成可复现的初始 PolicySnapshot。PlanVersion 改变能力
 EffectivePolicy = PolicySnapshot ∩ SafetyEnforcementOverlay
 ```
 
-SafetyEnforcementOverlay 只收紧运行权限，承载 TeamMember 停用、Connection 与凭证撤销、ProviderBinding 禁用、Plugin Kill Switch、资源封禁、模型停用和紧急工具禁用。AgentScope 的模型参数、ToolGroup、SkillFilter 和 Subagent 配置由 AgentProfile、TeamRole、ResponsibilityAssignment、CollaborationGrant、ProviderBinding、ConnectionGrant、PolicySnapshot 与当前安全覆盖共同生成。
+SafetyEnforcementOverlay 只收紧运行权限，每个版本保存直接父版本 Hash，承载 TeamMember 停用、Connection 与凭证撤销、ProviderBinding 禁用、Plugin Kill Switch、资源封禁、模型停用和紧急工具禁用。TaskExecution 只能从当前 Overlay 切换到直接后继版本，切换后清空当前 Plan。AgentScope 的模型参数、ToolGroup、SkillFilter 和 Subagent 配置由 AgentProfile、TeamRole、ResponsibilityAssignment、CollaborationGrant、ProviderBinding、ConnectionGrant、PolicySnapshot 与当前安全覆盖共同生成。
 
 ### 13.2 风险等级
 
@@ -2384,6 +2404,10 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 
 V7 为 Conversation、Participant、Message、TaskIntent、ConversationWorkItemLink、AgentRuntimeSession、ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 建立真实数据表。V8 增加 Conversation Event 耐久流。V9 为既有完整 ACTIVE Team 注册 NativeWorkItem Definition/Implementation，并向默认 ACTIVE Team Workspace 补齐唯一默认 connectionless Binding；迁移遇到稳定 Key 或稳定 ID 与产品契约冲突时失败关闭。所有 Team 业务关系使用 Organization、Team、Workspace 复合外键；Provider 授权关系使用 Organization、Owner、Definition、Implementation、Connection 和 Grant 复合外键。消息序号、客户端消息键、active Participant、active AgentRuntimeSession、确认 WorkItem 和 active 默认 Binding 由唯一约束完成并发裁决。
 
+V10 建立耐久 Task Runtime 的关系事实。Task、TaskExecution、StepExecution、PlanVersion、PolicySnapshot、SafetyEnforcementOverlay、责任快照、ExecutionRuntime、RuntimeWorker、ExecutionLease、TaskCredentialGrant、AgentRun、AgentInterrupt、RuntimeArtifact 和 AgentStateSnapshot 都保存完整 Scope 坐标。复合外键关闭跨 Organization、Team、Workspace、WorkProject、Task 和 TaskExecution 的关联；部分唯一索引裁决单活动 Lease、TaskCredentialGrant、Task-side Session、AgentRun、Pending Interrupt 和 Current Snapshot。READY 队列、Lease 过期、Worker 路由和 Snapshot 恢复使用专用索引。Claim Token、Interrupt Token 和 Task Token JTI 只保存 SHA-256 Hash。AgentRun Segment 使用独立子表保存有限流序号和 Resume 证据。MVP 不建立 Step Lease 表。
+
+V10 将 V7 `agent_runtime_session` 扩展为统一 Session 表。`PERSONAL` 形状保留 Conversation、Owner、Personal Agent 和原 AgentScope Key；`TASK/STEP/SPECIALIST` 形状使用 Task、TaskExecution、可选 Step、Agent Principal 和 AgentProfile 版本。Check Constraint 保证两类绑定互斥，迁移为既有 Personal Session 回填通用 Agent 身份和 `PERSONAL` Purpose。
+
 AgentRuntimeSession 和 ProviderBinding 保存依赖聚合的版本快照。数据库外键约束稳定身份和 Scope，不把快照版本引用到可变聚合的当前版本；AgentProfile、ProviderDefinition、ProviderImplementation、Connection 或 ConnectionGrant 可以正常推进版本，读取 Session 或 Binding 时由服务端比较快照与当前版本并失败关闭。
 
 M2 持久化适配使用标量 UUID Entity 和显式 Organization、Team、Workspace 查询条件，不建立可隐式跨 Scope 导航的 ORM 关联。可变聚合通过版本条件原子更新；消息追加先锁定 Conversation 行再分配序号；TaskIntent 确认同时写入唯一 WorkItem 关联并要求数据库当前状态仍为 READY；AgentRuntimeSession 初始化锁定 Conversation 并将所有并发候选收敛为同一已提交绑定。Conversation 与 Message 列表使用 Keyset 分页，ProviderBinding 候选查询只返回当前 Scope、Owner、ProviderType 和目标层级内的 ACTIVE 事实，优先级与歧义裁决由只读 BindingResolver 完成。ConversationWorkItemLink 支持按 Conversation 和 WorkItem 双向查询；应用层在返回关联摘要前分别执行 Conversation 与 WorkItem 当前可见性策略，并将不可发现的 PRIVATE Conversation 从 WorkItem 反向结果中隐藏。任何跨 Organization、Team、Workspace、Conversation、WorkProject 或 WorkItem Scope 的持久化结果都失败关闭。
@@ -2475,10 +2499,10 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 |---|---|
 | `task_definition` | 定义键、版本、输入输出 Schema、步骤图和发布状态 |
 | `task` | Team、Workspace、WorkItem、目标、类型、策略、Owner、可见性和关联 ID |
-| `task_execution` | 执行尝试、父尝试、PlanVersion、PolicySnapshot、责任快照、Runtime、状态、预算、失败分类和恢复信息 |
+| `task_execution` | 执行尝试、父尝试、PlanVersion、PolicySnapshot、责任快照、状态、调度、最后已提交 Fencing Token、预算、失败分类和恢复信息 |
 | `step_execution` | 步骤类型、Executor、Runtime、状态、输入输出、错误、检查点和 Agent 会话 |
-| `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、单调 Fencing Token、租约期限、Heartbeat、续租和释放信息；MVP 不创建 Step Lease |
-| `task_credential_grant` | TaskExecution、Principal、Runtime、Provider/Tool/资源范围、Token JTI Hash、签发、过期、撤销和使用状态 |
+| `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、当前 Fencing Token、`PREPARE/RUN` Phase、获取/心跳/过期时间、Lease Version 和互斥释放事实；MVP 不创建 Step Lease |
+| `task_credential_grant` | Organization/Team/Workspace/WorkProject、Task/TaskExecution/attempt、ExecutionLease 全坐标、Execution Principal、Policy/Safety 版本、ProviderBinding/ConnectionGrant/Tool/显式资源范围、Token JTI Hash、签发/过期时间、ACTIVE/REVOKED/EXPIRED、useCount、lastUsedAt、终止事实、乐观锁和审计字段 |
 | `execution_workspace` | TaskExecution、仓库、分支、基线 Commit、Worktree、Sandbox、状态、归档和清理信息 |
 | `task_input_message` | 触发消息、Thread、作者、合并批次、执行处理状态和结果引用 |
 | `plan_version` | 候选来源、结构化计划、校验、确认、父版本和差异 |
@@ -2487,9 +2511,9 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 
 | 表 | 核心内容 |
 |---|---|
-| `agent_runtime_session` | `PERSONAL/TEAM/TASK/STEP/CONTRIBUTION/SPECIALIST` 运行类型、Owner、配置版本、userId、sessionId 和状态引用 |
-| `execution_runtime` | `AGENTSCOPE_NATIVE/EXTERNAL_CODING`、实现版本、能力、运行位置、健康、所有者、可见性和并发上限 |
-| `runtime_worker` | Runtime、Worker Instance、Profile、能力、状态、Heartbeat、容量和当前负载 |
+| `agent_runtime_session` | V10 实现 `PERSONAL/TASK/STEP/SPECIALIST` 互斥形状、Owner/任务绑定、Agent 与配置版本、userId、sessionId 和状态引用；`TEAM/CONTRIBUTION` 在对应领域引入时扩展 |
+| `execution_runtime` | Organization、RuntimeEnvironment、stable runtime key、显示名、实现版本、能力快照、`ACTIVE/DISABLED/ARCHIVED` 状态、乐观锁和审计字段 |
+| `runtime_worker` | Organization、RuntimeEnvironment、Runtime、stable worker key、`ALL/WORKER` Profile、能力快照、`REGISTERED/ACTIVE/DRAINING/DISABLED` 状态、Heartbeat 时间/序号、最大并发数、当前负载、乐观锁和审计字段 |
 | `agent_run` | Team、发起成员、执行身份、责任、协作请求、输入输出、模型、成本、状态和 Trace |
 | `agent_interrupt` | Interrupt 类型、ToolCall、Action、Confirmation、Resume 和时间 |
 | `agent_state_snapshot` | Agent Session、检查点版本、对象存储引用、哈希、创建时间和保留期限 |

@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2 已完成；M3-S01、M3-S02、M3-S03 已完成，下一项为 M3-D01（2026-08-13）
+> 当前进度：M0、M1、M2 已完成；M3-S01 至 M3-S03、M3-D01 至 M3-D09 已完成，下一项为 M3-I01（2026-08-14）
 
 ## 1. 实施目标
 
@@ -374,8 +374,11 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - Task 业务生命周期、TaskExecution 执行尝试、StepExecution 和 PlanVersion；
 - ConversationTaskLink，将已有 Conversation 与 M3 Task 建立受外键约束的多对多关联；
 - ExecutionRuntime、RuntimeWorker 和 RuntimeCapabilities；
-- TaskExecution 级 ExecutionLease、TaskCredentialGrant 和 AgentRuntimeSession；
-- AgentRun、AgentInterrupt 和 AgentStateSnapshot；
+- ExecutionRuntime Registry 使用 `Organization + RuntimeEnvironment + runtimeKey` 稳定隔离，RuntimeWorker 使用 Runtime 内 stable key 稳定识别；
+- Worker 只在 Runtime 与 Worker 都为 ACTIVE、心跳未过期、容量可用、能力匹配且 Organization/环境/Runtime 谱系闭合时可被路由；
+- `DRAINING` 保留在途负载并停止新 Claim，心跳失联由 `lastHeartbeatAt + timeout` 派生，不覆盖显式 Worker 状态；
+- TaskExecution 级 ExecutionLease、TaskCredentialGrant，以及 TASK、STEP、SPECIALIST TaskAgentRuntimeSession；
+- AgentRun、有限流 Segment、AgentInterrupt、RuntimeArtifact 和 AgentStateSnapshot；
 - `V10__durable_task_runtime.sql`；
 - READY 队列索引、过期租约索引与终态条件约束。
 
@@ -386,6 +389,9 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - StepExecution 使用状态、检查点和乐观锁，不独立 Claim、续租或创建 Step Lease；
 - 实现 RuntimeCapabilities、Agent 配额与 Team 配额匹配；
 - 生成一次性 Claim Token 和单调 Fencing Token，数据库只保存 Claim Token 哈希；
+- TaskExecution 保存最后已提交 Fencing Token，每次 Claim 在同一事务中严格递增；ExecutionLease 绑定该纪元并不能自行分配 Fencing Token；
+- Worker 命令使用 `TaskExecution + attempt + Runtime + Worker + ClaimTokenHash + FencingToken` 完整所有权坐标，任意一项不一致都失败关闭；
+- PREPARE 和 RUN 使用有上下界的独立 Lease 时长，Heartbeat 只递增 Lease Version，不改写 TaskExecution Version；
 - 实现 `CLAIMED -> PREPARING -> RUNNING` 和 Prepare/Run Lease；M3 的 PREPARING 负责 Runtime、Task Token、Skill Bundle 与 Agent Session，ExecutionWorkspace 在 M4 接入；
 - 实现 Heartbeat、Progress、Complete、Fail 和 Cancel 条件更新；
 - 实现 Lease Sweeper、`RECOVERING` 与失败分类；
@@ -396,9 +402,12 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 
 ### 9.4 Task Token
 
-- 使用短时 JWT 或等价签名 Token，包含 JTI、TaskExecution、Principal、Runtime 与范围；
-- 数据库保存 TaskCredentialGrant 和 JTI Hash；
-- 实现过期、撤销、Claim 不匹配与范围不足检查；
+- 使用 5 秒至 15 分钟的 JWT 或等价签名 Token，且有效期不超过当前 ExecutionLease；
+- `TaskTokenClaims` 与 `TaskCredentialGrant` 共享同一 `TaskTokenGrantScope`，闭合 Organization、Team、Workspace、Task、TaskExecution、attempt、Lease、Runtime、Worker、Claim Token Hash、Fencing Token、Execution Principal、PolicySnapshot 和 SafetyEnforcementOverlay；
+- 数据库保存 TaskCredentialGrant 和 SHA-256 JTI Hash，明文 JTI 只进入一次性签发结果与受信签名边界；
+- Provider 授权固化活动 ProviderBinding 的 Version、ConnectionGrant ID/Version、Capability 和显式资源最小子集；
+- 每次使用检查 Grant/Claims 闭合、当前 Lease 全坐标、Tool、ProviderBinding、Capability、Resource、过期、撤销和 Grant Version；
+- `ACTIVE -> REVOKED/EXPIRED` 为互斥终态，授权使用只前进 useCount、lastUsedAt 和 Version；
 - Agent 环境只注入 Task Token；
 - Runtime 凭证与用户长期凭证禁止进入 Agent 环境；
 - Token 不可用时将当前 TaskExecution 转入安全失败并生成 AuditEvent。
@@ -768,7 +777,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 - [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
 
-M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，下一项为 `M3-D01`。
+M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，`M3-D01` 已完成 Task 业务聚合、来源、责任快照和 Conversation 关联契约，`M3-D02` 已完成 TaskExecution 尝试状态机、调度、等待、控制请求、失败分类和单链重试契约，`M3-D03` 已完成 Step、PlanVersion、PolicySnapshot、SafetyEnforcementOverlay、执行 Principal、Todo 和检查点契约，`M3-D04` 已完成 Runtime Registry、Worker 稳定身份、能力、容量、状态、心跳和跨边界路由契约，`M3-D05` 已完成 TaskExecution Lease、Claim Token/Hash、Fencing Token、Prepare/Run Lease、Heartbeat、过期和释放契约，`M3-D06` 已完成 TaskCredentialGrant、TaskTokenClaims、JTI Hash、最小 Provider/Tool/资源范围、签发、使用、撤销和过期契约，`M3-D07` 已完成 Task-side AgentRuntimeSession、AgentRun/Segment、AgentInterrupt/Resume、continuity gap、RuntimeArtifact 和 AgentStateSnapshot 契约，`M3-D08` 已完成 V10 耐久 Task Runtime 迁移、复合 Scope 外键、状态与部分唯一约束及真实 PostgreSQL 升级验证，`M3-D09` 已完成 JPA/JDBC 持久化、READY Queue、Claim/Heartbeat/Sweeper 条件更新、Keyset Cursor、外层锁事务、过期释放、确定性 Session 身份与事务回滚验证，下一项为 `M3-I01`。
 
 M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 

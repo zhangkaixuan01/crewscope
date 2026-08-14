@@ -2,6 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-09<br>
+> 更新：2026-08-14（M3-D07 固化耐久 AgentRun、Segment 与 Resume 事实）<br>
 > 影响里程碑：M2–M6<br>
 > 关联决策：[ADR-009 会话执行所有权与恢复协议](ADR-009-会话执行所有权与恢复协议.md)
 
@@ -68,6 +69,21 @@ SESSION_STATE
 ```
 
 Plan、Sandbox、Worktree、Subagent、Memory、External Tool 与 Distributed State 在相应生产边界完成后逐项加入可用能力。运行时描述固定实现 ID、显示名和版本，AgentScope Profile 固定为 `agentscope-java-native / AgentScope Java / 2.0.0`。
+
+M3 将 `RuntimeCapabilities` 下沉到 Domain，增加语言与构建系统维度，M2 调用 Port、M3 Registry/Worker 和后续 Scheduler/Policy 共用同一能力词汇。`io.crewscope.application.execution.ExecutionRuntime` 仍是调用型 Application Port；`io.crewscope.domain.runtime.ExecutionRuntime` 是 Organization 和环境隔离的可持久 Registry 事实。两者通过稳定 runtime key、实现版本和能力快照关联，保持调用协议与部署注册生命周期独立。
+
+### M3 耐久运行事实
+
+M2 Conversation Invocation 继续使用进程内 Registry 和 Conversation Session。M3 Task Runtime 增加独立的耐久事实：
+
+- Task-side AgentRuntimeSession 使用 `TASK/STEP/SPECIALIST` 目的闭合 Task、TaskExecution、可选 StepExecution、Agent Principal 和版本化 AgentProfile；
+- AgentRun 表示跨初始调用与多次 Resume 的逻辑运行，每个有限 `ExecutionHandle` 映射为一个连续编号的 Segment；
+- 初始调用使用 `INVOKE` Segment，Resume 使用携带原 Interrupt ID 的 `RESUME` Segment，无法精确续接的新 Run 使用携带 continuity gap 的 `RECOVERY` Segment；
+- AgentInterrupt 保存 Pending 状态、Interrupt Token Hash 和幂等 Resume Receipt，不保存 Token 明文或回答正文；
+- AgentRun 终态与最后 Segment 同时提交，完成、失败和取消终态不可再次修改；
+- 大结果和 AgentState 通过 RuntimeArtifact 引用，PostgreSQL 运行事实不保存大正文。
+
+同一 AgentRun 只有一个 Pending AgentInterrupt。Resume Request ID 全局唯一；相同 Request ID 和相同规范回答 Hash 返回已提交 Resolution，相同 Request ID 对应不同 Hash 失败关闭。D07 只固定领域与 Repository Port，Task Execution Request、Handle 和耐久事件映射在 M3-I05/I07 接入。
 
 ## 结果
 

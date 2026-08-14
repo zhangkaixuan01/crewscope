@@ -95,4 +95,4 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M2：Conversation 与 Personal Agent](M2-Conversation与Personal-Agent.md)
 - [M3：耐久 Task Runtime](M3-耐久Task-Runtime.md)
 
-M0、M1 和 M2 已完成。M3 已在会话、事件、TaskIntent 和 RuntimeContext 契约稳定后细化；`M3-S01`、`M3-S02`、`M3-S03` 已完成，下一项为 `M3-D01`。M4 在 M3 Runtime Release Gate、Docker Sandbox 与 Coding Agent 评测基线验证后细化。
+M0、M1 和 M2 已完成。M3 已在会话、事件、TaskIntent 和 RuntimeContext 契约稳定后细化；`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09` 已完成，下一项为 `M3-I01`。M4 在 M3 Runtime Release Gate、Docker Sandbox 与 Coding Agent 评测基线验证后细化。

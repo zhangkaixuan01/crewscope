@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
-> 更新：2026-08-07（M0-I01/I02 固化流式契约与 Filesystem 原子存储协议）<br>
+> 更新：2026-08-14（M3-D07 固化领域元数据，M3-D08 固化 V10 关系约束）<br>
 > 影响里程碑：M0、M3、M4、M6
 
 ## 背景
@@ -47,6 +47,14 @@ SHA-256 使用 64 位小写十六进制规范文本。DataClassification 使用 
 - AgentScope Sandbox Snapshot：通过 ArtifactStore Snapshot Adapter 保存；
 - PostgreSQL：保存 RuntimeArtifact 和 AgentStateSnapshot 元数据；
 - Redis：保存 AgentState 和小型短期数据。
+
+`RuntimeArtifact` 是 ArtifactStore Descriptor 在 Task Runtime 中的耐久业务引用，只保存 Artifact ID、Task/Execution/Step/AgentRun 生产者坐标、类型、Content Type、大小、SHA-256、保留期和审计字段。AgentRun、StepExecution 和 TaskExecution 结果只保存 RuntimeArtifact ID，不内联模型结果、Tool 结果、日志或 AgentState JSON。
+
+`AgentStateSnapshot` 元数据闭合 TaskExecution、AgentRun、Task-side AgentRuntimeSession、AgentProfile ID/Version、Agent Principal、Agent Name、AgentScope `userId/sessionId`、Snapshot Sequence、Checkpoint Sequence、RuntimeArtifact、大小和 SHA-256。Snapshot 内容类型固定为 `application/vnd.crewscope.agent-state-snapshot+json`，大小范围为 1 byte 至 8 MiB。
+
+同一 Session 只有一个 `CURRENT` Snapshot。发布新 Snapshot 与旧 Current 进入 `SUPERSEDED` 在一个数据库事务完成；Current 和 Superseded 都是完整恢复候选，`INVALID` 不参与恢复。候选按 Checkpoint Sequence 降序读取，较新候选缺失或损坏时回退到较早候选并记录 continuity gap。身份不匹配属于注入风险，立即失败关闭，不参与回退。
+
+V10 使用复合外键将 Snapshot 的 Task/Execution、AgentRun、Session、AgentProfile 版本、Agent Principal、AgentScope Key、RuntimeArtifact、大小和 Hash 闭合。`ux_agent_state_snapshot_current_session` 保证每个 Session 只有一个 Current，恢复索引按 Checkpoint Sequence 和 Snapshot Sequence 降序读取 Current/Superseded 候选。RuntimeArtifact 与 AgentStateSnapshot 表只保存元数据，没有内联正文列。
 
 FilesystemArtifactStore 使用同一根目录下的固定布局：
 
