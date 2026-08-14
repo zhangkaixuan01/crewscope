@@ -273,6 +273,11 @@ public class ConversationPersistenceMapper {
         row.personalAgentPrincipalId = value.personalAgentPrincipalId().value();
         row.agentProfileId = value.agentProfileId().value();
         row.agentProfileVersion = value.agentProfileVersion();
+        // Personal sessions populate both the legacy Personal columns and V10's common identity.
+        row.sessionPurpose = "PERSONAL";
+        row.agentPrincipalId = value.personalAgentPrincipalId().value();
+        row.agentPrincipalType = "PERSONAL_AGENT";
+        row.agentProfileType = "PERSONAL";
         row.agentScopeUserId = value.agentScopeKey().userId();
         row.agentScopeSessionId = value.agentScopeKey().sessionId();
         row.stateReference = value.stateReference().value();
