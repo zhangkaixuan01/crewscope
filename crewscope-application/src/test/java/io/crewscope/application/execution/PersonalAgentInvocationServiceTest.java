@@ -21,6 +21,7 @@ import io.crewscope.application.conversation.TaskIntentApplicationService;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
+import io.crewscope.domain.runtime.RuntimeCapabilities;
 import io.crewscope.domain.conversation.ConversationMessageAppend;
 import io.crewscope.domain.conversation.Message;
 import io.crewscope.domain.conversation.MessageContent;

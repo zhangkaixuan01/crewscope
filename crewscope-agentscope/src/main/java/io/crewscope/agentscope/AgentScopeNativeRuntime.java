@@ -30,7 +30,7 @@ import io.crewscope.application.execution.ExecutionInterruptKind;
 import io.crewscope.application.execution.ExecutionInterruptToken;
 import io.crewscope.application.execution.ExecutionRuntime;
 import io.crewscope.application.execution.ExecutionSegmentKind;
-import io.crewscope.application.execution.RuntimeCapabilities;
+import io.crewscope.domain.runtime.RuntimeCapabilities;
 import io.crewscope.application.execution.RuntimeDescriptor;
 import io.crewscope.application.execution.RuntimeInvocationId;
 import io.crewscope.application.execution.StructuredOutputSpec;

@@ -33,7 +33,7 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.task.AgentScopeTaskPlanningSnapshotMapper;
-import io.crewscope.application.execution.RuntimeCapability;
+import io.crewscope.domain.runtime.RuntimeCapability;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;

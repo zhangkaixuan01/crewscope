@@ -27,6 +27,8 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.runtime.RuntimeCapabilities;
+import io.crewscope.domain.runtime.RuntimeCapability;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.util.ArrayList;

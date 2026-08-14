@@ -1,8 +1,8 @@
 package io.crewscope.agentscope;
 
-import io.crewscope.application.execution.RuntimeCapabilities;
-import io.crewscope.application.execution.RuntimeCapability;
 import io.crewscope.application.execution.RuntimeDescriptor;
+import io.crewscope.domain.runtime.RuntimeCapabilities;
+import io.crewscope.domain.runtime.RuntimeCapability;
 
 /** Pinned M2 capability profile shared by the later AgentScopeNativeRuntime implementation. */
 public final class AgentScopeRuntimeProfile {

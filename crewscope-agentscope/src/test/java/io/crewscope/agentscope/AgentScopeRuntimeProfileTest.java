@@ -3,7 +3,7 @@ package io.crewscope.agentscope;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-import io.crewscope.application.execution.RuntimeCapability;
+import io.crewscope.domain.runtime.RuntimeCapability;
 import io.crewscope.application.execution.RuntimeDescriptor;
 import java.util.Set;
 import org.junit.jupiter.api.Test;

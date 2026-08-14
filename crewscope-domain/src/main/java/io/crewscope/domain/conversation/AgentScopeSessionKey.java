@@ -4,6 +4,7 @@ import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.team.TeamMemberId;
+import io.crewscope.domain.task.TaskExecutionId;
 import java.util.Objects;
 
 /** Versioned, unambiguous AgentScope {@code (userId, sessionId)} state isolation key. */
@@ -33,6 +34,23 @@ public record AgentScopeSessionKey(String userId, String sessionId) {
                 + Objects.requireNonNull(personalAgentPrincipalId, "personalAgentPrincipalId");
         String sessionId = SESSION_PREFIX
                 + Objects.requireNonNull(conversationId, "conversationId")
+                + ":"
+                + Objects.requireNonNull(runtimeSessionId, "runtimeSessionId");
+        return new AgentScopeSessionKey(userId, sessionId);
+    }
+
+    /** Builds a Task-scoped AgentScope key without accepting caller-provided runtime coordinates. */
+    public static AgentScopeSessionKey forTaskExecution(
+            OrganizationId organizationId,
+            PrincipalId agentPrincipalId,
+            TaskExecutionId executionId,
+            AgentRuntimeSessionId runtimeSessionId) {
+        String userId = USER_PREFIX
+                + Objects.requireNonNull(organizationId, "organizationId")
+                + ":"
+                + Objects.requireNonNull(agentPrincipalId, "agentPrincipalId");
+        String sessionId = SESSION_PREFIX
+                + Objects.requireNonNull(executionId, "executionId")
                 + ":"
                 + Objects.requireNonNull(runtimeSessionId, "runtimeSessionId");
         return new AgentScopeSessionKey(userId, sessionId);

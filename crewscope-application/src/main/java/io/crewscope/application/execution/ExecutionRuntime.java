@@ -1,5 +1,7 @@
 package io.crewscope.application.execution;
 
+import io.crewscope.domain.runtime.RuntimeCapabilities;
+
 import java.util.concurrent.CompletionStage;
 
 /** Framework-free Port for one logical Conversation execution and its resumable stream segments. */

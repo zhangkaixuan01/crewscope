@@ -1,6 +1,6 @@
-package io.crewscope.application.execution;
+package io.crewscope.domain.runtime;
 
-/** Routable runtime capabilities that become available only after CrewScope wires the boundary. */
+/** Routable capabilities published only after the production boundary is wired. */
 public enum RuntimeCapability {
     CONVERSATION,
     STREAMING,
