@@ -239,7 +239,7 @@ AgentScope 负责语义理解、开放式分析、计划生成、工具选择和
 
 ### 3.11 版本固化
 
-任务创建时生成初始 PlanVersion 和 PolicySnapshot，固化 Agent 配置、模型、Prompt、Plugin、Provider、Connector、Skill 和 Tool 版本。计划能力范围、责任主体或 ProviderBinding 变化时生成带父版本的新快照。每次调用和执行引用精确快照，SafetyEnforcementOverlay 实时收紧权限。
+任务创建时生成初始 PolicySnapshot 和 SafetyEnforcementOverlay，固化执行 Principal、AgentProfile、PolicyPack、ProviderBinding、能力、Tool 和预算。Task Orchestrator 生成的候选计划通过服务端校验后发布首个 PlanVersion。计划能力范围、责任主体或 ProviderBinding 变化时生成带父版本的新快照。每次调用和执行引用精确快照，SafetyEnforcementOverlay 实时收紧权限。
 
 ### 3.12 最小权限
 
@@ -1455,6 +1455,46 @@ Worker 关闭时先停止 Claim，将 RuntimeWorker 转为 `DRAINING`，等待�
 
 同一 Worker 上的 WAITING/PAUSED Segment 释放 Lease 后，Resume 在 AgentRun 不变、Segment sequence 增长、新 Lease ID 与更大 Fencing Token 同时成立时续接原 AgentScope Session。旧所有权或仍在运行的 Segment 不能重绑。AgentScope 事件流缺失 Result 时由 Runtime 补全唯一安全 `FAILED`；Pause/Cancel 与上游异常竞争时保留已接受的控制终态。
 
+M3-A01 提供 `POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/tasks`。命令要求 `Idempotency-Key` 与 WorkItem 强 `If-Match`，请求只提交成员确认的目标、验收标准、Task Orchestrator AgentProfile、可选 Conversation Message 来源和显式 ProviderBinding。服务端验证当前 Team Membership、完整 WorkItem Scope、当前 Owner/Executor 对象权限，并在 WorkItem 责任锁内重读版本、责任链、Agent Principal/Profile、ProviderBinding、Connection 和 ConnectionGrant。
+
+同一事务依次创建不可变 TaskBrief、Task、责任快照、首个 TaskExecution、初始 PolicySnapshot、SafetyEnforcementOverlay、可选 ConversationTaskLink、`TASK_DELEGATED_TO_AGENT` DomainEvent、Outbox、Conversation Event 和 CommandReceipt，再将 TaskExecution 发布为 READY、Task 切换为 ACTIVE。任何事实失效或写入失败都回滚完整创建图。TaskBrief 独立保存目标与有序验收标准，并使用规范 SHA-256 固化内容，后续 WorkItem 修改不改变已经批准的执行输入。AgentScope 规划 Prompt 将 TaskBrief 放入明确的数据边界并转义提示控制字符。
+
+Task 级 Orchestrator 使用 Personal Agent 或 Team Agent。Personal Agent 代表成员规划和编排任务，Team Agent 承担团队共享编排；Specialist Agent 只绑定后续 StepExecution。V11 为既有 Task 回填 WorkItem 标题与描述，并为新 Task 持久化独立的目标与验收标准。
+
+M3-A02 提供 Team 级 Task 列表、详情、attempt 列表和单 attempt Runtime Facts。所有读取先复验当前 ACTIVE Team Membership，并将 Organization、Team、Task 与 TaskExecution Scope 闭合；路由与持久化归属不一致时按不可见处理。列表授权与查询位于同一事务，按 `updatedAt DESC, id DESC` 使用绑定 Organization、Team、WorkProject 和 TaskStatus 的不透明 Keyset Cursor，跨集合重放返回 `invalid_cursor`，列表投影只联接当前 attempt 的展示摘要。Task 详情保留有界的全部 attempt 摘要；Plan、Step、Session、AgentRun、Interrupt、Snapshot 和 Lease 仅在选定当前或历史 attempt 后批量读取，查询数量不随 PlanVersion 或 AgentRun 数量增长。
+
+Runtime Facts 使用显式 HTTP DTO 白名单。成员可见 Execution、Plan/Step/Todo、Session 与 Run 状态、Interrupt 解决摘要、Snapshot 元数据及 Lease 的 Runtime/Worker 归属；Claim Token/Hash、Fencing Token、Task Token、AgentScope userId/sessionId、stateReference、Snapshot contentHash/原始 State、Interrupt Token Hash、Resume responseHash 和内部 Policy/Safety Hash 不进入响应。Runtime/Worker 的全局健康与容量观测由 M3-A07 提供，本边界只返回具体 attempt 已绑定的安全运行事实。
+
+M3-A03 以 `WorkerTaskCommandService` 统一 Claim、Prepare、Start、Heartbeat、Progress、Complete 和 Fail。Claim 在 Task Token 存在之前发生，由已配置稳定 Runtime/Worker Identity 的进程内 Worker Loop 调用，不建立用户 HTTP 路由或长期 Worker Secret。其余 mutation 只暴露在 `/api/internal/v1/worker/executions/{executionId}/...`，仅接受单一 Bearer Task Token；路由 Execution 必须与服务端验证后的 Token Scope 一致。
+
+Worker HTTP Body 不接受 Organization、Team、Task、TaskExecution、attempt、Lease、Runtime、Worker、Claim Token、Fencing Token 和 Execution Principal。这些坐标由 `TaskTokenExecutionContext` 构造 `LeaseCommandScope + LeaseOwnership`，再由 `DurableTaskExecutionLeaseCoordinator` 在 PostgreSQL 权威时间下复验当前 Lease、attempt、Claim Token Hash、Fencing Token 和 Worker 归属。Prepare/Progress 使用强 `If-Match`，Heartbeat 使用 `X-CrewScope-Lease-Version`，Start/Complete/Fail 同时使用两个版本前置条件。Progress 推进 TaskExecution Version 和审计字段，有界公开摘要进入 DomainEvent，不在 TaskExecution 行中累积高频文本。
+
+每个 Worker mutation 要求 `Idempotency-Key`，请求 Hash 绑定 Task Token Grant、Grant Version、完整 Scope 指纹、因果与规范命令内容。首次提交在同一事务中完成 Lease/Fencing mutation、脱敏 `WORKER_TASK_*_ACCEPTED` DomainEvent、Outbox 和 CommandReceipt；相同重放返回原 Receipt 及由已绑定前置条件确定的下一版本，不重复 mutation 或 Audit。无效 Task Token 统一返回 `401 task_token_invalid`；Lease/所有权失配返回无内部坐标的 `409 worker_ownership_invalid`；版本和状态竞争保留 `optimistic_lock_conflict` 与 `invalid_state_transition`。
+
+M3-A04 提供成员面向当前 attempt 的 Pause、Resume、Cancel 和 Retry 命令。路由固定为 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/{operation}`，每个命令要求 `Idempotency-Key`、TaskExecution 强 `If-Match`、当前 USER 身份、ACTIVE Team Membership，且调用者必须持有 WorkItem 当前 Owner 或 Executor 责任。应用服务按 Task、TaskExecution 的固定顺序取悲观写锁，mutation、`MEMBER_TASK_*_ACCEPTED` DomainEvent、Outbox 和 CommandReceipt 在同一事务提交。
+
+Pause 与有活动 Worker 的 Cancel 先写入 TaskExecution 请求态。Worker 在每次 Lease Heartbeat 成功后重读权威 TaskExecution，使用由 Execution ID 和不可变控制请求派生的稳定 Control Request ID 调用 `TaskExecutionRuntime.controlTask`。AgentScope 在安全点中断当前 Session，Pause 事件令牌使用同一 Control Request ID，耐久层只保存 Hash。已提交的 `PAUSE_REQUESTED/CANCEL_REQUESTED` 在稍后到达的 Runtime Complete 竞争中优先，分别收敛为 PAUSED/CANCELLED；没有活动 Worker 的 CREATED、READY、WAITING、PAUSED 和 RECOVERING 取消在命令事务内直接收敛。Cancel 同时关闭 Task 业务状态。
+
+Resume 只接受 PAUSED attempt，解析同一 AgentRun 上的当前 Pause Interrupt，用稳定 Control Request ID 重建原始 Interrupt Token，创建 RESUME Segment 并将原 TaskExecution 重新发布为 READY。新 Worker Claim 后先向 AgentScope 提交 RESUME 授权，再执行恢复 Segment。Retry 只接受当前可重试 FAILED attempt，不超过 `maxAttempts`；每次重试都重新验证 Executor Assignment ID/Version/Principal、AgentProfile 状态与版本，以及 ProviderBinding、Connection、ConnectionGrant 当前事实。通过后创建 `attempt + 1`、新 PolicySnapshot 和 SafetyEnforcementOverlay，继承已批准的优先级、PolicyPack、能力、Tool、Binding 和预算，将新 attempt 发布为 READY 并切换 Task 当前 attempt。
+
+M3-A05 提供 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/events` 的 JSON 历史和 SSE。Task 创建、Worker/成员命令、AgentRun Event/Resume 与 Lease Recovery 在原业务事务内写入 V13 `task_event` 索引，索引关联 Task、TaskExecution、可选 StepExecution、AgentRun 和 ExecutionLease，并通过稳定 Task Stream Event ID 保留源 `domainEventId`。Cursor 绑定完整 Task 路由与 Position；SSE 支持 `Last-Event-ID` 断线补发，每次轮询重新复验当前 Membership 与 Task Scope，终态历史排空后关闭，达到单连接事件上限时在可续传 Cursor 边界轮换连接。
+
+Task Event 载荷使用显式公开类型与字段白名单。AgentRun 只公开安全文本、状态、Artifact/Plan 引用、Usage、Retry/Fallback 和安全失败；Interrupt Token、Claim/Task Token、Tool 参数与原始结果、Provider 错误、AgentState 和内部 Reasoning 不进入 HTTP。事件响应携带关系上下文与 `projectionGap`；前端按单流 `eventId`、跨流 `domainEventId` 去重，并在同 Aggregate Version 出现缺口时回读 Task 与 Runtime Facts。
+
+M3-A06 提供 WorkItem、Conversation 与 Task 的三向关联查询。WorkItem 方向返回其全部 Task，Conversation 方向返回 `ConversationTaskLink` 关联的全部 Task，Task 方向返回唯一 WorkItem 和当前调用者仍可发现的 Conversation。取消、失败、完成和旧执行 Task 都保留在关联历史中。WorkItem/Conversation 到 Task 的页面一次联接当前 TaskExecution 展示摘要与当前 WorkItem，Task 到 Conversation 的页面一次联接 Link、Conversation 和调用者 Participant，查询数量不随关联数量增长。
+
+关联 Cursor 绑定 Organization、Team、来源对象类型、来源对象 ID、关联时间和目标 ID，不能跨 Team、跨来源类型或跨对象重放。WorkItem、Task 和 Conversation 分别执行当前可见性裁决；PRIVATE Conversation 只在 Participant 同时匹配当前 USER Principal 与当前 ACTIVE TeamMember ID 时进入 Task 反向结果。所有关联结果再次核对 Organization、Team、Workspace、WorkProject、WorkItem 与 Task Scope。HTTP 摘要只为已授权对象生成 `/work` 或 `/conversation` Web 深链接，客户端不从 TaskSource 推测隐藏对象。
+
+M3-A07 提供 `/api/v1/organizations/{organizationId}/teams/{teamId}/runtime-health` 和 `/runtime-health/operations`。前者面向当前 ACTIVE TeamMember，只返回环境、观测时间、Fleet 健康、Runtime/Worker 数量、可服务容量、失联/Drain 数量和聚合等待原因；不返回 Runtime/Worker ID、stable key、实现版本、具体能力或 Heartbeat 时间。后者只允许平台管理员或持有 Team 级 `TEAM_OBSERVE` 的 ACTIVE TeamMember 读取；Project 级角色不能提升为 Team 运维权限。
+
+Runtime 观测在同一 PostgreSQL 只读事务和同一权威时刻内派生。持久化固定执行两条查询：第一条读取当前 Organization/environment 的 Runtime 与 Worker，第二条读取当前 Organization/Team 的 `WAITING + RUNTIME` TaskExecution 与当前 PolicySnapshot。应用层再次闭合 Organization、Team、environment、Runtime 谱系、PolicySnapshot ID/Hash、Task、Execution 和 Scope。Worker 或等待执行数量增加不改变查询数。
+
+Fleet 健康使用 `HEALTHY/DEGRADED/UNAVAILABLE`。容量只累计隶属于 ACTIVE Runtime 的新鲜 ACTIVE Worker；禁用或归档 Runtime 下的 Worker 不进入可服务容量，运维明细将这类 Worker 标记为 `RUNTIME_UNAVAILABLE`，不会误报为容量耗尽。没有 ACTIVE Runtime 或没有可服务 Worker 时为 `UNAVAILABLE`；仍可服务但容量耗尽、存在失联/Drain Worker 或 `WAITING_RUNTIME` 时为 `DEGRADED`；其余为 `HEALTHY`。每个 `WAITING_RUNTIME` 执行只返回一个当前诊断：`CAPABILITY_UNAVAILABLE`、`NO_ACTIVE_WORKER`、`DRAINING`、`HEARTBEAT_STALE`、`CAPACITY_EXHAUSTED` 或 `REQUEUE_PENDING`。
+
+运维响应使用显式 DTO 白名单，可返回 Runtime/Worker 注册身份、状态、版本、能力、容量、Heartbeat、审计元数据和等待执行诊断；Token、Claim/Fencing、凭证、内部配置、异常正文、AgentState 和 Reasoning 不进入响应。成功读取记录关联 Principal、Organization、Team、Correlation ID、视图和健康状态的结构化审计日志，Trace 由统一 API 观测边界关联。`crewscope.runtime.observation.requests` 只使用 `view/health` 低基数 Tag。
+
+Worker Actuator Health 同时核对本地执行循环和耐久 Runtime Registry：未启动或 `DRAINING` 为 `OUT_OF_SERVICE`，Heartbeat 失联、`DISABLED` 或仅 `REGISTERED` 为 `DOWN`，ACTIVE 且新鲜为 `UP`。容量已满不把存活 Worker 降为 DOWN。Health Details 不披露 Worker ID、stable key、Task、Lease、Token 或异常正文。
+
 M3 计划使用严格的 `# Controlled Task Plan` Markdown 行协议，固定 Step key、类型、标题、前置依赖、Capability、Tool 和 critical 标记。`validate_task_plan` 是 Plan Mode 可调用的只读 Tool，只返回安全校验结果供模型修正；发布边界再次解析完整 Markdown，不信任模型已调用过校验 Tool。AgentScope Todo 映射为 `TodoSummaryItem` 候选，只进入 PlanVersion 摘要，不直接改变 Task、TaskExecution 或 StepExecution。
 
 `TaskPlanPublicationService` 在同一事务重新加载当前 Task、TaskExecution、PolicySnapshot、SafetyEnforcementOverlay、执行 Principal 和可选父 PlanVersion，核对 Execution Version、当前计划指针、Policy Hash、Safety Overlay 和 AgentProfile 版本。服务依次创建 PlanVersion、切换 TaskExecution 当前计划、为每个已发布 Plan Step 创建 StepExecution；任何校验或写入失败回滚整个发布。
@@ -2468,6 +2508,12 @@ V10 建立耐久 Task Runtime 的关系事实。Task、TaskExecution、StepExecu
 
 V10 将 V7 `agent_runtime_session` 扩展为统一 Session 表。`PERSONAL` 形状保留 Conversation、Owner、Personal Agent 和原 AgentScope Key；`TASK/STEP/SPECIALIST` 形状使用 Task、TaskExecution、可选 Step、Agent Principal 和 AgentProfile 版本。Check Constraint 保证两类绑定互斥，迁移为既有 Personal Session 回填通用 Agent 身份和 `PERSONAL` Purpose。
 
+V12 为 M3-A02 增加 Team/Project/Status/updatedAt Task Keyset 索引，以及 TaskExecution 级 Interrupt、Snapshot 和 Lease 历史索引。Task 列表使用 Task 与当前 TaskExecution 左连接的轻量投影，不重建责任快照。PlanVersion 与 AgentRun 的子事实按 execution/run ID 集合批量查询，避免详情观测路径产生 N+1。
+
+V13 为 M3-A05 增加 `task_event` 耐久流索引和单调 Position。复合外键闭合 Task、TaskExecution、StepExecution、AgentRun 与 ExecutionLease 关系，DomainEvent 外键保持载荷单一事实源；升级只回填 M3 已知公开事件类型，任意 Payload 不能把无关事件关联到 Task。读取按 Task + Position 升序 Keyset 分页，并从同一 Task 流内同 Aggregate 的既有版本计算投影缺口。
+
+M3-A06 复用 V10 的 Task、ConversationTaskLink 复合外键与现有查询索引，不引入冗余关联投影。Task 关联查询使用轻量 Task/current TaskExecution 摘要，反向 Conversation 查询在单条语句中应用 TEAM/PRIVATE 可发现性和当前 Principal/TeamMember Participant 条件；应用层仍对每个返回对象执行 Scope 形状校验，阻止持久化适配器错误扩大可见范围。
+
 AgentRuntimeSession 和 ProviderBinding 保存依赖聚合的版本快照。数据库外键约束稳定身份和 Scope，不把快照版本引用到可变聚合的当前版本；AgentProfile、ProviderDefinition、ProviderImplementation、Connection 或 ConnectionGrant 可以正常推进版本，读取 Session 或 Binding 时由服务端比较快照与当前版本并失败关闭。
 
 M2 持久化适配使用标量 UUID Entity 和显式 Organization、Team、Workspace 查询条件，不建立可隐式跨 Scope 导航的 ORM 关联。可变聚合通过版本条件原子更新；消息追加先锁定 Conversation 行再分配序号；TaskIntent 确认同时写入唯一 WorkItem 关联并要求数据库当前状态仍为 READY；AgentRuntimeSession 初始化锁定 Conversation 并将所有并发候选收敛为同一已提交绑定。Conversation 与 Message 列表使用 Keyset 分页，ProviderBinding 候选查询只返回当前 Scope、Owner、ProviderType 和目标层级内的 ACTIVE 事实，优先级与歧义裁决由只读 BindingResolver 完成。ConversationWorkItemLink 支持按 Conversation 和 WorkItem 双向查询；应用层在返回关联摘要前分别执行 Conversation 与 WorkItem 当前可见性策略，并将不可发现的 PRIVATE Conversation 从 WorkItem 反向结果中隐藏。任何跨 Organization、Team、Workspace、Conversation、WorkProject 或 WorkItem Scope 的持久化结果都失败关闭。
@@ -2562,6 +2608,7 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `task_execution` | 执行尝试、父尝试、PlanVersion、PolicySnapshot、责任快照、状态、调度、最后已提交 Fencing Token、预算、失败分类和恢复信息 |
 | `step_execution` | 步骤类型、Executor、Runtime、状态、输入输出、错误、检查点和 Agent 会话 |
 | `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、当前 Fencing Token、`PREPARE/RUN` Phase、获取/心跳/过期时间、Lease Version 和互斥释放事实；MVP 不创建 Step Lease |
+| `task_event` | 单调 Position、Task/Execution/Step/AgentRun/Lease 关系、Task Stream Event ID、DomainEvent ID、发生时间和 Cursor 恢复索引；公开载荷从 DomainEvent 白名单投影 |
 | `task_credential_grant` | Organization/Team/Workspace/WorkProject、Task/TaskExecution/attempt、ExecutionLease 全坐标、Execution Principal、Policy/Safety 版本、ProviderBinding/ConnectionGrant/Tool/显式资源范围、Token JTI Hash、签发/过期时间、ACTIVE/REVOKED/EXPIRED、useCount、lastUsedAt、终止事实、乐观锁和审计字段 |
 | `execution_workspace` | TaskExecution、仓库、分支、基线 Commit、Worktree、Sandbox、状态、归档和清理信息 |
 | `task_input_message` | 触发消息、Thread、作者、合并批次、执行处理状态和结果引用 |
@@ -2800,13 +2847,13 @@ POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{proje
 POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/attachments
 POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/resource-links
 POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/responsibilities
-POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/agent-tasks
+POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/tasks
 POST  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/collaboration-requests
 GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/timeline?after={cursor}&limit={limit}
 GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/graph?depth={depth}
 ```
 
-`POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/agent-tasks` 根据 WorkItem、仓库绑定和用户指令创建 Conversation、Task 与首个 TaskExecution。
+`POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/tasks` 根据当前 WorkItem、责任、AgentProfile、可选 Conversation Message、ProviderBinding 和成员确认的 TaskBrief，原子创建 Task 与首个 READY TaskExecution。Conversation 是可选来源，不由该命令隐式创建。
 
 ### 15.5 对话、收件箱与通知 API
 
@@ -2835,17 +2882,23 @@ AG-UI SSE 提供当前 AgentRun 的公开文本、受控中断和脱敏运行/�
 ### 15.6 任务与制品 API
 
 ```text
-POST /api/v1/tasks
-GET  /api/v1/tasks/{taskId}
-POST /api/v1/tasks/{taskId}/pause
-POST /api/v1/tasks/{taskId}/resume
-POST /api/v1/tasks/{taskId}/cancel
-GET  /api/v1/tasks/{taskId}/participants
-GET  /api/v1/tasks/{taskId}/collaboration-requests
-GET  /api/v1/tasks/{taskId}/contributions
-GET  /api/v1/tasks/{taskId}/reviews
-GET  /api/v1/tasks/{taskId}/handoffs
-GET  /api/v1/tasks/{taskId}/takeover-requests
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks?projectId={projectId}&status={status}&after={cursor}&limit={limit}
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/runtime-facts
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/tasks
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/tasks
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/associations
+
+POST /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/pause
+POST /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/resume
+POST /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/cancel
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/participants
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/collaboration-requests
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/contributions
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/reviews
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/handoffs
+GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/takeover-requests
 
 GET  /api/v1/executions/{executionId}/timeline
 GET  /api/v1/executions/{executionId}/events
@@ -2860,6 +2913,8 @@ GET  /api/v1/tasks/{taskId}/artifacts
 GET  /api/v1/artifacts/{artifactId}
 GET  /api/v1/artifacts/{artifactId}/content
 ```
+
+Task 查询路由使用完整 Organization/Team 资源路径表达可见性边界。Task 详情与 attempt Runtime Facts 分开读取：前者支持管理与导航，后者只在用户选择具体 attempt 时加载运行图。列表和详情响应禁止缓存已授权的动态事实；Task 与 TaskExecution 详情使用领域版本生成强 ETag。
 
 ### 15.7 确认与 Agent API
 

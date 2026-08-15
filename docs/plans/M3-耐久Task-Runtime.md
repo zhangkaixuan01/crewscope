@@ -4,7 +4,7 @@
 > 前置条件：M2 Release Gate 通过<br>
 > 目标周期：3–4 周，多工作流并行推进<br>
 > 目标结果：成员可从 WorkItem 或 Conversation 创建 Task，Worker 可安全领取并驱动 TaskExecution，成员可观察、暂停、恢复、取消和重试，进程或 Redis 故障后执行可收敛<br>
-> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09` 已完成，下一项为 `M3-A01`（2026-08-15）
+> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09`、`M3-A01` 至 `M3-A07` 已完成，下一项为 `M3-F01`（2026-08-15）
 
 ## 1. 出口结果
 
@@ -160,13 +160,13 @@ M3 Runtime 只运行受控的计划与步骤 Fixture，用于验证耐久调度�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M3-A01` | FEATURE | D01,D02,D09 | application/server | 实现“交给 Agent 处理”：从可见 WorkItem 和可选 Conversation 原子创建 Task、首个 TaskExecution、责任快照、初始 PolicySnapshot 和链接；固化目标、验收标准、执行 Principal、来源消息/WorkItem 版本与授权证据 | 应用/API 测试覆盖 Owner/Executor 权限、Scope、责任和 ProviderBinding 当前事实、`Idempotency-Key`、Request Hash、重复提交、事务回滚、DomainEvent/Outbox/Audit，以及无有效 Executor 或策略闭合失败时失败关闭 |
-| `M3-A02` | TASK | A01,D03,D07,D09 | application/server | 实现 Task 集合、详情、TaskExecution attempts、Step、PlanVersion、AgentRun、Interrupt、Snapshot 摘要和 Runtime facts 查询 API；使用 Keyset Cursor 与可见性策略 | API 测试覆盖 Team/成员可见性、状态筛选、稳定排序、Cursor、当前/历史 attempt、敏感 Token/内部 State 不披露、跨 Scope 404 和查询数量上界 |
-| `M3-A03` | TASK | I02,I03,I04 | application/server | 实现受信 Worker Command Port：Claim、Prepare、Start、Heartbeat、Progress、Complete 和 Fail；每个 mutation 校验 attempt、Claim/Fencing Token、expectedVersion 与 Task Token | 契约测试覆盖合法全链路、旧 Token、错误 Worker、Lease 失效、版本冲突、重复终态、Body/Header 伪造、幂等回执、Audit 和统一安全错误码；外部用户路由不可调用 |
-| `M3-A04` | FEATURE | A03,I05,I08 | application/server | 实现成员 Pause、Resume、Cancel 和 Retry 命令；请求态传播到 Worker/AgentScope，在安全点提交，Retry 创建新 attempt 并重新校验责任与授权 | API/集成测试覆盖角色权限、强 ETag、幂等、等待/运行/终态、重复命令、取消与完成竞争、暂停后恢复、失败重试、maxAttempts 和当前执行切换 |
-| `M3-A05` | TASK | A02,I07 | application/server | 实现 Task Event 耐久历史、统一公开事件映射和 SSE Cursor；关联 Task、Execution、Step、AgentRun、Lease、控制命令和恢复事实 | API 测试覆盖历史追平、断线补发、Last-Event-ID、跨流 DomainEvent 去重、投影缺口、慢订阅者上限、权限持续复验、终态关闭和内部 Token/Reasoning 不披露 |
-| `M3-A06` | TASK | A01,A02 | application/server | 实现 WorkItem/Conversation/Task 双向关联查询与对象级深链接；按每个对象当前可见性过滤反向结果 | API 测试覆盖一个 WorkItem 多 Task、一个 Conversation 多 Task、PRIVATE Conversation 隐藏、已取消/历史 Task、关联 Cursor、跨 Team 隔离和无 N+1 查询退化 |
-| `M3-A07` | TASK | I01,I09 | application/server | 实现 Runtime/Worker 健康、能力、容量和等待原因查询；提供面向成员的安全摘要与面向运维的受权明细 | API、Security 与 Actuator 测试覆盖健康/失联/Drain、容量、WAITING_RUNTIME 原因、角色差异、低基数指标、Trace/Audit 关联和配置敏感信息不披露 |
+| `M3-A01` | FEATURE | D01,D02,D09 | application/server | 已完成：“交给 Agent 处理”从可见 WorkItem 和可选 Conversation 原子创建 Task、首个 READY TaskExecution、责任快照、初始 PolicySnapshot、SafetyEnforcementOverlay 和链接；TaskBrief 固化目标与验收标准，执行 Principal、AgentProfile、来源消息/WorkItem 版本和 ProviderBinding 当前事实进入耐久授权证据；Personal/Team Agent 可担任 Task Orchestrator，Specialist 仅用于后续 Step | [M3-A01 交给 Agent 处理应用与 API](../testing/M3-A01-交给Agent处理应用与API.md)；领域、应用、API、AgentScope 和 PostgreSQL 测试覆盖 Owner/Executor 权限、完整 Scope、责任与 Profile 闭合、强 ETag、幂等重放、ProviderBinding 撤权关闭、Task Brief 持久化和受控规划输入 |
+| `M3-A02` | TASK | A01,D03,D07,D09 | application/server | 已完成：交付 Team 级 Task 集合、详情、TaskExecution attempt 和单 attempt Runtime Facts API；授权与读取同事务，列表使用绑定 Organization/Team/WorkProject/TaskStatus 的 `updatedAt + id` 降序 Keyset Cursor；Runtime Facts 以固定批量查询返回 Plan/Step/Session/AgentRun/Interrupt/Snapshot/Lease 安全事实 | [M3-A02 Task 查询与 Runtime Facts API](../testing/M3-A02-Task查询与Runtime-Facts-API.md)；应用、API、跨集合 Cursor 拒绝、PostgreSQL 和迁移测试覆盖成员/路由 Scope、状态筛选、稳定分页、当前/历史 attempt、敏感字段白名单、批量子事实和 V11→V12 升级 |
+| `M3-A03` | TASK | I02,I03,I04 | application/server | 已完成：以 `WorkerTaskCommandService` 统一进程内 Claim 与 Task Token-only Prepare、Start、Heartbeat、Progress、Complete、Fail；从验证后 Token 构造完整 LeaseOwnership，使用执行/租约版本前置条件、幂等 Receipt 和脱敏 Audit Event | [M3-A03 受信 Worker Command Port](../testing/M3-A03-受信Worker-Command-Port.md)；10 个新增专项测试覆盖命令全家族、服务端所有权闭合、版本/终态冲突、重放不重复副作用、脱敏审计、Body/Header 伪造、错误路由、统一安全错误码和外部路由不可调用 |
+| `M3-A04` | FEATURE | A03,I05,I08 | application/server | 已完成：实现成员 Pause、Resume、Cancel 和 Retry 命令；强 ETag、幂等 Receipt、Owner/Executor 当前责任、Task/Execution 悲观锁和原子审计闭环；Pause/Cancel 由 Heartbeat 传播到 AgentScope 安全点，Resume 续接同一 Run，Retry 重新核验当前授权并创建 READY 后继 attempt | [M3-A04 成员 Task 控制与重试](../testing/M3-A04-成员Task控制与重试.md)；16 个新增专项测试与 1 个增强 AgentScope 断言覆盖权限、强 ETag、幂等、即时/运行收敛、Pause Token、Heartbeat 传播、Resume 顺序、Cancel/Complete 竞争、Retry、maxAttempts、Binding 当前事实和责任授权复验 |
+| `M3-A05` | TASK | A02,I07 | application/server | 已完成：以 V13 `task_event` 建立可重建耐久流索引，将 Task 创建、Worker/成员命令、AgentRun、Resume 和 Lease Recovery 在原业务事务内关联到 Task、Execution、Step、AgentRun 与 Lease；提供公开字段白名单、Aggregate Version 缺口标记、JSON 历史、Task 路由 Cursor 和持续授权 SSE | [M3-A05 Task Event 耐久历史与 SSE](../testing/M3-A05-Task-Event耐久历史与SSE.md)；专项测试覆盖 V12→V13 回填、历史追平、Last-Event-ID、跨流 DomainEvent 去重、投影缺口、单连接事件上限、权限持续复验、终态关闭、Cursor 过期及内部 Token/Reasoning 不披露 |
+| `M3-A06` | TASK | A01,A02 | application/server | 已完成：实现 WorkItem/Conversation/Task 三向关联查询、来源与 Scope 绑定 Keyset Cursor、对象级 Web 深链接；按 WorkItem、Task、Conversation 当前可见性分别裁决，PRIVATE Conversation 使用当前 Principal + TeamMember Participant 过滤；关联页使用固定单次批量查询 | [M3-A06 Task 双向关联查询与深链接](../testing/M3-A06-Task双向关联查询与深链接.md)；应用、API、Cursor 与真实 PostgreSQL 测试覆盖一个 WorkItem/Conversation 多 Task、PRIVATE 隐藏、取消/历史 Task、跨来源 Cursor、跨 Team 隔离和 Hibernate 单查询统计 |
+| `M3-A07` | TASK | I01,I09 | application/server | 已完成：实现 Runtime/Worker Fleet 健康、能力、新鲜容量和六类 `WAITING_RUNTIME` 原因查询；ACTIVE TeamMember 读取无基础设施身份的安全摘要，平台管理员或 Team 级 `TEAM_OBSERVE` 读取运维明细，Worker 健康区分 Runtime 不可用与容量耗尽 | [M3-A07 Runtime 健康、容量与等待诊断](../testing/M3-A07-Runtime健康容量与等待诊断.md)；API、Security、真实 PostgreSQL 两条固定查询、Actuator、低基数指标、Trace/Audit 关联和敏感信息白名单测试通过；未新增迁移 |
 
 所有用户命令继续使用 `Idempotency-Key`、当前身份、当前 Scope 和显式 expected version。所有 Worker 命令只从 Task Token 与服务端 Lease 解析执行身份，不能借用浏览器 Session。
 
@@ -190,7 +190,7 @@ M3 UI 展示任务、计划、步骤、运行、租约、等待与恢复事实�
 |---|---|---|---|---|---|
 | `M3-Q01` | HARDENING | D06,I04,A01..A07 | all | 完成 Task/Worker API 越权、Task Token、撤权传播、Prompt 信任分区、资源与并发预算、日志/事件/Artifact 脱敏和依赖安全检查 | 固定攻击集证明跨 Organization/Team/Task/attempt/Runtime/Binding/Tool/资源阻断率 100%；撤权后旧 Token 立即失效；Token、Claim、State、Reasoning 和敏感 Provider 数据泄漏数为 0 |
 | `M3-Q02` | HARDENING | I03,I08,I09,A04,A05 | all | 完成故障注入：进程在 CLAIMED/PREPARING/RUNNING 退出、Complete/Sweeper 竞争、Heartbeat 丢失、Redis 丢失、Snapshot 损坏、事件断线和重复控制命令 | 受控故障样本证明唯一终态、旧 Owner 无回写、无孤立 Step/Run、Redis 可从二级快照恢复、重复外部写操作为 0；记录样本量、超时、恢复率和 Artifact |
-| `M3-Q03` | HARDENING | Q01,Q02,F07 | all/docs/ci | 执行 M3 Release Gate，审查领域、迁移、Spring 装配、Runtime、API、前端、文档与 M2 回归；形成版本化验收报告 | `./mvnw clean verify`、前端 test/coverage/build、Playwright、Axe、视觉、V1→V10 与 V9→V10 迁移、文档链接和格式检查全部通过；可重复演示创建、领取、暂停、恢复、取消、重试与故障接管 |
+| `M3-Q03` | HARDENING | Q01,Q02,F07 | all/docs/ci | 执行 M3 Release Gate，审查领域、迁移、Spring 装配、Runtime、API、前端、文档与 M2 回归；形成版本化验收报告 | `./mvnw clean verify`、前端 test/coverage/build、Playwright、Axe、视觉、V1→V12、V9→V12、V10→V12 与 V11→V12 迁移、文档链接和格式检查全部通过；可重复演示创建、领取、暂停、恢复、取消、重试与故障接管 |
 
 ## 10. Release Gate
 
