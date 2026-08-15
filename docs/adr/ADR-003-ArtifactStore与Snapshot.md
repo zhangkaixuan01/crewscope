@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
-> 更新：2026-08-14（M3-D07 固化领域元数据，M3-D08 固化 V10 关系约束）<br>
+> 更新：2026-08-15（M3-I08 实现生产 Writer/Reader、并发裁决与二级恢复）<br>
 > 影响里程碑：M0、M3、M4、M6
 
 ## 背景
@@ -54,6 +54,10 @@ SHA-256 使用 64 位小写十六进制规范文本。DataClassification 使用 
 
 同一 Session 只有一个 `CURRENT` Snapshot。发布新 Snapshot 与旧 Current 进入 `SUPERSEDED` 在一个数据库事务完成；Current 和 Superseded 都是完整恢复候选，`INVALID` 不参与恢复。候选按 Checkpoint Sequence 降序读取，较新候选缺失或损坏时回退到较早候选并记录 continuity gap。身份不匹配属于注入风险，立即失败关闭，不参与回退。
 
+生产 Writer 只引用已经提交的精确 AgentRun Event Receipt。Writer 先读取 Snapshot 发布窗口，再原子发布 Artifact，随后重新验证 Task、Run、Session、Principal、Receipt 和窗口，在同一 PostgreSQL 事务登记 RuntimeArtifact、Superseded 旧 Current 并发布新 Current。并发 Writer 由发布窗口、序号唯一约束和单 Current 部分唯一索引共同裁决。未能提交元数据的已发布 Artifact 写入 `PUBLICATION_ABORTED` Tombstone。
+
+生产 Reader 先从 PostgreSQL 读取可信候选及 RuntimeArtifact 元数据，再读取 ArtifactStore 内容。Reader 校验 Scope、Producer、稳定 Agent 身份、AgentScope Key、信封、Descriptor、大小和 SHA-256。普通缺失或损坏候选进入回退；跨 Task、Run、Session、Profile 或 Principal 的元数据不一致立即失败关闭。被跳过的 Snapshot 进入 `INVALID`，损坏 Artifact 写入 `SECURITY_POLICY` Tombstone，清理失败由后续生命周期 Sweep 对账。
+
 V10 使用复合外键将 Snapshot 的 Task/Execution、AgentRun、Session、AgentProfile 版本、Agent Principal、AgentScope Key、RuntimeArtifact、大小和 Hash 闭合。`ux_agent_state_snapshot_current_session` 保证每个 Session 只有一个 Current，恢复索引按 Checkpoint Sequence 和 Snapshot Sequence 降序读取 Current/Superseded 候选。RuntimeArtifact 与 AgentStateSnapshot 表只保存元数据，没有内联正文列。
 
 FilesystemArtifactStore 使用同一根目录下的固定布局：
@@ -99,7 +103,7 @@ JVM 条带锁避免同进程重叠文件锁，文件锁保护共享根目录中�
 - 引用中的 Artifact 在 Task、Review、Action 和审计保留期内持续可读；
 - 大 Workspace Snapshot 不进入 Redis。
 
-Tombstone 记录稳定原因、可选安全说明、操作 Principal 和 UTC 时间。原因使用 `RETENTION_EXPIRED`、`USER_REQUESTED`、`SECURITY_POLICY`、`ORGANIZATION_REMOVED` 和 `SUPERSEDED`。Tombstone 说明不保存凭证、原始内容和敏感请求正文。
+Tombstone 记录稳定原因、可选安全说明、操作 Principal 和 UTC 时间。原因使用 `RETENTION_EXPIRED`、`USER_REQUESTED`、`SECURITY_POLICY`、`ORGANIZATION_REMOVED`、`SUPERSEDED` 和 `PUBLICATION_ABORTED`。Tombstone 说明不保存凭证、原始内容和敏感请求正文。
 
 ## 结果
 
@@ -115,6 +119,8 @@ Tombstone 记录稳定原因、可选安全说明、操作 Principal 和 UTC 时
 3. AgentStateSnapshot 可以恢复 AgentRun；
 4. Redis 数据丢失后可以从 Snapshot 与领域事实重建；
 5. Tombstone、保留期和物理清理产生完整 AuditEvent。
+
+M3-I08 的生产协议与故障证据见 [M3-I08 AgentStateSnapshot 生产恢复](../testing/M3-I08-AgentStateSnapshot生产恢复.md)。
 
 ## 重新评估条件
 

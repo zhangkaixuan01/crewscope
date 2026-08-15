@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
-> 更新：2026-08-14（M3-D06 固化领域契约，M3-D08 固化 V10 持久化约束）<br>
+> 更新：2026-08-15（M3-I04 接通 Task Token Key Ring、当前事实复验与请求中间件）<br>
 > 影响里程碑：M0、M2、M3、M5
 
 ## 背景
@@ -70,6 +70,9 @@ Key Ring、Key Material、Parser、CredentialSecret 和 ResolvedCredential 的�
 - JTI 明文只进入一次性签发结果，数据库保存 SHA-256 Hash，字符串输出统一脱敏；
 - `TaskCredentialGrant` 记录使用次数、最后使用时间、撤销/过期终态、乐观锁和审计事实；
 - 使用时校验 Grant/Claims 闭合、当前 Lease 全坐标、Tool、ProviderBinding、Capability、Resource 和 Grant Version；
+- JWT 使用外部 HS256 Key Ring、显式 `kid`、固定 issuer/audience/type、精确时间与完整 Scope SHA-256 承诺；当前 Key 签发，保留的历史 Key 只验证存量短期 Token；
+- `/api/internal/v1/worker/**` 只接受 Bearer Task Token；服务端回查 Grant、Lease、TaskExecution、Execution Principal 和 Provider 当前事实后注入可信上下文，不接受 Basic、浏览器 Session 或 Body 身份回退；
+- Token 轮换原子撤销旧 Grant 并创建新 JTI/Grant，新范围只能等于或窄于旧范围；
 - Credential Service 校验 Task Token、PlannedAction、Confirmation、Binding 和 SafetyEnforcementOverlay；
 - Connector Worker 获得动作级短期能力；
 - Git Push 使用一次性 GitHub App installation token 和临时 `GIT_ASKPASS`；

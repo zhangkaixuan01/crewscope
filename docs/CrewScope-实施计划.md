@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2 已完成；M3-S01 至 M3-S03、M3-D01 至 M3-D09 已完成，下一项为 M3-I01（2026-08-14）
+> 当前进度：M0、M1、M2 已完成；M3-S01 至 M3-S03、M3-D01 至 M3-D09、M3-I01 至 M3-I09 已完成，下一项为 M3-A01（2026-08-15）
 
 ## 1. 实施目标
 
@@ -402,12 +402,14 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 
 ### 9.4 Task Token
 
-- 使用 5 秒至 15 分钟的 JWT 或等价签名 Token，且有效期不超过当前 ExecutionLease；
+- 使用 5 秒至 15 分钟的 HS256 JWT，且有效期不超过当前 ExecutionLease；外部 Key Ring 通过 `kid` 支持先扩展验证 Key、再切换签发 Key 的无中断轮换；
 - `TaskTokenClaims` 与 `TaskCredentialGrant` 共享同一 `TaskTokenGrantScope`，闭合 Organization、Team、Workspace、Task、TaskExecution、attempt、Lease、Runtime、Worker、Claim Token Hash、Fencing Token、Execution Principal、PolicySnapshot 和 SafetyEnforcementOverlay；
 - 数据库保存 TaskCredentialGrant 和 SHA-256 JTI Hash，明文 JTI 只进入一次性签发结果与受信签名边界；
 - Provider 授权固化活动 ProviderBinding 的 Version、ConnectionGrant ID/Version、Capability 和显式资源最小子集；
 - 每次使用检查 Grant/Claims 闭合、当前 Lease 全坐标、Tool、ProviderBinding、Capability、Resource、过期、撤销和 Grant Version；
 - `ACTIVE -> REVOKED/EXPIRED` 为互斥终态，授权使用只前进 useCount、lastUsedAt 和 Version；
+- Token 轮换在一个事务中撤销旧 Grant 并创建新 JTI/Grant，新 Tool、Provider、Capability 和资源范围只能等于或窄于旧范围；
+- `/api/internal/v1/worker/**` 只接受 Bearer Task Token，中间件注入服务端验证的 `TaskTokenExecutionContext`，Basic、OIDC Session、重复 Header 和 Body 身份不能替代；
 - Agent 环境只注入 Task Token；
 - Runtime 凭证与用户长期凭证禁止进入 Agent 环境；
 - Token 不可用时将当前 TaskExecution 转入安全失败并生成 AuditEvent。
@@ -777,7 +779,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 - [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
 
-M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，`M3-D01` 已完成 Task 业务聚合、来源、责任快照和 Conversation 关联契约，`M3-D02` 已完成 TaskExecution 尝试状态机、调度、等待、控制请求、失败分类和单链重试契约，`M3-D03` 已完成 Step、PlanVersion、PolicySnapshot、SafetyEnforcementOverlay、执行 Principal、Todo 和检查点契约，`M3-D04` 已完成 Runtime Registry、Worker 稳定身份、能力、容量、状态、心跳和跨边界路由契约，`M3-D05` 已完成 TaskExecution Lease、Claim Token/Hash、Fencing Token、Prepare/Run Lease、Heartbeat、过期和释放契约，`M3-D06` 已完成 TaskCredentialGrant、TaskTokenClaims、JTI Hash、最小 Provider/Tool/资源范围、签发、使用、撤销和过期契约，`M3-D07` 已完成 Task-side AgentRuntimeSession、AgentRun/Segment、AgentInterrupt/Resume、continuity gap、RuntimeArtifact 和 AgentStateSnapshot 契约，`M3-D08` 已完成 V10 耐久 Task Runtime 迁移、复合 Scope 外键、状态与部分唯一约束及真实 PostgreSQL 升级验证，`M3-D09` 已完成 JPA/JDBC 持久化、READY Queue、Claim/Heartbeat/Sweeper 条件更新、Keyset Cursor、外层锁事务、过期释放、确定性 Session 身份与事务回滚验证，下一项为 `M3-I01`。
+M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，`M3-D01` 已完成 Task 业务聚合、来源、责任快照和 Conversation 关联契约，`M3-D02` 已完成 TaskExecution 尝试状态机、调度、等待、控制请求、失败分类和单链重试契约，`M3-D03` 已完成 Step、PlanVersion、PolicySnapshot、SafetyEnforcementOverlay、执行 Principal、Todo 和检查点契约，`M3-D04` 已完成 Runtime Registry、Worker 稳定身份、能力、容量、状态、心跳和跨边界路由契约，`M3-D05` 已完成 TaskExecution Lease、Claim Token/Hash、Fencing Token、Prepare/Run Lease、Heartbeat、过期和释放契约，`M3-D06` 已完成 TaskCredentialGrant、TaskTokenClaims、JTI Hash、最小 Provider/Tool/资源范围、签发、使用、撤销和过期契约，`M3-D07` 已完成 Task-side AgentRuntimeSession、AgentRun/Segment、AgentInterrupt/Resume、continuity gap、RuntimeArtifact 和 AgentStateSnapshot 契约，`M3-D08` 已完成 V10 耐久 Task Runtime 迁移、复合 Scope 外键、状态与部分唯一约束及真实 PostgreSQL 升级验证，`M3-D09` 已完成 JPA/JDBC 持久化、READY Queue、Claim/Heartbeat/Sweeper 条件更新、Keyset Cursor、外层锁事务、过期释放、确定性 Session 身份校验与事务回滚验证，`M3-I01` 已完成幂等 Runtime Registry、JVM Worker 稳定身份、能力/容量发布、定时 Heartbeat、Drain、失联派生和 Profile 失败关闭，`M3-I02` 已完成公平 READY 调度、Runtime 能力路由、Team/Runtime/Worker 活动 Lease 配额、原子 Claim、一次性 Token、单调 Fencing Token、PREPARE Lease 和低基数指标，`M3-I03` 已完成分阶段 Lease Heartbeat、全坐标 Fencing 条件提交、显式释放、过期 Sweeper、RECOVERING 与唯一恢复事件，`M3-I04` 已完成 Task Token 签发、Key Ring 验签、数据库当前事实复验、范围收窄轮换、即时撤销、Tool/Provider 授权使用和 Worker Bearer-only 请求中间件，`M3-I05` 已完成 Task Execution Runtime Port、服务端事实闭合、Pause/Resume/Cancel 控制和耐久有限事件流协议，同时保持 M2 Conversation Port 兼容，`M3-I06` 已完成 AgentScope Task Orchestrator、版本化 Task Agent Factory、Plan/Todo 候选、计划校验与事务发布、受控 Fixture Tool、预算和跨实例控制恢复，`M3-I07` 已完成 AgentRun Segment 事件收件账本、精确重放、受控 DomainEvent、Approval/Pause/Resume、Usage、Retry/Fallback、Artifact 引用和终态的原子耐久映射，`M3-I08` 已完成 AgentStateSnapshot Writer/Reader、Receipt 门槛、稳定 Agent 身份、AgentStateStore 重建、损坏回退、并发 Writer 裁决、Artifact Tombstone 和 continuity gap，`M3-I09` 已完成 JVM Worker 执行循环、共享负载计数、Claim/Prepare/Token/Run/Heartbeat/Event Receipt/Checkpoint/Release 主链、启动 Lease Sweep、RECOVERING 对账、孤立 Run/Step 清理、优雅 Drain 和 Actuator Health，`all/worker` 共用同一执行协议，下一项为 `M3-A01`。
+
+M3-I09 已完成 JVM Worker 执行循环、Claim/Prepare/Token/Run/Event Receipt/Checkpoint/Release 主链、启动 Lease Sweep 与 RECOVERING 对账、优雅 Drain 和 Actuator Health；`all` 与 `worker` 使用同一执行协议。下一项为 `M3-A01`。
 
 M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
 

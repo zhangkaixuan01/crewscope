@@ -4,7 +4,7 @@
 > 前置条件：M2 Release Gate 通过<br>
 > 目标周期：3–4 周，多工作流并行推进<br>
 > 目标结果：成员可从 WorkItem 或 Conversation 创建 Task，Worker 可安全领取并驱动 TaskExecution，成员可观察、暂停、恢复、取消和重试，进程或 Redis 故障后执行可收敛<br>
-> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09` 已完成，下一项为 `M3-I01`（2026-08-14）
+> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09` 已完成，下一项为 `M3-A01`（2026-08-15）
 
 ## 1. 出口结果
 
@@ -144,15 +144,15 @@ V10 的数据库约束至少覆盖：
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M3-I01` | TASK | D04,D09 | infrastructure/server | 实现 Runtime Registry、JVM RuntimeWorker 注册、能力发布、容量、Heartbeat、Drain 和过期判定；提供 `all` 与 `worker` Profile 的稳定 Worker Identity | Spring Context 与集成测试覆盖单实例、双实例、重启沿用 Worker Identity、能力变更、Heartbeat 失联、Drain 不领取新任务和 Profile 配置失败关闭 |
-| `M3-I02` | TASK | D02,D04,D05,D09,I01 | application/infrastructure | 实现 Claim Scheduler：按优先级/notBefore 排队，匹配 RuntimeCapabilities、Team/Runtime 并发配额，在单事务中领取并返回一次性 Claim Token 与单调 Fencing Token | 并发集成测试覆盖公平排序、能力不匹配进入 WAITING_RUNTIME、配额、双 Worker 抢占、批量 Claim 上限、Claim Token 明文不落库、Fencing 单调性及低基数 Claim 指标 |
-| `M3-I03` | TASK | I02,D05 | application/infrastructure | 实现 Prepare/Run Lease 续期、Heartbeat、显式释放、过期 Sweeper 和 Fencing 条件提交；Sweeper 先进入 RECOVERING，再执行对账决策 | 故障测试覆盖阶段 TTL、抖动容忍、Heartbeat 丢失、旧 Owner 回写、Complete/Sweeper 竞争、重复 Sweep、时钟来源和唯一恢复事件 |
-| `M3-I04` | TASK | D06,D09,I03 | application/server | 实现 Task Token 签发、验证、轮换、撤销与请求中间件；从有效 Lease 和当前授权事实生成最小 Claims，并将 Principal/Scope 注入可信执行上下文 | 安全测试覆盖签名、JTI、expiry、audience、attempt、Runtime/Worker、ProviderBinding、Tool/资源范围、撤权即时生效、日志脱敏和无 Worker 长期凭证回退 |
-| `M3-I05` | TASK | S02,D02,D03,D07 | application/agentscope | 在 ADR-010 的 Port 族扩展 Task Execution Request、Task Execution Handle、Pause/Resume/Cancel 和耐久事件协议；保留 Conversation Invocation 兼容 | 契约测试覆盖服务端事实闭合、单订阅有限流、流断开与业务控制分离、唯一终态、背压、错误分类、旧 M2 Conversation API 回归和 RuntimeCapabilities 精确披露 |
-| `M3-I06` | TASK | I05,S02,D03 | agentscope/application | 实现 AgentScope Task Orchestrator、版本化 Task Agent Factory、Plan Mode/Todo 适配、计划校验与 PlanVersion 发布；M3 使用无外部副作用的受控 Step Fixture | 可控 Model 测试覆盖计划生成、非法计划修正、Todo 进度、Step 编排、预算、中断、恢复、取消、快照版本固定和禁止 Provider 写工具；Agent Todo 不直接修改领域事实 |
-| `M3-I07` | TASK | D07,I05 | agentscope/application/infrastructure | 将 AgentScope 调用、事件 Segment、中断、Usage、Retry/Fallback、错误和终态映射为耐久 AgentRun/AgentInterrupt/RuntimeArtifact 与 DomainEvent | 集成测试覆盖原子序号、精确重放、重复事件吸收、同序号冲突失败、受控公开事件、敏感字段脱敏、提交失败不伪造终态和 M2 Invocation 到 M3 Run 的边界 |
-| `M3-I08` | TASK | S03,D07,I07 | agentscope/infrastructure | 实现 AgentStateSnapshot Writer/Reader、Redis 重建、快照 Hash 与身份校验、Artifact 生命周期和 continuity gap；在安全点协调 Redis、Snapshot 与 PostgreSQL 检查点 | Redis/ArtifactStore 故障测试覆盖定期/中断/关闭快照、Redis 清空、损坏和缺失快照、回退最近完整版本、跨 Task 注入拒绝、并发写裁决和清理 Tombstone |
-| `M3-I09` | FEATURE | I01..I08 | infrastructure/server | 实现 JVM Worker 执行循环和启动对账：Claim、Prepare、Token、Run、Heartbeat、Checkpoint、Complete/Fail；支持 `all` Profile 与独立 `worker` Profile | 端到端测试在两个进程拓扑运行受控任务，覆盖正常完成、优雅关闭、CLAIMED/PREPARING/RUNNING 退出、启动扫描、租约接管、无孤立 Run/Step 和 Actuator 健康状态 |
+| `M3-I01` | TASK | D04,D09 | infrastructure/server | 已完成：实现幂等 Runtime Registry、确定性首次 ID、JVM RuntimeWorker 注册/重启沿用、版本与能力发布、权威容量、定时 Heartbeat、显式 Drain、派生失联判定，以及 `server/all/worker` 装配与稳定身份配置 | [M3-I01 Runtime Registry 与 Worker 生命周期](../testing/M3-I01-Runtime-Registry与Worker生命周期.md)；9 个专项场景覆盖 server/all/worker Profile、缺失/非法配置失败关闭、单实例、双 Worker、并发首次注册、重启沿用、能力/版本变化、容量、Heartbeat 失联和 Drain 不可 Claim |
+| `M3-I02` | TASK | D02,D04,D05,D09,I01 | application/infrastructure | 已完成：实现 Claim Scheduler，按 priority/notBefore/createdAt/ID 公平排序，将固定 Policy 能力映射到 RuntimeCapabilities，以活动 Lease 和 PostgreSQL 事务锁裁决 Team/Runtime/Worker 配额，并在单事务提交 Claim、一次性 Token Hash、单调 Fencing Token 与 PREPARE Lease | [M3-I02 Claim Scheduler](../testing/M3-I02-Claim-Scheduler.md)；8 个新增专项测试方法覆盖数据库权威时间、未来任务过滤、能力不匹配 WAITING_RUNTIME、兼容 Worker 延迟路由、Team/Runtime 配额、双 Worker 抢占、批量上限、Token 明文不落库、重新领取 Fencing 单调性、Profile 装配及固定低基数指标 |
+| `M3-I03` | TASK | I02,D05 | application/infrastructure | 已完成：实现 PREPARE/RUN 分阶段续租、Heartbeat、TaskExecution 全坐标 Fencing 条件提交、结果与 Lease 原子显式释放、PostgreSQL 权威时间过期 Sweeper、RECOVERING 迁移及唯一恢复 DomainEvent/Outbox 事实 | [M3-I03 Lease Heartbeat、释放与过期恢复](../testing/M3-I03-Lease-Heartbeat释放与过期恢复.md)；专项故障测试覆盖阶段 TTL、抖动余量、Heartbeat 丢失、错误 Token、旧 Owner 回写、Complete/Sweeper 竞争、并发/重复 Sweep、权威时钟、唯一恢复事件、Profile 装配和低基数指标 |
+| `M3-I04` | TASK | D06,D09,I03 | application/server | 已完成：实现 Lease 上界内的 Task Token 签发、HS256 Key Ring、完整授权范围指纹、数据库当前事实验证、范围收窄轮换、即时撤销、Tool/Provider 使用复验和 Worker Bearer-only 请求中间件 | [M3-I04 Task Token 签发、验证与请求中间件](../testing/M3-I04-Task-Token签发验证与请求中间件.md)；21 个专项测试覆盖签名、JTI、expiry、audience/issuer、Lease/attempt/Runtime/Worker/Fencing、ProviderBinding、Tool/资源、撤权即时生效、Key Rotation、日志脱敏、Profile 和无长期凭证回退 |
+| `M3-I05` | TASK | S02,D02,D03,D07 | application/agentscope | 已完成：以并列 Port 扩展 Task Execution Request、Task Execution Handle、Pause/Resume/Cancel 和耐久事件协议，闭合 Task、attempt、Lease、Token、Session、AgentRun、Policy、Safety、Plan 与 Step 服务端事实，并保持 Conversation Invocation 兼容 | [M3-I05 Task Execution Runtime Port](../testing/M3-I05-Task-Execution-Runtime-Port.md)；6 个新增契约测试覆盖服务端事实闭合、单订阅有限流、流断开与业务控制分离、连续序号、唯一终态、背压、错误分类、安全事件、旧 M2 Conversation API 回归和 RuntimeCapabilities 精确披露 |
+| `M3-I06` | TASK | I05,S02,D03 | agentscope/application | 已完成：实现 AgentScope Task Orchestrator、`AgentProfileId + version` 固定的 Task Agent Factory、Plan Mode/Todo 候选适配、严格计划解析与只读校验 Tool、事务化 PlanVersion/StepExecution 发布、模型/Tool/Token/时长预算和 Pause/Resume/Cancel 安全点传播；M3 只注册无外部副作用的 `fixture.*` Tool | [M3-I06 AgentScope Task Orchestrator](../testing/M3-I06-AgentScope-Task-Orchestrator.md)；10 个新增测试方法与 S02 回归覆盖非法计划修正、Todo 进度、计划发布顺序、Step 编排、预算、中断、跨实例恢复、新 Fencing 所有权恢复、取消、快照版本固定、Task Token Tool 复验和 Provider 写工具失败关闭；Agent Todo 不直接修改领域事实 |
+| `M3-I07` | TASK | D07,I05 | agentscope/application/infrastructure | 已完成：将 AgentScope Task 事件、Segment、Approval/Pause、Usage、Retry/Fallback、Artifact 引用、安全错误和终态原子映射为 AgentRun、AgentInterrupt、DomainEvent、Outbox 与精确收件回执；新事件在事务内锁定 Lease 并复验 Owner/Fencing，实现 Token 哈希、公开载荷白名单、冲突重放失败关闭和耐久 Resume Segment | [M3-I07 耐久 AgentRun 事件映射](../testing/M3-I07-耐久AgentRun事件映射.md)；专项测试覆盖连续序号、精确重放、同序号冲突、缺口、旧 Owner 拒绝、中断/恢复、Retry/Fallback/Usage、公开载荷脱敏、PostgreSQL 行锁与回滚不伪造终态 |
+| `M3-I08` | TASK | S03,D07,I07 | agentscope/infrastructure | 已完成：实现 AgentStateSnapshot Writer/Reader、AgentStateStore 重建、Receipt 提交门槛、事务内 Lease Owner/Fencing 复验、快照 Hash 与稳定 Agent 身份校验、Current/Superseded/Invalid 生命周期、并发发布裁决、失败 Artifact Tombstone 和 continuity gap；Runtime 暴露五类安全点 Checkpoint/Recovery Port | [M3-I08 AgentStateSnapshot 生产恢复](../testing/M3-I08-AgentStateSnapshot生产恢复.md)；专项测试覆盖定期/调用完成/中断/暂停/关闭快照、空/失真热状态重建、损坏回退、跨 Session 拒绝、Receipt 门槛、旧 Owner 拒绝、并发 Writer、唯一 Current、清理 Tombstone 和 continuity gap |
+| `M3-I09` | FEATURE | I01..I08 | infrastructure/server | 已完成：实现 JVM Worker 执行循环、共享负载计数、Claim/Prepare/Token/Run/Heartbeat/Event Receipt/Checkpoint/Release 主链、启动 Lease Sweep、RECOVERING 行锁扫描、孤立 Run/Step 清理、优雅 Drain 和 Actuator Health；`all/worker` 共用协议 | [M3-I09 JVM Worker 执行循环与启动对账](../testing/M3-I09-JVM-Worker执行循环与启动对账.md)；专项与真实 PostgreSQL 测试覆盖正常终态、Snapshot 失败、并发上限、优雅关闭、CLAIMED/PREPARING/RUNNING 退出、启动扫描、租约接管、无孤立 Run/Step、`server/all/worker` 装配和 Health |
 
 M3 Runtime 只运行受控的计划与步骤 Fixture，用于验证耐久调度和 AgentScope 恢复。真实仓库访问、Shell、文件修改、Git、Sandbox 与 Coding Specialist 在 M4 接入。
 
@@ -216,8 +216,8 @@ M3 完成需要同时满足：
 推荐按以下节点实施和审查：
 
 1. `M3-S01` 至 `M3-D09`：冻结状态、责任快照、租约、Token 与数据契约；
-2. `M3-I01` 至 `M3-I04`：完成 Runtime、Claim、Lease 和 Task Token 基础设施；
-3. `M3-I05` 至 `M3-I09`：完成 AgentScope Task Runtime、AgentRun、Snapshot 与 Worker；
+2. `M3-I01` 至 `M3-I06`：完成 Runtime、Claim、Lease、Task Token、Task Execution Port 与 AgentScope Task Orchestrator；
+3. `M3-I07` 至 `M3-I09`：完成 AgentRun、Snapshot 与 Worker；
 4. `M3-A01` 至 `M3-A07`：完成创建、查询、控制、事件和运行健康 API；
 5. `M3-F01` 至 `M3-F07`：完成 Conversation/Control 双入口；
 6. `M3-Q01` 至 `M3-Q03`：完成安全、故障与 Release Gate。

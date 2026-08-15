@@ -24,7 +24,7 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-007](ADR-007-API命令与并发协议.md) | API 错误、幂等、版本、Cursor 与 Command Receipt | ACCEPTED |
 | [ADR-008](ADR-008-可观测性与日志安全协议.md) | Correlation、Trace、结构化日志、脱敏与指标 | ACCEPTED |
 | [ADR-009](ADR-009-会话执行所有权与恢复协议.md) | Agent Session FIFO、执行所有权与 Redis 恢复 | ACCEPTED |
-| [ADR-010](ADR-010-ExecutionRuntime调用与流协议.md) | Conversation ExecutionRuntime 调用、流、恢复与取消 | ACCEPTED |
+| [ADR-010](ADR-010-ExecutionRuntime调用与流协议.md) | Conversation 与 Task ExecutionRuntime 调用、流、恢复与控制 | ACCEPTED |
 | [ADR-011](ADR-011-AgentScopeNativeRuntime实例与恢复协议.md) | AgentScopeNativeRuntime 配置、实例、恢复与取消 | ACCEPTED |
 | [ADR-012](ADR-012-PlatformExecutionContext与AgentScope安全中间件.md) | PlatformExecutionContext、AgentScope 安全 Middleware 与基础 Audit | ACCEPTED |
 | [ADR-013](ADR-013-AgentScope事件映射与披露协议.md) | AgentScope 原始事件、AG-UI 瞬时事件与业务 Candidate 披露边界 | ACCEPTED |

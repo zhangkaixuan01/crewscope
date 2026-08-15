@@ -2,6 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-09<br>
+> 更新：2026-08-15（M3-I09 接通 Worker Checkpoint 与恢复链路）<br>
 > 影响里程碑：M2–M4<br>
 > 关联决策：[ADR-009](ADR-009-会话执行所有权与恢复协议.md)、[ADR-010](ADR-010-ExecutionRuntime调用与流协议.md)
 
@@ -27,6 +28,18 @@ AgentProfileId + AgentProfileVersion
 
 M2 Factory 注入共享 Redis `AgentStateStore`、每实例新建的 `Toolkit` 和 [ADR-012](ADR-012-PlatformExecutionContext与AgentScope安全中间件.md) 定义的有序安全 Middleware。`AgentScopeNativeRuntime` 在 Invoke 和 Resume 前通过 [ADR-009](ADR-009-会话执行所有权与恢复协议.md) 的状态预检验证 Redis 与单活动实例所有权。M2-I03 使用 AgentScope Permission Pending Tool 原生恢复链路，并关闭文件、Shell、Subagent、Memory、动态 Skill、Workspace Context 与客户端 Tools 配置。
 
+M3-I06 增加并列的 `TaskAgentFactory`。它使用相同的 `AgentProfileId + AgentProfileVersion` 缓存原则，但使用独立稳定身份 `crewscope-task-{profileId}-v{version}` 和独立受控 Toolkit。Session、PolicySnapshot 和配置源必须固定同一 Profile 版本；AgentScope Task 状态使用 TaskAgentRuntimeSession 派生的稳定 `userId/sessionId`。Worker 重启后可以重建相同版本 Agent，并从 AgentStateStore 恢复 Plan Mode、Todo 和 Pending Permission Tool。
+
+M3-I07 在 Task 调用的 Reactor Context 中安装独立模型观测 Scope。`ObservableAgentScopeModel` 将真实 Retry 与 Fallback 选择写入同一 Task 有限事件流，仅披露 Primary/Fallback 角色、Attempt 与 MaxAttempts，不披露 Provider 端点、模型私有配置或原始错误。M2 Conversation 的 Invocation 观测 Scope 保持原边界，不会被转换为 M3 AgentRun。
+
+M3-I08 使用 `crewscope-task-{profileId}-v{version}` 作为 Task Harness 的稳定名称、复合文件系统命名空间和 Snapshot Agent ID。AgentScope Java 2.0.0 的 `HarnessAgent#getAgentId()` 来自底层 `AgentBase` 进程随机 ID，不进入耐久身份。TaskAgentFactory、Snapshot Writer 和 Reader 共同使用稳定 Profile 身份闭合跨 Worker 恢复。
+
+`AgentScopeTaskRuntime` 暴露 `checkpointState` 和 `recoverState`。Checkpoint 在 `PERIODIC/CALL_COMPLETED/INTERRUPTED/PAUSED/SHUTDOWN` 安全点读取完整 `agent_state`，复验 AgentScope Key 后交给耐久 Writer。活动 Segment 未到有限边界时拒绝 Checkpoint；活动 Segment 存在时拒绝 Recovery。Reader 返回的 AgentState 再次解析并复验 `userId/sessionId` 后覆盖 AgentStateStore，用于 Redis 槽位为空、过期或内容失真的二级重建。
+
+Snapshot 只允许落后或等于已提交 AgentRun Event Receipt。Writer 在发布 PostgreSQL 元数据前于同一事务锁定 ExecutionLease，用权威时间复验完整 Owner/Fencing 坐标；Reader 选择恢复视图以及作废损坏候选前执行同等校验。M3-I09 Worker 在终态 Receipt 提交后调用 Checkpoint。启动对账先关闭丢失进程的活动 Run/Step 并将 attempt 重新放入 READY；后继 Claim 在调用 AgentScope 前检测 Snapshot 候选并执行 Recovery。
+
+Task Toolkit 只允许 Plan/Todo、只读计划校验和 `fixture.*`。Harness 自动注册的异步等待 Tool 在 Agent 构建后移除；文件、Shell、Subagent、Memory、动态 Skill 和 Provider 写 Tool 不进入 M3 Agent。Factory 在构建前后分别校验自定义 Toolkit 和最终 Toolkit 的精确名称集合，未知 Tool 或可变更自定义 Tool 使配置失败关闭。
+
 ### Conversation 调用
 
 普通文本调用使用：
@@ -46,6 +59,8 @@ agent.call(userMessage, structuredOutputClass, runtimeContext)
 每段 Invoke/Resume 从序号 1 的 `STARTED` 开始。Runtime 内部订阅 AgentScope Reactor 流，并把映射后的事件写入单订阅缓冲 Publisher。Runtime 自身维护唯一终态：AgentScope 流缺少 Result/终态时补充安全 `FAILED`，终态后的多余事件或异常不再产生第二个终态。下游 demand 控制事件发送；下游 Subscription Cancel 只断开该缓冲流的传输订阅，AgentScope 调用和 Runtime 状态推进继续运行。
 
 ### Interrupt 与 Resume
+
+Task Approval 和 Pause 均产生随机 `ExecutionInterruptToken`。耐久层只保存 Token SHA-256；Resume 同时校验 Organization、AgentRun、AgentInterrupt、Token、ResumeRequestId 和回答指纹。精确重复 Resume 返回已提交结果，同 Request ID 不同回答失败关闭，成功后开启下一 `RESUME` Segment 并写入 `AGENT_RUN_RESUMED` DomainEvent。
 
 Permission ASK、外部执行请求和 Middleware Stop 生成随机不透明 `ExecutionInterruptToken`。Token 只作为服务端引用，Pending Tool、replyId、Session Key 和原始 AgentScope 状态保存在 Runtime 侧，不进入客户端或日志。
 
@@ -81,6 +96,9 @@ Runtime 使用进程内 Invocation Registry 保存 M2 活动调用、Pending Int
 - 普通流式文本、Structured Output、Interrupt、Resume、Cancel 和安全失败进入同一 ExecutionRuntime 协议；
 - Web 断线与业务取消保持独立语义；
 - M2 保持 Conversation Invocation 边界，不创建 TaskExecution、ExecutionLease 或 AgentRun。
+- M3 Task Agent 按 PolicySnapshot 固定配置版本，并可跨 Worker 实例恢复计划审批与 Todo 认知；
+- M3 Task AgentState 可以从不可变 Artifact 和 PostgreSQL Snapshot 元数据重建 Redis 热状态；
+- M3 Provider 写能力保持关闭，受控 Fixture Tool 的观察不能直接修改领域 Step 状态。
 
 ## 验证
 
@@ -92,9 +110,17 @@ Runtime 使用进程内 Invocation Registry 保存 M2 活动调用、Pending Int
 6. 重复、错 Token、错 Session 和并发冲突 Resume 在 AgentScope 前失败，本地准备失败不消费 Pending Interrupt；
 7. 模型错误、输出转换错误和缺失上游终态映射安全失败，终态后信号不会生成第二个终态；
 8. Subscription Cancel 不调用业务 Cancel，显式 Cancel 使用精确 RuntimeContext；
-9. Runtime 与 Factory 关闭后拒绝新调用并释放缓存实例。
+9. Runtime 与 Factory 关闭后拒绝新调用并释放缓存实例；
+10. Task Session、PolicySnapshot 和配置源版本一致时复用 Agent，版本变化时创建新 Agent；
+11. Task Toolkit 精确拒绝 Provider 写 Tool，并移除 Harness 自动异步等待 Tool；
+12. Worker 重建后使用同一 Task Session Key 恢复 Pending `plan_exit` 和 Todo；
+13. Snapshot 只引用已提交事件 Receipt，活动 Segment 不覆盖 AgentState；
+14. 空或失真 Redis 槽位从最近完整 Snapshot 恢复，损坏新版本回退并产生 continuity gap；
+15. 并发 Writer 只提交一个 Current Snapshot，失败 Artifact 进入 Tombstone 生命周期；
+16. Worker 只在终态 Receipt 后调用 Checkpoint，重新 Claim 后在 AgentScope 调用前恢复可用 Snapshot；
+17. Checkpoint 失败保留已提交事件，不伪造 TaskExecution 完成。
 
-实现与验证结果见 [M2-I03 AgentScopeNativeRuntime](../testing/M2-I03-AgentScopeNativeRuntime.md)。
+实现与验证结果见 [M2-I03 AgentScopeNativeRuntime](../testing/M2-I03-AgentScopeNativeRuntime.md)、[M3-I06 AgentScope Task Orchestrator](../testing/M3-I06-AgentScope-Task-Orchestrator.md)、[M3-I07 耐久 AgentRun 事件映射](../testing/M3-I07-耐久AgentRun事件映射.md)、[M3-I08 AgentStateSnapshot 生产恢复](../testing/M3-I08-AgentStateSnapshot生产恢复.md)和 [M3-I09 JVM Worker 执行循环与启动对账](../testing/M3-I09-JVM-Worker执行循环与启动对账.md)。
 
 ## 重新评估条件
 

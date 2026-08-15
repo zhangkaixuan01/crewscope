@@ -62,6 +62,14 @@ enableReasoning(false)
 
 官方 Adapter 的最终事件仍通过 `AguiEventSanitizer` 白名单。允许服务端构造的 Run Start、公开文本、Tool 名称与生命周期、Run Finish 和安全 Run Error。Tool Call ID 与 Message ID 转换为调用内稳定的不透明 ID；Tool Result Content、Message ID 和原始 Run Result 被移除。Tool Args、State、Raw、Custom、Snapshot、Chunk、Activity、Step 和全部 Reasoning 事件被丢弃。
 
+### M3 耐久 AgentRun 映射
+
+M3 Task Runtime 使用独立的 `TaskExecutionEvent` 和 AgentRun Segment 坐标，不复用 M2 RuntimeInvocationId。每个完整事件在内存中生成规范 SHA-256；Token、ToolCallId、Structured Output 值和安全失败的完整字段参与冲突检测，但不保存完整载荷。
+
+`agent_run_event_receipt` 在 AgentRun 行锁下保存 Organization、Run、Segment、Event Sequence、指纹、公开事件类型和 DomainEvent ID。新事件必须等于当前 Segment 的 `max(sequence) + 1`；精确重复只返回已提交回执，同序号不同指纹和序号缺口失败关闭。新事件在同一事务内锁定 ExecutionLease，使用 PostgreSQL 权威时间复验完整 Owner/Fencing 坐标，再提交 AgentRun/AgentInterrupt 变化、DomainEvent、Outbox 和 Receipt。
+
+`AGENT_RUN_EVENT_RECORDED` 只公开 TaskExecution/AgentRun/Segment/Event 坐标、安全文本、Tool 名称、状态、Artifact/Plan 引用、Usage、Retry/Fallback 角色与 Attempt、安全失败。Interrupt Token、ToolCallId、Tool 参数与原始结果、Structured Output 值、Provider 错误、AgentState 和私有推理没有对外字段。Approval 与 Pause 创建只保存 Token Hash 的 Pending AgentInterrupt；耐久 Resume 以 ResumeRequestId 和回答指纹裁决精确幂等，并开启下一 RESUME Segment。
+
 ## 结果
 
 - Web 只接收公开回答、受控中断和安全运行状态；
@@ -69,10 +77,12 @@ enableReasoning(false)
 - Exact Replay 不重复 SSE 或数据库写入候选；
 - Message 与 TaskIntent 只有在运行段成功完成后进入后续事务边界；
 - AG-UI 瞬时事件和持久 DomainEvent 投影使用同一实时信封但保持不同事实语义。
+- M3 AgentRun 事件可精确重放，冲突与缺口不会产生部分领域事实；
+- M2 Invocation 与 M3 AgentRun 保持独立 ID、状态和持久边界。
 
 ## 验证
 
-实现与 Fixture 结果见 [M2-I06 AgentScope 事件映射与脱敏](../testing/M2-I06-AgentScope事件映射与脱敏.md)。
+实现与 Fixture 结果见 [M2-I06 AgentScope 事件映射与脱敏](../testing/M2-I06-AgentScope事件映射与脱敏.md) 和 [M3-I07 耐久 AgentRun 事件映射](../testing/M3-I07-耐久AgentRun事件映射.md)。
 
 ## 重新评估条件
 
