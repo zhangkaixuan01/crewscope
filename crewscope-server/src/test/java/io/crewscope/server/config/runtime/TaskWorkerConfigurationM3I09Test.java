@@ -39,11 +39,14 @@ import io.crewscope.domain.runtime.RuntimeCapability;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.runtime.RuntimeProfile;
 import io.crewscope.domain.runtime.RuntimeWorkerId;
+import io.crewscope.domain.runtime.RuntimeWorkerStatus;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.runtime.ExecutionLeaseCoordinatorSpec;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerIdentity;
+import io.crewscope.infrastructure.runtime.RuntimeRegistryCoordinator;
+import io.crewscope.infrastructure.runtime.RuntimeWorkerHealth;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerLifecycle;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.runtime.TaskClaimSchedulerSpec;
@@ -128,11 +131,22 @@ class TaskWorkerConfigurationM3I09Test {
                 Duration.ofSeconds(10),
                 actor);
         RuntimeWorkerLifecycle lifecycle = mock(RuntimeWorkerLifecycle.class);
-        when(lifecycle.identity()).thenReturn(new RuntimeWorkerIdentity(
+        RuntimeWorkerIdentity identity = new RuntimeWorkerIdentity(
                 new ExecutionRuntimeId(java.util.UUID.randomUUID()),
                 new RuntimeWorkerId(java.util.UUID.randomUUID()),
                 registration.workerStableKey(),
-                runtimeProfile));
+                runtimeProfile);
+        when(lifecycle.identity()).thenReturn(identity);
+        RuntimeRegistryCoordinator registryCoordinator = mock(RuntimeRegistryCoordinator.class);
+        when(registryCoordinator.health()).thenReturn(new RuntimeWorkerHealth(
+                identity,
+                RuntimeWorkerStatus.ACTIVE,
+                true,
+                true,
+                0,
+                2,
+                1,
+                UtcTimestamp.parse("2026-08-15T06:00:00Z")));
         TaskClaimScheduler claimScheduler = mock(TaskClaimScheduler.class);
         when(claimScheduler.claim(anyInt()))
                 .thenReturn(new TaskClaimBatchResult(List.of(), 0, 0, 0, 0));
@@ -148,6 +162,7 @@ class TaskWorkerConfigurationM3I09Test {
                 .withBean(TaskWorkerLoadTracker.class, TaskWorkerLoadTracker::new)
                 .withBean(RuntimeWorkerRegistrationSpec.class, () -> registration)
                 .withBean(RuntimeWorkerLifecycle.class, () -> lifecycle)
+                .withBean(RuntimeRegistryCoordinator.class, () -> registryCoordinator)
                 .withBean(TaskClaimScheduler.class, () -> claimScheduler)
                 .withBean(TaskClaimSchedulerSpec.class, () -> new TaskClaimSchedulerSpec(
                         organizationId,

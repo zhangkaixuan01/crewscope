@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.execution.TaskExecutionEventEncoder;
 import io.crewscope.application.execution.TaskRuntimeEventReceiptRepository;
+import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -23,6 +24,8 @@ import io.crewscope.application.task.TaskClaimScheduler;
 import io.crewscope.application.task.TaskExecutionQueueRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskExecutionLeaseCoordinator;
+import io.crewscope.application.task.TaskEventRepository;
+import io.crewscope.application.task.WorkerTaskCommandService;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
@@ -139,7 +142,9 @@ class RuntimeRegistryConfigurationTest {
                 .withBean(TaskExecutionEventEncoder.class,
                         () -> mock(TaskExecutionEventEncoder.class))
                 .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
+                .withBean(TaskEventRepository.class, () -> mock(TaskEventRepository.class))
                 .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
+                .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
                 .withBean(TransactionExecutor.class, DirectTransactionExecutor::new)
                 .withBean(AuthoritativeTimeProvider.class, () -> () ->
                         UtcTimestamp.parse("2026-08-14T12:00:00Z"))
@@ -161,6 +166,7 @@ class RuntimeRegistryConfigurationTest {
                     assertThat(context).hasSingleBean(TaskClaimScheduler.class);
                     assertThat(context).hasSingleBean(TaskClaimSchedulerSpec.class);
                     assertThat(context).hasSingleBean(TaskExecutionLeaseCoordinator.class);
+                    assertThat(context).hasSingleBean(WorkerTaskCommandService.class);
                     assertThat(context).hasSingleBean(ExecutionLeaseSweeper.class);
                     assertThat(context).hasSingleBean(ExecutionLeaseSweeperLifecycle.class);
                     assertThat(context).hasSingleBean(ExecutionLeaseCoordinatorSpec.class);

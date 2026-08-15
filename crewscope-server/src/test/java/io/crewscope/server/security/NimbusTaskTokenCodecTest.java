@@ -43,8 +43,11 @@ class NimbusTaskTokenCodecTest {
         NimbusTaskTokenCodec oldCodec = new NimbusTaskTokenCodec(
                 "crewscope", "old", Map.of("old", OLD_KEY));
         String token = oldCodec.encode(fixture.claims);
-        String tampered = token.substring(0, token.length() - 1)
-                + (token.endsWith("A") ? "B" : "A");
+        String[] segments = token.split("\\.", -1);
+        String signature = segments[2];
+        String tamperedSignature = (signature.startsWith("A") ? "B" : "A")
+                + signature.substring(1);
+        String tampered = segments[0] + "." + segments[1] + "." + tamperedSignature;
 
         assertThrows(RuntimeException.class, () -> oldCodec.decode(tampered));
         NimbusTaskTokenCodec newOnly = new NimbusTaskTokenCodec(

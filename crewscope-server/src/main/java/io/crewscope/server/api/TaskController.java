@@ -1,0 +1,141 @@
+package io.crewscope.server.api;
+
+import io.crewscope.application.command.IdempotencyKey;
+import io.crewscope.application.task.AgentTaskCreationService;
+import io.crewscope.application.task.CreateAgentTaskCommand;
+import io.crewscope.application.task.TaskConversationSource;
+import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.domain.conversation.ConversationId;
+import io.crewscope.domain.conversation.MessageId;
+import io.crewscope.domain.provider.ProviderBindingId;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.task.TaskBrief;
+import io.crewscope.domain.workspace.AgentProfileId;
+import io.crewscope.domain.workitem.WorkItemId;
+import io.crewscope.domain.workitem.WorkProjectId;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+/** Member-facing API for delegating one visible WorkItem to its assigned Agent. */
+@RestController
+@RequestMapping(
+        "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}"
+                + "/work-items/{workItemId}/tasks")
+public final class TaskController {
+
+    private final AgentTaskCreationService service;
+    private final TeamRequestIdentityResolver identityResolver;
+
+    public TaskController(
+            AgentTaskCreationService service, TeamRequestIdentityResolver identityResolver) {
+        this.service = service;
+        this.identityResolver = identityResolver;
+    }
+
+    @PostMapping
+    public Mono<ResponseEntity<CommandReceiptResponse>> create(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String projectId,
+            @PathVariable String workItemId,
+            @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+            @RequestHeader(name = ApiHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody CreateTaskRequest request,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        Route route = route(organizationId, teamId, projectId, workItemId);
+        IdempotencyKey idempotencyKey = ApiHeaders.requireIdempotencyKey(key);
+        long expectedVersion = ApiHeaders.requireIfMatch(ifMatch);
+        CreateAgentTaskCommand command = request.toCommand(expectedVersion);
+        UUID correlationId = ApiCorrelationIds.resolve(exchange);
+        return identityResolver
+                .resolve(authentication, route.organizationId(), correlationId)
+                .flatMap(access -> blocking(() -> service.create(
+                        new TeamCommandContext(
+                                access, idempotencyKey, correlationId, Optional.empty()),
+                        route.teamId(),
+                        route.projectId(),
+                        route.workItemId(),
+                        command)))
+                .map(CommandReceiptResponse::accepted);
+    }
+
+    private static Route route(
+            String organizationId, String teamId, String projectId, String workItemId) {
+        try {
+            return new Route(
+                    OrganizationId.from(organizationId),
+                    TeamId.from(teamId),
+                    WorkProjectId.from(projectId),
+                    WorkItemId.from(workItemId));
+        } catch (IllegalArgumentException exception) {
+            throw new ApiRequestException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "invalid_request",
+                    "Request contains an invalid identifier",
+                    Map.of("route", "tasks"));
+        }
+    }
+
+    private static <T> Mono<T> blocking(Callable<T> action) {
+        return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    public record CreateTaskRequest(
+            @NotBlank @Size(max = TaskBrief.MAX_OBJECTIVE_LENGTH) String objective,
+            @NotNull
+                    @Size(min = 1, max = TaskBrief.MAX_ACCEPTANCE_CRITERIA)
+                    List<@NotBlank @Size(max = TaskBrief.MAX_ACCEPTANCE_CRITERION_LENGTH) String>
+                            acceptanceCriteria,
+            @NotNull UUID executorAgentProfileId,
+            @Valid ConversationSourceRequest conversationSource,
+            @NotNull @Size(max = 200) Set<@NotNull UUID> providerBindingIds) {
+
+        CreateAgentTaskCommand toCommand(long expectedVersion) {
+            return new CreateAgentTaskCommand(
+                    new TaskBrief(objective, acceptanceCriteria),
+                    new AgentProfileId(executorAgentProfileId),
+                    Optional.ofNullable(conversationSource)
+                            .map(ConversationSourceRequest::toSource),
+                    providerBindingIds.stream()
+                            .map(ProviderBindingId::new)
+                            .collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                    expectedVersion);
+        }
+    }
+
+    public record ConversationSourceRequest(
+            @NotNull UUID conversationId, @NotNull UUID messageId) {
+
+        TaskConversationSource toSource() {
+            return new TaskConversationSource(
+                    new ConversationId(conversationId), new MessageId(messageId));
+        }
+    }
+
+    private record Route(
+            OrganizationId organizationId,
+            TeamId teamId,
+            WorkProjectId projectId,
+            WorkItemId workItemId) {}
+}

@@ -68,6 +68,10 @@ crewscope:
   conversation-events:
     poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
+  task-events:
+    poll-interval: ${CREWSCOPE_TASK_EVENT_POLL_INTERVAL:500ms}
+    batch-size: ${CREWSCOPE_TASK_EVENT_BATCH_SIZE:100}
+    maximum-events-per-connection: ${CREWSCOPE_TASK_EVENT_MAXIMUM_EVENTS_PER_CONNECTION:10000}
   artifact:
     filesystem:
       root: ${CREWSCOPE_ARTIFACT_ROOT:./var/crewscope/artifacts}
@@ -106,6 +110,9 @@ crewscope:
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
+    observation:
+      environment: ${CREWSCOPE_ENVIRONMENT:development}
+      heartbeat-timeout: ${CREWSCOPE_RUNTIME_WORKER_HEARTBEAT_TIMEOUT:30s}
     registry:
       # all/worker profiles fail closed until these stable tenant identities are configured.
       organization-id: ${CREWSCOPE_RUNTIME_ORGANIZATION_ID:}

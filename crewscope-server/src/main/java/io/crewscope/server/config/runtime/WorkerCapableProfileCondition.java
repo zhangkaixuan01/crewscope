@@ -5,7 +5,7 @@ import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /** Activates Worker beans only for the explicit all and worker deployment profiles. */
-final class WorkerCapableProfileCondition implements Condition {
+public final class WorkerCapableProfileCondition implements Condition {
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {

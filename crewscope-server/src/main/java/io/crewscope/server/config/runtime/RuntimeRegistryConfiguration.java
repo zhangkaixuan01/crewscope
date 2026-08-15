@@ -2,7 +2,6 @@ package io.crewscope.server.config.runtime;
 
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
-import io.crewscope.application.execution.DurableAgentRunResumeService;
 import io.crewscope.application.execution.TaskExecutionEventEncoder;
 import io.crewscope.application.execution.TaskRuntimeEventReceiptRepository;
 import io.crewscope.application.event.DomainEventStore;
@@ -22,7 +21,10 @@ import io.crewscope.application.task.RuntimeArtifactRepository;
 import io.crewscope.application.task.TaskClaimScheduler;
 import io.crewscope.application.task.TaskExecutionQueueRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.task.TaskExecutionLeaseCoordinator;
+import io.crewscope.application.task.WorkerTaskCommandService;
+import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
@@ -193,6 +195,30 @@ public class RuntimeRegistryConfiguration {
 
     @Bean
     @Conditional(WorkerCapableProfileCondition.class)
+    WorkerTaskCommandService workerTaskCommandService(
+            TaskClaimScheduler taskClaimScheduler,
+            TaskExecutionLeaseCoordinator taskExecutionLeaseCoordinator,
+            DomainEventStore domainEventStore,
+            TaskEventRepository taskEventRepository,
+            OutboxRepository outboxRepository,
+            CommandReceiptStore commandReceiptStore,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider authoritativeTimeProvider,
+            RuntimeWorkerRegistrationSpec registrationSpec) {
+        return new WorkerTaskCommandService(
+                taskClaimScheduler,
+                taskExecutionLeaseCoordinator,
+                domainEventStore,
+                taskEventRepository,
+                outboxRepository,
+                commandReceiptStore,
+                transactionExecutor,
+                authoritativeTimeProvider,
+                registrationSpec.actor());
+    }
+
+    @Bean
+    @Conditional(WorkerCapableProfileCondition.class)
     DurableTaskExecutionEventService durableTaskExecutionEventService(
             AgentRunRepository runRepository,
             AgentInterruptRepository interruptRepository,
@@ -202,6 +228,7 @@ public class RuntimeRegistryConfiguration {
             PrincipalRepository principalRepository,
             TaskExecutionEventEncoder eventEncoder,
             DomainEventStore domainEventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider authoritativeTimeProvider) {
@@ -214,26 +241,7 @@ public class RuntimeRegistryConfiguration {
                 principalRepository,
                 eventEncoder,
                 domainEventStore,
-                outboxRepository,
-                transactionExecutor,
-                authoritativeTimeProvider);
-    }
-
-    @Bean
-    @Conditional(WorkerCapableProfileCondition.class)
-    DurableAgentRunResumeService durableAgentRunResumeService(
-            AgentRunRepository runRepository,
-            AgentInterruptRepository interruptRepository,
-            PrincipalRepository principalRepository,
-            DomainEventStore domainEventStore,
-            OutboxRepository outboxRepository,
-            TransactionExecutor transactionExecutor,
-            AuthoritativeTimeProvider authoritativeTimeProvider) {
-        return new DurableAgentRunResumeService(
-                runRepository,
-                interruptRepository,
-                principalRepository,
-                domainEventStore,
+                taskEventRepository,
                 outboxRepository,
                 transactionExecutor,
                 authoritativeTimeProvider);
@@ -245,6 +253,7 @@ public class RuntimeRegistryConfiguration {
             TaskExecutionRepository executionRepository,
             ExecutionLeaseRepository leaseRepository,
             DomainEventStore domainEventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider authoritativeTimeProvider,
@@ -254,6 +263,7 @@ public class RuntimeRegistryConfiguration {
                 executionRepository,
                 leaseRepository,
                 domainEventStore,
+                taskEventRepository,
                 outboxRepository,
                 transactionExecutor,
                 authoritativeTimeProvider,

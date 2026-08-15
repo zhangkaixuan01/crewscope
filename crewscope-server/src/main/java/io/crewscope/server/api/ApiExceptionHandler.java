@@ -3,6 +3,7 @@ package io.crewscope.server.api;
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
 import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
+import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
 import io.crewscope.server.observability.ApiObservabilityContext;
@@ -48,6 +49,17 @@ public class ApiExceptionHandler {
                     HttpStatus.GONE,
                     "cursor_expired",
                     "The Conversation Event cursor is no longer retained",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof TaskEventCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The Task Event cursor is no longer retained",
                     false,
                     null,
                     Map.of(),
@@ -107,6 +119,21 @@ public class ApiExceptionHandler {
         }
         var domainError = ApplicationErrorMapper.from(failure);
         if (domainError.isPresent()) {
+            if (isWorkerRoute(exchange)
+                    && (domainError.orElseThrow().code()
+                                    == io.crewscope.domain.shared.error.DomainErrorCode.INVALID_VALUE
+                            || domainError.orElseThrow().code()
+                                    == io.crewscope.domain.shared.error.DomainErrorCode.AGGREGATE_NOT_FOUND)) {
+                return response(
+                        HttpStatus.CONFLICT,
+                        "worker_ownership_invalid",
+                        "Worker command does not match the current execution owner",
+                        false,
+                        null,
+                        Map.of(),
+                        correlationId,
+                        exchange);
+            }
             return domainResponse(domainError.orElseThrow(), correlationId, exchange);
         }
         ApiObservabilityContext.failureType(exchange, failure.getClass());
@@ -174,5 +201,9 @@ public class ApiExceptionHandler {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private static boolean isWorkerRoute(ServerWebExchange exchange) {
+        return exchange.getRequest().getPath().value().startsWith("/api/internal/v1/worker/");
     }
 }

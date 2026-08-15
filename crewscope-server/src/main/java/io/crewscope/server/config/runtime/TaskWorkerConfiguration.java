@@ -36,6 +36,7 @@ import io.crewscope.infrastructure.runtime.DurableTaskWorkerExecutionFactory;
 import io.crewscope.infrastructure.runtime.DurableTaskWorkerExecutionHandler;
 import io.crewscope.infrastructure.runtime.DurableTaskWorkerStartupReconciler;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerLifecycle;
+import io.crewscope.infrastructure.runtime.RuntimeRegistryCoordinator;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerExecutionHandler;
 import io.crewscope.infrastructure.runtime.TaskWorkerExecutionLoop;
@@ -277,7 +278,9 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
-    TaskWorkerHealthIndicator taskWorkerHealthIndicator(TaskWorkerExecutionLoop workerLoop) {
-        return new TaskWorkerHealthIndicator(workerLoop);
+    TaskWorkerHealthIndicator taskWorkerHealthIndicator(
+            TaskWorkerExecutionLoop workerLoop,
+            RuntimeRegistryCoordinator registryCoordinator) {
+        return new TaskWorkerHealthIndicator(workerLoop, registryCoordinator);
     }
 }
