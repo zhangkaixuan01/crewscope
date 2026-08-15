@@ -27,6 +27,10 @@ public interface AgentStateSnapshotRepository {
     Optional<AgentStateSnapshot> findCurrentBySession(
             OrganizationId organizationId, AgentRuntimeSessionId sessionId);
 
+    /** Includes INVALID metadata so new monotonic sequences never reuse a rejected checkpoint. */
+    Optional<AgentStateSnapshot> findLatestBySession(
+            OrganizationId organizationId, AgentRuntimeSessionId sessionId);
+
     /** Returns CURRENT and SUPERSEDED recovery candidates by checkpointSequence descending. */
     List<AgentStateSnapshot> findRecoveryCandidates(
             OrganizationId organizationId, AgentRunId agentRunId, int limit);

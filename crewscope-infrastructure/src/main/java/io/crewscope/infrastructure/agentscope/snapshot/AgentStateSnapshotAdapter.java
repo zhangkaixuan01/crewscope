@@ -110,11 +110,31 @@ public final class AgentStateSnapshotAdapter {
             List<SnapshotCandidate> committedCandidates,
             ArtifactAccessContext accessContext,
             AgentStateStore targetStateStore) {
+        RecoveredState recovered = recover(target, committedCandidates, accessContext);
+        AgentStateStore stateStore = Objects.requireNonNull(targetStateStore, "targetStateStore");
+
+        try {
+            stateStore.save(
+                    recovered.result().restoredCandidate().identity().userId(),
+                    recovered.result().restoredCandidate().identity().sessionId(),
+                    AGENT_STATE_KEY,
+                    recovered.state());
+        } catch (RuntimeException exception) {
+            throw new AgentStateSnapshotRecoveryException(
+                    "Failed to rebuild the AgentState hot store", exception);
+        }
+        return recovered.result();
+    }
+
+    /** Returns verified state without choosing the hot-store implementation that receives it. */
+    public RecoveredState recover(
+            RecoveryTarget target,
+            List<SnapshotCandidate> committedCandidates,
+            ArtifactAccessContext accessContext) {
         RecoveryTarget requiredTarget = Objects.requireNonNull(target, "target");
         List<SnapshotCandidate> candidates = List.copyOf(
                 Objects.requireNonNull(committedCandidates, "committedCandidates"));
         ArtifactAccessContext access = Objects.requireNonNull(accessContext, "accessContext");
-        AgentStateStore stateStore = Objects.requireNonNull(targetStateStore, "targetStateStore");
         requireCandidateSet(requiredTarget, candidates);
 
         List<SkippedSnapshot> skipped = new ArrayList<>();
@@ -128,21 +148,13 @@ public final class AgentStateSnapshotAdapter {
             }
             AgentState state = restored.orElseThrow();
             requireStateIdentity(requiredTarget.identity(), state);
-            try {
-                stateStore.save(
-                        requiredTarget.identity().userId(),
-                        requiredTarget.identity().sessionId(),
-                        AGENT_STATE_KEY,
-                        state);
-            } catch (RuntimeException exception) {
-                throw new AgentStateSnapshotRecoveryException(
-                        "Failed to rebuild the AgentState hot store", exception);
-            }
-            return new RecoveryResult(
-                    candidate,
-                    candidate.checkpointSequence()
-                            < requiredTarget.committedCheckpointSequence(),
-                    skipped);
+            return new RecoveredState(
+                    state,
+                    new RecoveryResult(
+                            candidate,
+                            candidate.checkpointSequence()
+                                    < requiredTarget.committedCheckpointSequence(),
+                            skipped));
         }
         throw new AgentStateSnapshotRecoveryException(
                 "No valid AgentState snapshot is available for the committed checkpoint");
@@ -443,6 +455,15 @@ public final class AgentStateSnapshotAdapter {
             Objects.requireNonNull(restoredCandidate, "restoredCandidate");
             skippedSnapshots = List.copyOf(
                     Objects.requireNonNull(skippedSnapshots, "skippedSnapshots"));
+        }
+    }
+
+    /** Verified AgentState paired with sanitized recovery selection evidence. */
+    public record RecoveredState(AgentState state, RecoveryResult result) {
+
+        public RecoveredState {
+            state = Objects.requireNonNull(state, "state");
+            result = Objects.requireNonNull(result, "result");
         }
     }
 

@@ -6,5 +6,6 @@ public enum ArtifactTombstoneReason {
     USER_REQUESTED,
     SECURITY_POLICY,
     ORGANIZATION_REMOVED,
-    SUPERSEDED
+    SUPERSEDED,
+    PUBLICATION_ABORTED
 }

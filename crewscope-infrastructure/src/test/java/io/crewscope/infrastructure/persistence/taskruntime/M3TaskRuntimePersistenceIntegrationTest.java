@@ -2,12 +2,37 @@ package io.crewscope.infrastructure.persistence.taskruntime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.state.AgentState;
+import io.crewscope.application.artifact.ArtifactAccessContext;
+import io.crewscope.application.artifact.ArtifactContent;
+import io.crewscope.application.artifact.ArtifactDescriptor;
+import io.crewscope.application.artifact.ArtifactMutationContext;
+import io.crewscope.application.artifact.ArtifactPurgeRequest;
+import io.crewscope.application.artifact.ArtifactStore;
+import io.crewscope.application.artifact.ArtifactTombstone;
+import io.crewscope.application.artifact.ArtifactTombstoneReason;
+import io.crewscope.application.artifact.ArtifactWriteRequest;
+import io.crewscope.application.execution.TaskAgentStateCheckpointCommand;
+import io.crewscope.application.execution.TaskAgentStateCheckpointResult;
+import io.crewscope.application.execution.TaskAgentStateIdentity;
+import io.crewscope.application.execution.TaskAgentStateRecoveryCommand;
+import io.crewscope.application.execution.TaskAgentStateSafePoint;
+import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
+import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.runtime.ExecutionRuntimeRepository;
 import io.crewscope.application.runtime.RuntimeWorkerRepository;
+import io.crewscope.application.execution.TaskRuntimeEventCommitWindow;
+import io.crewscope.application.execution.TaskRuntimeEventReceipt;
+import io.crewscope.application.execution.TaskRuntimeEventReceiptRepository;
 import io.crewscope.application.task.AgentInterruptRepository;
 import io.crewscope.application.task.AgentRunRepository;
 import io.crewscope.application.task.AgentStateSnapshotRepository;
@@ -22,6 +47,7 @@ import io.crewscope.application.task.TaskCredentialGrantRepository;
 import io.crewscope.application.task.TaskExecutionQueueRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -125,18 +151,30 @@ import io.crewscope.domain.workspace.AgentProfileStatus;
 import io.crewscope.domain.workspace.AgentProfileType;
 import io.crewscope.domain.workspace.WorkspaceScope;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.agentscope.snapshot.DurableAgentStateSnapshotService;
+import io.crewscope.infrastructure.artifact.FilesystemArtifactStore;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -147,6 +185,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 /** PostgreSQL evidence for M3-D09 mappings, queue locks and conditional ownership writes. */
 @SpringBootTest(
@@ -186,8 +225,10 @@ class M3TaskRuntimePersistenceIntegrationTest
     @Autowired private AgentInterruptRepository interruptRepository;
     @Autowired private RuntimeArtifactRepository artifactRepository;
     @Autowired private AgentStateSnapshotRepository snapshotRepository;
+    @Autowired private TaskRuntimeEventReceiptRepository runtimeEventReceiptRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private PlatformTransactionManager transactionManager;
+    @TempDir Path snapshotArtifactRoot;
 
     @BeforeEach
     void resetBusinessData() {
@@ -615,6 +656,465 @@ class M3TaskRuntimePersistenceIntegrationTest
                 () -> agentRunRepository.update(resumed));
     }
 
+    @Test
+    void serializesExactAgentRunEventReceiptsAndRollsBackIncompleteCommit() {
+        Fixture fixture = seedFixture("EVT");
+        PlanningGraph graph = persistPlanningGraph(fixture);
+        TaskAgentRuntimeSession session = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeStep(
+                        graph.task(), graph.execution(), graph.step(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        AgentRun run = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), session, 1, fixture.executor, RUNNING));
+
+        assertThrows(IllegalTransactionStateException.class, () ->
+                runtimeEventReceiptRepository.lockCommitWindow(
+                        fixture.organizationId, run.id(), 1, 1));
+
+        UUID firstEventId = insertRuntimeDomainEvent(fixture, run, 1);
+        TaskRuntimeEventReceipt first = new TaskRuntimeEventReceipt(
+                fixture.organizationId,
+                run.id(),
+                1,
+                1,
+                RuntimeContentHash.sha256("complete-event-one"),
+                "STARTED",
+                firstEventId,
+                RUNNING,
+                RUNNING);
+        TaskRuntimeEventCommitWindow before = inTransaction(() ->
+                runtimeEventReceiptRepository.lockCommitWindow(
+                        fixture.organizationId, run.id(), 1, 1));
+        assertEquals(1, before.nextSequence());
+        assertTrue(before.existingReceipt().isEmpty());
+        inTransaction(() -> runtimeEventReceiptRepository.create(first));
+        TaskRuntimeEventCommitWindow replay = inTransaction(() ->
+                runtimeEventReceiptRepository.lockCommitWindow(
+                        fixture.organizationId, run.id(), 1, 1));
+        assertEquals(2, replay.nextSequence());
+        assertEquals(first.eventHash(), replay.existingReceipt().orElseThrow().eventHash());
+
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        UUID rolledBackEventId = UUID.randomUUID();
+        transaction.executeWithoutResult(status -> {
+            insertRuntimeDomainEvent(fixture, run, 2, rolledBackEventId);
+            runtimeEventReceiptRepository.create(new TaskRuntimeEventReceipt(
+                    fixture.organizationId,
+                    run.id(),
+                    1,
+                    2,
+                    RuntimeContentHash.sha256("rolled-back-terminal"),
+                    "COMPLETED",
+                    rolledBackEventId,
+                    RUNNING,
+                    RUNNING));
+            status.setRollbackOnly();
+        });
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.agent_run_event_receipt WHERE domain_event_id = ?",
+                Integer.class,
+                rolledBackEventId));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.domain_event WHERE event_id = ?",
+                Integer.class,
+                rolledBackEventId));
+    }
+
+    @Test
+    void publishesAndRecoversDurableAgentStateWithCorruptLatestFallback() throws Exception {
+        Fixture fixture = seedFixture("SNP");
+        PlanningGraph graph = persistPlanningGraph(fixture);
+        TaskAgentRuntimeSession session = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeStep(
+                        graph.task(), graph.execution(), graph.step(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        AgentRun run = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), session, 1, fixture.executor, RUNNING));
+        TaskExecutionRuntimeFacts facts = runtimeFacts(graph, session, run);
+        TaskAgentStateIdentity identity = new TaskAgentStateIdentity(
+                graph.execution().id().value(),
+                run.id().value(),
+                stableAgentId(session),
+                stableAgentId(session),
+                Long.toString(session.agentProfileVersion()),
+                session.agentScopeKey().userId(),
+                session.agentScopeKey().sessionId());
+        PrincipalRepository principals = mock(PrincipalRepository.class);
+        when(principals.findById(fixture.organizationId, fixture.executor.id()))
+                .thenReturn(Optional.of(fixture.executor));
+        ArtifactStore store = new FilesystemArtifactStore(
+                snapshotArtifactRoot,
+                new ObjectMapper(),
+                Clock.fixed(RUNNING.value(), ZoneOffset.UTC));
+        DurableAgentStateSnapshotService service = new DurableAgentStateSnapshotService(
+                store,
+                agentRunRepository,
+                taskSessionRepository,
+                artifactRepository,
+                snapshotRepository,
+                runtimeEventReceiptRepository,
+                activeLeaseRepository(facts),
+                principals,
+                transactionExecutor(),
+                () -> RUNNING);
+
+        commitRuntimeReceipt(fixture, run, 1);
+        var first = service.checkpoint(checkpointCommand(
+                facts, identity, 1, state(identity, "checkpoint-one")));
+        commitRuntimeReceipt(fixture, run, 2);
+        var second = service.checkpoint(checkpointCommand(
+                facts, identity, 2, state(identity, "checkpoint-two")));
+
+        assertEquals(1, first.snapshotSequence());
+        assertEquals(2, second.snapshotSequence());
+        assertEquals(AgentStateSnapshotStatus.SUPERSEDED, snapshotRepository
+                .findById(fixture.organizationId, first.snapshotId()).orElseThrow().status());
+        RuntimeArtifact latestArtifact = artifactRepository.findById(
+                        fixture.organizationId, second.runtimeArtifactId())
+                .orElseThrow();
+        ArtifactAccessContext access = new ArtifactAccessContext(
+                fixture.organizationId,
+                fixture.executor.id(),
+                Set.of(fixture.teamId),
+                Set.of(fixture.workspaceId));
+        Path latestBlob = Path.of(store.head(latestArtifact.artifactId(), access)
+                .orElseThrow().storageUri());
+        Files.writeString(latestBlob, "corrupt", StandardCharsets.UTF_8);
+
+        var recovered = service.recover(new TaskAgentStateRecoveryCommand(facts, identity, 10));
+
+        assertEquals(first.snapshotId(), recovered.snapshotId());
+        assertEquals(1, recovered.checkpointSequence());
+        assertTrue(recovered.continuityGap().isPresent());
+        assertEquals("checkpoint-one", AgentState.fromJsonString(recovered.agentStateJson())
+                .getContext().get(0).getTextContent());
+        assertEquals(AgentStateSnapshotStatus.INVALID, snapshotRepository
+                .findById(fixture.organizationId, second.snapshotId()).orElseThrow().status());
+        assertTrue(store.head(latestArtifact.artifactId(), access)
+                .orElseThrow().tombstone().isPresent());
+    }
+
+    @Test
+    void refusesSnapshotBeforeTheReferencedRuntimeReceiptCommits() {
+        ArtifactStore store = new FilesystemArtifactStore(
+                snapshotArtifactRoot.resolve("receipt-gate"),
+                new ObjectMapper(),
+                Clock.fixed(RUNNING.value(), ZoneOffset.UTC));
+        DurableSnapshotFixture snapshot = durableSnapshotFixture("SNG", store);
+
+        DomainValidationException failure = assertThrows(
+                DomainValidationException.class,
+                () -> snapshot.service().checkpoint(checkpointCommand(
+                        snapshot.facts(),
+                        snapshot.identity(),
+                        1,
+                        state(snapshot.identity(), "must-not-publish"))));
+
+        assertTrue(failure.getMessage().contains("event receipt"));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.agent_state_snapshot", Integer.class));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.runtime_artifact", Integer.class));
+    }
+
+    @Test
+    void concurrentWritersPublishOneCurrentSnapshotAndTombstoneTheLoser() throws Exception {
+        ArtifactStore filesystem = new FilesystemArtifactStore(
+                snapshotArtifactRoot.resolve("concurrent-writers"),
+                new ObjectMapper(),
+                Clock.fixed(RUNNING.value(), ZoneOffset.UTC));
+        BarrierArtifactStore store = new BarrierArtifactStore(filesystem, 2);
+        DurableSnapshotFixture snapshot = durableSnapshotFixture("SCW", store);
+        commitRuntimeReceipt(snapshot.fixture(), snapshot.run(), 1);
+
+        ExecutorService writers = Executors.newFixedThreadPool(2);
+        List<Future<TaskAgentStateCheckpointResult>> attempts;
+        try {
+            attempts = List.of(
+                    writers.submit(() -> snapshot.service().checkpoint(checkpointCommand(
+                            snapshot.facts(),
+                            snapshot.identity(),
+                            1,
+                            state(snapshot.identity(), "writer-one")))),
+                    writers.submit(() -> snapshot.service().checkpoint(checkpointCommand(
+                            snapshot.facts(),
+                            snapshot.identity(),
+                            1,
+                            state(snapshot.identity(), "writer-two")))));
+
+            int successes = 0;
+            Throwable rejected = null;
+            for (Future<TaskAgentStateCheckpointResult> attempt : attempts) {
+                try {
+                    TaskAgentStateCheckpointResult committed = attempt.get(20, TimeUnit.SECONDS);
+                    assertEquals(1, committed.snapshotSequence());
+                    assertEquals(1, committed.checkpointSequence());
+                    successes++;
+                } catch (ExecutionException failure) {
+                    rejected = failure.getCause();
+                }
+            }
+            assertEquals(1, successes);
+            assertInstanceOf(RuntimeException.class, rejected);
+        } finally {
+            writers.shutdownNow();
+        }
+
+        AgentStateSnapshot current = snapshotRepository.findCurrentBySession(
+                        snapshot.fixture().organizationId, snapshot.session().id())
+                .orElseThrow();
+        assertEquals(1, current.snapshotSequence());
+        assertEquals(1, current.checkpointSequence());
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.agent_state_snapshot", Integer.class));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.runtime_artifact", Integer.class));
+
+        ArtifactAccessContext access = snapshotAccess(snapshot.fixture());
+        List<ArtifactDescriptor> artifacts = store.publishedArtifactIds().stream()
+                .map(id -> store.head(id, access).orElseThrow())
+                .toList();
+        assertEquals(2, artifacts.size());
+        assertEquals(1, artifacts.stream().filter(value -> value.tombstone().isEmpty()).count());
+        ArtifactTombstone rejected = artifacts.stream()
+                .map(ArtifactDescriptor::tombstone)
+                .flatMap(Optional::stream)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ArtifactTombstoneReason.PUBLICATION_ABORTED, rejected.reason());
+    }
+
+    private DurableSnapshotFixture durableSnapshotFixture(String suffix, ArtifactStore store) {
+        Fixture fixture = seedFixture(suffix);
+        PlanningGraph graph = persistPlanningGraph(fixture);
+        TaskAgentRuntimeSession session = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeStep(
+                        graph.task(), graph.execution(), graph.step(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        AgentRun run = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), session, 1, fixture.executor, RUNNING));
+        TaskExecutionRuntimeFacts facts = runtimeFacts(graph, session, run);
+        TaskAgentStateIdentity identity = new TaskAgentStateIdentity(
+                graph.execution().id().value(),
+                run.id().value(),
+                stableAgentId(session),
+                stableAgentId(session),
+                Long.toString(session.agentProfileVersion()),
+                session.agentScopeKey().userId(),
+                session.agentScopeKey().sessionId());
+        PrincipalRepository principals = mock(PrincipalRepository.class);
+        when(principals.findById(fixture.organizationId, fixture.executor.id()))
+                .thenReturn(Optional.of(fixture.executor));
+        DurableAgentStateSnapshotService service = new DurableAgentStateSnapshotService(
+                store,
+                agentRunRepository,
+                taskSessionRepository,
+                artifactRepository,
+                snapshotRepository,
+                runtimeEventReceiptRepository,
+                activeLeaseRepository(facts),
+                principals,
+                transactionExecutor(),
+                () -> RUNNING);
+        return new DurableSnapshotFixture(fixture, session, run, facts, identity, service);
+    }
+
+    private static ArtifactAccessContext snapshotAccess(Fixture fixture) {
+        return new ArtifactAccessContext(
+                fixture.organizationId,
+                fixture.executor.id(),
+                Set.of(fixture.teamId),
+                Set.of(fixture.workspaceId));
+    }
+
+    private static String stableAgentId(TaskAgentRuntimeSession session) {
+        return TaskAgentStateIdentity.stableAgentId(
+                session.agentProfileId(), session.agentProfileVersion());
+    }
+
+    private void commitRuntimeReceipt(Fixture fixture, AgentRun run, long sequence) {
+        UUID eventId = insertRuntimeDomainEvent(fixture, run, sequence);
+        inTransaction(() -> runtimeEventReceiptRepository.create(new TaskRuntimeEventReceipt(
+                fixture.organizationId,
+                run.id(),
+                1,
+                sequence,
+                RuntimeContentHash.sha256("snapshot-event-" + sequence),
+                "PROGRESS",
+                eventId,
+                RUNNING,
+                RUNNING)));
+    }
+
+    private static TaskExecutionRuntimeFacts runtimeFacts(
+            PlanningGraph graph, TaskAgentRuntimeSession session, AgentRun run) {
+        TaskExecutionRuntimeFacts facts = mock(TaskExecutionRuntimeFacts.class);
+        ExecutionLease lease = mock(ExecutionLease.class);
+        RuntimeEnvironment environment = new RuntimeEnvironment("test");
+        when(lease.id()).thenReturn(ExecutionLeaseId.generate());
+        when(lease.environment()).thenReturn(environment);
+        when(lease.taskExecutionId()).thenReturn(graph.execution().id());
+        when(lease.attempt()).thenReturn(graph.execution().attempt());
+        when(lease.runtimeId()).thenReturn(ExecutionRuntimeId.generate());
+        when(lease.workerId()).thenReturn(RuntimeWorkerId.generate());
+        when(lease.claimTokenHash()).thenReturn(
+                new ClaimToken("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq").hash());
+        when(lease.fencingToken()).thenReturn(FencingToken.initial());
+        when(lease.owns(any(LeaseOwnership.class), any(UtcTimestamp.class))).thenReturn(true);
+        when(facts.task()).thenReturn(graph.task());
+        when(facts.execution()).thenReturn(graph.execution());
+        when(facts.lease()).thenReturn(lease);
+        when(facts.stepExecution()).thenReturn(Optional.of(graph.step()));
+        when(facts.runtimeSession()).thenReturn(session);
+        when(facts.agentRun()).thenReturn(run);
+        return facts;
+    }
+
+    private static ExecutionLeaseRepository activeLeaseRepository(
+            TaskExecutionRuntimeFacts facts) {
+        ExecutionLeaseRepository repository = mock(ExecutionLeaseRepository.class);
+        ExecutionLease lease = facts.lease();
+        when(repository.findByIdForUpdate(
+                        facts.task().scope().organizationId(),
+                        lease.environment(),
+                        lease.id()))
+                .thenReturn(Optional.of(lease));
+        return repository;
+    }
+
+    private static TaskAgentStateCheckpointCommand checkpointCommand(
+            TaskExecutionRuntimeFacts facts,
+            TaskAgentStateIdentity identity,
+            long eventSequence,
+            AgentState state) {
+        return new TaskAgentStateCheckpointCommand(
+                facts,
+                identity,
+                1,
+                eventSequence,
+                TaskAgentStateSafePoint.PERIODIC,
+                state.toJson(),
+                Optional.of(Duration.ofDays(30)));
+    }
+
+    private static AgentState state(TaskAgentStateIdentity identity, String text) {
+        return AgentState.builder()
+                .userId(identity.userId())
+                .sessionId(identity.sessionId())
+                .addMessage(new UserMessage(text))
+                .build();
+    }
+
+    private record DurableSnapshotFixture(
+            Fixture fixture,
+            TaskAgentRuntimeSession session,
+            AgentRun run,
+            TaskExecutionRuntimeFacts facts,
+            TaskAgentStateIdentity identity,
+            DurableAgentStateSnapshotService service) {}
+
+    /** Makes both immutable Artifact writes visible before either metadata transaction continues. */
+    private static final class BarrierArtifactStore implements ArtifactStore {
+
+        private final ArtifactStore delegate;
+        private final CyclicBarrier publicationBarrier;
+        private final ConcurrentLinkedQueue<ArtifactId> publishedArtifactIds =
+                new ConcurrentLinkedQueue<>();
+
+        private BarrierArtifactStore(ArtifactStore delegate, int writers) {
+            this.delegate = delegate;
+            this.publicationBarrier = new CyclicBarrier(writers);
+        }
+
+        @Override
+        public ArtifactDescriptor put(ArtifactWriteRequest request, java.io.InputStream content) {
+            ArtifactDescriptor descriptor = delegate.put(request, content);
+            publishedArtifactIds.add(descriptor.artifactId());
+            try {
+                publicationBarrier.await(10, TimeUnit.SECONDS);
+                return descriptor;
+            } catch (Exception exception) {
+                throw new IllegalStateException(
+                        "Concurrent snapshot Writers did not reach the Artifact boundary", exception);
+            }
+        }
+
+        @Override
+        public Optional<ArtifactDescriptor> head(
+                ArtifactId artifactId, ArtifactAccessContext accessContext) {
+            return delegate.head(artifactId, accessContext);
+        }
+
+        @Override
+        public Optional<ArtifactContent> get(
+                ArtifactId artifactId, ArtifactAccessContext accessContext) {
+            return delegate.get(artifactId, accessContext);
+        }
+
+        @Override
+        public Optional<ArtifactTombstone> tombstone(
+                ArtifactId artifactId,
+                ArtifactMutationContext mutationContext,
+                ArtifactTombstoneReason reason,
+                Optional<String> detail) {
+            return delegate.tombstone(artifactId, mutationContext, reason, detail);
+        }
+
+        @Override
+        public List<ArtifactId> purgeTombstoned(ArtifactPurgeRequest request) {
+            return delegate.purgeTombstoned(request);
+        }
+
+        private List<ArtifactId> publishedArtifactIds() {
+            return List.copyOf(publishedArtifactIds);
+        }
+    }
+
+    private TransactionExecutor transactionExecutor() {
+        return new TransactionExecutor() {
+            @Override
+            public <T> T required(Supplier<T> operation) {
+                return new TransactionTemplate(transactionManager)
+                        .execute(status -> operation.get());
+            }
+        };
+    }
+
+    private UUID insertRuntimeDomainEvent(Fixture fixture, AgentRun run, long sequence) {
+        UUID eventId = UUID.randomUUID();
+        insertRuntimeDomainEvent(fixture, run, sequence, eventId);
+        return eventId;
+    }
+
+    private void insertRuntimeDomainEvent(
+            Fixture fixture, AgentRun run, long sequence, UUID eventId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version,
+                    organization_id, team_id, workspace_id,
+                    subject_type, subject_id, aggregate_version,
+                    actor_type, actor_id, correlation_id,
+                    occurred_at, payload
+                ) VALUES (
+                    ?, 'AGENT_RUN_EVENT_RECORDED', '1',
+                    ?, ?, ?,
+                    'AGENT_RUN', ?, ?,
+                    'TEAM_AGENT', ?, ?,
+                    ?, '{}'::jsonb
+                )
+                """,
+                eventId,
+                fixture.organizationId.value(),
+                fixture.teamId.value(),
+                fixture.workspaceId.value(),
+                run.id().value(),
+                sequence,
+                fixture.executor.id().value(),
+                UUID.randomUUID(),
+                RUNNING.toOffsetDateTime());
+    }
+
     /** Persists the minimum closed planning graph required by Task-side Agent sessions. */
     private PlanningGraph persistPlanningGraph(Fixture fixture) {
         Task task = taskRepository.create(fixture.task());
@@ -666,7 +1166,7 @@ class M3TaskRuntimePersistenceIntegrationTest
         }
     }
 
-    private static final class Fixture {
+    static final class Fixture {
         final String key;
         final OrganizationId organizationId = OrganizationId.generate();
         final TeamId teamId = TeamId.generate();
@@ -943,7 +1443,8 @@ class M3TaskRuntimePersistenceIntegrationTest
         JpaAgentRunRepositoryAdapter.class,
         JpaAgentInterruptRepositoryAdapter.class,
         JpaRuntimeArtifactRepositoryAdapter.class,
-        JpaAgentStateSnapshotRepositoryAdapter.class
+        JpaAgentStateSnapshotRepositoryAdapter.class,
+        JdbcTaskRuntimeEventReceiptRepository.class
     })
     static class TestApplication {}
 }
