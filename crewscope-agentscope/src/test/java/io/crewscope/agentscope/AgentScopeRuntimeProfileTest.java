@@ -25,6 +25,9 @@ class AgentScopeRuntimeProfileTest {
                         RuntimeCapability.SESSION_STATE),
                 AgentScopeRuntimeProfile.capabilities().values());
         assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.PLAN));
+        assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.TASK_EXECUTION));
+        assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.DURABLE_EVENT_STREAM));
+        assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.PAUSE_RESUME));
         assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.SANDBOX));
         assertFalse(AgentScopeRuntimeProfile.capabilities().supports(RuntimeCapability.SUBAGENT));
     }

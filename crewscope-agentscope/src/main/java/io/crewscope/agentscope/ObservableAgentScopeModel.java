@@ -14,12 +14,12 @@ import reactor.core.publisher.Flux;
 import reactor.util.retry.Retry;
 
 /** Preserves AgentScope retry semantics while exposing real attempts and sanitizing terminal errors. */
-final class ObservableAgentScopeModel implements Model {
+public final class ObservableAgentScopeModel implements Model {
 
     private final Model delegate;
     private final AgentModelRole role;
 
-    ObservableAgentScopeModel(Model delegate, AgentModelRole role) {
+    public ObservableAgentScopeModel(Model delegate, AgentModelRole role) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         if (role != AgentModelRole.PRIMARY && role != AgentModelRole.FALLBACK) {
             throw new IllegalArgumentException("observable model role must be PRIMARY or FALLBACK");
@@ -30,13 +30,21 @@ final class ObservableAgentScopeModel implements Model {
     @Override
     public Flux<ChatResponse> stream(
             List<Msg> messages, List<ToolSchema> tools, GenerateOptions options) {
-        return Flux.deferContextual(contextView -> AgentCallObservationScope.find(contextView)
-                .<Flux<ChatResponse>>map(scope -> observed(scope, messages, tools, options))
-                .orElseGet(() -> Flux.defer(() -> delegate.stream(messages, tools, options))));
+        return Flux.deferContextual(contextView -> {
+            AgentCallObservationScope invocationScope =
+                    AgentCallObservationScope.find(contextView).orElse(null);
+            TaskAgentCallObservationScope taskScope =
+                    TaskAgentCallObservationScope.find(contextView).orElse(null);
+            if (invocationScope == null && taskScope == null) {
+                return Flux.defer(() -> delegate.stream(messages, tools, options));
+            }
+            return observed(invocationScope, taskScope, messages, tools, options);
+        });
     }
 
     private Flux<ChatResponse> observed(
-            AgentCallObservationScope scope,
+            AgentCallObservationScope invocationScope,
+            TaskAgentCallObservationScope taskScope,
             List<Msg> messages,
             List<ToolSchema> tools,
             GenerateOptions options) {
@@ -45,9 +53,16 @@ final class ObservableAgentScopeModel implements Model {
                 ExecutionConfig.MODEL_DEFAULTS);
         int maxAttempts = effective.getMaxAttempts() == null ? 1 : effective.getMaxAttempts();
         GenerateOptions singleAttemptOptions = singleAttemptOptions(options);
-        scope.modelSelected(role);
+        if (invocationScope != null) {
+            invocationScope.modelSelected(role);
+        }
         if (role == AgentModelRole.FALLBACK) {
-            scope.fallbackSelected(getModelName(), maxAttempts);
+            if (invocationScope != null) {
+                invocationScope.fallbackSelected(getModelName(), maxAttempts);
+            }
+            if (taskScope != null) {
+                taskScope.fallbackSelected(maxAttempts);
+            }
         }
 
         Flux<ChatResponse> attempts = Flux.defer(
@@ -63,11 +78,16 @@ final class ObservableAgentScopeModel implements Model {
                     .maxBackoff(maxBackoff)
                     .jitter(0.5)
                     .filter(retryOn)
-                    .doBeforeRetry(signal -> scope.retrying(
-                            getModelName(),
-                            role,
-                            Math.toIntExact(signal.totalRetries() + 2),
-                            maxAttempts));
+                    .doBeforeRetry(signal -> {
+                        int nextAttempt = Math.toIntExact(signal.totalRetries() + 2);
+                        if (invocationScope != null) {
+                            invocationScope.retrying(
+                                    getModelName(), role, nextAttempt, maxAttempts);
+                        }
+                        if (taskScope != null) {
+                            taskScope.retrying(role, nextAttempt, maxAttempts);
+                        }
+                    });
             attempts = attempts.retryWhen(retry);
         }
         return attempts.onErrorMap(failure -> new SafeModelExecutionException(

@@ -23,6 +23,7 @@ import io.agentscope.core.model.transport.HttpTransportException;
 import io.agentscope.core.middleware.ModelCallInput;
 import io.crewscope.application.execution.PlatformExecutionContext;
 import io.crewscope.application.execution.RuntimeInvocationId;
+import io.crewscope.application.execution.TaskExecutionEventPayload;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.time.Clock;
@@ -186,6 +187,35 @@ class AgentCallObservabilityM2I07Test {
                         ignored -> Flux.empty())
                 .blockLast();
         assertTrue(records.get(records.size() - 1).traceId().isEmpty());
+    }
+
+    @Test
+    void bridgesRetryAndFallbackIntoTheTaskRuntimeObservationScope() {
+        List<TaskExecutionEventPayload.ModelTransition> transitions = new ArrayList<>();
+        AtomicInteger subscriptions = new AtomicInteger();
+        Model primary = new ObservableAgentScopeModel(
+                model("primary-model", () -> subscriptions.getAndIncrement() == 0
+                        ? Flux.error(providerFailure(429))
+                        : Flux.just(response(1, 1, 0))),
+                AgentModelRole.PRIMARY);
+
+        primary.stream(List.of(), List.of(), options(2))
+                .contextWrite(TaskAgentCallObservationScope.install(transitions::add))
+                .blockLast();
+        Model fallback = new ObservableAgentScopeModel(
+                new SequenceModel("fallback-model", Flux.just(response(1, 1, 0))),
+                AgentModelRole.FALLBACK);
+        fallback.stream(List.of(), List.of(), options(1))
+                .contextWrite(TaskAgentCallObservationScope.install(transitions::add))
+                .blockLast();
+
+        assertTrue(transitions.stream().anyMatch(value ->
+                value.type() == TaskExecutionEventPayload.ModelTransitionType.RETRYING
+                        && value.modelRole() == TaskExecutionEventPayload.ModelRole.PRIMARY
+                        && value.attempt() == 2));
+        assertTrue(transitions.stream().anyMatch(value ->
+                value.type() == TaskExecutionEventPayload.ModelTransitionType.FALLBACK_SELECTED
+                        && value.modelRole() == TaskExecutionEventPayload.ModelRole.FALLBACK));
     }
 
     private static Flux<AgentEvent> invoke(

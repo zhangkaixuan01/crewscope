@@ -14,4 +14,9 @@ public record ExecutionInterruptToken(String value) {
                     "interrupt token must contain 1 to 512 printable characters");
         }
     }
+
+    @Override
+    public String toString() {
+        return "ExecutionInterruptToken[value=[REDACTED]]";
+    }
 }

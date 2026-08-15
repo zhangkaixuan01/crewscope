@@ -1,15 +1,9 @@
 package io.crewscope.application.execution;
 
-import io.crewscope.domain.runtime.RuntimeCapabilities;
-
 import java.util.concurrent.CompletionStage;
 
 /** Framework-free Port for one logical Conversation execution and its resumable stream segments. */
-public interface ExecutionRuntime {
-
-    RuntimeDescriptor descriptor();
-
-    RuntimeCapabilities capabilities();
+public interface ExecutionRuntime extends ExecutionRuntimeProfile {
 
     ExecutionHandle invokeConversation(ConversationExecutionRequest request);
 

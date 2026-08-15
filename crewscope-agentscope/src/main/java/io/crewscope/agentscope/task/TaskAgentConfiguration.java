@@ -1,0 +1,48 @@
+package io.crewscope.agentscope.task;
+
+import io.crewscope.domain.workspace.AgentProfileId;
+import java.util.Objects;
+import java.util.Optional;
+
+/** Exact AgentProfile version used to construct a CrewScope Task Orchestrator. */
+public record TaskAgentConfiguration(
+        AgentProfileId agentProfileId,
+        long agentProfileVersion,
+        String modelId,
+        Optional<String> fallbackModelId,
+        String systemPrompt,
+        int maxIterations,
+        int maxRetries) {
+
+    public TaskAgentConfiguration {
+        agentProfileId = Objects.requireNonNull(agentProfileId, "agentProfileId");
+        if (agentProfileVersion < 0) {
+            throw new IllegalArgumentException("agentProfileVersion must not be negative");
+        }
+        modelId = requireText(modelId, "modelId", 200, false);
+        fallbackModelId = Objects.requireNonNull(fallbackModelId, "fallbackModelId")
+                .map(value -> requireText(value, "fallbackModelId", 200, false));
+        if (fallbackModelId.filter(modelId::equals).isPresent()) {
+            throw new IllegalArgumentException("fallbackModelId must differ from modelId");
+        }
+        systemPrompt = requireText(systemPrompt, "systemPrompt", 20_000, true);
+        if (maxIterations < 1 || maxIterations > 100) {
+            throw new IllegalArgumentException("maxIterations must be between 1 and 100");
+        }
+        if (maxRetries < 1 || maxRetries > 10) {
+            throw new IllegalArgumentException("maxRetries must be between 1 and 10");
+        }
+    }
+
+    private static String requireText(
+            String value, String field, int maximumLength, boolean layoutAllowed) {
+        String required = Objects.requireNonNull(value, field).strip();
+        boolean invalidControl = required.chars().anyMatch(character ->
+                Character.isISOControl(character)
+                        && (!layoutAllowed || (character != '\n' && character != '\t')));
+        if (required.isEmpty() || required.length() > maximumLength || invalidControl) {
+            throw new IllegalArgumentException(field + " contains invalid text");
+        }
+        return required;
+    }
+}
