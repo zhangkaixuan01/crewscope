@@ -8,6 +8,8 @@ import io.crewscope.application.task.AgentInterruptRepository;
 import io.crewscope.application.task.AgentRunRepository;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.RuntimeArtifactRepository;
+import io.crewscope.application.task.TaskEventContext;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
@@ -51,6 +53,7 @@ public final class DurableTaskExecutionEventService {
     private final PrincipalRepository principalRepository;
     private final TaskExecutionEventEncoder eventEncoder;
     private final DomainEventStore eventStore;
+    private final TaskEventRepository taskEventRepository;
     private final OutboxRepository outboxRepository;
     private final TransactionExecutor transactionExecutor;
     private final AuthoritativeTimeProvider timeProvider;
@@ -65,6 +68,7 @@ public final class DurableTaskExecutionEventService {
             PrincipalRepository principalRepository,
             TaskExecutionEventEncoder eventEncoder,
             DomainEventStore eventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider) {
@@ -77,6 +81,7 @@ public final class DurableTaskExecutionEventService {
                 principalRepository,
                 eventEncoder,
                 eventStore,
+                taskEventRepository,
                 outboxRepository,
                 transactionExecutor,
                 timeProvider,
@@ -92,6 +97,7 @@ public final class DurableTaskExecutionEventService {
             PrincipalRepository principalRepository,
             TaskExecutionEventEncoder eventEncoder,
             DomainEventStore eventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider,
@@ -104,6 +110,8 @@ public final class DurableTaskExecutionEventService {
         this.principalRepository = Objects.requireNonNull(principalRepository, "principalRepository");
         this.eventEncoder = Objects.requireNonNull(eventEncoder, "eventEncoder");
         this.eventStore = Objects.requireNonNull(eventStore, "eventStore");
+        this.taskEventRepository = Objects.requireNonNull(
+                taskEventRepository, "taskEventRepository");
         this.outboxRepository = Objects.requireNonNull(outboxRepository, "outboxRepository");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
@@ -182,6 +190,10 @@ public final class DurableTaskExecutionEventService {
                 recordedAt,
                 publicPayload);
         eventStore.append(event);
+        taskEventRepository.append(
+                TaskEventContext.agentRun(
+                        run.taskId(), run.executionId(), run.stepExecutionId(), run.id()),
+                event);
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
         receiptRepository.create(new TaskRuntimeEventReceipt(
                 organizationId,

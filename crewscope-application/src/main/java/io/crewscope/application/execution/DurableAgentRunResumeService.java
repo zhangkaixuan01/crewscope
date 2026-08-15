@@ -6,6 +6,8 @@ import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.task.AgentInterruptRepository;
 import io.crewscope.application.task.AgentRunRepository;
+import io.crewscope.application.task.TaskEventContext;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
@@ -36,6 +38,7 @@ public final class DurableAgentRunResumeService {
     private final AgentInterruptRepository interruptRepository;
     private final PrincipalRepository principalRepository;
     private final DomainEventStore eventStore;
+    private final TaskEventRepository taskEventRepository;
     private final OutboxRepository outboxRepository;
     private final TransactionExecutor transactionExecutor;
     private final AuthoritativeTimeProvider timeProvider;
@@ -45,6 +48,7 @@ public final class DurableAgentRunResumeService {
             AgentInterruptRepository interruptRepository,
             PrincipalRepository principalRepository,
             DomainEventStore eventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider) {
@@ -52,6 +56,8 @@ public final class DurableAgentRunResumeService {
         this.interruptRepository = Objects.requireNonNull(interruptRepository, "interruptRepository");
         this.principalRepository = Objects.requireNonNull(principalRepository, "principalRepository");
         this.eventStore = Objects.requireNonNull(eventStore, "eventStore");
+        this.taskEventRepository = Objects.requireNonNull(
+                taskEventRepository, "taskEventRepository");
         this.outboxRepository = Objects.requireNonNull(outboxRepository, "outboxRepository");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
@@ -125,6 +131,13 @@ public final class DurableAgentRunResumeService {
                 now,
                 payload);
         eventStore.append(event);
+        taskEventRepository.append(
+                TaskEventContext.agentRun(
+                        resumed.taskId(),
+                        resumed.executionId(),
+                        resumed.stepExecutionId(),
+                        resumed.id()),
+                event);
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
         return new AgentRunResumeResult(AgentRunResumeStatus.RESUMED, resumed, resolved);
     }

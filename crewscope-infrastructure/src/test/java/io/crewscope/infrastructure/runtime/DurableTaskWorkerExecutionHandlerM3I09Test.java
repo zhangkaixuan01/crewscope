@@ -15,6 +15,9 @@ import io.crewscope.application.execution.TaskAgentStateRuntime;
 import io.crewscope.application.execution.TaskExecutionEvent;
 import io.crewscope.application.execution.TaskExecutionEventPayload;
 import io.crewscope.application.execution.TaskExecutionHandle;
+import io.crewscope.application.execution.TaskExecutionControlAction;
+import io.crewscope.application.execution.TaskExecutionControlRequest;
+import io.crewscope.application.execution.TaskExecutionControlResult;
 import io.crewscope.application.execution.TaskExecutionRuntime;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.task.AgentStateSnapshotRepository;
@@ -23,6 +26,7 @@ import io.crewscope.application.task.LeaseCommandScope;
 import io.crewscope.application.task.LeaseReleaseCommand;
 import io.crewscope.application.task.TaskExecutionLeaseCoordinator;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskControlRequestIds;
 import io.crewscope.application.task.TaskTokenIssueResult;
 import io.crewscope.application.task.TaskTokenService;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
@@ -43,6 +47,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.AgentRun;
+import io.crewscope.domain.task.AgentInterruptId;
 import io.crewscope.domain.task.AgentRunId;
 import io.crewscope.domain.task.AgentRunSegment;
 import io.crewscope.domain.task.AgentRunSegmentKind;
@@ -57,6 +62,7 @@ import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskCredentialGrant;
 import io.crewscope.domain.task.TaskExecution;
+import io.crewscope.domain.task.TaskExecutionControlRequestType;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.workitem.WorkItemScope;
@@ -66,6 +72,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +81,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -134,6 +142,111 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
     }
 
     @Test
+    void authorizesResumeBeforeStartingTheAgentScopeExecution() {
+        Fixture fixture = fixture();
+        AgentInterruptId interruptId = new AgentInterruptId(UUID.randomUUID());
+        when(fixture.run.currentSegment()).thenReturn(new AgentRunSegment(
+                2,
+                AgentRunSegmentKind.RESUME,
+                Optional.of(interruptId),
+                AgentRunSegmentStatus.ACTIVE,
+                UtcTimestamp.parse("2026-08-15T06:00:05Z"),
+                Optional.empty()));
+        when(fixture.runtime.controlTask(any())).thenReturn(
+                CompletableFuture.completedFuture(TaskExecutionControlResult.ACCEPTED));
+        TaskExecutionHandle resumedHandle = mock(TaskExecutionHandle.class);
+        TaskExecutionEvent resumedTerminal = new TaskExecutionEvent(
+                fixture.facts.execution().id(),
+                fixture.facts.execution().attempt(),
+                fixture.run.id(),
+                2,
+                1,
+                UtcTimestamp.parse("2026-08-15T06:00:10Z"),
+                new TaskExecutionEventPayload.Completed(Optional.empty()));
+        when(resumedHandle.events()).thenReturn(singleEvent(resumedTerminal));
+        when(fixture.runtime.executeTask(any())).thenReturn(resumedHandle);
+
+        assertDoesNotThrow(() -> handler.execute(fixture.receipt));
+
+        var ordered = inOrder(fixture.runtime);
+        ArgumentCaptor<TaskExecutionControlRequest> control =
+                ArgumentCaptor.forClass(TaskExecutionControlRequest.class);
+        ordered.verify(fixture.runtime).controlTask(control.capture());
+        ordered.verify(fixture.runtime).executeTask(any());
+        assertEquals(TaskExecutionControlAction.RESUME, control.getValue().action());
+        assertEquals(interruptId.value(), control.getValue().controlRequestId());
+    }
+
+    @Test
+    void committedCancelRequestWinsARaceWithACompletedRuntimeTerminal() {
+        Fixture fixture = fixture();
+        when(fixture.committedExecution.status()).thenReturn(TaskExecutionStatus.CANCEL_REQUESTED);
+
+        assertDoesNotThrow(() -> handler.execute(fixture.receipt));
+
+        ArgumentCaptor<LeaseReleaseCommand> release =
+                ArgumentCaptor.forClass(LeaseReleaseCommand.class);
+        verify(fixture.leaseCoordinator).release(release.capture());
+        assertEquals(ExecutionLeaseReleaseReason.CANCELLED, release.getValue().reason());
+    }
+
+    @Test
+    void heartbeatPropagatesADurablePauseRequestToTheRuntime() throws Exception {
+        Fixture fixture = fixture(Duration.ofMillis(10));
+        io.crewscope.domain.task.TaskExecutionControlRequest durableRequest =
+                new io.crewscope.domain.task.TaskExecutionControlRequest(
+                        TaskExecutionControlRequestType.PAUSE,
+                        PrincipalId.generate(),
+                        UtcTimestamp.parse("2026-08-15T06:00:06Z"),
+                        "Pause for member review");
+        when(fixture.committedExecution.status()).thenReturn(TaskExecutionStatus.PAUSE_REQUESTED);
+        when(fixture.committedExecution.controlRequest()).thenReturn(Optional.of(durableRequest));
+
+        CountDownLatch subscribed = new CountDownLatch(1);
+        CountDownLatch propagated = new CountDownLatch(1);
+        AtomicReference<TaskExecutionControlRequest> propagatedRequest = new AtomicReference<>();
+        TaskExecutionHandle stalledHandle = mock(TaskExecutionHandle.class);
+        when(stalledHandle.events()).thenReturn(subscriber -> subscriber.onSubscribe(
+                new Flow.Subscription() {
+                    @Override
+                    public void request(long n) {
+                        subscribed.countDown();
+                    }
+
+                    @Override
+                    public void cancel() {
+                        // Owner stop terminates the subscriber without requiring a publisher signal.
+                    }
+                }));
+        when(fixture.runtime.executeTask(any())).thenReturn(stalledHandle);
+        when(fixture.runtime.controlTask(any())).thenAnswer(invocation -> {
+            propagatedRequest.set(invocation.getArgument(0));
+            propagated.countDown();
+            return CompletableFuture.completedFuture(TaskExecutionControlResult.ACCEPTED);
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> execution = executor.submit(() -> handler.execute(fixture.receipt));
+            assertTrue(subscribed.await(2, TimeUnit.SECONDS));
+            assertTrue(propagated.await(2, TimeUnit.SECONDS));
+
+            TaskExecutionControlRequest control = propagatedRequest.get();
+            assertEquals(TaskExecutionControlAction.PAUSE, control.action());
+            assertEquals(
+                    TaskControlRequestIds.from(
+                            fixture.committedExecution.id(), durableRequest),
+                    control.controlRequestId());
+            assertEquals(durableRequest.reason(), control.reason());
+
+            handler.requestStop(fixture.receipt.leaseId());
+            assertThrows(ExecutionException.class, () -> execution.get(2, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void stopRequestUnblocksAFlowPublisherThatDoesNotSignalAfterCancel() throws Exception {
         Fixture fixture = fixture();
         CountDownLatch subscribed = new CountDownLatch(1);
@@ -174,6 +287,10 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
     }
 
     private Fixture fixture() {
+        return fixture(Duration.ofSeconds(5));
+    }
+
+    private Fixture fixture(Duration heartbeatInterval) {
         OrganizationId organizationId = OrganizationId.generate();
         WorkItemScope scope = new WorkItemScope(
                 organizationId,
@@ -207,6 +324,7 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
         TaskExecution runtimeExecution = mock(TaskExecution.class);
         when(runtimeExecution.id()).thenReturn(executionId);
         when(runtimeExecution.attempt()).thenReturn(1);
+        when(runtimeExecution.status()).thenReturn(TaskExecutionStatus.RUNNING);
         TaskAgentRuntimeSession session = mock(TaskAgentRuntimeSession.class);
         when(session.canInvoke()).thenReturn(true);
         AgentRun run = mock(AgentRun.class);
@@ -305,12 +423,14 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
                 tokenService,
                 timeProvider,
                 registration,
-                new TaskWorkerExecutionSpec(Duration.ofMinutes(5), Duration.ofSeconds(5), 8));
+                new TaskWorkerExecutionSpec(Duration.ofMinutes(5), heartbeatInterval, 8));
         return new Fixture(
                 receipt,
                 facts,
                 factory,
                 runtime,
+                run,
+                committedExecution,
                 stateRuntime,
                 eventService,
                 leaseCoordinator,
@@ -341,6 +461,8 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
             TaskExecutionRuntimeFacts facts,
             DurableTaskWorkerExecutionFactory factory,
             TaskExecutionRuntime runtime,
+            AgentRun run,
+            TaskExecution committedExecution,
             TaskAgentStateRuntime stateRuntime,
             DurableTaskExecutionEventService eventService,
             TaskExecutionLeaseCoordinator leaseCoordinator,

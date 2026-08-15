@@ -17,6 +17,10 @@ import io.crewscope.application.task.AgentInterruptRepository;
 import io.crewscope.application.task.AgentRunRepository;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.RuntimeArtifactRepository;
+import io.crewscope.application.task.TaskEventContext;
+import io.crewscope.application.task.TaskEventPage;
+import io.crewscope.application.task.TaskEventQuery;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.conversation.AgentRuntimeSessionId;
 import io.crewscope.domain.identity.Principal;
@@ -84,6 +88,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
         assertEquals(TaskRuntimeEventCommitStatus.DUPLICATE, duplicate.status());
         assertEquals(first.domainEventId(), duplicate.domainEventId());
         assertEquals(1, fixture.events.size());
+        assertEquals(1, fixture.projectedTaskEvents.size());
         assertEquals(1, fixture.outbox.size());
         assertThrows(DomainValidationException.class, () -> fixture.commit(
                 1, new TaskExecutionEventPayload.Progress("changed", Optional.of(40))));
@@ -93,6 +98,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
         TaskRuntimeEventCommitResult terminal = fixture.commit(
                 2, new TaskExecutionEventPayload.Completed(Optional.empty()));
         assertEquals(AgentRunStatus.COMPLETED, terminal.agentRun().status());
+        assertEquals(2, fixture.projectedTaskEvents.size());
         assertEquals(List.of(1L, 2L), fixture.receipts.values().stream()
                 .map(TaskRuntimeEventReceipt::eventSequence).sorted().toList());
     }
@@ -169,6 +175,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
                 fixture.interruptRepository,
                 fixture.principals,
                 fixture.eventStore,
+                fixture.taskEventRepository,
                 fixture.outboxRepository,
                 fixture.transactions,
                 () -> RECORDED_AT);
@@ -177,6 +184,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
         AgentRunResumeResult duplicate = resumeService.resume(command);
 
         assertEquals(AgentRunResumeStatus.RESUMED, resumed.status());
+        assertEquals(2, fixture.projectedTaskEvents.size());
         assertEquals(AgentRunResumeStatus.DUPLICATE, duplicate.status());
         assertEquals(2, resumed.agentRun().currentSegment().sequence());
         assertThrows(DomainValidationException.class, () -> resumeService.resume(
@@ -221,10 +229,12 @@ class DurableTaskExecutionEventServiceM3I07Test {
         private final Map<String, TaskRuntimeEventReceipt> receipts = new HashMap<>();
         private final Map<AgentInterruptId, AgentInterrupt> interrupts = new HashMap<>();
         private final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
+        private final List<TaskEventContext> projectedTaskEvents = new ArrayList<>();
         private final List<PendingOutboxEvent> outbox = new ArrayList<>();
         private final PrincipalRepository principals;
         private final AgentInterruptRepository interruptRepository;
         private final DomainEventStore eventStore;
+        private final TaskEventRepository taskEventRepository;
         private final OutboxRepository outboxRepository;
         private final TransactionExecutor transactions;
         private final DurableTaskExecutionEventService service;
@@ -286,6 +296,19 @@ class DurableTaskExecutionEventServiceM3I07Test {
                 events.add(event);
             };
             outboxRepository = outbox::add;
+            taskEventRepository = new TaskEventRepository() {
+                @Override
+                public void append(
+                        TaskEventContext context,
+                        DomainEventEnvelope<? extends DomainEvent> domainEvent) {
+                    projectedTaskEvents.add(context);
+                }
+
+                @Override
+                public TaskEventPage findPage(TaskEventQuery query, boolean taskTerminal) {
+                    throw new UnsupportedOperationException();
+                }
+            };
             transactions = new TransactionExecutor() {
                 @Override
                 public <T> T required(Supplier<T> operation) {
@@ -295,6 +318,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
                     Map<AgentInterruptId, AgentInterrupt> beforeInterrupts =
                             new HashMap<>(interrupts);
                     int eventSize = events.size();
+                    int projectedSize = projectedTaskEvents.size();
                     int outboxSize = outbox.size();
                     try {
                         return operation.get();
@@ -305,6 +329,8 @@ class DurableTaskExecutionEventServiceM3I07Test {
                         interrupts.clear();
                         interrupts.putAll(beforeInterrupts);
                         events.subList(eventSize, events.size()).clear();
+                        projectedTaskEvents.subList(
+                                projectedSize, projectedTaskEvents.size()).clear();
                         outbox.subList(outboxSize, outbox.size()).clear();
                         throw exception;
                     }
@@ -319,6 +345,7 @@ class DurableTaskExecutionEventServiceM3I07Test {
                     principals,
                     Fixture::encode,
                     eventStore,
+                    taskEventRepository,
                     outboxRepository,
                     transactions,
                     () -> RECORDED_AT);

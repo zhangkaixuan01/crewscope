@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class RealtimeStreamEventIdsTest {
 
   @Test
-  void derivesStableDistinctIdsForConversationAndTeamStreams() {
+  void derivesStableDistinctIdsForConversationTaskAndTeamStreams() {
     UUID domainEventId = UUID.fromString("0198f024-8bf8-7f3d-bc92-8db6d25d4250");
 
     UUID conversation =
@@ -23,6 +23,8 @@ class RealtimeStreamEventIdsTest {
         RealtimeStreamEventIds.forDomain(StreamType.CONVERSATION, domainEventId));
     assertNotEquals(
         conversation, RealtimeStreamEventIds.forDomain(StreamType.TEAM, domainEventId));
+    assertNotEquals(
+        conversation, RealtimeStreamEventIds.forDomain(StreamType.TASK, domainEventId));
     assertNotEquals(domainEventId, conversation);
     assertThrows(
         IllegalArgumentException.class,

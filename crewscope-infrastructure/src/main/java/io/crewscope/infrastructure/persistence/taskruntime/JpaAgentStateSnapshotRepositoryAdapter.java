@@ -7,6 +7,7 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.task.AgentStateSnapshot;
 import io.crewscope.domain.task.AgentStateSnapshotId;
 import io.crewscope.domain.task.AgentRunId;
+import io.crewscope.domain.task.TaskExecutionId;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -116,6 +117,23 @@ public class JpaAgentStateSnapshotRepositoryAdapter implements AgentStateSnapsho
                 .setParameter("organizationId", organizationId.value())
                 .setParameter("agentRunId", agentRunId.value())
                 .setMaxResults(limit)
+                .getResultList().stream().map(support.mapper::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentStateSnapshot> findByExecution(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        return support.entityManager.createQuery(
+                        """
+                        SELECT row FROM AgentStateSnapshotEntity row
+                        WHERE row.organizationId = :organizationId
+                          AND row.taskExecutionId = :executionId
+                        ORDER BY row.snapshotSequence, row.id
+                        """,
+                        AgentStateSnapshotEntity.class)
+                .setParameter("organizationId", organizationId.value())
+                .setParameter("executionId", executionId.value())
                 .getResultList().stream().map(support.mapper::toDomain).toList();
     }
 }

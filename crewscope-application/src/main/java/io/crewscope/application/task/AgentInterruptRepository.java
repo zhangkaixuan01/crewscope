@@ -4,6 +4,8 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.task.AgentInterrupt;
 import io.crewscope.domain.task.AgentInterruptId;
 import io.crewscope.domain.task.AgentRunId;
+import io.crewscope.domain.task.TaskExecutionId;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,4 +26,10 @@ public interface AgentInterruptRepository {
 
     Optional<AgentInterrupt> findByResumeRequestId(
             OrganizationId organizationId, UUID resumeRequestId);
+
+    /** Returns all Interrupt facts for one execution in stable creation order. */
+    default List<AgentInterrupt> findByExecution(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        throw new UnsupportedOperationException("Execution Interrupt queries are not supported");
+    }
 }

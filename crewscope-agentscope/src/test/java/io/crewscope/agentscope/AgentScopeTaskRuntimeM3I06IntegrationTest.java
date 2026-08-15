@@ -48,7 +48,9 @@ import io.crewscope.domain.task.PlanVersion;
 import io.crewscope.domain.task.PlanVersionId;
 import io.crewscope.domain.task.PolicyBudget;
 import io.crewscope.domain.task.PolicySnapshot;
+import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
+import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
@@ -253,8 +255,14 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
                     AgentRunSegmentKind.INVOKE, 1, Optional.empty());
             TaskExecutionHandle handle = runtime.executeTask(
                     new TaskExecutionRequest(facts, UUID.randomUUID()));
+            UUID controlRequestId = UUID.randomUUID();
             assertEquals(TaskExecutionControlResult.ACCEPTED,
-                    runtime.controlTask(fixture.control(facts, action, action.name().toLowerCase()))
+                    runtime.controlTask(new TaskExecutionControlRequest(
+                                    facts,
+                                    action,
+                                    controlRequestId,
+                                    action.name().toLowerCase(),
+                                    UUID.randomUUID()))
                             .toCompletableFuture()
                             .get(2, TimeUnit.SECONDS));
 
@@ -262,7 +270,11 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
 
             assertEquals(expectedStatus,
                     events.get(events.size() - 1).payload().terminalStatus().orElseThrow());
-            assertInstanceOf(expectedPayload, events.get(events.size() - 1).payload());
+            TaskExecutionEventPayload terminal = events.get(events.size() - 1).payload();
+            assertInstanceOf(expectedPayload, terminal);
+            if (terminal instanceof TaskExecutionEventPayload.Paused paused) {
+                assertEquals(controlRequestId.toString(), paused.token().value());
+            }
         }
     }
 
@@ -426,6 +438,11 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
             when(facts.policySnapshot()).thenReturn(policy);
             when(facts.planVersion()).thenReturn(plan);
             when(facts.stepExecution()).thenReturn(Optional.empty());
+            Task task = mock(Task.class);
+            when(task.brief()).thenReturn(new TaskBrief(
+                    "Deliver the controlled runtime task",
+                    List.of("Publish a validated plan")));
+            when(facts.task()).thenReturn(task);
             TaskTokenGrantScope tokenScope = mock(TaskTokenGrantScope.class);
             TaskTokenExecutionContext authorization = mock(TaskTokenExecutionContext.class);
             when(authorization.scope()).thenReturn(tokenScope);

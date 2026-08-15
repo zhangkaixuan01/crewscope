@@ -53,6 +53,12 @@ public interface ExecutionLeaseRepository {
     Optional<ExecutionLease> findActiveByTaskExecution(
             OrganizationId organizationId, TaskExecutionId taskExecutionId);
 
+    /** Returns active and released Lease history without exposing Claim Token material. */
+    default List<ExecutionLease> findByTaskExecution(
+            OrganizationId organizationId, TaskExecutionId taskExecutionId) {
+        throw new UnsupportedOperationException("Execution Lease history is not supported");
+    }
+
     /**
      * Locks an expired batch with {@code FOR UPDATE SKIP LOCKED}.
      *

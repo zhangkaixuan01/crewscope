@@ -8,6 +8,9 @@ import io.crewscope.application.execution.TaskAgentStateSafePoint;
 import io.crewscope.application.execution.TaskExecutionEvent;
 import io.crewscope.application.execution.TaskExecutionEventPayload;
 import io.crewscope.application.execution.TaskExecutionHandle;
+import io.crewscope.application.execution.TaskExecutionControlAction;
+import io.crewscope.application.execution.TaskExecutionControlRequest;
+import io.crewscope.application.execution.TaskExecutionControlResult;
 import io.crewscope.application.execution.TaskExecutionRequest;
 import io.crewscope.application.execution.TaskExecutionRuntime;
 import io.crewscope.application.execution.TaskExecutionTerminalStatus;
@@ -19,6 +22,7 @@ import io.crewscope.application.task.LeaseReleaseCommand;
 import io.crewscope.application.task.LeaseTransitionCommand;
 import io.crewscope.application.task.TaskExecutionLeaseCoordinator;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskControlRequestIds;
 import io.crewscope.application.task.TaskTokenRevokeCommand;
 import io.crewscope.application.task.TaskTokenService;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
@@ -26,6 +30,7 @@ import io.crewscope.domain.task.ClaimReceipt;
 import io.crewscope.domain.task.ExecutionLease;
 import io.crewscope.domain.task.ExecutionLeaseId;
 import io.crewscope.domain.task.ExecutionLeaseReleaseReason;
+import io.crewscope.domain.task.AgentRunSegmentKind;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionFailure;
 import io.crewscope.domain.task.TaskExecutionFailureClass;
@@ -122,6 +127,7 @@ public final class DurableTaskWorkerExecutionHandler
             recoverWhenAvailable(prepared);
             ScheduledFuture<?> heartbeat = startHeartbeat(execution);
             execution.heartbeat(heartbeat);
+            authorizeResume(prepared);
             TaskExecutionHandle handle = runtime.executeTask(new TaskExecutionRequest(
                     prepared.facts(), prepared.correlationId()));
             EventSubscriber subscriber = new EventSubscriber(prepared, execution);
@@ -189,11 +195,57 @@ public final class DurableTaskWorkerExecutionHandler
             ExecutionLease current = requiredLease(prepared.leaseScope().leaseId());
             leaseCoordinator.heartbeat(new LeaseHeartbeatCommand(
                     prepared.leaseScope(), current.version()));
+            propagateMemberControl(prepared);
         } catch (RuntimeException failure) {
             // Stop accepting runtime events after any uncertain ownership renewal. The authoritative
             // Sweeper decides whether the Lease expired; this thread never guesses ownership.
             activeExecution.fail(failure);
             activeExecution.cancelSubscription();
+        }
+    }
+
+    private void authorizeResume(TaskWorkerPreparedExecution prepared) {
+        var segment = prepared.facts().agentRun().currentSegment();
+        if (segment.kind() != AgentRunSegmentKind.RESUME) {
+            return;
+        }
+        UUID controlRequestId = segment.resumedFromInterruptId().orElseThrow().value();
+        requireAcceptedControl(runtime.controlTask(new TaskExecutionControlRequest(
+                        prepared.facts(),
+                        TaskExecutionControlAction.RESUME,
+                        controlRequestId,
+                        "Resume the member-paused Task execution.",
+                        prepared.correlationId()))
+                .toCompletableFuture()
+                .join());
+    }
+
+    private void propagateMemberControl(TaskWorkerPreparedExecution prepared) {
+        TaskExecution current = requiredExecution(prepared.facts().execution().id());
+        TaskExecutionControlAction action = switch (current.status()) {
+            case PAUSE_REQUESTED -> TaskExecutionControlAction.PAUSE;
+            case CANCEL_REQUESTED -> TaskExecutionControlAction.CANCEL;
+            default -> null;
+        };
+        if (action == null) {
+            return;
+        }
+        var request = current.controlRequest().orElseThrow();
+        requireAcceptedControl(runtime.controlTask(new TaskExecutionControlRequest(
+                        prepared.facts(),
+                        action,
+                        TaskControlRequestIds.from(current.id(), request),
+                        request.reason(),
+                        prepared.correlationId()))
+                .toCompletableFuture()
+                .join());
+    }
+
+    private static void requireAcceptedControl(TaskExecutionControlResult result) {
+        if (result != TaskExecutionControlResult.ACCEPTED
+                && result != TaskExecutionControlResult.ALREADY_APPLIED
+                && result != TaskExecutionControlResult.ALREADY_TERMINAL) {
+            throw new IllegalStateException("Task runtime rejected the durable control request: " + result);
         }
     }
 
@@ -223,7 +275,11 @@ public final class DurableTaskWorkerExecutionHandler
                 prepared.leaseScope(), execution.version(), lease.version());
         TaskExecutionTerminalStatus terminalStatus = terminal.payload()
                 .terminalStatus().orElseThrow();
-        LeaseReleaseCommand release = switch (terminalStatus) {
+        LeaseReleaseCommand release = execution.status() == TaskExecutionStatus.CANCEL_REQUESTED
+                ? LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.CANCELLED)
+                : execution.status() == TaskExecutionStatus.PAUSE_REQUESTED
+                        ? LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.PAUSED)
+                        : switch (terminalStatus) {
             case COMPLETED -> LeaseReleaseCommand.simple(
                     command, ExecutionLeaseReleaseReason.COMPLETED);
             case CANCELED -> LeaseReleaseCommand.simple(

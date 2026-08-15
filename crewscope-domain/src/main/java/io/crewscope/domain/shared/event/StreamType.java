@@ -4,5 +4,6 @@ package io.crewscope.domain.shared.event;
 public enum StreamType {
     AG_UI,
     CONVERSATION,
+    TASK,
     TEAM
 }

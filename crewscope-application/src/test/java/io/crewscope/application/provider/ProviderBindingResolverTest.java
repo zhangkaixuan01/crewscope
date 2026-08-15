@@ -179,6 +179,47 @@ class ProviderBindingResolverTest {
         assertEquals(ProviderBindingResolutionStatus.NOT_FOUND, noCapability.status());
     }
 
+    @Test
+    void revalidatesAnExplicitBindingWithoutAutomaticFallback() {
+        Fixture fixture = Fixture.create();
+        ProviderBinding binding = fixture.binding(
+                ProviderBindingTarget.workspace(fixture.team.defaultWorkspace()), true);
+        fixture.store(binding);
+
+        Optional<ProviderBindingCandidate> current = fixture.resolver.resolveCurrent(
+                fixture.organizationId, binding.id());
+        fixture.connections.put(
+                binding.connectionId().orElseThrow(),
+                fixture.connection.suspend(0, fixture.actor, T1));
+        Optional<ProviderBindingCandidate> suspended = fixture.resolver.resolveCurrent(
+                fixture.organizationId, binding.id());
+
+        assertEquals(binding.id(), current.orElseThrow().binding().id());
+        assertTrue(suspended.isEmpty());
+        assertTrue(fixture.resolver.resolveCurrent(
+                OrganizationId.generate(), binding.id()).isEmpty());
+    }
+
+    @Test
+    void revalidationFailsClosedAfterGrantRevocationOrPinnedRegistryChange() {
+        Fixture fixture = Fixture.create();
+        ProviderBinding binding = fixture.binding(
+                ProviderBindingTarget.workspace(fixture.team.defaultWorkspace()), true);
+        fixture.store(binding);
+
+        fixture.grants.put(
+                binding.connectionGrantId().orElseThrow(),
+                fixture.grant.revoke(0, fixture.actor, "access removed", T1));
+        assertTrue(fixture.resolver.resolveCurrent(
+                fixture.organizationId, binding.id()).isEmpty());
+
+        fixture.grants.put(fixture.grant.id(), fixture.grant);
+        fixture.definitions.put(
+                fixture.definition.id(), fixture.definition.disable(0, fixture.actor, T1));
+        assertTrue(fixture.resolver.resolveCurrent(
+                fixture.organizationId, binding.id()).isEmpty());
+    }
+
     private static ProviderAccessScope access(
             ProviderCapabilities capabilities, String... resources) {
         return new ProviderAccessScope(capabilities, ProviderResourceScope.of(resources));

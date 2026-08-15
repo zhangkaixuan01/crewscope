@@ -14,6 +14,7 @@ import io.crewscope.domain.task.StepExecutionId;
 import io.crewscope.domain.task.TaskExecutionId;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -101,13 +102,53 @@ public class JpaAgentRunRepositoryAdapter implements AgentRunRepository {
 
     private List<AgentRun> findList(
             OrganizationId organizationId, String field, java.util.UUID value) {
-        return support.entityManager.createQuery(
+        List<AgentRunEntity> rows = support.entityManager.createQuery(
                         "SELECT row FROM AgentRunEntity row WHERE row.organizationId = :organizationId"
                                 + " AND " + field + " = :value ORDER BY row.runSequence, row.id",
                         AgentRunEntity.class)
                 .setParameter("organizationId", organizationId.value())
                 .setParameter("value", value)
-                .getResultList().stream().map(this::toDomain).toList();
+                .getResultList();
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        Map<java.util.UUID, List<AgentRunSegment>> segments = segmentsByRunIds(
+                rows.stream().map(row -> row.id).toList());
+        return rows.stream()
+                .map(row -> support.mapper.toDomain(
+                        row, segments.getOrDefault(row.id, List.of())))
+                .toList();
+    }
+
+    private Map<java.util.UUID, List<AgentRunSegment>> segmentsByRunIds(
+            List<java.util.UUID> runIds) {
+        List<SegmentRow> values = jdbc.query(
+                """
+                SELECT agent_run_id, sequence, kind, resumed_from_interrupt_id,
+                       status, started_at, ended_at
+                FROM crewscope.agent_run_segment
+                WHERE agent_run_id IN (:runIds)
+                ORDER BY agent_run_id, sequence
+                """,
+                Map.of("runIds", runIds),
+                (result, index) -> new SegmentRow(
+                        result.getObject("agent_run_id", java.util.UUID.class),
+                        new AgentRunSegment(
+                                result.getLong("sequence"),
+                                AgentRunSegmentKind.valueOf(result.getString("kind")),
+                                Optional.ofNullable(result.getObject(
+                                                "resumed_from_interrupt_id", java.util.UUID.class))
+                                        .map(AgentInterruptId::new),
+                                AgentRunSegmentStatus.valueOf(result.getString("status")),
+                                io.crewscope.domain.shared.time.UtcTimestamp.from(
+                                        result.getObject("started_at", OffsetDateTime.class)),
+                                Optional.ofNullable(result.getObject("ended_at", OffsetDateTime.class))
+                                        .map(io.crewscope.domain.shared.time.UtcTimestamp::from))));
+        Map<java.util.UUID, List<AgentRunSegment>> grouped = new HashMap<>();
+        values.forEach(value -> grouped
+                .computeIfAbsent(value.runId(), ignored -> new ArrayList<>())
+                .add(value.segment()));
+        return grouped;
     }
 
     private void synchronizeSegments(AgentRun run) {
@@ -163,4 +204,6 @@ public class JpaAgentRunRepositoryAdapter implements AgentRunRepository {
                                 .map(io.crewscope.domain.shared.time.UtcTimestamp::from)));
         return support.mapper.toDomain(row, segments);
     }
+
+    private record SegmentRow(java.util.UUID runId, AgentRunSegment segment) {}
 }

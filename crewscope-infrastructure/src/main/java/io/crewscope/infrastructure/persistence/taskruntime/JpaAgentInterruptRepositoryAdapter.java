@@ -6,6 +6,8 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.task.AgentInterrupt;
 import io.crewscope.domain.task.AgentInterruptId;
 import io.crewscope.domain.task.AgentRunId;
+import io.crewscope.domain.task.TaskExecutionId;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -68,6 +70,23 @@ public class JpaAgentInterruptRepositoryAdapter implements AgentInterruptReposit
     public Optional<AgentInterrupt> findByResumeRequestId(
             OrganizationId organizationId, UUID resumeRequestId) {
         return findOne(organizationId, "row.resumeRequestId", resumeRequestId, "1 = 1");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentInterrupt> findByExecution(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        return support.entityManager.createQuery(
+                        """
+                        SELECT row FROM AgentInterruptEntity row
+                        WHERE row.organizationId = :organizationId
+                          AND row.taskExecutionId = :executionId
+                        ORDER BY row.createdAt, row.id
+                        """,
+                        AgentInterruptEntity.class)
+                .setParameter("organizationId", organizationId.value())
+                .setParameter("executionId", executionId.value())
+                .getResultList().stream().map(support.mapper::toDomain).toList();
     }
 
     private Optional<AgentInterrupt> findOne(

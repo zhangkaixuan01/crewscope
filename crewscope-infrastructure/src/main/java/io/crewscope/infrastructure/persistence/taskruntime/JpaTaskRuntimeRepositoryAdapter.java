@@ -3,9 +3,25 @@ package io.crewscope.infrastructure.persistence.taskruntime;
 import io.crewscope.application.runtime.ExecutionRuntimeRepository;
 import io.crewscope.application.runtime.RuntimeWorkerRepository;
 import io.crewscope.application.task.ConversationTaskLinkRepository;
+import io.crewscope.application.task.TaskAssociationCursor;
+import io.crewscope.application.task.TaskAssociationItem;
+import io.crewscope.application.task.TaskAssociationPage;
+import io.crewscope.application.task.TaskAssociationQuery;
+import io.crewscope.application.task.TaskAssociationRepository;
+import io.crewscope.application.task.TaskAssociationSourceType;
+import io.crewscope.application.task.TaskConversationAssociation;
+import io.crewscope.application.task.TaskConversationAssociationPage;
+import io.crewscope.application.task.TaskConversationAssociationQuery;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskListCursor;
+import io.crewscope.application.task.TaskListItem;
+import io.crewscope.application.task.TaskListPage;
+import io.crewscope.application.task.TaskListQuery;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.domain.conversation.ConversationId;
+import io.crewscope.domain.conversation.ConversationScope;
+import io.crewscope.domain.conversation.ConversationStatus;
+import io.crewscope.domain.conversation.ConversationVisibility;
 import io.crewscope.domain.runtime.ExecutionRuntime;
 import io.crewscope.domain.runtime.ExecutionRuntimeId;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
@@ -14,17 +30,30 @@ import io.crewscope.domain.runtime.RuntimeWorkerId;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
+import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.id.AggregateId;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.id.WorkspaceId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ConversationTaskLink;
+import io.crewscope.domain.task.ConversationTaskLinkOrigin;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
+import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskExecutionWaitReason;
+import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.TaskResponsibilitySnapshotEntry;
+import io.crewscope.domain.task.TaskStatus;
 import io.crewscope.domain.workitem.WorkItemId;
+import io.crewscope.domain.workitem.WorkItemScope;
+import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,6 +72,7 @@ public class JpaTaskRuntimeRepositoryAdapter implements
         TaskRepository,
         TaskExecutionRepository,
         ConversationTaskLinkRepository,
+        TaskAssociationRepository,
         ExecutionRuntimeRepository,
         RuntimeWorkerRepository {
 
@@ -86,6 +116,212 @@ public class JpaTaskRuntimeRepositoryAdapter implements
     @Transactional(readOnly = true)
     public Optional<Task> findById(OrganizationId organizationId, TaskId taskId) {
         return findTaskEntity(required(organizationId), required(taskId)).map(this::toTaskDomain);
+    }
+
+    @Override
+    @Transactional
+    public Optional<Task> findByIdForUpdate(
+            OrganizationId organizationId, TaskId taskId) {
+        return findTaskEntity(required(organizationId), required(taskId), LockModeType.PESSIMISTIC_WRITE)
+                .map(this::toTaskDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TaskListPage findPage(TaskListQuery query) {
+        TaskListQuery required = Objects.requireNonNull(query, "query");
+        StringBuilder jpql = new StringBuilder(
+                """
+                SELECT task, execution FROM TaskEntity task
+                LEFT JOIN TaskExecutionEntity execution
+                  ON execution.organizationId = task.organizationId
+                 AND execution.id = task.currentExecutionId
+                WHERE task.organizationId = :organizationId
+                  AND task.teamId = :teamId
+                """);
+        required.projectId().ifPresent(ignored -> jpql.append(" AND task.projectId = :projectId"));
+        required.status().ifPresent(ignored -> jpql.append(" AND task.status = :status"));
+        required.cursor().ifPresent(ignored -> jpql.append(
+                """
+                 AND (task.updatedAt < :cursorTime
+                      OR (task.updatedAt = :cursorTime AND task.id < :cursorId))
+                """));
+        jpql.append(" ORDER BY task.updatedAt DESC, task.id DESC");
+
+        var persistenceQuery = entityManager.createQuery(jpql.toString(), Object[].class)
+                .setParameter("organizationId", required.organizationId().value())
+                .setParameter("teamId", required.teamId().value())
+                .setMaxResults(required.limit() + 1);
+        required.projectId().ifPresent(value ->
+                persistenceQuery.setParameter("projectId", value.value()));
+        required.status().ifPresent(value -> persistenceQuery.setParameter("status", value.name()));
+        required.cursor().ifPresent(value -> {
+            persistenceQuery.setParameter("cursorTime", value.updatedAt().value());
+            persistenceQuery.setParameter("cursorId", value.id().value());
+        });
+
+        List<Object[]> rows = new ArrayList<>(persistenceQuery.getResultList());
+        boolean hasNext = rows.size() > required.limit();
+        if (hasNext) {
+            rows.remove(rows.size() - 1);
+        }
+        List<TaskListItem> items = rows.stream().map(this::toListItem).toList();
+        Optional<TaskListCursor> nextCursor = hasNext
+                ? Optional.of(items.get(items.size() - 1).cursor())
+                : Optional.empty();
+        return new TaskListPage(items, nextCursor);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TaskAssociationPage findTasks(TaskAssociationQuery query) {
+        TaskAssociationQuery required = Objects.requireNonNull(query, "query");
+        boolean byWorkItem = required.workItemId().isPresent();
+        String associationTime = byWorkItem ? "task.createdAt" : "link.createdAt";
+        String associationProjection = byWorkItem
+                ? "task.createdAt"
+                : "link.origin, link.createdAt";
+        StringBuilder jpql = new StringBuilder(
+                "SELECT task, execution, " + associationProjection + " "
+                        + "FROM TaskEntity task "
+                        + "LEFT JOIN TaskExecutionEntity execution "
+                        + "ON execution.organizationId = task.organizationId "
+                        + "AND execution.id = task.currentExecutionId ");
+        if (!byWorkItem) {
+            jpql.append(", ConversationTaskLinkEntity link ");
+        }
+        jpql.append(
+                "WHERE task.organizationId = :organizationId "
+                        + "AND task.teamId = :teamId "
+                        + "AND task.workspaceId = :workspaceId ");
+        if (byWorkItem) {
+            jpql.append(
+                    "AND task.projectId = :projectId "
+                            + "AND task.workItemId = :workItemId ");
+        } else {
+            jpql.append(
+                    "AND link.organizationId = task.organizationId "
+                            + "AND link.teamId = task.teamId "
+                            + "AND link.workspaceId = task.workspaceId "
+                            + "AND link.projectId = task.projectId "
+                            + "AND link.workItemId = task.workItemId "
+                            + "AND link.taskId = task.id "
+                            + "AND link.conversationId = :conversationId ");
+        }
+        // The current WorkItem row must still close every Task scope coordinate.
+        jpql.append(
+                "AND EXISTS (SELECT workItem.id FROM WorkItemEntity workItem "
+                        + "WHERE workItem.id = task.workItemId "
+                        + "AND workItem.organizationId = task.organizationId "
+                        + "AND workItem.teamId = task.teamId "
+                        + "AND workItem.workspaceId = task.workspaceId "
+                        + "AND workItem.projectId = task.projectId) ");
+        required.cursor().ifPresent(ignored -> jpql.append(
+                "AND (" + associationTime + " < :cursorTime OR ("
+                        + associationTime + " = :cursorTime AND task.id < :cursorId)) "));
+        jpql.append("ORDER BY " + associationTime + " DESC, task.id DESC");
+
+        var persistenceQuery = entityManager.createQuery(jpql.toString(), Object[].class)
+                .setParameter("organizationId", required.organizationId().value())
+                .setParameter("teamId", required.teamId().value())
+                .setParameter("workspaceId", required.workspaceId().value())
+                .setMaxResults(required.limit() + 1);
+        required.projectId().ifPresent(value ->
+                persistenceQuery.setParameter("projectId", value.value()));
+        required.workItemId().ifPresent(value ->
+                persistenceQuery.setParameter("workItemId", value.value()));
+        required.conversationId().ifPresent(value ->
+                persistenceQuery.setParameter("conversationId", value.value()));
+        required.cursor().ifPresent(value -> {
+            persistenceQuery.setParameter("cursorTime", value.associatedAt().value());
+            persistenceQuery.setParameter("cursorId", value.targetId());
+        });
+
+        List<Object[]> rows = new ArrayList<>(persistenceQuery.getResultList());
+        boolean hasNext = rows.size() > required.limit();
+        if (hasNext) {
+            rows.remove(rows.size() - 1);
+        }
+        List<TaskAssociationItem> items = rows.stream()
+                .map(row -> toAssociationItem(row, byWorkItem))
+                .toList();
+        Optional<TaskAssociationCursor> nextCursor = hasNext
+                ? Optional.of(taskAssociationCursor(required, items.get(items.size() - 1)))
+                : Optional.empty();
+        return new TaskAssociationPage(items, nextCursor);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TaskConversationAssociationPage findVisibleConversations(
+            TaskConversationAssociationQuery query) {
+        TaskConversationAssociationQuery required = Objects.requireNonNull(query, "query");
+        StringBuilder jpql = new StringBuilder(
+                """
+                SELECT conversation.id,
+                       conversation.organizationId,
+                       conversation.teamId,
+                       conversation.workspaceId,
+                       conversation.title,
+                       conversation.visibility,
+                       conversation.status,
+                       link.origin,
+                       link.createdAt
+                FROM ConversationEntity conversation, ConversationTaskLinkEntity link
+                WHERE link.organizationId = :organizationId
+                  AND link.teamId = :teamId
+                  AND link.workspaceId = :workspaceId
+                  AND link.projectId = :projectId
+                  AND link.taskId = :taskId
+                  AND conversation.id = link.conversationId
+                  AND conversation.organizationId = link.organizationId
+                  AND conversation.teamId = link.teamId
+                  AND conversation.workspaceId = link.workspaceId
+                  AND (conversation.visibility = 'TEAM'
+                       OR EXISTS (
+                           SELECT participant.id
+                           FROM ConversationParticipantEntity participant
+                           WHERE participant.organizationId = conversation.organizationId
+                             AND participant.teamId = conversation.teamId
+                             AND participant.workspaceId = conversation.workspaceId
+                             AND participant.conversationId = conversation.id
+                             AND participant.principalId = :viewerPrincipalId
+                             AND participant.teamMemberId = :viewerTeamMemberId
+                             AND participant.role <> 'AGENT'))
+                """);
+        required.cursor().ifPresent(ignored -> jpql.append(
+                """
+                 AND (link.createdAt < :cursorTime
+                      OR (link.createdAt = :cursorTime AND conversation.id < :cursorId))
+                """));
+        jpql.append(" ORDER BY link.createdAt DESC, conversation.id DESC");
+
+        var persistenceQuery = entityManager.createQuery(jpql.toString(), Object[].class)
+                .setParameter("organizationId", required.scope().organizationId().value())
+                .setParameter("teamId", required.scope().teamId().value())
+                .setParameter("workspaceId", required.scope().workspaceId().value())
+                .setParameter("projectId", required.scope().projectId().value())
+                .setParameter("taskId", required.taskId().value())
+                .setParameter("viewerPrincipalId", required.viewerPrincipalId().value())
+                .setParameter("viewerTeamMemberId", required.viewerTeamMemberId().value())
+                .setMaxResults(required.limit() + 1);
+        required.cursor().ifPresent(value -> {
+            persistenceQuery.setParameter("cursorTime", value.associatedAt().value());
+            persistenceQuery.setParameter("cursorId", value.targetId());
+        });
+
+        List<Object[]> rows = new ArrayList<>(persistenceQuery.getResultList());
+        boolean hasNext = rows.size() > required.limit();
+        if (hasNext) {
+            rows.remove(rows.size() - 1);
+        }
+        List<TaskConversationAssociation> items = rows.stream()
+                .map(JpaTaskRuntimeRepositoryAdapter::toConversationAssociation)
+                .toList();
+        Optional<TaskAssociationCursor> nextCursor = hasNext
+                ? Optional.of(taskConversationCursor(required, items.get(items.size() - 1)))
+                : Optional.empty();
+        return new TaskConversationAssociationPage(items, nextCursor);
     }
 
     @Override
@@ -153,6 +389,17 @@ public class JpaTaskRuntimeRepositoryAdapter implements
     public Optional<TaskExecution> findById(
             OrganizationId organizationId, TaskExecutionId executionId) {
         return findExecutionEntity(required(organizationId), required(executionId))
+                .map(mapper::toExecutionDomain);
+    }
+
+    @Override
+    @Transactional
+    public Optional<TaskExecution> findByIdForUpdate(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        return findExecutionEntity(
+                        required(organizationId),
+                        required(executionId),
+                        LockModeType.PESSIMISTIC_WRITE)
                 .map(mapper::toExecutionDomain);
     }
 
@@ -439,6 +686,84 @@ public class JpaTaskRuntimeRepositoryAdapter implements
         return mapper.toTaskDomain(row, snapshot, entries);
     }
 
+    private TaskListItem toListItem(Object[] values) {
+        TaskEntity task = (TaskEntity) values[0];
+        TaskExecutionEntity execution = (TaskExecutionEntity) values[1];
+        WorkItemScope scope = new WorkItemScope(
+                new OrganizationId(task.organizationId),
+                new TeamId(task.teamId),
+                new WorkspaceId(task.workspaceId),
+                new WorkProjectId(task.projectId));
+        AuditMetadata audit = new AuditMetadata(
+                Optional.of(new PrincipalId(task.createdByPrincipalId)),
+                new UtcTimestamp(task.createdAt),
+                Optional.of(new PrincipalId(task.updatedByPrincipalId)),
+                new UtcTimestamp(task.updatedAt));
+        return new TaskListItem(
+                new TaskId(task.id),
+                scope,
+                new WorkItemId(task.workItemId),
+                new TaskBrief(task.objective, task.acceptanceCriteria),
+                TaskStatus.valueOf(task.status),
+                Optional.ofNullable(task.currentExecutionId).map(TaskExecutionId::new),
+                Optional.ofNullable(execution).map(value -> value.attempt),
+                Optional.ofNullable(execution)
+                        .map(value -> TaskExecutionStatus.valueOf(value.status)),
+                Optional.ofNullable(execution)
+                        .map(value -> value.waitingReason)
+                        .map(TaskExecutionWaitReason::valueOf),
+                task.version,
+                audit);
+    }
+
+    private TaskAssociationItem toAssociationItem(Object[] values, boolean byWorkItem) {
+        TaskListItem task = toListItem(values);
+        if (byWorkItem) {
+            return new TaskAssociationItem(
+                    task, Optional.empty(), UtcTimestamp.from((java.time.Instant) values[2]));
+        }
+        return new TaskAssociationItem(
+                task,
+                Optional.of(ConversationTaskLinkOrigin.valueOf((String) values[2])),
+                UtcTimestamp.from((java.time.Instant) values[3]));
+    }
+
+    private static TaskAssociationCursor taskAssociationCursor(
+            TaskAssociationQuery query, TaskAssociationItem item) {
+        return new TaskAssociationCursor(
+                query.organizationId(),
+                query.teamId(),
+                query.sourceType(),
+                query.sourceId(),
+                item.associatedAt(),
+                item.task().id().value());
+    }
+
+    private static TaskConversationAssociation toConversationAssociation(Object[] values) {
+        return new TaskConversationAssociation(
+                new ConversationId((UUID) values[0]),
+                new ConversationScope(
+                        new OrganizationId((UUID) values[1]),
+                        new TeamId((UUID) values[2]),
+                        new WorkspaceId((UUID) values[3])),
+                (String) values[4],
+                ConversationVisibility.valueOf((String) values[5]),
+                ConversationStatus.valueOf((String) values[6]),
+                ConversationTaskLinkOrigin.valueOf((String) values[7]),
+                UtcTimestamp.from((java.time.Instant) values[8]));
+    }
+
+    private static TaskAssociationCursor taskConversationCursor(
+            TaskConversationAssociationQuery query, TaskConversationAssociation item) {
+        return new TaskAssociationCursor(
+                query.scope().organizationId(),
+                query.scope().teamId(),
+                TaskAssociationSourceType.TASK,
+                query.taskId().value(),
+                item.associatedAt(),
+                item.id().value());
+    }
+
     private List<ConversationTaskLink> findLinks(
             OrganizationId organizationId, String field, UUID value) {
         return entityManager.createQuery(
@@ -455,9 +780,26 @@ public class JpaTaskRuntimeRepositoryAdapter implements
         return findOne(TaskEntity.class, organizationId.value(), taskId.value());
     }
 
+    private Optional<TaskEntity> findTaskEntity(
+            OrganizationId organizationId, TaskId taskId, LockModeType lockMode) {
+        return findOne(
+                TaskEntity.class, organizationId.value(), taskId.value(), lockMode);
+    }
+
     private Optional<TaskExecutionEntity> findExecutionEntity(
             OrganizationId organizationId, TaskExecutionId executionId) {
         return findOne(TaskExecutionEntity.class, organizationId.value(), executionId.value());
+    }
+
+    private Optional<TaskExecutionEntity> findExecutionEntity(
+            OrganizationId organizationId,
+            TaskExecutionId executionId,
+            LockModeType lockMode) {
+        return findOne(
+                TaskExecutionEntity.class,
+                organizationId.value(),
+                executionId.value(),
+                lockMode);
     }
 
     private Optional<ExecutionRuntimeEntity> findRuntimeEntity(
@@ -504,6 +846,22 @@ public class JpaTaskRuntimeRepositoryAdapter implements
                         entityType)
                 .setParameter("organizationId", organizationId)
                 .setParameter("id", id)
+                .getResultStream().findFirst();
+    }
+
+    private <T> Optional<T> findOne(
+            Class<T> entityType,
+            UUID organizationId,
+            UUID id,
+            LockModeType lockMode) {
+        String name = entityType.getSimpleName();
+        return entityManager.createQuery(
+                        "SELECT row FROM " + name + " row "
+                                + "WHERE row.organizationId = :organizationId AND row.id = :id",
+                        entityType)
+                .setParameter("organizationId", organizationId)
+                .setParameter("id", id)
+                .setLockMode(Objects.requireNonNull(lockMode, "lockMode"))
                 .getResultStream().findFirst();
     }
 

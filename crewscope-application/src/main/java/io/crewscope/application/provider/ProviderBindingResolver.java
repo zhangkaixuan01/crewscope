@@ -9,6 +9,7 @@ import io.crewscope.domain.provider.ProviderDefinition;
 import io.crewscope.domain.provider.ProviderImplementation;
 import io.crewscope.domain.provider.ProviderOwnerType;
 import io.crewscope.domain.shared.error.DomainValidationException;
+import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.ArrayList;
@@ -110,6 +111,19 @@ public final class ProviderBindingResolver {
         return ProviderBindingResolution.notFound(ProviderBindingResolutionLevel.NONE);
     }
 
+    /**
+     * Revalidates one explicit Binding against its currently pinned registry, Connection and Grant
+     * facts without applying automatic fallback.
+     */
+    public Optional<ProviderBindingCandidate> resolveCurrent(
+            OrganizationId organizationId, ProviderBindingId bindingId) {
+        OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
+        ProviderBindingId id = Objects.requireNonNull(bindingId, "bindingId");
+        return bindingRepository.findById(organization, id)
+                .filter(binding -> binding.organizationId().equals(organization))
+                .flatMap(binding -> currentCandidate(binding, organization, timeProvider.now()));
+    }
+
     private ProviderBindingResolution resolveExplicit(
             ProviderBindingResolutionRequest request,
             ProviderBindingId bindingId,
@@ -186,32 +200,37 @@ public final class ProviderBindingResolver {
             ProviderBinding binding,
             ProviderBindingResolutionRequest request,
             UtcTimestamp now) {
+        return currentCandidate(binding, request.organizationId(), now)
+                .flatMap(candidate -> candidate.narrowTo(request.requestedAccess()));
+    }
+
+    private Optional<ProviderBindingCandidate> currentCandidate(
+            ProviderBinding binding, OrganizationId organizationId, UtcTimestamp now) {
         Optional<ProviderDefinition> definition = definitionRepository.findById(
-                request.organizationId(), binding.definitionId());
+                organizationId, binding.definitionId());
         Optional<ProviderImplementation> implementation =
                 implementationRepository.findById(
-                        request.organizationId(), binding.implementationId());
+                        organizationId, binding.implementationId());
         if (definition.isEmpty() || implementation.isEmpty()) {
             return Optional.empty();
         }
 
         Optional<Connection> connection = binding.connectionId()
-                .flatMap(id -> connectionRepository.findById(request.organizationId(), id));
+                .flatMap(id -> connectionRepository.findById(organizationId, id));
         Optional<ConnectionGrant> grant = binding.connectionGrantId()
-                .flatMap(id -> connectionGrantRepository.findById(request.organizationId(), id));
+                .flatMap(id -> connectionGrantRepository.findById(organizationId, id));
         if (binding.connectionId().isPresent() != connection.isPresent()
                 || binding.connectionGrantId().isPresent() != grant.isPresent()) {
             return Optional.empty();
         }
         try {
-            return ProviderBindingCandidate.resolve(
-                            binding,
-                            definition.orElseThrow(),
-                            implementation.orElseThrow(),
-                            connection,
-                            grant,
-                            now)
-                    .narrowTo(request.requestedAccess());
+            return Optional.of(ProviderBindingCandidate.resolve(
+                    binding,
+                    definition.orElseThrow(),
+                    implementation.orElseThrow(),
+                    connection,
+                    grant,
+                    now));
         } catch (DomainValidationException exception) {
             return Optional.empty();
         }

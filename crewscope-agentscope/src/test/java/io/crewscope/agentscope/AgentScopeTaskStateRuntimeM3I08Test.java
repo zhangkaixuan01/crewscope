@@ -45,7 +45,9 @@ import io.crewscope.domain.task.FencingToken;
 import io.crewscope.domain.task.PolicyBudget;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.RuntimeArtifactId;
+import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
+import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
@@ -193,6 +195,11 @@ class AgentScopeTaskStateRuntimeM3I08Test {
             when(value.policySnapshot()).thenReturn(policy);
             when(value.planVersion()).thenReturn(Optional.empty());
             when(value.stepExecution()).thenReturn(Optional.empty());
+            Task task = mock(Task.class);
+            when(task.brief()).thenReturn(new TaskBrief(
+                    "Checkpoint the controlled runtime task",
+                    List.of("Preserve recoverable state")));
+            when(value.task()).thenReturn(task);
 
             TaskTokenGrantScope tokenScope = mock(TaskTokenGrantScope.class);
             TaskTokenExecutionContext authorization = mock(TaskTokenExecutionContext.class);

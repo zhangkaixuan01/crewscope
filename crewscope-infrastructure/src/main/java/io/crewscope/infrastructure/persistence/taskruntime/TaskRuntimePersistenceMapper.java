@@ -30,6 +30,7 @@ import io.crewscope.domain.task.SafetyEnforcementOverlayId;
 import io.crewscope.domain.task.SafetyEnforcementOverlayReference;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskCancellation;
+import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionControlRequest;
 import io.crewscope.domain.task.TaskExecutionControlRequestType;
@@ -102,6 +103,8 @@ public class TaskRuntimePersistenceMapper {
             row.sourceInputId = reference.referenceId();
             row.sourceInputVersion = reference.referenceVersion();
         });
+        row.objective = required.brief().objective();
+        row.acceptanceCriteria = required.brief().acceptanceCriteria();
         row.responsibilitySnapshotId = snapshotId(required.id());
         copyTaskState(row, required);
         putAudit(row, required.audit(), required.version());
@@ -153,6 +156,7 @@ public class TaskRuntimePersistenceMapper {
                 scope,
                 new WorkItemId(row.workItemId),
                 source,
+                new TaskBrief(row.objective, row.acceptanceCriteria),
                 snapshot,
                 TaskStatus.valueOf(row.status),
                 optionalId(row.currentExecutionId, TaskExecutionId::new),

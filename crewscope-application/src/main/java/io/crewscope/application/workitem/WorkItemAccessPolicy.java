@@ -65,6 +65,41 @@ public final class WorkItemAccessPolicy {
     return requireProject(organizationId, teamId, projectId);
   }
 
+  /** Requires an active USER membership before exposing Team-scoped read models. */
+  public Team requireVisibleTeam(
+      TeamAccessContext context, OrganizationId organizationId, TeamId teamId) {
+    Principal actor = requireAccess(context, organizationId);
+    Team team = requireTeam(organizationId, teamId);
+    requireActiveMember(actor, team);
+    return team;
+  }
+
+  /** Returns the exact active TeamMember identity used by member-specific visibility policies. */
+  public TeamMember requireVisibleTeamMember(
+      TeamAccessContext context, OrganizationId organizationId, TeamId teamId) {
+    Principal actor = requireAccess(context, organizationId);
+    Team team = requireTeam(organizationId, teamId);
+    return requireActiveMember(actor, team);
+  }
+
+  /** Requires platform authority or an effective Team-wide grant from an active member. */
+  public void requireTeamPermission(
+      TeamAccessContext context,
+      OrganizationId organizationId,
+      TeamId teamId,
+      TeamPermission permission,
+      UtcTimestamp occurredAt,
+      String action) {
+    TeamAccessContext trusted = Objects.requireNonNull(context, "context");
+    Principal actor = requireAccess(trusted, organizationId);
+    Team team = requireTeam(organizationId, teamId);
+    if (trusted.platformAdministrator()) {
+      return;
+    }
+    TeamMember member = requireActiveMember(actor, team);
+    requireTeamPermission(member, permission, occurredAt, action);
+  }
+
   /** Requires the same effective permission used by the native WorkItem creation command. */
   public WorkProject requireCreatePermission(
       TeamAccessContext context,
@@ -176,6 +211,31 @@ public final class WorkItemAccessPolicy {
             .anyMatch(role -> role.permissions().contains(permission));
     if (!allowed) {
       throw new PolicyDeniedException(action);
+    }
+  }
+
+  private void requireTeamPermission(
+      TeamMember member,
+      TeamPermission permission,
+      UtcTimestamp occurredAt,
+      String action) {
+    Map<TeamRoleId, TeamRole> roles =
+        teamRoleRepository
+            .findByTeam(member.scope().organizationId(), member.scope().teamId())
+            .stream()
+            .collect(Collectors.toMap(TeamRole::id, role -> role));
+    boolean allowed =
+        memberRoleRepository.findByMember(member.scope().organizationId(), member.id()).stream()
+            .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
+            .filter(grant -> grant.isEffectiveAt(Objects.requireNonNull(occurredAt, "occurredAt")))
+            .filter(grant -> grant.roleScope().equals(RoleScope.team()))
+            .map(grant -> roles.get(grant.teamRoleId()))
+            .filter(Objects::nonNull)
+            .filter(TeamRole::isGrantable)
+            .anyMatch(role -> role.permissions().contains(
+                Objects.requireNonNull(permission, "permission")));
+    if (!allowed) {
+      throw new PolicyDeniedException(Objects.requireNonNull(action, "action"));
     }
   }
 

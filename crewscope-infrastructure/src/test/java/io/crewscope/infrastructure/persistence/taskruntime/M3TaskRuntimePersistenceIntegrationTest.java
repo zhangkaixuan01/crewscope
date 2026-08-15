@@ -29,6 +29,9 @@ import io.crewscope.application.execution.TaskAgentStateSafePoint;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.runtime.ExecutionRuntimeRepository;
+import io.crewscope.application.runtime.RuntimeObservationQuery;
+import io.crewscope.application.runtime.RuntimeObservationRepository;
+import io.crewscope.application.runtime.RuntimeObservationSnapshot;
 import io.crewscope.application.runtime.RuntimeWorkerRepository;
 import io.crewscope.application.execution.TaskRuntimeEventCommitWindow;
 import io.crewscope.application.execution.TaskRuntimeEventReceipt;
@@ -43,9 +46,22 @@ import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
 import io.crewscope.application.task.StepExecutionRepository;
 import io.crewscope.application.task.RuntimeArtifactRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
+import io.crewscope.application.task.TaskAssociationPage;
+import io.crewscope.application.task.TaskAssociationQuery;
+import io.crewscope.application.task.TaskAssociationRepository;
+import io.crewscope.application.task.TaskConversationAssociationPage;
+import io.crewscope.application.task.TaskConversationAssociationQuery;
 import io.crewscope.application.task.TaskCredentialGrantRepository;
 import io.crewscope.application.task.TaskExecutionQueueRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskEventContext;
+import io.crewscope.application.task.TaskEventCursor;
+import io.crewscope.application.task.TaskEventCursorExpiredException;
+import io.crewscope.application.task.TaskEventPage;
+import io.crewscope.application.task.TaskEventQuery;
+import io.crewscope.application.task.TaskEventRepository;
+import io.crewscope.application.task.TaskListPage;
+import io.crewscope.application.task.TaskListQuery;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
@@ -80,6 +96,7 @@ import io.crewscope.domain.runtime.RuntimeWorker;
 import io.crewscope.domain.runtime.RuntimeWorkerCapacity;
 import io.crewscope.domain.runtime.RuntimeWorkerId;
 import io.crewscope.domain.shared.audit.AuditMetadata;
+import io.crewscope.domain.shared.DomainEvent;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.ArtifactId;
@@ -87,6 +104,12 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
+import io.crewscope.domain.shared.event.AggregateReference;
+import io.crewscope.domain.shared.event.DomainEventEnvelope;
+import io.crewscope.domain.shared.event.EventActor;
+import io.crewscope.domain.shared.event.EventActorType;
+import io.crewscope.domain.shared.event.EventType;
+import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ClaimToken;
 import io.crewscope.domain.task.AgentInterrupt;
@@ -118,6 +141,7 @@ import io.crewscope.domain.task.SafetyEnforcementOverlayId;
 import io.crewscope.domain.task.StepExecution;
 import io.crewscope.domain.task.StepExecutionId;
 import io.crewscope.domain.task.Task;
+import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.RuntimeArtifact;
 import io.crewscope.domain.task.RuntimeArtifactId;
 import io.crewscope.domain.task.RuntimeArtifactKind;
@@ -131,6 +155,7 @@ import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionPriority;
 import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskId;
+import io.crewscope.domain.task.TaskStatus;
 import io.crewscope.domain.task.TaskResponsibilitySnapshot;
 import io.crewscope.domain.task.TaskSource;
 import io.crewscope.domain.task.TaskProviderGrantRequest;
@@ -175,6 +200,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.hibernate.SessionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -185,6 +211,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import jakarta.persistence.EntityManagerFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /** PostgreSQL evidence for M3-D09 mappings, queue locks and conditional ownership writes. */
@@ -196,6 +223,7 @@ import tools.jackson.databind.ObjectMapper;
             "spring.flyway.create-schemas=true",
             "spring.jpa.hibernate.ddl-auto=validate",
             "spring.jpa.properties.hibernate.default_schema=crewscope",
+            "spring.jpa.properties.hibernate.generate_statistics=true",
             "spring.jpa.open-in-view=false"
         })
 class M3TaskRuntimePersistenceIntegrationTest
@@ -210,6 +238,7 @@ class M3TaskRuntimePersistenceIntegrationTest
             new ClaimToken("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ");
 
     @Autowired private TaskRepository taskRepository;
+    @Autowired private TaskAssociationRepository taskAssociationRepository;
     @Autowired private TaskExecutionRepository executionRepository;
     @Autowired private PolicySnapshotRepository policyRepository;
     @Autowired private SafetyEnforcementOverlayRepository overlayRepository;
@@ -217,6 +246,7 @@ class M3TaskRuntimePersistenceIntegrationTest
     @Autowired private StepExecutionRepository stepRepository;
     @Autowired private ExecutionRuntimeRepository runtimeRepository;
     @Autowired private RuntimeWorkerRepository workerRepository;
+    @Autowired private RuntimeObservationRepository runtimeObservationRepository;
     @Autowired private ExecutionLeaseRepository leaseRepository;
     @Autowired private TaskExecutionQueueRepository queueRepository;
     @Autowired private TaskCredentialGrantRepository credentialGrantRepository;
@@ -226,8 +256,10 @@ class M3TaskRuntimePersistenceIntegrationTest
     @Autowired private RuntimeArtifactRepository artifactRepository;
     @Autowired private AgentStateSnapshotRepository snapshotRepository;
     @Autowired private TaskRuntimeEventReceiptRepository runtimeEventReceiptRepository;
+    @Autowired private TaskEventRepository taskEventRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private EntityManagerFactory entityManagerFactory;
     @TempDir Path snapshotArtifactRoot;
 
     @BeforeEach
@@ -266,10 +298,14 @@ class M3TaskRuntimePersistenceIntegrationTest
 
         assertEquals(task.responsibilitySnapshot().entries(),
                 loadedTask.responsibilitySnapshot().entries());
+        assertEquals(task.brief(), loadedTask.brief());
         assertEquals(policy.capabilities(), loadedPolicy.capabilities());
         assertEquals(policy.allowedTools(), loadedPolicy.allowedTools());
         assertEquals(plan.steps(), loadedPlan.steps());
         assertEquals(plan.todoSummary(), loadedPlan.todoSummary());
+        assertEquals(List.of(plan.id()), planRepository
+                .findByExecution(fixture.organizationId, initialized.id())
+                .stream().map(PlanVersion::id).toList());
         assertEquals(step.id(), stepRepository.findById(fixture.organizationId, step.id())
                 .orElseThrow().id());
         assertFalse(taskRepository.findById(OrganizationId.generate(), task.id()).isPresent());
@@ -278,6 +314,267 @@ class M3TaskRuntimePersistenceIntegrationTest
         executionRepository.update(ready);
         assertThrows(OptimisticLockConflictException.class,
                 () -> executionRepository.update(ready));
+    }
+
+    @Test
+    void pagesTeamTasksWithStableKeysetsFiltersAndDedicatedIndexes() {
+        Fixture fixture = seedFixture("LST");
+        Task activeBase = taskRepository.create(fixture.task());
+        TaskExecution activeExecution = executionRepository.create(
+                fixture.execution(activeBase, 50, CREATED));
+        TaskExecution readyExecution = executionRepository.update(
+                activeExecution.markReady(0, fixture.owner, READY));
+        taskRepository.update(activeBase.switchCurrentExecution(
+                Optional.empty(), readyExecution.id(), 0, fixture.owner, READY));
+        taskRepository.create(fixture.task());
+        taskRepository.create(fixture.task());
+
+        TaskListPage first = taskRepository.findPage(new TaskListQuery(
+                fixture.organizationId,
+                fixture.teamId,
+                Optional.of(fixture.projectId),
+                Optional.empty(),
+                Optional.empty(),
+                2));
+        TaskListPage second = taskRepository.findPage(new TaskListQuery(
+                fixture.organizationId,
+                fixture.teamId,
+                Optional.of(fixture.projectId),
+                Optional.empty(),
+                first.nextCursor(),
+                2));
+
+        assertEquals(2, first.items().size());
+        assertEquals(1, second.items().size());
+        assertEquals(3, java.util.stream.Stream.concat(
+                        first.items().stream(), second.items().stream())
+                .map(value -> value.id())
+                .distinct()
+                .count());
+        assertEquals(1, java.util.stream.Stream.concat(
+                        first.items().stream(), second.items().stream())
+                .filter(value -> value.currentExecutionStatus()
+                        .filter(TaskExecutionStatus.READY::equals).isPresent())
+                .count());
+        assertEquals(2, taskRepository.findPage(new TaskListQuery(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        Optional.of(fixture.projectId),
+                        Optional.of(TaskStatus.CREATED),
+                        Optional.empty(),
+                        10))
+                .items().size());
+        assertTrue(taskRepository.findPage(new TaskListQuery(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        Optional.of(fixture.projectId),
+                        Optional.of(TaskStatus.FAILED),
+                        Optional.empty(),
+                        10))
+                .items().isEmpty());
+        assertTrue(taskRepository.findPage(new TaskListQuery(
+                        fixture.organizationId,
+                        TeamId.generate(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        10))
+                .items().isEmpty());
+
+        List<String> indexes = jdbcTemplate.queryForList(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'crewscope'
+                  AND indexname IN (
+                    'ix_task_team_updated',
+                    'ix_task_team_project_updated',
+                    'ix_task_team_status_updated',
+                    'ix_task_team_project_status_updated',
+                    'ix_agent_interrupt_execution_created',
+                    'ix_agent_state_snapshot_execution_sequence',
+                    'ix_execution_lease_execution_acquired'
+                  )
+                ORDER BY indexname
+                """,
+                String.class);
+        assertEquals(7, indexes.size());
+    }
+
+    @Test
+    void observesRuntimeFleetAndTeamWaitingReasonsInTwoFixedQueries() {
+        Fixture fixture = seedFixture("OBS");
+        Task task = taskRepository.create(fixture.task());
+        TaskExecution created = executionRepository.create(fixture.execution(task, 50, CREATED));
+        PolicySnapshot policy = policyRepository.create(fixture.policy(task, created));
+        SafetyEnforcementOverlay overlay = overlayRepository.create(
+                SafetyEnforcementOverlay.unrestricted(
+                        SafetyEnforcementOverlayId.generate(), task, created,
+                        fixture.owner, READY));
+        TaskExecution initialized = executionRepository.update(
+                created.initializePlanningContext(policy, overlay, 0, fixture.owner, READY));
+        TaskExecution ready = executionRepository.update(
+                initialized.markReady(initialized.version(), fixture.owner, READY));
+        executionRepository.update(
+                ready.waitForRuntime(ready.version(), fixture.owner, CLAIMED));
+
+        RuntimeCapabilities capabilities = new RuntimeCapabilities(
+                Set.of(
+                        RuntimeCapability.TASK_EXECUTION,
+                        RuntimeCapability.STREAMING,
+                        RuntimeCapability.DURABLE_EVENT_STREAM,
+                        RuntimeCapability.PAUSE_RESUME,
+                        RuntimeCapability.CANCEL,
+                        RuntimeCapability.SESSION_STATE,
+                        RuntimeCapability.PLAN,
+                        RuntimeCapability.STRUCTURED_OUTPUT),
+                Set.of("java"),
+                Set.of("maven"));
+        ExecutionRuntime runtime = runtimeRepository.create(ExecutionRuntime.register(
+                ExecutionRuntimeId.generate(),
+                fixture.organizationId,
+                fixture.environment,
+                "agentscope-java",
+                "AgentScope Java",
+                "2.0.0",
+                capabilities,
+                fixture.owner,
+                READY));
+        RuntimeWorker registered = workerRepository.create(RuntimeWorker.register(
+                RuntimeWorkerId.generate(),
+                runtime,
+                "worker-observation",
+                RuntimeProfile.WORKER,
+                capabilities,
+                new RuntimeWorkerCapacity(4, 1),
+                fixture.owner,
+                READY));
+        workerRepository.update(registered.activate(
+                registered.version(), fixture.owner, READY));
+
+        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
+        sessionFactory.getStatistics().clear();
+        RuntimeObservationSnapshot snapshot = runtimeObservationRepository.observe(
+                new RuntimeObservationQuery(
+                        fixture.organizationId, fixture.teamId, fixture.environment));
+
+        assertEquals(1, snapshot.runtimes().size());
+        assertEquals(1, snapshot.workers().size());
+        assertEquals(1, snapshot.waitingExecutions().size());
+        assertTrue(snapshot.waitingExecutions().get(0).requiredCapabilities()
+                .supports(RuntimeCapability.PLAN));
+        assertEquals(2, sessionFactory.getStatistics().getPrepareStatementCount());
+        assertTrue(runtimeObservationRepository.observe(new RuntimeObservationQuery(
+                        fixture.organizationId, TeamId.generate(), fixture.environment))
+                .waitingExecutions().isEmpty());
+    }
+
+    @Test
+    void pagesBidirectionalTaskAssociationsAndFiltersPrivateConversationsWithoutNPlusOne() {
+        Fixture fixture = seedFixture("ASC");
+        Task active = taskRepository.create(fixture.task());
+        Task cancelled = taskRepository.create(fixture.task());
+        taskRepository.update(cancelled.cancel(
+                "Superseded by a later execution", 0, fixture.owner, READY));
+
+        UUID otherOwnerId = UUID.randomUUID();
+        UUID otherMemberId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.principal (
+                    id, organization_id, team_id, principal_type,
+                    display_name, visibility, status
+                ) VALUES (?, ?, ?, 'USER', 'Other owner', 'TEAM', 'ACTIVE')
+                """,
+                otherOwnerId,
+                fixture.organizationId.value(),
+                fixture.teamId.value());
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.team_member (
+                    id, organization_id, team_id, user_principal_id,
+                    status, join_method, joined_at
+                ) VALUES (?, ?, ?, ?, 'ACTIVE', 'INVITATION', ?)
+                """,
+                otherMemberId,
+                fixture.organizationId.value(),
+                fixture.teamId.value(),
+                otherOwnerId,
+                CREATED.toOffsetDateTime());
+        UUID teamConversationId = insertConversation(
+                fixture, otherMemberId, otherOwnerId, "TEAM", "Team execution");
+        UUID privateConversationId = insertConversation(
+                fixture, otherMemberId, otherOwnerId, "PRIVATE", "Hidden execution");
+        insertConversationTaskLink(fixture, teamConversationId, active.id(), CREATED);
+        insertConversationTaskLink(fixture, teamConversationId, cancelled.id(), READY);
+        insertConversationTaskLink(fixture, privateConversationId, active.id(), RUNNING);
+
+        SessionFactory sessionFactory = entityManagerFactory.unwrap(SessionFactory.class);
+        sessionFactory.getStatistics().clear();
+        TaskAssociationPage workItemFirst = taskAssociationRepository.findTasks(
+                TaskAssociationQuery.byWorkItem(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        fixture.workspaceId,
+                        fixture.projectId,
+                        fixture.workItem.id(),
+                        Optional.empty(),
+                        1));
+        assertEquals(1, sessionFactory.getStatistics().getPrepareStatementCount());
+        TaskAssociationPage workItemSecond = taskAssociationRepository.findTasks(
+                TaskAssociationQuery.byWorkItem(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        fixture.workspaceId,
+                        fixture.projectId,
+                        fixture.workItem.id(),
+                        workItemFirst.nextCursor(),
+                        1));
+        assertEquals(2, java.util.stream.Stream.concat(
+                        workItemFirst.items().stream(), workItemSecond.items().stream())
+                .map(value -> value.task().id())
+                .distinct()
+                .count());
+        assertTrue(java.util.stream.Stream.concat(
+                        workItemFirst.items().stream(), workItemSecond.items().stream())
+                .anyMatch(value -> value.task().status() == TaskStatus.CANCELLED));
+
+        TaskAssociationPage conversationTasks = taskAssociationRepository.findTasks(
+                TaskAssociationQuery.byConversation(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        fixture.workspaceId,
+                        new io.crewscope.domain.conversation.ConversationId(teamConversationId),
+                        Optional.empty(),
+                        10));
+        assertEquals(2, conversationTasks.items().size());
+
+        sessionFactory.getStatistics().clear();
+        TaskConversationAssociationPage visibleConversations =
+                taskAssociationRepository.findVisibleConversations(
+                        new TaskConversationAssociationQuery(
+                                fixture.scope,
+                                active.id(),
+                                fixture.owner.id(),
+                                fixture.ownerMemberId,
+                                Optional.empty(),
+                                10));
+        assertEquals(1, sessionFactory.getStatistics().getPrepareStatementCount());
+        assertEquals(List.of(teamConversationId), visibleConversations.items().stream()
+                .map(value -> value.id().value())
+                .toList());
+        assertFalse(visibleConversations.items().stream()
+                .anyMatch(value -> value.id().value().equals(privateConversationId)));
+
+        TaskAssociationPage anotherTeam = taskAssociationRepository.findTasks(
+                TaskAssociationQuery.byWorkItem(
+                        fixture.organizationId,
+                        TeamId.generate(),
+                        fixture.workspaceId,
+                        fixture.projectId,
+                        fixture.workItem.id(),
+                        Optional.empty(),
+                        10));
+        assertTrue(anotherTeam.items().isEmpty());
     }
 
     @Test
@@ -477,6 +774,9 @@ class M3TaskRuntimePersistenceIntegrationTest
                         .orElseThrow().status());
         assertTrue(leaseRepository.findActiveByTaskExecution(
                 fixture.organizationId, ready.id()).isEmpty());
+        assertEquals(List.of(released.id()), leaseRepository
+                .findByTaskExecution(fixture.organizationId, ready.id())
+                .stream().map(ExecutionLease::id).toList());
         assertThrows(RuntimeException.class, () -> leaseRepository.renew(heartbeat));
     }
 
@@ -613,8 +913,14 @@ class M3TaskRuntimePersistenceIntegrationTest
         assertEquals(resolved.id(), interruptRepository
                 .findByResumeRequestId(fixture.organizationId, resumeRequestId)
                 .orElseThrow().id());
+        assertEquals(List.of(resolved.id()), interruptRepository
+                .findByExecution(fixture.organizationId, resumed.executionId())
+                .stream().map(AgentInterrupt::id).toList());
         assertEquals(2, agentRunRepository.findById(fixture.organizationId, run.id())
                 .orElseThrow().segments().size());
+        assertEquals(2, agentRunRepository
+                .findByExecution(fixture.organizationId, resumed.executionId())
+                .get(0).segments().size());
 
         RuntimeArtifact firstArtifact = artifactRepository.create(RuntimeArtifact.register(
                 RuntimeArtifactId.generate(), ArtifactId.generate(), resumed,
@@ -645,6 +951,9 @@ class M3TaskRuntimePersistenceIntegrationTest
                 .orElseThrow().id());
         assertEquals(List.of(second.id(), first.id()), snapshotRepository
                 .findRecoveryCandidates(fixture.organizationId, resumed.id(), 10)
+                .stream().map(AgentStateSnapshot::id).toList());
+        assertEquals(List.of(first.id(), second.id()), snapshotRepository
+                .findByExecution(fixture.organizationId, resumed.executionId())
                 .stream().map(AgentStateSnapshot::id).toList());
         assertEquals(AgentStateSnapshotStatus.SUPERSEDED, snapshotRepository
                 .findById(fixture.organizationId, first.id()).orElseThrow().status());
@@ -718,6 +1027,93 @@ class M3TaskRuntimePersistenceIntegrationTest
                 "SELECT COUNT(*) FROM crewscope.domain_event WHERE event_id = ?",
                 Integer.class,
                 rolledBackEventId));
+    }
+
+    @Test
+    void appendsSanitizesAndPagesTaskEventsWithAssociationAndGapEvidence() {
+        Fixture fixture = seedFixture("TES");
+        PlanningGraph graph = persistPlanningGraph(fixture);
+        TaskAgentRuntimeSession session = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeStep(
+                        graph.task(), graph.execution(), graph.step(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        AgentRun run = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), session, 1, fixture.executor, RUNNING));
+        UUID eventId = UUID.randomUUID();
+        UUID correlationId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version,
+                    organization_id, team_id, workspace_id,
+                    subject_type, subject_id, aggregate_version,
+                    actor_type, actor_id, correlation_id, occurred_at, payload
+                ) VALUES (?, 'AGENT_RUN_EVENT_RECORDED', '1', ?, ?, ?,
+                          'AGENT_RUN', ?, 3, 'TEAM_AGENT', ?, ?, ?, CAST(? AS jsonb))
+                """,
+                eventId,
+                fixture.organizationId.value(),
+                fixture.teamId.value(),
+                fixture.workspaceId.value(),
+                run.id().value(),
+                fixture.executor.id().value(),
+                correlationId,
+                RUNNING.toOffsetDateTime(),
+                """
+                {"taskExecutionId":"%s","attempt":1,"agentRunId":"%s",
+                 "segmentSequence":1,"eventSequence":1,"eventKind":"PROGRESS",
+                 "runtimeOccurredAt":"2026-08-14T01:12:00Z","safeText":"working",
+                 "reasoning":"private","interruptToken":"secret"}
+                """.formatted(graph.execution().id(), run.id()));
+        DomainEventEnvelope<RuntimePublicFixtureEvent> envelope = new DomainEventEnvelope<>(
+                eventId,
+                EventType.from("AGENT_RUN_EVENT_RECORDED"),
+                SchemaVersion.V1,
+                fixture.organizationId,
+                Optional.of(fixture.teamId),
+                Optional.of(fixture.workspaceId),
+                AggregateReference.of("AGENT_RUN", run.id()),
+                3,
+                EventActor.principal(EventActorType.TEAM_AGENT, fixture.executor.id()),
+                correlationId,
+                Optional.empty(),
+                Optional.empty(),
+                RUNNING,
+                new RuntimePublicFixtureEvent("working"));
+        inTransaction(() -> {
+            taskEventRepository.append(
+                    TaskEventContext.agentRun(
+                            graph.task().id(), graph.execution().id(),
+                            Optional.of(graph.step().id()), run.id()),
+                    envelope);
+            return null;
+        });
+
+        TaskEventPage page = taskEventRepository.findPage(
+                new TaskEventQuery(
+                        graph.task().scope(), graph.task().id(), Optional.empty(), 10),
+                false);
+
+        assertEquals(1, page.events().size());
+        assertTrue(page.events().get(0).projectionGap());
+        assertEquals(Optional.of(graph.step().id()), page.events().get(0).context().stepExecutionId());
+        assertEquals(Optional.of(run.id()), page.events().get(0).context().agentRunId());
+        assertEquals("working", page.events().get(0).envelope().payload().get("safeText"));
+        assertFalse(page.events().get(0).envelope().payload().containsKey("reasoning"));
+        assertFalse(page.events().get(0).envelope().payload().containsKey("interruptToken"));
+        assertEquals(eventId, page.events().get(0).envelope().domainEventId().orElseThrow());
+        TaskEventCursor missing = new TaskEventCursor(
+                fixture.organizationId,
+                fixture.teamId,
+                graph.task().id(),
+                page.events().get(0).cursor().position() + 100,
+                UUID.randomUUID());
+        assertThrows(
+                TaskEventCursorExpiredException.class,
+                () -> taskEventRepository.findPage(
+                        new TaskEventQuery(
+                                graph.task().scope(), graph.task().id(), Optional.of(missing), 10),
+                        false));
     }
 
     @Test
@@ -1144,6 +1540,67 @@ class M3TaskRuntimePersistenceIntegrationTest
         return executionRepository.update(created.markReady(0, fixture.owner, READY));
     }
 
+    private UUID insertConversation(
+            Fixture fixture,
+            UUID ownerMemberId,
+            UUID ownerPrincipalId,
+            String visibility,
+            String title) {
+        UUID conversationId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.conversation (
+                    id, organization_id, team_id, workspace_id,
+                    owner_member_id, owner_principal_id, personal_agent_principal_id,
+                    title, visibility, status, version,
+                    created_at, created_by_principal_id,
+                    updated_at, updated_by_principal_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, ?, ?, ?, ?)
+                """,
+                conversationId,
+                fixture.organizationId.value(),
+                fixture.teamId.value(),
+                fixture.workspaceId.value(),
+                ownerMemberId,
+                ownerPrincipalId,
+                fixture.executor.id().value(),
+                title,
+                visibility,
+                CREATED.toOffsetDateTime(),
+                ownerPrincipalId,
+                CREATED.toOffsetDateTime(),
+                ownerPrincipalId);
+        return conversationId;
+    }
+
+    private void insertConversationTaskLink(
+            Fixture fixture,
+            UUID conversationId,
+            TaskId taskId,
+            UtcTimestamp associatedAt) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.conversation_task_link (
+                    id, organization_id, team_id, workspace_id, project_id,
+                    conversation_id, work_item_id, task_id, origin,
+                    created_by_principal_id, created_at,
+                    updated_by_principal_id, updated_at, version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, 0)
+                """,
+                UUID.randomUUID(),
+                fixture.organizationId.value(),
+                fixture.teamId.value(),
+                fixture.workspaceId.value(),
+                fixture.projectId.value(),
+                conversationId,
+                fixture.workItem.id().value(),
+                taskId.value(),
+                fixture.owner.id().value(),
+                associatedAt.toOffsetDateTime(),
+                fixture.owner.id().value(),
+                associatedAt.toOffsetDateTime());
+    }
+
     private Fixture seedFixture(String key) {
         Fixture fixture = new Fixture(key);
         fixture.seed(jdbcTemplate);
@@ -1207,6 +1664,9 @@ class M3TaskRuntimePersistenceIntegrationTest
             TaskResponsibilitySnapshot snapshot = TaskResponsibilitySnapshot.capture(
                     workItem, List.of(ownerAssignment, executorAssignment), CREATED);
             return Task.create(TaskId.generate(), workItem, TaskSource.fromWorkItem(workItem),
+                    new TaskBrief(
+                            "Execute " + key + " with pinned input",
+                            List.of("Persist the approved acceptance criteria")),
                     snapshot, owner, CREATED);
         }
 
@@ -1432,6 +1892,7 @@ class M3TaskRuntimePersistenceIntegrationTest
         TaskRuntimeExtendedPersistenceMapper.class,
         TaskRuntimeJpaSupport.class,
         JpaTaskRuntimeRepositoryAdapter.class,
+        JpaRuntimeObservationRepository.class,
         JdbcExecutionLeaseRepositoryAdapter.class,
         JdbcTaskExecutionQueueRepositoryAdapter.class,
         JpaPolicySnapshotRepositoryAdapter.class,
@@ -1444,7 +1905,10 @@ class M3TaskRuntimePersistenceIntegrationTest
         JpaAgentInterruptRepositoryAdapter.class,
         JpaRuntimeArtifactRepositoryAdapter.class,
         JpaAgentStateSnapshotRepositoryAdapter.class,
-        JdbcTaskRuntimeEventReceiptRepository.class
+        JdbcTaskRuntimeEventReceiptRepository.class,
+        JdbcTaskEventRepository.class
     })
     static class TestApplication {}
+
+    private record RuntimePublicFixtureEvent(String safeText) implements DomainEvent {}
 }

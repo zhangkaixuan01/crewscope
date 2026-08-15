@@ -287,6 +287,25 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<ExecutionLease> findByTaskExecution(
+            OrganizationId organizationId, TaskExecutionId taskExecutionId) {
+        return jdbc.query(
+                """
+                SELECT * FROM crewscope.execution_lease
+                WHERE organization_id = :organizationId
+                  AND task_execution_id = :taskExecutionId
+                ORDER BY acquired_at, id
+                """,
+                Map.of(
+                        "organizationId", Objects.requireNonNull(
+                                organizationId, "organizationId").value(),
+                        "taskExecutionId", Objects.requireNonNull(
+                                taskExecutionId, "taskExecutionId").value()),
+                LEASE_MAPPER);
+    }
+
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public List<ExecutionLease> findExpired(
             OrganizationId organizationId,

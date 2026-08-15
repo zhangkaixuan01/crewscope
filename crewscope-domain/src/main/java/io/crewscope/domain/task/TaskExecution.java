@@ -489,6 +489,35 @@ public final class TaskExecution {
         return simpleTransition(TaskExecutionStatus.RUNNING, expectedVersion, actor, occurredAt);
     }
 
+    /**
+     * Advances the durable execution version for one externally visible progress observation.
+     *
+     * <p>The bounded summary itself is carried by the corresponding DomainEvent. Keeping it out of
+     * the aggregate prevents a high-frequency progress stream from turning the TaskExecution row
+     * into an unbounded document while still fencing every observation by execution Version.
+     */
+    public TaskExecution recordProgress(
+            long expectedVersion, Principal actor, UtcTimestamp occurredAt) {
+        requireExpectedVersion(expectedVersion);
+        if (status != TaskExecutionStatus.RUNNING
+                && status != TaskExecutionStatus.PAUSE_REQUESTED
+                && status != TaskExecutionStatus.CANCEL_REQUESTED) {
+            throw new InvalidStateTransitionException(
+                    "TaskExecution", id, status, TaskExecutionStatus.RUNNING);
+        }
+        PrincipalId actorId = requireActor(actor);
+        UtcTimestamp requiredTime = Objects.requireNonNull(occurredAt, "occurredAt");
+        return copy(
+                priority,
+                notBefore,
+                status,
+                waiting,
+                controlRequest,
+                terminal,
+                version + 1,
+                audit.modifiedBy(actorId, requiredTime));
+    }
+
     /** Suspends scheduling until an explicit external condition is resolved. */
     public TaskExecution waitFor(
             TaskExecutionWaitReason reason,

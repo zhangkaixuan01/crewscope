@@ -10,6 +10,8 @@ import io.crewscope.application.task.LeaseCoordinatorOperation;
 import io.crewscope.application.task.LeaseCoordinatorOutcome;
 import io.crewscope.application.task.LeaseSweepResult;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskEventContext;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
@@ -37,6 +39,7 @@ public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper
     private final TaskExecutionRepository executionRepository;
     private final ExecutionLeaseRepository leaseRepository;
     private final DomainEventStore domainEventStore;
+    private final TaskEventRepository taskEventRepository;
     private final OutboxRepository outboxRepository;
     private final TransactionExecutor transactionExecutor;
     private final AuthoritativeTimeProvider timeProvider;
@@ -47,6 +50,7 @@ public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper
             TaskExecutionRepository executionRepository,
             ExecutionLeaseRepository leaseRepository,
             DomainEventStore domainEventStore,
+            TaskEventRepository taskEventRepository,
             OutboxRepository outboxRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider,
@@ -56,6 +60,8 @@ public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper
                 executionRepository, "executionRepository");
         this.leaseRepository = Objects.requireNonNull(leaseRepository, "leaseRepository");
         this.domainEventStore = Objects.requireNonNull(domainEventStore, "domainEventStore");
+        this.taskEventRepository = Objects.requireNonNull(
+                taskEventRepository, "taskEventRepository");
         this.outboxRepository = Objects.requireNonNull(outboxRepository, "outboxRepository");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
@@ -119,6 +125,10 @@ public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper
                 occurredAt,
                 TaskExecutionRecoveryStarted.from(recovering, expiredLease, occurredAt));
         domainEventStore.append(event);
+        taskEventRepository.append(
+                TaskEventContext.lease(
+                        recovering.taskId(), recovering.id(), expiredLease.id()),
+                event);
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
     }
 

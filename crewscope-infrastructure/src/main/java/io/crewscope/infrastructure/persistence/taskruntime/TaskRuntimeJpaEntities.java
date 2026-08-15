@@ -64,6 +64,10 @@ class TaskEntity extends WorkScopedRow {
     @Column(name = "source_input_type", length = 32) String sourceInputType;
     @Column(name = "source_input_id") UUID sourceInputId;
     @Column(name = "source_input_version") Long sourceInputVersion;
+    @Column(nullable = false, columnDefinition = "text") String objective;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "acceptance_criteria", nullable = false, columnDefinition = "jsonb")
+    List<String> acceptanceCriteria;
     @Column(name = "responsibility_snapshot_id", nullable = false) UUID responsibilitySnapshotId;
     @Column(nullable = false, length = 32) String status;
     @Column(name = "current_execution_id") UUID currentExecutionId;

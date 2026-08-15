@@ -94,6 +94,33 @@ class TaskAgentRuntimeSessionTest {
                         TaskPlanningFixture.STEP_AT));
     }
 
+    @Test
+    void allowsAPersonalAgentToOrchestrateTheTaskButNotExecuteATeamStep() {
+        RuntimeFixture fixture = new RuntimeFixture();
+        Principal personalAgent = fixture.personalAgent();
+        AgentProfile personalProfile = fixture.profile(
+                personalAgent, AgentProfileType.PERSONAL, 5);
+
+        TaskAgentRuntimeSession session = TaskAgentRuntimeSession.initializeTask(
+                fixture.planning.task,
+                fixture.graph.execution(),
+                personalProfile,
+                personalAgent,
+                TaskPlanningFixture.STEP_AT);
+
+        assertEquals(TaskAgentSessionPurpose.TASK, session.purpose());
+        assertEquals(personalAgent.id(), session.agentPrincipalId());
+        assertThrows(
+                DomainValidationException.class,
+                () -> TaskAgentRuntimeSession.initializeStep(
+                        fixture.planning.task,
+                        fixture.graph.execution(),
+                        fixture.step,
+                        personalProfile,
+                        personalAgent,
+                        TaskPlanningFixture.STEP_AT));
+    }
+
     static final class RuntimeFixture {
         final TaskPlanningFixture planning = new TaskPlanningFixture();
         final TaskPlanningFixture.PlanningGraph graph = planning.graph();
@@ -135,7 +162,9 @@ class TaskAgentRuntimeSessionTest {
                             planning.task.scope().organizationId(), planning.task.scope().teamId()),
                     planning.task.scope().workspaceId(),
                     agent.id(),
-                    Optional.empty(),
+                    type == AgentProfileType.PERSONAL
+                            ? Optional.of(io.crewscope.domain.team.TeamMemberId.generate())
+                            : Optional.empty(),
                     type,
                     false,
                     AgentProfileStatus.ACTIVE,
@@ -151,6 +180,19 @@ class TaskAgentRuntimeSessionTest {
                     PrincipalType.SPECIALIST_AGENT,
                     Optional.of(planning.base.owner.id()),
                     "Code specialist",
+                    Optional.empty(),
+                    PrincipalVisibility.TEAM,
+                    TaskDomainFixture.CREATED_AT);
+        }
+
+        Principal personalAgent() {
+            return Principal.create(
+                    PrincipalId.generate(),
+                    PrincipalScope.team(
+                            planning.task.scope().organizationId(), planning.task.scope().teamId()),
+                    PrincipalType.PERSONAL_AGENT,
+                    Optional.of(planning.base.owner.id()),
+                    "Personal orchestrator",
                     Optional.empty(),
                     PrincipalVisibility.TEAM,
                     TaskDomainFixture.CREATED_AT);

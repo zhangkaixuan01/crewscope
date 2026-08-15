@@ -29,6 +29,7 @@ import io.crewscope.domain.conversation.ConversationParticipantId;
 import io.crewscope.domain.conversation.ConversationParticipantStatus;
 import io.crewscope.domain.conversation.ConversationStatus;
 import io.crewscope.domain.conversation.ConversationVisibilityPolicy;
+import io.crewscope.domain.conversation.Message;
 import io.crewscope.domain.conversation.MessageId;
 import io.crewscope.domain.conversation.PersonalConversationInitialization;
 import io.crewscope.domain.conversation.event.ConversationCreated;
@@ -226,6 +227,26 @@ public final class ConversationApplicationService {
                   snapshot.decision().historyVisibleThrough(),
                   Objects.requireNonNull(cursor, "cursor"),
                   limit));
+        });
+  }
+
+  /** Resolves one exact source Message while applying PRIVATE history cutoffs and current access. */
+  public ReadableConversationMessage requireReadableMessage(
+      TeamAccessContext context,
+      OrganizationId organizationId,
+      TeamId teamId,
+      ConversationId conversationId,
+      MessageId messageId) {
+    return transactionExecutor.required(
+        () -> {
+          AccessSnapshot snapshot =
+              requireReadable(context, organizationId, teamId, conversationId);
+          Message message =
+              messageRepository
+                  .findById(organizationId, Objects.requireNonNull(messageId, "messageId"))
+                  .filter(snapshot.decision()::canRead)
+                  .orElseThrow(() -> new AggregateNotFoundException("Message", messageId));
+          return new ReadableConversationMessage(snapshot.conversation(), message);
         });
   }
 

@@ -45,6 +45,7 @@ public final class Task {
     private final WorkItemScope scope;
     private final WorkItemId workItemId;
     private final TaskSource source;
+    private final TaskBrief brief;
     private final TaskResponsibilitySnapshot responsibilitySnapshot;
     private final TaskStatus status;
     private final Optional<TaskExecutionId> currentExecutionId;
@@ -57,6 +58,7 @@ public final class Task {
             WorkItemScope scope,
             WorkItemId workItemId,
             TaskSource source,
+            TaskBrief brief,
             TaskResponsibilitySnapshot responsibilitySnapshot,
             TaskStatus status,
             Optional<TaskExecutionId> currentExecutionId,
@@ -68,6 +70,7 @@ public final class Task {
         this.workItemId = Objects.requireNonNull(workItemId, "workItemId");
         this.source = Objects.requireNonNull(source, "source");
         this.source.validateFor(this.workItemId, this.scope);
+        this.brief = Objects.requireNonNull(brief, "brief");
         this.responsibilitySnapshot = requireSnapshot(
                 this.scope, this.workItemId, responsibilitySnapshot);
         this.status = Objects.requireNonNull(status, "status");
@@ -83,6 +86,25 @@ public final class Task {
             TaskId id,
             WorkItem workItem,
             TaskSource source,
+            TaskResponsibilitySnapshot responsibilitySnapshot,
+            Principal actor,
+            UtcTimestamp occurredAt) {
+        return create(
+                id,
+                workItem,
+                source,
+                TaskBrief.fromWorkItem(workItem),
+                responsibilitySnapshot,
+                actor,
+                occurredAt);
+    }
+
+    /** Creates a Task while pinning the exact user-approved objective and acceptance criteria. */
+    public static Task create(
+            TaskId id,
+            WorkItem workItem,
+            TaskSource source,
+            TaskBrief brief,
             TaskResponsibilitySnapshot responsibilitySnapshot,
             Principal actor,
             UtcTimestamp occurredAt) {
@@ -113,6 +135,7 @@ public final class Task {
                 requiredWorkItem.scope(),
                 requiredWorkItem.id(),
                 requiredSource,
+                brief,
                 requiredSnapshot,
                 TaskStatus.CREATED,
                 Optional.empty(),
@@ -127,6 +150,7 @@ public final class Task {
             WorkItemScope scope,
             WorkItemId workItemId,
             TaskSource source,
+            TaskBrief brief,
             TaskResponsibilitySnapshot responsibilitySnapshot,
             TaskStatus status,
             Optional<TaskExecutionId> currentExecutionId,
@@ -138,6 +162,7 @@ public final class Task {
                 scope,
                 workItemId,
                 source,
+                brief,
                 responsibilitySnapshot,
                 status,
                 currentExecutionId,
@@ -253,6 +278,10 @@ public final class Task {
         return source;
     }
 
+    public TaskBrief brief() {
+        return brief;
+    }
+
     public TaskResponsibilitySnapshot responsibilitySnapshot() {
         return responsibilitySnapshot;
     }
@@ -288,6 +317,7 @@ public final class Task {
                 scope,
                 workItemId,
                 source,
+                brief,
                 responsibilitySnapshot,
                 targetStatus,
                 targetExecutionId,

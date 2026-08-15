@@ -27,6 +27,9 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     private static final MigrationVersion VERSION_9 = MigrationVersion.fromVersion("9");
     private static final MigrationVersion VERSION_10 = MigrationVersion.fromVersion("10");
+    private static final MigrationVersion VERSION_11 = MigrationVersion.fromVersion("11");
+    private static final MigrationVersion VERSION_12 = MigrationVersion.fromVersion("12");
+    private static final MigrationVersion VERSION_13 = MigrationVersion.fromVersion("13");
     private static final String ALTERNATE_SCHEMA = "v10_probe";
     private static final String HASH_A = "a".repeat(64);
     private static final String HASH_B = "b".repeat(64);
@@ -150,6 +153,106 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
                   AND task_id IS NULL
                 """,
                 fixture.personalSessionId()));
+    }
+
+    @Test
+    void upgradesPopulatedV10AndBackfillsImmutableTaskBriefs() throws SQLException {
+        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        Fixture fixture = seedFixture("BRF", false);
+        execute(
+                "UPDATE crewscope.work_item SET title = ?, description = ? WHERE id = ?",
+                "Pinned objective",
+                "First criterion",
+                fixture.workItemId());
+        TaskFacts facts = seedTaskFacts(fixture);
+
+        Flyway versionEleven = flyway(POSTGRES.getJdbcUrl(), VERSION_11);
+        assertEquals(1, versionEleven.migrate().migrationsExecuted);
+
+        assertEquals("11", versionEleven.info().current().getVersion().getVersion());
+        assertTrue(columns("task").containsAll(Set.of("objective", "acceptance_criteria")));
+        assertEquals(1, queryInt(
+                """
+                SELECT COUNT(*)
+                FROM crewscope.task
+                WHERE id = ?
+                  AND objective = 'Pinned objective'
+                  AND acceptance_criteria = '["First criterion"]'::jsonb
+                """,
+                facts.taskId()));
+        assertSqlState(
+                "23502",
+                "UPDATE crewscope.task SET objective = NULL WHERE id = ?",
+                facts.taskId());
+    }
+
+    @Test
+    void upgradesV11WithTheCompleteBoundedTaskQueryIndexSet() throws SQLException {
+        flyway(POSTGRES.getJdbcUrl(), VERSION_11).migrate();
+
+        Flyway versionTwelve = flyway(POSTGRES.getJdbcUrl(), VERSION_12);
+        assertEquals(1, versionTwelve.migrate().migrationsExecuted);
+
+        assertEquals("12", versionTwelve.info().current().getVersion().getVersion());
+        Set<String> indexes = queryStrings(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'crewscope'");
+        assertTrue(indexes.containsAll(Set.of(
+                "ix_task_team_updated",
+                "ix_task_team_project_updated",
+                "ix_task_team_status_updated",
+                "ix_task_team_project_status_updated",
+                "ix_agent_interrupt_execution_created",
+                "ix_agent_state_snapshot_execution_sequence",
+                "ix_execution_lease_execution_acquired")));
+    }
+
+    @Test
+    void upgradesV12WithTaskEventStreamAndBackfillsOnlyKnownTaskFacts() throws SQLException {
+        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        Fixture fixture = seedFixture("EVT", false);
+        TaskFacts facts = seedTaskFacts(fixture);
+        flyway(POSTGRES.getJdbcUrl(), VERSION_12).migrate();
+
+        UUID taskEventId = UUID.randomUUID();
+        insertDomainEvent(
+                fixture,
+                taskEventId,
+                "WORKER_TASK_PROGRESS_ACCEPTED",
+                "TASK_EXECUTION",
+                facts.executionId(),
+                3,
+                """
+                {"taskExecutionId":"%s","attempt":1,"executionLeaseId":"%s",
+                 "operation":"PROGRESS","taskExecutionVersion":3,"leaseVersion":null,
+                 "safeSummary":"working","progressPercent":40,
+                 "failureClass":null,"failureCode":null}
+                """.formatted(facts.executionId(), UUID.randomUUID()));
+        insertDomainEvent(
+                fixture,
+                UUID.randomUUID(),
+                "WORKER_TASK_FUTURE_ACCEPTED",
+                "TASK",
+                facts.taskId(),
+                0,
+                "{\"taskId\":\"" + facts.taskId() + "\"}");
+
+        Flyway versionThirteen = flyway(POSTGRES.getJdbcUrl(), VERSION_13);
+        assertEquals(1, versionThirteen.migrate().migrationsExecuted);
+
+        assertEquals("13", versionThirteen.info().current().getVersion().getVersion());
+        assertEquals(1, queryInt(
+                "SELECT COUNT(*) FROM crewscope.task_event WHERE task_id = ?",
+                facts.taskId()));
+        assertEquals(1, queryInt(
+                """
+                SELECT COUNT(*) FROM crewscope.task_event
+                WHERE task_id = ? AND task_execution_id = ? AND domain_event_id = ?
+                  AND event_id = md5('CREWSCOPE:REALTIME:TASK:' || ?::TEXT)::UUID
+                """,
+                facts.taskId(), facts.executionId(), taskEventId, taskEventId));
+        assertTrue(queryStrings(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'crewscope'")
+                .contains("ix_task_event_stream_position"));
     }
 
     @Test
@@ -447,6 +550,37 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
                 fixture.projectId(), fixture.workItemId(), role, principalId, principalType,
                 memberId, fixture.userPrincipalId(), fixture.userPrincipalId(),
                 fixture.userPrincipalId());
+    }
+
+    private static void insertDomainEvent(
+            Fixture fixture,
+            UUID eventId,
+            String eventType,
+            String aggregateType,
+            UUID aggregateId,
+            long aggregateVersion,
+            String payload) throws SQLException {
+        execute(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version,
+                    organization_id, team_id, workspace_id,
+                    subject_type, subject_id, aggregate_version,
+                    actor_type, actor_id, correlation_id, occurred_at, payload
+                ) VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, 'USER', ?, ?,
+                          CURRENT_TIMESTAMP, CAST(? AS jsonb))
+                """,
+                eventId,
+                eventType,
+                fixture.organizationId(),
+                fixture.teamId(),
+                fixture.workspaceId(),
+                aggregateType,
+                aggregateId,
+                aggregateVersion,
+                fixture.userPrincipalId(),
+                UUID.randomUUID(),
+                payload);
     }
 
     private static void insertPersonalSession(Fixture fixture) throws SQLException {

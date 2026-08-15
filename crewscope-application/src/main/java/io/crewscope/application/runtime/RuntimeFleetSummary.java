@@ -1,0 +1,40 @@
+package io.crewscope.application.runtime;
+
+import io.crewscope.domain.runtime.RuntimeEnvironment;
+import io.crewscope.domain.shared.time.UtcTimestamp;
+import java.util.Map;
+import java.util.Objects;
+
+/** Safe aggregate returned to every active Team member without infrastructure identities. */
+public record RuntimeFleetSummary(
+        RuntimeEnvironment environment,
+        UtcTimestamp observedAt,
+        RuntimeFleetHealth health,
+        int runtimeCount,
+        int workerCount,
+        int activeWorkerCount,
+        int staleWorkerCount,
+        int drainingWorkerCount,
+        RuntimeCapacitySummary capacity,
+        int waitingRuntimeExecutions,
+        Map<RuntimeWaitCause, Long> waitingCauses) {
+
+    public RuntimeFleetSummary {
+        environment = Objects.requireNonNull(environment, "environment");
+        observedAt = Objects.requireNonNull(observedAt, "observedAt");
+        health = Objects.requireNonNull(health, "health");
+        capacity = Objects.requireNonNull(capacity, "capacity");
+        waitingCauses = Map.copyOf(Objects.requireNonNull(waitingCauses, "waitingCauses"));
+        if (runtimeCount < 0
+                || workerCount < 0
+                || activeWorkerCount < 0
+                || staleWorkerCount < 0
+                || drainingWorkerCount < 0
+                || waitingRuntimeExecutions < 0
+                || waitingCauses.values().stream().anyMatch(value -> value == null || value < 1)
+                || waitingCauses.values().stream().mapToLong(Long::longValue).sum()
+                        != waitingRuntimeExecutions) {
+            throw new IllegalArgumentException("runtime fleet counts must be non-negative and closed");
+        }
+    }
+}

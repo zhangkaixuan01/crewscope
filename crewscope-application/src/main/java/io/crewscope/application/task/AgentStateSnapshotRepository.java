@@ -3,6 +3,7 @@ package io.crewscope.application.task;
 import io.crewscope.domain.conversation.AgentRuntimeSessionId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.task.AgentRunId;
+import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.AgentStateSnapshot;
 import io.crewscope.domain.task.AgentStateSnapshotId;
 import java.util.List;
@@ -34,4 +35,10 @@ public interface AgentStateSnapshotRepository {
     /** Returns CURRENT and SUPERSEDED recovery candidates by checkpointSequence descending. */
     List<AgentStateSnapshot> findRecoveryCandidates(
             OrganizationId organizationId, AgentRunId agentRunId, int limit);
+
+    /** Returns snapshot metadata only; persisted Agent State payloads remain in Artifact storage. */
+    default List<AgentStateSnapshot> findByExecution(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        throw new UnsupportedOperationException("Execution Snapshot queries are not supported");
+    }
 }

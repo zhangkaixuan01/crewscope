@@ -160,6 +160,7 @@ class TaskTest {
         assertEquals("Request superseded", cancelled.cancellation().orElseThrow().reason());
         assertEquals(original.scope(), cancelled.scope());
         assertEquals(original.source(), cancelled.source());
+        assertEquals(original.brief(), cancelled.brief());
         assertEquals(original.responsibilitySnapshot(), cancelled.responsibilitySnapshot());
         assertEquals(original.audit().createdAt(), cancelled.audit().createdAt());
         assertEquals(1, cancelled.version());

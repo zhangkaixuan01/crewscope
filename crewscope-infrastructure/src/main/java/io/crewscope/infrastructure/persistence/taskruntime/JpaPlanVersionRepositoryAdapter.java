@@ -11,6 +11,8 @@ import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TodoStatus;
 import io.crewscope.domain.task.TodoSummaryItem;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -107,7 +109,7 @@ public class JpaPlanVersionRepositoryAdapter implements PlanVersionRepository {
     @Transactional(readOnly = true)
     public List<PlanVersion> findByExecution(
             OrganizationId organizationId, TaskExecutionId executionId) {
-        return support.entityManager.createQuery(
+        List<PlanVersionEntity> rows = support.entityManager.createQuery(
                         """
                         SELECT row FROM PlanVersionEntity row
                         WHERE row.organizationId = :organizationId
@@ -117,7 +119,72 @@ public class JpaPlanVersionRepositoryAdapter implements PlanVersionRepository {
                         PlanVersionEntity.class)
                 .setParameter("organizationId", organizationId.value())
                 .setParameter("executionId", executionId.value())
-                .getResultList().stream().map(this::toDomain).toList();
+                .getResultList();
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        Map<java.util.UUID, List<PlanStep>> steps = stepsByExecution(executionId);
+        Map<java.util.UUID, List<TodoSummaryItem>> todos = todosByExecution(executionId);
+        return rows.stream()
+                .map(row -> support.mapper.toDomain(
+                        row,
+                        steps.getOrDefault(row.id, List.of()),
+                        todos.getOrDefault(row.id, List.of())))
+                .toList();
+    }
+
+    private Map<java.util.UUID, List<PlanStep>> stepsByExecution(TaskExecutionId executionId) {
+        List<PlanStepRow> values = jdbc.query(
+                """
+                SELECT plan_version_id, step_key, sequence, title, step_type,
+                       dependency_keys::text, required_capabilities::text,
+                       required_tools::text, critical
+                FROM crewscope.plan_step
+                WHERE task_execution_id = :executionId
+                ORDER BY plan_version_id, sequence
+                """,
+                Map.of("executionId", executionId.value()),
+                (result, index) -> new PlanStepRow(
+                        result.getObject("plan_version_id", java.util.UUID.class),
+                        new PlanStep(
+                                result.getString("step_key"), result.getInt("sequence"),
+                                result.getString("title"),
+                                PlanStepType.valueOf(result.getString("step_type")),
+                                stringSet(result.getString("dependency_keys")),
+                                stringSet(result.getString("required_capabilities")).stream()
+                                        .map(ExecutionCapability::valueOf)
+                                        .collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                                stringSet(result.getString("required_tools")),
+                                result.getBoolean("critical"))));
+        Map<java.util.UUID, List<PlanStep>> grouped = new HashMap<>();
+        values.forEach(value -> grouped
+                .computeIfAbsent(value.planVersionId(), ignored -> new ArrayList<>())
+                .add(value.step()));
+        return grouped;
+    }
+
+    private Map<java.util.UUID, List<TodoSummaryItem>> todosByExecution(
+            TaskExecutionId executionId) {
+        List<TodoRow> values = jdbc.query(
+                """
+                SELECT plan_version_id, content, status, priority, plan_step_key
+                FROM crewscope.plan_todo_summary
+                WHERE task_execution_id = :executionId
+                ORDER BY plan_version_id, sequence
+                """,
+                Map.of("executionId", executionId.value()),
+                (result, index) -> new TodoRow(
+                        result.getObject("plan_version_id", java.util.UUID.class),
+                        new TodoSummaryItem(
+                                result.getString("content"),
+                                TodoStatus.valueOf(result.getString("status")),
+                                Optional.ofNullable(result.getString("priority")),
+                                Optional.ofNullable(result.getString("plan_step_key")))));
+        Map<java.util.UUID, List<TodoSummaryItem>> grouped = new HashMap<>();
+        values.forEach(value -> grouped
+                .computeIfAbsent(value.planVersionId(), ignored -> new ArrayList<>())
+                .add(value.todo()));
+        return grouped;
     }
 
     private PlanVersion toDomain(PlanVersionEntity row) {
@@ -165,4 +232,8 @@ public class JpaPlanVersionRepositoryAdapter implements PlanVersionRepository {
     private Set<String> stringSet(String json) {
         return Set.copyOf(new LinkedHashSet<>(objectMapper.readValue(json, List.class)));
     }
+
+    private record PlanStepRow(java.util.UUID planVersionId, PlanStep step) {}
+
+    private record TodoRow(java.util.UUID planVersionId, TodoSummaryItem todo) {}
 }

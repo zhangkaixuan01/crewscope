@@ -19,6 +19,17 @@ public interface TaskRepository {
 
     Optional<Task> findById(OrganizationId organizationId, TaskId taskId);
 
+    /** Locks one Task for a multi-aggregate member command until its outer transaction ends. */
+    default Optional<Task> findByIdForUpdate(
+            OrganizationId organizationId, TaskId taskId) {
+        return findById(organizationId, taskId);
+    }
+
+    /** Returns a bounded Task collection projection without per-row aggregate child queries. */
+    default TaskListPage findPage(TaskListQuery query) {
+        throw new UnsupportedOperationException("Task collection queries are not supported");
+    }
+
     /** Returns all Tasks rooted in one WorkItem; one WorkItem may own multiple Tasks. */
     List<Task> findByWorkItem(OrganizationId organizationId, WorkItemId workItemId);
 

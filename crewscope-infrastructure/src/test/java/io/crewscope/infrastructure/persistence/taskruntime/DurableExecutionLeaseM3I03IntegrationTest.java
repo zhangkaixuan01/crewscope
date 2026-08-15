@@ -17,6 +17,7 @@ import io.crewscope.application.task.LeaseReleaseCommand;
 import io.crewscope.application.task.LeaseSweepResult;
 import io.crewscope.application.task.LeaseTransitionCommand;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.runtime.ExecutionRuntime;
@@ -93,6 +94,7 @@ class DurableExecutionLeaseM3I03IntegrationTest
     @Autowired private ExecutionLeaseRepository leaseRepository;
     @Autowired private DomainEventStore domainEventStore;
     @Autowired private OutboxRepository outboxRepository;
+    @Autowired private TaskEventRepository taskEventRepository;
     @Autowired private TransactionExecutor transactionExecutor;
     @Autowired private JdbcTemplate jdbc;
 
@@ -431,6 +433,7 @@ class DurableExecutionLeaseM3I03IntegrationTest
                 executionRepository,
                 leaseRepository,
                 domainEventStore,
+                taskEventRepository,
                 outboxRepository,
                 transactionExecutor,
                 now::get,
@@ -542,6 +545,7 @@ class DurableExecutionLeaseM3I03IntegrationTest
         TaskRuntimeJpaSupport.class,
         JpaTaskRuntimeRepositoryAdapter.class,
         JdbcExecutionLeaseRepositoryAdapter.class,
+        JdbcTaskEventRepository.class,
         JdbcDomainEventStore.class,
         JdbcOutboxRepository.class,
         SpringTransactionExecutor.class

@@ -355,24 +355,18 @@ public final class TaskAgentRuntimeSession {
             AgentProfileId expectedId) {
         AgentProfile requiredProfile = Objects.requireNonNull(profile, "profile");
         Principal requiredAgent = Objects.requireNonNull(agent, "agent");
-        AgentProfileType expectedProfileType = purpose == TaskAgentSessionPurpose.SPECIALIST
-                ? AgentProfileType.SPECIALIST
-                : AgentProfileType.TEAM;
-        PrincipalType expectedPrincipalType = purpose == TaskAgentSessionPurpose.SPECIALIST
-                ? PrincipalType.SPECIALIST_AGENT
-                : PrincipalType.TEAM_AGENT;
         boolean wrongTeam = requiredProfile.scope().teamId().filter(scope.teamId()::equals).isEmpty();
         boolean agentOutsideTeam = requiredAgent.scope().teamId().isPresent()
                 && requiredAgent.scope().teamId().filter(scope.teamId()::equals).isEmpty();
         if (requiredProfile.status() != AgentProfileStatus.ACTIVE
-                || requiredProfile.type() != expectedProfileType
+                || !profileAndPrincipalTypesMatch(
+                        purpose, requiredProfile.type(), requiredAgent.type())
                 || !requiredProfile.scope().organizationId().equals(scope.organizationId())
                 || wrongTeam
                 || !requiredProfile.workspaceId().equals(scope.workspaceId())
                 || !requiredProfile.agentPrincipalId().equals(requiredAgent.id())
                 || (expectedId != null && !requiredProfile.id().equals(expectedId))
                 || !requiredAgent.canAct()
-                || requiredAgent.type() != expectedPrincipalType
                 || !requiredAgent.scope().organizationId().equals(scope.organizationId())
                 || agentOutsideTeam) {
             throw new DomainValidationException(
@@ -380,6 +374,22 @@ public final class TaskAgentRuntimeSession {
                     "must bind the active in-scope Agent and matching AgentProfile type");
         }
         return requiredProfile;
+    }
+
+    private static boolean profileAndPrincipalTypesMatch(
+            TaskAgentSessionPurpose purpose,
+            AgentProfileType profileType,
+            PrincipalType principalType) {
+        return switch (purpose) {
+            case TASK -> (profileType == AgentProfileType.PERSONAL
+                            && principalType == PrincipalType.PERSONAL_AGENT)
+                    || (profileType == AgentProfileType.TEAM
+                            && principalType == PrincipalType.TEAM_AGENT);
+            case STEP -> profileType == AgentProfileType.TEAM
+                    && principalType == PrincipalType.TEAM_AGENT;
+            case SPECIALIST -> profileType == AgentProfileType.SPECIALIST
+                    && principalType == PrincipalType.SPECIALIST_AGENT;
+        };
     }
 
     private TaskAgentRuntimeSession copy(

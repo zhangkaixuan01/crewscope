@@ -19,6 +19,12 @@ public interface TaskExecutionRepository {
     Optional<TaskExecution> findById(
             OrganizationId organizationId, TaskExecutionId executionId);
 
+    /** Locks one attempt while a member control command validates and mutates related facts. */
+    default Optional<TaskExecution> findByIdForUpdate(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        return findById(organizationId, executionId);
+    }
+
     /** Returns every historical attempt for one Task ordered by ascending attempt number. */
     List<TaskExecution> findByTask(OrganizationId organizationId, TaskId taskId);
 
