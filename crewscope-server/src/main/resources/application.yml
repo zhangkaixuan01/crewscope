@@ -96,9 +96,54 @@ crewscope:
     oidc:
       # One OIDC deployment registration is bound to one Organization tenant boundary.
       organization-id: ${CREWSCOPE_OIDC_ORGANIZATION_ID:}
+    task-token:
+      # Enable only with an externally supplied 256-bit-or-stronger Base64 HMAC key.
+      enabled: ${CREWSCOPE_TASK_TOKEN_ENABLED:false}
+      issuer: ${CREWSCOPE_TASK_TOKEN_ISSUER:crewscope}
+      current-key-id: ${CREWSCOPE_TASK_TOKEN_CURRENT_KEY_ID:v1}
+      keys:
+        v1: ${CREWSCOPE_TASK_TOKEN_KEY_V1:}
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}
+    registry:
+      # all/worker profiles fail closed until these stable tenant identities are configured.
+      organization-id: ${CREWSCOPE_RUNTIME_ORGANIZATION_ID:}
+      actor-principal-id: ${CREWSCOPE_RUNTIME_ACTOR_PRINCIPAL_ID:}
+      environment: ${CREWSCOPE_ENVIRONMENT:development}
+      runtime-key: ${CREWSCOPE_RUNTIME_KEY:agentscope-java}
+      display-name: ${CREWSCOPE_RUNTIME_DISPLAY_NAME:AgentScope Java}
+      implementation-version: ${CREWSCOPE_RUNTIME_IMPLEMENTATION_VERSION:2.0.0}
+      worker:
+        # Must remain unchanged across restarts of the same logical Worker.
+        stable-key: ${CREWSCOPE_RUNTIME_WORKER_STABLE_KEY:}
+        max-concurrent-executions: ${CREWSCOPE_RUNTIME_WORKER_MAX_CONCURRENCY:4}
+        heartbeat-interval: ${CREWSCOPE_RUNTIME_WORKER_HEARTBEAT_INTERVAL:10s}
+        heartbeat-timeout: ${CREWSCOPE_RUNTIME_WORKER_HEARTBEAT_TIMEOUT:30s}
+    scheduler:
+      prepare-lease-duration: ${CREWSCOPE_RUNTIME_PREPARE_LEASE_DURATION:30s}
+      run-lease-duration: ${CREWSCOPE_RUNTIME_RUN_LEASE_DURATION:30s}
+      lease-heartbeat-interval: ${CREWSCOPE_RUNTIME_LEASE_HEARTBEAT_INTERVAL:10s}
+      lease-heartbeat-jitter-tolerance: ${CREWSCOPE_RUNTIME_LEASE_HEARTBEAT_JITTER:5s}
+      lease-sweeper-interval: ${CREWSCOPE_RUNTIME_LEASE_SWEEPER_INTERVAL:5s}
+      team-concurrent-limit: ${CREWSCOPE_RUNTIME_TEAM_CONCURRENCY:8}
+      runtime-concurrent-limit: ${CREWSCOPE_RUNTIME_CONCURRENCY:32}
+      maximum-batch-size: ${CREWSCOPE_RUNTIME_CLAIM_BATCH_SIZE:8}
+      maximum-scan-size: ${CREWSCOPE_RUNTIME_CLAIM_SCAN_SIZE:32}
+      maximum-sweep-size: ${CREWSCOPE_RUNTIME_LEASE_SWEEP_SIZE:100}
+    task-worker:
+      model-id: ${CREWSCOPE_TASK_AGENT_MODEL_ID:crewscope-primary}
+      fallback-model-id: ${CREWSCOPE_TASK_AGENT_FALLBACK_MODEL_ID:}
+      system-prompt: ${CREWSCOPE_TASK_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Task Orchestrator. Produce a valid controlled plan and execute only authorized fixture tools.}
+      max-iterations: ${CREWSCOPE_TASK_AGENT_MAX_ITERATIONS:20}
+      max-retries: ${CREWSCOPE_TASK_AGENT_MAX_RETRIES:3}
+      max-step-run-attempts: ${CREWSCOPE_TASK_STEP_MAX_ATTEMPTS:3}
+      runtime-root: ${CREWSCOPE_TASK_AGENT_RUNTIME_ROOT:./var/crewscope/task-agent-runtime}
+      poll-interval: ${CREWSCOPE_TASK_WORKER_POLL_INTERVAL:250ms}
+      graceful-shutdown-timeout: ${CREWSCOPE_TASK_WORKER_SHUTDOWN_TIMEOUT:30s}
+      task-token-lifetime: ${CREWSCOPE_TASK_TOKEN_LIFETIME:5m}
+      recovery-candidate-limit: ${CREWSCOPE_TASK_SNAPSHOT_RECOVERY_LIMIT:16}
+      maximum-reconcile-size: ${CREWSCOPE_TASK_WORKER_RECONCILE_SIZE:100}
     personal-agent:
       model-id: ${CREWSCOPE_PERSONAL_AGENT_MODEL_ID:crewscope-primary}
       fallback-model-id: ${CREWSCOPE_PERSONAL_AGENT_FALLBACK_MODEL_ID:}

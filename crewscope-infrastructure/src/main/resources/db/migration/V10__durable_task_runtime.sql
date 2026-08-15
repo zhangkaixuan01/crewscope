@@ -1907,4 +1907,42 @@ ALTER TABLE crewscope.agent_run
             task_id, task_execution_id, agent_run_id, id
         ) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
+-- Exact runtime-event receipt. The full event is fingerprinted in memory; only its hash and the
+-- sanitized public DomainEvent reference are retained in PostgreSQL.
+ALTER TABLE crewscope.agent_run
+    ADD CONSTRAINT uk_agent_run_organization_id UNIQUE (organization_id, id);
+
+CREATE TABLE crewscope.agent_run_event_receipt (
+    organization_id UUID NOT NULL,
+    agent_run_id UUID NOT NULL,
+    segment_sequence BIGINT NOT NULL,
+    event_sequence BIGINT NOT NULL,
+    event_hash CHAR(64) NOT NULL,
+    runtime_event_type VARCHAR(100) NOT NULL,
+    domain_event_id UUID NOT NULL,
+    runtime_occurred_at TIMESTAMPTZ NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (organization_id, agent_run_id, segment_sequence, event_sequence),
+    CONSTRAINT uk_agent_run_event_receipt_domain_event
+        UNIQUE (organization_id, domain_event_id),
+    CONSTRAINT fk_agent_run_event_receipt_run
+        FOREIGN KEY (organization_id, agent_run_id)
+        REFERENCES crewscope.agent_run (organization_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_agent_run_event_receipt_segment
+        FOREIGN KEY (agent_run_id, segment_sequence)
+        REFERENCES crewscope.agent_run_segment (agent_run_id, sequence) ON DELETE RESTRICT,
+    CONSTRAINT fk_agent_run_event_receipt_domain_event
+        FOREIGN KEY (organization_id, domain_event_id)
+        REFERENCES crewscope.domain_event (organization_id, event_id) ON DELETE RESTRICT,
+    CONSTRAINT ck_agent_run_event_receipt_sequence CHECK (
+        segment_sequence > 0 AND event_sequence > 0
+    ),
+    CONSTRAINT ck_agent_run_event_receipt_hash CHECK (
+        event_hash ~ '^[0-9a-f]{64}$'
+    ),
+    CONSTRAINT ck_agent_run_event_receipt_type CHECK (
+        runtime_event_type ~ '^[A-Z][A-Z0-9_]{0,99}$'
+    )
+);
+
 -- Deliberately no step_execution_lease table: one TaskExecution Lease serializes all MVP Steps.

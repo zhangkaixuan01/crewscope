@@ -57,7 +57,7 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
         TaskExecution execution = Objects.requireNonNull(claimedExecution, "claimedExecution");
         ExecutionLease requiredLease = Objects.requireNonNull(lease, "lease");
         requireLeaseMatchesExecution(execution, requiredLease);
-        updateExecution(execution, "READY", Optional.empty());
+        updateExecution(execution, "READY", Optional.empty(), Optional.empty(), false);
         MapSqlParameterSource parameters = leaseParameters(requiredLease)
                 .addValue("teamId", execution.scope().teamId().value())
                 .addValue("workspaceId", execution.scope().workspaceId().value())
@@ -123,7 +123,12 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
         TaskExecution execution = Objects.requireNonNull(runningExecution, "runningExecution");
         ExecutionLease lease = Objects.requireNonNull(runLease, "runLease");
         requireLeaseMatchesExecution(execution, lease);
-        updateExecution(execution, null, Optional.of(lease));
+        updateExecution(
+                execution,
+                null,
+                Optional.of(lease),
+                Optional.of(lease.lastHeartbeatAt()),
+                false);
         long expectedLeaseVersion = expectedVersion(lease);
         int affected = jdbc.update(
                 """
@@ -153,13 +158,37 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
 
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
+    public TaskExecution updateOwned(
+            TaskExecution execution,
+            ExecutionLease activeLease,
+            UtcTimestamp authoritativeNow) {
+        TaskExecution requiredExecution = Objects.requireNonNull(execution, "execution");
+        ExecutionLease lease = Objects.requireNonNull(activeLease, "activeLease");
+        requireLeaseMatchesExecution(requiredExecution, lease);
+        updateExecution(
+                requiredExecution,
+                null,
+                Optional.of(lease),
+                Optional.of(Objects.requireNonNull(authoritativeNow, "authoritativeNow")),
+                false);
+        return requiredExecution;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ExecutionLease release(TaskExecution execution, ExecutionLease releasedLease) {
         TaskExecution requiredExecution = Objects.requireNonNull(execution, "execution");
         ExecutionLease lease = Objects.requireNonNull(releasedLease, "releasedLease");
         requireLeaseMatchesExecution(requiredExecution, lease);
-        updateExecution(requiredExecution, null, Optional.of(lease));
         ExecutionLeaseRelease release = lease.release().orElseThrow(() ->
                 new DomainValidationException("executionLease.release", "must be terminal"));
+        boolean expired = release.reason() == ExecutionLeaseReleaseReason.EXPIRED;
+        updateExecution(
+                requiredExecution,
+                null,
+                Optional.of(lease),
+                Optional.of(release.releasedAt()),
+                expired);
         long expectedLeaseVersion = expectedVersion(lease);
         int affected = jdbc.update(
                 """
@@ -202,6 +231,30 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
                         WHERE organization_id = :organizationId
                           AND runtime_environment = :environment
                           AND id = :id
+                        """,
+                        Map.of(
+                                "organizationId", Objects.requireNonNull(
+                                        organizationId, "organizationId").value(),
+                                "environment", Objects.requireNonNull(
+                                        environment, "environment").value(),
+                                "id", Objects.requireNonNull(leaseId, "leaseId").value()),
+                        LEASE_MAPPER)
+                .stream().findFirst();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<ExecutionLease> findByIdForUpdate(
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            ExecutionLeaseId leaseId) {
+        return jdbc.query(
+                        """
+                        SELECT * FROM crewscope.execution_lease
+                        WHERE organization_id = :organizationId
+                          AND runtime_environment = :environment
+                          AND id = :id
+                        FOR UPDATE
                         """,
                         Map.of(
                                 "organizationId", Objects.requireNonNull(
@@ -268,7 +321,9 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
     private void updateExecution(
             TaskExecution execution,
             String requiredSourceStatus,
-            Optional<ExecutionLease> ownership) {
+            Optional<ExecutionLease> ownership,
+            Optional<UtcTimestamp> ownershipTime,
+            boolean allowExpiredOwnership) {
         long expected = execution.version() - 1;
         if (expected < 0) {
             throw new DomainValidationException(
@@ -284,6 +339,10 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
         StringBuilder ownershipSql = new StringBuilder();
         ownership.ifPresent(lease -> {
             values.putAll(leaseCoordinateMap(lease));
+            UtcTimestamp requiredOwnershipTime = ownershipTime.orElseThrow(() ->
+                    new IllegalArgumentException("ownershipTime is required with Lease ownership"));
+            values.put("ownershipTime", requiredOwnershipTime.toOffsetDateTime());
+            values.put("allowExpiredOwnership", allowExpiredOwnership);
             ownershipSql.append(
                     """
                     AND EXISTS (
@@ -298,6 +357,7 @@ public class JdbcExecutionLeaseRepositoryAdapter implements ExecutionLeaseReposi
                           AND lease.claim_token_hash = :claimTokenHash
                           AND lease.fencing_token = :fencingToken
                           AND lease.status = 'ACTIVE'
+                          AND (:allowExpiredOwnership OR lease.expires_at > :ownershipTime)
                     )
                     """);
         });

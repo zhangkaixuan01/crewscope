@@ -159,6 +159,17 @@ public final class TaskCredentialGrant {
                 audit.modifiedBy(scope.executionPrincipal().principalId(), now));
     }
 
+    /** Verifies the signed claims and current Lease without consuming a Tool authorization. */
+    public void authenticate(
+            TaskTokenClaims presentedClaims,
+            ExecutionLease activeLease,
+            UtcTimestamp authoritativeNow) {
+        requireActive();
+        UtcTimestamp now = Objects.requireNonNull(authoritativeNow, "authoritativeNow");
+        requireMatchingClaims(presentedClaims).requireValidAt(now);
+        scope.requireActiveLease(activeLease, now);
+    }
+
     /** Revokes a live grant before expiry; the terminal fact is immutable. */
     public TaskCredentialGrant revoke(
             long expectedVersion,

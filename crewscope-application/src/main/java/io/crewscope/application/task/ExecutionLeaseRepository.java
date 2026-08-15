@@ -22,10 +22,30 @@ public interface ExecutionLeaseRepository {
     /** Persists the PREPARE-to-RUN boundary using Lease and TaskExecution predicates. */
     ExecutionLease switchPhase(TaskExecution runningExecution, ExecutionLease runLease);
 
+    /**
+     * Commits a non-terminal TaskExecution mutation only while the supplied Lease still owns it.
+     * Heartbeat may advance Lease Version concurrently, so ownership is fenced by immutable
+     * coordinates and authoritative expiry rather than by Lease Version.
+     */
+    TaskExecution updateOwned(
+            TaskExecution execution, ExecutionLease activeLease, UtcTimestamp authoritativeNow);
+
     /** Atomically commits a TaskExecution outcome and its terminal Lease release fact. */
     ExecutionLease release(TaskExecution execution, ExecutionLease releasedLease);
 
     Optional<ExecutionLease> findById(
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            ExecutionLeaseId leaseId);
+
+    /**
+     * Locks one Lease for a larger ownership-sensitive transaction.
+     *
+     * <p>The caller must keep an outer transaction open while it validates authoritative time and
+     * commits the protected facts. Locking prevents Heartbeat, release and expiry recovery from
+     * crossing that validation boundary.
+     */
+    Optional<ExecutionLease> findByIdForUpdate(
             OrganizationId organizationId,
             RuntimeEnvironment environment,
             ExecutionLeaseId leaseId);

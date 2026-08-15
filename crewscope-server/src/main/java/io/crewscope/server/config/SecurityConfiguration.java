@@ -2,6 +2,8 @@ package io.crewscope.server.config;
 
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
+import io.crewscope.server.security.TaskTokenWebFilter;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
 
 @Configuration
@@ -59,6 +62,7 @@ public class SecurityConfiguration {
   SecurityWebFilterChain securityWebFilterChain(
       ServerHttpSecurity http,
       ReactiveAuthenticationManager authenticationManager,
+      ObjectProvider<TaskTokenWebFilter> taskTokenFilter,
       @Value("${crewscope.security.mode:bootstrap}") String configuredMode,
       @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId) {
     SecurityMode mode = SecurityMode.from(configuredMode);
@@ -67,9 +71,13 @@ public class SecurityConfiguration {
                 exchange
                     .pathMatchers("/actuator/health", "/actuator/info", "/api/v1/system/info")
                     .permitAll()
+                    .pathMatchers("/api/internal/v1/worker/**")
+                    .hasAuthority("TASK_RUNTIME")
                     .anyExchange()
                     .authenticated())
         .formLogin(ServerHttpSecurity.FormLoginSpec::disable);
+    taskTokenFilter.ifAvailable(filter ->
+        http.addFilterAt(filter, SecurityWebFiltersOrder.AUTHENTICATION));
     if (mode == SecurityMode.BOOTSTRAP) {
       // Bootstrap is an operator-controlled API profile and does not use browser cookies.
       http.authenticationManager(authenticationManager)

@@ -21,4 +21,11 @@ public interface TaskExecutionRepository {
 
     /** Returns every historical attempt for one Task ordered by ascending attempt number. */
     List<TaskExecution> findByTask(OrganizationId organizationId, TaskId taskId);
+
+    /**
+     * Locks a bounded RECOVERING batch for startup reconciliation.
+     *
+     * <p>The caller must keep an outer transaction open through orphan cleanup and requeue.
+     */
+    List<TaskExecution> findRecoveringForUpdate(OrganizationId organizationId, int limit);
 }

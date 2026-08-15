@@ -24,6 +24,7 @@ import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.TaskResponsibilitySnapshotEntry;
 import io.crewscope.domain.workitem.WorkItemId;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -168,6 +169,27 @@ public class JpaTaskRuntimeRepositoryAdapter implements
                         TaskExecutionEntity.class)
                 .setParameter("organizationId", required(organizationId).value())
                 .setParameter("taskId", required(taskId).value())
+                .getResultList().stream().map(mapper::toExecutionDomain).toList();
+    }
+
+    @Override
+    @Transactional
+    public List<TaskExecution> findRecoveringForUpdate(
+            OrganizationId organizationId, int limit) {
+        if (limit < 1 || limit > 10_000) {
+            throw new IllegalArgumentException("limit must be between 1 and 10000");
+        }
+        return entityManager.createQuery(
+                        """
+                        SELECT execution FROM TaskExecutionEntity execution
+                        WHERE execution.organizationId = :organizationId
+                          AND execution.status = 'RECOVERING'
+                        ORDER BY execution.updatedAt, execution.id
+                        """,
+                        TaskExecutionEntity.class)
+                .setParameter("organizationId", required(organizationId).value())
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .setMaxResults(limit)
                 .getResultList().stream().map(mapper::toExecutionDomain).toList();
     }
 
