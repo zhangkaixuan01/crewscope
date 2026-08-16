@@ -2303,7 +2303,19 @@ ALLOCATING / CREATING_* / PREPARING_SANDBOX
 
 Workspace Manager 使用 `repository_id + task_execution_id` 级锁串行同一 Worktree 的创建与恢复。每次使用前校验目录、Git 元数据、分支、基线 Commit 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理已创建 Worktree 与分支记录。
 
-Diff Stream 同时消费文件系统事件、Git HEAD/索引变化和定时 Reconcile，按游标输出变更文件、新增行、删除行、Patch 和重置事件。单文件和累计 Diff 超过配额时只保留统计、哈希和可按需读取的 Artifact 引用。
+RepositoryBinding 只向执行链暴露稳定 Repository Key。ManagedRepositoryResolver 在 Worker 配置的受管根目录下解析 `<repositoryKey>.git`，依次校验 Key 语法、逐级符号链接、canonical containment、Worker Owner 与 bare repository。浏览器、模型、Agent Tool 和应用命令不提交宿主路径。Baseline Preflight 将 Ref 解析为 40 位完整 Commit ID，后续 Provision 与恢复只使用该 Commit ID。
+
+Workspace 身份由服务端事实确定：一个 TaskExecution attempt 对应一个 ExecutionWorkspace、managed branch 和 Worktree 路径。分支格式固定为 `crewscope/tasks/<taskExecutionId>/attempt-<attempt>`，物理路径固定为 `<worktreeRoot>/<repositoryKey>/<workspaceKey>`，归档引用固定为 `refs/crewscope/archives/<workspaceKey>`。GitCommandExecutor 使用固定参数数组、专用 HOME、关闭系统与全局 Git 配置、关闭交互、固定 Locale、超时和输出上限。
+
+Provision 在同一锁内完成“资源不存在校验—`git worktree add`—Fingerprint 复验—ACTIVE 事实提交”。Fingerprint 闭合 RepositoryBinding 版本、canonical repository/worktree、TaskExecution/attempt、managed branch、baseline/HEAD、`git-common-dir`、Worker/Runtime/Lease/Fencing 和 WorkspacePolicy。普通失败同步删除本次 Worktree、managed branch 与未提交元数据；启动对账只清理 Path、Branch、CommonDir 和 Workspace 身份全部闭合的 Provision 孤儿。未知目录、错误 HEAD/Branch、失效 `.git` 指针和符号链接越界进入损坏诊断并保留现场。
+
+归档使用 `git write-tree + git commit-tree` 从 baseline 创建 Delivery Commit，活动 Branch 保持 baseline。平台先固定 `refs/crewscope/archives/<workspaceKey>`，再提交含 Delivery Commit 的 `ARCHIVING` 事实，随后删除 Worktree 与活动 Branch 并提交 `ARCHIVED`。冷恢复对 `ARCHIVING` 复验 Archive Ref 后幂等完成清理。完整协议和故障证据见 [M4-S02 Git Worktree 与冷恢复协议验证记录](spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)。
+
+Diff Stream 使用文件系统事件触发低延迟 Reconcile，并通过周期任务、Tool 完成、Checkpoint、Pause/Resume 和 Finalizing 安全点执行独立 Reconcile。WatchService Event 是合并与调度提示，Git Diff 是权威事实；`OVERFLOW`、Watcher 重启、Cursor 过期、Stream Epoch 变化和投影 Hash 不一致触发完整 Reset。
+
+每次 Git 权威内容变化创建单调 DiffGeneration。耐久事件使用 `RESET/DELTA + streamEpoch + sequence + generation + opaqueCursor + manifestHash`；Cursor 通过 HMAC 绑定 ExecutionWorkspace、Epoch、Sequence 和 Generation。浏览器只保存 Cursor，按 Sequence 去重和识别 Gap：缺失事件可用时顺序 Replay，保留窗口外或 Epoch 变化时使用 Reset 完整替换。Manifest 文件统一按 Unicode 代码点逐个比较，服务端与浏览器不使用 UTF-16 默认顺序或 Locale 相关排序。事件路径拒绝绝对路径、反斜杠、空段、`.`、`..`、NUL 和控制字符，Removal 与 Upsert 不能在同一事件中指向同一路径。
+
+实时 Patch Preview 按 WorkspacePolicy 限制单文件字节、行数和 Event 总量。截断后仍保留 Change Kind、增删行、Binary、完整 Patch SHA-256 和 Artifact 引用。最终化从精确 Baseline Commit 与 Delivery Commit 重新生成完整 DiffManifest 和 Full Patch Artifact，复验 Workspace/Lease/Fencing/Commit 后原子发布不可变 Final DiffArtifact。完整协议、共享前端 Fixture 和故障证据见 [M4-S03 Diff Stream 与最终固化协议验证记录](spikes/M4-S03-Diff-Stream与最终固化协议验证记录.md)。
 
 MVP 的物理拓扑固定为同机 Execution Worker：Worker、Git Worktree、Docker Sandbox bind mount 和 Diff Watcher 位于同一台受控执行节点，Worktree 是代码变更的唯一文件事实源。AgentScope Kubernetes Sandbox 不进入 MVP 交付路径。
 
@@ -3115,7 +3127,7 @@ AgentScope 原始事件传输与应用层 AG-UI 重放分别使用有界缓冲�
 - 网络按域名、端口和协议白名单开放；
 - ExecutionWorkspace 按 TaskExecution 与 Repository 隔离，Git Worktree 仅挂载当前仓库和允许路径；
 - Sandbox 启动时校验基线 Commit、Worktree 元数据、挂载、Task Token 和网络策略；
-- DistributedStore 提供 Snapshot 和 Execution Guard；
+- DistributedStore 提供 AgentState/Sandbox Snapshot 和 AgentScope 自管理 Sandbox 的调用窗口 Guard；TaskExecution 级 external Sandbox 由 CrewScope Worker 持有，注入和每次受控 Tool 调用均复验 Workspace、Task Token、Lease 与 Fencing；
 - 产物离开 Sandbox 前完成敏感信息和恶意内容扫描；
 - 镜像、代码基线、模型、Skill 和 Tool 版本进入审计链。
 
@@ -3312,6 +3324,14 @@ Web 前端的 Vitest Release Gate 固定全局最低覆盖率：Statements 80%�
 - AgentScope Native Runtime 与候选外部 Coding Runtime 在固定任务集上的成功率、规范遵循、成本和延迟；
 - 模型、Prompt、Skill 和 Policy 版本对比；
 - 效果、成本和延迟。
+
+M4 Coding Agent 使用 `crewscope-java-spring-coding@1.0.0` 版本化评测集。评测集位于 `evaluation/m4/coding-v1`，包含 12 个 Java/Spring Boot 单文件任务、可重复 Git Fixture、Agent 不可见 Judge Pack、固定 System Prompt、只读 Skill Bundle、受控 Tool 协议、Runtime 配置、真实模型 RunLock Schema、判定器和故障样本。每个任务显式固化完整 Baseline Commit、AllowedPaths、任务说明、验收命令参数数组、命令超时、任务超时和预期行为。
+
+评测运行资产固定 AgentScope Java 2.0.0、Coding Specialist AgentProfile 版本、Prompt/Skill/Tool Hash、Maven Sandbox 镜像 Digest、Java 版本、网络策略、CPU/内存/PID 限额、模型随机参数和执行预算。真实模型 Run 启动前生成不可变 RunLock，保存精确 Provider、Model ID、Model Revision、Seed、AgentProfile、Sandbox Digest、Runtime Asset Hash，以及只读 Maven Dependency Cache 的 Snapshot ID 与 SHA-256。基础 Maven 镜像不被视为已经包含 Spring Boot 依赖；Worker 在无网络执行前必须复验并只读挂载 RunLock 指定的依赖快照。缺少精确 Revision、依赖快照或资产 Hash 不匹配的 Run 不进入基准统计。
+
+评测分为两个轨道。`deterministic-ci` 使用脚本化事实验证清单、物化、策略、证据和稳定失败分类，不调用真实模型，也不产生模型能力分数。`real-model-benchmark` 对全部 12 个任务使用 3 个固定 Seed 独立执行，保存每次原始证据后聚合 Pass@1、任务成功率、编译率、验收率、路径合规率、安全合规率、Token、成本和墙钟时间。两个轨道使用独立结果目录，历史 Run 保持不可变。
+
+Coding Task 成功由平台复验产生。判定器核对 Suite/Task、Real Model RunLock、Baseline、实际 Git Changed Paths、Sandbox、预算、固定 CommandEvidence、Agent 不可见 Judge Test、Structured Output Schema 和 Final Manifest Hash。Git 路径使用 NUL 分隔原值判定，不执行空白裁剪；报告拒绝顶层未知字段、重复 Command ID、额外 Command、额外 Budget 字段和未知轨道。Agent 自述、Plan、Todo、自行报告的命令或测试结果不能形成成功事实。稳定失败分类按 Suite、RunLock、Baseline、Path、Sandbox、Budget、Evidence、Timeout、Acceptance、Evidence Hash、Structured Result 和 Final Hash 的顺序失败关闭。
 
 ## 18. 前端产品设计
 

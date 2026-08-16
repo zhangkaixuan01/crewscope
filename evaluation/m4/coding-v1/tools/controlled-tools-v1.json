@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "crewscope.coding-tools/v1",
+  "toolsetId": "controlled-coding-tools",
+  "version": "1.0.0",
+  "enabled": [
+    "repository.tree",
+    "repository.read",
+    "repository.search",
+    "repository.gitStatus",
+    "repository.gitDiff",
+    "coding.create",
+    "coding.edit",
+    "coding.patch",
+    "coding.move",
+    "coding.delete",
+    "command.mavenTest",
+    "command.mavenVerify",
+    "delivery.submit"
+  ],
+  "disabled": [
+    "shell.raw",
+    "filesystem.raw",
+    "git.mutate",
+    "network.external",
+    "mcp.dynamic",
+    "skill.dynamicWrite",
+    "subagent.spawn",
+    "github",
+    "reviewer"
+  ],
+  "argumentPolicy": {
+    "commandForm": "typed-argv",
+    "pathForm": "normalized-repository-relative",
+    "revalidateContextEveryCall": true,
+    "unknownArguments": "reject"
+  }
+}

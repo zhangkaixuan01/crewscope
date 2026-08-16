@@ -69,6 +69,41 @@ Kubernetes 进入 Team Beta 后续阶段，通过新实施任务完成：
 M4 使用 TaskExecution 级 Sandbox 生命周期，避免为细粒度 Tool 频繁创建和停止容器。进入生产
 Worker 前评估 AgentScope 升级、上游修复或可配置停止超时。
 
+## M4-S01 验证结果
+
+2026-08-16 完成 [M4-S01 AgentScope 原生 Coding 组合验证](../spikes/M4-S01-AgentScope原生Coding组合验证记录.md)：
+
+- Plan Mode、Todo、Compaction、Interrupt/Resume 与受控 Tool 可在 Docker Sandbox 中组成完整读、改、测闭环；
+- AgentScope 自管理 Docker Sandbox 在每次 Agent 调用结束后删除容器，恢复调用会重建容器；
+- TaskExecution 级 Sandbox 由 CrewScope Worker 持有，Worktree 保存唯一代码事实；
+- AgentScope external Sandbox 和 external SandboxState 路径绕过原生 `SandboxExecutionGuard`；
+- CrewScope 在 external Sandbox 注入和每次受控 Tool 调用时复验 Workspace、Task Token、Lease 与 Fencing；
+- 原生 Guard 只作为 AgentScope 自管理调用窗口能力，不能作为平台所有权证明。
+
+## M4-S02 验证结果
+
+2026-08-16 完成 [M4-S02 Git Worktree 与冷恢复协议验证](../spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)：
+
+- RepositoryBinding 通过稳定 Repository Key 解析受管裸仓库，宿主路径不进入浏览器、模型或 Tool 参数；
+- Git 管理命令使用平台生成的类型化参数数组、固定环境、超时、输出上限和稳定错误分类；
+- 一个 TaskExecution attempt 使用确定性 managed branch、Worktree 路径、Workspace 路径锁和 Fingerprint；
+- 双 Worker 竞争同一 Workspace 时只有一个 Creator，另一个返回可退避的 Workspace Busy；
+- 普通部分创建失败同步补偿回滚，进程骤停形成的可证明孤儿由启动对账清理；
+- 未知目录、错误 HEAD/Branch、失效 `.git` 指针和符号链接越界失败关闭并保留现场；
+- 归档通过 `commit-tree` 创建 Delivery Commit、固定 Archive Ref，并可在 `ARCHIVING` 中断后幂等完成清理。
+
+## M4-S03 验证结果
+
+2026-08-16 完成 [M4-S03 Diff Stream 与最终固化协议验证](../spikes/M4-S03-Diff-Stream与最终固化协议验证记录.md)：
+
+- WatchService Event 作为低延迟触发提示，Git 周期与安全点 Reconcile 生成权威 DiffManifest；
+- Diff Event 使用 RESET/DELTA、Stream Epoch、Sequence、Generation、Manifest Hash 和 HMAC Opaque Cursor；
+- 丢失、重复和乱序 Delta 通过顺序 Replay 或 Reset 收敛，未来 Delta 不修改最后完整客户端投影；
+- Java 与 TypeScript 使用同一版本化 JSON Fixture 和代码点路径排序；
+- Patch Preview 截断后保留完整统计、Patch Hash 和 Artifact；
+- Final DiffArtifact 从 Baseline/Delivery Commit 重新生成，Worktree 后续变化不修改已固化证据；
+- 桌面与 390px 窄屏 Fixture 通过稳定截图、无横向溢出和 Axe 检查。
+
 ## 验证
 
 1. Docker Sandbox 修改代码后宿主 Diff Watcher 能观察变更；

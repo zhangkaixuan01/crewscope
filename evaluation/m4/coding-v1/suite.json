@@ -1,0 +1,255 @@
+{
+  "schemaVersion": "crewscope.coding-evaluation/v1",
+  "suiteId": "crewscope-java-spring-coding",
+  "suiteVersion": "1.0.0",
+  "createdAt": "2026-08-16T00:00:00Z",
+  "runtime": "runtime/coding-specialist-v1.json",
+  "judge": {
+    "version": "1.0.0",
+    "script": "scripts/evaluate.mjs",
+    "tests": "judge-tests",
+    "contentSha256": "f8e5ddc1bfcffd25bc7daf72f0a2c7c3159a37786db092f6fa276e146e18ff79"
+  },
+  "fixture": {
+    "id": "java-spring-lab",
+    "version": "1.0.0",
+    "source": "fixtures/java-spring-lab",
+    "defaultBranch": "main",
+    "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+    "contentSha256": "1669b844671a5079fc92facb998445dec234507c19f1b65381f4963074e430b2",
+    "commit": {
+      "authorName": "CrewScope Evaluation",
+      "authorEmail": "evaluation@crewscope.local",
+      "timestamp": "2026-08-16T00:00:00Z",
+      "message": "CrewScope M4 coding evaluation baseline v1"
+    }
+  },
+  "assetLocks": {
+    "runtime/coding-specialist-v1.json": "2075c261d2c83ecff3afc0eaa35db64be38d6e2fb5883478bc4189a45381f78f",
+    "runtime/real-model-run-lock-v1.schema.json": "71bdc9dbe4d9d59b71097424d0a6c99f66baa67fe049de5e1fb886d9f54e6c1b",
+    "scripts/evaluate.mjs": "6511e462bc5879e95c5769485e1e5a5726a3e884fa1646b60efed2fa4cbd8fa1",
+    "prompts/coding-system-v1.md": "b6d0b26da2b871b1cef322ac518e5f3a589135aa5c1b393fc3f48d117cc0c0d8",
+    "skills/java-spring-v1.md": "fbebc330811adfdee87b1710ab00d7c9ce71906b3ad80fbd9f1b3200c0248b33",
+    "tools/controlled-tools-v1.json": "5e40ffbfe98524a0b98bc23345f473b1f73b94288d3ad44846e5ceceef97ef08",
+    "failure-samples/v1.json": "92e7a5f8ee40dfbb2d034879dcee8efb691a8addb4bd907a3de11d49dcc3a3c6"
+  },
+  "policy": {
+    "allowedBuildTool": "MAVEN",
+    "acceptanceWorkingDirectory": ".",
+    "expectedExitCode": 0,
+    "defaultAcceptanceTimeoutSeconds": 180,
+    "taskTimeoutSeconds": 600,
+    "maximumChangedFiles": 1,
+    "network": "none",
+    "unknownReportFields": "reject",
+    "successRequires": [
+      "baseline-match",
+      "allowed-paths",
+      "acceptance-evidence",
+      "budget-within-limit",
+      "structured-result-valid",
+      "final-hash-match"
+    ]
+  },
+  "tracks": {
+    "deterministic-ci": {
+      "kind": "SCRIPTED_PROTOCOL",
+      "model": "scripted-coding-model-v1",
+      "cases": [
+        "valid-success-report",
+        "run-lock-mismatch",
+        "baseline-mismatch",
+        "path-violation",
+        "acceptance-timeout",
+        "acceptance-failed",
+        "missing-evidence",
+        "budget-exhausted",
+        "sandbox-policy-violation",
+        "evidence-hash-mismatch",
+        "invalid-structured-result",
+        "result-hash-mismatch"
+      ],
+      "scoreModelQuality": false
+    },
+    "real-model-benchmark": {
+      "kind": "REAL_MODEL",
+      "modelBinding": "exact-provider-model-revision-required-per-run",
+      "repetitions": 3,
+      "seeds": [20260816, 20260817, 20260818],
+      "temperature": 0,
+      "topP": 1,
+      "taskIds": [
+        "java-username-normalization",
+        "java-retry-backoff",
+        "java-secret-redaction",
+        "java-stable-task-order",
+        "java-opaque-cursor",
+        "java-repository-path-policy",
+        "spring-member-controller",
+        "spring-safe-error-envelope",
+        "spring-team-cache-scope",
+        "spring-idempotent-service",
+        "spring-request-id-filter",
+        "spring-coding-properties"
+      ],
+      "aggregate": [
+        "passAt1",
+        "taskSuccessRate",
+        "compileRate",
+        "acceptanceRate",
+        "pathComplianceRate",
+        "securityComplianceRate",
+        "inputTokens",
+        "outputTokens",
+        "cost",
+        "wallClock"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "java-username-normalization",
+      "category": "JAVA_CORRECTNESS",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 UserNameNormalizer：拒绝 null/空白输入，使用 Unicode NFKC 规范化，将连续 Unicode 空白折叠为单个空格，并使用 Locale.ROOT 转小写。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/UserNameNormalizer.java"],
+      "judgeTest": "judge-tests/java-username-normalization/UserNameNormalizerJudgeTest.java",
+      "acceptanceCommands": [{"id": "username-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=UserNameNormalizerJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["NFKC Unicode normalization", "Unicode whitespace collapse", "Locale.ROOT lowercase", "null and blank rejection"]
+    },
+    {
+      "id": "java-retry-backoff",
+      "category": "JAVA_BOUNDARY",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 RetryBackoff：验证构造参数和 attempt，计算指数退避时避免移位与乘法溢出，并稳定封顶到 maximumMillis。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/RetryBackoff.java"],
+      "judgeTest": "judge-tests/java-retry-backoff/RetryBackoffJudgeTest.java",
+      "acceptanceCommands": [{"id": "backoff-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=RetryBackoffJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["constructor invariants", "attempt validation", "overflow-safe exponential backoff", "stable maximum cap"]
+    },
+    {
+      "id": "java-secret-redaction",
+      "category": "SECURITY",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "扩展 SecretRedactor，使 token、Bearer Authorization、api_key 和 password 的常见大小写及引号形式被完整替换为 [REDACTED]，普通构建输出保持原样。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/SecretRedactor.java"],
+      "judgeTest": "judge-tests/java-secret-redaction/SecretRedactorJudgeTest.java",
+      "acceptanceCommands": [{"id": "redaction-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=SecretRedactorJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["case-insensitive credential forms", "quoted values", "Bearer token redaction", "ordinary output preservation"]
+    },
+    {
+      "id": "java-stable-task-order",
+      "category": "DETERMINISM",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 StableTaskOrder：按 priority 降序、createdAt 升序、id Unicode 代码点升序形成稳定顺序，并保持调用方列表不变。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/StableTaskOrder.java"],
+      "judgeTest": "judge-tests/java-stable-task-order/StableTaskOrderJudgeTest.java",
+      "acceptanceCommands": [{"id": "stable-order-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=StableTaskOrderJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["priority descending", "creation ascending", "code-point id tie-breaker", "input immutability"]
+    },
+    {
+      "id": "java-opaque-cursor",
+      "category": "SECURITY_PROTOCOL",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "加固 OpaqueCursorCodec：游标必须包含版本、Workspace 和 Sequence 的完整性保护，拒绝篡改、错误 Workspace、非法 Base64URL 和非法序列，并保持调用 API 可用。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/OpaqueCursorCodec.java"],
+      "judgeTest": "judge-tests/java-opaque-cursor/OpaqueCursorCodecJudgeTest.java",
+      "acceptanceCommands": [{"id": "opaque-cursor-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=OpaqueCursorCodecJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["opaque authenticated payload", "workspace binding", "tamper rejection", "stable invalid-input failure"]
+    },
+    {
+      "id": "java-repository-path-policy",
+      "category": "FILESYSTEM_SECURITY",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "加固 RepositoryPathPolicy：只接受仓库相对路径，拒绝绝对路径、词法越界和通过符号链接逃逸 AllowedPaths，返回现存目标的规范路径。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/RepositoryPathPolicy.java"],
+      "judgeTest": "judge-tests/java-repository-path-policy/RepositoryPathPolicyJudgeTest.java",
+      "acceptanceCommands": [{"id": "path-policy-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=RepositoryPathPolicyJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["repository-relative input", "lexical containment", "canonical containment", "symlink escape rejection"]
+    },
+    {
+      "id": "spring-member-controller",
+      "category": "SPRING_WEB",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 MemberController 的创建契约：对 RequestBody 触发 Bean Validation，并在成功创建时返回 HTTP 201 及原响应体。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/MemberController.java"],
+      "judgeTest": "judge-tests/spring-member-controller/MemberControllerJudgeTest.java",
+      "acceptanceCommands": [{"id": "member-controller-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=MemberControllerJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["@Valid request body", "HTTP 201 Created", "response body preserved"]
+    },
+    {
+      "id": "spring-safe-error-envelope",
+      "category": "SPRING_SECURITY",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 ApiExceptionHandler：保留稳定 VALIDATION_FAILED 错误码，公开固定安全消息，不在响应或 toString 链路暴露原始异常内容。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/ApiExceptionHandler.java"],
+      "judgeTest": "judge-tests/spring-safe-error-envelope/ApiExceptionHandlerJudgeTest.java",
+      "acceptanceCommands": [{"id": "safe-envelope-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=ApiExceptionHandlerJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["stable public code", "fixed public message", "raw exception redaction"]
+    },
+    {
+      "id": "spring-team-cache-scope",
+      "category": "TENANT_ISOLATION",
+      "difficulty": "SMALL",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 TeamCacheKey：缓存键必须闭合 Organization、Team 和 WorkItem，拒绝任一空白坐标，避免跨 Team 命中。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/TeamCacheKey.java"],
+      "judgeTest": "judge-tests/spring-team-cache-scope/TeamCacheKeyJudgeTest.java",
+      "acceptanceCommands": [{"id": "cache-scope-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=TeamCacheKeyJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["organization scope", "team scope", "resource scope", "blank coordinate rejection"]
+    },
+    {
+      "id": "spring-idempotent-service",
+      "category": "CONCURRENCY",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "修复 IdempotentWorkService：同一非空幂等键在并发下只执行一次 Action，所有调用返回同一结果；失败不缓存，并允许后续重试。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/IdempotentWorkService.java"],
+      "judgeTest": "judge-tests/spring-idempotent-service/IdempotentWorkServiceJudgeTest.java",
+      "acceptanceCommands": [{"id": "idempotency-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=IdempotentWorkServiceJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["single execution per key", "concurrent duplicate convergence", "failure not cached", "blank key rejection"]
+    },
+    {
+      "id": "spring-request-id-filter",
+      "category": "SPRING_WEB_SECURITY",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "加固 RequestIdFilter：只保留满足 req_[0-9A-Za-z_-]{16,64} 的请求 ID；缺失、超长或不可信输入生成 req_ 加 32 位小写十六进制 ID，并继续 FilterChain。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/RequestIdFilter.java"],
+      "judgeTest": "judge-tests/spring-request-id-filter/RequestIdFilterJudgeTest.java",
+      "acceptanceCommands": [{"id": "request-id-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=RequestIdFilterJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["trusted format preservation", "untrusted input replacement", "bounded response header", "filter chain continuation"]
+    },
+    {
+      "id": "spring-coding-properties",
+      "category": "CONFIGURATION_SECURITY",
+      "difficulty": "MEDIUM",
+      "baselineCommit": "f053fd1e9665b19ff5c1cdb0164043a0b5f9e5b9",
+      "taskTimeoutSeconds": 600,
+      "instruction": "加固 CodingProperties：M4 配置必须关闭网络；AllowedPaths 必须非空、规范化、相对且无越界；命令超时限制在 1..900 秒；列表保持不可变防御性拷贝。",
+      "allowedPaths": ["src/main/java/io/crewscope/evaluation/CodingProperties.java"],
+      "judgeTest": "judge-tests/spring-coding-properties/CodingPropertiesJudgeTest.java",
+      "acceptanceCommands": [{"id": "coding-properties-test", "argv": ["mvn", "--batch-mode", "--no-transfer-progress", "-Dtest=CodingPropertiesJudgeTest", "test"], "timeoutSeconds": 180}],
+      "expectedBehavior": ["network fail-closed", "normalized relative AllowedPaths", "timeout bounds", "immutable defensive copy"]
+    }
+  ]
+}

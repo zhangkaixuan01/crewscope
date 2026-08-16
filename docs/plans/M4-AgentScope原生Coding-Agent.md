@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：已拆分为 44 个任务，下一项为 `M4-S01`（2026-08-16）
+> 当前进度：`M4-S01` 至 `M4-S04` 已完成，下一项为 `M4-D01`（2026-08-16）
 
 ## 1. 出口结果与范围
 
@@ -47,7 +47,7 @@ Team Admin 注册受管 RepositoryBinding
 | `HarnessAgent` | Coding Specialist 主体，使用固定 AgentProfile/Model/Prompt/Skill 版本 | 一个 Task AgentRuntimeSession 对应稳定 Agent 身份，状态进入 M3 Snapshot 协议 |
 | Plan Mode 与 Task List | 形成候选计划和 Todo 进度 | 只有校验后发布的 PlanVersion、StepExecution 和 Checkpoint 是领域事实 |
 | `DockerFilesystemSpec`、`WorkspaceSpec` | 将当前 Worktree 绑定到 `/workspace/repository` | 镜像使用 Digest；网络默认关闭；普通用户、只读根层、CPU/内存/PID/超时限制 |
-| Sandbox Lifecycle、State Store、Execution Guard | 管理 TaskExecution 级 Sandbox 获取、恢复与互斥 | Guard 绑定 Workspace、Lease 与 Fencing；旧 Owner 不能恢复或执行命令 |
+| Sandbox Lifecycle、State Store、Execution Guard | 复用 Sandbox 文件系统注入和自管理调用窗口；CrewScope 包装 TaskExecution 级 Sandbox 生命周期 | external Sandbox 路径绕过原生 Guard；CrewScope 在注入和每次 Tool 调用时复验 Workspace、Task Token、Lease 与 Fencing |
 | `AbstractFilesystem` | 复用 list/read/write/edit/grep/glob/delete/move 的 Sandbox 实现 | 不直接注册原生 `FilesystemTool`，由 AllowedPaths、大小和数量受限的 CrewScope Tool 包装 |
 | `ShellExecuteTool` | 只作为源码能力参考 | 其参数是原始 Shell 字符串，M4 禁止直接暴露；改用结构化 `SandboxCommandTool` 与固定命令目录 |
 | Compaction 与 Tool Result Eviction | 控制长会话上下文和大工具结果 | Checkpoint 前保存 AgentStateSnapshot；大输出先写 RuntimeArtifact，再给 Agent 有界摘要 |
@@ -132,10 +132,10 @@ Coding 闭环完成 -> M4-Q03
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-S01` | SPIKE | M3-Q03, M0-S03 | agentscope | 对照 AgentScope 2.0.0 验证 HarnessAgent、DockerFilesystemSpec、Sandbox Lifecycle/Guard、AbstractFilesystem、Plan/Task List、Compaction、Interrupt/Resume 与自定义受控 Tool 的组合；冻结直接复用与包装边界 | 可控 Model 在 Docker Sandbox 内完成读、改、测、暂停、恢复；原生 raw Shell/Filesystem Tool、MCP、动态 Skill 与 Subagent 未注册；输出源码映射和最小适配记录 |
-| `M4-S02` | SPIKE | ADR-002 | infrastructure | 使用临时 Git Fixture 冻结 Repository Resolver、类型化 Git 参数、Worktree 路径锁、分支命名、部分创建回滚、损坏元数据检测、冷恢复和归档协议 | 双 Worker 并发创建只有一个成功；注入进程退出、目录残留、错误 HEAD、失效 `.git` 指针和符号链接越界后均回滚或失败关闭 |
-| `M4-S03` | SPIKE | S02 | infrastructure/web | 验证 WatchService 事件、Git 周期 Reconcile、不透明 Cursor、Reset 事件、Patch 截断与最终 Diff 固化协议 | 丢弃、重复、乱序文件事件后，客户端投影与 `git diff` 权威结果一致；桌面/窄屏 Fixture 可稳定回放 |
-| `M4-S04` | SPIKE | S01,S02 | all | 冻结 10–20 个 Java/Spring Boot Coding 任务、仓库 Fixture、模型/Profile/Prompt/Skill/Tool 版本、Sandbox 镜像 Digest、预算、随机参数、判定脚本与故障样本 | 评测清单版本化；每个样本有基线 Commit、AllowedPaths、验收命令、期望行为和超时；确定性 CI 集与真实模型基准分开记录 |
+| `M4-S01` | SPIKE | M3-Q03, M0-S03 | agentscope | 已完成：对照 AgentScope 2.0.0 验证 HarnessAgent、DockerFilesystemSpec、Sandbox Lifecycle/Guard、AbstractFilesystem、Plan/Task List、Compaction、Interrupt/Resume 与自定义受控 Tool 的组合；冻结直接复用与包装边界 | [M4-S01 AgentScope 原生 Coding 组合验证记录](../spikes/M4-S01-AgentScope原生Coding组合验证记录.md)与 Docker 集成测试证明受控 Model 可完成读、改、测、暂停和恢复，raw Shell/Filesystem Tool、MCP、动态 Skill 与 Subagent 未注册 |
+| `M4-S02` | SPIKE | ADR-002 | infrastructure | 已完成：使用临时 Git Fixture 冻结 Repository Resolver、类型化 Git 参数、Worktree 路径锁、分支命名、部分创建回滚、损坏元数据检测、冷恢复和归档协议 | [M4-S02 Git Worktree 与冷恢复协议验证记录](../spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)与 10 个专项场景证明双 Worker 只有一个 Creator，普通失败完整回滚，进程骤停孤儿可冷恢复，目录残留、错误 HEAD、失效 `.git` 指针和符号链接越界均失败关闭，归档中断可幂等收口 |
+| `M4-S03` | SPIKE | S02 | infrastructure/web | 已完成：验证 WatchService 事件、Git 周期 Reconcile、不透明 Cursor、Reset 事件、Patch 截断与最终 Diff 固化协议 | [M4-S03 Diff Stream 与最终固化协议验证记录](../spikes/M4-S03-Diff-Stream与最终固化协议验证记录.md)、7 个 Java 场景、共享 JSON/TypeScript 投影、4 个 Vitest 和 2 个 Playwright 场景证明丢失、重复、乱序事件可收敛到 Git 权威结果，桌面/窄屏 Fixture 可稳定回放 |
+| `M4-S04` | SPIKE | S01,S02 | all | 已完成：冻结 12 个 Java/Spring Boot Coding 任务、可重复 Git Fixture、Agent 不可见 Judge Pack、AgentScope/Profile/Prompt/Skill/Tool、Sandbox 镜像 Digest、预算、随机参数、RunLock、判定脚本与故障样本 | [M4-S04 Coding Agent 评测协议验证记录](../spikes/M4-S04-Coding-Agent评测协议验证记录.md)与 `evaluation/m4/coding-v1` 证明每个任务显式闭合 Baseline Commit、AllowedPaths、验收参数数组、期望行为和超时，确定性 CI 与真实模型基准使用独立轨道 |
 
 ## 7. 领域与数据
 

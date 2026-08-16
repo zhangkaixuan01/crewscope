@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2、M3 已完成；M4 已拆分为 44 个任务，下一项为 M4-S01（2026-08-16）
+> 当前进度：M0、M1、M2、M3 已完成；M4-S01 至 M4-S04 已完成，下一项为 M4-D01（2026-08-16）
 
 ## 1. 实施目标
 
@@ -459,7 +459,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 ### 10.3 Coding Toolkit
 
 - Repository metadata、tree、search、read 和 history；
-- 复用 HarnessAgent、DockerFilesystemSpec、AbstractFilesystem、Plan/Task List、Compaction、Interrupt/Resume 和 Sandbox Lifecycle/Guard；
+- 复用 HarnessAgent、DockerFilesystemSpec、AbstractFilesystem、Plan/Task List、Compaction、Interrupt/Resume 和 Sandbox 文件系统注入；CrewScope 包装 TaskExecution 级 Sandbox 生命周期，external Sandbox 注入和每次 Tool 调用均复验 Lease/Fencing；
 - 原生 FilesystemTool 缺少 CrewScope AllowedPaths 与证据边界，原生 ShellExecuteTool 接受原始 Shell 字符串；M4 不直接注册两者，通过受控 CodingFilesystemTool 与结构化 SandboxCommandTool 包装底层 Sandbox 能力；
 - 禁止注册可绕过上述边界的第二套文件、Shell、MCP、动态 Skill 或外部网络 Tool；
 - Worktree 内文件创建、修改、Patch、重命名和删除；
@@ -800,7 +800,7 @@ M0 至 M3 已通过各自 Release Gate。M2 已交付 Conversation、Personal Ag
 
 M3 的 38 个任务已全部完成，交付耐久 Task Runtime、AgentScope Task Orchestrator、Task Token、Claim/Lease/Fencing、AgentRun/Snapshot 恢复、Conversation/Control 双入口与成员控制闭环。最终门禁结果为 Maven `1082 / 1082`、Vitest `180 / 180`、Playwright `102 / 102`、固定故障与重放样本 `56 / 56`，详细证据见 [M3 执行清单](plans/M3-耐久Task-Runtime.md)与 [M3 Release Gate](testing/M3-Q03-Release-Gate.md)。
 
-M4 已拆分为 44 个可执行任务，将在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。下一项为 `M4-S01`。
+M4 已拆分为 44 个可执行任务，将在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。`M4-S01` 至 `M4-S04` 已完成，下一项为 `M4-D01`。
 
 ## 19. 项目管理与进度跟踪
 

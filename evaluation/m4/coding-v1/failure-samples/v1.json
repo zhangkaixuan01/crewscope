@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "crewscope.coding-evaluation-failures/v1",
+  "samples": [
+    {
+      "id": "valid-success-report",
+      "expected": "PASSED",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "run-lock-mismatch",
+      "expected": "RUN_LOCK_MISMATCH",
+      "facts": {"suiteMatch": true, "runLockMatch": false, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "baseline-mismatch",
+      "expected": "BASELINE_MISMATCH",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": false, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "path-violation",
+      "expected": "PATH_VIOLATION",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": false, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "sandbox-policy-violation",
+      "expected": "SANDBOX_POLICY_VIOLATION",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": false, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "budget-exhausted",
+      "expected": "BUDGET_EXHAUSTED",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": false, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "missing-evidence",
+      "expected": "MISSING_EVIDENCE",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": false, "acceptanceTimedOut": false, "acceptancePassed": false, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "acceptance-timeout",
+      "expected": "ACCEPTANCE_TIMEOUT",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": true, "acceptancePassed": false, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "acceptance-failed",
+      "expected": "ACCEPTANCE_FAILED",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": false, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "evidence-hash-mismatch",
+      "expected": "EVIDENCE_HASH_MISMATCH",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": false, "structuredResultValid": true, "finalHashMatch": true}
+    },
+    {
+      "id": "invalid-structured-result",
+      "expected": "INVALID_STRUCTURED_RESULT",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": false, "finalHashMatch": true}
+    },
+    {
+      "id": "result-hash-mismatch",
+      "expected": "RESULT_HASH_MISMATCH",
+      "facts": {"suiteMatch": true, "runLockMatch": true, "baselineMatch": true, "changedPathsAllowed": true, "sandboxPolicyObserved": true, "budgetWithinLimit": true, "acceptanceComplete": true, "acceptanceTimedOut": false, "acceptancePassed": true, "evidenceHashesMatch": true, "structuredResultValid": true, "finalHashMatch": false}
+    }
+  ]
+}

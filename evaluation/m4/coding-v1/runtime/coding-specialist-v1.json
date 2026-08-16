@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "crewscope.coding-runtime/v1",
+  "runtimeId": "agentscope-java-coding-specialist",
+  "runtimeVersion": "1.0.0",
+  "agentScopeVersion": "2.0.0",
+  "agentProfile": {
+    "id": "coding-specialist-java-spring",
+    "version": "1.0.0",
+    "systemPrompt": "prompts/coding-system-v1.md",
+    "skillBundle": "skills/java-spring-v1.md",
+    "toolset": "tools/controlled-tools-v1.json",
+    "planMode": true,
+    "taskList": true,
+    "compaction": true,
+    "toolResultEviction": true,
+    "stateSnapshot": true
+  },
+  "model": {
+    "provider": "configured-model-gateway",
+    "modelId": "crewscope-primary",
+    "modelRevision": "RUN_LOCK_REQUIRED",
+    "runLockSchema": "runtime/real-model-run-lock-v1.schema.json",
+    "temperature": 0,
+    "topP": 1,
+    "maxOutputTokens": 8192,
+    "seedPolicy": "track-defined",
+    "retryCount": 1,
+    "fallbackEnabled": false
+  },
+  "sandbox": {
+    "kind": "docker",
+    "image": "maven@sha256:29a1658b1f3078e07c2b17f7b519b45eb47f65d9628e887eac45a8c5c8f939d4",
+    "javaRelease": 17,
+    "network": "none",
+    "user": "non-root",
+    "readOnlyRootFilesystem": true,
+    "cpuCount": 2,
+    "memoryMiB": 2048,
+    "pids": 256,
+    "workspaceRoot": "/workspace/repository",
+    "timezone": "UTC",
+    "locale": "C.UTF-8"
+  },
+  "dependencyCache": {
+    "mode": "READ_ONLY_SNAPSHOT_REQUIRED",
+    "snapshotId": "RUN_LOCK_REQUIRED",
+    "snapshotSha256": "RUN_LOCK_REQUIRED",
+    "mountPath": "/maven-cache",
+    "mavenLocalRepository": "/maven-cache/repository"
+  },
+  "budget": {
+    "wallClockSeconds": 900,
+    "modelCalls": 40,
+    "inputTokens": 120000,
+    "outputTokens": 24000,
+    "toolCalls": 160,
+    "commandCalls": 12,
+    "writeOperations": 80,
+    "writtenBytes": 1048576,
+    "diffBytes": 524288,
+    "testRepairRounds": 3
+  },
+  "structuredOutputs": [
+    "RepositoryAnalysisV1",
+    "CodeChangeResultV1",
+    "TestEvidenceV1",
+    "DiffManifestV1"
+  ]
+}

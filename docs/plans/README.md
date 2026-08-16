@@ -96,4 +96,4 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M3：耐久 Task Runtime](M3-耐久Task-Runtime.md)
 - [M4：AgentScope 原生 Coding Agent](M4-AgentScope原生Coding-Agent.md)
 
-M0、M1、M2 和 M3 已完成。M4 已在 M3 Runtime Release Gate、ADR-002 与 M0-S03 Docker Sandbox 验证通过后拆分为 44 个任务，下一项为 `M4-S01`。
+M0、M1、M2 和 M3 已完成。M4 已在 M3 Runtime Release Gate、ADR-002 与 M0-S03 Docker Sandbox 验证通过后拆分为 44 个任务；`M4-S01` 至 `M4-S04` 已完成，下一项为 `M4-D01`。
