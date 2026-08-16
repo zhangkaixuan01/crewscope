@@ -36,6 +36,7 @@ function responsibility(
     actorType,
     actorMemberId: actorType === 'USER' ? `${id}-member` : null,
     actorDisplayName,
+    actorAgentProfileId: null,
     status: 'ACTIVE',
     assignedByPrincipalId: 'demo-owner-principal',
     assignedAt: '2026-08-08T00:00:00Z',

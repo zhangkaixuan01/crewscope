@@ -17,6 +17,8 @@ import { HttpScopeGateway } from './domains/scope/gateway'
 import { installScopeStore } from './domains/scope/store'
 import { HttpWorkItemGateway } from './domains/workitem/gateway'
 import { installWorkItemStore } from './domains/workitem/store'
+import { HttpTaskGateway } from './domains/task/gateway'
+import { installTaskStore } from './domains/task/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -31,6 +33,7 @@ installConversationRealtimeStore(app, new HttpConversationRealtimeGateway())
 installTaskIntentStore(app, new HttpTaskIntentGateway())
 installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
 installWorkItemStore(app, new HttpWorkItemGateway())
+installTaskStore(app, new HttpTaskGateway())
 installGlobalErrorHandling(app)
 app.use(router)
 app.mount('#app')

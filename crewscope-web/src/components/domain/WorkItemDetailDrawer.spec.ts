@@ -44,11 +44,11 @@ describe('WorkItemDetailDrawer', () => {
     wrapper.unmount()
   })
 
-  it('separates Personal Agent discussion from the future execution placeholder', async () => {
+  it('separates Personal Agent discussion from the durable Task delegation entry', async () => {
     const wrapper = mount(WorkItemDetailDrawer, { props: props() })
 
     await wrapper.get('.detail-footer button:last-child').trigger('click')
-    expect(wrapper.text()).toContain('当前不会创建虚假执行')
+    expect(wrapper.emitted('delegate')).toBeTruthy()
     await wrapper.get('.detail-footer button:first-of-type').trigger('click')
     expect(wrapper.emitted('conversation')).toBeTruthy()
   })
@@ -133,6 +133,7 @@ function props(overrides: Record<string, unknown> = {}) {
     commandErrorMessage: null,
     versionConflict: null,
     canParticipate: true,
+    canDelegate: true,
     canManageResponsibility: true,
     responsibilityPhase: 'ready' as const,
     responsibilities: structuredClone(fixtureResponsibilities),

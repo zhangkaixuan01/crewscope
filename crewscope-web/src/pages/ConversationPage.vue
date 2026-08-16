@@ -22,6 +22,7 @@ import ClarificationCard from '../components/domain/ClarificationCard.vue'
 import SafeMarkdown from '../components/domain/SafeMarkdown.vue'
 import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
+import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useConversationMessageStore } from '../domains/conversation/messageStore'
@@ -39,6 +40,8 @@ import type {
   TaskIntentRevisionInput,
 } from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
+import { useTaskStore } from '../domains/task/store'
+import type { TaskAssociationSummary } from '../domains/task/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,6 +52,7 @@ const messageStore = useConversationMessageStore()
 const realtimeStore = useConversationRealtimeStore()
 const taskIntentStore = useTaskIntentStore()
 const linkStore = useConversationWorkItemLinkStore()
+const taskStore = useTaskStore()
 const isOnline = useNetworkStatus()
 const createOpen = ref(false)
 const createTitle = ref('')
@@ -128,6 +132,10 @@ const messageAnnouncement = computed(() => {
   const latest = messageStore.state.items.at(-1)
   return latest ? `消息历史已更新，最新消息来自${messageAuthor(latest)}` : ''
 })
+const taskAssociationResource = computed(() => selected.value
+  ? taskStore.state.associationPages[`conversation:${selected.value.id}`] ?? null
+  : null)
+const taskAssociations = computed(() => taskAssociationResource.value?.value?.items ?? [])
 
 watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation] as const,
@@ -138,6 +146,7 @@ watch(
         messageStore.reset()
         realtimeStore.reset()
         taskIntentStore.reset()
+        taskStore.reset()
       }
       return
     }
@@ -151,6 +160,7 @@ watch(
       await Promise.all([
         messageStore.synchronize(messageScope),
         linkStore.loadByConversation(messageScope),
+        synchronizeConversationTasks(scope, conversationId),
       ])
       realtimeStore.synchronize(messageScope)
       await taskIntentStore.synchronize(messageScope, realtimeStore.state.latestTaskIntentId)
@@ -160,6 +170,7 @@ watch(
       realtimeStore.reset()
       taskIntentStore.reset()
       linkStore.reset()
+      taskStore.reset()
     }
     if (version !== synchronizationVersion) return
     if (isForbidden()) {
@@ -195,6 +206,7 @@ onUnmounted(() => {
   realtimeStore.reset()
   taskIntentStore.reset()
   linkStore.reset()
+  taskStore.reset()
   messageStore.reset()
   conversationStore.reset()
 })
@@ -211,6 +223,16 @@ watch(
     } catch {
       // The stores retain the safe status; route-level authorization still needs immediate handling.
     }
+    await redirectIfForbidden()
+  },
+)
+
+watch(
+  () => taskStore.state.liveRefreshVersion,
+  async version => {
+    if (version === 0 || !selected.value) return
+    await taskStore.loadByConversation(selected.value.id, false, true)
+    synchronizeTaskStreams()
     await redirectIfForbidden()
   },
 )
@@ -389,7 +411,13 @@ async function confirmTaskIntent(): Promise<void> {
   const confirmed = await taskIntentStore.confirm()
   const scope = currentMessageScope()
   // Confirmation returns a receipt; the association query is the source of the created WorkItem identity.
-  if (confirmed && scope) await linkStore.loadByConversation(scope, true)
+  if (confirmed && scope) {
+    await Promise.all([
+      linkStore.loadByConversation(scope, true),
+      taskStore.loadByConversation(scope.conversationId, false, true),
+    ])
+    synchronizeTaskStreams()
+  }
   await redirectIfForbidden()
 }
 
@@ -397,6 +425,29 @@ async function retryLinks(): Promise<void> {
   const scope = currentMessageScope()
   if (scope) await linkStore.loadByConversation(scope, true)
   await redirectIfForbidden()
+}
+
+async function retryTasks(): Promise<void> {
+  const scope = currentMessageScope()
+  if (!scope) return
+  taskStore.activateScope(scope)
+  await taskStore.loadByConversation(scope.conversationId, false, true)
+  synchronizeTaskStreams()
+  await redirectIfForbidden()
+}
+
+async function synchronizeConversationTasks(scope: ConversationScope, conversationId: string): Promise<void> {
+  taskStore.activateScope(scope)
+  taskStore.stopLiveTasks()
+  await taskStore.loadByConversation(conversationId, false, true)
+  synchronizeTaskStreams()
+}
+
+function synchronizeTaskStreams(): void {
+  const activeTaskIds = taskAssociations.value
+    .filter(association => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(association.task.status))
+    .map(association => association.task.id)
+  taskStore.synchronizeLiveTasks(activeTaskIds)
 }
 
 function openLinkedWorkItem(association: ConversationWorkItemAssociation): void {
@@ -408,12 +459,46 @@ function openLinkedWorkItem(association: ConversationWorkItemAssociation): void 
       project: association.workItem.projectId,
       workItem: association.workItem.id,
       focus: association.workItem.key,
+      sourceMessage: latestTaskSourceMessageId(),
+    },
+  })
+}
+
+function openAssociatedTask(association: TaskAssociationSummary): void {
+  void router.push({
+    name: 'work',
+    query: {
+      ...route.query,
+      conversation: selected.value?.id,
+      project: association.task.projectId,
+      workItem: association.task.workItemId,
+      task: association.task.id,
+    },
+  })
+}
+
+function openTaskWorkItem(association: TaskAssociationSummary): void {
+  void router.push({
+    name: 'work',
+    query: {
+      ...route.query,
+      conversation: selected.value?.id,
+      project: association.task.projectId,
+      workItem: association.task.workItemId,
+      task: undefined,
+      sourceMessage: latestTaskSourceMessageId(),
     },
   })
 }
 
 function newestMessageSequence(): number {
   return messageStore.state.items.reduce((latest, message) => Math.max(latest, message.sequence), 0)
+}
+
+function latestTaskSourceMessageId(): string | undefined {
+  return [...messageStore.state.items]
+    .sort((left, right) => right.sequence - left.sequence)
+    .find(message => message.type === 'USER_MESSAGE')?.id
 }
 
 function currentScope(): ConversationScope | null {
@@ -466,6 +551,7 @@ function isForbidden(): boolean {
     || taskIntentStore.state.errorStatus === 403
     || taskIntentStore.state.commandErrorStatus === 403
     || linkStore.state.errorStatus === 403
+    || taskAssociationResource.value?.errorStatus === 403
 }
 
 async function redirectIfForbidden(): Promise<void> {
@@ -693,6 +779,16 @@ function queryValue(value: unknown): string | null {
                 direction="conversation"
                 @open="openLinkedWorkItem"
                 @retry="retryLinks"
+              />
+              <ConversationTaskCards
+                :phase="taskAssociationResource?.phase ?? 'idle'"
+                :associations="taskAssociations"
+                :live-tasks="taskStore.state.liveTasks"
+                :error-message="taskAssociationResource?.errorMessage ?? null"
+                :current-principal-id="principal?.id ?? ''"
+                @open-task="openAssociatedTask"
+                @open-work-item="openTaskWorkItem"
+                @retry="retryTasks"
               />
               <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
               <div

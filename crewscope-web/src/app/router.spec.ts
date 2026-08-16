@@ -15,6 +15,8 @@ import { FixtureConversationGateway } from '../test/conversationFixtures'
 import { FixtureConversationMessageGateway } from '../test/conversationMessageFixtures'
 import { FixtureConversationRealtimeGateway } from '../test/conversationRealtimeFixtures'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
+import { createTaskStore, TASK_STORE } from '../domains/task/store'
+import { FixtureTaskGateway } from '../test/taskFixtures'
 
 const principal: AuthenticatedPrincipal = {
   id: 'test-user',
@@ -44,6 +46,7 @@ describe('application routing', () => {
     const realtimeStore = createConversationRealtimeStore(new FixtureConversationRealtimeGateway(), { storage: null })
     const taskIntentStore = createTaskIntentStore(quietTaskIntentGateway())
     const linkStore = createConversationWorkItemLinkStore(quietLinkGateway())
+    const taskStore = createTaskStore(new FixtureTaskGateway(), { storage: null })
     const wrapper = mount(App, {
       global: {
         plugins: [router],
@@ -55,6 +58,7 @@ describe('application routing', () => {
           [CONVERSATION_REALTIME_STORE as symbol]: realtimeStore,
           [TASK_INTENT_STORE as symbol]: taskIntentStore,
           [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: linkStore,
+          [TASK_STORE as symbol]: taskStore,
         },
       },
     })

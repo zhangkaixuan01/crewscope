@@ -14,6 +14,7 @@ import {
   X,
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { isTopmostModal } from '../../app/dialog'
 import type { SemanticTone } from '../base/types'
 import type { ResponsibilityCommand, WorkItemDetailCommand, WorkItemPhase } from '../../domains/workitem/store'
 import {
@@ -46,6 +47,7 @@ const props = defineProps<{
   commandErrorMessage: string | null
   versionConflict: WorkItemVersionConflict | null
   canParticipate: boolean
+  canDelegate: boolean
   canManageResponsibility: boolean
   responsibilityPhase: WorkItemPhase
   responsibilities: ResponsibilityAssignment[]
@@ -78,6 +80,7 @@ const emit = defineEmits<{
   close: []
   conversation: []
   openConversation: [association: ConversationWorkItemAssociation]
+  delegate: []
 }>()
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const drawer = useTemplateRef<HTMLElement>('drawer')
@@ -88,7 +91,6 @@ const resourceReference = ref('')
 const resourceLabel = ref('')
 const commentSubmitted = ref(false)
 const resourceSubmitted = ref(false)
-const agentPlaceholderNotice = ref(false)
 let previousBodyOverflow = ''
 
 const item = computed(() => props.details?.workItem ?? null)
@@ -116,6 +118,7 @@ onBeforeUnmount(() => {
 })
 
 function closeOnEscape(event: KeyboardEvent): void {
+  if (!isTopmostModal(drawer.value)) return
   if (event.key === 'Escape') {
     emit('close')
     return
@@ -298,8 +301,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
       </div>
 
       <footer class="detail-footer">
-        <p v-if="agentPlaceholderNotice" role="status">Agent 执行将在后续里程碑接入 TaskExecution；当前不会创建虚假执行。</p>
-        <div><BaseButton variant="secondary" @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton variant="ghost" @click="agentPlaceholderNotice = true"><Bot :size="14" />交给 Agent 处理（规划中）</BaseButton></div>
+        <div><BaseButton variant="secondary" @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton v-if="canDelegate" variant="ghost" @click="$emit('delegate')"><Bot :size="14" />交给 Agent 处理</BaseButton></div>
       </footer>
     </aside>
   </div>

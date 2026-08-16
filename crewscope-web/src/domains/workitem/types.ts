@@ -126,6 +126,7 @@ export interface ResponsibilityAssignment {
   actorType: string
   actorMemberId: string | null
   actorDisplayName: string
+  actorAgentProfileId: string | null
   status: string
   assignedByPrincipalId: string
   assignedAt: string

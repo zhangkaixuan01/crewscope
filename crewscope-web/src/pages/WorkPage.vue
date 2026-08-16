@@ -3,16 +3,28 @@ import { Columns3, Filter, List, MessageSquare, Plus, ShieldCheck, X } from '@lu
 import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
+import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import WorkItemCard from '../components/domain/WorkItemCard.vue'
 import WorkItemDetailDrawer from '../components/domain/WorkItemDetailDrawer.vue'
+import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vue'
+import TaskListPanel from '../components/domain/TaskListPanel.vue'
+import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
+import { useTaskStore } from '../domains/task/store'
+import {
+  taskStatuses,
+  type CreateTaskInput,
+  type MemberTaskCommandOperation,
+  type TaskStatus,
+  type TaskSummary,
+} from '../domains/task/types'
 import {
   workItemPriorities,
   workItemStatuses,
@@ -33,6 +45,8 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const workStore = useWorkItemStore()
 const linkStore = useConversationWorkItemLinkStore()
+const taskStore = useTaskStore()
+const isOnline = useNetworkStatus()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
@@ -50,11 +64,62 @@ const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board'] 
 const statusFilter = computed<FilterValue<WorkItemStatus>>(() => oneOf(route.query.status, ['all', ...workItemStatuses] as const, 'all'))
 const typeFilter = computed<FilterValue<WorkItemType>>(() => oneOf(route.query.type, ['all', ...workItemTypes] as const, 'all'))
 const priorityFilter = computed<FilterValue<WorkItemPriority>>(() => oneOf(route.query.priority, ['all', ...workItemPriorities] as const, 'all'))
+const taskStatusFilter = computed<FilterValue<TaskStatus>>(() => oneOf(route.query.taskStatus, ['all', ...taskStatuses] as const, 'all'))
+const taskOwnerFilter = computed<string | 'all'>(() => {
+  const value = queryValue(route.query.taskOwner)
+  return value && /^[0-9a-f-]{36}$/i.test(value) ? value : 'all'
+})
+const taskOwnerOptions = computed(() => {
+  if (taskOwnerFilter.value === 'all'
+    || responsibilityCandidates.value.some(item => item.principalId === taskOwnerFilter.value)) {
+    return responsibilityCandidates.value
+  }
+  return [...responsibilityCandidates.value, {
+    principalId: taskOwnerFilter.value,
+    displayName: `负责人 · ${taskOwnerFilter.value.slice(0, 8)}`,
+  }]
+})
+const taskConversationSource = computed(() => {
+  const conversationId = queryValue(route.query.conversation)
+  const messageId = queryValue(route.query.sourceMessage)
+  return conversationId && messageId ? { conversationId, messageId } : null
+})
 const showCreate = ref(false)
+const showDelegate = ref(false)
 const submitted = ref(false)
 const titleInput = ref<HTMLInputElement | null>(null)
 const form = reactive({ key: '', type: 'TASK' as WorkItemType, title: '', description: '', priority: 'MEDIUM' as WorkItemPriority, labels: '', dueAt: '' })
 let detailTriggerId: string | null = null
+let taskDetailTriggerId: string | null = null
+const selectedTaskExecutionId = ref<string | null>(null)
+
+const selectedRuntimeResource = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = selectedTaskExecutionId.value
+  return taskId && executionId ? taskStore.state.runtimeFacts[`${taskId}:${executionId}`] ?? null : null
+})
+const runtimeHealthResource = computed(() => taskStore.state.runtimeHealth.default ?? null)
+const taskAssociationResource = computed(() => taskStore.state.selectedTaskId
+  ? taskStore.state.taskAssociations[taskStore.state.selectedTaskId] ?? null
+  : null)
+const taskEventResource = computed(() => taskStore.state.selectedTaskId
+  ? taskStore.state.events[taskStore.state.selectedTaskId] ?? null
+  : null)
+const taskLiveState = computed(() => taskStore.state.selectedTaskId
+  ? taskStore.state.liveTasks[taskStore.state.selectedTaskId] ?? null
+  : null)
+const taskForbidden = computed(() => [
+  taskStore.state.errorStatus,
+  taskStore.state.detailErrorStatus,
+  taskStore.state.createErrorStatus,
+  taskStore.state.commandErrorStatus,
+  selectedRuntimeResource.value?.errorStatus,
+  runtimeHealthResource.value?.errorStatus,
+  taskAssociationResource.value?.errorStatus,
+  taskEventResource.value?.errorStatus,
+  ...Object.values(taskStore.state.associationPages).map(resource => resource.errorStatus),
+].some(status => status === 403))
+let liveFactRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 const filteredItems = computed(() => workStore.state.items.filter(item =>
   (typeFilter.value === 'all' || item.type === typeFilter.value)
@@ -75,6 +140,22 @@ const formValid = computed(() => (
   && form.key.startsWith(`${project.value?.key ?? ''}-`)
   && form.title.trim().length > 0
   && form.title.trim().length <= 240
+))
+const canDelegate = computed(() => Boolean(
+  canParticipate.value
+  && principal
+  && workStore.state.responsibilities.some(assignment =>
+    assignment.actorPrincipalId === principal.id
+    && (assignment.role === 'OWNER' || assignment.role === 'EXECUTOR'),
+  ),
+))
+const canControlTask = computed(() => Boolean(
+  canParticipate.value
+  && principal
+  && workStore.state.responsibilities.some(assignment =>
+    assignment.actorPrincipalId === principal.id
+    && (assignment.role === 'OWNER' || assignment.role === 'EXECUTOR'),
+  ),
 ))
 
 watch(
@@ -100,6 +181,81 @@ watch(
 )
 
 watch(
+  taskForbidden,
+  forbidden => {
+    if (forbidden) void router.replace({ name: 'access-denied', query: { from: route.fullPath } })
+  },
+)
+
+watch(
+  () => taskStore.state.selectedTaskId,
+  async taskId => {
+    taskStore.stopLiveTasks()
+    if (!taskId) return
+    await taskStore.loadEvents(taskId)
+    if (taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
+  },
+)
+
+watch(
+  () => taskStore.state.liveRefreshVersion,
+  () => {
+    const taskId = taskStore.state.liveUpdatedTaskId
+    if (!taskId || taskId !== taskStore.state.selectedTaskId || !principal || !team.value) return
+    if (liveFactRefreshTimer) clearTimeout(liveFactRefreshTimer)
+    // Bursty Agent events update the Timeline immediately. Task and Runtime projections are
+    // coalesced into one authoritative re-read so event timing can never roll status backwards.
+    liveFactRefreshTimer = setTimeout(async () => {
+      liveFactRefreshTimer = null
+      if (taskStore.state.selectedTaskId !== taskId || !principal || !team.value) return
+      await taskStore.select({ organizationId: principal.organizationId, teamId: team.value.id }, taskId, true)
+      if (taskStore.state.selectedTaskId !== taskId) return
+      const executionId = selectedTaskExecutionId.value
+      if (executionId) await taskStore.loadRuntimeFacts(taskId, executionId, true)
+      if (taskStore.state.details && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(taskStore.state.details.status)) {
+        taskStore.stopLiveTasks()
+      }
+    }, 350)
+  },
+)
+
+watch(
+  () => [taskStore.state.details?.id, taskStore.state.details?.currentExecutionId, taskStore.state.attempts.map(item => item.id).join(',')] as const,
+  ([taskId, currentExecutionId]) => {
+    if (!taskId) {
+      selectedTaskExecutionId.value = null
+      return
+    }
+    const selectedStillExists = taskStore.state.attempts.some(item => item.id === selectedTaskExecutionId.value)
+    selectedTaskExecutionId.value = selectedStillExists
+      ? selectedTaskExecutionId.value
+      : currentExecutionId ?? taskStore.state.attempts[0]?.id ?? null
+    if (selectedTaskExecutionId.value) {
+      void taskStore.loadRuntimeFacts(taskId, selectedTaskExecutionId.value)
+    }
+    void taskStore.loadAssociations(taskId)
+    // Refresh this no-store server projection whenever a Task detail is opened.
+    void taskStore.loadRuntimeHealth(true)
+  },
+)
+
+watch(
+  () => [scopeStore.state.phase, route.query.taskStatus, route.query.taskOwner],
+  () => {
+    if (scopeStore.state.phase !== 'ready') return
+    const canonical = {
+      ...route.query,
+      taskStatus: taskStatusFilter.value,
+      taskOwner: taskOwnerFilter.value,
+    }
+    if (route.query.taskStatus !== canonical.taskStatus || route.query.taskOwner !== canonical.taskOwner) {
+      void router.replace({ query: canonical })
+    }
+  },
+  { immediate: true },
+)
+
+watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId, route.query.workItem] as const,
   ([phase, teamId, projectId, selected]) => {
     const workItemId = queryValue(selected)
@@ -116,6 +272,34 @@ watch(
       workStore.loadDetails(scope, workItemId),
       linkStore.loadByWorkItem(scope, workItemId),
     ])
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    scopeStore.state.phase,
+    scopeStore.state.selectedTeamId,
+    scopeStore.state.selectedProjectId,
+    taskStatusFilter.value,
+    taskOwnerFilter.value,
+    route.query.task,
+  ] as const,
+  ([phase, teamId, projectId, taskStatus, taskOwner, selectedTask]) => {
+    if (phase !== 'ready' || !teamId || !projectId || !principal) {
+      if (phase === 'ready' && !projectId) taskStore.reset()
+      return
+    }
+    void scopeStore.loadMembers()
+    void taskStore.synchronize(
+      { organizationId: principal.organizationId, teamId },
+      {
+        projectId,
+        status: taskStatus === 'all' ? undefined : taskStatus,
+        ownerPrincipalId: taskOwner === 'all' ? undefined : taskOwner,
+        taskId: queryValue(selectedTask),
+      },
+    )
   },
   { immediate: true },
 )
@@ -146,7 +330,11 @@ watch(
 
 // The association Store is shared with Conversation Mode. Do not retain a WorkItem-scoped
 // response after this route leaves the tree; the next entry must read current server facts.
-onUnmounted(() => linkStore.reset())
+onUnmounted(() => {
+  linkStore.reset()
+  taskStore.stopLiveTasks()
+  if (liveFactRefreshTimer) clearTimeout(liveFactRefreshTimer)
+})
 
 function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: string): void {
   void router.replace({ query: { ...route.query, [name]: value } })
@@ -245,6 +433,193 @@ function retryLinks(): void {
   )
 }
 
+function updateTaskStatus(value: TaskStatus | 'all'): void {
+  void router.replace({ query: { ...route.query, taskStatus: value } })
+}
+
+function updateTaskOwner(value: string | 'all'): void {
+  void router.replace({ query: { ...route.query, taskOwner: value } })
+}
+
+function selectTask(task: TaskSummary): void {
+  taskDetailTriggerId = task.id
+  void router.replace({ query: {
+    ...route.query,
+    task: task.id,
+    workItem: task.workItemId,
+  } })
+}
+
+function selectTaskAttempt(executionId: string): void {
+  const taskId = taskStore.state.selectedTaskId
+  if (!taskId || selectedTaskExecutionId.value === executionId) return
+  selectedTaskExecutionId.value = executionId
+  void taskStore.loadRuntimeFacts(taskId, executionId)
+}
+
+async function closeTaskDetails(): Promise<void> {
+  taskStore.stopLiveTasks()
+  await router.replace({ query: { ...route.query, task: undefined } })
+  taskStore.clearSelection()
+  selectedTaskExecutionId.value = null
+  await nextTick()
+  const remainingModals = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')
+  const remainingModal = remainingModals.item(remainingModals.length - 1)
+  if (remainingModal) {
+    requestAnimationFrame(() => remainingModal.querySelector<HTMLElement>('button:not(:disabled)')?.focus())
+    taskDetailTriggerId = null
+    return
+  }
+  if (taskDetailTriggerId) {
+    const triggerId = taskDetailTriggerId
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-task-id="${triggerId}"]`)?.focus()
+    })
+  }
+  taskDetailTriggerId = null
+}
+
+function retryTaskDetails(): void {
+  if (!principal || !team.value || !taskStore.state.selectedTaskId) return
+  void taskStore.select(
+    { organizationId: principal.organizationId, teamId: team.value.id },
+    taskStore.state.selectedTaskId,
+    true,
+  )
+}
+
+function retryTaskRuntime(): void {
+  if (!taskStore.state.selectedTaskId || !selectedTaskExecutionId.value) return
+  void taskStore.loadRuntimeFacts(taskStore.state.selectedTaskId, selectedTaskExecutionId.value, true)
+}
+
+function retryRuntimeHealth(): void {
+  void taskStore.loadRuntimeHealth(true)
+}
+
+function retryTaskAssociations(): void {
+  if (!taskStore.state.selectedTaskId) return
+  taskStore.invalidateAssociations(taskStore.state.selectedTaskId)
+  void taskStore.loadAssociations(taskStore.state.selectedTaskId)
+}
+
+function loadTaskEventsMore(): void {
+  if (taskStore.state.selectedTaskId) void taskStore.loadEvents(taskStore.state.selectedTaskId, true)
+}
+
+function retryTaskEvents(): void {
+  const taskId = taskStore.state.selectedTaskId
+  if (!taskId) return
+  void taskStore.loadEvents(taskId).then(() => {
+    if (taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
+  })
+}
+
+async function commandTask(operation: MemberTaskCommandOperation, reason?: string): Promise<void> {
+  const details = taskStore.state.details
+  const attempt = taskStore.state.attempts.find(item => item.id === details?.currentExecutionId)
+  if (!principal || !team.value || !details || !attempt) return
+  await taskStore.commandTask({
+    scope: { organizationId: principal.organizationId, teamId: team.value.id },
+    taskId: details.id,
+    executionId: attempt.id,
+    expectedVersion: attempt.version,
+    operation,
+    reason,
+  })
+  focusCurrentTaskAttempt()
+}
+
+async function retryTaskCommand(): Promise<void> {
+  await taskStore.retryTaskCommand()
+  focusCurrentTaskAttempt()
+}
+
+function focusCurrentTaskAttempt(): void {
+  const taskId = taskStore.state.details?.id
+  const executionId = taskStore.state.details?.currentExecutionId
+  if (!taskId || !executionId || selectedTaskExecutionId.value === executionId) return
+  selectedTaskExecutionId.value = executionId
+  void taskStore.loadRuntimeFacts(taskId, executionId, true)
+}
+
+function openTaskConversation(conversationId: string): void {
+  void router.push({
+    name: 'conversation',
+    query: {
+      ...route.query,
+      conversation: conversationId,
+      project: taskStore.state.details?.projectId,
+      workItem: taskStore.state.details?.workItemId,
+      task: undefined,
+    },
+  })
+}
+
+function showTaskWorkItem(): void {
+  void closeTaskDetails()
+}
+
+function openTaskWorkItem(task: TaskSummary): void {
+  void router.replace({ query: { ...route.query, workItem: task.workItemId, task: undefined } })
+}
+
+function retryTasks(): void {
+  if (!principal || !team.value || !project.value) return
+  void taskStore.load(
+    { organizationId: principal.organizationId, teamId: team.value.id },
+    project.value.id,
+    taskStatusFilter.value === 'all' ? undefined : taskStatusFilter.value,
+    taskOwnerFilter.value === 'all' ? undefined : taskOwnerFilter.value,
+    true,
+  )
+}
+
+function openDelegate(): void {
+  taskStore.clearCreate()
+  showDelegate.value = true
+}
+
+async function delegateToAgent(input: CreateTaskInput): Promise<void> {
+  if (!principal || !team.value || !project.value || !workStore.state.detail) return
+  try {
+    const taskId = await taskStore.createTask({
+      scope: { organizationId: principal.organizationId, teamId: team.value.id },
+      projectId: project.value.id,
+      workItemId: workStore.state.detail.workItem.id,
+      expectedVersion: workStore.state.detail.workItem.version,
+      input,
+    })
+    await finishDelegation(taskId)
+  } catch {
+    // Store retains the exact command and idempotency key for an explicit retry.
+  }
+}
+
+async function retryDelegation(): Promise<void> {
+  try {
+    await finishDelegation(await taskStore.retryCreate())
+  } catch {
+    // The same request remains available while the server marks it retryable.
+  }
+}
+
+async function finishDelegation(taskId: string | null): Promise<void> {
+  if (taskStore.state.createPhase !== 'success') return
+  showDelegate.value = false
+  const workItemId = workStore.state.detail?.workItem.id
+  taskStore.clearCreate()
+  if (taskId && workItemId) {
+    await router.replace({ query: { ...route.query, workItem: workItemId, task: taskId } })
+  }
+}
+
+function closeDelegate(): void {
+  if (taskStore.state.createPhase === 'submitting') return
+  showDelegate.value = false
+  taskStore.clearCreate()
+}
+
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -325,6 +700,24 @@ const statusLabels: Record<WorkItemStatus, string> = {
         </div>
       </section>
 
+      <TaskListPanel
+        :phase="taskStore.state.phase"
+        :items="taskStore.state.items"
+        :status="taskStatusFilter"
+        :owner-principal-id="taskOwnerFilter"
+        :owners="taskOwnerOptions"
+        :selected-task-id="taskStore.state.selectedTaskId"
+        :next-cursor="taskStore.state.nextCursor"
+        :loading-more="taskStore.state.loadingMore"
+        :error-message="taskStore.state.errorMessage"
+        :on-status-change="updateTaskStatus"
+        :on-owner-change="updateTaskOwner"
+        :on-select="selectTask"
+        :on-open-work-item="openTaskWorkItem"
+        :on-retry="retryTasks"
+        :on-load-more="taskStore.loadMore"
+      />
+
       <section class="scope-rule"><ShieldCheck :size="16" /><span>URL 保存 Team、WorkProject、视图和筛选状态；服务端仍逐次校验 Membership 与完整 Scope，前端筛选不构成授权边界。</span></section>
     </div>
 
@@ -346,8 +739,21 @@ const statusLabels: Record<WorkItemStatus, string> = {
       </form>
     </div>
 
+    <DelegateToAgentDialog
+      v-if="showDelegate && workStore.state.detail"
+      :work-item="workStore.state.detail.workItem"
+      :responsibilities="workStore.state.responsibilities"
+      :submitting="taskStore.state.createPhase === 'submitting'"
+      :retryable="taskStore.state.createRetryable"
+      :error-message="taskStore.state.createErrorMessage"
+      :conversation-source="taskConversationSource"
+      :on-submit="delegateToAgent"
+      :on-retry="retryDelegation"
+      @close="closeDelegate"
+    />
+
     <WorkItemDetailDrawer
-      v-if="queryValue(route.query.workItem)"
+      v-if="queryValue(route.query.workItem) && !queryValue(route.query.task)"
       :phase="workStore.state.detailPhase"
       :details="workStore.state.detail"
       :error-message="workStore.state.detailErrorMessage"
@@ -355,6 +761,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :command-error-message="workStore.state.detailCommandErrorMessage"
       :version-conflict="workStore.state.versionConflict"
       :can-participate="canParticipate"
+      :can-delegate="canDelegate"
       :can-manage-responsibility="canManageResponsibility"
       :responsibility-phase="workStore.state.responsibilityPhase"
       :responsibilities="workStore.state.responsibilities"
@@ -384,6 +791,49 @@ const statusLabels: Record<WorkItemStatus, string> = {
       @close="closeDetails"
       @conversation="openConversation"
       @open-conversation="openLinkedConversation"
+      @delegate="openDelegate"
+    />
+
+    <TaskDetailDrawer
+      v-if="queryValue(route.query.task)"
+      :phase="taskStore.state.detailPhase"
+      :details="taskStore.state.details"
+      :attempts="taskStore.state.attempts"
+      :selected-execution-id="selectedTaskExecutionId"
+      :error-message="taskStore.state.detailErrorMessage"
+      :runtime-phase="selectedRuntimeResource?.phase ?? 'idle'"
+      :runtime-facts="selectedRuntimeResource?.value ?? null"
+      :runtime-error-message="selectedRuntimeResource?.errorMessage ?? null"
+      :fleet-phase="runtimeHealthResource?.phase ?? 'idle'"
+      :fleet="runtimeHealthResource?.value ?? null"
+      :fleet-error-message="runtimeHealthResource?.errorMessage ?? null"
+      :association-phase="taskAssociationResource?.phase ?? 'idle'"
+      :associations="taskAssociationResource?.value ?? null"
+      :association-error-message="taskAssociationResource?.errorMessage ?? null"
+      :event-phase="taskEventResource?.phase ?? 'idle'"
+      :event-page="taskEventResource?.value ?? null"
+      :event-error-message="taskEventResource?.errorMessage ?? null"
+      :live-state="taskLiveState"
+      :principals="responsibilityCandidates"
+      :can-control="canControlTask"
+      :online="isOnline"
+      :command-pending="taskStore.state.commandPending"
+      :command-error-message="taskStore.state.commandErrorMessage"
+      :command-retryable="taskStore.state.commandRetryable"
+      :command-version-conflict="taskStore.state.commandVersionConflict"
+      :on-select-attempt="selectTaskAttempt"
+      :on-retry="retryTaskDetails"
+      :on-retry-runtime="retryTaskRuntime"
+      :on-retry-fleet="retryRuntimeHealth"
+      :on-retry-associations="retryTaskAssociations"
+      :on-load-events-more="loadTaskEventsMore"
+      :on-retry-events="retryTaskEvents"
+      :on-command="commandTask"
+      :on-retry-command="retryTaskCommand"
+      :on-clear-command="taskStore.clearTaskCommand"
+      @close="closeTaskDetails"
+      @open-work-item="showTaskWorkItem"
+      @open-conversation="openTaskConversation"
     />
   </AppShell>
 </template>

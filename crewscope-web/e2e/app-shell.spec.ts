@@ -19,6 +19,15 @@ const ids = {
   conversation: '00000000-0000-0000-0000-000000001101',
   secondConversation: '00000000-0000-0000-0000-000000001102',
   taskIntent: '00000000-0000-0000-0000-000000001201',
+  task: '00000000-0000-0000-0000-000000001501',
+  taskExecution: '00000000-0000-0000-0000-000000001601',
+  previousTaskExecution: '00000000-0000-0000-0000-000000001602',
+  taskPlan: '00000000-0000-0000-0000-000000001611',
+  previousTaskPlan: '00000000-0000-0000-0000-000000001612',
+  taskStep: '00000000-0000-0000-0000-000000001621',
+  taskRun: '00000000-0000-0000-0000-000000001631',
+  taskLease: '00000000-0000-0000-0000-000000001641',
+  agentProfile: '00000000-0000-0000-0000-000000001701',
 }
 
 test.beforeEach(async ({ page }) => {
@@ -36,8 +45,13 @@ test.beforeEach(async ({ page }) => {
   let responsibilities = [
     responsibility('00000000-0000-0000-0000-000000000901', 'OWNER', ids.principal, 'USER', '张凯旋'),
     responsibility('00000000-0000-0000-0000-000000000902', 'EXECUTOR', ids.secondPrincipal, 'USER', '林晨'),
+    responsibility('00000000-0000-0000-0000-000000000904', 'EXECUTOR', ids.personalAgent, 'PERSONAL_AGENT', '张凯旋的 Personal Agent', ids.agentProfile),
     responsibility('00000000-0000-0000-0000-000000000903', 'REVIEWER', ids.specialistAgent, 'SPECIALIST_AGENT', 'Architecture Reviewer'),
   ]
+  const tasks = [task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2)]
+  const conversationTaskIds = new Set([ids.task])
+  const acceptedTaskKeys = new Map<string, string>()
+  const acceptedTaskCommandKeys = new Set<string>()
   const timeline = [
     timelineEvent('00000000-0000-0000-0000-000000001001', 'RESPONSIBILITY_ASSIGNED', '2026-08-08T03:20:00Z', '林晨'),
     timelineEvent('00000000-0000-0000-0000-000000001002', 'WORK_ITEM_CREATED', '2026-08-08T01:00:00Z', '张凯旋'),
@@ -80,6 +94,133 @@ test.beforeEach(async ({ page }) => {
         { id: '00000000-0000-0000-0000-000000000302', userPrincipalId: ids.secondPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:10:00Z', version: 0 },
         { id: '00000000-0000-0000-0000-000000000303', userPrincipalId: ids.thirdPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:20:00Z', version: 0 },
       ])
+      return
+    }
+    const workItemTaskMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/tasks$/)
+    if (workItemTaskMatch && request.method() === 'GET') {
+      await fulfillJson(route, {
+        items: tasks.filter(item => item.projectId === workItemTaskMatch[1] && item.workItemId === workItemTaskMatch[2])
+          .map(item => ({ origin: 'WORK_ITEM_ROOT', associatedAt: item.createdAt, task: { ...item, href: `/work?team=${ids.team}&project=${item.projectId}&workItem=${item.workItemId}&task=${item.id}` } })),
+        nextCursor: null,
+      })
+      return
+    }
+    if (workItemTaskMatch && request.method() === 'POST') {
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      expect(request.headers()['if-match']).toBe('"0"')
+      const input = request.postDataJSON() as { objective: string; acceptanceCriteria: string[]; executorAgentProfileId: string; conversationSource: { conversationId: string, messageId: string } | null }
+      expect(input.executorAgentProfileId).toBe(ids.agentProfile)
+      if (!acceptedTaskKeys.has(key)) {
+        const taskId = crypto.randomUUID()
+        acceptedTaskKeys.set(key, taskId)
+        tasks.unshift(task(taskId, workItemTaskMatch[2]!, input.objective, 'CREATED', 'READY', null))
+        if (input.conversationSource?.conversationId === ids.conversation) conversationTaskIds.add(taskId)
+      }
+      await fulfillReceipt(route, 0)
+      return
+    }
+    const taskCommandMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/(pause|resume|cancel|retry)$/)
+    if (taskCommandMatch && request.method() === 'POST') {
+      const selected = tasks.find(item => item.id === taskCommandMatch[1])
+      if (!selected || selected.currentExecutionId !== taskCommandMatch[2]) {
+        return fulfillError(route, 404, 'task_execution_not_found', 'Task execution not found')
+      }
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      if (request.headers()['if-match'] !== `"${selected.executionVersion}"`) {
+        return fulfillError(route, 409, 'optimistic_lock_conflict', 'Task execution version changed', selected.executionVersion)
+      }
+      if (!acceptedTaskCommandKeys.has(key)) {
+        acceptedTaskCommandKeys.add(key)
+        const operation = taskCommandMatch[3]!
+        if (operation === 'pause') {
+          expect((request.postDataJSON() as { reason: string }).reason).toBeTruthy()
+          selected.currentExecutionStatus = 'PAUSE_REQUESTED'
+        } else if (operation === 'resume') {
+          selected.currentExecutionStatus = 'READY'
+        } else if (operation === 'cancel') {
+          expect((request.postDataJSON() as { reason: string }).reason).toBeTruthy()
+          selected.currentExecutionStatus = 'CANCELLED'
+          selected.status = 'CANCELLED'
+        } else {
+          selected.previousExecutionId = selected.currentExecutionId
+          selected.previousAttempt = selected.currentAttempt
+          selected.currentExecutionId = crypto.randomUUID()
+          selected.currentAttempt += 1
+          selected.currentExecutionStatus = 'READY'
+          selected.status = 'ACTIVE'
+          selected.executionVersion = 2
+        }
+        selected.currentWaitingReason = null
+        if (operation !== 'retry') selected.executionVersion += 1
+        selected.version += 1
+      }
+      await fulfillReceipt(route, selected.executionVersion)
+      return
+    }
+    const taskRuntimeFactsMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/runtime-facts$/)
+    if (taskRuntimeFactsMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === taskRuntimeFactsMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, taskRuntimeFacts(selected, taskRuntimeFactsMatch[2]!))
+      return
+    }
+    if (path.endsWith('/runtime-health') && request.method() === 'GET') {
+      await fulfillJson(route, runtimeFleetSummary())
+      return
+    }
+    const taskAttemptMatch = path.match(/\/tasks\/([^/]+)\/attempts$/)
+    if (taskAttemptMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === taskAttemptMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, selected.currentAttempt > 1
+        ? [taskExecution(selected), historicalTaskExecution(selected)]
+        : [taskExecution(selected)])
+      return
+    }
+    const taskEventMatch = path.match(/\/tasks\/([^/]+)\/events$/)
+    if (taskEventMatch && request.method() === 'GET') {
+      if (request.headers().accept?.includes('text/event-stream')) {
+        await fulfillSse(route, [])
+      } else {
+        await fulfillJson(route, { items: [], hasMore: false, taskTerminal: false, nextCursor: null })
+      }
+      return
+    }
+    const taskAssociationsMatch = path.match(/\/tasks\/([^/]+)\/associations$/)
+    if (taskAssociationsMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === taskAssociationsMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, taskAssociations(selected, conversationTaskIds.has(selected.id)))
+      return
+    }
+    const taskDetailMatch = path.match(/\/tasks\/([^/]+)$/)
+    if (taskDetailMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === taskDetailMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, taskDetails(selected))
+      return
+    }
+    const conversationTaskMatch = path.match(/\/conversations\/([^/]+)\/tasks$/)
+    if (conversationTaskMatch && request.method() === 'GET') {
+      const items = conversationTaskMatch[1] === ids.conversation
+        ? tasks.filter(item => conversationTaskIds.has(item.id)).map(item => taskAssociation(item, 'CONVERSATION_SOURCE'))
+        : []
+      await fulfillJson(route, { items, nextCursor: null })
+      return
+    }
+    if (path.endsWith('/tasks') && request.method() === 'GET') {
+      const projectId = url.searchParams.get('projectId')
+      const status = url.searchParams.get('status')
+      const ownerPrincipalId = url.searchParams.get('ownerPrincipalId')
+      const teamId = path.split('/teams/')[1]?.split('/')[0]
+      const items = teamId === ids.team ? tasks.filter(item =>
+        (!projectId || item.projectId === projectId)
+        && (!status || item.status === status)
+        && (!ownerPrincipalId || item.ownerPrincipalId === ownerPrincipalId),
+      ) : []
+      await fulfillJson(route, { items, nextCursor: null })
       return
     }
     const workItemConversationMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/conversations$/)
@@ -296,6 +437,72 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   await expect(page.getByRole('heading', { name: 'Platform Engineering', exact: true })).toBeVisible()
 })
 
+test('Conversation restores multiple visible Tasks and preserves Conversation, WorkItem and Task navigation', async ({ page }, testInfo) => {
+  const completed = task('00000000-0000-0000-0000-000000001502', ids.workItem, '验证 Conversation Task 恢复', 'COMPLETED', 'COMPLETED', null, 1)
+  await page.route(new RegExp(`/conversations/${ids.conversation}/tasks(?:\\?.*)?$`), route => fulfillJson(route, {
+    items: [
+      taskAssociation(task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2), 'CONVERSATION_SOURCE'),
+      taskAssociation(completed, 'WORK_ITEM_ROOT'),
+    ],
+    nextCursor: null,
+  }))
+  await page.route(new RegExp(`/tasks/${completed.id}/events$`), route => fulfillSse(route, []))
+
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const taskCards = page.getByTestId('conversation-task-cards')
+  await expect(taskCards.getByText('完成 Agent Task 列表与委托入口', { exact: true })).toBeVisible()
+  await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
+  await expect(taskCards).not.toContainText('不可见的私有 Task')
+  await expect(taskCards).toHaveScreenshot(`conversation-tasks-${testInfo.project.name}.png`)
+
+  await taskCards.locator(`[data-task-id="${ids.task}"]`).getByRole('button', { name: /查看 Task/ }).click()
+  await expect(page).toHaveURL(new RegExp(`task=${ids.task}`))
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  await expect(taskDialog).toBeVisible()
+  await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
+  await expect(page).toHaveURL(/\/conversation\?/)
+  expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
+
+  await taskCards.locator(`[data-task-id="${ids.task}"]`).getByRole('button', { name: '工作项' }).click()
+  await expect(page).toHaveURL(/\/work\?/)
+  const query = new URL(page.url()).searchParams
+  expect(query.get('workItem')).toBe(ids.workItem)
+  expect(query.get('conversation')).toBe(ids.conversation)
+  expect(query.get('task')).toBeNull()
+})
+
+test('Conversation Task SSE invalidates durable facts and stops after the terminal projection', async ({ page }) => {
+  let associationReads = 0
+  await page.route(new RegExp(`/conversations/${ids.conversation}/tasks(?:\\?.*)?$`), async route => {
+    associationReads += 1
+    const terminal = associationReads > 1
+    const value = task(
+      ids.task,
+      ids.workItem,
+      '实时更新耐久 Task',
+      terminal ? 'COMPLETED' : 'WAITING',
+      terminal ? 'COMPLETED' : 'WAITING',
+      terminal ? null : 'WAITING_APPROVAL',
+      2,
+    )
+    await fulfillJson(route, { items: [taskAssociation(value, 'CONVERSATION_SOURCE')], nextCursor: null })
+  })
+  await page.route(new RegExp(`/tasks/${ids.task}/events$`), route => fulfillSse(route, [{
+    cursor: 'task-live-cursor',
+    context: { taskId: ids.task, taskExecutionId: ids.taskExecution, stepExecutionId: null, agentRunId: null, executionLeaseId: null },
+    projectionGap: false,
+    event: realtimeEvent('TASK_COMPLETED', { status: 'COMPLETED' }, { eventId: 'task-live-event', domainEventId: 'task-live-domain', streamType: 'TASK', aggregateVersion: 2 }),
+  }]))
+
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const card = page.getByTestId('conversation-task-cards').locator(`[data-task-id="${ids.task}"]`)
+  await expect(card.getByText('已完成', { exact: true })).toBeVisible()
+  await expect(card.getByText('WAITING_APPROVAL')).toBeHidden()
+  await expect.poll(() => associationReads).toBe(2)
+})
+
 test('Conversation reloads current server facts when returning from Control Mode', async ({ page }) => {
   let collectionReads = 0
   await page.route(/\/conversations(?:\?.*)?$/, async route => {
@@ -353,6 +560,7 @@ test('Conversation shows the submitted owner message before the Agent stream is 
   await page.getByLabel('消息内容').press('Enter')
   await expect(page.getByText('验证 Pending 消息收口。', { exact: true })).toBeVisible()
   await expect(page.getByText('正在连接 Personal Agent', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('conversation-task-cards').getByText('完成 Agent Task 列表与委托入口', { exact: true })).toBeVisible()
 
   releasePost()
   await expect(page.getByText('已收到：验证 Pending 消息收口。', { exact: true })).toBeVisible()
@@ -596,7 +804,7 @@ test('Conversation restores an in-flight invocation after refresh', async ({ pag
 
 test('Conversation resumes its durable event stream from the last opaque Cursor', async ({ page }) => {
   const resumes: Array<string | null> = []
-  await page.route(/\/events(?:\?.*)?$/, async route => {
+  await page.route(new RegExp(`/conversations/${ids.conversation}/events(?:\\?.*)?$`), async route => {
     const after = new URL(route.request().url()).searchParams.get('after')
     resumes.push(after)
     if (resumes.length === 1) {
@@ -849,7 +1057,7 @@ test('WorkItem detail supports deep links, Escape and focus restoration', async 
   await expect(page).toHaveURL(/focus=CRW-18/)
   await expect(dialog.getByRole('button', { name: '关闭工作项详情' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(dialog.getByRole('button', { name: '交给 Agent 处理（规划中）' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: '交给 Agent 处理' })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: '关闭工作项详情' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -907,13 +1115,389 @@ test('WorkItem responsibility management and Timeline keep server policy boundar
   await expect(dialog.getByLabel('工作项时间线').getByText('添加评论')).toBeVisible()
 })
 
-test('Agent execution entry remains an explicit non-executing placeholder', async ({ page }) => {
+test('WorkItem delegates to its assigned Agent and refreshes the Task deep link', async ({ page }) => {
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
   const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
 
-  await dialog.getByRole('button', { name: '交给 Agent 处理（规划中）' }).click()
+  await dialog.getByRole('button', { name: '交给 Agent 处理' }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+  await expect(delegate.getByText('Owner · 张凯旋')).toBeVisible()
+  await expect(delegate.getByText('Executor · 张凯旋的 Personal Agent')).toBeVisible()
+  await delegate.getByLabel('执行目标').fill('由 Personal Agent 验证 M3-F02')
+  await delegate.getByRole('button', { name: '创建 Task' }).click()
 
-  await expect(dialog.getByText(/当前不会创建虚假执行/)).toBeVisible()
+  await expect(delegate).toBeHidden()
+  await expect(page.getByRole('heading', { name: '由 Personal Agent 验证 M3-F02', exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('task')).toBeTruthy()
+  expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
+})
+
+test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restores its card', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await page.getByRole('region', { name: '已确认工作项' }).getByRole('button', { name: '查看工作项 CRW-18' }).click()
+  await expect(page).toHaveURL(/sourceMessage=/)
+  expect(new URL(page.url()).searchParams.get('sourceMessage')).toBe('00000000-0000-0000-0000-000000001304')
+
+  const workItemDialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await workItemDialog.getByRole('button', { name: '交给 Agent 处理' }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+  await expect(delegate.getByText('来源保留为当前 Conversation 消息')).toBeVisible()
+  await delegate.getByLabel('执行目标').fill('从 TaskIntent 上下文创建耐久 Task')
+  await delegate.getByRole('button', { name: '创建 Task' }).click()
+
+  const taskDialog = page.getByRole('dialog', { name: /从 TaskIntent 上下文创建耐久 Task Task 详情/ })
+  await expect(taskDialog).toBeVisible()
+  await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
+  const cards = page.getByTestId('conversation-task-cards')
+  await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
+})
+
+test('Task creation retries with the same idempotency key after a transient failure', async ({ page }) => {
+  const keys: string[] = []
+  let attempts = 0
+  await page.route(new RegExp(`/work-items/${ids.workItem}/tasks$`), async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    attempts += 1
+    keys.push(route.request().headers()['idempotency-key']!)
+    if (attempts === 1) return fulfillError(route, 503, 'task_temporarily_unavailable', 'Task 服务暂时不可用')
+    await route.fallback()
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
+  await page.getByRole('dialog', { name: 'CRW-18 工作项详情' }).getByRole('button', { name: '交给 Agent 处理' }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+
+  await delegate.getByRole('button', { name: '创建 Task' }).click()
+  await expect(delegate.getByText('Task 服务暂时不可用')).toBeVisible()
+  await delegate.getByRole('button', { name: '使用原请求重试' }).click()
+
+  await expect(delegate).toBeHidden()
+  expect(attempts).toBe(2)
+  expect(keys[1]).toBe(keys[0])
+})
+
+test('Control Mode Task list restores status, Owner and Task deep links on narrow and desktop layouts', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&taskStatus=WAITING&taskOwner=${ids.principal}`)
+  const panel = page.getByRole('region', { name: 'Agent Tasks' })
+
+  await expect(panel.getByText('等待原因 · CAPACITY')).toBeVisible()
+  await expect(panel.getByText('Attempt 2 · WAITING')).toBeVisible()
+  await expect(panel.getByLabel('Task 筛选').getByRole('combobox').first()).toHaveValue('WAITING')
+  await expect(panel.getByLabel('Task 筛选').getByRole('combobox').last()).toHaveValue(ids.principal)
+  await panel.getByRole('button', { name: '查看 Task：完成 Agent Task 列表与委托入口' }).click()
+
+  expect(new URL(page.url()).searchParams.get('task')).toBe(ids.task)
+  await page.reload()
+  await expect(panel.getByRole('button', { name: '查看 Task：完成 Agent Task 列表与委托入口' })).toBeVisible()
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(1)
+})
+
+test('Control Mode Task list exposes loading, empty, error and retry states', async ({ page }) => {
+  let release!: () => void
+  const loadingGate = new Promise<void>(resolve => { release = resolve })
+  let requests = 0
+  await page.route(/\/teams\/[^/]+\/tasks(?:\?.*)?$/, async route => {
+    requests += 1
+    if (requests === 1) {
+      await loadingGate
+      await fulfillJson(route, { items: [], nextCursor: null })
+      return
+    }
+    if (requests === 2) {
+      await fulfillError(route, 503, 'task_query_unavailable', 'Task 状态服务暂时不可用')
+      return
+    }
+    await fulfillJson(route, { items: [], nextCursor: null })
+  })
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}`)
+  const panel = page.getByRole('region', { name: 'Agent Tasks' })
+  await expect(panel.getByText('正在加载 Agent Tasks')).toBeVisible()
+  release()
+  await expect(panel.getByText('当前筛选下没有 Task')).toBeVisible()
+
+  await page.reload()
+  await expect(panel.getByText('Task 状态服务暂时不可用')).toBeVisible()
+  await panel.getByRole('button', { name: '刷新事实' }).click()
+  await expect(panel.getByText('当前筛选下没有 Task')).toBeVisible()
+})
+
+test('Task API forbidden responses enter the shared access boundary', async ({ page }) => {
+  await page.route(new RegExp(`/tasks/${ids.task}$`), route => (
+    fulfillError(route, 403, 'task_forbidden', 'Task access denied')
+  ))
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
+
+  await expect(page).toHaveURL(/\/access-denied/)
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('from')).toContain('/work')
+})
+
+test('Task detail switches attempts and explains Plan, Step, AgentRun, Lease and degraded Runtime facts', async ({ page }, testInfo) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+
+  await expect(dialog.getByText('责任快照')).toBeVisible()
+  await expect(dialog.getByText('Revision 2', { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByText('步骤进度 0/1')).toBeVisible()
+  await expect(dialog.getByText('WAITING_RUNTIME', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('1 个 Worker 失联')).toBeVisible()
+  await expect(dialog.getByText('WORKER_LOST', { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByText('secret-runtime-credential', { exact: true })).toHaveCount(0)
+
+  await dialog.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
+  await expect(dialog.getByText('历史 attempt 的初始计划。', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Agent Runs 0')).toBeVisible()
+
+  if (testInfo.project.name === 'narrow-chromium') {
+    const contextBottom = (await dialog.locator('.fleet-card').boundingBox())!.y
+    const runtimeTop = (await dialog.locator('.plan-card').boundingBox())!.y
+    expect(runtimeTop).toBeGreaterThan(contextBottom)
+  } else {
+    const contextX = (await dialog.locator('.task-detail-column--context').boundingBox())!.x
+    const runtimeX = (await dialog.locator('.task-detail-column--runtime').boundingBox())!.x
+    expect(runtimeX).toBeGreaterThan(contextX)
+  }
+
+  await dialog.getByLabel('关闭 Task 详情').click()
+  expect(new URL(page.url()).searchParams.get('task')).toBeNull()
+  expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
+  await expect(page.getByRole('dialog', { name: 'CRW-18 工作项详情' })).toBeVisible()
+})
+
+test('Task detail traps keyboard focus above its WorkItem drawer and restores the remaining modal', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}`)
+  const trigger = page.getByRole('button', { name: '查看 Task：完成 Agent Task 列表与委托入口' })
+  await trigger.click()
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+
+  await expect(taskDialog.getByLabel('关闭 Task 详情')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(taskDialog.getByRole('button', { name: '查看工作项' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(taskDialog.getByLabel('关闭 Task 详情')).toBeFocused()
+  await page.keyboard.press('Escape')
+
+  await expect(taskDialog).toBeHidden()
+  const workItemDialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(workItemDialog).toBeVisible()
+  await expect(workItemDialog.getByLabel('关闭工作项详情')).toBeFocused()
+})
+
+test('Task Timeline catches up history, recovers an expired Cursor and merges public Agent progress', async ({ page }) => {
+  const streamAfter: Array<string | null> = []
+  let streamCalls = 0
+  const history = [
+    taskEventItem('history-start', 'history-domain-start', 'WORKER_TASK_START_ACCEPTED', { operation: 'START', attempt: 2 }, 'cursor-history-start', '2026-08-08T04:02:00Z'),
+    taskEventItem('history-progress', 'history-domain-progress', 'AGENT_RUN_EVENT_RECORDED', { eventKind: 'PROGRESS', safeText: 'Agent 正在验证', progressPercent: 60, reasoning: 'private' }, 'cursor-history-progress', '2026-08-08T04:01:00Z'),
+  ]
+  await page.route(/\/tasks\/[^/]+\/events(?:\?.*)?$/, async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (!request.headers().accept?.includes('text/event-stream')) {
+      await fulfillJson(route, { items: history, hasMore: false, taskTerminal: false, nextCursor: 'cursor-history-progress' })
+      return
+    }
+    streamAfter.push(url.searchParams.get('after'))
+    streamCalls += 1
+    if (streamCalls === 1) {
+      await fulfillError(route, 410, 'cursor_expired', 'Cursor 已过期')
+      return
+    }
+    if (streamCalls === 2) {
+      await fulfillSse(route, [
+        ...history,
+        taskEventItem('replayed-progress', 'history-domain-progress', 'AGENT_RUN_EVENT_RECORDED', { eventKind: 'PROGRESS', safeText: '不应重复', progressPercent: 60 }, 'cursor-replay'),
+        taskEventItem('live-progress', 'live-domain-progress', 'WORKER_TASK_PROGRESS_ACCEPTED', { operation: 'PROGRESS', attempt: 2, safeSummary: '正在收口验收项', progressPercent: 80, credential: 'private' }, 'cursor-live-progress'),
+        taskEventItem('live-recovery', 'live-domain-recovery', 'TASK_EXECUTION_RECOVERY_STARTED', { attempt: 2, expiredPhase: 'RUN', fencingToken: 'private' }, 'cursor-live-recovery'),
+      ])
+      return
+    }
+    await fulfillSse(route, [])
+  })
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const timeline = page.getByRole('dialog').locator('.timeline-card')
+
+  await expect(timeline.getByText('80%', { exact: true }).first()).toBeVisible()
+  await expect(timeline.getByText('正在收口验收项').first()).toBeVisible()
+  await expect(timeline.getByText('执行正在恢复')).toBeVisible()
+  await expect(timeline.getByText('Agent 正在验证')).toHaveCount(1)
+  await expect(timeline.getByText('不应重复')).toHaveCount(0)
+  await expect(timeline.getByText(/private/)).toHaveCount(0)
+  expect(streamAfter.slice(0, 2)).toEqual(['cursor-history-progress', null])
+  await expect.poll(() => streamAfter.length).toBeGreaterThanOrEqual(3)
+  expect(streamAfter[2]).toBe('cursor-live-recovery')
+  expect(await timeline.locator('.progress-fill').evaluate(element => getComputedStyle(element).transitionDuration)).toBe('0s')
+})
+
+test('Task Timeline closes its live stream after authoritative terminal convergence', async ({ page }) => {
+  let terminalEventSent = false
+  let streamCalls = 0
+  await page.route(new RegExp(`/tasks/${ids.task}$`), async route => {
+    const selected = task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', terminalEventSent ? 'COMPLETED' : 'WAITING', terminalEventSent ? 'COMPLETED' : 'WAITING', terminalEventSent ? null : 'CAPACITY', 2)
+    await fulfillJson(route, taskDetails(selected))
+  })
+  await page.route(new RegExp(`/tasks/${ids.task}/events(?:\\?.*)?$`), async route => {
+    if (!route.request().headers().accept?.includes('text/event-stream')) {
+      await fulfillJson(route, { items: [], hasMore: false, taskTerminal: false, nextCursor: null })
+      return
+    }
+    streamCalls += 1
+    terminalEventSent = true
+    await fulfillSse(route, [
+      taskEventItem('live-complete', 'live-domain-complete', 'WORKER_TASK_COMPLETE_ACCEPTED', { operation: 'COMPLETE', attempt: 2, safeSummary: '验收完成' }, 'cursor-live-complete'),
+    ])
+  })
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('执行已完成')).toBeVisible()
+  await expect(dialog.getByText('COMPLETED', { exact: true }).first()).toBeVisible()
+  await page.waitForTimeout(1_500)
+  expect(streamCalls).toBe(1)
+})
+
+test('Task Cancel keeps server facts stable while pending and restores confirmation focus', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let commandRequests = 0
+  await page.route(/\/tasks\/[^/]+\/attempts\/[^/]+\/cancel$/, async route => {
+    commandRequests += 1
+    await gate
+    await route.fallback()
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  const cancel = taskDialog.getByRole('button', { name: '取消当前 Task' })
+
+  await cancel.click()
+  let confirm = page.getByRole('dialog', { name: '取消当前 Task' })
+  await confirm.getByLabel('关闭 Task 控制确认').click()
+  await expect(cancel).toBeFocused()
+
+  await cancel.click()
+  confirm = page.getByRole('dialog', { name: '取消当前 Task' })
+  await confirm.getByRole('textbox').fill('团队决定停止本次执行')
+  await confirm.getByRole('button', { name: '确认取消' }).click()
+  await expect.poll(() => commandRequests).toBe(1)
+  await expect(confirm.getByRole('button', { name: '确认取消' })).toBeDisabled()
+  await expect(taskDialog.getByText('WAITING', { exact: true }).first()).toBeVisible()
+
+  release()
+  await expect(confirm).toBeHidden()
+  await expect(taskDialog.getByText('CANCELLED', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
+})
+
+test('Task command conflict refreshes a terminal race and removes stale controls', async ({ page }) => {
+  const serverTask = task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2)
+  let raced = false
+  await page.route(/\/tasks\//, async route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'POST' && path.endsWith('/cancel')) {
+      raced = true
+      serverTask.status = 'CANCELLED'
+      serverTask.currentExecutionStatus = 'CANCELLED'
+      serverTask.currentWaitingReason = null
+      serverTask.executionVersion = 1
+      return fulfillError(route, 409, 'optimistic_lock_conflict', 'Task execution version changed', 1)
+    }
+    if (raced && request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}`)) {
+      return fulfillJson(route, taskDetails(serverTask))
+    }
+    if (raced && request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}/attempts`)) {
+      return fulfillJson(route, [taskExecution(serverTask), historicalTaskExecution(serverTask)])
+    }
+    if (raced && request.method() === 'GET' && path.includes(`/tasks/${ids.task}/attempts/`) && path.endsWith('/runtime-facts')) {
+      return fulfillJson(route, taskRuntimeFacts(serverTask, serverTask.currentExecutionId))
+    }
+    await route.fallback()
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+
+  await taskDialog.getByRole('button', { name: '取消当前 Task' }).click()
+  const confirm = page.getByRole('dialog', { name: '取消当前 Task' })
+  await confirm.getByRole('textbox').fill('已由其他成员处理')
+  await confirm.getByRole('button', { name: '确认取消' }).click()
+
+  await expect(taskDialog.getByText('执行事实已变化')).toBeVisible()
+  await expect(taskDialog.getByText(/服务端当前版本为 v1/)).toBeVisible()
+  await expect(taskDialog.getByText('CANCELLED', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
+})
+
+test('Task Retry preserves the failed attempt and selects the server-created successor', async ({ page }) => {
+  const serverTask = task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'FAILED', 'FAILED', null, 2)
+  serverTask.executionVersion = 4
+  await page.route(/\/tasks\//, async route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}`)) {
+      return fulfillJson(route, taskDetails(serverTask))
+    }
+    if (request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}/attempts`)) {
+      return fulfillJson(route, serverTask.currentAttempt > 1
+        ? [taskExecution(serverTask), historicalTaskExecution(serverTask)]
+        : [taskExecution(serverTask)])
+    }
+    if (request.method() === 'GET' && path.includes(`/tasks/${ids.task}/attempts/`) && path.endsWith('/runtime-facts')) {
+      const executionId = path.split('/attempts/')[1]!.split('/')[0]!
+      return fulfillJson(route, taskRuntimeFacts(serverTask, executionId))
+    }
+    if (request.method() === 'POST' && path.endsWith('/retry')) {
+      expect(request.headers()['if-match']).toBe('"4"')
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      serverTask.previousExecutionId = serverTask.currentExecutionId
+      serverTask.previousAttempt = serverTask.currentAttempt
+      serverTask.currentExecutionId = crypto.randomUUID()
+      serverTask.currentAttempt += 1
+      serverTask.currentExecutionStatus = 'READY'
+      serverTask.status = 'ACTIVE'
+      serverTask.executionVersion = 2
+      serverTask.version += 1
+      return fulfillReceipt(route, serverTask.version)
+    }
+    await route.fallback()
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+
+  await taskDialog.getByRole('button', { name: '重试当前 Task' }).click()
+  const confirm = page.getByRole('dialog', { name: '创建新的执行 Attempt' })
+  await expect(confirm.getByText(/失败 attempt 会作为历史证据保留/)).toBeVisible()
+  await confirm.getByRole('button', { name: '确认重试' }).click()
+
+  await expect(confirm).toBeHidden()
+  await expect(taskDialog.getByText('当前 Attempt 3')).toBeVisible()
+  await expect(taskDialog.locator('.attempt-list button').filter({ hasText: 'Attempt 3' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(taskDialog.locator('.attempt-list button').filter({ hasText: 'Attempt 2' })).toContainText('FAILED')
+})
+
+test('Task controls fail closed for offline and read-only members', async ({ page, context }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  let taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toBeVisible()
+
+  await context.setOffline(true)
+  await expect(page.getByText(/当前离线：已加载事实和草稿已保留/)).toBeVisible()
+  await expect(taskDialog.getByText('当前离线，控制命令将在恢复网络后才可提交。')).toBeVisible()
+  await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toBeDisabled()
+  await context.setOffline(false)
+
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, async route => {
+    await fulfillJson(route, [responsibility(crypto.randomUUID(), 'EXECUTOR', ids.secondPrincipal, 'USER', '林晨')])
+  })
+  await page.reload()
+  taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  await expect(taskDialog.getByText('当前成员没有这个 Task 的 Owner 或 Executor 控制责任。')).toBeVisible()
+  await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
 })
 
 test('Responsibility and Timeline facts remain consistent after reload and Cursor replay', async ({ page }) => {
@@ -968,15 +1552,22 @@ test('M1 Work visual baseline', async ({ page }, testInfo) => {
   await page.getByLabel('进行中').getByRole('button', { name: /打开 CRW-18/ }).click()
   await expect(page.getByRole('dialog', { name: 'CRW-18 工作项详情' }).getByText('Architecture Reviewer')).toBeVisible()
   await expect(page).toHaveScreenshot(`work-detail-${testInfo.project.name}.png`, { fullPage: true })
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`)
+  await expect(page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ }).getByText('Revision 2', { exact: true }).first()).toBeVisible()
+  await expect(page).toHaveScreenshot(`task-detail-${testInfo.project.name}.png`)
 })
 
-test('M2 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+test('M2 and M3 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`, ready: () => page.getByRole('dialog', { name: 'CRW-18 工作项详情' }) },
+    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByTestId('conversation-task-cards') },
+    { path: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`, ready: () => page.getByRole('region', { name: 'Agent Tasks' }) },
+    { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`, ready: () => page.getByRole('dialog', { name: /Task 详情/ }) },
   ]
 
   for (const route of routes) {
@@ -1046,12 +1637,156 @@ function conversationWorkItemAssociation() {
   }
 }
 
-function responsibility(id: string, role: string, actorPrincipalId: string, actorType: string, actorDisplayName: string) {
-  return { id, workItemId: ids.workItem, role, actorPrincipalId, actorType, actorMemberId: actorType === 'USER' ? crypto.randomUUID() : null, actorDisplayName, status: 'ACTIVE', assignedByPrincipalId: ids.principal, assignedAt: '2026-08-08T03:20:00Z', acceptedAt: '2026-08-08T03:20:00Z', version: 0 }
+function responsibility(id: string, role: string, actorPrincipalId: string, actorType: string, actorDisplayName: string, actorAgentProfileId: string | null = null) {
+  return { id, workItemId: ids.workItem, role, actorPrincipalId, actorType, actorMemberId: actorType === 'USER' ? crypto.randomUUID() : null, actorDisplayName, actorAgentProfileId, status: 'ACTIVE', assignedByPrincipalId: ids.principal, assignedAt: '2026-08-08T03:20:00Z', acceptedAt: '2026-08-08T03:20:00Z', version: 0 }
+}
+
+function task(id: string, workItemId: string, objective: string, status: string, executionStatus: string, waitingReason: string | null, currentAttempt = 1) {
+  return {
+    id, workspaceId: ids.workspace, projectId: ids.project, workItemId, objective,
+    acceptanceCriteria: ['通过自动化测试'], status, currentExecutionId: ids.taskExecution,
+    currentAttempt, currentExecutionStatus: executionStatus, currentWaitingReason: waitingReason,
+    previousExecutionId: ids.previousTaskExecution, previousAttempt: Math.max(1, currentAttempt - 1), executionVersion: 0,
+    ownerPrincipalId: ids.principal, version: 0, createdAt: '2026-08-08T03:30:00Z', updatedAt: '2026-08-08T03:40:00Z',
+  }
+}
+
+function taskAssociation(value: ReturnType<typeof task>, origin = 'WORK_ITEM_ROOT') {
+  return {
+    origin,
+    associatedAt: value.createdAt,
+    task: {
+      ...value,
+      href: `/work?team=${ids.team}&project=${value.projectId}&workItem=${value.workItemId}&task=${value.id}`,
+    },
+  }
+}
+
+function taskAssociations(value: ReturnType<typeof task>, conversationVisible = true) {
+  return {
+    task: { id: value.id, projectId: value.projectId, workItemId: value.workItemId, status: value.status, objective: value.objective, href: `/work?task=${value.id}` },
+    workItem: { id: value.workItemId, projectId: value.projectId, key: 'CRW-18', title: '共享范围与筛选状态', status: 'IN_PROGRESS', href: `/work?workItem=${value.workItemId}` },
+    conversations: {
+      items: conversationVisible
+        ? [{ id: ids.conversation, title: '规划 GitHub Provider 接入', visibility: 'PRIVATE', status: 'ACTIVE', origin: 'CONVERSATION_SOURCE', associatedAt: value.createdAt, href: `/conversation?conversation=${ids.conversation}` }]
+        : [],
+      nextCursor: null,
+    },
+  }
+}
+
+function taskExecution(value: ReturnType<typeof task>) {
+  return {
+    id: value.currentExecutionId, attempt: value.currentAttempt, maxAttempts: 3, parentExecutionId: null,
+    priority: 50, notBefore: value.createdAt, status: value.currentExecutionStatus,
+    waiting: value.currentWaitingReason ? { reason: value.currentWaitingReason, waitingSince: value.updatedAt } : null,
+    controlRequest: ['PAUSE_REQUESTED', 'CANCEL_REQUESTED'].includes(value.currentExecutionStatus)
+      ? { type: value.currentExecutionStatus === 'PAUSE_REQUESTED' ? 'PAUSE' : 'CANCEL', requestedByPrincipalId: ids.principal, requestedAt: value.updatedAt, reason: '团队控制命令' }
+      : null,
+    terminal: value.currentExecutionStatus === 'CANCELLED'
+      ? { status: 'CANCELLED', decidedByPrincipalId: ids.principal, decidedAt: value.updatedAt, failureClass: null, failureCode: null }
+      : value.currentExecutionStatus === 'FAILED'
+        ? { status: 'FAILED', decidedByPrincipalId: ids.principal, decidedAt: value.updatedAt, failureClass: 'TRANSIENT', failureCode: 'WORKER_LOST' }
+        : null,
+    executorPrincipalId: ids.personalAgent,
+    currentPlanVersionId: value.currentAttempt > 1 ? ids.taskPlan : null, version: value.executionVersion,
+    audit: { createdByPrincipalId: ids.principal, createdAt: value.createdAt, updatedByPrincipalId: ids.principal, updatedAt: value.updatedAt },
+  }
+}
+
+function historicalTaskExecution(value: ReturnType<typeof task>) {
+  return {
+    ...taskExecution(value), id: value.previousExecutionId, attempt: value.previousAttempt, status: 'FAILED', waiting: null,
+    currentPlanVersionId: ids.previousTaskPlan,
+    terminal: { status: 'FAILED', decidedByPrincipalId: ids.principal, decidedAt: '2026-08-08T03:28:00Z', failureClass: 'TRANSIENT', failureCode: 'WORKER_LOST' },
+  }
+}
+
+function taskRuntimeFacts(value: ReturnType<typeof task>, executionId: string) {
+  const audit = { createdByPrincipalId: ids.principal, createdAt: value.createdAt, updatedByPrincipalId: ids.principal, updatedAt: value.updatedAt }
+  if (executionId !== value.currentExecutionId) {
+    return {
+      execution: historicalTaskExecution(value),
+      planVersions: [{ id: ids.previousTaskPlan, revision: 1, parentVersionId: null, changeReason: '初始计划', markdown: '历史 attempt 的初始计划。', steps: [], todoSummary: [], publishedByPrincipalId: ids.principal, publishedAt: value.createdAt }],
+      steps: [], sessions: [], agentRuns: [], interrupts: [], snapshots: [], leases: [],
+      credential: 'secret-runtime-credential',
+    }
+  }
+  return {
+    execution: taskExecution(value),
+    planVersions: [
+      { id: ids.previousTaskPlan, revision: 1, parentVersionId: null, changeReason: '初始计划', markdown: '先建立 Task 详情契约。', steps: [], todoSummary: [], publishedByPrincipalId: ids.principal, publishedAt: value.createdAt },
+      {
+        id: ids.taskPlan, revision: 2, parentVersionId: ids.previousTaskPlan, changeReason: '补充 Runtime 安全事实',
+        markdown: '展示团队可理解、可审计的执行进度。',
+        steps: [{ key: 'runtime-view', sequence: 1, title: '实现 Runtime 详情', type: 'ACTION', dependencyKeys: [], requiredCapabilities: ['CODE'], requiredTools: ['github'], critical: true }],
+        todoSummary: [{ content: '实现 Runtime 详情', status: 'IN_PROGRESS', priority: 'HIGH', planStepKey: 'runtime-view' }],
+        publishedByPrincipalId: ids.principal, publishedAt: value.updatedAt,
+      },
+    ],
+    steps: [{ id: ids.taskStep, planVersionId: ids.taskPlan, planStepKey: 'runtime-view', sequence: 1, critical: true, runAttempt: 1, maxRunAttempts: 2, status: 'WAITING', waitReason: 'WAITING_RUNTIME', checkpoint: null, failureClass: null, failureCode: null, version: 1, audit }],
+    sessions: [{ id: 'runtime-session', stepExecutionId: ids.taskStep, purpose: '实现 Runtime 详情', agentPrincipalId: ids.personalAgent, agentProfileId: ids.agentProfile, agentProfileVersion: 2, status: 'INTERRUPTED', version: 1, audit }],
+    agentRuns: [{
+      id: ids.taskRun, stepExecutionId: ids.taskStep, runtimeSessionId: 'runtime-session', agentPrincipalId: ids.personalAgent,
+      agentProfileId: ids.agentProfile, agentProfileVersion: 2, runSequence: 1, status: 'INTERRUPTED',
+      segments: [{ sequence: 1, kind: 'PRIMARY', resumedFromInterruptId: null, status: 'ENDED', startedAt: value.createdAt, endedAt: value.updatedAt }],
+      continuityGap: { previousRunId: 'previous-run', lastValidSnapshotId: null, firstMissingCheckpoint: 2, lastMissingCheckpoint: 3, reason: 'WORKER_LOST', detectedAt: value.updatedAt },
+      terminal: null, version: 1, audit,
+    }],
+    interrupts: [{ id: 'interrupt-safe', agentRunId: ids.taskRun, segmentSequence: 1, kind: 'RUNTIME_LOST', status: 'OPEN', resolvedByPrincipalId: null, resolvedAt: null, version: 0, audit }],
+    snapshots: [{ id: 'snapshot-safe', agentRunId: ids.taskRun, runtimeSessionId: 'runtime-session', agentProfileId: ids.agentProfile, agentProfileVersion: 2, snapshotSequence: 1, checkpointSequence: 1, sizeBytes: 2048, status: 'VALID', invalidReasonCode: null, version: 0, audit }],
+    leases: [{ id: ids.taskLease, environment: 'production', runtimeId: 'runtime-public', workerId: 'worker-public', phase: 'EXECUTING', status: 'EXPIRED', acquiredAt: value.createdAt, lastHeartbeatAt: value.updatedAt, expiresAt: value.updatedAt, releaseReason: 'WORKER_LOST', releasedAt: value.updatedAt, version: 1 }],
+    credential: 'secret-runtime-credential',
+  }
+}
+
+function runtimeFleetSummary() {
+  return {
+    environment: 'production', observedAt: '2026-08-08T03:41:00Z', health: 'DEGRADED', runtimeCount: 2,
+    workerCount: 3, activeWorkerCount: 2, staleWorkerCount: 1, drainingWorkerCount: 0,
+    capacity: { maximum: 6, active: 5, available: 1 }, waitingRuntimeExecutions: 1,
+    waitingCauses: [{ cause: 'CAPACITY', count: 1 }], workers: [{ credential: 'secret-runtime-credential' }],
+  }
+}
+
+function taskDetails(value: ReturnType<typeof task>) {
+  return {
+    id: value.id, teamId: ids.team, workspaceId: value.workspaceId, projectId: value.projectId,
+    workItemId: value.workItemId, objective: value.objective, acceptanceCriteria: value.acceptanceCriteria,
+    source: { type: 'WORK_ITEM', workItemVersion: 0, conversationId: null, inputType: null, inputId: null, inputVersion: null },
+    responsibilitySnapshot: [
+      { assignmentId: 'owner', assignmentVersion: 0, role: 'OWNER', principalId: ids.principal, principalType: 'USER', memberId: ids.member, assignedAt: value.createdAt, acceptedAt: value.createdAt },
+      { assignmentId: 'executor', assignmentVersion: 0, role: 'EXECUTOR', principalId: ids.personalAgent, principalType: 'PERSONAL_AGENT', memberId: null, assignedAt: value.createdAt, acceptedAt: value.createdAt },
+    ],
+    responsibilityCapturedAt: value.createdAt, status: value.status, currentExecutionId: value.currentExecutionId,
+    cancellation: null, version: value.version,
+    audit: { createdByPrincipalId: ids.principal, createdAt: value.createdAt, updatedByPrincipalId: ids.principal, updatedAt: value.updatedAt },
+    attempts: [taskExecution(value)],
+  }
 }
 
 function timelineEvent(eventId: string, eventType: string, occurredAt: string, actorDisplayName: string) {
   return { eventId, domainEventId: eventId, source: 'DOMAIN_EVENT', eventType, schemaVersion: '1', aggregateType: 'WorkItem', aggregateId: ids.workItem, aggregateVersion: 0, actorType: 'USER', actorPrincipalId: ids.principal, actorDisplayName, correlationId: crypto.randomUUID(), causationId: null, occurredAt, outcome: 'SUCCEEDED', payload: { workItemId: ids.workItem } }
+}
+
+function taskEventItem(
+  eventId: string,
+  domainEventId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+  cursor: string,
+  occurredAt = '2026-08-08T04:00:00Z',
+) {
+  return {
+    cursor,
+    context: { taskId: ids.task, taskExecutionId: ids.taskExecution, stepExecutionId: null, agentRunId: ids.taskRun, executionLeaseId: null },
+    projectionGap: false,
+    event: {
+      eventId, domainEventId, streamType: 'TASK', eventType, schemaVersion: '1', aggregateType: 'TaskExecution',
+      aggregateId: ids.taskExecution, aggregateVersion: 2, correlationId: 'task-timeline-correlation',
+      causationId: null, occurredAt, payload,
+    },
+  }
 }
 
 function fulfillJson(route: Route, value: unknown): Promise<void> {

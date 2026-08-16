@@ -264,6 +264,7 @@ function responsibility(
     actorType,
     actorMemberId: actorType === 'USER' ? crypto.randomUUID() : null,
     actorDisplayName,
+    actorAgentProfileId: null,
     status: 'ACTIVE',
     assignedByPrincipalId: fixtureIds.principal,
     assignedAt: '2026-08-08T03:20:00Z',
