@@ -10,6 +10,7 @@ import io.crewscope.application.responsibility.ResponsibilityAssignmentRepositor
 import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.responsibility.ResponsibilityCommandService;
 import io.crewscope.application.responsibility.ResponsibilityQueryService;
+import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -68,11 +69,13 @@ public class WorkItemApplicationConfiguration {
   ResponsibilityQueryService responsibilityQueryService(
       ResponsibilityAssignmentRepository responsibilityAssignmentRepository,
       PrincipalRepository principalRepository,
+      AgentProfileRepository agentProfileRepository,
       WorkItemAccessPolicy workItemAccessPolicy,
       TransactionExecutor transactionExecutor) {
     return new ResponsibilityQueryService(
         responsibilityAssignmentRepository,
         principalRepository,
+        agentProfileRepository,
         workItemAccessPolicy,
         transactionExecutor);
   }

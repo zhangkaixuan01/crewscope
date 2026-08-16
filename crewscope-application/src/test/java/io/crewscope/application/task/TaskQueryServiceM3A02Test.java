@@ -15,6 +15,7 @@ import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -90,6 +91,7 @@ class TaskQueryServiceM3A02Test {
                 teamId,
                 Optional.of(projectId),
                 Optional.of(TaskStatus.ACTIVE),
+                Optional.of(PrincipalId.generate()),
                 Optional.of(cursor),
                 25);
 
@@ -99,6 +101,7 @@ class TaskQueryServiceM3A02Test {
         verify(tasks).findPage(query.capture());
         assertEquals(Optional.of(projectId), query.getValue().projectId());
         assertEquals(Optional.of(TaskStatus.ACTIVE), query.getValue().status());
+        org.junit.jupiter.api.Assertions.assertTrue(query.getValue().ownerPrincipalId().isPresent());
         assertEquals(Optional.of(cursor), query.getValue().cursor());
         assertEquals(25, query.getValue().limit());
     }
@@ -112,6 +115,7 @@ class TaskQueryServiceM3A02Test {
                 context,
                 organizationId,
                 teamId,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

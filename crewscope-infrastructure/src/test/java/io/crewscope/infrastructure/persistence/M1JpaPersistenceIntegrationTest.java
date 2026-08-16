@@ -251,6 +251,13 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             .findActiveDefaultPersonal(foundation.organizationId(), value.ownerMember().id())
             .isPresent());
     assertEquals(
+        value.ownerPersonalAgent().agentProfile().id(),
+        agentProfileRepository
+            .findActiveByAgentPrincipalId(
+                foundation.organizationId(), value.ownerPersonalAgent().agentPrincipal().id())
+            .orElseThrow()
+            .id());
+    assertEquals(
         1,
         jdbcTemplate.queryForObject("SELECT COUNT(*) FROM crewscope.agent_profile", Integer.class));
 
@@ -1886,6 +1893,7 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     return new ResponsibilityQueryService(
         assignmentRepository,
         principalRepository,
+        agentProfileRepository,
         workItemAccessPolicy(),
         transactionExecutor);
   }

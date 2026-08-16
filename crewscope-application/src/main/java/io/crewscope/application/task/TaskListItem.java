@@ -1,6 +1,7 @@
 package io.crewscope.application.task;
 
 import io.crewscope.domain.shared.audit.AuditMetadata;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
@@ -23,6 +24,7 @@ public record TaskListItem(
         Optional<Integer> currentAttempt,
         Optional<TaskExecutionStatus> currentExecutionStatus,
         Optional<TaskExecutionWaitReason> currentWaitingReason,
+        Optional<PrincipalId> ownerPrincipalId,
         long version,
         AuditMetadata audit) {
 
@@ -38,6 +40,7 @@ public record TaskListItem(
                 currentExecutionStatus, "currentExecutionStatus");
         currentWaitingReason = Objects.requireNonNull(
                 currentWaitingReason, "currentWaitingReason");
+        ownerPrincipalId = Objects.requireNonNull(ownerPrincipalId, "ownerPrincipalId");
         audit = Objects.requireNonNull(audit, "audit");
         boolean executionShape = currentExecutionId.isPresent() == currentAttempt.isPresent()
                 && currentExecutionId.isPresent() == currentExecutionStatus.isPresent();

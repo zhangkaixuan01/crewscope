@@ -600,6 +600,18 @@ class TeamApplicationServiceTest {
     }
 
     @Override
+    public Optional<AgentProfile> findActiveByAgentPrincipalId(
+        OrganizationId organizationId, PrincipalId agentPrincipalId) {
+      return agents.values().stream()
+          .map(PersonalAgentInitialization::agentProfile)
+          .filter(profile -> profile.scope().organizationId().equals(organizationId))
+          .filter(profile -> profile.agentPrincipalId().equals(agentPrincipalId))
+          .filter(profile -> profile.status()
+              == io.crewscope.domain.workspace.AgentProfileStatus.ACTIVE)
+          .findFirst();
+    }
+
+    @Override
     public void append(DomainEventEnvelope<? extends DomainEvent> event) {
       events.add(event);
     }

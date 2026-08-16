@@ -132,15 +132,20 @@ public class JpaTaskRuntimeRepositoryAdapter implements
         TaskListQuery required = Objects.requireNonNull(query, "query");
         StringBuilder jpql = new StringBuilder(
                 """
-                SELECT task, execution FROM TaskEntity task
+                SELECT task, execution, ownerEntry FROM TaskEntity task
                 LEFT JOIN TaskExecutionEntity execution
                   ON execution.organizationId = task.organizationId
                  AND execution.id = task.currentExecutionId
+                LEFT JOIN TaskResponsibilitySnapshotEntryEntity ownerEntry
+                  ON ownerEntry.snapshotId = task.responsibilitySnapshotId
+                 AND ownerEntry.role = 'OWNER'
                 WHERE task.organizationId = :organizationId
                   AND task.teamId = :teamId
                 """);
         required.projectId().ifPresent(ignored -> jpql.append(" AND task.projectId = :projectId"));
         required.status().ifPresent(ignored -> jpql.append(" AND task.status = :status"));
+        required.ownerPrincipalId().ifPresent(ignored ->
+                jpql.append(" AND ownerEntry.principalId = :ownerPrincipalId"));
         required.cursor().ifPresent(ignored -> jpql.append(
                 """
                  AND (task.updatedAt < :cursorTime
@@ -155,6 +160,8 @@ public class JpaTaskRuntimeRepositoryAdapter implements
         required.projectId().ifPresent(value ->
                 persistenceQuery.setParameter("projectId", value.value()));
         required.status().ifPresent(value -> persistenceQuery.setParameter("status", value.name()));
+        required.ownerPrincipalId().ifPresent(value ->
+                persistenceQuery.setParameter("ownerPrincipalId", value.value()));
         required.cursor().ifPresent(value -> {
             persistenceQuery.setParameter("cursorTime", value.updatedAt().value());
             persistenceQuery.setParameter("cursorId", value.id().value());
@@ -689,6 +696,8 @@ public class JpaTaskRuntimeRepositoryAdapter implements
     private TaskListItem toListItem(Object[] values) {
         TaskEntity task = (TaskEntity) values[0];
         TaskExecutionEntity execution = (TaskExecutionEntity) values[1];
+        TaskResponsibilitySnapshotEntryEntity owner = values.length > 2
+                && values[2] instanceof TaskResponsibilitySnapshotEntryEntity entry ? entry : null;
         WorkItemScope scope = new WorkItemScope(
                 new OrganizationId(task.organizationId),
                 new TeamId(task.teamId),
@@ -712,6 +721,7 @@ public class JpaTaskRuntimeRepositoryAdapter implements
                 Optional.ofNullable(execution)
                         .map(value -> value.waitingReason)
                         .map(TaskExecutionWaitReason::valueOf),
+                Optional.ofNullable(owner).map(value -> new PrincipalId(value.principalId)),
                 task.version,
                 audit);
     }

@@ -9,6 +9,7 @@ import io.crewscope.application.task.TaskRuntimeFacts;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.AgentInterrupt;
 import io.crewscope.domain.task.AgentRun;
@@ -77,6 +78,7 @@ public final class TaskQueryController {
             @PathVariable String teamId,
             @RequestParam(required = false) String projectId,
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(required = false) String ownerPrincipalId,
             @RequestParam(required = false) String after,
             @RequestParam(required = false) Integer limit,
             Authentication authentication,
@@ -85,18 +87,22 @@ public final class TaskQueryController {
         Optional<WorkProjectId> project = Optional.ofNullable(projectId)
                 .map(value -> projectId(value, "projectId"));
         Optional<TaskStatus> selectedStatus = Optional.ofNullable(status);
+        Optional<PrincipalId> selectedOwner = Optional.ofNullable(ownerPrincipalId)
+                .map(value -> principalId(value, "ownerPrincipalId"));
         Optional<TaskListCursor> cursor = Optional.ofNullable(after).map(value -> cursorCodec.decode(
                 value,
                 route.organizationId(),
                 route.teamId(),
                 project,
-                selectedStatus));
+                selectedStatus,
+                selectedOwner));
         return query(authentication, route.organizationId(), exchange, access -> service.list(
                         access,
                         route.organizationId(),
                         route.teamId(),
                         project,
                         selectedStatus,
+                        selectedOwner,
                         cursor,
                         ApiPagination.limit(limit)))
                 .map(page -> ResponseEntity.ok()
@@ -107,7 +113,8 @@ public final class TaskQueryController {
                                 route.organizationId(),
                                 route.teamId(),
                                 project,
-                                selectedStatus)));
+                                selectedStatus,
+                                selectedOwner)));
     }
 
     @GetMapping("/{taskId}")
@@ -209,6 +216,14 @@ public final class TaskQueryController {
         }
     }
 
+    private static PrincipalId principalId(String value, String field) {
+        try {
+            return PrincipalId.from(value);
+        } catch (IllegalArgumentException exception) {
+            throw invalidIdentifier(field);
+        }
+    }
+
     private static ApiRequestException invalidIdentifier(String field) {
         return new ApiRequestException(
                 org.springframework.http.HttpStatus.BAD_REQUEST,
@@ -226,12 +241,18 @@ public final class TaskQueryController {
                 OrganizationId organizationId,
                 TeamId teamId,
                 Optional<WorkProjectId> projectId,
-                Optional<TaskStatus> status) {
+                Optional<TaskStatus> status,
+                Optional<PrincipalId> ownerPrincipalId) {
             return new TaskPageResponse(
                     page.items().stream().map(TaskListItemResponse::from).toList(),
                     page.nextCursor()
                             .map(value -> codec.encode(
-                                    value, organizationId, teamId, projectId, status))
+                                    value,
+                                    organizationId,
+                                    teamId,
+                                    projectId,
+                                    status,
+                                    ownerPrincipalId))
                             .orElse(null));
         }
     }
@@ -248,6 +269,7 @@ public final class TaskQueryController {
             Integer currentAttempt,
             String currentExecutionStatus,
             String currentWaitingReason,
+            UUID ownerPrincipalId,
             long version,
             Instant createdAt,
             Instant updatedAt) {
@@ -264,6 +286,7 @@ public final class TaskQueryController {
                     value.currentAttempt().orElse(null),
                     value.currentExecutionStatus().map(Enum::name).orElse(null),
                     value.currentWaitingReason().map(Enum::name).orElse(null),
+                    value.ownerPrincipalId().map(PrincipalId::value).orElse(null),
                     value.version(),
                     value.audit().createdAt().value(),
                     value.audit().updatedAt().value());

@@ -31,6 +31,9 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ConversationTaskLinkOrigin;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskBrief;
+import io.crewscope.domain.task.TaskExecutionId;
+import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskExecutionWaitReason;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.TaskStatus;
 import io.crewscope.domain.workitem.WorkItem;
@@ -115,8 +118,22 @@ class TaskAssociationControllerM3A06Test {
     @Test
     void exposesConversationLinkOriginWithoutInventingTaskState() {
         ConversationId conversationId = ConversationId.generate();
-        TaskAssociationItem item = taskItem(
-                TaskStatus.COMPLETED, Optional.of(ConversationTaskLinkOrigin.SOURCE));
+        PrincipalId owner = PrincipalId.generate();
+        TaskListItem task = new TaskListItem(
+                TaskId.generate(),
+                scope,
+                workItemId,
+                new TaskBrief("Execute release", List.of("Verified")),
+                TaskStatus.WAITING,
+                Optional.of(TaskExecutionId.generate()),
+                Optional.of(2),
+                Optional.of(TaskExecutionStatus.WAITING),
+                Optional.of(TaskExecutionWaitReason.CONFIRMATION),
+                Optional.of(owner),
+                1,
+                AuditMetadata.createdBy(owner, NOW));
+        TaskAssociationItem item = new TaskAssociationItem(
+                task, Optional.of(ConversationTaskLinkOrigin.SOURCE), NOW);
         when(service.byConversation(any(), any(), any(), any(), any(), any(Integer.class)))
                 .thenReturn(new TaskAssociationPage(List.of(item), Optional.empty()));
 
@@ -126,7 +143,10 @@ class TaskAssociationControllerM3A06Test {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.items[0].origin").isEqualTo("SOURCE")
-                .jsonPath("$.items[0].task.status").isEqualTo("COMPLETED")
+                .jsonPath("$.items[0].task.status").isEqualTo("WAITING")
+                .jsonPath("$.items[0].task.currentWaitingReason")
+                .isEqualTo("CONFIRMATION")
+                .jsonPath("$.items[0].task.ownerPrincipalId").isEqualTo(owner.toString())
                 .jsonPath("$.nextCursor").doesNotExist();
     }
 
@@ -205,6 +225,7 @@ class TaskAssociationControllerM3A06Test {
                 workItemId,
                 new TaskBrief("Execute release", List.of("Verified")),
                 status,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

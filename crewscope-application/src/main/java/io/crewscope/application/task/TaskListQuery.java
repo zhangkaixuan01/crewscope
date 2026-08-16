@@ -1,6 +1,7 @@
 package io.crewscope.application.task;
 
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.TaskStatus;
 import io.crewscope.domain.workitem.WorkProjectId;
@@ -13,6 +14,7 @@ public record TaskListQuery(
         TeamId teamId,
         Optional<WorkProjectId> projectId,
         Optional<TaskStatus> status,
+        Optional<PrincipalId> ownerPrincipalId,
         Optional<TaskListCursor> cursor,
         int limit) {
 
@@ -21,6 +23,7 @@ public record TaskListQuery(
         teamId = Objects.requireNonNull(teamId, "teamId");
         projectId = Objects.requireNonNull(projectId, "projectId");
         status = Objects.requireNonNull(status, "status");
+        ownerPrincipalId = Objects.requireNonNull(ownerPrincipalId, "ownerPrincipalId");
         cursor = Objects.requireNonNull(cursor, "cursor");
         if (limit < 1 || limit > 100) {
             throw new IllegalArgumentException("limit must be between 1 and 100");

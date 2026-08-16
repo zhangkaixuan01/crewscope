@@ -5,6 +5,7 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
@@ -62,6 +63,7 @@ public final class TaskQueryService {
             TeamId teamId,
             Optional<WorkProjectId> projectId,
             Optional<TaskStatus> status,
+            Optional<PrincipalId> ownerPrincipalId,
             Optional<TaskListCursor> cursor,
             int limit) {
         return transactionExecutor.required(() -> {
@@ -75,6 +77,7 @@ public final class TaskQueryService {
                     teamId,
                     project,
                     Objects.requireNonNull(status, "status"),
+                    Objects.requireNonNull(ownerPrincipalId, "ownerPrincipalId"),
                     Objects.requireNonNull(cursor, "cursor"),
                     limit));
         });

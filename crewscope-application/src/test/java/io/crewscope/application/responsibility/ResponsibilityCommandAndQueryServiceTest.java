@@ -3,9 +3,12 @@ package io.crewscope.application.responsibility;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.crewscope.application.identity.PrincipalProvisioningResult;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.workitem.WorkItemCollaborationTestFixture;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -28,6 +31,9 @@ import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.domain.workspace.AgentProfile;
+import io.crewscope.domain.workspace.AgentProfileId;
+import io.crewscope.domain.workspace.WorkspaceScope;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -210,6 +216,36 @@ class ResponsibilityCommandAndQueryServiceTest {
                 new AssignResponsibilityCommand(target.principal.id())));
   }
 
+  @Test
+  void exposesOnlyTheCurrentInScopeAgentProfileBehindAnAgentExecutor() {
+    Fixture fixture = new Fixture();
+    Principal agent = fixture.personalAgent("Visible Personal Agent");
+    fixture.commands.assignExecutor(
+        fixture.store.commandContext("visible-agent-executor"),
+        fixture.store.initialization.team().id(),
+        fixture.store.project.id(),
+        fixture.store.item.id(),
+        new AssignResponsibilityCommand(agent.id()));
+    AgentProfile profile = mock(AgentProfile.class);
+    AgentProfileId profileId = AgentProfileId.generate();
+    when(profile.id()).thenReturn(profileId);
+    when(profile.scope()).thenReturn(WorkspaceScope.team(
+        fixture.store.organizationId, fixture.store.initialization.team().id()));
+    when(profile.workspaceId()).thenReturn(fixture.store.item.scope().workspaceId());
+    when(fixture.profiles.findActiveByAgentPrincipalId(
+        fixture.store.organizationId, agent.id())).thenReturn(Optional.of(profile));
+
+    ResponsibilityAssignmentView view = fixture.queries.listActive(
+            fixture.store.access(),
+            fixture.store.organizationId,
+            fixture.store.initialization.team().id(),
+            fixture.store.project.id(),
+            fixture.store.item.id())
+        .get(0);
+
+    assertEquals(profileId, view.actorAgentProfileId().orElseThrow());
+  }
+
   private record Member(Principal principal, TeamMember membership) {}
 
   private static final class Fixture {
@@ -217,6 +253,7 @@ class ResponsibilityCommandAndQueryServiceTest {
         new WorkItemCollaborationTestFixture();
     private final AssignmentRepository assignments = new AssignmentRepository();
     private final PrincipalStore principals = new PrincipalStore();
+    private final AgentProfileRepository profiles = mock(AgentProfileRepository.class);
     private final ResponsibilityAssignmentService assignmentService =
         new ResponsibilityAssignmentService(assignments, store, () -> store.NOW);
     private final GateReviewerAssignmentService reviewerService =
@@ -242,7 +279,7 @@ class ResponsibilityCommandAndQueryServiceTest {
               () -> store.NOW);
       queries =
           new ResponsibilityQueryService(
-              assignments, principals, store.accessPolicy(), store);
+              assignments, principals, profiles, store.accessPolicy(), store);
     }
 
     private Member member(String displayName) {
@@ -270,6 +307,21 @@ class ResponsibilityCommandAndQueryServiceTest {
               PrincipalId.generate(),
               PrincipalScope.team(store.organizationId, store.initialization.team().id()),
               PrincipalType.SPECIALIST_AGENT,
+              Optional.of(store.actor.id()),
+              displayName,
+              Optional.empty(),
+              PrincipalVisibility.TEAM,
+              store.NOW);
+      principals.values.put(principal.id(), principal);
+      return principal;
+    }
+
+    private Principal personalAgent(String displayName) {
+      Principal principal =
+          Principal.create(
+              PrincipalId.generate(),
+              PrincipalScope.team(store.organizationId, store.initialization.team().id()),
+              PrincipalType.PERSONAL_AGENT,
               Optional.of(store.actor.id()),
               displayName,
               Optional.empty(),

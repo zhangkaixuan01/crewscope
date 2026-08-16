@@ -335,11 +335,13 @@ class M3TaskRuntimePersistenceIntegrationTest
                 Optional.of(fixture.projectId),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 2));
         TaskListPage second = taskRepository.findPage(new TaskListQuery(
                 fixture.organizationId,
                 fixture.teamId,
                 Optional.of(fixture.projectId),
+                Optional.empty(),
                 Optional.empty(),
                 first.nextCursor(),
                 2));
@@ -356,11 +358,34 @@ class M3TaskRuntimePersistenceIntegrationTest
                 .filter(value -> value.currentExecutionStatus()
                         .filter(TaskExecutionStatus.READY::equals).isPresent())
                 .count());
+        assertTrue(java.util.stream.Stream.concat(
+                        first.items().stream(), second.items().stream())
+                .allMatch(value -> value.ownerPrincipalId()
+                        .filter(fixture.owner.id()::equals).isPresent()));
+        assertEquals(3, taskRepository.findPage(new TaskListQuery(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        Optional.of(fixture.projectId),
+                        Optional.empty(),
+                        Optional.of(fixture.owner.id()),
+                        Optional.empty(),
+                        10))
+                .items().size());
+        assertTrue(taskRepository.findPage(new TaskListQuery(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        Optional.of(fixture.projectId),
+                        Optional.empty(),
+                        Optional.of(PrincipalId.generate()),
+                        Optional.empty(),
+                        10))
+                .items().isEmpty());
         assertEquals(2, taskRepository.findPage(new TaskListQuery(
                         fixture.organizationId,
                         fixture.teamId,
                         Optional.of(fixture.projectId),
                         Optional.of(TaskStatus.CREATED),
+                        Optional.empty(),
                         Optional.empty(),
                         10))
                 .items().size());
@@ -370,11 +395,13 @@ class M3TaskRuntimePersistenceIntegrationTest
                         Optional.of(fixture.projectId),
                         Optional.of(TaskStatus.FAILED),
                         Optional.empty(),
+                        Optional.empty(),
                         10))
                 .items().isEmpty());
         assertTrue(taskRepository.findPage(new TaskListQuery(
                         fixture.organizationId,
                         TeamId.generate(),
+                        Optional.empty(),
                         Optional.empty(),
                         Optional.empty(),
                         Optional.empty(),

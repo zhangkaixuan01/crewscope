@@ -8,6 +8,7 @@ import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamMemberStatus;
 import io.crewscope.domain.workspace.AgentProfile;
@@ -152,6 +153,26 @@ public class JpaAgentProfileRepositoryAdapter
         return findDefaultEntity(
                         Objects.requireNonNull(organizationId),
                         Objects.requireNonNull(ownerMemberId))
+                .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<AgentProfile> findActiveByAgentPrincipalId(
+            OrganizationId organizationId, PrincipalId agentPrincipalId) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.agentPrincipalId = :agentPrincipalId
+                          AND value.status = 'ACTIVE'
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("agentPrincipalId", Objects.requireNonNull(agentPrincipalId).value())
+                .getResultStream()
+                .findFirst()
                 .map(mapper::toDomain);
     }
 

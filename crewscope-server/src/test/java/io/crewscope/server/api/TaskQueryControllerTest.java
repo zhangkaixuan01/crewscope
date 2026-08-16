@@ -91,9 +91,10 @@ class TaskQueryControllerTest {
                 Optional.of(1),
                 Optional.of(TaskExecutionStatus.WAITING),
                 Optional.of(io.crewscope.domain.task.TaskExecutionWaitReason.RUNTIME),
+                Optional.of(actor.id()),
                 3,
                 AuditMetadata.createdBy(actor.id(), NOW));
-        when(service.list(any(), any(), any(), any(), any(), any(), any(Integer.class)))
+        when(service.list(any(), any(), any(), any(), any(), any(), any(), any(Integer.class)))
                 .thenReturn(new TaskListPage(List.of(item), Optional.of(item.cursor())));
 
         client.get()
@@ -105,6 +106,7 @@ class TaskQueryControllerTest {
                 .jsonPath("$.items[0].id").isEqualTo(taskId.toString())
                 .jsonPath("$.items[0].currentExecutionStatus").isEqualTo("WAITING")
                 .jsonPath("$.items[0].currentWaitingReason").isEqualTo("RUNTIME")
+                .jsonPath("$.items[0].ownerPrincipalId").isEqualTo(actor.id().toString())
                 .jsonPath("$.nextCursor").isNotEmpty();
     }
 

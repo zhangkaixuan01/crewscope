@@ -192,6 +192,7 @@ class TaskAssociationServiceM3A06Test {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 0,
                 AuditMetadata.createdBy(PrincipalId.generate(), NOW));
     }

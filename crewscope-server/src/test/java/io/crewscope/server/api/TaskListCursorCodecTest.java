@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.crewscope.application.task.TaskListCursor;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskId;
@@ -30,13 +31,15 @@ class TaskListCursorCodecTest {
                 organizationId,
                 teamId,
                 Optional.of(projectId),
-                Optional.of(TaskStatus.ACTIVE));
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.empty());
         assertEquals(cursor, codec.decode(
                 token,
                 organizationId,
                 teamId,
                 Optional.of(projectId),
-                Optional.of(TaskStatus.ACTIVE)));
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.empty()));
     }
 
     @Test
@@ -48,26 +51,46 @@ class TaskListCursorCodecTest {
                 organizationId,
                 teamId,
                 Optional.of(projectId),
-                Optional.of(TaskStatus.ACTIVE));
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.empty());
 
         assertThrows(ApiRequestException.class, () -> codec.decode(
                 token,
                 organizationId,
                 TeamId.generate(),
                 Optional.of(projectId),
-                Optional.of(TaskStatus.ACTIVE)));
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.empty()));
         assertThrows(ApiRequestException.class, () -> codec.decode(
                 token,
                 organizationId,
                 teamId,
                 Optional.empty(),
-                Optional.of(TaskStatus.ACTIVE)));
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.empty()));
         assertThrows(ApiRequestException.class, () -> codec.decode(
                 token,
                 organizationId,
                 teamId,
                 Optional.of(projectId),
-                Optional.of(TaskStatus.FAILED)));
+                Optional.of(TaskStatus.FAILED),
+                Optional.empty()));
+
+        PrincipalId owner = PrincipalId.generate();
+        String ownerBound = codec.encode(
+                cursor,
+                organizationId,
+                teamId,
+                Optional.of(projectId),
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.of(owner));
+        assertThrows(ApiRequestException.class, () -> codec.decode(
+                ownerBound,
+                organizationId,
+                teamId,
+                Optional.of(projectId),
+                Optional.of(TaskStatus.ACTIVE),
+                Optional.of(PrincipalId.generate())));
     }
 
     @Test
@@ -80,6 +103,7 @@ class TaskListCursorCodecTest {
                 organizationId,
                 teamId,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
         byte[] decoded = java.util.Base64.getUrlDecoder().decode(valid);
         decoded[0] = 99;
@@ -89,6 +113,6 @@ class TaskListCursorCodecTest {
 
     private TaskListCursor decode(String token) {
         return codec.decode(
-                token, organizationId, teamId, Optional.empty(), Optional.empty());
+                token, organizationId, teamId, Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

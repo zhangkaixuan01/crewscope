@@ -32,6 +32,7 @@ import io.crewscope.domain.workitem.WorkItemType;
 import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workitem.WorkProjectKey;
+import io.crewscope.domain.workspace.AgentProfileId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -110,8 +111,30 @@ class ResponsibilityControllerTest {
 
   @Test
   void listsTheActiveResponsibilityChainWithResolvedPrincipalData() {
+    Principal personalAgent =
+        Principal.create(
+            PrincipalId.generate(),
+            PrincipalScope.team(organizationId, initialization.team().id()),
+            PrincipalType.PERSONAL_AGENT,
+            Optional.of(actor.id()),
+            "Owner Agent",
+            Optional.empty(),
+            PrincipalVisibility.TEAM,
+            now);
+    ResponsibilityAssignment executor =
+        ResponsibilityAssignment.assign(
+            ResponsibilityAssignmentId.generate(),
+            item,
+            ResponsibilityRole.EXECUTOR,
+            personalAgent,
+            Optional.empty(),
+            actor,
+            now);
+    AgentProfileId profileId = AgentProfileId.generate();
     when(queryService.listActive(any(), any(), any(), any(), any()))
-        .thenReturn(List.of(new ResponsibilityAssignmentView(assignment, "Owner")));
+        .thenReturn(List.of(
+            new ResponsibilityAssignmentView(assignment, "Owner", Optional.empty()),
+            new ResponsibilityAssignmentView(executor, "Owner Agent", Optional.of(profileId))));
 
     client
         .get()
@@ -126,8 +149,12 @@ class ResponsibilityControllerTest {
         .isEqualTo("OWNER")
         .jsonPath("$[0].actorDisplayName")
         .isEqualTo("Owner")
+        .jsonPath("$[0].actorAgentProfileId")
+        .doesNotExist()
         .jsonPath("$[0].version")
-        .isEqualTo(0);
+        .isEqualTo(0)
+        .jsonPath("$[1].actorAgentProfileId")
+        .isEqualTo(profileId.toString());
   }
 
   @Test

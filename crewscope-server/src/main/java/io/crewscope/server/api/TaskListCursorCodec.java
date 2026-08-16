@@ -1,11 +1,12 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.task.TaskListCursor;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.TaskStatus;
-import io.crewscope.domain.shared.id.OrganizationId;
-import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
@@ -21,9 +22,9 @@ import org.springframework.http.HttpStatus;
 /** Versioned opaque Task keyset bound to its tenant route and active filters. */
 public final class TaskListCursorCodec {
 
-    private static final byte VERSION = 2;
-    private static final int BINARY_SIZE = 1 + 16 + 16 + 1 + 16 + 1 + 1 + 8 + 4 + 16;
-    private static final int MAX_TOKEN_LENGTH = 128;
+    private static final byte VERSION = 3;
+    private static final int BINARY_SIZE = 1 + 16 + 16 + 1 + 16 + 1 + 1 + 1 + 16 + 8 + 4 + 16;
+    private static final int MAX_TOKEN_LENGTH = 160;
     private static final Pattern TOKEN_FORMAT = Pattern.compile("[A-Za-z0-9_-]+");
 
     public String encode(
@@ -31,12 +32,15 @@ public final class TaskListCursorCodec {
             OrganizationId organizationId,
             TeamId teamId,
             Optional<WorkProjectId> projectId,
-            Optional<TaskStatus> status) {
+            Optional<TaskStatus> status,
+            Optional<PrincipalId> ownerPrincipalId) {
         TaskListCursor source = Objects.requireNonNull(cursor, "cursor");
         OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
         TeamId team = Objects.requireNonNull(teamId, "teamId");
         Optional<WorkProjectId> project = Objects.requireNonNull(projectId, "projectId");
         Optional<TaskStatus> taskStatus = Objects.requireNonNull(status, "status");
+        Optional<PrincipalId> owner = Objects.requireNonNull(
+                ownerPrincipalId, "ownerPrincipalId");
         Instant instant = source.updatedAt().value();
         UUID id = source.id().value();
         ByteBuffer buffer = ByteBuffer.allocate(BINARY_SIZE)
@@ -47,6 +51,10 @@ public final class TaskListCursorCodec {
         putUuid(buffer, project.map(WorkProjectId::value).orElse(new UUID(0, 0)));
         buffer.put((byte) (taskStatus.isPresent() ? 1 : 0));
         buffer.put(taskStatus.map(TaskListCursorCodec::statusCode).orElse((byte) 0))
+                .put((byte) (owner.isPresent() ? 1 : 0));
+        putUuid(buffer, owner.map(PrincipalId::value)
+                .orElse(new UUID(0, 0)));
+        buffer
                 .putLong(instant.getEpochSecond())
                 .putInt(instant.getNano())
                 .putLong(id.getMostSignificantBits())
@@ -59,13 +67,16 @@ public final class TaskListCursorCodec {
             OrganizationId expectedOrganizationId,
             TeamId expectedTeamId,
             Optional<WorkProjectId> expectedProjectId,
-            Optional<TaskStatus> expectedStatus) {
+            Optional<TaskStatus> expectedStatus,
+            Optional<PrincipalId> expectedOwnerPrincipalId) {
         OrganizationId organization = Objects.requireNonNull(
                 expectedOrganizationId, "expectedOrganizationId");
         TeamId team = Objects.requireNonNull(expectedTeamId, "expectedTeamId");
         Optional<WorkProjectId> project = Objects.requireNonNull(
                 expectedProjectId, "expectedProjectId");
         Optional<TaskStatus> status = Objects.requireNonNull(expectedStatus, "expectedStatus");
+        Optional<PrincipalId> owner = Objects.requireNonNull(
+                expectedOwnerPrincipalId, "expectedOwnerPrincipalId");
         if (token == null
                 || token.isBlank()
                 || token.length() > MAX_TOKEN_LENGTH
@@ -98,6 +109,13 @@ public final class TaskListCursorCodec {
             if (hasStatus != status.isPresent()
                     || (hasStatus && statusCode(status.orElseThrow()) != encodedStatus)
                     || (!hasStatus && encodedStatus != 0)) {
+                throw invalidCursor();
+            }
+            boolean hasOwner = flag(buffer.get());
+            UUID encodedOwner = readUuid(buffer);
+            if (hasOwner != owner.isPresent()
+                    || (hasOwner && !encodedOwner.equals(owner.orElseThrow().value()))
+                    || (!hasOwner && !encodedOwner.equals(new UUID(0, 0)))) {
                 throw invalidCursor();
             }
             Instant instant = Instant.ofEpochSecond(buffer.getLong(), buffer.getInt());
