@@ -131,6 +131,44 @@ class AgentStateSnapshotM3S03IntegrationTest {
     }
 
     @Test
+    void restoresAllFiveFixedRedisLossSamplesFromSecondarySnapshots() {
+        int recovered = 0;
+        for (int sample = 1; sample <= 5; sample++) {
+            int checkpoint = 100 + sample;
+            String expected = "redis-loss-sample-" + sample;
+            SnapshotCandidate committed = snapshot(checkpoint, state(expected));
+            String prefix = "m3-q02-redis-loss-" + sample + ":";
+            try (RedisFixture firstProcess = redisStore(prefix)) {
+                firstProcess.store().save(
+                        IDENTITY.userId(), IDENTITY.sessionId(), "agent_state", state("volatile"));
+            }
+            try (JedisPooled jedis = newClient()) {
+                jedis.flushDB();
+            }
+
+            // New Redis and ArtifactStore clients model a replacement Worker process.
+            ArtifactStore restartedStore = new FilesystemArtifactStore(
+                    artifactRoot,
+                    new ObjectMapper(),
+                    Clock.fixed(CAPTURED_AT, ZoneOffset.UTC));
+            AgentStateSnapshotAdapter restartedAdapter =
+                    new AgentStateSnapshotAdapter(restartedStore);
+            try (RedisFixture replacement = redisStore(prefix)) {
+                RecoveryResult result = restartedAdapter.restore(
+                        new RecoveryTarget(IDENTITY, checkpoint),
+                        List.of(committed),
+                        access(),
+                        replacement.store());
+                assertEquals(List.of(expected), contextText(load(replacement.store())));
+                assertFalse(result.continuityGap());
+                recovered++;
+            }
+        }
+
+        assertEquals(5, recovered);
+    }
+
+    @Test
     void overwritesCorruptRedisHotStateWithATrustedSnapshot() {
         SnapshotCandidate committed = snapshot(3, state("trusted-checkpoint"));
         String prefix = "m3-s03-corrupt:";
@@ -179,6 +217,46 @@ class AgentStateSnapshotM3S03IntegrationTest {
                     List.of("stable-before-corruption"),
                     contextText(load(redis.store())));
         }
+    }
+
+    @Test
+    void allFiveCorruptLatestSnapshotsFallBackWithExplicitContinuityGaps() throws Exception {
+        int recovered = 0;
+        int continuityGaps = 0;
+        for (int sample = 1; sample <= 5; sample++) {
+            int stableSequence = 200 + sample * 2;
+            SnapshotCandidate stable = snapshot(
+                    stableSequence, state("stable-sample-" + sample));
+            SnapshotCandidate corrupt = snapshot(
+                    stableSequence + 1, state("corrupt-sample-" + sample));
+            Path corruptBlob = Path.of(artifactStore
+                    .head(corrupt.artifactId(), access())
+                    .orElseThrow()
+                    .storageUri());
+            Files.writeString(corruptBlob, "corrupt", StandardCharsets.UTF_8);
+
+            try (RedisFixture redis = redisStore("m3-q02-corrupt-" + sample + ":")) {
+                RecoveryResult result = adapter.restore(
+                        new RecoveryTarget(IDENTITY, stableSequence + 1),
+                        List.of(stable, corrupt),
+                        access(),
+                        redis.store());
+                assertEquals(stableSequence, result.restoredCandidate().checkpointSequence());
+                assertEquals(
+                        SkipReason.INTEGRITY_VIOLATION,
+                        result.skippedSnapshots().get(0).reason());
+                assertEquals(
+                        List.of("stable-sample-" + sample),
+                        contextText(load(redis.store())));
+                recovered++;
+                if (result.continuityGap()) {
+                    continuityGaps++;
+                }
+            }
+        }
+
+        assertEquals(5, recovered);
+        assertEquals(5, continuityGaps);
     }
 
     @Test

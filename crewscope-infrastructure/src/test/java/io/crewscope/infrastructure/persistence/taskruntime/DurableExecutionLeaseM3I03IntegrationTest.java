@@ -266,6 +266,116 @@ class DurableExecutionLeaseM3I03IntegrationTest
     }
 
     @Test
+    void tenCompleteSweeperRacesAlwaysCommitOneConsistentTerminalFact() throws Exception {
+        int consistentResults = 0;
+        for (int sample = 1; sample <= 10; sample++) {
+            UtcTimestamp expiresAt = plus(CLAIMED_AT, Duration.ofSeconds(30));
+            LeaseFixture fixture = claim(
+                    "Q02R" + sample, expiresAt, fixedClaimToken("RACE", sample));
+            AtomicReference<UtcTimestamp> workerNow = new AtomicReference<>(
+                    plus(CLAIMED_AT, Duration.ofSeconds(5)));
+            DurableTaskExecutionLeaseCoordinator coordinator =
+                    coordinator(fixture, workerNow, 30, 30);
+            TaskExecution preparing = coordinator.beginPreparing(
+                    fixture.executionCommand(fixture.executionVersion()));
+            workerNow.set(plus(CLAIMED_AT, Duration.ofSeconds(10)));
+            LeaseMutationResult running = coordinator.beginRun(
+                    fixture.transitionCommand(preparing.version(), 0));
+
+            AtomicReference<UtcTimestamp> completeTime = new AtomicReference<>(
+                    plus(CLAIMED_AT, Duration.ofSeconds(29)));
+            AtomicReference<UtcTimestamp> sweepTime = new AtomicReference<>(expiresAt);
+            LeaseReleaseCommand complete = LeaseReleaseCommand.simple(
+                    fixture.transitionCommand(
+                            running.execution().version(), running.lease().version()),
+                    ExecutionLeaseReleaseReason.COMPLETED);
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                Future<Boolean> completeResult = pool.submit(() -> attempt(start, () ->
+                        coordinator(fixture, completeTime, 30, 30).release(complete)));
+                Future<Boolean> sweepResult = pool.submit(() -> attempt(start, () ->
+                        sweeper(fixture, sweepTime).sweep(1)));
+                start.countDown();
+                completeResult.get(10, TimeUnit.SECONDS);
+                sweepResult.get(10, TimeUnit.SECONDS);
+            } finally {
+                pool.shutdownNow();
+            }
+
+            ExecutionLease committedLease = leaseRepository.findById(
+                    fixture.organizationId(), fixture.environment(), fixture.leaseId())
+                    .orElseThrow();
+            TaskExecution committedExecution = executionRepository.findById(
+                    fixture.organizationId(), fixture.executionId()).orElseThrow();
+            ExecutionLeaseReleaseReason reason =
+                    committedLease.release().orElseThrow().reason();
+            TaskExecutionStatus expectedStatus = reason == ExecutionLeaseReleaseReason.COMPLETED
+                    ? TaskExecutionStatus.COMPLETED
+                    : TaskExecutionStatus.RECOVERING;
+            assertTrue(reason == ExecutionLeaseReleaseReason.COMPLETED
+                    || reason == ExecutionLeaseReleaseReason.EXPIRED);
+            assertEquals(expectedStatus, committedExecution.status());
+            assertEquals(1, jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM crewscope.execution_lease "
+                            + "WHERE id = ? AND status = 'RELEASED'",
+                    Integer.class,
+                    fixture.leaseId().value()));
+            consistentResults++;
+        }
+
+        assertEquals(10, consistentResults);
+    }
+
+    @Test
+    void tenLostHeartbeatSamplesRecoverOnceAndRejectEveryOldOwnerMutation() {
+        int recovered = 0;
+        int oldOwnerMutationSuccesses = 0;
+        for (int sample = 1; sample <= 10; sample++) {
+            UtcTimestamp expiresAt = plus(CLAIMED_AT, Duration.ofSeconds(30));
+            LeaseFixture fixture = claim(
+                    "Q02H" + sample, expiresAt, fixedClaimToken("HEARTBEAT", sample));
+            AtomicReference<UtcTimestamp> now = new AtomicReference<>(expiresAt);
+            DurableTaskExecutionLeaseCoordinator oldOwner = coordinator(fixture, now, 30, 30);
+
+            LeaseSweepResult result = sweeper(fixture, now).sweep(1);
+            assertEquals(1, result.recovered().size());
+            ExecutionLease expiredLease = leaseRepository.findById(
+                    fixture.organizationId(), fixture.environment(), fixture.leaseId())
+                    .orElseThrow();
+            TaskExecution recovering = executionRepository.findById(
+                    fixture.organizationId(), fixture.executionId()).orElseThrow();
+
+            // Each operation carries the expired Owner coordinates and must fail before a write.
+            oldOwnerMutationSuccesses += succeeds(() -> oldOwner.heartbeat(fixture.heartbeat(0)));
+            oldOwnerMutationSuccesses += succeeds(() -> oldOwner.beginPreparing(
+                    fixture.executionCommand(fixture.executionVersion())));
+            oldOwnerMutationSuccesses += succeeds(() -> oldOwner.beginRun(
+                    fixture.transitionCommand(fixture.executionVersion(), 0)));
+            oldOwnerMutationSuccesses += succeeds(() -> oldOwner.release(
+                    LeaseReleaseCommand.simple(
+                            fixture.transitionCommand(fixture.executionVersion(), 0),
+                            ExecutionLeaseReleaseReason.COMPLETED)));
+
+            ExecutionLease afterRejectedWrites = leaseRepository.findById(
+                    fixture.organizationId(), fixture.environment(), fixture.leaseId())
+                    .orElseThrow();
+            TaskExecution executionAfterRejectedWrites = executionRepository.findById(
+                    fixture.organizationId(), fixture.executionId()).orElseThrow();
+            assertEquals(expiredLease.version(), afterRejectedWrites.version());
+            assertEquals(
+                    expiredLease.release().orElseThrow().reason(),
+                    afterRejectedWrites.release().orElseThrow().reason());
+            assertEquals(recovering.version(), executionAfterRejectedWrites.version());
+            assertEquals(TaskExecutionStatus.RECOVERING, executionAfterRejectedWrites.status());
+            recovered++;
+        }
+
+        assertEquals(10, recovered);
+        assertEquals(0, oldOwnerMutationSuccesses);
+    }
+
+    @Test
     void repeatedAndConcurrentSweepsPublishOneRecoveryEventAndOutboxFact() throws Exception {
         UtcTimestamp expiresAt = plus(CLAIMED_AT, Duration.ofSeconds(30));
         LeaseFixture fixture = claim("SWEEP", expiresAt, FIRST_TOKEN);
@@ -466,6 +576,19 @@ class DurableExecutionLeaseM3I03IntegrationTest
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    private static int succeeds(Runnable action) {
+        try {
+            action.run();
+            return 1;
+        } catch (RuntimeException expected) {
+            return 0;
+        }
+    }
+
+    private static ClaimToken fixedClaimToken(String matrix, int sample) {
+        return new ClaimToken("M3Q02_" + matrix + "_" + sample + "_" + "A".repeat(43));
     }
 
     private static UtcTimestamp plus(UtcTimestamp value, Duration duration) {

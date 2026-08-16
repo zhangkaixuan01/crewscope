@@ -32,6 +32,8 @@ import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.server.config.application.TaskEventStreamProperties;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -151,6 +153,56 @@ class TaskEventControllerM3A05Test {
         StepVerifier.create(result.getResponseBody())
                 .assertNext(value -> assertEquals(codec.encode(first.cursor()), value.cursor()))
                 .verifyComplete();
+    }
+
+    @Test
+    void fiveForcedDisconnectsDeliverTenEventsExactlyOnceWithoutVersionRollback() {
+        properties.setMaximumEventsPerConnection(2);
+        List<TaskEvent> source = java.util.stream.LongStream.rangeClosed(1, 10)
+                .mapToObj(position -> event(position, position, UUID.randomUUID(), false))
+                .toList();
+        when(service.events(
+                        any(),
+                        eq(organizationId),
+                        eq(teamId),
+                        eq(taskId),
+                        any(),
+                        eq(100)))
+                .thenAnswer(invocation -> {
+                    Optional<TaskEventCursor> after = invocation.getArgument(4);
+                    int from = after.map(cursor -> Math.toIntExact(cursor.position())).orElse(0);
+                    int to = Math.min(from + 2, source.size());
+                    boolean hasMore = to < source.size();
+                    return new TaskEventPage(source.subList(from, to), hasMore, true);
+                });
+
+        List<TaskEventController.TaskEventResponse> delivered = new ArrayList<>();
+        String resumeCursor = "";
+        for (int connection = 0; connection < 5; connection++) {
+            FluxExchangeResult<TaskEventController.TaskEventResponse> result = client.get()
+                    .uri(root())
+                    .header(ApiHeaders.LAST_EVENT_ID, resumeCursor)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .exchange()
+                    .expectStatus().isOk()
+                    .returnResult(TaskEventController.TaskEventResponse.class);
+            List<TaskEventController.TaskEventResponse> batch = result.getResponseBody()
+                    .collectList()
+                    .block(Duration.ofSeconds(10));
+            assertEquals(2, batch == null ? 0 : batch.size());
+            delivered.addAll(batch);
+            resumeCursor = batch.get(batch.size() - 1).cursor();
+        }
+
+        assertEquals(
+                source.stream().map(value -> value.envelope().eventId()).toList(),
+                delivered.stream().map(value -> value.event().eventId()).toList());
+        assertEquals(10, new HashSet<>(delivered.stream()
+                .map(value -> value.event().eventId())
+                .toList()).size());
+        assertEquals(
+                java.util.stream.LongStream.rangeClosed(1, 10).boxed().toList(),
+                delivered.stream().map(value -> value.event().aggregateVersion()).toList());
     }
 
     @Test

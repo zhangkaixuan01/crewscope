@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -394,6 +395,98 @@ class MemberTaskCommandServiceM3A04Test {
         assertEquals(receipt, replay.receipt());
         verify(executions, never()).update(any());
         verify(events, never()).append(any());
+    }
+
+    @Test
+    void fivePauseReplaysReturnTheCommittedReceiptWithoutRepeatingAnySideEffect() {
+        TaskExecution running = running(executionState.get());
+        executionState.set(running);
+        TeamCommandContext context = context(owner, "pause-five-replays");
+        MemberTaskControlCommand command =
+                new MemberTaskControlCommand(running.version(), "Pause once");
+
+        var first = service.pause(context, teamId, taskState.get().id(), running.id(), command);
+        when(receipts.reserve(any())).thenReturn(CommandReservation.replay(first.receipt()));
+        for (int replay = 0; replay < 5; replay++) {
+            var result = service.pause(context, teamId, taskState.get().id(), running.id(), command);
+            assertTrue(result.replayed());
+            assertEquals(first.receipt(), result.receipt());
+        }
+
+        verify(executions, times(1)).update(any());
+        verify(events, times(1)).append(any());
+        verify(taskEvents, times(1)).append(any(), any());
+        verify(outbox, times(1)).enqueue(any());
+        verify(receipts, times(1)).complete(any(), any(), any(), any());
+        verify(resumeService, never()).resume(any());
+    }
+
+    @Test
+    void fiveCancelReplaysDoNotRepeatExecutionTaskOrEventWrites() {
+        TaskExecution ready = executionState.get();
+        TeamCommandContext context = context(owner, "cancel-five-replays");
+        MemberTaskControlCommand command =
+                new MemberTaskControlCommand(ready.version(), "Cancel once");
+
+        var first = service.cancel(context, teamId, taskState.get().id(), ready.id(), command);
+        when(receipts.reserve(any())).thenReturn(CommandReservation.replay(first.receipt()));
+        for (int replay = 0; replay < 5; replay++) {
+            var result = service.cancel(context, teamId, taskState.get().id(), ready.id(), command);
+            assertTrue(result.replayed());
+            assertEquals(first.receipt(), result.receipt());
+        }
+
+        // READY cancellation writes REQUESTED then CANCELLED exactly once and closes Task once.
+        verify(executions, times(2)).update(any());
+        verify(tasks, times(1)).update(any());
+        verify(events, times(1)).append(any());
+        verify(taskEvents, times(1)).append(any(), any());
+        verify(outbox, times(1)).enqueue(any());
+        verify(receipts, times(1)).complete(any(), any(), any(), any());
+        verify(resumeService, never()).resume(any());
+    }
+
+    @Test
+    void fiveResumeReplaysDoNotRepeatAgentResumeOrDurableWrites() {
+        TaskExecution running = running(executionState.get());
+        TaskExecution requested = running.requestPause(
+                "Pause before replay", running.version(), owner, LATER);
+        UUID requestId = TaskControlRequestIds.from(
+                requested.id(), requested.controlRequest().orElseThrow());
+        TaskAgentRuntimeSession session = TaskAgentRuntimeSession.initializeTask(
+                taskState.get(), running, profile, executor, NOW);
+        AgentRun active = AgentRun.start(AgentRunId.generate(), session, 1, executor, NOW);
+        AgentInterrupt interrupt = AgentInterrupt.open(
+                AgentInterruptId.generate(),
+                active,
+                AgentInterruptKind.PAUSE,
+                RuntimeContentHash.sha256(requestId.toString()),
+                executor,
+                LATER);
+        AgentRun interrupted = active.interrupt(interrupt, active.version(), executor, LATER);
+        TaskExecution paused = requested.acknowledgePaused(
+                requested.version(), executor, LATER);
+        executionState.set(paused);
+        when(runs.findByExecution(organizationId, paused.id())).thenReturn(List.of(interrupted));
+        when(interrupts.findPendingByRun(organizationId, interrupted.id()))
+                .thenReturn(Optional.of(interrupt));
+        TeamCommandContext context = context(owner, "resume-five-replays");
+        RetryTaskCommand command = new RetryTaskCommand(paused.version());
+
+        var first = service.resume(context, teamId, taskState.get().id(), paused.id(), command);
+        when(receipts.reserve(any())).thenReturn(CommandReservation.replay(first.receipt()));
+        for (int replay = 0; replay < 5; replay++) {
+            var result = service.resume(context, teamId, taskState.get().id(), paused.id(), command);
+            assertTrue(result.replayed());
+            assertEquals(first.receipt(), result.receipt());
+        }
+
+        verify(resumeService, times(1)).resume(any());
+        verify(executions, times(1)).update(any());
+        verify(events, times(1)).append(any());
+        verify(taskEvents, times(1)).append(any(), any());
+        verify(outbox, times(1)).enqueue(any());
+        verify(receipts, times(1)).complete(any(), any(), any(), any());
     }
 
     private Fixture fixture(int maxAttempts) {
