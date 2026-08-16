@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "crewscope.diff-stream.fixture/v1",
+  "workspaceId": "00000000-0000-0000-0000-000000004301",
+  "streamEpoch": "00000000-0000-0000-0000-000000004311",
+  "events": [
+    {
+      "id": "reset-1",
+      "kind": "RESET",
+      "sequence": 1,
+      "generation": 1,
+      "cursor": "ZGlmZi1jdXJzb3ItdjF8cmVzZXQtMQ.6C05TYuOqh3rRtRpqM4S03",
+      "manifestHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "files": [
+        {
+          "path": "src/Greeting.java",
+          "oldPath": null,
+          "kind": "MODIFIED",
+          "additions": 1,
+          "deletions": 1,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "1010101010101010101010101010101010101010101010101010101010101010",
+          "patchPreview": "@@ -4,3 +4,3 @@\n-    return \"before\";\n+    return \"hello\";\n"
+        }
+      ],
+      "removals": []
+    },
+    {
+      "id": "delta-2",
+      "kind": "DELTA",
+      "sequence": 2,
+      "generation": 2,
+      "cursor": "ZGlmZi1jdXJzb3ItdjF8ZGVsdGEtMg.7D16UZvPri4sSuQqN5T14",
+      "manifestHash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "files": [
+        {
+          "path": "src/Feature.java",
+          "oldPath": null,
+          "kind": "ADDED",
+          "additions": 7,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "2020202020202020202020202020202020202020202020202020202020202020",
+          "patchPreview": "@@ -0,0 +1,7 @@\n+package demo;\n+\n+final class Feature {\n"
+        },
+        {
+          "path": "src/Greeting.java",
+          "oldPath": null,
+          "kind": "MODIFIED",
+          "additions": 2,
+          "deletions": 2,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "2121212121212121212121212121212121212121212121212121212121212121",
+          "patchPreview": "@@ -4,3 +4,3 @@\n-  static String value() {\n-    return \"before\";\n+  static String value(String name) {\n+    return \"hello \" + name;\n"
+        }
+      ],
+      "removals": []
+    },
+    {
+      "id": "delta-3",
+      "kind": "DELTA",
+      "sequence": 3,
+      "generation": 3,
+      "cursor": "ZGlmZi1jdXJzb3ItdjF8ZGVsdGEtMw.8E27VawQsj5tTvRrO6U25",
+      "manifestHash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "files": [
+        {
+          "path": "docs/README.md",
+          "oldPath": "README.md",
+          "kind": "RENAMED",
+          "additions": 0,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "3030303030303030303030303030303030303030303030303030303030303030",
+          "patchPreview": "similarity index 100%\nrename from README.md\nrename to docs/README.md\n"
+        },
+        {
+          "path": "docs/large.txt",
+          "oldPath": null,
+          "kind": "ADDED",
+          "additions": 40,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": true,
+          "patchSha256": "3131313131313131313131313131313131313131313131313131313131313131",
+          "patchPreview": "@@ -0,0 +1,40 @@\n+line-01\n+line-02\n+line-03\n+line-04\n"
+        },
+        {
+          "path": "obsolete.txt",
+          "oldPath": null,
+          "kind": "DELETED",
+          "additions": 0,
+          "deletions": 1,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "3232323232323232323232323232323232323232323232323232323232323232",
+          "patchPreview": "@@ -1 +0,0 @@\n-obsolete\n"
+        }
+      ],
+      "removals": []
+    },
+    {
+      "id": "reset-4",
+      "kind": "RESET",
+      "sequence": 4,
+      "generation": 3,
+      "cursor": "ZGlmZi1jdXJzb3ItdjF8cmVzZXQtNA.9F38WbxRtk6uUwSsP7V36",
+      "manifestHash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "files": [
+        {
+          "path": "docs/README.md",
+          "oldPath": "README.md",
+          "kind": "RENAMED",
+          "additions": 0,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "3030303030303030303030303030303030303030303030303030303030303030",
+          "patchPreview": "similarity index 100%\nrename from README.md\nrename to docs/README.md\n"
+        },
+        {
+          "path": "docs/large.txt",
+          "oldPath": null,
+          "kind": "ADDED",
+          "additions": 40,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": true,
+          "patchSha256": "3131313131313131313131313131313131313131313131313131313131313131",
+          "patchPreview": "@@ -0,0 +1,40 @@\n+line-01\n+line-02\n+line-03\n+line-04\n"
+        },
+        {
+          "path": "obsolete.txt",
+          "oldPath": null,
+          "kind": "DELETED",
+          "additions": 0,
+          "deletions": 1,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "3232323232323232323232323232323232323232323232323232323232323232",
+          "patchPreview": "@@ -1 +0,0 @@\n-obsolete\n"
+        },
+        {
+          "path": "src/Feature.java",
+          "oldPath": null,
+          "kind": "ADDED",
+          "additions": 7,
+          "deletions": 0,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "2020202020202020202020202020202020202020202020202020202020202020",
+          "patchPreview": "@@ -0,0 +1,7 @@\n+package demo;\n+\n+final class Feature {\n"
+        },
+        {
+          "path": "src/Greeting.java",
+          "oldPath": null,
+          "kind": "MODIFIED",
+          "additions": 2,
+          "deletions": 2,
+          "binary": false,
+          "patchTruncated": false,
+          "patchSha256": "2121212121212121212121212121212121212121212121212121212121212121",
+          "patchPreview": "@@ -4,3 +4,3 @@\n-  static String value() {\n-    return \"before\";\n+  static String value(String name) {\n+    return \"hello \" + name;\n"
+        }
+      ],
+      "removals": []
+    }
+  ],
+  "deliveryOrder": ["reset-1", "delta-3", "delta-2", "delta-2", "delta-3", "reset-4"],
+  "expectedOutcomes": ["RESET", "GAP", "APPLIED", "DUPLICATE", "APPLIED", "RESET"],
+  "expectedProjection": {
+    "generation": 3,
+    "cursor": "ZGlmZi1jdXJzb3ItdjF8cmVzZXQtNA.9F38WbxRtk6uUwSsP7V36",
+    "manifestHash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "paths": [
+      "docs/README.md",
+      "docs/large.txt",
+      "obsolete.txt",
+      "src/Feature.java",
+      "src/Greeting.java"
+    ]
+  }
+}
