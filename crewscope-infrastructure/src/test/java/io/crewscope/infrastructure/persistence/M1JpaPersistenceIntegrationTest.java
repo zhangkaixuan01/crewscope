@@ -230,6 +230,15 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             .orElseThrow()
             .userPrincipalId());
     assertEquals(
+        value.ownerMember().id(),
+        teamMemberRepository
+            .findByTeamAndUserPrincipalId(
+                foundation.organizationId(),
+                value.team().id(),
+                value.ownerMember().userPrincipalId())
+            .orElseThrow()
+            .id());
+    assertEquals(
         5, teamRoleRepository.findByTeam(foundation.organizationId(), value.team().id()).size());
     assertEquals(
         1,

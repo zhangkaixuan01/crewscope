@@ -6,14 +6,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.task.DecodedTaskToken;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.TaskCredentialGrantRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.task.TaskTokenCodec;
 import io.crewscope.application.task.TaskTokenScopeFingerprint;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.domain.identity.PrincipalStatus;
 import io.crewscope.domain.task.ExecutionLease;
 import io.crewscope.domain.task.TaskCredentialGrant;
@@ -35,7 +38,11 @@ class DurableTaskTokenAuthenticatorTest {
     private final TaskCredentialGrantRepository grants = mock(TaskCredentialGrantRepository.class);
     private final ExecutionLeaseRepository leases = mock(ExecutionLeaseRepository.class);
     private final TaskExecutionRepository executions = mock(TaskExecutionRepository.class);
+    private final TaskRepository tasks = mock(TaskRepository.class);
     private final PrincipalRepository principals = mock(PrincipalRepository.class);
+    private final ResponsibilityAssignmentRepository assignments =
+            mock(ResponsibilityAssignmentRepository.class);
+    private final TeamMemberRepository members = mock(TeamMemberRepository.class);
     private final TaskTokenCodec codec = mock(TaskTokenCodec.class);
     private final AtomicReference<io.crewscope.domain.shared.time.UtcTimestamp> now =
             new AtomicReference<>();
@@ -58,15 +65,25 @@ class DurableTaskTokenAuthenticatorTest {
         when(codec.decode("signed-token")).thenReturn(decoded(
                 TaskTokenScopeFingerprint.compute(grant.scope()),
                 fixture.environment,
-                fixture.actor.id()));
+                fixture.executor.id()));
         when(grants.findByJtiHash(fixture.organizationId, jti.hash()))
                 .thenReturn(Optional.of(grant));
         when(leases.findById(fixture.organizationId, fixture.environment, fixture.leaseId))
                 .thenReturn(Optional.of(fixture.lease));
         when(executions.findById(fixture.organizationId, fixture.executionId))
                 .thenReturn(Optional.of(fixture.execution));
-        when(principals.findById(fixture.organizationId, fixture.actor.id()))
-                .thenReturn(Optional.of(fixture.actor));
+        when(tasks.findById(fixture.organizationId, fixture.taskId))
+                .thenReturn(Optional.of(fixture.task));
+        when(principals.findById(fixture.organizationId, fixture.executor.id()))
+                .thenReturn(Optional.of(fixture.executor));
+        when(principals.findById(fixture.organizationId, fixture.owner.id()))
+                .thenReturn(Optional.of(fixture.owner));
+        when(members.findByTeamAndUserPrincipalId(
+                        fixture.organizationId, fixture.workScope.teamId(), fixture.owner.id()))
+                .thenReturn(Optional.of(fixture.ownerMembership));
+        when(assignments.findById(
+                        fixture.organizationId, fixture.executionPrincipal.assignmentId()))
+                .thenReturn(Optional.of(fixture.assignment));
         TransactionExecutor transactions = new TransactionExecutor() {
             @Override
             public <T> T required(Supplier<T> operation) {
@@ -74,8 +91,10 @@ class DurableTaskTokenAuthenticatorTest {
             }
         };
         AuthoritativeTimeProvider timeProvider = now::get;
+        TaskTokenCurrentAuthorization currentAuthorization = new TaskTokenCurrentAuthorization(
+                executions, tasks, principals, assignments, members);
         authenticator = new DurableTaskTokenAuthenticator(
-                grants, leases, executions, principals, transactions, timeProvider, codec);
+                grants, leases, currentAuthorization, transactions, timeProvider, codec);
     }
 
     @Test
@@ -126,11 +145,11 @@ class DurableTaskTokenAuthenticatorTest {
 
         when(leases.findById(fixture.organizationId, fixture.environment, fixture.leaseId))
                 .thenReturn(Optional.of(fixture.lease));
-        var suspended = fixture.actor.transitionTo(
+        var suspended = fixture.executor.transitionTo(
                 PrincipalStatus.SUSPENDED,
                 io.crewscope.domain.shared.time.UtcTimestamp.from(
                         fixture.now.value().plusSeconds(1)));
-        when(principals.findById(fixture.organizationId, fixture.actor.id()))
+        when(principals.findById(fixture.organizationId, fixture.executor.id()))
                 .thenReturn(Optional.of(suspended));
         assertThrows(RuntimeException.class, () -> authenticator.authenticate("signed-token"));
     }
@@ -138,11 +157,11 @@ class DurableTaskTokenAuthenticatorTest {
     @Test
     void rejectsSignedEnvelopeScopeOrEnvironmentSubstitution() {
         when(codec.decode("fingerprint-token")).thenReturn(decoded(
-                "0".repeat(64), fixture.environment, fixture.actor.id()));
+                "0".repeat(64), fixture.environment, fixture.executor.id()));
         when(codec.decode("environment-token")).thenReturn(decoded(
                 TaskTokenScopeFingerprint.compute(grant.scope()),
                 new io.crewscope.domain.runtime.RuntimeEnvironment("other"),
-                fixture.actor.id()));
+                fixture.executor.id()));
 
         assertThrows(RuntimeException.class, () -> authenticator.authenticate("fingerprint-token"));
         assertThrows(RuntimeException.class, () -> authenticator.authenticate("environment-token"));

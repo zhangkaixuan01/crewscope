@@ -3,6 +3,7 @@ package io.crewscope.server.config.runtime;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
@@ -12,12 +13,15 @@ import io.crewscope.application.task.TaskTokenAuthenticator;
 import io.crewscope.application.task.TaskTokenCodec;
 import io.crewscope.application.task.TaskTokenJtiGenerator;
 import io.crewscope.application.task.TaskTokenService;
+import io.crewscope.application.task.TaskRepository;
+import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.runtime.DurableTaskTokenAuthenticator;
 import io.crewscope.infrastructure.runtime.DurableTaskTokenService;
 import io.crewscope.infrastructure.runtime.SecureTaskTokenJtiGenerator;
 import io.crewscope.infrastructure.runtime.TaskTokenServiceSpec;
+import io.crewscope.infrastructure.runtime.TaskTokenCurrentAuthorization;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.server.security.NimbusTaskTokenCodec;
 import io.crewscope.server.security.TaskTokenWebFilter;
@@ -44,14 +48,25 @@ public class TaskTokenSecurityConfiguration {
     TaskTokenAuthenticator taskTokenAuthenticator(
             TaskCredentialGrantRepository grantRepository,
             ExecutionLeaseRepository leaseRepository,
-            TaskExecutionRepository executionRepository,
-            PrincipalRepository principalRepository,
+            TaskTokenCurrentAuthorization currentAuthorization,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider,
             TaskTokenCodec codec) {
         return new DurableTaskTokenAuthenticator(
-                grantRepository, leaseRepository, executionRepository, principalRepository,
+                grantRepository, leaseRepository, currentAuthorization,
                 transactionExecutor, timeProvider, codec);
+    }
+
+    @Bean
+    TaskTokenCurrentAuthorization taskTokenCurrentAuthorization(
+            TaskExecutionRepository executionRepository,
+            TaskRepository taskRepository,
+            PrincipalRepository principalRepository,
+            ResponsibilityAssignmentRepository assignmentRepository,
+            TeamMemberRepository memberRepository) {
+        return new TaskTokenCurrentAuthorization(
+                executionRepository, taskRepository, principalRepository,
+                assignmentRepository, memberRepository);
     }
 
     @Bean
@@ -83,7 +98,7 @@ public class TaskTokenSecurityConfiguration {
             PolicySnapshotRepository policyRepository,
             SafetyEnforcementOverlayRepository overlayRepository,
             TaskCredentialGrantRepository grantRepository,
-            PrincipalRepository principalRepository,
+            TaskTokenCurrentAuthorization currentAuthorization,
             ProviderBindingRepository bindingRepository,
             ConnectionGrantRepository connectionGrantRepository,
             TransactionExecutor transactionExecutor,
@@ -93,7 +108,7 @@ public class TaskTokenSecurityConfiguration {
             TaskTokenServiceSpec spec) {
         return new DurableTaskTokenService(
                 executionRepository, leaseRepository, policyRepository, overlayRepository,
-                grantRepository, principalRepository, bindingRepository,
+                grantRepository, currentAuthorization, bindingRepository,
                 connectionGrantRepository, transactionExecutor, timeProvider,
                 jtiGenerator, codec, spec);
     }

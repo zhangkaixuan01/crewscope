@@ -1,6 +1,5 @@
 package io.crewscope.infrastructure.runtime;
 
-import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.task.DecodedTaskToken;
@@ -53,7 +52,7 @@ public final class DurableTaskTokenService implements TaskTokenService {
     private final PolicySnapshotRepository policyRepository;
     private final SafetyEnforcementOverlayRepository overlayRepository;
     private final TaskCredentialGrantRepository grantRepository;
-    private final PrincipalRepository principalRepository;
+    private final TaskTokenCurrentAuthorization currentAuthorization;
     private final ProviderBindingRepository bindingRepository;
     private final ConnectionGrantRepository connectionGrantRepository;
     private final TransactionExecutor transactionExecutor;
@@ -68,7 +67,7 @@ public final class DurableTaskTokenService implements TaskTokenService {
             PolicySnapshotRepository policyRepository,
             SafetyEnforcementOverlayRepository overlayRepository,
             TaskCredentialGrantRepository grantRepository,
-            PrincipalRepository principalRepository,
+            TaskTokenCurrentAuthorization currentAuthorization,
             ProviderBindingRepository bindingRepository,
             ConnectionGrantRepository connectionGrantRepository,
             TransactionExecutor transactionExecutor,
@@ -81,7 +80,8 @@ public final class DurableTaskTokenService implements TaskTokenService {
         this.policyRepository = Objects.requireNonNull(policyRepository, "policyRepository");
         this.overlayRepository = Objects.requireNonNull(overlayRepository, "overlayRepository");
         this.grantRepository = Objects.requireNonNull(grantRepository, "grantRepository");
-        this.principalRepository = Objects.requireNonNull(principalRepository, "principalRepository");
+        this.currentAuthorization = Objects.requireNonNull(
+                currentAuthorization, "currentAuthorization");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "bindingRepository");
         this.connectionGrantRepository = Objects.requireNonNull(
                 connectionGrantRepository, "connectionGrantRepository");
@@ -190,16 +190,18 @@ public final class DurableTaskTokenService implements TaskTokenService {
         UtcTimestamp requestedExpiry = UtcTimestamp.from(now.value().plus(command.lifetime()));
         UtcTimestamp expiresAt = requestedExpiry.compareTo(lease.expiresAt()) <= 0
                 ? requestedExpiry : lease.expiresAt();
-        return TaskCredentialGrant.issue(
+        TaskCredentialIssuance issuance = TaskCredentialGrant.issue(
                 TaskCredentialGrantId.generate(), execution, lease, policy, overlay,
                 command.allowedTools(), command.providerRequests(), jtiGenerator.generate(),
                 expiresAt, spec.actor(), now);
+        currentAuthorization.requireCurrent(issuance.grant());
+        return issuance;
     }
 
     private LoadedToken load(String token, UtcTimestamp now) {
         LoadedToken loaded = loadSignedGrant(token);
         loaded.grant().authenticate(loaded.claims(), loaded.lease(), now);
-        requireCurrentExecution(loaded.grant());
+        currentAuthorization.requireCurrent(loaded.grant());
         return loaded;
     }
 
@@ -230,30 +232,6 @@ public final class DurableTaskTokenService implements TaskTokenService {
                         spec.organizationId(), spec.environment(), grant.scope().executionLeaseId())
                 .orElseThrow(DurableTaskTokenService::invalidToken);
         return new LoadedToken(grant, claims, lease);
-    }
-
-    private void requireCurrentExecution(TaskCredentialGrant grant) {
-        TaskTokenGrantScope scope = grant.scope();
-        TaskExecution execution = executionRepository.findById(
-                        spec.organizationId(), scope.taskExecutionId())
-                .orElseThrow(DurableTaskTokenService::invalidToken);
-        var planning = execution.planningContext().orElseThrow(DurableTaskTokenService::invalidToken);
-        boolean current = execution.scope().equals(scope.workItemScope())
-                && execution.taskId().equals(scope.taskId())
-                && execution.attempt() == scope.attempt()
-                && execution.lastFencingToken().filter(scope.fencingToken()::equals).isPresent()
-                && planning.executionPrincipal().equals(scope.executionPrincipal())
-                && planning.policySnapshotId().equals(scope.policySnapshotId())
-                && planning.policySnapshotHash().equals(scope.policySnapshotHash())
-                && planning.safetyOverlay().equals(scope.safetyOverlay());
-        var principal = principalRepository.findById(
-                        spec.organizationId(), scope.executionPrincipal().principalId())
-                .orElseThrow(DurableTaskTokenService::invalidToken);
-        if (!current
-                || !principal.canAct()
-                || !principal.scope().organizationId().equals(spec.organizationId())) {
-            throw invalidToken();
-        }
     }
 
     private void requireCurrentProviderAuthorization(

@@ -38,7 +38,17 @@ public final class StructuredLogSanitizer {
             "toolinput",
             "toolarguments",
             "toolresult",
-            "tooloutput");
+            "tooloutput",
+            "agentstate",
+            "agentstatesnapshot",
+            "statesnapshot",
+            "runtimecontext",
+            "tasktokenclaims",
+            "claimtokenhash",
+            "providerrequest",
+            "providerresponse",
+            "providerpayload",
+            "rawprovidererror");
 
     private StructuredLogSanitizer() {}
 

@@ -7,16 +7,19 @@ import static org.mockito.Mockito.when;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
 import io.crewscope.application.task.TaskCredentialGrantRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
+import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.task.TaskTokenAuthenticator;
 import io.crewscope.application.task.TaskTokenCodec;
 import io.crewscope.application.task.TaskTokenService;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -44,6 +47,11 @@ class TaskTokenSecurityConfigurationTest {
                     () -> mock(ExecutionLeaseRepository.class))
             .withBean(TaskExecutionRepository.class,
                     () -> mock(TaskExecutionRepository.class))
+            // The verifier closes authorization from the current task, responsibility and member facts.
+            .withBean(TaskRepository.class, () -> mock(TaskRepository.class))
+            .withBean(ResponsibilityAssignmentRepository.class,
+                    () -> mock(ResponsibilityAssignmentRepository.class))
+            .withBean(TeamMemberRepository.class, () -> mock(TeamMemberRepository.class))
             .withBean(PrincipalRepository.class, () -> mock(PrincipalRepository.class))
             .withBean(TransactionExecutor.class, DirectTransactions::new)
             .withBean(AuthoritativeTimeProvider.class,

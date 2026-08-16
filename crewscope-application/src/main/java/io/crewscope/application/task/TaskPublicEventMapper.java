@@ -2,8 +2,10 @@ package io.crewscope.application.task;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Explicit disclosure whitelist for durable Task Event payloads. */
@@ -36,7 +38,7 @@ public final class TaskPublicEventMapper {
             "taskExecutionVersion", "leaseVersion", "safeSummary", "progressPercent",
             "failureClass", "failureCode");
     private static final Set<String> RECOVERY_FIELDS = Set.of(
-            "leaseId", "attempt", "fencingToken", "expiredPhase", "leaseExpiredAt",
+            "leaseId", "attempt", "expiredPhase", "leaseExpiredAt",
             "recoveryStartedAt");
     private static final Set<String> RESUME_FIELDS = Set.of(
             "taskExecutionId", "agentRunId", "agentInterruptId",
@@ -50,6 +52,8 @@ public final class TaskPublicEventMapper {
             "inputTokens", "outputTokens", "cachedTokens", "totalTokens");
     private static final Set<String> FAILURE_FIELDS = Set.of(
             "category", "retryable", "safeMessage", "runtimeCode");
+    private static final Set<String> LIST_FIELDS = Set.of(
+            "acceptanceCriteria", "providerBindingIds");
 
     /** Returns a new immutable map containing only fields approved for the public Task stream. */
     public Map<String, Object> map(String eventType, Map<String, Object> payload) {
@@ -75,32 +79,44 @@ public final class TaskPublicEventMapper {
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         source.forEach((key, value) -> {
             if (fields.contains(key)) {
-                result.put(key, nested(type, key, value));
+                publicValue(type, key, value).ifPresent(safe -> result.put(key, safe));
             }
         });
         return Collections.unmodifiableMap(result);
     }
 
-    private static Object nested(String eventType, String key, Object value) {
-        if (!eventType.equals("AGENT_RUN_EVENT_RECORDED") || !(value instanceof Map<?, ?> map)) {
-            return value;
+    private static Optional<Object> publicValue(String eventType, String key, Object value) {
+        if (value == null || isScalar(value)) {
+            return Optional.ofNullable(value);
         }
-        if (key.equals("usage")) {
-            return copyNested(map, USAGE_FIELDS);
+        if (LIST_FIELDS.contains(key) && value instanceof List<?> list
+                && list.stream().allMatch(TaskPublicEventMapper::isScalar)) {
+            return Optional.of(List.copyOf(list));
         }
-        if (key.equals("failure")) {
-            return copyNested(map, FAILURE_FIELDS);
+        if (eventType.equals("AGENT_RUN_EVENT_RECORDED") && value instanceof Map<?, ?> map) {
+            if (key.equals("usage")) {
+                return Optional.of(copyNested(map, USAGE_FIELDS));
+            }
+            if (key.equals("failure")) {
+                return Optional.of(copyNested(map, FAILURE_FIELDS));
+            }
         }
-        return value;
+        // A corrupted or future payload cannot smuggle nested credential fields through a scalar
+        // public field. Unsupported shapes are omitted from the projection.
+        return Optional.empty();
     }
 
     private static Map<String, Object> copyNested(Map<?, ?> source, Set<String> fields) {
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         source.forEach((key, value) -> {
-            if (key instanceof String name && fields.contains(name)) {
+            if (key instanceof String name && fields.contains(name) && isScalar(value)) {
                 result.put(name, value);
             }
         });
         return Collections.unmodifiableMap(result);
+    }
+
+    private static boolean isScalar(Object value) {
+        return value instanceof String || value instanceof Number || value instanceof Boolean;
     }
 }

@@ -8,6 +8,7 @@ import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamMemberId;
@@ -95,6 +96,26 @@ public class JpaTeamMemberRepositoryAdapter implements TeamMemberRepository, Tea
                         TeamMemberEntity.class)
                 .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
                 .setParameter("id", Objects.requireNonNull(id).value())
+                .getResultStream()
+                .findFirst()
+                .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TeamMember> findByTeamAndUserPrincipalId(
+            OrganizationId organizationId, TeamId teamId, PrincipalId userPrincipalId) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM TeamMemberEntity value
+                        WHERE value.organizationId = :organizationId AND value.teamId = :teamId
+                          AND value.userPrincipalId = :userPrincipalId
+                        """,
+                        TeamMemberEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("userPrincipalId", Objects.requireNonNull(userPrincipalId).value())
                 .getResultStream()
                 .findFirst()
                 .map(mapper::toDomain);

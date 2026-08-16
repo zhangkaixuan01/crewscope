@@ -25,6 +25,10 @@ class StructuredLogSanitizerTest {
         assertTrue(StructuredLogSanitizer.isSensitiveField("modelReasoning"));
         assertTrue(StructuredLogSanitizer.isSensitiveField("toolCallArguments"));
         assertTrue(StructuredLogSanitizer.isSensitiveField("raw-tool-result"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("agentStateSnapshot"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("claim_token_hash"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("providerPayload"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("rawProviderError"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("correlationId"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("promptVersion"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("toolName"));

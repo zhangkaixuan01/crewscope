@@ -1,6 +1,9 @@
 spring:
   application:
     name: crewscope-server
+  codec:
+    # Bounds JSON/form buffering before controller-level field validation runs.
+    max-in-memory-size: ${CREWSCOPE_HTTP_MAX_IN_MEMORY_SIZE:256KB}
   datasource:
     # currentSchema makes JDBC and native queries use the owned schema while retaining public for extensions.
     url: ${CREWSCOPE_DB_URL:jdbc:postgresql://localhost:5432/crewscope?currentSchema=crewscope,public}
