@@ -1,6 +1,6 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.0  
+> 文档版本：v1.1<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`  
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
@@ -382,7 +382,7 @@ M0 建立 Histoire 组件工作台，至少覆盖 Token、基础控件与 CrewSc
 | M1 | Team/WorkProject、WorkItem List/Board、责任链、详情与传统管理闭环 |
 | M2 | Conversation Mode、TaskIntent、对话卡片及与 WorkItem 的双向跳转 |
 | M3 | Task 列表、Task Timeline、Pause/Resume/Cancel、断线与 Cursor 恢复 |
-| M4 | Execution Studio、Diff、终端、测试证据、Artifact 和 Agent Presence |
+| M4 | Execution Studio、Diff、只读命令与日志证据、测试证据、Artifact 和 Agent Presence |
 | M5 | Review Gate、Confirmation、Action Receipt、GitHub Draft PR 交付链 |
 | M6 | Team Pulse、Inbox、Activity、Audit、Usage、风险与飞书通知状态 |
 

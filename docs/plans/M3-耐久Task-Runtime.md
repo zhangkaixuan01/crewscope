@@ -4,7 +4,7 @@
 > 前置条件：M2 Release Gate 通过<br>
 > 目标周期：3–4 周，多工作流并行推进<br>
 > 目标结果：成员可从 WorkItem 或 Conversation 创建 Task，Worker 可安全领取并驱动 TaskExecution，成员可观察、暂停、恢复、取消和重试，进程或 Redis 故障后执行可收敛<br>
-> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09`、`M3-A01` 至 `M3-A07`、`M3-F01` 至 `M3-F07` 已完成，下一项为 `M3-Q01`（2026-08-16）
+> 当前进度：M3 全部 38 个任务已完成，Release Gate 已通过（2026-08-16）
 
 ## 1. 出口结果
 
@@ -188,9 +188,9 @@ M3 UI 展示任务、计划、步骤、运行、租约、等待与恢复事实�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M3-Q01` | HARDENING | D06,I04,A01..A07 | all | 完成 Task/Worker API 越权、Task Token、撤权传播、Prompt 信任分区、资源与并发预算、日志/事件/Artifact 脱敏和依赖安全检查 | 固定攻击集证明跨 Organization/Team/Task/attempt/Runtime/Binding/Tool/资源阻断率 100%；撤权后旧 Token 立即失效；Token、Claim、State、Reasoning 和敏感 Provider 数据泄漏数为 0 |
-| `M3-Q02` | HARDENING | I03,I08,I09,A04,A05 | all | 完成故障注入：进程在 CLAIMED/PREPARING/RUNNING 退出、Complete/Sweeper 竞争、Heartbeat 丢失、Redis 丢失、Snapshot 损坏、事件断线和重复控制命令 | 受控故障样本证明唯一终态、旧 Owner 无回写、无孤立 Step/Run、Redis 可从二级快照恢复、重复外部写操作为 0；记录样本量、超时、恢复率和 Artifact |
-| `M3-Q03` | HARDENING | Q01,Q02,F07 | all/docs/ci | 执行 M3 Release Gate，审查领域、迁移、Spring 装配、Runtime、API、前端、文档与 M2 回归；形成版本化验收报告 | `./mvnw clean verify`、前端 test/coverage/build、Playwright、Axe、视觉、V1→V12、V9→V12、V10→V12 与 V11→V12 迁移、文档链接和格式检查全部通过；可重复演示创建、领取、暂停、恢复、取消、重试与故障接管 |
+| `M3-Q01` | HARDENING | D06,I04,A01..A07 | all | 已完成：完成 Task/Worker API 越权、Task Token、当前责任与成员撤权传播、Prompt 信任分区、资源与并发预算、日志/事件/Artifact 脱敏和依赖安全门禁 | [M3-Q01 安全硬化与固定攻击集](../testing/M3-Q01-Security-Hardening.md)；50 项专项测试通过，固定攻击集跨 Organization/Team/Task/attempt/Runtime/Binding/Tool/资源阻断率 100%；撤权后旧 Token 立即失效；Token、Claim、State、Reasoning 和敏感 Provider 数据泄漏数为 0；OSV 与 pnpm Audit 进入 Release Gate |
+| `M3-Q02` | HARDENING | I03,I08,I09,A04,A05 | all | 已完成：故障注入覆盖进程在 CLAIMED/PREPARING/RUNNING 退出、Complete/Sweeper 竞争、Heartbeat 丢失、Redis 丢失、Snapshot 损坏、事件断线和重复控制命令 | [M3-Q02 耐久 Task Runtime 故障注入](../testing/M3-Q02-Fault-Injection.md)；56/56 个固定故障与重放样本通过，唯一终态率和恢复率 100%，旧 Owner 回写、孤立 Run/Step、重复控制副作用和外部 Action Dispatch 均为 0 |
+| `M3-Q03` | HARDENING | Q01,Q02,F07 | all/docs/ci | 已完成：执行 M3 Release Gate，审查领域、迁移、Spring 装配、Runtime、API、前端、文档与 M2 回归，并形成版本化验收报告 | [M3 Release Gate](../testing/M3-Q03-Release-Gate.md)；Maven `1082 / 1082`、Vitest `180 / 180`、Playwright `102 / 102`、Histoire 5 Story/20 Variant、V1/V9/V10/V11/V12→V13 迁移、142 份 Markdown 链接、格式与生产依赖门禁全部通过 |
 
 ## 10. Release Gate
 

@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.5<br>
+> 文档版本：v1.7<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2 已完成；M3-S01 至 M3-S03、M3-D01 至 M3-D09、M3-I01 至 M3-I09、M3-A01 至 M3-A07、M3-F01 至 M3-F07 已完成，下一项为 M3-Q01（2026-08-16）
+> 当前进度：M0、M1、M2、M3 已完成；M4 已拆分为 44 个任务，下一项为 M4-S01（2026-08-16）
 
 ## 1. 实施目标
 
@@ -443,7 +443,8 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 
 ### 10.2 ExecutionWorkspace
 
-- RepositoryBinding、ExecutionWorkspace、DiffArtifact 和 TestEvidence 数据模型；
+- RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、DiffArtifact 和 TestEvidence 数据模型；
+- M4 使用管理员登记的受管本地 Git 源仓库；成员只提交 Repository Key、Ref 与任务目标，不能提交任意宿主路径；
 - `V14__execution_workspace_and_artifacts.sql`；
 - 基于系统 Git 命令实现类型化 `GitCommandExecutor`；
 - 命令参数使用数组构建，命令执行不经过 Shell 字符串拼接；
@@ -458,11 +459,12 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 ### 10.3 Coding Toolkit
 
 - Repository metadata、tree、search、read 和 history；
-- 复用 HarnessAgent 原生 workspace 文件与 Shell Tool，通过 Sandbox FilesystemSpec、Tool allow/deny、PermissionContext、Task Token、AllowedPaths 和 PlatformPolicyMiddleware 收紧；
-- 禁止注册可绕过上述边界的第二套原始文件或 Shell Tool；
+- 复用 HarnessAgent、DockerFilesystemSpec、AbstractFilesystem、Plan/Task List、Compaction、Interrupt/Resume 和 Sandbox Lifecycle/Guard；
+- 原生 FilesystemTool 缺少 CrewScope AllowedPaths 与证据边界，原生 ShellExecuteTool 接受原始 Shell 字符串；M4 不直接注册两者，通过受控 CodingFilesystemTool 与结构化 SandboxCommandTool 包装底层 Sandbox 能力；
+- 禁止注册可绕过上述边界的第二套文件、Shell、MCP、动态 Skill 或外部网络 Tool；
 - Worktree 内文件创建、修改、Patch、重命名和删除；
 - 受控命令执行，MVP 允许 Maven 构建、测试和项目内脚本白名单；
-- Git status、diff、log、show 和本地 commit；
+- Agent 可读取 Git status、diff、log 和 show；本地交付 Commit 由平台 Finalizer 在 Diff 与测试证据复验后创建；
 - AllowedPaths、文件数、文件大小、命令、超时和输出限额；
 - 大日志写入 RuntimeArtifact，Agent 只获取摘要和 Artifact 引用；
 - 所有工具调用关联 Task、Step、AgentRun、Principal 和 Trace。
@@ -486,7 +488,18 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 单文件和累计 Diff 内容上限；
 - SSE/WebSocket 游标续传和最终 DiffArtifact 固化。
 
-### 10.6 验收
+### 10.6 Execution Studio
+
+- WorkProject Settings 提供受管 RepositoryBinding 的 Preflight、创建、启停和版本管理；
+- WorkItem 委托表单与 Conversation TaskIntent 确认支持选择 Repository、基线 Ref、AllowedPaths、BuildProfile 和验收条件；
+- Task 详情展示 Workspace、Sandbox、Coding Agent、计划、Todo、当前命令、预算、恢复代次与最终结果；
+- 文件树、实时 Diff、单文件 Patch、变更统计、CommandEvidence、TestEvidence 和 Artifact 下载；
+- 命令与日志视图只读，不提供浏览器任意交互式终端；
+- Conversation Mode 与 Control Mode 使用同一 Task/Workspace 服务端事实和对象级深链接；
+- Loading、Empty、Error、Forbidden、Offline、Reconnecting、Recovering、Cancelled 与 Terminal 状态完整；
+- 桌面、窄屏、键盘、ARIA Live、Reduced Motion、Axe WCAG 2.2 AA 和视觉回归进入门禁。
+
+### 10.7 验收
 
 1. 每个 TaskExecution 创建独立 Worktree 和分支；
 2. 目录存在但 Git 元数据损坏时可自动恢复；
@@ -654,7 +667,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V11__task_creation_brief.sql` | TaskBrief 目标、验收条件、来源摘要与不可变 Brief Hash | M3 |
 | `V12__task_query_indexes.sql` | Task 列表与 Runtime Facts 查询索引 | M3 |
 | `V13__task_event_stream.sql` | Task Event 耐久流索引、关系上下文与 V12 既有事件回填 | M3 |
-| `V14__execution_workspace_and_artifacts.sql` | RepositoryBinding、ExecutionWorkspace、DiffArtifact、TestEvidence | M4 |
+| `V14__execution_workspace_and_artifacts.sql` | RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、DiffArtifact、DiffFileEntry、CommandEvidence、TestEvidence | M4 |
 | `V15__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
 | `V16__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
@@ -689,7 +702,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 - 禁止命令与网络限制；
 - 上下文压缩后继续；
 - 进程退出与 Worktree 恢复；
-- Review 意见后二次修改。
+- 测试或平台验收失败后二次修改。
 
 评测指标：
 
@@ -699,7 +712,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 验收标准覆盖率
 越界文件修改数
 禁止命令尝试数
-Review Finding 命中率
+Review Finding 命中率（M5 开始统计）
 人工修改量
 Token / 成本 / 耗时
 中断恢复成功率
@@ -781,12 +794,13 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M1 执行清单](plans/M1-Team与WorkItem.md)：20 个 TASK/FEATURE/HARDENING，覆盖 Team、Personal Agent、WorkItem、责任、API、OIDC、前端和 E2E；
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 - [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
+- [M4 执行清单](plans/M4-AgentScope原生Coding-Agent.md)：44 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 RepositoryBinding、CodingTarget、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、Diff/Test Artifact、Repository 管理、Execution Studio、安全、恢复和固定评测。
 
-M0 与 M1 已通过各自 Release Gate。M2 的 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口、安全硬化与 Release Gate 已全部完成，详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。M3 已拆分为 38 个可执行任务；`M3-S01` 已完成 PostgreSQL Claim、Lease 与 Fencing 协议验证，`M3-S02` 已完成 AgentScope Task Agent 与 CrewScope Task Orchestrator 映射验证，`M3-S03` 已完成 AgentState 二级恢复协议验证，`M3-D01` 已完成 Task 业务聚合、来源、责任快照和 Conversation 关联契约，`M3-D02` 已完成 TaskExecution 尝试状态机、调度、等待、控制请求、失败分类和单链重试契约，`M3-D03` 已完成 Step、PlanVersion、PolicySnapshot、SafetyEnforcementOverlay、执行 Principal、Todo 和检查点契约，`M3-D04` 已完成 Runtime Registry、Worker 稳定身份、能力、容量、状态、心跳和跨边界路由契约，`M3-D05` 已完成 TaskExecution Lease、Claim Token/Hash、Fencing Token、Prepare/Run Lease、Heartbeat、过期和释放契约，`M3-D06` 已完成 TaskCredentialGrant、TaskTokenClaims、JTI Hash、最小 Provider/Tool/资源范围、签发、使用、撤销和过期契约，`M3-D07` 已完成 Task-side AgentRuntimeSession、AgentRun/Segment、AgentInterrupt/Resume、continuity gap、RuntimeArtifact 和 AgentStateSnapshot 契约，`M3-D08` 已完成 V10 耐久 Task Runtime 迁移、复合 Scope 外键、状态与部分唯一约束及真实 PostgreSQL 升级验证，`M3-D09` 已完成 JPA/JDBC 持久化、READY Queue、Claim/Heartbeat/Sweeper 条件更新、Keyset Cursor、外层锁事务、过期释放、确定性 Session 身份校验与事务回滚验证，`M3-I01` 已完成幂等 Runtime Registry、JVM Worker 稳定身份、能力/容量发布、定时 Heartbeat、Drain、失联派生和 Profile 失败关闭，`M3-I02` 已完成公平 READY 调度、Runtime 能力路由、Team/Runtime/Worker 活动 Lease 配额、原子 Claim、一次性 Token、单调 Fencing Token、PREPARE Lease 和低基数指标，`M3-I03` 已完成分阶段 Lease Heartbeat、全坐标 Fencing 条件提交、显式释放、过期 Sweeper、RECOVERING 与唯一恢复事件，`M3-I04` 已完成 Task Token 签发、Key Ring 验签、数据库当前事实复验、范围收窄轮换、即时撤销、Tool/Provider 授权使用和 Worker Bearer-only 请求中间件，`M3-I05` 已完成 Task Execution Runtime Port、服务端事实闭合、Pause/Resume/Cancel 控制和耐久有限事件流协议，同时保持 M2 Conversation Port 兼容，`M3-I06` 已完成 AgentScope Task Orchestrator、版本化 Task Agent Factory、Plan/Todo 候选、计划校验与事务发布、受控 Fixture Tool、预算和跨实例控制恢复，`M3-I07` 已完成 AgentRun Segment 事件收件账本、精确重放、受控 DomainEvent、Approval/Pause/Resume、Usage、Retry/Fallback、Artifact 引用和终态的原子耐久映射，`M3-I08` 已完成 AgentStateSnapshot Writer/Reader、Receipt 门槛、稳定 Agent 身份、AgentStateStore 重建、损坏回退、并发 Writer 裁决、Artifact Tombstone 和 continuity gap，`M3-I09` 已完成 JVM Worker 执行循环、共享负载计数、Claim/Prepare/Token/Run/Heartbeat/Event Receipt/Checkpoint/Release 主链、启动 Lease Sweep、RECOVERING 对账、孤立 Run/Step 清理、优雅 Drain 和 Actuator Health，`all/worker` 共用同一执行协议；`M3-A01` 已完成从 WorkItem/可选 Conversation 原子创建 Task、首个 READY TaskExecution、责任快照、PolicySnapshot、SafetyEnforcementOverlay、关联、事件和幂等回执，并固化 TaskBrief 与当前授权事实；`M3-A02` 已完成 Team 级 Task 集合、详情、attempt 和单 attempt Runtime Facts 查询，通过稳定 Keyset、批量子事实查询和响应白名单提供可观测性且不披露执行密钥与原始 Agent State；`M3-A03` 已完成进程内 Claim、Task Token-only Worker mutation API、完整 LeaseOwnership 闭合、执行/租约版本前置条件、幂等 CommandReceipt 和脱敏 Audit Event；`M3-A04` 已完成成员 Pause/Resume/Cancel/Retry API、责任授权、强版本和幂等事务边界、Worker Heartbeat 控制传播、AgentScope 安全点、同 Run Resume 和重试当前授权复验；`M3-A05` 已完成 V13 Task Event 耐久索引、公开事件白名单、Task 关系上下文、历史追平、SSE Cursor、持续权限复验、投影缺口和终态收口；`M3-A06` 已完成 WorkItem/Conversation/Task 三向关联、Scope 绑定 Cursor、对象深链接、PRIVATE Conversation 当前可见性过滤和批量查询；`M3-A07` 已完成 Runtime/Worker Fleet 健康、新鲜容量、六类 `WAITING_RUNTIME` 诊断、成员安全摘要、运维受权明细、两条固定查询、Actuator 和低基数观测；`M3-F01` 至 `M3-F07` 已完成 Task 前端数据层、Conversation/Control 双入口、Task 详情与控制、Runtime 安全事实、Timeline、实时 Progress、恢复状态、全状态语义、键盘、Axe 和视觉回归硬化。下一项为 `M3-Q01`。
+M0 至 M3 已通过各自 Release Gate。M2 已交付 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口与安全恢复闭环；详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。
 
-M3-A01 已完成“交给 Agent 处理”应用与 API 闭环，M3-A02 已完成 Task 查询与 Runtime Facts 观测闭环，M3-A03 已完成受信 Worker Command Port、Task Token-only HTTP 边界、幂等回执与审计事件闭环，M3-A04 已完成成员 Pause、Resume、Cancel、Retry、Worker/AgentScope 控制传播和当前授权复验闭环，M3-A05 已完成 Task Event 耐久历史、公开事件映射和 SSE Cursor，M3-A06 已完成 WorkItem、Conversation 与 Task 双向关联、对象级深链接和反向可见性过滤，M3-A07 已完成 Runtime Fleet 观测、容量和等待诊断闭环。M3-F01 至 M3-F06 已完成 Task 前端事实、双入口、详情、控制、Timeline 与实时恢复；M3-F07 已完成 Loading、Empty、Error、Forbidden、Conflict、Offline、Reconnecting、Cancelled、Recovering 全状态、叠层 Modal 键盘、WCAG 2.2 AA、覆盖率和桌面/窄屏视觉回归。下一项为 `M3-Q01`。
+M3 的 38 个任务已全部完成，交付耐久 Task Runtime、AgentScope Task Orchestrator、Task Token、Claim/Lease/Fencing、AgentRun/Snapshot 恢复、Conversation/Control 双入口与成员控制闭环。最终门禁结果为 Maven `1082 / 1082`、Vitest `180 / 180`、Playwright `102 / 102`、固定故障与重放样本 `56 / 56`，详细证据见 [M3 执行清单](plans/M3-耐久Task-Runtime.md)与 [M3 Release Gate](testing/M3-Q03-Release-Gate.md)。
 
-M2 验收后开始耐久 Task Runtime。M3 故障测试达标后开始让 Coding Agent 写入真实仓库。
+M4 已拆分为 44 个可执行任务，将在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。下一项为 `M4-S01`。
 
 ## 19. 项目管理与进度跟踪
 
