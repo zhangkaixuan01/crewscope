@@ -1155,6 +1155,32 @@ M2-F05 使用受权限策略过滤的 `ConversationWorkItemAssociation` 把两�
 
 M2-F06 建立 Conversation 前端状态与可访问性基线。Loading、Empty、Error、Offline、Reconnecting 和 Cancelled 共享统一语义；错误使用紧急播报，运行与恢复使用克制的 Live Region，Message 历史不作为整体重复播报。离线时保留已加载事实和每个 Conversation 的本地草稿，输入可继续编辑，提交需等待网络恢复。选中、返回、弹窗和创建成功都执行对象级焦点转移与恢复。全局尊重 Reduced Motion，窄屏 Composer 使用 16px 字号、安全区和 42px 最小发送触控区。
 
+M3-F01 建立 Task 前端事实边界。`HttpTaskGateway` 对列表、详情、attempt、Runtime Facts、Task Event 与 WorkItem/Conversation/Task 三向关联执行显式响应白名单映射；Claim Token、Task Token、JTI Hash、Credential、原始 AgentState 和内部 Reasoning 不进入 Web 类型或状态。`TaskStore` 以 Organization + Team 为资源分区，以可选 WorkProject + TaskStatus + Owner Principal 为集合分区，使用 AbortController、请求版本和同步版本阻止旧 Team、旧项目、旧筛选与旧深链接覆盖当前事实。创建与控制命令绑定发起时的 Scope generation，命令响应和后续每个权威回读阶段都重新校验；Scope 切换会废弃本地交互状态，旧命令不得访问新 Scope 的关联、写入新 Store 或将页面切回旧 Team。`/work?team=<teamId>&project=<projectId>&workItem=<workItemId>&task=<taskId>` 是服务端生成的 Task 深链接；Task 详情必须属于已恢复的 Team 和 WorkProject。列表、事件和关联续页原样回传不透明 Cursor，按服务端稳定身份去重。Runtime Facts、事件与关联缓存按 Task/attempt/来源键隔离，命令或事件要求刷新时通过显式失效重新读取服务端事实。
+
+M3-F02 在 Control Mode 交付 Task 列表与 WorkItem 委托入口。列表展示 Task 状态、Owner 责任快照、当前 attempt、TaskExecution 状态和等待原因，支持服务端 `taskStatus` 与 `taskOwner` 筛选。Owner 投影在同一列表查询中读取，不引入逐 Task 查询；不透明 Cursor 同时绑定 Organization、Team、WorkProject、TaskStatus 和 Owner，跨集合重放失败关闭。Loading、Empty 和 Error 为独立状态，桌面宽度和窄屏宽度共用同一事实模型。
+
+WorkItem 详情中的“交给 Agent 处理”先读取 Owner 与 Agent Executor 责任链，并使用同 Team、同 Workspace 且 ACTIVE 的 AgentProfile ID 创建 Task。命令携带 WorkItem 强版本、服务端 AgentProfile ID 和 `Idempotency-Key`；可重试失败保留原始命令与同一幂等键，成功后刷新 Task 列表和 WorkItem/Task 受权关联，再从关联查询恢复服务端 Task ID 与深链接。浏览器不生成领域 Task ID。入口仅向具有 `work:participate` 且当前承担 Owner 或 Executor 的成员展示，服务端继续执行最终授权、强版本和责任闭合校验。
+
+M3-F03 在 Control Mode 交付 Task 详情抽屉。左栏展示 Task 目标、验收标准、不可变责任快照、当前/历史 attempt 和 Team 级 Runtime Fleet 安全摘要；右栏展示所选 attempt 的 PlanVersion、Todo、StepExecution、AgentSession/AgentRun、continuity gap、Lease、Snapshot 和 Interrupt 摘要。窄屏使用同一语义 DOM，按 Task、责任、attempt、Runtime、Plan、Step、AgentRun、恢复事实顺序阅读。
+
+attempt 切换使用 `taskId:executionId` 独立缓存，Team 切换后同时丢弃 Runtime Facts 与 Fleet 摘要，旧请求不能覆盖新 Scope。Fleet 默认只读取成员安全 `/runtime-health`，不读取 `/runtime-health/operations`。HTTP Gateway 对容量、失联 Worker 数和聚合等待原因执行显式白名单映射。具体 Lease 只展示 A02 已公开的截断 Runtime/Worker 标识和时间事实；执行凭证、内部运行载荷和原始状态不进入 Web 状态。关闭 Task 抽屉只移除 `task` 查询参数，保留 Team、WorkProject、WorkItem 和筛选上下文，并恢复来源 Task 控件的焦点。
+
+M3-F04 在 Conversation Mode 把关联 Task 作为独立于消息气泡的耐久事实区域。页面通过受权限过滤的 Conversation/Task 关联查询展示全部可见 Task 的目标、状态、Owner、当前 attempt、TaskExecution 状态和等待原因；PRIVATE Conversation 的可见性完全由服务端结果决定。卡片位于 TaskIntent、已确认 WorkItem 之后和消息列表之前，Personal Agent 的瞬时文本流只更新消息区，不替换、不折叠 Task 卡片。Conversation、WorkItem 和 Task 的 URL 同时保留 Team、Project、Conversation、WorkItem 与 Task 坐标，Task 详情通过 Task 关联查询列出当前成员可见的 Conversation。
+
+每个非终态 Task 建立独立 Fetch SSE 连接。Cursor 以 Organization、Team、Task 分区保存在 SessionStorage；事件按 `eventId` 和 `domainEventId` 有界去重，Scope、Conversation 或 Task 集合变化时取消旧连接，410 时清除失效 Cursor 并强制回读。SSE 只作为失效信号，卡片状态始终重新读取服务端关联摘要，终态回读后停止对应连接。Task Event Payload 不直接拼装 UI 事实。Conversation 进入已确认 WorkItem 时携带最新持久 USER Message 的 `sourceMessage` 坐标，委托确认页明确展示来源，创建命令将其作为 `conversationSource` 提交，服务端由此原子建立 Task 与 Conversation 关联。
+
+M3-F05 在 Task 详情提供耐久执行控制。当前成员同时具有 `work:participate`、当前 WorkItem 的 ACTIVE Owner 或 Executor 责任，且当前 attempt 状态允许时，页面展示 Pause、Resume、Cancel 或 Retry。Pause 与 Cancel 要求团队可见原因，确认界面说明安全点、已发生外部副作用、审计证据、attempt 历史和当前授权复验的影响。离线、请求中和权限不足均关闭提交入口；只读成员不显示操作按钮。
+
+成员命令携带当前 attempt 强版本和独立 `Idempotency-Key`。可重试网络错误保留原命令与原幂等键，409/412 清除陈旧命令并展示提交版本和服务端当前版本。命令请求期间不修改 Task 或 TaskExecution 本地事实；成功、并发冲突和终态竞态统一回读 Task、attempt、Runtime、关联与列表。Retry 由服务端创建后继 attempt，前端只在回读后选择新的 current attempt。Scope 或 Task 切换会废弃旧命令回执，并在回执到达和多阶段回读过程中持续校验 generation，防止旧命令继续请求新 Scope 或将界面切回原 Scope。Cancel 确认关闭后恢复触发按钮焦点，窄屏保持 Task、控制、关联、责任、attempt 与 Runtime 的顺序阅读。
+
+M3-F06 在执行控制之后提供 Task Timeline 与实时 Progress。历史 API 的数组顺序是耐久提交顺序，前端不使用可能因 Runtime 延迟提交而倒退的 `occurredAt` 重排事实；界面为阅读方便倒序展示最近 40 条。Worker Progress 与受控 AgentRun Progress 合并为当前 attempt 的进度卡，Heartbeat、文本 Delta 和 Usage 不形成可视事件。Recovery、AgentRun Resume、`RECOVERING`、continuity gap 和 SSE 投影缺口分别进入时间线或恢复提示。
+
+详情先读取 Task Event 历史，再以历史 `nextCursor` 建立 SSE；未读取历史的 Conversation Task 卡继续从按 Organization、Team、Task 分区的 SessionStorage Cursor 恢复。事件以 `eventId` 和 `domainEventId` 双重去重，410 清除 Cursor 并从流头补齐，慢流关闭从最后 Cursor 重连，完整终态历史不再建立连接，运行中 Task 回读终态后停流。SSE 只即时追加公开 Timeline，并以 350ms 窗口触发 Task/Runtime 权威回读，不从事件推断领域状态。浏览器 Gateway 依据事件类型执行第二层载荷白名单，未知载荷保留信封但丢弃 Payload；Token、Hash、Credential、Fencing、Reasoning、Tool 参数和 Provider 原始错误不进入页面状态。ARIA Live 只合并播报最新有效事实，初次历史静默；Reduced Motion 关闭 Progress 过渡。
+
+M3-F07 建立 Task 前端全状态与质量基线。Control Task 列表、详情、命令、Runtime、Fleet、Timeline 与关联分别表达 Loading、Empty、Error 和旧事实保留；资源 API 的 403 统一进入 Access Boundary。Offline 关闭成员写命令，Conflict 回读服务端版本，Cancelled 保留耐久证据，Recovering、continuity gap、Connecting 和 Reconnecting 保留 Timeline 并说明恢复坐标。WorkItem 与 Task 叠层抽屉只有最上层响应 Escape 和 Tab，关闭后焦点进入仍可见的 Modal；Attempt 使用语义列表和原生按钮，关键颜色满足 WCAG 2.2 AA。
+
+视觉层级参考 vibe-kanban 的执行密度与列表到详情切换，以及 multica 的对话工作区和卡片化上下文。CrewScope 保持浅色低饱和团队工作台风格，以耐久 Task、责任、attempt、Plan、Step、AgentRun、Lease、控制权和审计事实为核心，不复刻竞品布局与视觉资产，也不把个人 Coding Agent 进程状态作为团队事实。
+
 ### 6.2 企业通信 Channel
 
 飞书、钉钉、企业微信、GitHub 和 GitLab 交互入口使用 Gateway 与内置 Channel：

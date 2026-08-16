@@ -4,7 +4,7 @@
 > 前置条件：M2 Release Gate 通过<br>
 > 目标周期：3–4 周，多工作流并行推进<br>
 > 目标结果：成员可从 WorkItem 或 Conversation 创建 Task，Worker 可安全领取并驱动 TaskExecution，成员可观察、暂停、恢复、取消和重试，进程或 Redis 故障后执行可收敛<br>
-> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09`、`M3-A01` 至 `M3-A07` 已完成，下一项为 `M3-F01`（2026-08-15）
+> 当前进度：`M3-S01` 至 `M3-S03`、`M3-D01` 至 `M3-D09`、`M3-I01` 至 `M3-I09`、`M3-A01` 至 `M3-A07`、`M3-F01` 至 `M3-F07` 已完成，下一项为 `M3-Q01`（2026-08-16）
 
 ## 1. 出口结果
 
@@ -174,13 +174,13 @@ M3 Runtime 只运行受控的计划与步骤 Fixture，用于验证耐久调度�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M3-F01` | TASK | A02,A06 | web | 建立 Task Gateway、类型、Store、路由与 Scope 隔离；支持列表、详情、attempt、事件 Cursor 和关联对象缓存 | Vitest 覆盖 DTO 映射、过期请求隔离、Scope 切换、深链接恢复、Cursor、错误信封、缓存失效和内部安全字段不进入前端类型 |
-| `M3-F02` | FEATURE | F01,A01 | web | 在 Control Mode 交付 Task 列表、状态/负责人筛选、当前 attempt、等待原因和 WorkItem“交给 Agent 处理”入口 | 组件与 E2E 覆盖创建、幂等重试、责任预览、列表刷新、WorkItem/Conversation 深链接、无权限隐藏、Loading/Empty/Error 和窄屏列表 |
-| `M3-F03` | FEATURE | F01,A02,A07 | web | 交付 Task 详情抽屉/页面：Task、责任快照、当前与历史 attempt、Plan、Step、AgentRun、Lease 和 Runtime 安全事实 | 组件测试覆盖状态语义、attempt 切换、计划版本、步骤进度、Worker 失联、WAITING_RUNTIME、敏感字段缺失、桌面双栏和窄屏顺序阅读 |
-| `M3-F04` | FEATURE | F01,A01,A05 | web | 在 Conversation Mode 交付 Task 卡片和实时状态；从 TaskIntent/WorkItem 进入 Task，并提供 Conversation、WorkItem、Task 双向跳转 | E2E 覆盖创建后卡片出现、刷新恢复、多个 Task、PRIVATE 可见性、运行/等待/终态更新、对象跳转和对话内容不被瞬时流覆盖 |
-| `M3-F05` | FEATURE | F03,A04 | web | 交付 Pause、Resume、Cancel、Retry 控件、影响说明和冲突事实刷新；仅在状态与权限允许时展示操作 | Vitest/E2E 覆盖请求态、重复点击、离线、409/412、终态竞态、取消焦点恢复、Retry 新 attempt、只读成员和无乐观伪更新 |
-| `M3-F06` | FEATURE | F03,A05 | web | 交付 Task Timeline、实时 Progress、恢复标识和 SSE Cursor 续传；合并 Task Event 与受控 AgentRun 公开事件 | 测试覆盖去重、乱序、断线重连、历史追平、慢流降级、RECOVERING/continuity gap、终态收口、ARIA Live 节流和 Reduced Motion |
-| `M3-F07` | HARDENING | F02..F06 | web | 完成 Task 页面 Loading、Empty、Error、Forbidden、Conflict、Offline、Reconnecting、Cancelled、Recovering 状态，以及桌面/窄屏、键盘、Axe 和视觉回归 | Vitest 覆盖率达门槛；Playwright 覆盖 Conversation/Control 双入口；Axe 无严重问题；关键桌面与窄屏截图通过；文档记录视觉来源和 CrewScope 差异 |
+| `M3-F01` | TASK | A02,A06 | web | 已完成：建立 Task Gateway、公开类型、Store、`/work?...&task=` 路由契约与 Team/WorkProject Scope 隔离；支持列表、详情、attempt、Runtime Facts、事件 Cursor 和三向关联对象缓存 | [M3-F01 Task 前端数据层与路由](../testing/M3-F01-Task前端数据层与路由.md)；13 个新增 Vitest 与 132 个前端全量测试覆盖 DTO 白名单、过期请求隔离、Scope 切换、深链接恢复、Cursor、错误信封、缓存失效和内部安全字段不进入 Web 状态 |
+| `M3-F02` | FEATURE | F01,A01 | web | 已完成：在 Control Mode 交付 Task 列表、服务端状态/Owner 筛选、当前 attempt、等待原因和 WorkItem“交给 Agent 处理”入口；补齐责任 AgentProfile 事实、同键重试、列表刷新、Task 深链接和最上层 Modal 键盘循环 | [M3-F02 Control Mode Task 列表与委托入口](../testing/M3-F02-Control-Mode-Task列表与委托入口.md)；42 个 Vitest 文件、180 项测试与 102 项桌面/窄屏 E2E 覆盖创建、幂等重试、责任预览、筛选、列表刷新、深链接、权限隐藏、键盘焦点、Loading/Empty/Error 和窄屏布局 |
+| `M3-F03` | FEATURE | F01,A02,A07 | web | 已完成：交付 Task 详情抽屉，展示 Task、责任快照、当前/历史 attempt、PlanVersion、Step、AgentRun、Lease、恢复摘要和成员安全 Runtime Fleet 事实；attempt 与 Team 级缓存独立，关闭后保留 WorkItem 上下文 | [M3-F03 Task 详情与 Runtime 安全事实](../testing/M3-F03-Task详情与Runtime安全事实.md)；36 个 Vitest 文件、145 项测试及桌面/窄屏 E2E 覆盖状态语义、attempt 切换、计划版本、步骤进度、Worker 失联、`WAITING_RUNTIME`、敏感字段缺失、桌面双栏和窄屏顺序阅读 |
+| `M3-F04` | FEATURE | F01,A01,A05 | web | 已完成：在 Conversation Mode 交付独立耐久 Task 卡片、多 Task SSE 状态失效回读和按 Task 分区的 Cursor 恢复；TaskIntent/已确认 WorkItem 委托携带 Conversation Message 来源，Conversation、WorkItem、Task 双向跳转并保留对象坐标 | [M3-F04 Conversation Mode Task 卡片与实时状态](../testing/M3-F04-Conversation-Mode-Task卡片与实时状态.md)；37 个 Vitest 文件、153 项测试及桌面/窄屏 E2E 覆盖创建后出现、刷新恢复、多个 Task、PRIVATE 服务端过滤、等待/终态更新、410、去重、对象跳转和对话瞬时流隔离 |
+| `M3-F05` | FEATURE | F03,A04 | web | 已完成：在 Task 详情交付 Pause、Resume、Cancel、Retry 控件、影响说明、状态/责任权限显隐、离线关闭、同键重试和 409/412 冲突事实刷新；命令期间不乐观修改事实，Retry 后选中服务端后继 attempt | [M3-F05 Task 控制与冲突恢复](../testing/M3-F05-Task控制与冲突恢复.md)；42 个 Vitest 文件、180 项测试与 102 项桌面/窄屏 E2E 覆盖请求态、重复点击、离线、409/412、终态竞态、取消焦点恢复、Retry 新 attempt、Scope 切换与无乐观伪更新 |
+| `M3-F06` | FEATURE | F03,A05 | web | 已完成：交付 Task Timeline、Worker/AgentRun 实时 Progress、恢复标识、历史追平和 SSE Cursor 续传；耐久流顺序不按时间戳重排，事件只即时更新公开 Timeline 并节流回读 Task/Runtime 权威事实 | [M3-F06 Task Timeline 与实时 Progress](../testing/M3-F06-Task-Timeline与实时Progress.md)；40 个 Vitest 文件、170 项测试与 96 项桌面/窄屏 E2E 覆盖双重去重、乱序、410、断线重连、慢流轮换、RECOVERING/continuity gap、终态停流、ARIA Live、Reduced Motion 和浏览器载荷脱敏 |
+| `M3-F07` | HARDENING | F02..F06 | web | 已完成：收口 Task 页面 Loading、Empty、Error、Forbidden、Conflict、Offline、Reconnecting、Cancelled、Recovering，统一保留旧事实、403 权限边界、叠层 Modal 键盘与焦点恢复、语义列表、AA 对比度和 Reduced Motion | [M3-F07 Task 前端全状态与质量硬化](../testing/M3-F07-Task前端全状态与质量硬化.md)；42 个 Vitest 文件、180 项测试，Statements 85.55% / Branches 78.25% / Functions 87.03% / Lines 88.19%；102 项桌面/窄屏 Playwright、Conversation/Control Axe 与关键视觉基线通过 |
 
 M3 UI 展示任务、计划、步骤、运行、租约、等待与恢复事实。界面不展示 M4 才存在的 Diff、Worktree、Sandbox、文件修改或真实代码执行结果，也不展示 Claim Token、Task Token、原始 AgentState 和内部 Reasoning。
 
