@@ -1,7 +1,7 @@
 # M4-S02 Git Worktree 与冷恢复协议验证记录
 
-> 验证对象：Git `2.50.1`（Apple Git-155）  
-> CrewScope 模块：`crewscope-infrastructure`  
+> 验证对象：Git `2.50.1`（Apple Git-155）<br>
+> CrewScope 模块：`crewscope-infrastructure`<br>
 > 验证日期：2026-08-16
 
 ## 1. 验证结论

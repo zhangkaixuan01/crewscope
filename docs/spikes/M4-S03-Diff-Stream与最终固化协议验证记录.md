@@ -1,7 +1,7 @@
 # M4-S03 Diff Stream 与最终固化协议验证记录
 
-> 验证对象：Java NIO WatchService、Git `2.50.1`（Apple Git-155）、Vue 3、Vitest、Playwright Chromium  
-> CrewScope 模块：`crewscope-infrastructure`、`crewscope-web`  
+> 验证对象：Java NIO WatchService、Git `2.50.1`（Apple Git-155）、Vue 3、Vitest、Playwright Chromium<br>
+> CrewScope 模块：`crewscope-infrastructure`、`crewscope-web`<br>
 > 验证日期：2026-08-16
 
 ## 1. 验证结论

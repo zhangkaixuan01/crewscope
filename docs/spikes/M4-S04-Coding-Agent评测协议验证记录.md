@@ -1,7 +1,7 @@
 # M4-S04 Coding Agent 评测协议验证记录
 
-> 验证对象：CrewScope Coding Evaluation v1、Java 17、Spring Boot 4.0.4、Maven、Git、Node.js  
-> CrewScope 范围：`evaluation/m4/coding-v1`、CI Quality Gate  
+> 验证对象：CrewScope Coding Evaluation v1、Java 17、Spring Boot 4.0.4、Maven、Git、Node.js<br>
+> CrewScope 范围：`evaluation/m4/coding-v1`、CI Quality Gate<br>
 > 验证日期：2026-08-16
 
 ## 1. 验证结论

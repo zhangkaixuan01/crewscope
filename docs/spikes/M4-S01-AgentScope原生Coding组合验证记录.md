@@ -1,7 +1,7 @@
 # M4-S01 AgentScope 原生 Coding 组合验证记录
 
-> 验证对象：AgentScope Java `v2.0.0`（`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
-> CrewScope 模块：`crewscope-agentscope`  
+> 验证对象：AgentScope Java `v2.0.0`（`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）<br>
+> CrewScope 模块：`crewscope-agentscope`<br>
 > 验证日期：2026-08-16
 
 ## 1. 验证结论
