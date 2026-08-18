@@ -263,6 +263,6 @@ M4-S01 冻结以下决策：
 5. 所有代码读写和命令能力通过 CrewScope 受控 Tool 包装；
 6. M4 不注册 raw Filesystem/Shell、MCP、动态 Skill、Skill 自写和 Subagent；
 7. Coding Specialist Factory 对最终 Tool 名称集合执行严格白名单；
-8. M4-D04 按本记录实现 WorkspacePolicy、AllowedPathSet、BuildProfile、CommandCatalog、SandboxResourceBudget 和只能收紧的 Overlay。
+8. M4-D04 已按本记录实现 WorkspacePolicy、AllowedPathSet、BuildProfile、CommandCatalog、SandboxResourceBudget 和只能收紧的 Overlay，固定 Tool Key 为 `command.mavenTest` 与 `command.mavenVerify`。
 
-M4-S01 至 M4-S04 已完成，当前下一项为 M4-D01。
+M4-S01 至 M4-S04、M4-D01 至 M4-D09 已完成，当前下一项为 M4-I01。M4-D08 已建立 V14 Coding 数据结构、完整 Scope 外键、冲突唯一键、分层审计、Artifact 类型和恢复查询索引；M4-D09 已完成 Coding Repository Port、JDBC Mapper、Workspace 锁定查询、条件更新、Artifact 对象图事务与稳定冲突映射。

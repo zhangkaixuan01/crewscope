@@ -221,6 +221,8 @@ git add --all
 
 Archive Ref 已发布且 `ARCHIVING` 元数据已提交后进程退出时，新 Worker 校验 Archive Ref 与 Delivery Commit 一致，随后幂等完成 Worktree 和 managed branch 清理并发布 `ARCHIVED`。`ARCHIVED` 冷恢复只验证 Archive Ref 与 Delivery Commit，不重建 Worktree。
 
+M4-D03 生产领域模型将 Spike 中的独立 `ARCHIVING` 暂存阶段收敛为受锁的 `COMPLETED/FAILED -> ARCHIVED` 条件更新。归档期间数据库保持可重复领取的 `COMPLETED/FAILED` 源事实；进程退出后，新 Worker 根据 Archive Ref、Delivery Commit、Worktree 与 managed branch 的实际状态幂等续接，全部闭合后提交 `ARCHIVED`。该收敛遵循 M4 固定状态机，并保留本 Spike 已验证的中断恢复与失败关闭保证。
+
 Archive Ref 是 M4 本地交付与恢复锚点。M5 创建 GitHub Draft PR 后，外部 Branch/PR、ActionReceipt 与本地 Archive Ref 共同构成交付证据；保留期到达后由受审计 Cleanup 删除本地 Ref 和 Artifact。
 
 ## 11. 自动化证据

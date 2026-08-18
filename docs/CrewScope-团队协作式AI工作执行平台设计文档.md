@@ -323,7 +323,7 @@ Personal Agent、Team Agent、Task Orchestrator、Coding Specialist 和 Reviewer
 | `PolicySnapshot` | Task 创建及责任、计划或能力变更时生成的不可变策略、配置和能力版本快照 |
 | `SafetyEnforcementOverlay` | 对运行中任务实时生效的撤权、禁用和 Kill Switch |
 | `RuntimeArtifact` | 报告、文件、Plan、日志、Diff、Patch 和工具大结果 |
-| `DiffArtifact` | 基线 Commit、当前 Commit、变更文件、行统计、Patch、流游标与 Review 状态 |
+| `DiffArtifact` | ExecutionWorkspace、基线 Commit、交付 Commit、最终 DiffManifest、完整 Patch Artifact 引用与最终 Hash |
 | `AuditEvent` | 面向安全、治理和合规检索的追加写投影 |
 | `DomainEvent` | 领域状态变化产生的版本化事实事件和 Outbox 来源 |
 
@@ -554,6 +554,16 @@ Coding Agent 执行稳定循环：
 ```
 
 Coding Agent 使用范围化文件、Shell、Git 和构建工具。推送分支、创建 PR、合并和发布使用 SourceCodeProvider 的 PlannedAction 链路。Reviewer Agent 基于精确基线、Diff、测试证据和验收标准生成 `ADVISORY` Finding，TeamMember 提交 `GATE` Decision。
+
+实时修改以 `DiffManifest + Generation` 投影，经 RESET/DELTA Event 和不透明 Cursor 提供可恢复观察；`DiffFileEntry` 保存 canonical 当前路径、Rename/Copy 原路径、变更类型、增删行、二进制、截断标记、完整单文件 Patch Hash 和有界 Preview。Manifest 当前路径唯一并按 Unicode 代码点排序，Content Hash 覆盖排序后的 Git 权威事实，不覆盖 Generation 和 Preview；权威 Hash 未变化时不增加 Generation。
+
+最终 `DiffArtifact` 只在 ExecutionWorkspace 进入 `FINALIZING` 后，从精确 Baseline Commit 与 Delivery Commit 重新生成并保持不可变。它固化完整 WorkProject Scope、TaskExecution/attempt、ExecutionWorkspace、CodingTarget、Commit 对、最终 Manifest、完整 Patch Artifact 引用和审计创建事实。最终 Hash 闭合 ExecutionWorkspace、Baseline、Delivery、Generation、Manifest Hash 与 Patch Hash；每个 ExecutionWorkspace 只能原子发布一个最终制品。实现与测试证据见 [M4-D05 DiffArtifact 领域模型](testing/M4-D05-DiffArtifact领域模型.md)。
+
+每次受控命令执行形成不可变 `CommandEvidence`。`CommandSpec` 固化精确 WorkspacePolicy、BuildProfile、命令槽、typed argv、仓库相对工作目录、超时和 Sandbox 镜像 Digest；`CommandEvidence` 固化 Workspace Fingerprint、平台观察终态、Exit Code、日志 Artifact、有界摘要、稳定失败分类和证据 Hash。命令成功只由 `EXITED + exitCode=0` 推导。
+
+`TestEvidence` 按 EvidenceSequence 引用同一 Workspace、Policy 和 attempt 的 CommandEvidence，保存测试统计、测试报告 Artifact 与逐条 `AcceptanceResult`。验收结果的数量、Index、文本和顺序与 CodingTargetSnapshot 完全一致，引用只能指向当前证据集合。平台按命令失败、报告缺失、零测试、测试失败、验收未完成、验收失败的固定优先级推导结果；调用方不能提交成功布尔值。完整规则见 [M4-D06 Command 与 TestEvidence 领域模型](testing/M4-D06-Command与TestEvidence领域模型.md)。
+
+Coding Specialist 使用 `RepositoryAnalysisV1`、`DiffManifestV1`、`TestEvidenceV1` 与 `CodeChangeResultV1`。四份 Schema 在每层对象固定全字段 required 和 `additionalProperties=false`，通过 AgentScope 2.0.0 JsonNode Structured Output 发送，并在 DTO 转换前再次校验原始 Map。模型输出只引用 CodingTarget、Workspace、Policy、DiffArtifact 与 TestEvidence；服务端逐项复验路径、代次、统计、顺序和 Hash，并要求 TestEvidence 的被测 DiffGeneration/Manifest Hash 与最终 DiffArtifact 精确一致，最终成功只读取领域 TestEvidence。`CodingCheckpoint` 将 Plan/Todo、Run Segment、Workspace Fingerprint、Diff Generation、最近 TestEvidence 和 AgentStateSnapshot 形成不可变 Hash 闭包。完整规则见 [M4-D07 Coding 结构化输出与 Checkpoint 契约](testing/M4-D07-Coding结构化输出与Checkpoint契约.md)。
 
 ### 4.6 对话模式
 
@@ -2287,29 +2297,46 @@ Runtime 向 Agent 注入 Task Token，Provider 和 Connector 使用 Token 换取
 ### 12.9 ExecutionWorkspace 生命周期
 
 ```text
-ALLOCATING
-  -> CREATING_BRANCH
-  -> CREATING_WORKTREE
-  -> PREPARING_SANDBOX
-  -> READY
-  -> IN_USE
-  -> ARCHIVED
-  -> CLEANED
+PENDING -> PROVISIONING -> READY -> ACTIVE -> FINALIZING -> COMPLETED
+                |            |          |             |
+                +------------+----------+-------------+-> RECOVERING
+                |            |          |             |
+                +------------+----------+-------------+-> FAILED
 
-ALLOCATING / CREATING_* / PREPARING_SANDBOX
-  -> FAILED
-  -> ROLLED_BACK
+ACTIVE + PAUSED -> READY
+RECOVERING + 新 Lease/Fencing -> 原中断状态
+COMPLETED / FAILED + retention due -> ARCHIVED
 ```
 
-Workspace Manager 使用 `repository_id + task_execution_id` 级锁串行同一 Worktree 的创建与恢复。每次使用前校验目录、Git 元数据、分支、基线 Commit 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理已创建 Worktree 与分支记录。
+Workspace Manager 使用 `repository_id + task_execution_id` 级锁串行同一 Worktree 的创建与恢复。每次使用前校验目录、Git 元数据、分支、基线 Commit 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理已创建 Worktree 与分支记录。状态修改使用聚合 Expected Version 与数据库条件更新；`ARCHIVED` 是不可变终态。
 
 RepositoryBinding 只向执行链暴露稳定 Repository Key。ManagedRepositoryResolver 在 Worker 配置的受管根目录下解析 `<repositoryKey>.git`，依次校验 Key 语法、逐级符号链接、canonical containment、Worker Owner 与 bare repository。浏览器、模型、Agent Tool 和应用命令不提交宿主路径。Baseline Preflight 将 Ref 解析为 40 位完整 Commit ID，后续 Provision 与恢复只使用该 Commit ID。
 
+RepositoryBinding 是 WorkProject Scope 内的版本化业务事实，保存 Organization、Team、Workspace、WorkProject、`LOCAL_MANAGED`、稳定 Repository Key、默认分支、启停状态、Version 和审计字段，不保存 Managed Repository Root 或任何宿主路径。同一 WorkProject 内 Repository Key 唯一，不同 WorkProject 可以复用同一受管仓库。启停与默认分支变更使用 Expected Version；停用只阻止创建新的 CodingTargetSnapshot，不改变已经固化的 Binding Version、Ref 和 Commit。应用层所有 RepositoryBinding 查询显式携带 Organization、Team 和 WorkProject Scope。
+
+CodingTargetSnapshot 是 Task 的可选不可变 Coding 目标事实。首版在 Task 执行开始前固化 TaskBrief Hash、验收标准、RepositoryBinding ID/Version/Kind/Key、用户选择的短 Ref、Preflight 解析出的 40 位完整 Commit、AllowedPaths、版本化 BuildProfile 引用、创建 Principal 和 canonical SHA-256。Ref 后续移动、Binding 默认分支变化或 Binding 停用都不改变历史快照。AllowedPaths 使用仓库相对 canonical 路径，拒绝绝对路径、反斜杠、空段、`.`/`..` 组件、NUL 和控制字符，并折叠重复及父子冗余根。
+
+非 Coding Task 不创建 CodingTargetSnapshot，既有 Task 生命周期保持不变。Retry 默认沿用原快照的 ID、Revision 和 Hash；显式换目标时创建线性后继 Revision，记录 Parent Snapshot 和变更原因，并重新验证当前 RepositoryBinding。后继 AllowedPaths 只能保持或收紧，不能扩大父 Revision 的路径授权；TaskBrief 与验收标准不能借 Retry 改写。应用层按 Organization、Team、WorkProject 和 Task 查询快照，数据库以 Task + Revision 唯一约束原子拒绝重复版本。
+
+WorkspacePolicy 是一个 TaskExecution attempt 的不可变 Coding 执行授权。它闭合完整 WorkItemScope、Task/TaskExecution/attempt、CodingTarget Snapshot ID/Revision/Hash、PolicySnapshot ID/Hash、AllowedPathSet、精确 BuildProfile Reference、CommandCatalog、SandboxResourceBudget、WorkspaceOperationBudget、创建 Principal 和 canonical SHA-256。TaskExecution PlanningContext 必须指向同一 PolicySnapshot ID/Hash，PolicySnapshot 必须允许 `SANDBOX`、`WORKTREE` 与目录内全部 Tool，AllowedPathSet 必须位于 CodingTargetSnapshot 的路径集合内。
+
+BuildProfile 使用 Key、Version 与 canonical SHA-256 固化 Java Release、BuildTool、摘要固定的 OCI Sandbox 镜像及 CommandCatalog。CommandCatalog 只保存 typed argv，入口限定为 Maven、Maven Wrapper、Gradle Wrapper 或 `./scripts/` 下的 canonical 项目脚本；每个 CommandKind 对应唯一 Tool Key、固定 argv、仓库相对工作目录、默认/最大超时，以及有界模块白名单和精确测试类/方法选择器。执行时按 BuildProfileReference 精确读取版本，Profile 升级不改变历史执行语义。
+
+SandboxResourceBudget 固化网络、CPU、内存、PID、单命令时长、命令输出字节和只读根文件系统。WorkspaceOperationBudget 固化命令次数、变更文件数、单文件字节、写操作次数、总写入字节、Diff 字节和测试修复轮次。M4 执行固定 `network=none` 与只读根文件系统；命令最大超时受 Sandbox 与 PolicySnapshot 总时长双重约束，命令及写操作总数受 PolicySnapshot Tool 调用预算约束。
+
+WorkspacePolicyOverlay 是同一 WorkspacePolicy 的单调运行时收紧流。首版继承完整基准策略，后继版本保存直接父 Overlay Hash，可缩小 AllowedPathSet、删除 CommandKind，并降低网络、CPU、内存、PID、超时、输出、文件、写入、Diff、命令次数与修复轮次；空命令目录表示停止全部命令执行。每个版本保存 canonical SHA-256 和审计信息。通用 SafetyEnforcementOverlay 继续处理 Principal、Membership、Provider、Connection、Credential、Capability 和 Tool 撤权，WorkspacePolicyOverlay 处理 Coding Workspace 的路径、命令与资源预算。
+
 Workspace 身份由服务端事实确定：一个 TaskExecution attempt 对应一个 ExecutionWorkspace、managed branch 和 Worktree 路径。分支格式固定为 `crewscope/tasks/<taskExecutionId>/attempt-<attempt>`，物理路径固定为 `<worktreeRoot>/<repositoryKey>/<workspaceKey>`，归档引用固定为 `refs/crewscope/archives/<workspaceKey>`。GitCommandExecutor 使用固定参数数组、专用 HOME、关闭系统与全局 Git 配置、关闭交互、固定 Locale、超时和输出上限。
+
+ExecutionWorkspace 在 TaskExecution 进入 `PREPARING` 且持有有效 PREPARE Lease 后分配，保存完整 WorkItemScope、Task/CodingTarget、RepositoryBinding 版本、Runtime/Worker/Lease/Fencing、恢复代次、保留期、乐观版本与审计。Pause 将 `ACTIVE` 返回 `READY` 并保留 Worktree；Resume 和 Recovery 必须绑定严格更大的 Fencing Token。Cancel 进入 `FINALIZING` 固化最终可证明 Diff，再以 `CANCELLED` 原因进入 `COMPLETED`。Retry 创建新的 TaskExecution、Workspace ID、managed branch 与 Worktree，旧 attempt 不复用。
+
+领域 Workspace Fingerprint 使用 canonical SHA-256 闭合路径无关的 Scope、TaskExecution/attempt、CodingTarget Snapshot Hash、RepositoryBinding 版本、RepositoryKey、Baseline Commit、受管标识、Runtime/Worker/Lease/Fencing、恢复代次与保留期。宿主绝对路径不进入领域模型；M4-I03 将 canonical repository/worktree、HEAD、`git-common-dir` 和 WorkspacePolicy 证明与领域 Fingerprint 组合完成物理复验。持久化恢复会重算 Fingerprint，错误标识关联、恢复状态形状或 Hash 失败关闭。
+
+Coding 持久化使用 Scope 化 Spring JDBC Adapter。RepositoryBinding 与 ExecutionWorkspace 通过 `scope + aggregate_id + expected_version` 条件更新，零行更新后的版本复查继续携带完整 Scope；WorkspacePolicyOverlay 通过当前父 Hash 原子追加。恢复和保留期扫描使用稳定排序、显式 Limit 与 `FOR UPDATE SKIP LOCKED`，Repository 以 Mandatory Transaction 强制调用方在同一外层事务内完成领取裁决。DiffArtifact、CommandEvidence、TestEvidence 和 CodingCheckpoint 的根事实与规范化子表在同一事务发布，子表失败时完整回滚。PostgreSQL SQLState 与 V14 唯一约束名映射为稳定领域冲突，其他完整性错误不被吞并。公开 API Cursor 与批量 DTO 投影在 M4-A04 构建，不污染领域 Repository Port。实现与验证见 [M4-D09 Coding 持久化与锁定查询](testing/M4-D09-Coding持久化与锁定查询.md)。
 
 Provision 在同一锁内完成“资源不存在校验—`git worktree add`—Fingerprint 复验—ACTIVE 事实提交”。Fingerprint 闭合 RepositoryBinding 版本、canonical repository/worktree、TaskExecution/attempt、managed branch、baseline/HEAD、`git-common-dir`、Worker/Runtime/Lease/Fencing 和 WorkspacePolicy。普通失败同步删除本次 Worktree、managed branch 与未提交元数据；启动对账只清理 Path、Branch、CommonDir 和 Workspace 身份全部闭合的 Provision 孤儿。未知目录、错误 HEAD/Branch、失效 `.git` 指针和符号链接越界进入损坏诊断并保留现场。
 
-归档使用 `git write-tree + git commit-tree` 从 baseline 创建 Delivery Commit，活动 Branch 保持 baseline。平台先固定 `refs/crewscope/archives/<workspaceKey>`，再提交含 Delivery Commit 的 `ARCHIVING` 事实，随后删除 Worktree 与活动 Branch 并提交 `ARCHIVED`。冷恢复对 `ARCHIVING` 复验 Archive Ref 后幂等完成清理。完整协议和故障证据见 [M4-S02 Git Worktree 与冷恢复协议验证记录](spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)。
+归档使用 `git write-tree + git commit-tree` 从 baseline 创建 Delivery Commit，活动 Branch 保持 baseline。保留期到达后，Worker 锁定 `COMPLETED/FAILED` Workspace，固定 `refs/crewscope/archives/<workspaceKey>`，删除 Worktree 与活动 Branch，再使用 Expected Version 提交 `ARCHIVED`。任一步骤中断时数据库仍保留可领取的源事实，新 Worker 复验 Archive Ref、Delivery Commit 与本地资源后幂等续接；未知或不闭合的资源失败关闭并保留现场。完整协议和故障证据见 [M4-S02 Git Worktree 与冷恢复协议验证记录](spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)。
 
 Diff Stream 使用文件系统事件触发低延迟 Reconcile，并通过周期任务、Tool 完成、Checkpoint、Pause/Resume 和 Finalizing 安全点执行独立 Reconcile。WatchService Event 是合并与调度提示，Git Diff 是权威事实；`OVERFLOW`、Watcher 重启、Cursor 过期、Stream Epoch 变化和投影 Hash 不一致触发完整 Reset。
 
@@ -2648,7 +2675,11 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `execution_lease` | TaskExecution、attempt、Runtime、Worker、Claim Token Hash、当前 Fencing Token、`PREPARE/RUN` Phase、获取/心跳/过期时间、Lease Version 和互斥释放事实；MVP 不创建 Step Lease |
 | `task_event` | 单调 Position、Task/Execution/Step/AgentRun/Lease 关系、Task Stream Event ID、DomainEvent ID、发生时间和 Cursor 恢复索引；公开载荷从 DomainEvent 白名单投影 |
 | `task_credential_grant` | Organization/Team/Workspace/WorkProject、Task/TaskExecution/attempt、ExecutionLease 全坐标、Execution Principal、Policy/Safety 版本、ProviderBinding/ConnectionGrant/Tool/显式资源范围、Token JTI Hash、签发/过期时间、ACTIVE/REVOKED/EXPIRED、useCount、lastUsedAt、终止事实、乐观锁和审计字段 |
-| `execution_workspace` | TaskExecution、仓库、分支、基线 Commit、Worktree、Sandbox、状态、归档和清理信息 |
+| `repository_binding` | 完整 WorkProject Scope、受管 RepositoryKey、Repository Kind、默认分支、ACTIVE/DISABLED 状态、乐观锁和创建/修改审计；不保存宿主仓库路径 |
+| `coding_target_snapshot` | Task、Revision/Parent、TaskBrief Hash、RepositoryBinding 版本、基线 Ref/Commit、AllowedPaths、BuildProfile、验收条件、Snapshot Hash 和创建审计 |
+| `execution_workspace` | TaskExecution/attempt、CodingTarget、RepositoryBinding、基线 Commit、平台 WorkspaceKey/受管分支/归档引用、Runtime/Worker/Lease/Fencing、恢复代次、状态、保留期、Fingerprint、乐观锁和审计；不保存宿主 Worktree 路径 |
+| `workspace_policy` | TaskExecution/attempt、CodingTarget、PolicySnapshot、AllowedPaths、BuildProfile/CommandCatalog、Sandbox/文件/Diff/命令预算、Policy Hash 和创建审计 |
+| `workspace_policy_overlay` | WorkspacePolicy 的追加版本、父 Hash、只能收紧的路径/命令/Sandbox/操作预算、Overlay Hash 和创建/修改审计 |
 | `task_input_message` | 触发消息、Thread、作者、合并批次、执行处理状态和结果引用 |
 | `plan_version` | 候选来源、结构化计划、校验、确认、父版本和差异 |
 
@@ -2680,9 +2711,13 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `policy_pack` | Agent、模型、工具、资源、审批、预算和保留策略 |
 | `policy_snapshot` | Task、父快照、变化原因、责任版本、PolicyPack、Agent、ProviderBinding、ConnectionGrant、Tool、Skill、授权证据和版本快照 |
 | `safety_enforcement_overlay` | 实时禁用成员、Connection、Provider、Plugin、模型、工具和资源的安全覆盖 |
-| `runtime_artifact` | Team、Workspace、Task、Contribution、可见性、URI、类型、版本、哈希、敏感级别和保留期限 |
-| `diff_artifact` | ExecutionWorkspace、基线/当前 Commit、文件和行统计、Patch Artifact、流游标、截断标记和 Review 状态 |
-| `test_evidence` | TaskExecution、命令、环境、退出码、耗时、摘要、日志 Artifact 和验收标准映射 |
+| `runtime_artifact` | Team、Workspace、Task、Contribution、可见性、URI、类型、版本、哈希、敏感级别和保留期限；M4 增加 `DIFF_PATCH`、`COMMAND_LOG` 和 `TEST_REPORT` 类型 |
+| `diff_artifact` | 完整 Scope、TaskExecution/attempt、ExecutionWorkspace、CodingTarget、基线/交付 Commit、Diff Generation、Manifest Hash、完整 Patch Artifact 引用、最终 Hash 和创建审计；每个 ExecutionWorkspace 唯一 |
+| `diff_file_entry` | DiffArtifact、排序序号、canonical 当前路径、Rename/Copy 原路径、变更类型、增删行、二进制、截断标记、完整单文件 Patch Hash 和有界 Preview |
+| `command_evidence` | 完整 Scope、Workspace Fingerprint、CodingTarget、WorkspacePolicy、EvidenceSequence、精确 typed argv/BuildProfile/Sandbox 镜像、终止事实、摘要、CommandLog Artifact、失败分类、Evidence Hash 和创建审计 |
+| `test_evidence` | 完整 Scope、Workspace Fingerprint、CodingTarget、被测 Diff Generation/Manifest Hash、WorkspacePolicy、EvidenceSequence、测试统计、TestReport Artifact、失败分类、Evidence Hash 和创建审计 |
+| `test_evidence_command` / `test_acceptance_result` / `test_acceptance_evidence` | TestEvidence 的有序 CommandEvidence 集合、每条验收标准结论和同 Scope 证据映射 |
+| `coding_checkpoint` | Workspace/Policy、AgentRun Segment、PlanVersion/StepExecution、Plan/Todo、Diff、可选 TestEvidence、AgentStateSnapshot、CheckpointSequence/Hash 和创建审计 |
 | `change_request` | 仓库、分支、commit、PR/MR、CI、Review 和制品 |
 
 ### 14.9 事件、收件箱与通知数据
@@ -3142,7 +3177,7 @@ AgentScope 原始事件传输与应用层 AG-UI 重放分别使用有界缓冲�
 
 ### 16.7 Artifact 与 Snapshot 存储
 
-- 应用层定义流式 `ArtifactStore` Port，RuntimeArtifact、DiffArtifact、测试日志和 AgentStateSnapshot 保存不可变对象引用、SHA-256、大小、数据分类、可见性和保留期限；
+- 应用层定义流式 `ArtifactStore` Port，RuntimeArtifact、DiffArtifact 的完整 Patch、测试日志和 AgentStateSnapshot 保存不可变对象引用、SHA-256、大小、数据分类、可见性和保留期限；
 - 写入请求携带调用方生成的稳定 Artifact ID、Scope、Content Type、声明大小、预期哈希、Producer 和正 TTL；Store 校验实际大小与哈希并原子提交，同 ID 同请求保持幂等；
 - Artifact Scope 使用 Organization、可选 Team 和可选 Workspace，读取上下文携带 Principal 已授权的 Team/Workspace 集合；`PRIVATE`、`WORKSPACE`、`TEAM`、`ORGANIZATION` 逐级表达可见范围；
 - 数据分类使用 `PUBLIC`、`INTERNAL`、`CONFIDENTIAL` 和 `RESTRICTED`，与可见范围分别治理；凭证明文不进入任何分类的 Artifact；
@@ -4260,7 +4295,7 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 
 ## 24. 首个里程碑
 
-> Team Lead 创建研发 Team、邀请张三和李四，并启用内置 GitHub 与飞书集成。张三在团队对话中提出研发目标，Personal Agent 生成 TaskIntent，并建议创建 WorkItem `CRW-1024`、由张三担任 Owner/Executor、李四担任 Gate Reviewer。张三确认后，AgentScopeNativeRuntime 通过 Claim、ExecutionLease 和 Task Token 领取任务。ExecutionWorkspace Manager 创建专用分支、Git Worktree 和 Sandbox。Task Orchestrator 生成计划，Coding Specialist 分析仓库、修改代码、运行 Maven 测试并生成实时 DiffArtifact 与 TestEvidence。平台创建绑定精确版本的 ReviewRequest。李四通过自己的 Personal Agent 查看 ContextPackage，Reviewer Specialist 提交 Advisory Finding，李四提交 Gate ReviewDecision。Coding Specialist 根据意见完成修改。张三确认源码写操作后，SourceCodeProvider 创建 Draft PR，NativeWorkItemProvider 更新状态，CollaborationProvider 通知团队。Team Lead 在工作台查看责任、Runtime、Worktree、Review、成本、风险、Artifact、Inbox 和完整审计链。
+> Team Lead 创建研发 Team、邀请张三和李四，并启用内置 GitHub 与飞书集成。张三在团队对话中提出研发目标，Personal Agent 生成 TaskIntent，并建议创建 WorkItem `CRW-1024`、由张三担任 Owner/Executor、李四担任 Gate Reviewer。张三确认后，AgentScopeNativeRuntime 通过 Claim、ExecutionLease 和 Task Token 领取任务。ExecutionWorkspace Manager 创建专用分支、Git Worktree 和 Sandbox。Task Orchestrator 生成计划，Coding Specialist 分析仓库、修改代码、运行 Maven 测试并生成实时 DiffManifest 与 TestEvidence，完成时固化最终 DiffArtifact。平台创建绑定精确版本的 ReviewRequest。李四通过自己的 Personal Agent 查看 ContextPackage，Reviewer Specialist 提交 Advisory Finding，李四提交 Gate ReviewDecision。Coding Specialist 根据意见完成修改。张三确认源码写操作后，SourceCodeProvider 创建 Draft PR，NativeWorkItemProvider 更新状态，CollaborationProvider 通知团队。Team Lead 在工作台查看责任、Runtime、Worktree、Review、成本、风险、Artifact、Inbox 和完整审计链。
 
 里程碑验证：
 

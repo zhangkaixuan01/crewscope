@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2、M3 已完成；M4-S01 至 M4-S04 已完成，下一项为 M4-D01（2026-08-16）
+> 当前进度：M0、M1、M2、M3 已完成；M4-S01 至 M4-S04、M4-D01 至 M4-D09 已完成，下一项为 M4-I01（2026-08-18）
 
 ## 1. 实施目标
 
@@ -443,7 +443,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 
 ### 10.2 ExecutionWorkspace
 
-- RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、DiffArtifact 和 TestEvidence 数据模型；
+- RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、WorkspacePolicy、DiffArtifact、CommandEvidence、TestEvidence 和 CodingCheckpoint 数据模型；
 - M4 使用管理员登记的受管本地 Git 源仓库；成员只提交 Repository Key、Ref 与任务目标，不能提交任意宿主路径；
 - `V14__execution_workspace_and_artifacts.sql`；
 - 基于系统 Git 命令实现类型化 `GitCommandExecutor`；
@@ -667,7 +667,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V11__task_creation_brief.sql` | TaskBrief 目标、验收条件、来源摘要与不可变 Brief Hash | M3 |
 | `V12__task_query_indexes.sql` | Task 列表与 Runtime Facts 查询索引 | M3 |
 | `V13__task_event_stream.sql` | Task Event 耐久流索引、关系上下文与 V12 既有事件回填 | M3 |
-| `V14__execution_workspace_and_artifacts.sql` | RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、DiffArtifact、DiffFileEntry、CommandEvidence、TestEvidence | M4 |
+| `V14__execution_workspace_and_artifacts.sql` | RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、WorkspacePolicy/Overlay、DiffArtifact/DiffFileEntry、CommandEvidence、TestEvidence/验收映射、CodingCheckpoint 和 Coding Artifact 类型 | M4 |
 | `V15__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
 | `V16__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
@@ -800,7 +800,7 @@ M0 至 M3 已通过各自 Release Gate。M2 已交付 Conversation、Personal Ag
 
 M3 的 38 个任务已全部完成，交付耐久 Task Runtime、AgentScope Task Orchestrator、Task Token、Claim/Lease/Fencing、AgentRun/Snapshot 恢复、Conversation/Control 双入口与成员控制闭环。最终门禁结果为 Maven `1082 / 1082`、Vitest `180 / 180`、Playwright `102 / 102`、固定故障与重放样本 `56 / 56`，详细证据见 [M3 执行清单](plans/M3-耐久Task-Runtime.md)与 [M3 Release Gate](testing/M3-Q03-Release-Gate.md)。
 
-M4 已拆分为 44 个可执行任务，将在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。`M4-S01` 至 `M4-S04` 已完成，下一项为 `M4-D01`。
+M4 已拆分为 44 个可执行任务，将在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09` 已完成，下一项为 `M4-I01`。M4-D08 已交付 V14 Coding 数据结构、完整 Scope 外键、冲突唯一键、分层审计、Artifact 类型和恢复查询索引；M4-D09 已交付 9 个 Coding Repository Port 的 Spring JDBC Adapter、领域 Mapper、乐观锁与 Overlay 条件更新、Workspace `SKIP LOCKED` 查询、Artifact 对象图事务和稳定冲突映射。验证见 [M4-D08 V14 执行工作区与制品迁移](testing/M4-D08-V14执行工作区与制品迁移.md)与 [M4-D09 Coding 持久化与锁定查询](testing/M4-D09-Coding持久化与锁定查询.md)。
 
 ## 19. 项目管理与进度跟踪
 

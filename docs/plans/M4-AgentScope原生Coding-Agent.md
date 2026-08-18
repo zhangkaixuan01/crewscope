@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：`M4-S01` 至 `M4-S04` 已完成，下一项为 `M4-D01`（2026-08-16）
+> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09` 已完成，下一项为 `M4-I01`（2026-08-18）
 
 ## 1. 出口结果与范围
 
@@ -141,15 +141,15 @@ Coding 闭环完成 -> M4-Q03
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-D01` | TASK | S02 | domain/application | 实现 RepositoryBinding、RepositoryKind.LOCAL_MANAGED、状态、默认分支、稳定 Repository Key、版本和 Team/WorkProject Scope | 领域测试覆盖 Scope、唯一性、启停、版本、默认分支和禁止公开宿主路径 |
-| `M4-D02` | TASK | D01, M3-A01 | domain/application | 实现 CodingTargetSnapshot，绑定 Task、RepositoryBinding 版本、基线 Ref/Commit、AllowedPaths、BuildProfile、验收标准与 Hash | 测试覆盖不可变快照、Ref 漂移隔离、路径规范化、授权收紧、Retry 沿用/换版和非 Coding Task 兼容 |
-| `M4-D03` | TASK | D02, S02 | domain/application | 实现 ExecutionWorkspace 聚合、状态机、Worker/Runtime/TaskExecution 所有权、Worktree/分支稳定标识、Fingerprint、恢复代次和保留策略 | 测试覆盖一 attempt 一活动 Workspace、合法迁移、Pause/Cancel 语义、Retry 隔离、乐观锁和终态不可变 |
-| `M4-D04` | TASK | S01,D02 | domain/application | 实现 WorkspacePolicy、AllowedPathSet、BuildProfile、CommandCatalog、SandboxResourceBudget 和只能收紧的运行时 Overlay | 测试覆盖路径、命令、网络、资源、文件/Diff/输出上限与 PolicySnapshot 闭合 |
-| `M4-D05` | TASK | D03,S03 | domain/application | 实现 DiffArtifact、DiffManifest、DiffFileEntry、DiffGeneration、Patch Artifact 引用和最终 Hash | 测试覆盖基线/交付闭合、路径唯一性、增删行、二进制、重命名、截断、代次单调和终态不可变 |
-| `M4-D06` | TASK | D03,D04 | domain/application | 实现 CommandEvidence、TestEvidence、AcceptanceResult、日志/报告 Artifact 引用和稳定失败分类 | 测试覆盖命令规格 Hash、镜像、退出码、超时、测试计数、摘要上限、证据顺序与不可伪造成功 |
-| `M4-D07` | TASK | D02,D05,D06,S04 | domain/application/agentscope | 实现 RepositoryAnalysisV1、CodeChangeResultV1、TestEvidenceV1、DiffManifestV1 与 CodingCheckpoint 契约 | JSON Schema/Structured Output 测试覆盖缺字段、未知字段、路径越界、证据不匹配、Hash、版本演进和失败关闭 |
-| `M4-D08` | TASK | D01..D07 | infrastructure | 新增 `V14__execution_workspace_and_artifacts.sql`，建立 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、DiffArtifact、DiffFileEntry、CommandEvidence 与 TestEvidence | 空库、V1、V9、V10、V13→V14 和非默认 `search_path` 迁移通过；复合 Scope、唯一约束、状态、索引和审计字段完整 |
-| `M4-D09` | TASK | D08 | infrastructure | 实现 JPA/JDBC Repository、Mapper、Workspace 锁定查询、Artifact/Test 分页查询和幂等条件更新 | 真实 PostgreSQL 覆盖往返、并发创建、Cursor、跨 Scope、条件更新、批量查询、查询计划和事务回滚 |
+| `M4-D01` | TASK | S02 | domain/application | 已完成：实现 `RepositoryBinding`、`RepositoryKind.LOCAL_MANAGED`、完整 WorkProject Scope、稳定 `RepositoryKey`、默认分支、启停状态机、乐观版本、审计和 Scope 化 Repository Port；模型不保存或公开宿主路径 | [M4-D01 RepositoryBinding 领域模型](../testing/M4-D01-RepositoryBinding领域模型.md)；9 个专项测试覆盖 Scope、WorkProject 内唯一性、跨项目复用、启停、默认分支、版本、审计、查询隔离和宿主 `Path` 禁止公开 |
+| `M4-D02` | TASK | D01, M3-A01 | domain/application | 已完成：实现可选不可变 `CodingTargetSnapshot`、TaskBrief/验收标准、RepositoryBinding Version、Ref/Commit、canonical AllowedPaths、BuildProfile 引用、Revision/Parent、Retry 沿用/换版、Scope 与 SHA-256 闭合 | [M4-D02 CodingTargetSnapshot 领域模型](../testing/M4-D02-CodingTargetSnapshot领域模型.md)；12 个专项测试覆盖不可变快照、Ref 漂移隔离、路径规范化、Hash 防篡改、授权收紧、Retry 沿用/换版、Revision 唯一和非 Coding Task 兼容 |
+| `M4-D03` | TASK | D02, S02 | domain/application | 已完成：实现 `ExecutionWorkspace` 聚合、状态机、TaskExecution/Runtime/Worker/Lease/Fencing 所有权、稳定 Workspace/Branch/Worktree/Archive 标识、逻辑 Fingerprint、恢复代次、保留策略、乐观锁和 Scope 化 Repository Port | [M4-D03 ExecutionWorkspace 领域模型](../testing/M4-D03-ExecutionWorkspace领域模型.md)；14 个专项测试覆盖一 attempt 一 Workspace、合法迁移、Pause/Cancel、Retry 隔离、恢复重绑定、Retention、Scope、乐观锁、终态和篡改拒绝 |
+| `M4-D04` | TASK | S01,D02 | domain/application | 已完成：实现 `WorkspacePolicy`、`AllowedPathSet`、`BuildProfile`、typed-argv `CommandCatalog`、有界模块/测试选择器、摘要固定 Sandbox 镜像、Sandbox/Workspace 双预算与只能收紧的 `WorkspacePolicyOverlay`；闭合 CodingTarget、TaskExecution、PolicySnapshot 和精确 BuildProfile | [M4-D04 WorkspacePolicy 领域模型](../testing/M4-D04-WorkspacePolicy领域模型.md)；18 个专项测试覆盖路径、命令、选择器、网络、CPU/内存/PID/超时/输出、文件/Diff/写入上限、PolicySnapshot 闭合、Hash 防篡改、Overlay 单调收紧与 Port 契约 |
+| `M4-D05` | TASK | D03,S03 | domain/application | 已完成：实现 `DiffArtifact`、`DiffManifest`、`DiffFileEntry`、`DiffGeneration`、完整 Patch Artifact 引用、最终 Hash 和 Workspace 唯一发布 Repository Port | [M4-D05 DiffArtifact 领域模型](../testing/M4-D05-DiffArtifact领域模型.md)；17 个专项测试覆盖基线/交付闭合、AllowedPaths、路径唯一性、Unicode 排序、增删行、二进制、重命名、截断、Preview 排除 Hash、代次单调、防篡改和终态不可变 |
+| `M4-D06` | TASK | D03,D04 | domain/application | 已完成：实现 `CommandSpec`、`CommandEvidence`、`TestEvidence`、`AcceptanceResult`、被测 Diff 引用、日志/报告 Artifact 引用、自动成功判定、稳定失败分类、证据 Hash 与 Scope 化 Repository Port | [M4-D06 Command 与 TestEvidence 领域模型](../testing/M4-D06-Command与TestEvidence领域模型.md)；15 个专项场景覆盖命令规格 Hash、镜像、argv、退出码、超时、测试计数、摘要上限、Artifact、被测 Diff、证据顺序、验收闭合、失败优先级、Scope 和不可伪造成功 |
+| `M4-D07` | TASK | D02,D05,D06,S04 | domain/application/agentscope | 已完成：实现 RepositoryAnalysisV1、CodeChangeResultV1、TestEvidenceV1、DiffManifestV1、CodingCheckpoint、严格 JSON Schema、原始 Map Decoder 与领域事实复验 | [M4-D07 Coding 结构化输出与 Checkpoint 契约](../testing/M4-D07-Coding结构化输出与Checkpoint契约.md)；专项测试覆盖缺字段、未知字段、路径越界、证据不匹配、Hash、陈旧被测 Diff、版本演进、AgentScope JsonNode 调用和失败关闭 |
+| `M4-D08` | TASK | D01..D07 | infrastructure | 已完成：新增 `V14__execution_workspace_and_artifacts.sql`，建立 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、WorkspacePolicy/Overlay、DiffArtifact/DiffFileEntry、CommandEvidence、TestEvidence/验收映射与 CodingCheckpoint，并扩展 Coding Artifact 类型 | [M4-D08 V14 执行工作区与制品迁移](../testing/M4-D08-V14执行工作区与制品迁移.md)；空库、V1、V9、V10、V13→V14 和非默认 `search_path` 迁移通过，复合 Scope、冲突唯一键、状态、索引和分层审计完整 |
+| `M4-D09` | TASK | D08 | infrastructure | 已完成：实现 9 个 Coding Repository Port 的 Spring JDBC Adapter、领域 Mapper、Workspace `FOR UPDATE SKIP LOCKED` 有界查询、Artifact/Test/Checkpoint 对象图查询、乐观锁与 Overlay compare-and-set、事务发布和 PostgreSQL 唯一键冲突映射 | [M4-D09 Coding 持久化与锁定查询](../testing/M4-D09-Coding持久化与锁定查询.md)；真实 PostgreSQL 的 8 个场景覆盖完整往返、并发创建、跨 Scope、稳定排序、锁互斥、条件更新和事务回滚；公开 API Cursor、批量 DTO 投影与 N+1 门禁归 M4-A04 |
 
 ## 8. Workspace、Sandbox 与 AgentScope
 

@@ -318,7 +318,7 @@ M4-S03 冻结以下决策：
 4. Event Store 使用 RESET/DELTA、Stream Epoch、Sequence 和不透明 Cursor；
 5. 客户端遇到 Gap 时保留最后完整投影，通过 Replay 或 Reset 收敛；
 6. Java 与 TypeScript 显式迭代 Unicode 代码点排序并使用同一版本化 Fixture；
-7. Patch Preview 截断不影响统计、完整 Hash 和 Artifact；
+7. Patch Preview 不进入 Manifest Content Hash；截断不影响统计、完整 Patch Hash 和 Artifact；
 8. 最终 Diff 从 Baseline Commit 与 Delivery Commit 重新生成并保持不可变；
-9. M4-D05 实现 DiffArtifact/Manifest/Generation，M4-I08 实现 Watcher/Reconciler/Event Store/Finalizer；
+9. M4-D05 已实现 DiffArtifact/Manifest/Generation 和最终 Hash，验证见 [M4-D05 DiffArtifact 领域模型](../testing/M4-D05-DiffArtifact领域模型.md)；M4-I08 实现 Watcher/Reconciler/Event Store/Finalizer；
 10. M4-A05 与 M4-F05 复用本记录的 Cursor、Reset、投影和响应式 Fixture 契约。
