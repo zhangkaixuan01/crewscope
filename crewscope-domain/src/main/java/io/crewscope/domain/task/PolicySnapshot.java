@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 public final class PolicySnapshot {
 
     private static final int MAX_ITEMS = 200;
-    private static final String KEY_PATTERN = "[a-z][a-z0-9._-]{0,127}";
+    private static final String KEY_PATTERN = "[a-z][A-Za-z0-9._-]{0,127}";
 
     private final PolicySnapshotId id;
     private final WorkItemScope scope;

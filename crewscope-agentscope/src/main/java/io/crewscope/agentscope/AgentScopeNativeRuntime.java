@@ -305,8 +305,14 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             List<Msg> messages,
             StructuredOutputSpec<?> spec) {
         state.beginSegment();
-        Flux<ExecutionEvent> body = state.agent()
-                .call(messages, spec.javaType(), state.context())
+        Mono<Msg> invocation = spec.strictJsonSchema()
+                .<Mono<Msg>>map(schema -> state.agent().call(
+                        messages,
+                        JsonUtils.getJsonCodec().convertValue(
+                                schema, com.fasterxml.jackson.databind.JsonNode.class),
+                        state.context()))
+                .orElseGet(() -> state.agent().call(messages, spec.javaType(), state.context()));
+        Flux<ExecutionEvent> body = invocation
                 .flatMapMany(result -> structuredResultEvents(state, spec, result));
         return Flux.concat(Mono.just(started(state, segmentKind)), body);
     }
@@ -336,7 +342,9 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
                     state.failurePayload(allToolsDeniedFailure())));
         }
         try {
-            Object value = result.getStructuredData(spec.javaType());
+            Object value = spec.strictJsonSchema().isPresent()
+                    ? StrictStructuredOutputDecoder.decode(result.getStructuredData(false), spec)
+                    : result.getStructuredData(spec.javaType());
             ExecutionEvent structured = event(
                     state,
                     state.nextSequence(),

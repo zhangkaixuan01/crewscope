@@ -27,6 +27,8 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.crewscope.application.conversation.TaskIntentV1;
 import io.crewscope.application.conversation.ClarificationAnswers;
+import io.crewscope.application.coding.output.CodingStructuredOutputSpecs;
+import io.crewscope.application.coding.output.RepositoryAnalysisV1;
 import io.crewscope.application.execution.ConversationCancelRequest;
 import io.crewscope.application.execution.ConversationExecutionRequest;
 import io.crewscope.application.execution.ConversationResumeRequest;
@@ -138,6 +140,40 @@ class AgentScopeNativeRuntimeIntegrationTest {
             TaskIntentV1 intent = assertInstanceOf(TaskIntentV1.class, structured.value());
             assertEquals("task-intent/v1", structured.spec().schemaId());
             assertEquals(PROJECT_ID, intent.workProjectId());
+            assertInstanceOf(ExecutionEventPayload.Completed.class, events.get(2).payload());
+        }
+    }
+
+    @Test
+    void consumesCrewScopeStrictJsonSchemaThroughAgentScopeJsonNodeCall() {
+        AgentProfileId profileId = AgentProfileId.generate();
+        Map<String, Object> analysis = new LinkedHashMap<>();
+        analysis.put("schemaVersion", "1");
+        analysis.put("codingTargetSnapshotId", "55555555-5555-4555-8555-555555555555");
+        analysis.put("codingTargetRevision", 1);
+        analysis.put("codingTargetHash", "a".repeat(64));
+        analysis.put("modules", List.of("crewscope-domain"));
+        analysis.put("buildEntries", List.of("crewscope-domain/pom.xml"));
+        analysis.put("relevantPaths", List.of("crewscope-domain/src/main/java/App.java"));
+        analysis.put("risks", List.of());
+        analysis.put("plan", List.of("Inspect", "Change", "Test"));
+        ScriptedModel model = new ScriptedModel(structuredResponse("analysis", analysis));
+        AgentRuntimeSession session = AgentScopeRuntimeTestFixture.session(profileId, 1);
+
+        try (AgentScopeNativeRuntime runtime = new AgentScopeNativeRuntime(
+                factory(profileId, model, Toolkit::new), CLOCK)) {
+            RuntimeInvocationId invocationId = RuntimeInvocationId.generate();
+            List<ExecutionEvent> events = collect(runtime.invokeConversation(executionRequest(
+                    invocationId,
+                    session,
+                    AgentScopeRuntimeTestFixture.userMessage(session, "analyze repository", 1),
+                    Optional.of(CodingStructuredOutputSpecs.REPOSITORY_ANALYSIS))));
+
+            ExecutionEventPayload.StructuredOutput<?> structured = assertInstanceOf(
+                    ExecutionEventPayload.StructuredOutput.class, events.get(1).payload());
+            RepositoryAnalysisV1 output = assertInstanceOf(
+                    RepositoryAnalysisV1.class, structured.value());
+            assertEquals(List.of("Inspect", "Change", "Test"), output.plan());
             assertInstanceOf(ExecutionEventPayload.Completed.class, events.get(2).payload());
         }
     }
