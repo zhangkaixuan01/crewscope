@@ -320,5 +320,5 @@ M4-S03 冻结以下决策：
 6. Java 与 TypeScript 显式迭代 Unicode 代码点排序并使用同一版本化 Fixture；
 7. Patch Preview 不进入 Manifest Content Hash；截断不影响统计、完整 Patch Hash 和 Artifact；
 8. 最终 Diff 从 Baseline Commit 与 Delivery Commit 重新生成并保持不可变；
-9. M4-D05 已实现 DiffArtifact/Manifest/Generation 和最终 Hash，验证见 [M4-D05 DiffArtifact 领域模型](../testing/M4-D05-DiffArtifact领域模型.md)；M4-I08 实现 Watcher/Reconciler/Event Store/Finalizer；
+9. M4-D05 已实现 DiffArtifact/Manifest/Generation 和最终 Hash，验证见 [M4-D05 DiffArtifact 领域模型](../testing/M4-D05-DiffArtifact领域模型.md)；M4-I08 已实现 Watcher/Reconciler/Event Store/Finalizer，验证见 [M4-I08 Workspace Diff 与最终 DiffArtifact](../testing/M4-I08-Workspace-Diff与最终DiffArtifact.md)；
 10. M4-A05 与 M4-F05 复用本记录的 Cursor、Reset、投影和响应式 Fixture 契约。

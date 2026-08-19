@@ -108,4 +108,4 @@ V14 原先通过 `POSITION(CHR(0) IN text_column)` 检查文本 NUL。PostgreSQL
 
 ## 8. 后续边界
 
-M4-I01 从类型化 `GitCommandExecutor` 开始实现宿主 Git 只读与 Worktree 管理基础。M4-A04 在持久化 Port 之上增加公开 DTO、Cursor、批量投影和 N+1 验收。M4-D09 不解析宿主仓库、不执行 Git、不创建 Worktree/Sandbox，也不暴露 Web API。
+M4-I01 已通过类型化 `GitCommandExecutor` 实现宿主 Git 只读与 Worktree 管理基础，证据见 [M4-I01 类型化 GitCommandExecutor](M4-I01-类型化GitCommandExecutor.md)。M4-I02 继续实现受管 Repository Resolver 与 Baseline Preflight。M4-A04 在持久化 Port 之上增加公开 DTO、Cursor、批量投影和 N+1 验收。

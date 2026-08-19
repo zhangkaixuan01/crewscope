@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09` 已完成，下一项为 `M4-I01`（2026-08-18）
+> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12` 已完成，下一项为 `M4-A01`（2026-08-19）
 
 ## 1. 出口结果与范围
 
@@ -155,18 +155,18 @@ Coding 闭环完成 -> M4-Q03
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-I01` | TASK | S02,D03 | infrastructure | 实现类型化 GitCommandExecutor，所有宿主管理命令使用参数数组、固定环境、超时、输出上限和稳定错误分类 | 临时仓库覆盖 rev-parse、worktree、status、diff、log、show、commit；恶意 Ref/路径/参数不能形成额外命令 |
-| `M4-I02` | TASK | D01,D02,I01 | infrastructure | 实现 ManagedRepositoryResolver 与基线 Preflight，按 Repository Root + Key 解析 canonical path、校验所有权/裸库/工作树、Ref 和 Commit | 越界路径、符号链接、失效 Binding、移动 Ref、脏源仓库和错误 Commit 失败关闭 |
-| `M4-I03` | TASK | D03,I01,I02 | infrastructure | 实现 Worktree Provisioner、路径锁、分支、部分创建回滚、Workspace Fingerprint、本地交付 Commit、归档与清理 | 并发、重复、崩溃点、残留目录、损坏元数据、清理失败与冷恢复 Fixture 通过，回滚完整率 100% |
-| `M4-I04` | TASK | S01,D03,D04,I03 | agentscope/infrastructure | 实现 TaskExecution 级 Docker Sandbox Factory/Lifecycle，配置固定镜像、普通用户、只读根层、bind mount、网络、CPU/内存/PID/超时和 Guard | Docker 集成测试证明同机挂载、资源限制、无网络、无敏感环境、旧 Lease/Fencing 不能恢复 Sandbox 且无残留容器 |
-| `M4-I05` | TASK | D04,I04 | agentscope | 实现受控 RepositoryInspectionTool，委托 AgentScope AbstractFilesystem 提供 tree/list/read/grep/glob，并补充类型化 Git history/status/diff 读取 | 每次调用复验 Context；分页、结果上限、二进制与敏感文件规则通过；Plan Mode 只保留只读能力 |
-| `M4-I06` | TASK | D04,I04 | agentscope | 实现受控 CodingFilesystemTool，支持 create/edit/patch/move/delete，统一执行 AllowedPaths、canonical/symlink、文件数/大小和累计写入检查 | 表驱动攻击集覆盖 `..`、绝对路径、符号链接、大小写、重命名、删除和 TOCTOU；越界实际写入为 0 |
-| `M4-I07` | TASK | D04,D06,I04 | agentscope/infrastructure | 实现结构化 SandboxCommandTool、BuildProfile Runner 与 CommandEvidence Writer，只允许固定命令种类、模块和测试选择器 | 禁止 raw Shell；覆盖 Maven/Wrapper/Gradle Wrapper/项目脚本白名单、超时、进程树终止、输出 Artifact 和 Exit Code 证据 |
-| `M4-I08` | TASK | S03,D05,I01,I03 | infrastructure | 实现 Workspace Diff Watcher、Git Reconciler、Diff Event Store、Patch 限额和最终 DiffArtifact Finalizer | 丢失/重复/乱序事件、Watcher 重启、基线变化、二进制/重命名/大 Diff 和最终 Hash 测试通过 |
-| `M4-I09` | TASK | D05,D06,I07,I08 | infrastructure | 实现 Patch、构建日志、测试报告 Artifact Writer/Reader、Tombstone、保留期和公开摘要生成 | 文件 ArtifactStore 覆盖 Hash/大小、写入中断、重复发布、删除、Range 读取、敏感内容探针和数据库元数据闭合 |
-| `M4-I10` | TASK | I03,I04,I08,I09,M3-I09 | infrastructure/server | 实现 Worker 启动 Workspace/Sandbox/Watcher 对账、RECOVERING、命令进程终止、孤立资源关闭、归档清理与容量健康 | 在 PROVISIONING/ACTIVE/FINALIZING 退出后可恢复或明确失败；重复对账无重复 Commit/Artifact，Worker Drain 保留在途 Workspace |
-| `M4-I11` | FEATURE | S01,D07,I04..I09 | agentscope/application | 实现 CodingSpecialistFactory 与 AgentScopeCodingRuntime，启用固定 Plan/Task List、Compaction、Tool Eviction、State/Snapshot、受控 Skill Bundle 和 Coding Tools | 可控 Model 完成分析、计划、跨文件修改、测试、自检与 Structured Output；raw Tool/MCP/Subagent/Reviewer/GitHub 工具均不存在 |
-| `M4-I12` | FEATURE | I10,I11,M3-I06..I09 | agentscope/application | 将 Coding Specialist 接入 Task Orchestrator/StepExecution，完成预算、测试失败修复轮次、Checkpoint、Pause/Resume/Cancel、跨进程恢复、结果复验与终态映射 | 同 Run Resume、Snapshot 恢复、Workspace 恢复、预算耗尽、测试失败、结果伪造、Cancel 和后继 attempt 测试通过 |
+| `M4-I01` | TASK | S02,D03 | infrastructure | 已完成：实现无任意命令入口的类型化 GitCommandExecutor，固定参数数组、隔离环境、禁用 Repository Hook、进程树超时终止、有界输出和稳定安全错误分类 | [M4-I01 类型化 GitCommandExecutor](../testing/M4-I01-类型化GitCommandExecutor.md)；10 个专项场景覆盖真实 rev-parse/worktree/status/diff/log/show/commit/archive、Spring 装配、环境隔离、Hook/参数注入、超时与输出洪泛 |
+| `M4-I02` | TASK | D01,D02,I01 | infrastructure | 已完成：实现 `ManagedRepositoryResolver` 与 Baseline Preflight，按 canonical Managed Root + `RepositoryKey` 解析受管裸仓库，校验逐级 containment、符号链接、Root/Repository Worker Owner、Binding/Kind、Ref 与固定 Commit；宿主路径保持基础设施内部 | [M4-I02 ManagedRepositoryResolver 与基线 Preflight](../testing/M4-I02-ManagedRepositoryResolver与基线Preflight.md)；16 个专项场景覆盖越界/Option Key、符号链接、缺失仓库、Owner、普通/脏工作仓库、失效 Binding/Ref、移动 Ref、历史快照、错误 Commit 和纯 Server 退让 |
+| `M4-I03` | TASK | D03,I01,I02 | infrastructure | 已完成：实现 `WorktreeProvisioner`、JVM + OS 非阻塞路径锁、固定 Worktree/Branch、部分创建补偿、无本地元数据的物理 Fingerprint、`commit-tree` Delivery Commit、Archive Ref、归档与冷恢复清理；公开结果与异常不暴露宿主路径 | [M4-I03 Worktree 生命周期与物理指纹](../testing/M4-I03-Worktree生命周期与物理指纹.md)；17 个专项场景覆盖重复/竞争、普通失败与进程骤停、未知残留、损坏 HEAD/Branch/`.git`、符号链接、Policy、Archive 冲突/中断/清理失败和 Worker-only 装配，回滚完整率 100% |
+| `M4-I04` | TASK | S01,D03,D04,I03 | agentscope/infrastructure | 已完成：实现 CrewScope 持有的 TaskExecution 级 Docker Sandbox Factory/Lifecycle，复用 AgentScope `DockerFilesystemSpec` 与 external Sandbox；固定摘要镜像、普通用户、只读根层、Worktree bind mount、无网络、CPU/内存/PID/超时/输出限制、Pause/Recover/Destroy 和 Lease/Fencing Guard | [M4-I04 TaskExecution 级 Docker Sandbox](../testing/M4-I04-TaskExecution级Docker-Sandbox.md)；10 个专项场景覆盖同机写入、安全参数、固定环境、幂等 Provision、PREPARE→RUN、Pause/Resume、新旧 Fencing 隔离、并发/过期 Lease、UTF-8 输出预算、Worker-only 装配和零容器残留 |
+| `M4-I05` | TASK | D04,I04 | agentscope | 已完成：实现受控 RepositoryInspectionTool/Session，委托 AgentScope SandboxBackedFilesystem 提供有界 tree/list/read/grep/glob，并补充 AllowedPaths 约束的类型化 Git history/status/text diff；业务路径使用 literal pathspec，不能触发 Git pathspec magic | [M4-I05 受控 RepositoryInspectionTool](../testing/M4-I05-受控RepositoryInspectionTool.md)；每次调用复验 Workspace 与 Lease/Fencing，分页、UTF-8 结果上限、二进制/敏感/符号链接规则和 Worker-only 装配通过，8 个 Tool 均为 Plan Mode 可用的 `readOnly=true` |
+| `M4-I06` | TASK | D04,I04 | agentscope | 已完成：实现受控 CodingFilesystemTool/Session，复用 AgentScope SandboxBackedFilesystem 提供 create/edit/patch/move/delete；统一复验 Workspace、Lease/Fencing、AllowedPaths、canonical/symlink、UTF-8、敏感路径、大小写、TOCTOU 与 Workspace 累计写预算 | [M4-I06 受控 CodingFilesystemTool](../testing/M4-I06-受控CodingFilesystemTool.md)；单元、Spring 与真实 Docker 场景覆盖五种操作、跨 Session 预算、失效上下文和固定攻击集，越界实际写入为 0；原生 FilesystemTool 与 raw Shell 未注册 |
+| `M4-I07` | TASK | D04,D06,I04 | agentscope/infrastructure | 已完成：实现结构化 SandboxCommandTool、BuildProfile Runner、Workspace 累计命令预算、Command Log Artifact 与 CommandEvidence Writer，只允许固定命令种类、模块和测试选择器 | [M4-I07 结构化 SandboxCommandTool 与 CommandEvidence](../testing/M4-I07-结构化SandboxCommandTool与CommandEvidence.md)；覆盖 Maven/Wrapper/Gradle Wrapper/项目脚本、raw Shell/选择器攻击、超时容器级进程树终止、输出 Artifact、Exit Code 证据、Spring 装配与真实 Docker |
+| `M4-I08` | TASK | S03,D05,I01,I03 | infrastructure | 已完成：实现 AllowedPaths 递归 Workspace Diff Watcher、串行 Monitor、Git 权威 Reconciler、有界 RESET/DELTA Event Store、HMAC Cursor、Patch 限额和幂等最终 DiffArtifact Finalizer | [M4-I08 Workspace Diff 与最终 DiffArtifact](../testing/M4-I08-Workspace-Diff与最终DiffArtifact.md)；真实 Git、WatchService、ArtifactStore 与并发测试覆盖丢失/重复/乱序事件、Watcher 重启、基线冲突、未跟踪/二进制/重命名/大 Diff、最终 Hash 和 Worker-only 装配 |
+| `M4-I09` | TASK | D05,D06,I07,I08 | infrastructure | 已完成：统一 Patch、构建日志、测试报告 Restricted Artifact 发布、稳定 ID、保留期、整对象校验后 Range、关系元数据闭合 Reader、Tombstone/Purge 与公开摘要 | [M4-I09 Coding Artifact 读写与生命周期](../testing/M4-I09-Coding-Artifact读写与生命周期.md)；文件 Store 覆盖 Hash/大小、写入中断、重复发布、删除、Range、敏感探针和数据库引用闭合 |
+| `M4-I10` | TASK | I03,I04,I08,I09,M3-I09 | infrastructure/server | 已完成：在 M3 重新入队事务内标记 Workspace RECOVERING，并在开放 Claim 前完成 Sandbox/命令进程、Worktree、Diff RESET、未知容器、到期 Archive 与 Tombstone Artifact 对账，提供脱敏容量健康 | [M4-I10 Worker 启动资源对账](../testing/M4-I10-Worker启动资源对账.md)；专项覆盖 PROVISIONING/ACTIVE/FINALIZING、失败关闭、重复启动、孤立容器、归档/Purge、Primary 装配、容量上限和 Drain 不清理在途 Workspace |
+| `M4-I11` | FEATURE | S01,D07,I04..I09 | agentscope/application | 已完成：实现 CodingSpecialistFactory 与 AgentScopeCodingRuntime，启用固定 Plan/Task List、Compaction、Tool Eviction、State/Snapshot、受控 Skill Bundle 和 Coding Tools | [M4-I11 AgentScope Coding Specialist 运行时](../testing/M4-I11-AgentScope-Coding-Specialist运行时.md)；可控 Model 完成 Skill 加载、分析、计划、跨文件修改、测试、自检与严格 Structured Output，缺失/额外/raw Tool 失败关闭，MCP/Subagent/Reviewer/GitHub 工具均不存在 |
+| `M4-I12` | FEATURE | I10,I11,M3-I06..I09 | agentscope/application | 已完成：将 Coding Specialist 接入 Task Orchestrator/StepExecution，完成策略预算、测试失败修复轮次、事件优先 Checkpoint、Pause/Resume/Cancel、跨进程恢复、结果复验与终态映射 | [M4-I12 Coding Specialist Step 执行与恢复](../testing/M4-I12-Coding-Specialist-Step执行与恢复.md)；9 个专项场景覆盖同 Run 修复、Snapshot/Workspace 恢复、预算耗尽、结果伪造、Pause/Cancel、后继 attempt 和耐久提交顺序 |
 
 ## 9. 应用、API 与服务端
 
@@ -174,7 +174,7 @@ Coding 闭环完成 -> M4-Q03
 |---|---|---|---|---|---|
 | `M4-A01` | FEATURE | D01,D09 | application/server | 提供 Team/WorkProject 级 RepositoryBinding 创建、列表、详情、启停和 Preflight API；仅管理员可修改 | WebTestClient 覆盖权限、Scope、幂等、版本冲突、路径不披露和稳定错误信封 |
 | `M4-A02` | FEATURE | D02,D09,M3-A01 | application/server | 扩展 WorkItem/Conversation 委托，接受 RepositoryBinding、Ref、AllowedPaths、BuildProfile 与验收条件，原子固化 CodingTargetSnapshot | 对话确认与传统表单创建同一事实；跨 Team Binding、失效 Ref、越权路径和重复提交被拒绝 |
-| `M4-A03` | FEATURE | D03,D09,I03,I04,I10,I12 | application/server | 将 Workspace Provision/Recover/Finalize 接入 Durable Worker PREPARING/RUNNING/Complete 链路，保持 Lease/Fencing/Task Token 条件写入 | 创建、领取、暂停、恢复、取消、完成、重试、Worker 重启和事务失败闭环通过 |
+| `M4-A03` | FEATURE | D03,D09,I03,I04,I10,I12 | application/server | 将 Workspace Provision/Recover/Finalize 接入 Durable Worker PREPARING/RUNNING/Complete 链路，持久化文件写预算预留并在开放 Tool 前恢复精确计数，保持 Lease/Fencing/Task Token 条件写入 | 创建、领取、预算跨 Worker 不重置、暂停、恢复、取消、完成、重试、Worker 重启和事务失败闭环通过 |
 | `M4-A04` | FEATURE | D05,D06,D09 | application/server | 提供 Task/attempt 级 Workspace、Sandbox 摘要、Diff Manifest、Command/TestEvidence 与 Coding Result 查询 API | Cursor、批量查询、当前/历史 attempt、权限、公开 DTO 白名单和 N+1 检查通过 |
 | `M4-A05` | FEATURE | I08,M3-A05 | application/server | 提供 Workspace/Diff/Test 耐久历史与 SSE Cursor，将实时事件归并到 Task Timeline 并在最终 Artifact 后收口 | 断线追平、410 Cursor、去重、Reset、状态不回退、持续授权复验与终态关流测试通过 |
 | `M4-A06` | FEATURE | I09,A04 | application/server | 提供受权 Patch、构建日志和测试报告内容 API，支持 Range/分页、内容类型、下载名和大小上限 | 跨 Scope、路径注入、未完成 Artifact、敏感 Artifact、Range、并发下载和审计测试通过 |

@@ -189,6 +189,6 @@ M0-S03 已验证通过：
 - Maven 命令在无网络 Sandbox 内成功执行；
 - 宿主 Git Diff Watcher 能观察到一致变更；
 - Worktree 是代码文件事实源，Sandbox 是受控执行环境；
-- M4 需要实现 TaskExecution 级 Sandbox 生命周期和停止延迟治理。
+- M4-I04 已实现 TaskExecution 级 Sandbox 生命周期、可配置停止超时和默认 STOP Pause 策略。
 
 AgentScope M0 Spike 串已完成。

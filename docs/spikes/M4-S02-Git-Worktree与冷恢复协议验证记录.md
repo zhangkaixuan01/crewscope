@@ -276,4 +276,4 @@ M4-S02 冻结以下决策：
 7. 自动清理只处理身份完全闭合的受管资源，损坏和未知资源失败关闭；
 8. Worktree 是代码文件事实源，Delivery Commit 与 Archive Ref 是归档恢复锚点；
 9. 归档使用 `commit-tree` 创建 Delivery Commit，活动 Branch 保持 baseline；
-10. M4-I01、M4-I02、M4-I03 分别实现 Git Executor、Repository Resolver 和 Worktree Lifecycle，复用本记录的固定 Fixture 与故障矩阵。
+10. M4-I01/I02 已实现 Git Executor、Repository Resolver 与 Baseline Preflight；M4-I03 已实现 Worktree Lifecycle，并以 PostgreSQL `ExecutionWorkspace` 作为逻辑事实源，运行时返回可重算的物理 Fingerprint，不创建第二份本地 metadata registry。

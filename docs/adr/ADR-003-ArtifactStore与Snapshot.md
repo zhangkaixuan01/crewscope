@@ -2,7 +2,7 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
-> 更新：2026-08-15（M3-I08 实现生产 Writer/Reader、并发裁决与二级恢复）<br>
+> 更新：2026-08-19（M4-I09 增加完整性校验后的 Range 与 Coding Artifact 生命周期）<br>
 > 影响里程碑：M0、M3、M4、M6
 
 ## 背景
@@ -16,6 +16,7 @@ CrewScope 需要保存 Diff、Patch、测试日志、模型大结果、ContextPa
 ```text
 put(writeRequest, contentStream) -> ArtifactDescriptor
 get(artifactId, accessContext) -> ArtifactContent
+getRange(artifactId, accessContext, byteRange) -> ArtifactContentRange
 head(artifactId, accessContext) -> ArtifactDescriptor
 tombstone(artifactId, accessContext, reason, detail) -> ArtifactTombstone
 purgeTombstoned(ArtifactPurgeRequest) -> ArtifactId[]
@@ -89,6 +90,8 @@ JVM 条带锁避免同进程重叠文件锁，文件锁保护共享根目录中�
 
 读取先解析 Descriptor 和执行 Scope 授权，再检查 TTL/Tombstone，并以 Descriptor 的大小与 SHA-256 校验 Blob。实际路径只通过规范 ID 和哈希推导，Sidecar 中的 Storage URI 必须与推导结果一致。
 
+Range 使用精确 `[startInclusive, endExclusive)` 半开区间。默认契约先读取并校验完整对象，再将已验证流限制在精确区间；对象存储实现可以使用原生 Range，但仍需保持完整对象的可信 Hash 证明。空区间、越界区间与到期/Tombstone 对象不返回部分内容。应用层为每次 Range 施加独立响应预算。
+
 物理清理在 Artifact ID 与 SHA-256 文件锁内重新读取 Descriptor。内容锁覆盖“扫描并校验其他引用、删除当前逻辑引用、删除无引用 Blob”的完整过程。只有最后一个引用移除后才删除共享 Blob。返回值只包含本次实际删除的逻辑 Artifact ID。
 
 ### 生命周期
@@ -121,6 +124,7 @@ Tombstone 记录稳定原因、可选安全说明、操作 Principal 和 UTC 时
 5. Tombstone、保留期和物理清理产生完整 AuditEvent。
 
 M3-I08 的生产协议与故障证据见 [M3-I08 AgentStateSnapshot 生产恢复](../testing/M3-I08-AgentStateSnapshot生产恢复.md)。
+M4-I09 的 Coding Artifact Writer/Reader、Range 与生命周期证据见 [M4-I09 Coding Artifact 读写与生命周期](../testing/M4-I09-Coding-Artifact读写与生命周期.md)。
 
 ## 重新评估条件
 

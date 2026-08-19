@@ -528,7 +528,7 @@ Task Orchestrator 与 Contribution Agent 是任务级运行实例，责任主体
 
 #### 4.5.1 AgentScope 原生 Coding Agent
 
-Coding Agent 是 Specialist Agent 的内置类型，使用 AgentScope `HarnessAgent`、Plan Mode、Todo、Structured Output、Toolkit、Sandbox Filesystem、Compaction、Tool Result Eviction 和 Subagent 能力。执行输入由服务端组装：
+Coding Agent 是 Specialist Agent 的内置类型，使用 AgentScope `HarnessAgent`、Plan Mode、Todo、Structured Output、Toolkit、Sandbox Filesystem、Compaction、Tool Result Eviction、AgentState 和只读 Skill Repository。M4 关闭 Subagent，Reviewer Specialist 在 M5 由平台编排。执行输入由服务端组装：
 
 ```text
 WorkItem + AcceptanceCriteria
@@ -553,13 +553,23 @@ Coding Agent 执行稳定循环：
   -> ReviewRequest
 ```
 
-Coding Agent 使用范围化文件、Shell、Git 和构建工具。推送分支、创建 PR、合并和发布使用 SourceCodeProvider 的 PlannedAction 链路。Reviewer Agent 基于精确基线、Diff、测试证据和验收标准生成 `ADVISORY` Finding，TeamMember 提交 `GATE` Decision。
+Coding Agent 使用范围化检查、文件修改、结构化构建命令和 Git 投影工具。推送分支、创建 PR、合并和发布使用 SourceCodeProvider 的 PlannedAction 链路。Reviewer Agent 基于精确基线、Diff、测试证据和验收标准生成 `ADVISORY` Finding，TeamMember 提交 `GATE` Decision。
+
+M4-I11 的 `CodingSpecialistFactory` 为每次 Specialist 调用创建短生命周期 HarnessAgent，按 AgentProfile 版本解析主模型、Fallback Model 与独立 Compaction Model。Factory 在构建前、构建后和 Structured Output 完成后三次校验固定 Tool 面。固定 Skill Bundle 位于 classpath，只包含 `java-spring-v1`，加载前复验 SHA-256、Skill ID 和只读属性。AgentState 完成后从同一 AgentScope Session 槽读取，安全点同时提取 Agent Workspace 中的真实 Plan 和 AgentState Todo。实现与验证见 [M4-I11 AgentScope Coding Specialist 运行时](testing/M4-I11-AgentScope-Coding-Specialist运行时.md)。
+
+M4-I12 的 `CodingSpecialistStepRuntime` 将 Specialist 调用绑定到当前 TaskExecution、StepExecution、ExecutionLease、Fencing、RuntimeSession、AgentRun 与 Segment。测试失败按 WorkspacePolicy 的修复轮次预算在同一 attempt、Run 和 Session 内继续；每轮按耐久事件、AgentState Snapshot、CodingCheckpoint、StepCheckpoint 顺序提交。Pause/Cancel 使用 `(userId, sessionId)` 定向 Interrupt，Resume 先完成 Workspace 对账和 Snapshot 恢复，再进入同 Run 的 RESUME Segment。最终输出必须与平台权威 RepositoryAnalysis、CodingTarget、Workspace、DiffArtifact 和成功 TestEvidence 完整匹配。Task Agent 与 Coding Specialist 分别使用 `crewscope-task-*` 和 `crewscope-coding-*` 稳定 namespace。M4-A03 通过 `CodingSpecialistAuthorityGateway` 连接 Worktree、Sandbox、Tool Session、Diff Monitor 与 Finalizer。实现与验证见 [M4-I12 Coding Specialist Step 执行与恢复](testing/M4-I12-Coding-Specialist-Step执行与恢复.md)。
 
 实时修改以 `DiffManifest + Generation` 投影，经 RESET/DELTA Event 和不透明 Cursor 提供可恢复观察；`DiffFileEntry` 保存 canonical 当前路径、Rename/Copy 原路径、变更类型、增删行、二进制、截断标记、完整单文件 Patch Hash 和有界 Preview。Manifest 当前路径唯一并按 Unicode 代码点排序，Content Hash 覆盖排序后的 Git 权威事实，不覆盖 Generation 和 Preview；权威 Hash 未变化时不增加 Generation。
 
-最终 `DiffArtifact` 只在 ExecutionWorkspace 进入 `FINALIZING` 后，从精确 Baseline Commit 与 Delivery Commit 重新生成并保持不可变。它固化完整 WorkProject Scope、TaskExecution/attempt、ExecutionWorkspace、CodingTarget、Commit 对、最终 Manifest、完整 Patch Artifact 引用和审计创建事实。最终 Hash 闭合 ExecutionWorkspace、Baseline、Delivery、Generation、Manifest Hash 与 Patch Hash；每个 ExecutionWorkspace 只能原子发布一个最终制品。实现与测试证据见 [M4-D05 DiffArtifact 领域模型](testing/M4-D05-DiffArtifact领域模型.md)。
+Worker 使用 `WorkspaceDiffWatcher` 将 AllowedPaths 内的 WatchService 事件合并为路径无关提示，`WorkspaceDiffMonitor` 串行执行完整 Git Reconcile。未跟踪文件通过不修改 Index 的类型化 `diff --no-index` 进入实时投影。`WorkspaceDiffEventStore` 按 Workspace Fingerprint 与 Recovery Generation 隔离 Stream Epoch，提供有界 RESET/DELTA Replay；部署稳定的 HMAC 密钥保护 Cursor，旧 Epoch 和过期窗口返回 RESET，签名篡改被拒绝。单文件 Patch、累计 Patch、Preview 和 Event 均受预算限制，非权威 Preview 可在 Event 超限时省略。实现与验证见 [M4-I08 Workspace Diff 与最终 DiffArtifact](testing/M4-I08-Workspace-Diff与最终DiffArtifact.md)。
+
+最终 `DiffArtifact` 只在 ExecutionWorkspace 进入 `FINALIZING` 后，从精确 Baseline Commit 与 Delivery Commit 重新生成并保持不可变。Finalizer 验证 Archive Ref、单父 Baseline、Delivery Tree、Workspace 版本与 Fingerprint，先写完整 Restricted Patch Artifact，再原子发布关系元数据；相同交付重试返回既有结果，不同 Commit 对失败。制品固化完整 WorkProject Scope、TaskExecution/attempt、ExecutionWorkspace、CodingTarget、Commit 对、最终 Manifest、完整 Patch Artifact 引用和审计创建事实。最终 Hash 闭合 ExecutionWorkspace、Baseline、Delivery、Generation、Manifest Hash 与 Patch Hash；每个 ExecutionWorkspace 只能原子发布一个最终制品。领域规则见 [M4-D05 DiffArtifact 领域模型](testing/M4-D05-DiffArtifact领域模型.md)，基础设施实现见 [M4-I08 Workspace Diff 与最终 DiffArtifact](testing/M4-I08-Workspace-Diff与最终DiffArtifact.md)。
+
+Patch、构建日志与测试报告统一通过 `CodingArtifactPublisher` 保存为 Restricted Workspace Artifact。Patch 的稳定 Artifact ID 绑定 ExecutionWorkspace，构建日志与测试报告绑定 ExecutionWorkspace 和 EvidenceSequence；同一事实相同内容重试幂等，不同内容确定冲突。三个类型使用同一部署保留期、单对象上限和单次 Range 上限。`CodingArtifactReader` 先将 ArtifactStore Descriptor 与 DiffArtifact、CommandEvidence 或 TestEvidence 已提交的 Scope、TaskExecution、Producer、Content Type、大小和 SHA-256 完整闭合，再返回整对象或精确 Range；Range 前仍校验完整 Blob Hash。公开摘要只保留 ID、用途、Content Type、大小、Hash、安全生命周期状态和保留期限，不包含正文、Storage URI、宿主路径、Producer 或 Tombstone Detail。逻辑删除先闭合关系事实再写 Tombstone，物理清理只处理 Tombstone 与保留期均已完成的对象。实现与验证见 [M4-I09 Coding Artifact 读写与生命周期](testing/M4-I09-Coding-Artifact读写与生命周期.md)。
 
 每次受控命令执行形成不可变 `CommandEvidence`。`CommandSpec` 固化精确 WorkspacePolicy、BuildProfile、命令槽、typed argv、仓库相对工作目录、超时和 Sandbox 镜像 Digest；`CommandEvidence` 固化 Workspace Fingerprint、平台观察终态、Exit Code、日志 Artifact、有界摘要、稳定失败分类和证据 Hash。命令成功只由 `EXITED + exitCode=0` 推导。
+
+命令能力由短生命周期 `SandboxCommandSession` 注册唯一的 `coding_run_command`。模型只提交 CommandKind、模块白名单成员、精确测试类/方法选择器和有界 timeout；Maven、Maven Wrapper、Gradle Wrapper 与项目脚本的入口和固定 argv 来自精确 BuildProfile，Runner 生成选择器参数并逐参数安全编码。Workspace 命令次数和 EvidenceSequence 在同一 Worker 的重复 Session 间累计；完整有界 stdout/stderr 先写 Restricted Workspace Artifact，Agent 只接收部署上限内的 UTF-8 前缀。AgentScope 2.0.0 超时时，CrewScope 停止并重启当前独占容器，以容器边界终止内部完整进程树，再发布平台观察到的 CommandTermination。原始命令字符串、任意 argv、工作目录、环境、镜像和 Docker 参数不存在于 Tool Schema。实现与验证见 [M4-I07 结构化 SandboxCommandTool 与 CommandEvidence](testing/M4-I07-结构化SandboxCommandTool与CommandEvidence.md)。
 
 `TestEvidence` 按 EvidenceSequence 引用同一 Workspace、Policy 和 attempt 的 CommandEvidence，保存测试统计、测试报告 Artifact 与逐条 `AcceptanceResult`。验收结果的数量、Index、文本和顺序与 CodingTargetSnapshot 完全一致，引用只能指向当前证据集合。平台按命令失败、报告缺失、零测试、测试失败、验收未完成、验收失败的固定优先级推导结果；调用方不能提交成功布尔值。完整规则见 [M4-D06 Command 与 TestEvidence 领域模型](testing/M4-D06-Command与TestEvidence领域模型.md)。
 
@@ -1357,6 +1367,8 @@ return builder.build();
 
 Coding、数据处理和高风险内容分析 Agent 使用 `SandboxFilesystemSpec`。当前 2.0.0 Builder 默认配置 Compaction、Tool Result Eviction 和 Memory，CrewScope 对每项能力显式配置开关与参数。
 
+M4 Coding Specialist 显式启用 Plan Mode、Todo、Compaction、Tool Result Eviction、AgentState 和固定只读 Skill Bundle；显式关闭原生 Filesystem Tool、Shell Tool、Memory、Workspace Context、MCP 配置、Subagent、动态 Subagent、Workspace Skill 和异步等待 Tool。CrewScope 受控 Repository、Coding Filesystem 与 Command Tool 在每次调用中复验 Workspace、Policy、Lease 和 Fencing。
+
 M2 Personal Agent 使用 Redis AgentState 恢复完整对话，关闭 Memory、Compaction、文件、Shell、Subagent、动态 Skill 和 Workspace Context。Compaction 在 Workspace Memory、摘要披露、原始 Session Log 和保留策略落地后启用。主模型与 Fallback Model 由 `ObservableAgentScopeModel` 包装，保留 AgentScope `ExecutionConfig` 的有限重试语义并记录真实 attempt。
 
 ### 7.3 RuntimeContext
@@ -1704,7 +1716,7 @@ Team Agent 使用团队 Memory：
 
 - Compaction 在消息或 Token 达到阈值时生成结构化摘要；
 - Session JSONL 保存压缩前的原始会话日志；
-- Tool Result Eviction 将大型日志、Diff 和扫描结果写入 RuntimeArtifact；
+- Tool Result Eviction 将单次大结果移出模型上下文并保留头尾预览；完整命令日志、Diff 和测试报告由平台写入 RuntimeArtifact；
 - Agent 上下文保留摘要、头尾预览和受控引用；
 - Context Overflow 触发强制压缩与一次恢复重试。
 
@@ -2308,9 +2320,15 @@ RECOVERING + 新 Lease/Fencing -> 原中断状态
 COMPLETED / FAILED + retention due -> ARCHIVED
 ```
 
-Workspace Manager 使用 `repository_id + task_execution_id` 级锁串行同一 Worktree 的创建与恢复。每次使用前校验目录、Git 元数据、分支、基线 Commit 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理已创建 Worktree 与分支记录。状态修改使用聚合 Expected Version 与数据库条件更新；`ARCHIVED` 是不可变终态。
+Workspace Manager 使用 Workspace 稳定路径键串行同一 Worktree 的 Provision、Verify、Recover、Archive 与 Cleanup。锁协议由进程内重入锁和操作系统非阻塞 `FileLock` 组成，锁文件位于 Worktree Root 外部；竞争方得到 `WORKSPACE_BUSY` 并由 Scheduler 退避。每次使用前校验目录、Git 指针、分支、基线 Commit、Worker Owner 和 Sandbox 挂载。多仓库创建使用补偿回滚，任一仓库失败时清理身份闭合的 Worktree 与分支。状态修改使用聚合 Expected Version 与数据库条件更新；`ARCHIVED` 是不可变终态。
 
-RepositoryBinding 只向执行链暴露稳定 Repository Key。ManagedRepositoryResolver 在 Worker 配置的受管根目录下解析 `<repositoryKey>.git`，依次校验 Key 语法、逐级符号链接、canonical containment、Worker Owner 与 bare repository。浏览器、模型、Agent Tool 和应用命令不提交宿主路径。Baseline Preflight 将 Ref 解析为 40 位完整 Commit ID，后续 Provision 与恢复只使用该 Commit ID。
+Worker 启动在开放 Claim 前完成两阶段对账。第一阶段复用 Lease Sweeper 的 PostgreSQL 权威时间和 TaskExecution 行锁，在重新入队事务内把关联 `PROVISIONING/READY/ACTIVE/FINALIZING` Workspace 迁移为 `RECOVERING` 并递增恢复代次。第二阶段强制删除旧 Sandbox 终止遗留命令进程树；中断在 `PROVISIONING` 时回滚完整闭合的 Worktree/Branch，中断在其他可恢复状态时验证 Worktree 并用 Git 权威结果重建 Diff RESET。无法闭合的 Workspace 保存 `STARTUP_RECOVERY_FAILED` 后进入 `FAILED`，原始异常、Git/Docker 输出和宿主路径不持久化。
+
+Sandbox 使用 managed、Organization、Runtime Environment、WorkspaceKey、TaskExecution、Runtime/Worker/Lease/Fencing 与安全配置 Hash 标签。已知 Sandbox 清理按稳定容器名、WorkspaceKey 和 TaskExecution 复验；未知清理同时要求 managed、Organization 与 Environment 标签，并保留数据库仍处于活动生命周期的 Workspace。到期 `COMPLETED/FAILED` Workspace 复用稳定 Archive Ref 幂等创建或复验 Delivery Commit 后进入 `ARCHIVED`，到期 Tombstone Artifact 使用有界 Purge。重复启动可以重复验证和 RESET，不能重复创建 Commit、Artifact 或 Evidence。
+
+启动健康只公开恢复、失败、归档、清理数量、批次容量状态和失败类型，不公开任何资源身份。恢复、归档和 Purge 均有独立部署批次上限；未完成、归档失败或容量触顶时 Actuator 为 `DOWN`。该对账只在启动路径运行，不注册 shutdown 清理：Worker Drain 先停止领取、等待在途执行，再依赖 Lease 释放或过期恢复，保留在途 Workspace。实现与证据见 [M4-I10 Worker 启动资源对账](testing/M4-I10-Worker启动资源对账.md)。
+
+RepositoryBinding 只向执行链暴露稳定 Repository Key。ManagedRepositoryResolver 在 Worker 启动时 canonicalize 配置的受管根目录，按 `<repositoryKey>.git` 解析候选并校验 Key 语法、lexical/canonical containment、符号链接、Root/Repository Worker Owner 与 bare repository。Canonical Path 只存在于无路径 `toString` 的基础设施对象中，不进入异常链、浏览器、模型、Agent Tool、应用命令或持久化。Baseline Preflight 对新目标要求 ACTIVE `LOCAL_MANAGED` Binding，将短 Ref 解析为 40 位完整 Commit，并在发布前以 Expected Commit 检测 Ref 移动；历史 CodingTargetSnapshot 只验证其固化 Commit 仍存在，不因 Ref 移动、默认分支变化或 Binding 停用失效。实现与验证见 [M4-I02 ManagedRepositoryResolver 与基线 Preflight](testing/M4-I02-ManagedRepositoryResolver与基线Preflight.md)。
 
 RepositoryBinding 是 WorkProject Scope 内的版本化业务事实，保存 Organization、Team、Workspace、WorkProject、`LOCAL_MANAGED`、稳定 Repository Key、默认分支、启停状态、Version 和审计字段，不保存 Managed Repository Root 或任何宿主路径。同一 WorkProject 内 Repository Key 唯一，不同 WorkProject 可以复用同一受管仓库。启停与默认分支变更使用 Expected Version；停用只阻止创建新的 CodingTargetSnapshot，不改变已经固化的 Binding Version、Ref 和 Commit。应用层所有 RepositoryBinding 查询显式携带 Organization、Team 和 WorkProject Scope。
 
@@ -2326,17 +2344,39 @@ SandboxResourceBudget 固化网络、CPU、内存、PID、单命令时长、命�
 
 WorkspacePolicyOverlay 是同一 WorkspacePolicy 的单调运行时收紧流。首版继承完整基准策略，后继版本保存直接父 Overlay Hash，可缩小 AllowedPathSet、删除 CommandKind，并降低网络、CPU、内存、PID、超时、输出、文件、写入、Diff、命令次数与修复轮次；空命令目录表示停止全部命令执行。每个版本保存 canonical SHA-256 和审计信息。通用 SafetyEnforcementOverlay 继续处理 Principal、Membership、Provider、Connection、Credential、Capability 和 Tool 撤权，WorkspacePolicyOverlay 处理 Coding Workspace 的路径、命令与资源预算。
 
-Workspace 身份由服务端事实确定：一个 TaskExecution attempt 对应一个 ExecutionWorkspace、managed branch 和 Worktree 路径。分支格式固定为 `crewscope/tasks/<taskExecutionId>/attempt-<attempt>`，物理路径固定为 `<worktreeRoot>/<repositoryKey>/<workspaceKey>`，归档引用固定为 `refs/crewscope/archives/<workspaceKey>`。GitCommandExecutor 使用固定参数数组、专用 HOME、关闭系统与全局 Git 配置、关闭交互、固定 Locale、超时和输出上限。
+Workspace 身份由服务端事实确定：一个 TaskExecution attempt 对应一个 ExecutionWorkspace、managed branch 和 Worktree 路径。分支格式固定为 `crewscope/tasks/<taskExecutionId>/attempt-<attempt>`，物理路径固定为 `<worktreeRoot>/<repositoryKey>/<workspaceKey>`，归档引用固定为 `refs/crewscope/archives/<workspaceKey>`。
+
+宿主 Git 统一通过类型化 `GitCommandExecutor` 执行。公开入口只接受 RepositoryBranchName、完整 Commit/Tree ID、Managed Branch、Archive Ref、仓库内 DiffPath 和规范化绝对路径，不提供原始命令字符串或任意 argv 入口。Executor 使用固定参数数组与 `ProcessBuilder`，配置专用 HOME、关闭系统/全局 Git 配置、交互、Pager 和 Repository Hook，固定 Locale 与 Delivery 身份；每次进程施加 5 分钟以内的超时和 1 KiB 至 16 MiB 输出预算，超时、输出洪泛和中断终止完整进程树。失败只向业务层暴露 `NOT_A_REPOSITORY/INVALID_REFERENCE/CONFLICT/TIMEOUT/OUTPUT_LIMIT/COMMAND_FAILED`、安全摘要和可选 Exit Code，原始 Git 输出与宿主路径不进入异常、DTO 或持久化。实现与证据见 [M4-I01 类型化 GitCommandExecutor](testing/M4-I01-类型化GitCommandExecutor.md)。
 
 ExecutionWorkspace 在 TaskExecution 进入 `PREPARING` 且持有有效 PREPARE Lease 后分配，保存完整 WorkItemScope、Task/CodingTarget、RepositoryBinding 版本、Runtime/Worker/Lease/Fencing、恢复代次、保留期、乐观版本与审计。Pause 将 `ACTIVE` 返回 `READY` 并保留 Worktree；Resume 和 Recovery 必须绑定严格更大的 Fencing Token。Cancel 进入 `FINALIZING` 固化最终可证明 Diff，再以 `CANCELLED` 原因进入 `COMPLETED`。Retry 创建新的 TaskExecution、Workspace ID、managed branch 与 Worktree，旧 attempt 不复用。
 
-领域 Workspace Fingerprint 使用 canonical SHA-256 闭合路径无关的 Scope、TaskExecution/attempt、CodingTarget Snapshot Hash、RepositoryBinding 版本、RepositoryKey、Baseline Commit、受管标识、Runtime/Worker/Lease/Fencing、恢复代次与保留期。宿主绝对路径不进入领域模型；M4-I03 将 canonical repository/worktree、HEAD、`git-common-dir` 和 WorkspacePolicy 证明与领域 Fingerprint 组合完成物理复验。持久化恢复会重算 Fingerprint，错误标识关联、恢复状态形状或 Hash 失败关闭。
+领域 Workspace Fingerprint 使用 canonical SHA-256 闭合路径无关的 Scope、TaskExecution/attempt、CodingTarget Snapshot Hash、RepositoryBinding 版本、RepositoryKey、Baseline Commit、受管标识、Runtime/Worker/Lease/Fencing、恢复代次与保留期。M4-I03 物理 Fingerprint 将领域 Fingerprint 与 canonical repository/worktree、HEAD、`git-common-dir`、WorkspacePolicy Hash、AllowedPaths、BuildProfile、Sandbox/Operation Budget 组合计算。PostgreSQL `ExecutionWorkspace` 是逻辑事实源，Worktree 层返回可重算的物理证明，不创建本地 metadata registry。持久化恢复会重算领域与物理 Fingerprint，错误标识关联、恢复状态形状或 Hash 失败关闭。Canonical Path 只存在于基础设施包内，不进入公开对象、异常、`toString()`、DTO、模型上下文或持久化。
 
 Coding 持久化使用 Scope 化 Spring JDBC Adapter。RepositoryBinding 与 ExecutionWorkspace 通过 `scope + aggregate_id + expected_version` 条件更新，零行更新后的版本复查继续携带完整 Scope；WorkspacePolicyOverlay 通过当前父 Hash 原子追加。恢复和保留期扫描使用稳定排序、显式 Limit 与 `FOR UPDATE SKIP LOCKED`，Repository 以 Mandatory Transaction 强制调用方在同一外层事务内完成领取裁决。DiffArtifact、CommandEvidence、TestEvidence 和 CodingCheckpoint 的根事实与规范化子表在同一事务发布，子表失败时完整回滚。PostgreSQL SQLState 与 V14 唯一约束名映射为稳定领域冲突，其他完整性错误不被吞并。公开 API Cursor 与批量 DTO 投影在 M4-A04 构建，不污染领域 Repository Port。实现与验证见 [M4-D09 Coding 持久化与锁定查询](testing/M4-D09-Coding持久化与锁定查询.md)。
 
-Provision 在同一锁内完成“资源不存在校验—`git worktree add`—Fingerprint 复验—ACTIVE 事实提交”。Fingerprint 闭合 RepositoryBinding 版本、canonical repository/worktree、TaskExecution/attempt、managed branch、baseline/HEAD、`git-common-dir`、Worker/Runtime/Lease/Fencing 和 WorkspacePolicy。普通失败同步删除本次 Worktree、managed branch 与未提交元数据；启动对账只清理 Path、Branch、CommonDir 和 Workspace 身份全部闭合的 Provision 孤儿。未知目录、错误 HEAD/Branch、失效 `.git` 指针和符号链接越界进入损坏诊断并保留现场。
+Provision 在同一非阻塞锁内完成“Repository/Archive/Branch/Path 前置校验—受管父目录逐段 `NOFOLLOW_LINKS` 校验—`git worktree add`—canonical containment—物理 Fingerprint 复验—READY 事实提交”。重复调用只接受同一 Path、Branch、HEAD、CommonDir、Workspace 和 Policy 完整闭合的既有 Worktree。普通失败同步删除本次 Worktree 与 managed branch；启动对账只清理 Path、Branch、HEAD、CommonDir 和 Workspace 身份全部闭合的 Provision 孤儿。未知目录、错误 HEAD/Branch、失效 `.git` 指针、Owner 不匹配和符号链接越界进入稳定损坏分类并保留现场。实现与故障证据见 [M4-I03 Worktree 生命周期与物理指纹](testing/M4-I03-Worktree生命周期与物理指纹.md)。
 
-归档使用 `git write-tree + git commit-tree` 从 baseline 创建 Delivery Commit，活动 Branch 保持 baseline。保留期到达后，Worker 锁定 `COMPLETED/FAILED` Workspace，固定 `refs/crewscope/archives/<workspaceKey>`，删除 Worktree 与活动 Branch，再使用 Expected Version 提交 `ARCHIVED`。任一步骤中断时数据库仍保留可领取的源事实，新 Worker 复验 Archive Ref、Delivery Commit 与本地资源后幂等续接；未知或不闭合的资源失败关闭并保留现场。完整协议和故障证据见 [M4-S02 Git Worktree 与冷恢复协议验证记录](spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)。
+归档使用 `git add --all -> write-tree -> commit-tree -p <baseline> -> update-ref <archiveRef> <deliveryCommit> <zeroOid>` 从 baseline 创建 Delivery Commit，活动 Branch 和 HEAD 保持 baseline。保留期到达后，Worker 锁定 `COMPLETED/FAILED` Workspace，固定 `refs/crewscope/archives/<workspaceKey>`，删除 Worktree 与活动 Branch，再使用 Expected Version 提交 `ARCHIVED`。Archive Ref 已存在时必须证明 Delivery Commit 只有一个 baseline Parent，且 Worktree 尚存时 Commit Tree 与当前索引树相同；发布后中断的新 Worker 据此幂等续接清理。错误 Archive Ref、移动 Branch 或不闭合资源失败关闭并保留现场。完整协议和故障证据见 [M4-S02 Git Worktree 与冷恢复协议验证记录](spikes/M4-S02-Git-Worktree与冷恢复协议验证记录.md)与 [M4-I03 Worktree 生命周期与物理指纹](testing/M4-I03-Worktree生命周期与物理指纹.md)。
+
+TaskExecution Sandbox 由 CrewScope Factory 持有生命周期，底层复用 AgentScope 2.0.0 的 `DockerFilesystemSpec`、`DockerSandboxClient` 与 `DockerSandbox`。CrewScope 将已验证 Worktree 作为读写 bind mount 注入 `/workspace/repository`，再以 external Sandbox 交给单次 AgentScope 调用；AgentScope 调用关闭只释放调用窗口，不停止或删除 TaskExecution 容器。容器名由 Workspace Key 确定性派生，容器 Label 闭合 Workspace/物理 Fingerprint、TaskExecution、Policy、BuildProfile、摘要固定镜像、Runtime、Worker、Lease、Fencing 与 Sandbox Fingerprint，不建立第二份容器事实注册表。
+
+Sandbox 固定使用 Worktree UID/GID 普通用户、只读根文件系统、`network=none`、CPU/内存/PID 限制、`cap-drop ALL`、`no-new-privileges`、有界 `/tmp` tmpfs 和 init 进程。环境只注入平台固定的 `HOME`、`MAVEN_CONFIG`、`TMPDIR`、`CI` 与 Locale，不继承宿主凭证。命令超时与输出字节由 WorkspacePolicy 上限裁决，UTF-8 截断保持完整字符边界。Docker 控制命令完整排空有界合并输出，输出超限、读取失败和退出后管道未关闭均失败关闭，Inspect 不解析半截 JSON，容器清单不接受静默截断。公开 Sandbox State、异常和 `toString()` 只暴露稳定 ID、Fingerprint 与安全错误，不包含宿主路径、容器名或 Container ID。
+
+Provision 与 Recover 只复用 Label、镜像、挂载、用户、安全参数、资源预算和 Fingerprint 完整匹配的容器。同一 Lease 的 PREPARE 到 RUN 不改变 Sandbox Fingerprint；新 Lease/Fencing 恢复先精确删除旧代次容器再创建当前代次。每次 AgentScope 调用通过独占 `openCall()` 重新验证 Workspace 与活动 Lease/Fencing，调用窗口外、并发调用、过期 Lease 和旧 Fencing 全部失败关闭。Pause 默认停止并保留容器与 Worktree，Resume 幂等启动同一容器；终态 Destroy 只删除与当前句柄完整指纹和安全契约匹配的容器，旧句柄不能删除新 Fencing 代次。该能力只在 `all/worker` Profile 装配，纯 `server` Profile 不创建宿主 Docker Bean。实现与证据见 [M4-I04 TaskExecution 级 Docker Sandbox](testing/M4-I04-TaskExecution级Docker-Sandbox.md)。
+
+只读仓库检查使用 `RepositoryInspectionToolFactory` 在该独占调用窗口中创建短生命周期 Session。Session 将 M4-I04 的 guarded external Sandbox 注入 AgentScope `SandboxBackedFilesystem`，由 `repository_tree/list/read/grep/glob` 复用 `AbstractFilesystem`；tree 通过有界 `ls` 广度遍历组合。`repository_git_history/status/diff` 使用宿主类型化 Git Executor，将 AllowedPaths 编码为平台生成的 `top,literal` include pathspec，并追加固定敏感路径 exclude pathspec；仓库根使用固定全仓 glob，以 `:` 开头的业务路径不会被解释为 Git pathspec magic，diff 不启用 binary patch。8 个 Tool 均声明 `readOnly=true`，Plan Mode 可直接依据 AgentScope 元数据保留读取能力；原生 `FilesystemTool`、write/edit/delete/move/upload/download 和 raw Shell 不进入 Toolkit。
+
+每个 RepositoryInspectionTool 调用在读取容器或宿主 Git 前重新验证 Session、Workspace、Lease 与 Fencing。输入路径必须是 WorkspacePolicy 允许的仓库相对 canonical 路径，宿主逐段拒绝符号链接；投影结果再次过滤 AllowedPaths、`.git`、环境文件、凭证目录和密钥扩展名。read 只返回 UTF-8 文本，并以编码与 NUL/控制字符探针拒绝二进制。所有列表和文本结果使用稳定 `offset/limit/hasMore/nextOffset` 分页，实际字节上限取部署配置与 SandboxResourceBudget 的较小值，UTF-8 截断不拆分字符；tree 无法在后台操作预算内形成完整页面时返回 `TRAVERSAL_LIMIT`，不发布无法推进的分页游标。Session 关闭后旧 Tool 引用失效。该能力只在 `all/worker` Profile 装配，完整契约与验证见 [M4-I05 受控 RepositoryInspectionTool](testing/M4-I05-受控RepositoryInspectionTool.md)。
+
+代码文件变更使用独立 `CodingFilesystemToolFactory/Session` 打开同一 Sandbox 的独占调用窗口，向 AgentScope Toolkit 暴露 `coding_create/edit/patch/move/delete` 五个非只读 Tool。create 复用 `AbstractFilesystem.write`，edit 与 patch 在 CrewScope 完成确定性文本计算后复用 `uploadFiles`，move/delete 复用同一 `SandboxBackedFilesystem`；AgentScope 2.0.0 Sandbox edit 对镜像内 Python 的依赖不进入 BuildProfile 契约。Agent 只提交仓库相对路径和文本参数，不能提交容器路径、宿主路径、文件上传请求或命令文本。原生 `FilesystemTool`、raw Shell、递归目录移动和递归目录删除不注册。
+
+每次写调用先复验 Workspace、Lease/Fencing，再执行 canonical path、AllowedPaths、敏感路径、逐段 `NOFOLLOW_LINKS`、大小写歧义 sibling、普通文件和严格 UTF-8 检查。create 要求目标不存在；edit 要求旧文本存在且唯一或显式全量替换；patch 只接受由独立 `path` 选择目标的有界单文件 unified hunks，拒绝文件头和由 patch 内容选择路径。变更前通过 path component identity witness 复验既有组件与首个缺失组件，变更后从宿主 Worktree 核对结果；稳定异常不携带宿主路径、文件内容或 Sandbox 输出。完整契约与验证见 [M4-I06 受控 CodingFilesystemTool](testing/M4-I06-受控CodingFilesystemTool.md)。
+
+结构化命令使用 `SandboxCommandToolFactory` 打开同样受 Workspace、Lease/Fencing 保护的独占 Session。Tool Schema 只有 CommandKind、模块/测试选择器和 timeout；Runner 从精确 WorkspacePolicy 与 BuildProfile 生成 typed argv，禁止 raw Shell、任意 argv、环境、目录、镜像和 Docker 参数。Maven/Wrapper、Gradle Wrapper 与 `./scripts/` 白名单各有固定编码规则，选择器同时通过领域白名单与构建工具编码安全检查。每次执行占用 Workspace 累计命令预算，完整有界输出进入 Restricted Workspace Artifact，再发布带真实 Exit Code 的 CommandEvidence；超时通过停止并重启独占容器保证内部进程树终止。完整契约与验证见 [M4-I07 结构化 SandboxCommandTool 与 CommandEvidence](testing/M4-I07-结构化SandboxCommandTool与CommandEvidence.md)。
+
+写预算取 WorkspaceOperationBudget 与部署 parser ceiling 的交集，按不同路径数、完整结果 UTF-8 字节数和每次 create/edit/patch/move/delete 累计。move 同时计算源和目标，失败窗口的预算预留不返还。同一 Worker 的重复 Session 按 `ExecutionWorkspaceKey` 共享用量，首次打开时将 Git status 中已有路径和文件大小纳入恢复下界。Git 状态无法还原历史写操作次数和多次覆盖产生的累计字节；M4-A03 在生产 Tool 主链路启用前持久化每次预算预留，并在新 Worker 开放写 Tool 前恢复精确计数。该能力只在 `all/worker` Profile 装配，纯 `server` Profile 不创建宿主变更 Bean。
+
+Coding Specialist 的稳定 Agent 根目录按 AgentProfile ID 与版本划分，AgentScope 本地文件系统显式使用 `IsolationScope.SESSION`。每个 TaskExecution 派生的耐久 AgentScope Session 拥有独立 Plan 文件命名空间，同一 Coding Principal 的多个 Task 不共享 Plan 或恢复文件；AgentState 继续使用相同 `(userId, sessionId)` 坐标持久化和复验。
 
 Diff Stream 使用文件系统事件触发低延迟 Reconcile，并通过周期任务、Tool 完成、Checkpoint、Pause/Resume 和 Finalizing 安全点执行独立 Reconcile。WatchService Event 是合并与调度提示，Git Diff 是权威事实；`OVERFLOW`、Watcher 重启、Cursor 过期、Stream Epoch 变化和投影 Hash 不一致触发完整 Reset。
 
@@ -3185,12 +3225,14 @@ AgentScope 原始事件传输与应用层 AG-UI 重放分别使用有界缓冲�
 - Filesystem 实现将 SHA-256 内容对象与 Artifact ID JSON Sidecar 分离；内容对象支持跨逻辑引用复用，权限、Producer、TTL 和 Tombstone 保持引用级隔离；
 - Filesystem 写入使用同根目录临时文件、流式大小与哈希校验、文件 `fsync`、JVM 条带锁、跨进程文件锁和 `ATOMIC_MOVE`；Descriptor 发布完成后 Artifact 才可读取；
 - Filesystem 读取只使用规范 ID/哈希推导路径，校验 Sidecar Storage URI、实际大小和 SHA-256；
+- Range 使用精确半开字节区间，先完成整对象大小和 SHA-256 校验，再返回不能越过授权区间的有界流；应用读取器同时施加单次响应大小上限；
 - Filesystem 清理先删除符合条件的逻辑引用，最后一个 Sidecar 移除后再删除共享内容对象；
 - AgentScope Sandbox Snapshot 通过同一 ArtifactStore 的 Snapshot Adapter 保存，避免平台制品与 AgentScope Snapshot 形成两套生命周期；
 - 上传采用内容哈希校验和原子提交，读取执行授权、完整性与恶意内容校验；
 - 部署存储启用服务端加密或信封加密，密钥由 KMS/Vault 管理；
 - TTL 从 Store 接收时刻开始计算；到期对象停止内容读取，删除先记录 Tombstone 和 AuditEvent，物理清理只处理已 Tombstone 且保留期结束的对象；
 - Tombstone 保存稳定原因、操作 Principal、安全说明和 UTC 时间；批量清理返回 Artifact ID 供审计与引用对账；
+- Coding Artifact 使用关系事实闭合 Reader；公开摘要不携带正文、Storage URI、Producer、Tombstone Detail 和宿主路径；
 - Snapshot 发布事务失败后的已发布 Artifact 使用 `PUBLICATION_ABORTED` Tombstone，损坏 Snapshot Artifact 使用 `SECURITY_POLICY` Tombstone；
 - Redis 只保存运行态和小型短期数据，不保存大 Workspace Snapshot。
 
