@@ -3,6 +3,7 @@ package io.crewscope.application.artifact;
 import io.crewscope.domain.shared.id.ArtifactId;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Streaming storage Port for immutable content and independently governed logical references. */
@@ -27,6 +28,25 @@ public interface ArtifactStore {
      * mismatch as {@link ArtifactStoreError#INTEGRITY_VIOLATION}.
      */
     Optional<ArtifactContent> get(ArtifactId artifactId, ArtifactAccessContext accessContext);
+
+    /**
+     * Returns an exact authorized byte range without allowing reads beyond that range.
+     *
+     * <p>The default implementation slices the already integrity-verified full stream. Object
+     * storage adapters may override this method while preserving authorization, lifecycle and
+     * complete-object integrity guarantees.
+     */
+    default Optional<ArtifactContentRange> getRange(
+            ArtifactId artifactId,
+            ArtifactAccessContext accessContext,
+            ArtifactByteRange range) {
+        ArtifactByteRange requestedRange = Objects.requireNonNull(range, "range");
+        Optional<ArtifactContent> content = get(artifactId, accessContext);
+        if (content.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(ArtifactContentRange.slice(content.orElseThrow(), requestedRange));
+    }
 
     /**
      * Creates a logical deletion fact after application policy authorizes the mutation.

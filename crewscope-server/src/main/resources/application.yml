@@ -68,6 +68,64 @@ logging:
         max-throwable-depth: 20
 
 crewscope:
+  coding:
+    artifact:
+      # Full Coding evidence is Restricted; APIs must page through this bounded Range window.
+      retention: ${CREWSCOPE_CODING_ARTIFACT_RETENTION:30d}
+      maximum-artifact-bytes: ${CREWSCOPE_CODING_ARTIFACT_MAXIMUM_BYTES:67108864}
+      maximum-range-bytes: ${CREWSCOPE_CODING_ARTIFACT_MAXIMUM_RANGE_BYTES:1048576}
+    git:
+      # Host Git runs with this isolated HOME and fails closed on unsafe process budgets.
+      command-home: ${CREWSCOPE_CODING_GIT_COMMAND_HOME:./var/crewscope/git-home}
+      timeout: ${CREWSCOPE_CODING_GIT_TIMEOUT:30s}
+      maximum-output-bytes: ${CREWSCOPE_CODING_GIT_MAXIMUM_OUTPUT_BYTES:1048576}
+    repository:
+      # Only <managed-root>/<repository-key>.git bare repositories owned by this Worker are trusted.
+      managed-root: ${CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT:./var/crewscope/repositories}
+      required-owner: ${CREWSCOPE_CODING_REPOSITORY_REQUIRED_OWNER:${user.name}}
+    worktree:
+      # All roots must be pre-created and owned by the configured Worker operating-system identity.
+      root: ${CREWSCOPE_CODING_WORKTREE_ROOT:./var/crewscope/worktrees}
+      lock-root: ${CREWSCOPE_CODING_WORKTREE_LOCK_ROOT:./var/crewscope/worktree-locks}
+      required-owner: ${CREWSCOPE_CODING_WORKTREE_REQUIRED_OWNER:${user.name}}
+    sandbox:
+      # Image and hard resource ceilings come from the immutable BuildProfile and WorkspacePolicy.
+      workspace-root: ${CREWSCOPE_CODING_SANDBOX_WORKSPACE_ROOT:/workspace}
+      repository-mount: ${CREWSCOPE_CODING_SANDBOX_REPOSITORY_MOUNT:repository}
+      docker-command-timeout: ${CREWSCOPE_CODING_SANDBOX_DOCKER_COMMAND_TIMEOUT:30s}
+      pause-stop-timeout: ${CREWSCOPE_CODING_SANDBOX_PAUSE_STOP_TIMEOUT:1s}
+      pause-mode: ${CREWSCOPE_CODING_SANDBOX_PAUSE_MODE:STOP}
+    recovery:
+      # Startup reconciliation completes before this Worker accepts new Task claims.
+      recovery-batch-size: ${CREWSCOPE_CODING_RECOVERY_BATCH_SIZE:100}
+      retention-batch-size: ${CREWSCOPE_CODING_RETENTION_BATCH_SIZE:100}
+      artifact-purge-batch-size: ${CREWSCOPE_CODING_ARTIFACT_PURGE_BATCH_SIZE:100}
+    inspection:
+      # Agent-visible repository reads stay below both these bounds and WorkspacePolicy ceilings.
+      max-page-size: ${CREWSCOPE_CODING_INSPECTION_MAX_PAGE_SIZE:200}
+      max-read-lines: ${CREWSCOPE_CODING_INSPECTION_MAX_READ_LINES:500}
+      max-tree-depth: ${CREWSCOPE_CODING_INSPECTION_MAX_TREE_DEPTH:6}
+      max-backend-operations: ${CREWSCOPE_CODING_INSPECTION_MAX_BACKEND_OPERATIONS:64}
+      max-pattern-length: ${CREWSCOPE_CODING_INSPECTION_MAX_PATTERN_LENGTH:256}
+      max-result-bytes: ${CREWSCOPE_CODING_INSPECTION_MAX_RESULT_BYTES:65536}
+    filesystem:
+      # Parser ceilings can only narrow the WorkspaceOperationBudget carried by the Task.
+      max-tool-content-bytes: ${CREWSCOPE_CODING_FILESYSTEM_MAX_TOOL_CONTENT_BYTES:1048576}
+      max-patch-hunks: ${CREWSCOPE_CODING_FILESYSTEM_MAX_PATCH_HUNKS:200}
+    command:
+      # Complete bounded logs enter ArtifactStore; only this UTF-8 prefix is returned to the Agent.
+      max-tool-result-bytes: ${CREWSCOPE_CODING_COMMAND_MAX_TOOL_RESULT_BYTES:65536}
+    diff:
+      # WatchService only schedules Git-authoritative reconciliation; previews stay bounded.
+      patch-preview-bytes: ${CREWSCOPE_CODING_DIFF_PATCH_PREVIEW_BYTES:65536}
+      patch-preview-lines: ${CREWSCOPE_CODING_DIFF_PATCH_PREVIEW_LINES:1000}
+      retained-events: ${CREWSCOPE_CODING_DIFF_RETAINED_EVENTS:512}
+      maximum-replay-events: ${CREWSCOPE_CODING_DIFF_MAXIMUM_REPLAY_EVENTS:256}
+      maximum-event-bytes: ${CREWSCOPE_CODING_DIFF_MAXIMUM_EVENT_BYTES:524288}
+      debounce: ${CREWSCOPE_CODING_DIFF_DEBOUNCE:150ms}
+      reconcile-interval: ${CREWSCOPE_CODING_DIFF_RECONCILE_INTERVAL:15s}
+      # Override in shared/production deployments; it must remain stable across Worker restarts.
+      cursor-secret: ${CREWSCOPE_CODING_DIFF_CURSOR_SECRET:crewscope-development-diff-cursor-key-v1}
   conversation-events:
     poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
@@ -154,6 +212,18 @@ crewscope:
       task-token-lifetime: ${CREWSCOPE_TASK_TOKEN_LIFETIME:5m}
       recovery-candidate-limit: ${CREWSCOPE_TASK_SNAPSHOT_RECOVERY_LIMIT:16}
       maximum-reconcile-size: ${CREWSCOPE_TASK_WORKER_RECONCILE_SIZE:100}
+    coding-specialist:
+      model-id: ${CREWSCOPE_CODING_AGENT_MODEL_ID:crewscope-primary}
+      fallback-model-id: ${CREWSCOPE_CODING_AGENT_FALLBACK_MODEL_ID:}
+      compaction-model-id: ${CREWSCOPE_CODING_AGENT_COMPACTION_MODEL_ID:crewscope-primary}
+      system-prompt: ${CREWSCOPE_CODING_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Coding Specialist. Load the fixed coding skill, maintain Plan and Todo state, use only registered tools, test the change, inspect the final diff and return the required structured output.}
+      max-iterations: ${CREWSCOPE_CODING_AGENT_MAX_ITERATIONS:60}
+      max-retries: ${CREWSCOPE_CODING_AGENT_MAX_RETRIES:3}
+      compaction-trigger-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_TRIGGER_MESSAGES:40}
+      compaction-keep-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_KEEP_MESSAGES:8}
+      tool-result-eviction-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_CHARS:32768}
+      tool-result-preview-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_PREVIEW_CHARS:1024}
+      runtime-root: ${CREWSCOPE_CODING_AGENT_RUNTIME_ROOT:./var/crewscope/coding-agent-runtime}
     personal-agent:
       model-id: ${CREWSCOPE_PERSONAL_AGENT_MODEL_ID:crewscope-primary}
       fallback-model-id: ${CREWSCOPE_PERSONAL_AGENT_FALLBACK_MODEL_ID:}

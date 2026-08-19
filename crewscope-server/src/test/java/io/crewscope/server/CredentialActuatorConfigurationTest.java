@@ -45,6 +45,30 @@ class CredentialActuatorConfigurationTest {
         assertEquals(
                 "${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_RENEWAL:5s}",
                 property(sources, "crewscope.runtime.redis.ownership-renewal"));
+        assertEquals(
+                "${CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT:./var/crewscope/repositories}",
+                property(sources, "crewscope.coding.repository.managed-root"));
+        assertEquals(
+                "${CREWSCOPE_CODING_REPOSITORY_REQUIRED_OWNER:${user.name}}",
+                property(sources, "crewscope.coding.repository.required-owner"));
+        assertEquals(
+                "${CREWSCOPE_CODING_WORKTREE_ROOT:./var/crewscope/worktrees}",
+                property(sources, "crewscope.coding.worktree.root"));
+        assertEquals(
+                "${CREWSCOPE_CODING_WORKTREE_LOCK_ROOT:./var/crewscope/worktree-locks}",
+                property(sources, "crewscope.coding.worktree.lock-root"));
+        assertEquals(
+                "${CREWSCOPE_CODING_WORKTREE_REQUIRED_OWNER:${user.name}}",
+                property(sources, "crewscope.coding.worktree.required-owner"));
+        assertEquals(
+                "${CREWSCOPE_CODING_SANDBOX_WORKSPACE_ROOT:/workspace}",
+                property(sources, "crewscope.coding.sandbox.workspace-root"));
+        assertEquals(
+                "${CREWSCOPE_CODING_SANDBOX_REPOSITORY_MOUNT:repository}",
+                property(sources, "crewscope.coding.sandbox.repository-mount"));
+        assertEquals(
+                "${CREWSCOPE_CODING_SANDBOX_PAUSE_MODE:STOP}",
+                property(sources, "crewscope.coding.sandbox.pause-mode"));
     }
 
     private static String property(List<PropertySource<?>> sources, String name) {

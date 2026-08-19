@@ -36,6 +36,7 @@ public final class DurableTaskWorkerStartupReconciler implements TaskWorkerStart
     private final AuthoritativeTimeProvider timeProvider;
     private final RuntimeWorkerRegistrationSpec registration;
     private final int maximumReconcileSize;
+    private final TaskExecutionRecoveryObserver recoveryObserver;
 
     public DurableTaskWorkerStartupReconciler(
             ExecutionLeaseSweeper leaseSweeper,
@@ -48,6 +49,32 @@ public final class DurableTaskWorkerStartupReconciler implements TaskWorkerStart
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             int maximumReconcileSize) {
+        this(
+                leaseSweeper,
+                executionRepository,
+                leaseRepository,
+                stepRepository,
+                runRepository,
+                principalRepository,
+                transactionExecutor,
+                timeProvider,
+                registration,
+                maximumReconcileSize,
+                TaskExecutionRecoveryObserver.NOOP);
+    }
+
+    public DurableTaskWorkerStartupReconciler(
+            ExecutionLeaseSweeper leaseSweeper,
+            TaskExecutionRepository executionRepository,
+            ExecutionLeaseRepository leaseRepository,
+            StepExecutionRepository stepRepository,
+            AgentRunRepository runRepository,
+            PrincipalRepository principalRepository,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            RuntimeWorkerRegistrationSpec registration,
+            int maximumReconcileSize,
+            TaskExecutionRecoveryObserver recoveryObserver) {
         this.leaseSweeper = Objects.requireNonNull(leaseSweeper, "leaseSweeper");
         this.executionRepository = Objects.requireNonNull(executionRepository, "executionRepository");
         this.leaseRepository = Objects.requireNonNull(leaseRepository, "leaseRepository");
@@ -57,6 +84,7 @@ public final class DurableTaskWorkerStartupReconciler implements TaskWorkerStart
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.registration = Objects.requireNonNull(registration, "registration");
+        this.recoveryObserver = Objects.requireNonNull(recoveryObserver, "recoveryObserver");
         if (maximumReconcileSize < 1 || maximumReconcileSize > 10_000) {
             throw new IllegalArgumentException("maximumReconcileSize must be between 1 and 10000");
         }
@@ -80,6 +108,7 @@ public final class DurableTaskWorkerStartupReconciler implements TaskWorkerStart
                 throw new IllegalStateException(
                         "RECOVERING TaskExecution must not retain an active Lease");
             }
+            recoveryObserver.beforeRequeue(execution, now);
             closeOrphanRuns(execution, now);
             closeOrphanSteps(execution, now);
             TaskExecution ready = execution.requeue(

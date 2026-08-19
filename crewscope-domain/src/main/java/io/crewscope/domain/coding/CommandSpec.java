@@ -81,8 +81,8 @@ public final class CommandSpec {
         }
         CommandSelectorPolicy selectors = policyCommand.selectorPolicy();
         int maximumResolvedArguments = policyCommand.argv().size()
-                + selectors.maxModuleSelectors()
-                + selectors.maxTestSelectors()
+                + Math.multiplyExact(selectors.maxModuleSelectors(), 2)
+                + Math.multiplyExact(selectors.maxTestSelectors(), 2)
                 + 4;
         if (argv.size() > maximumResolvedArguments
                 || (selectors.maxModuleSelectors() == 0
