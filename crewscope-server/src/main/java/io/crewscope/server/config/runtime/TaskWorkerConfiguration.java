@@ -11,6 +11,16 @@ import io.crewscope.agentscope.task.ControlledTaskToolkitFactory;
 import io.crewscope.agentscope.task.TaskAgentConfiguration;
 import io.crewscope.agentscope.task.TaskAgentConfigurationSource;
 import io.crewscope.agentscope.task.TaskAgentFactory;
+import io.crewscope.agentscope.coding.AgentScopeCodingRuntime;
+import io.crewscope.agentscope.coding.CodingSpecialistConfiguration;
+import io.crewscope.agentscope.coding.CodingSpecialistConfigurationSource;
+import io.crewscope.agentscope.coding.CodingSpecialistFactory;
+import io.crewscope.agentscope.coding.CodingSpecialistSkillBundle;
+import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
+import io.crewscope.agentscope.coding.CodingSpecialistStepRuntime;
+import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
+import io.crewscope.application.coding.CodingCheckpointRepository;
+import io.crewscope.application.coding.output.CodingOutputValidator;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -44,8 +54,13 @@ import io.crewscope.infrastructure.runtime.TaskWorkerExecutionSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoadTracker;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoopSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerStartupReconciler;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRecoveryMarker;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceStartupReconciler;
+import io.crewscope.server.observability.CodingWorkspaceStartupHealthIndicator;
 import io.crewscope.server.observability.TaskWorkerHealthIndicator;
 import java.time.Clock;
+import jakarta.validation.Validator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -55,7 +70,10 @@ import org.springframework.context.annotation.Configuration;
 /** Production composition root for the M3-I09 AgentScope JVM Task Worker. */
 @Configuration(proxyBeanMethods = false)
 @Conditional(WorkerCapableProfileCondition.class)
-@EnableConfigurationProperties(TaskWorkerRuntimeProperties.class)
+@EnableConfigurationProperties({
+        TaskWorkerRuntimeProperties.class,
+        CodingSpecialistRuntimeProperties.class
+})
 public class TaskWorkerConfiguration {
 
     @Bean
@@ -144,6 +162,85 @@ public class TaskWorkerConfiguration {
                 publisher,
                 snapshotService,
                 Clock.systemUTC());
+    }
+
+    @Bean
+    CodingSpecialistConfigurationSource codingSpecialistConfigurationSource(
+            CodingSpecialistRuntimeProperties properties) {
+        return (profileId, version) -> new CodingSpecialistConfiguration(
+                profileId,
+                version,
+                properties.getModelId(),
+                properties.fallbackModelId(),
+                properties.getCompactionModelId(),
+                properties.getSystemPrompt(),
+                properties.getMaxIterations(),
+                properties.getMaxRetries(),
+                properties.getCompactionTriggerMessages(),
+                properties.getCompactionKeepMessages(),
+                properties.getToolResultEvictionChars(),
+                properties.getToolResultPreviewChars());
+    }
+
+    @Bean
+    CodingSpecialistSkillBundle codingSpecialistSkillBundle() {
+        return new CodingSpecialistSkillBundle();
+    }
+
+    @Bean
+    CodingSpecialistFactory codingSpecialistFactory(
+            CodingSpecialistConfigurationSource configurationSource,
+            AgentScopeModelResolver modelResolver,
+            AgentStateStore stateStore,
+            CodingSpecialistSkillBundle skillBundle,
+            CodingSpecialistRuntimeProperties properties) {
+        return new CodingSpecialistFactory(
+                configurationSource,
+                modelResolver,
+                stateStore,
+                skillBundle,
+                properties.getRuntimeRoot());
+    }
+
+    @Bean
+    AgentScopeCodingRuntime agentScopeCodingRuntime(CodingSpecialistFactory factory) {
+        return new AgentScopeCodingRuntime(factory);
+    }
+
+    @Bean
+    CodingOutputValidator codingOutputValidator(Validator validator) {
+        return new CodingOutputValidator(validator);
+    }
+
+    @Bean
+    DurableCodingSpecialistExecutionStore durableCodingSpecialistExecutionStore(
+            DurableTaskExecutionEventService eventService,
+            TaskAgentStateSnapshotService snapshotService,
+            AgentStateSnapshotRepository snapshotRepository,
+            CodingCheckpointRepository checkpointRepository,
+            StepExecutionRepository stepRepository,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider) {
+        return new DurableCodingSpecialistExecutionStore(
+                eventService,
+                snapshotService,
+                snapshotRepository,
+                checkpointRepository,
+                stepRepository,
+                transactionExecutor,
+                timeProvider);
+    }
+
+    /** M4-A03 supplies the production Workspace/Tool lifecycle Gateway. */
+    @Bean
+    @ConditionalOnBean(CodingSpecialistAuthorityGateway.class)
+    CodingSpecialistStepRuntime codingSpecialistStepRuntime(
+            AgentScopeCodingRuntime runtime,
+            CodingSpecialistAuthorityGateway authorityGateway,
+            DurableCodingSpecialistExecutionStore executionStore,
+            CodingOutputValidator outputValidator) {
+        return new CodingSpecialistStepRuntime(
+                runtime, authorityGateway, executionStore, outputValidator);
     }
 
     @Bean
@@ -236,7 +333,7 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
-    TaskWorkerStartupReconciler taskWorkerStartupReconciler(
+    DurableTaskWorkerStartupReconciler durableTaskWorkerStartupReconciler(
             ExecutionLeaseSweeper leaseSweeper,
             TaskExecutionRepository executionRepository,
             ExecutionLeaseRepository leaseRepository,
@@ -246,7 +343,8 @@ public class TaskWorkerConfiguration {
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
-            TaskWorkerRuntimeProperties properties) {
+            TaskWorkerRuntimeProperties properties,
+            CodingWorkspaceRecoveryMarker recoveryMarker) {
         return new DurableTaskWorkerStartupReconciler(
                 leaseSweeper,
                 executionRepository,
@@ -257,7 +355,8 @@ public class TaskWorkerConfiguration {
                 transactionExecutor,
                 timeProvider,
                 registration,
-                properties.getMaximumReconcileSize());
+                properties.getMaximumReconcileSize(),
+                recoveryMarker);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
@@ -282,5 +381,11 @@ public class TaskWorkerConfiguration {
             TaskWorkerExecutionLoop workerLoop,
             RuntimeRegistryCoordinator registryCoordinator) {
         return new TaskWorkerHealthIndicator(workerLoop, registryCoordinator);
+    }
+
+    @Bean
+    CodingWorkspaceStartupHealthIndicator codingWorkspaceStartupHealthIndicator(
+            CodingWorkspaceStartupReconciler reconciler) {
+        return new CodingWorkspaceStartupHealthIndicator(reconciler);
     }
 }

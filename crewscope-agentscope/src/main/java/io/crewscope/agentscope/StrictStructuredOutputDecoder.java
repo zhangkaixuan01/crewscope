@@ -11,11 +11,11 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Validates raw model metadata before AgentScope's permissive Jackson conversion. */
-final class StrictStructuredOutputDecoder {
+public final class StrictStructuredOutputDecoder {
 
     private StrictStructuredOutputDecoder() {}
 
-    static Object decode(Map<String, Object> raw, StructuredOutputSpec<?> spec) {
+    public static Object decode(Map<String, Object> raw, StructuredOutputSpec<?> spec) {
         Map<String, Object> value = Objects.requireNonNull(raw, "raw");
         StructuredOutputSpec<?> requiredSpec = Objects.requireNonNull(spec, "spec");
         requiredSpec.strictJsonSchema().ifPresent(schema -> validate(value, schema, "$"));

@@ -7,6 +7,12 @@ import static org.mockito.Mockito.when;
 
 import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.agentscope.AgentScopeModelResolver;
+import io.crewscope.agentscope.coding.AgentScopeCodingRuntime;
+import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
+import io.crewscope.agentscope.coding.CodingSpecialistFactory;
+import io.crewscope.agentscope.coding.CodingSpecialistStepRuntime;
+import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
+import io.crewscope.application.coding.CodingCheckpointRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -52,12 +58,15 @@ import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.runtime.TaskClaimSchedulerSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerExecutionLoop;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoadTracker;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRecoveryMarker;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceStartupReconciler;
 import io.crewscope.server.observability.TaskWorkerHealthIndicator;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -74,6 +83,7 @@ class TaskWorkerConfigurationM3I09Test {
                     assertThat(context).doesNotHaveBean(TaskWorkerExecutionLoop.class);
                     assertThat(context).doesNotHaveBean(TaskWorkerLoadTracker.class);
                     assertThat(context).doesNotHaveBean(TaskWorkerHealthIndicator.class);
+                    assertThat(context).doesNotHaveBean(AgentScopeCodingRuntime.class);
                 });
     }
 
@@ -84,6 +94,10 @@ class TaskWorkerConfigurationM3I09Test {
             assertThat(context).hasSingleBean(TaskWorkerExecutionLoop.class);
             assertThat(context).hasSingleBean(TaskWorkerLoadTracker.class);
             assertThat(context).hasSingleBean(TaskWorkerHealthIndicator.class);
+            assertThat(context).hasSingleBean(CodingSpecialistFactory.class);
+            assertThat(context).hasSingleBean(AgentScopeCodingRuntime.class);
+            assertThat(context).hasSingleBean(DurableCodingSpecialistExecutionStore.class);
+            assertThat(context).doesNotHaveBean(CodingSpecialistStepRuntime.class);
             assertThat(context.getBean(TaskWorkerExecutionLoop.class).health().started()).isTrue();
             assertThat(context.getBean(TaskWorkerHealthIndicator.class).health().getStatus()
                     .getCode()).isEqualTo("UP");
@@ -91,10 +105,23 @@ class TaskWorkerConfigurationM3I09Test {
     }
 
     @Test
+    void codingStepRuntimeActivatesWhenWorkspaceAuthorityGatewayIsAvailable() {
+        workerContext("worker", RuntimeProfile.WORKER)
+                .withBean(CodingSpecialistAuthorityGateway.class,
+                        () -> mock(CodingSpecialistAuthorityGateway.class))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(CodingSpecialistStepRuntime.class);
+                    assertThat(context).hasSingleBean(DurableCodingSpecialistExecutionStore.class);
+                });
+    }
+
+    @Test
     void independentWorkerProfileUsesTheSameExecutionLoop() {
         workerContext("worker", RuntimeProfile.WORKER).run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context).hasSingleBean(TaskWorkerExecutionLoop.class);
+            assertThat(context).hasSingleBean(AgentScopeCodingRuntime.class);
             assertThat(context.getBean(RuntimeWorkerRegistrationSpec.class).workerProfile())
                     .isEqualTo(RuntimeProfile.WORKER);
             assertThat(context.getBean(TaskWorkerExecutionLoop.class).health().acceptingClaims())
@@ -160,6 +187,14 @@ class TaskWorkerConfigurationM3I09Test {
                 // Production ownership lives in RuntimeRegistryConfiguration; this focused
                 // composition test supplies the shared counter at that configuration boundary.
                 .withBean(TaskWorkerLoadTracker.class, TaskWorkerLoadTracker::new)
+                // M4 decorates the M3 startup reconciler in production. This focused M3
+                // composition test supplies that boundary without constructing Git/Docker.
+                .withBean(CodingWorkspaceRecoveryMarker.class,
+                        () -> mock(CodingWorkspaceRecoveryMarker.class))
+                .withBean(
+                        CodingWorkspaceStartupReconciler.class,
+                        () -> mock(CodingWorkspaceStartupReconciler.class),
+                        definition -> definition.setPrimary(true))
                 .withBean(RuntimeWorkerRegistrationSpec.class, () -> registration)
                 .withBean(RuntimeWorkerLifecycle.class, () -> lifecycle)
                 .withBean(RuntimeRegistryCoordinator.class, () -> registryCoordinator)
@@ -215,6 +250,9 @@ class TaskWorkerConfigurationM3I09Test {
                         () -> mock(DurableTaskExecutionEventService.class))
                 .withBean(TaskAgentStateSnapshotService.class,
                         () -> mock(TaskAgentStateSnapshotService.class))
+                .withBean(CodingCheckpointRepository.class,
+                        () -> mock(CodingCheckpointRepository.class))
+                .withBean(Validator.class, () -> mock(Validator.class))
                 .withBean(AgentStateStore.class, () -> mock(AgentStateStore.class))
                 .withBean(AgentScopeModelResolver.class,
                         () -> mock(AgentScopeModelResolver.class))

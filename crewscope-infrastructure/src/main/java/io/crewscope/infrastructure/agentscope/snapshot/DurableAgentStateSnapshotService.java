@@ -314,8 +314,8 @@ public class DurableAgentStateSnapshotService implements TaskAgentStateSnapshotS
                 && identity.taskExecutionId().equals(run.executionId().value())
                 && identity.agentRunId().equals(run.id().value())
                 && identity.agentVersion().equals(Long.toString(run.agentProfileVersion()))
-                && stableAgentId(run).equals(identity.agentName())
-                && stableAgentId(run).equals(identity.agentId());
+                && stableAgentId(run, session).equals(identity.agentName())
+                && stableAgentId(run, session).equals(identity.agentId());
         if (!current) {
             throw new DomainValidationException(
                     "agentStateSnapshot.identity",
@@ -496,11 +496,11 @@ public class DurableAgentStateSnapshotService implements TaskAgentStateSnapshotS
                 Optional.empty());
     }
 
-    private static String stableAgentId(AgentRun run) {
-        // TaskAgentFactory uses this value as HarnessAgent's durable namespace. AgentScope 2.0.0
-        // getAgentId() is process-random and cannot participate in cross-Worker recovery identity.
+    private static String stableAgentId(AgentRun run, TaskAgentRuntimeSession session) {
+        // Each Task-side role uses a stable Harness namespace. AgentScope 2.0.0 getAgentId() is
+        // process-random and cannot participate in cross-Worker recovery identity.
         return TaskAgentStateIdentity.stableAgentId(
-                run.agentProfileId(), run.agentProfileVersion());
+                run.agentProfileId(), run.agentProfileVersion(), session.purpose());
     }
 
     private static ArtifactAccessContext access(AgentRun run) {
