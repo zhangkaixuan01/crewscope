@@ -3,6 +3,7 @@ package io.crewscope.application.coding;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.coding.ExecutionWorkspaceAttemptConflictException;
 import io.crewscope.domain.coding.ExecutionWorkspaceId;
+import io.crewscope.domain.coding.ExecutionWorkspaceKey;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -36,11 +37,30 @@ public interface ExecutionWorkspaceRepository {
             WorkProjectId workProjectId,
             TaskExecutionId taskExecutionId);
 
+    /** Locks the attempt Workspace when startup recovery mutates it with TaskExecution. */
+    default Optional<ExecutionWorkspace> findByTaskExecutionForUpdate(
+            OrganizationId organizationId,
+            TeamId teamId,
+            WorkProjectId workProjectId,
+            TaskExecutionId taskExecutionId) {
+        return findByTaskExecution(
+                organizationId, teamId, workProjectId, taskExecutionId);
+    }
+
+    /** Resolves one host-managed Workspace without exposing its physical path. */
+    Optional<ExecutionWorkspace> findByWorkspaceKey(
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            ExecutionWorkspaceKey workspaceKey);
+
     /** Locks a bounded recovery batch inside a caller-owned transaction. */
     List<ExecutionWorkspace> findRecoveringForUpdate(
             OrganizationId organizationId, RuntimeEnvironment environment, int limit);
 
     /** Locks due completed or failed Workspaces inside a caller-owned transaction. */
     List<ExecutionWorkspace> findRetentionDueForUpdate(
-            OrganizationId organizationId, UtcTimestamp authoritativeNow, int limit);
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            UtcTimestamp authoritativeNow,
+            int limit);
 }

@@ -444,6 +444,24 @@ class M4D09CodingPersistenceIntegrationTest
     @Test
     void skipsWorkspaceRowsAlreadyLockedByAnotherRecoveryTransaction() throws Exception {
         CodingPersistenceGraph graph = persistGraph("workspace-lock");
+        assertEquals(
+                graph.activeWorkspace.id(),
+                workspaces.findByWorkspaceKey(
+                                graph.fixture.organizationId(),
+                                new RuntimeEnvironment("test"),
+                                graph.activeWorkspace.workspaceKey())
+                        .orElseThrow()
+                        .id());
+        assertEquals(
+                graph.activeWorkspace.id(),
+                new TransactionTemplate(transactionManager).execute(status ->
+                                workspaces.findByTaskExecutionForUpdate(
+                                        graph.fixture.organizationId(),
+                                        graph.fixture.teamId(),
+                                        graph.fixture.projectId(),
+                                        graph.taskExecutionId))
+                        .orElseThrow()
+                        .id());
         TaskExecution recoveringExecution = mock(TaskExecution.class);
         when(recoveringExecution.scope()).thenReturn(graph.fixture.workItemScope());
         when(recoveringExecution.taskId()).thenReturn(graph.taskId);
@@ -466,6 +484,7 @@ class M4D09CodingPersistenceIntegrationTest
                 IllegalTransactionStateException.class,
                 () -> workspaces.findRetentionDueForUpdate(
                         graph.fixture.organizationId(),
+                        new RuntimeEnvironment("test"),
                         UtcTimestamp.parse("2026-08-18T04:00:00Z"),
                         10));
         CountDownLatch locked = new CountDownLatch(1);

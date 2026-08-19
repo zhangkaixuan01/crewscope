@@ -11,6 +11,7 @@ import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.coding.ExecutionWorkspaceAttemptConflictException;
 import io.crewscope.domain.coding.ExecutionWorkspaceFailure;
 import io.crewscope.domain.coding.ExecutionWorkspaceId;
+import io.crewscope.domain.coding.ExecutionWorkspaceKey;
 import io.crewscope.domain.coding.ExecutionWorkspaceRetention;
 import io.crewscope.domain.coding.ExecutionWorkspaceStatus;
 import io.crewscope.domain.coding.RepositoryBinding;
@@ -204,7 +205,7 @@ class ExecutionWorkspaceRepositoryContractTest {
                 List.of(due.id()),
                 repository
                         .findRetentionDueForUpdate(
-                                due.scope().organizationId(), QUERY_AT, 1)
+                                due.scope().organizationId(), ENVIRONMENT, QUERY_AT, 1)
                         .stream()
                         .map(ExecutionWorkspace::id)
                         .toList());
@@ -212,6 +213,7 @@ class ExecutionWorkspaceRepositoryContractTest {
                 List.of(),
                 repository.findRetentionDueForUpdate(
                         futureFixture.scope.organizationId(),
+                        ENVIRONMENT,
                         UtcTimestamp.parse("2026-08-17T06:59:59Z"),
                         1));
     }
@@ -280,6 +282,18 @@ class ExecutionWorkspaceRepositoryContractTest {
         }
 
         @Override
+        public Optional<ExecutionWorkspace> findByWorkspaceKey(
+                OrganizationId organizationId,
+                RuntimeEnvironment environment,
+                ExecutionWorkspaceKey workspaceKey) {
+            return values.stream()
+                    .filter(value -> value.scope().organizationId().equals(organizationId))
+                    .filter(value -> value.ownership().environment().equals(environment))
+                    .filter(value -> value.workspaceKey().equals(workspaceKey))
+                    .findFirst();
+        }
+
+        @Override
         public List<ExecutionWorkspace> findRecoveringForUpdate(
                 OrganizationId organizationId, RuntimeEnvironment environment, int limit) {
             requireLimit(limit);
@@ -294,10 +308,14 @@ class ExecutionWorkspaceRepositoryContractTest {
 
         @Override
         public List<ExecutionWorkspace> findRetentionDueForUpdate(
-                OrganizationId organizationId, UtcTimestamp authoritativeNow, int limit) {
+                OrganizationId organizationId,
+                RuntimeEnvironment environment,
+                UtcTimestamp authoritativeNow,
+                int limit) {
             requireLimit(limit);
             return values.stream()
                     .filter(value -> value.scope().organizationId().equals(organizationId))
+                    .filter(value -> value.ownership().environment().equals(environment))
                     .filter(value -> value.status().isRetentionTerminal())
                     .filter(value -> value.retention().isDue(authoritativeNow))
                     .sorted(Comparator.comparing(value -> value.retention().retainUntil()))

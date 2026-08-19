@@ -4,6 +4,7 @@ import io.crewscope.application.coding.ExecutionWorkspaceRepository;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.coding.ExecutionWorkspaceFailure;
 import io.crewscope.domain.coding.ExecutionWorkspaceId;
+import io.crewscope.domain.coding.ExecutionWorkspaceKey;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
@@ -172,6 +173,47 @@ public class JdbcExecutionWorkspaceRepositoryAdapter implements ExecutionWorkspa
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<ExecutionWorkspace> findByTaskExecutionForUpdate(
+            OrganizationId organizationId,
+            TeamId teamId,
+            WorkProjectId workProjectId,
+            TaskExecutionId taskExecutionId) {
+        return query(
+                        """
+                        WHERE organization_id = :organizationId
+                          AND team_id = :teamId
+                          AND project_id = :projectId
+                          AND task_execution_id = :taskExecutionId
+                        FOR UPDATE
+                        """,
+                        scopeParameters(organizationId, teamId, workProjectId)
+                                .addValue("taskExecutionId", Objects.requireNonNull(taskExecutionId).value()))
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ExecutionWorkspace> findByWorkspaceKey(
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            ExecutionWorkspaceKey workspaceKey) {
+        return query(
+                        """
+                        WHERE organization_id = :organizationId
+                          AND runtime_environment = :runtimeEnvironment
+                          AND workspace_key = :workspaceKey
+                        """,
+                        new MapSqlParameterSource()
+                                .addValue("organizationId", Objects.requireNonNull(organizationId).value())
+                                .addValue("runtimeEnvironment", Objects.requireNonNull(environment).value())
+                                .addValue("workspaceKey", Objects.requireNonNull(workspaceKey).value()))
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public List<ExecutionWorkspace> findRecoveringForUpdate(
             OrganizationId organizationId, RuntimeEnvironment environment, int limit) {
         requireLimit(limit);
@@ -193,11 +235,15 @@ public class JdbcExecutionWorkspaceRepositoryAdapter implements ExecutionWorkspa
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public List<ExecutionWorkspace> findRetentionDueForUpdate(
-            OrganizationId organizationId, UtcTimestamp authoritativeNow, int limit) {
+            OrganizationId organizationId,
+            RuntimeEnvironment environment,
+            UtcTimestamp authoritativeNow,
+            int limit) {
         requireLimit(limit);
         return query(
                 """
                 WHERE organization_id = :organizationId
+                  AND runtime_environment = :runtimeEnvironment
                   AND status IN ('COMPLETED', 'FAILED')
                   AND retain_until <= :authoritativeNow
                 ORDER BY retain_until ASC, id ASC
@@ -206,6 +252,7 @@ public class JdbcExecutionWorkspaceRepositoryAdapter implements ExecutionWorkspa
                 """,
                 new MapSqlParameterSource()
                         .addValue("organizationId", Objects.requireNonNull(organizationId).value())
+                        .addValue("runtimeEnvironment", Objects.requireNonNull(environment).value())
                         .addValue("authoritativeNow", CodingJdbcValue.timestamp(authoritativeNow))
                         .addValue("limit", limit));
     }
