@@ -5,13 +5,15 @@ import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
 describe('ConversationWorkItemLinks', () => {
   it('opens the exact server WorkItem fact from Conversation mode', async () => {
     const wrapper = mount(ConversationWorkItemLinks, {
-      props: { phase: 'ready', associations: [fixtureConversationWorkItemAssociation], direction: 'conversation' },
+      props: { phase: 'ready', associations: [fixtureConversationWorkItemAssociation], direction: 'conversation', canDelegate: true },
     })
 
     expect(wrapper.text()).toContain('已确认工作项')
     expect(wrapper.text()).toContain('CRW-18')
     await wrapper.get('button[aria-label="查看工作项 CRW-18"]').trigger('click')
     expect(wrapper.emitted('open')?.[0]).toEqual([fixtureConversationWorkItemAssociation])
+    await wrapper.get('button[aria-label="为工作项 CRW-18 配置 Coding Task"]').trigger('click')
+    expect(wrapper.emitted('delegate')?.[0]).toEqual([fixtureConversationWorkItemAssociation])
   })
 
   it('opens only the visible Conversation fact from Control mode', async () => {
@@ -22,6 +24,14 @@ describe('ConversationWorkItemLinks', () => {
     expect(wrapper.text()).toContain('规划 GitHub Provider 接入')
     await wrapper.get('button[aria-label^="返回对话"]').trigger('click')
     expect(wrapper.emitted('open')).toBeTruthy()
+  })
+
+  it('keeps the Coding delegation continuation hidden without current interaction permission', () => {
+    const wrapper = mount(ConversationWorkItemLinks, {
+      props: { phase: 'ready', associations: [fixtureConversationWorkItemAssociation], direction: 'conversation' },
+    })
+
+    expect(wrapper.find('button[aria-label="为工作项 CRW-18 配置 Coding Task"]').exists()).toBe(false)
   })
 
   it('hides an empty Conversation-side result and offers retry for safe failures', async () => {

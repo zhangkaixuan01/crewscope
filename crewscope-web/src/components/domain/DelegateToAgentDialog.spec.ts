@@ -1,5 +1,7 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type MountingOptions } from '@vue/test-utils'
+import { defineComponent, onMounted } from 'vue'
 import { fixtureResponsibilities, fixtureWorkItemDetails } from '../../test/workItemFixtures'
+import { fixtureIds } from '../../test/scopeFixtures'
 import DelegateToAgentDialog from './DelegateToAgentDialog.vue'
 
 describe('DelegateToAgentDialog', () => {
@@ -15,7 +17,7 @@ describe('DelegateToAgentDialog', () => {
     }
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     const conversationSource = { conversationId: crypto.randomUUID(), messageId: crypto.randomUUID() }
-    const wrapper = mount(DelegateToAgentDialog, { props: props({ responsibilities, onSubmit, conversationSource }) })
+    const wrapper = mountDialog({ responsibilities, onSubmit, conversationSource })
 
     expect(wrapper.text()).toContain('Owner · 张凯旋')
     expect(wrapper.text()).toContain('Executor · 张凯旋的 Personal Agent')
@@ -28,16 +30,22 @@ describe('DelegateToAgentDialog', () => {
       executorAgentProfileId: '00000000-0000-0000-0000-000000000301',
       providerBindingIds: [],
       conversationSource,
+      codingTarget: {
+        repositoryBindingId: '00000000-0000-4000-8000-00000000f302',
+        baselineRef: 'main',
+        allowedPaths: ['.'],
+        buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
+      },
     }))
   })
 
   it('fails closed without an Agent Executor and offers exact-request retry after failure', async () => {
-    const unavailable = mount(DelegateToAgentDialog, { props: props() })
+    const unavailable = mountDialog()
     expect(unavailable.text()).toContain('请先在责任链中分配 Agent')
     expect(unavailable.get('button[type="submit"]').attributes('disabled')).toBeDefined()
 
     const onRetry = vi.fn().mockResolvedValue(undefined)
-    const retry = mount(DelegateToAgentDialog, { props: props({ retryable: true, errorMessage: '网络中断', onRetry }) })
+    const retry = mountDialog({ retryable: true, errorMessage: '网络中断', onRetry })
     const retryButton = retry.findAll('button').find(button => button.text().includes('使用原请求重试'))!
     await retryButton.trigger('click')
     expect(retry.text()).toContain('网络中断')
@@ -52,10 +60,7 @@ describe('DelegateToAgentDialog', () => {
       actorMemberId: null,
       actorAgentProfileId: crypto.randomUUID(),
     }
-    const wrapper = mount(DelegateToAgentDialog, {
-      attachTo: document.body,
-      props: props({ responsibilities }),
-    })
+    const wrapper = mountDialog({ responsibilities }, { attachTo: document.body })
     await flushPromises()
 
     expect(document.activeElement).toBe(wrapper.get('input').element)
@@ -74,7 +79,7 @@ describe('DelegateToAgentDialog', () => {
   })
 
   it('focuses the Modal itself when delegation has no eligible Agent Executor', async () => {
-    const wrapper = mount(DelegateToAgentDialog, { attachTo: document.body, props: props() })
+    const wrapper = mountDialog({}, { attachTo: document.body })
     await flushPromises()
 
     expect(document.activeElement).toBe(wrapper.get('[role="dialog"]').element)
@@ -85,6 +90,11 @@ describe('DelegateToAgentDialog', () => {
 function props(overrides: Record<string, unknown> = {}) {
   return {
     workItem: structuredClone(fixtureWorkItemDetails.workItem),
+    codingScope: {
+      organizationId: fixtureIds.organization,
+      teamId: fixtureIds.teamPlatform,
+      projectId: fixtureIds.projectCrewScope,
+    },
     responsibilities: structuredClone(fixtureResponsibilities),
     submitting: false,
     retryable: false,
@@ -93,4 +103,31 @@ function props(overrides: Record<string, unknown> = {}) {
     onRetry: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
+}
+
+function mountDialog(
+  overrides: Record<string, unknown> = {},
+  options: Pick<MountingOptions<typeof DelegateToAgentDialog>, 'attachTo'> = {},
+) {
+  return mount(DelegateToAgentDialog, {
+    ...options,
+    props: props(overrides),
+    global: {
+      stubs: {
+        CodingTargetFormSection: defineComponent({
+          emits: ['change'],
+          setup(_, { emit }) {
+            onMounted(() => emit('change', {
+              repositoryBindingId: '00000000-0000-4000-8000-00000000f302',
+              baselineRef: 'main',
+              allowedPaths: ['.'],
+              buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
+            }, true))
+            return {}
+          },
+          template: '<div data-test="coding-target-stub" />',
+        }),
+      },
+    },
+  })
 }

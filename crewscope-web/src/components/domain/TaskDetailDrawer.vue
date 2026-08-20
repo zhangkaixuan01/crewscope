@@ -18,6 +18,8 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { isTopmostModal } from '../../app/dialog'
+import type { CodingPhase, CodingResource } from '../../domains/coding/store'
+import type { ArtifactTextDocument, CodingAttemptSummary, CodingPatchDocument, CommandEvidenceSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
 import type { SemanticTone } from '../base/types'
 import type { TaskLiveState, TaskPhase } from '../../domains/task/store'
 import type {
@@ -35,6 +37,9 @@ import type {
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
+import CodingExecutionStudio from './CodingExecutionStudio.vue'
+import CodingDiffExplorer from './CodingDiffExplorer.vue'
+import CodingEvidencePanel from './CodingEvidencePanel.vue'
 import TaskControlPanel from './TaskControlPanel.vue'
 import TaskTimelinePanel from './TaskTimelinePanel.vue'
 
@@ -47,6 +52,20 @@ const props = defineProps<{
   runtimePhase: TaskPhase
   runtimeFacts: TaskRuntimeFacts | null
   runtimeErrorMessage: string | null
+  codingPhase: CodingPhase
+  codingAttempt: CodingAttemptSummary | null
+  codingErrorMessage: string | null
+  codingCommandsPhase: CodingPhase
+  codingCommands: EvidencePage<CommandEvidenceSummary> | null
+  codingCommandsErrorMessage: string | null
+  codingTestsPhase: CodingPhase
+  codingTests: EvidencePage<TestEvidenceSummary> | null
+  codingTestsErrorMessage: string | null
+  codingCommandLog: (evidenceId: string) => CodingResource<ArtifactTextDocument> | null
+  codingTestReport: (evidenceId: string) => CodingResource<ArtifactTextDocument> | null
+  codingPatchPhase: CodingPhase
+  codingPatch: CodingPatchDocument | null
+  codingPatchErrorMessage: string | null
   fleetPhase: TaskPhase
   fleet: RuntimeFleetSummary | null
   fleetErrorMessage: string | null
@@ -67,6 +86,12 @@ const props = defineProps<{
   onSelectAttempt: (executionId: string) => void
   onRetry: () => void
   onRetryRuntime: () => void
+  onRetryCoding: () => void
+  onLoadCodingPatch: () => void
+  onLoadCodingCommandsMore: () => void
+  onLoadCodingTestsMore: () => void
+  onLoadCodingCommandLog: (evidenceId: string, more?: boolean) => void
+  onLoadCodingTestReport: (evidenceId: string, more?: boolean) => void
   onRetryFleet: () => void
   onRetryAssociations: () => void
   onLoadEventsMore: () => void
@@ -209,6 +234,57 @@ function roleLabel(role: string): string {
           :description="errorMessage ?? undefined"
           @retry="onRetry"
         />
+        <CodingExecutionStudio
+          :phase="codingPhase"
+          :attempt="codingAttempt"
+          :error-message="codingErrorMessage"
+          :commands-phase="codingCommandsPhase"
+          :commands="codingCommands"
+          :commands-error-message="codingCommandsErrorMessage"
+          :tests="codingTests"
+          :runtime-phase="runtimePhase"
+          :runtime-facts="runtimeFacts"
+          :runtime-error-message="runtimeErrorMessage"
+          :control-attempt="codingAttempt?.executionId === currentAttempt?.id ? currentAttempt : null"
+          :can-control="canControl"
+          :online="online"
+          :command-pending="commandPending"
+          :command-error-message="commandErrorMessage"
+          :command-retryable="commandRetryable"
+          :command-version-conflict="commandVersionConflict"
+          :on-command="onCommand"
+          :on-retry-command="onRetryCommand"
+          :on-clear-command="onClearCommand"
+          :on-retry="onRetryCoding"
+        />
+        <CodingDiffExplorer
+          v-if="codingAttempt?.coding && codingAttempt.details"
+          :attempt="codingAttempt"
+          :event-page="eventPage"
+          :live-state="liveState"
+          :patch-phase="codingPatchPhase"
+          :patch="codingPatch"
+          :patch-error-message="codingPatchErrorMessage"
+          :on-load-patch="onLoadCodingPatch"
+          :on-reconcile="onRetryCoding"
+        />
+        <CodingEvidencePanel
+          v-if="codingAttempt?.coding && codingAttempt.details"
+          :task-id="details.id"
+          :execution-id="codingAttempt.executionId"
+          :commands-phase="codingCommandsPhase"
+          :commands="codingCommands"
+          :commands-error-message="codingCommandsErrorMessage"
+          :tests-phase="codingTestsPhase"
+          :tests="codingTests"
+          :tests-error-message="codingTestsErrorMessage"
+          :command-log="codingCommandLog"
+          :test-report="codingTestReport"
+          :on-load-commands-more="onLoadCodingCommandsMore"
+          :on-load-tests-more="onLoadCodingTestsMore"
+          :on-load-command-log="onLoadCodingCommandLog"
+          :on-load-test-report="onLoadCodingTestReport"
+        />
         <div class="task-detail-columns">
           <div class="task-detail-column task-detail-column--context">
             <section class="task-hero detail-card">
@@ -238,6 +314,7 @@ function roleLabel(role: string): string {
             </section>
 
             <TaskControlPanel
+              v-if="!codingAttempt?.coding"
               class="control-card"
               :attempt="currentAttempt"
               :can-control="canControl"
@@ -418,6 +495,7 @@ function roleLabel(role: string): string {
 </template>
 
 <style scoped>
+.execution-studio, .diff-explorer, .evidence-panel { margin-bottom: 10px; }
 .task-detail-backdrop { position: fixed; inset: 0; z-index: 70; background: rgb(21 35 29 / 24%); backdrop-filter: blur(2px); }.task-detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(1040px, 96vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: -24px 0 64px rgb(21 35 29 / 14%); }.task-detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px 11px 20px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.task-detail-header p, .task-detail-header strong { display: block; margin: 0; }.task-detail-header p { color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.task-detail-header strong { margin-top: 2px; color: var(--cs-brand-700); font: 12px var(--cs-font-mono); }.task-detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.task-detail-content { min-height: 0; overflow-y: auto; padding: 12px; }.detail-sync-state { margin-bottom: 10px; }.task-detail-columns { display: grid; grid-template-columns: minmax(310px, .78fr) minmax(430px, 1.22fr); align-items: start; gap: 10px; }.task-detail-column { display: grid; gap: 10px; }.detail-card { min-width: 0; padding: 16px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.task-hero { padding: 19px; }.task-hero__status { display: flex; align-items: center; justify-content: space-between; }.task-hero__status > span { color: var(--cs-text-muted); font-size: 9px; }.task-hero h2 { margin: 13px 0 15px; font-size: 19px; line-height: 1.32; }.task-lifecycle-state { margin: -4px 0 13px; }.acceptance { padding: 11px; border-radius: 9px; background: var(--cs-brand-50); }.acceptance p { margin: 0 0 7px; color: var(--cs-brand-700); font-size: 9px; font-weight: 800; }.acceptance ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }.acceptance li { display: flex; align-items: flex-start; gap: 6px; color: var(--cs-text-secondary); font-size: 10px; line-height: 1.45; }.acceptance li svg { flex: 0 0 auto; margin-top: 1px; color: var(--cs-success); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.section-heading p { margin: 0 0 2px; color: var(--cs-brand-600); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: 12px; }.section-heading h3 span { color: var(--cs-text-muted); font-weight: 500; }.section-heading > svg { color: var(--cs-text-muted); }.compact-facts { display: grid; grid-template-columns: 1fr 1fr; margin: 12px 0 0; }.compact-facts > div { min-width: 0; padding: 7px 0; border-top: 1px solid var(--cs-border); }.compact-facts dt { color: var(--cs-text-muted); font-size: 8px; }.compact-facts dd { min-width: 0; margin: 3px 0 0; overflow: hidden; color: var(--cs-text-secondary); font-size: 9px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }.responsibility-list, .step-list, .run-list, .lease-list { display: grid; gap: 7px; }.responsibility-list article { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border-radius: 9px; background: var(--cs-surface-subtle); }.responsibility-list i { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.responsibility-list strong, .responsibility-list span { display: block; }.responsibility-list strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.responsibility-list span { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.attempt-list { display: grid; gap: 6px; padding: 0; margin: 0; list-style: none; }.attempt-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 9px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); text-align: left; cursor: pointer; }.attempt-list button.selected { border-color: var(--cs-brand-300); background: var(--cs-brand-50); box-shadow: 0 0 0 2px var(--cs-brand-50); }.attempt-list button > span { display: flex; align-items: baseline; gap: 6px; }.attempt-list strong { font-size: 10px; }.attempt-list small, .attempt-list em { color: var(--cs-text-muted); font-size: 8px; font-style: normal; }.attempt-list em { grid-column: 1 / -1; }.fleet-overview { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px; border-radius: 9px; background: var(--cs-surface-subtle); }.fleet-overview > div { display: flex; align-items: center; gap: 7px; }.fleet-overview small { color: var(--cs-text-muted); font: 8px var(--cs-font-mono); }.fleet-overview > strong { font-size: 19px; }.fleet-overview > strong span { margin-left: 3px; color: var(--cs-text-muted); font-size: 8px; font-weight: 600; }.runtime-alert { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 9px; border: 1px solid #efd4aa; border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.runtime-alert svg { flex: 0 0 auto; }.runtime-alert span, .runtime-alert strong { display: block; }.runtime-alert span { color: var(--cs-text-muted); font-size: 8px; line-height: 1.45; }.runtime-alert strong { margin-bottom: 2px; color: #7c4a12; font-size: 9px; }.wait-causes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }.wait-causes span, .lease-reason { padding: 4px 7px; border-radius: 6px; background: var(--cs-warning-soft); color: #7c4a12; font: 8px var(--cs-font-mono); }.plan-selector { display: grid; gap: 5px; margin-bottom: 10px; color: var(--cs-text-secondary); font-size: 8px; font-weight: 750; }.plan-selector select { min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 9px var(--cs-font-sans); }.plan-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.plan-meta > span { color: var(--cs-text-muted); font-size: 8px; }.plan-markdown { margin: 11px 0 0; color: var(--cs-text-secondary); font-size: 10px; line-height: 1.6; white-space: pre-wrap; }.todo-summary { display: grid; gap: 6px; margin: 12px 0 0; padding: 10px; border-radius: 9px; background: var(--cs-surface-subtle); list-style: none; }.todo-summary li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; color: var(--cs-text-secondary); font-size: 9px; }.step-list article { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 9px; border-radius: 9px; background: var(--cs-surface-subtle); }.step-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 9px; font-style: normal; font-weight: 800; }.step-list strong, .step-list span, .step-list em { display: block; }.step-list strong { font-size: 10px; }.step-list span { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.step-list em { width: fit-content; margin-top: 5px; padding: 3px 5px; border-radius: 5px; background: var(--cs-warning-soft); color: #7c4a12; font-size: 8px; font-style: normal; }.run-list > article, .lease-list > article { padding: 10px; border: 1px solid var(--cs-border); border-radius: 9px; }.run-list header, .lease-list header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }.run-list header strong, .run-list header span, .lease-list header strong, .lease-list header span { display: block; }.run-list header strong, .lease-list header strong { font-size: 10px; }.run-list header span, .lease-list header span { margin-top: 2px; color: var(--cs-text-muted); font: 8px var(--cs-font-mono); }.run-list dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 9px 0 0; }.run-list dt { color: var(--cs-text-muted); font-size: 8px; }.run-list dd { margin: 2px 0 0; font-size: 8px; }.session-strip { display: flex; align-items: center; gap: 6px; margin-top: 9px; padding: 8px; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 8px; }.recovery-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 9px; }.recovery-grid article { display: grid; gap: 3px; padding: 9px; border-radius: 9px; background: var(--cs-surface-subtle); }.recovery-grid span, .recovery-grid small { color: var(--cs-text-muted); font-size: 8px; }.recovery-grid strong { font-size: 16px; }.security-note { display: flex; align-items: flex-start; gap: 6px; margin: 10px 0 0; padding: 8px; border-radius: 8px; background: var(--cs-brand-50); color: var(--cs-brand-700); font-size: 8px; line-height: 1.45; }.security-note svg { flex: 0 0 auto; }.empty-note { margin: 0; color: var(--cs-text-muted); font-size: 9px; }.inline-error { margin: 8px 0 0; color: var(--cs-danger); font-size: 8px; }.inline-error button { display: inline-flex; align-items: center; gap: 3px; color: inherit; text-decoration: underline; cursor: pointer; }.task-detail-footer { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-top: 1px solid var(--cs-border); background: var(--cs-surface); }.task-detail-footer > span { display: flex; align-items: center; gap: 5px; color: var(--cs-text-muted); font-size: 8px; }
 .task-conversation-links { display: grid; gap: 6px; }.task-conversation-links > button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 9px; padding: 9px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); text-align: left; cursor: pointer; }.task-conversation-links > button:hover { border-color: var(--cs-brand-200); background: var(--cs-brand-50); }.task-conversation-links span, .task-conversation-links strong, .task-conversation-links small { display: block; }.task-conversation-links strong { font-size: 10px; }.task-conversation-links small { margin-top: 3px; color: var(--cs-text-muted); font-size: 8px; }.task-conversation-links svg { flex: 0 0 auto; color: var(--cs-brand-600); }.associations-card :deep(.state-panel) { min-height: 100px; border: 0; }
 @media (max-width: 767px) { .task-detail-drawer { width: 100%; }.task-detail-content { padding: 9px; }.task-detail-columns { grid-template-columns: 1fr; }.task-detail-column { display: contents; }.task-hero { order: 1; }.control-card { order: 2; }.timeline-card { order: 3; }.associations-card { order: 4; }.responsibility-card { order: 5; }.attempt-card { order: 6; }.fleet-card { order: 7; }.plan-card { order: 8; }.steps-card { order: 9; }.runs-card { order: 10; }.lease-card { order: 11; }.task-hero h2 { font-size: 17px; }.task-detail-footer > span { display: none; }.task-detail-footer > :deep(button) { width: 100%; } }

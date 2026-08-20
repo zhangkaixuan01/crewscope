@@ -114,6 +114,18 @@ describe('application routing', () => {
     expect(router.currentRoute.value.name).toBe('today')
     expect(router.currentRoute.value.query.project).toBe(fixtureIds.projectCrewScope)
   })
+
+  it('guards WorkProject Repository settings with repository management permission', async () => {
+    const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
+    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const destination = `/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
+
+    await router.push(destination)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('access-denied')
+    expect(router.currentRoute.value.query.from).toBe(destination)
+  })
 })
 
 function quietTaskIntentGateway(): TaskIntentGateway {

@@ -19,6 +19,8 @@ import { HttpWorkItemGateway } from './domains/workitem/gateway'
 import { installWorkItemStore } from './domains/workitem/store'
 import { HttpTaskGateway } from './domains/task/gateway'
 import { installTaskStore } from './domains/task/store'
+import { HttpCodingGateway } from './domains/coding/gateway'
+import { installCodingStore } from './domains/coding/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -34,6 +36,7 @@ installTaskIntentStore(app, new HttpTaskIntentGateway())
 installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
 installWorkItemStore(app, new HttpWorkItemGateway())
 installTaskStore(app, new HttpTaskGateway())
+installCodingStore(app, new HttpCodingGateway())
 installGlobalErrorHandling(app)
 app.use(router)
 app.mount('#app')

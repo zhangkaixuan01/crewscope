@@ -136,6 +136,12 @@ const taskAssociationResource = computed(() => selected.value
   ? taskStore.state.associationPages[`conversation:${selected.value.id}`] ?? null
   : null)
 const taskAssociations = computed(() => taskAssociationResource.value?.value?.items ?? [])
+const canConfigureConfirmedCoding = computed(() => Boolean(
+  principal
+  && (taskIntentStore.state.intent?.status === 'CONFIRMED'
+    ? taskIntentStore.state.intent.proposal.owner.principalId === principal.id
+    : selected.value?.ownerPrincipalId === principal.id),
+))
 
 watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation] as const,
@@ -464,6 +470,21 @@ function openLinkedWorkItem(association: ConversationWorkItemAssociation): void 
   })
 }
 
+function openCodingDelegation(association: ConversationWorkItemAssociation): void {
+  void router.push({
+    name: 'work',
+    query: {
+      ...route.query,
+      conversation: association.conversation.id,
+      project: association.workItem.projectId,
+      workItem: association.workItem.id,
+      focus: association.workItem.key,
+      sourceMessage: latestTaskSourceMessageId(),
+      delegate: 'coding',
+    },
+  })
+}
+
 function openAssociatedTask(association: TaskAssociationSummary): void {
   void router.push({
     name: 'work',
@@ -776,8 +797,10 @@ function queryValue(value: unknown): string | null {
                 :phase="linkStore.state.phase"
                 :associations="linkStore.state.associations"
                 :error-message="linkStore.state.errorMessage"
+                :can-delegate="canConfigureConfirmedCoding"
                 direction="conversation"
                 @open="openLinkedWorkItem"
+                @delegate="openCodingDelegation"
                 @retry="retryLinks"
               />
               <ConversationTaskCards

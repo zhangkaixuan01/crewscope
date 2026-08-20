@@ -9,6 +9,7 @@ describe('TaskIntentCard', () => {
 
     expect(wrapper.text()).toContain('GitHub Provider')
     expect(wrapper.text()).toContain('关键操作进入审计记录')
+    expect(wrapper.text()).toContain('随后使用统一委托表单选择 Repository')
     await wrapper.findAll('button').find(button => button.text().includes('预检并确认'))!.trigger('click')
     expect(wrapper.emitted('confirm')).toHaveLength(1)
   })

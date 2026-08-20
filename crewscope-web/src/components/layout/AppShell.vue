@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   UsersRound,
   Workflow,
+  GitFork,
 } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -42,6 +43,7 @@ const navigation = [
   { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
   { label: 'Work', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
   { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
+  { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
 ]
 
 const futureNavigation = [

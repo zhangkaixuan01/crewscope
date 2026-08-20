@@ -1,4 +1,5 @@
 import type { CommandReceipt } from '../scope/types'
+import type { CodingTargetSelection } from '../coding/types'
 
 /** Team boundary shared by all member-facing Task queries. */
 export interface TaskScope {
@@ -47,6 +48,7 @@ export interface CreateTaskInput {
   executorAgentProfileId: string
   conversationSource: { conversationId: string, messageId: string } | null
   providerBindingIds: string[]
+  codingTarget?: CodingTargetSelection | null
 }
 
 export interface CreateTaskCommand {

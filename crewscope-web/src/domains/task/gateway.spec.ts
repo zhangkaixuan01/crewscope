@@ -197,6 +197,62 @@ describe('HttpTaskGateway', () => {
     expect(JSON.stringify(items)).not.toMatch(/claimToken|credential|nested-secret|reasoning|toolArguments|contentHash|providerRequest|rawProviderError/)
   })
 
+  it('retains only safe nested Diff file facts from the durable stream', async () => {
+    const raw = {
+      cursor: 'diff-cursor', projectionGap: false,
+      context: { taskId: taskIds.first, taskExecutionId: taskIds.execution, stepExecutionId: null, agentRunId: null, executionLeaseId: null },
+      event: {
+        eventId: 'diff-event', domainEventId: 'diff-domain', streamType: 'TASK', eventType: 'WORKSPACE_DIFF_RESET',
+        schemaVersion: '1', aggregateType: 'WORKSPACE_DIFF', aggregateId: 'workspace', aggregateVersion: 1,
+        correlationId: 'correlation', causationId: null, occurredAt: '2026-08-20T01:00:00Z',
+        payload: {
+          workspaceId: 'workspace', streamEpoch: 'epoch', sequence: 1, diffGeneration: 1,
+          changeKind: 'RESET', manifestHash: 'hash', removals: [],
+          upserts: [{ path: 'src/Main.java', oldPath: null, changeType: 'MODIFIED', additions: 3, deletions: 1, binary: false, patchTruncated: false, patchSha256: 'a'.repeat(64), patchPreview: '+secret', hostPath: '/private/worktree' }],
+          containerId: 'private-container',
+        },
+      },
+    }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(sseResponse(`data: ${JSON.stringify(raw)}\n\n`))
+    const gateway = new HttpTaskGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    const connection = await gateway.streamEvents(scope, taskIds.first)
+    const items = []
+    for await (const item of connection.events) items.push(item)
+
+    expect(items[0]?.event.payload).toMatchObject({
+      changeKind: 'RESET', upserts: [{ path: 'src/Main.java', changeType: 'MODIFIED', additions: 3 }],
+    })
+    expect(JSON.stringify(items)).not.toMatch(/patchPreview|hostPath|containerId|\+secret|private/)
+  })
+
+  it('drops the entire nested Diff list when paths or typed facts are not canonical', async () => {
+    const raw = {
+      cursor: 'diff-cursor-invalid', projectionGap: false,
+      context: { taskId: taskIds.first, taskExecutionId: taskIds.execution, stepExecutionId: null, agentRunId: null, executionLeaseId: null },
+      event: {
+        eventId: 'diff-event-invalid', domainEventId: 'diff-domain-invalid', streamType: 'TASK', eventType: 'WORKSPACE_DIFF_DELTA',
+        schemaVersion: '1', aggregateType: 'WORKSPACE_DIFF', aggregateId: 'workspace', aggregateVersion: 2,
+        correlationId: 'correlation', causationId: null, occurredAt: '2026-08-20T01:00:00Z',
+        payload: {
+          workspaceId: 'workspace', streamEpoch: 'epoch', sequence: 2, diffGeneration: 2,
+          changeKind: 'DELTA', manifestHash: 'b'.repeat(64), removals: ['/private/secret'],
+          upserts: [{ path: '../secret', oldPath: null, changeType: 'MODIFIED', additions: -1, deletions: 0, binary: false, patchTruncated: false, patchSha256: 'invalid' }],
+        },
+      },
+    }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(sseResponse(`data: ${JSON.stringify(raw)}\n\n`))
+    const gateway = new HttpTaskGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    const connection = await gateway.streamEvents(scope, taskIds.first)
+    const items = []
+    for await (const item of connection.events) items.push(item)
+
+    expect(items[0]?.event.payload).not.toHaveProperty('upserts')
+    expect(items[0]?.event.payload).not.toHaveProperty('removals')
+    expect(JSON.stringify(items)).not.toMatch(/private|secret/)
+  })
+
   it('keeps the shared API error envelope intact for Store and permission boundaries', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       code: 'task_not_visible',

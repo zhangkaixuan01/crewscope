@@ -174,6 +174,10 @@ describe('TaskStore', () => {
       input: {
         objective: '验证幂等委托', acceptanceCriteria: ['只创建一个 Task'],
         executorAgentProfileId: crypto.randomUUID(), conversationSource: null, providerBindingIds: [],
+        codingTarget: {
+          repositoryBindingId: crypto.randomUUID(), baselineRef: 'main', allowedPaths: ['src/main'],
+          buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
+        },
       },
     }
 
@@ -186,6 +190,7 @@ describe('TaskStore', () => {
     expect(createdTaskId).toBe(store.state.createdTaskId)
     expect(store.state.items.some(item => item.id === createdTaskId)).toBe(true)
     expect(gateway.createCalls).toHaveLength(1)
+    expect(gateway.createCalls[0]?.command.input.codingTarget).toEqual(command.input.codingTarget)
   })
 
   it('discards a Task creation receipt when the Team Scope changes before it arrives', async () => {

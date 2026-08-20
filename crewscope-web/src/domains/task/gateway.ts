@@ -429,11 +429,33 @@ const eventPayloadFields: Readonly<Record<string, readonly string[]>> = {
     'succeeded', 'progressPercent', 'modelAttempt',
     'modelMaxAttempts', 'usage', 'failure',
   ],
+  EXECUTION_WORKSPACE_CHANGED: [
+    'workspaceId', 'attempt', 'status', 'recoveryTargetStatus', 'recoveryGeneration',
+    'completionReason', 'failureCode', 'workspaceVersion',
+  ],
+  WORKSPACE_DIFF_RESET: diffEventFields(),
+  WORKSPACE_DIFF_DELTA: diffEventFields(),
+  TEST_EVIDENCE_PUBLISHED: [
+    'testEvidenceId', 'workspaceId', 'attempt', 'evidenceSequence', 'diffGeneration',
+    'manifestHash', 'succeeded', 'total', 'passed', 'failed', 'errors', 'skipped',
+    'acceptancePassed', 'acceptanceFailed', 'acceptanceNotEvaluated', 'evidenceHash',
+  ],
+  FINAL_DIFF_ARTIFACT_PUBLISHED: [
+    'diffArtifactId', 'workspaceId', 'attempt', 'diffGeneration', 'manifestHash',
+    'fileCount', 'additions', 'deletions', 'finalHash',
+  ],
 }
 
 function workerEventFields(): readonly string[] {
   return [
     'attempt', 'operation', 'safeSummary', 'progressPercent', 'failureClass', 'failureCode',
+  ]
+}
+
+function diffEventFields(): readonly string[] {
+  return [
+    'workspaceId', 'attempt', 'streamEpoch', 'sequence', 'diffGeneration', 'changeKind',
+    'manifestHash', 'upserts', 'removals',
   ]
 }
 
@@ -451,12 +473,64 @@ function mapEventPayload(eventType: string, value: Record<string, unknown>): Rec
       result[field] = Array.isArray(value[field])
         ? value[field].filter(item => typeof item === 'string').slice(0, 100)
         : []
+    } else if (eventType.startsWith('WORKSPACE_DIFF_') && field === 'upserts') {
+      const files = mapDiffFiles(value[field])
+      if (files !== null) result[field] = files
+    } else if (eventType.startsWith('WORKSPACE_DIFF_') && field === 'removals') {
+      const removals = mapDiffRemovals(value[field])
+      if (removals !== null) result[field] = removals
     } else {
       const scalar = publicScalar(value[field])
       if (scalar !== undefined) result[field] = scalar
     }
   }
   return result
+}
+
+function mapDiffFiles(value: unknown): Record<string, string | number | boolean | null>[] | null {
+  if (!Array.isArray(value) || value.length > 200) return null
+  const mappedFiles: Record<string, string | number | boolean | null>[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const source = item as Record<string, unknown>
+    if (!canonicalDiffPath(source.path)
+      || !(source.oldPath === null || canonicalDiffPath(source.oldPath))
+      || !['ADDED', 'MODIFIED', 'DELETED', 'RENAMED', 'COPIED'].includes(String(source.changeType))
+      || !nonNegativeSafeInteger(source.additions)
+      || !nonNegativeSafeInteger(source.deletions)
+      || typeof source.binary !== 'boolean'
+      || typeof source.patchTruncated !== 'boolean'
+      || typeof source.patchSha256 !== 'string'
+      || !/^[a-f0-9]{64}$/i.test(source.patchSha256)) return null
+    mappedFiles.push({
+      path: source.path,
+      oldPath: source.oldPath,
+      changeType: source.changeType as string,
+      additions: source.additions,
+      deletions: source.deletions,
+      binary: source.binary,
+      patchTruncated: source.patchTruncated,
+      patchSha256: source.patchSha256,
+    })
+  }
+  return mappedFiles
+}
+
+function mapDiffRemovals(value: unknown): string[] | null {
+  return Array.isArray(value) && value.length <= 10_000 && value.every(canonicalDiffPath)
+    ? [...value]
+    : null
+}
+
+function canonicalDiffPath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 1_024
+    || value.startsWith('/') || value.startsWith('\\') || value.includes('\\')
+    || /^[A-Za-z]:/.test(value) || [...value].some(character => character.codePointAt(0)! < 0x20)) return false
+  return value.split('/').every(component => component.length > 0 && component !== '.' && component !== '..')
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 function pickRecord(value: unknown, fields: readonly string[]): Record<string, unknown> {

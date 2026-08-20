@@ -18,6 +18,16 @@ import type { ConversationWorkItemAssociation } from '../domains/conversation/wo
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
 import { useTaskStore } from '../domains/task/store'
+import { clearCodingTargetDraft } from '../domains/coding/draft'
+import {
+  codingRouteMatchesScope,
+  codingRouteSelection,
+  isRestorableCodingRoute,
+  withCodingRoute,
+  withoutCodingRoute,
+} from '../domains/coding/route'
+import { useCodingStore } from '../domains/coding/store'
+import type { CodingScope } from '../domains/coding/types'
 import {
   taskStatuses,
   type CreateTaskInput,
@@ -46,6 +56,7 @@ const scopeStore = useScopeStore()
 const workStore = useWorkItemStore()
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
+const codingStore = useCodingStore()
 const isOnline = useNetworkStatus()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
@@ -84,6 +95,9 @@ const taskConversationSource = computed(() => {
   const messageId = queryValue(route.query.sourceMessage)
   return conversationId && messageId ? { conversationId, messageId } : null
 })
+const codingScope = computed<CodingScope | null>(() => principal && team.value && project.value
+  ? { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }
+  : null)
 const showCreate = ref(false)
 const showDelegate = ref(false)
 const submitted = ref(false)
@@ -98,6 +112,40 @@ const selectedRuntimeResource = computed(() => {
   const executionId = selectedTaskExecutionId.value
   return taskId && executionId ? taskStore.state.runtimeFacts[`${taskId}:${executionId}`] ?? null : null
 })
+const selectedCodingAttemptResource = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.attempts[`${taskId}:${executionId}`] ?? null : null
+})
+const selectedCodingCommandsResource = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.commands[`${taskId}:${executionId}`] ?? null : null
+})
+const selectedCodingTestsResource = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.testEvidence[`${taskId}:${executionId}`] ?? null : null
+})
+const selectedCodingPatchResource = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.patches[`${taskId}:${executionId}`] ?? null : null
+})
+const codingRouteInvalid = computed(() => {
+  if (!queryValue(route.query.task) || !codingScope.value) return false
+  const selection = codingRouteSelection(route.query)
+  return !isRestorableCodingRoute(selection) || !codingRouteMatchesScope(selection, codingScope.value)
+})
+const codingStudioPhase = computed(() => {
+  if (codingRouteInvalid.value || codingStore.state.routePhase === 'error') return 'error'
+  return selectedCodingAttemptResource.value?.phase ?? codingStore.state.routePhase
+})
+const codingStudioErrorMessage = computed(() => (codingRouteInvalid.value
+  ? 'Coding 深链接的 Team、WorkProject、Task、attempt 或 Workspace 坐标不完整'
+  : codingStore.state.routeErrorMessage)
+  ?? selectedCodingAttemptResource.value?.errorMessage
+  ?? null)
 const runtimeHealthResource = computed(() => taskStore.state.runtimeHealth.default ?? null)
 const taskAssociationResource = computed(() => taskStore.state.selectedTaskId
   ? taskStore.state.taskAssociations[taskStore.state.selectedTaskId] ?? null
@@ -108,6 +156,18 @@ const taskEventResource = computed(() => taskStore.state.selectedTaskId
 const taskLiveState = computed(() => taskStore.state.selectedTaskId
   ? taskStore.state.liveTasks[taskStore.state.selectedTaskId] ?? null
   : null)
+const selectedCodingArtifactErrorStatuses = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (!taskId || !executionId) return []
+  const prefix = `${taskId}:${executionId}:`
+  // Artifact caches survive drawer navigation for fast replay; permission routing must only
+  // observe resources that belong to the currently selected Task attempt.
+  return [codingStore.state.commandLogs, codingStore.state.testReports]
+    .flatMap(cache => Object.entries(cache))
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([, resource]) => resource.errorStatus)
+})
 const taskForbidden = computed(() => [
   taskStore.state.errorStatus,
   taskStore.state.detailErrorStatus,
@@ -117,6 +177,12 @@ const taskForbidden = computed(() => [
   runtimeHealthResource.value?.errorStatus,
   taskAssociationResource.value?.errorStatus,
   taskEventResource.value?.errorStatus,
+  codingStore.state.routeErrorStatus,
+  selectedCodingAttemptResource.value?.errorStatus,
+  selectedCodingCommandsResource.value?.errorStatus,
+  selectedCodingTestsResource.value?.errorStatus,
+  selectedCodingPatchResource.value?.errorStatus,
+  ...selectedCodingArtifactErrorStatuses.value,
   ...Object.values(taskStore.state.associationPages).map(resource => resource.errorStatus),
 ].some(status => status === 403))
 let liveFactRefreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -212,6 +278,7 @@ watch(
       if (taskStore.state.selectedTaskId !== taskId) return
       const executionId = selectedTaskExecutionId.value
       if (executionId) await taskStore.loadRuntimeFacts(taskId, executionId, true)
+      if (codingScope.value) await synchronizeCodingStudio(true)
       if (taskStore.state.details && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(taskStore.state.details.status)) {
         taskStore.stopLiveTasks()
       }
@@ -237,6 +304,20 @@ watch(
     // Refresh this no-store server projection whenever a Task detail is opened.
     void taskStore.loadRuntimeHealth(true)
   },
+)
+
+watch(
+  () => [
+    codingScope.value?.organizationId,
+    codingScope.value?.teamId,
+    codingScope.value?.projectId,
+    taskStore.state.details?.id,
+    route.query.task,
+    route.query.attempt,
+    route.query.workspace,
+  ] as const,
+  () => { void synchronizeCodingStudio() },
+  { immediate: true },
 )
 
 watch(
@@ -310,6 +391,17 @@ watch(
     if (key && queryValue(route.query.workItem) && queryValue(route.query.focus) !== key) {
       void router.replace({ query: { ...route.query, focus: key } })
     }
+  },
+)
+
+watch(
+  () => [route.query.delegate, workStore.state.detail?.workItem.id, canDelegate.value] as const,
+  ([delegate, workItemId, permitted]) => {
+    if (delegate !== 'coding' || !workItemId || !permitted) return
+    openDelegate()
+    const query = { ...route.query }
+    delete query.delegate
+    void router.replace({ query })
   },
 )
 
@@ -444,7 +536,7 @@ function updateTaskOwner(value: string | 'all'): void {
 function selectTask(task: TaskSummary): void {
   taskDetailTriggerId = task.id
   void router.replace({ query: {
-    ...route.query,
+    ...withoutCodingRoute(route.query),
     task: task.id,
     workItem: task.workItemId,
   } })
@@ -455,12 +547,23 @@ function selectTaskAttempt(executionId: string): void {
   if (!taskId || selectedTaskExecutionId.value === executionId) return
   selectedTaskExecutionId.value = executionId
   void taskStore.loadRuntimeFacts(taskId, executionId)
+  if (!codingScope.value || !project.value) return
+  const cached = codingStore.state.attempts[`${taskId}:${executionId}`]?.value
+  void router.replace({ query: withCodingRoute(route.query, {
+    teamId: codingScope.value.teamId,
+    projectId: codingScope.value.projectId,
+    workItemId: taskStore.state.details?.workItemId,
+    taskId,
+    executionId,
+    workspaceId: cached?.coding ? cached.details?.workspace.id : null,
+  }) })
 }
 
 async function closeTaskDetails(): Promise<void> {
   taskStore.stopLiveTasks()
-  await router.replace({ query: { ...route.query, task: undefined } })
+  await router.replace({ query: { ...withoutCodingRoute(route.query), task: undefined } })
   taskStore.clearSelection()
+  codingStore.clearSelection()
   selectedTaskExecutionId.value = null
   await nextTick()
   const remainingModals = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')
@@ -491,6 +594,93 @@ function retryTaskDetails(): void {
 function retryTaskRuntime(): void {
   if (!taskStore.state.selectedTaskId || !selectedTaskExecutionId.value) return
   void taskStore.loadRuntimeFacts(taskStore.state.selectedTaskId, selectedTaskExecutionId.value, true)
+}
+
+async function synchronizeCodingStudio(force = false): Promise<void> {
+  const scope = codingScope.value
+  const taskId = taskStore.state.details?.id
+  const selection = codingRouteSelection(route.query)
+  if (!scope || !taskId || selection.taskId !== taskId) {
+    codingStore.clearSelection()
+    return
+  }
+  if (!isRestorableCodingRoute(selection) || !codingRouteMatchesScope(selection, scope)) {
+    codingStore.clearSelection()
+    return
+  }
+  if (force) codingStore.invalidateTask(taskId)
+  await codingStore.synchronize(scope, {
+    taskId,
+    executionId: selection.executionId,
+    workspaceId: selection.workspaceId,
+  })
+  if (taskStore.state.details?.id !== taskId || codingStore.state.selectedTaskId !== taskId) return
+  const executionId = codingStore.state.selectedExecutionId
+  if (!executionId) return
+  if (taskStore.state.attempts.some(attempt => attempt.id === executionId)) {
+    selectedTaskExecutionId.value = executionId
+    void taskStore.loadRuntimeFacts(taskId, executionId)
+  }
+  if (codingStore.state.routePhase !== 'ready') return
+  void codingStore.loadCommands(taskId, executionId)
+  void codingStore.loadTestEvidence(taskId, executionId)
+  const workspaceId = codingStore.state.selectedWorkspaceId
+  if (route.query.attempt !== executionId || route.query.workspace !== workspaceId) {
+    await router.replace({ query: withCodingRoute(route.query, {
+      teamId: scope.teamId,
+      projectId: scope.projectId,
+      workItemId: taskStore.state.details?.workItemId,
+      taskId,
+      executionId,
+      workspaceId,
+    }) })
+  }
+}
+
+function retryCodingStudio(): void {
+  void synchronizeCodingStudio(true)
+}
+
+function loadCodingPatch(): void {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (taskId && executionId) void codingStore.loadPatch(taskId, executionId, selectedCodingPatchResource.value?.phase === 'error')
+}
+
+function loadCodingCommandsMore(): void {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (taskId && executionId) void codingStore.loadCommands(taskId, executionId, Boolean(selectedCodingCommandsResource.value?.value))
+}
+
+function loadCodingTestsMore(): void {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (taskId && executionId) void codingStore.loadTestEvidence(taskId, executionId, Boolean(selectedCodingTestsResource.value?.value))
+}
+
+function codingCommandLog(evidenceId: string) {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.commandLogs[`${taskId}:${executionId}:${evidenceId}`] ?? null : null
+}
+
+function codingTestReport(evidenceId: string) {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  return taskId && executionId ? codingStore.state.testReports[`${taskId}:${executionId}:${evidenceId}`] ?? null : null
+}
+
+function loadCodingCommandLog(evidenceId: string, more = false): void {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (taskId && executionId) void codingStore.loadCommandLog(taskId, executionId, evidenceId, more)
+}
+
+function loadCodingTestReport(evidenceId: string, more = false): void {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (taskId && executionId) void codingStore.loadTestReport(taskId, executionId, evidenceId, more)
 }
 
 function retryRuntimeHealth(): void {
@@ -527,11 +717,13 @@ async function commandTask(operation: MemberTaskCommandOperation, reason?: strin
     operation,
     reason,
   })
+  await synchronizeCodingStudio(true)
   focusCurrentTaskAttempt()
 }
 
 async function retryTaskCommand(): Promise<void> {
   await taskStore.retryTaskCommand()
+  await synchronizeCodingStudio(true)
   focusCurrentTaskAttempt()
 }
 
@@ -539,7 +731,7 @@ function focusCurrentTaskAttempt(): void {
   const taskId = taskStore.state.details?.id
   const executionId = taskStore.state.details?.currentExecutionId
   if (!taskId || !executionId || selectedTaskExecutionId.value === executionId) return
-  selectedTaskExecutionId.value = executionId
+  selectTaskAttempt(executionId)
   void taskStore.loadRuntimeFacts(taskId, executionId, true)
 }
 
@@ -547,7 +739,7 @@ function openTaskConversation(conversationId: string): void {
   void router.push({
     name: 'conversation',
     query: {
-      ...route.query,
+      ...withoutCodingRoute(route.query),
       conversation: conversationId,
       project: taskStore.state.details?.projectId,
       workItem: taskStore.state.details?.workItemId,
@@ -561,7 +753,7 @@ function showTaskWorkItem(): void {
 }
 
 function openTaskWorkItem(task: TaskSummary): void {
-  void router.replace({ query: { ...route.query, workItem: task.workItemId, task: undefined } })
+  void router.replace({ query: { ...withoutCodingRoute(route.query), workItem: task.workItemId, task: undefined } })
 }
 
 function retryTasks(): void {
@@ -608,6 +800,7 @@ async function finishDelegation(taskId: string | null): Promise<void> {
   if (taskStore.state.createPhase !== 'success') return
   showDelegate.value = false
   const workItemId = workStore.state.detail?.workItem.id
+  if (workItemId && codingScope.value) clearCodingTargetDraft(codingScope.value, workItemId)
   taskStore.clearCreate()
   if (taskId && workItemId) {
     await router.replace({ query: { ...route.query, workItem: workItemId, task: taskId } })
@@ -740,8 +933,9 @@ const statusLabels: Record<WorkItemStatus, string> = {
     </div>
 
     <DelegateToAgentDialog
-      v-if="showDelegate && workStore.state.detail"
+      v-if="showDelegate && workStore.state.detail && codingScope"
       :work-item="workStore.state.detail.workItem"
+      :coding-scope="codingScope"
       :responsibilities="workStore.state.responsibilities"
       :submitting="taskStore.state.createPhase === 'submitting'"
       :retryable="taskStore.state.createRetryable"
@@ -804,6 +998,20 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :runtime-phase="selectedRuntimeResource?.phase ?? 'idle'"
       :runtime-facts="selectedRuntimeResource?.value ?? null"
       :runtime-error-message="selectedRuntimeResource?.errorMessage ?? null"
+      :coding-phase="codingStudioPhase"
+      :coding-attempt="selectedCodingAttemptResource?.value ?? null"
+      :coding-error-message="codingStudioErrorMessage"
+      :coding-commands-phase="selectedCodingCommandsResource?.phase ?? 'idle'"
+      :coding-commands="selectedCodingCommandsResource?.value ?? null"
+      :coding-commands-error-message="selectedCodingCommandsResource?.errorMessage ?? null"
+      :coding-tests-phase="selectedCodingTestsResource?.phase ?? 'idle'"
+      :coding-tests="selectedCodingTestsResource?.value ?? null"
+      :coding-tests-error-message="selectedCodingTestsResource?.errorMessage ?? null"
+      :coding-command-log="codingCommandLog"
+      :coding-test-report="codingTestReport"
+      :coding-patch-phase="selectedCodingPatchResource?.phase ?? 'idle'"
+      :coding-patch="selectedCodingPatchResource?.value ?? null"
+      :coding-patch-error-message="selectedCodingPatchResource?.errorMessage ?? null"
       :fleet-phase="runtimeHealthResource?.phase ?? 'idle'"
       :fleet="runtimeHealthResource?.value ?? null"
       :fleet-error-message="runtimeHealthResource?.errorMessage ?? null"
@@ -824,6 +1032,12 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :on-select-attempt="selectTaskAttempt"
       :on-retry="retryTaskDetails"
       :on-retry-runtime="retryTaskRuntime"
+      :on-retry-coding="retryCodingStudio"
+      :on-load-coding-patch="loadCodingPatch"
+      :on-load-coding-commands-more="loadCodingCommandsMore"
+      :on-load-coding-tests-more="loadCodingTestsMore"
+      :on-load-coding-command-log="loadCodingCommandLog"
+      :on-load-coding-test-report="loadCodingTestReport"
       :on-retry-fleet="retryRuntimeHealth"
       :on-retry-associations="retryTaskAssociations"
       :on-load-events-more="loadTaskEventsMore"
