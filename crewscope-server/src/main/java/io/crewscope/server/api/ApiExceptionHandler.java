@@ -1,6 +1,7 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.coding.RepositoryBindingPreflightException;
+import io.crewscope.application.coding.RepositoryCatalogUnavailableException;
 import io.crewscope.application.coding.CodingArtifactRangeNotSatisfiableException;
 import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
 import io.crewscope.application.error.ApplicationErrorMapper;
@@ -106,6 +107,17 @@ public class ApiExceptionHandler {
                     preflightFailure.retryable(),
                     null,
                     Map.of("reason", preflightFailure.error().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof RepositoryCatalogUnavailableException) {
+            return response(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "repository_catalog_unavailable",
+                    "Repository Catalog is unavailable on this server",
+                    true,
+                    null,
+                    Map.of(),
                     correlationId,
                     exchange);
         }

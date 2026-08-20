@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.coding.RepositoryBindingPreflightPort;
+import io.crewscope.application.coding.RepositoryCatalogPort;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -34,5 +35,13 @@ public class ManagedRepositoryConfiguration {
     RepositoryBindingPreflightPort repositoryBindingPreflightPort(
             BaselinePreflight baselinePreflight) {
         return new ManagedRepositoryBindingPreflightAdapter(baselinePreflight);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RepositoryCatalogPort.class)
+    RepositoryCatalogPort repositoryCatalogPort(
+            ManagedRepositoryProperties properties, ManagedRepositoryResolver repositoryResolver) {
+        return new ManagedRepositoryCatalogAdapter(
+                properties.managedRootPath(), repositoryResolver);
     }
 }

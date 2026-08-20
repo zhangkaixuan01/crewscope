@@ -3,6 +3,7 @@ package io.crewscope.infrastructure.workspace.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.crewscope.application.coding.RepositoryBindingPreflightPort;
+import io.crewscope.application.coding.RepositoryCatalogPort;
 import io.crewscope.infrastructure.workspace.git.GitCommandConfiguration;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import io.crewscope.infrastructure.workspace.git.GitCommandPolicy;
@@ -33,7 +34,8 @@ class ManagedRepositoryConfigurationTest {
                         .hasNotFailed()
                         .hasSingleBean(ManagedRepositoryResolver.class)
                         .hasSingleBean(BaselinePreflight.class)
-                        .hasSingleBean(RepositoryBindingPreflightPort.class));
+                        .hasSingleBean(RepositoryBindingPreflightPort.class)
+                        .hasSingleBean(RepositoryCatalogPort.class));
     }
 
     @Test
@@ -84,6 +86,7 @@ class ManagedRepositoryConfigurationTest {
                     assertThat(context).doesNotHaveBean(ManagedRepositoryResolver.class);
                     assertThat(context).doesNotHaveBean(BaselinePreflight.class);
                     assertThat(context).doesNotHaveBean(RepositoryBindingPreflightPort.class);
+                    assertThat(context).doesNotHaveBean(RepositoryCatalogPort.class);
                 });
     }
 

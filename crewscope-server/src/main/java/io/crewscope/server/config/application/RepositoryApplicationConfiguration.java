@@ -6,6 +6,9 @@ import io.crewscope.application.coding.RepositoryBindingPreflightError;
 import io.crewscope.application.coding.RepositoryBindingPreflightException;
 import io.crewscope.application.coding.RepositoryBindingPreflightPort;
 import io.crewscope.application.coding.RepositoryBindingRepository;
+import io.crewscope.application.coding.RepositoryCatalogApplicationService;
+import io.crewscope.application.coding.RepositoryCatalogPort;
+import io.crewscope.application.coding.RepositoryCatalogUnavailableException;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -61,5 +64,16 @@ public class RepositoryApplicationConfiguration {
                 receiptStore,
                 transactionExecutor,
                 timeProvider);
+    }
+
+    @Bean
+    RepositoryCatalogApplicationService repositoryCatalogApplicationService(
+            RepositoryBindingAccessPolicy accessPolicy,
+            ObjectProvider<RepositoryCatalogPort> catalogPorts,
+            TimeProvider timeProvider) {
+        RepositoryCatalogPort catalogPort = catalogPorts.getIfAvailable(() -> () -> {
+            throw new RepositoryCatalogUnavailableException();
+        });
+        return new RepositoryCatalogApplicationService(accessPolicy, catalogPort, timeProvider);
     }
 }
