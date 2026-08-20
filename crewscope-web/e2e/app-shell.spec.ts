@@ -1,5 +1,6 @@
 import { expect, test, type Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { createHash } from 'node:crypto'
 
 const ids = {
   organization: '00000000-0000-0000-0000-000000000001',
@@ -28,6 +29,9 @@ const ids = {
   taskRun: '00000000-0000-0000-0000-000000001631',
   taskLease: '00000000-0000-0000-0000-000000001641',
   agentProfile: '00000000-0000-0000-0000-000000001701',
+  repositoryBinding: '00000000-0000-0000-0000-000000001801',
+  codingWorkspace: '00000000-0000-0000-0000-000000001901',
+  previousCodingWorkspace: '00000000-0000-0000-0000-000000001902',
 }
 
 test.beforeEach(async ({ page }) => {
@@ -72,6 +76,8 @@ test.beforeEach(async ({ page }) => {
   }
   const acceptedMessageKeys = new Set<string>()
   const acceptedInvocations = new Map<string, { invocationId: string; userMessageId: string; agentMessageId: string }>()
+  let repositoryBindingVersion = 1
+  let repositoryBindingStatus = 'ACTIVE'
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -96,6 +102,66 @@ test.beforeEach(async ({ page }) => {
       ])
       return
     }
+    if (request.method() === 'GET' && path.endsWith('/repository-catalog')) {
+      await fulfillJson(route, { items: [
+        { repositoryKey: 'crewscope-java', availability: 'AVAILABLE', suggestedDefaultBranch: 'main' },
+        { repositoryKey: 'agentscope-java', availability: 'AVAILABLE', suggestedDefaultBranch: 'main' },
+        { repositoryKey: 'archived-service', availability: 'UNAVAILABLE', suggestedDefaultBranch: null },
+      ] })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/repository-bindings')) {
+      await fulfillJson(route, { items: [repositoryBinding(repositoryBindingStatus, repositoryBindingVersion)] })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith('/repository-bindings/preflight')) {
+      const input = request.postDataJSON() as { repositoryKey: string, defaultBranch: string }
+      await fulfillJson(route, {
+        ready: true, repositoryKey: input.repositoryKey, baselineRef: input.defaultBranch,
+        baselineCommit: 'a'.repeat(40),
+      })
+      return
+    }
+    const repositoryPreflightMatch = path.match(/\/repository-bindings\/([^/]+)\/preflight$/)
+    if (request.method() === 'POST' && repositoryPreflightMatch) {
+      await fulfillJson(route, {
+        ready: true, repositoryKey: 'crewscope-java', baselineRef: 'main', baselineCommit: 'a'.repeat(40),
+      })
+      return
+    }
+    const repositoryTransitionMatch = path.match(/\/repository-bindings\/([^/]+)\/(activate|disable)$/)
+    if (request.method() === 'POST' && repositoryTransitionMatch) {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(request.headers()['if-match']).toBe(`"${repositoryBindingVersion}"`)
+      repositoryBindingStatus = repositoryTransitionMatch[2] === 'activate' ? 'ACTIVE' : 'DISABLED'
+      repositoryBindingVersion += 1
+      await fulfillReceipt(route, repositoryBindingVersion)
+      return
+    }
+    if (request.method() === 'GET' && path.includes('/repository-bindings/')) {
+      await fulfillJson(route, repositoryBinding(repositoryBindingStatus, repositoryBindingVersion))
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/coding-target/build-profiles')) {
+      await fulfillJson(route, { items: [{
+        key: 'maven-java-17', version: 1, profileHash: 'b'.repeat(64),
+        buildTool: 'MAVEN', javaRelease: 17, commandKinds: ['COMPILE', 'TEST', 'VERIFY'],
+      }] })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith('/coding-target/preflight')) {
+      const input = request.postDataJSON() as { repositoryBindingId: string, baselineRef: string }
+      expect(input.repositoryBindingId).toBe(ids.repositoryBinding)
+      if (input.baselineRef === 'missing') {
+        await fulfillError(route, 422, 'repository_ref_invalid', 'Ref 不存在或不可解析')
+        return
+      }
+      await fulfillJson(route, {
+        ready: true, repositoryKey: 'crewscope-java', baselineRef: input.baselineRef,
+        baselineCommit: 'c'.repeat(40),
+      })
+      return
+    }
     const workItemTaskMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/tasks$/)
     if (workItemTaskMatch && request.method() === 'GET') {
       await fulfillJson(route, {
@@ -109,8 +175,14 @@ test.beforeEach(async ({ page }) => {
       const key = request.headers()['idempotency-key']!
       expect(key).toBeTruthy()
       expect(request.headers()['if-match']).toBe('"0"')
-      const input = request.postDataJSON() as { objective: string; acceptanceCriteria: string[]; executorAgentProfileId: string; conversationSource: { conversationId: string, messageId: string } | null }
+      const input = request.postDataJSON() as { objective: string; acceptanceCriteria: string[]; executorAgentProfileId: string; conversationSource: { conversationId: string, messageId: string } | null; codingTarget: { repositoryBindingId: string, baselineRef: string, allowedPaths: string[], buildProfile: { key: string, version: number, profileHash: string } } | null }
       expect(input.executorAgentProfileId).toBe(ids.agentProfile)
+      expect(input.codingTarget).toEqual({
+        repositoryBindingId: ids.repositoryBinding,
+        baselineRef: 'main',
+        allowedPaths: ['.'],
+        buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'b'.repeat(64) },
+      })
       if (!acceptedTaskKeys.has(key)) {
         const taskId = crypto.randomUUID()
         acceptedTaskKeys.set(key, taskId)
@@ -159,6 +231,75 @@ test.beforeEach(async ({ page }) => {
       await fulfillReceipt(route, selected.executionVersion)
       return
     }
+    const codingCommandMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/commands$/)
+    if (codingCommandMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === codingCommandMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, { items: [codingCommandEvidence(codingCommandMatch[2]!)], nextCursor: null })
+      return
+    }
+    const codingTestMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/test-evidence$/)
+    if (codingTestMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === codingTestMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, { items: [codingTestEvidence(codingTestMatch[2]!)], nextCursor: null })
+      return
+    }
+    const commandLogMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/commands\/([^/]+)\/log$/)
+    if (commandLogMatch && request.method() === 'GET') {
+      const source = Buffer.from(codingCommandLog(), 'utf8')
+      await fulfillArtifactPage(route, url, source, 'text/plain;charset=utf-8', 'crewscope-command.log')
+      return
+    }
+    const testReportMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/test-evidence\/([^/]+)\/report$/)
+    if (testReportMatch && request.method() === 'GET') {
+      const source = Buffer.from(codingTestReport(), 'utf8')
+      await fulfillArtifactPage(route, url, source, 'application/json;charset=utf-8', 'crewscope-test.json')
+      return
+    }
+    const codingPatchMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/artifacts\/patch$/)
+    if (codingPatchMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === codingPatchMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      const source = Buffer.from(codingPatch(), 'utf8')
+      const offset = Number(url.searchParams.get('offset') ?? '0')
+      const limit = Number(url.searchParams.get('limit') ?? String(source.byteLength))
+      const end = Math.min(source.byteLength, offset + limit)
+      await route.fulfill({
+        status: 206,
+        contentType: 'text/x-diff;charset=utf-8',
+        headers: {
+          'Content-Range': `bytes ${offset}-${end - 1}/${source.byteLength}`,
+          ETag: '"coding-patch-v1"',
+          'Cache-Control': 'no-store',
+        },
+        body: source.subarray(offset, end),
+      })
+      return
+    }
+    const codingAttemptMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding$/)
+    if (codingAttemptMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === codingAttemptMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, codingAttempt(selected, codingAttemptMatch[2]!))
+      return
+    }
+    const codingAttemptHistoryMatch = path.match(/\/tasks\/([^/]+)\/coding-attempts$/)
+    if (codingAttemptHistoryMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === codingAttemptHistoryMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, selected.currentAttempt > 1
+        ? [codingAttempt(selected, selected.currentExecutionId), codingAttempt(selected, selected.previousExecutionId)]
+        : [codingAttempt(selected, selected.currentExecutionId)])
+      return
+    }
+    const currentCodingAttemptMatch = path.match(/\/tasks\/([^/]+)\/coding$/)
+    if (currentCodingAttemptMatch && request.method() === 'GET') {
+      const selected = tasks.find(item => item.id === currentCodingAttemptMatch[1])
+      if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
+      await fulfillJson(route, { taskId: selected.id, currentAttempt: codingAttempt(selected, selected.currentExecutionId) })
+      return
+    }
     const taskRuntimeFactsMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/runtime-facts$/)
     if (taskRuntimeFactsMatch && request.method() === 'GET') {
       const selected = tasks.find(item => item.id === taskRuntimeFactsMatch[1])
@@ -184,7 +325,11 @@ test.beforeEach(async ({ page }) => {
       if (request.headers().accept?.includes('text/event-stream')) {
         await fulfillSse(route, [])
       } else {
-        await fulfillJson(route, { items: [], hasMore: false, taskTerminal: false, nextCursor: null })
+        await fulfillJson(route, {
+          items: taskEventMatch[1] === ids.task ? codingDiffTaskEvents() : [],
+          hasMore: false, taskTerminal: false,
+          nextCursor: taskEventMatch[1] === ids.task ? 'coding-diff-cursor-2' : null,
+        })
       }
       return
     }
@@ -461,6 +606,8 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await expect(page).toHaveURL(new RegExp(`task=${ids.task}`))
   const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
   await expect(taskDialog).toBeVisible()
+  await expect(taskDialog.getByTestId('execution-studio').getByRole('heading', { name: 'Execution Studio' })).toBeVisible()
+  await expect.poll(() => new URL(page.url()).searchParams.get('workspace')).toBe(ids.codingWorkspace)
   await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
   await expect(page).toHaveURL(/\/conversation\?/)
   expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
@@ -997,6 +1144,48 @@ test('member management remains usable at the configured viewport', async ({ pag
   await expect(page.getByRole('button', { name: '添加成员', exact: true }).first()).toBeVisible()
 })
 
+test('Repository settings preflights and transitions a binding at desktop and narrow viewports', async ({ page }) => {
+  await page.goto(`/settings/repositories?team=${ids.team}&project=${ids.project}`)
+
+  await expect(page.getByRole('heading', { name: 'CrewScope 仓库设置' })).toBeVisible()
+  await expect(page.getByText('crewscope-java', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Preflight', exact: true }).click()
+  await expect(page.getByText(/Preflight 通过/)).toBeVisible()
+
+  await page.getByRole('button', { name: '停用', exact: true }).click()
+  await expect(page.getByText('DISABLED', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '启用', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: '绑定仓库', exact: true }).last().click()
+  await expect(page.getByRole('heading', { name: '绑定受管仓库' })).toBeVisible()
+  await expect(page.getByLabel('Repository Key')).toHaveValue('agentscope-java')
+  await expect(page.locator('body')).not.toContainText('/private/')
+})
+
+test('Repository settings restores create focus and closes writes while offline', async ({ page, context }) => {
+  await page.goto(`/settings/repositories?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByText('crewscope-java', { exact: true }).first()).toBeVisible()
+  const opener = page.getByRole('button', { name: '绑定仓库', exact: true }).last()
+
+  await opener.click()
+  await expect(page.getByLabel('Repository Key')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('heading', { name: '绑定受管仓库' })).toHaveCount(0)
+  await expect(opener).toBeFocused()
+
+  try {
+    await context.setOffline(true)
+    await expect(page.getByText('仓库写操作已暂停')).toBeVisible()
+    await expect(page.getByText('crewscope-java', { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Preflight', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '停用', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '绑定仓库', exact: true }).first()).toBeDisabled()
+  } finally {
+    // 即使断言失败也恢复 BrowserContext，避免离线状态污染同一 Worker 的后续用例。
+    await context.setOffline(false)
+  }
+})
+
 test('Work restores filters and groups matching items on the Board', async ({ page }) => {
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=FEATURE&priority=HIGH`)
 
@@ -1124,6 +1313,8 @@ test('WorkItem delegates to its assigned Agent and refreshes the Task deep link'
   await expect(delegate.getByText('Owner · 张凯旋')).toBeVisible()
   await expect(delegate.getByText('Executor · 张凯旋的 Personal Agent')).toBeVisible()
   await delegate.getByLabel('执行目标').fill('由 Personal Agent 验证 M3-F02')
+  await delegate.getByRole('button', { name: '验证 Ref' }).click()
+  await expect(delegate.getByText(/Preflight 通过/)).toBeVisible()
   await delegate.getByRole('button', { name: '创建 Task' }).click()
 
   await expect(delegate).toBeHidden()
@@ -1132,17 +1323,33 @@ test('WorkItem delegates to its assigned Agent and refreshes the Task deep link'
   expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
 })
 
+test('CodingTarget loading indicator honors reduced motion', async ({ page }) => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route(/\/coding-target\/build-profiles$/, async route => {
+    await gate
+    await route.fallback()
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
+  await page.getByRole('dialog', { name: 'CRW-18 工作项详情' }).getByRole('button', { name: '交给 Agent 处理' }).click()
+
+  const spinner = page.getByRole('dialog', { name: '交给 Agent 处理' }).locator('.coding-target .spin')
+  await expect(spinner).toBeVisible()
+  expect(await spinner.evaluate(element => getComputedStyle(element).animationName)).toBe('none')
+  release()
+  await expect(page.getByRole('dialog', { name: '交给 Agent 处理' }).locator('.coding-target select').first()).toBeVisible()
+})
+
 test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restores its card', async ({ page }) => {
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  await page.getByRole('region', { name: '已确认工作项' }).getByRole('button', { name: '查看工作项 CRW-18' }).click()
+  await page.getByRole('region', { name: '已确认工作项' }).getByRole('button', { name: '为工作项 CRW-18 配置 Coding Task' }).click()
   await expect(page).toHaveURL(/sourceMessage=/)
   expect(new URL(page.url()).searchParams.get('sourceMessage')).toBe('00000000-0000-0000-0000-000000001304')
 
-  const workItemDialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
-  await workItemDialog.getByRole('button', { name: '交给 Agent 处理' }).click()
   const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
   await expect(delegate.getByText('来源保留为当前 Conversation 消息')).toBeVisible()
   await delegate.getByLabel('执行目标').fill('从 TaskIntent 上下文创建耐久 Task')
+  await delegate.getByRole('button', { name: '验证 Ref' }).click()
   await delegate.getByRole('button', { name: '创建 Task' }).click()
 
   const taskDialog = page.getByRole('dialog', { name: /从 TaskIntent 上下文创建耐久 Task Task 详情/ })
@@ -1168,6 +1375,7 @@ test('Task creation retries with the same idempotency key after a transient fail
   await page.getByRole('dialog', { name: 'CRW-18 工作项详情' }).getByRole('button', { name: '交给 Agent 处理' }).click()
   const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
 
+  await delegate.getByRole('button', { name: '验证 Ref' }).click()
   await delegate.getByRole('button', { name: '创建 Task' }).click()
   await expect(delegate.getByText('Task 服务暂时不可用')).toBeVisible()
   await delegate.getByRole('button', { name: '使用原请求重试' }).click()
@@ -1234,6 +1442,148 @@ test('Task API forbidden responses enter the shared access boundary', async ({ p
   await expect(page).toHaveURL(/\/access-denied/)
   await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('from')).toContain('/work')
+})
+
+test('Execution Studio restores the Coding attempt and Workspace from both Task entry modes', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  const studio = dialog.getByTestId('execution-studio')
+
+  await expect(studio.getByRole('heading', { name: 'Execution Studio' })).toBeVisible()
+  await expect(studio.getByText('crewscope-java', { exact: true })).toBeVisible()
+  await expect(studio.getByText('Workspace 正在恢复')).toBeVisible()
+  await expect(studio.getByText('恢复代次 1', { exact: true })).toBeVisible()
+  await expect(studio.getByText('coding.maven.test', { exact: true })).toBeVisible()
+  await expect(studio.getByText('2 / 20', { exact: true })).toBeVisible()
+  await expect(studio.getByText('5 / 100', { exact: true })).toBeVisible()
+  await expect(studio.getByText(/private|container-secret|task-token|typedArgv/)).toHaveCount(0)
+  await expect.poll(() => new URL(page.url()).searchParams.get('attempt')).toBe(ids.taskExecution)
+  expect(new URL(page.url()).searchParams.get('workspace')).toBe(ids.codingWorkspace)
+
+  await dialog.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
+  await expect(studio.getByText('Attempt 1 · FAILED', { exact: true })).toBeVisible()
+  await expect(studio.locator('.studio-card--command').getByText('测试超时', { exact: false })).toBeVisible()
+  await expect.poll(() => new URL(page.url()).searchParams.get('workspace')).toBe(ids.previousCodingWorkspace)
+})
+
+test('Execution Studio keeps non-Coding empty semantics and closes forbidden Coding facts', async ({ page }) => {
+  await page.route(new RegExp(`/tasks/${ids.task}/coding$`), route => fulfillJson(route, {
+    taskId: ids.task, currentAttempt: null,
+  }))
+  await page.route(new RegExp(`/tasks/${ids.task}/coding-attempts$`), route => fulfillJson(route, []))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
+  await expect(page.getByTestId('execution-studio').getByText('这是通用 Agent Task')).toBeVisible()
+
+  await page.route(new RegExp(`/tasks/${ids.task}/coding$`), route => (
+    fulfillError(route, 403, 'coding_attempt_forbidden', 'Coding attempt access denied')
+  ))
+  await page.reload()
+  await expect(page).toHaveURL(/\/access-denied/)
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+})
+
+test('Diff Explorer replays RESET and DELTA, reads a single-file Patch and keeps responsive reading order', async ({ page }, testInfo) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  const explorer = dialog.getByTestId('coding-diff-explorer')
+
+  await expect(explorer.getByRole('heading', { name: 'Diff Explorer' })).toBeVisible()
+  await expect(explorer.getByText(/实时流(已连接|正在续传)/)).toBeVisible()
+  await expect(explorer.getByText('Changed').locator('..').getByText('5', { exact: true })).toBeVisible()
+  await expect(explorer.getByText('+28', { exact: true })).toBeVisible()
+  await expect(explorer.getByText('-6', { exact: true })).toBeVisible()
+  await expect(explorer.getByText(/private|container-secret|typedArgv|must-not-enter-browser-state/)).toHaveCount(0)
+
+  await explorer.getByRole('button', { name: /NewFeature.java/ }).click()
+  await explorer.getByRole('button', { name: '读取单文件 Patch' }).click()
+  await expect(explorer.getByRole('region', { name: 'src/NewFeature.java Patch' })).toContainText('+public final class NewFeature')
+
+  await explorer.getByRole('button', { name: /logo.png/ }).click()
+  await expect(explorer.getByText('Binary 变更', { exact: true })).toBeVisible()
+
+  const tree = explorer.locator('.diff-tree')
+  const patch = explorer.locator('.patch-view')
+  if (testInfo.project.name === 'narrow-chromium') {
+    expect((await patch.boundingBox())!.y).toBeGreaterThan((await tree.boundingBox())!.y)
+  } else {
+    expect((await patch.boundingBox())!.x).toBeGreaterThan((await tree.boundingBox())!.x)
+  }
+})
+
+test('Diff Explorer closes a forbidden Patch read at the shared access boundary', async ({ page }) => {
+  await page.route(/\/coding\/artifacts\/patch(?:\?.*)?$/, route => (
+    fulfillError(route, 403, 'coding_artifact_forbidden', 'Patch access denied')
+  ))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
+  const explorer = page.getByTestId('coding-diff-explorer')
+
+  await explorer.getByRole('button', { name: /NewFeature.java/ }).click()
+  await explorer.getByRole('button', { name: '读取单文件 Patch' }).click()
+
+  await expect(page).toHaveURL(/\/access-denied/)
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+})
+
+test('Evidence panel presents bounded command, test and acceptance artifacts as read-only text', async ({ page }, testInfo) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
+  const panel = page.getByTestId('coding-evidence-panel')
+
+  await expect(panel.getByRole('heading', { name: '命令、测试与验收证据' })).toBeVisible()
+  await expect(panel.getByText('Exit Code')).toBeVisible()
+  await expect(panel.getByText('207', { exact: true })).toBeVisible()
+  await expect(panel.getByText('关键测试通过')).toBeVisible()
+  await expect(panel.locator('input, textarea, [contenteditable="true"]')).toHaveCount(0)
+
+  await panel.getByRole('button', { name: '读取首个日志页' }).click()
+  await expect(panel.getByRole('region', { name: '只读命令日志' })).toContainText('Bearer [REDACTED]')
+  await expect(panel.getByText('browser-must-hide')).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: '下载日志' })).toBeVisible()
+
+  await panel.getByRole('button', { name: '读取首个报告页' }).click()
+  await expect(panel.getByRole('region', { name: '只读测试报告' })).toContainText('"passed": 207')
+  await expect(panel.getByRole('button', { name: '下载报告' })).toBeVisible()
+  await panel.getByRole('region', { name: '只读测试报告' }).focus()
+  await expect(panel.getByRole('region', { name: '只读测试报告' })).toBeFocused()
+
+  if (testInfo.project.name === 'narrow-chromium') {
+    const commandTop = (await panel.locator('.command-column').boundingBox())!.y
+    const testsTop = (await panel.locator('.test-section').boundingBox())!.y
+    expect(testsTop).toBeGreaterThan(commandTop)
+  }
+})
+
+test('Evidence panel closes a forbidden command log at the shared access boundary', async ({ page }) => {
+  await page.route(/\/coding\/commands\/[^/]+\/log(?:\?.*)?$/, route => (
+    fulfillError(route, 403, 'coding_artifact_forbidden', 'Command log access denied')
+  ))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
+
+  await page.getByTestId('coding-evidence-panel').getByRole('button', { name: '读取首个日志页' }).click()
+
+  await expect(page).toHaveURL(/\/access-denied/)
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+})
+
+test('Coding progress integrates stages, Todo, checkpoints, repair budget and current controls', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  const progress = dialog.getByTestId('coding-progress-control')
+
+  await expect(progress.getByRole('heading', { name: 'Coding 进度与执行控制' })).toBeVisible()
+  await expect(progress.getByRole('list', { name: 'Coding 阶段' }).getByText('测试与修复')).toBeVisible()
+  await expect(progress.locator('[aria-current="step"]')).toContainText('Test #1')
+  await expect(progress.getByText('实现 Runtime 详情', { exact: true })).toBeVisible()
+  await expect(progress.getByText('#1 · SAFE_POINT')).toBeVisible()
+  await expect(progress.getByText('#1 · checkpoint 1')).toBeVisible()
+  await expect(progress.getByText('3 轮')).toBeVisible()
+  await expect(progress.getByText(/当前公开事实未单独披露已用修复轮次/)).toBeVisible()
+  await expect(progress.getByText(/Checkpoint 连续性缺口/)).toBeVisible()
+  await expect(progress.getByRole('button', { name: '取消当前 Task' })).toBeVisible()
+  await expect(progress.getByText(/stateReference|checkpointHash|secret-runtime-credential/)).toHaveCount(0)
+
+  await dialog.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
+  await expect(progress.getByText('历史 Attempt 保持只读')).toBeVisible()
+  await expect(progress.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
 })
 
 test('Task detail switches attempts and explains Plan, Step, AgentRun, Lease and degraded Runtime facts', async ({ page }, testInfo) => {
@@ -1447,6 +1797,18 @@ test('Task Retry preserves the failed attempt and selects the server-created suc
         ? [taskExecution(serverTask), historicalTaskExecution(serverTask)]
         : [taskExecution(serverTask)])
     }
+    if (request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}/coding`)) {
+      return fulfillJson(route, { taskId: serverTask.id, currentAttempt: codingAttempt(serverTask, serverTask.currentExecutionId) })
+    }
+    if (request.method() === 'GET' && path.endsWith(`/tasks/${ids.task}/coding-attempts`)) {
+      return fulfillJson(route, serverTask.currentAttempt > 1
+        ? [codingAttempt(serverTask, serverTask.currentExecutionId), codingAttempt(serverTask, serverTask.previousExecutionId)]
+        : [codingAttempt(serverTask, serverTask.currentExecutionId)])
+    }
+    const selectedCoding = path.match(new RegExp(`/tasks/${ids.task}/attempts/([^/]+)/coding$`))
+    if (request.method() === 'GET' && selectedCoding) {
+      return fulfillJson(route, codingAttempt(serverTask, selectedCoding[1]!))
+    }
     if (request.method() === 'GET' && path.includes(`/tasks/${ids.task}/attempts/`) && path.endsWith('/runtime-facts')) {
       const executionId = path.split('/attempts/')[1]!.split('/')[0]!
       return fulfillJson(route, taskRuntimeFacts(serverTask, executionId))
@@ -1554,11 +1916,28 @@ test('M1 Work visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`work-detail-${testInfo.project.name}.png`, { fullPage: true })
 
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`)
-  await expect(page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ }).getByText('Revision 2', { exact: true }).first()).toBeVisible()
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  await expect(taskDialog.getByText('Revision 2', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByTestId('execution-studio').getByText('Workspace 正在恢复')).toBeVisible()
+  await taskDialog.locator('.task-detail-content').evaluate(element => { element.scrollTop = 0 })
   await expect(page).toHaveScreenshot(`task-detail-${testInfo.project.name}.png`)
+  await taskDialog.getByTestId('coding-progress-control').scrollIntoViewIfNeeded()
+  await expect(page).toHaveScreenshot(`coding-progress-${testInfo.project.name}.png`)
 })
 
-test('M2 and M3 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+test('M4 Repository and Execution Studio visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/settings/repositories?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByText('crewscope-java', { exact: true }).first()).toBeVisible()
+  await expect(page).toHaveScreenshot(`repository-settings-${testInfo.project.name}.png`, { fullPage: true })
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`)
+  const studio = page.getByTestId('execution-studio')
+  await expect(studio.getByRole('heading', { name: 'Execution Studio' })).toBeVisible()
+  await studio.scrollIntoViewIfNeeded()
+  await expect(page).toHaveScreenshot(`execution-studio-${testInfo.project.name}.png`)
+})
+
+test('M1 through M4 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
@@ -1568,6 +1947,7 @@ test('M2 and M3 primary pages meet automated WCAG 2.2 AA checks', async ({ page 
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByTestId('conversation-task-cards') },
     { path: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`, ready: () => page.getByRole('region', { name: 'Agent Tasks' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`, ready: () => page.getByRole('dialog', { name: /Task 详情/ }) },
+    { path: `/settings/repositories?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'CrewScope 仓库设置' }) },
   ]
 
   for (const route of routes) {
@@ -1694,12 +2074,216 @@ function taskExecution(value: ReturnType<typeof task>) {
   }
 }
 
+function repositoryBinding(status: string, version: number) {
+  return {
+    id: ids.repositoryBinding, organizationId: ids.organization, teamId: ids.team,
+    workspaceId: ids.workspace, projectId: ids.project, kind: 'LOCAL_MANAGED',
+    repositoryKey: 'crewscope-java', defaultBranch: 'main', status, version,
+    createdAt: '2026-08-08T01:00:00Z', createdByPrincipalId: ids.principal,
+    updatedAt: '2026-08-08T04:00:00Z', updatedByPrincipalId: ids.principal,
+  }
+}
+
 function historicalTaskExecution(value: ReturnType<typeof task>) {
   return {
     ...taskExecution(value), id: value.previousExecutionId, attempt: value.previousAttempt, status: 'FAILED', waiting: null,
     currentPlanVersionId: ids.previousTaskPlan,
     terminal: { status: 'FAILED', decidedByPrincipalId: ids.principal, decidedAt: '2026-08-08T03:28:00Z', failureClass: 'TRANSIENT', failureCode: 'WORKER_LOST' },
   }
+}
+
+function codingAttempt(value: ReturnType<typeof task>, executionId: string) {
+  const current = executionId === value.currentExecutionId
+  const attemptNumber = current ? value.currentAttempt : value.previousAttempt
+  const workspaceId = current ? ids.codingWorkspace : ids.previousCodingWorkspace
+  const executionStatus = current ? value.currentExecutionStatus : 'FAILED'
+  const workspaceStatus = current
+    ? (['FAILED', 'CANCELLED', 'COMPLETED'].includes(executionStatus) ? executionStatus : 'RECOVERING')
+    : 'FAILED'
+  const artifact = (kind: string, suffix: string) => ({
+    artifactId: `00000000-0000-0000-0000-00000000${suffix}`,
+    kind, contentType: 'text/plain', sizeBytes: 2048, contentHash: suffix.repeat(64).slice(0, 64),
+  })
+  return {
+    executionId,
+    attempt: attemptNumber,
+    executionStatus,
+    current,
+    coding: true,
+    details: {
+      executionId,
+      attempt: attemptNumber,
+      workspace: {
+        id: workspaceId, repositoryKey: 'crewscope-java', baselineCommit: '1'.repeat(40),
+        managedBranch: `crewscope/tasks/${value.id}/attempt-${attemptNumber}`,
+        status: workspaceStatus, recoveryGeneration: current ? 1 : 0,
+        completionReason: executionStatus === 'COMPLETED' ? 'DELIVERED' : null,
+        failureCode: executionStatus === 'FAILED' ? 'WORKER_LOST' : null,
+        fingerprint: '2'.repeat(64), version: 2, retainUntil: '2026-09-08T03:40:00Z',
+        createdAt: value.createdAt, updatedAt: value.updatedAt,
+        hostPath: '/private/worktree-must-not-render', containerId: 'container-secret',
+      },
+      sandbox: {
+        networkMode: 'NONE', cpuCount: 2, memoryMiB: 2048, pids: 256,
+        maxCommandDurationSeconds: 300, maxCommandOutputBytes: 1048576,
+        readOnlyRootFilesystem: true, maxCommandCalls: 20, maxChangedFiles: 100,
+        maxSingleFileBytes: 1048576, maxWriteOperations: 200, maxWrittenBytes: 5242880,
+        maxDiffBytes: 10485760, maxTestRepairRounds: 3,
+        buildProfileKey: 'maven-java-21', buildProfileVersion: 2,
+        image: 'private-image', taskToken: 'task-token',
+      },
+      diffManifest: {
+        artifactId: '00000000-0000-0000-0000-000000001921', generation: 2,
+        manifestHash: '3'.repeat(64), fileCount: 5, additions: 28, deletions: 6,
+        baselineCommit: '1'.repeat(40), deliveryCommit: null, finalHash: '4'.repeat(64),
+        patch: {
+          ...artifact('PATCH', '21'), contentType: 'text/x-diff;charset=utf-8',
+          sizeBytes: Buffer.byteLength(codingPatch(), 'utf8'),
+          contentHash: createHash('sha256').update(codingPatch(), 'utf8').digest('hex'),
+        },
+        files: codingDiffFiles(), createdAt: value.updatedAt,
+      },
+      codingResult: null,
+      commandEvidenceCount: current ? 2 : 1,
+      testEvidenceCount: current ? 1 : 0,
+    },
+  }
+}
+
+function codingDiffFiles() {
+  return [
+    codingDiffFile(0, 'assets/logo.png', null, 'MODIFIED', 0, 0, true),
+    codingDiffFile(1, 'docs/Guide.md', 'docs/README.md', 'RENAMED', 6, 1),
+    codingDiffFile(2, 'docs/obsolete.md', null, 'DELETED', 0, 3),
+    codingDiffFile(3, 'src/Main.java', null, 'MODIFIED', 17, 2),
+    codingDiffFile(4, 'src/NewFeature.java', null, 'ADDED', 5, 0),
+  ]
+}
+
+function codingDiffFile(
+  ordinal: number,
+  path: string,
+  oldPath: string | null,
+  changeKind: string,
+  additions: number,
+  deletions: number,
+  binary = false,
+) {
+  return {
+    ordinal, path, oldPath, changeKind, additions, deletions, binary,
+    patchTruncated: binary, patchHash: String(ordinal + 1).repeat(64).slice(0, 64),
+  }
+}
+
+function codingDiffTaskEvents() {
+  const raw = (file: ReturnType<typeof codingDiffFile>) => ({
+    path: file.path, oldPath: file.oldPath, changeType: file.changeKind,
+    additions: file.additions, deletions: file.deletions, binary: file.binary,
+    patchTruncated: file.patchTruncated, patchSha256: file.patchHash,
+    patchPreview: 'must-not-enter-browser-state', hostPath: '/private/worktree',
+  })
+  const files = codingDiffFiles()
+  const reset = taskEventItem(
+    'coding-diff-event-1', 'coding-diff-domain-1', 'WORKSPACE_DIFF_RESET',
+    {
+      workspaceId: ids.codingWorkspace, streamEpoch: 'coding-diff-epoch-1', sequence: 1,
+      diffGeneration: 1, changeKind: 'RESET', manifestHash: '2'.repeat(64),
+      upserts: files.filter(file => file.path !== 'src/NewFeature.java').map(file => raw({
+        ...file,
+        additions: file.path === 'src/Main.java' ? 12 : file.additions,
+        deletions: file.path === 'src/Main.java' ? 1 : file.deletions,
+      })),
+      removals: [], containerId: 'private-container',
+    },
+    'coding-diff-cursor-1',
+  )
+  const delta = taskEventItem(
+    'coding-diff-event-2', 'coding-diff-domain-2', 'WORKSPACE_DIFF_DELTA',
+    {
+      workspaceId: ids.codingWorkspace, streamEpoch: 'coding-diff-epoch-1', sequence: 2,
+      diffGeneration: 2, changeKind: 'DELTA', manifestHash: '3'.repeat(64),
+      upserts: files.filter(file => ['src/Main.java', 'src/NewFeature.java'].includes(file.path)).map(raw),
+      removals: [], typedArgv: ['git', 'diff'],
+    },
+    'coding-diff-cursor-2',
+  )
+  return [reset, delta]
+}
+
+function codingPatch(): string {
+  return [
+    'diff --git a/assets/logo.png b/assets/logo.png\nindex 111..222 100644\nBinary files a/assets/logo.png and b/assets/logo.png differ\n',
+    'diff --git a/docs/README.md b/docs/Guide.md\nsimilarity index 90%\nrename from docs/README.md\nrename to docs/Guide.md\n',
+    'diff --git a/docs/obsolete.md b/docs/obsolete.md\ndeleted file mode 100644\n--- a/docs/obsolete.md\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-old one\n-old two\n-old three\n',
+    'diff --git a/src/Main.java b/src/Main.java\n--- a/src/Main.java\n+++ b/src/Main.java\n@@ -1,2 +1,3 @@\n-old line\n+public final class Main {\n+    // CrewScope controlled change\n+}\n',
+    'diff --git a/src/NewFeature.java b/src/NewFeature.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/NewFeature.java\n@@ -0,0 +1,2 @@\n+public final class NewFeature {\n+}\n',
+  ].join('')
+}
+
+function codingCommandEvidence(executionId: string) {
+  const historical = executionId === ids.previousTaskExecution
+  return {
+    id: historical ? '00000000-0000-0000-0000-000000001932' : '00000000-0000-0000-0000-000000001931',
+    sequence: historical ? 1 : 2,
+    commandKind: 'TEST', toolKey: 'coding.maven.test', timeoutSeconds: 180,
+    startedAt: '2026-08-08T03:36:00Z', finishedAt: '2026-08-08T03:38:00Z',
+    termination: historical ? 'TIMED_OUT' : 'EXITED', exitCode: historical ? null : 0,
+    summary: historical ? '测试超时' : '207 项测试通过',
+    failureClassification: historical ? 'TRANSIENT' : null, evidenceHash: '5'.repeat(64),
+    commandLog: {
+      artifactId: '00000000-0000-0000-0000-000000001941', kind: 'COMMAND_LOG',
+      contentType: 'text/plain', sizeBytes: Buffer.byteLength(codingCommandLog(), 'utf8'),
+      contentHash: createHash('sha256').update(codingCommandLog(), 'utf8').digest('hex'),
+      storageUri: 'file:///private/command.log', typedArgv: ['mvn', 'test'],
+    },
+  }
+}
+
+function codingTestEvidence(executionId: string) {
+  const historical = executionId === ids.previousTaskExecution
+  return {
+    id: historical ? '00000000-0000-0000-0000-000000001952' : '00000000-0000-0000-0000-000000001951',
+    sequence: 1, diffGeneration: 2, diffManifestHash: '3'.repeat(64), total: 210,
+    passed: historical ? 180 : 207, failed: historical ? 20 : 1, errors: historical ? 5 : 0,
+    skipped: historical ? 5 : 2, summary: historical ? '测试超时并失败' : '207 项测试通过',
+    failureClassification: historical ? 'TRANSIENT' : 'TEST_FAILED', evidenceHash: '7'.repeat(64),
+    commandEvidenceIds: [codingCommandEvidence(executionId).id],
+    acceptance: [
+      { criterionIndex: 1, criterion: '关键测试通过', status: historical ? 'FAILED' : 'PASSED', summary: historical ? '测试超时' : '关键测试已验证', commandEvidenceIds: [] },
+      { criterionIndex: 0, criterion: '项目可编译', status: 'PASSED', summary: 'Maven 编译完成', commandEvidenceIds: [] },
+    ],
+    testReport: {
+      artifactId: '00000000-0000-0000-0000-000000001961', kind: 'TEST_REPORT',
+      contentType: 'application/json', sizeBytes: Buffer.byteLength(codingTestReport(), 'utf8'),
+      contentHash: createHash('sha256').update(codingTestReport(), 'utf8').digest('hex'),
+      storageUri: 'file:///private/test-report.json',
+    },
+    createdAt: '2026-08-08T03:38:00Z',
+  }
+}
+
+function codingCommandLog(): string {
+  return '[INFO] 207 tests passed\nAuthorization: Bearer browser-must-hide\n[INFO] BUILD SUCCESS\n'
+}
+
+function codingTestReport(): string {
+  return '{\n  "total": 210,\n  "passed": 207,\n  "failed": 1,\n  "skipped": 2\n}\n'
+}
+
+async function fulfillArtifactPage(
+  route: Route,
+  url: URL,
+  source: Buffer,
+  contentType: string,
+  filename: string,
+) {
+  const offset = Number(url.searchParams.get('offset') ?? '0')
+  const limit = Number(url.searchParams.get('limit') ?? String(source.byteLength))
+  const end = Math.min(source.byteLength, offset + limit)
+  await route.fulfill({ status: 206, contentType, headers: {
+    'Content-Range': `bytes ${offset}-${end - 1}/${source.byteLength}`,
+    'Content-Disposition': `attachment; filename="${filename}"`, ETag: '"evidence-v1"', 'Cache-Control': 'no-store',
+  }, body: source.subarray(offset, end) })
 }
 
 function taskRuntimeFacts(value: ReturnType<typeof task>, executionId: string) {
@@ -1724,7 +2308,7 @@ function taskRuntimeFacts(value: ReturnType<typeof task>, executionId: string) {
         publishedByPrincipalId: ids.principal, publishedAt: value.updatedAt,
       },
     ],
-    steps: [{ id: ids.taskStep, planVersionId: ids.taskPlan, planStepKey: 'runtime-view', sequence: 1, critical: true, runAttempt: 1, maxRunAttempts: 2, status: 'WAITING', waitReason: 'WAITING_RUNTIME', checkpoint: null, failureClass: null, failureCode: null, version: 1, audit }],
+    steps: [{ id: ids.taskStep, planVersionId: ids.taskPlan, planStepKey: 'runtime-view', sequence: 1, critical: true, runAttempt: 1, maxRunAttempts: 2, status: 'WAITING', waitReason: 'WAITING_RUNTIME', checkpoint: { sequence: 1, code: 'SAFE_POINT', recordedByPrincipalId: ids.principal, recordedAt: value.updatedAt }, failureClass: null, failureCode: null, version: 1, audit }],
     sessions: [{ id: 'runtime-session', stepExecutionId: ids.taskStep, purpose: '实现 Runtime 详情', agentPrincipalId: ids.personalAgent, agentProfileId: ids.agentProfile, agentProfileVersion: 2, status: 'INTERRUPTED', version: 1, audit }],
     agentRuns: [{
       id: ids.taskRun, stepExecutionId: ids.taskStep, runtimeSessionId: 'runtime-session', agentPrincipalId: ids.personalAgent,
