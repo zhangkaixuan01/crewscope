@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12` 已完成，下一项为 `M4-A01`（2026-08-19）
+> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07` 已完成，下一项为 `M4-F01`（2026-08-20）
 
 ## 1. 出口结果与范围
 
@@ -172,13 +172,13 @@ Coding 闭环完成 -> M4-Q03
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-A01` | FEATURE | D01,D09 | application/server | 提供 Team/WorkProject 级 RepositoryBinding 创建、列表、详情、启停和 Preflight API；仅管理员可修改 | WebTestClient 覆盖权限、Scope、幂等、版本冲突、路径不披露和稳定错误信封 |
-| `M4-A02` | FEATURE | D02,D09,M3-A01 | application/server | 扩展 WorkItem/Conversation 委托，接受 RepositoryBinding、Ref、AllowedPaths、BuildProfile 与验收条件，原子固化 CodingTargetSnapshot | 对话确认与传统表单创建同一事实；跨 Team Binding、失效 Ref、越权路径和重复提交被拒绝 |
-| `M4-A03` | FEATURE | D03,D09,I03,I04,I10,I12 | application/server | 将 Workspace Provision/Recover/Finalize 接入 Durable Worker PREPARING/RUNNING/Complete 链路，持久化文件写预算预留并在开放 Tool 前恢复精确计数，保持 Lease/Fencing/Task Token 条件写入 | 创建、领取、预算跨 Worker 不重置、暂停、恢复、取消、完成、重试、Worker 重启和事务失败闭环通过 |
-| `M4-A04` | FEATURE | D05,D06,D09 | application/server | 提供 Task/attempt 级 Workspace、Sandbox 摘要、Diff Manifest、Command/TestEvidence 与 Coding Result 查询 API | Cursor、批量查询、当前/历史 attempt、权限、公开 DTO 白名单和 N+1 检查通过 |
-| `M4-A05` | FEATURE | I08,M3-A05 | application/server | 提供 Workspace/Diff/Test 耐久历史与 SSE Cursor，将实时事件归并到 Task Timeline 并在最终 Artifact 后收口 | 断线追平、410 Cursor、去重、Reset、状态不回退、持续授权复验与终态关流测试通过 |
-| `M4-A06` | FEATURE | I09,A04 | application/server | 提供受权 Patch、构建日志和测试报告内容 API，支持 Range/分页、内容类型、下载名和大小上限 | 跨 Scope、路径注入、未完成 Artifact、敏感 Artifact、Range、并发下载和审计测试通过 |
-| `M4-A07` | TASK | I10,A03 | application/server | 扩展 Runtime Fleet/Actuator，提供 Workspace 容量、Sandbox/Watcher/清理健康、等待原因和运维 Reconcile/Archive 命令 | 成员只见安全摘要，运维命令强授权/幂等/审计；指标保持低基数且不包含宿主路径 |
+| `M4-A01` | FEATURE | D01,D09 | application/server | 已完成：提供 Team/WorkProject 级 RepositoryBinding 创建、列表、详情、启停和 Preflight API；ACTIVE Member 可读，内置 Team Owner/Admin 与平台管理员可修改；创建与启用强制受管仓库 Preflight | [M4-A01 RepositoryBinding 管理与 Preflight API](../testing/M4-A01-RepositoryBinding管理与Preflight-API.md)；20 项相关测试覆盖权限、完整 Scope、幂等、事件与 Outbox、强 ETag/If-Match、版本冲突、Worker/Server 装配、路径不披露和稳定错误信封 |
+| `M4-A02` | FEATURE | D02,D09,M3-A01 | application/server | 已完成：扩展统一 WorkItem/Conversation Task 委托命令，以可选 CodingTarget 接受 RepositoryBinding、Ref、canonical AllowedPaths、精确 BuildProfile 和验收条件，在首个 attempt 发布前原子固化 Snapshot，并提供成员 BuildProfile 选项与显式 Ref Preflight | [M4-A02 CodingTarget 委托与原子固化](../testing/M4-A02-CodingTarget委托与原子固化.md)；表单与 Conversation 来源固化同一事实模型，专项覆盖非 Coding 兼容、完整 Scope/启用状态、失效 Ref、路径穿越、精确 Profile、幂等 Hash、持久化顺序和公开 DTO 白名单 |
+| `M4-A03` | FEATURE | D03,D09,I03,I04,I10,I12 | application/server | 已完成：将 Workspace Provision/Recover/Finalize 接入 Durable Worker PREPARING/RUNNING/Complete 链路，以 V15 持久化文件写预算并在 Tool 开放前恢复精确计数；验证命令解析 Maven 测试汇总并发布 TestReport/TestEvidence，最终结果使用平台权威坐标 | [M4-A03 Coding Workspace 执行生命周期](../testing/M4-A03-Coding-Workspace执行生命周期.md)；专项覆盖恢复激活、跨 Worker 预算、暂停、取消、完成、失败、重试、Worker Shutdown、事务回滚、旧 Fencing、测试证据和最终结果复验 |
+| `M4-A04` | FEATURE | D05,D06,D09 | application/server | 已完成：提供 Task 当前/历史 attempt 的 Workspace、Sandbox 预算、Diff Manifest、Command/TestEvidence 与耐久 Coding Result 查询 API，非 Coding Task 使用显式空语义 | [M4-A04 Coding attempt 查询 API](../testing/M4-A04-Coding-attempt查询API.md)；Scope 绑定 Cursor、ACTIVE Member 权限、公开 DTO 白名单和固定次数批量投影通过 |
+| `M4-A05` | FEATURE | I08,M3-A05 | application/server | 已完成：将 Workspace 生命周期、Diff RESET/DELTA、TestEvidence 和最终 DiffArtifact 作为安全 DomainEvent 归并到统一 Task Timeline，复用 JSON/SSE Cursor、持续授权和终态排空协议 | [M4-A05 Coding 事件历史与 SSE](../testing/M4-A05-Coding事件历史与SSE.md)；断线追平、410 Cursor、去重、Reset、状态不回退、持续授权复验、事务发布失败与终态关流通过 |
+| `M4-A06` | FEATURE | I09,A04 | application/server | 已完成：提供 Task/attempt/证据关系闭合的 Patch、构建日志和测试报告 API，支持标准单 Range、字节分页、类型化下载、大小与并发上限和安全审计 | [M4-A06 Coding Artifact 内容 API](../testing/M4-A06-Coding-Artifact内容API.md)；跨 Scope、未完成/敏感 Artifact、Range、分页、流关闭、并发容量、安全下载名和审计通过 |
+| `M4-A07` | TASK | I10,A03 | application/server | 已完成：扩展 Runtime Fleet 与 Actuator，提供本地 Worker Workspace 容量、Sandbox/Watcher/清理健康和既有等待原因；提供 Organization + Environment 级 Reconcile/Archive 运维命令 | [M4-A07 Runtime Fleet 与运维命令](../testing/M4-A07-Runtime-Fleet与运维命令.md)；成员安全摘要、运维明细白名单、平台管理员强授权、幂等 Receipt、DomainEvent/Outbox 审计、server-only 降级与低基数指标通过 |
 
 ## 10. 前端 Execution Studio
 
