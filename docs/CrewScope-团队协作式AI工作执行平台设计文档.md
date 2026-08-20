@@ -1201,6 +1201,14 @@ M3-F06 在执行控制之后提供 Task Timeline 与实时 Progress。历史 API
 
 M3-F07 建立 Task 前端全状态与质量基线。Control Task 列表、详情、命令、Runtime、Fleet、Timeline 与关联分别表达 Loading、Empty、Error 和旧事实保留；资源 API 的 403 统一进入 Access Boundary。Offline 关闭成员写命令，Conflict 回读服务端版本，Cancelled 保留耐久证据，Recovering、continuity gap、Connecting 和 Reconnecting 保留 Timeline 并说明恢复坐标。WorkItem 与 Task 叠层抽屉只有最上层响应 Escape 和 Tab，关闭后焦点进入仍可见的 Modal；Attempt 使用语义列表和原生按钮，关键颜色满足 WCAG 2.2 AA。
 
+M4-F01 建立 Coding 前端事实边界。`HttpCodingGateway` 对 RepositoryBinding、BuildProfile、Ref Preflight、当前与历史 Coding attempt、ExecutionWorkspace、Sandbox 预算、Diff Manifest、Coding Result、CommandEvidence 和 TestEvidence 执行显式响应白名单映射。宿主路径、容器身份、Sandbox 镜像、命令参数、存储 URI、Lease、Token 和 Agent 内部状态停留在服务端边界。`CodingStore` 使用 Organization + Team + WorkProject 作为完整资源分区，使用 AbortController、请求版本和同步版本隔离旧 Scope 与旧深链接响应；Repository、CodingTarget、Task 和 attempt 拥有独立缓存失效边界。Command/TestEvidence 原样续传服务端不透明 Cursor，并按 Evidence ID 合并分页重叠。`/work?team=<teamId>&project=<projectId>&workItem=<workItemId>&task=<taskId>&attempt=<executionId>&workspace=<workspaceId>` 形成 Coding 深链接；Workspace 必须属于所选 Task attempt，缺失父坐标、重复 Query 和跨 WorkProject 坐标按失败关闭处理。
+
+M4-F02 在 `/settings/repositories?team=<teamId>&project=<projectId>` 交付 RepositoryBinding 管理。服务端通过管理员专用 `repository-catalog` 只读 API 输出稳定 Repository Key、AVAILABLE/UNAVAILABLE 和可选建议默认分支；Worker/All Profile 枚举 Managed Root 的直接 `.git` 子目录并复用 Resolver 校验 Owner、符号链接和 bare repository，文件系统读取拒绝统一进入稳定 `repository_catalog_unavailable`，Pure Server 使用相同错误边界。浏览器使用 AVAILABLE Catalog 与当前 WorkProject Binding Key 的差集形成创建候选，完成 Draft/Existing Preflight、创建、启用与停用；可重试失败保留原 Idempotency Key，409/412 清除陈旧命令并并行回读列表与详情。桌面事实行和窄屏顺序卡片使用同一语义 DOM，覆盖 Loading、Empty、Error、Forbidden、Catalog 不可用和仓库失效。Canonical Path、Managed Root、文件系统用户与原始 Git 输出不进入 DTO、Gateway、Store 或页面。
+
+M4-F03 在 WorkItem 委托表单交付可选 CodingTarget。表单从当前 WorkProject 的 ACTIVE RepositoryBinding 与当前 WorkItem 的 BuildProfile Options 加载服务端选项，默认使用首个仓库、其默认分支、`.` AllowedPaths 和首个精确 Profile。创建 Coding Task 前必须执行 Ref Preflight；Repository、Ref、AllowedPaths 或 Profile 变化立即废弃旧结果。关闭 Coding 开关创建兼容的非 Coding Task。表单草稿只保存稳定 Binding ID、短 Ref、仓库相对路径与公开 Profile 坐标，按 Organization、Team、WorkProject、WorkItem 分区恢复；成功提交清除草稿。可重试失败锁定原表单并复用 Task Store 保存的完整命令与 Idempotency Key。
+
+TaskIntent 确认保持 M2 的空请求体和原子 WorkItem 创建契约。确认后的 WorkItem 事实卡向当前 Owner 提供 Coding 委托入口，并携带 Conversation、WorkItem 与最新持久 USER Message 坐标进入同一个 WorkItem 委托表单。两个入口提交相同 Task API 和 CodingTarget DTO，浏览器在进入 Task Store 前把 Vue 响应对象转换为可克隆的纯 DTO；服务端继续负责责任、强版本、Repository Scope、ACTIVE 状态、Profile 精确版本与 Ref 的最终复验。
+
 视觉层级参考 vibe-kanban 的执行密度与列表到详情切换，以及 multica 的对话工作区和卡片化上下文。CrewScope 保持浅色低饱和团队工作台风格，以耐久 Task、责任、attempt、Plan、Step、AgentRun、Lease、控制权和审计事实为核心，不复刻竞品布局与视觉资产，也不把个人 Coding Agent 进程状态作为团队事实。
 
 ### 6.2 企业通信 Channel
@@ -1511,7 +1519,7 @@ M3-A01 提供 `POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-p
 
 Task 级 Orchestrator 使用 Personal Agent 或 Team Agent。Personal Agent 代表成员规划和编排任务，Team Agent 承担团队共享编排；Specialist Agent 只绑定后续 StepExecution。V11 为既有 Task 回填 WorkItem 标题与描述，并为新 Task 持久化独立的目标与验收标准。
 
-M4-A02 在同一个 M3-A01 委托命令中增加可选 `codingTarget`，包含 RepositoryBinding ID、用户确认的短 Ref、canonical AllowedPaths 与精确 BuildProfile Key/Version/Hash。省略该对象时保留非 Coding Task 行为。Control Mode 的 WorkItem 表单和 Conversation Mode 的确认动作都调用同一 Task 创建 API；`conversationSource` 只固化 TaskSource 与 ConversationTaskLink，两种入口使用同一个 CodingTargetSnapshot 模型和事务边界。WorkItem 可见成员通过 CodingTarget Options API 读取部署批准的 Profile Key/Version/Hash、BuildTool、Java Release 与 CommandKind，并可对 ACTIVE Binding 的显式安全短 Ref 执行 Preflight；公开 Profile 不包含 Sandbox Image、CommandCatalog、typed argv、工作目录或环境事实。
+M4-A02 在同一个 M3-A01 委托命令中增加可选 `codingTarget`，包含 RepositoryBinding ID、用户确认的短 Ref、canonical AllowedPaths 与精确 BuildProfile Key/Version/Hash。省略该对象时保留非 Coding Task 行为。Control Mode 的 WorkItem 表单和 Conversation Mode 的 TaskIntent 确认结果委托都调用同一 Task 创建 API；`conversationSource` 只固化 TaskSource 与 ConversationTaskLink，两种入口使用同一个 CodingTargetSnapshot 模型和事务边界。WorkItem 可见成员通过 CodingTarget Options API 读取部署批准的 Profile Key/Version/Hash、BuildTool、Java Release 与 CommandKind，并可对 ACTIVE Binding 的显式安全短 Ref 执行 Preflight；公开 Profile 不包含 Sandbox Image、CommandCatalog、typed argv、工作目录或环境事实。
 
 CodingTarget 创建先在 WorkItem 责任锁内闭合 Organization、Team、Workspace、WorkProject、当前 ACTIVE RepositoryBinding、部署批准的精确 BuildProfile 与基线 Preflight。Preflight 结果必须回显同一 RepositoryKey 和 Ref，并把解析后的完整 Commit 交给领域模型。Task 创建后、首个 TaskExecution 创建前保存 revision 1 Snapshot，再创建 PolicySnapshot、SafetyOverlay、READY attempt、Task/Conversation Event、Outbox 与 CommandReceipt。任一校验或持久化失败都回滚完整创建图。
 
@@ -2350,6 +2358,8 @@ RepositoryBinding 是 WorkProject Scope 内的版本化业务事实，保存 Org
 
 RepositoryBinding 管理 API 位于 `/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/repository-bindings`，提供创建、列表、详情、创建前 Preflight、已有 Binding Preflight、启用和停用。ACTIVE Team Member 可以读取；内置 Team Owner、Team Admin 与同 Organization 的 ACTIVE USER 平台管理员可以修改和 Preflight。平台管理员免 Team Membership，但仍验证 Actor 状态、Organization、Team 与 WorkProject Scope。创建、启用和停用使用统一 Idempotency Key、CommandReceipt、DomainEvent 与 Outbox 协议，每次请求在 Receipt 预留或重放前复验当前管理权，启停额外要求强 `If-Match`；启用在版本更新前重新 Preflight。Worker/All 使用 Managed Repository BaselinePreflight，Pure Server 失败关闭为稳定 `503`。公开 DTO 与错误信封只包含 Repository Key、Ref、Commit、状态、版本和安全分类，不包含宿主路径、Git 原始输出或操作系统用户信息。实现与验证见 [M4-A01 RepositoryBinding 管理与 Preflight API](testing/M4-A01-RepositoryBinding管理与Preflight-API.md)。
 
+Repository Catalog API 位于同一 WorkProject Scope 的 `/repository-catalog`，只允许内置 Team Owner、Team Admin 和平台管理员读取。Catalog 在 Worker/All Profile 从受管根目录枚举直接 `.git` 候选，并复用 ManagedRepositoryResolver 形成 AVAILABLE/UNAVAILABLE 分类；响应只包含 Repository Key、Availability 与可选建议默认分支，按 Key 稳定排序并禁用缓存。Pure Server 返回稳定可重试 `503 repository_catalog_unavailable`。实现与验证见 [M4-F02 RepositoryBinding 管理页](testing/M4-F02-RepositoryBinding管理页.md)。
+
 CodingTargetSnapshot 是 Task 的可选不可变 Coding 目标事实。首版在 Task 执行开始前固化 TaskBrief Hash、验收标准、RepositoryBinding ID/Version/Kind/Key、用户选择的短 Ref、Preflight 解析出的 40 位完整 Commit、AllowedPaths、版本化 BuildProfile 引用、创建 Principal 和 canonical SHA-256。Ref 后续移动、Binding 默认分支变化或 Binding 停用都不改变历史快照。AllowedPaths 使用仓库相对 canonical 路径，拒绝绝对路径、反斜杠、空段、`.`/`..` 组件、NUL 和控制字符，并折叠重复及父子冗余根。
 
 非 Coding Task 不创建 CodingTargetSnapshot，既有 Task 生命周期保持不变。Retry 默认沿用原快照的 ID、Revision 和 Hash；显式换目标时创建线性后继 Revision，记录 Parent Snapshot 和变更原因，并重新验证当前 RepositoryBinding。后继 AllowedPaths 只能保持或收紧，不能扩大父 Revision 的路径授权；TaskBrief 与验收标准不能借 Retry 改写。应用层按 Organization、Team、WorkProject 和 Task 查询快照，数据库以 Task + Revision 唯一约束原子拒绝重复版本。
@@ -2375,6 +2385,20 @@ Coding 持久化使用 Scope 化 Spring JDBC Adapter。RepositoryBinding 与 Exe
 Coding attempt 查询以 `organization + team + project + task + execution` 完整 Scope 裁决当前与历史尝试。Task 当前入口、attempt 列表和指定历史入口返回同一公开投影；兼容的非 Coding Task 返回 `coding=false` 与空详情。Workspace 投影只包含逻辑状态、Repository Key、Commit、Managed Branch、恢复代次、保留期和 Fingerprint；Sandbox 投影只包含网络模式、只读根层、CPU/内存/PID、命令/文件/Diff/修复预算和 BuildProfile。公开 DTO 不包含 canonical 路径、Workspace Key、Archive Ref、Container ID/Name、Runtime/Worker、Lease/Claim/Fencing、Artifact 存储位置、AgentState 或 reasoning。最终 Coding Result 只在成功 TestEvidence 的 Diff Generation 与 Manifest Hash 精确匹配最终 DiffArtifact 时由耐久坐标合成。
 
 CommandEvidence 与 TestEvidence 使用独立单调 Keyset 流，Cursor 绑定 Organization、Team、Task、TaskExecution 和集合类型。attempt 批量投影固定为 Workspace 根查询加 DiffFile 子表查询；CommandEvidence 固定一次查询；TestEvidence 固定为根、Command 引用和 Acceptance 三次查询，返回条数增加时 SQL 次数保持不变。查询 Port 位于 application read model，与领域写 Repository 分离。实现与验证见 [M4-A04 Coding attempt 查询 API](testing/M4-A04-Coding-attempt查询API.md)。
+
+M4-F04 在 Task 详情交付成员安全的 Execution Studio 基础观察面。该观察面聚合当前或历史 Coding attempt 的 Repository Key、不可变 Baseline Commit、Managed Branch、Workspace 状态、恢复代次、Sandbox/BuildProfile 预算、Coding Agent Run、当前 Plan/Step 和最近一条结构化 CommandEvidence。Conversation 与 Control Mode 使用同一 Task/attempt/Workspace 深链接，切换 attempt 时同时切换 Task Runtime 与 Coding 投影；Workspace 坐标必须由所选 attempt 的服务端事实验证。非 Coding Task 返回显式空态，403 进入统一权限边界，恢复与终态保留独立语义。浏览器白名单排除宿主路径、容器标识、镜像、命令参数、环境变量、Token、Lease/Fencing、AgentState 与 reasoning。实现与验证见 [M4-F04 Execution Studio 基础观察面](testing/M4-F04-Execution-Studio基础观察面.md)。
+
+M4-F05 在 Execution Studio 中交付 Diff Explorer。统一 Task SSE 的 RESET 事件建立一个 Epoch 的完整文件投影，DELTA 事件只在 Epoch 相同且 Sequence 直接相邻时更新文件；重复事件忽略，乱序、缺口、Cursor 过期和 `projectionGap` 触发 A04 attempt 权威 DiffManifest 对账。浏览器二次白名单验证 canonical 仓库相对路径、固定变更枚举、非负安全整数、Boolean 和 64 位十六进制 Patch Hash，任一嵌套事实非法时停止增量合并。文件树展示仓库相对路径、旧路径、变更类型、增删行、Binary 与 Patch 截断状态，累计统计始终从当前文件投影计算。最终文本 Patch 通过 A06 的 Task/attempt 关系授权入口按字节分页读取，浏览器复验 Range 连续性、总大小、ETag、SHA-256 和 UTF-8，再按解码后的精确 `diff --git` Header 定位选中文件；Patch 正文和元数据行不参与坐标匹配。实时 Timeline 不承载源码、Patch Preview、宿主路径、容器坐标或命令参数。桌面使用文件树与 Patch 双栏，窄屏按文件树后 Patch 的语义顺序排列。实现与验证见 [M4-F05 Diff Explorer 与实时 Diff Stream](testing/M4-F05-Diff-Explorer与实时Diff-Stream.md)。
+
+M4-F06 在同一 Task 详情交付 CommandEvidence、TestEvidence 与 Acceptance 只读证据面板。命令投影显示固定 CommandKind、ToolKey、Termination、ExitCode、执行时长、Timeout、安全摘要和失败分类；测试投影显示 Total、Passed、Failed、Errors、Skipped、Diff Generation、摘要、失败分类和按 Criterion Index 排列的验收结论。历史 attempt 使用相同入口读取自身证据，命令和测试集合继续使用绑定 Scope、Task、TaskExecution 与集合类型的 Keyset Cursor。
+
+Command Log 与 Test Report 通过 A06 的用途固定关系入口按 64 KiB 字节页读取。浏览器逐页复验 Offset 连续性、总大小、ETag、Content-Type 和服务端下载名，最终复验 Artifact Size、SHA-256 与严格 UTF-8；单页失败保留已验证前缀并从相同 Offset 重试，8 MiB 浏览器预算关闭超大内容。ANSI、HTML、XML 和 JSON 都进入纯文本节点，不使用动态 HTML；常见凭证形态在显示层再次遮蔽。完整 Artifact 下载名只从响应 `Content-Disposition` 提取，移除路径段，并拒绝空值、`.`、`..`、控制字符和超过 255 字符的名称。观察面不提供命令编辑、重跑、终端输入、任意 Shell、任意 Artifact ID、任意路径或任意 URL。实现与验证见 [M4-F06 Evidence 只读面板与有界 Artifact](testing/M4-F06-Evidence只读面板与有界Artifact.md)。
+
+M4-F07 在 Execution Studio 中交付 Coding 进度与执行控制。五阶段轨道从 Workspace、当前 PlanVersion、DiffManifest、Test/Verify/Acceptance CommandEvidence、TestEvidence 和 CodingResult 的最新公开事实确定准备、分析与计划、代码变更、测试与修复、交付位置。面板同步展示当前 Plan Todo、Step Checkpoint、当前 Agent Run 的 State Snapshot 摘要、当前 Step 与 continuity gap。浏览器只读取 Snapshot Sequence 和 Checkpoint Sequence，不读取 AgentState、State Reference、Checkpoint Hash 或模型内部状态。
+
+TestEvidence Sequence 表达证据发布顺序；同一 Specialist 修复轮次可以产生多条 TestEvidence。前端展示最新 Evidence Sequence 与 WorkspacePolicy 修复预算上限，精确已用修复轮次等待后续公开 DTO 提供权威字段。当前 Coding attempt 的 Execution ID 与 M3 TaskExecution 对齐后开放 Pause、Resume、Cancel 与 Retry；历史 attempt 保持只读，对齐中的当前 attempt 等待强版本事实。所有命令沿用 M3 的 `If-Match`、`Idempotency-Key`、原键重试、409/412 回读、离线关闭、确认对话框和焦点恢复协议。实现与验证见 [M4-F07 Coding 进度与执行控制整合](testing/M4-F07-Coding进度与执行控制整合.md)。
+
+M4-F08 固化 Coding 前端质量基线。Repository Settings 离线后继续展示已加载的 RepositoryBinding，所有仓库写操作关闭；绑定面板完成初始焦点、Escape 关闭和重渲染后的触发器焦点恢复。Execution Studio 以 Story 固化 Ready、Recovering、Terminal、Offline、Loading、Empty 和 Error，动态同步、Preflight 与分页错误使用分级 Live Region，CodingTarget 加载动效服从 Reduced Motion。Artifact 权限状态按当前 Task/attempt 前缀读取，已经离开的 Task 或历史 attempt 缓存不能触发当前页面权限跳转。desktop Chromium 与 390×844 narrow Chromium 同时执行交互、视觉和 Axe WCAG 2.2 AA 门禁。浏览器状态白名单持续排除内部路径、容器坐标、Token、Lease/Fencing、AgentState、State Reference、Checkpoint Hash 和 reasoning。实现与验证见 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
 
 Provision 在同一非阻塞锁内完成“Repository/Archive/Branch/Path 前置校验—受管父目录逐段 `NOFOLLOW_LINKS` 校验—`git worktree add`—canonical containment—物理 Fingerprint 复验—READY 事实提交”。重复调用只接受同一 Path、Branch、HEAD、CommonDir、Workspace 和 Policy 完整闭合的既有 Worktree。普通失败同步删除本次 Worktree 与 managed branch；启动对账只清理 Path、Branch、HEAD、CommonDir 和 Workspace 身份全部闭合的 Provision 孤儿。未知目录、错误 HEAD/Branch、失效 `.git` 指针、Owner 不匹配和符号链接越界进入稳定损坏分类并保留现场。实现与故障证据见 [M4-I03 Worktree 生命周期与物理指纹](testing/M4-I03-Worktree生命周期与物理指纹.md)。
 
@@ -3566,6 +3590,8 @@ M1 的管理入口使用 `/today`、`/work` 和 `/team/members`，`/control` 只
 Conversation 选中对象使用 `conversation` Query 保存服务端 UUID。刷新恢复 Team、WorkProject 与 Conversation；Team 切换或无效 Scope 规范化清除不兼容的 Conversation。桌面 Conversation 页面使用列表、详情和 Participant 三面板，窄屏仅显示列表或详情，并通过显式返回动作恢复列表。
 
 AppShell 在主导航前提供可聚焦的跳过链接。Conversation 从列表进入详情时聚焦对话标题，窄屏返回时聚焦原对话按钮。模态弹窗使用初始焦点、Tab 焦点陷阱、Escape 关闭和触发元素恢复。页面的 Loading 与 Reconnecting 标记忙碌状态，Error 使用紧急播报，其他动态状态使用礼貌播报。
+
+Repository Settings 与 Execution Studio 复用同一可访问性契约。仓库绑定面板关闭时按稳定触发器标识查询当前 DOM 节点，Catalog 异步刷新引发按钮重建时仍能恢复焦点。Repository Preflight、执行事实同步与 Artifact 分页错误分别采用礼貌或紧急播报；CodingTarget 加载动画在 Reduced Motion 环境关闭旋转。M4 主要页面进入双视口键盘、截图和 Axe WCAG 2.2 AA 自动门禁。
 
 前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。Bootstrap 前端身份从环境读取 Organization/Principal ID；OIDC Session API 进入后替换该开发边界，不改变 Scope Store 与路由契约。
 

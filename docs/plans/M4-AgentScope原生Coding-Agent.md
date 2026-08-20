@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07` 已完成，下一项为 `M4-F01`（2026-08-20）
+> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07`、`M4-F01` 至 `M4-F08` 已完成，下一项为 `M4-Q01`（2026-08-20）
 
 ## 1. 出口结果与范围
 
@@ -118,7 +118,7 @@ M4-I11 + I12 -> M4-A03 + M4-F07
 M4-A01 -> M4-F01 + F02
 M4-A02 -> M4-F03
 M4-A03 + A04 -> M4-F04
-M4-A05 -> M4-F05
+M4-A05 + A06 -> M4-F05
 M4-A06 -> M4-F06
 M4-F02..F07 -> M4-F08
 
@@ -184,14 +184,14 @@ Coding 闭环完成 -> M4-Q03
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-F01` | TASK | A01,A02,A04 | web | 建立 Repository/CodingTarget/Workspace/Diff/Test Gateway、公开类型、Store 与 Task/attempt/Workspace 深链接路由 | Vitest 覆盖 DTO 白名单、Scope 切换、过期请求隔离、Cursor、缓存失效和错误信封 |
-| `M4-F02` | FEATURE | F01,A01 | web | 在 WorkProject Settings 交付 RepositoryBinding 管理页，从服务端受管 Repository Catalog 选择 Key，支持 Preflight、创建、启停和版本冲突刷新 | 管理员权限、无 Catalog、失效仓库、路径不披露、Loading/Empty/Error/Forbidden 和窄屏交互通过 |
-| `M4-F03` | FEATURE | F01,A01,A02 | web | 在 WorkItem 委托表单和 Conversation TaskIntent 确认中提供 Repository、Ref、AllowedPaths、BuildProfile 与验收条件选择 | 权限、默认值、Preflight、无仓库、失效 Ref、表单恢复、幂等重试和窄屏交互通过 |
-| `M4-F04` | FEATURE | F01,A03,A04 | web | 在 Task 详情交付 Execution Studio，展示基线、Workspace/Sandbox、Coding Agent、计划、当前命令、资源预算和恢复代次 | Conversation/Control 双入口读取同一事实；Loading/Empty/Error/Forbidden/Recovering/Terminal 与 attempt 切换通过 |
-| `M4-F05` | FEATURE | F01,A05 | web | 交付文件树、变更状态、单文件 Patch、累计统计和实时 Diff Stream，支持 Cursor 续传与 Reset Reconcile | 新增/修改/删除/重命名/二进制/大 Diff、断线、乱序、桌面双栏和窄屏顺序阅读通过 |
-| `M4-F06` | FEATURE | F01,A04,A06 | web | 展示 Command/TestEvidence、退出码、时长、测试统计、有界日志和 Artifact 下载；命令面板保持只读 | 不提供任意终端输入；日志分页/Range、超时、失败、敏感内容隐藏和键盘导航通过 |
-| `M4-F07` | FEATURE | F04,M3-F05,A03 | web | 将 Coding 阶段、Todo、Checkpoint、测试修复轮次与 M3 Pause/Resume/Cancel/Retry 控件整合到 Execution Studio | 命令执行中控制、冲突刷新、离线、同键重试、恢复后事实一致和焦点恢复通过 |
-| `M4-F08` | HARDENING | F02..F07 | web | 收口 Repository 与 Execution Studio 全状态、桌面/窄屏响应式、键盘、ARIA Live、Reduced Motion、Axe WCAG 2.2 AA、视觉回归和组件 Story | Vitest coverage、Histoire、Playwright 双视口、视觉和 Axe 门禁通过；内部路径、Token、State、Reasoning 不进入 Web 状态 |
+| `M4-F01` | TASK | A01,A02,A04 | web | 已完成：建立 Repository/CodingTarget/Workspace/Diff/Test Gateway、公开类型、Store 与 Task/attempt/Workspace 深链接路由 | [M4-F01 Coding 前端数据层与深链接](../testing/M4-F01-Coding前端数据层与深链接.md)；13 个新增 Vitest 与 197 个前端全量测试覆盖 DTO 白名单、完整 WorkProject Scope 切换、过期请求隔离、Cursor、缓存失效、错误信封和深链接恢复，生产构建通过 |
+| `M4-F02` | FEATURE | F01,A01 | web | 已完成：在 WorkProject Settings 交付 RepositoryBinding 管理页，并补齐管理员专用、路径无关的受管 Repository Catalog；支持 Catalog 选 Key、Draft/Existing Preflight、创建、启停、原键重试和版本冲突强制刷新 | [M4-F02 RepositoryBinding 管理页](../testing/M4-F02-RepositoryBinding管理页.md)；203 个前端测试、桌面/390×844 Playwright、生产构建、Catalog 应用测试和 Server Reactor 编译覆盖权限、无 Catalog、失效仓库、路径不披露及全状态 |
+| `M4-F03` | FEATURE | F01,A01,A02 | web | 已完成：在 WorkItem 委托表单与 Conversation TaskIntent 确认结果中交付统一 CodingTarget 表单，提供 Repository、Ref、AllowedPaths、BuildProfile、验收条件、通用任务切换、草稿恢复与 Preflight | [M4-F03 CodingTarget 委托表单](../testing/M4-F03-CodingTarget委托表单.md)；权限、服务端默认值、无仓库、失效 Ref、Scope 化恢复、精确 DTO、同键重试和桌面/390×844 双入口通过 |
+| `M4-F04` | FEATURE | F01,A03,A04 | web | 已完成：在 Task 详情交付 Execution Studio，聚合不可变基线、Workspace/Sandbox、Coding Agent、计划与当前步骤、最近结构化命令、资源预算和恢复代次，并将 attempt/Workspace 选择固化到深链接 | [M4-F04 Execution Studio 基础观察面](../testing/M4-F04-Execution-Studio基础观察面.md)；Conversation/Control 双入口、Loading/Empty/Error/Forbidden/Recovering/Terminal、attempt 切换、桌面/390×844、Axe 与视觉回归通过 |
+| `M4-F05` | FEATURE | F01,A05,A06 | web | 已完成：交付文件树、变更状态、单文件 Patch、累计统计和实时 Diff Stream；复用 Task Cursor 续传，严格应用同 Epoch 直接后继 DELTA，缺口时以 attempt 权威快照 Reset Reconcile；Patch 通过独立授权 Artifact API 分页读取并复验 Size、ETag、SHA-256 与 UTF-8 | [M4-F05 Diff Explorer 与实时 Diff Stream](../testing/M4-F05-Diff-Explorer与实时Diff-Stream.md)；新增/修改/删除/重命名/二进制、大文件树、断线、乱序、403、桌面双栏、390×844 顺序阅读、Axe 与视觉回归通过 |
+| `M4-F06` | FEATURE | F01,A04,A06 | web | 已完成：交付 CommandEvidence、TestEvidence 与 Acceptance 只读证据面板，展示退出码、时长、超时、测试统计和失败分类；日志与报告使用固定关系入口按 64 KiB 加载，复验 Range、元数据、Size、SHA-256 与 UTF-8，完整后使用服务端文件名下载 | [M4-F06 Evidence 只读面板与有界 Artifact](../testing/M4-F06-Evidence只读面板与有界Artifact.md)；Cursor、Range、429 后保留已验证分页、失败与超时、敏感内容遮蔽、无终端输入、键盘、桌面/390×844、Axe 与回归通过 |
+| `M4-F07` | FEATURE | F04,M3-F05,A03 | web | 已完成：将五阶段 Coding 轨道、Plan Todo、Step Checkpoint、Agent Run/State Snapshot、TestEvidence、修复预算与 M3 Pause/Resume/Cancel/Retry 控件整合到 Execution Studio；当前 attempt 按强版本开放命令，历史 attempt 保持只读 | [M4-F07 Coding 进度与执行控制整合](../testing/M4-F07-Coding进度与执行控制整合.md)；命令执行中控制、409/412 回读、离线、同键重试、恢复后一致性、焦点恢复、桌面/390×844、视觉与 Axe 回归通过 |
+| `M4-F08` | HARDENING | F02..F07 | web | 已完成：收口 Repository 与 Execution Studio 全状态、桌面/窄屏响应式、键盘、ARIA Live、Reduced Motion、Axe WCAG 2.2 AA、视觉回归和组件 Story | [M4-F08 前端全状态与质量门禁](../testing/M4-F08-前端全状态与质量门禁.md)；232 项 Vitest、7 个 Story/32 个 Variant、126 项双视口 Playwright、视觉和 Axe 门禁通过，内部路径、Token、State 与 Reasoning 未进入 Web 状态 |
 
 ## 11. 测试、评测与发布
 

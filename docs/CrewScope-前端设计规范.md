@@ -103,6 +103,46 @@ M1-F01 固化首批管理路由：
 
 `team` 与 `project` Query 使用服务端 UUID。Scope Store 按 Team → WorkProject 顺序恢复范围；未知范围回落到第一个可访问对象并替换为规范 URL。切换 Team 清除旧 Project 与 Focus，切换 Project 保留当前页面。Conversation 与管理入口复用完整范围 Query。
 
+M4-F01 固化 Coding 对象深链接：
+
+```text
+/work?team=<teamId>&project=<projectId>&workItem=<workItemId>&task=<taskId>&attempt=<executionId>&workspace=<workspaceId>
+```
+
+`task` 依赖 `team + project`，`attempt` 依赖 `task`，`workspace` 依赖 `attempt`。Coding Store 在恢复后读取服务端 attempt 事实并校验 Workspace 归属。关闭 Coding 焦点移除 `attempt` 与 `workspace`，保留 Task、WorkItem、筛选和页面模式。Organization、Team 与 WorkProject 共同形成 Repository、BuildProfile、attempt 和 Evidence 的缓存分区。
+
+M4-F02 固化 WorkProject Repository 设置路由：
+
+```text
+/settings/repositories?team=<teamId>&project=<projectId>
+```
+
+路由要求 Repository 管理权限。页面从服务端受管 Repository Catalog 选择稳定 Key，并从创建候选中排除当前 WorkProject 已存在的 RepositoryBinding，提供 Draft/Existing Preflight、创建、启用和停用。概览中的“可绑定”数量使用 AVAILABLE Catalog 与当前 Binding Key 的差集；Catalog 未进入 Ready 或刷新失败时关闭新建、Draft Preflight 和提交。桌面使用事实行，窄屏沿 Repository、状态、版本、审计、Preflight 和操作顺序阅读；创建入口同时存在于 ContextHeader 与页面内容区。命令失败保留原 Idempotency Key 供安全重试，409/412 丢弃陈旧命令并回读 Binding 列表与详情。页面只展示 Repository Key、Branch、Commit 截断值、状态、版本和成员安全审计摘要。
+
+M4-F03 在 WorkItem 委托和 TaskIntent 确认结果中复用统一 CodingTarget 表单。表单默认选择第一个 ACTIVE RepositoryBinding、其默认分支、`.` AllowedPaths 与第一个服务端 BuildProfile，提交前必须完成显式 Ref Preflight；Repository、Ref、AllowedPaths 或 Profile 任一变化都会立即失效旧 Preflight。成员可以关闭 Coding 开关创建兼容的通用 Agent Task。草稿仅保存稳定 ID、短 Ref、仓库相对路径与公开 Profile 坐标，并以 Organization、Team、WorkProject、WorkItem 分区保存在 SessionStorage；成功后清除，损坏、跨 Scope 或失效选项按当前服务端默认值恢复。可重试创建锁定表单并沿用 Task Store 保存的原命令和 Idempotency Key。
+
+TaskIntent 确认继续使用空请求体，先原子创建 WorkItem 和责任链。确认结果卡向当前 Owner 提供“配置 Coding Task”入口，携带 Conversation、WorkItem 与最新持久 USER Message 坐标进入同一委托表单。服务端逐次复验 WorkItem 责任、Repository Scope、Binding 状态、BuildProfile 和 Ref；Conversation 与 Control 两个入口共享同一 Coding Task 创建流程。
+
+M4-F04 在 Task 详情顶部提供统一 Execution Studio。页面从 Coding Store、Task Runtime Store 和服务端公开投影组合不可变基线、Workspace/Sandbox、Coding Agent、当前 Plan/Step、最近结构化 CommandEvidence、资源预算和恢复代次。attempt 选择写入 `attempt` Query，服务端返回的 Workspace ID 写入 `workspace` Query；恢复时先验证完整 Team、WorkProject、Task、attempt 和 Workspace 归属，再切换 Task Runtime 与 Coding 事实。Conversation 和 Control 入口进入同一 Task URL，读取同一事实。
+
+Execution Studio 的 Loading、非 Coding Empty、Error、Forbidden、Recovering 和 Terminal 使用独立稳定状态。Recovering 展示恢复代次和对账含义，Terminal 展示完成原因或稳定失败码与证据保留语义。资源预算同时显示耐久命令与变更文件用量，以及 CPU、内存、PID、命令时长、输出、写入、单文件、Diff 和测试修复上限。浏览器状态只保存公开坐标与摘要。
+
+M4-F05 在 Execution Studio 下方提供 Diff Explorer。桌面使用文件树与 Patch 双栏，窄屏保持文件树、选中文件、Patch 的顺序阅读。文件树按路径层级展示新增、修改、删除、重命名、复制和二进制状态，顶部显示文件数、增删行和 Diff Generation；超过 400 个匹配文件时只渲染前 400 个并要求继续按路径筛选。
+
+Diff Explorer 从统一 Task Timeline 重放 `WORKSPACE_DIFF_RESET/DELTA`。RESET 完整替换当前 Epoch，DELTA 只接受相同 Epoch 的直接后继 Sequence，重复事件忽略，缺失、乱序和浏览器 Cursor 过期停止增量合并并回读 attempt 权威 DiffManifest。实时流只接受 canonical 仓库相对路径、固定变更枚举、非负安全整数、Boolean 与 64 位十六进制 Patch Hash；任一嵌套文件事实不满足形状时停止合并。最终 Patch 通过独立授权 Artifact API 按 256 KiB 分页读取，前端复验连续 Range、固定总大小、ETag、Artifact SHA-256 和完整 UTF-8，并只按解码后的精确 `diff --git` Header 坐标定位单文件；Patch 正文、`+++` 和 Rename 文本不参与文件选择。Binary、实时未终态和超出预算使用明确空态。
+
+M4-F06 在 Diff Explorer 下方提供 Evidence 只读面板。桌面左侧选择 CommandEvidence，右侧依次阅读命令事实、日志、TestEvidence、测试统计、Acceptance 和测试报告；窄屏按命令列表、命令详情、日志、测试与验收顺序排列。命令事实显示 Kind、Tool Key、Termination、Exit Code、执行时长、Timeout、摘要和稳定失败分类。测试事实显示 Total、Passed、Failed、Errors、Skipped，并按 Criterion Index 排列验收结果。
+
+日志与测试报告只从 Task、attempt、evidence 固定关系入口读取，每页 64 KiB。前端复验连续 Range、固定总大小、ETag、Content-Type、服务端文件名、Artifact Size、SHA-256 和完整 UTF-8；分页失败保留已经验证的字节，重试从原 Offset 继续。下载名从 `Content-Disposition` 读取，移除路径段，并拒绝空值、`.`、`..`、控制字符和超过 255 字符的名称。页面仅使用纯文本插值展示内容，常见 Token、Password、Secret 和 API Key 形态增加显示层遮蔽，完整内容校验后使用通过校验的服务端文件名下载。面板没有命令输入、编辑、重跑、任意 Shell、任意 URL 或任意 Artifact ID 入口。
+
+M4-F07 在 Execution Studio 中提供 Coding 进度与执行控制。进度轨道固定为准备、分析与计划、代码变更、测试与修复、交付五个阶段，并从 Workspace、当前 PlanVersion、DiffManifest、Command/TestEvidence 与 CodingResult 的最新公开事实确定位置。轨道提示该位置是阅读投影，TaskExecution 与 Workspace 状态继续承担执行事实。
+
+进度面板展示当前 Plan Todo、最近 Step Checkpoint、当前 Agent Run 的 State Snapshot 摘要、当前 Step、Checkpoint 连续性缺口、最新 TestEvidence 序号与 WorkspacePolicy 修复预算上限。TestEvidence 序号表达证据发布顺序，公开 API 当前未披露 Specialist 已用修复轮次，前端不推导该数值。当前 Coding attempt 与 TaskExecution ID 对齐后嵌入 M3 `TaskControlPanel`；历史 attempt 保持只读，对齐中的当前 attempt 显示同步状态。Pause、Resume、Cancel 与 Retry 沿用 `If-Match`、`Idempotency-Key`、409/412 回读、原命令重试、离线关闭、确认对话框和焦点恢复协议。
+
+M4-F08 将 Repository Settings 与 Execution Studio 纳入统一页面完成门禁。Repository 离线时保留已加载事实并关闭绑定、Preflight、启停和刷新；绑定面板聚焦首个字段，Escape 关闭后使用稳定触发器标识恢复当前 DOM 焦点。Execution Studio 固定提供 Ready、Recovering、Terminal、Offline、Loading、Empty 和 Error 组件状态。Preflight、状态同步和分页错误使用相应 Live Region，CodingTarget 动效服从 Reduced Motion。
+
+M4 页面在 desktop Chromium 与 390×844 narrow Chromium 执行交互、视觉和 Axe WCAG 2.2 AA 回归。Histoire 保存 Repository 五种状态与 Coding Execution 七种状态。Artifact 权限边界只消费当前 Task/attempt 的 Patch、Command Log 与 Test Report 状态，历史 attempt 缓存不能改变后续 Task 的权限导航。浏览器公开状态继续排除宿主路径、容器坐标、Token、Lease/Fencing、AgentState、State Reference、Checkpoint Hash 和 reasoning。实现与门禁见 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
+
 路由守卫和按钮权限来自当前会话，只负责裁剪界面和给出明确的 Access Denied 反馈。所有资源读取和命令继续由服务端执行 Membership、Role Scope 与 Principal 校验。
 
 ### 3.2 页面模板
@@ -225,6 +265,9 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 | `AgentPresence` | Agent 类型、状态、当前步骤、模型/Runtime、接管入口 | 对话、执行画布、团队首页 |
 | `WorkItemCard` | M1-F02：Key、目标、状态、类型、优先级、标签、Due Date；责任摘要等待集合批量投影，避免逐卡 N+1 | 列表、看板、对话引用 |
 | `WorkItemDetailDrawer` | 一致性详情、版本、合法迁移、评论、ResourceLink、责任链、时间线、并发冲突和 Personal Agent 跳转 | WorkItem List/Board 详情 |
+| `CodingTargetFormSection` | ACTIVE RepositoryBinding、Baseline Ref、AllowedPaths、精确 BuildProfile、Preflight、Scope 化草稿和通用任务切换 | WorkItem 委托、TaskIntent 确认结果 |
+| `CodingExecutionStudio` | 不可变基线、Workspace/Sandbox、Coding Agent、Plan/Step、最近结构化命令、资源预算、恢复代次和终态保留语义 | Task 详情、Conversation/Control 双入口 |
+| `CodingDiffExplorer` | 层级文件树、变更类型、累计统计、RESET/DELTA 状态、断线对账和授权单文件 Patch | Task 详情、Execution Studio |
 | `TaskTimeline` | PlanVersion、Step、Tool、等待、恢复、耗时和成本 | Task 详情、执行抽屉 |
 | `ReviewGateCard` | Reviewer、资格、检查项、Finding、Decision | Inbox、对话、WorkItem 详情 |
 | `ActionReceiptCard` | 动作、风险、确认人、外部回执、对账状态 | 对话、Task、Audit |
