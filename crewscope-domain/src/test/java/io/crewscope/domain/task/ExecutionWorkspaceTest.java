@@ -388,6 +388,38 @@ class ExecutionWorkspaceTest {
     }
 
     @Test
+    void committedCancellationSupersedesAnAlreadySealedSuccessfulResult() {
+        Fixture fixture = Fixture.create();
+        Running running = fixture.running();
+        ExecutionWorkspace active = fixture.readyWorkspace().activate(
+                running.execution, running.lease, 2, fixture.owner, ACTIVE_AT);
+        ExecutionWorkspace sealed = active.beginFinalizing(
+                ExecutionWorkspaceCompletionReason.SUCCEEDED,
+                running.execution,
+                3,
+                fixture.owner,
+                CONTROL_AT);
+        TaskExecution cancelled = running.execution
+                .requestCancel("Cancel after final verification", 4, fixture.owner, CONTROL_AT)
+                .acknowledgeCancelled(
+                        5,
+                        fixture.owner,
+                        UtcTimestamp.parse("2026-08-13T08:57:00Z"));
+
+        ExecutionWorkspace completed = sealed.completeFinalizing(
+                cancelled,
+                4,
+                fixture.owner,
+                UtcTimestamp.parse("2026-08-13T08:58:00Z"));
+
+        assertEquals(ExecutionWorkspaceStatus.COMPLETED, completed.status());
+        assertEquals(
+                Optional.of(ExecutionWorkspaceCompletionReason.CANCELLED),
+                completed.completionReason());
+        assertEquals(sealed.fingerprint(), completed.fingerprint());
+    }
+
+    @Test
     void recoveryRestoresTheInterruptedStateWithANewGenerationAndLease() {
         Fixture fixture = Fixture.create();
         Running running = fixture.running();

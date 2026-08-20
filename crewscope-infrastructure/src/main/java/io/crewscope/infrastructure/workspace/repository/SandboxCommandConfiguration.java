@@ -2,6 +2,9 @@ package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.artifact.ArtifactStore;
 import io.crewscope.application.coding.CommandEvidenceRepository;
+import io.crewscope.application.coding.TestEvidenceRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
+import io.crewscope.application.transaction.TransactionExecutor;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -53,6 +56,18 @@ public class SandboxCommandConfiguration {
     CommandEvidenceWriter commandEvidenceWriter(
             CommandEvidenceRepository repository, CommandLogArtifactWriter commandLogs) {
         return new CommandEvidenceWriter(repository, commandLogs, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TestEvidencePublisher.class)
+    @ConditionalOnBean({TestEvidenceRepository.class, TestReportArtifactWriter.class})
+    TestEvidencePublisher testEvidencePublisher(
+            TestEvidenceRepository tests,
+            TestReportArtifactWriter reports,
+            CodingTaskTimelinePublisher timeline,
+            TransactionExecutor transactions) {
+        return new TestEvidencePublisher(
+                tests, reports, Clock.systemUTC(), timeline, transactions);
     }
 
     @Bean

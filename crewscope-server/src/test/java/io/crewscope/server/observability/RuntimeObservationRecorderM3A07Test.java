@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 class RuntimeObservationRecorderM3A07Test {
 
     @Test
-    void recordsOnlyViewAndHealthAsMetricDimensions() {
+    void recordsOnlyLowCardinalityViewAndHealthDimensions() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         RuntimeObservationRecorder recorder = new RuntimeObservationRecorder(registry);
         UtcTimestamp now = UtcTimestamp.parse("2026-08-15T12:30:00Z");
@@ -42,7 +42,8 @@ class RuntimeObservationRecorderM3A07Test {
                 0,
                 new RuntimeCapacitySummary(4, 0, 4),
                 0,
-                Map.of());
+                Map.of(),
+                Optional.empty());
 
         for (int index = 0; index < 2; index++) {
             OrganizationId organizationId = OrganizationId.generate();
@@ -71,7 +72,7 @@ class RuntimeObservationRecorderM3A07Test {
         Set<String> tagKeys = counters.iterator().next().getId().getTags().stream()
                 .map(tag -> tag.getKey())
                 .collect(java.util.stream.Collectors.toSet());
-        assertEquals(Set.of("view", "health"), tagKeys);
+        assertEquals(Set.of("view", "health", "workspace_health"), tagKeys);
         assertTrue(registry.getMeters().stream().noneMatch(meter ->
                 meter.getId().getTags().stream().anyMatch(tag ->
                         tag.getValue().contains("-"))));

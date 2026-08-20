@@ -7,6 +7,7 @@ import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.task.LeaseCommandScope;
 import io.crewscope.application.task.LeaseExecutionCommand;
 import io.crewscope.application.task.LeaseMutationResult;
+import io.crewscope.application.task.LeaseReleaseCommand;
 import io.crewscope.application.task.LeaseTransitionCommand;
 import io.crewscope.application.task.PlanVersionRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
@@ -18,6 +19,7 @@ import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.task.TaskTokenIssueCommand;
 import io.crewscope.application.task.TaskTokenIssueResult;
 import io.crewscope.application.task.TaskTokenService;
+import io.crewscope.application.task.TaskTokenRevokeCommand;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -27,6 +29,7 @@ import io.crewscope.domain.task.AgentRun;
 import io.crewscope.domain.task.AgentRunId;
 import io.crewscope.domain.task.ClaimReceipt;
 import io.crewscope.domain.task.ExecutionLease;
+import io.crewscope.domain.task.ExecutionLeaseReleaseReason;
 import io.crewscope.domain.task.PlanVersion;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.SafetyEnforcementOverlay;
@@ -34,6 +37,8 @@ import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.workspace.AgentProfile;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecution;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.Objects;
@@ -65,6 +70,7 @@ public final class DurableTaskWorkerExecutionFactory {
     private final RuntimeWorkerRegistrationSpec registration;
     private final RuntimeWorkerLifecycle workerLifecycle;
     private final Duration tokenLifetime;
+    private final CodingWorkspaceExecutionLifecycle codingLifecycle;
 
     public DurableTaskWorkerExecutionFactory(
             TaskRepository taskRepository,
@@ -84,6 +90,46 @@ public final class DurableTaskWorkerExecutionFactory {
             RuntimeWorkerRegistrationSpec registration,
             RuntimeWorkerLifecycle workerLifecycle,
             Duration tokenLifetime) {
+        this(
+                taskRepository,
+                executionRepository,
+                leaseRepository,
+                policyRepository,
+                overlayRepository,
+                planRepository,
+                sessionRepository,
+                runRepository,
+                principalRepository,
+                profileRepository,
+                leaseCoordinator,
+                tokenService,
+                transactionExecutor,
+                timeProvider,
+                registration,
+                workerLifecycle,
+                tokenLifetime,
+                CodingWorkspaceExecutionLifecycle.NOOP);
+    }
+
+    public DurableTaskWorkerExecutionFactory(
+            TaskRepository taskRepository,
+            TaskExecutionRepository executionRepository,
+            ExecutionLeaseRepository leaseRepository,
+            PolicySnapshotRepository policyRepository,
+            SafetyEnforcementOverlayRepository overlayRepository,
+            PlanVersionRepository planRepository,
+            TaskAgentRuntimeSessionRepository sessionRepository,
+            AgentRunRepository runRepository,
+            PrincipalRepository principalRepository,
+            AgentProfileRepository profileRepository,
+            TaskExecutionLeaseCoordinator leaseCoordinator,
+            TaskTokenService tokenService,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            RuntimeWorkerRegistrationSpec registration,
+            RuntimeWorkerLifecycle workerLifecycle,
+            Duration tokenLifetime,
+            CodingWorkspaceExecutionLifecycle codingLifecycle) {
         this.taskRepository = Objects.requireNonNull(taskRepository, "taskRepository");
         this.executionRepository = Objects.requireNonNull(executionRepository, "executionRepository");
         this.leaseRepository = Objects.requireNonNull(leaseRepository, "leaseRepository");
@@ -101,6 +147,7 @@ public final class DurableTaskWorkerExecutionFactory {
         this.registration = Objects.requireNonNull(registration, "registration");
         this.workerLifecycle = Objects.requireNonNull(workerLifecycle, "workerLifecycle");
         this.tokenLifetime = Objects.requireNonNull(tokenLifetime, "tokenLifetime");
+        this.codingLifecycle = Objects.requireNonNull(codingLifecycle, "codingLifecycle");
     }
 
     /** Advances PREPARE and RUN under the one-time Claim Token before returning closed facts. */
@@ -109,21 +156,38 @@ public final class DurableTaskWorkerExecutionFactory {
         LeaseCommandScope scope = scope(required);
         TaskExecution preparing = leaseCoordinator.beginPreparing(
                 new LeaseExecutionCommand(scope, required.taskExecutionVersion()));
-        PolicySnapshot policy = currentPolicy(preparing);
-        Set<String> allowedTools = policy.allowedTools().stream()
-                .filter(CONTROLLED_TOOLS::contains)
-                .collect(Collectors.toUnmodifiableSet());
-        TaskTokenIssueResult token = tokenService.issue(new TaskTokenIssueCommand(
-                preparing.id(), required.leaseId(), allowedTools, java.util.List.of(), tokenLifetime));
-        InitializedRuntime initialized = transactionExecutor.required(
-                () -> initializeRuntime(preparing, required, token));
-        ExecutionLease prepareLease = requiredLease(required.leaseId());
-        LeaseMutationResult running = leaseCoordinator.beginRun(new LeaseTransitionCommand(
-                scope, preparing.version(), prepareLease.version()));
-        TaskExecutionRuntimeFacts facts = transactionExecutor.required(() -> loadFacts(
-                running.execution(), running.lease(), initialized.session(), initialized.run(),
-                token));
-        return new TaskWorkerPreparedExecution(facts, scope, token, UUID.randomUUID());
+        TaskTokenIssueResult token = null;
+        Optional<CodingWorkspaceExecution> codingWorkspace = Optional.empty();
+        try {
+            PolicySnapshot policy = currentPolicy(preparing);
+            Set<String> allowedTools = policy.allowedTools().stream()
+                    .filter(CONTROLLED_TOOLS::contains)
+                    .collect(Collectors.toUnmodifiableSet());
+            token = tokenService.issue(new TaskTokenIssueCommand(
+                    preparing.id(),
+                    required.leaseId(),
+                    allowedTools,
+                    java.util.List.of(),
+                    tokenLifetime));
+            TaskTokenIssueResult issuedToken = token;
+            InitializedRuntime initialized = transactionExecutor.required(
+                    () -> initializeRuntime(preparing, required, issuedToken));
+            ExecutionLease prepareLease = requiredLease(required.leaseId());
+            codingWorkspace = codingLifecycle.prepare(preparing, prepareLease, policy);
+            LeaseMutationResult running = leaseCoordinator.beginRun(new LeaseTransitionCommand(
+                    scope, preparing.version(), prepareLease.version()));
+            codingWorkspace.ifPresent(workspace -> codingLifecycle.activate(
+                    workspace, running.execution(), running.lease()));
+            TaskExecutionRuntimeFacts facts = transactionExecutor.required(() -> loadFacts(
+                    running.execution(), running.lease(), initialized.session(), initialized.run(),
+                    issuedToken));
+            return new TaskWorkerPreparedExecution(
+                    facts, scope, issuedToken, UUID.randomUUID(), codingWorkspace);
+        } catch (RuntimeException failure) {
+            codingWorkspace.ifPresent(codingLifecycle::abandon);
+            cleanupFailedPreparation(scope, token, failure);
+            throw failure;
+        }
     }
 
     private InitializedRuntime initializeRuntime(
@@ -211,6 +275,41 @@ public final class DurableTaskWorkerExecutionFactory {
         return leaseRepository.findById(
                         registration.organizationId(), registration.environment(), leaseId)
                 .orElseThrow(() -> new AggregateNotFoundException("ExecutionLease", leaseId));
+    }
+
+    private void cleanupFailedPreparation(
+            LeaseCommandScope scope,
+            TaskTokenIssueResult token,
+            RuntimeException originalFailure) {
+        if (token != null) {
+            try {
+                tokenService.revoke(new TaskTokenRevokeCommand(
+                        token.token(), token.grant().version(), "TASK_PREPARATION_FAILED"));
+            } catch (RuntimeException cleanupFailure) {
+                originalFailure.addSuppressed(cleanupFailure);
+            }
+        }
+        try {
+            TaskExecution execution = executionRepository.findById(
+                            registration.organizationId(),
+                            requiredLease(scope.leaseId()).taskExecutionId())
+                    .orElseThrow(() -> new AggregateNotFoundException(
+                            "TaskExecution", scope.leaseId()));
+            ExecutionLease lease = requiredLease(scope.leaseId());
+            if (lease.release().isEmpty()
+                    && lease.owns(scope.ownership(), timeProvider.now())) {
+                leaseCoordinator.release(LeaseReleaseCommand.simple(
+                        new LeaseTransitionCommand(
+                                scope, execution.version(), lease.version()),
+                        ExecutionLeaseReleaseReason.WORKER_SHUTDOWN));
+            }
+        } catch (RuntimeException cleanupFailure) {
+            originalFailure.addSuppressed(cleanupFailure);
+        }
+    }
+
+    CodingWorkspaceExecutionLifecycle codingLifecycle() {
+        return codingLifecycle;
     }
 
     private LeaseCommandScope scope(ClaimReceipt receipt) {

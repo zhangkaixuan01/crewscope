@@ -1,5 +1,11 @@
 package io.crewscope.application.task;
 
+import io.crewscope.application.coding.BuildProfileCatalog;
+import io.crewscope.application.coding.CodingTargetSnapshotRepository;
+import io.crewscope.application.coding.CreateCodingTargetCommand;
+import io.crewscope.application.coding.RepositoryBindingPreflightPort;
+import io.crewscope.application.coding.RepositoryBindingPreflightResult;
+import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
@@ -27,6 +33,10 @@ import io.crewscope.domain.provider.ProviderBinding;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.provider.ProviderBindingTargetType;
 import io.crewscope.domain.provider.ProviderOwnerType;
+import io.crewscope.domain.coding.CodingTargetSnapshot;
+import io.crewscope.domain.coding.CodingTargetSnapshotId;
+import io.crewscope.domain.coding.BuildProfile;
+import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
@@ -45,6 +55,7 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ConversationTaskLink;
 import io.crewscope.domain.task.ConversationTaskLinkOrigin;
+import io.crewscope.domain.task.ExecutionCapability;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.PolicySnapshotId;
 import io.crewscope.domain.task.SafetyEnforcementOverlay;
@@ -83,6 +94,10 @@ public final class AgentTaskCreationService {
     private final AgentProfileRepository profileRepository;
     private final ConversationApplicationService conversationService;
     private final ProviderBindingResolver bindingResolver;
+    private final RepositoryBindingRepository repositoryBindingRepository;
+    private final RepositoryBindingPreflightPort repositoryPreflight;
+    private final BuildProfileCatalog buildProfileCatalog;
+    private final CodingTargetSnapshotRepository codingTargetRepository;
     private final TaskRepository taskRepository;
     private final TaskExecutionRepository executionRepository;
     private final PolicySnapshotRepository policyRepository;
@@ -105,6 +120,10 @@ public final class AgentTaskCreationService {
             AgentProfileRepository profileRepository,
             ConversationApplicationService conversationService,
             ProviderBindingResolver bindingResolver,
+            RepositoryBindingRepository repositoryBindingRepository,
+            RepositoryBindingPreflightPort repositoryPreflight,
+            BuildProfileCatalog buildProfileCatalog,
+            CodingTargetSnapshotRepository codingTargetRepository,
             TaskRepository taskRepository,
             TaskExecutionRepository executionRepository,
             PolicySnapshotRepository policyRepository,
@@ -126,6 +145,14 @@ public final class AgentTaskCreationService {
         this.profileRepository = Objects.requireNonNull(profileRepository, "profileRepository");
         this.conversationService = Objects.requireNonNull(conversationService, "conversationService");
         this.bindingResolver = Objects.requireNonNull(bindingResolver, "bindingResolver");
+        this.repositoryBindingRepository = Objects.requireNonNull(
+                repositoryBindingRepository, "repositoryBindingRepository");
+        this.repositoryPreflight = Objects.requireNonNull(
+                repositoryPreflight, "repositoryPreflight");
+        this.buildProfileCatalog = Objects.requireNonNull(
+                buildProfileCatalog, "buildProfileCatalog");
+        this.codingTargetRepository = Objects.requireNonNull(
+                codingTargetRepository, "codingTargetRepository");
         this.taskRepository = Objects.requireNonNull(taskRepository, "taskRepository");
         this.executionRepository = Objects.requireNonNull(executionRepository, "executionRepository");
         this.policyRepository = Objects.requireNonNull(policyRepository, "policyRepository");
@@ -211,6 +238,8 @@ public final class AgentTaskCreationService {
                 .orElseGet(() -> TaskSource.fromWorkItem(workItem));
         Set<ProviderBindingId> providerBindingIds = requireCurrentBindings(
                 organizationId, workItem, executor, command.providerBindingIds());
+        Optional<ResolvedCodingTarget> codingTarget = command.codingTarget()
+                .map(target -> resolveCodingTarget(organizationId, workItem, target));
 
         Task createdTask = taskRepository.create(Task.create(
                 TaskId.generate(),
@@ -220,6 +249,16 @@ public final class AgentTaskCreationService {
                 responsibilitySnapshot,
                 actor,
                 occurredAt));
+        codingTarget.ifPresent(target -> codingTargetRepository.create(CodingTargetSnapshot.initial(
+                CodingTargetSnapshotId.generate(),
+                createdTask,
+                target.binding(),
+                target.preflight().baselineRef(),
+                target.preflight().baselineCommit(),
+                target.command().allowedPaths(),
+                target.command().buildProfile(),
+                actor,
+                occurredAt)));
         TaskExecution createdExecution = executionRepository.create(TaskExecution.firstAttempt(
                 TaskExecutionId.generate(),
                 createdTask,
@@ -228,6 +267,13 @@ public final class AgentTaskCreationService {
                 occurredAt,
                 actor,
                 occurredAt));
+        Set<ExecutionCapability> capabilities = codingTarget
+                .map(target -> codingCapabilities(creationPolicy.capabilities()))
+                .orElse(creationPolicy.capabilities());
+        Set<String> allowedTools = codingTarget
+                .map(target -> codingTools(
+                        creationPolicy.allowedTools(), target.buildProfile()))
+                .orElse(creationPolicy.allowedTools());
         PolicySnapshot policy = policyRepository.create(PolicySnapshot.initial(
                 PolicySnapshotId.generate(),
                 createdTask,
@@ -236,8 +282,8 @@ public final class AgentTaskCreationService {
                 creationPolicy.policyPack(),
                 profile.id(),
                 profile.version(),
-                creationPolicy.capabilities(),
-                creationPolicy.allowedTools(),
+                capabilities,
+                allowedTools,
                 providerBindingIds,
                 creationPolicy.budget(),
                 actor,
@@ -364,6 +410,53 @@ public final class AgentTaskCreationService {
         return Set.copyOf(requestedIds);
     }
 
+    private ResolvedCodingTarget resolveCodingTarget(
+            OrganizationId organizationId,
+            WorkItem workItem,
+            CreateCodingTargetCommand command) {
+        RepositoryBinding binding = repositoryBindingRepository
+                .findById(
+                        organizationId,
+                        workItem.scope().teamId(),
+                        workItem.scope().projectId(),
+                        command.repositoryBindingId())
+                .filter(candidate -> candidate.scope().workspaceId()
+                        .equals(workItem.scope().workspaceId()))
+                .filter(RepositoryBinding::acceptsNewTargets)
+                .orElseThrow(() -> new DomainValidationException(
+                        "agentTask.codingTarget.repositoryBindingId",
+                        "must reference an active RepositoryBinding in the complete WorkItem scope"));
+        BuildProfile buildProfile = buildProfileCatalog
+                .findExact(command.buildProfile())
+                .filter(profile -> profile.reference().equals(command.buildProfile()))
+                .orElseThrow(() -> new DomainValidationException(
+                        "agentTask.codingTarget.buildProfile",
+                        "must reference an exact deployment-approved BuildProfile version"));
+        RepositoryBindingPreflightResult preflight = repositoryPreflight.preflight(
+                binding, command.baselineRef());
+        if (!preflight.repositoryKey().equals(binding.repositoryKey())
+                || !preflight.baselineRef().equals(command.baselineRef())) {
+            throw new DomainValidationException(
+                    "agentTask.codingTarget.baselineRef",
+                    "Repository Preflight facts must match the selected Binding and Ref");
+        }
+        return new ResolvedCodingTarget(command, binding, preflight, buildProfile);
+    }
+
+    private static Set<ExecutionCapability> codingCapabilities(
+            Set<ExecutionCapability> base) {
+        java.util.HashSet<ExecutionCapability> capabilities = new java.util.HashSet<>(base);
+        capabilities.add(ExecutionCapability.SANDBOX);
+        capabilities.add(ExecutionCapability.WORKTREE);
+        return Set.copyOf(capabilities);
+    }
+
+    private static Set<String> codingTools(Set<String> base, BuildProfile profile) {
+        java.util.HashSet<String> tools = new java.util.HashSet<>(base);
+        tools.addAll(profile.commandCatalog().toolKeys());
+        return Set.copyOf(tools);
+    }
+
     private CommandExecution<AgentTaskCreationResult> completed(
             TeamCommandContext context,
             UUID commandId,
@@ -444,7 +537,23 @@ public final class AgentTaskCreationService {
                 .sorted(Comparator.comparing(ProviderBindingId::toString))
                 .map(ProviderBindingId::toString)
                 .forEach(fields::add);
+        fields.add(command.codingTarget().isPresent() ? "CODING" : "NON_CODING");
+        command.codingTarget().ifPresent(target -> {
+            fields.add(target.repositoryBindingId().toString());
+            fields.add(target.baselineRef().value());
+            fields.add(Integer.toString(target.allowedPaths().values().size()));
+            fields.addAll(target.allowedPaths().values());
+            fields.add(target.buildProfile().key());
+            fields.add(Long.toString(target.buildProfile().version()));
+            fields.add(target.buildProfile().profileHash().toString());
+        });
         fields.add(context.causationId().map(UUID::toString).orElse(""));
         return CommandRequestHash.sha256(COMMAND_TYPE, fields.toArray(String[]::new));
     }
+
+    private record ResolvedCodingTarget(
+            CreateCodingTargetCommand command,
+            RepositoryBinding binding,
+            RepositoryBindingPreflightResult preflight,
+            BuildProfile buildProfile) {}
 }

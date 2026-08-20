@@ -69,7 +69,8 @@ public final class CodingFilesystemToolFactory {
                     managedSandbox.descriptor().repositoryContainerPath(),
                     effectivePolicy.allowedPaths(),
                     1);
-            InitialUsage initial = initialUsage(managedWorktree, effectivePolicy, inspectionGuard);
+            InitialUsage initial = initialUsage(
+                    gitCommands, managedWorktree, effectivePolicy, inspectionGuard);
             CodingFilesystemUsage usage = usages.acquire(
                     requiredWorkspace,
                     effectivePolicy,
@@ -97,7 +98,8 @@ public final class CodingFilesystemToolFactory {
         }
     }
 
-    private InitialUsage initialUsage(
+    static InitialUsage initialUsage(
+            GitCommandExecutor gitCommands,
             ManagedWorktree worktree,
             WorkspacePolicy policy,
             RepositoryInspectionPathGuard pathGuard) {
@@ -175,5 +177,5 @@ public final class CodingFilesystemToolFactory {
         }
     }
 
-    private record InitialUsage(Set<String> paths, long bytes) {}
+    record InitialUsage(Set<String> paths, long bytes) {}
 }

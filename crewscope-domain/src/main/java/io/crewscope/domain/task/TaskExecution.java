@@ -53,6 +53,7 @@ public final class TaskExecution {
                     TaskExecutionStatus.MANUAL_TAKEOVER)),
             Map.entry(TaskExecutionStatus.PAUSE_REQUESTED, EnumSet.of(
                     TaskExecutionStatus.PAUSED,
+                    TaskExecutionStatus.COMPLETED,
                     TaskExecutionStatus.CANCEL_REQUESTED)),
             Map.entry(TaskExecutionStatus.PAUSED, EnumSet.of(
                     TaskExecutionStatus.READY, TaskExecutionStatus.CANCEL_REQUESTED)),

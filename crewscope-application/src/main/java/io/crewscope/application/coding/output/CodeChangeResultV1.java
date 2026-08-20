@@ -12,7 +12,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
-/** Final untrusted Coding Specialist claim; authoritative success is derived after revalidation. */
+/** Model-authored delivery summary whose authority coordinates are canonicalized and revalidated. */
 public record CodeChangeResultV1(
         @JsonProperty(required = true) @NotBlank @Pattern(regexp = VERSION_ONE) String schemaVersion,
         @JsonProperty(required = true) @NotBlank @Pattern(regexp = CANONICAL_UUID) String executionWorkspaceId,

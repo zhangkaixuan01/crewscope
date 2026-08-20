@@ -52,6 +52,24 @@ public final class TaskPublicEventMapper {
             "inputTokens", "outputTokens", "cachedTokens", "totalTokens");
     private static final Set<String> FAILURE_FIELDS = Set.of(
             "category", "retryable", "safeMessage", "runtimeCode");
+    private static final Set<String> WORKSPACE_FIELDS = Set.of(
+            "workspaceId", "taskExecutionId", "attempt", "status", "recoveryTargetStatus",
+            "recoveryGeneration", "completionReason", "failureCode", "workspaceVersion");
+    private static final Set<String> DIFF_FIELDS = Set.of(
+            "workspaceId", "taskExecutionId", "attempt", "streamEpoch", "sequence",
+            "diffGeneration", "changeKind", "manifestHash", "upserts", "removals");
+    private static final Set<String> DIFF_FILE_FIELDS = Set.of(
+            "path", "oldPath", "changeType", "additions", "deletions", "binary",
+            "patchTruncated", "patchSha256");
+    private static final Set<String> TEST_EVIDENCE_FIELDS = Set.of(
+            "testEvidenceId", "workspaceId", "taskExecutionId", "attempt",
+            "evidenceSequence", "diffGeneration", "manifestHash", "succeeded", "total",
+            "passed", "failed", "errors", "skipped", "acceptancePassed",
+            "acceptanceFailed", "acceptanceNotEvaluated", "evidenceHash");
+    private static final Set<String> FINAL_DIFF_FIELDS = Set.of(
+            "diffArtifactId", "workspaceId", "taskExecutionId", "attempt",
+            "diffGeneration", "manifestHash", "fileCount", "additions", "deletions",
+            "finalHash");
     private static final Set<String> LIST_FIELDS = Set.of(
             "acceptanceCriteria", "providerBindingIds");
 
@@ -72,6 +90,15 @@ public final class TaskPublicEventMapper {
             fields = RESUME_FIELDS;
         } else if (type.equals("AGENT_RUN_EVENT_RECORDED")) {
             fields = AGENT_RUN_FIELDS;
+        } else if (type.equals("EXECUTION_WORKSPACE_CHANGED")) {
+            fields = WORKSPACE_FIELDS;
+        } else if (type.equals("WORKSPACE_DIFF_RESET")
+                || type.equals("WORKSPACE_DIFF_DELTA")) {
+            fields = DIFF_FIELDS;
+        } else if (type.equals("TEST_EVIDENCE_PUBLISHED")) {
+            fields = TEST_EVIDENCE_FIELDS;
+        } else if (type.equals("FINAL_DIFF_ARTIFACT_PUBLISHED")) {
+            fields = FINAL_DIFF_FIELDS;
         } else {
             throw new IllegalStateException("Task Event type is not publicly mapped: " + type);
         }
@@ -92,6 +119,15 @@ public final class TaskPublicEventMapper {
         if (LIST_FIELDS.contains(key) && value instanceof List<?> list
                 && list.stream().allMatch(TaskPublicEventMapper::isScalar)) {
             return Optional.of(List.copyOf(list));
+        }
+        if (eventType.startsWith("WORKSPACE_DIFF_") && key.equals("removals")
+                && value instanceof List<?> list
+                && list.stream().allMatch(TaskPublicEventMapper::isScalar)) {
+            return Optional.of(List.copyOf(list));
+        }
+        if (eventType.startsWith("WORKSPACE_DIFF_") && key.equals("upserts")
+                && value instanceof List<?> list) {
+            return copyNestedList(list, DIFF_FILE_FIELDS);
         }
         if (eventType.equals("AGENT_RUN_EVENT_RECORDED") && value instanceof Map<?, ?> map) {
             if (key.equals("usage")) {
@@ -114,6 +150,15 @@ public final class TaskPublicEventMapper {
             }
         });
         return Collections.unmodifiableMap(result);
+    }
+
+    private static Optional<Object> copyNestedList(List<?> source, Set<String> fields) {
+        if (source.size() > 200 || source.stream().anyMatch(value -> !(value instanceof Map<?, ?>))) {
+            return Optional.empty();
+        }
+        return Optional.of(source.stream()
+                .map(value -> copyNested((Map<?, ?>) value, fields))
+                .toList());
     }
 
     private static boolean isScalar(Object value) {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -54,5 +55,49 @@ class TaskPublicEventMapperM3A05Test {
                 IllegalStateException.class,
                 () -> mapper.map(
                         "WORKER_TASK_FUTURE_ACCEPTED", Map.of("safeSummary", "unreviewed")));
+    }
+
+    @Test
+    void publishesDiffMetadataButNeverPatchContentOrInternalWorkspaceCoordinates() {
+        Map<String, Object> file = new LinkedHashMap<>();
+        file.put("path", "src/main/java/App.java");
+        file.put("changeType", "MODIFIED");
+        file.put("additions", 4);
+        file.put("deletions", 1);
+        file.put("binary", false);
+        file.put("patchTruncated", true);
+        file.put("patchSha256", "a".repeat(64));
+        file.put("patchPreview", "secret source content");
+        file.put("canonicalPath", "/private/worktree/App.java");
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("workspaceId", "workspace");
+        payload.put("taskExecutionId", "execution");
+        payload.put("attempt", 1);
+        payload.put("streamEpoch", "epoch");
+        payload.put("sequence", 2);
+        payload.put("diffGeneration", 2);
+        payload.put("changeKind", "DELTA");
+        payload.put("manifestHash", "b".repeat(64));
+        payload.put("upserts", List.of(file));
+        payload.put("removals", List.of("old.txt"));
+        payload.put("containerId", "secret");
+        Map<String, Object> result = mapper.map("WORKSPACE_DIFF_DELTA", payload);
+
+        Map<?, ?> publishedFile = (Map<?, ?>) ((List<?>) result.get("upserts")).get(0);
+        assertEquals("src/main/java/App.java", publishedFile.get("path"));
+        assertFalse(publishedFile.containsKey("patchPreview"));
+        assertFalse(publishedFile.containsKey("canonicalPath"));
+        assertFalse(result.containsKey("containerId"));
+    }
+
+    @Test
+    void rejectsMalformedNestedDiffCollectionsInsteadOfPartiallyTrustingThem() {
+        Map<String, Object> result = mapper.map(
+                "WORKSPACE_DIFF_RESET",
+                Map.of("upserts", List.of("not-a-file"), "removals", List.of("safe.txt")));
+
+        assertFalse(result.containsKey("upserts"));
+        assertEquals(List.of("safe.txt"), result.get("removals"));
     }
 }

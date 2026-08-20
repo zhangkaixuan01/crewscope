@@ -85,7 +85,7 @@ class CodingSpecialistStepRuntimeM4I12Test {
         InOrder order = inOrder(executionStore, outputValidator);
         order.verify(executionStore).checkpoint(any());
         order.verify(outputValidator).validateCodeChangeResult(
-                eq(fixture.output),
+                any(CodeChangeResultV1.class),
                 eq(fixture.authority.repositoryAnalysis()),
                 eq(fixture.authority.target()),
                 eq(fixture.authority.workspace()),
@@ -104,8 +104,9 @@ class CodingSpecialistStepRuntimeM4I12Test {
                 List.of(fixture.authority, successful));
         when(authorityGateway.inspect(eq(fixture.facts), any(Integer.class)))
                 .thenAnswer(ignored -> rounds.remove());
-        when(agentRuntime.execute(any()))
-                .thenReturn(Mono.just(fixture.runResult), Mono.just(fixture.runResult));
+        when(authorityGateway.finalizeAuthority(eq(fixture.facts), any(Integer.class)))
+                .thenReturn(successful);
+        when(agentRuntime.execute(any())).thenReturn(Mono.just(fixture.runResult));
 
         CodingSpecialistStepResult result = runtime().execute(fixture.request(executor, false))
                 .block(Duration.ofSeconds(2));
@@ -265,6 +266,8 @@ class CodingSpecialistStepRuntimeM4I12Test {
                 .thenAnswer(invocation -> new CodingSpecialistRound(
                         invocation.getArgument(1), new Toolkit(), "Execute round"));
         when(authorityGateway.inspect(eq(facts), any(Integer.class))).thenReturn(authority);
+        when(authorityGateway.finalizeAuthority(eq(facts), any(Integer.class)))
+                .thenReturn(authority);
         when(agentRuntime.execute(any())).thenReturn(Mono.just(result));
         org.mockito.Mockito.doAnswer(invocation -> {
             CodingSpecialistCheckpointCommand command = invocation.getArgument(0);
@@ -302,17 +305,41 @@ class CodingSpecialistStepRuntimeM4I12Test {
         ExecutionWorkspace workspace = mock(ExecutionWorkspace.class);
         WorkspacePolicy policy = mock(WorkspacePolicy.class);
         TestEvidence evidence = mock(TestEvidence.class);
+        DiffArtifact diff = mock(DiffArtifact.class);
+        var targetId = io.crewscope.domain.coding.CodingTargetSnapshotId.generate();
+        var targetHash = io.crewscope.domain.task.TaskFactHash.sha256("target");
+        when(target.id()).thenReturn(targetId);
+        when(target.revision()).thenReturn(1L);
+        when(target.snapshotHash()).thenReturn(targetHash);
+        when(workspace.id()).thenReturn(io.crewscope.domain.coding.ExecutionWorkspaceId.generate());
+        when(workspace.fingerprint()).thenReturn(
+                new io.crewscope.domain.coding.ExecutionWorkspaceFingerprint("f".repeat(64)));
+        when(diff.id()).thenReturn(io.crewscope.domain.coding.DiffArtifactId.generate());
+        when(diff.finalHash()).thenReturn(io.crewscope.domain.task.TaskFactHash.sha256("diff"));
+        when(evidence.id()).thenReturn(io.crewscope.domain.coding.TestEvidenceId.generate());
+        when(evidence.evidenceHash()).thenReturn(
+                io.crewscope.domain.task.TaskFactHash.sha256("evidence"));
         when(policy.operationBudget()).thenReturn(new WorkspaceOperationBudget(
                 10, 10, 10_000, 10, 100_000, 100_000, repairBudget));
         when(evidence.succeeded()).thenReturn(succeeded);
+        var analysis = new io.crewscope.application.coding.output.RepositoryAnalysisV1(
+                "1",
+                targetId.toString(),
+                1,
+                targetHash.toString(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("Complete the requested change"));
         return new CodingSpecialistAuthority(
                 target,
                 workspace,
                 policy,
-                mock(io.crewscope.application.coding.output.RepositoryAnalysisV1.class),
+                analysis,
                 mock(DiffManifest.class),
                 Optional.of(evidence),
-                Optional.of(mock(DiffArtifact.class)));
+                Optional.of(diff));
     }
 
     private CodingSpecialistRunResult runResult(String suffix) {

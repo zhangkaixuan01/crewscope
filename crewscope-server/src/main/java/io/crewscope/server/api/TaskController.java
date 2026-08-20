@@ -1,5 +1,6 @@
 package io.crewscope.server.api;
 
+import io.crewscope.application.coding.CreateCodingTargetCommand;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.task.AgentTaskCreationService;
 import io.crewscope.application.task.CreateAgentTaskCommand;
@@ -7,16 +8,23 @@ import io.crewscope.application.task.TaskConversationSource;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.MessageId;
+import io.crewscope.domain.coding.BuildProfileReference;
+import io.crewscope.domain.coding.CodingTargetAllowedPaths;
+import io.crewscope.domain.coding.RepositoryBindingId;
+import io.crewscope.domain.coding.RepositoryBranchName;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.TaskBrief;
+import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
@@ -109,7 +117,8 @@ public final class TaskController {
                             acceptanceCriteria,
             @NotNull UUID executorAgentProfileId,
             @Valid ConversationSourceRequest conversationSource,
-            @NotNull @Size(max = 200) Set<@NotNull UUID> providerBindingIds) {
+            @NotNull @Size(max = 200) Set<@NotNull UUID> providerBindingIds,
+            @Valid CodingTargetRequest codingTarget) {
 
         CreateAgentTaskCommand toCommand(long expectedVersion) {
             return new CreateAgentTaskCommand(
@@ -120,7 +129,38 @@ public final class TaskController {
                     providerBindingIds.stream()
                             .map(ProviderBindingId::new)
                             .collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                    Optional.ofNullable(codingTarget).map(CodingTargetRequest::toCommand),
                     expectedVersion);
+        }
+    }
+
+    /** Optional repository target; omitting it preserves the non-Coding Task contract. */
+    public record CodingTargetRequest(
+            @NotNull UUID repositoryBindingId,
+            @NotBlank @Size(max = RepositoryBranchName.MAX_LENGTH) String baselineRef,
+            @NotNull
+                    @Size(min = 1, max = CodingTargetAllowedPaths.MAX_PATHS)
+                    List<@NotBlank @Size(max = CodingTargetAllowedPaths.MAX_PATH_LENGTH) String>
+                            allowedPaths,
+            @NotNull @Valid BuildProfileRequest buildProfile) {
+
+        CreateCodingTargetCommand toCommand() {
+            return new CreateCodingTargetCommand(
+                    new RepositoryBindingId(repositoryBindingId),
+                    new RepositoryBranchName(baselineRef),
+                    new CodingTargetAllowedPaths(allowedPaths),
+                    buildProfile.toReference());
+        }
+    }
+
+    /** Exact immutable BuildProfile reference; silent version fall-forward is forbidden. */
+    public record BuildProfileRequest(
+            @NotBlank @Pattern(regexp = BuildProfileReference.KEY_REGEX) String key,
+            @Min(1) long version,
+            @NotBlank @Pattern(regexp = "[0-9a-f]{64}") String profileHash) {
+
+        BuildProfileReference toReference() {
+            return new BuildProfileReference(key, version, new TaskFactHash(profileHash));
         }
     }
 

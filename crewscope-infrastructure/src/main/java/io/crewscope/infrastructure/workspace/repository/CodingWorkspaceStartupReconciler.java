@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.artifact.ArtifactPurgeRequest;
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -43,6 +44,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
     private final int artifactPurgeBatchSize;
     private final AtomicReference<CodingWorkspaceStartupHealth> health =
             new AtomicReference<>(CodingWorkspaceStartupHealth.pending());
+    private final CodingTaskTimelinePublisher timeline;
 
     CodingWorkspaceStartupReconciler(
             TaskWorkerStartupReconciler taskReconciler,
@@ -56,6 +58,34 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             CodingWorkspaceStartupProperties properties) {
+        this(
+                taskReconciler,
+                workspaces,
+                policies,
+                worktrees,
+                diffMonitors,
+                docker,
+                artifacts,
+                transactions,
+                timeProvider,
+                registration,
+                properties,
+                CodingTaskTimelinePublisher.NO_OP);
+    }
+
+    CodingWorkspaceStartupReconciler(
+            TaskWorkerStartupReconciler taskReconciler,
+            ExecutionWorkspaceRepository workspaces,
+            WorkspacePolicyRepository policies,
+            WorktreeProvisioner worktrees,
+            WorkspaceDiffMonitorFactory diffMonitors,
+            DockerSandboxControl docker,
+            CodingArtifactLifecycle artifacts,
+            TransactionExecutor transactions,
+            AuthoritativeTimeProvider timeProvider,
+            RuntimeWorkerRegistrationSpec registration,
+            CodingWorkspaceStartupProperties properties,
+            CodingTaskTimelinePublisher timeline) {
         this.taskReconciler = Objects.requireNonNull(taskReconciler, "taskReconciler");
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.policies = Objects.requireNonNull(policies, "policies");
@@ -71,10 +101,11 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
         this.recoveryBatchSize = configured.requiredRecoveryBatchSize();
         this.retentionBatchSize = configured.requiredRetentionBatchSize();
         this.artifactPurgeBatchSize = configured.requiredArtifactPurgeBatchSize();
+        this.timeline = Objects.requireNonNull(timeline, "timeline");
     }
 
     @Override
-    public int reconcile() {
+    public synchronized int reconcile() {
         try {
             int taskExecutions = taskReconciler.reconcile();
             UtcTimestamp now = timeProvider.now();
@@ -117,6 +148,75 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
         return health.get();
     }
 
+    /** Runs the same bounded Workspace and Sandbox recovery used during Worker startup. */
+    public synchronized CodingWorkspaceStartupHealth reconcileWorkspaceResources() {
+        try {
+            // Expired Task ownership must be fenced and marked RECOVERING before physical repair.
+            taskReconciler.reconcile();
+            UtcTimestamp now = timeProvider.now();
+            RecoveryOutcome recovery = transactions.required(() -> recover(now));
+            int unknownSandboxes = sandboxes.closeUnknown(
+                    registration.organizationId(), registration.environment());
+            CodingWorkspaceStartupHealth previous = health.get();
+            CodingWorkspaceStartupHealth updated = new CodingWorkspaceStartupHealth(
+                    true,
+                    recovery.recovered(),
+                    recovery.failed(),
+                    previous.archivedWorkspaces(),
+                    previous.archiveFailures(),
+                    recovery.removedSandboxes() + unknownSandboxes,
+                    previous.purgedArtifacts(),
+                    recovery.examined() == recoveryBatchSize,
+                    Optional.empty());
+            health.set(updated);
+            return updated;
+        } catch (RuntimeException failure) {
+            recordFailure(failure);
+            throw failure;
+        }
+    }
+
+    /** Runs the same bounded retention Archive and Artifact purge used during Worker startup. */
+    public synchronized CodingWorkspaceStartupHealth archiveWorkspaceResources() {
+        try {
+            UtcTimestamp now = timeProvider.now();
+            ArchiveOutcome archive = transactions.required(() -> archive(now));
+            int purged = artifacts.purge(
+                    new ArtifactPurgeRequest(now, artifactPurgeBatchSize)).size();
+            CodingWorkspaceStartupHealth previous = health.get();
+            CodingWorkspaceStartupHealth updated = new CodingWorkspaceStartupHealth(
+                    true,
+                    previous.recoveredWorkspaces(),
+                    previous.failedWorkspaces(),
+                    archive.archived(),
+                    archive.failed(),
+                    previous.removedSandboxOrphans(),
+                    purged,
+                    archive.examined() == retentionBatchSize
+                            || purged == artifactPurgeBatchSize,
+                    Optional.empty());
+            health.set(updated);
+            return updated;
+        } catch (RuntimeException failure) {
+            recordFailure(failure);
+            throw failure;
+        }
+    }
+
+    private void recordFailure(RuntimeException failure) {
+        CodingWorkspaceStartupHealth previous = health.get();
+        health.set(new CodingWorkspaceStartupHealth(
+                false,
+                previous.recoveredWorkspaces(),
+                previous.failedWorkspaces(),
+                previous.archivedWorkspaces(),
+                previous.archiveFailures(),
+                previous.removedSandboxOrphans(),
+                previous.purgedArtifacts(),
+                previous.capacityLimited(),
+                Optional.of(failure.getClass().getSimpleName())));
+    }
+
     private RecoveryOutcome recover(UtcTimestamp now) {
         List<ExecutionWorkspace> candidates = workspaces.findRecoveringForUpdate(
                 registration.organizationId(), registration.environment(), recoveryBatchSize);
@@ -138,7 +238,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
                 }
                 recovered++;
             } catch (RuntimeException failure) {
-                workspaces.update(workspace.fail(
+                updateWorkspace(workspace.fail(
                         RECOVERY_FAILURE,
                         workspace.version(),
                         registration.actor(),
@@ -161,7 +261,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
             try {
                 sandboxes.closeKnown(workspace);
                 worktrees.archive(workspace, policy(workspace));
-                workspaces.update(workspace.archive(
+                updateWorkspace(workspace.archive(
                         now, workspace.version(), registration.actor()));
                 archived++;
             } catch (RuntimeException failure) {
@@ -180,6 +280,12 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
                         workspace.taskExecutionId())
                 .orElseThrow(() -> new IllegalStateException(
                         "Workspace Policy is unavailable during startup reconciliation"));
+    }
+
+    private ExecutionWorkspace updateWorkspace(ExecutionWorkspace changed) {
+        ExecutionWorkspace committed = workspaces.update(changed);
+        timeline.workspaceChanged(committed);
+        return committed;
     }
 
     private record RecoveryOutcome(

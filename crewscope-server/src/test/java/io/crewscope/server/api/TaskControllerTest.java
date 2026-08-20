@@ -1,6 +1,7 @@
 package io.crewscope.server.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -96,6 +97,115 @@ class TaskControllerTest {
         assertEquals(7, command.getValue().expectedWorkItemVersion());
         assertEquals(profileId, command.getValue().executorAgentProfileId());
         assertEquals("Create durable Task API", command.getValue().brief().objective());
+        assertTrue(command.getValue().codingTarget().isEmpty());
+    }
+
+    @Test
+    void acceptsTheSameCodingTargetContractWithAnOptionalConversationSource() {
+        CommandReceipt receipt = new CommandReceipt(
+                UUID.randomUUID(), UUID.randomUUID(), 1, UUID.randomUUID());
+        when(service.create(any(), any(), any(), any(), any())).thenReturn(
+                CommandExecution.completed(mock(AgentTaskCreationResult.class), receipt));
+        UUID repositoryBindingId = UUID.randomUUID();
+        UUID conversationId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+
+        client.post()
+                .uri(root())
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "delegate-coding-http-1")
+                .header(ApiHeaders.IF_MATCH, "\"7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "objective":"Implement the approved change",
+                          "acceptanceCriteria":["All tests pass"],
+                          "executorAgentProfileId":"%s",
+                          "providerBindingIds":[],
+                          "conversationSource":{
+                            "conversationId":"%s",
+                            "messageId":"%s"
+                          },
+                          "codingTarget":{
+                            "repositoryBindingId":"%s",
+                            "baselineRef":"main",
+                            "allowedPaths":["crewscope-application/src","crewscope-server/src"],
+                            "buildProfile":{
+                              "key":"maven-java-17",
+                              "version":1,
+                              "profileHash":"%s"
+                            }
+                          }
+                        }
+                        """.formatted(
+                                profileId,
+                                conversationId,
+                                messageId,
+                                repositoryBindingId,
+                                "c".repeat(64)))
+                .exchange()
+                .expectStatus().isAccepted();
+
+        ArgumentCaptor<CreateAgentTaskCommand> command =
+                ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(service).create(any(), any(), any(), any(), command.capture());
+        var codingTarget = command.getValue().codingTarget().orElseThrow();
+        assertEquals(repositoryBindingId, codingTarget.repositoryBindingId().value());
+        assertEquals("main", codingTarget.baselineRef().value());
+        assertEquals(
+                java.util.List.of("crewscope-application/src", "crewscope-server/src"),
+                codingTarget.allowedPaths().values());
+        assertEquals("maven-java-17", codingTarget.buildProfile().key());
+        assertEquals(conversationId,
+                command.getValue().conversationSource().orElseThrow().conversationId().value());
+    }
+
+    @Test
+    void rejectsTraversalAndIncompleteCodingTargetsBeforeCallingTheService() {
+        String template = """
+                {
+                  "objective":"Implement the approved change",
+                  "acceptanceCriteria":["All tests pass"],
+                  "executorAgentProfileId":"%s",
+                  "providerBindingIds":[],
+                  "codingTarget":{
+                    "repositoryBindingId":"%s",
+                    "baselineRef":"main",
+                    "allowedPaths":["../outside"],
+                    "buildProfile":{
+                      "key":"maven-java-17",
+                      "version":1,
+                      "profileHash":"%s"
+                    }
+                  }
+                }
+                """;
+        client.post()
+                .uri(root())
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "delegate-coding-traversal")
+                .header(ApiHeaders.IF_MATCH, "\"7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(template.formatted(profileId, UUID.randomUUID(), "c".repeat(64)))
+                .exchange()
+                .expectStatus().isEqualTo(422)
+                .expectBody().jsonPath("$.code").isEqualTo("invalid_value");
+
+        client.post()
+                .uri(root())
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "delegate-coding-incomplete")
+                .header(ApiHeaders.IF_MATCH, "\"7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("""
+                        {
+                          "objective":"Implement the approved change",
+                          "acceptanceCriteria":["All tests pass"],
+                          "executorAgentProfileId":"%s",
+                          "providerBindingIds":[],
+                          "codingTarget":{"baselineRef":"main"}
+                        }
+                        """.formatted(profileId))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.code").isEqualTo("invalid_request");
     }
 
     @Test

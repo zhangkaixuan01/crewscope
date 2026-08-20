@@ -26,16 +26,18 @@ import io.crewscope.application.task.TaskControlRequestIds;
 import io.crewscope.application.task.TaskTokenRevokeCommand;
 import io.crewscope.application.task.TaskTokenService;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
+import io.crewscope.domain.task.AgentRunSegmentKind;
 import io.crewscope.domain.task.ClaimReceipt;
 import io.crewscope.domain.task.ExecutionLease;
 import io.crewscope.domain.task.ExecutionLeaseId;
 import io.crewscope.domain.task.ExecutionLeaseReleaseReason;
-import io.crewscope.domain.task.AgentRunSegmentKind;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionFailure;
 import io.crewscope.domain.task.TaskExecutionFailureClass;
 import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskExecutionWaitReason;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecution;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +61,7 @@ public final class DurableTaskWorkerExecutionHandler
 
     private static final Logger LOGGER =
             LoggerFactory.getLogger(DurableTaskWorkerExecutionHandler.class);
+    private static final int MAX_RELEASE_ATTEMPTS = 3;
 
     private final DurableTaskWorkerExecutionFactory executionFactory;
     private final TaskExecutionRuntime runtime;
@@ -144,10 +147,13 @@ public final class DurableTaskWorkerExecutionHandler
                 throw new IllegalStateException("Task runtime stream ended without a terminal event");
             }
             checkpoint(prepared, terminal, execution.stopRequested());
+            beforeRelease(prepared, terminal);
             release(prepared, terminal);
+            afterRelease(prepared, terminal);
         } catch (RuntimeException failure) {
             execution.fail(failure);
             if (prepared != null) {
+                abandonCodingWorkspace(prepared);
                 releaseForRecovery(prepared);
             }
             throw failure;
@@ -269,17 +275,51 @@ public final class DurableTaskWorkerExecutionHandler
     }
 
     private void release(TaskWorkerPreparedExecution prepared, TaskExecutionEvent terminal) {
+        for (int attempt = 1; attempt <= MAX_RELEASE_ATTEMPTS; attempt++) {
+            try {
+                releaseOnce(prepared, terminal);
+                return;
+            } catch (OptimisticLockConflictException conflict) {
+                boolean taskExecutionConflict = "TaskExecution".equals(
+                        conflict.error().details().get("aggregateType"));
+                if (!taskExecutionConflict || attempt == MAX_RELEASE_ATTEMPTS) {
+                    throw conflict;
+                }
+                // Member pause/cancel can commit between the Worker read and the atomic Lease
+                // release. Re-read the durable control fact and let the next release converge it.
+            }
+        }
+    }
+
+    private void releaseOnce(TaskWorkerPreparedExecution prepared, TaskExecutionEvent terminal) {
         TaskExecution execution = requiredExecution(prepared.facts().execution().id());
         ExecutionLease lease = requiredLease(prepared.leaseScope().leaseId());
+        leaseCoordinator.release(releaseCommand(prepared, execution, lease, terminal));
+    }
+
+    private LeaseReleaseCommand releaseCommand(
+            TaskWorkerPreparedExecution prepared,
+            TaskExecution execution,
+            ExecutionLease lease,
+            TaskExecutionEvent terminal) {
         LeaseTransitionCommand command = new LeaseTransitionCommand(
                 prepared.leaseScope(), execution.version(), lease.version());
         TaskExecutionTerminalStatus terminalStatus = terminal.payload()
                 .terminalStatus().orElseThrow();
-        LeaseReleaseCommand release = execution.status() == TaskExecutionStatus.CANCEL_REQUESTED
-                ? LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.CANCELLED)
-                : execution.status() == TaskExecutionStatus.PAUSE_REQUESTED
-                        ? LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.PAUSED)
-                        : switch (terminalStatus) {
+        if (execution.status() == TaskExecutionStatus.CANCEL_REQUESTED) {
+            return LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.CANCELLED);
+        }
+        boolean successfulCodingResultSealed = terminalStatus == TaskExecutionTerminalStatus.COMPLETED
+                && prepared.codingWorkspace()
+                        .filter(CodingWorkspaceExecution::hasSealedSuccessfulResult)
+                        .isPresent();
+        if (successfulCodingResultSealed) {
+            return LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.COMPLETED);
+        }
+        if (execution.status() == TaskExecutionStatus.PAUSE_REQUESTED) {
+            return LeaseReleaseCommand.simple(command, ExecutionLeaseReleaseReason.PAUSED);
+        }
+        return switch (terminalStatus) {
             case COMPLETED -> LeaseReleaseCommand.simple(
                     command, ExecutionLeaseReleaseReason.COMPLETED);
             case CANCELED -> LeaseReleaseCommand.simple(
@@ -290,7 +330,42 @@ public final class DurableTaskWorkerExecutionHandler
             case INTERRUPTED -> waiting(command, waitReason(terminal.payload()));
             case FAILED -> failed(command, terminal.payload());
         };
-        leaseCoordinator.release(release);
+    }
+
+    private void beforeRelease(
+            TaskWorkerPreparedExecution prepared, TaskExecutionEvent terminal) {
+        if (prepared.codingWorkspace().isEmpty()) {
+            return;
+        }
+        TaskExecution execution = requiredExecution(prepared.facts().execution().id());
+        ExecutionLease lease = requiredLease(prepared.leaseScope().leaseId());
+        executionFactory.codingLifecycle().beforeRelease(
+                prepared.codingWorkspace().orElseThrow(),
+                execution,
+                lease,
+                terminal.payload().terminalStatus().orElseThrow());
+    }
+
+    private void afterRelease(
+            TaskWorkerPreparedExecution prepared, TaskExecutionEvent terminal) {
+        if (prepared.codingWorkspace().isEmpty()) {
+            return;
+        }
+        executionFactory.codingLifecycle().afterRelease(
+                prepared.codingWorkspace().orElseThrow(),
+                requiredExecution(prepared.facts().execution().id()),
+                terminal.payload().terminalStatus().orElseThrow());
+    }
+
+    private void abandonCodingWorkspace(TaskWorkerPreparedExecution prepared) {
+        prepared.codingWorkspace().ifPresent(workspace -> {
+            try {
+                executionFactory.codingLifecycle().abandon(workspace);
+            } catch (RuntimeException cleanupFailure) {
+                LOGGER.warn("Coding Workspace local cleanup deferred after {}",
+                        cleanupFailure.getClass().getSimpleName());
+            }
+        });
     }
 
     private static LeaseReleaseCommand waiting(

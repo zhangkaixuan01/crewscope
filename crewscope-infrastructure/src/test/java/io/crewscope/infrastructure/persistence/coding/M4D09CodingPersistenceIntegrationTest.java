@@ -17,6 +17,9 @@ import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.coding.WorkspacePolicyOverlayRepository;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
+import io.crewscope.application.coding.WorkspaceWriteBudgetStore;
+import io.crewscope.application.coding.WorkspaceWriteBudgetContextException;
+import io.crewscope.application.coding.query.CodingAttemptQueryPort;
 import io.crewscope.domain.coding.AcceptanceResult;
 import io.crewscope.domain.coding.AcceptanceStatus;
 import io.crewscope.domain.coding.AllowedPathSet;
@@ -88,6 +91,7 @@ import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainer
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -127,10 +131,12 @@ class M4D09CodingPersistenceIntegrationTest
     @Autowired private ExecutionWorkspaceRepository workspaces;
     @Autowired private WorkspacePolicyRepository policies;
     @Autowired private WorkspacePolicyOverlayRepository overlays;
+    @Autowired private WorkspaceWriteBudgetStore writeBudgets;
     @Autowired private DiffArtifactRepository diffs;
     @Autowired private CommandEvidenceRepository commands;
     @Autowired private TestEvidenceRepository tests;
     @Autowired private CodingCheckpointRepository checkpoints;
+    @Autowired private CodingAttemptQueryPort codingQueries;
     @Autowired private CodingPersistenceMapper mapper;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -439,6 +445,78 @@ class M4D09CodingPersistenceIntegrationTest
                         graph.fixture.projectId(),
                         graph.activeWorkspace.id())
                 .size());
+
+        var publicAttempt = codingQueries.findByExecution(
+                        graph.fixture.organizationId(),
+                        graph.fixture.teamId(),
+                        graph.fixture.projectId(),
+                        graph.taskId,
+                        graph.taskExecutionId)
+                .orElseThrow();
+        var publicCommands = codingQueries.findCommands(
+                graph.fixture.organizationId(),
+                graph.fixture.teamId(),
+                graph.fixture.projectId(),
+                graph.taskId,
+                graph.taskExecutionId,
+                Optional.empty(),
+                20);
+        var publicTests = codingQueries.findTestEvidence(
+                graph.fixture.organizationId(),
+                graph.fixture.teamId(),
+                graph.fixture.projectId(),
+                graph.taskId,
+                graph.taskExecutionId,
+                Optional.empty(),
+                20);
+        assertEquals(List.of("docs/M4-D09.md"), publicAttempt.diffManifest().orElseThrow()
+                .files().stream().map(value -> value.path()).toList());
+        assertEquals(test.id().value(), publicAttempt.codingResult().orElseThrow().testEvidenceId());
+        assertEquals(command.id().value(), publicCommands.items().get(0).id());
+        assertEquals(List.of(command.id().value()), publicTests.items().get(0).commandEvidenceIds());
+        assertEquals(AcceptanceStatus.PASSED.name(),
+                publicTests.items().get(0).acceptance().get(0).status());
+    }
+
+    @Test
+    void servesCodingAttemptAndEmptyEvidenceStreamsWithFixedProjectionQueries() {
+        CodingPersistenceGraph graph = persistGraph("m4-a04-query");
+
+        var attempts = codingQueries.findByTask(
+                graph.fixture.organizationId(),
+                graph.fixture.teamId(),
+                graph.fixture.projectId(),
+                graph.taskId);
+        var commandsPage = codingQueries.findCommands(
+                graph.fixture.organizationId(),
+                graph.fixture.teamId(),
+                graph.fixture.projectId(),
+                graph.taskId,
+                graph.taskExecutionId,
+                Optional.empty(),
+                20);
+        var testsPage = codingQueries.findTestEvidence(
+                graph.fixture.organizationId(),
+                graph.fixture.teamId(),
+                graph.fixture.projectId(),
+                graph.taskId,
+                graph.taskExecutionId,
+                Optional.empty(),
+                20);
+
+        assertEquals(1, attempts.size());
+        assertEquals(graph.activeWorkspace.id().value(), attempts.get(0).workspace().id());
+        assertEquals("NONE", attempts.get(0).sandbox().orElseThrow().networkMode());
+        assertTrue(attempts.get(0).diffManifest().isEmpty());
+        assertTrue(attempts.get(0).codingResult().isEmpty());
+        assertTrue(commandsPage.items().isEmpty());
+        assertTrue(testsPage.items().isEmpty());
+        assertTrue(codingQueries.findByTask(
+                        OrganizationId.generate(),
+                        graph.fixture.teamId(),
+                        graph.fixture.projectId(),
+                        graph.taskId)
+                .isEmpty());
     }
 
     @Test
@@ -528,6 +606,49 @@ class M4D09CodingPersistenceIntegrationTest
             release.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void persistsWriteReservationsAcrossWorkersAndRollsBackFailedTransactions() {
+        CodingPersistenceGraph graph = persistGraph("write-budget");
+
+        var initialized = writeBudgets.initialize(
+                graph.activeWorkspace, graph.policy, Set.of("docs/existing.md"), 12);
+        var reserved = writeBudgets.reserve(
+                graph.activeWorkspace, graph.policy, Set.of("src/Main.java"), 20);
+        assertEquals(2, reserved.writeOperations());
+        assertEquals(32, reserved.writtenBytes());
+        assertEquals(Set.of("docs/existing.md", "src/Main.java"), reserved.changedPaths());
+
+        var restored = writeBudgets.initialize(
+                graph.activeWorkspace, graph.policy, Set.of(), 0);
+        assertEquals(reserved, restored);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            writeBudgets.reserve(
+                    graph.activeWorkspace, graph.policy, Set.of("src/RolledBack.java"), 5);
+            status.setRollbackOnly();
+        });
+        var afterRollback = writeBudgets.initialize(
+                graph.activeWorkspace, graph.policy, Set.of(), 0);
+        assertEquals(reserved, afterRollback);
+
+        TaskExecution recoveringExecution = mock(TaskExecution.class);
+        when(recoveringExecution.scope()).thenReturn(graph.fixture.workItemScope());
+        when(recoveringExecution.taskId()).thenReturn(graph.taskId);
+        when(recoveringExecution.id()).thenReturn(graph.taskExecutionId);
+        when(recoveringExecution.attempt()).thenReturn(1);
+        when(recoveringExecution.status()).thenReturn(TaskExecutionStatus.RECOVERING);
+        when(recoveringExecution.lastFencingToken()).thenReturn(Optional.of(FencingToken.initial()));
+        workspaces.update(graph.activeWorkspace.beginRecovery(
+                recoveringExecution,
+                graph.activeWorkspace.version(),
+                graph.fixture.actor(),
+                UtcTimestamp.parse("2026-08-18T01:20:00Z")));
+        assertThrows(
+                WorkspaceWriteBudgetContextException.class,
+                () -> writeBudgets.reserve(
+                        graph.activeWorkspace, graph.policy, Set.of("src/Stale.java"), 1));
     }
 
     @Test
@@ -1070,7 +1191,9 @@ class M4D09CodingPersistenceIntegrationTest
         JdbcDiffArtifactRepositoryAdapter.class,
         JdbcCommandEvidenceRepositoryAdapter.class,
         JdbcTestEvidenceRepositoryAdapter.class,
-        JdbcCodingCheckpointRepositoryAdapter.class
+        JdbcCodingCheckpointRepositoryAdapter.class,
+        JdbcCodingAttemptQueryAdapter.class,
+        JdbcWorkspaceWriteBudgetStore.class
     })
     static class TestApplication {
 

@@ -15,12 +15,21 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.command.CommandExecution;
+import io.crewscope.application.coding.BuildProfileCatalog;
+import io.crewscope.application.coding.CodingTargetSnapshotRepository;
+import io.crewscope.application.coding.CreateCodingTargetCommand;
+import io.crewscope.application.coding.RepositoryBindingPreflightError;
+import io.crewscope.application.coding.RepositoryBindingPreflightException;
+import io.crewscope.application.coding.RepositoryBindingPreflightResult;
+import io.crewscope.application.coding.RepositoryBindingPreflightPort;
+import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.ConversationEventRepository;
+import io.crewscope.application.conversation.ReadableConversationMessage;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -33,6 +42,32 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.conversation.Conversation;
+import io.crewscope.domain.conversation.ConversationId;
+import io.crewscope.domain.conversation.ConversationScope;
+import io.crewscope.domain.conversation.ConversationStatus;
+import io.crewscope.domain.conversation.ConversationVisibility;
+import io.crewscope.domain.conversation.Message;
+import io.crewscope.domain.conversation.MessageContent;
+import io.crewscope.domain.conversation.MessageId;
+import io.crewscope.domain.conversation.MessageSequence;
+import io.crewscope.domain.conversation.MessageType;
+import io.crewscope.domain.coding.BuildCommand;
+import io.crewscope.domain.coding.BuildProfile;
+import io.crewscope.domain.coding.BuildTool;
+import io.crewscope.domain.coding.CodingTargetAllowedPaths;
+import io.crewscope.domain.coding.CodingTargetSnapshot;
+import io.crewscope.domain.coding.CommandCatalog;
+import io.crewscope.domain.coding.CommandKind;
+import io.crewscope.domain.coding.RepositoryBinding;
+import io.crewscope.domain.coding.RepositoryBindingId;
+import io.crewscope.domain.coding.RepositoryBindingScope;
+import io.crewscope.domain.coding.RepositoryBindingStatus;
+import io.crewscope.domain.coding.RepositoryBranchName;
+import io.crewscope.domain.coding.RepositoryCommitId;
+import io.crewscope.domain.coding.RepositoryKey;
+import io.crewscope.domain.coding.RepositoryKind;
+import io.crewscope.domain.coding.SandboxImageReference;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
@@ -130,6 +165,13 @@ class AgentTaskCreationServiceM3A01Test {
     private final ConversationApplicationService conversations =
             mock(ConversationApplicationService.class);
     private final ProviderBindingResolver bindings = mock(ProviderBindingResolver.class);
+    private final RepositoryBindingRepository repositoryBindings =
+            mock(RepositoryBindingRepository.class);
+    private final RepositoryBindingPreflightPort repositoryPreflight =
+            mock(RepositoryBindingPreflightPort.class);
+    private final BuildProfileCatalog buildProfiles = mock(BuildProfileCatalog.class);
+    private final CodingTargetSnapshotRepository codingTargets =
+            mock(CodingTargetSnapshotRepository.class);
     private final TaskRepository tasks = mock(TaskRepository.class);
     private final TaskExecutionRepository executions = mock(TaskExecutionRepository.class);
     private final PolicySnapshotRepository policies = mock(PolicySnapshotRepository.class);
@@ -180,6 +222,10 @@ class AgentTaskCreationServiceM3A01Test {
                 profiles,
                 conversations,
                 bindings,
+                repositoryBindings,
+                repositoryPreflight,
+                buildProfiles,
+                codingTargets,
                 tasks,
                 executions,
                 policies,
@@ -429,6 +475,236 @@ class AgentTaskCreationServiceM3A01Test {
                 .equals(reservations.getAllValues().get(1).requestHash()));
     }
 
+    @Test
+    void codingDelegationCapturesTheApprovedTargetBeforePublishingTheFirstAttempt() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        BuildProfile buildProfile = buildProfile();
+        CreateAgentTaskCommand codingCommand = codingCommand(repositoryBinding, buildProfile);
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(repositoryBinding));
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.of(buildProfile));
+        when(repositoryPreflight.preflight(
+                        repositoryBinding, new RepositoryBranchName("main")))
+                .thenReturn(new RepositoryBindingPreflightResult(
+                        repositoryBinding.repositoryKey(),
+                        new RepositoryBranchName("main"),
+                        new RepositoryCommitId("a".repeat(40))));
+        when(codingTargets.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CommandExecution<AgentTaskCreationResult> execution = service.create(
+                context(owner, "delegate-coding-1"),
+                teamId,
+                projectId,
+                workItem.id(),
+                codingCommand);
+
+        ArgumentCaptor<CodingTargetSnapshot> snapshot =
+                ArgumentCaptor.forClass(CodingTargetSnapshot.class);
+        verify(codingTargets).create(snapshot.capture());
+        assertEquals(execution.result().orElseThrow().task().id(), snapshot.getValue().taskId());
+        assertEquals(repositoryBinding.id(), snapshot.getValue().repositoryBindingId());
+        assertEquals(repositoryBinding.version(), snapshot.getValue().repositoryBindingVersion());
+        assertEquals("main", snapshot.getValue().baselineRef().value());
+        assertEquals("a".repeat(40), snapshot.getValue().baselineCommit().value());
+        assertEquals(List.of("crewscope-application/src"),
+                snapshot.getValue().allowedPaths().values());
+        assertEquals(buildProfile.reference(), snapshot.getValue().buildProfile());
+        assertEquals(codingCommand.brief().acceptanceCriteria(),
+                snapshot.getValue().acceptanceCriteria());
+
+        InOrder order = inOrder(tasks, codingTargets, executions, policies, overlays);
+        order.verify(tasks).create(any());
+        order.verify(codingTargets).create(any());
+        order.verify(executions).create(any());
+        order.verify(policies).create(any());
+        order.verify(overlays).create(any());
+    }
+
+    @Test
+    void rejectsCrossScopeOrDisabledRepositoryBindingsBeforeCreatingAnyTaskFact() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        CreateAgentTaskCommand codingCommand = codingCommand(repositoryBinding, buildProfile());
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.empty());
+
+        assertThrows(DomainValidationException.class, () -> service.create(
+                context(owner, "delegate-coding-cross-scope"),
+                teamId,
+                projectId,
+                workItem.id(),
+                codingCommand));
+
+        RepositoryBinding disabled = RepositoryBinding.reconstitute(
+                repositoryBinding.id(),
+                repositoryBinding.scope(),
+                repositoryBinding.kind(),
+                repositoryBinding.repositoryKey(),
+                repositoryBinding.defaultBranch(),
+                RepositoryBindingStatus.DISABLED,
+                repositoryBinding.version() + 1,
+                repositoryBinding.audit());
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(disabled));
+        assertThrows(DomainValidationException.class, () -> service.create(
+                context(owner, "delegate-coding-disabled"),
+                teamId,
+                projectId,
+                workItem.id(),
+                codingCommand));
+
+        verifyNoInteractions(repositoryPreflight, codingTargets, tasks, executions, policies, overlays);
+    }
+
+    @Test
+    void rejectsUnknownBuildProfileAndInvalidRefBeforeCreatingAnyTaskFact() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        BuildProfile buildProfile = buildProfile();
+        CreateAgentTaskCommand codingCommand = codingCommand(repositoryBinding, buildProfile);
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(repositoryBinding));
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.empty());
+
+        assertThrows(DomainValidationException.class, () -> service.create(
+                context(owner, "delegate-coding-profile"),
+                teamId,
+                projectId,
+                workItem.id(),
+                codingCommand));
+        verifyNoInteractions(repositoryPreflight, codingTargets, tasks, executions, policies, overlays);
+
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.of(buildProfile));
+        when(repositoryPreflight.preflight(repositoryBinding, new RepositoryBranchName("main")))
+                .thenThrow(new RepositoryBindingPreflightException(
+                        RepositoryBindingPreflightError.REFERENCE_INVALID,
+                        "Managed repository Preflight failed"));
+        assertThrows(RepositoryBindingPreflightException.class, () -> service.create(
+                context(owner, "delegate-coding-ref"),
+                teamId,
+                projectId,
+                workItem.id(),
+                codingCommand));
+        verifyNoInteractions(codingTargets, tasks, executions, policies, overlays);
+    }
+
+    @Test
+    void requestHashBindsAllCodingTargetFacts() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        BuildProfile buildProfile = buildProfile();
+        CreateAgentTaskCommand first = codingCommand(repositoryBinding, buildProfile);
+        CreateAgentTaskCommand second = new CreateAgentTaskCommand(
+                first.brief(),
+                first.executorAgentProfileId(),
+                first.conversationSource(),
+                first.providerBindingIds(),
+                Optional.of(new CreateCodingTargetCommand(
+                        repositoryBinding.id(),
+                        new RepositoryBranchName("main"),
+                        CodingTargetAllowedPaths.of("crewscope-server/src"),
+                        buildProfile.reference())),
+                first.expectedWorkItemVersion());
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(repositoryBinding));
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.of(buildProfile));
+        when(repositoryPreflight.preflight(repositoryBinding, new RepositoryBranchName("main")))
+                .thenReturn(new RepositoryBindingPreflightResult(
+                        repositoryBinding.repositoryKey(),
+                        new RepositoryBranchName("main"),
+                        new RepositoryCommitId("a".repeat(40))));
+
+        service.create(context(owner, "delegate-coding-same-key"), teamId, projectId, workItem.id(), first);
+        service.create(context(owner, "delegate-coding-same-key"), teamId, projectId, workItem.id(), second);
+
+        ArgumentCaptor<CommandReservationRequest> reservations =
+                ArgumentCaptor.forClass(CommandReservationRequest.class);
+        verify(receipts, times(2)).reserve(reservations.capture());
+        assertFalse(reservations.getAllValues().get(0).requestHash()
+                .equals(reservations.getAllValues().get(1).requestHash()));
+    }
+
+    @Test
+    void controlAndConversationDelegationPersistTheSameCodingTargetFactShape() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        BuildProfile buildProfile = buildProfile();
+        CreateAgentTaskCommand control = codingCommand(repositoryBinding, buildProfile);
+        ConversationScope conversationScope =
+                new ConversationScope(organizationId, teamId, workspaceId);
+        Conversation conversation = Conversation.reconstitute(
+                ConversationId.generate(),
+                conversationScope,
+                TeamMemberId.generate(),
+                owner.id(),
+                executor.id(),
+                "Coding request",
+                ConversationVisibility.PRIVATE,
+                ConversationStatus.ACTIVE,
+                Optional.of(new MessageSequence(1)),
+                1,
+                AuditMetadata.createdBy(owner.id(), NOW));
+        Message message = Message.reconstitute(
+                MessageId.generate(),
+                conversationScope,
+                conversation.id(),
+                new MessageSequence(1),
+                MessageType.SYSTEM_NOTICE,
+                Optional.empty(),
+                Optional.empty(),
+                new MessageContent("Confirmed Coding target"),
+                AuditMetadata.createdBy(owner.id(), NOW));
+        CreateAgentTaskCommand conversational = new CreateAgentTaskCommand(
+                control.brief(),
+                control.executorAgentProfileId(),
+                Optional.of(new TaskConversationSource(conversation.id(), message.id())),
+                control.providerBindingIds(),
+                control.codingTarget(),
+                control.expectedWorkItemVersion());
+        when(conversations.requireReadableMessage(
+                        any(), eq(organizationId), eq(teamId), eq(conversation.id()), eq(message.id())))
+                .thenReturn(new ReadableConversationMessage(conversation, message));
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(repositoryBinding));
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.of(buildProfile));
+        when(repositoryPreflight.preflight(repositoryBinding, new RepositoryBranchName("main")))
+                .thenReturn(new RepositoryBindingPreflightResult(
+                        repositoryBinding.repositoryKey(),
+                        new RepositoryBranchName("main"),
+                        new RepositoryCommitId("a".repeat(40))));
+        when(codingTargets.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.create(context(owner, "delegate-coding-control"),
+                teamId, projectId, workItem.id(), control);
+        service.create(context(owner, "delegate-coding-conversation"),
+                teamId, projectId, workItem.id(), conversational);
+
+        ArgumentCaptor<CodingTargetSnapshot> snapshots =
+                ArgumentCaptor.forClass(CodingTargetSnapshot.class);
+        verify(codingTargets, times(2)).create(snapshots.capture());
+        CodingTargetSnapshot controlSnapshot = snapshots.getAllValues().get(0);
+        CodingTargetSnapshot conversationSnapshot = snapshots.getAllValues().get(1);
+        assertEquals(controlSnapshot.repositoryBindingId(),
+                conversationSnapshot.repositoryBindingId());
+        assertEquals(controlSnapshot.repositoryBindingVersion(),
+                conversationSnapshot.repositoryBindingVersion());
+        assertEquals(controlSnapshot.baselineRef(), conversationSnapshot.baselineRef());
+        assertEquals(controlSnapshot.baselineCommit(), conversationSnapshot.baselineCommit());
+        assertEquals(controlSnapshot.allowedPaths(), conversationSnapshot.allowedPaths());
+        assertEquals(controlSnapshot.buildProfile(), conversationSnapshot.buildProfile());
+        assertEquals(controlSnapshot.acceptanceCriteria(),
+                conversationSnapshot.acceptanceCriteria());
+        verify(links).create(any());
+        verify(conversationEvents).append(eq(conversation.id()), any());
+    }
+
     private CreateAgentTaskCommand command() {
         return new CreateAgentTaskCommand(
                 new TaskBrief(
@@ -438,6 +714,51 @@ class AgentTaskCreationServiceM3A01Test {
                 Optional.empty(),
                 Set.of(),
                 workItem.version());
+    }
+
+    private CreateAgentTaskCommand codingCommand(
+            RepositoryBinding repositoryBinding, BuildProfile buildProfile) {
+        CreateAgentTaskCommand base = command();
+        return new CreateAgentTaskCommand(
+                base.brief(),
+                base.executorAgentProfileId(),
+                base.conversationSource(),
+                base.providerBindingIds(),
+                Optional.of(new CreateCodingTargetCommand(
+                        repositoryBinding.id(),
+                        new RepositoryBranchName("main"),
+                        CodingTargetAllowedPaths.of("crewscope-application/src"),
+                        buildProfile.reference())),
+                base.expectedWorkItemVersion());
+    }
+
+    private RepositoryBinding activeRepositoryBinding() {
+        return RepositoryBinding.reconstitute(
+                RepositoryBindingId.generate(),
+                new RepositoryBindingScope(organizationId, teamId, workspaceId, projectId),
+                RepositoryKind.LOCAL_MANAGED,
+                new RepositoryKey("crewscope-java"),
+                new RepositoryBranchName("main"),
+                RepositoryBindingStatus.ACTIVE,
+                2,
+                AuditMetadata.createdBy(owner.id(), NOW));
+    }
+
+    private BuildProfile buildProfile() {
+        return BuildProfile.define(
+                "maven-java-17",
+                1,
+                BuildTool.MAVEN,
+                17,
+                new SandboxImageReference("maven@sha256:" + "b".repeat(64)),
+                CommandCatalog.of(
+                        CommandKind.TEST,
+                        new BuildCommand(
+                                "coding.maven.test",
+                                List.of("mvn", "test"),
+                                ".",
+                                60,
+                                900)));
     }
 
     private TeamCommandContext context(Principal actor, String key) {

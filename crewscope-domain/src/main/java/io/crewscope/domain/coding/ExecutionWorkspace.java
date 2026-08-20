@@ -287,10 +287,28 @@ public final class ExecutionWorkspace {
             long expectedVersion,
             Principal actor,
             UtcTimestamp occurredAt) {
+        requireExecutionStatus(pausedExecution, TaskExecutionStatus.PAUSED);
+        return preserveForSuspension(pausedExecution, expectedVersion, actor, occurredAt);
+    }
+
+    /** Preserves the Worktree for a durable wait that will resume under a newer fencing epoch. */
+    public ExecutionWorkspace preserveForWait(
+            TaskExecution waitingExecution,
+            long expectedVersion,
+            Principal actor,
+            UtcTimestamp occurredAt) {
+        requireExecutionStatus(waitingExecution, TaskExecutionStatus.WAITING);
+        return preserveForSuspension(waitingExecution, expectedVersion, actor, occurredAt);
+    }
+
+    private ExecutionWorkspace preserveForSuspension(
+            TaskExecution suspendedExecution,
+            long expectedVersion,
+            Principal actor,
+            UtcTimestamp occurredAt) {
         requireExpectedVersion(expectedVersion);
         requireStatus(ExecutionWorkspaceStatus.ACTIVE);
-        requireExecutionStatus(pausedExecution, TaskExecutionStatus.PAUSED);
-        requireCurrentExecutionEpoch(pausedExecution);
+        requireCurrentExecutionEpoch(suspendedExecution);
         return transition(
                 ExecutionWorkspaceStatus.READY,
                 Optional.empty(),
@@ -350,6 +368,7 @@ public final class ExecutionWorkspace {
         ExecutionWorkspaceCompletionReason requiredReason = Objects.requireNonNull(reason, "reason");
         boolean compatible = switch (requiredReason) {
             case SUCCEEDED -> current.status() == TaskExecutionStatus.RUNNING
+                    || current.status() == TaskExecutionStatus.PAUSE_REQUESTED
                     || current.status() == TaskExecutionStatus.COMPLETED;
             case CANCELLED -> current.status() == TaskExecutionStatus.CANCEL_REQUESTED
                     || current.status() == TaskExecutionStatus.CANCELLED;
@@ -380,20 +399,25 @@ public final class ExecutionWorkspace {
         requireExpectedVersion(expectedVersion);
         requireStatus(ExecutionWorkspaceStatus.FINALIZING);
         TaskExecution execution = requireExecutionLineage(terminalExecution);
-        ExecutionWorkspaceCompletionReason reason = completionReason.orElseThrow();
-        boolean compatible = switch (reason) {
-            case SUCCEEDED -> execution.status() == TaskExecutionStatus.COMPLETED;
-            case CANCELLED -> execution.status() == TaskExecutionStatus.CANCELLED;
+        ExecutionWorkspaceCompletionReason preparedReason = completionReason.orElseThrow();
+        ExecutionWorkspaceCompletionReason terminalReason = switch (execution.status()) {
+            case COMPLETED -> ExecutionWorkspaceCompletionReason.SUCCEEDED;
+            case CANCELLED -> ExecutionWorkspaceCompletionReason.CANCELLED;
+            default -> null;
         };
-        if (!compatible) {
+        if (terminalReason == null
+                || (preparedReason == ExecutionWorkspaceCompletionReason.CANCELLED
+                        && terminalReason != ExecutionWorkspaceCompletionReason.CANCELLED)) {
             throw new DomainValidationException(
                     "executionWorkspace.completionReason",
                     "must match the terminal TaskExecution status");
         }
+        // A cancellation committed after successful Diff sealing remains authoritative. The
+        // immutable delivery evidence is retained while the business completion reason converges.
         return transition(
                 ExecutionWorkspaceStatus.COMPLETED,
                 Optional.empty(),
-                completionReason,
+                Optional.of(terminalReason),
                 Optional.empty(),
                 ownership,
                 recoveryGeneration,

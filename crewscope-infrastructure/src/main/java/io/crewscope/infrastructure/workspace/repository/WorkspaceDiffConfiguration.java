@@ -3,6 +3,8 @@ package io.crewscope.infrastructure.workspace.repository;
 import io.crewscope.application.artifact.ArtifactStore;
 import io.crewscope.application.coding.DiffArtifactRepository;
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -38,8 +40,11 @@ public class WorkspaceDiffConfiguration {
     @Bean
     @ConditionalOnMissingBean(WorkspaceDiffEventStore.class)
     WorkspaceDiffEventStore workspaceDiffEventStore(
-            WorkspaceDiffProperties properties, WorkspaceDiffCursorCodec cursors) {
-        return new WorkspaceDiffEventStore(properties, cursors, Clock.systemUTC());
+            WorkspaceDiffProperties properties,
+            WorkspaceDiffCursorCodec cursors,
+            CodingTaskTimelinePublisher timeline) {
+        return new WorkspaceDiffEventStore(
+                properties, cursors, Clock.systemUTC(), timeline);
     }
 
     @Bean
@@ -81,7 +86,9 @@ public class WorkspaceDiffConfiguration {
             GitWorkspaceDiffReconciler reconciler,
             PatchArtifactWriter patches,
             DiffArtifactRepository diffs,
-            ExecutionWorkspaceRepository workspaces) {
+            ExecutionWorkspaceRepository workspaces,
+            CodingTaskTimelinePublisher timeline,
+            TransactionExecutor transactions) {
         return new WorkspaceDiffFinalizer(
                 repositories,
                 git,
@@ -89,6 +96,8 @@ public class WorkspaceDiffConfiguration {
                 patches,
                 diffs,
                 workspaces,
-                Clock.systemUTC());
+                Clock.systemUTC(),
+                timeline,
+                transactions);
     }
 }

@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.domain.shared.id.ArtifactId;
 import io.crewscope.domain.task.RuntimeContentHash;
+import io.crewscope.application.coding.CodingArtifactContent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Objects;
@@ -16,7 +17,7 @@ public record CodingArtifactReadResult(
         long startInclusive,
         long endExclusive,
         InputStream stream)
-        implements AutoCloseable {
+        implements CodingArtifactContent {
 
     public CodingArtifactReadResult {
         Objects.requireNonNull(artifactId, "artifactId");

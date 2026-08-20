@@ -17,4 +17,13 @@ public interface CodingSpecialistAuthorityGateway {
 
     /** Re-reads Git, command and test authority after the model call has reached a safe point. */
     CodingSpecialistAuthority inspect(TaskExecutionRuntimeFacts facts, int round);
+
+    /** Freezes the successful Diff and returns final platform-owned result coordinates. */
+    default CodingSpecialistAuthority finalizeAuthority(
+            TaskExecutionRuntimeFacts facts, int round) {
+        return inspect(facts, round);
+    }
+
+    /** Releases the exclusive Tool window on success, failure, pause and cancellation. */
+    default void closeRound(TaskExecutionRuntimeFacts facts, int round) {}
 }

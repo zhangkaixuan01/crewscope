@@ -3,13 +3,15 @@ package io.crewscope.application.runtime;
 import io.crewscope.domain.runtime.ExecutionRuntime;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Permission-gated Runtime registry, Worker and WAITING_RUNTIME operations projection. */
 public record RuntimeOperationsView(
         RuntimeFleetSummary summary,
         List<ExecutionRuntime> runtimes,
         List<RuntimeWorkerObservation> workers,
-        List<RuntimeWaitingDiagnostic> waitingExecutions) {
+        List<RuntimeWaitingDiagnostic> waitingExecutions,
+        Optional<CodingRuntimeSnapshot> codingRuntime) {
 
     public RuntimeOperationsView {
         summary = Objects.requireNonNull(summary, "summary");
@@ -17,5 +19,6 @@ public record RuntimeOperationsView(
         workers = List.copyOf(Objects.requireNonNull(workers, "workers"));
         waitingExecutions = List.copyOf(
                 Objects.requireNonNull(waitingExecutions, "waitingExecutions"));
+        codingRuntime = Objects.requireNonNull(codingRuntime, "codingRuntime");
     }
 }

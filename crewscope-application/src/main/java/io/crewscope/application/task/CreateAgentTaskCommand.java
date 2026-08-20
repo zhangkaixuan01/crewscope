@@ -1,5 +1,6 @@
 package io.crewscope.application.task;
 
+import io.crewscope.application.coding.CreateCodingTargetCommand;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.workspace.AgentProfileId;
@@ -13,6 +14,7 @@ public record CreateAgentTaskCommand(
         AgentProfileId executorAgentProfileId,
         Optional<TaskConversationSource> conversationSource,
         Set<ProviderBindingId> providerBindingIds,
+        Optional<CreateCodingTargetCommand> codingTarget,
         long expectedWorkItemVersion) {
 
     public CreateAgentTaskCommand {
@@ -28,8 +30,25 @@ public record CreateAgentTaskCommand(
         if (providerBindingIds.size() > 200) {
             throw new IllegalArgumentException("providerBindingIds must not exceed 200 values");
         }
+        codingTarget = Objects.requireNonNull(codingTarget, "codingTarget");
         if (expectedWorkItemVersion < 0) {
             throw new IllegalArgumentException("expectedWorkItemVersion must not be negative");
         }
+    }
+
+    /** Preserves the M3 non-Coding delegation contract. */
+    public CreateAgentTaskCommand(
+            TaskBrief brief,
+            AgentProfileId executorAgentProfileId,
+            Optional<TaskConversationSource> conversationSource,
+            Set<ProviderBindingId> providerBindingIds,
+            long expectedWorkItemVersion) {
+        this(
+                brief,
+                executorAgentProfileId,
+                conversationSource,
+                providerBindingIds,
+                Optional.empty(),
+                expectedWorkItemVersion);
     }
 }

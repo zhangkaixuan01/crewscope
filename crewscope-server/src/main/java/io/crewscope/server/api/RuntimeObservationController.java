@@ -6,6 +6,10 @@ import io.crewscope.application.runtime.RuntimeObservationService;
 import io.crewscope.application.runtime.RuntimeOperationsView;
 import io.crewscope.application.runtime.RuntimeWaitingDiagnostic;
 import io.crewscope.application.runtime.RuntimeWorkerObservation;
+import io.crewscope.application.runtime.CodingCleanupSummary;
+import io.crewscope.application.runtime.CodingRuntimeComponentSummary;
+import io.crewscope.application.runtime.CodingRuntimeSnapshot;
+import io.crewscope.application.runtime.CodingWorkspaceFleetSummary;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.runtime.ExecutionRuntime;
 import io.crewscope.domain.runtime.RuntimeCapabilities;
@@ -179,7 +183,8 @@ public final class RuntimeObservationController {
             int drainingWorkerCount,
             RuntimeCapacityResponse capacity,
             int waitingRuntimeExecutions,
-            List<RuntimeWaitCauseResponse> waitingCauses) {
+            List<RuntimeWaitCauseResponse> waitingCauses,
+            CodingWorkspaceFleetResponse codingWorkspaces) {
 
         static RuntimeFleetSummaryResponse from(RuntimeFleetSummary value) {
             return new RuntimeFleetSummaryResponse(
@@ -197,7 +202,10 @@ public final class RuntimeObservationController {
                             .sorted(Map.Entry.comparingByKey())
                             .map(entry -> new RuntimeWaitCauseResponse(
                                     entry.getKey().name(), entry.getValue()))
-                            .toList());
+                            .toList(),
+                    value.codingWorkspaces()
+                            .map(CodingWorkspaceFleetResponse::from)
+                            .orElse(null));
         }
     }
 
@@ -211,11 +219,40 @@ public final class RuntimeObservationController {
 
     public record RuntimeWaitCauseResponse(String cause, long count) {}
 
+    public record CodingWorkspaceFleetResponse(
+            String health,
+            RuntimeCapacityResponse capacity,
+            CodingRuntimeComponentResponse sandboxes,
+            CodingRuntimeComponentResponse watchers,
+            String cleanupHealth,
+            boolean cleanupCapacityLimited) {
+
+        static CodingWorkspaceFleetResponse from(CodingWorkspaceFleetSummary value) {
+            return new CodingWorkspaceFleetResponse(
+                    value.health().name(),
+                    RuntimeCapacityResponse.from(value.capacity()),
+                    CodingRuntimeComponentResponse.from(value.sandboxes()),
+                    CodingRuntimeComponentResponse.from(value.watchers()),
+                    value.cleanupHealth().name(),
+                    value.cleanupCapacityLimited());
+        }
+    }
+
+    public record CodingRuntimeComponentResponse(
+            String health, int total, int healthy, int failed) {
+
+        static CodingRuntimeComponentResponse from(CodingRuntimeComponentSummary value) {
+            return new CodingRuntimeComponentResponse(
+                    value.health().name(), value.total(), value.healthy(), value.failed());
+        }
+    }
+
     public record RuntimeOperationsResponse(
             RuntimeFleetSummaryResponse summary,
             List<ExecutionRuntimeResponse> runtimes,
             List<RuntimeWorkerResponse> workers,
-            List<RuntimeWaitingExecutionResponse> waitingExecutions) {
+            List<RuntimeWaitingExecutionResponse> waitingExecutions,
+            CodingRuntimeOperationsResponse codingRuntime) {
 
         static RuntimeOperationsResponse from(RuntimeOperationsView value) {
             return new RuntimeOperationsResponse(
@@ -224,7 +261,56 @@ public final class RuntimeObservationController {
                     value.workers().stream().map(RuntimeWorkerResponse::from).toList(),
                     value.waitingExecutions().stream()
                             .map(RuntimeWaitingExecutionResponse::from)
-                            .toList());
+                            .toList(),
+                    value.codingRuntime()
+                            .map(CodingRuntimeOperationsResponse::from)
+                            .orElse(null));
+        }
+    }
+
+    public record CodingRuntimeOperationsResponse(
+            String health,
+            Instant observedAt,
+            RuntimeCapacityResponse workspaceCapacity,
+            CodingRuntimeComponentResponse sandboxes,
+            CodingRuntimeComponentResponse watchers,
+            CodingCleanupResponse cleanup) {
+
+        static CodingRuntimeOperationsResponse from(CodingRuntimeSnapshot value) {
+            return new CodingRuntimeOperationsResponse(
+                    value.health().name(),
+                    value.observedAt().value(),
+                    RuntimeCapacityResponse.from(value.workspaceCapacity()),
+                    CodingRuntimeComponentResponse.from(value.sandboxes()),
+                    CodingRuntimeComponentResponse.from(value.watchers()),
+                    CodingCleanupResponse.from(value.cleanup()));
+        }
+    }
+
+    public record CodingCleanupResponse(
+            String health,
+            boolean completed,
+            int recoveredWorkspaces,
+            int failedWorkspaces,
+            int archivedWorkspaces,
+            int archiveFailures,
+            int removedSandboxOrphans,
+            int purgedArtifacts,
+            boolean capacityLimited,
+            String lastFailureType) {
+
+        static CodingCleanupResponse from(CodingCleanupSummary value) {
+            return new CodingCleanupResponse(
+                    value.health().name(),
+                    value.completed(),
+                    value.recoveredWorkspaces(),
+                    value.failedWorkspaces(),
+                    value.archivedWorkspaces(),
+                    value.archiveFailures(),
+                    value.removedSandboxOrphans(),
+                    value.purgedArtifacts(),
+                    value.capacityLimited(),
+                    value.lastFailureType().orElse("NONE"));
         }
     }
 

@@ -1,8 +1,10 @@
 package io.crewscope.infrastructure.workspace.repository;
 
+import io.crewscope.application.coding.WorkspaceWriteBudgetStore;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.coding.ExecutionWorkspaceKey;
 import io.crewscope.domain.coding.WorkspacePolicy;
+import io.crewscope.infrastructure.persistence.coding.InMemoryWorkspaceWriteBudgetStore;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +15,15 @@ final class CodingFilesystemUsageRegistry {
 
     private final ConcurrentMap<ExecutionWorkspaceKey, CodingFilesystemUsage> usages =
             new ConcurrentHashMap<>();
+    private final WorkspaceWriteBudgetStore store;
+
+    CodingFilesystemUsageRegistry() {
+        this(new InMemoryWorkspaceWriteBudgetStore());
+    }
+
+    CodingFilesystemUsageRegistry(WorkspaceWriteBudgetStore store) {
+        this.store = Objects.requireNonNull(store, "store");
+    }
 
     CodingFilesystemUsage acquire(
             ExecutionWorkspace workspace,
@@ -26,7 +37,8 @@ final class CodingFilesystemUsageRegistry {
                         requiredWorkspace,
                         requiredPolicy,
                         initialChangedPaths,
-                        initialWrittenBytes)
+                        initialWrittenBytes,
+                        store)
                 : current.requireSame(requiredWorkspace, requiredPolicy));
     }
 

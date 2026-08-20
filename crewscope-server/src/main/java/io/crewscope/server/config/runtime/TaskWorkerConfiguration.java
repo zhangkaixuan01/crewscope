@@ -20,7 +20,11 @@ import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
 import io.crewscope.agentscope.coding.CodingSpecialistStepRuntime;
 import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
 import io.crewscope.application.coding.CodingCheckpointRepository;
+import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.coding.output.CodingOutputValidator;
+import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventStore;
+import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -39,6 +43,7 @@ import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskPlanPublicationService;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.task.TaskTokenService;
+import io.crewscope.application.runtime.RuntimeMaintenanceService;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -54,12 +59,17 @@ import io.crewscope.infrastructure.runtime.TaskWorkerExecutionSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoadTracker;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoopSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerStartupReconciler;
+import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSessionFactory;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRecoveryMarker;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRuntimeRegistry;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRuntimeOperationsAdapter;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceStartupReconciler;
 import io.crewscope.server.observability.CodingWorkspaceStartupHealthIndicator;
 import io.crewscope.server.observability.TaskWorkerHealthIndicator;
-import java.time.Clock;
 import jakarta.validation.Validator;
+import java.time.Clock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -231,6 +241,32 @@ public class TaskWorkerConfiguration {
                 timeProvider);
     }
 
+    @Bean
+    @ConditionalOnBean({
+        CodingWorkspaceRuntimeRegistry.class,
+        CodingSpecialistToolSessionFactory.class,
+        CodingWorkspaceExecutionLifecycle.class
+    })
+    CodingSpecialistAuthorityGateway codingSpecialistAuthorityGateway(
+            CodingWorkspaceRuntimeRegistry workspaces,
+            CodingSpecialistToolSessionFactory tools,
+            CodingWorkspaceExecutionLifecycle lifecycle,
+            ExecutionLeaseRepository leases,
+            TestEvidenceRepository testEvidence,
+            PrincipalRepository principals,
+            RuntimeWorkerRegistrationSpec registration,
+            AuthoritativeTimeProvider timeProvider) {
+        return new WorkerCodingSpecialistAuthorityGateway(
+                workspaces,
+                tools,
+                lifecycle,
+                leases,
+                testEvidence,
+                principals,
+                registration,
+                timeProvider);
+    }
+
     /** M4-A03 supplies the production Workspace/Tool lifecycle Gateway. */
     @Bean
     @ConditionalOnBean(CodingSpecialistAuthorityGateway.class)
@@ -283,7 +319,11 @@ public class TaskWorkerConfiguration {
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             RuntimeWorkerLifecycle workerLifecycle,
-            TaskWorkerExecutionSpec executionSpec) {
+            TaskWorkerExecutionSpec executionSpec,
+            ObjectProvider<CodingWorkspaceExecutionLifecycle> codingWorkspaceLifecycles) {
+        CodingWorkspaceExecutionLifecycle codingWorkspaceLifecycle =
+                codingWorkspaceLifecycles.getIfAvailable(
+                        () -> CodingWorkspaceExecutionLifecycle.NOOP);
         return new DurableTaskWorkerExecutionFactory(
                 taskRepository,
                 executionRepository,
@@ -301,7 +341,8 @@ public class TaskWorkerConfiguration {
                 timeProvider,
                 registration,
                 workerLifecycle,
-                executionSpec.taskTokenLifetime());
+                executionSpec.taskTokenLifetime(),
+                codingWorkspaceLifecycle);
     }
 
     @Bean(destroyMethod = "close")
@@ -384,8 +425,41 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
+    @ConditionalOnBean({
+        CodingWorkspaceRuntimeRegistry.class,
+        CodingWorkspaceStartupReconciler.class
+    })
+    CodingWorkspaceRuntimeOperationsAdapter codingWorkspaceRuntimeOperationsAdapter(
+            CodingWorkspaceRuntimeRegistry registry,
+            CodingWorkspaceStartupReconciler reconciler,
+            RuntimeWorkerRegistrationSpec registration,
+            AuthoritativeTimeProvider timeProvider) {
+        return new CodingWorkspaceRuntimeOperationsAdapter(
+                registry, reconciler, registration, timeProvider);
+    }
+
+    @Bean
+    @ConditionalOnBean(CodingWorkspaceRuntimeOperationsAdapter.class)
+    RuntimeMaintenanceService runtimeMaintenanceService(
+            CodingWorkspaceRuntimeOperationsAdapter operations,
+            DomainEventStore eventStore,
+            OutboxRepository outboxRepository,
+            CommandReceiptStore receiptStore,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider) {
+        return new RuntimeMaintenanceService(
+                operations,
+                eventStore,
+                outboxRepository,
+                receiptStore,
+                transactionExecutor,
+                timeProvider);
+    }
+
+    @Bean
+    @ConditionalOnBean(CodingWorkspaceRuntimeOperationsAdapter.class)
     CodingWorkspaceStartupHealthIndicator codingWorkspaceStartupHealthIndicator(
-            CodingWorkspaceStartupReconciler reconciler) {
-        return new CodingWorkspaceStartupHealthIndicator(reconciler);
+            CodingWorkspaceRuntimeOperationsAdapter operations) {
+        return new CodingWorkspaceStartupHealthIndicator(operations);
     }
 }

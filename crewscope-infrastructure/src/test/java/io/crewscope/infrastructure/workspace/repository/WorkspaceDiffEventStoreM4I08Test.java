@@ -4,6 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import io.crewscope.domain.coding.DiffFileEntry;
 import io.crewscope.domain.coding.DiffFileKind;
@@ -125,6 +130,30 @@ class WorkspaceDiffEventStoreM4I08Test {
 
         assertEquals(1, published);
         assertEquals(second.contentHash(), store.latest(key).orElseThrow().contentHash());
+    }
+
+    @Test
+    void durablePublicationFailureDoesNotAdvanceReplayAuthority() {
+        io.crewscope.application.coding.CodingTaskTimelinePublisher timeline =
+                mock(io.crewscope.application.coding.CodingTaskTimelinePublisher.class);
+        doThrow(new IllegalStateException("database unavailable"))
+                .doNothing()
+                .when(timeline)
+                .workspaceDiffChanged(any());
+        WorkspaceDiffProperties properties = new WorkspaceDiffProperties();
+        WorkspaceDiffEventStore durable = new WorkspaceDiffEventStore(
+                properties,
+                new WorkspaceDiffCursorCodec("m4-a05-diff-cursor-secret-32bytes".getBytes()),
+                Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
+                timeline);
+        DiffManifest first = manifest(1, entry("src/A.java", "a"));
+
+        assertThrows(IllegalStateException.class, () -> durable.restart(key, first));
+        assertTrue(durable.latest(key).isEmpty());
+
+        WorkspaceDiffEvent retried = durable.restart(key, first);
+        assertEquals(1, retried.sequence());
+        verify(timeline, times(2)).workspaceDiffChanged(any());
     }
 
     private static String storeCursor(WorkspaceDiffEvent event) {

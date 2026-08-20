@@ -223,7 +223,11 @@ class CodingFilesystemToolM4I06Test {
         when(policy.policyHash()).thenReturn(TaskFactHash.sha256("m4-i06-policy"));
         when(policy.operationBudget()).thenReturn(budget);
         CodingFilesystemUsage usage = new CodingFilesystemUsage(
-                workspace, policy, Set.of(), 0);
+                workspace,
+                policy,
+                Set.of(),
+                0,
+                new io.crewscope.infrastructure.persistence.coding.InMemoryWorkspaceWriteBudgetStore());
         return new CodingFilesystemTool(
                 call,
                 filesystem,

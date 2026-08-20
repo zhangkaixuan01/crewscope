@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -118,6 +119,10 @@ class WorkspaceDiffFinalizerM4I08Test {
         PatchArtifactWriter patches = new PatchArtifactWriter(new FilesystemArtifactStore(
                 temporaryDirectory.resolve("artifacts"), new ObjectMapper(), CLOCK));
         diffRepository = new InMemoryDiffRepository();
+        io.crewscope.application.transaction.TransactionExecutor transactions =
+                mock(io.crewscope.application.transaction.TransactionExecutor.class);
+        when(transactions.required(any())).thenAnswer(invocation ->
+                ((java.util.function.Supplier<?>) invocation.getArgument(0)).get());
         finalizer = new WorkspaceDiffFinalizer(
                 repositories,
                 git,
@@ -125,7 +130,9 @@ class WorkspaceDiffFinalizerM4I08Test {
                 patches,
                 diffRepository,
                 workspaces,
-                CLOCK);
+                CLOCK,
+                io.crewscope.application.coding.CodingTaskTimelinePublisher.NO_OP,
+                transactions);
     }
 
     @Test

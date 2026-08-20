@@ -113,7 +113,8 @@ class RuntimeObservationControllerM3A07Test {
                         summary,
                         List.of(runtime),
                         List.of(new RuntimeWorkerObservation(worker, true, true, true)),
-                        List.of()));
+                        List.of(),
+                        Optional.empty()));
 
         client.get()
                 .uri(root() + "/operations?environment=development")
@@ -140,7 +141,8 @@ class RuntimeObservationControllerM3A07Test {
                         summary,
                         List.of(runtime),
                         List.of(new RuntimeWorkerObservation(worker, false, true, false)),
-                        List.of()));
+                        List.of(),
+                        Optional.empty()));
 
         client.get()
                 .uri(root() + "/operations")
@@ -189,7 +191,8 @@ class RuntimeObservationControllerM3A07Test {
                 health == RuntimeFleetHealth.DEGRADED ? 1 : 0,
                 health == RuntimeFleetHealth.DEGRADED
                         ? Map.of(RuntimeWaitCause.HEARTBEAT_STALE, 1L)
-                        : Map.of());
+                        : Map.of(),
+                Optional.empty());
     }
 
     private ExecutionRuntime runtime() {

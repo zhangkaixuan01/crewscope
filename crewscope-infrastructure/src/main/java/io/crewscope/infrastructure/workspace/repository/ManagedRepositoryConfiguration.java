@@ -1,5 +1,6 @@
 package io.crewscope.infrastructure.workspace.repository;
 
+import io.crewscope.application.coding.RepositoryBindingPreflightPort;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -26,5 +27,12 @@ public class ManagedRepositoryConfiguration {
     BaselinePreflight baselinePreflight(
             ManagedRepositoryResolver repositoryResolver, GitCommandExecutor gitCommands) {
         return new BaselinePreflight(repositoryResolver, gitCommands);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RepositoryBindingPreflightPort.class)
+    RepositoryBindingPreflightPort repositoryBindingPreflightPort(
+            BaselinePreflight baselinePreflight) {
+        return new ManagedRepositoryBindingPreflightAdapter(baselinePreflight);
     }
 }

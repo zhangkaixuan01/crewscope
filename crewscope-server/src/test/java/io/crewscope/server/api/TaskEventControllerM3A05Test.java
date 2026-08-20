@@ -262,6 +262,36 @@ class TaskEventControllerM3A05Test {
                 .expectBody().jsonPath("$.code").isEqualTo("cursor_expired");
     }
 
+    @Test
+    void streamsCodingResetDeltaTestAndFinalArtifactBeforeTerminalClosure() {
+        TaskEvent reset = codingEvent(1, 1, "WORKSPACE_DIFF_RESET", Map.of(
+                "changeKind", "RESET", "diffGeneration", 1));
+        TaskEvent delta = codingEvent(2, 2, "WORKSPACE_DIFF_DELTA", Map.of(
+                "changeKind", "DELTA", "diffGeneration", 2));
+        TaskEvent test = codingEvent(3, 1, "TEST_EVIDENCE_PUBLISHED", Map.of(
+                "succeeded", true, "diffGeneration", 2));
+        TaskEvent finalArtifact = codingEvent(4, 2, "FINAL_DIFF_ARTIFACT_PUBLISHED", Map.of(
+                "diffGeneration", 2, "fileCount", 1));
+        when(service.events(
+                        any(), eq(organizationId), eq(teamId), eq(taskId), eq(Optional.empty()), eq(100)))
+                .thenReturn(new TaskEventPage(
+                        List.of(reset, delta, test, finalArtifact), false, true));
+
+        FluxExchangeResult<TaskEventController.TaskEventResponse> result = client.get()
+                .uri(root())
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(TaskEventController.TaskEventResponse.class);
+
+        StepVerifier.create(result.getResponseBody())
+                .expectNextMatches(value -> value.event().eventType().equals("WORKSPACE_DIFF_RESET"))
+                .expectNextMatches(value -> value.event().eventType().equals("WORKSPACE_DIFF_DELTA"))
+                .expectNextMatches(value -> value.event().eventType().equals("TEST_EVIDENCE_PUBLISHED"))
+                .expectNextMatches(value -> value.event().eventType().equals("FINAL_DIFF_ARTIFACT_PUBLISHED"))
+                .verifyComplete();
+    }
+
     private WebTestClient client(
             TeamRequestIdentityResolver resolver, TaskEventStreamProperties streamProperties) {
         return WebTestClient.bindToController(
@@ -291,6 +321,27 @@ class TaskEventControllerM3A05Test {
                         Optional.empty(),
                         now,
                         Map.of("eventKind", "PROGRESS", "safeText", "working")));
+    }
+
+    private TaskEvent codingEvent(
+            long position, long aggregateVersion, String eventType, Map<String, Object> payload) {
+        UUID streamEventId = UUID.randomUUID();
+        return new TaskEvent(
+                new TaskEventCursor(organizationId, teamId, taskId, position, streamEventId),
+                TaskEventContext.execution(taskId, executionId),
+                false,
+                new RealtimeEventEnvelope<>(
+                        streamEventId,
+                        Optional.of(UUID.randomUUID()),
+                        StreamType.TASK,
+                        EventType.from(eventType),
+                        SchemaVersion.V1,
+                        Optional.of(new AggregateReference("EXECUTION_WORKSPACE", executionId.value())),
+                        Optional.of(aggregateVersion),
+                        UUID.randomUUID(),
+                        Optional.empty(),
+                        now,
+                        payload));
     }
 
     private String root() {

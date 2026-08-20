@@ -176,6 +176,17 @@ class CodingWorkspaceStartupReconcilerM4I10Test {
         assertTrue(reconciler.health().capacityLimited());
     }
 
+    @Test
+    void operationalReconcileFencesExpiredTaskOwnershipBeforePhysicalRepair() {
+        CodingWorkspaceStartupReconciler reconciler =
+                reconciler(new CodingWorkspaceStartupProperties());
+
+        reconciler.reconcileWorkspaceResources();
+
+        verify(tasks).reconcile();
+        verify(workspaces).findRecoveringForUpdate(ORGANIZATION, ENVIRONMENT, 100);
+    }
+
     private CodingWorkspaceStartupReconciler reconciler(
             CodingWorkspaceStartupProperties properties) {
         return new CodingWorkspaceStartupReconciler(

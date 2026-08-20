@@ -1,7 +1,9 @@
 package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.coding.DiffArtifactRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.CodingTargetSnapshot;
 import io.crewscope.domain.coding.DiffArtifact;
 import io.crewscope.domain.coding.DiffArtifactId;
@@ -29,6 +31,8 @@ public final class WorkspaceDiffFinalizer {
     private final DiffArtifactRepository diffs;
     private final ExecutionWorkspaceRepository workspaces;
     private final Clock clock;
+    private final CodingTaskTimelinePublisher timeline;
+    private final TransactionExecutor transactions;
 
     WorkspaceDiffFinalizer(
             ManagedRepositoryResolver repositories,
@@ -37,7 +41,9 @@ public final class WorkspaceDiffFinalizer {
             PatchArtifactWriter patches,
             DiffArtifactRepository diffs,
             ExecutionWorkspaceRepository workspaces,
-            Clock clock) {
+            Clock clock,
+            CodingTaskTimelinePublisher timeline,
+            TransactionExecutor transactions) {
         this.repositories = Objects.requireNonNull(repositories, "repositories");
         this.git = Objects.requireNonNull(git, "git");
         this.reconciler = Objects.requireNonNull(reconciler, "reconciler");
@@ -45,6 +51,8 @@ public final class WorkspaceDiffFinalizer {
         this.diffs = Objects.requireNonNull(diffs, "diffs");
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.timeline = Objects.requireNonNull(timeline, "timeline");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
     }
 
     /**
@@ -86,7 +94,11 @@ public final class WorkspaceDiffFinalizer {
                     patch,
                     actor,
                     UtcTimestamp.from(clock.instant()));
-            return diffs.create(artifact);
+            return transactions.required(() -> {
+                DiffArtifact committed = diffs.create(artifact);
+                timeline.finalDiffArtifactPublished(committed);
+                return committed;
+            });
         } catch (DiffArtifactWorkspaceConflictException raced) {
             return findExisting(current)
                     .map(found -> requireSameDelivery(

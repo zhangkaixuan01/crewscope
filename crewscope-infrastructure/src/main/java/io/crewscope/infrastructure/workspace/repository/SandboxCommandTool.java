@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Agent-callable facade with no raw command, argv, directory, environment or image parameter. */
 public final class SandboxCommandTool {
@@ -25,6 +26,8 @@ public final class SandboxCommandTool {
     private final SandboxCommandUsage usage;
     private final BuildProfileCommandRunner runner;
     private final CommandEvidenceWriter evidenceWriter;
+    private final Optional<TestEvidencePublisher> testEvidencePublisher;
+    private final Optional<CodingWorkspaceExecution> codingExecution;
     private final int maximumToolResultBytes;
 
     SandboxCommandTool(
@@ -38,6 +41,62 @@ public final class SandboxCommandTool {
             BuildProfileCommandRunner runner,
             CommandEvidenceWriter evidenceWriter,
             int maximumToolResultBytes) {
+        this(
+                call,
+                repositoryContainerPath,
+                workspace,
+                policy,
+                profile,
+                actor,
+                usage,
+                runner,
+                evidenceWriter,
+                Optional.empty(),
+                Optional.empty(),
+                maximumToolResultBytes);
+    }
+
+    SandboxCommandTool(
+            TaskExecutionSandboxCall call,
+            String repositoryContainerPath,
+            ExecutionWorkspace workspace,
+            WorkspacePolicy policy,
+            io.crewscope.domain.coding.BuildProfile profile,
+            Principal actor,
+            SandboxCommandUsage usage,
+            BuildProfileCommandRunner runner,
+            CommandEvidenceWriter evidenceWriter,
+            TestEvidencePublisher testEvidencePublisher,
+            CodingWorkspaceExecution codingExecution,
+            int maximumToolResultBytes) {
+        this(
+                call,
+                repositoryContainerPath,
+                workspace,
+                policy,
+                profile,
+                actor,
+                usage,
+                runner,
+                evidenceWriter,
+                Optional.of(Objects.requireNonNull(testEvidencePublisher, "testEvidencePublisher")),
+                Optional.of(Objects.requireNonNull(codingExecution, "codingExecution")),
+                maximumToolResultBytes);
+    }
+
+    private SandboxCommandTool(
+            TaskExecutionSandboxCall call,
+            String repositoryContainerPath,
+            ExecutionWorkspace workspace,
+            WorkspacePolicy policy,
+            io.crewscope.domain.coding.BuildProfile profile,
+            Principal actor,
+            SandboxCommandUsage usage,
+            BuildProfileCommandRunner runner,
+            CommandEvidenceWriter evidenceWriter,
+            Optional<TestEvidencePublisher> testEvidencePublisher,
+            Optional<CodingWorkspaceExecution> codingExecution,
+            int maximumToolResultBytes) {
         this.call = Objects.requireNonNull(call, "call");
         this.repositoryContainerPath = Objects.requireNonNull(
                 repositoryContainerPath, "repositoryContainerPath");
@@ -48,6 +107,13 @@ public final class SandboxCommandTool {
         this.usage = Objects.requireNonNull(usage, "usage");
         this.runner = Objects.requireNonNull(runner, "runner");
         this.evidenceWriter = Objects.requireNonNull(evidenceWriter, "evidenceWriter");
+        this.testEvidencePublisher = Objects.requireNonNull(
+                testEvidencePublisher, "testEvidencePublisher");
+        this.codingExecution = Objects.requireNonNull(codingExecution, "codingExecution");
+        if (this.testEvidencePublisher.isPresent() != this.codingExecution.isPresent()) {
+            throw new IllegalArgumentException(
+                    "TestEvidence publication requires the complete Coding execution context");
+        }
         this.maximumToolResultBytes = maximumToolResultBytes;
     }
 
@@ -92,7 +158,10 @@ public final class SandboxCommandTool {
         SandboxCommandExecution execution = runner.run(call, runtimeContext, prepared);
         CommandEvidence evidence = evidenceWriter.write(
                 workspace, policy, actor, reservation.sequence(), execution);
-        return toolResult(evidence, execution, reservation);
+        Optional<io.crewscope.domain.coding.TestEvidence> testEvidence =
+                testEvidencePublisher.flatMap(publisher -> publisher.publish(
+                        codingExecution.orElseThrow(), actor, evidence, execution));
+        return toolResult(evidence, testEvidence, execution, reservation);
     }
 
     private void requireCurrent() {
@@ -122,6 +191,7 @@ public final class SandboxCommandTool {
 
     private String toolResult(
             CommandEvidence evidence,
+            Optional<io.crewscope.domain.coding.TestEvidence> testEvidence,
             SandboxCommandExecution execution,
             SandboxCommandUsage.Reservation reservation) {
         String header = "status=" + (evidence.succeeded() ? "succeeded" : "failed")
@@ -131,6 +201,10 @@ public final class SandboxCommandTool {
                 + " evidenceId=" + evidence.id()
                 + " evidenceSequence=" + evidence.sequence()
                 + " commandLogArtifactId=" + evidence.commandLog().artifactId()
+                + testEvidence.map(value -> " testEvidenceId=" + value.id()
+                                + " testEvidenceHash=" + value.evidenceHash()
+                                + " testsSucceeded=" + value.succeeded())
+                        .orElse("")
                 + " commandCalls=" + reservation.commandCalls()
                 + "/" + reservation.maximumCommandCalls()
                 + " outputTruncated=" + execution.outputTruncated()

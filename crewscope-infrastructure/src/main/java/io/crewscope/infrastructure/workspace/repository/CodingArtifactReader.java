@@ -8,21 +8,28 @@ import io.crewscope.application.artifact.ArtifactDescriptor;
 import io.crewscope.application.artifact.ArtifactStore;
 import io.crewscope.application.artifact.ArtifactStoreError;
 import io.crewscope.application.artifact.ArtifactStoreException;
+import io.crewscope.application.coding.CodingArtifactContentPort;
 import io.crewscope.domain.coding.CommandEvidence;
 import io.crewscope.domain.coding.DiffArtifact;
 import io.crewscope.domain.coding.TestEvidence;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.RuntimeContentHash;
 import java.time.Clock;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Reads Coding bytes only after ArtifactStore and committed relational metadata agree exactly. */
-public final class CodingArtifactReader {
+public final class CodingArtifactReader implements CodingArtifactContentPort {
 
     private final ArtifactStore artifactStore;
     private final CodingArtifactProperties properties;
     private final Clock clock;
+    private final Semaphore readPermits;
 
     CodingArtifactReader(
             ArtifactStore artifactStore, CodingArtifactProperties properties, Clock clock) {
@@ -30,6 +37,7 @@ public final class CodingArtifactReader {
         this.properties = Objects.requireNonNull(properties, "properties");
         this.properties.validate();
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.readPermits = new Semaphore(properties.getMaximumConcurrentReads(), true);
     }
 
     public CodingArtifactSummary summarizePatch(
@@ -47,6 +55,7 @@ public final class CodingArtifactReader {
         return summarize(CodingArtifactMetadata.testReport(evidence), accessContext);
     }
 
+    @Override
     public CodingArtifactReadResult readPatch(
             DiffArtifact artifact,
             ArtifactAccessContext accessContext,
@@ -54,6 +63,7 @@ public final class CodingArtifactReader {
         return read(CodingArtifactMetadata.patch(artifact), accessContext, range);
     }
 
+    @Override
     public CodingArtifactReadResult readBuildLog(
             CommandEvidence evidence,
             ArtifactAccessContext accessContext,
@@ -61,6 +71,7 @@ public final class CodingArtifactReader {
         return read(CodingArtifactMetadata.commandLog(evidence), accessContext, range);
     }
 
+    @Override
     public CodingArtifactReadResult readTestReport(
             TestEvidence evidence,
             ArtifactAccessContext accessContext,
@@ -111,21 +122,32 @@ public final class CodingArtifactReader {
                     CodingArtifactError.SIZE_LIMIT_EXCEEDED,
                     "Coding Artifact requires a bounded Range request");
         }
+        if (!readPermits.tryAcquire()) {
+            throw new CodingArtifactException(
+                    CodingArtifactError.TOO_MANY_CONCURRENT_READS,
+                    "Coding Artifact download concurrency limit was reached");
+        }
         try {
-            return requested.isPresent()
+            CodingArtifactReadResult result = requested.isPresent()
                     ? ranged(metadata, accessContext, requested.orElseThrow())
                     : complete(metadata, accessContext);
+            return withPermit(result);
         } catch (ArtifactStoreException failure) {
+            readPermits.release();
             if (failure.error() == ArtifactStoreError.RANGE_NOT_SATISFIABLE) {
                 throw new CodingArtifactException(
                         CodingArtifactError.RANGE_NOT_SATISFIABLE,
                         "Coding Artifact range is outside the available content",
+                        committed.size(),
                         failure);
             }
             throw new CodingArtifactException(
                     CodingArtifactError.CONTENT_UNAVAILABLE,
                     "Coding Artifact content could not be read",
                     failure);
+        } catch (RuntimeException failure) {
+            readPermits.release();
+            throw failure;
         }
     }
 
@@ -192,6 +214,29 @@ public final class CodingArtifactReader {
                 stream);
     }
 
+    private CodingArtifactReadResult withPermit(CodingArtifactReadResult result) {
+        try {
+            return new CodingArtifactReadResult(
+                    result.artifactId(),
+                    result.kind(),
+                    result.contentType(),
+                    result.contentHash(),
+                    result.totalSize(),
+                    result.startInclusive(),
+                    result.endExclusive(),
+                    new PermitReleasingInputStream(result.stream(), readPermits));
+        } catch (RuntimeException failure) {
+            try {
+                result.close();
+            } catch (IOException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            } finally {
+                readPermits.release();
+            }
+            throw failure;
+        }
+    }
+
     private static CodingArtifactException contentUnavailable() {
         return new CodingArtifactException(
                 CodingArtifactError.CONTENT_UNAVAILABLE,
@@ -203,6 +248,29 @@ public final class CodingArtifactReader {
             content.close();
         } catch (Exception closeFailure) {
             failure.addSuppressed(closeFailure);
+        }
+    }
+
+    /** Releases one global reader permit exactly once on completion, cancellation or failure. */
+    private static final class PermitReleasingInputStream extends FilterInputStream {
+
+        private final Semaphore permits;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private PermitReleasingInputStream(InputStream delegate, Semaphore permits) {
+            super(Objects.requireNonNull(delegate, "delegate"));
+            this.permits = Objects.requireNonNull(permits, "permits");
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (closed.compareAndSet(false, true)) {
+                try {
+                    super.close();
+                } finally {
+                    permits.release();
+                }
+            }
         }
     }
 }

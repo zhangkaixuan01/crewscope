@@ -273,6 +273,38 @@ class CodingArtifactServiceM4I09Test {
         assertTrue(store.head(reference.artifactId(), access).isEmpty());
     }
 
+    @Test
+    void holdsAndReleasesTheGlobalConcurrentReadPermitWithTheContentStream() throws Exception {
+        properties.setMaximumConcurrentReads(1);
+        EvidenceArtifactReference reference = new TestReportArtifactWriter(publisher).write(
+                workspace,
+                actor,
+                EvidenceSequence.first(),
+                "application/xml;charset=utf-8",
+                REPORT);
+        TestEvidence evidence = evidence(reference);
+        CodingArtifactReader reader = new CodingArtifactReader(
+                store, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+        CodingArtifactReadResult first = reader.readTestReport(
+                evidence, access, Optional.of(new ArtifactByteRange(0, 1)));
+
+        assertEquals(
+                CodingArtifactError.TOO_MANY_CONCURRENT_READS,
+                assertThrows(
+                                CodingArtifactException.class,
+                                () -> reader.readTestReport(
+                                        evidence,
+                                        access,
+                                        Optional.of(new ArtifactByteRange(1, 2))))
+                        .error());
+
+        first.close();
+        try (CodingArtifactReadResult retried = reader.readTestReport(
+                evidence, access, Optional.of(new ArtifactByteRange(1, 2)))) {
+            assertArrayEquals(new byte[] {REPORT[1]}, retried.stream().readAllBytes());
+        }
+    }
+
     private TestEvidence evidence(EvidenceArtifactReference reference) {
         TestEvidence evidence = mock(TestEvidence.class);
         when(evidence.testReport()).thenReturn(Optional.of(reference));

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +42,7 @@ import io.crewscope.domain.runtime.RuntimeCapability;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.runtime.RuntimeProfile;
 import io.crewscope.domain.runtime.RuntimeWorkerId;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -67,6 +69,8 @@ import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecution;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -188,6 +192,109 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
                 ArgumentCaptor.forClass(LeaseReleaseCommand.class);
         verify(fixture.leaseCoordinator).release(release.capture());
         assertEquals(ExecutionLeaseReleaseReason.CANCELLED, release.getValue().reason());
+    }
+
+    @Test
+    void sealedCodingResultWinsAPauseThatArrivesAfterTheFinalSafePoint() {
+        Fixture fixture = fixture();
+        TaskExecutionId executionId = fixture.facts.execution().id();
+        OrganizationId organizationId = fixture.facts.task().scope().organizationId();
+        CodingWorkspaceExecution codingWorkspace = mock(CodingWorkspaceExecution.class);
+        when(codingWorkspace.hasSealedSuccessfulResult()).thenReturn(true);
+        CodingWorkspaceExecutionLifecycle lifecycle = mock(CodingWorkspaceExecutionLifecycle.class);
+        when(fixture.factory.codingLifecycle()).thenReturn(lifecycle);
+        when(fixture.factory.prepare(fixture.receipt)).thenReturn(new TaskWorkerPreparedExecution(
+                fixture.facts,
+                fixture.prepared.leaseScope(),
+                fixture.prepared.token(),
+                fixture.prepared.correlationId(),
+                Optional.of(codingWorkspace)));
+        TaskExecution pauseRequested = mock(TaskExecution.class);
+        when(pauseRequested.id()).thenReturn(executionId);
+        when(pauseRequested.version()).thenReturn(4L);
+        when(pauseRequested.status()).thenReturn(TaskExecutionStatus.PAUSE_REQUESTED);
+        TaskExecution completed = mock(TaskExecution.class);
+        when(completed.status()).thenReturn(TaskExecutionStatus.COMPLETED);
+        when(fixture.executionRepository.findById(organizationId, executionId))
+                .thenReturn(
+                        Optional.of(pauseRequested),
+                        Optional.of(pauseRequested),
+                        Optional.of(completed));
+
+        assertDoesNotThrow(() -> handler.execute(fixture.receipt));
+
+        ArgumentCaptor<LeaseReleaseCommand> release =
+                ArgumentCaptor.forClass(LeaseReleaseCommand.class);
+        verify(fixture.leaseCoordinator).release(release.capture());
+        assertEquals(ExecutionLeaseReleaseReason.COMPLETED, release.getValue().reason());
+    }
+
+    @Test
+    void retriesLeaseReleaseAfterAConcurrentTaskExecutionVersionChange() {
+        Fixture fixture = fixture();
+        TaskExecutionId executionId = fixture.facts.execution().id();
+        OrganizationId organizationId = fixture.facts.task().scope().organizationId();
+        TaskExecution refreshed = mock(TaskExecution.class);
+        when(refreshed.id()).thenReturn(executionId);
+        when(refreshed.version()).thenReturn(4L);
+        when(refreshed.status()).thenReturn(TaskExecutionStatus.RUNNING);
+        when(fixture.executionRepository.findById(organizationId, executionId))
+                .thenReturn(
+                        Optional.of(fixture.committedExecution),
+                        Optional.of(refreshed));
+        when(fixture.leaseCoordinator.release(any()))
+                .thenThrow(new OptimisticLockConflictException(
+                        "TaskExecution",
+                        executionId,
+                        3,
+                        4))
+                .thenReturn(mock(io.crewscope.application.task.LeaseMutationResult.class));
+
+        assertDoesNotThrow(() -> handler.execute(fixture.receipt));
+
+        ArgumentCaptor<LeaseReleaseCommand> releases =
+                ArgumentCaptor.forClass(LeaseReleaseCommand.class);
+        verify(fixture.leaseCoordinator, times(2)).release(releases.capture());
+        assertEquals(3, releases.getAllValues().get(0).executionCommand().expectedExecutionVersion());
+        assertEquals(4, releases.getAllValues().get(1).executionCommand().expectedExecutionVersion());
+    }
+
+    @Test
+    void bracketsLeaseReleaseWithCodingWorkspaceFinalization() {
+        Fixture fixture = fixture();
+        CodingWorkspaceExecution codingWorkspace = mock(CodingWorkspaceExecution.class);
+        CodingWorkspaceExecutionLifecycle lifecycle = mock(CodingWorkspaceExecutionLifecycle.class);
+        when(fixture.factory.codingLifecycle()).thenReturn(lifecycle);
+        TaskWorkerPreparedExecution codingPrepared = new TaskWorkerPreparedExecution(
+                fixture.facts,
+                fixture.prepared.leaseScope(),
+                fixture.prepared.token(),
+                fixture.prepared.correlationId(),
+                Optional.of(codingWorkspace));
+        when(fixture.factory.prepare(fixture.receipt)).thenReturn(codingPrepared);
+        TaskExecution completed = mock(TaskExecution.class);
+        when(completed.status()).thenReturn(TaskExecutionStatus.COMPLETED);
+        when(fixture.executionRepository.findById(
+                        fixture.facts.task().scope().organizationId(),
+                        fixture.facts.execution().id()))
+                .thenReturn(
+                        Optional.of(fixture.committedExecution),
+                        Optional.of(fixture.committedExecution),
+                        Optional.of(completed));
+
+        assertDoesNotThrow(() -> handler.execute(fixture.receipt));
+
+        var ordered = inOrder(lifecycle, fixture.leaseCoordinator);
+        ordered.verify(lifecycle).beforeRelease(
+                codingWorkspace,
+                fixture.committedExecution,
+                fixture.lease,
+                io.crewscope.application.execution.TaskExecutionTerminalStatus.COMPLETED);
+        ordered.verify(fixture.leaseCoordinator).release(any());
+        ordered.verify(lifecycle).afterRelease(
+                codingWorkspace,
+                completed,
+                io.crewscope.application.execution.TaskExecutionTerminalStatus.COMPLETED);
     }
 
     @Test
@@ -427,10 +534,13 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
         return new Fixture(
                 receipt,
                 facts,
+                prepared,
                 factory,
                 runtime,
                 run,
                 committedExecution,
+                executionRepository,
+                lease,
                 stateRuntime,
                 eventService,
                 leaseCoordinator,
@@ -459,10 +569,13 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
     private record Fixture(
             ClaimReceipt receipt,
             TaskExecutionRuntimeFacts facts,
+            TaskWorkerPreparedExecution prepared,
             DurableTaskWorkerExecutionFactory factory,
             TaskExecutionRuntime runtime,
             AgentRun run,
             TaskExecution committedExecution,
+            TaskExecutionRepository executionRepository,
+            ExecutionLease lease,
             TaskAgentStateRuntime stateRuntime,
             DurableTaskExecutionEventService eventService,
             TaskExecutionLeaseCoordinator leaseCoordinator,

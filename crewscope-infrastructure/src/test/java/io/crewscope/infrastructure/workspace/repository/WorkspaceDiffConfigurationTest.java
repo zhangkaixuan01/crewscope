@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import io.crewscope.application.artifact.ArtifactStore;
 import io.crewscope.application.coding.DiffArtifactRepository;
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -69,6 +71,8 @@ class WorkspaceDiffConfigurationTest {
                 .withBean(
                         ManagedRepositoryResolver.class,
                         () -> mock(ManagedRepositoryResolver.class))
+                .withBean(CodingTaskTimelinePublisher.class, () -> CodingTaskTimelinePublisher.NO_OP)
+                .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withUserConfiguration(WorkspaceDiffConfiguration.class);
     }
 }

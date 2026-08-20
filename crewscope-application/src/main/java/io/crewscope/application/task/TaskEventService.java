@@ -8,7 +8,6 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskId;
-import io.crewscope.domain.task.TaskStatus;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -19,16 +18,32 @@ public final class TaskEventService {
     private final TaskRepository taskRepository;
     private final TaskEventRepository eventRepository;
     private final TransactionExecutor transactionExecutor;
+    private final TaskEventCompletionPolicy completionPolicy;
 
     public TaskEventService(
             WorkItemAccessPolicy accessPolicy,
             TaskRepository taskRepository,
             TaskEventRepository eventRepository,
             TransactionExecutor transactionExecutor) {
+        this(
+                accessPolicy,
+                taskRepository,
+                eventRepository,
+                transactionExecutor,
+                TaskEventCompletionPolicy.TASK_TERMINAL);
+    }
+
+    public TaskEventService(
+            WorkItemAccessPolicy accessPolicy,
+            TaskRepository taskRepository,
+            TaskEventRepository eventRepository,
+            TransactionExecutor transactionExecutor,
+            TaskEventCompletionPolicy completionPolicy) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.taskRepository = Objects.requireNonNull(taskRepository, "taskRepository");
         this.eventRepository = Objects.requireNonNull(eventRepository, "eventRepository");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
+        this.completionPolicy = Objects.requireNonNull(completionPolicy, "completionPolicy");
     }
 
     public TaskEventPage events(
@@ -46,13 +61,7 @@ public final class TaskEventService {
             return eventRepository.findPage(
                     new TaskEventQuery(
                             task.scope(), task.id(), Objects.requireNonNull(cursor, "cursor"), limit),
-                    terminal(task.status()));
+                    completionPolicy.streamComplete(task));
         });
-    }
-
-    private static boolean terminal(TaskStatus status) {
-        return status == TaskStatus.COMPLETED
-                || status == TaskStatus.FAILED
-                || status == TaskStatus.CANCELLED;
     }
 }

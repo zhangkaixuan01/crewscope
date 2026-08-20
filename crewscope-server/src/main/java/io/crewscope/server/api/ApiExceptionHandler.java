@@ -1,13 +1,18 @@
 package io.crewscope.server.api;
 
+import io.crewscope.application.coding.RepositoryBindingPreflightException;
+import io.crewscope.application.coding.CodingArtifactRangeNotSatisfiableException;
+import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
-import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
+import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
 import io.crewscope.server.observability.ApiObservabilityContext;
+import io.crewscope.infrastructure.workspace.repository.CodingArtifactException;
 import jakarta.validation.ConstraintViolationException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -15,6 +20,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.support.WebExchangeBindException;
@@ -76,6 +82,38 @@ public class ApiExceptionHandler {
                     Map.of(),
                     correlationId,
                     exchange);
+        }
+        if (failure instanceof CodingRuntimeOperationsUnavailableException) {
+            return response(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "runtime_operations_unavailable",
+                    "Coding Runtime operations are unavailable for the requested environment",
+                    true,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof RepositoryBindingPreflightException preflightFailure) {
+            HttpStatus status = preflightFailure.retryable()
+                    ? HttpStatus.SERVICE_UNAVAILABLE
+                    : HttpStatus.UNPROCESSABLE_CONTENT;
+            return response(
+                    status,
+                    "repository_preflight_"
+                            + preflightFailure.error().name().toLowerCase(Locale.ROOT),
+                    preflightFailure.getMessage(),
+                    preflightFailure.retryable(),
+                    null,
+                    Map.of("reason", preflightFailure.error().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof CodingArtifactRangeNotSatisfiableException rangeFailure) {
+            return rangeResponse(rangeFailure.totalSize(), correlationId, exchange);
+        }
+        if (failure instanceof CodingArtifactException artifactFailure) {
+            return codingArtifactResponse(artifactFailure, correlationId, exchange);
         }
         if (failure instanceof WebExchangeBindException bindingFailure) {
             Map<String, String> details = new TreeMap<>();
@@ -168,6 +206,97 @@ public class ApiExceptionHandler {
                 error.details(),
                 correlationId,
                 exchange);
+    }
+
+    private ResponseEntity<ApiErrorResponse> codingArtifactResponse(
+            CodingArtifactException failure,
+            UUID correlationId,
+            ServerWebExchange exchange) {
+        return switch (failure.error()) {
+            case RANGE_NOT_SATISFIABLE -> failure.totalSize().isPresent()
+                    ? rangeResponse(failure.totalSize().getAsLong(), correlationId, exchange)
+                    : response(
+                            HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                            "coding_artifact_range_not_satisfiable",
+                            "The requested Coding Artifact range is not available",
+                            false,
+                            null,
+                            Map.of(),
+                            correlationId,
+                            exchange);
+            case SIZE_LIMIT_EXCEEDED -> response(
+                    HttpStatus.CONTENT_TOO_LARGE,
+                    "coding_artifact_response_too_large",
+                    "The Coding Artifact response exceeds the configured byte limit",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+            case TOO_MANY_CONCURRENT_READS -> withHeader(
+                    response(
+                            HttpStatus.TOO_MANY_REQUESTS,
+                            "coding_artifact_download_busy",
+                            "Coding Artifact download capacity is temporarily exhausted",
+                            true,
+                            null,
+                            Map.of(),
+                            correlationId,
+                            exchange),
+                    HttpHeaders.RETRY_AFTER,
+                    "1");
+            case INVALID_CONTEXT, CONTENT_UNAVAILABLE -> response(
+                    HttpStatus.NOT_FOUND,
+                    "coding_artifact_unavailable",
+                    "The Coding Artifact is unavailable",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+            case METADATA_MISMATCH -> response(
+                    HttpStatus.CONFLICT,
+                    "coding_artifact_integrity_mismatch",
+                    "The Coding Artifact metadata failed integrity verification",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+            case PUBLICATION_FAILED, LIFECYCLE_FAILED -> response(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "coding_artifact_operation_failed",
+                    "The Coding Artifact operation could not be completed",
+                    true,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        };
+    }
+
+    private ResponseEntity<ApiErrorResponse> rangeResponse(
+            long totalSize, UUID correlationId, ServerWebExchange exchange) {
+        return withHeader(
+                response(
+                        HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                        "coding_artifact_range_not_satisfiable",
+                        "The requested Coding Artifact range is not available",
+                        false,
+                        null,
+                        Map.of("totalSize", Long.toString(totalSize)),
+                        correlationId,
+                        exchange),
+                HttpHeaders.CONTENT_RANGE,
+                "bytes */" + totalSize);
+    }
+
+    private static ResponseEntity<ApiErrorResponse> withHeader(
+            ResponseEntity<ApiErrorResponse> response, String name, String value) {
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(headers -> headers.putAll(response.getHeaders()))
+                .header(name, value)
+                .body(response.getBody());
     }
 
     private ResponseEntity<ApiErrorResponse> response(

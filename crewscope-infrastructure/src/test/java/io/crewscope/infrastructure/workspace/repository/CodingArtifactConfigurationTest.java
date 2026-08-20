@@ -31,4 +31,10 @@ class CodingArtifactConfigurationTest {
                         "crewscope.coding.artifact.maximum-range-bytes=2048")
                 .run(context -> context.assertThat().hasFailed());
     }
+
+    @Test
+    void rejectsUnsafeConcurrentReadLimit() {
+        runner.withPropertyValues("crewscope.coding.artifact.maximum-concurrent-reads=0")
+                .run(context -> context.assertThat().hasFailed());
+    }
 }

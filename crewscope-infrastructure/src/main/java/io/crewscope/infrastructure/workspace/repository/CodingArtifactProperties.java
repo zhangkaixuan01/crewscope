@@ -10,6 +10,7 @@ public class CodingArtifactProperties {
     private Duration retention = Duration.ofDays(30);
     private int maximumArtifactBytes = 64 * 1024 * 1024;
     private int maximumRangeBytes = 1024 * 1024;
+    private int maximumConcurrentReads = 16;
 
     public Duration getRetention() {
         return retention;
@@ -35,6 +36,14 @@ public class CodingArtifactProperties {
         this.maximumRangeBytes = maximumRangeBytes;
     }
 
+    public int getMaximumConcurrentReads() {
+        return maximumConcurrentReads;
+    }
+
+    public void setMaximumConcurrentReads(int maximumConcurrentReads) {
+        this.maximumConcurrentReads = maximumConcurrentReads;
+    }
+
     void validate() {
         if (retention == null
                 || retention.compareTo(Duration.ofHours(1)) < 0
@@ -49,6 +58,10 @@ public class CodingArtifactProperties {
         if (maximumRangeBytes < 1 || maximumRangeBytes > maximumArtifactBytes) {
             throw new IllegalArgumentException(
                     "Coding Artifact Range limit must fit the Artifact size limit");
+        }
+        if (maximumConcurrentReads < 1 || maximumConcurrentReads > 256) {
+            throw new IllegalArgumentException(
+                    "Coding Artifact concurrent reads must be between 1 and 256");
         }
     }
 }

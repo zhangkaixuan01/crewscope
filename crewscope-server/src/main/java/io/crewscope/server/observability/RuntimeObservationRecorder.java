@@ -41,7 +41,11 @@ public class RuntimeObservationRecorder {
                 .description("Authorized Runtime observation reads")
                 .tags(
                         "view", requiredView.name().toLowerCase(Locale.ROOT),
-                        "health", requiredSummary.health().name().toLowerCase(Locale.ROOT))
+                        "health", requiredSummary.health().name().toLowerCase(Locale.ROOT),
+                        "workspace_health",
+                                requiredSummary.codingWorkspaces()
+                                        .map(value -> value.health().name().toLowerCase(Locale.ROOT))
+                                        .orElse("unavailable"))
                 .register(registry)
                 .increment();
 

@@ -1,5 +1,7 @@
 package io.crewscope.infrastructure.workspace.repository;
 
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
+import io.crewscope.application.coding.WorkspaceDiffTimelineChange;
 import io.crewscope.domain.coding.DiffFileEntry;
 import io.crewscope.domain.coding.DiffManifest;
 import io.crewscope.domain.coding.DiffPath;
@@ -25,6 +27,7 @@ public final class WorkspaceDiffEventStore {
             new ConcurrentHashMap<>();
     private final WorkspaceDiffCursorCodec cursors;
     private final Clock clock;
+    private final CodingTaskTimelinePublisher timeline;
     private final int retainedEvents;
     private final int maximumReplayEvents;
     private final int maximumEventBytes;
@@ -33,10 +36,19 @@ public final class WorkspaceDiffEventStore {
             WorkspaceDiffProperties properties,
             WorkspaceDiffCursorCodec cursors,
             Clock clock) {
+        this(properties, cursors, clock, CodingTaskTimelinePublisher.NO_OP);
+    }
+
+    WorkspaceDiffEventStore(
+            WorkspaceDiffProperties properties,
+            WorkspaceDiffCursorCodec cursors,
+            Clock clock,
+            CodingTaskTimelinePublisher timeline) {
         WorkspaceDiffProperties configured = Objects.requireNonNull(properties, "properties");
         configured.validate();
         this.cursors = Objects.requireNonNull(cursors, "cursors");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.timeline = Objects.requireNonNull(timeline, "timeline");
         this.retainedEvents = configured.getRetainedEvents();
         this.maximumReplayEvents = configured.getMaximumReplayEvents();
         this.maximumEventBytes = configured.getMaximumEventBytes();
@@ -224,6 +236,20 @@ public final class WorkspaceDiffEventStore {
                     removals,
                     authority.contentHash(),
                     UtcTimestamp.from(clock.instant()));
+            // Persist before advancing the in-memory replay authority. A failed durable append
+            // leaves Sequence and Manifest unchanged so the next reconcile can safely retry.
+            timeline.workspaceDiffChanged(new WorkspaceDiffTimelineChange(
+                    event.eventId(),
+                    event.scope(),
+                    event.workspaceId(),
+                    event.streamEpoch(),
+                    event.sequence(),
+                    event.generation(),
+                    event.kind().name(),
+                    event.upserts(),
+                    event.removals(),
+                    event.manifestHash(),
+                    event.occurredAt()));
             sequence = nextSequence;
             events.addLast(event);
             while (events.size() > retainedEvents) {

@@ -1,5 +1,19 @@
 package io.crewscope.server.config.application;
 
+import io.crewscope.application.coding.BuildProfileCatalog;
+import io.crewscope.application.coding.CodingTargetSnapshotRepository;
+import io.crewscope.application.coding.CodingTargetSelectionService;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
+import io.crewscope.application.coding.CodingTaskEventCompletionPolicy;
+import io.crewscope.application.coding.DurableCodingTaskTimelinePublisher;
+import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.coding.ImmutableBuildProfileCatalog;
+import io.crewscope.application.coding.RepositoryBindingPreflightError;
+import io.crewscope.application.coding.RepositoryBindingPreflightException;
+import io.crewscope.application.coding.RepositoryBindingPreflightPort;
+import io.crewscope.application.coding.RepositoryBindingRepository;
+import io.crewscope.application.coding.query.CodingAttemptQueryPort;
+import io.crewscope.application.coding.query.TaskCodingQueryService;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.execution.DurableAgentRunResumeService;
 import io.crewscope.application.conversation.ConversationApplicationService;
@@ -11,6 +25,7 @@ import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.runtime.RuntimeObservationRepository;
 import io.crewscope.application.runtime.RuntimeObservationService;
+import io.crewscope.application.runtime.CodingRuntimeOperationsPort;
 import io.crewscope.application.task.AgentTaskCreationService;
 import io.crewscope.application.task.MemberTaskCommandService;
 import io.crewscope.application.task.ConversationTaskLinkRepository;
@@ -28,6 +43,7 @@ import io.crewscope.application.task.TaskAssociationService;
 import io.crewscope.application.task.TaskCreationPolicySpec;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskEventRepository;
+import io.crewscope.application.task.TaskEventCompletionPolicy;
 import io.crewscope.application.task.TaskEventService;
 import io.crewscope.application.task.TaskPlanPublicationService;
 import io.crewscope.application.task.TaskQueryService;
@@ -43,12 +59,22 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.task.ExecutionCapability;
 import io.crewscope.domain.task.PolicyBudget;
 import io.crewscope.domain.task.TaskExecutionPriority;
+import io.crewscope.domain.coding.BuildCommand;
+import io.crewscope.domain.coding.BuildProfile;
+import io.crewscope.domain.coding.BuildTool;
+import io.crewscope.domain.coding.CommandCatalog;
+import io.crewscope.domain.coding.CommandKind;
+import io.crewscope.domain.coding.CommandSelectorPolicy;
+import io.crewscope.domain.coding.SandboxImageReference;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.ObjectProvider;
 
 /** Wires member-facing durable Task commands separately from trusted Worker command ports. */
 @Configuration(proxyBeanMethods = false)
@@ -68,6 +94,60 @@ public class TaskApplicationConfiguration {
                 TaskExecutionPriority.NORMAL);
     }
 
+    /** Frozen M4 Java/Maven profile; upgrades are introduced as new immutable versions. */
+    @Bean
+    BuildProfileCatalog buildProfileCatalog() {
+        CommandSelectorPolicy testSelectors =
+                new CommandSelectorPolicy(List.of(), 0, 20, 256);
+        BuildProfile mavenJava17 = BuildProfile.define(
+                "maven-java-17",
+                1,
+                BuildTool.MAVEN,
+                17,
+                new SandboxImageReference(
+                        "maven@sha256:29a1658b1f3078e07c2b17f7b519b45eb47f65d9628e887eac45a8c5c8f939d4"),
+                new CommandCatalog(Map.of(
+                        CommandKind.COMPILE,
+                        new BuildCommand(
+                                "coding.maven.compile",
+                                List.of("mvn", "-B", "-ntp", "-DskipTests", "compile"),
+                                ".",
+                                300,
+                                900),
+                        CommandKind.TEST,
+                        new BuildCommand(
+                                "coding.maven.test",
+                                List.of("mvn", "-B", "-ntp", "test"),
+                                ".",
+                                300,
+                                900,
+                                testSelectors),
+                        CommandKind.VERIFY,
+                        new BuildCommand(
+                                "coding.maven.verify",
+                                List.of("mvn", "-B", "-ntp", "verify"),
+                                ".",
+                                300,
+                                900,
+                                testSelectors))));
+        return new ImmutableBuildProfileCatalog(List.of(mavenJava17));
+    }
+
+    @Bean
+    CodingTaskTimelinePublisher codingTaskTimelinePublisher(
+            ExecutionWorkspaceRepository executionWorkspaceRepository,
+            DomainEventStore domainEventStore,
+            TaskEventRepository taskEventRepository,
+            OutboxRepository outboxRepository,
+            TransactionExecutor transactionExecutor) {
+        return new DurableCodingTaskTimelinePublisher(
+                executionWorkspaceRepository,
+                domainEventStore,
+                taskEventRepository,
+                outboxRepository,
+                transactionExecutor);
+    }
+
     @Bean
     AgentTaskCreationService agentTaskCreationService(
             WorkItemAccessPolicy workItemAccessPolicy,
@@ -77,6 +157,10 @@ public class TaskApplicationConfiguration {
             AgentProfileRepository agentProfileRepository,
             ConversationApplicationService conversationApplicationService,
             ProviderBindingResolver providerBindingResolver,
+            RepositoryBindingRepository repositoryBindingRepository,
+            ObjectProvider<RepositoryBindingPreflightPort> repositoryPreflightPorts,
+            BuildProfileCatalog buildProfileCatalog,
+            CodingTargetSnapshotRepository codingTargetSnapshotRepository,
             TaskRepository taskRepository,
             TaskExecutionRepository taskExecutionRepository,
             PolicySnapshotRepository policySnapshotRepository,
@@ -90,6 +174,12 @@ public class TaskApplicationConfiguration {
             TransactionExecutor transactionExecutor,
             TimeProvider timeProvider,
             TaskCreationPolicySpec taskCreationPolicySpec) {
+        RepositoryBindingPreflightPort repositoryPreflight =
+                repositoryPreflightPorts.getIfAvailable(() -> (binding, baselineRef) -> {
+                    throw new RepositoryBindingPreflightException(
+                            RepositoryBindingPreflightError.SERVICE_UNAVAILABLE,
+                            "Repository Preflight is unavailable on this server");
+                });
         return new AgentTaskCreationService(
                 workItemAccessPolicy,
                 workItemRepository,
@@ -98,6 +188,10 @@ public class TaskApplicationConfiguration {
                 agentProfileRepository,
                 conversationApplicationService,
                 providerBindingResolver,
+                repositoryBindingRepository,
+                repositoryPreflight,
+                buildProfileCatalog,
+                codingTargetSnapshotRepository,
                 taskRepository,
                 taskExecutionRepository,
                 policySnapshotRepository,
@@ -111,6 +205,27 @@ public class TaskApplicationConfiguration {
                 transactionExecutor,
                 timeProvider,
                 taskCreationPolicySpec);
+    }
+
+    @Bean
+    CodingTargetSelectionService codingTargetSelectionService(
+            WorkItemAccessPolicy workItemAccessPolicy,
+            RepositoryBindingRepository repositoryBindingRepository,
+            ObjectProvider<RepositoryBindingPreflightPort> repositoryPreflightPorts,
+            BuildProfileCatalog buildProfileCatalog,
+            TransactionExecutor transactionExecutor) {
+        RepositoryBindingPreflightPort repositoryPreflight =
+                repositoryPreflightPorts.getIfAvailable(() -> (binding, baselineRef) -> {
+                    throw new RepositoryBindingPreflightException(
+                            RepositoryBindingPreflightError.SERVICE_UNAVAILABLE,
+                            "Repository Preflight is unavailable on this server");
+                });
+        return new CodingTargetSelectionService(
+                workItemAccessPolicy,
+                repositoryBindingRepository,
+                repositoryPreflight,
+                buildProfileCatalog,
+                transactionExecutor);
     }
 
     @Bean
@@ -141,6 +256,21 @@ public class TaskApplicationConfiguration {
     }
 
     @Bean
+    TaskCodingQueryService taskCodingQueryService(
+            WorkItemAccessPolicy workItemAccessPolicy,
+            TaskRepository taskRepository,
+            TaskExecutionRepository taskExecutionRepository,
+            CodingAttemptQueryPort codingAttemptQueryPort,
+            TransactionExecutor transactionExecutor) {
+        return new TaskCodingQueryService(
+                workItemAccessPolicy,
+                taskRepository,
+                taskExecutionRepository,
+                codingAttemptQueryPort,
+                transactionExecutor);
+    }
+
+    @Bean
     TaskAssociationService taskAssociationService(
             WorkItemAccessPolicy workItemAccessPolicy,
             ConversationApplicationService conversationApplicationService,
@@ -160,9 +290,22 @@ public class TaskApplicationConfiguration {
             WorkItemAccessPolicy workItemAccessPolicy,
             TaskRepository taskRepository,
             TaskEventRepository taskEventRepository,
-            TransactionExecutor transactionExecutor) {
+            TransactionExecutor transactionExecutor,
+            TaskEventCompletionPolicy taskEventCompletionPolicy) {
         return new TaskEventService(
-                workItemAccessPolicy, taskRepository, taskEventRepository, transactionExecutor);
+                workItemAccessPolicy,
+                taskRepository,
+                taskEventRepository,
+                transactionExecutor,
+                taskEventCompletionPolicy);
+    }
+
+    @Bean
+    TaskEventCompletionPolicy taskEventCompletionPolicy(
+            CodingTargetSnapshotRepository codingTargetSnapshotRepository,
+            ExecutionWorkspaceRepository executionWorkspaceRepository) {
+        return new CodingTaskEventCompletionPolicy(
+                codingTargetSnapshotRepository, executionWorkspaceRepository);
     }
 
     @Bean
@@ -171,13 +314,15 @@ public class TaskApplicationConfiguration {
             RuntimeObservationRepository runtimeObservationRepository,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider authoritativeTimeProvider,
-            RuntimeObservationProperties properties) {
+            RuntimeObservationProperties properties,
+            ObjectProvider<CodingRuntimeOperationsPort> codingRuntimeOperations) {
         return new RuntimeObservationService(
                 workItemAccessPolicy,
                 runtimeObservationRepository,
                 transactionExecutor,
                 authoritativeTimeProvider,
-                properties.validatedHeartbeatTimeout());
+                properties.validatedHeartbeatTimeout(),
+                codingRuntimeOperations.getIfAvailable());
     }
 
     @Bean

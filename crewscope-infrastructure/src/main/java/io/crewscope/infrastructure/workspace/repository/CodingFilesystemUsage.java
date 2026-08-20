@@ -1,5 +1,8 @@
 package io.crewscope.infrastructure.workspace.repository;
 
+import io.crewscope.application.coding.WorkspaceWriteBudgetExceededException;
+import io.crewscope.application.coding.WorkspaceWriteBudgetSnapshot;
+import io.crewscope.application.coding.WorkspaceWriteBudgetStore;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.coding.WorkspaceOperationBudget;
 import io.crewscope.domain.coding.WorkspacePolicy;
@@ -15,6 +18,9 @@ final class CodingFilesystemUsage {
     private final int attempt;
     private final io.crewscope.domain.task.TaskFactHash policyHash;
     private final WorkspaceOperationBudget budget;
+    private final ExecutionWorkspace workspace;
+    private final WorkspacePolicy policy;
+    private final WorkspaceWriteBudgetStore store;
     private final Set<String> changedPaths = new LinkedHashSet<>();
     private int writeOperations;
     private long writtenBytes;
@@ -23,7 +29,8 @@ final class CodingFilesystemUsage {
             ExecutionWorkspace workspace,
             WorkspacePolicy policy,
             Set<String> initialChangedPaths,
-            long initialWrittenBytes) {
+            long initialWrittenBytes,
+            WorkspaceWriteBudgetStore store) {
         ExecutionWorkspace requiredWorkspace = Objects.requireNonNull(workspace, "workspace");
         WorkspacePolicy requiredPolicy = Objects.requireNonNull(policy, "policy");
         this.workspaceId = requiredWorkspace.id();
@@ -31,9 +38,14 @@ final class CodingFilesystemUsage {
         this.attempt = requiredWorkspace.attempt();
         this.policyHash = requiredPolicy.policyHash();
         this.budget = requiredPolicy.operationBudget();
-        this.changedPaths.addAll(Set.copyOf(initialChangedPaths));
-        this.writeOperations = this.changedPaths.size();
-        this.writtenBytes = initialWrittenBytes;
+        this.workspace = requiredWorkspace;
+        this.policy = requiredPolicy;
+        this.store = Objects.requireNonNull(store, "store");
+        WorkspaceWriteBudgetSnapshot restored = this.store.initialize(
+                requiredWorkspace, requiredPolicy, initialChangedPaths, initialWrittenBytes);
+        this.changedPaths.addAll(restored.changedPaths());
+        this.writeOperations = restored.writeOperations();
+        this.writtenBytes = restored.writtenBytes();
         requireWithinBudget(this.writeOperations, this.writtenBytes, this.changedPaths.size());
     }
 
@@ -51,25 +63,20 @@ final class CodingFilesystemUsage {
     }
 
     synchronized UsageSnapshot reserve(Set<String> paths, long bytes) {
-        Set<String> nextPaths = new LinkedHashSet<>(changedPaths);
-        nextPaths.addAll(Set.copyOf(paths));
-        int nextOperations;
-        long nextBytes;
         try {
-            nextOperations = Math.addExact(writeOperations, 1);
-            nextBytes = Math.addExact(writtenBytes, bytes);
-        } catch (ArithmeticException overflow) {
+            WorkspaceWriteBudgetSnapshot reserved = store.reserve(
+                    workspace, policy, Set.copyOf(paths), bytes);
+            changedPaths.clear();
+            changedPaths.addAll(reserved.changedPaths());
+            writeOperations = reserved.writeOperations();
+            writtenBytes = reserved.writtenBytes();
+            return snapshot();
+        } catch (WorkspaceWriteBudgetExceededException failure) {
             throw new CodingFilesystemException(
                     CodingFilesystemError.BUDGET_EXCEEDED,
                     "Coding filesystem mutation exceeds the Workspace operation budget",
-                    overflow);
+                    failure);
         }
-        requireWithinBudget(nextOperations, nextBytes, nextPaths.size());
-        changedPaths.clear();
-        changedPaths.addAll(nextPaths);
-        writeOperations = nextOperations;
-        writtenBytes = nextBytes;
-        return snapshot();
     }
 
     synchronized UsageSnapshot snapshot() {

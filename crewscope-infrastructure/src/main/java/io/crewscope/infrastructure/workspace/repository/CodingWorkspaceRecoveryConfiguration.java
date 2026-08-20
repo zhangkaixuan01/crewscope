@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -24,8 +25,9 @@ public class CodingWorkspaceRecoveryConfiguration {
     @ConditionalOnMissingBean(CodingWorkspaceRecoveryMarker.class)
     CodingWorkspaceRecoveryMarker codingWorkspaceRecoveryMarker(
             ExecutionWorkspaceRepository workspaces,
-            RuntimeWorkerRegistrationSpec registration) {
-        return new CodingWorkspaceRecoveryMarker(workspaces, registration.actor());
+            RuntimeWorkerRegistrationSpec registration,
+            CodingTaskTimelinePublisher timeline) {
+        return new CodingWorkspaceRecoveryMarker(workspaces, registration.actor(), timeline);
     }
 
     @Bean
@@ -49,7 +51,8 @@ public class CodingWorkspaceRecoveryConfiguration {
             TransactionExecutor transactions,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
-            CodingWorkspaceStartupProperties properties) {
+            CodingWorkspaceStartupProperties properties,
+            CodingTaskTimelinePublisher timeline) {
         return new CodingWorkspaceStartupReconciler(
                 taskReconciler,
                 workspaces,
@@ -61,6 +64,7 @@ public class CodingWorkspaceRecoveryConfiguration {
                 transactions,
                 timeProvider,
                 registration,
-                properties);
+                properties,
+                timeline);
     }
 }

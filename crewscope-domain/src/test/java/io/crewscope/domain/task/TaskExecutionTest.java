@@ -175,6 +175,24 @@ class TaskExecutionTest {
     }
 
     @Test
+    void completedSafePointWinsAPauseThatArrivesAfterResultSealing() {
+        TaskDomainFixture fixture = new TaskDomainFixture();
+        TaskExecution requested = running(fixture, 3)
+                .requestPause("Review the completed change", 4, fixture.owner, FINISH_AT);
+
+        TaskExecution completed = requested.complete(
+                5,
+                fixture.executor,
+                UtcTimestamp.parse("2026-08-13T08:31:00Z"));
+
+        assertEquals(TaskExecutionStatus.COMPLETED, completed.status());
+        assertTrue(completed.controlRequest().isEmpty());
+        assertEquals(
+                TaskExecutionStatus.COMPLETED,
+                completed.terminal().orElseThrow().status());
+    }
+
+    @Test
     void cancelsOnlyAfterRequestAndPreservesDecisionFacts() {
         TaskDomainFixture fixture = new TaskDomainFixture();
 

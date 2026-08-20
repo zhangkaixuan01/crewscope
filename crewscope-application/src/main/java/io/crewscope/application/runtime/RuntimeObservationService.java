@@ -21,6 +21,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -35,6 +36,7 @@ public final class RuntimeObservationService {
     private final TransactionExecutor transactionExecutor;
     private final AuthoritativeTimeProvider timeProvider;
     private final Duration heartbeatTimeout;
+    private final CodingRuntimeOperationsPort codingRuntime;
 
     public RuntimeObservationService(
             WorkItemAccessPolicy accessPolicy,
@@ -42,6 +44,22 @@ public final class RuntimeObservationService {
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider,
             Duration heartbeatTimeout) {
+        this(
+                accessPolicy,
+                repository,
+                transactionExecutor,
+                timeProvider,
+                heartbeatTimeout,
+                null);
+    }
+
+    public RuntimeObservationService(
+            WorkItemAccessPolicy accessPolicy,
+            RuntimeObservationRepository repository,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            Duration heartbeatTimeout,
+            CodingRuntimeOperationsPort codingRuntime) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.transactionExecutor = Objects.requireNonNull(
@@ -54,6 +72,7 @@ public final class RuntimeObservationService {
                     "heartbeatTimeout must be between 5 seconds and 10 minutes");
         }
         this.heartbeatTimeout = requiredTimeout;
+        this.codingRuntime = codingRuntime;
     }
 
     /** Returns aggregate health and capacity without Runtime or Worker identities. */
@@ -92,7 +111,8 @@ public final class RuntimeObservationService {
                     derived.summary(),
                     derived.snapshot().runtimes(),
                     derived.workers(),
-                    derived.waiting());
+                    derived.waiting(),
+                    derived.codingRuntime());
         });
     }
 
@@ -107,9 +127,18 @@ public final class RuntimeObservationService {
                         value, diagnose(value.requiredCapabilities(), snapshot, runtimes, now)))
                 .toList();
 
+        Optional<CodingRuntimeSnapshot> coding = codingRuntime == null
+                ? Optional.empty()
+                : codingRuntime.observe(query.organizationId(), query.environment());
+        coding.ifPresent(value -> {
+            if (!value.organizationId().equals(query.organizationId())
+                    || !value.environment().equals(query.environment())) {
+                throw invalidRepositoryResult();
+            }
+        });
         RuntimeFleetSummary summary = summary(
-                query.environment(), now, snapshot, runtimes, workers, waiting);
-        return new DerivedObservation(summary, snapshot, workers, waiting);
+                query.environment(), now, snapshot, runtimes, workers, waiting, coding);
+        return new DerivedObservation(summary, snapshot, workers, waiting, coding);
     }
 
     private Map<ExecutionRuntimeId, ExecutionRuntime> requireSnapshot(
@@ -158,7 +187,8 @@ public final class RuntimeObservationService {
             RuntimeObservationSnapshot snapshot,
             Map<ExecutionRuntimeId, ExecutionRuntime> runtimes,
             List<RuntimeWorkerObservation> workers,
-            List<RuntimeWaitingDiagnostic> waiting) {
+            List<RuntimeWaitingDiagnostic> waiting,
+            Optional<CodingRuntimeSnapshot> codingRuntime) {
         List<RuntimeWorkerObservation> freshActive = workers.stream()
                 .filter(value -> value.worker().status() == RuntimeWorkerStatus.ACTIVE)
                 .filter(RuntimeWorkerObservation::heartbeatFresh)
@@ -199,7 +229,8 @@ public final class RuntimeObservationService {
                 draining,
                 capacity,
                 waiting.size(),
-                causes);
+                causes,
+                codingRuntime.map(CodingWorkspaceFleetSummary::from));
     }
 
     private static RuntimeFleetHealth fleetHealth(
@@ -272,5 +303,6 @@ public final class RuntimeObservationService {
             RuntimeFleetSummary summary,
             RuntimeObservationSnapshot snapshot,
             List<RuntimeWorkerObservation> workers,
-            List<RuntimeWaitingDiagnostic> waiting) {}
+            List<RuntimeWaitingDiagnostic> waiting,
+            Optional<CodingRuntimeSnapshot> codingRuntime) {}
 }

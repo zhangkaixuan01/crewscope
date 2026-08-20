@@ -69,11 +69,27 @@ logging:
 
 crewscope:
   coding:
+    execution:
+      # Attempt-scoped immutable WorkspacePolicy ceilings and local delivery retention.
+      retention: ${CREWSCOPE_CODING_WORKSPACE_RETENTION:7d}
+      cpu-count: ${CREWSCOPE_CODING_WORKSPACE_CPU_COUNT:2}
+      memory-mib: ${CREWSCOPE_CODING_WORKSPACE_MEMORY_MIB:2048}
+      pids: ${CREWSCOPE_CODING_WORKSPACE_PIDS:256}
+      max-command-duration-seconds: ${CREWSCOPE_CODING_WORKSPACE_MAX_COMMAND_SECONDS:900}
+      max-command-output-bytes: ${CREWSCOPE_CODING_WORKSPACE_MAX_COMMAND_OUTPUT_BYTES:1048576}
+      max-command-calls: ${CREWSCOPE_CODING_WORKSPACE_MAX_COMMAND_CALLS:32}
+      max-changed-files: ${CREWSCOPE_CODING_WORKSPACE_MAX_CHANGED_FILES:100}
+      max-single-file-bytes: ${CREWSCOPE_CODING_WORKSPACE_MAX_SINGLE_FILE_BYTES:1048576}
+      max-write-operations: ${CREWSCOPE_CODING_WORKSPACE_MAX_WRITE_OPERATIONS:32}
+      max-written-bytes: ${CREWSCOPE_CODING_WORKSPACE_MAX_WRITTEN_BYTES:16777216}
+      max-diff-bytes: ${CREWSCOPE_CODING_WORKSPACE_MAX_DIFF_BYTES:8388608}
+      max-test-repair-rounds: ${CREWSCOPE_CODING_WORKSPACE_MAX_TEST_REPAIR_ROUNDS:2}
     artifact:
       # Full Coding evidence is Restricted; APIs must page through this bounded Range window.
       retention: ${CREWSCOPE_CODING_ARTIFACT_RETENTION:30d}
       maximum-artifact-bytes: ${CREWSCOPE_CODING_ARTIFACT_MAXIMUM_BYTES:67108864}
       maximum-range-bytes: ${CREWSCOPE_CODING_ARTIFACT_MAXIMUM_RANGE_BYTES:1048576}
+      maximum-concurrent-reads: ${CREWSCOPE_CODING_ARTIFACT_MAXIMUM_CONCURRENT_READS:16}
     git:
       # Host Git runs with this isolated HOME and fails closed on unsafe process budgets.
       command-home: ${CREWSCOPE_CODING_GIT_COMMAND_HOME:./var/crewscope/git-home}

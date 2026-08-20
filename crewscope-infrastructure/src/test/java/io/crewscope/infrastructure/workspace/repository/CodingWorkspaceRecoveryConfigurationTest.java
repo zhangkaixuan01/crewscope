@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.coding.ExecutionWorkspaceRepository;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
+import io.crewscope.application.coding.CodingTaskTimelinePublisher;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.runtime.DurableTaskWorkerStartupReconciler;
@@ -28,6 +29,7 @@ class CodingWorkspaceRecoveryConfigurationTest {
             .withBean(CodingArtifactLifecycle.class, () -> mock(CodingArtifactLifecycle.class))
             .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
             .withBean(AuthoritativeTimeProvider.class, () -> mock(AuthoritativeTimeProvider.class))
+            .withBean(CodingTaskTimelinePublisher.class, () -> CodingTaskTimelinePublisher.NO_OP)
             .withBean(RuntimeWorkerRegistrationSpec.class, CodingWorkspaceRecoveryConfigurationTest::registration)
             .withBean(DurableTaskWorkerStartupReconciler.class,
                     () -> mock(DurableTaskWorkerStartupReconciler.class));

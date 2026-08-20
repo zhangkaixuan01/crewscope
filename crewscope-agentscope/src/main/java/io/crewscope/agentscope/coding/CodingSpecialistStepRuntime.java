@@ -1,5 +1,6 @@
 package io.crewscope.agentscope.coding;
 
+import io.crewscope.application.coding.output.CodeChangeResultV1;
 import io.crewscope.application.coding.output.CodingOutputValidationException;
 import io.crewscope.application.coding.output.CodingOutputValidator;
 import io.crewscope.application.execution.ExecutionInterruptToken;
@@ -79,7 +80,7 @@ public final class CodingSpecialistStepRuntime {
             return new CodingSpecialistControlResult(false, false);
         }
         synchronized (execution) {
-            if (execution.terminal || execution.signal.get() != null) {
+            if (execution.terminal || execution.committing || execution.signal.get() != null) {
                 return new CodingSpecialistControlResult(false, false);
             }
             execution.signal.set(new ControlSignal(requiredAction, token, safeReason));
@@ -138,7 +139,9 @@ public final class CodingSpecialistStepRuntime {
                         }
                         return Mono.error(new IllegalStateException(
                                 "Coding Specialist call completed without a result"));
-                    });
+                    })
+                    .doFinally(ignored -> authorityGateway.closeRound(
+                            state.request.facts(), roundNumber));
         });
     }
 
@@ -190,47 +193,98 @@ public final class CodingSpecialistStepRuntime {
                                 evidence,
                                 repairRounds + 1);
                     }
+                    ControlSignal committingSignal;
+                    synchronized (state) {
+                        committingSignal = state.signal.get();
+                        if (committingSignal == null) {
+                            state.committing = true;
+                        }
+                    }
+                    if (committingSignal != null) {
+                        return finishControl(
+                                state, committingSignal, roundNumber, repairRounds);
+                    }
+                    CodingSpecialistAuthority finalized = authorityGateway.finalizeAuthority(
+                            state.request.facts(), roundNumber);
+                    return complete(
+                            state, result, finalized, checkpoint, roundNumber, repairRounds);
+                });
+    }
+
+    private Mono<CodingSpecialistStepResult> complete(
+            ActiveExecution state,
+            CodingSpecialistRunResult result,
+            CodingSpecialistAuthority authority,
+            CodingSpecialistCheckpointReceipt checkpoint,
+            int modelCalls,
+            int repairRounds) {
+        return Mono.fromCallable(() -> {
+                    CodeChangeResultV1 platformResult = platformResult(result.output(), authority);
                     try {
                         outputValidator.validateCodeChangeResult(
-                                result.output(),
+                                platformResult,
                                 authority.repositoryAnalysis(),
                                 authority.target(),
                                 authority.workspace(),
                                 authority.finalDiffArtifact().orElseThrow(() ->
                                         new IllegalStateException(
                                                 "Final DiffArtifact is absent after successful tests")),
-                                evidence.orElseThrow());
+                                authority.testEvidence().filter(TestEvidence::succeeded)
+                                        .orElseThrow(() -> new IllegalStateException(
+                                                "Successful TestEvidence is absent")));
                     } catch (CodingOutputValidationException | IllegalStateException invalid) {
-                        return fail(
-                                state,
-                                roundNumber,
-                                repairRounds,
-                                "CODING_RESULT_INVALID",
-                                false);
+                        throw new InvalidFinalResultException();
                     }
-                    ControlSignal lateSignal;
                     synchronized (state) {
-                        lateSignal = state.signal.get();
-                        if (lateSignal == null) {
-                            state.terminal = true;
-                        }
-                    }
-                    if (lateSignal != null) {
-                        return finishControl(state, lateSignal, roundNumber, repairRounds);
+                        state.terminal = true;
                     }
                     executionStore.succeed(
                             state.request.facts(),
                             state.nextEventSequence,
                             state.request.executor(),
                             state.request.correlationId());
-                    return Mono.just(new CodingSpecialistStepResult(
+                    return new CodingSpecialistStepResult(
                             CodingSpecialistStepStatus.SUCCEEDED,
-                            roundNumber,
+                            modelCalls,
                             repairRounds,
-                            Optional.of(result.output()),
+                            Optional.of(platformResult),
                             Optional.of(checkpoint.checkpoint().id()),
-                            Optional.empty()));
-                });
+                            Optional.empty());
+                })
+                .onErrorResume(InvalidFinalResultException.class, ignored -> fail(
+                        state,
+                        modelCalls,
+                        repairRounds,
+                        "CODING_RESULT_INVALID",
+                        false));
+    }
+
+    /** Retains model-authored summaries while replacing untrusted coordinates with authority. */
+    private static CodeChangeResultV1 platformResult(
+            CodeChangeResultV1 modelResult, CodingSpecialistAuthority authority) {
+        var target = authority.target();
+        var workspace = authority.workspace();
+        var diff = authority.finalDiffArtifact().orElseThrow(() ->
+                new IllegalStateException("Final DiffArtifact is unavailable"));
+        var evidence = authority.testEvidence().filter(TestEvidence::succeeded).orElseThrow(() ->
+                new IllegalStateException("Successful TestEvidence is unavailable"));
+        String analysisHash = CodingOutputValidator.hashRepositoryAnalysis(
+                authority.repositoryAnalysis()).toString();
+        return new CodeChangeResultV1(
+                CodeChangeResultV1.SCHEMA_VERSION,
+                workspace.id().toString(),
+                workspace.fingerprint().toString(),
+                target.id().toString(),
+                target.revision(),
+                target.snapshotHash().toString(),
+                analysisHash,
+                diff.id().toString(),
+                diff.finalHash().toString(),
+                evidence.id().toString(),
+                evidence.evidenceHash().toString(),
+                modelResult.changeSummary(),
+                modelResult.limitations(),
+                modelResult.risks());
     }
 
     private Mono<CodingSpecialistStepResult> interruptedOrFailed(
@@ -379,6 +433,7 @@ public final class CodingSpecialistStepRuntime {
         private volatile CodingSpecialistAuthority lastAuthority;
         private volatile CodingCheckpointId lastCheckpoint;
         private int repairCeiling = -1;
+        private volatile boolean committing;
         private volatile boolean terminal;
 
         private ActiveExecution(CodingSpecialistStepRequest request) {
@@ -391,4 +446,6 @@ public final class CodingSpecialistStepRuntime {
             CodingSpecialistControlAction action,
             Optional<ExecutionInterruptToken> pauseToken,
             String reason) {}
+
+    private static final class InvalidFinalResultException extends RuntimeException {}
 }
