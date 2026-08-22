@@ -101,13 +101,30 @@ TaskExecution 创建时生成 `ResolvedAgentExecutionConfiguration`，并将 Age
 
 ## 兼容与迁移
 
-M5 的 V20 迁移完成以下映射：
+`PrincipalType` 与 `AgentProfileType` 继续作为兼容身份字段，V20 在其旁边增加 Ownership、RuntimeRole、TemplateVersion 和 ConfigurationVersion。迁移不重写 Principal、AgentProfile、Conversation、Task、Session、AgentScope Key、StateReference 或 Artifact 的稳定 ID。
 
-- 现有默认 `PERSONAL` Profile 映射为 USER ownership、`PERSONAL_ASSISTANT` Role 和内置 Personal Assistant Template；
-- 现有 `TEAM` Profile 映射为 TEAM ownership、`TEAM_COORDINATOR` Role；
-- 现有 `SPECIALIST` Profile 根据 Owner 事实映射为 USER 或 TEAM ownership，并引用内置 Coding/Reviewer Template；
-- 保留现有 Principal ID、AgentProfile ID、Session 和历史引用；
-- 新增约束后，所有 AgentProfile 都具有唯一且可验证的 Ownership、TemplateVersion 和运行角色。
+V20 只使用既有类型与 `owner_member_id` 执行确定性回填：
+
+| 既有 AgentProfile | `AgentOwnershipType` | `AgentRuntimeRole` | `AgentTemplateVersion` |
+|---|---|---|---|
+| `PERSONAL` | `USER` | `PERSONAL_ASSISTANT` | `personal-assistant@1` |
+| `TEAM` | `TEAM` | `TEAM_COORDINATOR` | `team-coordinator@1` |
+| `SPECIALIST` 且存在 `owner_member_id` | `USER` | `SPECIALIST` | `coding@1` |
+| `SPECIALIST` 且不存在 `owner_member_id` | `TEAM` | `SPECIALIST` | `coding@1` |
+
+M2–M4 只持久化了 Coding Specialist，没有持久化可区分的 Reviewer Template。V20 禁止根据 Principal 名称、Agent 显示名称、Prompt、历史输出或其他非权威文本推断 Reviewer；M5 新建 Reviewer Agent 时显式引用 `reviewer@1`。组织所有权从 M5 新建流程开始产生，旧数据不推断为 `ORGANIZATION`。
+
+旧 Agent 没有可证明的 M5 Connection 与双执行绑定时，迁移不合成凭证、Connection 或授权。后续配置命令通过正常的目录、权限和 Preflight 创建 `AgentConfigurationVersion`；缺失绑定保持不可用并失败关闭。已有 M2–M4 Conversation、Task 与 RuntimeSession 继续依赖其已固定的兼容身份和历史运行事实读取，不因当前默认值产生漂移。
+
+### PolicySnapshot Schema 兼容
+
+V20 为 PolicySnapshot 增加显式 `snapshot_schema_version`：
+
+- 既有快照标记为 Schema v1，保留原始列值与 `snapshot_hash`，TemplateVersion、AgentConfigurationVersion 和 ExecutionScope 坐标为空；
+- 禁止用 M5 新字段重新计算、覆盖或“修复”Schema v1 Hash；依赖旧 Hash 的 PlanVersion、TaskToken、Workspace、Artifact、Checkpoint 和评测证据继续闭合；
+- M5 新建快照使用 Schema v2，必须包含精确 AgentProfile、TemplateVersion、AgentConfigurationVersion、ExecutionScope、Primary/Fallback 模型与连接、价格和策略 Hash；
+- Schema v2 的 `snapshot_hash` 覆盖全部 M5 坐标，任一坐标变化都创建新快照并产生新 Hash；
+- Repository 读取按 Schema 版本选择复原与 Hash 校验规则，未知 Schema 版本失败关闭。
 
 ## 实现约束
 
@@ -118,6 +135,8 @@ M5 的 V20 迁移完成以下映射：
 5. Agent 创建、配置、模板升级、模型 Preflight、停用、归档和团队任务委托生成 DomainEvent、CommandReceipt 与 AuditEvent。
 6. 普通成员不能创建带任意 Tool、Shell、网络或 Credential Scope 的模板；自定义模板发布属于团队/组织管理员能力并经过策略校验。
 7. Agent 可见目录、模型目录和 Provider 目录均由服务端返回权限与策略交集，前端不自行拼接可用项。
+8. `INHERIT_TEAM_DEFAULT` 只在 TEAM Binding 中有效；默认缺失、歧义、越权或不可用时失败关闭，禁止回退到 PERSONAL Binding。
+9. Schema v1 PolicySnapshot 的 Hash 是历史证据，V20 只追加兼容坐标；Schema v2 才把完整 M5 运行坐标纳入 Hash。
 
 ## 结果
 

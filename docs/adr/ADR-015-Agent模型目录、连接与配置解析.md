@@ -88,6 +88,35 @@ modelId = deepseek-v4-flash
 
 Provider Adapter 负责 Endpoint 归一化、Formatter、GenerateOptions 和能力兼容策略。DeepSeek 在 Tool 与 Structured Output 同时存在时使用 `nativeStructuredOutputWithTools(false)`。这类兼容开关由平台 Adapter 管理，不暴露为用户可修改参数。
 
+M5-S01 对照 AgentScope Java 2.0.0 源码和真实 `HarnessAgent + OpenAIChatModel` 本地双端点调用后，冻结以下 Adapter 结构：
+
+```text
+AgentScopeModelFactory
+  -> Map<AdapterKey, AgentScopeModelProviderAdapter>
+  -> build(TrustedModelBuildRequest, CredentialHandle)
+  -> Connection-scoped AgentScope Model
+
+TrustedModelBuildRequest
+  = Provider/Adapter
+  + Connection ID/Version
+  + 受控 Endpoint/EndpointPath
+  + Model ID/Revision
+  + FormatterPolicy
+  + StructuredOutputCompatibility
+  + SafeGenerateOptions
+  + Capability/Policy Hash
+```
+
+`AgentScopeModelProviderAdapter` 是服务端受信 SPI，通过 Spring `List<AgentScopeModelProviderAdapter>` 收集并按唯一 Adapter Key 建立不可变索引。ModelConnection 不注册为 Spring `Model` Bean，也不注册到进程全局 `ModelRegistry`。AgentScope OpenAI Starter 的 `@ConditionalOnMissingBean(Model.class)` 继续只承担 `crewscope-primary` Bootstrap Slot；企业动态模型由 Factory 按精确 Connection Version 创建和回收。
+
+连接字段在 Model Builder 阶段固定。传入 Agent 的 `GenerateOptions` 只从平台白名单值对象生成，允许 Temperature、TopP、Token 上限、Reasoning、Cache、Parallel Tool、Seed 和受控 ExecutionConfig。它不能携带 `apiKey`、`baseUrl`、`endpointPath`、`modelName`、任意 Header、Query 或 Body 参数。AgentScope 2.0.0 的请求级 `GenerateOptions` 对同名 Builder 配置具有更高优先级，直接透传会造成 Connection 越权和模型串用。
+
+Formatter、Native Structured Output 与 Tool 兼容标志由 Adapter 根据 Provider 和 Model Revision 固定。OpenAI 使用原生 `response_format`；DeepSeek 使用 `DeepSeekFormatter` 和合成 `generate_response` Tool。主模型与 Fallback 分别构建并分别校验 Connection、Endpoint、Credential、Formatter 和能力。组合后采用两者中更保守的 Structured Output 策略，不能依赖 AgentScope 内置 Fallback 包装器推断 `supportsNativeStructuredOutputWithTools`。
+
+AgentScope 的 `ModelConfig.maxRetries` 会合入 `GenerateOptions.ExecutionConfig.maxAttempts`。主模型耗尽该预算后，ReActAgent 才在同一逻辑模型调用上通过 `switchOnFirst` 进入显式 Fallback。CrewScope 在 PolicySnapshot 中分别固定两套模型坐标，并由累计遥测区分 Primary Attempt、Retry Attempt 和 Fallback Attempt。
+
+Connection-scoped Model 的缓存键至少包含 Organization、Connection ID/Version、Credential Version、Model ID/Revision、Adapter Version、Formatter/Compatibility Hash 和 SafeGenerateOptions Hash。凭证轮换、Connection 撤销、模型 Revision 或兼容策略变化会使旧实例不可再领取；Model 实例、Credential Handle 和缓存对象不进入 AgentState、配置 JSON、日志或 Artifact。
+
 ### API 与前端
 
 模型管理 API 包含：
@@ -132,6 +161,9 @@ AgentRun 和模型调用遥测记录 Organization、Team、AgentProfile/Configur
 5. 一个 Agent 版本的主模型与 Fallback 分别通过完整策略校验，它们可以使用不同 Provider，必须共同满足当前数据与能力要求。
 6. 客户端只提交服务端目录中的稳定 ID，不提交模型显示名、单价、能力或策略结果。
 7. 任务执行没有受控 Fallback 时不进行隐式模型切换。
+8. 动态 Model Adapter 不能接收客户端构造的 AgentScope `GenerateOptions`、`ModelCreationContext`、Formatter、HTTP Transport 或 Model ID 字符串。
+9. Adapter Key 必须唯一；缺失、重复、能力不兼容或主/Fallback 组合策略不一致时在创建 HarnessAgent 前失败关闭。
+10. Credential Handle 只在受信 Adapter 构建窗口可用；异常消息、`toString`、Spring Bean 名称和缓存键不得包含秘密。
 
 ## 结果
 
@@ -151,6 +183,7 @@ AgentRun 和模型调用遥测记录 Organization、Team、AgentProfile/Configur
 6. TaskExecution 全程保持 PolicySnapshot 固定的模型与单价，未声明模型不会成为隐式 Fallback。
 7. DeepSeek 显示和审计为 `deepseek`，调用层通过 `openai-compatible` Adapter 运行 Tool 与 Structured Output 兼容策略。
 8. API、日志、事件、Artifact、AgentState 和前端状态中不出现 Key、Credential Reference 或 Provider 原始错误。
+9. DeepSeek 与备用 OpenAI Provider 通过两个独立 Connection 完成 Tool + Structured Output；重试保持原 Connection，Fallback 只使用自己的 Endpoint、Key、模型和 Formatter。
 
 ## 重新评估条件
 
