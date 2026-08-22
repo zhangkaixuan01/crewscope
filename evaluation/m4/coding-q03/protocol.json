@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "crewscope.coding-benchmark-protocol/v1",
+  "protocolId": "m4-q03-real-model-quality-baseline",
+  "protocolVersion": "1.0.0",
+  "suite": "../coding-v1/suite.json",
+  "suiteValidator": "../coding-v1/scripts/evaluate.mjs",
+  "track": "real-model-benchmark",
+  "expectedTaskCount": 12,
+  "repetitions": 3,
+  "seeds": [20260816, 20260817, 20260818],
+  "qualityGate": {
+    "minimumEndToEndSuccessRate": 0.7,
+    "successfulRunRequiresCompilation": true,
+    "successfulRunRequiresTests": true,
+    "successfulRunRequiresAcceptance": true,
+    "successfulRunRequiresPathCompliance": true,
+    "successfulRunRequiresSecurityCompliance": true,
+    "successfulRunRequiresHumanApproval": true,
+    "minimumCrewScopeClosures": 1
+  },
+  "pricing": {
+    "currency": "USD",
+    "unit": "PER_MILLION_TOKENS",
+    "inputCacheHitTokenPrice": "RUN_LOCK_REQUIRED",
+    "inputCacheMissTokenPrice": "RUN_LOCK_REQUIRED",
+    "outputTokenPrice": "RUN_LOCK_REQUIRED",
+    "pricingWindow": "RUN_LOCK_REQUIRED",
+    "pricingSource": "RUN_LOCK_REQUIRED",
+    "pricingEffectiveAt": "RUN_LOCK_REQUIRED"
+  },
+  "archive": {
+    "mode": "APPEND_ONLY",
+    "resultsDirectory": "var/evaluation/m4-q03/results"
+  }
+}

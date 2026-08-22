@@ -25,11 +25,11 @@
     }
   },
   "assetLocks": {
-    "runtime/coding-specialist-v1.json": "2075c261d2c83ecff3afc0eaa35db64be38d6e2fb5883478bc4189a45381f78f",
+    "runtime/coding-specialist-v1.json": "b7db902964eb25890cae16c2ea61fbafb3f34773b17a35c54783dd34845d3875",
     "runtime/real-model-run-lock-v1.schema.json": "71bdc9dbe4d9d59b71097424d0a6c99f66baa67fe049de5e1fb886d9f54e6c1b",
     "scripts/evaluate.mjs": "6511e462bc5879e95c5769485e1e5a5726a3e884fa1646b60efed2fa4cbd8fa1",
     "prompts/coding-system-v1.md": "b6d0b26da2b871b1cef322ac518e5f3a589135aa5c1b393fc3f48d117cc0c0d8",
-    "skills/java-spring-v1.md": "fbebc330811adfdee87b1710ab00d7c9ce71906b3ad80fbd9f1b3200c0248b33",
+    "skills/java-spring-v1.md": "2af13940fb2ca1ad5f5a3942654f0d589c2830c13eac0db57311cda787fb6c00",
     "tools/controlled-tools-v1.json": "5e40ffbfe98524a0b98bc23345f473b1f73b94288d3ad44846e5ceceef97ef08",
     "failure-samples/v1.json": "92e7a5f8ee40dfbb2d034879dcee8efb691a8addb4bd907a3de11d49dcc3a3c6"
   },

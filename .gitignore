@@ -28,3 +28,4 @@ crewscope-web/e2e/*-snapshots/*-darwin.png
 logs/
 
 .crewscope/
+var/

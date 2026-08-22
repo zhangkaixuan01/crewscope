@@ -50,9 +50,9 @@
   },
   "budget": {
     "wallClockSeconds": 900,
-    "modelCalls": 40,
-    "inputTokens": 120000,
-    "outputTokens": 24000,
+    "modelCalls": 80,
+    "inputTokens": 600000,
+    "outputTokens": 64000,
     "toolCalls": 160,
     "commandCalls": 12,
     "writeOperations": 80,
@@ -62,6 +62,7 @@
   },
   "structuredOutputs": [
     "RepositoryAnalysisV1",
+    "CodingDeliverySummaryV1",
     "CodeChangeResultV1",
     "TestEvidenceV1",
     "DiffManifestV1"
