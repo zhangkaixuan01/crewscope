@@ -31,6 +31,9 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-014](ADR-014-Agent模型调用可观测与安全重试协议.md) | Agent 模型调用观测、安全重试、Fallback、日志与指标边界 | ACCEPTED |
 | [ADR-015](ADR-015-Agent模型目录、连接与配置解析.md) | 个人/团队/组织模型目录、凭证连接、Agent 配置版本与运行解析 | ACCEPTED |
 | [ADR-016](ADR-016-Agent所有权、模板与执行配置.md) | Agent 所有权、运行角色、模板、个人/团队执行配置与 Review 独立性 | ACCEPTED |
+| [ADR-017](ADR-017-Reviewer证据与人工Gate边界.md) | Reviewer 最小上下文、Finding 证据、SELF_REVIEW 与成员 Gate 边界 | ACCEPTED |
+| [ADR-018](ADR-018-GitHub连接与Draft-PR交付边界.md) | GitHub 双连接、动作凭证、Push 幂等与 Draft PR 对账边界 | ACCEPTED |
+| [ADR-019](ADR-019-ActionBundle调度与外部结果对账协议.md) | ActionBundle 精确确认、事务 Dispatch、唯一 Receipt 与外部结果对账 | ACCEPTED |
 
 ## ADR 内容要求
 

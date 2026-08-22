@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.9<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.1`<br>
+> 文档版本：v1.12<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.3`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M4 已完成；M5 已拆分为 48 个任务，下一任务为 M5-S01（2026-08-22）
+> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05 已完成，下一任务为 M5-D01（2026-08-22）
 
 ## 1. 实施目标
 
@@ -549,9 +549,13 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 将解析后的 ProviderBinding、ConnectionGrant、Credential Subject 和资源范围固化到 PolicySnapshot 与 ActionDigest；
 - 实现 SourceCodeProvider 的仓库、分支、Push、Draft PR 和 PR 查询契约；
 - 实现 GitHub Connector，支持 GitHub App 或 OAuth Connection；
+- TEAM-owned GitHub App 固定 `TEAM_SERVICE_ACCOUNT` 与 TEAM/ORGANIZATION Credential Subject；USER-owned OAuth 固定 `DELEGATED_USER` 与 PRINCIPAL Credential Subject，两类身份和 Repository Allowlist 不能互换；
+- Repository Catalog 解析分页、Repository ID、默认分支、Archived/Fork、Pull/Push 权限和 RateLimit，并在写操作前重新执行 Binding/Grant/资源 Preflight；
 - Team Beta 使用 AES-256-GCM DatabaseEnvelopeCredentialStore，主密钥由进程外 Secret 注入；Credential Service 只向 Connector Worker 签发动作级短期能力；
 - 实现 Connection 凭证轮换、撤销、失效传播、审计和越权测试；
 - Push 使用类型化系统 Git 命令、一次性 GitHub App installation token 和临时 `GIT_ASKPASS`，执行后立即清理；
+- Push 使用完整 Branch Ref、Delivery Head、Expected Remote Head 和原子 `--force-with-lease`；同 Head 返回既有成功，前置漂移和 Non-fast-forward 失败关闭；
+- Draft PR 创建前及结果不确定后按 Repository、Head、Base 查询，并精确复验 Draft、Head SHA、标题和正文，参数冲突时不创建第二个 PR；
 - 使用可测试 HTTP Client 边界、错误归一化、限流和重试；
 - Webhook 实现验签、去重、自身事件过滤和 PR 状态对账。
 
@@ -837,7 +841,7 @@ M4 共 44 个可执行任务，已全部完成并通过 M4-Q04 Release Gate。�
 
 M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 36 次真实模型固定矩阵评测和 CrewScope 自修改闭环。权威聚合为 29 / 36、端到端成功率 80.56%、Pass@1 75%、任务成功率 100%、安全合规率 100%，CrewScope 闭环与质量门禁均通过；7 次未成功运行均为路径违规。Token 作为成本与效率指标持续聚合，运行时使用 60 万输入 Token、6.4 万输出 Token 和 80 次模型调用作为资源失控保护。验收证据导出遗漏通过哈希绑定的追加修正链修复，原始报告保持不可变，详见 [M4-Q03 Coding Agent 质量基线](testing/M4-Q03-Coding-Agent质量基线.md)。
 
-M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5 首个纵向切片先交付动态 Model Factory、Agent Ownership/Template、个人执行 Agent 创建和 PERSONAL/TEAM 模型绑定；下一任务为 `M5-S01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
+M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 已完成 AgentScope 2.0.0 动态模型源码映射、DeepSeek/OpenAI 双 Connection Tool + Structured Output、Retry/Fallback 和 Spring 多 Adapter 验证，冻结受信 Adapter Registry 与 Connection-scoped Model 边界。M5-S02 已完成旧 Agent 身份向 Ownership/RuntimeRole/TemplateVersion 的确定性投影、PERSONAL/TEAM 双绑定矩阵与 PolicySnapshot v1/v2 兼容验证，原 Principal/Profile ID、Session、StateReference 和历史 Hash 保持可读。M5-S03 已完成 Reviewer 最小 ContextPackage、严格 ReviewFindingListV1、真实 Diff/Test/Acceptance Evidence Resolver、规范 Fingerprint、SELF_REVIEW Advisory 与 TeamMember Gate 边界验证。M5-S04 已完成 GitHub App/OAuth 身份隔离、Repository Catalog/RateLimit、动作级 AskPass、受管 Mirror、远端 Head 与原子 Lease Push、Draft PR 查询对账、最小权限和安全错误验证。M5-S05 已完成 ActionBundle 精确摘要、事务提交后 Dispatch、Lease/Fencing 接管、唯一 Receipt、UNKNOWN、Webhook/主动查询合并和人工终态验证。五个架构 Spike 已全部关闭，下一任务为 `M5-D01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 19. 项目管理与进度跟踪
 

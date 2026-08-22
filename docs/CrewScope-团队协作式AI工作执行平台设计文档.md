@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v4.1<br>
+> 文档版本：v4.3<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -582,6 +582,41 @@ Patch、构建日志与测试报告统一通过 `CodingArtifactPublisher` 保存
 `TestEvidence` 按 EvidenceSequence 引用同一 Workspace、Policy 和 attempt 的 CommandEvidence，保存测试统计、测试报告 Artifact 与逐条 `AcceptanceResult`。验收结果的数量、Index、文本和顺序与 CodingTargetSnapshot 完全一致，引用只能指向当前证据集合。M4-A03 在 TEST、VERIFY、ACCEPTANCE 命令结束后解析 Maven Surefire/Failsafe `Results` 汇总，发布完整有界输出作为 TestReport Artifact，并在同一 Tool 调用内执行 Git Reconcile，将证据绑定到命令结束后的 DiffManifest。部署批准的验证命令成功、解析到至少一个测试且统计无失败时，当前验收项引用该 CommandEvidence 并通过。平台按命令失败、报告缺失、零测试、测试失败、验收未完成、验收失败的固定优先级推导结果；调用方不能提交成功布尔值。完整规则见 [M4-D06 Command 与 TestEvidence 领域模型](testing/M4-D06-Command与TestEvidence领域模型.md)与 [M4-A03 Coding Workspace 执行生命周期](testing/M4-A03-Coding-Workspace执行生命周期.md)。
 
 Coding Specialist 使用 `RepositoryAnalysisV1`、`DiffManifestV1`、`TestEvidenceV1` 与 `CodeChangeResultV1`。四份 Schema 在每层对象固定全字段 required 和 `additionalProperties=false`，通过 AgentScope 2.0.0 JsonNode Structured Output 发送，并在 DTO 转换前再次校验原始 Map。模型输出只引用 CodingTarget、Workspace、Policy、DiffArtifact 与 TestEvidence；服务端逐项复验路径、代次、统计、顺序和 Hash，并要求 TestEvidence 的被测 DiffGeneration/Manifest Hash 与最终 DiffArtifact 精确一致，最终成功只读取领域 TestEvidence。`CodingCheckpoint` 将 Plan/Todo、Run Segment、Workspace Fingerprint、Diff Generation、最近 TestEvidence 和 AgentStateSnapshot 形成不可变 Hash 闭包。完整规则见 [M4-D07 Coding 结构化输出与 Checkpoint 契约](testing/M4-D07-Coding结构化输出与Checkpoint契约.md)。
+
+#### 4.5.2 Reviewer Specialist 与成员 Gate
+
+Reviewer Specialist 使用 `reviewer@1` Template 和独立 HarnessAgent。服务端为每个 ReviewRequest 构建版本化 `ContextPackageV1`，只提供完成评审所需的精确事实：
+
+```text
+ReviewSubjectId + SubjectHash
+CodingTargetSnapshotId + Revision + Hash
+ReviewerTemplateVersion + PolicySnapshot
+BaselineCommit + DeliveryCommit
+DiffArtifactId + FinalHash + ManifestHash
+有界 Changed Hunk + PatchHash
+TestEvidenceId + EvidenceHash
+CommandEvidence 摘要 + 完整 AcceptanceResult
+服务端推导的 ReviewerRelationship
+ContextPackageHash
+```
+
+默认预算为 128 个变更文件、512 KiB Patch Hunk、64 个 CommandEvidence 和 100 条 AcceptanceResult。超限内容通过 purpose-bound Artifact 引用分片读取。完整仓库、完整会话、原始环境、任意原始命令、凭证和 Context 外 Artifact 不进入 Reviewer Prompt。
+
+Reviewer Prompt 固定要求：只报告影响正确性、安全、可靠性、可维护性、测试或验收的可执行问题；正确变更返回空 Finding；每条 Finding 同时引用真实变更 Hunk、DiffArtifact、TestEvidence 和 AcceptanceResult；不推断 Context 外事实；不产生 Gate Decision。
+
+`ReviewFindingListV1` 根对象只包含 `schemaVersion` 和 `findings`。Finding 的 Severity 为 `BLOCKER/HIGH/MEDIUM/LOW`，Category 为 `CORRECTNESS/SECURITY/RELIABILITY/MAINTAINABILITY/TESTING/ACCEPTANCE`，并包含 Title、Claim、SuggestedFix 与 1–8 个 Evidence 坐标。Evidence 固定规范路径、起止行、DiffArtifact ID/Hash、ManifestHash、TestEvidence ID/Hash 和 Acceptance Criterion Index。所有字段 required，所有对象 `additionalProperties=false`。
+
+AgentScope 使用模型原生 Structured Output 或合成 `generate_response`。CrewScope 在 DTO 转换前执行严格 Schema 校验，再使用 Evidence Resolver 复验路径、Hunk、ID、Revision、Hash、Diff Generation 和 Acceptance Index。无证据、伪造路径、越界行号、旧 Hash 和 Context 外结论失败关闭。
+
+平台按以下规范身份合并重复 Finding，模型不能提交 Fingerprint：
+
+```text
+SHA-256(subjectHash + category + canonicalPath + normalizedRange + normalizedClaim)
+```
+
+`ReviewerRelationship` 由 Reviewer Agent Owner 与被审对象责任事实推导为 `INDEPENDENT/SELF_REVIEW`。Agent Finding 的 Effect 始终为 `ADVISORY`。`SELF_REVIEW` 支持交付自检和修复，不满足职责分离或 Gate Policy。
+
+Gate Decision 是独立的成员命令。`ReviewFindingListV1` 不包含 Approval、Gate Effect 或状态迁移字段；Gate Application Service 只接受通过 `ReviewerEligibilityPolicy` 的当前 TeamMember。Agent Principal、Service Principal、模型输出、模板配置和管理员降级都不能形成 `APPROVED/CHANGES_REQUESTED/REJECTED`。完整决策和验证见 [ADR-017](adr/ADR-017-Reviewer证据与人工Gate边界.md)与 [M5-S03 Reviewer 证据与 Gate 边界验证记录](spikes/M5-S03-Reviewer证据与Gate边界验证记录.md)。
 
 ### 4.6 对话模式
 
@@ -1677,7 +1712,7 @@ ArtifactManifestV1
 TaskResultSummaryV1
 ```
 
-AgentScope 使用模型原生 JSON Schema；模型能力缺少原生支持时使用合成 `generate_response` 工具。CrewScope 对结果执行 Bean Validation、业务规则和 PolicyPack 校验。
+AgentScope 使用模型原生 JSON Schema；模型能力缺少原生支持时使用合成 `generate_response` 工具。CrewScope 对结果执行严格原始 Map、Bean、Evidence Resolver、业务规则和 PolicyPack 校验。Reviewer 使用的 `ReviewFindingListV1` 不包含 Gate Decision，正确变更使用空 Finding List 表达。
 
 M2 的 `TaskIntentV1` 固定 `schemaVersion=1`，包含 Objective、Acceptance Criteria、WorkProjectId、OwnerMemberId、可选 ExecutorPrincipalId 和可选 GateReviewerMemberId。`ClarificationRequestV1` 固定 `schemaVersion=1`，包含 Summary 与 1–10 个具有稳定 FieldKey、问题、上下文、Required 和候选选项的问题。结构化输出中的 ID 只是候选引用；服务端必须重新解析 WorkProject、Principal、TeamMember、Scope 和职责分离，模型不能声明身份类型、成员状态或校验结果。依赖真实 WorkItem 的 ReviewerEligibilityPolicy 在最终确认事务中再次执行。
 
@@ -2592,7 +2627,7 @@ action_digest = SHA-256(
 
 Confirmation 绑定 `action_digest`。Team、发起成员、执行 Agent、执行身份、责任版本、ProviderBinding、工具、参数、目标、Task 和策略版本共同确定授权对象。
 
-ActionBundle 使用有序 PlannedAction ActionDigest 计算 `bundle_digest`。用户可以一次确认整个 Bundle，Confirmation 绑定 `bundle_digest` 和全部子 ActionDigest；任一动作的参数、顺序、依赖、目标前置版本、责任、Binding 或策略变化都会使整个 Bundle 授权失效。每个 PlannedAction 仍独立执行、重试、对账并保存 ActionReceipt。
+ActionBundle 使用有序 PlannedAction ActionDigest 计算 `bundle_digest`。用户可以一次确认整个 Bundle，Confirmation 绑定 `bundle_digest` 和全部子 ActionDigest；任一动作的参数、顺序、依赖、Review、目标前置版本、责任、Binding、Grant、Policy 或风险变化都会使整个 Bundle 授权失效。每个 PlannedAction 独立领取、执行、对账并保存唯一逻辑 ActionReceipt；结果不确定时不能作为普通失败直接重放写操作。
 
 ### 13.4 Confirmation
 
@@ -2633,6 +2668,16 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 - `UNKNOWN` 动作进入查询对账；
 - 人工确认通过 Manual Step 完成；
 - 补偿动作创建新的 PlannedAction 和 Confirmation。
+
+ActionBundle、PlannedAction、Confirmation、DomainEvent、Outbox 和初始 Dispatch 在同一数据库事务中提交。Worker 只领取已提交 Dispatch；每次 Claim 递增 Fencing Token，Lease 到期后的接管 Worker 先查询外部权威事实，旧 Worker 不能提交迟到 Receipt。依赖动作拥有成功 Receipt 后才释放后继动作；Push 成功而 PR 失败或不确定时只处理 PR。
+
+每个 PlannedAction 只有一个逻辑 ActionReceipt，查询、Webhook、执行尝试和人工调查作为多个 Observation/Audit 追加。Webhook 使用 Connection + Delivery/Event ID 去重，按 Provider 单调版本、状态序列和 Provider 时间裁决乱序，与主动查询合并到同一 ExternalResult。长期无法证明结果的动作进入人工队列；人工结论必须包含 Actor、强版本、原因和证据，终态不被迟到 Webhook、查询、重试或旧 Worker 逆转。Command Receipt 负责 API 命令提交幂等，ActionReceipt 负责数据库外部副作用收敛，两者独立保存。
+
+GitHub 交付使用两个不可互换的外部身份。TEAM-owned GitHub App 绑定 `TEAM_SERVICE_ACCOUNT` 和 TEAM/ORGANIZATION Credential Subject，通过 Installation ID、Repository Allowlist 与短期 Installation Token 执行团队动作；USER-owned OAuth 绑定 `DELEGATED_USER` 和 PRINCIPAL Credential Subject，只能用于成员个人执行及其当前授权资源。Binding Owner、Credential Subject、外部身份、ConnectionGrant 和 Repository ID 分别固化到 PolicySnapshot 与 ActionDigest。
+
+Repository Catalog 分页解析稳定 GitHub Repository ID、默认分支、Archived/Fork、Pull/Push 权限和 `X-RateLimit-*`；选择结果继续与 Grant、Binding、Allowlist 和 Policy 求交集。Catalog 缓存不承担授权，写操作在执行窗口重新校验 Repository、Branch、权限、保护策略和当前远端 Head。Draft PR 交付最小权限为 Repository Metadata Read、Contents Read/Write 和 Pull Requests Write，不要求 Administration、Actions、Secrets、Members 或 Webhooks Write。
+
+受管 bare Mirror 的 Remote URL 不包含凭证。Connector Worker 使用 Owner-only 临时 Secret 文件和不含 Secret 的 `GIT_ASKPASS` 脚本；Git argv 与环境值都不包含 Token。Push 绑定完整 Branch Ref、Delivery Head 与 Expected Remote Head，先查询 Head、校验 Fast-forward，再使用精确 `--force-with-lease` 原子提交；同 Branch/Head 重试返回既有成功，响应丢失后查询远端 Head 对账。Draft PR 创建前及不确定结果后按 Repository、Head 与 Base 查询，并精确复验 Draft、Head SHA、标题和正文；不一致返回冲突，不通过参数漂移创建第二个 PR。GitHub 边界见 [ADR-018](adr/ADR-018-GitHub连接与Draft-PR交付边界.md)与 [M5-S04 验证记录](spikes/M5-S04-GitHub连接与Draft-PR验证记录.md)；事务调度、Fencing、唯一 Receipt 与统一对账见 [ADR-019](adr/ADR-019-ActionBundle调度与外部结果对账协议.md)与 [M5-S05 验证记录](spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)。
 
 ## 14. 数据模型
 
@@ -2832,7 +2877,10 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 |---|---|
 | `planned_action` | Team、发起成员、执行 Agent、Plan/Step/责任版本、目标前置版本、ProviderBinding、身份、Tool、参数、风险、幂等键和状态 |
 | `action_bundle` | 一次精确确认覆盖的动作集合、动作顺序、依赖、整体摘要和状态 |
-| `action_receipt` | PlannedAction、请求尝试、外部 Operation ID、结果、目标版本、响应哈希、证据、接收时间和对账状态 |
+| `action_dispatch` | PlannedAction、依赖就绪、调度状态、Worker、Lease、Fencing Token、下一对账时间、尝试摘要和乐观版本；只在事务提交后可领取 |
+| `action_receipt` | PlannedAction 唯一逻辑结果、外部 Operation ID/业务键、结果、目标版本、响应哈希、证据、接收时间和对账来源；终态不可改写 |
+| `action_observation` | Action、Attempt、Webhook/查询/人工来源、Provider Version/时间、安全摘要、Evidence Hash 和观察时间；只追加且不替代 Receipt |
+| `external_result` | Connection、外部稳定 ID、Provider 状态/版本/更新时间、最后可信来源、对账状态、人工终结和乐观版本 |
 | `confirmation` | 类型、摘要、ActionDigest、PolicySnapshot、安全覆盖版本、用户确认、审批路由、结论、有效期和执行结果 |
 | `tool_binding` | Plugin、Provider、ProviderImplementation、Connector、AgentScope Tool、平台 Tool、MCP、版本和风险 |
 | `skill_binding` | Skill、仓库、版本、哈希、可见性和发布状态 |
@@ -3302,6 +3350,9 @@ AgentScope 原始事件传输与应用层 AG-UI 重放分别使用有界缓冲�
 - 凭证绑定组织、Team、成员或 Service Principal、ProviderBinding、Connection、资源、动作和有效期；
 - Git 使用 GitHub App 或 GitLab OAuth；
 - Git Push 由 Connector Worker 使用一次性 installation token 和临时 `GIT_ASKPASS` 执行，凭证不写入远端 URL，执行后立即清理临时文件和环境变量；
+- GitHub App/OAuth 的 Binding Owner、Credential Subject 和外部身份分别精确匹配；Repository Catalog 与写前 Preflight 固化 Repository ID、权限、Allowlist 和 RateLimit 事实；
+- AskPass 环境只保存脚本与临时 Secret 文件路径，不保存 Token 值；临时文件使用 Owner-only 权限并在所有终止路径清理，内存 Secret 随 Handle 关闭清零；
+- Push 使用 Expected Remote Head 和 `--force-with-lease` 原子防止查询后的远端竞态；Draft PR 通过 Head/Base/Head SHA/内容查询对账保证唯一；
 - MCP/Higress 使用服务身份和 Tool Scope；
 - 日志、模型上下文、Memory 和 Artifact 不保存凭证明文；
 - AuditEvent 保存凭证引用、授权范围和使用结果。
@@ -4465,7 +4516,7 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 - Worktree 目录存在但 Git 元数据缺失；
 - 文件事件丢失、Git HEAD 重置与 Diff Reconcile。
 
-“团队对话到同级 Review 再到 Draft PR”用例的平台重复 Assignment、Review、Action Dispatch、WorkItem 更新、InboxItem 和通知投递数量为 0。外部结果最终进入成功、失败、UNKNOWN 对账或人工处理，并保存唯一 ActionReceipt 或明确的多回执关联。
+“团队对话到同级 Review 再到 Draft PR”用例的平台重复 Assignment、Review、Action Dispatch、WorkItem 更新、InboxItem 和通知投递数量为 0。外部结果最终进入成功、失败、UNKNOWN 对账或人工处理；每个 PlannedAction 保存唯一逻辑 ActionReceipt，多次执行、查询、Webhook 和人工证据作为 Observation/Audit 追加。
 
 ## 24. 首个里程碑
 

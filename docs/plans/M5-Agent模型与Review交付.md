@@ -1,10 +1,10 @@
 # M5：Agent 模型、个人执行 Agent、Review 与 GitHub Draft PR 执行清单
 
 > 对应总计划：[CrewScope 实施计划](../CrewScope-实施计划.md) M5<br>
-> 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016 已接受<br>
+> 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016、ADR-017、ADR-018、ADR-019 已接受<br>
 > 目标周期：6–8 周，按纵向波次推进<br>
 > 目标结果：成员可创建和配置个人执行 Agent，团队可治理模型与共享 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review 和精确确认后，由 GitHubSourceCodeProvider 创建可审计 Draft PR<br>
-> 当前进度：已完成任务拆分，下一任务为 `M5-S01`（2026-08-22）
+> 当前进度：`M5-S01` 至 `M5-S05` 已完成，下一任务为 `M5-D01`（2026-08-22）
 
 ## 1. 出口结果与范围
 
@@ -69,6 +69,7 @@ Conversation Mode 和 Control Mode 操作同一 Model、Agent、Review 和 Actio
 - Push 与 Create Draft PR 是两个有顺序依赖的 PlannedAction，一个 Confirmation 只覆盖精确 ActionBundle Digest；
 - Agent、Controller 和浏览器不能直接持有 GitHub 写凭证，Action Worker 在执行窗口换取动作级凭证；
 - 超时或回执丢失进入 `UNKNOWN/RECONCILING`，通过远端 Branch Head、PR Head SHA 和外部 Operation ID 对账。
+- Dispatch 只在事务提交后可领取，Lease 接管使用递增 Fencing Token；每个动作只有一个逻辑 Receipt，Webhook、主动查询和人工证据合并到同一 ExternalResult。
 
 ## 4. 依赖顺序
 
@@ -95,11 +96,11 @@ M5-F02..F07 -> M5-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M5-S01` | SPIKE | M4-Q04, ADR-015 | agentscope/server | 对照 AgentScope Java 2.0.0 源码验证动态 Model 工厂、OpenAI-compatible/OpenAI Provider、Tool + Structured Output、Formatter、GenerateOptions、Retry/Fallback 和 Spring 多实例装配，冻结受信 Adapter SPI | DeepSeek 与一个备用 Provider 使用两个独立 Connection 完成 HarnessAgent Tool/Structured Output 调用；模型、Endpoint、凭证和配置不串用；输出源码能力映射与 ADR 补充记录 |
-| `M5-S02` | SPIKE | ADR-016 | domain/application | 用现有 M2–M4 AgentProfile、Principal、Session 和 PolicySnapshot 验证 Ownership、RuntimeRole、TemplateVersion、PERSONAL/TEAM Binding 与 V20 无损升级形状 | 默认 Personal、个人 Coding、个人 Reviewer、团队 Coding 四类实例及个人/团队执行矩阵通过；现有 ID、Session 和历史证据保持可读 |
-| `M5-S03` | SPIKE | M4-D07, M4-Q03 | agentscope/application | 冻结 Reviewer Specialist Prompt、最小 ContextPackage、ReviewFinding Schema、证据引用、严重级别、重复 Finding 和 SELF_REVIEW/Gate 边界 | 固定正确/缺陷/无关 Diff 样本可重复判定；Finding 必须引用真实文件、证据和验收事实；Agent 无法生成 Gate Decision |
-| `M5-S04` | SPIKE | ADR-004, ADR-006, M4-I01 | infrastructure | 验证 TEAM-owned GitHub App 与 USER-owned OAuth 两类连接、Repository 资源发现、AskPass/HTTP 凭证注入、受管 Mirror、Push 幂等和 Draft PR API | 凭证不进入 argv/env 日志/Agent；同一 Branch/Head 重试不重复 Push/PR；错误归一化、权限最小集和 API 速率事实明确 |
-| `M5-S05` | SPIKE | S04, ADR-007 | domain/infrastructure | 冻结 ActionBundle Digest、动作依赖、确认失效、事务提交后 Dispatch、超时 UNKNOWN、Webhook/主动查询和人工对账协议 | 在 Push 成功/回执丢失、PR 成功/响应丢失、Webhook 乱序重复和进程退出样本中收敛为唯一 Receipt，无重复外部写操作 |
+| `M5-S01` | SPIKE | M4-Q04, ADR-015 | agentscope/server | 已完成：对照 AgentScope Java 2.0.0 源码验证动态 Model 工厂、OpenAI-compatible/OpenAI Provider、Tool + Structured Output、Formatter、GenerateOptions、Retry/Fallback 和 Spring 多 Adapter 装配，冻结受信 Adapter SPI | [M5-S01 AgentScope 动态模型与多连接验证记录](../spikes/M5-S01-AgentScope动态模型与多连接验证记录.md)；2 个真实 Loopback HTTP 集成测试证明 DeepSeek/OpenAI 双 Connection、Tool、两类 Structured Output、Retry 和 Fallback 不串 Endpoint、Key、Model 或配置 |
+| `M5-S02` | SPIKE | ADR-016 | domain/application | 已完成：用现有 M2–M4 AgentProfile、Principal、Session 和 PolicySnapshot 验证 Ownership、RuntimeRole、TemplateVersion、PERSONAL/TEAM Binding 与 V20 无损升级形状，冻结确定性回填与 PolicySnapshot v1/v2 规则 | [M5-S02 Agent 所有权与配置升级验证记录](../spikes/M5-S02-Agent所有权与配置升级验证记录.md)；4 个专项场景证明默认 Personal、个人 Coding/Reviewer、团队 Coding 正交，TEAM 执行不使用 USER Connection，原 ID、Session、StateReference 与 v1 Hash 保持可读 |
+| `M5-S03` | SPIKE | M4-D07, M4-Q03, ADR-017 | agentscope/application | 已完成：冻结 Reviewer Specialist Prompt、最小 ContextPackage、ReviewFindingListV1、证据引用、严重级别、规范 Fingerprint、SELF_REVIEW 与 TeamMember Gate 边界 | [M5-S03 Reviewer 证据与 Gate 边界验证记录](../spikes/M5-S03-Reviewer证据与Gate边界验证记录.md)；5 个专项场景证明正确/缺陷/无关样本重复判定、真实 Diff/Test/Acceptance 证据闭合、重复 Finding 合并且 Agent Gate 字段与命令均被拒绝 |
+| `M5-S04` | SPIKE | ADR-004, ADR-006, M4-I01 | infrastructure | 已完成：冻结 TEAM-owned GitHub App 与 USER-owned OAuth 身份、Repository Catalog、AskPass/HTTP 凭证注入、受管 Mirror、远端 Head/Lease Push 幂等和 Draft PR 查询对账协议 | [M5-S04 GitHub 连接与 Draft PR 验证记录](../spikes/M5-S04-GitHub连接与Draft-PR验证记录.md)；5 个 Loopback/真实 Git 场景证明凭证零披露与清理、Catalog/RateLimit、相同 Branch/Head 和响应丢失不重复 Push/PR、远端冲突/Non-fast-forward、安全错误与最小权限 |
+| `M5-S05` | SPIKE | S04, ADR-007 | domain/infrastructure | 已完成：冻结 ActionBundle Digest、动作依赖、确认失效、事务提交后 Dispatch、Lease/Fencing、超时 UNKNOWN、Webhook/主动查询和人工对账协议 | [M5-S05 ActionBundle 与外部结果对账验证记录](../spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)；6 个专项场景证明事务回滚零写入、Push/PR 不确定结果查询收敛、旧 Worker 拒绝、Webhook 乱序去重、人工终态不可逆且每个动作只有一个逻辑 Receipt |
 
 ## 6. 领域、迁移与持久化契约
 
