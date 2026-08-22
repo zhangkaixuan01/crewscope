@@ -134,9 +134,10 @@ public final class TaskWorkerExecutionLoop implements AutoCloseable {
                     executionHandler.execute(required);
                 } catch (RuntimeException failure) {
                     lastFailure.set(failure);
-                    // Claim tokens and Task identities must never enter process logs.
-                    LOGGER.error("Task Worker execution failed with {}",
-                            failure.getClass().getSimpleName());
+                    // Only exception type names are emitted. Messages and stack frames can carry
+                    // model payloads, repository paths, Task identities, or authorization facts.
+                    LOGGER.error("Task Worker execution failed with cause types {}",
+                            failureTypes(failure));
                 } finally {
                     active.remove(required.leaseId(), required);
                     loadTracker.executionFinished();
@@ -147,6 +148,19 @@ public final class TaskWorkerExecutionLoop implements AutoCloseable {
             loadTracker.executionFinished();
             throw rejected;
         }
+    }
+
+    private static String failureTypes(Throwable failure) {
+        StringBuilder types = new StringBuilder();
+        Throwable current = Objects.requireNonNull(failure, "failure");
+        for (int depth = 0; current != null && depth < 8; depth++) {
+            if (depth > 0) {
+                types.append(" <- ");
+            }
+            types.append(current.getClass().getSimpleName());
+            current = current.getCause();
+        }
+        return types.toString();
     }
 
     @Override

@@ -25,6 +25,11 @@ public final class CodingStructuredOutputSpecs {
     public static final StructuredOutputSpec<CodeChangeResultV1> CODE_CHANGE_RESULT =
             StructuredOutputSpec.strict("code-change-result/v1", CodeChangeResultV1.class,
                     codeChangeResultSchema());
+    public static final StructuredOutputSpec<CodingDeliverySummaryV1> CODING_DELIVERY_SUMMARY =
+            StructuredOutputSpec.strict(
+                    "coding-delivery-summary/v1",
+                    CodingDeliverySummaryV1.class,
+                    codingDeliverySummarySchema());
 
     private CodingStructuredOutputSpecs() {}
 
@@ -113,6 +118,14 @@ public final class CodingStructuredOutputSpecs {
                 "diffArtifactHash", string(SHA_256, null),
                 "testEvidenceId", string(CANONICAL_UUID, null),
                 "testEvidenceHash", string(SHA_256, null),
+                "changeSummary", array(string(null, 1_000), 1, 100),
+                "limitations", array(string(null, 1_000), 0, 50),
+                "risks", array(string(null, 1_000), 0, 50)));
+    }
+
+    private static Map<String, Object> codingDeliverySummarySchema() {
+        return object(properties(
+                "schemaVersion", constant("1"),
                 "changeSummary", array(string(null, 1_000), 1, 100),
                 "limitations", array(string(null, 1_000), 0, 50),
                 "risks", array(string(null, 1_000), 0, 50)));

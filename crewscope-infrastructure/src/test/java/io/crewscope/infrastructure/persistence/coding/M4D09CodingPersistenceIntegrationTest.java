@@ -446,6 +446,36 @@ class M4D09CodingPersistenceIntegrationTest
                         graph.activeWorkspace.id())
                 .size());
 
+        TaskExecution recoveringExecution = mock(TaskExecution.class);
+        when(recoveringExecution.scope()).thenReturn(graph.fixture.workItemScope());
+        when(recoveringExecution.taskId()).thenReturn(graph.taskId);
+        when(recoveringExecution.id()).thenReturn(graph.taskExecutionId);
+        when(recoveringExecution.attempt()).thenReturn(1);
+        when(recoveringExecution.status()).thenReturn(TaskExecutionStatus.RECOVERING);
+        when(recoveringExecution.lastFencingToken()).thenReturn(Optional.of(FencingToken.initial()));
+        var recoveringWorkspace = graph.activeWorkspace.beginRecovery(
+                recoveringExecution,
+                graph.activeWorkspace.version(),
+                graph.fixture.actor(),
+                UtcTimestamp.parse("2026-08-18T01:14:00Z"));
+        workspaces.update(recoveringWorkspace);
+
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crewscope.execution_workspace_epoch "
+                        + "WHERE execution_workspace_id = ?",
+                Integer.class,
+                graph.activeWorkspace.id().value()));
+        assertEquals(1, commands.findByTaskExecution(
+                        graph.fixture.organizationId(),
+                        graph.fixture.teamId(),
+                        graph.fixture.projectId(),
+                        graph.taskExecutionId)
+                .size());
+        assertThrows(DataAccessException.class, () -> jdbc.update(
+                "UPDATE crewscope.command_evidence SET workspace_fingerprint = ? WHERE id = ?",
+                "f".repeat(64),
+                command.id().value()));
+
         var publicAttempt = codingQueries.findByExecution(
                         graph.fixture.organizationId(),
                         graph.fixture.teamId(),

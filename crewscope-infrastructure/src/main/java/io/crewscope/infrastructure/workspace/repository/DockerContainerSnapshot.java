@@ -2,10 +2,12 @@ package io.crewscope.infrastructure.workspace.repository;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /** Internal projection of Docker inspect facts used to fail closed before reuse or cleanup. */
 record DockerContainerSnapshot(JsonNode inspect) {
@@ -93,26 +95,78 @@ record DockerContainerSnapshot(JsonNode inspect) {
         return false;
     }
 
-    boolean hasReadWriteBindMount(Path source, String destination) {
-        Path expected = Objects.requireNonNull(source, "source").toAbsolutePath().normalize();
-        for (JsonNode mount : inspect.path("Mounts")) {
-            if (!"bind".equals(mount.path("Type").asText())
-                    || !destination.equals(mount.path("Destination").asText())
-                    || !mount.path("RW").asBoolean(false)) {
+    boolean hasOnlyReadWriteBindMount(Path source, String destination) {
+        return hasOnlyExpectedBindMounts(
+                source, destination, Optional.empty(), "/maven-cache");
+    }
+
+    boolean hasOnlyExpectedBindMounts(
+            Path worktreeSource,
+            String worktreeDestination,
+            Optional<Path> dependencyCacheSource,
+            String dependencyCacheDestination) {
+        JsonNode mounts = inspect.path("Mounts");
+        int expectedSize = dependencyCacheSource.isPresent() ? 2 : 1;
+        if (!mounts.isArray() || mounts.size() != expectedSize) {
+            return false;
+        }
+        boolean worktreeFound = false;
+        boolean cacheFound = false;
+        for (JsonNode mount : mounts) {
+            if (mountMatches(
+                    mount, worktreeSource, worktreeDestination, true)) {
+                worktreeFound = true;
                 continue;
             }
-            try {
-                if (Path.of(mount.path("Source").asText())
-                        .toAbsolutePath()
-                        .normalize()
-                        .equals(expected)) {
-                    return true;
-                }
-            } catch (RuntimeException ignored) {
+            if (dependencyCacheSource.isPresent()
+                    && mountMatches(
+                            mount,
+                            dependencyCacheSource.orElseThrow(),
+                            dependencyCacheDestination,
+                            false)) {
+                cacheFound = true;
+                continue;
+            }
+            return false;
+        }
+        return worktreeFound && (dependencyCacheSource.isEmpty() || cacheFound);
+    }
+
+    private static boolean mountMatches(
+            JsonNode mount, Path source, String destination, boolean readWrite) {
+        if (!"bind".equals(mount.path("Type").asText())
+                || !Objects.requireNonNull(destination, "destination")
+                        .equals(mount.path("Destination").asText())
+                || mount.path("RW").asBoolean(false) != readWrite) {
+            return false;
+        }
+        try {
+            return Path.of(mount.path("Source").asText()).toAbsolutePath().normalize()
+                    .equals(Objects.requireNonNull(source, "source").toAbsolutePath().normalize());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    boolean hasExactlyEnvironmentNames(Set<String> allowedNames) {
+        Set<String> allowed = Set.copyOf(Objects.requireNonNull(allowedNames, "allowedNames"));
+        JsonNode environment = inspect.path("Config").path("Env");
+        if (!environment.isArray()) {
+            return false;
+        }
+        Set<String> names = new HashSet<>();
+        for (JsonNode value : environment) {
+            String entry = value.asText();
+            int separator = entry.indexOf('=');
+            if (separator <= 0) {
+                return false;
+            }
+            String name = entry.substring(0, separator);
+            if (!allowed.contains(name) || !names.add(name)) {
                 return false;
             }
         }
-        return false;
+        return names.equals(allowed);
     }
 
     Optional<String> environment(String name) {

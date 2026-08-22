@@ -296,8 +296,10 @@ public final class DurableTaskWorkerExecutionFactory {
                     .orElseThrow(() -> new AggregateNotFoundException(
                             "TaskExecution", scope.leaseId()));
             ExecutionLease lease = requiredLease(scope.leaseId());
-            if (lease.release().isEmpty()
-                    && lease.owns(scope.ownership(), timeProvider.now())) {
+            if (lease.release().isEmpty()) {
+                // The coordinator validates current ownership using authoritative database time
+                // inside the release transaction. A separate pre-check is both racy and invalid
+                // for the transaction-mandatory time provider.
                 leaseCoordinator.release(LeaseReleaseCommand.simple(
                         new LeaseTransitionCommand(
                                 scope, execution.version(), lease.version()),

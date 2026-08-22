@@ -30,7 +30,7 @@ public final class TaskPlanPublicationService {
 
     /** M3 deliberately permits only deterministic, in-process Fixture Tools. */
     public static final Set<String> M3_CONTROLLED_TOOLS = Set.of(
-            "fixture.inspect", "fixture.execute", "fixture.validate");
+            "fixture_inspect", "fixture_execute", "fixture_validate");
 
     private final TaskRepository taskRepository;
     private final TaskExecutionRepository executionRepository;

@@ -56,6 +56,7 @@ import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -64,6 +65,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -155,6 +157,53 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                 () -> external.exec(null, "true", 1));
         factory.destroy(managed, facts.workspace());
         assertTrue(dockerControl.inspect(managed.containerName()).isEmpty());
+    }
+
+    @Test
+    void mountsTheFrozenMavenCacheReadOnlyAndForcesOfflineResolution() throws Exception {
+        Path cache = Files.createDirectory(temporaryDirectory.resolve("maven-cache"));
+        Files.createDirectory(cache.resolve("repository"));
+        Files.writeString(cache.resolve("repository/probe.txt"), "q03-cache");
+        Files.setPosixFilePermissions(
+                cache.resolve("repository/probe.txt"),
+                PosixFilePermissions.fromString("r--r--r--"));
+        Files.setPosixFilePermissions(
+                cache.resolve("repository"),
+                PosixFilePermissions.fromString("r-xr-xr-x"));
+        Files.setPosixFilePermissions(cache, PosixFilePermissions.fromString("r-xr-xr-x"));
+        try {
+            TaskExecutionSandboxProperties properties = new TaskExecutionSandboxProperties();
+            properties.setDockerCommandTimeout(Duration.ofSeconds(20));
+            properties.setPauseStopTimeout(Duration.ofSeconds(1));
+            properties.setDependencyCacheRoot(cache.toString());
+            factory = new TaskExecutionSandboxFactory(
+                    properties,
+                    dockerControl,
+                    Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
+            SandboxFacts facts = facts(FencingToken.initial());
+            ManagedTaskExecutionSandbox managed = provision(facts);
+
+            DockerContainerSnapshot container = dockerControl.inspect(managed.containerName())
+                    .orElseThrow();
+            assertTrue(managed.descriptor().exactlyMatches(container));
+            try (TaskExecutionSandboxCall call = managed.openCall(
+                    facts.workspace(), facts.lease(), now())) {
+                ExecResult result = call.sandboxContext().getExternalSandbox().exec(
+                        null,
+                        "test \"$MAVEN_ARGS\" = '--offline -Dmaven.repo.local=/maven-cache/repository'"
+                                + " && test \"$(cat /maven-cache/repository/probe.txt)\" = q03-cache"
+                                + " && ! touch /maven-cache/repository/forbidden",
+                        5);
+                assertEquals(0, result.exitCode());
+            }
+        } finally {
+            Files.setPosixFilePermissions(cache, PosixFilePermissions.fromString("rwx------"));
+            Files.setPosixFilePermissions(
+                    cache.resolve("repository"), PosixFilePermissions.fromString("rwx------"));
+            Files.setPosixFilePermissions(
+                    cache.resolve("repository/probe.txt"),
+                    PosixFilePermissions.fromString("rw-------"));
+        }
     }
 
     @Test
@@ -288,6 +337,31 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                 TaskExecutionSandboxException.class,
                 () -> managed.openCall(facts.workspace(), expired, now()));
         assertEquals(TaskExecutionSandboxError.LEASE_EXPIRED, failure.error());
+        factory.destroy(managed, facts.workspace());
+    }
+
+    @Test
+    void activeCallAcceptsHeartbeatRenewalWithoutChangingItsFencingEpoch() throws Exception {
+        SandboxFacts facts = facts(FencingToken.initial());
+        AtomicBoolean originalLeaseActive = new AtomicBoolean(true);
+        when(facts.lease().version()).thenReturn(0L);
+        when(facts.lease().isActiveAt(any(UtcTimestamp.class)))
+                .thenAnswer(ignored -> originalLeaseActive.get());
+        ExecutionLease renewed = lease(facts.workspace(), facts.ownership(), true);
+        when(renewed.version()).thenReturn(1L);
+        ManagedTaskExecutionSandbox managed = provision(facts);
+
+        try (TaskExecutionSandboxCall call = managed.openCall(
+                facts.workspace(), facts.lease(), now())) {
+            originalLeaseActive.set(false);
+            TaskExecutionSandboxException stale = assertThrows(
+                    TaskExecutionSandboxException.class, call::sandboxContext);
+            assertEquals(TaskExecutionSandboxError.LEASE_EXPIRED, stale.error());
+
+            managed.renewActiveLease(renewed);
+
+            assertTrue(call.sandboxContext().getExternalSandbox().isRunning());
+        }
         factory.destroy(managed, facts.workspace());
     }
 

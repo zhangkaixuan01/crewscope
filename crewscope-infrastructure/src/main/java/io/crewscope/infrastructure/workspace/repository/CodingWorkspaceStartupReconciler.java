@@ -108,7 +108,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
     public synchronized int reconcile() {
         try {
             int taskExecutions = taskReconciler.reconcile();
-            UtcTimestamp now = timeProvider.now();
+            UtcTimestamp now = authoritativeNow();
             RecoveryOutcome recovery = transactions.required(() -> recover(now));
             int unknownSandboxes = sandboxes.closeUnknown(
                     registration.organizationId(), registration.environment());
@@ -153,7 +153,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
         try {
             // Expired Task ownership must be fenced and marked RECOVERING before physical repair.
             taskReconciler.reconcile();
-            UtcTimestamp now = timeProvider.now();
+            UtcTimestamp now = authoritativeNow();
             RecoveryOutcome recovery = transactions.required(() -> recover(now));
             int unknownSandboxes = sandboxes.closeUnknown(
                     registration.organizationId(), registration.environment());
@@ -179,7 +179,7 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
     /** Runs the same bounded retention Archive and Artifact purge used during Worker startup. */
     public synchronized CodingWorkspaceStartupHealth archiveWorkspaceResources() {
         try {
-            UtcTimestamp now = timeProvider.now();
+            UtcTimestamp now = authoritativeNow();
             ArchiveOutcome archive = transactions.required(() -> archive(now));
             int purged = artifacts.purge(
                     new ArtifactPurgeRequest(now, artifactPurgeBatchSize)).size();
@@ -233,7 +233,9 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
                 if (target == ExecutionWorkspaceStatus.PROVISIONING) {
                     worktrees.rollbackProvisionOrphan(workspace, policy);
                 } else {
-                    ManagedWorktree worktree = worktrees.verify(workspace, policy);
+                    ManagedWorktree worktree = target == ExecutionWorkspaceStatus.FINALIZING
+                            ? worktrees.recoverFinalizing(workspace, policy)
+                            : worktrees.verify(workspace, policy);
                     diffMonitors.reconcileOnce(workspace, worktree, policy);
                 }
                 recovered++;
@@ -286,6 +288,11 @@ public final class CodingWorkspaceStartupReconciler implements TaskWorkerStartup
         ExecutionWorkspace committed = workspaces.update(changed);
         timeline.workspaceChanged(committed);
         return committed;
+    }
+
+    /** Keeps the database-backed clock inside its mandatory transaction boundary. */
+    private UtcTimestamp authoritativeNow() {
+        return transactions.required(timeProvider::now);
     }
 
     private record RecoveryOutcome(

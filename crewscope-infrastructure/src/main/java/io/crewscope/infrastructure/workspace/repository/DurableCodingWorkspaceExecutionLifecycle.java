@@ -7,6 +7,7 @@ import io.crewscope.application.coding.ExecutionWorkspaceRepository;
 import io.crewscope.application.coding.WorkspacePolicyOverlayRepository;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
 import io.crewscope.application.execution.TaskExecutionTerminalStatus;
+import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.AllowedPathSet;
@@ -27,6 +28,7 @@ import io.crewscope.domain.task.ExecutionLease;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.identity.Principal;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,12 +50,14 @@ public final class DurableCodingWorkspaceExecutionLifecycle
     private final TaskExecutionSandboxFactory sandboxes;
     private final WorkspaceDiffMonitorFactory diffMonitors;
     private final WorkspaceDiffFinalizer diffFinalizer;
+    private final CodingWorktreePreparationHook worktreePreparation;
     private final CodingWorkspaceRuntimeRegistry registry;
     private final CodingFilesystemUsageRegistry filesystemUsages;
     private final SandboxCommandUsageRegistry commandUsages;
     private final TransactionExecutor transactions;
     private final AuthoritativeTimeProvider timeProvider;
     private final RuntimeWorkerRegistrationSpec registration;
+    private final PrincipalRepository principals;
     private final CodingWorkspaceExecutionProperties properties;
     private final CodingTaskTimelinePublisher timeline;
 
@@ -68,12 +72,14 @@ public final class DurableCodingWorkspaceExecutionLifecycle
             TaskExecutionSandboxFactory sandboxes,
             WorkspaceDiffMonitorFactory diffMonitors,
             WorkspaceDiffFinalizer diffFinalizer,
+            CodingWorktreePreparationHook worktreePreparation,
             CodingWorkspaceRuntimeRegistry registry,
             CodingFilesystemUsageRegistry filesystemUsages,
             SandboxCommandUsageRegistry commandUsages,
             TransactionExecutor transactions,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
+            PrincipalRepository principals,
             CodingWorkspaceExecutionProperties properties,
             CodingTaskTimelinePublisher timeline) {
         this.targets = Objects.requireNonNull(targets, "targets");
@@ -86,12 +92,15 @@ public final class DurableCodingWorkspaceExecutionLifecycle
         this.sandboxes = Objects.requireNonNull(sandboxes, "sandboxes");
         this.diffMonitors = Objects.requireNonNull(diffMonitors, "diffMonitors");
         this.diffFinalizer = Objects.requireNonNull(diffFinalizer, "diffFinalizer");
+        this.worktreePreparation = Objects.requireNonNull(
+                worktreePreparation, "worktreePreparation");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.filesystemUsages = Objects.requireNonNull(filesystemUsages, "filesystemUsages");
         this.commandUsages = Objects.requireNonNull(commandUsages, "commandUsages");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.registration = Objects.requireNonNull(registration, "registration");
+        this.principals = Objects.requireNonNull(principals, "principals");
         this.properties = Objects.requireNonNull(properties, "properties");
         this.timeline = Objects.requireNonNull(timeline, "timeline");
     }
@@ -120,14 +129,18 @@ public final class DurableCodingWorkspaceExecutionLifecycle
         try {
             worktree = workspace.status() == ExecutionWorkspaceStatus.PROVISIONING
                     ? worktrees.provision(workspace, workspacePolicy)
-                    : worktrees.verify(workspace, workspacePolicy);
+                    : workspace.status() == ExecutionWorkspaceStatus.FINALIZING
+                            ? worktrees.recoverFinalizing(workspace, workspacePolicy)
+                            : worktrees.verify(workspace, workspacePolicy);
+            ManagedRepository repository = repositories.resolve(workspace.repositoryKey());
+            worktreePreparation.prepare(workspace, target, repository, worktree);
             var sandbox = sandboxes.recover(
                     workspace,
                     worktree,
                     workspacePolicy,
                     profile,
                     lease,
-                    timeProvider.now());
+                    authoritativeNow());
             if (workspace.status() == ExecutionWorkspaceStatus.PROVISIONING) {
                 workspace = markReady(workspace, preparing, lease);
             }
@@ -136,7 +149,7 @@ public final class DurableCodingWorkspaceExecutionLifecycle
                     target,
                     workspacePolicy,
                     profile,
-                    repositories.resolve(workspace.repositoryKey()),
+                    repository,
                     worktree,
                     sandbox);
             return Optional.of(execution);
@@ -156,7 +169,8 @@ public final class DurableCodingWorkspaceExecutionLifecycle
             workspace = activateWorkspace(workspace, runningExecution, runLease);
             execution.workspace(workspace);
         }
-        if (workspace.status() == ExecutionWorkspaceStatus.ACTIVE) {
+        if (workspace.status() == ExecutionWorkspaceStatus.ACTIVE
+                || workspace.status() == ExecutionWorkspaceStatus.FINALIZING) {
             execution.diffMonitor(diffMonitors.open(
                     workspace, execution.worktree(), execution.policy()));
             registry.register(execution);
@@ -172,7 +186,7 @@ public final class DurableCodingWorkspaceExecutionLifecycle
         execution.closeMonitor();
         switch (terminalStatus) {
             case PAUSED, INTERRUPTED -> sandboxes.pause(
-                    execution.sandbox(), execution.workspace(), lease, timeProvider.now());
+                    execution.sandbox(), execution.workspace(), lease, authoritativeNow());
             case COMPLETED -> finalizeWorkspace(
                     execution,
                     currentExecution,
@@ -361,8 +375,20 @@ public final class DurableCodingWorkspaceExecutionLifecycle
                 execution.target(),
                 execution.policy(),
                 archive,
-                registration.actor(),
+                executionPrincipal(taskExecution),
                 execution.lastLiveManifest()));
+    }
+
+    private Principal executionPrincipal(TaskExecution execution) {
+        var principalId = execution.planningContext()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Coding TaskExecution has no pinned execution Principal"))
+                .executionPrincipal()
+                .principalId();
+        return principals.findById(execution.scope().organizationId(), principalId)
+                .filter(Principal::canAct)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Coding TaskExecution Principal is unavailable"));
     }
 
     private ExecutionWorkspace beginFinalizing(
@@ -391,6 +417,11 @@ public final class DurableCodingWorkspaceExecutionLifecycle
         ExecutionWorkspace committed = workspaces.update(changed);
         timeline.workspaceChanged(committed);
         return committed;
+    }
+
+    /** Reads database time in its required transaction without enclosing filesystem work. */
+    private io.crewscope.domain.shared.time.UtcTimestamp authoritativeNow() {
+        return transactions.required(timeProvider::now);
     }
 
     private SandboxResourceBudget sandboxBudget() {

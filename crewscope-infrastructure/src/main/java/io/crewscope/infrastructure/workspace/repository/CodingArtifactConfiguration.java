@@ -1,6 +1,8 @@
 package io.crewscope.infrastructure.workspace.repository;
 
 import io.crewscope.application.artifact.ArtifactStore;
+import io.crewscope.application.task.AgentRunRepository;
+import io.crewscope.application.task.RuntimeArtifactRepository;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -19,6 +21,14 @@ public class CodingArtifactConfiguration {
     CodingArtifactPublisher codingArtifactPublisher(
             ArtifactStore artifactStore, CodingArtifactProperties properties) {
         return new CodingArtifactPublisher(artifactStore, properties);
+    }
+
+    @Bean
+    @ConditionalOnBean({RuntimeArtifactRepository.class, AgentRunRepository.class})
+    @ConditionalOnMissingBean(CodingRuntimeArtifactRegistrar.class)
+    CodingRuntimeArtifactRegistrar codingRuntimeArtifactRegistrar(
+            RuntimeArtifactRepository artifacts, AgentRunRepository runs) {
+        return new CodingRuntimeArtifactRegistrar(artifacts, runs);
     }
 
     @Bean

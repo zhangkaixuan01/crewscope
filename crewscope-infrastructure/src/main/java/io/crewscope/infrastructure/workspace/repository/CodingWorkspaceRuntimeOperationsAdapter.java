@@ -10,6 +10,7 @@ import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableExcept
 import io.crewscope.application.runtime.CodingRuntimeSnapshot;
 import io.crewscope.application.runtime.RuntimeCapacitySummary;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -30,17 +31,20 @@ public final class CodingWorkspaceRuntimeOperationsAdapter
     private final CodingWorkspaceStartupReconciler reconciler;
     private final RuntimeWorkerRegistrationSpec registration;
     private final AuthoritativeTimeProvider timeProvider;
+    private final TransactionExecutor transactions;
     private final AtomicReference<CodingRuntimeSnapshot> cached = new AtomicReference<>();
 
     public CodingWorkspaceRuntimeOperationsAdapter(
             CodingWorkspaceRuntimeRegistry registry,
             CodingWorkspaceStartupReconciler reconciler,
             RuntimeWorkerRegistrationSpec registration,
-            AuthoritativeTimeProvider timeProvider) {
+            AuthoritativeTimeProvider timeProvider,
+            TransactionExecutor transactions) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.reconciler = Objects.requireNonNull(reconciler, "reconciler");
         this.registration = Objects.requireNonNull(registration, "registration");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+        this.transactions = Objects.requireNonNull(transactions, "transactions");
     }
 
     @Override
@@ -69,7 +73,7 @@ public final class CodingWorkspaceRuntimeOperationsAdapter
     }
 
     private CodingRuntimeSnapshot snapshot(boolean force) {
-        var now = timeProvider.now();
+        var now = transactions.required(timeProvider::now);
         CodingRuntimeSnapshot previous = cached.get();
         if (!force && fresh(previous, now)) {
             return previous;

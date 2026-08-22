@@ -37,6 +37,8 @@ public final class TaskExecutionSandboxFactory {
 
     private final String workspaceRoot;
     private final String repositoryMount;
+    private final Optional<Path> dependencyCacheRoot;
+    private final String dependencyCacheMount;
     private final TaskExecutionSandboxPauseMode pauseMode;
     private final java.time.Duration pauseStopTimeout;
     private final DockerSandboxControl dockerControl;
@@ -49,6 +51,8 @@ public final class TaskExecutionSandboxFactory {
         TaskExecutionSandboxProperties configured = Objects.requireNonNull(properties, "properties");
         this.workspaceRoot = configured.requiredWorkspaceRoot();
         this.repositoryMount = configured.requiredRepositoryMount();
+        this.dependencyCacheRoot = configured.dependencyCacheRootPath();
+        this.dependencyCacheMount = configured.requiredDependencyCacheMount();
         this.pauseMode = configured.requiredPauseMode();
         this.pauseStopTimeout = configured.requiredPauseStopTimeout();
         this.dockerControl = Objects.requireNonNull(dockerControl, "dockerControl");
@@ -183,6 +187,9 @@ public final class TaskExecutionSandboxFactory {
         environment.put("TMPDIR", "/tmp");
         environment.put("CI", "true");
         environment.put("LANG", "C.UTF-8");
+        dependencyCacheRoot.ifPresent(ignored -> environment.put(
+                "MAVEN_ARGS",
+                "--offline -Dmaven.repo.local=" + dependencyCacheMount + "/repository"));
         workspace.setEnvironment(environment);
 
         DockerFilesystemSpec filesystem = new DockerFilesystemSpec()
@@ -230,6 +237,11 @@ public final class TaskExecutionSandboxFactory {
         arguments.add("--tmpfs");
         arguments.add("/tmp:rw,nosuid,nodev,size=" + tmpfsSizeMiB(descriptor) + "m");
         arguments.add("--init");
+        descriptor.dependencyCacheRoot().ifPresent(cacheRoot -> {
+            arguments.add("--mount");
+            arguments.add("type=bind,src=" + cacheRoot
+                    + ",dst=" + descriptor.dependencyCacheMount() + ",readonly");
+        });
         descriptor.labels().forEach((key, value) -> {
             arguments.add("--label");
             arguments.add(key + "=" + value);
@@ -255,8 +267,10 @@ public final class TaskExecutionSandboxFactory {
                 policy,
                 buildProfile,
                 canonical,
+                dependencyCacheRoot,
                 workspaceRoot,
                 repositoryMount,
+                dependencyCacheMount,
                 containerUser);
     }
 

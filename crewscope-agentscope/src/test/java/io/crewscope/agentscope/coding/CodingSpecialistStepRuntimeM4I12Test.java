@@ -2,8 +2,10 @@ package io.crewscope.agentscope.coding;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -70,6 +72,12 @@ class CodingSpecialistStepRuntimeM4I12Test {
         executionStore = mock(CodingSpecialistExecutionStore.class);
         outputValidator = mock(CodingOutputValidator.class);
         executor = mock(Principal.class);
+        when(executionStore.recordTelemetry(any(), anyLong(), any(), any()))
+                .thenAnswer(invocation -> {
+                    long sequence = invocation.getArgument(1);
+                    CodingSpecialistTelemetry telemetry = invocation.getArgument(2);
+                    return sequence + telemetry.modelCalls() + telemetry.toolCalls();
+                });
     }
 
     @Test
@@ -92,7 +100,7 @@ class CodingSpecialistStepRuntimeM4I12Test {
                 eq(fixture.authority.finalDiffArtifact().orElseThrow()),
                 eq(fixture.authority.testEvidence().orElseThrow()));
         order.verify(executionStore).succeed(
-                eq(fixture.facts), eq(2L), eq(executor), any());
+                eq(fixture.facts), eq(3L), any(CodeChangeResultV1.class), eq(executor), any());
     }
 
     @Test
@@ -131,7 +139,7 @@ class CodingSpecialistStepRuntimeM4I12Test {
         verify(agentRuntime).execute(any());
         verify(executionStore).fail(
                 eq(fixture.facts),
-                eq(2L),
+                eq(3L),
                 eq("TEST_REPAIR_BUDGET_EXHAUSTED"),
                 eq(false),
                 eq(executor),
@@ -153,9 +161,10 @@ class CodingSpecialistStepRuntimeM4I12Test {
         assertEquals(Optional.of("CODING_RESULT_INVALID"), result.failureCode());
         verify(executionStore).checkpoint(any());
         verify(executionStore).fail(
-                eq(fixture.facts), eq(2L), eq("CODING_RESULT_INVALID"), eq(false),
+                eq(fixture.facts), eq(3L), eq("CODING_RESULT_INVALID"), eq(false),
                 eq(executor), any());
-        verify(executionStore, never()).succeed(any(), any(Long.class), any(), any());
+        verify(executionStore, never()).succeed(
+                any(), any(Long.class), any(), any(), any());
     }
 
     @Test
@@ -199,12 +208,21 @@ class CodingSpecialistStepRuntimeM4I12Test {
                 CodingSpecialistControlAction.PAUSE,
                 Optional.of(new ExecutionInterruptToken("pause-token")),
                 "Paused by member");
-        call.tryEmitError(new IllegalStateException("interrupted"));
+        CodingSpecialistTelemetry interruptedTelemetry = new CodingSpecialistTelemetry(
+                List.of(
+                        new CodingSpecialistModelUsage(20, 5, 4, 25),
+                        new CodingSpecialistModelUsage(12, 3, 0, 15)),
+                List.of("repository_read"));
+        call.tryEmitError(new CodingSpecialistExecutionException(
+                interruptedTelemetry, new IllegalStateException("interrupted")));
         CodingSpecialistStepResult completed = result.join();
 
         assertTrue(control.accepted());
         assertTrue(control.interruptDelivered());
         assertEquals(CodingSpecialistStepStatus.PAUSED, completed.status());
+        assertEquals(2, completed.modelCalls());
+        verify(executionStore).recordTelemetry(
+                eq(fixture.facts), eq(1L), eq(interruptedTelemetry), any());
         verifyCheckpointKind(CodingSpecialistCheckpointKind.PAUSED);
     }
 
@@ -230,7 +248,8 @@ class CodingSpecialistStepRuntimeM4I12Test {
         assertTrue(control.accepted());
         assertEquals(CodingSpecialistStepStatus.CANCELLED, completed.status());
         verifyCheckpointKind(CodingSpecialistCheckpointKind.CANCELLED);
-        verify(executionStore, never()).succeed(any(), any(Long.class), any(), any());
+        verify(executionStore, never()).succeed(
+                any(), any(Long.class), any(), any(), any());
     }
 
     @Test
@@ -248,6 +267,77 @@ class CodingSpecialistStepRuntimeM4I12Test {
         assertFalse(first.facts.runtimeSession().agentScopeKey()
                 .equals(successor.facts.runtimeSession().agentScopeKey()));
         verify(agentRuntime, never()).restore(eq(successor.facts.runtimeSession()), any());
+    }
+
+    @Test
+    void agentProcessFailureClosesTheRoundAndConvergesToOneRetryableFailure() {
+        Fixture fixture = fixture(1, true, "agent-exit");
+        when(agentRuntime.execute(any()))
+                .thenReturn(Mono.error(new IllegalStateException("simulated agent exit")));
+
+        CodingSpecialistStepResult result = runtime().execute(fixture.request(executor, false))
+                .block(Duration.ofSeconds(2));
+
+        assertEquals(CodingSpecialistStepStatus.FAILED, result.status());
+        assertEquals(Optional.of("CODING_RUNTIME_FAILED"), result.failureCode());
+        verify(authorityGateway).closeRound(fixture.facts, 1);
+        verify(executionStore).fail(
+                eq(fixture.facts),
+                eq(1L),
+                eq("CODING_RUNTIME_FAILED"),
+                eq(true),
+                eq(executor),
+                any());
+        assertFalse(runtimeReference.control(
+                        fixture.facts,
+                        CodingSpecialistControlAction.CANCEL,
+                        Optional.empty(),
+                        "already converged")
+                .accepted());
+    }
+
+    @Test
+    void agentProcessFailurePersistsRedactedTelemetryBeforeTheFailureEvent() {
+        Fixture fixture = fixture(1, true, "agent-telemetry-exit");
+        CodingSpecialistTelemetry telemetry = new CodingSpecialistTelemetry(
+                List.of(new CodingSpecialistModelUsage(20, 5, 4, 25)),
+                List.of("repository_read"));
+        when(agentRuntime.execute(any())).thenReturn(Mono.error(
+                new CodingSpecialistExecutionException(
+                        telemetry, new IllegalStateException("simulated model failure"))));
+
+        CodingSpecialistStepResult result = runtime().execute(fixture.request(executor, false))
+                .block(Duration.ofSeconds(2));
+
+        assertEquals(CodingSpecialistStepStatus.FAILED, result.status());
+        assertEquals(1, result.modelCalls());
+        InOrder durability = inOrder(executionStore);
+        durability.verify(executionStore).recordTelemetry(
+                eq(fixture.facts), eq(1L), eq(telemetry), any());
+        durability.verify(executionStore).fail(
+                eq(fixture.facts),
+                eq(3L),
+                eq("CODING_RUNTIME_FAILED"),
+                eq(true),
+                eq(executor),
+                any());
+    }
+
+    @Test
+    void checkpointInterruptionClosesTheRoundWithoutPublishingSuccess() {
+        Fixture fixture = fixture(1, true, "checkpoint-exit");
+        org.mockito.Mockito.doThrow(new IllegalStateException("simulated checkpoint interruption"))
+                .when(executionStore)
+                .checkpoint(any());
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> runtime().execute(fixture.request(executor, false))
+                        .block(Duration.ofSeconds(2)));
+
+        verify(authorityGateway).closeRound(fixture.facts, 1);
+        verify(executionStore, never()).succeed(
+                any(), any(Long.class), any(), any(), any());
     }
 
     private CodingSpecialistStepRuntime runtimeReference;
@@ -350,7 +440,12 @@ class CodingSpecialistStepRuntimeM4I12Test {
                 "crewscope:v1:session:" + suffix,
                 "{\"state\":\"" + suffix + "\"}",
                 new CodingCheckpointWorkState("# Plan\nDo the work", List.of()));
-        return new CodingSpecialistRunResult(output, state);
+        return new CodingSpecialistRunResult(
+                output,
+                state,
+                new CodingSpecialistTelemetry(
+                        List.of(new CodingSpecialistModelUsage(10, 4, 2, 14)),
+                        List.of()));
     }
 
     private void verifyCheckpointKind(CodingSpecialistCheckpointKind kind) {

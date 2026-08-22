@@ -908,7 +908,8 @@ class M3TaskRuntimePersistenceIntegrationTest
         TaskAgentRuntimeSession collision = TaskAgentRuntimeSession.reconstitute(
                 candidate.id(), candidate.scope(), TaskId.generate(), candidate.executionId(),
                 candidate.stepExecutionId(), candidate.purpose(), candidate.agentPrincipalId(),
-                candidate.agentProfileId(), candidate.agentProfileVersion(), candidate.agentScopeKey(),
+                candidate.agentPrincipalType(), candidate.agentProfileId(),
+                candidate.agentProfileType(), candidate.agentProfileVersion(), candidate.agentScopeKey(),
                 candidate.stateReference(), candidate.status(), candidate.version(), candidate.audit());
         assertThrows(DomainValidationException.class,
                 () -> taskSessionRepository.initializeIfAbsent(collision));
@@ -1215,6 +1216,78 @@ class M3TaskRuntimePersistenceIntegrationTest
                 .findById(fixture.organizationId, second.snapshotId()).orElseThrow().status());
         assertTrue(store.head(latestArtifact.artifactId(), access)
                 .orElseThrow().tombstone().isPresent());
+    }
+
+    @Test
+    void allocatesSnapshotSequenceAcrossEveryAgentSessionInOneExecution() {
+        Fixture fixture = seedFixture("SNX");
+        PlanningGraph graph = persistPlanningGraph(fixture);
+        TaskAgentRuntimeSession taskSession = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeTask(
+                        graph.task(), graph.execution(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        TaskAgentRuntimeSession stepSession = taskSessionRepository.initializeIfAbsent(
+                TaskAgentRuntimeSession.initializeStep(
+                        graph.task(), graph.execution(), graph.step(), fixture.profile(),
+                        fixture.executor, RUNNING));
+        AgentRun taskRun = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), taskSession, 1, fixture.executor, RUNNING));
+        AgentRun stepRun = agentRunRepository.createNext(AgentRun.start(
+                AgentRunId.generate(), stepSession, 2, fixture.executor, RUNNING));
+        TaskExecutionRuntimeFacts taskFacts = runtimeFacts(graph, taskSession, taskRun);
+        TaskExecutionRuntimeFacts stepFacts = runtimeFacts(graph, stepSession, stepRun);
+        when(taskFacts.stepExecution()).thenReturn(Optional.empty());
+        ExecutionLease sharedLease = taskFacts.lease();
+        when(stepFacts.lease()).thenReturn(sharedLease);
+        TaskAgentStateIdentity taskIdentity = new TaskAgentStateIdentity(
+                graph.execution().id().value(),
+                taskRun.id().value(),
+                stableAgentId(taskSession),
+                stableAgentId(taskSession),
+                Long.toString(taskSession.agentProfileVersion()),
+                taskSession.agentScopeKey().userId(),
+                taskSession.agentScopeKey().sessionId());
+        TaskAgentStateIdentity stepIdentity = new TaskAgentStateIdentity(
+                graph.execution().id().value(),
+                stepRun.id().value(),
+                stableAgentId(stepSession),
+                stableAgentId(stepSession),
+                Long.toString(stepSession.agentProfileVersion()),
+                stepSession.agentScopeKey().userId(),
+                stepSession.agentScopeKey().sessionId());
+        PrincipalRepository principals = mock(PrincipalRepository.class);
+        when(principals.findById(fixture.organizationId, fixture.executor.id()))
+                .thenReturn(Optional.of(fixture.executor));
+        ArtifactStore store = new FilesystemArtifactStore(
+                snapshotArtifactRoot.resolve("execution-sequence"),
+                new ObjectMapper(),
+                Clock.fixed(RUNNING.value(), ZoneOffset.UTC));
+        DurableAgentStateSnapshotService service = new DurableAgentStateSnapshotService(
+                store,
+                agentRunRepository,
+                taskSessionRepository,
+                artifactRepository,
+                snapshotRepository,
+                runtimeEventReceiptRepository,
+                activeLeaseRepository(taskFacts),
+                principals,
+                transactionExecutor(),
+                () -> RUNNING);
+
+        commitRuntimeReceipt(fixture, taskRun, 1);
+        var taskSnapshot = service.checkpoint(checkpointCommand(
+                taskFacts, taskIdentity, 1, state(taskIdentity, "task checkpoint")));
+        commitRuntimeReceipt(fixture, stepRun, 1);
+        var stepSnapshot = service.checkpoint(checkpointCommand(
+                stepFacts, stepIdentity, 1, state(stepIdentity, "step checkpoint")));
+
+        assertEquals(1, taskSnapshot.snapshotSequence());
+        assertEquals(2, stepSnapshot.snapshotSequence());
+        assertEquals(1, taskSnapshot.checkpointSequence());
+        assertEquals(1, stepSnapshot.checkpointSequence());
+        assertEquals(stepSnapshot.snapshotId(), snapshotRepository.findLatestByExecution(
+                        fixture.organizationId, graph.execution().id())
+                .orElseThrow().id());
     }
 
     @Test

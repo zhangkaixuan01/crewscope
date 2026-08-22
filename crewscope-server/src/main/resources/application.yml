@@ -28,6 +28,19 @@ spring:
     # Restore the request logging context across asynchronous Reactor operators.
     context-propagation: auto
 
+# AgentScope provider starters create the Spring Model used by CrewScope's stable
+# `crewscope-primary` slot. Keep the provider empty for API-only development.
+agentscope:
+  model:
+    provider: ${AGENTSCOPE_MODEL_PROVIDER:}
+  openai:
+    enabled: ${AGENTSCOPE_OPENAI_ENABLED:true}
+    api-key: ${OPENAI_API_KEY:}
+    model-name: ${AGENTSCOPE_OPENAI_MODEL_NAME:gpt-4.1-mini}
+    base-url: ${AGENTSCOPE_OPENAI_BASE_URL:}
+    endpoint-path: ${AGENTSCOPE_OPENAI_ENDPOINT_PATH:}
+    stream: ${AGENTSCOPE_OPENAI_STREAM:true}
+
 server:
   port: ${CREWSCOPE_SERVER_PORT:8080}
   shutdown: graceful
@@ -111,11 +124,18 @@ crewscope:
       docker-command-timeout: ${CREWSCOPE_CODING_SANDBOX_DOCKER_COMMAND_TIMEOUT:30s}
       pause-stop-timeout: ${CREWSCOPE_CODING_SANDBOX_PAUSE_STOP_TIMEOUT:1s}
       pause-mode: ${CREWSCOPE_CODING_SANDBOX_PAUSE_MODE:STOP}
+      # A verified immutable Maven snapshot is mounted read-only for offline benchmark execution.
+      dependency-cache-root: ${CREWSCOPE_CODING_SANDBOX_DEPENDENCY_CACHE_ROOT:}
+      dependency-cache-mount: ${CREWSCOPE_CODING_SANDBOX_DEPENDENCY_CACHE_MOUNT:/maven-cache}
     recovery:
       # Startup reconciliation completes before this Worker accepts new Task claims.
       recovery-batch-size: ${CREWSCOPE_CODING_RECOVERY_BATCH_SIZE:100}
       retention-batch-size: ${CREWSCOPE_CODING_RETENTION_BATCH_SIZE:100}
       artifact-purge-batch-size: ${CREWSCOPE_CODING_ARTIFACT_PURGE_BATCH_SIZE:100}
+    evaluation:
+      # Hidden Judge sources are opt-in and restricted to one dedicated benchmark repository.
+      judge-tests-root: ${CREWSCOPE_CODING_EVALUATION_JUDGE_TESTS_ROOT:}
+      repository-key: ${CREWSCOPE_CODING_EVALUATION_JUDGE_REPOSITORY_KEY:coding-evaluation}
     inspection:
       # Agent-visible repository reads stay below both these bounds and WorkspacePolicy ceilings.
       max-page-size: ${CREWSCOPE_CODING_INSPECTION_MAX_PAGE_SIZE:200}
@@ -218,7 +238,7 @@ crewscope:
     task-worker:
       model-id: ${CREWSCOPE_TASK_AGENT_MODEL_ID:crewscope-primary}
       fallback-model-id: ${CREWSCOPE_TASK_AGENT_FALLBACK_MODEL_ID:}
-      system-prompt: ${CREWSCOPE_TASK_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Task Orchestrator. Produce a valid controlled plan and execute only authorized fixture tools.}
+      system-prompt: ${CREWSCOPE_TASK_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Task Orchestrator. Follow the requested tool sequence exactly. Never retry a successful validation, never call fixture tools during planning, and execute only authorized fixture tools after a plan is approved.}
       max-iterations: ${CREWSCOPE_TASK_AGENT_MAX_ITERATIONS:20}
       max-retries: ${CREWSCOPE_TASK_AGENT_MAX_RETRIES:3}
       max-step-run-attempts: ${CREWSCOPE_TASK_STEP_MAX_ATTEMPTS:3}
@@ -232,12 +252,15 @@ crewscope:
       model-id: ${CREWSCOPE_CODING_AGENT_MODEL_ID:crewscope-primary}
       fallback-model-id: ${CREWSCOPE_CODING_AGENT_FALLBACK_MODEL_ID:}
       compaction-model-id: ${CREWSCOPE_CODING_AGENT_COMPACTION_MODEL_ID:crewscope-primary}
-      system-prompt: ${CREWSCOPE_CODING_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Coding Specialist. Load the fixed coding skill, maintain Plan and Todo state, use only registered tools, test the change, inspect the final diff and return the required structured output.}
+      system-prompt: ${CREWSCOPE_CODING_AGENT_SYSTEM_PROMPT:You are CrewScope's controlled Coding Specialist. Load and follow the fixed coding skill. Maintain exactly two Todos named Implement requested change and Verify and deliver. Call todo_write only once to initialize both and once to complete both; never create or update intermediate Todos. Use only registered tools, run only required platform acceptance, inspect the final diff once and return the structured output immediately.}
       max-iterations: ${CREWSCOPE_CODING_AGENT_MAX_ITERATIONS:60}
       max-retries: ${CREWSCOPE_CODING_AGENT_MAX_RETRIES:3}
-      compaction-trigger-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_TRIGGER_MESSAGES:40}
-      compaction-keep-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_KEEP_MESSAGES:8}
-      tool-result-eviction-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_CHARS:32768}
+      temperature: ${CREWSCOPE_CODING_AGENT_TEMPERATURE:0}
+      top-p: ${CREWSCOPE_CODING_AGENT_TOP_P:1}
+      max-output-tokens: ${CREWSCOPE_CODING_AGENT_MAX_OUTPUT_TOKENS:8192}
+      compaction-trigger-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_TRIGGER_MESSAGES:16}
+      compaction-keep-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_KEEP_MESSAGES:4}
+      tool-result-eviction-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_CHARS:8192}
       tool-result-preview-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_PREVIEW_CHARS:1024}
       runtime-root: ${CREWSCOPE_CODING_AGENT_RUNTIME_ROOT:./var/crewscope/coding-agent-runtime}
     personal-agent:

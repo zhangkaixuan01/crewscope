@@ -14,9 +14,17 @@ public interface CodingSpecialistExecutionStore {
 
     CodingSpecialistCheckpointReceipt checkpoint(CodingSpecialistCheckpointCommand command);
 
+    /** Persists one round's content-free AgentScope telemetry and returns the next event sequence. */
+    long recordTelemetry(
+            TaskExecutionRuntimeFacts facts,
+            long eventSequence,
+            CodingSpecialistTelemetry telemetry,
+            UUID correlationId);
+
     void succeed(
             TaskExecutionRuntimeFacts facts,
             long eventSequence,
+            io.crewscope.application.coding.output.CodeChangeResultV1 result,
             Principal executor,
             UUID correlationId);
 

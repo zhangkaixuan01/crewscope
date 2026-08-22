@@ -72,6 +72,9 @@ class WorkspaceDiffConfigurationTest {
                         ManagedRepositoryResolver.class,
                         () -> mock(ManagedRepositoryResolver.class))
                 .withBean(CodingTaskTimelinePublisher.class, () -> CodingTaskTimelinePublisher.NO_OP)
+                .withBean(
+                        CodingRuntimeArtifactRegistrar.class,
+                        () -> mock(CodingRuntimeArtifactRegistrar.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withUserConfiguration(WorkspaceDiffConfiguration.class);
     }

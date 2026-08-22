@@ -20,6 +20,7 @@ import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.model.ChatUsage;
+import io.agentscope.core.model.transport.HttpTransportException;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -47,6 +48,7 @@ import io.crewscope.application.execution.TaskAgentStateRecoveryResult;
 import io.crewscope.application.execution.TaskAgentStateRuntime;
 import io.crewscope.application.execution.TaskAgentStateSafePoint;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
+import io.crewscope.application.execution.TaskApprovalInterruptTokens;
 import io.crewscope.agentscope.TaskAgentCallObservationScope;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
 import io.crewscope.domain.runtime.RuntimeCapabilities;
@@ -80,6 +82,8 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.adapter.JdkFlowAdapter;
 import reactor.core.Disposable;
 import reactor.core.publisher.BaseSubscriber;
@@ -90,6 +94,7 @@ import reactor.core.publisher.Sinks;
 public final class AgentScopeTaskRuntime
         implements TaskExecutionRuntime, TaskAgentStateRuntime, AutoCloseable {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AgentScopeTaskRuntime.class);
     private static final int EVENT_BUFFER_LIMIT = 10_000;
     private static final Set<String> ALLOWED_RUNTIME_TOOLS;
 
@@ -156,6 +161,11 @@ public final class AgentScopeTaskRuntime
             execution.requireSafeCheckpoint(point);
         }
         HarnessAgent agent = agentFactory.getOrCreate(required);
+        // A CrewScope budget/control terminal uses takeUntil() to stop the AgentScope stream at
+        // the durable boundary. That cancellation can precede ReActAgent's normal end-of-call
+        // auto-save, so explicitly flush the call-scoped cache before reading the safe point.
+        AgentScopeSessionKey key = required.runtimeSession().agentScopeKey();
+        agent.getDelegate().saveAgentState(key.userId(), key.sessionId());
         AgentState state = loadHotState(agent, required);
         return stateSnapshotService.checkpoint(new TaskAgentStateCheckpointCommand(
                 required,
@@ -526,13 +536,27 @@ public final class AgentScopeTaskRuntime
                     + " Todo never changes CrewScope domain Step state.";
         }
         if (facts.planVersion().isEmpty()) {
+            boolean codingTask = facts.policySnapshot().capabilities().containsAll(
+                    Set.of(io.crewscope.domain.task.ExecutionCapability.WORKTREE,
+                            io.crewscope.domain.task.ExecutionCapability.SANDBOX));
+            String exactPlan = codingTask
+                    ? """
+                      # Controlled Task Plan
+                      - `implement` | IMPLEMENTATION | Implement the requested code change | deps=- | capabilities=WORKTREE,SANDBOX | tools=fixture_execute | critical=true
+                      - `validate` | VALIDATION | Run the required validation | deps=implement | capabilities=PLAN | tools=fixture_validate | critical=true
+                      """
+                    : """
+                      # Controlled Task Plan
+                      - `inspect` | ANALYSIS | Inspect the task input | deps=- | capabilities=PLAN | tools=fixture_inspect | critical=true
+                      - `execute` | IMPLEMENTATION | Execute the requested work | deps=inspect | capabilities=PLAN | tools=fixture_execute | critical=true
+                      - `validate` | VALIDATION | Validate the result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture_validate | critical=true
+                      """;
             return TaskPromptBoundary.taskBrief(facts)
-                    + "\n\nCreate the controlled M3 Task plan. Enter Plan Mode, maintain Todo cognition, "
-                    + "validate the complete plan with validate_task_plan, write it with plan_write, "
-                    + "then request approval with plan_exit. Header: "
-                    + ControlledTaskPlanParser.HEADER + ". Step format: "
-                    + ControlledTaskPlanParser.FORMAT + ". Use only fixture.inspect, fixture.execute, "
-                    + "and fixture.validate; include a VALIDATION step.";
+                    + "\n\nPublish the exact controlled plan below without changing it. Make exactly "
+                    + "these calls in order: plan_enter once, todo_write once, "
+                    + "validate_task_plan once, plan_write once with the same complete Markdown, "
+                    + "then plan_exit once. Do not call fixture tools while planning and do not "
+                    + "repeat validation after it returns VALID.\n\n" + exactPlan.strip();
         }
         return "Continue the published controlled Task plan in " + kind
                 + " mode. Use only declared fixture Tools and maintain Todo cognition."
@@ -574,7 +598,7 @@ public final class AgentScopeTaskRuntime
 
     private static void requireCurrentToolAuthorization(
             TaskExecutionRuntimeFacts facts, String toolName) {
-        if (!toolName.startsWith("fixture.")) {
+        if (!toolName.startsWith("fixture_")) {
             return;
         }
         facts.authorization().scope().requireAllowed(TaskTokenAccessRequest.tool(toolName));
@@ -625,11 +649,40 @@ public final class AgentScopeTaskRuntime
                     "The Task runtime rejected an unsafe AgentScope event.",
                     Optional.of("TASK_RUNTIME_EVENT_REJECTED"));
         }
+        // Keep provider payloads, prompts and repository facts out of logs. Exception type names
+        // and an HTTP status are sufficient to distinguish transport, schema and model failures.
+        LOGGER.warn("Task Agent model call failed with cause types {} and HTTP status {}",
+                failureTypes(required), httpStatus(required).map(String::valueOf).orElse("none"));
         return new ExecutionFailure(
                 ExecutionFailureCategory.MODEL_UNAVAILABLE,
                 true,
                 "The Task Agent model is temporarily unavailable.",
                 Optional.of("TASK_MODEL_FAILED"));
+    }
+
+    private static String failureTypes(Throwable failure) {
+        StringBuilder types = new StringBuilder();
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 8; depth++) {
+            if (depth > 0) {
+                types.append(" <- ");
+            }
+            types.append(current.getClass().getSimpleName());
+            current = current.getCause();
+        }
+        return types.toString();
+    }
+
+    private static Optional<Integer> httpStatus(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 8; depth++) {
+            if (current instanceof HttpTransportException transport
+                    && transport.getStatusCode() != null) {
+                return Optional.of(transport.getStatusCode());
+            }
+            current = current.getCause();
+        }
+        return Optional.empty();
     }
 
     private static Flow.Publisher<TaskExecutionEvent> startOwnedStream(
@@ -894,7 +947,10 @@ public final class AgentScopeTaskRuntime
 
         private TaskExecutionEventPayload approvalPayload() {
             return new TaskExecutionEventPayload.ApprovalRequired(
-                    new ExecutionInterruptToken(UUID.randomUUID().toString()),
+                    TaskApprovalInterruptTokens.from(
+                            facts.execution().id(),
+                            facts.agentRun().id(),
+                            facts.agentRun().currentSegment().sequence()),
                     ExecutionInterruptKind.TOOL_APPROVAL,
                     "Approve the validated controlled Task plan to continue.");
         }

@@ -59,12 +59,25 @@ final class TestEvidencePublisher {
         if (!VERIFICATION_COMMANDS.contains(command.commandSpec().commandKind())) {
             return Optional.empty();
         }
+        List<TestEvidence> existing = tests.findByWorkspace(
+                execution.workspace().scope().organizationId(),
+                execution.workspace().scope().teamId(),
+                execution.workspace().scope().projectId(),
+                execution.workspace().id());
+        // CommandEvidence is immutable and sequence-unique for one Workspace. Re-reading it here
+        // closes the uncertain-commit window where TestEvidence committed before a Worker exit.
+        Optional<TestEvidence> replay = existing.stream()
+                .filter(value -> value.commands().contains(command.reference()))
+                .findFirst();
+        if (replay.isPresent()) {
+            return replay;
+        }
         var monitor = execution.diffMonitor().orElseThrow(() ->
                 new IllegalStateException("Coding Workspace Diff monitor is unavailable"));
         monitor.reconcileNow();
         var manifest = monitor.latest().orElseThrow(() ->
                 new IllegalStateException("Coding Workspace Diff manifest is unavailable"));
-        EvidenceSequence sequence = nextSequence(execution);
+        EvidenceSequence sequence = nextSequence(existing);
         Optional<TestStatistics> parsed = MavenTestSummaryParser.parse(
                 observed.stdout(), observed.stderr());
         TestStatistics statistics = parsed.orElseGet(() -> new TestStatistics(0, 0, 0, 0, 0));
@@ -118,12 +131,7 @@ final class TestEvidencePublisher {
         }));
     }
 
-    private EvidenceSequence nextSequence(CodingWorkspaceExecution execution) {
-        List<TestEvidence> existing = tests.findByWorkspace(
-                execution.workspace().scope().organizationId(),
-                execution.workspace().scope().teamId(),
-                execution.workspace().scope().projectId(),
-                execution.workspace().id());
+    private static EvidenceSequence nextSequence(List<TestEvidence> existing) {
         return existing.stream()
                 .map(TestEvidence::sequence)
                 .max(java.util.Comparator.naturalOrder())

@@ -95,7 +95,7 @@ class TaskAgentRuntimeSessionTest {
     }
 
     @Test
-    void allowsAPersonalAgentToOrchestrateTheTaskButNotExecuteATeamStep() {
+    void allowsAPersonalAgentToOrchestrateAndOwnAnIsolatedSpecialistRole() {
         RuntimeFixture fixture = new RuntimeFixture();
         Principal personalAgent = fixture.personalAgent();
         AgentProfile personalProfile = fixture.profile(
@@ -110,6 +110,16 @@ class TaskAgentRuntimeSessionTest {
 
         assertEquals(TaskAgentSessionPurpose.TASK, session.purpose());
         assertEquals(personalAgent.id(), session.agentPrincipalId());
+        TaskAgentRuntimeSession specialistSession =
+                TaskAgentRuntimeSession.initializeSpecialist(
+                        fixture.planning.task,
+                        fixture.graph.execution(),
+                        fixture.stepFor(personalAgent),
+                        personalProfile,
+                        personalAgent,
+                        TaskPlanningFixture.STEP_AT);
+        assertEquals(TaskAgentSessionPurpose.SPECIALIST, specialistSession.purpose());
+        assertNotEquals(session.id(), specialistSession.id());
         assertThrows(
                 DomainValidationException.class,
                 () -> TaskAgentRuntimeSession.initializeStep(

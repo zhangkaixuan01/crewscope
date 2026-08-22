@@ -85,9 +85,9 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
             """
             # Controlled Task Plan
 
-            - `inspect` | ANALYSIS | Inspect input | deps=- | capabilities=PLAN | tools=fixture.inspect | critical=true
-            - `execute` | IMPLEMENTATION | Produce result | deps=inspect | capabilities=PLAN | tools=fixture.execute | critical=true
-            - `validate` | VALIDATION | Validate result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture.validate | critical=true
+            - `inspect` | ANALYSIS | Inspect input | deps=- | capabilities=PLAN | tools=fixture_inspect | critical=true
+            - `execute` | IMPLEMENTATION | Produce result | deps=inspect | capabilities=PLAN | tools=fixture_execute | critical=true
+            - `validate` | VALIDATION | Validate result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture_validate | critical=true
             """;
 
     @TempDir Path runtimeRoot;
@@ -102,9 +102,9 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
                 toolResponse("valid", "validate_task_plan", Map.of("content", VALID_PLAN)),
                 toolResponse("write", "plan_write", Map.of("content", VALID_PLAN)),
                 toolResponse("exit", "plan_exit", Map.of("summary", "Controlled plan ready")),
-                toolResponse("inspect", "fixture.inspect", Map.of("input", "fixture")),
-                toolResponse("execute", "fixture.execute", Map.of("input", "fixture")),
-                toolResponse("validate", "fixture.validate", Map.of("input", "fixture")),
+                toolResponse("inspect", "fixture_inspect", Map.of("input", "fixture")),
+                toolResponse("execute", "fixture_execute", Map.of("input", "fixture")),
+                toolResponse("validate", "fixture_validate", Map.of("input", "fixture")),
                 textResponse("Controlled fixture completed"));
         RuntimeFixture fixture = RuntimeFixture.create(model, new PolicyBudget(10_000, 20, 20, 30));
         AtomicReference<AgentScopeTaskPlanAdapter.Candidate> published = new AtomicReference<>();
@@ -152,7 +152,7 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
                     .map(TaskExecutionEventPayload.ToolStarted::toolName)
                     .toList();
             assertTrue(startedTools.containsAll(List.of(
-                    "fixture.inspect", "fixture.execute", "fixture.validate")));
+                    "fixture_inspect", "fixture_execute", "fixture_validate")));
             assertTrue(execution.stream().anyMatch(event ->
                     event.payload() instanceof TaskExecutionEventPayload.UsageReported));
         }
@@ -164,9 +164,9 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
                 toolResponse("enter", "plan_enter", Map.of()),
                 toolResponse("write", "plan_write", Map.of("content", VALID_PLAN)),
                 toolResponse("exit", "plan_exit", Map.of("summary", "Controlled plan ready")),
-                toolResponse("inspect", "fixture.inspect", Map.of("input", "fixture")),
-                toolResponse("execute", "fixture.execute", Map.of("input", "fixture")),
-                toolResponse("validate", "fixture.validate", Map.of("input", "fixture")),
+                toolResponse("inspect", "fixture_inspect", Map.of("input", "fixture")),
+                toolResponse("execute", "fixture_execute", Map.of("input", "fixture")),
+                toolResponse("validate", "fixture_validate", Map.of("input", "fixture")),
                 textResponse("Controlled fixture completed"));
         RuntimeFixture fixture = RuntimeFixture.create(
                 model, new PolicyBudget(10_000, 20, 20, 30));

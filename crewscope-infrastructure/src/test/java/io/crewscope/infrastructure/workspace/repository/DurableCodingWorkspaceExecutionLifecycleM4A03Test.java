@@ -16,6 +16,7 @@ import io.crewscope.application.coding.ExecutionWorkspaceRepository;
 import io.crewscope.application.coding.WorkspacePolicyOverlayRepository;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
 import io.crewscope.application.execution.TaskExecutionTerminalStatus;
+import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.BuildProfile;
@@ -27,6 +28,7 @@ import io.crewscope.domain.coding.ExecutionWorkspaceStatus;
 import io.crewscope.domain.coding.WorkspacePolicy;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -35,6 +37,8 @@ import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskExecutionPlanningContext;
+import io.crewscope.domain.task.ExecutionPrincipalSnapshot;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
@@ -61,10 +65,15 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
     private final TaskExecutionSandboxFactory sandboxes = mock(TaskExecutionSandboxFactory.class);
     private final WorkspaceDiffMonitorFactory monitors = mock(WorkspaceDiffMonitorFactory.class);
     private final WorkspaceDiffFinalizer finalizer = mock(WorkspaceDiffFinalizer.class);
+    private final CodingWorktreePreparationHook worktreePreparation =
+            mock(CodingWorktreePreparationHook.class);
     private final CodingWorkspaceRuntimeRegistry registry = new CodingWorkspaceRuntimeRegistry();
     private final CodingFilesystemUsageRegistry filesystemUsages = mock(CodingFilesystemUsageRegistry.class);
     private final SandboxCommandUsageRegistry commandUsages = mock(SandboxCommandUsageRegistry.class);
     private final Principal actor = mock(Principal.class);
+    private final Principal executionPrincipal = mock(Principal.class);
+    private final PrincipalRepository principals = mock(PrincipalRepository.class);
+    private final PrincipalId executionPrincipalId = PrincipalId.generate();
     private final ExecutionLease lease = mock(ExecutionLease.class);
     private final WorkspacePolicy policy = mock(WorkspacePolicy.class);
     private final CodingTargetSnapshot target = mock(CodingTargetSnapshot.class);
@@ -83,6 +92,9 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
         when(time.now()).thenReturn(UtcTimestamp.parse("2026-08-20T00:00:00Z"));
         RuntimeWorkerRegistrationSpec registration = mock(RuntimeWorkerRegistrationSpec.class);
         when(registration.actor()).thenReturn(actor);
+        when(executionPrincipal.canAct()).thenReturn(true);
+        when(principals.findById(scope.organizationId(), executionPrincipalId))
+                .thenReturn(Optional.of(executionPrincipal));
         lifecycle = new DurableCodingWorkspaceExecutionLifecycle(
                 targets,
                 workspaces,
@@ -94,12 +106,14 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
                 sandboxes,
                 monitors,
                 finalizer,
+                worktreePreparation,
                 registry,
                 filesystemUsages,
                 commandUsages,
                 transactions,
                 time,
                 registration,
+                principals,
                 new CodingWorkspaceExecutionProperties(),
                 io.crewscope.application.coding.CodingTaskTimelinePublisher.NO_OP);
     }
@@ -151,6 +165,7 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
         InOrder order = inOrder(workspaces, worktrees, sandboxes, monitors);
         order.verify(workspaces).update(rebound);
         order.verify(worktrees).verify(rebound, policy);
+        verify(worktreePreparation).prepare(rebound, target, repository, worktree);
         order.verify(sandboxes).recover(
                 eq(rebound), eq(worktree), eq(policy), eq(profile), eq(lease), any());
         order.verify(workspaces).update(active);
@@ -198,7 +213,13 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
                 .thenReturn(finalizing);
         when(workspaces.update(finalizing)).thenReturn(finalizing);
         when(worktrees.archive(finalizing, policy)).thenReturn(archive);
-        when(finalizer.finalizeDiff(finalizing, target, policy, archive, actor, Optional.of(live)))
+        when(finalizer.finalizeDiff(
+                        finalizing,
+                        target,
+                        policy,
+                        archive,
+                        executionPrincipal,
+                        Optional.of(live)))
                 .thenReturn(diff);
         when(finalizing.completeFinalizing(eq(terminal), any(Long.class), eq(actor), any()))
                 .thenReturn(completed);
@@ -214,7 +235,7 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
         order.verify(sandboxes).destroy(sandbox, finalizing);
         order.verify(worktrees).archive(finalizing, policy);
         order.verify(finalizer).finalizeDiff(
-                finalizing, target, policy, archive, actor, Optional.of(live));
+                finalizing, target, policy, archive, executionPrincipal, Optional.of(live));
         order.verify(workspaces).update(completed);
         assertEquals(completed, execution.workspace());
     }
@@ -233,12 +254,63 @@ class DurableCodingWorkspaceExecutionLifecycleM4A03Test {
         verifyNoInteractions(sandboxes, worktrees, finalizer);
     }
 
+    @Test
+    void recoveredFinalizingWorkspaceIsRestoredAndRegisteredForIdempotentCompletion() {
+        TaskExecution preparing = execution(TaskExecutionStatus.PREPARING);
+        TaskExecution running = execution(TaskExecutionStatus.RUNNING);
+        PolicySnapshot taskPolicy = mock(PolicySnapshot.class);
+        ExecutionWorkspace recovering = workspace(ExecutionWorkspaceStatus.RECOVERING);
+        ExecutionWorkspace finalizing = workspace(ExecutionWorkspaceStatus.FINALIZING);
+        WorkspaceDiffMonitor monitor = mock(WorkspaceDiffMonitor.class);
+        var profileReference = new io.crewscope.domain.coding.BuildProfileReference(
+                "maven-java-17", 1, io.crewscope.domain.task.TaskFactHash.sha256("profile"));
+
+        when(targets.findLatestByTask(
+                        scope.organizationId(),
+                        scope.teamId(),
+                        scope.projectId(),
+                        preparing.taskId()))
+                .thenReturn(Optional.of(target));
+        when(target.buildProfile()).thenReturn(profileReference);
+        when(profiles.findExact(profileReference)).thenReturn(Optional.of(profile));
+        when(policies.findByTaskExecution(
+                        scope.organizationId(), scope.teamId(), scope.projectId(), executionId))
+                .thenReturn(Optional.of(policy));
+        when(workspaces.findByTaskExecutionForUpdate(
+                        scope.organizationId(), scope.teamId(), scope.projectId(), executionId))
+                .thenReturn(Optional.of(recovering));
+        when(recovering.resumeRecovery(
+                        eq(preparing), eq(lease), any(Long.class), eq(actor), any()))
+                .thenReturn(finalizing);
+        when(workspaces.update(finalizing)).thenReturn(finalizing);
+        when(worktrees.recoverFinalizing(finalizing, policy)).thenReturn(worktree);
+        when(sandboxes.recover(
+                        eq(finalizing), eq(worktree), eq(policy), eq(profile), eq(lease), any()))
+                .thenReturn(sandbox);
+        when(repositories.resolve(finalizing.repositoryKey())).thenReturn(repository);
+        when(monitors.open(finalizing, worktree, policy)).thenReturn(monitor);
+
+        CodingWorkspaceExecution prepared = lifecycle.prepare(preparing, lease, taskPolicy)
+                .orElseThrow();
+        lifecycle.activate(prepared, running, lease);
+
+        assertEquals(finalizing, prepared.workspace());
+        assertEquals(prepared, registry.find(executionId).orElseThrow());
+        verify(worktrees).recoverFinalizing(finalizing, policy);
+        verify(monitors).open(finalizing, worktree, policy);
+    }
+
     private TaskExecution execution(TaskExecutionStatus status) {
         TaskExecution execution = mock(TaskExecution.class);
+        TaskExecutionPlanningContext planning = mock(TaskExecutionPlanningContext.class);
+        ExecutionPrincipalSnapshot pinnedPrincipal = mock(ExecutionPrincipalSnapshot.class);
         when(execution.scope()).thenReturn(scope);
         when(execution.id()).thenReturn(executionId);
         when(execution.taskId()).thenReturn(io.crewscope.domain.task.TaskId.generate());
         when(execution.status()).thenReturn(status);
+        when(execution.planningContext()).thenReturn(Optional.of(planning));
+        when(planning.executionPrincipal()).thenReturn(pinnedPrincipal);
+        when(pinnedPrincipal.principalId()).thenReturn(executionPrincipalId);
         return execution;
     }
 

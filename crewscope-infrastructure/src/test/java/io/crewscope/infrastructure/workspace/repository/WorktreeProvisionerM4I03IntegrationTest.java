@@ -379,6 +379,92 @@ class WorktreeProvisionerM4I03IntegrationTest {
                         .orElseThrow());
     }
 
+    @Test
+    void finalizingRecoveryRestoresTheExactArchivedTreeAndReusesTheDeliveryCommit()
+            throws Exception {
+        provisioner.provision(workspace, policy);
+        Files.writeString(expectedWorktree.resolve("README.md"), "delivery\n", StandardCharsets.UTF_8);
+        Files.write(expectedWorktree.resolve("payload.bin"), new byte[] {0, 1, 2, 3, -1});
+        WorktreeArchiveResult first = provisioner.archive(workspace, policy);
+
+        ManagedWorktree restored = provisioner.recoverFinalizing(workspace, policy);
+
+        assertEquals(baseline, restored.headCommit());
+        assertEquals("delivery\n", Files.readString(expectedWorktree.resolve("README.md")));
+        assertTrue(Arrays.equals(
+                new byte[] {0, 1, 2, 3, -1},
+                Files.readAllBytes(expectedWorktree.resolve("payload.bin"))));
+        assertEquals(first.deliveryTree(), gitCommands.writeTree(expectedWorktree));
+
+        WorktreeArchiveResult retried = provisioner.archive(workspace, policy);
+        assertEquals(first, retried);
+        assertFalse(Files.exists(expectedWorktree));
+    }
+
+    @Test
+    void finalizingRecoveryAcceptsAnEmptyDeliveryPatch() {
+        provisioner.provision(workspace, policy);
+        WorktreeArchiveResult archived = provisioner.archive(workspace, policy);
+
+        ManagedWorktree restored = provisioner.recoverFinalizing(workspace, policy);
+
+        assertEquals(baseline, restored.headCommit());
+        assertEquals(archived.deliveryTree(), gitCommands.writeTree(expectedWorktree));
+        assertEquals(archived, provisioner.archive(workspace, policy));
+    }
+
+    @Test
+    void ordinaryFinalizingRestoreFailureRollsBackAndReleasesTheLifecycleLock()
+            throws Exception {
+        provisioner.provision(workspace, policy);
+        Files.writeString(expectedWorktree.resolve("README.md"), "delivery\n", StandardCharsets.UTF_8);
+        WorktreeArchiveResult archived = provisioner.archive(workspace, policy);
+        WorktreeProvisioner failing = provisionerWithHook(stage -> {
+            if (stage == WorktreeProvisionStage.AFTER_ARCHIVE_RESTORE) {
+                throw new IllegalStateException("fixture restore failure");
+            }
+        });
+
+        assertError(
+                WorktreeOperationError.COMMAND_FAILED,
+                () -> failing.recoverFinalizing(workspace, policy));
+        assertFalse(Files.exists(expectedWorktree));
+        assertTrue(gitCommands.findManagedBranch(bareRepository, workspace.managedBranch()).isEmpty());
+
+        ManagedWorktree retried = provisioner.recoverFinalizing(workspace, policy);
+        assertEquals(archived.deliveryTree(), gitCommands.writeTree(retried.canonicalPath()));
+    }
+
+    @Test
+    void coldRecoveryAcceptsAProcessExitAfterArchivedTreeRestoreWithoutDuplicateDelivery()
+            throws Exception {
+        provisioner.provision(workspace, policy);
+        Files.writeString(expectedWorktree.resolve("README.md"), "delivery\n", StandardCharsets.UTF_8);
+        WorktreeArchiveResult archived = provisioner.archive(workspace, policy);
+        WorktreeProvisioner crashing = provisionerWithHook(stage -> {
+            if (stage == WorktreeProvisionStage.AFTER_ARCHIVE_RESTORE) {
+                throw new SimulatedProcessExit();
+            }
+        });
+
+        assertThrows(
+                SimulatedProcessExit.class,
+                () -> crashing.recoverFinalizing(workspace, policy));
+        assertTrue(Files.isDirectory(expectedWorktree));
+
+        WorktreeProvisioner cold = new WorktreeProvisioner(
+                worktreeRoot,
+                requiredOwner(),
+                repositoryResolver,
+                gitCommands,
+                new WorkspacePathLockManager(lockRoot));
+        cold.recoverFinalizing(workspace, policy);
+        WorktreeArchiveResult retried = cold.archive(workspace, policy);
+
+        assertEquals(archived, retried);
+        assertFalse(Files.exists(expectedWorktree));
+    }
+
     private WorktreeProvisioner provisionerWithHook(WorktreeStageHook hook) {
         return new WorktreeProvisioner(
                 worktreeRoot,

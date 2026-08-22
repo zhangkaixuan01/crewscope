@@ -11,12 +11,17 @@ public class CodingSpecialistRuntimeProperties {
     private String modelId = "crewscope-primary";
     private String fallbackModelId = "";
     private String compactionModelId = "crewscope-primary";
-    private String systemPrompt = "You are CrewScope's controlled Coding Specialist. Load the fixed coding skill, maintain Plan and Todo state, use only registered tools, test the change, inspect the final diff and return the required structured output.";
+    private String systemPrompt = "You are CrewScope's controlled Coding Specialist. Load and follow the fixed coding skill. Maintain exactly two Todos named Implement requested change and Verify and deliver. Call todo_write only once to initialize both and once to complete both; never create or update intermediate Todos. Use only registered tools, run only required platform acceptance, inspect the final diff once and return the structured output immediately.";
     private int maxIterations = 60;
     private int maxRetries = 3;
-    private int compactionTriggerMessages = 40;
-    private int compactionKeepMessages = 8;
-    private int toolResultEvictionChars = 32_768;
+    private double temperature = 0.0;
+    private double topP = 1.0;
+    private int maxOutputTokens = 8_192;
+    // Compact after a complete inspect/edit exchange. Keeping four recent messages preserves the
+    // active tool pair and the decision that led to it while the summary retains durable context.
+    private int compactionTriggerMessages = 16;
+    private int compactionKeepMessages = 4;
+    private int toolResultEvictionChars = 8_192;
     private int toolResultPreviewChars = 1_024;
     private Path runtimeRoot = Path.of("./var/crewscope/coding-agent-runtime");
 
@@ -36,6 +41,14 @@ public class CodingSpecialistRuntimeProperties {
     public void setMaxIterations(int maxIterations) { this.maxIterations = maxIterations; }
     public int getMaxRetries() { return maxRetries; }
     public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+    public double getTemperature() { return temperature; }
+    public void setTemperature(double temperature) { this.temperature = temperature; }
+    public double getTopP() { return topP; }
+    public void setTopP(double topP) { this.topP = topP; }
+    public int getMaxOutputTokens() { return maxOutputTokens; }
+    public void setMaxOutputTokens(int maxOutputTokens) {
+        this.maxOutputTokens = maxOutputTokens;
+    }
     public int getCompactionTriggerMessages() { return compactionTriggerMessages; }
     public void setCompactionTriggerMessages(int compactionTriggerMessages) {
         this.compactionTriggerMessages = compactionTriggerMessages;

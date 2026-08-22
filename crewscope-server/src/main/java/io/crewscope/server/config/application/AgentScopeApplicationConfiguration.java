@@ -6,13 +6,13 @@ import io.crewscope.agentscope.AgentCallObservationSink;
 import io.crewscope.agentscope.AgentCallTraceContext;
 import io.crewscope.agentscope.AgentCallTraceContextProvider;
 import io.crewscope.agentscope.AgentExecutionAuditSink;
+import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.AgentStatePreflightMiddleware;
 import io.crewscope.agentscope.ClarificationTool;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.PlatformAuditMiddleware;
 import io.crewscope.agentscope.PlatformRuntimeContextMiddleware;
 import io.crewscope.agentscope.ProviderBindingSecurityMiddleware;
-import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.AgentScopeNativeRuntime;
 import io.crewscope.agentscope.AgentScopePersonalAgentConfiguration;
 import io.crewscope.agentscope.PersonalAgentConfigurationSource;
@@ -141,11 +141,6 @@ public class AgentScopeApplicationConfiguration {
             properties.getSystemPrompt(),
             properties.getMaxIterations(),
             properties.getMaxRetries());
-  }
-
-  @Bean
-  AgentScopeModelResolver agentScopeModelResolver() {
-    return AgentScopeModelResolver.registry();
   }
 
   @Bean

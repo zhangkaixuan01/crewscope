@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -298,6 +299,32 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
     }
 
     @Test
+    void keepsLeaseHeartbeatActiveWhileSpecialistExecutionIsRunning() throws Exception {
+        Fixture fixture = fixture(Duration.ofMillis(10));
+        CountDownLatch specialistEntered = new CountDownLatch(1);
+        CountDownLatch specialistMayFinish = new CountDownLatch(1);
+        when(fixture.specialistExecution.executeAfterTaskAgent(any(), any()))
+                .thenAnswer(invocation -> {
+                    specialistEntered.countDown();
+                    assertTrue(specialistMayFinish.await(2, TimeUnit.SECONDS));
+                    return invocation.getArgument(1);
+                });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> execution = executor.submit(() -> handler.execute(fixture.receipt));
+            assertTrue(specialistEntered.await(2, TimeUnit.SECONDS));
+
+            verify(fixture.leaseCoordinator, timeout(500).atLeastOnce()).heartbeat(any());
+            specialistMayFinish.countDown();
+            execution.get(2, TimeUnit.SECONDS);
+        } finally {
+            specialistMayFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void heartbeatPropagatesADurablePauseRequestToTheRuntime() throws Exception {
         Fixture fixture = fixture(Duration.ofMillis(10));
         io.crewscope.domain.task.TaskExecutionControlRequest durableRequest =
@@ -471,6 +498,10 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
         when(handle.events()).thenReturn(singleEvent(terminal));
         when(runtime.executeTask(any())).thenReturn(handle);
         TaskAgentStateRuntime stateRuntime = mock(TaskAgentStateRuntime.class);
+        TaskWorkerSpecialistExecution specialistExecution = mock(
+                TaskWorkerSpecialistExecution.class);
+        when(specialistExecution.executeAfterTaskAgent(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         DurableTaskExecutionEventService eventService = mock(DurableTaskExecutionEventService.class);
         TaskExecutionLeaseCoordinator leaseCoordinator = mock(TaskExecutionLeaseCoordinator.class);
         TaskExecutionRepository executionRepository = mock(TaskExecutionRepository.class);
@@ -522,6 +553,7 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
                 factory,
                 runtime,
                 stateRuntime,
+                specialistExecution,
                 eventService,
                 leaseCoordinator,
                 executionRepository,
@@ -542,6 +574,7 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
                 executionRepository,
                 lease,
                 stateRuntime,
+                specialistExecution,
                 eventService,
                 leaseCoordinator,
                 tokenService);
@@ -577,6 +610,7 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
             TaskExecutionRepository executionRepository,
             ExecutionLease lease,
             TaskAgentStateRuntime stateRuntime,
+            TaskWorkerSpecialistExecution specialistExecution,
             DurableTaskExecutionEventService eventService,
             TaskExecutionLeaseCoordinator leaseCoordinator,
             TaskTokenService tokenService) {}

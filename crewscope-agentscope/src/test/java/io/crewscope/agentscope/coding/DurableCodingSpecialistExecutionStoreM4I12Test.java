@@ -1,6 +1,9 @@
 package io.crewscope.agentscope.coding;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -38,10 +41,45 @@ import io.crewscope.domain.workspace.AgentProfileId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 class DurableCodingSpecialistExecutionStoreM4I12Test {
+
+    @Test
+    void persistsEveryModelAndToolCallAsOrderedContentFreeEvents() {
+        DurableTaskExecutionEventService eventService = mock(
+                DurableTaskExecutionEventService.class);
+        when(eventService.commit(any())).thenReturn(mock(TaskRuntimeEventCommitResult.class));
+        DurableCodingSpecialistExecutionStore store = store(eventService);
+        TaskExecutionRuntimeFacts facts = facts();
+
+        long next = store.recordTelemetry(
+                facts,
+                7,
+                new CodingSpecialistTelemetry(
+                        List.of(
+                                new CodingSpecialistModelUsage(10, 4, 2, 14),
+                                new CodingSpecialistModelUsage(20, 5, 8, 25)),
+                        List.of("skill_load", "repository_read")),
+                UUID.randomUUID());
+
+        assertEquals(11, next);
+        verify(eventService).commit(argThat(command ->
+                command.event().sequence() == 7
+                        && command.event().payload()
+                                instanceof io.crewscope.application.execution
+                                .TaskExecutionEventPayload.UsageReported usage
+                        && usage.inputTokens() == 10
+                        && usage.cachedTokens() == 2));
+        verify(eventService).commit(argThat(command ->
+                command.event().sequence() == 9
+                        && command.event().payload()
+                                instanceof io.crewscope.application.execution
+                                .TaskExecutionEventPayload.ToolStarted tool
+                        && tool.toolName().equals("skill_load")));
+    }
 
     @Test
     void durableEventReceiptAlwaysPrecedesAgentStateSnapshotPublication() {
@@ -57,10 +95,16 @@ class DurableCodingSpecialistExecutionStoreM4I12Test {
         when(eventService.commit(any())).thenReturn(mock(TaskRuntimeEventCommitResult.class));
         IllegalStateException unavailable = new IllegalStateException("snapshot unavailable");
         when(snapshotService.checkpoint(any())).thenThrow(unavailable);
+        AtomicBoolean transactionActive = new AtomicBoolean();
         TransactionExecutor transactions = new TransactionExecutor() {
             @Override
             public <T> T required(java.util.function.Supplier<T> operation) {
-                return operation.get();
+                boolean nested = transactionActive.getAndSet(true);
+                try {
+                    return operation.get();
+                } finally {
+                    transactionActive.set(nested);
+                }
             }
         };
         DurableCodingSpecialistExecutionStore store =
@@ -71,7 +115,12 @@ class DurableCodingSpecialistExecutionStoreM4I12Test {
                         checkpointRepository,
                         stepRepository,
                         transactions,
-                        () -> UtcTimestamp.parse("2026-08-19T12:00:00Z"));
+                        () -> {
+                            assertTrue(
+                                    transactionActive.get(),
+                                    "authoritative time must be read inside REQUIRED transaction");
+                            return UtcTimestamp.parse("2026-08-19T12:00:00Z");
+                        });
         TaskExecutionRuntimeFacts facts = facts();
         CodingSpecialistCheckpointCommand command = new CodingSpecialistCheckpointCommand(
                 facts,
@@ -90,6 +139,24 @@ class DurableCodingSpecialistExecutionStoreM4I12Test {
         order.verify(eventService).commit(any());
         order.verify(snapshotService).checkpoint(any());
         verify(checkpointRepository, never()).append(any());
+    }
+
+    private static DurableCodingSpecialistExecutionStore store(
+            DurableTaskExecutionEventService eventService) {
+        TransactionExecutor transactions = new TransactionExecutor() {
+            @Override
+            public <T> T required(java.util.function.Supplier<T> operation) {
+                return operation.get();
+            }
+        };
+        return new DurableCodingSpecialistExecutionStore(
+                eventService,
+                mock(TaskAgentStateSnapshotService.class),
+                mock(AgentStateSnapshotRepository.class),
+                mock(CodingCheckpointRepository.class),
+                mock(StepExecutionRepository.class),
+                transactions,
+                () -> UtcTimestamp.parse("2026-08-19T12:00:00Z"));
     }
 
     private static TaskExecutionRuntimeFacts facts() {

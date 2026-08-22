@@ -267,11 +267,11 @@ class TaskPlanPublicationServiceM3I06Test {
             ProposedPlan candidate = ProposedPlan.of(
                     "# Controlled Task Plan",
                     List.of(
-                            step("inspect", 1, PlanStepType.ANALYSIS, Set.of(), "fixture.inspect"),
+                            step("inspect", 1, PlanStepType.ANALYSIS, Set.of(), "fixture_inspect"),
                             step("execute", 2, PlanStepType.IMPLEMENTATION, Set.of("inspect"),
-                                    "fixture.execute"),
+                                    "fixture_execute"),
                             step("validate", 3, PlanStepType.VALIDATION, Set.of("execute"),
-                                    "fixture.validate")));
+                                    "fixture_validate")));
             return new TaskPlanPublicationCommand(
                     scope.organizationId(),
                     task.id(),

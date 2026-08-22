@@ -69,6 +69,7 @@ import io.crewscope.application.workitem.WorkProjectRepository;
 import io.crewscope.agentscope.AgentCallObservationSink;
 import io.crewscope.agentscope.AgentCallTraceContextProvider;
 import io.crewscope.agentscope.AgentExecutionAuditSink;
+import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.AgentStatePreflightMiddleware;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.PlatformAuditMiddleware;
@@ -96,6 +97,7 @@ class ApplicationCompositionConfigurationTest {
               TeamApplicationConfiguration.class,
               ProviderApplicationConfiguration.class,
               ConversationApplicationConfiguration.class,
+              AgentScopeModelConfiguration.class,
               AgentScopeApplicationConfiguration.class,
               WorkItemApplicationConfiguration.class)
           .withBean(PrincipalRepository.class, () -> mock(PrincipalRepository.class))
@@ -173,6 +175,7 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(ProviderBindingQueryService.class);
           assertThat(context).hasSingleBean(PlatformExecutionContextResolver.class);
           assertThat(context).hasSingleBean(AgentRuntimeSessionService.class);
+          assertThat(context).hasSingleBean(AgentScopeModelResolver.class);
           assertThat(context).hasSingleBean(PersonalAgentExecutionContextResolver.class);
           assertThat(context).hasSingleBean(PersonalAgentFactory.class);
           assertThat(context).hasSingleBean(ExecutionRuntime.class);

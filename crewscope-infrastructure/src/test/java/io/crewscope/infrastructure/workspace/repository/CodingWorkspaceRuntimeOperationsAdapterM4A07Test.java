@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.crewscope.application.runtime.CodingRuntimeComponentHealth;
 import io.crewscope.application.runtime.CodingRuntimeMaintenanceOperation;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
+import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -16,6 +17,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -76,7 +78,14 @@ class CodingWorkspaceRuntimeOperationsAdapterM4A07Test {
 
     private CodingWorkspaceRuntimeOperationsAdapter adapter() {
         return new CodingWorkspaceRuntimeOperationsAdapter(
-                registry, reconciler, registration, () -> NOW);
+                registry, reconciler, registration, () -> NOW, new DirectTransactions());
+    }
+
+    private static final class DirectTransactions implements TransactionExecutor {
+        @Override
+        public <T> T required(Supplier<T> operation) {
+            return operation.get();
+        }
     }
 
     private CodingWorkspaceExecution execution(boolean sandboxRunning, boolean watcherFailed) {

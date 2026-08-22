@@ -7,5 +7,8 @@ public enum RuntimeArtifactKind {
     TOOL_RESULT,
     EXECUTION_LOG,
     PLAN_DRAFT,
-    TODO_SNAPSHOT
+    TODO_SNAPSHOT,
+    DIFF_PATCH,
+    COMMAND_LOG,
+    TEST_REPORT
 }

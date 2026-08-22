@@ -96,7 +96,8 @@ class BuildProfileCommandRunnerM4I07Test {
                         fixedData,
                         "-pl",
                         "module-a",
-                        "-Dtest=com.example.OneTest#works,com.example.TwoTest"),
+                        "-Dtest=com.example.OneTest#works,com.example.TwoTest",
+                        "-Dsurefire.failIfNoSpecifiedTests=false"),
                 result.commandSpec().argv());
         assertEquals(CommandTermination.EXITED, result.termination());
         assertEquals(0, result.exitCode().orElseThrow());

@@ -68,20 +68,40 @@ public final class ManagedTaskExecutionSandbox {
         }
         activeLease.set(lease);
         SandboxContext context = SandboxContext.builder().externalSandbox(guardedSandbox).build();
-        return new TaskExecutionSandboxCall(this, context, workspace, lease);
+        return new TaskExecutionSandboxCall(this, context, workspace);
     }
 
     /** Revalidates one still-open call before a host-side or AgentScope-backed read operation. */
-    void requireCurrentCall(ExecutionWorkspace workspace, ExecutionLease lease) {
+    void requireCurrentCall(ExecutionWorkspace workspace) {
         requireSandboxIdentity(workspace);
         ExecutionLease active = activeLease.get();
-        if (!callActive.get() || active == null || active != lease) {
+        if (!callActive.get() || active == null) {
             throw TaskExecutionSandboxFacts.failure(
                     TaskExecutionSandboxError.OWNERSHIP_MISMATCH,
                     "Repository inspection is outside its guarded AgentScope call window");
         }
         TaskExecutionSandboxFacts.requireOwnership(
-                workspace, lease, UtcTimestamp.from(clock.instant()));
+                workspace, active, UtcTimestamp.from(clock.instant()));
+    }
+
+    /** Refreshes the guarded call with a coordinator-authorized heartbeat in the same epoch. */
+    public void renewActiveLease(ExecutionLease renewedLease) {
+        ExecutionLease renewed = Objects.requireNonNull(renewedLease, "renewedLease");
+        if (!callActive.get()) {
+            return;
+        }
+        requireSandboxIdentity(descriptor.workspace());
+        TaskExecutionSandboxFacts.requireOwnership(
+                descriptor.workspace(), renewed, UtcTimestamp.from(clock.instant()));
+        while (callActive.get()) {
+            ExecutionLease current = activeLease.get();
+            if (current == null || renewed.version() <= current.version()) {
+                return;
+            }
+            if (activeLease.compareAndSet(current, renewed)) {
+                return;
+            }
+        }
     }
 
     void closeCall() {
@@ -96,8 +116,8 @@ public final class ManagedTaskExecutionSandbox {
      * not prove that descendants inside the container have exited. The call is exclusive, so a
      * container restart is the smallest reliable process-tree boundary available here.
      */
-    void resetAfterCommandTimeout(ExecutionWorkspace workspace, ExecutionLease lease) {
-        requireCurrentCall(workspace, lease);
+    void resetAfterCommandTimeout(ExecutionWorkspace workspace) {
+        requireCurrentCall(workspace);
         try {
             dockerControl.stop(descriptor.containerName(), Duration.ofSeconds(1));
             delegate.start();

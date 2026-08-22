@@ -38,17 +38,21 @@ public class SandboxCommandConfiguration {
     @Bean
     @ConditionalOnMissingBean(CommandLogArtifactWriter.class)
     CommandLogArtifactWriter commandLogArtifactWriter(
-            ArtifactStore artifactStore, CodingArtifactProperties properties) {
+            ArtifactStore artifactStore,
+            CodingArtifactProperties properties,
+            CodingRuntimeArtifactRegistrar registrar) {
         return new CommandLogArtifactWriter(
-                new CodingArtifactPublisher(artifactStore, properties));
+                new CodingArtifactPublisher(artifactStore, properties), registrar);
     }
 
     @Bean
     @ConditionalOnMissingBean(TestReportArtifactWriter.class)
     TestReportArtifactWriter testReportArtifactWriter(
-            ArtifactStore artifactStore, CodingArtifactProperties properties) {
+            ArtifactStore artifactStore,
+            CodingArtifactProperties properties,
+            CodingRuntimeArtifactRegistrar registrar) {
         return new TestReportArtifactWriter(
-                new CodingArtifactPublisher(artifactStore, properties));
+                new CodingArtifactPublisher(artifactStore, properties), registrar);
     }
 
     @Bean

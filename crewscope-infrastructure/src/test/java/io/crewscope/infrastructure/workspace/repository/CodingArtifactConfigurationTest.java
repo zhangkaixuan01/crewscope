@@ -3,6 +3,8 @@ package io.crewscope.infrastructure.workspace.repository;
 import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.artifact.ArtifactStore;
+import io.crewscope.application.task.AgentRunRepository;
+import io.crewscope.application.task.RuntimeArtifactRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -22,6 +24,16 @@ class CodingArtifactConfigurationTest {
                 .hasSingleBean(CodingArtifactReader.class)
                 .hasSingleBean(CodingArtifactLifecycle.class)
                 .hasSingleBean(CodingArtifactProperties.class));
+    }
+
+    @Test
+    void createsRuntimeArtifactRegistrarWhenTaskRepositoriesAreAvailable() {
+        runner.withBean(RuntimeArtifactRepository.class, () -> mock(RuntimeArtifactRepository.class))
+                .withBean(AgentRunRepository.class, () -> mock(AgentRunRepository.class))
+                .run(context -> context
+                        .assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(CodingRuntimeArtifactRegistrar.class));
     }
 
     @Test

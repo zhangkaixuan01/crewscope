@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.coding.TestEvidenceRepository;
@@ -78,6 +80,32 @@ class TestEvidencePublisherM4A03Test {
                         == io.crewscope.domain.coding.AcceptanceStatus.PASSED));
     }
 
+    @Test
+    void uncertainCommitRetryReturnsTheExistingCommandEvidenceWithoutDuplicatePublication() {
+        Fixture fixture = new Fixture();
+        TestEvidence committed = mock(TestEvidence.class);
+        CommandEvidenceReference commandReference = fixture.command.reference();
+        when(committed.commands()).thenReturn(List.of(commandReference));
+        when(fixture.tests.findByWorkspace(
+                        fixture.scope.organizationId(),
+                        fixture.scope.teamId(),
+                        fixture.scope.projectId(),
+                        fixture.workspaceId))
+                .thenReturn(List.of(committed));
+
+        TestEvidence replay = fixture.publisher.publish(
+                        fixture.execution,
+                        fixture.actor,
+                        fixture.command,
+                        fixture.observed())
+                .orElseThrow();
+
+        assertEquals(committed, replay);
+        verify(fixture.tests, never()).create(any());
+        verify(fixture.reports, never()).write(any(), any(), any(), any(), any());
+        verify(fixture.execution.diffMonitor().orElseThrow(), never()).reconcileNow();
+    }
+
     private static final class Fixture {
         private final WorkItemScope scope = new WorkItemScope(
                 OrganizationId.generate(),
@@ -105,6 +133,8 @@ class TestEvidencePublisherM4A03Test {
         private final CommandEvidence command = mock(CommandEvidence.class);
         private final DiffManifest manifest = DiffManifest.initial(List.of());
         private final CodingWorkspaceExecution execution;
+        private final TestEvidenceRepository tests = mock(TestEvidenceRepository.class);
+        private final TestReportArtifactWriter reports = mock(TestReportArtifactWriter.class);
         private final TestEvidencePublisher publisher;
 
         private Fixture() {
@@ -165,13 +195,11 @@ class TestEvidencePublisherM4A03Test {
                     mock(ManagedTaskExecutionSandbox.class));
             execution.diffMonitor(monitor);
 
-            TestEvidenceRepository tests = mock(TestEvidenceRepository.class);
             when(tests.findByWorkspace(
                             scope.organizationId(), scope.teamId(), scope.projectId(), workspaceId))
                     .thenReturn(List.of());
             when(tests.create(any(TestEvidence.class)))
                     .thenAnswer(invocation -> invocation.getArgument(0));
-            TestReportArtifactWriter reports = mock(TestReportArtifactWriter.class);
             when(reports.write(any(), any(), any(), any(), any())).thenReturn(
                     new EvidenceArtifactReference(
                             io.crewscope.domain.shared.id.ArtifactId.generate(),
@@ -189,6 +217,18 @@ class TestEvidencePublisherM4A03Test {
                     Clock.fixed(Instant.parse("2026-08-20T00:00:02Z"), ZoneOffset.UTC),
                     io.crewscope.application.coding.CodingTaskTimelinePublisher.NO_OP,
                     transactions);
+        }
+
+        private SandboxCommandExecution observed() {
+            return new SandboxCommandExecution(
+                    commandSpec,
+                    UtcTimestamp.parse("2026-08-20T00:00:00Z"),
+                    FINISHED,
+                    io.crewscope.domain.coding.CommandTermination.EXITED,
+                    Optional.of(0),
+                    "[INFO] Results:\n[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 1",
+                    "",
+                    false);
         }
     }
 }

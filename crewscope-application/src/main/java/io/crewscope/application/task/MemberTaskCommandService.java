@@ -12,6 +12,7 @@ import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.execution.AgentRunResumeCommand;
 import io.crewscope.application.execution.DurableAgentRunResumeService;
 import io.crewscope.application.execution.ExecutionInterruptToken;
+import io.crewscope.application.execution.TaskApprovalInterruptTokens;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
@@ -372,7 +373,13 @@ public final class MemberTaskCommandService {
             UUID commandId,
             TeamCommandContext context,
             UtcTimestamp occurredAt) {
-        if (state.execution().status() != TaskExecutionStatus.PAUSED) {
+        boolean paused = state.execution().status() == TaskExecutionStatus.PAUSED;
+        boolean approvalWaiting = state.execution().status() == TaskExecutionStatus.WAITING
+                && state.execution().waiting()
+                        .map(io.crewscope.domain.task.TaskExecutionWaiting::reason)
+                        .filter(io.crewscope.domain.task.TaskExecutionWaitReason.CONFIRMATION::equals)
+                        .isPresent();
+        if (!paused && !approvalWaiting) {
             throw new InvalidStateTransitionException(
                     "TaskExecution",
                     state.execution().id(),
@@ -381,20 +388,29 @@ public final class MemberTaskCommandService {
         }
         AgentRun run = currentInterruptedRun(state).orElseThrow(() -> new DomainValidationException(
                 "taskResume.agentRun", "must reference the current interrupted AgentRun"));
+        AgentInterruptKind expectedKind = paused
+                ? AgentInterruptKind.PAUSE
+                : AgentInterruptKind.APPROVAL;
         AgentInterrupt interrupt = interruptRepository.findPendingByRun(
                         state.task().scope().organizationId(), run.id())
-                .filter(value -> value.kind() == AgentInterruptKind.PAUSE)
+                .filter(value -> value.kind() == expectedKind)
                 .orElseThrow(() -> new DomainValidationException(
-                        "taskResume.agentInterrupt", "must reference the pending Pause interrupt"));
-        UUID pauseRequestId = TaskControlRequestIds.from(
-                state.execution().id(), state.execution().controlRequest().orElseThrow());
+                        "taskResume.agentInterrupt",
+                        "must reference the pending Pause or plan Approval interrupt"));
+        ExecutionInterruptToken token = paused
+                ? new ExecutionInterruptToken(TaskControlRequestIds.from(
+                        state.execution().id(), state.execution().controlRequest().orElseThrow())
+                        .toString())
+                : TaskApprovalInterruptTokens.from(
+                        state.execution().id(), run.id(), interrupt.segmentSequence());
         resumeService.resume(new AgentRunResumeCommand(
                 state.task().scope().organizationId(),
                 run.id(),
                 interrupt.id(),
                 commandId,
-                new ExecutionInterruptToken(pauseRequestId.toString()),
-                RuntimeContentHash.sha256("MEMBER_TASK_RESUME|" + state.task().id() + "|"
+                token,
+                RuntimeContentHash.sha256("MEMBER_TASK_RESUME|" + expectedKind + "|"
+                        + state.task().id() + "|"
                         + state.execution().id() + "|" + context.access().actor().id()),
                 context.access().actor().id(),
                 context.correlationId(),

@@ -8,6 +8,7 @@ import io.crewscope.domain.coding.EvidenceSequence;
 import io.crewscope.domain.coding.ExecutionWorkspace;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.task.RuntimeContentHash;
+import io.crewscope.domain.task.RuntimeArtifactKind;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
@@ -17,9 +18,22 @@ final class CommandLogArtifactWriter {
     private static final String CONTENT_TYPE = "text/plain;charset=utf-8";
 
     private final CodingArtifactPublisher publisher;
+    private final java.util.Optional<CodingRuntimeArtifactRegistrar> registrar;
 
     CommandLogArtifactWriter(CodingArtifactPublisher publisher) {
+        this(publisher, java.util.Optional.empty());
+    }
+
+    CommandLogArtifactWriter(
+            CodingArtifactPublisher publisher, CodingRuntimeArtifactRegistrar registrar) {
+        this(publisher, java.util.Optional.of(Objects.requireNonNull(registrar, "registrar")));
+    }
+
+    private CommandLogArtifactWriter(
+            CodingArtifactPublisher publisher,
+            java.util.Optional<CodingRuntimeArtifactRegistrar> registrar) {
         this.publisher = Objects.requireNonNull(publisher, "publisher");
+        this.registrar = Objects.requireNonNull(registrar, "registrar");
     }
 
     CommandLogArtifactWriter(ArtifactStore artifactStore) {
@@ -38,6 +52,8 @@ final class CommandLogArtifactWriter {
                 actor,
                 CONTENT_TYPE,
                 content);
+        registrar.ifPresent(value -> value.register(
+                workspace, actor, RuntimeArtifactKind.COMMAND_LOG, descriptor));
         return new EvidenceArtifactReference(
                 descriptor.artifactId(),
                 EvidenceArtifactKind.COMMAND_LOG,

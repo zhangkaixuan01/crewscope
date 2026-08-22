@@ -13,6 +13,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Complete internal desired state for one CrewScope-owned AgentScope Docker Sandbox. */
 record TaskExecutionSandboxDescriptor(
@@ -21,8 +22,10 @@ record TaskExecutionSandboxDescriptor(
         WorkspacePolicy policy,
         BuildProfile buildProfile,
         Path canonicalWorktree,
+        java.util.Optional<Path> dependencyCacheRoot,
         String workspaceRoot,
         String repositoryMount,
+        String dependencyCacheMount,
         String containerUser,
         TaskExecutionSandboxFingerprint fingerprint,
         String sessionId,
@@ -30,6 +33,18 @@ record TaskExecutionSandboxDescriptor(
         Map<String, String> labels) {
 
     static final String LABEL_PREFIX = "io.crewscope.sandbox.";
+    private static final Set<String> ALLOWED_ENVIRONMENT_NAMES = Set.of(
+            "PATH",
+            "JAVA_HOME",
+            "JAVA_VERSION",
+            "MAVEN_HOME",
+            "HOME",
+            "MAVEN_CONFIG",
+            "TMPDIR",
+            "CI",
+            "LANG",
+            "LANGUAGE",
+            "LC_ALL");
 
     TaskExecutionSandboxDescriptor {
         workspace = Objects.requireNonNull(workspace, "workspace");
@@ -37,8 +52,11 @@ record TaskExecutionSandboxDescriptor(
         policy = Objects.requireNonNull(policy, "policy");
         buildProfile = Objects.requireNonNull(buildProfile, "buildProfile");
         canonicalWorktree = Objects.requireNonNull(canonicalWorktree, "canonicalWorktree");
+        dependencyCacheRoot = Objects.requireNonNull(dependencyCacheRoot, "dependencyCacheRoot");
         workspaceRoot = Objects.requireNonNull(workspaceRoot, "workspaceRoot");
         repositoryMount = Objects.requireNonNull(repositoryMount, "repositoryMount");
+        dependencyCacheMount = Objects.requireNonNull(
+                dependencyCacheMount, "dependencyCacheMount");
         containerUser = Objects.requireNonNull(containerUser, "containerUser");
         fingerprint = Objects.requireNonNull(fingerprint, "fingerprint");
         sessionId = Objects.requireNonNull(sessionId, "sessionId");
@@ -55,14 +73,40 @@ record TaskExecutionSandboxDescriptor(
             String workspaceRoot,
             String repositoryMount,
             String containerUser) {
+        return create(
+                workspace,
+                worktree,
+                policy,
+                buildProfile,
+                canonicalWorktree,
+                java.util.Optional.empty(),
+                workspaceRoot,
+                repositoryMount,
+                "/maven-cache",
+                containerUser);
+    }
+
+    static TaskExecutionSandboxDescriptor create(
+            ExecutionWorkspace workspace,
+            ManagedWorktree worktree,
+            WorkspacePolicy policy,
+            BuildProfile buildProfile,
+            Path canonicalWorktree,
+            java.util.Optional<Path> dependencyCacheRoot,
+            String workspaceRoot,
+            String repositoryMount,
+            String dependencyCacheMount,
+            String containerUser) {
         TaskExecutionSandboxFingerprint fingerprint = fingerprint(
                 workspace,
                 worktree,
                 policy,
                 buildProfile,
                 canonicalWorktree,
+                dependencyCacheRoot,
                 workspaceRoot,
                 repositoryMount,
+                dependencyCacheMount,
                 containerUser);
         String sessionId = sessionId(workspace);
         String containerName = "agentscope-sandbox-" + sessionId;
@@ -79,6 +123,8 @@ record TaskExecutionSandboxDescriptor(
         labels.put(LABEL_PREFIX + "physical-fingerprint", worktree.physicalFingerprint().value());
         labels.put(LABEL_PREFIX + "policy-hash", policy.policyHash().toString());
         labels.put(LABEL_PREFIX + "profile-hash", buildProfile.profileHash().toString());
+        labels.put(LABEL_PREFIX + "dependency-cache", Boolean.toString(
+                dependencyCacheRoot.isPresent()));
         labels.put(LABEL_PREFIX + "image", buildProfile.sandboxImage().value());
         labels.put(LABEL_PREFIX + "runtime-id", ownership.runtimeId().toString());
         labels.put(LABEL_PREFIX + "worker-id", ownership.workerId().toString());
@@ -91,8 +137,10 @@ record TaskExecutionSandboxDescriptor(
                 policy,
                 buildProfile,
                 canonicalWorktree,
+                dependencyCacheRoot,
                 workspaceRoot,
                 repositoryMount,
+                dependencyCacheMount,
                 containerUser,
                 fingerprint,
                 sessionId,
@@ -148,14 +196,40 @@ record TaskExecutionSandboxDescriptor(
                 && container.pidsLimit() == budget.pids()
                 && container.dropsAllCapabilities()
                 && container.preventsPrivilegeEscalation()
-                && container.hasReadWriteBindMount(canonicalWorktree, repositoryContainerPath())
+                // Existing containers are reusable only when their complete mount and environment
+                // surfaces match the reviewed image contract. Presence-only checks would allow a
+                // forged container to retain a Docker socket, host credential mount or secret env.
+                && container.hasOnlyExpectedBindMounts(
+                        canonicalWorktree,
+                        repositoryContainerPath(),
+                        dependencyCacheRoot,
+                        dependencyCacheMount)
+                && container.hasExactlyEnvironmentNames(expectedEnvironmentNames())
                 && container.environment("HOME").filter("/tmp/crewscope-home"::equals).isPresent()
                 && container.environment("MAVEN_CONFIG")
                         .filter("/tmp/crewscope-home/.m2"::equals)
                         .isPresent()
                 && container.environment("TMPDIR").filter("/tmp"::equals).isPresent()
                 && container.environment("CI").filter("true"::equals).isPresent()
-                && container.environment("LANG").filter("C.UTF-8"::equals).isPresent();
+                && container.environment("LANG").filter("C.UTF-8"::equals).isPresent()
+                && dependencyCacheEnvironmentMatches(container);
+    }
+
+    private Set<String> expectedEnvironmentNames() {
+        if (dependencyCacheRoot.isEmpty()) {
+            return ALLOWED_ENVIRONMENT_NAMES;
+        }
+        java.util.HashSet<String> names = new java.util.HashSet<>(ALLOWED_ENVIRONMENT_NAMES);
+        names.add("MAVEN_ARGS");
+        return Set.copyOf(names);
+    }
+
+    private boolean dependencyCacheEnvironmentMatches(DockerContainerSnapshot container) {
+        if (dependencyCacheRoot.isEmpty()) {
+            return container.environment("MAVEN_ARGS").isEmpty();
+        }
+        String expected = "--offline -Dmaven.repo.local=" + dependencyCacheMount + "/repository";
+        return container.environment("MAVEN_ARGS").filter(expected::equals).isPresent();
     }
 
     private static TaskExecutionSandboxFingerprint fingerprint(
@@ -164,8 +238,10 @@ record TaskExecutionSandboxDescriptor(
             WorkspacePolicy policy,
             BuildProfile buildProfile,
             Path canonicalWorktree,
+            java.util.Optional<Path> dependencyCacheRoot,
             String workspaceRoot,
             String repositoryMount,
+            String dependencyCacheMount,
             String containerUser) {
         StringBuilder canonical = new StringBuilder("task-execution-sandbox-v1");
         append(canonical, workspace.id().toString());
@@ -178,8 +254,10 @@ record TaskExecutionSandboxDescriptor(
         append(canonical, buildProfile.profileHash().toString());
         append(canonical, buildProfile.sandboxImage().value());
         append(canonical, canonicalWorktree.toString());
+        append(canonical, dependencyCacheRoot.map(Path::toString).orElse(""));
         append(canonical, workspaceRoot);
         append(canonical, repositoryMount);
+        append(canonical, dependencyCacheMount);
         append(canonical, containerUser);
         ExecutionWorkspaceOwnership ownership = workspace.ownership();
         append(canonical, ownership.environment().value());

@@ -19,6 +19,7 @@ import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.AgentRunResumeCommand;
 import io.crewscope.application.execution.DurableAgentRunResumeService;
+import io.crewscope.application.execution.TaskApprovalInterruptTokens;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
@@ -68,6 +69,7 @@ import io.crewscope.domain.task.TaskExecutionFailureClass;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionPriority;
 import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskExecutionWaitReason;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.TaskResponsibilitySnapshot;
 import io.crewscope.domain.task.TaskSource;
@@ -301,6 +303,49 @@ class MemberTaskCommandServiceM3A04Test {
     }
 
     @Test
+    void resumeApprovesAConfirmationWaitWithTheReconstructableInterruptToken() {
+        TaskExecution running = running(executionState.get());
+        TaskAgentRuntimeSession session = TaskAgentRuntimeSession.initializeTask(
+                taskState.get(), running, profile, executor, NOW);
+        AgentRun active = AgentRun.start(AgentRunId.generate(), session, 1, executor, NOW);
+        var token = TaskApprovalInterruptTokens.from(
+                running.id(), active.id(), active.currentSegment().sequence());
+        AgentInterrupt interrupt = AgentInterrupt.open(
+                AgentInterruptId.generate(),
+                active,
+                AgentInterruptKind.APPROVAL,
+                RuntimeContentHash.sha256(token.value()),
+                executor,
+                LATER);
+        AgentRun interrupted = active.interrupt(
+                interrupt, active.version(), executor, LATER);
+        TaskExecution waiting = running.waitFor(
+                TaskExecutionWaitReason.CONFIRMATION,
+                running.version(),
+                executor,
+                LATER);
+        executionState.set(waiting);
+        when(runs.findByExecution(organizationId, waiting.id())).thenReturn(List.of(interrupted));
+        when(interrupts.findPendingByRun(organizationId, interrupted.id()))
+                .thenReturn(Optional.of(interrupt));
+
+        var result = service.resume(
+                context(owner, "approve-plan-1"),
+                teamId,
+                taskState.get().id(),
+                waiting.id(),
+                new RetryTaskCommand(waiting.version()));
+
+        assertEquals(TaskExecutionStatus.READY,
+                result.result().orElseThrow().targetExecution().status());
+        ArgumentCaptor<AgentRunResumeCommand> command =
+                ArgumentCaptor.forClass(AgentRunResumeCommand.class);
+        verify(resumeService).resume(command.capture());
+        assertEquals(token, command.getValue().interruptToken());
+        assertEquals(interrupt.id(), command.getValue().interruptId());
+    }
+
+    @Test
     void retryCreatesAReadySuccessorAndRevalidatesPinnedAuthorization() {
         TaskExecution failed = failed(executionState.get(), true);
         executionState.set(failed);
@@ -516,7 +561,7 @@ class MemberTaskCommandServiceM3A04Test {
                 profile.id(),
                 profile.version(),
                 Set.of(ExecutionCapability.PLAN),
-                Set.of("fixture.execute"),
+                Set.of("fixture_execute"),
                 Set.of(),
                 new PolicyBudget(10_000, 8, 16, 300),
                 owner,

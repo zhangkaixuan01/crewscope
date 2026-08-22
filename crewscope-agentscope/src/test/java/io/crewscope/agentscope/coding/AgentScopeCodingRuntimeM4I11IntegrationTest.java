@@ -9,9 +9,11 @@ import static org.mockito.Mockito.when;
 
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.ChatUsage;
+import io.agentscope.core.model.ToolChoice;
 import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -43,10 +45,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class AgentScopeCodingRuntimeM4I11IntegrationTest {
-
-    private static final String HASH_A = "a".repeat(64);
-    private static final String HASH_B = "b".repeat(64);
-    private static final String HASH_C = "c".repeat(64);
 
     @TempDir Path runtimeRoot;
 
@@ -121,6 +119,11 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
         assertTrue(result.stateSnapshot().workState().todos().stream()
                 .allMatch(todo -> todo.status()
                         == io.crewscope.domain.coding.CodingTodoStatus.COMPLETED));
+        assertTrue(result.telemetry().modelCalls() >= primary.callCount());
+        assertTrue(result.telemetry().toolCalls() >= 12);
+        assertTrue(result.telemetry().modelUsages().stream()
+                .mapToLong(usage -> usage.inputTokens() + usage.outputTokens())
+                .sum() > 0);
         assertFalse(result.stateSnapshot().toString().contains("agent_state"));
         assertTrue(compaction.callCount() > 0);
         try (java.util.stream.Stream<Path> paths = Files.walk(runtimeRoot)) {
@@ -130,6 +133,10 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
                 .map(Msg::getTextContent)
                 .filter(java.util.Objects::nonNull)
                 .anyMatch(text -> text.contains(CodingSpecialistSkillBundle.SKILL_NAME)));
+        assertTrue(primary.request(0).stream()
+                .map(Msg::getTextContent)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(text -> text.contains("PLAN MODE is active")));
         assertEquals(CodingSpecialistToolSurface.controlledTools(), toolkit.getToolNames());
     }
 
@@ -160,6 +167,83 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
     }
 
     @Test
+    void recoversPlainTextCompletionByForcingAgentScopeStructuredOutputTool() {
+        ScriptedModel primary = new ScriptedModel(
+                toolResponse(
+                        "skill",
+                        CodingSpecialistToolSurface.SKILL_LOAD_TOOL,
+                        Map.of(
+                                "skillId", CodingSpecialistSkillBundle.SKILL_ID,
+                                "path", "SKILL.md")),
+                toolResponse("plan-enter", "plan_enter", Map.of()),
+                toolResponse(
+                        "plan-write",
+                        "plan_write",
+                        Map.of("content", "1. Complete the bounded change\n2. Verify the result")),
+                toolResponse(
+                        "plan-exit",
+                        "plan_exit",
+                        Map.of("summary", "Execute the verified plan")),
+                textResponse("The work is complete."),
+                structuredResponse(validResult()));
+        AgentScopeCodingRuntime runtime = runtime(
+                primary, repeatedModel("unused compaction", 4), 40, 1_024, 64);
+
+        CodingSpecialistRunResult result = runtime.execute(new CodingSpecialistRequest(
+                        specialistSession(),
+                        toolkit(new ControlledCodingTools()),
+                        "Load the skill, create a recovery Plan and return the result."))
+                .block(Duration.ofSeconds(10));
+
+        assertEquals(List.of("Updated both bounded fixture files"), result.output().changeSummary());
+        assertEquals(6, primary.callCount());
+        assertEquals(
+                new ToolChoice.Specific("generate_response"),
+                primary.options(5).getToolChoice());
+        assertEquals(Boolean.FALSE, primary.options(5).getParallelToolCalls());
+        assertEquals(
+                List.of("generate_response"),
+                primary.tools(5).stream().map(tool -> tool.getName()).toList());
+        assertEquals(6, result.telemetry().modelCalls());
+    }
+
+    @Test
+    void entersInitialPlanModeBeforeCodingAndPersistsTheSafePoint() {
+        ScriptedModel primary = new ScriptedModel(
+                toolResponse(
+                        "skill",
+                        CodingSpecialistToolSurface.SKILL_LOAD_TOOL,
+                        Map.of(
+                                "skillId", CodingSpecialistSkillBundle.SKILL_ID,
+                                "path", "SKILL.md")),
+                toolResponse(
+                        "plan-write",
+                        "plan_write",
+                        Map.of("content", "1. Complete the bounded task\n2. Verify the result")),
+                toolResponse(
+                        "plan-exit",
+                        "plan_exit",
+                        Map.of("summary", "Complete the planned task")),
+                structuredResponse(validResult()));
+        AgentScopeCodingRuntime runtime = runtime(
+                primary, repeatedModel("unused compaction", 4), 40, 1_024, 64);
+
+        CodingSpecialistRunResult result = runtime.execute(new CodingSpecialistRequest(
+                        specialistSession(),
+                        toolkit(new ControlledCodingTools()),
+                        "Load the skill, persist the Plan and return the result."))
+                .block(Duration.ofSeconds(10));
+
+        assertEquals(List.of("Updated both bounded fixture files"), result.output().changeSummary());
+        assertEquals(4, primary.callCount());
+        assertEquals(4, result.telemetry().modelCalls());
+        assertTrue(primary.request(0).stream()
+                .flatMap(message -> message.getContent().stream())
+                .anyMatch(block -> block instanceof TextBlock text
+                        && text.getText().contains("PLAN MODE is active")));
+    }
+
+    @Test
     void codingPlanWorkspaceIsIsolatedByDurableAgentScopeSession() {
         AgentProfileId profileId = profileId();
         ScriptedModel model = repeatedModel("unused", 2);
@@ -173,6 +257,9 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
                         "Use the fixed Coding workflow.",
                         10,
                         1,
+                        0.0,
+                        1.0,
+                        8_192,
                         8,
                         2,
                         1_024,
@@ -228,6 +315,9 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
                         "You are CrewScope's Coding Specialist. Load the fixed skill first, use Plan and Todo, then analyze, change, test, inspect the diff and return the required structured output.",
                         30,
                         2,
+                        0.0,
+                        1.0,
+                        8_192,
                         compactionMessages,
                         2,
                         evictionChars,
@@ -290,6 +380,16 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
         return toolResponse("structured", "generate_response", Map.of("response", response));
     }
 
+    private static ChatResponse textResponse(String text) {
+        return ChatResponse.builder()
+                .content(List.of(io.agentscope.core.message.TextBlock.builder()
+                        .text(text)
+                        .build()))
+                .usage(new ChatUsage(12, 8, 0.01))
+                .finishReason("stop")
+                .build();
+    }
+
     private static ScriptedModel repeatedModel(String response, int count) {
         String[] responses = new String[count];
         Arrays.fill(responses, response);
@@ -299,16 +399,6 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
     private static Map<String, Object> validResult() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schemaVersion", "1");
-        result.put("executionWorkspaceId", "22222222-2222-4222-8222-222222222222");
-        result.put("workspaceFingerprint", HASH_A);
-        result.put("codingTargetSnapshotId", "33333333-3333-4333-8333-333333333333");
-        result.put("codingTargetRevision", 1);
-        result.put("codingTargetHash", HASH_B);
-        result.put("repositoryAnalysisHash", HASH_C);
-        result.put("diffArtifactId", "44444444-4444-4444-8444-444444444444");
-        result.put("diffArtifactHash", HASH_A);
-        result.put("testEvidenceId", "55555555-5555-4555-8555-555555555555");
-        result.put("testEvidenceHash", HASH_B);
         result.put("changeSummary", List.of("Updated both bounded fixture files"));
         result.put("limitations", List.of());
         result.put("risks", List.of());

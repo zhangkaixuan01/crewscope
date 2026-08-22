@@ -163,17 +163,20 @@ public class DurableAgentStateSnapshotService implements TaskAgentStateSnapshotS
                 .orElseThrow(() -> new DomainValidationException(
                         "agentStateSnapshot.checkpoint",
                         "requires the referenced AgentRun event receipt to be committed first"));
-        Optional<AgentStateSnapshot> latest = snapshotRepository.findLatestBySession(
+        Optional<AgentStateSnapshot> latestSession = snapshotRepository.findLatestBySession(
                 boundary.run().scope().organizationId(), boundary.session().id());
+        Optional<AgentStateSnapshot> latestExecution = snapshotRepository.findLatestByExecution(
+                boundary.run().scope().organizationId(), boundary.run().executionId());
         long nextSnapshot = Math.addExact(
-                latest.map(AgentStateSnapshot::snapshotSequence).orElse(0L), 1L);
+                latestExecution.map(AgentStateSnapshot::snapshotSequence).orElse(0L), 1L);
         long nextCheckpoint = Math.addExact(
-                latest.map(AgentStateSnapshot::checkpointSequence).orElse(0L), 1L);
+                latestSession.map(AgentStateSnapshot::checkpointSequence).orElse(0L), 1L);
         return new PreparedBoundary(
                 boundary.run(),
                 boundary.session(),
                 boundary.actor(),
-                marker(latest),
+                marker(latestSession),
+                marker(latestExecution),
                 nextSnapshot,
                 nextCheckpoint,
                 timeProvider.now());
@@ -192,12 +195,19 @@ public class DurableAgentStateSnapshotService implements TaskAgentStateSnapshotS
                         command.eventSequence())
                 .orElseThrow(() -> new DomainValidationException(
                         "agentStateSnapshot.checkpoint", "durable event receipt disappeared"));
-        Optional<AgentStateSnapshot> latest = snapshotRepository.findLatestBySession(
+        Optional<AgentStateSnapshot> latestSession = snapshotRepository.findLatestBySession(
                 current.run().scope().organizationId(), current.session().id());
-        if (!prepared.latestMarker().equals(marker(latest))) {
+        if (!prepared.latestSessionMarker().equals(marker(latestSession))) {
             throw new DomainValidationException(
                     "agentStateSnapshot.sequence",
                     "another Writer advanced the Session snapshot sequence");
+        }
+        Optional<AgentStateSnapshot> latestExecution = snapshotRepository.findLatestByExecution(
+                current.run().scope().organizationId(), current.run().executionId());
+        if (!prepared.latestExecutionMarker().equals(marker(latestExecution))) {
+            throw new DomainValidationException(
+                    "agentStateSnapshot.sequence",
+                    "another Writer advanced the execution snapshot sequence");
         }
         ArtifactDescriptor descriptor = artifactStore.head(stored.artifactId(), access(current.run()))
                 .orElseThrow(() -> new AgentStateSnapshotPublicationException(
@@ -560,7 +570,8 @@ public class DurableAgentStateSnapshotService implements TaskAgentStateSnapshotS
             AgentRun run,
             TaskAgentRuntimeSession session,
             Principal actor,
-            Optional<SnapshotMarker> latestMarker,
+            Optional<SnapshotMarker> latestSessionMarker,
+            Optional<SnapshotMarker> latestExecutionMarker,
             long nextSnapshotSequence,
             long nextCheckpointSequence,
             UtcTimestamp capturedAt) {}

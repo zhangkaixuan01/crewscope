@@ -100,6 +100,24 @@ public class JpaAgentStateSnapshotRepositoryAdapter implements AgentStateSnapsho
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<AgentStateSnapshot> findLatestByExecution(
+            OrganizationId organizationId, TaskExecutionId executionId) {
+        return support.entityManager.createQuery(
+                        """
+                        SELECT row FROM AgentStateSnapshotEntity row
+                        WHERE row.organizationId = :organizationId
+                          AND row.taskExecutionId = :executionId
+                        ORDER BY row.snapshotSequence DESC, row.id
+                        """,
+                        AgentStateSnapshotEntity.class)
+                .setParameter("organizationId", organizationId.value())
+                .setParameter("executionId", executionId.value())
+                .setMaxResults(1)
+                .getResultStream().findFirst().map(support.mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AgentStateSnapshot> findRecoveryCandidates(
             OrganizationId organizationId, AgentRunId agentRunId, int limit) {
         if (limit < 1 || limit > 1000) {

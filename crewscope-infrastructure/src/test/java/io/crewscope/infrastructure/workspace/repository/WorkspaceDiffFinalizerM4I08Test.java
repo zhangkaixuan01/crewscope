@@ -195,10 +195,68 @@ class WorkspaceDiffFinalizerM4I08Test {
         assertEquals(0, diffRepository.creates.get());
     }
 
+    @Test
+    void interruptedMetadataPublicationRetriesWithoutDuplicatePatchOrDiffArtifact() {
+        WorktreeArchiveResult archived = new WorktreeArchiveResult(
+                fixture.workspaceId, archiveReference, delivery, deliveryTree);
+        diffRepository.failNextCreate();
+
+        WorkspaceDiffException interrupted = assertThrows(
+                WorkspaceDiffException.class,
+                () -> finalizer.finalizeDiff(
+                        fixture.workspace,
+                        fixture.target,
+                        fixture.policy,
+                        archived,
+                        fixture.actor,
+                        Optional.empty()));
+        assertEquals(WorkspaceDiffError.ARTIFACT_PUBLICATION_FAILED, interrupted.error());
+
+        DiffArtifact recovered = finalizer.finalizeDiff(
+                fixture.workspace,
+                fixture.target,
+                fixture.policy,
+                archived,
+                fixture.actor,
+                Optional.empty());
+        DiffArtifact retried = finalizer.finalizeDiff(
+                fixture.workspace,
+                fixture.target,
+                fixture.policy,
+                archived,
+                fixture.actor,
+                Optional.empty());
+
+        assertSame(recovered, retried);
+        assertEquals(2, diffRepository.creates.get());
+        assertEquals(1, regularFileCount(temporaryDirectory.resolve("artifacts/references")));
+        assertEquals(1, regularFileCount(temporaryDirectory.resolve("artifacts/objects")));
+        assertEquals(0, regularFileCount(temporaryDirectory.resolve("artifacts/temporary")));
+        assertEquals(
+                delivery,
+                new GitCommandExecutor(new GitCommandPolicy(
+                                temporaryDirectory.resolve("retry-git-home"),
+                                Duration.ofSeconds(15),
+                                4 * 1024 * 1024))
+                        .findArchiveReference(repositoryPath, archiveReference)
+                        .orElseThrow());
+    }
+
     private RepositoryCommitId commit(String revision) throws Exception {
         return new RepositoryCommitId(run(
                         "git", "-C", repositoryPath.toString(), "rev-parse", revision)
                 .strip());
+    }
+
+    private static long regularFileCount(Path directory) {
+        if (!Files.exists(directory)) {
+            return 0;
+        }
+        try (var paths = Files.walk(directory)) {
+            return paths.filter(Files::isRegularFile).count();
+        } catch (java.io.IOException failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static String run(String... command) throws Exception {
@@ -213,10 +271,18 @@ class WorkspaceDiffFinalizerM4I08Test {
     private static final class InMemoryDiffRepository implements DiffArtifactRepository {
         private final AtomicReference<DiffArtifact> artifact = new AtomicReference<>();
         private final AtomicInteger creates = new AtomicInteger();
+        private final AtomicInteger failures = new AtomicInteger();
+
+        private void failNextCreate() {
+            failures.incrementAndGet();
+        }
 
         @Override
         public DiffArtifact create(DiffArtifact value) {
             creates.incrementAndGet();
+            if (failures.getAndUpdate(current -> Math.max(0, current - 1)) > 0) {
+                throw new IllegalStateException("simulated transaction interruption");
+            }
             artifact.compareAndSet(null, value);
             return artifact.get();
         }

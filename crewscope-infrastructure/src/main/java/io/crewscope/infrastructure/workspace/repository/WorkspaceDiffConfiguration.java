@@ -73,9 +73,11 @@ public class WorkspaceDiffConfiguration {
     @Bean
     @ConditionalOnMissingBean(PatchArtifactWriter.class)
     PatchArtifactWriter patchArtifactWriter(
-            ArtifactStore artifactStore, CodingArtifactProperties properties) {
+            ArtifactStore artifactStore,
+            CodingArtifactProperties properties,
+            CodingRuntimeArtifactRegistrar registrar) {
         return new PatchArtifactWriter(
-                new CodingArtifactPublisher(artifactStore, properties));
+                new CodingArtifactPublisher(artifactStore, properties), registrar);
     }
 
     @Bean

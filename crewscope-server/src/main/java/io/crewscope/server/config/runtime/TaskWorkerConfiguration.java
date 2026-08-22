@@ -1,6 +1,7 @@
 package io.crewscope.server.config.runtime;
 
 import io.agentscope.core.state.AgentStateStore;
+import io.agentscope.core.model.Model;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.task.AgentScopeTaskPlanAdapter;
 import io.crewscope.agentscope.task.AgentScopeTaskPlanningSnapshotMapper;
@@ -58,6 +59,7 @@ import io.crewscope.infrastructure.runtime.TaskWorkerExecutionLoop;
 import io.crewscope.infrastructure.runtime.TaskWorkerExecutionSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoadTracker;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoopSpec;
+import io.crewscope.infrastructure.runtime.TaskWorkerSpecialistExecution;
 import io.crewscope.infrastructure.runtime.TaskWorkerStartupReconciler;
 import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSessionFactory;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
@@ -76,6 +78,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.SmartLifecycle;
 
 /** Production composition root for the M3-I09 AgentScope JVM Task Worker. */
 @Configuration(proxyBeanMethods = false)
@@ -85,12 +88,6 @@ import org.springframework.context.annotation.Configuration;
         CodingSpecialistRuntimeProperties.class
 })
 public class TaskWorkerConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean(AgentScopeModelResolver.class)
-    AgentScopeModelResolver taskAgentScopeModelResolver() {
-        return AgentScopeModelResolver.registry();
-    }
 
     @Bean
     TaskAgentConfigurationSource taskAgentConfigurationSource(
@@ -186,6 +183,9 @@ public class TaskWorkerConfiguration {
                 properties.getSystemPrompt(),
                 properties.getMaxIterations(),
                 properties.getMaxRetries(),
+                properties.getTemperature(),
+                properties.getTopP(),
+                properties.getMaxOutputTokens(),
                 properties.getCompactionTriggerMessages(),
                 properties.getCompactionKeepMessages(),
                 properties.getToolResultEvictionChars(),
@@ -242,11 +242,7 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        CodingWorkspaceRuntimeRegistry.class,
-        CodingSpecialistToolSessionFactory.class,
-        CodingWorkspaceExecutionLifecycle.class
-    })
+    @ConditionalOnMissingBean(CodingSpecialistAuthorityGateway.class)
     CodingSpecialistAuthorityGateway codingSpecialistAuthorityGateway(
             CodingWorkspaceRuntimeRegistry workspaces,
             CodingSpecialistToolSessionFactory tools,
@@ -255,7 +251,8 @@ public class TaskWorkerConfiguration {
             TestEvidenceRepository testEvidence,
             PrincipalRepository principals,
             RuntimeWorkerRegistrationSpec registration,
-            AuthoritativeTimeProvider timeProvider) {
+            AuthoritativeTimeProvider timeProvider,
+            TransactionExecutor transactionExecutor) {
         return new WorkerCodingSpecialistAuthorityGateway(
                 workspaces,
                 tools,
@@ -264,12 +261,13 @@ public class TaskWorkerConfiguration {
                 testEvidence,
                 principals,
                 registration,
-                timeProvider);
+                timeProvider,
+                transactionExecutor);
     }
 
     /** M4-A03 supplies the production Workspace/Tool lifecycle Gateway. */
     @Bean
-    @ConditionalOnBean(CodingSpecialistAuthorityGateway.class)
+    @ConditionalOnMissingBean(CodingSpecialistStepRuntime.class)
     CodingSpecialistStepRuntime codingSpecialistStepRuntime(
             AgentScopeCodingRuntime runtime,
             CodingSpecialistAuthorityGateway authorityGateway,
@@ -277,6 +275,41 @@ public class TaskWorkerConfiguration {
             CodingOutputValidator outputValidator) {
         return new CodingSpecialistStepRuntime(
                 runtime, authorityGateway, executionStore, outputValidator);
+    }
+
+    /** Routes Coding Task completion into the Specialist before the owning Lease is released. */
+    @Bean
+    @ConditionalOnMissingBean(TaskWorkerSpecialistExecution.class)
+    TaskWorkerSpecialistExecution taskWorkerSpecialistExecution(
+            CodingSpecialistStepRuntime runtime,
+            TaskExecutionRepository executionRepository,
+            ExecutionLeaseRepository leaseRepository,
+            PlanVersionRepository planRepository,
+            SafetyEnforcementOverlayRepository overlayRepository,
+            StepExecutionRepository stepRepository,
+            TaskAgentRuntimeSessionRepository sessionRepository,
+            AgentRunRepository runRepository,
+            PrincipalRepository principalRepository,
+            AgentProfileRepository profileRepository,
+            TestEvidenceRepository testEvidenceRepository,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            TaskWorkerRuntimeProperties properties) {
+        return new DurableCodingTaskRouter(
+                runtime,
+                executionRepository,
+                leaseRepository,
+                planRepository,
+                overlayRepository,
+                stepRepository,
+                sessionRepository,
+                runRepository,
+                principalRepository,
+                profileRepository,
+                testEvidenceRepository,
+                transactionExecutor,
+                timeProvider,
+                properties.getRecoveryCandidateLimit());
     }
 
     @Bean
@@ -320,10 +353,7 @@ public class TaskWorkerConfiguration {
             RuntimeWorkerRegistrationSpec registration,
             RuntimeWorkerLifecycle workerLifecycle,
             TaskWorkerExecutionSpec executionSpec,
-            ObjectProvider<CodingWorkspaceExecutionLifecycle> codingWorkspaceLifecycles) {
-        CodingWorkspaceExecutionLifecycle codingWorkspaceLifecycle =
-                codingWorkspaceLifecycles.getIfAvailable(
-                        () -> CodingWorkspaceExecutionLifecycle.NOOP);
+            CodingWorkspaceExecutionLifecycle codingWorkspaceLifecycle) {
         return new DurableTaskWorkerExecutionFactory(
                 taskRepository,
                 executionRepository,
@@ -357,11 +387,13 @@ public class TaskWorkerConfiguration {
             TaskTokenService tokenService,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
-            TaskWorkerExecutionSpec spec) {
+            TaskWorkerExecutionSpec spec,
+            TaskWorkerSpecialistExecution specialistExecution) {
         return new DurableTaskWorkerExecutionHandler(
                 executionFactory,
                 runtime,
                 runtime,
+                specialistExecution,
                 eventService,
                 leaseCoordinator,
                 executionRepository,
@@ -400,14 +432,19 @@ public class TaskWorkerConfiguration {
                 recoveryMarker);
     }
 
-    @Bean(initMethod = "start", destroyMethod = "close")
+    @Bean
     TaskWorkerExecutionLoop taskWorkerExecutionLoop(
             TaskClaimScheduler claimScheduler,
             TaskWorkerExecutionHandler executionHandler,
             TaskWorkerStartupReconciler startupReconciler,
             RuntimeWorkerLifecycle workerLifecycle,
             TaskWorkerLoadTracker loadTracker,
-            TaskWorkerLoopSpec spec) {
+            TaskWorkerLoopSpec spec,
+            ObjectProvider<Model> providerModels) {
+        // The loop's init method can dispatch immediately. Materialize the optional provider Model
+        // on the Spring refresh thread so a claim never races singleton construction on a Worker
+        // thread. API-only deployments may still omit a Model and fail closed on first invocation.
+        providerModels.getIfAvailable();
         return new TaskWorkerExecutionLoop(
                 claimScheduler,
                 executionHandler,
@@ -415,6 +452,46 @@ public class TaskWorkerConfiguration {
                 workerLifecycle,
                 loadTracker,
                 spec);
+    }
+
+    /** Starts claims after every singleton and transaction resource has completed initialization. */
+    @Bean
+    SmartLifecycle taskWorkerExecutionLoopLifecycle(TaskWorkerExecutionLoop workerLoop) {
+        return new SmartLifecycle() {
+            @Override
+            public void start() {
+                workerLoop.start();
+            }
+
+            @Override
+            public void stop() {
+                workerLoop.close();
+            }
+
+            @Override
+            public void stop(Runnable callback) {
+                try {
+                    workerLoop.close();
+                } finally {
+                    callback.run();
+                }
+            }
+
+            @Override
+            public boolean isRunning() {
+                return workerLoop.health().started();
+            }
+
+            @Override
+            public boolean isAutoStartup() {
+                return true;
+            }
+
+            @Override
+            public int getPhase() {
+                return Integer.MAX_VALUE - 100;
+            }
+        };
     }
 
     @Bean
@@ -433,9 +510,10 @@ public class TaskWorkerConfiguration {
             CodingWorkspaceRuntimeRegistry registry,
             CodingWorkspaceStartupReconciler reconciler,
             RuntimeWorkerRegistrationSpec registration,
-            AuthoritativeTimeProvider timeProvider) {
+            AuthoritativeTimeProvider timeProvider,
+            TransactionExecutor transactionExecutor) {
         return new CodingWorkspaceRuntimeOperationsAdapter(
-                registry, reconciler, registration, timeProvider);
+                registry, reconciler, registration, timeProvider, transactionExecutor);
     }
 
     @Bean

@@ -4,6 +4,7 @@ package io.crewscope.infrastructure.workspace.repository;
 enum WorktreeProvisionStage {
     BEFORE_WORKTREE_ADD,
     AFTER_WORKTREE_ADD,
+    AFTER_ARCHIVE_RESTORE,
     AFTER_ARCHIVE_REFERENCE,
     BEFORE_WORKTREE_REMOVE
 }

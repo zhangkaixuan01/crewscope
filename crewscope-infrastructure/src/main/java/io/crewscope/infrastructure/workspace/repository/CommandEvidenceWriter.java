@@ -12,11 +12,22 @@ import io.crewscope.domain.coding.WorkspacePolicy;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Publishes the command log first and then the immutable platform-observed evidence fact. */
 final class CommandEvidenceWriter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CommandEvidenceWriter.class);
+    private static final Pattern CONSTRAINT_PATTERN =
+            Pattern.compile("constraint [\\\"']([^\\\"']+)[\\\"']", Pattern.CASE_INSENSITIVE);
 
     private final CommandEvidenceRepository repository;
     private final CommandLogArtifactWriter commandLogs;
@@ -62,10 +73,33 @@ final class CommandEvidenceWriter {
         } catch (SandboxCommandException failure) {
             throw failure;
         } catch (RuntimeException publicationFailure) {
+            FailureDiagnostic diagnostic = diagnostic(publicationFailure);
+            LOGGER.error(
+                    "Command evidence publication failed with causeTypes={}, sqlState={}, constraint={}",
+                    diagnostic.causeTypes(),
+                    diagnostic.sqlState(),
+                    diagnostic.constraint());
             throw new SandboxCommandException(
                     SandboxCommandError.EVIDENCE_PUBLICATION_FAILED,
                     "Command evidence could not be published");
         }
+    }
+
+    private static FailureDiagnostic diagnostic(RuntimeException failure) {
+        List<String> causeTypes = new ArrayList<>();
+        String sqlState = "-";
+        String constraint = "-";
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            causeTypes.add(current.getClass().getSimpleName());
+            if (current instanceof SQLException sql) {
+                sqlState = sql.getSQLState() == null ? "-" : sql.getSQLState();
+                Matcher matcher = CONSTRAINT_PATTERN.matcher(Objects.toString(sql.getMessage(), ""));
+                if (matcher.find()) {
+                    constraint = matcher.group(1);
+                }
+            }
+        }
+        return new FailureDiagnostic(String.join(" <- ", causeTypes), sqlState, constraint);
     }
 
     private static void requirePublicationContext(
@@ -111,4 +145,6 @@ final class CommandEvidenceWriter {
                 + " outputTruncated=" + execution.outputTruncated();
         return new EvidenceSummary(value);
     }
+
+    private record FailureDiagnostic(String causeTypes, String sqlState, String constraint) {}
 }

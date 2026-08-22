@@ -400,6 +400,36 @@ public final class GitCommandExecutor {
         return run(arguments, Optional.empty());
     }
 
+    /**
+     * Restores one verified delivery commit as staged changes over its immutable baseline.
+     *
+     * <p>This fixed two-command protocol is used only after FINALIZING recovery has verified the
+     * Archive Ref and commit parent. HEAD remains on the managed baseline branch, so all existing
+     * Worktree ownership and Diff invariants continue to apply.
+     */
+    public void restoreDeliveryChanges(
+            Path worktree,
+            RepositoryCommitId baselineCommit,
+            RepositoryCommitId deliveryCommit) {
+        Path location = absolutePath(worktree, "worktree");
+        RepositoryCommitId baseline = Objects.requireNonNull(baselineCommit, "baselineCommit");
+        RepositoryCommitId delivery = Objects.requireNonNull(deliveryCommit, "deliveryCommit");
+        String patch = diffPatch(location, baseline, Optional.of(delivery), List.of());
+        if (patch.isEmpty()) {
+            return;
+        }
+        run(
+                List.of(
+                        "-C",
+                        location.toString(),
+                        "apply",
+                        "--index",
+                        "--binary",
+                        "--whitespace=nowarn",
+                        "-"),
+                Optional.of(patch));
+    }
+
     /** Produces an Added-file Patch for one untracked path without changing the Git index. */
     public String untrackedPatch(Path worktree, DiffPath path) {
         return runNoIndexDiff(

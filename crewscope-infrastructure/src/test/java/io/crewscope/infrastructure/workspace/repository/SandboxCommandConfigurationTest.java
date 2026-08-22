@@ -56,6 +56,9 @@ class SandboxCommandConfigurationTest {
                 .withBean(
                         CommandEvidenceRepository.class,
                         () -> org.mockito.Mockito.mock(CommandEvidenceRepository.class))
+                .withBean(
+                        CodingRuntimeArtifactRegistrar.class,
+                        () -> org.mockito.Mockito.mock(CodingRuntimeArtifactRegistrar.class))
                 .withUserConfiguration(SandboxCommandConfiguration.class);
     }
 }

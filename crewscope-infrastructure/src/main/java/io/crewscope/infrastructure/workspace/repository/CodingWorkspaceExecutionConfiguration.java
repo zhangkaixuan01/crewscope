@@ -7,11 +7,11 @@ import io.crewscope.application.coding.ExecutionWorkspaceRepository;
 import io.crewscope.application.coding.WorkspacePolicyOverlayRepository;
 import io.crewscope.application.coding.WorkspacePolicyRepository;
 import io.crewscope.application.coding.CommandEvidenceRepository;
+import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -21,20 +21,25 @@ import org.springframework.context.annotation.Configuration;
 /** Worker-only composition of the durable Coding Workspace execution lifecycle. */
 @Configuration(proxyBeanMethods = false)
 @Conditional(WorkerManagedRepositoryCondition.class)
-@EnableConfigurationProperties(CodingWorkspaceExecutionProperties.class)
+@EnableConfigurationProperties({
+    CodingWorkspaceExecutionProperties.class,
+    CodingEvaluationJudgeProperties.class
+})
 public class CodingWorkspaceExecutionConfiguration {
 
     @Bean
+    @ConditionalOnMissingBean(CodingWorktreePreparationHook.class)
+    CodingWorktreePreparationHook codingWorktreePreparationHook(
+            CodingEvaluationJudgeProperties properties) {
+        return properties.judgeTestsRootPath()
+                .<CodingWorktreePreparationHook>map(path ->
+                        new FilesystemCodingEvaluationJudgeHook(
+                                path, properties.requiredRepositoryKey()))
+                .orElse(CodingWorktreePreparationHook.NONE);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(CodingSpecialistToolSessionFactory.class)
-    @ConditionalOnBean({
-        GitCommandExecutor.class,
-        CommandEvidenceRepository.class,
-        CodingFilesystemUsageRegistry.class,
-        SandboxCommandUsageRegistry.class,
-        BuildProfileCommandRunner.class,
-        CommandEvidenceWriter.class,
-        TestEvidencePublisher.class
-    })
     CodingSpecialistToolSessionFactory codingSpecialistToolSessionFactory(
             RepositoryInspectionProperties inspectionProperties,
             CodingFilesystemProperties filesystemProperties,
@@ -67,20 +72,6 @@ public class CodingWorkspaceExecutionConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(CodingWorkspaceExecutionLifecycle.class)
-    @ConditionalOnBean({
-        CodingTargetSnapshotRepository.class,
-        ExecutionWorkspaceRepository.class,
-        WorkspacePolicyRepository.class,
-        WorkspacePolicyOverlayRepository.class,
-        BuildProfileCatalog.class,
-        ManagedRepositoryResolver.class,
-        WorktreeProvisioner.class,
-        TaskExecutionSandboxFactory.class,
-        WorkspaceDiffMonitorFactory.class,
-        WorkspaceDiffFinalizer.class,
-        CodingFilesystemUsageRegistry.class,
-        SandboxCommandUsageRegistry.class
-    })
     CodingWorkspaceExecutionLifecycle codingWorkspaceExecutionLifecycle(
             CodingTargetSnapshotRepository targets,
             ExecutionWorkspaceRepository workspaces,
@@ -92,6 +83,7 @@ public class CodingWorkspaceExecutionConfiguration {
             TaskExecutionSandboxFactory sandboxes,
             WorkspaceDiffMonitorFactory diffMonitors,
             WorkspaceDiffFinalizer diffFinalizer,
+            CodingWorktreePreparationHook worktreePreparation,
             CodingWorkspaceRuntimeRegistry registry,
             CodingFilesystemUsageRegistry filesystemUsages,
             SandboxCommandUsageRegistry commandUsages,
@@ -99,6 +91,7 @@ public class CodingWorkspaceExecutionConfiguration {
             TransactionExecutor transactions,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
+            PrincipalRepository principals,
             CodingWorkspaceExecutionProperties properties) {
         return new DurableCodingWorkspaceExecutionLifecycle(
                 targets,
@@ -111,12 +104,14 @@ public class CodingWorkspaceExecutionConfiguration {
                 sandboxes,
                 diffMonitors,
                 diffFinalizer,
+                worktreePreparation,
                 registry,
                 filesystemUsages,
                 commandUsages,
                 transactions,
                 timeProvider,
                 registration,
+                principals,
                 properties,
                 timeline);
     }

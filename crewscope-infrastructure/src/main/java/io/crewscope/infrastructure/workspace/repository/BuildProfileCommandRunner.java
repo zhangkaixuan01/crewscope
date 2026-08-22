@@ -237,6 +237,9 @@ final class BuildProfileCommandRunner {
                 }
                 if (!tests.isEmpty()) {
                     argv.add("-Dtest=" + String.join(",", tests));
+                    // A root-level selector must pass through reactor modules that do not own the
+                    // requested test before Maven reaches the module that does own it.
+                    argv.add("-Dsurefire.failIfNoSpecifiedTests=false");
                 }
             }
             case GRADLE_WRAPPER -> {

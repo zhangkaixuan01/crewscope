@@ -121,7 +121,7 @@ public final class JacksonTaskExecutionEventEncoder implements TaskExecutionEven
                 fields.failure);
     }
 
-    private static PublicFields publicFields(TaskExecutionEventPayload payload) {
+    private PublicFields publicFields(TaskExecutionEventPayload payload) {
         PublicFields fields = new PublicFields();
         if (payload instanceof TaskExecutionEventPayload.Started started) {
             fields.status = Optional.of(started.segmentKind().name());
@@ -131,6 +131,10 @@ public final class JacksonTaskExecutionEventEncoder implements TaskExecutionEven
             fields.safeText = Optional.of(thinking.summary());
         } else if (payload instanceof TaskExecutionEventPayload.StructuredOutput<?> structured) {
             fields.name = Optional.of(structured.spec().schemaId());
+            // Publish only the canonical output hash. The structured value remains private while
+            // evaluation and audit can prove which validated result reached the terminal event.
+            fields.contentHash = Optional.of(RuntimeContentHash.sha256(
+                    json(structured.value())).value());
         } else if (payload instanceof TaskExecutionEventPayload.PlanChanged plan) {
             fields.contentHash = Optional.of(plan.contentHash().value());
             plan.publishedPlanVersionId().ifPresent(id -> fields.reference(

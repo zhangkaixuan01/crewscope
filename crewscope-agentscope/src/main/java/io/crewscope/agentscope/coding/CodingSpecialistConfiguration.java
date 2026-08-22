@@ -14,6 +14,9 @@ public record CodingSpecialistConfiguration(
         String systemPrompt,
         int maxIterations,
         int maxRetries,
+        double temperature,
+        double topP,
+        int maxOutputTokens,
         int compactionTriggerMessages,
         int compactionKeepMessages,
         int toolResultEvictionChars,
@@ -35,6 +38,9 @@ public record CodingSpecialistConfiguration(
         systemPrompt = requireText(systemPrompt, "systemPrompt", 30_000, true);
         requireRange(maxIterations, 1, 200, "maxIterations");
         requireRange(maxRetries, 1, 10, "maxRetries");
+        requireDoubleRange(temperature, 0.0, 2.0, "temperature");
+        requireDoubleRange(topP, 0.0, 1.0, "topP");
+        requireRange(maxOutputTokens, 1, 131_072, "maxOutputTokens");
         requireRange(compactionTriggerMessages, 6, 500, "compactionTriggerMessages");
         requireRange(compactionKeepMessages, 2, 100, "compactionKeepMessages");
         if (compactionKeepMessages >= compactionTriggerMessages) {
@@ -63,6 +69,14 @@ public record CodingSpecialistConfiguration(
 
     private static void requireRange(int value, int minimum, int maximum, String field) {
         if (value < minimum || value > maximum) {
+            throw new IllegalArgumentException(
+                    field + " must be between " + minimum + " and " + maximum);
+        }
+    }
+
+    private static void requireDoubleRange(
+            double value, double minimum, double maximum, String field) {
+        if (!Double.isFinite(value) || value < minimum || value > maximum) {
             throw new IllegalArgumentException(
                     field + " must be between " + minimum + " and " + maximum);
         }

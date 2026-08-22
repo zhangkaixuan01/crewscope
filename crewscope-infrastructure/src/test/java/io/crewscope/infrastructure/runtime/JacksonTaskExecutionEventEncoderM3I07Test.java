@@ -12,6 +12,7 @@ import io.crewscope.application.execution.ExecutionInterruptToken;
 import io.crewscope.application.execution.TaskExecutionEvent;
 import io.crewscope.application.execution.TaskExecutionEventEncoding;
 import io.crewscope.application.execution.TaskExecutionEventPayload;
+import io.crewscope.application.execution.StructuredOutputSpec;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.AgentRunId;
 import io.crewscope.domain.task.RuntimeArtifactId;
@@ -55,7 +56,7 @@ class JacksonTaskExecutionEventEncoderM3I07Test {
         RuntimeArtifactId artifactId = RuntimeArtifactId.generate();
         TaskExecutionEvent event = event(new TaskExecutionEventPayload.ToolResult(
                 "private-tool-call-id",
-                "fixture.validate",
+                "fixture_validate",
                 false,
                 Optional.of(artifactId),
                 Optional.of(new ExecutionFailure(
@@ -66,7 +67,7 @@ class JacksonTaskExecutionEventEncoderM3I07Test {
 
         TaskExecutionEventEncoding encoded = encoder.encode(event);
 
-        assertEquals(Optional.of("fixture.validate"), encoded.publicEvent().name());
+        assertEquals(Optional.of("fixture_validate"), encoded.publicEvent().name());
         assertEquals(Optional.of(false), encoded.publicEvent().succeeded());
         assertEquals(Optional.of(artifactId.value()), encoded.publicEvent().referenceId());
         assertEquals(Optional.of("FIXTURE.VALIDATION-FAILED"),
@@ -91,6 +92,29 @@ class JacksonTaskExecutionEventEncoderM3I07Test {
         assertEquals(Optional.of(3), retry.publicEvent().modelMaxAttempts());
         assertTrue(usage.publicEvent().usage().isPresent());
         assertEquals(14, usage.publicEvent().usage().orElseThrow().totalTokens());
+    }
+
+    @Test
+    void preservesWhitespaceOnlyStreamingDeltas() {
+        TaskExecutionEventEncoding encoded = encoder.encode(event(
+                new TaskExecutionEventPayload.TextDelta(" \n\t")));
+
+        assertEquals("TEXT_DELTA", encoded.publicEvent().eventKind());
+        assertEquals(Optional.of(" \n\t"), encoded.publicEvent().safeText());
+    }
+
+    @Test
+    void publishesCanonicalStructuredOutputHashWithoutPublishingItsValue() {
+        StructuredOutputSpec<String> spec = new StructuredOutputSpec<>(
+                "test-result/v1", String.class);
+        TaskExecutionEventEncoding encoded = encoder.encode(event(
+                new TaskExecutionEventPayload.StructuredOutput<>(spec, "private-result")));
+
+        assertEquals("STRUCTURED_OUTPUT", encoded.publicEvent().eventKind());
+        assertEquals(Optional.of("test-result/v1"), encoded.publicEvent().name());
+        assertTrue(encoded.publicEvent().contentHash().orElseThrow()
+                .matches("[0-9a-f]{64}"));
+        assertFalse(encoded.publicEvent().toString().contains("private-result"));
     }
 
     private static TaskExecutionEvent event(TaskExecutionEventPayload payload) {

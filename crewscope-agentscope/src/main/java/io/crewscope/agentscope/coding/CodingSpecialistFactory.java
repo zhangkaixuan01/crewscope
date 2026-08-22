@@ -1,6 +1,8 @@
 package io.crewscope.agentscope.coding;
 
+import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.ReActAgent;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
@@ -52,11 +54,7 @@ public final class CodingSpecialistFactory {
     public HarnessAgent create(TaskAgentRuntimeSession runtimeSession, Toolkit toolkit) {
         TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
         CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
-        CodingSpecialistConfiguration configuration = Objects.requireNonNull(
-                configurationSource.load(
-                        session.agentProfileId(), session.agentProfileVersion()),
-                "configurationSource result");
-        requirePinnedConfiguration(session, configuration);
+        CodingSpecialistConfiguration configuration = configuration(session);
 
         String stableName = "crewscope-coding-"
                 + session.agentProfileId()
@@ -65,9 +63,12 @@ public final class CodingSpecialistFactory {
         Model primary = observedModel(configuration.modelId(), AgentModelRole.PRIMARY);
         Model compaction = observedModel(
                 configuration.compactionModelId(), AgentModelRole.PRIMARY);
+        // Keep mutation receipts and the fixed Skill body intact. Historical repository reads
+        // remain reproducible from the immutable Worktree and may be reduced to bounded previews;
+        // retaining every full source read caused cumulative model input to exceed the frozen Q03
+        // budget even when the delivered code and tests were correct.
         Set<String> evictionExclusions = new HashSet<>(
-                CodingSpecialistToolSurface.REPOSITORY_TOOLS);
-        evictionExclusions.addAll(CodingSpecialistToolSurface.FILESYSTEM_TOOLS);
+                CodingSpecialistToolSurface.FILESYSTEM_TOOLS);
         evictionExclusions.add(CodingSpecialistToolSurface.SKILL_LOAD_TOOL);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
@@ -77,8 +78,17 @@ public final class CodingSpecialistFactory {
                 .sysPrompt(configuration.systemPrompt())
                 .model(primary)
                 .toolkit(toolkit)
+                .middleware(new CodingSpecialistTelemetryMiddleware())
                 .maxIters(configuration.maxIterations())
                 .maxRetries(configuration.maxRetries())
+                // Generation parameters belong to the pinned Specialist configuration. Q03 uses
+                // deterministic sampling coordinates while keeping provider-specific Seed out of
+                // the request because DeepSeek does not guarantee that OpenAI extension field.
+                .generateOptions(GenerateOptions.builder()
+                        .temperature(configuration.temperature())
+                        .topP(configuration.topP())
+                        .maxTokens(configuration.maxOutputTokens())
+                        .build())
                 .stateStore(stateStore)
                 .workspace(createWorkspace(session))
                 // AgentScope defaults local workspaces to USER isolation. CrewScope reuses one
@@ -146,9 +156,49 @@ public final class CodingSpecialistFactory {
         }
     }
 
+    /**
+     * Creates a minimal AgentScope agent for the bounded structured-delivery recovery call.
+     *
+     * <p>It deliberately has no repository, mutation, command, Plan or Todo tools. The primary
+     * Coding Agent remains the sole owner of work, state and authority; this agent only turns the
+     * already-completed task summary into the required native structured result.
+     */
+    ReActAgent createStructuredResultAgent(TaskAgentRuntimeSession runtimeSession) {
+        TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
+        CodingSpecialistConfiguration configuration = configuration(session);
+        String stableName = "crewscope-coding-delivery-"
+                + session.agentProfileId()
+                + "-v"
+                + session.agentProfileVersion();
+        return ReActAgent.builder()
+                .name(stableName)
+                .sysPrompt("Return only the requested structured Coding delivery summary.")
+                .model(observedModel(configuration.modelId(), AgentModelRole.PRIMARY))
+                .toolkit(new Toolkit())
+                .middleware(new CodingSpecialistTelemetryMiddleware())
+                .maxIters(2)
+                .maxRetries(configuration.maxRetries())
+                .generateOptions(GenerateOptions.builder()
+                        .temperature(configuration.temperature())
+                        .topP(configuration.topP())
+                        .maxTokens(configuration.maxOutputTokens())
+                        .parallelToolCalls(false)
+                        .build())
+                .build();
+    }
+
     /** Shared durable store used to rebuild an exact Specialist Session on another Worker. */
     AgentStateStore stateStore() {
         return stateStore;
+    }
+
+    private CodingSpecialistConfiguration configuration(TaskAgentRuntimeSession session) {
+        CodingSpecialistConfiguration configuration = Objects.requireNonNull(
+                configurationSource.load(
+                        session.agentProfileId(), session.agentProfileVersion()),
+                "configurationSource result");
+        requirePinnedConfiguration(session, configuration);
+        return configuration;
     }
 
     private Model observedModel(String modelId, AgentModelRole role) {

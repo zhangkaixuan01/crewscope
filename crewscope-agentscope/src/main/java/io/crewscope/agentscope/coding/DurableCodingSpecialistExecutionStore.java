@@ -16,6 +16,8 @@ import io.crewscope.application.execution.TaskExecutionEventPayload;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.execution.TaskRuntimeEventCommitCommand;
 import io.crewscope.application.execution.TaskRuntimeEventCommitResult;
+import io.crewscope.application.coding.output.CodeChangeResultV1;
+import io.crewscope.application.coding.output.CodingStructuredOutputSpecs;
 import io.crewscope.application.task.AgentStateSnapshotRepository;
 import io.crewscope.application.task.StepExecutionRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
@@ -126,20 +128,20 @@ public final class DurableCodingSpecialistExecutionStore
                         required.facts().task().scope().organizationId(), snapshot.snapshotId())
                 .orElseThrow(() -> new AggregateNotFoundException(
                         "AgentStateSnapshot", snapshot.snapshotId()));
-        CodingCheckpoint checkpoint = CodingCheckpoint.capture(
-                CodingCheckpointId.generate(),
-                required.authority().target(),
-                required.authority().workspace(),
-                required.authority().policy(),
-                event.agentRun(),
-                required.facts().planVersion(),
-                required.state().workState(),
-                required.authority().diffManifest(),
-                required.authority().testEvidence(),
-                snapshotFact,
-                required.executor(),
-                timeProvider.now());
         CodingCheckpoint committed = transactionExecutor.required(() -> {
+            CodingCheckpoint checkpoint = CodingCheckpoint.capture(
+                    CodingCheckpointId.generate(),
+                    required.authority().target(),
+                    required.authority().workspace(),
+                    required.authority().policy(),
+                    event.agentRun(),
+                    required.facts().planVersion(),
+                    required.state().workState(),
+                    required.authority().diffManifest(),
+                    required.authority().testEvidence(),
+                    snapshotFact,
+                    required.executor(),
+                    timeProvider.now());
             CodingCheckpoint appended = checkpointRepository.append(checkpoint);
             StepExecution step = loadStep(required.facts());
             step = stepRepository.update(step.recordCheckpoint(
@@ -165,14 +167,52 @@ public final class DurableCodingSpecialistExecutionStore
     }
 
     @Override
+    public long recordTelemetry(
+            TaskExecutionRuntimeFacts facts,
+            long eventSequence,
+            CodingSpecialistTelemetry telemetry,
+            UUID correlationId) {
+        long next = eventSequence;
+        for (CodingSpecialistModelUsage usage : telemetry.modelUsages()) {
+            commit(
+                    facts,
+                    next++,
+                    new TaskExecutionEventPayload.UsageReported(
+                            usage.inputTokens(),
+                            usage.outputTokens(),
+                            usage.cachedTokens(),
+                            usage.totalTokens()),
+                    correlationId);
+        }
+        int toolIndex = 0;
+        for (String toolName : telemetry.toolNames()) {
+            commit(
+                    facts,
+                    next++,
+                    new TaskExecutionEventPayload.ToolStarted(
+                            "coding-tool-" + eventSequence + "-" + toolIndex++, toolName),
+                    correlationId);
+        }
+        return next;
+    }
+
+    @Override
     public void succeed(
             TaskExecutionRuntimeFacts facts,
             long eventSequence,
+            CodeChangeResultV1 result,
             Principal executor,
             UUID correlationId) {
         commit(
                 facts,
                 eventSequence,
+                new TaskExecutionEventPayload.StructuredOutput<>(
+                        CodingStructuredOutputSpecs.CODE_CHANGE_RESULT,
+                        Objects.requireNonNull(result, "result")),
+                correlationId);
+        commit(
+                facts,
+                eventSequence + 1,
                 new TaskExecutionEventPayload.Completed(Optional.empty()),
                 correlationId);
         transactionExecutor.required(() -> {
@@ -221,16 +261,21 @@ public final class DurableCodingSpecialistExecutionStore
             long eventSequence,
             TaskExecutionEventPayload payload,
             UUID correlationId) {
-        TaskExecutionEvent event = new TaskExecutionEvent(
-                facts.execution().id(),
-                facts.execution().attempt(),
-                facts.agentRun().id(),
-                facts.agentRun().currentSegment().sequence(),
-                eventSequence,
-                timeProvider.now(),
-                payload);
-        return eventService.commit(new TaskRuntimeEventCommitCommand(
-                facts, event, correlationId, Optional.empty()));
+        // PostgreSQL authoritative time deliberately requires an active transaction. Keep the
+        // Agent event timestamp and its durable receipt in one REQUIRED unit of work so a finite
+        // Specialist failure cannot be obscured by an out-of-transaction clock access.
+        return transactionExecutor.required(() -> {
+            TaskExecutionEvent event = new TaskExecutionEvent(
+                    facts.execution().id(),
+                    facts.execution().attempt(),
+                    facts.agentRun().id(),
+                    facts.agentRun().currentSegment().sequence(),
+                    eventSequence,
+                    timeProvider.now(),
+                    payload);
+            return eventService.commit(new TaskRuntimeEventCommitCommand(
+                    facts, event, correlationId, Optional.empty()));
+        });
     }
 
     private StepExecution loadStep(TaskExecutionRuntimeFacts facts) {

@@ -46,9 +46,9 @@ class AgentScopeTaskFactoryM3I06Test {
             """
             # Controlled Task Plan
 
-            - `inspect` | ANALYSIS | Inspect input | deps=- | capabilities=PLAN | tools=fixture.inspect | critical=true
-            - `execute` | IMPLEMENTATION | Produce result | deps=inspect | capabilities=PLAN | tools=fixture.execute | critical=true
-            - `validate` | VALIDATION | Validate result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture.validate | critical=true
+            - `inspect` | ANALYSIS | Inspect input | deps=- | capabilities=PLAN | tools=fixture_inspect | critical=true
+            - `execute` | IMPLEMENTATION | Produce result | deps=inspect | capabilities=PLAN | tools=fixture_execute | critical=true
+            - `validate` | VALIDATION | Validate result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture_validate | critical=true
             """;
 
     @TempDir Path runtimeRoot;
@@ -112,7 +112,9 @@ class AgentScopeTaskFactoryM3I06Test {
                     "todo_write"));
             assertEquals(expected, v1.getToolkit().getToolNames());
             assertTrue(v1.getToolkit().getTool(ControlledTaskPlanValidationTool.NAME).isReadOnly());
-            assertFalse(v1.getToolkit().getTool("fixture.execute").isReadOnly());
+            assertFalse(v1.getToolkit().getTool("fixture_execute").isReadOnly());
+            assertTrue(v1.getToolkit().getToolNames().stream()
+                    .allMatch(name -> name.matches("[a-zA-Z0-9_-]+")));
             assertFalse(v1.getToolkit().getToolNames().stream()
                     .anyMatch(name -> name.startsWith("github.") || name.startsWith("provider.")));
         }

@@ -25,6 +25,8 @@ final class ScriptedModel implements Model {
     private final List<ChatResponse> responses;
     private final AtomicInteger callCount = new AtomicInteger();
     private final List<List<Msg>> requests = new ArrayList<>();
+    private final List<List<ToolSchema>> toolRequests = new ArrayList<>();
+    private final List<GenerateOptions> options = new ArrayList<>();
 
     ScriptedModel(String... responses) {
         this.responses =
@@ -55,6 +57,8 @@ final class ScriptedModel implements Model {
         }
 
         requests.add(List.copyOf(messages));
+        toolRequests.add(List.copyOf(tools));
+        this.options.add(options);
         return Flux.just(responses.get(invocation));
     }
 
@@ -69,6 +73,14 @@ final class ScriptedModel implements Model {
 
     synchronized List<Msg> request(int index) {
         return requests.get(index);
+    }
+
+    synchronized GenerateOptions options(int index) {
+        return options.get(index);
+    }
+
+    synchronized List<ToolSchema> tools(int index) {
+        return toolRequests.get(index);
     }
 
     private static ChatResponse textResponse(String text) {

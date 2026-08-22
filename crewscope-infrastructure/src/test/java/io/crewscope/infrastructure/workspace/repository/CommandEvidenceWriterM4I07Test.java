@@ -16,6 +16,8 @@ import io.crewscope.application.artifact.ArtifactStore;
 import io.crewscope.application.artifact.ArtifactVisibility;
 import io.crewscope.application.artifact.ArtifactWriteRequest;
 import io.crewscope.application.coding.CommandEvidenceRepository;
+import io.crewscope.application.task.AgentRunRepository;
+import io.crewscope.application.task.RuntimeArtifactRepository;
 import io.crewscope.domain.coding.BuildCommand;
 import io.crewscope.domain.coding.BuildProfile;
 import io.crewscope.domain.coding.BuildTool;
@@ -47,6 +49,10 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.task.TaskId;
+import io.crewscope.domain.task.AgentRun;
+import io.crewscope.domain.task.AgentRunId;
+import io.crewscope.domain.task.RuntimeArtifact;
+import io.crewscope.domain.task.RuntimeArtifactKind;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.net.URI;
@@ -165,6 +171,62 @@ class CommandEvidenceWriterM4I07Test {
         assertEquals(SandboxCommandError.EVIDENCE_PUBLICATION_FAILED, failure.error());
         assertFalse(failure.getMessage().contains("secret"));
         assertNull(failure.getCause());
+    }
+
+    @Test
+    void registersCommandLogRuntimeMetadataBeforeEvidencePublication() {
+        RuntimeArtifactRepository runtimeArtifacts = mock(RuntimeArtifactRepository.class);
+        AgentRunRepository runs = mock(AgentRunRepository.class);
+        AgentRun run = mock(AgentRun.class);
+        TaskId taskId = facts.workspace().taskId();
+        TaskExecutionId executionId = facts.workspace().taskExecutionId();
+        PrincipalId actorId = facts.actor().id();
+        when(run.id()).thenReturn(AgentRunId.generate());
+        when(run.scope()).thenReturn(facts.scope());
+        when(run.taskId()).thenReturn(taskId);
+        when(run.executionId()).thenReturn(executionId);
+        when(run.stepExecutionId()).thenReturn(Optional.empty());
+        when(run.agentPrincipalId()).thenReturn(actorId);
+        when(run.runSequence()).thenReturn(2L);
+        when(runs.findByExecution(
+                        facts.scope().organizationId(), executionId))
+                .thenReturn(List.of(run));
+        when(runtimeArtifacts.findByArtifactId(any(), any())).thenReturn(Optional.empty());
+        when(runtimeArtifacts.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        CodingRuntimeArtifactRegistrar registrar = new CodingRuntimeArtifactRegistrar(
+                runtimeArtifacts, runs);
+        CommandEvidenceWriter writer = new CommandEvidenceWriter(
+                repository,
+                new CommandLogArtifactWriter(
+                        new CodingArtifactPublisher(
+                                artifactStore, new CodingArtifactProperties()),
+                        registrar),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        SandboxCommandExecution execution = new SandboxCommandExecution(
+                facts.spec(),
+                UtcTimestamp.from(NOW.minusSeconds(2)),
+                UtcTimestamp.from(NOW.minusSeconds(1)),
+                CommandTermination.EXITED,
+                Optional.of(0),
+                "BUILD SUCCESS\n",
+                "",
+                false);
+
+        writer.write(
+                facts.workspace(),
+                facts.policy(),
+                facts.actor(),
+                EvidenceSequence.first(),
+                execution);
+
+        org.mockito.ArgumentCaptor<RuntimeArtifact> captured =
+                org.mockito.ArgumentCaptor.forClass(RuntimeArtifact.class);
+        org.mockito.Mockito.verify(runtimeArtifacts).create(captured.capture());
+        assertEquals(RuntimeArtifactKind.COMMAND_LOG, captured.getValue().kind());
+        assertEquals(run.id(), captured.getValue().agentRunId());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(runtimeArtifacts, repository);
+        order.verify(runtimeArtifacts).create(any());
+        order.verify(repository).create(any());
     }
 
     private ArtifactWriteRequest capturedRequest() {

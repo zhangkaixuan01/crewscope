@@ -66,6 +66,7 @@ public final class DurableTaskWorkerExecutionHandler
     private final DurableTaskWorkerExecutionFactory executionFactory;
     private final TaskExecutionRuntime runtime;
     private final TaskAgentStateRuntime stateRuntime;
+    private final TaskWorkerSpecialistExecution specialistExecution;
     private final DurableTaskExecutionEventService eventService;
     private final TaskExecutionLeaseCoordinator leaseCoordinator;
     private final TaskExecutionRepository executionRepository;
@@ -92,9 +93,41 @@ public final class DurableTaskWorkerExecutionHandler
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             TaskWorkerExecutionSpec spec) {
+        this(
+                executionFactory,
+                runtime,
+                stateRuntime,
+                TaskWorkerSpecialistExecution.NOOP,
+                eventService,
+                leaseCoordinator,
+                executionRepository,
+                leaseRepository,
+                snapshotRepository,
+                tokenService,
+                timeProvider,
+                registration,
+                spec);
+    }
+
+    public DurableTaskWorkerExecutionHandler(
+            DurableTaskWorkerExecutionFactory executionFactory,
+            TaskExecutionRuntime runtime,
+            TaskAgentStateRuntime stateRuntime,
+            TaskWorkerSpecialistExecution specialistExecution,
+            DurableTaskExecutionEventService eventService,
+            TaskExecutionLeaseCoordinator leaseCoordinator,
+            TaskExecutionRepository executionRepository,
+            ExecutionLeaseRepository leaseRepository,
+            AgentStateSnapshotRepository snapshotRepository,
+            TaskTokenService tokenService,
+            AuthoritativeTimeProvider timeProvider,
+            RuntimeWorkerRegistrationSpec registration,
+            TaskWorkerExecutionSpec spec) {
         this.executionFactory = Objects.requireNonNull(executionFactory, "executionFactory");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.stateRuntime = Objects.requireNonNull(stateRuntime, "stateRuntime");
+        this.specialistExecution = Objects.requireNonNull(
+                specialistExecution, "specialistExecution");
         this.eventService = Objects.requireNonNull(eventService, "eventService");
         this.leaseCoordinator = Objects.requireNonNull(leaseCoordinator, "leaseCoordinator");
         this.executionRepository = Objects.requireNonNull(executionRepository, "executionRepository");
@@ -137,7 +170,6 @@ public final class DurableTaskWorkerExecutionHandler
             execution.terminationSignal(subscriber::terminateFromOwnerState);
             handle.events().subscribe(subscriber);
             subscriber.await();
-            heartbeat.cancel(false);
             Throwable streamFailure = subscriber.failure();
             if (streamFailure != null) {
                 throw new IllegalStateException("Task runtime stream failed before commit", streamFailure);
@@ -147,9 +179,11 @@ public final class DurableTaskWorkerExecutionHandler
                 throw new IllegalStateException("Task runtime stream ended without a terminal event");
             }
             checkpoint(prepared, terminal, execution.stopRequested());
-            beforeRelease(prepared, terminal);
-            release(prepared, terminal);
-            afterRelease(prepared, terminal);
+            TaskExecutionEvent effectiveTerminal = TaskWorkerSpecialistExecution.requireTerminal(
+                    specialistExecution.executeAfterTaskAgent(prepared, terminal));
+            beforeRelease(prepared, effectiveTerminal);
+            release(prepared, effectiveTerminal);
+            afterRelease(prepared, effectiveTerminal);
         } catch (RuntimeException failure) {
             execution.fail(failure);
             if (prepared != null) {
@@ -199,8 +233,13 @@ public final class DurableTaskWorkerExecutionHandler
         try {
             TaskWorkerPreparedExecution prepared = activeExecution.prepared();
             ExecutionLease current = requiredLease(prepared.leaseScope().leaseId());
-            leaseCoordinator.heartbeat(new LeaseHeartbeatCommand(
+            ExecutionLease renewed = leaseCoordinator.heartbeat(new LeaseHeartbeatCommand(
                     prepared.leaseScope(), current.version()));
+            // A Coding tool window can outlive the original RUN Lease expiry. Publish the
+            // coordinator-returned renewal to the in-process Sandbox guard so it validates the
+            // same fencing epoch against the latest expiry instead of a stale Lease snapshot.
+            prepared.codingWorkspace().ifPresent(
+                    workspace -> workspace.sandbox().renewActiveLease(renewed));
             propagateMemberControl(prepared);
         } catch (RuntimeException failure) {
             // Stop accepting runtime events after any uncertain ownership renewal. The authoritative
@@ -237,14 +276,21 @@ public final class DurableTaskWorkerExecutionHandler
             return;
         }
         var request = current.controlRequest().orElseThrow();
+        UUID controlRequestId = TaskControlRequestIds.from(current.id(), request);
+        Optional<TaskExecutionControlResult> specialistControl = specialistExecution.controlTask(
+                prepared, action, controlRequestId, request.reason());
+        if (specialistControl.isPresent()) {
+            requireAcceptedControl(specialistControl.orElseThrow());
+            return;
+        }
         requireAcceptedControl(runtime.controlTask(new TaskExecutionControlRequest(
-                        prepared.facts(),
-                        action,
-                        TaskControlRequestIds.from(current.id(), request),
-                        request.reason(),
-                        prepared.correlationId()))
-                .toCompletableFuture()
-                .join());
+                            prepared.facts(),
+                            action,
+                            controlRequestId,
+                            request.reason(),
+                            prepared.correlationId()))
+                    .toCompletableFuture()
+                    .join());
     }
 
     private static void requireAcceptedControl(TaskExecutionControlResult result) {
@@ -428,10 +474,12 @@ public final class DurableTaskWorkerExecutionHandler
         try {
             TaskExecution execution = requiredExecution(prepared.facts().execution().id());
             ExecutionLease lease = requiredLease(prepared.leaseScope().leaseId());
-            if (lease.release().isPresent() || !lease.owns(
-                    prepared.leaseScope().ownership(), timeProvider.now())) {
+            if (lease.release().isPresent()) {
                 return;
             }
+            // The coordinator performs the authoritative-time ownership check in the same
+            // transaction as the release. Checking it here would call the database-backed clock
+            // outside a transaction and would still leave a time-of-check/time-of-use race.
             leaseCoordinator.release(LeaseReleaseCommand.simple(
                     new LeaseTransitionCommand(
                             prepared.leaseScope(), execution.version(), lease.version()),
@@ -504,12 +552,8 @@ public final class DurableTaskWorkerExecutionHandler
                 return;
             }
             try {
-                ExecutionLease currentLease = requiredLease(prepared.leaseScope().leaseId());
-                if (!currentLease.owns(
-                        prepared.leaseScope().ownership(), timeProvider.now())) {
-                    throw new IllegalStateException(
-                            "Task ownership expired before runtime event commit");
-                }
+                // DurableTaskExecutionEventService locks and validates the current Lease with
+                // authoritative database time in the same transaction as the event receipt.
                 eventService.commit(new TaskRuntimeEventCommitCommand(
                         prepared.facts(),
                         event,

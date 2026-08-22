@@ -193,7 +193,7 @@ class AgentTaskCreationServiceM3A01Test {
     private final TaskCreationPolicySpec policySpec = new TaskCreationPolicySpec(
             new PolicyPackReference(PolicyPackId.generate(), 1),
             Set.of(ExecutionCapability.PLAN),
-            Set.of("fixture.execute"),
+            Set.of("fixture_execute"),
             new PolicyBudget(10_000, 8, 16, 300),
             3,
             TaskExecutionPriority.NORMAL);

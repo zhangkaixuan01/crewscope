@@ -8,11 +8,14 @@ import static org.mockito.Mockito.when;
 import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.coding.AgentScopeCodingRuntime;
-import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
 import io.crewscope.agentscope.coding.CodingSpecialistFactory;
 import io.crewscope.agentscope.coding.CodingSpecialistStepRuntime;
 import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
 import io.crewscope.application.coding.CodingCheckpointRepository;
+import io.crewscope.application.coding.TestEvidenceRepository;
+import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventStore;
+import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -58,7 +61,11 @@ import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.runtime.TaskClaimSchedulerSpec;
 import io.crewscope.infrastructure.runtime.TaskWorkerExecutionLoop;
 import io.crewscope.infrastructure.runtime.TaskWorkerLoadTracker;
+import io.crewscope.infrastructure.runtime.TaskWorkerSpecialistExecution;
+import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSessionFactory;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRecoveryMarker;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRuntimeRegistry;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceStartupReconciler;
 import io.crewscope.server.observability.TaskWorkerHealthIndicator;
 import java.time.Duration;
@@ -97,7 +104,8 @@ class TaskWorkerConfigurationM3I09Test {
             assertThat(context).hasSingleBean(CodingSpecialistFactory.class);
             assertThat(context).hasSingleBean(AgentScopeCodingRuntime.class);
             assertThat(context).hasSingleBean(DurableCodingSpecialistExecutionStore.class);
-            assertThat(context).doesNotHaveBean(CodingSpecialistStepRuntime.class);
+            assertThat(context).hasSingleBean(CodingSpecialistStepRuntime.class);
+            assertThat(context).hasSingleBean(TaskWorkerSpecialistExecution.class);
             assertThat(context.getBean(TaskWorkerExecutionLoop.class).health().started()).isTrue();
             assertThat(context.getBean(TaskWorkerHealthIndicator.class).health().getStatus()
                     .getCode()).isEqualTo("UP");
@@ -106,13 +114,11 @@ class TaskWorkerConfigurationM3I09Test {
 
     @Test
     void codingStepRuntimeActivatesWhenWorkspaceAuthorityGatewayIsAvailable() {
-        workerContext("worker", RuntimeProfile.WORKER)
-                .withBean(CodingSpecialistAuthorityGateway.class,
-                        () -> mock(CodingSpecialistAuthorityGateway.class))
-                .run(context -> {
+        workerContext("worker", RuntimeProfile.WORKER).run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(CodingSpecialistStepRuntime.class);
                     assertThat(context).hasSingleBean(DurableCodingSpecialistExecutionStore.class);
+                    assertThat(context).hasSingleBean(TaskWorkerSpecialistExecution.class);
                 });
     }
 
@@ -191,6 +197,12 @@ class TaskWorkerConfigurationM3I09Test {
                 // composition test supplies that boundary without constructing Git/Docker.
                 .withBean(CodingWorkspaceRecoveryMarker.class,
                         () -> mock(CodingWorkspaceRecoveryMarker.class))
+                .withBean(CodingWorkspaceExecutionLifecycle.class,
+                        () -> mock(CodingWorkspaceExecutionLifecycle.class))
+                .withBean(CodingWorkspaceRuntimeRegistry.class,
+                        CodingWorkspaceRuntimeRegistry::new)
+                .withBean(CodingSpecialistToolSessionFactory.class,
+                        () -> mock(CodingSpecialistToolSessionFactory.class))
                 .withBean(
                         CodingWorkspaceStartupReconciler.class,
                         () -> mock(CodingWorkspaceStartupReconciler.class),
@@ -248,10 +260,15 @@ class TaskWorkerConfigurationM3I09Test {
                 .withBean(TaskTokenService.class, () -> mock(TaskTokenService.class))
                 .withBean(DurableTaskExecutionEventService.class,
                         () -> mock(DurableTaskExecutionEventService.class))
+                .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
+                .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
+                .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
                 .withBean(TaskAgentStateSnapshotService.class,
                         () -> mock(TaskAgentStateSnapshotService.class))
                 .withBean(CodingCheckpointRepository.class,
                         () -> mock(CodingCheckpointRepository.class))
+                .withBean(TestEvidenceRepository.class,
+                        () -> mock(TestEvidenceRepository.class))
                 .withBean(Validator.class, () -> mock(Validator.class))
                 .withBean(AgentStateStore.class, () -> mock(AgentStateStore.class))
                 .withBean(AgentScopeModelResolver.class,

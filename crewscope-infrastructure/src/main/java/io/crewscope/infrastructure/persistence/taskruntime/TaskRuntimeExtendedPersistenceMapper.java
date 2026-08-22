@@ -339,10 +339,10 @@ public class TaskRuntimeExtendedPersistenceMapper {
         row.agentScopeSessionId = value.agentScopeKey().sessionId();
         row.stateReference = value.stateReference().value();
         row.status = value.status().name();
-        row.agentPrincipalType = value.purpose() == TaskAgentSessionPurpose.SPECIALIST
-                ? "SPECIALIST_AGENT" : "TEAM_AGENT";
-        row.agentProfileType = value.purpose() == TaskAgentSessionPurpose.SPECIALIST
-                ? "SPECIALIST" : "TEAM";
+        // TASK sessions can bind either a Personal Agent or a Team Agent. Persist the validated
+        // aggregate types instead of deriving them from purpose and violating the composite FKs.
+        row.agentPrincipalType = value.agentPrincipalType().name();
+        row.agentProfileType = value.agentProfileType().name();
         putAudit(row, value.audit(), value.version());
         return row;
     }
@@ -360,7 +360,10 @@ public class TaskRuntimeExtendedPersistenceMapper {
                 new TaskExecutionId(row.taskExecutionId),
                 optional(row.stepExecutionId, StepExecutionId::new),
                 TaskAgentSessionPurpose.valueOf(row.sessionPurpose),
-                new PrincipalId(row.agentPrincipalId), new AgentProfileId(row.agentProfileId),
+                new PrincipalId(row.agentPrincipalId),
+                io.crewscope.domain.identity.PrincipalType.valueOf(row.agentPrincipalType),
+                new AgentProfileId(row.agentProfileId),
+                io.crewscope.domain.workspace.AgentProfileType.valueOf(row.agentProfileType),
                 row.agentProfileVersion,
                 new AgentScopeSessionKey(row.agentScopeUserId, row.agentScopeSessionId),
                 new AgentRuntimeStateReference(row.stateReference),

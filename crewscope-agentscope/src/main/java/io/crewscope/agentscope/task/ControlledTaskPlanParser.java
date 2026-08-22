@@ -20,7 +20,7 @@ public final class ControlledTaskPlanParser {
     public static final String HEADER = "# Controlled Task Plan";
     public static final String FORMAT =
             "- `key` | TYPE | Title | deps=- | capabilities=PLAN | "
-                    + "tools=fixture.inspect | critical=true";
+                    + "tools=fixture_inspect | critical=true";
     private static final int MAX_STEPS = 100;
 
     /** Revalidates the exact Markdown at the publication boundary. */

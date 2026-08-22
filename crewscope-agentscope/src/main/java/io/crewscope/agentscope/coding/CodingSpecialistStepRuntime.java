@@ -111,7 +111,7 @@ public final class CodingSpecialistStepRuntime {
         return Mono.defer(() -> {
             ControlSignal pending = state.signal.get();
             if (pending != null && state.lastState != null && state.lastAuthority != null) {
-                return finishControl(state, pending, roundNumber - 1, repairRounds);
+                return finishControl(state, pending, state.modelCalls, repairRounds);
             }
             CodingSpecialistRound round = authorityGateway.openRound(
                     state.request.facts(), roundNumber, previousFailedEvidence);
@@ -134,6 +134,7 @@ public final class CodingSpecialistStepRuntime {
                         if (signal.isOnError()) {
                             return interruptedOrFailed(
                                     state,
+                                    signal.getThrowable(),
                                     roundNumber,
                                     repairRounds);
                         }
@@ -155,9 +156,22 @@ public final class CodingSpecialistStepRuntime {
                 .flatMap(authority -> {
                     state.lastState = result.stateSnapshot();
                     state.lastAuthority = authority;
+                    long telemetrySequence = executionStore.recordTelemetry(
+                            state.request.facts(),
+                            state.nextEventSequence,
+                            result.telemetry(),
+                            state.request.correlationId());
+                    if (telemetrySequence != state.nextEventSequence
+                            + result.telemetry().modelCalls()
+                            + result.telemetry().toolCalls()) {
+                        throw new IllegalStateException(
+                                "Coding telemetry store returned a non-contiguous sequence");
+                    }
+                    state.nextEventSequence = telemetrySequence;
+                    state.modelCalls += result.telemetry().modelCalls();
                     ControlSignal signal = state.signal.get();
                     if (signal != null) {
-                        return finishControl(state, signal, roundNumber, repairRounds);
+                        return finishControl(state, signal, state.modelCalls, repairRounds);
                     }
                     CodingSpecialistCheckpointReceipt checkpoint = executionStore.checkpoint(
                             checkpointCommand(
@@ -182,7 +196,7 @@ public final class CodingSpecialistStepRuntime {
                         if (repairRounds >= maximumRepairs) {
                             return fail(
                                     state,
-                                    roundNumber,
+                                    state.modelCalls,
                                     repairRounds,
                                     "TEST_REPAIR_BUDGET_EXHAUSTED",
                                     false);
@@ -202,12 +216,12 @@ public final class CodingSpecialistStepRuntime {
                     }
                     if (committingSignal != null) {
                         return finishControl(
-                                state, committingSignal, roundNumber, repairRounds);
+                                state, committingSignal, state.modelCalls, repairRounds);
                     }
                     CodingSpecialistAuthority finalized = authorityGateway.finalizeAuthority(
                             state.request.facts(), roundNumber);
                     return complete(
-                            state, result, finalized, checkpoint, roundNumber, repairRounds);
+                            state, result, finalized, checkpoint, state.modelCalls, repairRounds);
                 });
     }
 
@@ -241,6 +255,7 @@ public final class CodingSpecialistStepRuntime {
                     executionStore.succeed(
                             state.request.facts(),
                             state.nextEventSequence,
+                            platformResult,
                             state.request.executor(),
                             state.request.correlationId());
                     return new CodingSpecialistStepResult(
@@ -289,11 +304,18 @@ public final class CodingSpecialistStepRuntime {
 
     private Mono<CodingSpecialistStepResult> interruptedOrFailed(
             ActiveExecution state,
+            Throwable failure,
             int roundNumber,
             int repairRounds) {
+        recordFailureTelemetry(state, failure);
         ControlSignal signal = state.signal.get();
         if (signal == null || state.lastInvocation == null) {
-            return fail(state, roundNumber, repairRounds, "CODING_RUNTIME_FAILED", true);
+            return fail(
+                    state,
+                    state.modelCalls,
+                    repairRounds,
+                    "CODING_RUNTIME_FAILED",
+                    true);
         }
         return Mono.fromCallable(() -> {
                     CodingSpecialistStateSnapshot snapshot = runtime.snapshot(state.lastInvocation);
@@ -305,13 +327,33 @@ public final class CodingSpecialistStepRuntime {
                 })
                 .materialize()
                 .flatMap(snapshotSignal -> snapshotSignal.hasValue()
-                        ? finishControl(state, signal, roundNumber, repairRounds)
+                        ? finishControl(state, signal, state.modelCalls, repairRounds)
                         : fail(
                                 state,
-                                roundNumber,
+                                state.modelCalls,
                                 repairRounds,
                                 "CODING_STATE_UNAVAILABLE",
                                 true));
+    }
+
+    private void recordFailureTelemetry(ActiveExecution state, Throwable failure) {
+        if (!(failure instanceof CodingSpecialistExecutionException executionFailure)) {
+            return;
+        }
+        CodingSpecialistTelemetry telemetry = executionFailure.telemetry();
+        long telemetrySequence = executionStore.recordTelemetry(
+                state.request.facts(),
+                state.nextEventSequence,
+                telemetry,
+                state.request.correlationId());
+        if (telemetrySequence != state.nextEventSequence
+                + telemetry.modelCalls()
+                + telemetry.toolCalls()) {
+            throw new IllegalStateException(
+                    "Failed Coding telemetry store returned a non-contiguous sequence");
+        }
+        state.nextEventSequence = telemetrySequence;
+        state.modelCalls += telemetry.modelCalls();
     }
 
     private Mono<CodingSpecialistStepResult> finishControl(
@@ -433,6 +475,7 @@ public final class CodingSpecialistStepRuntime {
         private volatile CodingSpecialistAuthority lastAuthority;
         private volatile CodingCheckpointId lastCheckpoint;
         private int repairCeiling = -1;
+        private int modelCalls;
         private volatile boolean committing;
         private volatile boolean terminal;
 

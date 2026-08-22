@@ -52,7 +52,12 @@ public record AgentRunEventRecorded(
         agentRunId = AggregateId.requireValue(agentRunId, "agentRunId");
         eventKind = requirePattern(eventKind, EVENT_KIND, "eventKind");
         runtimeOccurredAt = Objects.requireNonNull(runtimeOccurredAt, "runtimeOccurredAt");
-        safeText = requireOptionalText(safeText, "safeText", 10_000);
+        // Streaming providers commonly emit spaces, tabs or line breaks as independent deltas.
+        // Preserve those delimiters for TEXT_DELTA so concatenating durable events reconstructs
+        // the displayed answer, while continuing to reject non-whitespace control characters.
+        safeText = "TEXT_DELTA".equals(eventKind)
+                ? requireOptionalTextDelta(safeText, "safeText", 10_000)
+                : requireOptionalText(safeText, "safeText", 10_000);
         name = requireOptionalPattern(name, NAME, "name");
         status = requireOptionalPattern(status, STATUS, "status");
         referenceType = requireOptionalPattern(referenceType, REFERENCE, "referenceType");
@@ -99,6 +104,22 @@ public record AgentRunEventRecorded(
                         throw new IllegalArgumentException(field + " contains invalid public text");
                     }
                     return normalized;
+                });
+    }
+
+    private static Optional<String> requireOptionalTextDelta(
+            Optional<String> value, String field, int maximumLength) {
+        return Objects.requireNonNull(value, field)
+                .map(candidate -> {
+                    if (candidate.isEmpty()
+                            || candidate.length() > maximumLength
+                            || candidate.chars().anyMatch(character ->
+                                    Character.isISOControl(character)
+                                            && !Character.isWhitespace(character))) {
+                        throw new IllegalArgumentException(
+                                field + " contains invalid public text delta");
+                    }
+                    return candidate;
                 });
     }
 

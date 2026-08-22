@@ -16,7 +16,7 @@ public final class CodingSpecialistSkillBundle {
     public static final String SKILL_ID = SKILL_NAME + "_crewscope-java-spring-v1";
     public static final String RESOURCE = "coding-skills/java-spring-v1/SKILL.md";
     public static final String SHA_256 =
-            "56534716ce9dff791e29845ec996e5928f85c14ce51e4e6037f9f028af79d8b4";
+            "a5f4a5f4c9d75092df0953ef66cf8ab920d4421a0f6f64e446d5de9dc43d9170";
 
     private static final String RESOURCE_ROOT = "coding-skills";
     private static final String SOURCE = "crewscope-java-spring-v1";

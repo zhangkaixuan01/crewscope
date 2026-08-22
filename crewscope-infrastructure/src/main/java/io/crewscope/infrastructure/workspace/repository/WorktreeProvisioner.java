@@ -121,6 +121,57 @@ public final class WorktreeProvisioner {
     }
 
     /**
+     * Recovers either side of the FINALIZING crash boundary into a verified mutable Worktree.
+     *
+     * <p>Before Archive, the retained Worktree is verified directly. After Archive, the immutable
+     * delivery commit is verified and replayed as staged changes over a newly created baseline
+     * Worktree. A later Archive therefore converges on the same tree and Archive Ref.
+     */
+    public ManagedWorktree recoverFinalizing(
+            ExecutionWorkspace workspace, WorkspacePolicy policy) {
+        ExecutionWorkspace requiredWorkspace = requirePolicyLineage(workspace, policy);
+        try (WorkspacePathLock ignored = lockManager.tryAcquire(requiredWorkspace.worktreeLocator())) {
+            ManagedRepository repository = repositoryResolver.resolve(
+                    requiredWorkspace.repositoryKey());
+            Path candidate = resolveCandidate(requiredWorkspace.worktreeLocator());
+            if (existsNoFollow(candidate)) {
+                return verifyLocked(requiredWorkspace, policy, repository, candidate);
+            }
+            RepositoryCommitId delivery = findArchive(repository, requiredWorkspace)
+                    .orElseThrow(() -> failure(
+                            WorktreeOperationError.NOT_PROVISIONED,
+                            "Finalizing Workspace has neither a Worktree nor an Archive Ref"));
+            requireValidArchive(repository, requiredWorkspace, delivery, Optional.empty());
+            cleanupArchivedBranch(requiredWorkspace, repository);
+            prepareRepositoryDirectory(requiredWorkspace.worktreeLocator());
+            stageHook.reached(WorktreeProvisionStage.BEFORE_WORKTREE_ADD);
+            try {
+                gitCommands.addWorktree(
+                        repository.canonicalPath(),
+                        candidate,
+                        requiredWorkspace.managedBranch(),
+                        requiredWorkspace.baselineCommit());
+                stageHook.reached(WorktreeProvisionStage.AFTER_WORKTREE_ADD);
+                gitCommands.restoreDeliveryChanges(
+                        candidate, requiredWorkspace.baselineCommit(), delivery);
+                if (!gitCommands.writeTree(candidate)
+                        .equals(gitCommands.commitTreeId(repository.canonicalPath(), delivery))) {
+                    throw failure(
+                            WorktreeOperationError.ARCHIVE_CONFLICT,
+                            "Restored Worktree tree does not match the Archive Ref");
+                }
+                stageHook.reached(WorktreeProvisionStage.AFTER_ARCHIVE_RESTORE);
+                return verifyLocked(requiredWorkspace, policy, repository, candidate);
+            } catch (RuntimeException operationFailure) {
+                rollbackAfterProvisionFailure(
+                        requiredWorkspace, policy, repository, candidate);
+                throw mapOperationFailure(
+                        operationFailure, WorktreeOperationError.COMMAND_FAILED);
+            }
+        }
+    }
+
+    /**
      * Removes an interrupted Provision only when path, repository, branch, HEAD and policy close.
      */
     public void rollbackProvisionOrphan(

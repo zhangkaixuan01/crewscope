@@ -101,7 +101,7 @@ class CodingWorkspaceStartupReconcilerM4I10Test {
         when(workspaces.findRecoveringForUpdate(ORGANIZATION, ENVIRONMENT, 100))
                 .thenReturn(List.of(workspace));
         when(docker.inspect(any())).thenReturn(Optional.empty());
-        when(worktrees.verify(workspace, policy))
+        when(worktrees.recoverFinalizing(workspace, policy))
                 .thenThrow(new WorktreeOperationException(
                         WorktreeOperationError.CORRUPT_HEAD,
                         "sensitive host detail must not escape"));
@@ -114,6 +114,25 @@ class CodingWorkspaceStartupReconcilerM4I10Test {
         assertEquals(1, reconciler.health().failedWorkspaces());
         assertFalse(reconciler.health().lastFailureType().isPresent());
         assertFalse(reconciler.health().toString().contains("sensitive host detail"));
+    }
+
+    @Test
+    void finalizingRecoveryAcceptsAnArchivedDeliveryRestoredAsAWorktree() {
+        ExecutionWorkspace workspace = recovering(ExecutionWorkspaceStatus.FINALIZING);
+        WorkspacePolicy policy = policy(workspace);
+        ManagedWorktree restored = mock(ManagedWorktree.class);
+        when(workspaces.findRecoveringForUpdate(ORGANIZATION, ENVIRONMENT, 100))
+                .thenReturn(List.of(workspace));
+        when(docker.inspect(any())).thenReturn(Optional.empty());
+        when(worktrees.recoverFinalizing(workspace, policy)).thenReturn(restored);
+
+        CodingWorkspaceStartupReconciler reconciler = reconciler(new CodingWorkspaceStartupProperties());
+        reconciler.reconcile();
+
+        verify(diffs).reconcileOnce(workspace, restored, policy);
+        verify(worktrees, never()).verify(workspace, policy);
+        assertEquals(1, reconciler.health().recoveredWorkspaces());
+        assertEquals(0, reconciler.health().failedWorkspaces());
     }
 
     @Test

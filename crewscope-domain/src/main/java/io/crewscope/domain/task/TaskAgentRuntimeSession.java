@@ -36,7 +36,9 @@ public final class TaskAgentRuntimeSession {
     private final Optional<StepExecutionId> stepExecutionId;
     private final TaskAgentSessionPurpose purpose;
     private final PrincipalId agentPrincipalId;
+    private final PrincipalType agentPrincipalType;
     private final AgentProfileId agentProfileId;
+    private final AgentProfileType agentProfileType;
     private final long agentProfileVersion;
     private final AgentScopeSessionKey agentScopeKey;
     private final AgentRuntimeStateReference stateReference;
@@ -52,7 +54,9 @@ public final class TaskAgentRuntimeSession {
             Optional<StepExecutionId> stepExecutionId,
             TaskAgentSessionPurpose purpose,
             PrincipalId agentPrincipalId,
+            PrincipalType agentPrincipalType,
             AgentProfileId agentProfileId,
+            AgentProfileType agentProfileType,
             long agentProfileVersion,
             AgentScopeSessionKey agentScopeKey,
             AgentRuntimeStateReference stateReference,
@@ -66,7 +70,16 @@ public final class TaskAgentRuntimeSession {
         this.stepExecutionId = requireStepShape(purpose, stepExecutionId);
         this.purpose = Objects.requireNonNull(purpose, "purpose");
         this.agentPrincipalId = Objects.requireNonNull(agentPrincipalId, "agentPrincipalId");
+        this.agentPrincipalType = Objects.requireNonNull(
+                agentPrincipalType, "agentPrincipalType");
         this.agentProfileId = Objects.requireNonNull(agentProfileId, "agentProfileId");
+        this.agentProfileType = Objects.requireNonNull(agentProfileType, "agentProfileType");
+        if (!profileAndPrincipalTypesMatch(
+                this.purpose, this.agentProfileType, this.agentPrincipalType)) {
+            throw new DomainValidationException(
+                    "taskAgentRuntimeSession.agentProfileType",
+                    "must match the session purpose and Agent Principal type");
+        }
         this.agentProfileVersion = requireNonNegative(
                 agentProfileVersion, "taskAgentRuntimeSession.agentProfileVersion");
         requireDerivedId();
@@ -139,7 +152,9 @@ public final class TaskAgentRuntimeSession {
             Optional<StepExecutionId> stepExecutionId,
             TaskAgentSessionPurpose purpose,
             PrincipalId agentPrincipalId,
+            PrincipalType agentPrincipalType,
             AgentProfileId agentProfileId,
+            AgentProfileType agentProfileType,
             long agentProfileVersion,
             AgentScopeSessionKey agentScopeKey,
             AgentRuntimeStateReference stateReference,
@@ -154,7 +169,9 @@ public final class TaskAgentRuntimeSession {
                 stepExecutionId,
                 purpose,
                 agentPrincipalId,
+                agentPrincipalType,
                 agentProfileId,
+                agentProfileType,
                 agentProfileVersion,
                 agentScopeKey,
                 stateReference,
@@ -259,8 +276,16 @@ public final class TaskAgentRuntimeSession {
         return agentPrincipalId;
     }
 
+    public PrincipalType agentPrincipalType() {
+        return agentPrincipalType;
+    }
+
     public AgentProfileId agentProfileId() {
         return agentProfileId;
+    }
+
+    public AgentProfileType agentProfileType() {
+        return agentProfileType;
     }
 
     public long agentProfileVersion() {
@@ -324,7 +349,9 @@ public final class TaskAgentRuntimeSession {
                 stepId,
                 purpose,
                 agent.id(),
+                agent.type(),
                 requiredProfile.id(),
+                requiredProfile.type(),
                 requiredProfile.version(),
                 key,
                 AgentRuntimeStateReference.forSession(id),
@@ -387,8 +414,15 @@ public final class TaskAgentRuntimeSession {
                             && principalType == PrincipalType.TEAM_AGENT);
             case STEP -> profileType == AgentProfileType.TEAM
                     && principalType == PrincipalType.TEAM_AGENT;
-            case SPECIALIST -> profileType == AgentProfileType.SPECIALIST
-                    && principalType == PrincipalType.SPECIALIST_AGENT;
+            // A Specialist is an execution role with an isolated AgentScope Session. It may run
+            // under the Task's delegated Personal, Team, or dedicated Specialist identity; the
+            // pinned PolicySnapshot still supplies the authority and budget boundary.
+            case SPECIALIST -> (profileType == AgentProfileType.PERSONAL
+                            && principalType == PrincipalType.PERSONAL_AGENT)
+                    || (profileType == AgentProfileType.TEAM
+                            && principalType == PrincipalType.TEAM_AGENT)
+                    || (profileType == AgentProfileType.SPECIALIST
+                            && principalType == PrincipalType.SPECIALIST_AGENT);
         };
     }
 
@@ -405,7 +439,9 @@ public final class TaskAgentRuntimeSession {
                 stepExecutionId,
                 purpose,
                 agentPrincipalId,
+                agentPrincipalType,
                 agentProfileId,
+                agentProfileType,
                 targetProfileVersion,
                 agentScopeKey,
                 stateReference,

@@ -144,6 +144,31 @@ class FilesystemArtifactStoreIntegrationTest {
     }
 
     @Test
+    void interruptedWriteRemovesPartialStateReleasesTheLockAndRetriesExactlyOnce() {
+        byte[] content = "interrupted coding artifact".repeat(4096)
+                .getBytes(StandardCharsets.UTF_8);
+        ArtifactWriteRequest request = request(
+                ArtifactId.generate(),
+                workspaceScope(),
+                ArtifactVisibility.WORKSPACE,
+                content,
+                Optional.empty());
+
+        assertError(
+                ArtifactStoreError.STORAGE_FAILURE,
+                () -> store.put(request, new InterruptingInputStream(content, 8192)));
+        assertEquals(0, regularFileCount(temporaryDirectory.resolve("temporary")));
+        assertEquals(0, regularFileCount(temporaryDirectory.resolve("references")));
+        assertEquals(0, regularFileCount(temporaryDirectory.resolve("objects")));
+
+        ArtifactDescriptor recovered = store.put(request, new ByteArrayInputStream(content));
+        assertEquals(request.artifactId(), recovered.artifactId());
+        assertEquals(1, regularFileCount(temporaryDirectory.resolve("references")));
+        assertEquals(1, regularFileCount(temporaryDirectory.resolve("objects")));
+        assertEquals(0, regularFileCount(temporaryDirectory.resolve("temporary")));
+    }
+
+    @Test
     void makesIdenticalRetryIdempotentAndRejectsDifferentMetadata() {
         ArtifactId artifactId = ArtifactId.generate();
         ArtifactWriteRequest request = request(
@@ -531,6 +556,36 @@ class FilesystemArtifactStoreIntegrationTest {
         @Override
         public int read() {
             throw new AssertionError("Idempotent retry must not consume the input stream");
+        }
+    }
+
+    private static final class InterruptingInputStream extends InputStream {
+        private final byte[] content;
+        private final int failureOffset;
+        private int offset;
+
+        private InterruptingInputStream(byte[] content, int failureOffset) {
+            this.content = content.clone();
+            this.failureOffset = failureOffset;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (offset >= failureOffset) {
+                throw new IOException("simulated process stream interruption");
+            }
+            return content[offset++] & 0xff;
+        }
+
+        @Override
+        public int read(byte[] target, int start, int length) throws IOException {
+            if (offset >= failureOffset) {
+                throw new IOException("simulated process stream interruption");
+            }
+            int available = Math.min(length, failureOffset - offset);
+            System.arraycopy(content, offset, target, start, available);
+            offset += available;
+            return available;
         }
     }
 
