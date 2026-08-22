@@ -32,7 +32,7 @@ Task Orchestrator、StepExecution、Checkpoint 持久化、Pause/Resume/Cancel �
 Skill Bundle 为 `java-spring-v1`，资源 SHA-256 固定为：
 
 ```text
-56534716ce9dff791e29845ec996e5928f85c14ce51e4e6037f9f028af79d8b4
+a5f4a5f4c9d75092df0953ef66cf8ab920d4421a0f6f64e446d5de9dc43d9170
 ```
 
 每次创建 Agent 都会复验资源 Hash、Skill 数量、Skill ID 和 Repository 只读属性。Workspace Skill、Skill Manage、Skill Curator、Skill Promotion 和外部 Skill Repository 均未装配。

@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v4.0<br>
+> 文档版本：v4.1<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -12,7 +12,7 @@ CrewScope 是面向技术团队的协作式 AI 工作执行平台。
 
 `Crew` 表示成员、Personal Agent、Team Agent 和 Specialist Agent 组成的执行团队；`Scope` 表示共享工作上下文、能力范围、责任边界与治理视野。
 
-每个成员拥有 Personal Agent，团队拥有 Team Workspace、Team Agent、共享 WorkItem、ProviderBinding、Skill、Artifact、责任关系和活动时间线。成员、个人 Agent 与团队 Agent 围绕同一个工作目标分工、协作、Review、Handoff 和交付。
+每个成员拥有一个默认对话式 Personal Agent，并可以从批准的 AgentTemplate 创建多个个人执行 Agent；团队拥有 Team Workspace、Team Agent、共享 Specialist、WorkItem、ProviderBinding、Skill、Artifact、责任关系和活动时间线。成员、个人 Agent 与团队 Agent 围绕同一个工作目标分工、协作、Review、Handoff 和交付。
 
 CrewScope 把自然语言目标转换为可观察、可协作、可确认、可暂停、可恢复的跨系统任务。AgentScope 承载对话、推理、规划、工具和多 Agent 运行；CrewScope 承载团队、责任、协作、任务、身份授权、耐久执行、制品、观测和审计。
 
@@ -272,6 +272,10 @@ Personal Agent、Team Agent、Task Orchestrator、Coding Specialist 和 Reviewer
 | `Principal` | 用户、Personal Agent、Team Agent、Specialist Agent 和 Service Principal 的统一行为主体 |
 | `Workspace` | `PERSONAL` 或 `TEAM` 类型的长期工作边界 |
 | `AgentProfile` | Personal、Team 或 Specialist Agent 的角色、模型、Prompt 和能力配置 |
+| `AgentConfigurationVersion` | AgentProfile 追加的不可变运行配置，固定主/Fallback 模型、Prompt、GenerateOptions、Tool、Skill、Memory、Policy 和预算 |
+| `ModelProviderDefinition` | 模型厂商、AgentScope Adapter、Endpoint、区域与数据政策元数据 |
+| `ModelCatalogEntry` | 可选模型的 Model ID/Revision、能力、上下文窗口、价格和生命周期 |
+| `ModelConnection` | `USER/TEAM/ORGANIZATION` 所有的模型 Endpoint、Region、Credential Reference、账单主体和健康事实 |
 | `WorkGraph` | 从领域事实生成的 WorkItem、Task、责任、依赖、贡献、Artifact 和外部资源关系读模型 |
 | `WorkProject` | WorkItem、成员、代码仓库和项目配置的组织单元 |
 | `WorkItem` | 需求、任务、缺陷和事件的长期工作记录 |
@@ -347,7 +351,9 @@ AgentScope `ReActAgent` 以 `(userId, sessionId)` 为键在单 JVM 内串行同�
 
 MVP 为每个 TeamMember 创建一个默认 Personal Agent，而不是为同一用户创建一个跨所有 Team 的全局执行身份。Personal Agent Principal 使用当前 Team Scope、成员 USER Principal 作为 Owner，并保持 PRIVATE 可发现性；AgentProfile 绑定该 TeamMember 和 Team Workspace。这样同一用户加入不同 Team 时拥有隔离的 Agent 身份、权限、ProviderBinding 和审计链，同时仍由同一个 USER Principal 统一承担最终责任。
 
-默认 Personal Agent 的 Principal ID 与 AgentProfile ID 分别由稳定 TeamMember ID 派生。重复请求生成同一候选身份，持久化 Port 在事务内执行 `initializeIfAbsent`，数据库通过 active 默认 Profile 唯一约束完成并发裁决。Principal 与 AgentProfile 必须同时提交或同时回滚。M1 的 AgentProfile 保存稳定身份、Owner、Workspace、类型、状态、版本和审计字段；模型、Prompt、Tool、Skill、Memory 与 Policy 配置在 M2 运行时接入时扩展并生成 PolicySnapshot。
+默认 Personal Agent 的 Principal ID 与 AgentProfile ID 分别由稳定 TeamMember ID 派生。重复请求生成同一候选身份，持久化 Port 在事务内执行 `initializeIfAbsent`，数据库通过 active 默认 Profile 唯一约束完成并发裁决。Principal 与 AgentProfile 必须同时提交或同时回滚。M1 的 AgentProfile 保存稳定身份、Owner、Workspace、类型、状态、版本和审计字段；M2–M4 使用环境支撑的版本化配置 Port；M5 将模型、Prompt、Tool、Skill、Memory 与 Policy 迁入持久的 AgentConfigurationVersion 并生成 PolicySnapshot。
+
+AgentProfile 保持稳定产品身份与生命周期，`AgentConfigurationVersion` 保存单调追加的运行配置。乐观锁 Version、状态迁移和 Configuration Revision 使用独立字段。成员修改 Personal Agent 模型时创建新 Configuration Revision；新 Conversation 使用当前版本，已存在 Conversation 保持 AgentRuntimeSession 固定版本，并可在没有活动调用或 Pending Interrupt 的安全点显式刷新。
 
 Conversation、Task 和 Artifact 使用 `visibility`：
 
@@ -557,7 +563,7 @@ Coding Agent 使用范围化检查、文件修改、结构化构建命令和 Git
 
 M4-I11 的 `CodingSpecialistFactory` 为每次 Specialist 调用创建短生命周期 HarnessAgent，按 AgentProfile 版本解析主模型、Fallback Model 与独立 Compaction Model。Factory 在构建前、构建后和 Structured Output 完成后三次校验固定 Tool 面。固定 Skill Bundle 位于 classpath，只包含 `java-spring-v1`，加载前复验 SHA-256、Skill ID 和只读属性。AgentState 完成后从同一 AgentScope Session 槽读取，安全点同时提取 Agent Workspace 中的真实 Plan 和 AgentState Todo。实现与验证见 [M4-I11 AgentScope Coding Specialist 运行时](testing/M4-I11-AgentScope-Coding-Specialist运行时.md)。
 
-M4-I12 的 `CodingSpecialistStepRuntime` 将 Specialist 调用绑定到当前 TaskExecution、StepExecution、ExecutionLease、Fencing、RuntimeSession、AgentRun 与 Segment。测试失败按 WorkspacePolicy 的修复轮次预算在同一 attempt、Run 和 Session 内继续；每轮按耐久事件、AgentState Snapshot、CodingCheckpoint、StepCheckpoint 顺序提交。Pause/Cancel 使用 `(userId, sessionId)` 定向 Interrupt，Resume 先完成 Workspace 对账和 Snapshot 恢复，再进入同 Run 的 RESUME Segment。模型生成 changeSummary、limitations 和 risks；M4-A03 在测试成功后固化 DiffArtifact，并使用平台权威 RepositoryAnalysis、CodingTarget、Workspace、DiffArtifact 和 TestEvidence 坐标构造最终 CodeChangeResultV1，再执行完整输出复验。Task Agent 与 Coding Specialist 分别使用 `crewscope-task-*` 和 `crewscope-coding-*` 稳定 namespace。`CodingSpecialistAuthorityGateway` 连接 Worktree、Sandbox、Tool Session、Diff Monitor 与 Finalizer。实现与验证见 [M4-I12 Coding Specialist Step 执行与恢复](testing/M4-I12-Coding-Specialist-Step执行与恢复.md)与 [M4-A03 Coding Workspace 执行生命周期](testing/M4-A03-Coding-Workspace执行生命周期.md)。
+M4-I12 的 `CodingSpecialistStepRuntime` 将 Specialist 调用绑定到当前 TaskExecution、StepExecution、ExecutionLease、Fencing、RuntimeSession、AgentRun 与 Segment。测试失败按 WorkspacePolicy 的修复轮次预算在同一 attempt、Run 和 Session 内继续；每轮按耐久事件、AgentState Snapshot、CodingCheckpoint、StepCheckpoint 顺序提交。Worker 在 Task Agent 与 Specialist 共用的 Lease 窗口内把成员 Pause/Cancel 路由到当前活动 Session；Specialist Pause 保留 Workspace 与 Sandbox 的恢复边界。模型调用、Structured Output 恢复和 Tool 调用逐项形成连续事件序列，成功、失败、暂停和取消结果的计数均来自该累计遥测。Resume 先完成 Workspace 对账和 Snapshot 恢复，再进入同 Run 的 RESUME Segment。模型生成 changeSummary、limitations 和 risks；M4-A03 在测试成功后固化 DiffArtifact，并使用平台权威 RepositoryAnalysis、CodingTarget、Workspace、DiffArtifact 和 TestEvidence 坐标构造最终 CodeChangeResultV1，再执行完整输出复验。Task Agent 与 Coding Specialist 分别使用 `crewscope-task-*` 和 `crewscope-coding-*` 稳定 namespace。`CodingSpecialistAuthorityGateway` 连接 Worktree、Sandbox、Tool Session、Diff Monitor 与 Finalizer。实现与验证见 [M4-I12 Coding Specialist Step 执行与恢复](testing/M4-I12-Coding-Specialist-Step执行与恢复.md)与 [M4-A03 Coding Workspace 执行生命周期](testing/M4-A03-Coding-Workspace执行生命周期.md)。
 
 实时修改以 `DiffManifest + Generation` 投影，经 RESET/DELTA Event 和不透明 Cursor 提供可恢复观察；`DiffFileEntry` 保存 canonical 当前路径、Rename/Copy 原路径、变更类型、增删行、二进制、截断标记、完整单文件 Patch Hash 和有界 Preview。Manifest 当前路径唯一并按 Unicode 代码点排序，Content Hash 覆盖排序后的 Git 权威事实，不覆盖 Generation 和 Preview；权威 Hash 未变化时不增加 Generation。
 
@@ -1453,6 +1459,39 @@ AgentScope 提供 `ModelRegistry`、`ModelCard`、Model Provider Starter、Retry
 - Token、次数、时长和成本预算；
 - Prompt 和 Structured Output Schema 版本。
 
+CrewScope 使用独立 Model Registry 管理模型厂商与运行适配。GitHub、飞书、CI/CD 等业务系统继续使用 Capability Provider 与 ProviderBinding。模型域包含：
+
+| 对象 | 内容 |
+|---|---|
+| `ModelProviderDefinition` | Provider Key、显示名、AgentScope Adapter Key、Endpoint 规则、Region、数据保留和训练政策 |
+| `ModelCatalogEntry` | Model ID、精确 Revision、Tool/Structured Output/Vision 能力、Context Window、Token 单价和状态 |
+| `ModelConnection` | USER/TEAM/ORGANIZATION 所有权、Endpoint、Region、Credential Reference、账单主体、健康和版本 |
+| `AgentTemplateDefinition` | Ownership/RuntimeRole 可用范围、Prompt 基线、Tool/Skill/Schema/Memory/Sandbox 策略、所需模型能力和版本 |
+| `AgentConfigurationVersion` | AgentProfile 的 PERSONAL/TEAM 主模型与 Fallback、受控 Prompt 扩展、Skill/Memory/Policy 引用和预算 |
+
+用户可为默认 Personal Agent 和个人创建的 Specialist 选择当前授权范围内的模型厂商、主模型和 Fallback。初始默认值按 `AgentProfile 当前 ExecutionScope 显式配置 -> Team Template + ExecutionScope 默认 -> Organization Template + ExecutionScope 默认` 解析。配置保存后引用精确 ModelConnection 和 ModelCatalogEntry，运行时不使用显示名或模糊匹配。
+
+当前可选集合由服务端取以下交集：
+
+```text
+ACTIVE ModelCatalogEntry
+∩ ACTIVE ModelConnection 与有效 Credential
+∩ AgentTemplate 必需的 Tool / Structured Output / Vision / Context 能力
+∩ Organization 数据级别、区域、保留与训练政策
+∩ Team 允许列表、成本预算与配额
+∩ Principal 对 Connection 的使用权
+```
+
+默认 Personal Agent 和 USER-owned Specialist 的 PERSONAL Binding 可使用 Owner USER Connection 或授权的 TEAM/ORGANIZATION Connection。USER Connection 只在组织 PolicyPack 允许 BYOK 时创建。USER-owned Specialist 的 TEAM Binding、Team Agent 和 TEAM-owned Specialist 使用 TEAM/ORGANIZATION Connection，团队耐久任务保持稳定账单和凭证主体。默认 Personal Agent、各个人 Specialist 和团队 Agent 的配置互不覆盖。
+
+主模型不可用时只切换到同一 AgentConfigurationVersion 中明确声明、且独立通过能力与数据策略校验的 Fallback。没有合法 Fallback 时以 `MODEL_UNAVAILABLE` 失败关闭。SafetyEnforcementOverlay 可在下一个模型边界停用 ModelConnection、ModelCatalogEntry 或数据区域组合。
+
+`crewscope-primary` 保留为本地开发和单模型部署的 Bootstrap Slot。企业多模型运行使用受信 `AgentScopeModelFactory`，根据服务端 ResolvedModelSelection 显式构建 AgentScope `Model`。产品 Provider 和传输 Adapter 独立记录：DeepSeek 在目录、审计和成本中保持 `deepseek`，调用层使用 `openai-compatible`/AgentScope OpenAI Adapter。DeepSeek 同时使用 Tool 和 Structured Output 时由 Adapter 固定 `nativeStructuredOutputWithTools(false)`。
+
+AgentRuntimeSession 固定 AgentConfigurationVersion。新 Conversation 使用当前版本；已存在 Conversation 在安全点通过显式 Configuration Refresh 生成新 Runtime Configuration Segment。TaskExecution 的 PolicySnapshot 固定 AgentConfigurationVersion、Provider、Connection、Model ID/Revision、价格和策略哈希，默认重试沿用原快照。
+
+模型边界见 [ADR-015：Agent 模型目录、连接与配置解析](adr/ADR-015-Agent模型目录、连接与配置解析.md)，Agent Ownership、Template 和 ExecutionScope 边界见 [ADR-016：Agent 所有权、模板与执行配置](adr/ADR-016-Agent所有权、模板与执行配置.md)。
+
 ### 7.6 Execution Runtime Port
 
 CrewScope 对执行运行时使用稳定 Port：
@@ -1537,7 +1576,7 @@ Worker HTTP Body 不接受 Organization、Team、Task、TaskExecution、attempt�
 
 M3-A04 提供成员面向当前 attempt 的 Pause、Resume、Cancel 和 Retry 命令。路由固定为 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/{operation}`，每个命令要求 `Idempotency-Key`、TaskExecution 强 `If-Match`、当前 USER 身份、ACTIVE Team Membership，且调用者必须持有 WorkItem 当前 Owner 或 Executor 责任。应用服务按 Task、TaskExecution 的固定顺序取悲观写锁，mutation、`MEMBER_TASK_*_ACCEPTED` DomainEvent、Outbox 和 CommandReceipt 在同一事务提交。
 
-Pause 与有活动 Worker 的 Cancel 先写入 TaskExecution 请求态。Worker 在每次 Lease Heartbeat 成功后重读权威 TaskExecution，使用由 Execution ID 和不可变控制请求派生的稳定 Control Request ID 调用 `TaskExecutionRuntime.controlTask`。AgentScope 在安全点中断当前 Session，Pause 事件令牌使用同一 Control Request ID，耐久层只保存 Hash。已提交的 `PAUSE_REQUESTED/CANCEL_REQUESTED` 在稍后到达的 Runtime Complete 竞争中优先，分别收敛为 PAUSED/CANCELLED；没有活动 Worker 的 CREATED、READY、WAITING、PAUSED 和 RECOVERING 取消在命令事务内直接收敛。Cancel 同时关闭 Task 业务状态。
+Pause 与有活动 Worker 的 Cancel 先写入 TaskExecution 请求态。Worker 在每次 Lease Heartbeat 成功后重读权威 TaskExecution，使用由 Execution ID 和不可变控制请求派生的稳定 Control Request ID 路由到当前活动的 Task Agent 或 Specialist Session。AgentScope 在安全点中断精确 Session，Pause 事件令牌使用同一 Control Request ID，耐久层只保存 Hash。Specialist 已激活时，控制请求不得停留在已终止的 Task Agent Session；Specialist 暂停必须保留 Workspace 与 Sandbox 的可恢复边界。已提交的 `PAUSE_REQUESTED/CANCEL_REQUESTED` 在稍后到达的 Runtime Complete 竞争中优先，分别收敛为 PAUSED/CANCELLED；没有活动 Worker 的 CREATED、READY、WAITING、PAUSED 和 RECOVERING 取消在命令事务内直接收敛。Cancel 同时关闭 Task 业务状态。
 
 Resume 只接受 PAUSED attempt，解析同一 AgentRun 上的当前 Pause Interrupt，用稳定 Control Request ID 重建原始 Interrupt Token，创建 RESUME Segment 并将原 TaskExecution 重新发布为 READY。新 Worker Claim 后先向 AgentScope 提交 RESUME 授权，再执行恢复 Segment。Retry 只接受当前可重试 FAILED attempt，不超过 `maxAttempts`；每次重试都重新验证 Executor Assignment ID/Version/Principal、AgentProfile 状态与版本，以及 ProviderBinding、Connection、ConnectionGrant 当前事实。通过后创建 `attempt + 1`、新 PolicySnapshot 和 SafetyEnforcementOverlay，继承已批准的优先级、PolicyPack、能力、Tool、Binding 和预算，将新 attempt 发布为 READY 并切换 Task 当前 attempt。
 
@@ -1565,7 +1604,7 @@ M3 计划使用严格的 `# Controlled Task Plan` Markdown 行协议，固定 St
 
 M3 Task Toolkit 只保留 `plan_enter/plan_write/plan_exit/todo_write`、只读 `validate_task_plan` 和无外部副作用的 `fixture.inspect/fixture.execute/fixture.validate`。AgentScope 自动加入的异步等待 Tool 在构建后移除；文件、Shell、Subagent、Memory、动态 Skill、Workspace Context、客户端 Tool 配置和 Provider 写 Tool 全部关闭。每次 `fixture.*` 调用继续复验当前 Task Token Tool 范围；Step Session 还必须命中当前 Plan Step 的 requiredTools。
 
-PolicyBudget 对整个运行累计模型调用数、Tool 调用数和 Token，并对每个活动 Segment施加时长上限。Pause/Cancel 使用精确 RuntimeContext 中断指定 AgentScope Session；Resume 可以在原进程继续，也可以在 Worker 重启后从持久 AgentState 恢复 Pending Tool。运行时拥有 AgentScope 上游订阅，Web/SSE 订阅取消只断开下游传输。
+PolicyBudget 对整个运行累计模型调用数、Tool 调用数和 Token，并对每个活动 Segment施加时长上限。模型调用、Structured Output 恢复和 Tool 调用逐项形成连续事件序列，所有成功、失败、暂停和取消结果的计数都来自该累计遥测，不使用 Agent 轮次或测试修复轮次代替。Pause/Cancel 使用精确 RuntimeContext 中断指定 AgentScope Session；Resume 可以在原进程继续，也可以在 Worker 重启后从持久 AgentState 恢复 Pending Tool。运行时拥有 AgentScope 上游订阅，Web/SSE 订阅取消只断开下游传输。
 
 `crewscope.runtime.execution-profile` 支持 `server`、`all` 与 `worker`。`all/worker` 必须配置 `crewscope.runtime.registry.organization-id`、同 Organization 的活动 Actor Principal、环境、Runtime key、语义化实现版本、稳定 Worker key、能力/容量和 Heartbeat 参数。Heartbeat interval 必须为正且小于 `5s..10m` 范围内的 timeout。未知 Profile、身份缺失、Actor 不存在或不可行动、能力非子集、容量越界和心跳参数非法都在 Spring 启动阶段失败。`server` 不创建 `RuntimeWorkerLifecycle`。
 
@@ -2380,7 +2419,7 @@ ExecutionWorkspace 在 TaskExecution 进入 `PREPARING` 且持有有效 PREPARE 
 
 领域 Workspace Fingerprint 使用 canonical SHA-256 闭合路径无关的 Scope、TaskExecution/attempt、CodingTarget Snapshot Hash、RepositoryBinding 版本、RepositoryKey、Baseline Commit、受管标识、Runtime/Worker/Lease/Fencing、恢复代次与保留期。M4-I03 物理 Fingerprint 将领域 Fingerprint 与 canonical repository/worktree、HEAD、`git-common-dir`、WorkspacePolicy Hash、AllowedPaths、BuildProfile、Sandbox/Operation Budget 组合计算。PostgreSQL `ExecutionWorkspace` 是逻辑事实源，Worktree 层返回可重算的物理证明，不创建本地 metadata registry。持久化恢复会重算领域与物理 Fingerprint，错误标识关联、恢复状态形状或 Hash 失败关闭。Canonical Path 只存在于基础设施包内，不进入公开对象、异常、`toString()`、DTO、模型上下文或持久化。
 
-Coding 持久化使用 Scope 化 Spring JDBC Adapter。RepositoryBinding 与 ExecutionWorkspace 通过 `scope + aggregate_id + expected_version` 条件更新，零行更新后的版本复查继续携带完整 Scope；WorkspacePolicyOverlay 通过当前父 Hash 原子追加。恢复和保留期扫描使用稳定排序、显式 Limit 与 `FOR UPDATE SKIP LOCKED`，Repository 以 Mandatory Transaction 强制调用方在同一外层事务内完成领取裁决。DiffArtifact、CommandEvidence、TestEvidence 和 CodingCheckpoint 的根事实与规范化子表在同一事务发布，子表失败时完整回滚。PostgreSQL SQLState 与 V14 唯一约束名映射为稳定领域冲突，其他完整性错误不被吞并。公开 API Cursor 与批量 DTO 投影在 M4-A04 构建，不污染领域 Repository Port。实现与验证见 [M4-D09 Coding 持久化与锁定查询](testing/M4-D09-Coding持久化与锁定查询.md)。
+Coding 持久化使用 Scope 化 Spring JDBC Adapter。RepositoryBinding 与 ExecutionWorkspace 通过 `scope + aggregate_id + expected_version` 条件更新，零行更新后的版本复查继续携带完整 Scope；WorkspacePolicyOverlay 通过当前父 Hash 原子追加。恢复和保留期扫描使用稳定排序、显式 Limit 与 `FOR UPDATE SKIP LOCKED`，Repository 以 Mandatory Transaction 强制调用方在同一外层事务内完成领取裁决。V19 通过追加式 `execution_workspace_epoch` 保留 Workspace 曾经存在的每个权属/恢复指纹；DiffArtifact、CommandEvidence、TestEvidence 和 CodingCheckpoint 继续以完整 Scope、Workspace ID、Fingerprint 和 CodingTarget 外键绑定真实产生代际，当前 Workspace 换代不会改写历史证据。各 Artifact 的根事实与规范化子表在同一事务发布，子表失败时完整回滚。PostgreSQL SQLState 与 V14 唯一约束名映射为稳定领域冲突，其他完整性错误不被吞并。公开 API Cursor 与批量 DTO 投影在 M4-A04 构建，不污染领域 Repository Port。实现与验证见 [M4-D09 Coding 持久化与锁定查询](testing/M4-D09-Coding持久化与锁定查询.md)。
 
 Coding attempt 查询以 `organization + team + project + task + execution` 完整 Scope 裁决当前与历史尝试。Task 当前入口、attempt 列表和指定历史入口返回同一公开投影；兼容的非 Coding Task 返回 `coding=false` 与空详情。Workspace 投影只包含逻辑状态、Repository Key、Commit、Managed Branch、恢复代次、保留期和 Fingerprint；Sandbox 投影只包含网络模式、只读根层、CPU/内存/PID、命令/文件/Diff/修复预算和 BuildProfile。公开 DTO 不包含 canonical 路径、Workspace Key、Archive Ref、Container ID/Name、Runtime/Worker、Lease/Claim/Fencing、Artifact 存储位置、AgentState 或 reasoning。最终 Coding Result 只在成功 TestEvidence 的 Diff Generation 与 Manifest Hash 精确匹配最终 DiffArtifact 时由耐久坐标合成。
 
@@ -2637,7 +2676,7 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `team_role` | 内置/自定义角色、权限集合、作用范围、版本和状态 |
 | `team_member_role` | TeamRole、作用范围、授予人、有效期和状态 |
 | `workspace` | `PERSONAL/TEAM`、所有者、名称、默认 Agent、配额、可见性和状态 |
-| `agent_profile` | `PERSONAL/TEAM/SPECIALIST`、所有者、模型、Prompt、能力、Memory 和版本 |
+| `agent_profile` | Agent 稳定实例、`USER/TEAM/ORGANIZATION` 所有权、RuntimeRole、TemplateVersion、Workspace、Principal、状态和版本 |
 | `conversation` | Team Workspace、Owner、Personal Agent、可见性、消息序号、生命周期和审计 |
 | `conversation_participant` | Conversation 内 USER/Agent 身份、角色、加入/离开边界和 active 唯一性 |
 | `message` | 单调序号、作者参与事实、Markdown、客户端幂等键和撤回/脱敏状态 |
@@ -2773,6 +2812,13 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 
 | 表 | 核心内容 |
 |---|---|
+| `model_provider_definition` | 厂商 Key、显示名、AgentScope Adapter/Factory Key、Endpoint 规则、区域、数据保留/训练政策、状态、版本和审计 |
+| `model_catalog_entry` | Provider、Model ID、Model Revision、Catalog Revision、Tool/Structured Output/Vision 能力、Context Window、生命周期和审计 |
+| `model_price_schedule` | ModelCatalogEntry、生效时间片、输入/输出/缓存 Token 单价、币种、来源和版本；历史价格只追加 |
+| `model_connection` | Organization/Team/USER Owner、Provider、Endpoint、Region、Credential Reference/Subject、Billing Subject、ACTIVE/SUSPENDED/REVOKED/EXPIRED、健康、版本和审计 |
+| `agent_template_definition` | 发布者 Scope、稳定 Template Key、追加 Version、RuntimeRole、能力、Prompt 基线、Tool/Skill/Schema/Memory/Sandbox 策略、可配置槽位、内容 Hash 和状态 |
+| `agent_configuration_version` | AgentProfile、单调 Configuration Revision、PERSONAL/TEAM 主/Fallback Model Binding、Prompt 扩展、Skill/Memory/Policy 引用、预算、配置 Hash 和创建审计 |
+| `agent_model_default` | Organization/Team Scope、TemplateVersion、ExecutionScope、默认 ModelConnection/Catalog Entry、Fallback、PolicyPack 和版本 |
 | `agent_runtime_session` | V10 实现 `PERSONAL/TASK/STEP/SPECIALIST` 互斥形状、Owner/任务绑定、Agent 与配置版本、userId、sessionId 和状态引用；`TEAM/CONTRIBUTION` 在对应领域引入时扩展 |
 | `execution_runtime` | Organization、RuntimeEnvironment、stable runtime key、显示名、实现版本、能力快照、`ACTIVE/DISABLED/ARCHIVED` 状态、乐观锁和审计字段 |
 | `runtime_worker` | Organization、RuntimeEnvironment、Runtime、stable worker key、`ALL/WORKER` Profile、能力快照、`REGISTERED/ACTIVE/DRAINING/DISABLED` 状态、Heartbeat 时间/序号、最大并发数、当前负载、乐观锁和审计字段 |
@@ -2945,6 +2991,26 @@ POST   /api/v1/connections/{connectionId}/verify
 POST   /api/v1/connections/{connectionId}/reauthorize
 DELETE /api/v1/connections/{connectionId}
 ```
+
+模型目录、连接与 Agent 配置使用独立 API：
+
+```text
+GET    /api/v1/model-providers
+GET    /api/v1/model-catalog?agentProfileId={agentProfileId}
+GET    /api/v1/model-connections?ownerType={ownerType}&ownerId={ownerId}
+POST   /api/v1/model-connections
+POST   /api/v1/model-connections/{connectionId}/verify
+POST   /api/v1/model-connections/{connectionId}/rotate-credential
+DELETE /api/v1/model-connections/{connectionId}
+
+GET    /api/v1/agent-profiles/{agentProfileId}/configurations/current
+GET    /api/v1/agent-profiles/{agentProfileId}/configurations
+POST   /api/v1/agent-profiles/{agentProfileId}/configurations
+POST   /api/v1/agent-profiles/{agentProfileId}/model-preflight
+POST   /api/v1/conversations/{conversationId}/agent-configuration-refresh
+```
+
+`model-catalog` 只返回当前 Principal 在指定 AgentProfile 上通过 Scope、Connection、模型能力、数据策略、预算和配额交集后的可选项。配置写入创建新的 AgentConfigurationVersion，使用 `Idempotency-Key`、`If-Match` 和 Command Receipt。Credential 只在创建或轮换请求中单向输入。
 
 ### 15.3 责任与协作 API
 
@@ -3310,7 +3376,9 @@ AgentScope Admin Starter 部署在内部管理网络。CrewScope IAM 包装以�
 ### 16.10 模型与数据出站
 
 - Model Registry 记录模型 Provider、区域、数据保留、训练使用、日志策略和支持的数据分类；
-- PolicySnapshot 根据 Workspace、数据分类和组织策略选择可用模型；
+- ModelConnection 将 Endpoint、Credential Subject、Billing Subject 和 `USER/TEAM/ORGANIZATION` 所有权绑定，API Key 只保存在 CredentialStore；
+- USER-owned Agent 的 PERSONAL 执行可以使用 Owner USER Connection 或授权的 TEAM/ORGANIZATION Connection；USER-owned Specialist 的 TEAM 执行、Team Agent 和共享 Specialist 只使用 TEAM/ORGANIZATION Connection；
+- PolicySnapshot 根据 Agent Ownership、Template、ExecutionScope、Workspace、数据分类和组织/团队策略选择可用模型；
 - 敏感字段在进入模型前完成脱敏、引用化或摘要化；
 - Prompt、Tool Result、Memory 和 Attachment 分别执行出站策略；
 - 模型请求保存 Provider、模型、区域、数据分类、脱敏规则版本和 Trace；
@@ -3454,6 +3522,10 @@ M4 Coding Agent 使用 `crewscope-java-spring-coding@1.0.0` 版本化评测集�
 
 评测分为两个轨道。`deterministic-ci` 使用脚本化事实验证清单、物化、策略、证据和稳定失败分类，不调用真实模型，也不产生模型能力分数。`real-model-benchmark` 对全部 12 个任务使用 3 个固定 Seed 独立执行，保存每次原始证据后聚合 Pass@1、任务成功率、编译率、验收率、路径合规率、安全合规率、Token、成本和墙钟时间。两个轨道使用独立结果目录，历史 Run 保持不可变。
 
+M4-Q03 在 `evaluation/m4/coding-q03` 建立真实模型质量层。`crewscope-primary` 由独立 Spring 配置解析到 AgentScope Provider Starter 创建的唯一 `Model` Bean，显式 Provider 模型键继续使用 AgentScope `ModelRegistry`。模型凭证只通过环境进入 Provider，不进入 RunLock、日志、遥测或归档。服务可在未配置模型时启动，Agent 首次调用在模型槽位缺失或不唯一时失败关闭。
+
+评测准备阶段生成 12 个任务乘 3 个 Seed 的 36 次不可变 RunLock，并使用隔离 Maven 仓库完成全部 Judge Pack 的离线依赖物化。依赖目录移除写权限后，以路径、大小和文件字节生成树 SHA-256；Worker 在启动每次评测前复验 Snapshot ID 与 Hash，并将缓存只读挂载到 `/maven-cache`。聚合器逐 Run 调用平台 Judge，交叉复验平台预算、模型遥测、人工判定和运行边界，使用冻结单价计算成本。70% 成功率门禁同时要求成功运行的编译、测试、验收、路径、安全和人工复核全通过，并要求至少一个 CrewScope 自身修改形成 Workspace、AgentRun、CommandEvidence、TestEvidence、DiffArtifact、Delivery Commit 与 CodingResult 闭环。
+
 Coding Task 成功由平台复验产生。判定器核对 Suite/Task、Real Model RunLock、Baseline、实际 Git Changed Paths、Sandbox、预算、固定 CommandEvidence、Agent 不可见 Judge Test、Structured Output Schema 和 Final Manifest Hash。Git 路径使用 NUL 分隔原值判定，不执行空白裁剪；报告拒绝顶层未知字段、重复 Command ID、额外 Command、额外 Budget 字段和未知轨道。Agent 自述、Plan、Todo、自行报告的命令或测试结果不能形成成功事实。稳定失败分类按 Suite、RunLock、Baseline、Path、Sandbox、Budget、Evidence、Timeout、Acceptance、Evidence Hash、Structured Result 和 Final Hash 的顺序失败关闭。
 
 ## 18. 前端产品设计
@@ -3535,7 +3607,12 @@ Web 工作台采用左侧团队导航、中间对话协作、右侧责任与执�
 
 ### 18.8 个人、团队与企业设置
 
-- Personal Agent、Team Agent、模型和输出偏好；
+- `我的 Agent` 展示唯一默认 Personal Agent 以及成员创建的 Coding、Reviewer 等 USER-owned Specialist；成员可从服务端批准的 AgentTemplate 创建、配置、停用和归档执行 Agent；
+- 每个 Agent 展示稳定身份、Ownership、TemplateVersion、当前 Configuration Revision、PERSONAL/TEAM 模型绑定、主模型、Fallback、输出偏好、连接所有者、成本归属和配置历史；
+- 模型候选项只使用服务端 `model-catalog` 可选交集，显示厂商、Model ID、能力、区域、价格、连接主体和健康；TEAM Binding 不显示或接受 USER Connection；
+- 保存前执行 Model Preflight，说明对个人任务、团队任务、新 Conversation、已有 Conversation 和运行中 Task 的生效范围；已有 Conversation 只在安全点提供显式刷新；
+- `模型与凭证` 页面供团队/组织管理员管理 ModelConnection、允许模型、Template + ExecutionScope 默认配置、健康、区域、价格、配额、BYOK 策略和变更记录；
+- Team Agent、TEAM-owned Specialist 与 USER-owned Specialist 的 TEAM Binding 不继承成员 PERSONAL Binding；
 - Personal Memory 与 Team Memory 查看、纠正、Promotion 和删除；
 - Personal Skill、Team Skill、审核、发布和撤销；
 - TeamMember、TeamRole、默认责任和通知策略；
@@ -3973,7 +4050,7 @@ MVP 使用 `all` 模式部署一个应用实例，Execution Worker、Worktree �
 </dependency>
 ```
 
-Spring Boot `4.0.4` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。模型 Provider 可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
+Spring Boot `4.0.4` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。本地单模型部署可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter；企业多模型部署引入对应 Model Extension，由受信 AgentScopeModelFactory 按 ResolvedModelSelection 显式构建 Model。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
 
 MVP 的 Docker Sandbox 由 `agentscope-harness` 内置 `DockerFilesystemSpec` 提供，不需要 Kubernetes Sandbox 扩展。仓库中现有 `agentscope-extensions-sandbox-kubernetes` 依赖保持未启用状态，完成 Kubernetes 执行拓扑 ADR 后再进入运行配置。
 
@@ -4157,7 +4234,8 @@ flowchart LR
 - 基础 OIDC 登录、Team、TeamMember、内置 TeamRole 和 Team Workspace；
 - 团队对话、TaskIntent 和 Conversation 到 Task/WorkItem 的升级确认；
 - WorkProject、Native WorkItem、Owner、Executor、Gate Reviewer、评论和看板；
-- Personal Agent、Task Orchestrator、Coding Specialist、Reviewer Specialist 和只读 Team Agent；
+- 默认 Personal Agent、Task Orchestrator、个人/团队 Coding Specialist、个人/团队 Reviewer Specialist 和只读 Team Agent；
+- AgentTemplate、USER/TEAM/ORGANIZATION Agent Ownership、Model Registry、ModelConnection、PERSONAL/TEAM 模型绑定与配置版本固定；
 - ReviewRequest、ContextPackage、ADVISORY Finding 和 GATE ReviewDecision；
 - NativeWorkItemProvider、SourceCodeProvider 与 CollaborationProvider SPI；
 - 内置 GitHub 集成提供仓库读取、代码读取、Branch、Push 和 Draft PR；
@@ -4300,6 +4378,12 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 9. 子 Agent 遵循父任务的责任、CollaborationGrant、工具、预算和数据范围。
 10. Coding Specialist 输出 RepositoryAnalysis、CodeChangeResult、TestEvidence 和 DiffManifest，Reviewer Specialist 只输出 ADVISORY Finding。
 11. AgentScopeNativeRuntime 与扩展 Runtime 使用相同运行事件、Task Token、Artifact、Review 和 Audit 协议。
+12. 每个成员保留唯一默认 Personal Agent，并可从批准模板创建多个个人 Coding/Reviewer Agent；各 Agent 的 Principal、配置、Session、Memory、凭证、Usage 和 AgentState 相互隔离。
+13. USER-owned Agent 的 PERSONAL 执行可使用 Owner USER Connection；USER-owned Specialist 的 TEAM 执行、Team Agent 和 TEAM-owned Specialist 只使用 TEAM/ORGANIZATION Connection。
+14. Coding、Reviewer 等专业能力由版本化 AgentTemplate 扩展，不通过核心 Agent 枚举或名称推断权限；用户补充指令不能扩大 Tool、Sandbox、网络或凭证范围。
+15. Reviewer Agent 只生成 ADVISORY Finding；SELF_REVIEW 不满足 Gate，ReviewDecision 由合格 TeamMember 提交。
+16. AgentTemplateVersion、AgentConfigurationVersion、Model ID/Revision、Connection 版本、单价和策略哈希进入 AgentRuntimeSession 或 PolicySnapshot，已开始任务不受后续默认值修改影响。
+17. 模型禁用、Connection 撤销、凭证过期、数据策略不符和超预算在 AgentScope 调用前失败关闭，Fallback 只能使用固定候选。
 
 ### 23.7 任务与动作
 

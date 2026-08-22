@@ -6,6 +6,7 @@ M4-I10 在 M3 Lease Sweeper 与 M4 Worktree、Sandbox、Diff、Artifact 生命�
 
 - TaskExecution 重新入队前的 ExecutionWorkspace `RECOVERING` 原子标记；
 - PROVISIONING、READY、ACTIVE、FINALIZING 中断后的物理资源闭合；
+- FINALIZING 已发布 Archive Ref 并移除 Worktree 后，从同一 Delivery Tree 恢复受管 Worktree；
 - 旧 Sandbox 强制删除及其中遗留命令进程树终止；
 - Git Worktree 验证、Provision 残留回滚和 Diff RESET 重建；
 - Organization 与 Runtime Environment 标签约束的未知 Sandbox 清理；
@@ -25,7 +26,8 @@ Runtime Worker 注册
   -> 关闭孤立 AgentRun/StepExecution
   -> TaskExecution 重新进入 READY
   -> 强制关闭旧 Sandbox 与命令进程树
-  -> 回滚中断 Provision，或验证 Worktree 并重建 Diff RESET
+  -> 回滚中断 Provision，验证保留 Worktree，或从 FINALIZING Delivery Tree 恢复 Worktree
+  -> 重建 Diff RESET
   -> 清理有 Organization 与 Environment 归属证明的未知 Sandbox
   -> 归档到期 Workspace，清理到期 Tombstone Artifact
   -> 发布容量健康并开放 Claim
@@ -38,7 +40,8 @@ Runtime Worker 注册
 `CodingWorkspaceStartupReconciler` 是 M3 Reconciler 的 Worker-only `@Primary` 装饰器：
 
 - `PROVISIONING` 调用 `rollbackProvisionOrphan`，只有 Worktree、Branch、HEAD、基线与 Policy 完整闭合时才删除；
-- `READY/ACTIVE/FINALIZING` 先验证 retained Worktree，再使用 Git 权威结果重建一个 RESET，不留下启动期 Watcher 线程；
+- `READY/ACTIVE` 先验证 retained Worktree，再使用 Git 权威结果重建一个 RESET，不留下启动期 Watcher 线程；
+- `FINALIZING` 验证 retained Worktree；Worktree 已移除时校验 Archive Ref、Delivery Commit 与 Baseline，重建基线 Worktree 并恢复精确 Delivery Tree，后续 Finalizer 复用同一 Commit 与 Artifact；
 - 任一恢复资源无法闭合时，Workspace 以 `STARTUP_RECOVERY_FAILED` 明确失败，不保存原始异常和宿主路径；
 - 已有 Sandbox 按稳定容器名、WorkspaceKey 和 TaskExecution ID 复验后强制删除，Docker `rm --force` 同时终止中断命令的容器进程树；
 - 新 Sandbox 携带 Organization ID 与 Runtime Environment 标签。未知容器清理同时要求 managed、Organization 与 Environment 标签；缺少数据库 Workspace、已 `RECOVERING` 或终态的容器可以删除，其他活动 Workspace 保留；

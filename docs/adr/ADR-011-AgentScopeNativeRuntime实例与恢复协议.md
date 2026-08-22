@@ -2,9 +2,9 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-09<br>
-> 更新：2026-08-15（M3-I09 接通 Worker Checkpoint 与恢复链路）<br>
+> 更新：2026-08-21（ADR-015 引入独立 AgentConfigurationVersion 与多模型解析）<br>
 > 影响里程碑：M2–M4<br>
-> 关联决策：[ADR-009](ADR-009-会话执行所有权与恢复协议.md)、[ADR-010](ADR-010-ExecutionRuntime调用与流协议.md)
+> 关联决策：[ADR-009](ADR-009-会话执行所有权与恢复协议.md)、[ADR-010](ADR-010-ExecutionRuntime调用与流协议.md)、[ADR-015](ADR-015-Agent模型目录、连接与配置解析.md)
 
 ## 背景
 
@@ -25,6 +25,8 @@ AgentProfileId + AgentProfileVersion
 配置包含主模型 ID、可选备用模型 ID、System Prompt、最大 ReAct 轮数和模型重试次数。`PersonalAgentConfigurationSource` 必须返回与 AgentRuntimeSession 固化 ID、版本完全一致的配置；`AgentScopeModelResolver` 把模型 ID 解析为 AgentScope `Model`。配置缺失、版本错配或模型不可用时调用以安全 `FAILED` 终态结束。
 
 同一 Profile 版本跨 Conversation 复用一个 HarnessAgent。Conversation 状态继续由持久化 `AgentRuntimeSession.agentScopeKey` 的 `userId/sessionId` 隔离。Profile 版本推进后创建新的 Agent 实例，既有 Session 在显式刷新配置前继续使用固化版本。Factory 关闭时统一关闭缓存实例。
+
+M2–M4 使用 `AgentProfileId + AgentProfileVersion` 作为环境配置基线。M5 按 [ADR-015](ADR-015-Agent模型目录、连接与配置解析.md) 将运行缓存键升级为 `AgentProfileId + AgentConfigurationRevision`，AgentProfile 的乐观锁/状态 Version 不再代表模型、Prompt 和 Tool 配置版本。AgentRuntimeSession 和 PolicySnapshot 固定 Configuration Revision，保持现有 Session Key 与 AgentState 隔离语义。
 
 M2 Factory 注入共享 Redis `AgentStateStore`、每实例新建的 `Toolkit` 和 [ADR-012](ADR-012-PlatformExecutionContext与AgentScope安全中间件.md) 定义的有序安全 Middleware。`AgentScopeNativeRuntime` 在 Invoke 和 Resume 前通过 [ADR-009](ADR-009-会话执行所有权与恢复协议.md) 的状态预检验证 Redis 与单活动实例所有权。M2-I03 使用 AgentScope Permission Pending Tool 原生恢复链路，并关闭文件、Shell、Subagent、Memory、动态 Skill、Workspace Context 与客户端 Tools 配置。
 

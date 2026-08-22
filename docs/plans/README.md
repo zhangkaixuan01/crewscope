@@ -95,5 +95,8 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M2：Conversation 与 Personal Agent](M2-Conversation与Personal-Agent.md)
 - [M3：耐久 Task Runtime](M3-耐久Task-Runtime.md)
 - [M4：AgentScope 原生 Coding Agent](M4-AgentScope原生Coding-Agent.md)
+- [M5：Agent 模型、个人执行 Agent、Review 与 GitHub Draft PR](M5-Agent模型与Review交付.md)
 
-M0、M1、M2 和 M3 已完成。M4 已在 M3 Runtime Release Gate、ADR-002 与 M0-S03 Docker Sandbox 验证通过后拆分为 44 个任务；`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07`、`M4-F01` 至 `M4-F08` 已完成，下一项为 `M4-Q01`。
+M0 至 M4 已完成。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
+
+M5 已拆分为 48 个任务，详细落实 [ADR-015](../adr/ADR-015-Agent模型目录、连接与配置解析.md)与 [ADR-016](../adr/ADR-016-Agent所有权、模板与执行配置.md)。首个纵向切片交付动态模型、AgentTemplate、USER/TEAM/ORGANIZATION ModelConnection、个人/团队执行 Agent 创建和 PERSONAL/TEAM 模型绑定；后续切片交付 Reviewer、Gate Review、PlannedAction 和 GitHub Draft PR。下一任务为 `M5-S01`。

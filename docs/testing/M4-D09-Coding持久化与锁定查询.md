@@ -67,6 +67,8 @@ scope + aggregate_id + expected_version
 
 DiffArtifact、TestEvidence 和 CodingCheckpoint 都包含根事实及规范化子表。创建方法使用事务包围整张对象图；任何子表写入失败都会回滚根表，数据库中不会留下半成品 Artifact。
 
+V19 增加追加式 `execution_workspace_epoch`。Workspace 创建或因新 Lease/Fencing 与 Recovery Generation 产生新 Fingerprint 时，PostgreSQL 在同一写入边界记录新代际。CommandEvidence、TestEvidence、DiffArtifact 和 CodingCheckpoint 的复合外键包含 `workspace_fingerprint`，只能引用真实存在过的 Workspace 代际。当前 Workspace 换代后，旧证据仍可读取；伪造的 Fingerprint 在数据库边界失败。
+
 当前 Port 查询遵守以下规则：
 
 - Revision、EvidenceSequence 和 CheckpointSequence 使用稳定顺序；
@@ -93,7 +95,7 @@ V14 原先通过 `POSITION(CHR(0) IN text_column)` 检查文本 NUL。PostgreSQL
 3. 并发 RepositoryKey 创建只成功一次，并映射稳定领域冲突；
 4. CommandCatalog 和字符串集合 JSON 往返；
 5. CodingTarget、Workspace、Policy 与 Overlay compare-and-set 往返；
-6. Diff、Command、Test、Checkpoint 及规范化子表完整往返；
+6. Diff、Command、Test、Checkpoint 及规范化子表完整往返，Workspace 换代后历史证据仍绑定真实 Epoch；
 7. 双事务 `FOR UPDATE SKIP LOCKED` 互斥领取、Workspace 条件更新和陈旧版本冲突；
 8. Diff 子表强制失败时根表事务回滚。
 

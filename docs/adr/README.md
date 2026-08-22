@@ -29,6 +29,8 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-012](ADR-012-PlatformExecutionContext与AgentScope安全中间件.md) | PlatformExecutionContext、AgentScope 安全 Middleware 与基础 Audit | ACCEPTED |
 | [ADR-013](ADR-013-AgentScope事件映射与披露协议.md) | AgentScope 原始事件、AG-UI 瞬时事件与业务 Candidate 披露边界 | ACCEPTED |
 | [ADR-014](ADR-014-Agent模型调用可观测与安全重试协议.md) | Agent 模型调用观测、安全重试、Fallback、日志与指标边界 | ACCEPTED |
+| [ADR-015](ADR-015-Agent模型目录、连接与配置解析.md) | 个人/团队/组织模型目录、凭证连接、Agent 配置版本与运行解析 | ACCEPTED |
+| [ADR-016](ADR-016-Agent所有权、模板与执行配置.md) | Agent 所有权、运行角色、模板、个人/团队执行配置与 Review 独立性 | ACCEPTED |
 
 ## ADR 内容要求
 

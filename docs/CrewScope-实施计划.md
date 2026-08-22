@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.7<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`<br>
+> 文档版本：v1.9<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.1`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0、M1、M2、M3 已完成；M4-S01 至 M4-S04、M4-D01 至 M4-D09、M4-I01 至 M4-I12、M4-A01 至 M4-A07、M4-F01 至 M4-F08 已完成，下一项为 M4-Q01（2026-08-20）
+> 当前进度：M0 至 M4 已完成；M5 已拆分为 48 个任务，下一任务为 M5-S01（2026-08-22）
 
 ## 1. 实施目标
 
@@ -47,34 +47,33 @@ CrewScope 首个可用版本交付一条完整闭环：
 - Team 创建、默认 Workspace、默认 Personal Agent、成员加入、Bootstrap/OIDC 身份映射和 Scope 权限边界；
 - Native WorkItem、评论、ResourceLink、责任链、ReviewerEligibilityPolicy、Timeline、幂等命令和并发控制；
 - AgentRuntime、CapabilityProvider 与三个内置 Provider 描述符；
+- `crewscope-primary` 部署级模型槽位、AgentScope OpenAI Starter 与 DeepSeek/OpenAI-compatible Endpoint 接入；
 - Spring Security Bootstrap/OIDC 双模式与 Spring Application Configuration 分业务装配；
 - Conversation/Control 双入口、ScopeSwitcher、Today、Work List/Board、成员管理、WorkItem 详情、责任链和 Timeline Web；
 - Maven、Vitest Coverage、Histoire、Playwright、视觉回归、Axe WCAG 和文档检查组成的 Release Gate。
 
-### 2.2 M2 及后续待实现
+### 2.2 M4 完成结果及后续待实现
 
-- Conversation、Participant、Message、ConversationWorkItemLink、ConversationTaskLink、Agent Session、Provider Binding 与 TaskIntent；
-- TaskExecution、Review、Action 和团队观察领域；
-- 真实 AgentScope Agent 创建、调用、事件、中断和恢复；
-- TaskExecution Claim、ExecutionLease、Heartbeat、Retry 和 Recovery；
-- Task Token 与凭证换取；
-- Git Worktree、Sandbox、Coding Tool 和 Diff Stream；
-- GitHub 与飞书真实 Connector；
-- 团队对话、看板、执行、Review、Inbox 和 Audit 前端。
+- M4-Q03 使用固定真实模型完成 36 次 Coding Agent 正式批次，29 / 36、80.56%，Pass@1 75%，任务成功率与安全合规率 100%，CrewScope 自身修改闭环和质量门禁通过；
+- M4-Q04 统一 Release Gate 通过：Maven 1517 / 1517、Q01 194 / 194、Q02 137 / 137、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126；
+- Model Registry、USER/TEAM/ORGANIZATION ModelConnection、AgentConfigurationVersion 与 PolicySnapshot 模型解析；
+- 默认 Personal Agent 与个人/团队执行 Agent 创建、PERSONAL/TEAM 模型绑定、BYOK 和团队/组织模型治理前端；
+- Review、PlannedAction、GitHub Draft PR 和外部结果对账；
+- Activity、Inbox、Audit、Usage、飞书通知和 MVP 发布门禁。
 
 ## 3. MVP 范围
 
 | 范围 | MVP 交付 |
 |---|---|
 | 用户 | TeamMember，开发环境支持 Bootstrap 用户，部署环境支持基础 OIDC |
-| Agent | 每人一个默认 Personal Agent，任务级 Task Orchestrator、Coding Specialist 和 Reviewer Specialist，团队级只读 Team Agent |
+| Agent | 每人一个默认 Personal Agent，成员可选策略允许的主/Fallback 模型；Task Orchestrator、Coding/Reviewer Specialist 和只读 Team Agent 使用独立团队配置 |
 | 仓库 | Java/Spring Boot、Git、Maven，单仓库为首个验收用例 |
 | 工作项 | Native WorkItem，支持创建、看板、状态、责任、评论和关联任务 |
 | Runtime | AgentScopeNativeRuntime |
 | 执行 | PostgreSQL 耐久队列、Claim、Lease、Heartbeat、Pause、Resume、Cancel 和 Recovery |
 | 工作区 | 同机 Execution Worker、Git Worktree、Docker Sandbox、文件修改、命令、Maven 测试、Diff 和 Artifact |
 | Review | Reviewer Specialist Advisory Finding + TeamMember Gate Decision |
-| Provider | Native WorkItem、GitHub SourceCode、Lark Collaboration |
+| Provider | Native WorkItem、GitHub SourceCode、Lark Collaboration；DeepSeek 与至少一个备用模型厂商进入 Model Registry |
 | 写操作 | Push Branch 和 Draft PR 通过 PlannedAction 与 Confirmation |
 | 观测 | Task Timeline、Activity、Inbox、Audit、Trace 和核心指标 |
 | 交互端 | Web 工作台，飞书用于团队通知 |
@@ -156,7 +155,7 @@ flowchart LR
   M1 --> M2["M2 对话 / Personal Agent"]
   M2 --> M3["M3 耐久 Task Runtime"]
   M3 --> M4["M4 原生 Coding Agent"]
-  M4 --> M5["M5 Review / GitHub Draft PR"]
+  M4 --> M5["M5 Agent 模型设置 / Review / GitHub Draft PR"]
   M5 --> M6["M6 团队观测与 MVP 发布"]
 ```
 
@@ -167,7 +166,7 @@ flowchart LR
 | M2 | 成员在 Web 与 Personal Agent 对话并生成 TaskIntent | 2 周 |
 | M3 | TaskExecution 可领取、心跳、暂停、恢复、取消和重试 | 3–4 周 |
 | M4 | AgentScope 原生 Coding Agent 在同机 Worktree 与 Docker Sandbox 中修改并测试代码 | 4–5 周 |
-| M5 | 成员完成 Gate Review 并通过 ActionBundle 创建 GitHub Draft PR | 3–4 周 |
+| M5 | 成员创建和配置个人执行 Agent，团队治理模型与共享 Agent，完成 Gate Review 并通过 ActionBundle 创建 GitHub Draft PR | 6–8 周 |
 | M6 | Activity、Inbox、Audit、飞书通知、恢复和故障测试达标 | 3–4 周 |
 
 建议周期以 2 名后端与 1 名前端小组为基准，18–24 周交付 Team Beta。单人实施按 M0 到 M6 串行推进，建议预留 7–10 个月。生产级 Kubernetes 执行拓扑、Vault/KMS 高可用、容灾和长期 SLO 加固在 Team Beta 后单独排期。
@@ -511,23 +510,38 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 8. Docker Sandbox 内修改可被同机 Diff Watcher 观察，Worker 与 Sandbox 重启后 Worktree 仍可对账；
 9. CI 和 MVP 验收没有使用本地进程 Sandbox。
 
-## 11. M5：Review、PlannedAction 与 GitHub Draft PR
+## 11. M5：Agent 模型、个人执行 Agent、Review、PlannedAction 与 GitHub Draft PR
 
 ### 11.1 目标
 
-将 Agent 产生的代码变更转化为经成员 Review、精确确认和可审计外部动作的 Draft PR。
+建立个人可选、团队可管、企业可审计的 Agent 与模型配置。成员保留一个默认对话式 Personal Agent，并可从批准模板创建多个个人执行 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review、精确确认和可审计外部动作后形成 Draft PR。
 
-### 11.2 Review
+### 11.2 Agent 模型目录与配置
+
+- 落实 [ADR-015：Agent 模型目录、连接与配置解析](adr/ADR-015-Agent模型目录、连接与配置解析.md)；
+- 落实 [ADR-016：Agent 所有权、模板与执行配置](adr/ADR-016-Agent所有权、模板与执行配置.md)，分离 Ownership、RuntimeRole、Template 和 ExecutionScope；
+- 实现 ModelProviderDefinition、ModelCatalogEntry、ModelPriceSchedule、ModelConnection、AgentConfigurationVersion 和 AgentModelDefault；
+- 实现版本化 AgentTemplateDefinition；首批交付 `coding` 与 `reviewer`，成员可创建多个 USER-owned Specialist，管理员可创建 TEAM-owned Agent；
+- 新增 `V20__model_catalog_agent_template_and_configuration.sql`，使用完整 Organization/Team/Owner 复合外键、Template/Configuration Revision 唯一约束和追加价格时间片；
+- 使用 CredentialStore 保存 USER/TEAM/ORGANIZATION ModelConnection 凭证，实现创建、验证、轮换、停用、撤销和审计；
+- 为 AgentConfigurationVersion 建立 PERSONAL/TEAM 两类模型绑定：个人执行可用 Owner USER 或授权连接，团队执行只用 TEAM/ORGANIZATION 或继承 Team Template 默认；
+- 实现模型可选交集、AgentTemplate 默认值、主/Fallback 独立校验、能力/数据区域/成本策略和 `MODEL_UNAVAILABLE` 失败关闭；
+- 将单 Spring `Model` Bean 升级为受信 `AgentScopeModelFactory`，根据 ResolvedModelSelection 构建 DeepSeek/OpenAI-compatible、OpenAI、DashScope、Gemini、Anthropic 或 Ollama Model；
+- DeepSeek 保持产品 Provider `deepseek`，Adapter 使用 `openai-compatible`，Tool 与 Structured Output 共存时固定 `nativeStructuredOutputWithTools(false)`；
+- AgentRuntimeSession 固定 AgentConfigurationVersion，Conversation 在安全点显式刷新，TaskExecution 通过 PolicySnapshot 固定 Provider/Connection/Model Revision/单价/策略哈希；
+- 实现 `我的 Agent` 和 `模型与凭证` 两个设置面，包含 Agent 创建、PERSONAL/TEAM Binding、Model Preflight、生效范围、配置历史、连接健康、成本归属和 BYOK 策略。
+
+### 11.3 Review
 
 - ContextPackage、ReviewRequest、ReviewFinding 和 ReviewDecision；
-- `V15__review_action_and_github.sql`；
+- `V21__review_action_and_github.sql`；
 - Review Subject 绑定基线 Commit、DiffArtifact、TestEvidence 和验收标准；
 - Reviewer Specialist 使用独立 Session 生成 `ADVISORY` Finding；
 - TeamMember 提交 `APPROVED/CHANGES_REQUESTED/REJECTED` Gate Decision；
 - `CHANGES_REQUESTED` 重新激活 Coding Specialist；
 - Diff 变化后原 ReviewRequest 失效并生成新版本。
 
-### 11.3 Provider 与凭证
+### 11.4 Provider 与凭证
 
 - 扩展 M2 的 ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant、ProviderBinding 与 BindingResolver；
 - MVP 使用内置注册表，保留后续 Plugin 扩展边界；
@@ -541,7 +555,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 使用可测试 HTTP Client 边界、错误归一化、限流和重试；
 - Webhook 实现验签、去重、自身事件过滤和 PR 状态对账。
 
-### 11.4 PlannedAction
+### 11.5 PlannedAction
 
 - ActionBundle、PlannedAction、Confirmation、ActionReceipt 和 ReconcileJob；
 - Push Branch 与 Create Draft PR 分别生成可审查动作，并由一个精确 ActionBundle 展示和确认；
@@ -553,7 +567,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 结果不确定时进入 `UNKNOWN -> RECONCILING`；
 - 成功后保存 PR URL、编号、Head SHA、外部 Operation ID 和回执哈希。
 
-### 11.5 前端
+### 11.6 前端
 
 - Diff 文件列表与内容查看；
 - TestEvidence 与验收标准；
@@ -562,18 +576,25 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - ActionBundle 展示两个动作的参数、风险、依赖和分别回执；
 - Draft PR 结果和 ActionReceipt。
 
-### 11.6 验收
+### 11.7 验收
 
-1. ReviewRequest 绑定精确 Diff 和基线；
-2. Agent 只能提交 Advisory Finding，TeamMember 提交 Gate Decision；
-3. Diff 变化后原 Gate Decision 不能用于新动作；
-4. GitHub 写操作未确认时不执行；
-5. 重复调度只创建一个有效 Draft PR 或进入明确对账；
-6. Draft PR、Receipt、WorkItem 和 Audit 使用同一 Correlation ID；
-7. 一次确认只覆盖精确 ActionBundle，任一动作参数、基线、责任、Binding 或策略变化后必须重新确认；
-8. Push 成功、PR 创建失败时不重复 Push，只重试 PR 动作；
-9. GitHub 长期凭证、installation token 和 AskPass 内容不进入 Agent、日志、Artifact 和数据库明文字段；
-10. Push 超时或 Receipt 丢失时通过远端 Head SHA 对账并补写唯一 Receipt，不产生重复 Push。
+1. 每个成员保留唯一默认 Personal Agent，并可创建多个相互隔离的个人 Coding/Reviewer Agent；
+2. Agent Ownership、RuntimeRole、Template 和 ExecutionScope 独立建模，新增模板不修改核心 Agent 枚举；
+3. PERSONAL Task 可以使用 Owner USER Connection，TEAM Task 只使用 TEAM/ORGANIZATION Connection 或 Team 默认；
+4. 模型禁用、凭证撤销、能力不符、数据策略不符和超预算在 AgentScope 前失败关闭；
+5. AgentTemplateVersion 与 AgentConfigurationVersion 只追加，新会话/任务生效，历史运行保持精确版本；
+6. TaskExecution 固定 Template、AgentConfiguration、Provider、Connection、Model ID/Revision、单价、Fallback 和策略 Hash；
+7. ReviewRequest 绑定精确 Diff、基线、TestEvidence、Acceptance 和 ContextPackage Hash；
+8. Agent 只能提交 Advisory Finding，SELF_REVIEW 不能满足 Gate，合格 TeamMember 提交 Gate Decision；
+9. Diff 或证据变化后原 Gate Decision 不能用于新动作；
+10. GitHub 写操作未确认时不执行；
+11. 重复调度只创建一个有效 Draft PR 或进入明确对账；
+12. Draft PR、Receipt、WorkItem 和 Audit 使用同一 Correlation ID；
+13. 一次确认只覆盖精确 ActionBundle，任一动作参数、基线、责任、Binding 或策略变化后必须重新确认；
+14. Push 成功、PR 创建失败时不重复 Push，只重试 PR 动作；
+15. 模型和 GitHub 长期凭证、installation token 和 AskPass 内容不进入 Agent、日志、Artifact 和数据库明文字段；
+16. Push 超时或 Receipt 丢失时通过远端 Head SHA 对账并补写唯一 Receipt，不产生重复 Push；
+17. 完整验收、任务依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 12. M6：团队观测、飞书通知与 MVP 发布
 
@@ -668,8 +689,14 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V12__task_query_indexes.sql` | Task 列表与 Runtime Facts 查询索引 | M3 |
 | `V13__task_event_stream.sql` | Task Event 耐久流索引、关系上下文与 V12 既有事件回填 | M3 |
 | `V14__execution_workspace_and_artifacts.sql` | RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、WorkspacePolicy/Overlay、DiffArtifact/DiffFileEntry、CommandEvidence、TestEvidence/验收映射、CodingCheckpoint 和 Coding Artifact 类型 | M4 |
-| `V15__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
-| `V16__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
+| `V15__workspace_write_budget.sql` | ExecutionWorkspace 耐久写入/变更文件预算和数据升级校验 | M4 |
+| `V16__personal_agent_task_runtime_session.sql` | Task Orchestrator 允许使用成员 Personal Agent 或 Team Agent，并保持 Session 关系约束 | M4 |
+| `V17__delegated_specialist_runtime_session.sql` | Coding Specialist 独立 STEP Session 与委托 Agent 身份、Profile 约束 | M4 |
+| `V18__finalizing_workspace_recovery_shape.sql` | FINALIZING 中断后的 Workspace RECOVERING 完成事实约束 | M4 |
+| `V19__workspace_epoch_evidence_lineage.sql` | Workspace 所有权 Epoch 与 Command/Test/Diff/Checkpoint 不可变证据血缘 | M4 |
+| `V20__model_catalog_agent_template_and_configuration.sql` | Model Registry、ModelConnection、AgentTemplateVersion、Agent Ownership、PERSONAL/TEAM Binding、AgentConfigurationVersion 和 AgentModelDefault | M5 |
+| `V21__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
+| `V22__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
@@ -768,7 +795,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 3. [ADR-003：ArtifactStore 与 AgentStateSnapshot](adr/ADR-003-ArtifactStore与Snapshot.md)；
 4. [ADR-004：CredentialStore 与动作级凭证](adr/ADR-004-CredentialStore与动作凭证.md)；
 5. [ADR-005：DomainEvent、Outbox、Audit 与实时事件](adr/ADR-005-事件与投影协议.md)；
-6. [ADR-006：ProviderBinding 解析与授权固化](adr/ADR-006-ProviderBinding解析与授权.md)。
+6. [ADR-006：ProviderBinding 解析与授权固化](adr/ADR-006-ProviderBinding解析与授权.md)；
+7. [ADR-015：Agent 模型目录、连接与配置解析](adr/ADR-015-Agent模型目录、连接与配置解析.md)。
+8. [ADR-016：Agent 所有权、模板与执行配置](adr/ADR-016-Agent所有权、模板与执行配置.md)。
 
 ### 17.2 风险表
 
@@ -783,6 +812,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 | 任务重复执行 | PostgreSQL Claim、Claim Token、Fencing Token、ExecutionLease、终态条件更新和幂等键 | M3 出口 |
 | 外部动作结果不确定 | ActionReceipt、`UNKNOWN`、Webhook、主动查询和 Reconcile | M5 出口 |
 | 凭证进入 Agent 上下文 | Task Token、信封加密、动作级凭证、脱敏和越权测试 | M3–M5 |
+| 个人模型选择绕过企业数据或成本策略 | Ownership + ExecutionScope 服务端交集、双模型绑定、Model Preflight、PolicySnapshot 和 Safety Overlay | M5 出口 |
+| 个人执行 Agent 将 USER Key 带入团队任务 | TEAM Binding 独立解析、Team 默认、任务 Scope 判定和 USER Connection 固定攻击集 | M5 出口 |
+| 模型默认值变更导致在途会话或任务漂移 | AgentConfigurationVersion 追加、Session/PolicySnapshot 固定、安全点显式刷新 | M5 出口 |
 | 三条实时事件流重复或乱序 | 统一事件信封、DomainEvent ID、投影版本和 Cursor 去重 | M2 与 M6 出口 |
 | 领域范围过大 | 按纵向闭环实现，MVP 仅保留必要状态与角色 | 每个里程碑评审 |
 
@@ -795,12 +827,17 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)：32 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Conversation、TaskIntent、AgentScope Runtime、Provider Binding、AG-UI、安全入口、前端和恢复测试。
 - [M3 执行清单](plans/M3-耐久Task-Runtime.md)：38 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Task、TaskExecution、Claim、Lease、Task Token、AgentRun、Snapshot、Worker、Conversation/Control 双入口和故障恢复。
 - [M4 执行清单](plans/M4-AgentScope原生Coding-Agent.md)：44 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 RepositoryBinding、CodingTarget、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、Diff/Test Artifact、Repository 管理、Execution Studio、安全、恢复和固定评测。
+- [M5 执行清单](plans/M5-Agent模型与Review交付.md)：48 个 SPIKE/TASK/FEATURE/HARDENING，覆盖动态模型、AgentTemplate、个人/团队执行 Agent、双执行范围模型绑定、Reviewer、Gate Review、GitHub Draft PR、PlannedAction、安全、恢复和评测。
 
 M0 至 M3 已通过各自 Release Gate。M2 已交付 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口与安全恢复闭环；详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。
 
 M3 的 38 个任务已全部完成，交付耐久 Task Runtime、AgentScope Task Orchestrator、Task Token、Claim/Lease/Fencing、AgentRun/Snapshot 恢复、Conversation/Control 双入口与成员控制闭环。最终门禁结果为 Maven `1082 / 1082`、Vitest `180 / 180`、Playwright `102 / 102`、固定故障与重放样本 `56 / 56`，详细证据见 [M3 执行清单](plans/M3-耐久Task-Runtime.md)与 [M3 Release Gate](testing/M3-Q03-Release-Gate.md)。
 
-M4 已拆分为 44 个可执行任务，在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07`、`M4-F01` 至 `M4-F08` 已完成，下一项为 `M4-Q01`。M4-I01 至 I10 已完成 Git、Workspace、Sandbox、受控 Tool、Diff、Artifact 与启动恢复基础设施；M4-I11 已完成固定 Skill/Tool 面的原生 Coding Specialist、Plan/Todo、Compaction、Eviction、AgentState 安全点与严格输出；M4-I12 已完成 Specialist Step 协调、策略修复预算、事件优先 Checkpoint、Pause/Resume/Cancel、Snapshot/Workspace 恢复、权威结果复验与终态映射；M4-A01 至 A07 已完成 RepositoryBinding、CodingTarget、Workspace 生命周期、Coding attempt 查询、Timeline、Artifact 与 Runtime 运维 API；M4-F01 至 F07 已完成 Coding 数据层、Repository 管理、CodingTarget 委托、Execution Studio、Diff、Evidence、五阶段进度与强版本执行控制；M4-F08 已完成全状态、响应式、键盘、ARIA Live、Reduced Motion、Histoire、视觉与 Axe 门禁。验证见 [M4-A01 RepositoryBinding 管理与 Preflight API](testing/M4-A01-RepositoryBinding管理与Preflight-API.md)、[M4-A07 Runtime Fleet 与运维命令](testing/M4-A07-Runtime-Fleet与运维命令.md)、[M4-F04 Execution Studio 基础观察面](testing/M4-F04-Execution-Studio基础观察面.md)、[M4-F07 Coding 进度与执行控制整合](testing/M4-F07-Coding进度与执行控制整合.md)与 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
+M4 共 44 个可执行任务，已全部完成并通过 M4-Q04 Release Gate。当前已在 M3 执行内核上交付 RepositoryBinding、CodingTargetSnapshot、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、DiffArtifact、TestEvidence、Repository 管理与 Execution Studio。M4-I01 至 I10 已完成 Git、Workspace、Sandbox、受控 Tool、Diff、Artifact 与启动恢复基础设施；M4-I11 已完成固定 Skill/Tool 面的原生 Coding Specialist、Plan/Todo、Compaction、Eviction、AgentState 安全点与严格输出；M4-I12 已完成 Specialist Step 协调、策略修复预算、事件优先 Checkpoint、Pause/Resume/Cancel、Snapshot/Workspace 恢复、权威结果复验与终态映射；M4-A01 至 A07 已完成 RepositoryBinding、CodingTarget、Workspace 生命周期、Coding attempt 查询、Timeline、Artifact 与 Runtime 运维 API；M4-F01 至 F08 已完成 Coding 数据层、Repository 管理、CodingTarget 委托、Execution Studio、Diff、Evidence、五阶段进度、强版本执行控制和前端质量门禁；M4-Q01 已完成固定攻击集；M4-Q02 已完成 55 项固定故障与重放样本；M4-Q03 已完成真实模型固定矩阵与 CrewScope 自修改闭环；M4-Q04 已完成全量回归、迁移、前端、依赖和文档收口。验证见 [M4-Q04 Release Gate](testing/M4-Q04-Release-Gate.md)。
+
+M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 36 次真实模型固定矩阵评测和 CrewScope 自修改闭环。权威聚合为 29 / 36、端到端成功率 80.56%、Pass@1 75%、任务成功率 100%、安全合规率 100%，CrewScope 闭环与质量门禁均通过；7 次未成功运行均为路径违规。Token 作为成本与效率指标持续聚合，运行时使用 60 万输入 Token、6.4 万输出 Token 和 80 次模型调用作为资源失控保护。验收证据导出遗漏通过哈希绑定的追加修正链修复，原始报告保持不可变，详见 [M4-Q03 Coding Agent 质量基线](testing/M4-Q03-Coding-Agent质量基线.md)。
+
+M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5 首个纵向切片先交付动态 Model Factory、Agent Ownership/Template、个人执行 Agent 创建和 PERSONAL/TEAM 模型绑定；下一任务为 `M5-S01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 19. 项目管理与进度跟踪
 

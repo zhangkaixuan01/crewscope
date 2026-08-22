@@ -4,7 +4,7 @@
 > 前置条件：M3 Release Gate 通过，ADR-002 已接受，M0-S03 Docker Sandbox 验证通过<br>
 > 目标周期：4–5 周，按纵向波次推进<br>
 > 目标结果：成员从 WorkItem 或 Conversation 指定受管仓库目标后，Coding Specialist 可在独立 Worktree 与 Docker Sandbox 中分析、修改、测试并交付可恢复、可观察、可审计的 Diff 与 TestEvidence<br>
-> 当前进度：`M4-S01` 至 `M4-S04`、`M4-D01` 至 `M4-D09`、`M4-I01` 至 `M4-I12`、`M4-A01` 至 `M4-A07`、`M4-F01` 至 `M4-F08` 已完成，下一项为 `M4-Q01`（2026-08-20）
+> 当前进度：44 个任务全部完成，M4 Release Gate 已通过（2026-08-22）
 
 ## 1. 出口结果与范围
 
@@ -166,7 +166,7 @@ Coding 闭环完成 -> M4-Q03
 | `M4-I09` | TASK | D05,D06,I07,I08 | infrastructure | 已完成：统一 Patch、构建日志、测试报告 Restricted Artifact 发布、稳定 ID、保留期、整对象校验后 Range、关系元数据闭合 Reader、Tombstone/Purge 与公开摘要 | [M4-I09 Coding Artifact 读写与生命周期](../testing/M4-I09-Coding-Artifact读写与生命周期.md)；文件 Store 覆盖 Hash/大小、写入中断、重复发布、删除、Range、敏感探针和数据库引用闭合 |
 | `M4-I10` | TASK | I03,I04,I08,I09,M3-I09 | infrastructure/server | 已完成：在 M3 重新入队事务内标记 Workspace RECOVERING，并在开放 Claim 前完成 Sandbox/命令进程、Worktree、Diff RESET、未知容器、到期 Archive 与 Tombstone Artifact 对账，提供脱敏容量健康 | [M4-I10 Worker 启动资源对账](../testing/M4-I10-Worker启动资源对账.md)；专项覆盖 PROVISIONING/ACTIVE/FINALIZING、失败关闭、重复启动、孤立容器、归档/Purge、Primary 装配、容量上限和 Drain 不清理在途 Workspace |
 | `M4-I11` | FEATURE | S01,D07,I04..I09 | agentscope/application | 已完成：实现 CodingSpecialistFactory 与 AgentScopeCodingRuntime，启用固定 Plan/Task List、Compaction、Tool Eviction、State/Snapshot、受控 Skill Bundle 和 Coding Tools | [M4-I11 AgentScope Coding Specialist 运行时](../testing/M4-I11-AgentScope-Coding-Specialist运行时.md)；可控 Model 完成 Skill 加载、分析、计划、跨文件修改、测试、自检与严格 Structured Output，缺失/额外/raw Tool 失败关闭，MCP/Subagent/Reviewer/GitHub 工具均不存在 |
-| `M4-I12` | FEATURE | I10,I11,M3-I06..I09 | agentscope/application | 已完成：将 Coding Specialist 接入 Task Orchestrator/StepExecution，完成策略预算、测试失败修复轮次、事件优先 Checkpoint、Pause/Resume/Cancel、跨进程恢复、结果复验与终态映射 | [M4-I12 Coding Specialist Step 执行与恢复](../testing/M4-I12-Coding-Specialist-Step执行与恢复.md)；9 个专项场景覆盖同 Run 修复、Snapshot/Workspace 恢复、预算耗尽、结果伪造、Pause/Cancel、后继 attempt 和耐久提交顺序 |
+| `M4-I12` | FEATURE | I10,I11,M3-I06..I09 | agentscope/application | 已完成：将 Coding Specialist 接入 Task Orchestrator/StepExecution，完成策略预算、测试失败修复轮次、事件优先 Checkpoint、Pause/Resume/Cancel、跨进程恢复、结果复验与终态映射；Worker 在 Task Agent 与 Specialist 共用的 Lease 窗口内将成员控制请求路由到当前活动 Session，暂停保留 Workspace/Sandbox，终态模型调用数来自累计遥测 | [M4-I12 Coding Specialist Step 执行与恢复](../testing/M4-I12-Coding-Specialist-Step执行与恢复.md)；专项覆盖同 Run 修复、Snapshot/Workspace 恢复、预算耗尽、结果伪造、Pause/Cancel、多模型调用计数、生产控制路由、后继 attempt 和耐久提交顺序 |
 
 ## 9. 应用、API 与服务端
 
@@ -191,16 +191,16 @@ Coding 闭环完成 -> M4-Q03
 | `M4-F05` | FEATURE | F01,A05,A06 | web | 已完成：交付文件树、变更状态、单文件 Patch、累计统计和实时 Diff Stream；复用 Task Cursor 续传，严格应用同 Epoch 直接后继 DELTA，缺口时以 attempt 权威快照 Reset Reconcile；Patch 通过独立授权 Artifact API 分页读取并复验 Size、ETag、SHA-256 与 UTF-8 | [M4-F05 Diff Explorer 与实时 Diff Stream](../testing/M4-F05-Diff-Explorer与实时Diff-Stream.md)；新增/修改/删除/重命名/二进制、大文件树、断线、乱序、403、桌面双栏、390×844 顺序阅读、Axe 与视觉回归通过 |
 | `M4-F06` | FEATURE | F01,A04,A06 | web | 已完成：交付 CommandEvidence、TestEvidence 与 Acceptance 只读证据面板，展示退出码、时长、超时、测试统计和失败分类；日志与报告使用固定关系入口按 64 KiB 加载，复验 Range、元数据、Size、SHA-256 与 UTF-8，完整后使用服务端文件名下载 | [M4-F06 Evidence 只读面板与有界 Artifact](../testing/M4-F06-Evidence只读面板与有界Artifact.md)；Cursor、Range、429 后保留已验证分页、失败与超时、敏感内容遮蔽、无终端输入、键盘、桌面/390×844、Axe 与回归通过 |
 | `M4-F07` | FEATURE | F04,M3-F05,A03 | web | 已完成：将五阶段 Coding 轨道、Plan Todo、Step Checkpoint、Agent Run/State Snapshot、TestEvidence、修复预算与 M3 Pause/Resume/Cancel/Retry 控件整合到 Execution Studio；当前 attempt 按强版本开放命令，历史 attempt 保持只读 | [M4-F07 Coding 进度与执行控制整合](../testing/M4-F07-Coding进度与执行控制整合.md)；命令执行中控制、409/412 回读、离线、同键重试、恢复后一致性、焦点恢复、桌面/390×844、视觉与 Axe 回归通过 |
-| `M4-F08` | HARDENING | F02..F07 | web | 已完成：收口 Repository 与 Execution Studio 全状态、桌面/窄屏响应式、键盘、ARIA Live、Reduced Motion、Axe WCAG 2.2 AA、视觉回归和组件 Story | [M4-F08 前端全状态与质量门禁](../testing/M4-F08-前端全状态与质量门禁.md)；232 项 Vitest、7 个 Story/32 个 Variant、126 项双视口 Playwright、视觉和 Axe 门禁通过，内部路径、Token、State 与 Reasoning 未进入 Web 状态 |
+| `M4-F08` | HARDENING | F02..F07 | web | 已完成：收口 Repository 与 Execution Studio 全状态、桌面/窄屏响应式、键盘、ARIA Live、Reduced Motion、Axe WCAG 2.2 AA、视觉回归和组件 Story | [M4-F08 前端全状态与质量门禁](../testing/M4-F08-前端全状态与质量门禁.md)；237 项 Vitest、7 个 Story/32 个 Variant、126 项双视口 Playwright、视觉和 Axe 门禁通过，内部路径、Token、State 与 Reasoning 未进入 Web 状态 |
 
 ## 11. 测试、评测与发布
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M4-Q01` | HARDENING | D04,I01..I09,A01..A07 | all | 建立 Repository/Workspace/Sandbox/Tool/Artifact 固定攻击集，覆盖路径穿越、符号链接、命令注入、旧 Lease、跨 Scope、网络、挂载、环境和内容披露 | 越界文件实际修改、禁止命令实际执行、未授权网络连接、凭证/宿主路径泄漏均为 0；攻击阻断率 100% |
-| `M4-Q02` | HARDENING | I10,I12,A05 | all | 注入 Worker、Agent、Sandbox、Watcher 在 PROVISIONING/ACTIVE/FINALIZING 退出，Worktree 损坏、事件丢失、命令挂起、Artifact 写入中断和重复控制 | 固定故障样本恢复率 `>=95%`，Worktree 创建失败回滚率 100%，无孤立容器/进程/锁，无重复 Commit/Artifact/TestEvidence |
-| `M4-Q03` | HARDENING | S04,I12,F08 | all | 执行冻结 Coding 评测集并归档模型、环境、预算、成功率、编译/测试、验收、路径、安全、Token/成本/耗时和人工判定 | 端到端成功率 `>=70%`；成功任务编译、测试和验收标准全部通过；至少一个真实 CrewScope 修改走完整闭环 |
-| `M4-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M4 Release Gate，审查领域、迁移、Spring 装配、Git/Workspace、Sandbox、AgentScope、API、前端、M3 回归、依赖和文档 | 后端、V14 迁移、Docker、固定评测、安全、故障、Vitest、Playwright、Axe、视觉、依赖、链接和格式全部通过；形成版本化报告 |
+| `M4-Q01` | HARDENING | D04,I01..I09,A01..A07 | all | 已完成：建立 Repository/Workspace/Sandbox/Tool/Artifact 固定攻击集，覆盖路径穿越、符号链接、命令注入、旧 Lease、跨 Scope、网络、挂载、环境和内容披露；Sandbox 恢复改为单一 Worktree 挂载与环境变量名称白名单的完整契约复验 | [M4-Q01 Coding 执行安全硬化与固定攻击集](../testing/M4-Q01-Security-Hardening.md)；Java 157 项与 Web 37 项专项门禁通过，真实 Docker 无跳过，越界修改、禁止命令、未授权网络、敏感挂载、未授权 Artifact 读取和公开泄漏均为 0，攻击阻断率 100% |
+| `M4-Q02` | HARDENING | I10,I12,A05 | all | 已完成：建立 Worker、Agent、Sandbox、Watcher、Worktree、Artifact 与控制重放固定故障集；FINALIZING 可从已验证 Archive Ref 恢复精确 Delivery Tree；同一 CommandEvidence 的不确定提交重试复用 TestEvidence | [M4-Q02 Coding 执行故障注入与恢复](../testing/M4-Q02-Fault-Recovery.md)；55 项固定故障与重放样本恢复率 100%，137 项专项门禁通过，真实 Docker 无跳过，Worktree 普通失败回滚率 100%，孤立容器/进程/锁与重复 Commit/Artifact/TestEvidence 均为 0 |
+| `M4-Q03` | HARDENING | S04,I12,F08 | all | 已完成：DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 最终正式矩阵 29 / 36、80.56%，Pass@1 75%，任务成功率 100%，安全合规率 100%，CrewScope 自修改闭环与质量门禁通过；Token 作为成本指标并保留资源失控保护；修复 VERIFY 验收证据导出遗漏并使用追加写入修正链保持历史报告不可变 | [M4-Q03 Coding Agent 质量基线](../testing/M4-Q03-Coding-Agent质量基线.md)；36 次真实运行完整归档，成功任务编译、测试、验收、路径、安全和人工辅助复核全部通过，真实 CrewScope 修改闭环可追溯 |
+| `M4-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 已完成：提供统一 M4 Release Gate，审查领域、V14–V19 迁移、Spring 装配、Git/Workspace、Sandbox、AgentScope、API、前端、M0–M3 回归、依赖和文档 | [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md)；Maven 1517 项、Judge Pack 12 源、Vitest 237 项、Playwright/视觉/Axe 126 项及安全、故障、评测、构建、依赖、链接和格式门禁全部通过 |
 
 ## 12. 纵向实施波次
 

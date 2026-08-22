@@ -1,7 +1,7 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.1<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.0`  
+> 文档版本：v1.2<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.1`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
 
@@ -143,6 +143,20 @@ M4-F08 将 Repository Settings 与 Execution Studio 纳入统一页面完成门�
 
 M4 页面在 desktop Chromium 与 390×844 narrow Chromium 执行交互、视觉和 Axe WCAG 2.2 AA 回归。Histoire 保存 Repository 五种状态与 Coding Execution 七种状态。Artifact 权限边界只消费当前 Task/attempt 的 Patch、Command Log 与 Test Report 状态，历史 attempt 缓存不能改变后续 Task 的权限导航。浏览器公开状态继续排除宿主路径、容器坐标、Token、Lease/Fencing、AgentState、State Reference、Checkpoint Hash 和 reasoning。实现与门禁见 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
 
+M5 增加 Agent 与模型设置路由：
+
+```text
+/settings/agents?team=<teamId>
+/settings/agents/:agentProfileId?team=<teamId>
+/settings/models?team=<teamId>
+```
+
+`/settings/agents` 面向当前 TeamMember，展示唯一默认 Personal Agent、成员创建的 USER-owned Specialist 和有权查看的 TEAM-owned Agent。成员从服务端批准的 AgentTemplate 创建 Coding/Reviewer Agent；列表和详情展示 Ownership、RuntimeRole、TemplateVersion、当前 Configuration Revision、PERSONAL/TEAM Binding、状态、任务和成本摘要。DeepSeek 显示为 DeepSeek，OpenAI-compatible 仅作为管理详情中的 Adapter 元数据。
+
+Agent 创建与配置表单只展示 Template 声明的可配置槽位。PERSONAL 与 TEAM Binding 分区使用主模型与 Fallback 独立选择器；TEAM Binding 只显示 TEAM/ORGANIZATION Connection 或“继承团队默认”。Fallback 候选集排除主模型并重新执行能力、数据和成本策略过滤。保存前执行 Model Preflight，确认卡显示个人/团队任务适用范围、新 Conversation 生效、已有 Conversation 保持原版本和运行中 Task 继续使用 PolicySnapshot。已有 Conversation 只在服务端返回安全可刷新状态时提供“切换到新配置”命令。
+
+`/settings/models` 面向具有团队或组织模型管理权限的成员，管理 ModelConnection、允许模型、Template + ExecutionScope 默认值、BYOK 策略、配额、健康和变更历史。Credential 只在创建和轮换表单中单向输入；成功后页面只显示凭证已配置、验证时间、过期时间和健康结果。浏览器 Store、URL、Toast、Telemetry 和错误详情不保存 Key、Credential Reference、原始 Endpoint 私有参数和 Provider 原始错误。
+
 路由守卫和按钮权限来自当前会话，只负责裁剪界面和给出明确的 Access Denied 反馈。所有资源读取和命令继续由服务端执行 Membership、Role Scope 与 Principal 校验。
 
 ### 3.2 页面模板
@@ -263,6 +277,10 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 |---|---|---|
 | `ResponsibilityChain` | 角色、主体、有效期、来源、冲突和待接手状态 | WorkItem、Task、Review、Handoff |
 | `AgentPresence` | Agent 类型、状态、当前步骤、模型/Runtime、接管入口 | 对话、执行画布、团队首页 |
+| `AgentTemplateCard` | Template 名称、版本、RuntimeRole、能力、可用 Ownership/ExecutionScope、Tool/Skill 摘要和不可创建原因 | 我的 Agent、Agent 创建向导 |
+| `ModelSelectionField` | 厂商、Model ID、能力、区域、价格、Connection Owner、健康和不可选原因 | Agent 的 PERSONAL/TEAM Binding 设置 |
+| `ModelConnectionCard` | Scope Owner、Provider、Region、账单主体、凭证状态、健康、验证、轮换与撤销 | 模型与凭证设置 |
+| `AgentConfigurationHistory` | Configuration Revision、主/Fallback 模型、变更人、变更时间、生效范围和配置 Hash | Agent 设置与 Audit |
 | `WorkItemCard` | M1-F02：Key、目标、状态、类型、优先级、标签、Due Date；责任摘要等待集合批量投影，避免逐卡 N+1 | 列表、看板、对话引用 |
 | `WorkItemDetailDrawer` | 一致性详情、版本、合法迁移、评论、ResourceLink、责任链、时间线、并发冲突和 Personal Agent 跳转 | WorkItem List/Board 详情 |
 | `CodingTargetFormSection` | ACTIVE RepositoryBinding、Baseline Ref、AllowedPaths、精确 BuildProfile、Preflight、Scope 化草稿和通用任务切换 | WorkItem 委托、TaskIntent 确认结果 |
@@ -426,7 +444,7 @@ M0 建立 Histoire 组件工作台，至少覆盖 Token、基础控件与 CrewSc
 | M2 | Conversation Mode、TaskIntent、对话卡片及与 WorkItem 的双向跳转 |
 | M3 | Task 列表、Task Timeline、Pause/Resume/Cancel、断线与 Cursor 恢复 |
 | M4 | Execution Studio、Diff、只读命令与日志证据、测试证据、Artifact 和 Agent Presence |
-| M5 | Review Gate、Confirmation、Action Receipt、GitHub Draft PR 交付链 |
+| M5 | Personal Agent 模型选择、团队/组织模型与凭证管理、Review Gate、Confirmation、Action Receipt、GitHub Draft PR 交付链 |
 | M6 | Team Pulse、Inbox、Activity、Audit、Usage、风险与飞书通知状态 |
 
 每个里程碑同步交付 Conversation Mode 与 Control Mode 中与该能力相关的入口，避免形成只能对话或只能管理的孤立功能。
