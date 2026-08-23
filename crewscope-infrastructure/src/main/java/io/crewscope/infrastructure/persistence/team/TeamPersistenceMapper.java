@@ -13,6 +13,10 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
+import io.crewscope.domain.agent.AgentOwnership;
+import io.crewscope.domain.agent.AgentOwnershipType;
+import io.crewscope.domain.agent.AgentRuntimeRole;
+import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.team.MemberRole;
 import io.crewscope.domain.team.MemberRoleId;
 import io.crewscope.domain.team.MemberRoleStatus;
@@ -280,6 +284,11 @@ public final class TeamPersistenceMapper {
         value.workspaceId().value(),
         value.agentPrincipalId().value(),
         value.ownerMemberId().map(TeamMemberId::value).orElse(null),
+        value.ownership().type().name(),
+        value.ownership().teamId().map(TeamId::value).orElse(null),
+        value.runtimeRole().name(),
+        value.templateVersion().key().value(),
+        value.templateVersion().version(),
         value.type().name(),
         value.defaultProfile(),
         value.status().name(),
@@ -291,12 +300,19 @@ public final class TeamPersistenceMapper {
   }
 
   public AgentProfile toDomain(AgentProfileEntity value) {
-    return AgentProfile.reconstitute(
+    AgentOwnership ownership = new AgentOwnership(
+        AgentOwnershipType.valueOf(value.ownershipType()),
+        new OrganizationId(value.organizationId()),
+        Optional.ofNullable(value.ownershipTeamId()).map(TeamId::new),
+        Optional.ofNullable(value.ownerMemberId()).map(TeamMemberId::new));
+    return AgentProfile.reconstituteTemplateInstance(
         new AgentProfileId(value.id()),
         WorkspaceScope.team(new OrganizationId(value.organizationId()), new TeamId(value.teamId())),
         new WorkspaceId(value.workspaceId()),
         new PrincipalId(value.agentPrincipalId()),
-        Optional.ofNullable(value.ownerMemberId()).map(TeamMemberId::new),
+        ownership,
+        AgentRuntimeRole.valueOf(value.runtimeRole()),
+        AgentTemplateVersion.of(value.templateKey(), value.templateVersion()),
         AgentProfileType.valueOf(value.type()),
         value.defaultProfile(),
         AgentProfileStatus.valueOf(value.status()),

@@ -1,5 +1,6 @@
 package io.crewscope.domain.task;
 
+import io.crewscope.domain.agent.ResolvedModelRole;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -149,6 +150,31 @@ public final class SafetyEnforcementOverlay {
                 && java.util.Collections.disjoint(disabledTools, tools)
                 && !restrictions.contains(SafetyRestriction.PRINCIPAL_DISABLED)
                 && !restrictions.contains(SafetyRestriction.MEMBERSHIP_DISABLED);
+    }
+
+    /**
+     * Applies current kill switches to an already fixed Schema v2 model. The overlay never selects
+     * another model, changes coordinates or grants a role absent from the PolicySnapshot.
+     */
+    public boolean permitsModelInvocation(PolicySnapshot snapshot, ResolvedModelRole role) {
+        PolicySnapshot requiredSnapshot = Objects.requireNonNull(snapshot, "snapshot");
+        ResolvedModelRole requiredRole = Objects.requireNonNull(role, "role");
+        if (!scope.equals(requiredSnapshot.scope())
+                || !taskId.equals(requiredSnapshot.taskId())
+                || !executionId.equals(requiredSnapshot.executionId())) {
+            throw new DomainValidationException(
+                    "safetyEnforcementOverlay", "must share PolicySnapshot lineage and scope");
+        }
+        boolean roleWasFixed = requiredSnapshot.agentExecutionConfiguration()
+                .map(configuration -> requiredRole == ResolvedModelRole.PRIMARY
+                        || configuration.fallback().isPresent())
+                .orElse(false);
+        return roleWasFixed
+                && !restrictions.contains(SafetyRestriction.PRINCIPAL_DISABLED)
+                && !restrictions.contains(SafetyRestriction.MEMBERSHIP_DISABLED)
+                && !restrictions.contains(SafetyRestriction.MODEL_DISABLED)
+                && !restrictions.contains(SafetyRestriction.CONNECTION_REVOKED)
+                && !restrictions.contains(SafetyRestriction.CREDENTIAL_REVOKED);
     }
 
     public static SafetyEnforcementOverlay reconstitute(

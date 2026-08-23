@@ -1,5 +1,6 @@
 package io.crewscope.domain.task;
 
+import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.policy.PolicyPackReference;
 import io.crewscope.domain.provider.ProviderBindingId;
@@ -36,6 +37,8 @@ public final class PolicySnapshot {
     private final Set<String> allowedTools;
     private final Set<ProviderBindingId> providerBindingIds;
     private final PolicyBudget budget;
+    private final int schemaVersion;
+    private final Optional<ResolvedAgentExecutionConfiguration> agentExecutionConfiguration;
     private final TaskFactHash snapshotHash;
     private final PrincipalId createdByPrincipalId;
     private final UtcTimestamp createdAt;
@@ -56,6 +59,8 @@ public final class PolicySnapshot {
             Set<String> allowedTools,
             Set<ProviderBindingId> providerBindingIds,
             PolicyBudget budget,
+            int schemaVersion,
+            Optional<ResolvedAgentExecutionConfiguration> agentExecutionConfiguration,
             TaskFactHash snapshotHash,
             PrincipalId createdByPrincipalId,
             UtcTimestamp createdAt) {
@@ -78,6 +83,13 @@ public final class PolicySnapshot {
         this.allowedTools = requireKeys(allowedTools, "policySnapshot.allowedTools", false);
         this.providerBindingIds = requireBindings(providerBindingIds);
         this.budget = Objects.requireNonNull(budget, "budget");
+        this.schemaVersion = requireSchemaVersion(schemaVersion);
+        this.agentExecutionConfiguration = requireAgentExecutionConfiguration(
+                this.schemaVersion,
+                agentExecutionConfiguration,
+                this.policyPack,
+                this.agentProfileId,
+                this.agentProfileVersion);
         this.createdByPrincipalId = Objects.requireNonNull(
                 createdByPrincipalId, "createdByPrincipalId");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
@@ -125,6 +137,50 @@ public final class PolicySnapshot {
                 allowedTools,
                 providerBindingIds,
                 budget,
+                1,
+                Optional.empty(),
+                actorId,
+                createdAt);
+    }
+
+    /** Creates an M5 Schema v2 snapshot with exact preflighted Agent and model coordinates. */
+    public static PolicySnapshot initialV2(
+            PolicySnapshotId id,
+            Task task,
+            TaskExecution execution,
+            Principal executor,
+            ResolvedAgentExecutionConfiguration agentExecutionConfiguration,
+            Set<ExecutionCapability> capabilities,
+            Set<String> allowedTools,
+            Set<ProviderBindingId> providerBindingIds,
+            PolicyBudget budget,
+            Principal actor,
+            UtcTimestamp createdAt) {
+        Task requiredTask = requireTaskExecution(task, execution);
+        PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
+                actor, requiredTask.scope(), "policySnapshot.createdByPrincipalId");
+        ExecutionPrincipalSnapshot executionPrincipal = ExecutionPrincipalSnapshot.resolve(
+                requiredTask.responsibilitySnapshot(), executor);
+        ResolvedAgentExecutionConfiguration resolved = Objects.requireNonNull(
+                agentExecutionConfiguration, "agentExecutionConfiguration");
+        return build(
+                id,
+                requiredTask.scope(),
+                requiredTask.id(),
+                execution.id(),
+                1,
+                Optional.empty(),
+                PolicySnapshotChangeReason.TASK_CREATED,
+                executionPrincipal,
+                resolved.configurationPolicyPack(),
+                resolved.agentProfileId(),
+                resolved.agentProfileVersion(),
+                capabilities,
+                allowedTools,
+                providerBindingIds,
+                budget,
+                2,
+                Optional.of(resolved),
                 actorId,
                 createdAt);
     }
@@ -145,6 +201,11 @@ public final class PolicySnapshot {
             Principal actor,
             UtcTimestamp createdAt) {
         PolicySnapshot requiredParent = Objects.requireNonNull(parent, "parent");
+        if (requiredParent.schemaVersion != 1) {
+            throw new DomainValidationException(
+                    "policySnapshot.schemaVersion",
+                    "Schema v2 snapshots must use supersedeV2");
+        }
         PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
                 actor, requiredParent.scope, "policySnapshot.createdByPrincipalId");
         PolicySnapshotChangeReason requiredReason = Objects.requireNonNull(reason, "reason");
@@ -168,6 +229,58 @@ public final class PolicySnapshot {
                 allowedTools,
                 providerBindingIds,
                 budget,
+                1,
+                Optional.empty(),
+                actorId,
+                createdAt);
+        if (replacement.sameEffectivePolicy(requiredParent)) {
+            throw new DomainValidationException(
+                    "policySnapshot", "must differ from the parent effective policy");
+        }
+        return replacement;
+    }
+
+    /** Creates a new Schema v2 revision with a fully preflighted execution configuration. */
+    public static PolicySnapshot supersedeV2(
+            PolicySnapshotId id,
+            PolicySnapshot parent,
+            PolicySnapshotChangeReason reason,
+            ExecutionPrincipalSnapshot executionPrincipal,
+            ResolvedAgentExecutionConfiguration agentExecutionConfiguration,
+            Set<ExecutionCapability> capabilities,
+            Set<String> allowedTools,
+            Set<ProviderBindingId> providerBindingIds,
+            PolicyBudget budget,
+            Principal actor,
+            UtcTimestamp createdAt) {
+        PolicySnapshot requiredParent = Objects.requireNonNull(parent, "parent");
+        PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
+                actor, requiredParent.scope, "policySnapshot.createdByPrincipalId");
+        PolicySnapshotChangeReason requiredReason = Objects.requireNonNull(reason, "reason");
+        if (requiredReason == PolicySnapshotChangeReason.TASK_CREATED) {
+            throw new DomainValidationException(
+                    "policySnapshot.changeReason", "TASK_CREATED is only valid for revision one");
+        }
+        ResolvedAgentExecutionConfiguration resolved = Objects.requireNonNull(
+                agentExecutionConfiguration, "agentExecutionConfiguration");
+        PolicySnapshot replacement = build(
+                id,
+                requiredParent.scope,
+                requiredParent.taskId,
+                requiredParent.executionId,
+                requiredParent.revision + 1,
+                Optional.of(requiredParent.id),
+                requiredReason,
+                executionPrincipal,
+                resolved.configurationPolicyPack(),
+                resolved.agentProfileId(),
+                resolved.agentProfileVersion(),
+                capabilities,
+                allowedTools,
+                providerBindingIds,
+                budget,
+                2,
+                Optional.of(resolved),
                 actorId,
                 createdAt);
         if (replacement.sameEffectivePolicy(requiredParent)) {
@@ -213,6 +326,51 @@ public final class PolicySnapshot {
                 allowedTools,
                 providerBindingIds,
                 budget,
+                1,
+                Optional.empty(),
+                snapshotHash,
+                createdByPrincipalId,
+                createdAt);
+    }
+
+    /** Reconstitutes a Schema v2 snapshot and verifies all fixed M5 coordinates. */
+    public static PolicySnapshot reconstituteV2(
+            PolicySnapshotId id,
+            WorkItemScope scope,
+            TaskId taskId,
+            TaskExecutionId executionId,
+            long revision,
+            Optional<PolicySnapshotId> parentSnapshotId,
+            PolicySnapshotChangeReason changeReason,
+            ExecutionPrincipalSnapshot executionPrincipal,
+            ResolvedAgentExecutionConfiguration agentExecutionConfiguration,
+            Set<ExecutionCapability> capabilities,
+            Set<String> allowedTools,
+            Set<ProviderBindingId> providerBindingIds,
+            PolicyBudget budget,
+            TaskFactHash snapshotHash,
+            PrincipalId createdByPrincipalId,
+            UtcTimestamp createdAt) {
+        ResolvedAgentExecutionConfiguration resolved = Objects.requireNonNull(
+                agentExecutionConfiguration, "agentExecutionConfiguration");
+        return new PolicySnapshot(
+                id,
+                scope,
+                taskId,
+                executionId,
+                revision,
+                parentSnapshotId,
+                changeReason,
+                executionPrincipal,
+                resolved.configurationPolicyPack(),
+                resolved.agentProfileId(),
+                resolved.agentProfileVersion(),
+                capabilities,
+                allowedTools,
+                providerBindingIds,
+                budget,
+                2,
+                Optional.of(resolved),
                 snapshotHash,
                 createdByPrincipalId,
                 createdAt);
@@ -229,6 +387,7 @@ public final class PolicySnapshot {
         return !required.capabilities.containsAll(capabilities)
                 || !required.allowedTools.containsAll(allowedTools)
                 || !required.providerBindingIds.containsAll(providerBindingIds)
+                || !required.agentExecutionConfiguration.equals(agentExecutionConfiguration)
                 || budget.maxTokens() > required.budget.maxTokens()
                 || budget.maxModelCalls() > required.budget.maxModelCalls()
                 || budget.maxToolCalls() > required.budget.maxToolCalls()
@@ -255,7 +414,9 @@ public final class PolicySnapshot {
                 && capabilities.equals(other.capabilities)
                 && allowedTools.equals(other.allowedTools)
                 && providerBindingIds.equals(other.providerBindingIds)
-                && budget.equals(other.budget);
+                && budget.equals(other.budget)
+                && schemaVersion == other.schemaVersion
+                && agentExecutionConfiguration.equals(other.agentExecutionConfiguration);
     }
 
     private static PolicySnapshot build(
@@ -274,6 +435,8 @@ public final class PolicySnapshot {
             Set<String> allowedTools,
             Set<ProviderBindingId> providerBindingIds,
             PolicyBudget budget,
+            int schemaVersion,
+            Optional<ResolvedAgentExecutionConfiguration> agentExecutionConfiguration,
             PrincipalId actorId,
             UtcTimestamp createdAt) {
         PolicySnapshot unhashed = new PolicySnapshot(
@@ -292,6 +455,8 @@ public final class PolicySnapshot {
                 allowedTools,
                 providerBindingIds,
                 budget,
+                schemaVersion,
+                agentExecutionConfiguration,
                 TaskFactHash.sha256("placeholder"),
                 actorId,
                 createdAt,
@@ -312,6 +477,8 @@ public final class PolicySnapshot {
                 allowedTools,
                 providerBindingIds,
                 budget,
+                schemaVersion,
+                agentExecutionConfiguration,
                 unhashed.calculateHash(),
                 actorId,
                 createdAt);
@@ -333,6 +500,8 @@ public final class PolicySnapshot {
             Set<String> allowedTools,
             Set<ProviderBindingId> providerBindingIds,
             PolicyBudget budget,
+            int schemaVersion,
+            Optional<ResolvedAgentExecutionConfiguration> agentExecutionConfiguration,
             TaskFactHash ignoredHash,
             PrincipalId createdByPrincipalId,
             UtcTimestamp createdAt,
@@ -356,13 +525,20 @@ public final class PolicySnapshot {
         this.allowedTools = requireKeys(allowedTools, "policySnapshot.allowedTools", false);
         this.providerBindingIds = requireBindings(providerBindingIds);
         this.budget = Objects.requireNonNull(budget, "budget");
+        this.schemaVersion = requireSchemaVersion(schemaVersion);
+        this.agentExecutionConfiguration = requireAgentExecutionConfiguration(
+                this.schemaVersion,
+                agentExecutionConfiguration,
+                this.policyPack,
+                this.agentProfileId,
+                this.agentProfileVersion);
         this.snapshotHash = Objects.requireNonNull(ignoredHash, "ignoredHash");
         this.createdByPrincipalId = Objects.requireNonNull(createdByPrincipalId, "createdByPrincipalId");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
 
     private TaskFactHash calculateHash() {
-        return TaskFactHash.sha256(String.join("|",
+        String v1Canonical = String.join("|",
                 id.toString(), scope.organizationId().toString(), scope.teamId().toString(),
                 scope.workspaceId().toString(), scope.projectId().toString(), taskId.toString(),
                 executionId.toString(), Long.toString(revision),
@@ -375,7 +551,54 @@ public final class PolicySnapshot {
                 sorted(providerBindingIds), Long.toString(budget.maxTokens()),
                 Integer.toString(budget.maxModelCalls()), Integer.toString(budget.maxToolCalls()),
                 Long.toString(budget.maxDurationSeconds()), createdByPrincipalId.toString(),
-                createdAt.toString()));
+                createdAt.toString());
+        if (schemaVersion == 1) {
+            return TaskFactHash.sha256(v1Canonical);
+        }
+        return TaskFactHash.sha256(String.join(
+                "|",
+                "policy-snapshot-v2",
+                v1Canonical,
+                Integer.toString(schemaVersion),
+                agentExecutionConfiguration.orElseThrow().resolutionHash().toString()));
+    }
+
+    private static int requireSchemaVersion(int value) {
+        if (value != 1 && value != 2) {
+            throw new DomainValidationException(
+                    "policySnapshot.schemaVersion", "must be a supported version");
+        }
+        return value;
+    }
+
+    /** Repository dispatch guard; unknown persisted schema versions fail before reconstitution. */
+    public static int requireSupportedSchemaVersion(int value) {
+        return requireSchemaVersion(value);
+    }
+
+    private static Optional<ResolvedAgentExecutionConfiguration> requireAgentExecutionConfiguration(
+            int schemaVersion,
+            Optional<ResolvedAgentExecutionConfiguration> configuration,
+            PolicyPackReference policyPack,
+            AgentProfileId agentProfileId,
+            long agentProfileVersion) {
+        Optional<ResolvedAgentExecutionConfiguration> required = Objects.requireNonNull(
+                configuration, "agentExecutionConfiguration");
+        if ((schemaVersion == 2) != required.isPresent()) {
+            throw new DomainValidationException(
+                    "policySnapshot.agentExecutionConfiguration",
+                    "must be present exactly for Schema v2");
+        }
+        required.ifPresent(value -> {
+            if (!value.agentProfileId().equals(agentProfileId)
+                    || value.agentProfileVersion() != agentProfileVersion
+                    || !value.configurationPolicyPack().equals(policyPack)) {
+                throw new DomainValidationException(
+                        "policySnapshot.agentExecutionConfiguration",
+                        "must match the fixed Agent Profile and PolicyPack coordinates");
+            }
+        });
+        return required;
     }
 
     private static Task requireTaskExecution(Task task, TaskExecution execution) {
@@ -470,6 +693,10 @@ public final class PolicySnapshot {
     public Set<String> allowedTools() { return allowedTools; }
     public Set<ProviderBindingId> providerBindingIds() { return providerBindingIds; }
     public PolicyBudget budget() { return budget; }
+    public int schemaVersion() { return schemaVersion; }
+    public Optional<ResolvedAgentExecutionConfiguration> agentExecutionConfiguration() {
+        return agentExecutionConfiguration;
+    }
     public TaskFactHash snapshotHash() { return snapshotHash; }
     public PrincipalId createdByPrincipalId() { return createdByPrincipalId; }
     public UtcTimestamp createdAt() { return createdAt; }

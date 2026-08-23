@@ -1,0 +1,22 @@
+package io.crewscope.application.model;
+
+import io.crewscope.domain.model.ModelCatalogCoordinate;
+import io.crewscope.domain.model.ModelCatalogEntry;
+import io.crewscope.domain.model.ModelId;
+import io.crewscope.domain.model.ModelProviderKey;
+import java.util.Optional;
+
+/** Persistence Port for append-only catalog revisions and mutable catalog lifecycle. */
+public interface ModelCatalogEntryRepository {
+
+    /** Rejects duplicate coordinates, revision gaps and a non-latest predecessor. */
+    ModelCatalogEntry append(ModelCatalogEntry entry);
+
+    /** Updates only lifecycle state with an optimistic lifecycle-version predicate. */
+    ModelCatalogEntry updateLifecycle(ModelCatalogEntry entry);
+
+    Optional<ModelCatalogEntry> findByCoordinate(ModelCatalogCoordinate coordinate);
+
+    Optional<ModelCatalogEntry> findLatest(
+            ModelProviderKey providerKey, ModelId modelId);
+}

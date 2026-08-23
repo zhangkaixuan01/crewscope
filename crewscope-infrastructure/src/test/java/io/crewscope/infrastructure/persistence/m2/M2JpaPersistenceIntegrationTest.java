@@ -1288,7 +1288,12 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                         fixture.teamId().value(),
                         fixture.workspaceId().value(),
                         fixture.organizationId().value()));
-        assertTrue(plan.contains("ix_provider_binding_resolver"), plan);
+        // V21 adds an exact historical-reference key whose prefix also closes the
+        // organization/team/workspace scope. PostgreSQL may validly prefer either index.
+        assertTrue(
+                plan.contains("ix_provider_binding_resolver")
+                        || plan.contains("uk_provider_binding_action_reference"),
+                plan);
     }
 
     @Test

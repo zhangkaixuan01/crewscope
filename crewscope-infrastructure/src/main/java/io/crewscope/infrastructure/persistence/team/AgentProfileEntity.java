@@ -29,6 +29,21 @@ public class AgentProfileEntity {
     @Column(name = "owner_member_id")
     private UUID ownerMemberId;
 
+    @Column(name = "ownership_type", nullable = false)
+    private String ownershipType;
+
+    @Column(name = "ownership_team_id")
+    private UUID ownershipTeamId;
+
+    @Column(name = "runtime_role", nullable = false)
+    private String runtimeRole;
+
+    @Column(name = "template_key", nullable = false)
+    private String templateKey;
+
+    @Column(name = "template_version", nullable = false)
+    private long templateVersion;
+
     @Column(name = "profile_type", nullable = false)
     private String type;
 
@@ -62,6 +77,11 @@ public class AgentProfileEntity {
             UUID workspaceId,
             UUID agentPrincipalId,
             UUID ownerMemberId,
+            String ownershipType,
+            UUID ownershipTeamId,
+            String runtimeRole,
+            String templateKey,
+            long templateVersion,
             String type,
             boolean defaultProfile,
             String status,
@@ -76,6 +96,11 @@ public class AgentProfileEntity {
         this.workspaceId = workspaceId;
         this.agentPrincipalId = agentPrincipalId;
         this.ownerMemberId = ownerMemberId;
+        this.ownershipType = ownershipType;
+        this.ownershipTeamId = ownershipTeamId;
+        this.runtimeRole = runtimeRole;
+        this.templateKey = templateKey;
+        this.templateVersion = templateVersion;
         this.type = type;
         this.defaultProfile = defaultProfile;
         this.status = status;
@@ -108,6 +133,26 @@ public class AgentProfileEntity {
 
     UUID ownerMemberId() {
         return ownerMemberId;
+    }
+
+    String ownershipType() {
+        return ownershipType;
+    }
+
+    UUID ownershipTeamId() {
+        return ownershipTeamId;
+    }
+
+    String runtimeRole() {
+        return runtimeRole;
+    }
+
+    String templateKey() {
+        return templateKey;
+    }
+
+    long templateVersion() {
+        return templateVersion;
     }
 
     String type() {
