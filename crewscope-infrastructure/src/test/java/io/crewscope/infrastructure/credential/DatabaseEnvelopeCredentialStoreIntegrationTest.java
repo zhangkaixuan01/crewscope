@@ -101,6 +101,8 @@ class DatabaseEnvelopeCredentialStoreIntegrationTest
         assertFalse(source.isClosed());
         assertEquals(CredentialStatus.ACTIVE, descriptor.status());
         assertEquals(0, descriptor.version());
+        assertEquals(0, descriptor.secretVersion());
+        assertEquals(Optional.of(descriptor), store.describe(requestReference(request), access(request)));
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 """
                 SELECT ciphertext, nonce, authentication_tag, key_id, algorithm, aad_version,
@@ -145,6 +147,7 @@ class DatabaseEnvelopeCredentialStoreIntegrationTest
                 "github:push");
 
         assertTrue(store.resolve(requestReference(request), denied).isEmpty());
+        assertTrue(store.describe(requestReference(request), denied).isEmpty());
         assertTrue(store.resolve(crossOrganization, otherAccess).isEmpty());
         clock.set(BASE_TIME.plus(Duration.ofHours(1)));
         assertTrue(store.resolve(requestReference(request), access(request)).isEmpty());
@@ -219,6 +222,7 @@ class DatabaseEnvelopeCredentialStoreIntegrationTest
                 CredentialSecret.utf8("new-secret"));
 
         assertEquals(1, rotated.version());
+        assertEquals(1, rotated.secretVersion());
         assertEquals(Optional.of(UtcTimestamp.from(BASE_TIME.plusSeconds(10))), rotated.rotatedAt());
         assertFalse(Arrays.equals(oldNonce, nonce(request.credentialId())));
         try (ResolvedCredential resolved =
@@ -258,6 +262,7 @@ class DatabaseEnvelopeCredentialStoreIntegrationTest
 
         assertEquals(CredentialStatus.REVOKED, revoked.status());
         assertEquals(1, revoked.version());
+        assertEquals(0, revoked.secretVersion());
         assertEquals(Optional.of(UtcTimestamp.from(BASE_TIME.plusSeconds(20))), revoked.revokedAt());
         assertFalse(Arrays.equals(originalCiphertext, ciphertext(request.credentialId())));
         assertTrue(store.resolve(requestReference(request), access(request)).isEmpty());

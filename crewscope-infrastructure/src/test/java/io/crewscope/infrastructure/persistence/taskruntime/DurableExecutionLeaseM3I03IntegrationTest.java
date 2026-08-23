@@ -664,6 +664,7 @@ class DurableExecutionLeaseM3I03IntegrationTest
     @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
     @Import({
         TaskRuntimePersistenceMapper.class,
+        ResolvedAgentExecutionConfigurationJsonCodec.class,
         TaskRuntimeExtendedPersistenceMapper.class,
         TaskRuntimeJpaSupport.class,
         JpaTaskRuntimeRepositoryAdapter.class,

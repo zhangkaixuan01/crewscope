@@ -579,6 +579,11 @@ class TeamApplicationServiceTest {
     }
 
     @Override
+    public AgentProfile create(AgentProfile profile) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
     public AgentProfile update(AgentProfile profile) {
       throw new UnsupportedOperationException();
     }
@@ -609,6 +614,17 @@ class TeamApplicationServiceTest {
           .filter(profile -> profile.status()
               == io.crewscope.domain.workspace.AgentProfileStatus.ACTIVE)
           .findFirst();
+    }
+
+    @Override
+    public List<AgentProfile> findPage(
+        OrganizationId organizationId, int offset, int limit) {
+      return agents.values().stream()
+          .map(PersonalAgentInitialization::agentProfile)
+          .filter(profile -> profile.scope().organizationId().equals(organizationId))
+          .skip(offset)
+          .limit(limit)
+          .toList();
     }
 
     @Override

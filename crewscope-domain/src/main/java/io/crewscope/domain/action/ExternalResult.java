@@ -96,13 +96,29 @@ public final class ExternalResult {
             ExternalObservation observation,
             Principal actor) {
         ActionDispatch requiredDispatch = Objects.requireNonNull(dispatch, "dispatch");
+        return observeFirstFromTrustedSource(
+                id,
+                requiredDispatch,
+                action,
+                observation,
+                requireScopedActor(actor, requiredDispatch.scope()));
+    }
+
+    /** Creates a Provider fact attributed by a trusted service to an existing scoped Principal. */
+    public static ExternalResult observeFirstFromTrustedSource(
+            ExternalResultId id,
+            ActionDispatch dispatch,
+            PlannedAction action,
+            ExternalObservation observation,
+            PrincipalId actorId) {
+        ActionDispatch requiredDispatch = Objects.requireNonNull(dispatch, "dispatch");
         PlannedAction requiredAction = Objects.requireNonNull(action, "action");
         ActionReceipt.requireAction(requiredDispatch, requiredAction);
         ExternalObservation requiredObservation = requireObservation(
                 requiredDispatch, observation);
         ActionReceipt.requireExternalShape(
                 requiredAction, Optional.of(requiredObservation.identity()));
-        PrincipalId actorId = requireScopedActor(actor, requiredDispatch.scope());
+        PrincipalId requiredActorId = Objects.requireNonNull(actorId, "actorId");
         return new ExternalResult(
                 id,
                 requiredDispatch.scope(),
@@ -119,7 +135,7 @@ public final class ExternalResult {
                 requiredObservation.evidence(),
                 requiredObservation.observedAt(),
                 0,
-                AuditMetadata.createdBy(actorId, requiredObservation.observedAt()));
+                AuditMetadata.createdBy(requiredActorId, requiredObservation.observedAt()));
     }
 
     public static ExternalResult reconstitute(
@@ -151,6 +167,19 @@ public final class ExternalResult {
             ExternalObservation observation,
             Optional<ActionReceiptReference> terminalReceipt,
             Principal actor) {
+        return mergeFromTrustedSource(
+                expectedVersion,
+                observation,
+                terminalReceipt,
+                requireScopedActor(actor, scope));
+    }
+
+    /** Merges a trusted Provider observation while retaining durable Principal provenance. */
+    public ExternalMergeResult mergeFromTrustedSource(
+            long expectedVersion,
+            ExternalObservation observation,
+            Optional<ActionReceiptReference> terminalReceipt,
+            PrincipalId actorId) {
         requireVersion(expectedVersion);
         ExternalObservation candidate = requireObservation(this, observation);
         Optional<ActionReceiptReference> requiredReceipt = Objects.requireNonNull(
@@ -168,13 +197,13 @@ public final class ExternalResult {
         if (decision != ExternalMergeOutcome.APPLIED) {
             return new ExternalMergeResult(this, decision);
         }
-        PrincipalId actorId = requireScopedActor(actor, scope);
+        PrincipalId requiredActorId = Objects.requireNonNull(actorId, "actorId");
         ExternalResult changed = new ExternalResult(
                 id, scope, bundleId, bundleDigest, actionId, actionDigest, identity,
                 candidate.status(), candidate.providerVersion(), candidate.providerUpdatedAt(),
                 candidate.source(), candidate.observationKey(), candidate.evidence(),
                 candidate.observedAt(), version + 1,
-                audit.modifiedBy(actorId, candidate.observedAt()));
+                audit.modifiedBy(requiredActorId, candidate.observedAt()));
         return new ExternalMergeResult(changed, ExternalMergeOutcome.APPLIED);
     }
 

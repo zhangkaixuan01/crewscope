@@ -35,11 +35,54 @@ final class GitProcessRunner {
         return run(arguments, standardInput, Set.of(0));
     }
 
+    String run(
+            List<String> arguments,
+            Optional<String> standardInput,
+            GitAskPassEnvironment askPassEnvironment) {
+        return run(arguments, standardInput, Set.of(0), Optional.of(
+                Objects.requireNonNull(askPassEnvironment, "askPassEnvironment")));
+    }
+
     /** Allows typed Git operations such as {@code diff --no-index} to declare success codes. */
     String run(
             List<String> arguments,
             Optional<String> standardInput,
             Set<Integer> successfulExitCodes) {
+        return run(arguments, standardInput, successfulExitCodes, Optional.empty());
+    }
+
+    GitProcessResult runForResult(
+            List<String> arguments,
+            Optional<String> standardInput,
+            Set<Integer> successfulExitCodes) {
+        return execute(arguments, standardInput, successfulExitCodes, Optional.empty());
+    }
+
+    GitProcessResult runForResult(
+            List<String> arguments,
+            Optional<String> standardInput,
+            Set<Integer> successfulExitCodes,
+            GitAskPassEnvironment askPassEnvironment) {
+        return execute(
+                arguments,
+                standardInput,
+                successfulExitCodes,
+                Optional.of(Objects.requireNonNull(askPassEnvironment, "askPassEnvironment")));
+    }
+
+    private String run(
+            List<String> arguments,
+            Optional<String> standardInput,
+            Set<Integer> successfulExitCodes,
+            Optional<GitAskPassEnvironment> askPassEnvironment) {
+        return execute(arguments, standardInput, successfulExitCodes, askPassEnvironment).output();
+    }
+
+    private GitProcessResult execute(
+            List<String> arguments,
+            Optional<String> standardInput,
+            Set<Integer> successfulExitCodes,
+            Optional<GitAskPassEnvironment> askPassEnvironment) {
         Set<Integer> acceptedCodes = Set.copyOf(
                 Objects.requireNonNull(successfulExitCodes, "successfulExitCodes"));
         if (acceptedCodes.isEmpty() || acceptedCodes.stream().anyMatch(code -> code < 0)) {
@@ -53,7 +96,7 @@ final class GitProcessRunner {
         command.addAll(List.copyOf(arguments));
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);
-        configureEnvironment(builder.environment());
+        configureEnvironment(builder.environment(), askPassEnvironment);
 
         Process process;
         try {
@@ -111,7 +154,7 @@ final class GitProcessRunner {
                         safeSummary(classification),
                         OptionalInt.of(exitCode));
             }
-            return output;
+            return new GitProcessResult(exitCode, output);
         } catch (InterruptedException interrupted) {
             terminateProcessTree(process);
             Thread.currentThread().interrupt();
@@ -127,7 +170,9 @@ final class GitProcessRunner {
         }
     }
 
-    private void configureEnvironment(Map<String, String> environment) {
+    private void configureEnvironment(
+            Map<String, String> environment,
+            Optional<GitAskPassEnvironment> askPassEnvironment) {
         String path = environment.get("PATH");
         environment.clear();
         if (path != null && !path.isBlank()) {
@@ -145,6 +190,7 @@ final class GitProcessRunner {
         environment.put("GIT_AUTHOR_EMAIL", "delivery@crewscope.local");
         environment.put("GIT_COMMITTER_NAME", "CrewScope Delivery");
         environment.put("GIT_COMMITTER_EMAIL", "delivery@crewscope.local");
+        askPassEnvironment.ifPresent(value -> environment.putAll(value.variables()));
     }
 
     private static void writeStandardInput(Process process, Optional<String> standardInput) {
@@ -188,8 +234,14 @@ final class GitProcessRunner {
         }
         if (normalized.contains("already exists")
                 || normalized.contains("already checked out")
-                || normalized.contains("cannot lock ref")) {
+                || normalized.contains("cannot lock ref")
+                || normalized.contains("stale info")) {
             return GitCommandError.CONFLICT;
+        }
+        if (normalized.contains("remote rejected")
+                || normalized.contains("protected branch")
+                || normalized.contains("hook declined")) {
+            return GitCommandError.REMOTE_REJECTED;
         }
         if (normalized.contains("unknown revision")
                 || normalized.contains("needed a single revision")
@@ -209,9 +261,12 @@ final class GitProcessRunner {
             case CONFLICT -> "Git resource conflicts with an existing value";
             case TIMEOUT -> "Git command exceeded its time limit";
             case OUTPUT_LIMIT -> "Git command exceeded its output limit";
+            case REMOTE_REJECTED -> "Git remote rejected the operation";
             case COMMAND_FAILED -> "Git command failed";
         };
     }
+
+    record GitProcessResult(int exitCode, String output) {}
 
     private static String requireExecutable(String executable) {
         String value = Objects.requireNonNull(executable, "executable");

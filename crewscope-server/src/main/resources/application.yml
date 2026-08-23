@@ -81,6 +81,45 @@ logging:
         max-throwable-depth: 20
 
 crewscope:
+  provider:
+    github:
+      # Production uses GitHub's HTTPS API. Loopback HTTP is an explicit test-only escape hatch.
+      api-base-uri: ${CREWSCOPE_GITHUB_API_BASE_URI:https://api.github.com}
+      web-base-uri: ${CREWSCOPE_GITHUB_WEB_BASE_URI:https://github.com}
+      connect-timeout: ${CREWSCOPE_GITHUB_CONNECT_TIMEOUT:5s}
+      request-timeout: ${CREWSCOPE_GITHUB_REQUEST_TIMEOUT:15s}
+      catalog-ttl: ${CREWSCOPE_GITHUB_CATALOG_TTL:5m}
+      credential-handle-ttl: ${CREWSCOPE_GITHUB_CREDENTIAL_HANDLE_TTL:30s}
+      allow-loopback-http: ${CREWSCOPE_GITHUB_ALLOW_LOOPBACK_HTTP:false}
+      # Git Remote stays credential-free; Mirror and AskPass paths are platform-owned roots.
+      git-base-uri: ${CREWSCOPE_GITHUB_GIT_BASE_URI:https://github.com}
+      mirror-root: ${CREWSCOPE_GITHUB_MIRROR_ROOT:./var/crewscope/github-mirrors}
+      ask-pass-root: ${CREWSCOPE_GITHUB_ASK_PASS_ROOT:./var/crewscope/github-credentials}
+      required-owner: ${CREWSCOPE_GITHUB_REQUIRED_OWNER:${user.name}}
+      # M5-A06 will persist per-Connection policy; I11 uses this fail-closed bootstrap policy.
+      repository-allowlist: ${CREWSCOPE_GITHUB_REPOSITORY_ALLOWLIST:}
+      allowed-owner-logins: ${CREWSCOPE_GITHUB_ALLOWED_OWNER_LOGINS:}
+      allow-private-repositories: ${CREWSCOPE_GITHUB_ALLOW_PRIVATE_REPOSITORIES:true}
+      allow-internal-repositories: ${CREWSCOPE_GITHUB_ALLOW_INTERNAL_REPOSITORIES:true}
+      allow-broad-user-oauth: ${CREWSCOPE_GITHUB_ALLOW_BROAD_USER_OAUTH:false}
+  action:
+    worker:
+      enabled: ${CREWSCOPE_ACTION_WORKER_ENABLED:true}
+      worker-id: ${CREWSCOPE_ACTION_WORKER_ID:action-worker-local}
+      poll-interval: ${CREWSCOPE_ACTION_WORKER_POLL_INTERVAL:1s}
+      lease-duration: ${CREWSCOPE_ACTION_WORKER_LEASE_DURATION:2m}
+      retry-delay: ${CREWSCOPE_ACTION_WORKER_RETRY_DELAY:15s}
+      batch-size: ${CREWSCOPE_ACTION_WORKER_BATCH_SIZE:10}
+    reconciliation:
+      enabled: ${CREWSCOPE_ACTION_RECONCILIATION_ENABLED:true}
+      startup-enabled: ${CREWSCOPE_ACTION_RECONCILIATION_STARTUP_ENABLED:true}
+      worker-id: ${CREWSCOPE_ACTION_RECONCILIATION_WORKER_ID:action-reconciler-local}
+      poll-interval: ${CREWSCOPE_ACTION_RECONCILIATION_POLL_INTERVAL:5s}
+      lease-duration: ${CREWSCOPE_ACTION_RECONCILIATION_LEASE_DURATION:2m}
+      retry-delay: ${CREWSCOPE_ACTION_RECONCILIATION_RETRY_DELAY:30s}
+      maximum-unknown-age: ${CREWSCOPE_ACTION_RECONCILIATION_MAXIMUM_UNKNOWN_AGE:1h}
+      maximum-attempts: ${CREWSCOPE_ACTION_RECONCILIATION_MAXIMUM_ATTEMPTS:5}
+      batch-size: ${CREWSCOPE_ACTION_RECONCILIATION_BATCH_SIZE:10}
   coding:
     execution:
       # Attempt-scoped immutable WorkspacePolicy ceilings and local delivery retention.
@@ -177,6 +216,25 @@ crewscope:
       # No development fallback: startup fails until the process receives an external key ring.
       current-key-id: ${CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID:}
       keys: ${CREWSCOPE_CREDENTIAL_KEYS:}
+  model:
+    preflight:
+      # Availability decisions are exact-version keyed and never outlive credential expiration.
+      health-cache-ttl: ${CREWSCOPE_MODEL_PREFLIGHT_HEALTH_CACHE_TTL:30s}
+      maximum-health-cache-entries: ${CREWSCOPE_MODEL_PREFLIGHT_MAXIMUM_HEALTH_CACHE_ENTRIES:1024}
+      maximum-catalog-entries-per-provider: ${CREWSCOPE_MODEL_PREFLIGHT_MAXIMUM_CATALOG_ENTRIES_PER_PROVIDER:1000}
+    dynamic:
+      # Dynamic models are bounded, version-keyed and never published as global Spring Model beans.
+      cache-ttl: ${CREWSCOPE_MODEL_DYNAMIC_CACHE_TTL:5m}
+      maximum-cache-entries: ${CREWSCOPE_MODEL_DYNAMIC_MAXIMUM_CACHE_ENTRIES:256}
+      request-timeout: ${CREWSCOPE_MODEL_DYNAMIC_REQUEST_TIMEOUT:5m}
+      retry-initial-backoff: ${CREWSCOPE_MODEL_DYNAMIC_RETRY_INITIAL_BACKOFF:2s}
+      retry-maximum-backoff: ${CREWSCOPE_MODEL_DYNAMIC_RETRY_MAXIMUM_BACKOFF:30s}
+    credential:
+      # Handles contain coordinates only and revalidate the current secret revision on every use.
+      # Startup rejects TTL above 10m, connect timeout above 1m and request timeout above 5m.
+      handle-ttl: ${CREWSCOPE_MODEL_CREDENTIAL_HANDLE_TTL:30s}
+      health-connect-timeout: ${CREWSCOPE_MODEL_HEALTH_CONNECT_TIMEOUT:3s}
+      health-request-timeout: ${CREWSCOPE_MODEL_HEALTH_REQUEST_TIMEOUT:10s}
   outbox:
     # M0-E03 registers the durable AuditEvent projection consumer.
     enabled: ${CREWSCOPE_OUTBOX_ENABLED:true}
@@ -270,6 +328,10 @@ crewscope:
       max-iterations: ${CREWSCOPE_PERSONAL_AGENT_MAX_ITERATIONS:20}
       max-retries: ${CREWSCOPE_PERSONAL_AGENT_MAX_RETRIES:3}
       runtime-root: ${CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT:./var/crewscope/agent-runtime}
+    template-agent:
+      # Exact TemplateVersion runtimes are short-lived; Session/State remain externally durable.
+      maximum-iterations: ${CREWSCOPE_TEMPLATE_AGENT_MAXIMUM_ITERATIONS:40}
+      runtime-root: ${CREWSCOPE_TEMPLATE_AGENT_RUNTIME_ROOT:./var/crewscope/template-agent-runtime}
     redis:
       # Agent state is a required M2 dependency; disable only in isolated non-runtime tests.
       enabled: ${CREWSCOPE_AGENT_STATE_REDIS_ENABLED:true}

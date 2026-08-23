@@ -7,5 +7,6 @@ public enum GitCommandError {
     CONFLICT,
     TIMEOUT,
     OUTPUT_LIMIT,
+    REMOTE_REJECTED,
     COMMAND_FAILED
 }

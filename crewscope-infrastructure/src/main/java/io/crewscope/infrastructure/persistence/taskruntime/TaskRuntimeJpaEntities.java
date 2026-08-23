@@ -151,6 +151,8 @@ class PolicySnapshotEntity extends WorkScopedRow {
     @Column(name = "max_model_calls", nullable = false) int maxModelCalls;
     @Column(name = "max_tool_calls", nullable = false) int maxToolCalls;
     @Column(name = "max_duration_seconds", nullable = false) long maxDurationSeconds;
+    @Column(name = "schema_version", nullable = false) int schemaVersion;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "agent_execution_configuration", columnDefinition = "jsonb") java.util.Map<String, Object> agentExecutionConfiguration;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "snapshot_hash", nullable = false, length = 64, columnDefinition = "char(64)") String snapshotHash;
 
     protected PolicySnapshotEntity() {}

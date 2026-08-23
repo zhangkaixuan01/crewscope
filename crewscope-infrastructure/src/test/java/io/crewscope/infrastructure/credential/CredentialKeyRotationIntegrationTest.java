@@ -212,6 +212,8 @@ class CredentialKeyRotationIntegrationTest
         assertEquals(NEW_KEY_ID, after.keyId());
         assertEquals(0L, before.version());
         assertEquals(1L, after.version());
+        assertEquals(0L, before.secretVersion());
+        assertEquals(0L, after.secretVersion());
         assertFalse(Arrays.equals(before.ciphertext(), after.ciphertext()));
         assertFalse(Arrays.equals(before.nonce(), after.nonce()));
         assertEquals(before.updatedBy(), after.updatedBy());
@@ -228,7 +230,8 @@ class CredentialKeyRotationIntegrationTest
     private EnvelopeSnapshot snapshot(CredentialId credentialId) {
         return jdbcTemplate.queryForObject(
                 """
-                SELECT key_id, ciphertext, nonce, version, updated_by_principal_id, rotated_at
+                SELECT key_id, ciphertext, nonce, version, secret_version,
+                       updated_by_principal_id, rotated_at
                 FROM crewscope.credential_secret
                 WHERE id = ?
                 """,
@@ -237,6 +240,7 @@ class CredentialKeyRotationIntegrationTest
                         resultSet.getBytes("ciphertext"),
                         resultSet.getBytes("nonce"),
                         resultSet.getLong("version"),
+                        resultSet.getLong("secret_version"),
                         resultSet.getObject("updated_by_principal_id", UUID.class),
                         resultSet.getObject("rotated_at")),
                 credentialId.value());
@@ -278,6 +282,7 @@ class CredentialKeyRotationIntegrationTest
             byte[] ciphertext,
             byte[] nonce,
             long version,
+            long secretVersion,
             UUID updatedBy,
             Object rotatedAt) {}
 

@@ -2,6 +2,7 @@ package io.crewscope.application.model;
 
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.model.ModelProviderKey;
+import java.util.List;
 import java.util.Optional;
 
 /** Persistence Port for trusted model provider definitions and lifecycle updates. */
@@ -14,4 +15,7 @@ public interface ModelProviderDefinitionRepository {
     ModelProviderDefinition updateLifecycle(ModelProviderDefinition definition);
 
     Optional<ModelProviderDefinition> findByKey(ModelProviderKey providerKey);
+
+    /** Returns a stable provider-key ordered window for catalog management screens. */
+    List<ModelProviderDefinition> findPage(int offset, int limit);
 }

@@ -17,4 +17,10 @@ public interface ReviewFindingObservationRepository {
             OrganizationId organizationId, ReviewFindingId findingId);
 
     void insert(ReviewFindingObservation observation);
+
+    /** Serializes duplicate numbering per Finding and returns the committed observation. */
+    default ReviewFindingObservation append(ReviewFindingObservation observation) {
+        insert(observation);
+        return observation;
+    }
 }

@@ -15,7 +15,7 @@ public interface ReviewDecisionRepository {
     Optional<ReviewDecision> findLatestByRequest(
             OrganizationId organizationId, ReviewRequestId reviewRequestId);
 
-    List<ReviewDecision> findAllByRequest(
+    List<ReviewDecision> findDecisionsByRequest(
             OrganizationId organizationId, ReviewRequestId reviewRequestId);
 
     void insert(ReviewDecision decision);

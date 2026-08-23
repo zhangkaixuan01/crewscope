@@ -28,7 +28,8 @@ public record CredentialDescriptor(
         PrincipalId updatedBy,
         UtcTimestamp createdAt,
         UtcTimestamp updatedAt,
-        long version) {
+        long version,
+        long secretVersion) {
 
     public CredentialDescriptor {
         Objects.requireNonNull(credentialId, "credentialId");
@@ -49,7 +50,7 @@ public record CredentialDescriptor(
         Objects.requireNonNull(updatedBy, "updatedBy");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
-        if (updatedAt.compareTo(createdAt) < 0 || version < 0) {
+        if (updatedAt.compareTo(createdAt) < 0 || version < 0 || secretVersion < 0) {
             throw new IllegalArgumentException("Credential lifecycle metadata is invalid");
         }
         expiresAt.ifPresent(value -> requireAfter(value, createdAt, "expiresAt"));

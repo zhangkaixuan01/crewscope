@@ -317,6 +317,48 @@ class M3TaskRuntimePersistenceIntegrationTest
     }
 
     @Test
+    void roundTripsPolicySnapshotSchemaV2AndRejectsUnknownSchemas() {
+        Fixture fixture = seedFixture("PV2");
+        Task task = taskRepository.create(fixture.task());
+        TaskExecution execution = executionRepository.create(fixture.execution(task, 50, CREATED));
+        io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration resolved =
+                M5ResolvedExecutionPersistenceFixture.create(
+                        fixture.organizationId,
+                        fixture.teamId,
+                        fixture.workspaceId,
+                        fixture.profileId,
+                        fixture.executor.id(),
+                        fixture.owner.id(),
+                        new PolicyPackReference(PolicyPackId.generate(), 2),
+                        READY);
+        PolicySnapshot policy = PolicySnapshot.initialV2(
+                PolicySnapshotId.generate(), task, execution, fixture.executor, resolved,
+                Set.of(ExecutionCapability.PLAN, ExecutionCapability.STRUCTURED_OUTPUT),
+                Set.of("repository.read", "validation.run"), Set.of(),
+                new PolicyBudget(20_000, 8, 8, 900), fixture.owner, READY);
+
+        PolicySnapshot created = policyRepository.create(policy);
+        PolicySnapshot loaded = policyRepository
+                .findById(fixture.organizationId, created.id()).orElseThrow();
+
+        assertEquals(2, loaded.schemaVersion());
+        assertEquals(resolved.resolutionHash(), loaded.agentExecutionConfiguration()
+                .orElseThrow().resolutionHash());
+        assertFalse(policyRepository.findById(OrganizationId.generate(), created.id()).isPresent());
+        String persistedJson = jdbcTemplate.queryForObject(
+                "SELECT agent_execution_configuration::text FROM crewscope.policy_snapshot WHERE id = ?",
+                String.class,
+                created.id().value());
+        assertFalse(persistedJson.contains("credentialId"));
+        assertFalse(persistedJson.contains("apiKey"));
+
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+                () -> jdbcTemplate.update(
+                        "UPDATE crewscope.policy_snapshot SET schema_version = 99 WHERE id = ?",
+                        created.id().value()));
+    }
+
+    @Test
     void pagesTeamTasksWithStableKeysetsFiltersAndDedicatedIndexes() {
         Fixture fixture = seedFixture("LST");
         Task activeBase = taskRepository.create(fixture.task());
@@ -1989,6 +2031,7 @@ class M3TaskRuntimePersistenceIntegrationTest
     @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
     @Import({
         TaskRuntimePersistenceMapper.class,
+        ResolvedAgentExecutionConfigurationJsonCodec.class,
         TaskRuntimeExtendedPersistenceMapper.class,
         TaskRuntimeJpaSupport.class,
         JpaTaskRuntimeRepositoryAdapter.class,

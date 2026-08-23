@@ -14,7 +14,7 @@ public interface ActionReceiptRepository {
 
     Optional<ActionReceipt> findById(OrganizationId organizationId, ActionReceiptId id);
 
-    Optional<ActionReceipt> findByAction(
+    Optional<ActionReceipt> findReceiptByAction(
             OrganizationId organizationId, PlannedActionId actionId);
 
     Optional<ActionReceipt> findByExternalIdentity(

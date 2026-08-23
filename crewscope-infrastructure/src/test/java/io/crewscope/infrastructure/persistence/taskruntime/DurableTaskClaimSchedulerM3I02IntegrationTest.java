@@ -453,6 +453,7 @@ class DurableTaskClaimSchedulerM3I02IntegrationTest
     @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
     @Import({
         TaskRuntimePersistenceMapper.class,
+        ResolvedAgentExecutionConfigurationJsonCodec.class,
         TaskRuntimeExtendedPersistenceMapper.class,
         TaskRuntimeJpaSupport.class,
         JpaTaskRuntimeRepositoryAdapter.class,

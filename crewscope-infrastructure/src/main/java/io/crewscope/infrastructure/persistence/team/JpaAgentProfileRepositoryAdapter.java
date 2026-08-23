@@ -14,16 +14,14 @@ import io.crewscope.domain.team.TeamMemberStatus;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.PersonalAgentInitialization;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
-
-import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
-
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Atomic JPA adapter for AgentProfile lifecycle and default Personal Agent initialization. */
 @Repository
@@ -34,6 +32,19 @@ public class JpaAgentProfileRepositoryAdapter
 
     public JpaAgentProfileRepositoryAdapter(TeamPersistenceMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
+    }
+
+    @Override
+    @Transactional
+    public AgentProfile create(AgentProfile profile) {
+        AgentProfile required = Objects.requireNonNull(profile, "profile");
+        if (required.version() != 0 || required.defaultProfile()) {
+            throw new DomainValidationException(
+                    "agentProfile", "create accepts only a new non-default template instance");
+        }
+        entityManager.persist(mapper.toEntity(required));
+        entityManager.flush();
+        return findById(required.scope().organizationId(), required.id()).orElseThrow();
     }
 
     @Override
@@ -176,6 +187,27 @@ public class JpaAgentProfileRepositoryAdapter
                 .map(mapper::toDomain);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentProfile> findPage(
+            OrganizationId organizationId, int offset, int limit) {
+        requirePage(offset, limit);
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId
+                        ORDER BY value.updatedAt DESC, value.id DESC
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setFirstResult(offset)
+                .setMaxResults(limit)
+                .getResultList().stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
     private Optional<AgentProfileEntity> findDefaultEntity(
             OrganizationId organizationId, TeamMemberId ownerMemberId) {
         return entityManager
@@ -233,5 +265,12 @@ public class JpaAgentProfileRepositoryAdapter
         }
         throw new OptimisticLockConflictException(
                 "AgentProfile", value.id(), expected, actual.orElseThrow());
+    }
+
+    private static void requirePage(int offset, int limit) {
+        if (offset < 0 || limit < 1 || limit > 200) {
+            throw new DomainValidationException(
+                    "agentProfile.page", "offset must be non-negative and limit between 1 and 200");
+        }
     }
 }

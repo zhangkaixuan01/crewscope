@@ -1,6 +1,7 @@
 package io.crewscope.application.agent;
 
 import io.crewscope.application.model.ModelCatalogEntryRepository;
+import io.crewscope.application.model.ModelConnectionAvailabilityVerifier;
 import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.model.ModelPriceScheduleRepository;
 import io.crewscope.application.model.ModelProviderDefinitionRepository;
@@ -18,23 +19,19 @@ import io.crewscope.domain.agent.AgentModelPolicyConstraints;
 import io.crewscope.domain.agent.AgentModelPreflightException;
 import io.crewscope.domain.agent.AgentModelPreflightRejectionCode;
 import io.crewscope.domain.agent.AgentModelSelection;
-import io.crewscope.domain.agent.AgentTemplateCapability;
 import io.crewscope.domain.agent.AgentTemplateDefinition;
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.agent.ResolvedModelRole;
 import io.crewscope.domain.agent.ResolvedModelSelection;
-import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelPriceRevision;
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workspace.AgentProfile;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /** Resolves one exact Agent execution configuration and fails before AgentScope on any mismatch. */
 public final class AgentExecutionConfigurationResolver {
@@ -44,6 +41,7 @@ public final class AgentExecutionConfigurationResolver {
     private final ModelConnectionRepository connections;
     private final ModelCatalogEntryRepository catalogs;
     private final ModelPriceScheduleRepository prices;
+    private final ModelConnectionAvailabilityVerifier connectionAvailability;
 
     public AgentExecutionConfigurationResolver(
             AgentModelDefaultRepository defaults,
@@ -51,11 +49,29 @@ public final class AgentExecutionConfigurationResolver {
             ModelConnectionRepository connections,
             ModelCatalogEntryRepository catalogs,
             ModelPriceScheduleRepository prices) {
+        this(
+                defaults,
+                providers,
+                connections,
+                catalogs,
+                prices,
+                ModelConnectionAvailabilityVerifier.persistedStateOnly());
+    }
+
+    public AgentExecutionConfigurationResolver(
+            AgentModelDefaultRepository defaults,
+            ModelProviderDefinitionRepository providers,
+            ModelConnectionRepository connections,
+            ModelCatalogEntryRepository catalogs,
+            ModelPriceScheduleRepository prices,
+            ModelConnectionAvailabilityVerifier connectionAvailability) {
         this.defaults = Objects.requireNonNull(defaults, "defaults");
         this.providers = Objects.requireNonNull(providers, "providers");
         this.connections = Objects.requireNonNull(connections, "connections");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
         this.prices = Objects.requireNonNull(prices, "prices");
+        this.connectionAvailability = Objects.requireNonNull(
+                connectionAvailability, "connectionAvailability");
     }
 
     /**
@@ -224,6 +240,8 @@ public final class AgentExecutionConfigurationResolver {
                         Objects.requireNonNull(resolvedAt, "resolvedAt"))
                 .orElseThrow(() -> rejected(
                         AgentModelPreflightRejectionCode.PRICE_UNAVAILABLE));
+        connectionAvailability.requireAvailable(
+                connection, authorization.requestingPrincipalId(), resolvedAt);
         return ResolvedModelSelection.resolve(
                 role,
                 selection,
@@ -242,24 +260,7 @@ public final class AgentExecutionConfigurationResolver {
             AgentModelPolicyConstraints policy,
             AgentTemplateDefinition template,
             AgentConfigurationVersion configuration) {
-        Set<ModelCapability> capabilities = new HashSet<>(policy.requiredCapabilities());
-        template.capabilities().requiredModelCapabilities().stream()
-                .map(AgentTemplateCapability::value)
-                .map(value -> value.startsWith("model.") ? value.substring("model.".length()) : value)
-                .map(ModelCapability::new)
-                .forEach(capabilities::add);
-        long minimumOutputTokens = configuration.generateOptions()
-                .maximumOutputTokens()
-                .map(value -> Math.max(value, policy.minimumOutputTokens()))
-                .orElse(policy.minimumOutputTokens());
-        return new AgentModelPolicyConstraints(
-                Set.copyOf(capabilities),
-                policy.allowedRegions(),
-                policy.allowedRetentionModes(),
-                policy.maximumRetention(),
-                policy.providerTrainingAllowed(),
-                policy.minimumContextWindowTokens(),
-                minimumOutputTokens);
+        return policy.withTemplateRequirements(template, configuration.generateOptions());
     }
 
     private static AgentModelPreflightException rejected(

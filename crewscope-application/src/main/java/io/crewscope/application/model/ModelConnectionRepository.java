@@ -20,4 +20,7 @@ public interface ModelConnectionRepository {
             OrganizationId organizationId, ModelConnectionId connectionId);
 
     List<ModelConnection> findByOwner(ModelConnectionOwner owner);
+
+    /** Returns a stable updated-time window for one exact owner boundary. */
+    List<ModelConnection> findByOwner(ModelConnectionOwner owner, int offset, int limit);
 }

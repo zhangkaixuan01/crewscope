@@ -14,6 +14,6 @@ public interface ExternalObservationRepository {
 
     boolean exists(OrganizationId organizationId, ExternalObservationKey observationKey);
 
-    List<ExternalObservation> findByAction(
+    List<ExternalObservation> findObservationsByAction(
             OrganizationId organizationId, PlannedActionId actionId);
 }

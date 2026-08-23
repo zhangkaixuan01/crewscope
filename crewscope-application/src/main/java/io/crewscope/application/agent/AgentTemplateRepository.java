@@ -4,6 +4,7 @@ import io.crewscope.domain.agent.AgentTemplateDefinition;
 import io.crewscope.domain.agent.AgentTemplateKey;
 import io.crewscope.domain.agent.AgentTemplatePublisherScope;
 import io.crewscope.domain.agent.AgentTemplateVersion;
+import java.util.List;
 import java.util.Optional;
 
 /** Persistence Port for append-only Agent template definitions and mutable catalog lifecycle. */
@@ -23,4 +24,8 @@ public interface AgentTemplateRepository {
 
     Optional<AgentTemplateDefinition> findLatest(
             AgentTemplatePublisherScope publisherScope, AgentTemplateKey templateKey);
+
+    /** Returns a stable template-key/version window inside one publisher boundary. */
+    List<AgentTemplateDefinition> findPage(
+            AgentTemplatePublisherScope publisherScope, int offset, int limit);
 }

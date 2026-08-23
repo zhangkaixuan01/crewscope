@@ -6,6 +6,8 @@ import io.crewscope.domain.coding.ManagedWorkspaceBranch;
 import io.crewscope.domain.coding.RepositoryBranchName;
 import io.crewscope.domain.coding.RepositoryCommitId;
 import io.crewscope.domain.coding.WorkspaceArchiveReference;
+import io.crewscope.domain.action.RepositoryBranchReference;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
@@ -60,6 +62,16 @@ public final class GitCommandExecutor {
 
     public GitCommandExecutor(GitCommandPolicy policy) {
         this(policy, "git");
+    }
+
+    /** Uses one deployment-selected absolute Git-compatible executable without invoking a shell. */
+    public GitCommandExecutor(GitCommandPolicy policy, Path executable) {
+        this(
+                policy,
+                Objects.requireNonNull(executable, "executable")
+                        .toAbsolutePath()
+                        .normalize()
+                        .toString());
     }
 
     GitCommandExecutor(GitCommandPolicy policy, String executable) {
@@ -593,6 +605,155 @@ public final class GitCommandExecutor {
                 Optional.empty());
     }
 
+    /** Initializes one platform-selected path as a bare repository. */
+    public void initializeBareRepository(Path repository) {
+        Path location = absolutePath(repository, "repository");
+        Path parent = Objects.requireNonNull(location.getParent(), "repository parent");
+        run(
+                List.of(
+                        "-C",
+                        parent.toString(),
+                        "init",
+                        "--bare",
+                        "--initial-branch=main",
+                        location.getFileName().toString()),
+                Optional.empty());
+    }
+
+    /** Imports an exact immutable commit from a trusted managed local repository. */
+    public void fetchLocalCommit(
+            Path mirror, Path sourceRepository, RepositoryCommitId commit) {
+        Path target = absolutePath(mirror, "mirror");
+        Path source = absolutePath(sourceRepository, "sourceRepository");
+        RepositoryCommitId immutableCommit = Objects.requireNonNull(commit, "commit");
+        run(
+                List.of(
+                        "-C",
+                        target.toString(),
+                        "fetch",
+                        "--no-tags",
+                        "--no-write-fetch-head",
+                        source.toString(),
+                        immutableCommit.value()),
+                Optional.empty());
+    }
+
+    /** Reads one exact remote branch without persisting a credential or Remote config. */
+    public Optional<RepositoryCommitId> findRemoteBranchHead(
+            Path mirror,
+            URI remote,
+            RepositoryBranchReference branch,
+            GitAskPassEnvironment askPassEnvironment) {
+        Path target = absolutePath(mirror, "mirror");
+        String remoteValue = remote(remote);
+        RepositoryBranchReference fullBranch = Objects.requireNonNull(branch, "branch");
+        GitProcessRunner.GitProcessResult result = processRunner.runForResult(
+                List.of(
+                        "-c",
+                        "credential.helper=",
+                        "-c",
+                        "http.followRedirects=false",
+                        "-C",
+                        target.toString(),
+                        "ls-remote",
+                        "--exit-code",
+                        "--refs",
+                        remoteValue,
+                        fullBranch.value()),
+                Optional.empty(),
+                Set.of(0, 2),
+                Objects.requireNonNull(askPassEnvironment, "askPassEnvironment"));
+        if (result.exitCode() == 2) {
+            return Optional.empty();
+        }
+        String output = result.output().trim();
+        int separator = output.indexOf('\t');
+        if (separator < 0 || output.indexOf('\n') >= 0
+                || !output.substring(separator + 1).equals(fullBranch.value())) {
+            throw new GitCommandException(
+                    GitCommandError.COMMAND_FAILED,
+                    "Git returned an invalid remote branch identity",
+                    OptionalInt.empty());
+        }
+        return Optional.of(commitId(output.substring(0, separator)));
+    }
+
+    /** Fetches the current exact remote branch objects without writing a configured Remote. */
+    public void fetchRemoteBranch(
+            Path mirror,
+            URI remote,
+            RepositoryBranchReference branch,
+            GitAskPassEnvironment askPassEnvironment) {
+        Path target = absolutePath(mirror, "mirror");
+        RepositoryBranchReference fullBranch = Objects.requireNonNull(branch, "branch");
+        processRunner.run(
+                List.of(
+                        "-c",
+                        "credential.helper=",
+                        "-c",
+                        "http.followRedirects=false",
+                        "-C",
+                        target.toString(),
+                        "fetch",
+                        "--no-tags",
+                        "--no-write-fetch-head",
+                        remote(remote),
+                        fullBranch.value()),
+                Optional.empty(),
+                Objects.requireNonNull(askPassEnvironment, "askPassEnvironment"));
+    }
+
+    /** Returns whether one immutable commit is an ancestor of another. */
+    public boolean isAncestor(
+            Path repository, RepositoryCommitId ancestor, RepositoryCommitId descendant) {
+        Path location = absolutePath(repository, "repository");
+        RepositoryCommitId base = Objects.requireNonNull(ancestor, "ancestor");
+        RepositoryCommitId head = Objects.requireNonNull(descendant, "descendant");
+        GitProcessRunner.GitProcessResult result = processRunner.runForResult(
+                List.of(
+                        "-C",
+                        location.toString(),
+                        "merge-base",
+                        "--is-ancestor",
+                        base.value(),
+                        head.value()),
+                Optional.empty(),
+                Set.of(0, 1));
+        return result.exitCode() == 0;
+    }
+
+    /** Pushes one full SHA RefSpec guarded by an exact atomic force-with-lease. */
+    public void pushBranch(
+            Path mirror,
+            URI remote,
+            RepositoryBranchReference branch,
+            RepositoryCommitId deliveryHead,
+            Optional<RepositoryCommitId> expectedRemoteHead,
+            GitAskPassEnvironment askPassEnvironment) {
+        Path target = absolutePath(mirror, "mirror");
+        RepositoryBranchReference fullBranch = Objects.requireNonNull(branch, "branch");
+        RepositoryCommitId delivery = Objects.requireNonNull(deliveryHead, "deliveryHead");
+        Optional<RepositoryCommitId> expected = Objects.requireNonNull(
+                expectedRemoteHead, "expectedRemoteHead");
+        String lease = "--force-with-lease=" + fullBranch.value() + ":"
+                + expected.map(RepositoryCommitId::value).orElse("");
+        processRunner.run(
+                List.of(
+                        "-c",
+                        "credential.helper=",
+                        "-c",
+                        "http.followRedirects=false",
+                        "-C",
+                        target.toString(),
+                        "push",
+                        "--porcelain",
+                        lease,
+                        remote(remote),
+                        delivery.value() + ":" + fullBranch.value()),
+                Optional.empty(),
+                Objects.requireNonNull(askPassEnvironment, "askPassEnvironment"));
+    }
+
     private RepositoryCommitId commitId(String output) {
         String normalized = output.trim();
         try {
@@ -672,6 +833,14 @@ public final class GitCommandExecutor {
             throw new IllegalArgumentException(name + " must resolve to an absolute path");
         }
         return normalized;
+    }
+
+    private static String remote(URI remote) {
+        URI value = Objects.requireNonNull(remote, "remote");
+        if (value.getUserInfo() != null || value.getRawQuery() != null || value.getRawFragment() != null) {
+            throw new IllegalArgumentException("Git remote must not contain credentials or query data");
+        }
+        return value.toASCIIString();
     }
 
 }

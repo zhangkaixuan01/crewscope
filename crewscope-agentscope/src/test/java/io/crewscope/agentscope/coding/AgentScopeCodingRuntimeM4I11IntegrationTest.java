@@ -2,6 +2,8 @@ package io.crewscope.agentscope;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -29,18 +31,22 @@ import io.crewscope.agentscope.coding.CodingSpecialistRunResult;
 import io.crewscope.agentscope.coding.CodingSpecialistSkillBundle;
 import io.crewscope.agentscope.coding.CodingSpecialistToolSurface;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
+import io.crewscope.domain.agent.AgentReasoningMode;
+import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -295,6 +301,66 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
             assertFalse(second.workspaceFor(userId, secondSessionId)
                     .getFilesystem()
                     .exists(secondContext, "plan.md"));
+        }
+    }
+
+    @Test
+    void m5ResolvedFactoryKeepsTheM4CodingHarnessAndUsesThePreflightedModelAndPrompt() {
+        ScriptedModel deploymentModel = repeatedModel("unused deployment model", 2);
+        ScriptedModel resolvedModel = repeatedModel("unused resolved model", 2);
+        AgentProfileId profileId = profileId();
+        CodingSpecialistConfigurationSource configurations = (requested, version) ->
+                new CodingSpecialistConfiguration(
+                        requested,
+                        version,
+                        "deployment",
+                        Optional.empty(),
+                        "deployment",
+                        "Deployment prompt must be replaced.",
+                        20,
+                        3,
+                        0.8,
+                        0.8,
+                        4_096,
+                        8,
+                        2,
+                        1_024,
+                        64);
+        CodingSpecialistFactory factory = new CodingSpecialistFactory(
+                configurations,
+                ignored -> deploymentModel,
+                new InMemoryAgentStateStore(),
+                new CodingSpecialistSkillBundle(),
+                runtimeRoot);
+        SafeModelGenerateOptions options = new SafeModelGenerateOptions(
+                Optional.of(BigDecimal.ZERO),
+                Optional.of(BigDecimal.ONE),
+                Optional.of(8_192L),
+                AgentReasoningMode.DEFAULT,
+                false,
+                false,
+                Optional.empty(),
+                2);
+
+        try (HarnessAgent agent = factory.createResolved(
+                specialistSession(),
+                toolkit(new ControlledCodingTools()),
+                resolvedModel,
+                Optional.empty(),
+                "M5 exact Template prompt.",
+                options)) {
+            assertSame(resolvedModel, agent.getModel());
+            assertEquals("M5 exact Template prompt.", agent.getDelegate().getSysPrompt());
+            assertEquals(20, agent.getMaxIters());
+            assertEquals(8_192, agent.getDelegate().getGenerateOptions().getMaxTokens());
+            assertNotNull(agent.getCompactionHook());
+            Set<String> initialRuntimeTools = new java.util.HashSet<>(
+                    CodingSpecialistToolSurface.runtimeTools());
+            // AgentScope installs the fixed read-only Skill loader at invocation time.
+            initialRuntimeTools.remove(CodingSpecialistToolSurface.SKILL_LOAD_TOOL);
+            assertEquals(
+                    initialRuntimeTools,
+                    agent.getToolkit().getToolNames());
         }
     }
 

@@ -18,13 +18,20 @@ public final class ObservableAgentScopeModel implements Model {
 
     private final Model delegate;
     private final AgentModelRole role;
+    private final ExecutionConfig platformDefaults;
 
     public ObservableAgentScopeModel(Model delegate, AgentModelRole role) {
+        this(delegate, role, null);
+    }
+
+    public ObservableAgentScopeModel(
+            Model delegate, AgentModelRole role, ExecutionConfig platformDefaults) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         if (role != AgentModelRole.PRIMARY && role != AgentModelRole.FALLBACK) {
             throw new IllegalArgumentException("observable model role must be PRIMARY or FALLBACK");
         }
         this.role = role;
+        this.platformDefaults = platformDefaults;
     }
 
     @Override
@@ -50,7 +57,7 @@ public final class ObservableAgentScopeModel implements Model {
             GenerateOptions options) {
         ExecutionConfig effective = ExecutionConfig.mergeConfigs(
                 options == null ? null : options.getExecutionConfig(),
-                ExecutionConfig.MODEL_DEFAULTS);
+                ExecutionConfig.mergeConfigs(platformDefaults, ExecutionConfig.MODEL_DEFAULTS));
         int maxAttempts = effective.getMaxAttempts() == null ? 1 : effective.getMaxAttempts();
         GenerateOptions singleAttemptOptions = singleAttemptOptions(options);
         if (invocationScope != null) {

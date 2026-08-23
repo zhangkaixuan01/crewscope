@@ -90,6 +90,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class TaskRuntimeExtendedPersistenceMapper {
 
+    private final ResolvedAgentExecutionConfigurationJsonCodec configurationJsonCodec;
+
+    public TaskRuntimeExtendedPersistenceMapper(
+            ResolvedAgentExecutionConfigurationJsonCodec configurationJsonCodec) {
+        this.configurationJsonCodec = Objects.requireNonNull(
+                configurationJsonCodec, "configurationJsonCodec");
+    }
+
     PolicySnapshotEntity toEntity(PolicySnapshot value) {
         PolicySnapshotEntity row = new PolicySnapshotEntity();
         row.id = value.id().value();
@@ -112,12 +120,34 @@ public class TaskRuntimeExtendedPersistenceMapper {
         row.maxModelCalls = value.budget().maxModelCalls();
         row.maxToolCalls = value.budget().maxToolCalls();
         row.maxDurationSeconds = value.budget().maxDurationSeconds();
+        row.schemaVersion = value.schemaVersion();
+        row.agentExecutionConfiguration = value.agentExecutionConfiguration()
+                .map(configurationJsonCodec::encode)
+                .orElse(null);
         row.snapshotHash = value.snapshotHash().value();
         putImmutableAudit(row, value.createdByPrincipalId(), value.createdAt());
         return row;
     }
 
     PolicySnapshot toDomain(PolicySnapshotEntity row) {
+        int schemaVersion = PolicySnapshot.requireSupportedSchemaVersion(row.schemaVersion);
+        if (schemaVersion == 2) {
+            return PolicySnapshot.reconstituteV2(
+                    new PolicySnapshotId(row.id), scope(row), new TaskId(row.taskId),
+                    new TaskExecutionId(row.taskExecutionId), row.revision,
+                    optional(row.parentSnapshotId, PolicySnapshotId::new),
+                    PolicySnapshotChangeReason.valueOf(row.changeReason), executionPrincipal(row),
+                    configurationJsonCodec.decode(Objects.requireNonNull(
+                            row.agentExecutionConfiguration,
+                            "policySnapshot.agentExecutionConfiguration")),
+                    enumSet(row.capabilities, ExecutionCapability::valueOf), Set.copyOf(row.allowedTools),
+                    row.providerBindingIds.stream()
+                            .map(UUID::fromString).map(ProviderBindingId::new).collect(Collectors.toSet()),
+                    new PolicyBudget(row.maxTokens, row.maxModelCalls, row.maxToolCalls,
+                            row.maxDurationSeconds),
+                    new TaskFactHash(row.snapshotHash.trim()), new PrincipalId(row.createdByPrincipalId),
+                    new UtcTimestamp(row.createdAt));
+        }
         return PolicySnapshot.reconstitute(
                 new PolicySnapshotId(row.id), scope(row), new TaskId(row.taskId),
                 new TaskExecutionId(row.taskExecutionId), row.revision,

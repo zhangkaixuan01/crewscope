@@ -7,6 +7,10 @@ public interface CredentialStore {
 
     CredentialDescriptor create(CredentialCreateRequest request, CredentialSecret secret);
 
+    /** Reads non-secret lifecycle metadata after enforcing the exact access context. */
+    Optional<CredentialDescriptor> describe(
+            CredentialReference reference, CredentialAccessContext accessContext);
+
     Optional<ResolvedCredential> resolve(
             CredentialReference reference, CredentialAccessContext accessContext);
 

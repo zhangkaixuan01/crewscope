@@ -23,4 +23,11 @@ public interface AgentConfigurationRepository {
 
     List<AgentConfigurationVersion> findAll(
             OrganizationId organizationId, AgentProfileId agentProfileId);
+
+    /** Returns newest-first immutable configuration history without per-binding follow-up queries. */
+    List<AgentConfigurationVersion> findPage(
+            OrganizationId organizationId,
+            AgentProfileId agentProfileId,
+            int offset,
+            int limit);
 }

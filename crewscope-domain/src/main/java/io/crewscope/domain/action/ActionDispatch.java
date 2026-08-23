@@ -237,6 +237,30 @@ public final class ActionDispatch {
                 audit.modifiedBy(audit.updatedBy().orElseThrow(), requiredNow));
     }
 
+    /** Claims UNKNOWN or an expired Worker lease without requiring mutable execution authority. */
+    public ActionDispatch claimForReconciliation(
+            long expectedVersion,
+            ActionBundle bundle,
+            Confirmation confirmation,
+            List<ActionReceipt> dependencyReceipts,
+            ActionWorkerId workerId,
+            UtcTimestamp now,
+            UtcTimestamp leaseUntil) {
+        if (status == ActionDispatchStatus.READY) {
+            throw new InvalidStateTransitionException(
+                    "ActionDispatch", id, status, ActionDispatchStatus.RECONCILING);
+        }
+        return claim(
+                expectedVersion,
+                bundle,
+                null,
+                confirmation,
+                dependencyReceipts,
+                workerId,
+                now,
+                leaseUntil);
+    }
+
     public ActionDispatch heartbeat(
             long expectedVersion,
             ActionClaim ownership,

@@ -17,6 +17,7 @@ import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import io.crewscope.agentscope.AgentModelRole;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.ObservableAgentScopeModel;
+import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import java.io.IOException;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Creates one short-lived, stateful HarnessAgent over an invocation-bound Coding Toolkit. */
@@ -55,14 +57,57 @@ public final class CodingSpecialistFactory {
         TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
         CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
         CodingSpecialistConfiguration configuration = configuration(session);
+        return createAgent(session, toolkit, legacyRuntimeConfiguration(configuration));
+    }
+
+    /** Reuses the complete M4 Coding composition with M5's preflighted models and Template prompt. */
+    public HarnessAgent createResolved(
+            TaskAgentRuntimeSession runtimeSession,
+            Toolkit toolkit,
+            Model primaryModel,
+            Optional<Model> fallbackModel,
+            String systemPrompt,
+            SafeModelGenerateOptions generateOptions) {
+        TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
+        CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
+        CodingSpecialistConfiguration operational = configuration(session);
+        SafeModelGenerateOptions options = Objects.requireNonNull(generateOptions, "generateOptions");
+        long maximumOutputTokens = options.maximumOutputTokens()
+                .orElse((long) operational.maxOutputTokens());
+        if (maximumOutputTokens > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Coding maximumOutputTokens exceeds the AgentScope integer limit");
+        }
+        RuntimeConfiguration runtime = new RuntimeConfiguration(
+                Objects.requireNonNull(primaryModel, "primaryModel"),
+                Objects.requireNonNull(fallbackModel, "fallbackModel"),
+                Objects.requireNonNull(primaryModel, "primaryModel"),
+                Objects.requireNonNull(systemPrompt, "systemPrompt"),
+                operational.maxIterations(),
+                options.maximumAttempts(),
+                options.temperature()
+                        .map(java.math.BigDecimal::doubleValue)
+                        .orElse(operational.temperature()),
+                options.topP()
+                        .map(java.math.BigDecimal::doubleValue)
+                        .orElse(operational.topP()),
+                Math.toIntExact(maximumOutputTokens),
+                operational.compactionTriggerMessages(),
+                operational.compactionKeepMessages(),
+                operational.toolResultEvictionChars(),
+                operational.toolResultPreviewChars());
+        return createAgent(session, toolkit, runtime);
+    }
+
+    private HarnessAgent createAgent(
+            TaskAgentRuntimeSession session,
+            Toolkit toolkit,
+            RuntimeConfiguration configuration) {
 
         String stableName = "crewscope-coding-"
                 + session.agentProfileId()
                 + "-v"
                 + session.agentProfileVersion();
-        Model primary = observedModel(configuration.modelId(), AgentModelRole.PRIMARY);
-        Model compaction = observedModel(
-                configuration.compactionModelId(), AgentModelRole.PRIMARY);
         // Keep mutation receipts and the fixed Skill body intact. Historical repository reads
         // remain reproducible from the immutable Worktree and may be reduced to bounded previews;
         // retaining every full source read caused cumulative model input to exceed the frozen Q03
@@ -76,7 +121,7 @@ public final class CodingSpecialistFactory {
                 .agentId(stableName)
                 .description("CrewScope controlled Coding Specialist")
                 .sysPrompt(configuration.systemPrompt())
-                .model(primary)
+                .model(configuration.primaryModel())
                 .toolkit(toolkit)
                 .middleware(new CodingSpecialistTelemetryMiddleware())
                 .maxIters(configuration.maxIterations())
@@ -103,7 +148,7 @@ public final class CodingSpecialistFactory {
                 .enablePlanMode()
                 .enableTaskList()
                 .compaction(CompactionConfig.builder()
-                        .model(compaction)
+                        .model(configuration.compactionModel())
                         .triggerMessages(configuration.compactionTriggerMessages())
                         .triggerTokens(Integer.MAX_VALUE)
                         .keepMessages(configuration.compactionKeepMessages())
@@ -128,8 +173,7 @@ public final class CodingSpecialistFactory {
                 .disableAtPathExpansion()
                 .disableToolsConfig()
                 .enableAgentTracingLog(false);
-        configuration.fallbackModelId().ifPresent(modelId -> builder.fallbackModel(
-                observedModel(modelId, AgentModelRole.FALLBACK)));
+        configuration.fallbackModel().ifPresent(builder::fallbackModel);
 
         // AgentScope 2.0 installs its read-only Skill loader through per-call middleware. The
         // single classpath repository, its content hash and the filter above are immutable.
@@ -154,6 +198,25 @@ public final class CodingSpecialistFactory {
             agent.close();
             throw exception;
         }
+    }
+
+    private RuntimeConfiguration legacyRuntimeConfiguration(
+            CodingSpecialistConfiguration configuration) {
+        return new RuntimeConfiguration(
+                observedModel(configuration.modelId(), AgentModelRole.PRIMARY),
+                configuration.fallbackModelId().map(modelId ->
+                        observedModel(modelId, AgentModelRole.FALLBACK)),
+                observedModel(configuration.compactionModelId(), AgentModelRole.PRIMARY),
+                configuration.systemPrompt(),
+                configuration.maxIterations(),
+                configuration.maxRetries(),
+                configuration.temperature(),
+                configuration.topP(),
+                configuration.maxOutputTokens(),
+                configuration.compactionTriggerMessages(),
+                configuration.compactionKeepMessages(),
+                configuration.toolResultEvictionChars(),
+                configuration.toolResultPreviewChars());
     }
 
     /**
@@ -237,6 +300,31 @@ public final class CodingSpecialistFactory {
                 || configuration.agentProfileVersion() != session.agentProfileVersion()) {
             throw new IllegalStateException(
                     "Coding configuration must match the pinned AgentProfile version");
+        }
+    }
+
+    private record RuntimeConfiguration(
+            Model primaryModel,
+            Optional<Model> fallbackModel,
+            Model compactionModel,
+            String systemPrompt,
+            int maxIterations,
+            int maxRetries,
+            double temperature,
+            double topP,
+            int maxOutputTokens,
+            int compactionTriggerMessages,
+            int compactionKeepMessages,
+            int toolResultEvictionChars,
+            int toolResultPreviewChars) {
+
+        private RuntimeConfiguration {
+            primaryModel = Objects.requireNonNull(primaryModel, "primaryModel");
+            fallbackModel = Objects.requireNonNull(fallbackModel, "fallbackModel");
+            compactionModel = Objects.requireNonNull(compactionModel, "compactionModel");
+            if (systemPrompt == null || systemPrompt.isBlank()) {
+                throw new IllegalArgumentException("systemPrompt must not be blank");
+            }
         }
     }
 }

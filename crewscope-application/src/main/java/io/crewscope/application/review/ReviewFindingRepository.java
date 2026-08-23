@@ -21,4 +21,10 @@ public interface ReviewFindingRepository {
             OrganizationId organizationId, ReviewRequestId reviewRequestId);
 
     void insert(ReviewFinding finding);
+
+    /** Atomically returns the first committed Finding when this fingerprint already exists. */
+    default ReviewFinding insertOrFind(ReviewFinding finding) {
+        insert(finding);
+        return finding;
+    }
 }

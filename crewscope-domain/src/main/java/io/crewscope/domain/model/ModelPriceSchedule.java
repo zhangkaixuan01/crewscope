@@ -97,6 +97,12 @@ public final class ModelPriceSchedule {
                 Objects.requireNonNull(scheduleHash, "scheduleHash"));
     }
 
+    /** Rebuilds a schedule when storage keeps every hash-closed revision but no redundant root hash. */
+    public static ModelPriceSchedule reconstitute(
+            ModelCatalogCoordinate catalogCoordinate, List<ModelPriceRevision> revisions) {
+        return new ModelPriceSchedule(catalogCoordinate, revisions, null);
+    }
+
     public Optional<ModelPriceRevision> priceAt(UtcTimestamp timestamp) {
         UtcTimestamp required = Objects.requireNonNull(timestamp, "timestamp");
         ModelPriceRevision selected = null;

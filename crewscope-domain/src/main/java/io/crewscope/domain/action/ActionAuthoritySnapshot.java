@@ -3,7 +3,6 @@ package io.crewscope.domain.action;
 import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.provider.Connection;
 import io.crewscope.domain.provider.ConnectionGrant;
-import io.crewscope.domain.provider.ProviderAccessScope;
 import io.crewscope.domain.provider.ProviderBinding;
 import io.crewscope.domain.provider.ProviderRegistrationStatus;
 import io.crewscope.domain.provider.ProviderCapabilities;
@@ -27,11 +26,9 @@ import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemScope;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /** Immutable closure over Review, responsibility, Provider, policy and target authority. */
 public record ActionAuthoritySnapshot(
@@ -258,22 +255,7 @@ public record ActionAuthoritySnapshot(
                 connection.version(),
                 grant.id(),
                 grant.version(),
-                accessHash(binding.effectiveAccess()));
-    }
-
-    private static io.crewscope.domain.task.TaskFactHash accessHash(ProviderAccessScope access) {
-        String capabilities = access.capabilities().values().stream()
-                .map(Object::toString)
-                .sorted(Comparator.naturalOrder())
-                .collect(Collectors.joining(","));
-        String resources = access.resources().resources().stream()
-                .sorted(Comparator.naturalOrder())
-                .collect(Collectors.joining(","));
-        return new ActionCanonicalEncoder("provider-access-v1")
-                .add(capabilities)
-                .add(Boolean.toString(access.resources().unrestricted()))
-                .add(resources)
-                .digest();
+                ProviderAuthorizationReference.accessHash(binding.effectiveAccess()));
     }
 
     void appendCanonical(ActionCanonicalEncoder encoder) {

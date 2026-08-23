@@ -43,7 +43,7 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
             ciphertext, nonce, authentication_tag, key_id, algorithm, aad_version,
             metadata::TEXT AS metadata, status, expires_at, rotated_at, revoked_at,
             created_by_principal_id, updated_by_principal_id,
-            created_at, updated_at, version
+            created_at, updated_at, version, secret_version
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -104,9 +104,9 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
                         ciphertext, nonce, authentication_tag, key_id, algorithm, aad_version,
                         metadata, status, expires_at,
                         created_by_principal_id, updated_by_principal_id,
-                        created_at, updated_at, version
+                        created_at, updated_at, version, secret_version
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              CAST(? AS JSONB), 'ACTIVE', ?, ?, ?, ?, ?, 0)
+                              CAST(? AS JSONB), 'ACTIVE', ?, ?, ?, ?, ?, 0, 0)
                     """,
                     create.credentialId().value(),
                     create.subject().organizationId().value(),
@@ -136,6 +136,17 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
         } catch (DataAccessException exception) {
             throw storageFailure("Credential envelope could not be stored", exception);
         }
+    }
+
+    @Override
+    public Optional<CredentialDescriptor> describe(
+            CredentialReference reference, CredentialAccessContext accessContext) {
+        CredentialReference credential = Objects.requireNonNull(reference, "reference");
+        CredentialAccessContext access = Objects.requireNonNull(accessContext, "accessContext");
+        if (!access.allows(credential)) {
+            return Optional.empty();
+        }
+        return find(credential).map(CredentialDatabaseRow::descriptor);
     }
 
     @Override
@@ -181,7 +192,8 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
                     SET ciphertext = ?, nonce = ?, authentication_tag = ?,
                         key_id = ?, algorithm = ?, aad_version = ?,
                         status = 'ACTIVE', rotated_at = ?,
-                        updated_by_principal_id = ?, updated_at = ?, version = version + 1
+                        updated_by_principal_id = ?, updated_at = ?,
+                        version = version + 1, secret_version = secret_version + 1
                     WHERE organization_id = ? AND id = ?
                       AND status = 'ACTIVE' AND version = ?
                     """,
@@ -390,7 +402,8 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
                 new PrincipalId(resultSet.getObject("updated_by_principal_id", UUID.class)),
                 UtcTimestamp.from(resultSet.getObject("created_at", OffsetDateTime.class)),
                 UtcTimestamp.from(resultSet.getObject("updated_at", OffsetDateTime.class)),
-                resultSet.getLong("version"));
+                resultSet.getLong("version"),
+                resultSet.getLong("secret_version"));
         CredentialEnvelopeContext context = new CredentialEnvelopeContext(
                 descriptor.credentialId(),
                 descriptor.subject(),
@@ -463,6 +476,7 @@ public class DatabaseEnvelopeCredentialStore implements CredentialStore {
                 request.createdBy(),
                 createdAt,
                 createdAt,
+                0,
                 0);
     }
 

@@ -156,6 +156,7 @@ class CredentialStoreContractTest {
                 PRINCIPAL_ID,
                 CREATED_AT,
                 CREATED_AT,
+                0,
                 0);
     }
 }

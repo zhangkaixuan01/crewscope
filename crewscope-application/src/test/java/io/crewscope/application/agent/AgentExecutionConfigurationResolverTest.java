@@ -304,6 +304,73 @@ class AgentExecutionConfigurationResolverTest {
                 () -> resolveTeam(authorization(teamPrimary.connection().id())));
     }
 
+    @Test
+    void rejectsCapabilityRegionAndBudgetBeforeAnyAgentScopeConstruction() {
+        AgentModelPolicyConstraints unsupportedCapability = new AgentModelPolicyConstraints(
+                Set.of(new ModelCapability("vision")),
+                Set.of(GLOBAL),
+                Set.of(ModelDataRetentionMode.NONE),
+                Optional.of(Duration.ofDays(1)),
+                false,
+                16_000,
+                2_048);
+        assertRejected(
+                AgentModelPreflightRejectionCode.CAPABILITY_UNSUPPORTED,
+                () -> resolver.resolve(
+                        profile,
+                        template,
+                        configuration,
+                        new AgentExecutionScopeFacts(false, false, false, false),
+                        unsupportedCapability,
+                        authorization(
+                                personalPrimary.connection().id(),
+                                personalFallback.connection().id()),
+                        RESOLVED_AT));
+
+        AgentModelPolicyConstraints forbiddenRegion = new AgentModelPolicyConstraints(
+                Set.of(),
+                Set.of(new ModelRegion("eu")),
+                Set.of(ModelDataRetentionMode.NONE),
+                Optional.of(Duration.ofDays(1)),
+                false,
+                16_000,
+                2_048);
+        assertRejected(
+                AgentModelPreflightRejectionCode.REGION_FORBIDDEN,
+                () -> resolver.resolve(
+                        profile,
+                        template,
+                        configuration,
+                        new AgentExecutionScopeFacts(false, false, false, false),
+                        forbiddenRegion,
+                        authorization(
+                                personalPrimary.connection().id(),
+                                personalFallback.connection().id()),
+                        RESOLVED_AT));
+
+        AgentExecutionAuthorizationFacts exhaustedBudget =
+                new AgentExecutionAuthorizationFacts(
+                        OWNER_ID,
+                        true,
+                        true,
+                        true,
+                        false,
+                        true,
+                        Set.of(
+                                personalPrimary.connection().id(),
+                                personalFallback.connection().id()));
+        assertRejected(
+                AgentModelPreflightRejectionCode.BUDGET_EXHAUSTED,
+                () -> resolver.resolve(
+                        profile,
+                        template,
+                        configuration,
+                        new AgentExecutionScopeFacts(false, false, false, false),
+                        policy(),
+                        exhaustedBudget,
+                        RESOLVED_AT));
+    }
+
     private ResolvedAgentExecutionConfiguration resolveTeam(
             AgentExecutionAuthorizationFacts authorization) {
         return resolver.resolve(

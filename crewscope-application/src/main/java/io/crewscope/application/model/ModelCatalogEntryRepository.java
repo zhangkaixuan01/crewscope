@@ -4,6 +4,7 @@ import io.crewscope.domain.model.ModelCatalogCoordinate;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelId;
 import io.crewscope.domain.model.ModelProviderKey;
+import java.util.List;
 import java.util.Optional;
 
 /** Persistence Port for append-only catalog revisions and mutable catalog lifecycle. */
@@ -19,4 +20,7 @@ public interface ModelCatalogEntryRepository {
 
     Optional<ModelCatalogEntry> findLatest(
             ModelProviderKey providerKey, ModelId modelId);
+
+    /** Returns one provider's catalog in model/revision order without hydrating relationships. */
+    List<ModelCatalogEntry> findPage(ModelProviderKey providerKey, int offset, int limit);
 }
