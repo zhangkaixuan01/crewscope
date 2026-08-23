@@ -23,7 +23,8 @@ Model Registry 包含以下事实：
 | 概念 | 职责 |
 |---|---|
 | `ModelProviderDefinition` | 记录厂商 Key、显示名、AgentScope Adapter Key、默认 Endpoint、可用区域、数据保留与训练政策 |
-| `ModelCatalogEntry` | 记录 Provider、Model ID、Revision、上下文窗口、Tool/Structured Output/Vision 能力、Token 单价和生命周期 |
+| `ModelCatalogEntry` | 记录 Provider、Model ID、Revision、Context/Output Token 上限、Tool/Structured Output/Vision 能力、Region 和生命周期 |
+| `ModelPriceSchedule` | 记录绑定精确 Catalog Revision 的输入/输出/缓存 Token 单价、币种、来源和只追加生效时间点 |
 | `ModelConnection` | 记录 `USER/TEAM/ORGANIZATION` 所有权、Endpoint、Region、Credential Reference、账单主体、健康与版本 |
 | `AgentConfigurationVersion` | 记录 AgentProfile 的追加配置版本，包含主模型、备用模型、Prompt、GenerateOptions、Tool/Skill/Memory/Policy 引用和预算 |
 | `ResolvedModelSelection` | 运行前生成的受信结果，包含精确 Provider、Connection、Model ID/Revision、Adapter、价格和策略哈希，不包含凭证明文 |
@@ -40,7 +41,27 @@ Model Registry 包含以下事实：
 
 API Key 只写入 `CredentialStore`。ModelConnection 只保存 Credential Reference、Subject、版本和健康摘要。创建成功后 API 不返回 Key，前端不缓存 Key，验证、轮换、撤销和过期生成 AuditEvent。
 
+Owner、Credential Subject 和 Billing Subject 分别保存并执行以下矩阵：
+
+| ModelConnection Owner | 允许的 Credential/Billing Subject |
+|---|---|
+| `USER` | 同一 `PRINCIPAL` |
+| `TEAM` | 同一 `TEAM` 或所属 `ORGANIZATION` |
+| `ORGANIZATION` | 同一 `ORGANIZATION` |
+
+Credential Binding 只包含 Tenant-qualified Credential Reference、Subject 和乐观 Credential Version。轮换保持 Connection/Credential 稳定身份与 Subject，只追加下一 Credential Version，并将健康重置为 `UNKNOWN`。
+
+健康快照绑定精确 Credential Version，保存 `UNKNOWN/HEALTHY/UNHEALTHY`、检查时间、最后成功时间、连续失败数与平台稳定错误码。Provider 原始错误、响应 Body、Header 和凭证线索不进入 Connection、日志或 API。验证写入同时使用 Expected Connection Version 和 Expected Credential Version，防止旧探测覆盖轮换后的当前健康。
+
 ### 模型选择与策略解析
+
+`AgentConfigurationVersion` 使用连续、只追加的 Configuration Revision。每个版本绑定同一 AgentProfile、直接前一 Revision、精确 AgentTemplateVersion/ContentHash、PERSONAL/TEAM ModelBinding、模板验证后的 Prompt/Tool/Schema 结果、批准 Skill、Memory/Budget Policy Reference、PolicyPack Reference、SafeGenerateOptions、配置 Hash 与创建审计。
+
+直接 ModelBinding 的 Primary 必填，Fallback 可选且必须不同；两者分别保存稳定 Connection ID、不可变 Connection Owner 快照、精确 Catalog Coordinate、Provider Definition Hash 与 Catalog Content Hash，并按相同 Scope、Provider、Region 和目录规则独立校验。配置不固定 Connection 乐观版本或 Credential Version，使凭证轮换可以保持稳定 Connection 身份；运行前再把当前 Connection/Credential Version 固定进 ResolvedModelSelection 和 PolicySnapshot。
+
+PERSONAL Binding 仅支持 `DIRECT`。TEAM Binding 对执行 Agent 支持 `DIRECT` 或 `INHERIT_TEAM_DEFAULT`；默认 Personal Agent 的 TEAM 侧固定为 `ORCHESTRATION_ONLY`。未声明 TEAM Binding 时不得使用 PERSONAL Binding。Team/Organization ModelDefault 同样只追加并绑定精确 TemplateVersion 与 ExecutionScope；Team 默认只能使用同 Team/Organization Connection，Organization 默认只能使用 Organization Connection。
+
+公开写入边界使用显式字段 DTO。客户端只提交稳定 Connection ID、Catalog Entry ID/Revision、补充指令、批准 Skill、Memory/Budget Reference 和安全生成选项，不能提交 Owner、Provider/Adapter、模型名称、Hash、System Prompt、Tool、Schema、PolicyPack、Endpoint、Credential Reference 或任意 Map。
 
 新 AgentProfile 按以下顺序得到初始配置：
 
@@ -116,6 +137,14 @@ Formatter、Native Structured Output 与 Tool 兼容标志由 Adapter 根据 Pro
 AgentScope 的 `ModelConfig.maxRetries` 会合入 `GenerateOptions.ExecutionConfig.maxAttempts`。主模型耗尽该预算后，ReActAgent 才在同一逻辑模型调用上通过 `switchOnFirst` 进入显式 Fallback。CrewScope 在 PolicySnapshot 中分别固定两套模型坐标，并由累计遥测区分 Primary Attempt、Retry Attempt 和 Fallback Attempt。
 
 Connection-scoped Model 的缓存键至少包含 Organization、Connection ID/Version、Credential Version、Model ID/Revision、Adapter Version、Formatter/Compatibility Hash 和 SafeGenerateOptions Hash。凭证轮换、Connection 撤销、模型 Revision 或兼容策略变化会使旧实例不可再领取；Model 实例、Credential Handle 和缓存对象不进入 AgentState、配置 JSON、日志或 Artifact。
+
+### V20 物理持久化
+
+M5-D10 使用 `model_provider_definition`、`model_catalog_entry`、`model_price_revision`、`model_connection`、`agent_template_version`、`agent_configuration_version`、`agent_configuration_model_binding` 和 `agent_model_default` 八张表落地本 ADR。产品 Provider Definition 是全局可信根；租户内 Connection、Template、Configuration 和 Default 全部使用完整 Organization/Team/Owner 复合坐标。
+
+`DIRECT` Binding 对 Primary 和可选 Fallback 分别固定 Connection、Provider Definition Hash、Catalog Revision 和 Catalog Content Hash；`INHERIT_TEAM_DEFAULT` 与 `ORCHESTRATION_ONLY` 不允许携带模型坐标。Catalog、Price、Template、Configuration 和 Default 使用精确 Revision、内容 Hash、唯一键和受限删除保持历史可复现；Catalog、Template、Configuration 和 Default 同时保存直接前驱。
+
+ModelConnection 绑定精确 Credential Subject 和 Version，并由数据库同时约束 Owner、Credential Subject、Billing Subject、健康快照和撤销形状。应用 Adapter 继续负责连续 Revision 的并发创建与只追加写语义，数据库负责终局冲突和跨 Scope 阻断。
 
 ### API 与前端
 

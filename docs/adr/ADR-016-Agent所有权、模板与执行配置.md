@@ -78,6 +78,12 @@ Agent 所有权允许范围
 - 缺少适用于当前执行范围的绑定时失败关闭，不把 PERSONAL Binding 隐式用于 TEAM Task；
 - Team Policy 可以进一步禁止个人 Agent 参与团队任务，或限制可用模板、模型、数据区域、预算和 ProviderBinding。
 
+每个 Configuration Revision 从 1 连续追加并引用直接前一 Revision，固定 Profile/Ownership、Owner USER Principal、TemplateVersion/ContentHash、两类 Binding、模板验证后的 Prompt/Tool/Schema、批准 Skill、Memory/Budget Policy Reference、PolicyPack、SafeGenerateOptions、配置 Hash 和创建审计。Owner USER Principal 仅用于证明 USER Connection 属于 USER-owned Agent 的实际 Owner；TEAM/ORGANIZATION-owned Agent 不保存该坐标。
+
+PERSONAL Binding 只能是直接主/Fallback；TEAM Binding 可以是直接主/Fallback或 `INHERIT_TEAM_DEFAULT`。默认 Personal Agent 的 TEAM Binding 固定为 `ORCHESTRATION_ONLY`，避免把对话编排模型当作团队执行模型。Fallback 与 Primary 分别验证，TEAM 或 ORGANIZATION Ownership、TEAM Execution 和所有默认值均禁止 USER Connection。
+
+ModelDefault 按 Organization/Team Scope、TemplateVersion、ExecutionScope 和连续 Revision 只追加。Team 默认只允许同 Team/Organization Connection，Organization 默认只允许 Organization Connection；解析结果在 Conversation Session 或 Task PolicySnapshot 中固定，后续默认变更不影响已开始运行。
+
 团队任务由服务端事实判断，包括 Team Workspace/WorkProject 中的共享 WorkItem、团队责任链、团队预算或团队 SLA。谁点击创建任务不改变执行范围。个人 Agent 被委托执行团队任务时保留 Agent 身份、Template、行为配置和责任关系，模型连接按 TEAM Binding 解析。
 
 TaskExecution 创建时生成 `ResolvedAgentExecutionConfiguration`，并将 AgentProfile、TemplateVersion、AgentConfigurationVersion、ExecutionScope、Provider、Connection、Model ID/Revision、Prompt/Tool/Skill/Policy Hash、价格和预算固定进 PolicySnapshot。运行中不重新继承默认值。
@@ -101,7 +107,7 @@ TaskExecution 创建时生成 `ResolvedAgentExecutionConfiguration`，并将 Age
 
 ## 兼容与迁移
 
-`PrincipalType` 与 `AgentProfileType` 继续作为兼容身份字段，V20 在其旁边增加 Ownership、RuntimeRole、TemplateVersion 和 ConfigurationVersion。迁移不重写 Principal、AgentProfile、Conversation、Task、Session、AgentScope Key、StateReference 或 Artifact 的稳定 ID。
+`PrincipalType` 与 `AgentProfileType` 继续作为兼容身份字段。V20 为 AgentProfile 增加 Ownership、RuntimeRole 和 TemplateVersion，为 AgentRuntimeSession 增加相同身份投影与成对的可选 Configuration Revision/Hash。迁移不重写 Principal、AgentProfile、Conversation、Task、Session、AgentScope Key、StateReference 或 Artifact 的稳定 ID。
 
 V20 只使用既有类型与 `owner_member_id` 执行确定性回填：
 
@@ -118,13 +124,17 @@ M2–M4 只持久化了 Coding Specialist，没有持久化可区分的 Reviewer
 
 ### PolicySnapshot Schema 兼容
 
-V20 为 PolicySnapshot 增加显式 `snapshot_schema_version`：
+V20 为 PolicySnapshot 增加显式 `schema_version` 和 `agent_execution_configuration`：
 
-- 既有快照标记为 Schema v1，保留原始列值与 `snapshot_hash`，TemplateVersion、AgentConfigurationVersion 和 ExecutionScope 坐标为空；
+- 既有快照标记为 Schema v1，保留原始列值与 `snapshot_hash`，`agent_execution_configuration` 为空；
 - 禁止用 M5 新字段重新计算、覆盖或“修复”Schema v1 Hash；依赖旧 Hash 的 PlanVersion、TaskToken、Workspace、Artifact、Checkpoint 和评测证据继续闭合；
-- M5 新建快照使用 Schema v2，必须包含精确 AgentProfile、TemplateVersion、AgentConfigurationVersion、ExecutionScope、Primary/Fallback 模型与连接、价格和策略 Hash；
+- M5 新建快照使用 Schema v2，`agent_execution_configuration` 必须是 JSON Object，并包含精确 AgentProfile、TemplateVersion、AgentConfigurationVersion、ExecutionScope、Primary/Fallback 模型与连接、价格和策略 Hash；
 - Schema v2 的 `snapshot_hash` 覆盖全部 M5 坐标，任一坐标变化都创建新快照并产生新 Hash；
 - Repository 读取按 Schema 版本选择复原与 Hash 校验规则，未知 Schema 版本失败关闭。
+
+### 滚动升级
+
+V20 的 `project_legacy_agent_profile_v20` INSERT 前触发器只兼容仍按 V19 形状写入的旧节点。当 Ownership、RuntimeRole、Template Key 和 Template Version 四个核心坐标全部缺省时，触发器按 `type + owner_member_id` 权威事实执行与迁移回填相同的投影。任何部分坐标、显式伪造坐标或新旧事实冲突都由 V20 约束拒绝，不被兼容触发器改写。
 
 ## 实现约束
 

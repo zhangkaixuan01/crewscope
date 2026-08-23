@@ -274,7 +274,8 @@ Personal Agent、Team Agent、Task Orchestrator、Coding Specialist 和 Reviewer
 | `AgentProfile` | Personal、Team 或 Specialist Agent 的角色、模型、Prompt 和能力配置 |
 | `AgentConfigurationVersion` | AgentProfile 追加的不可变运行配置，固定主/Fallback 模型、Prompt、GenerateOptions、Tool、Skill、Memory、Policy 和预算 |
 | `ModelProviderDefinition` | 模型厂商、AgentScope Adapter、Endpoint、区域与数据政策元数据 |
-| `ModelCatalogEntry` | 可选模型的 Model ID/Revision、能力、上下文窗口、价格和生命周期 |
+| `ModelCatalogEntry` | 可选模型的 Model ID/Revision、能力、Token 上限、Region 和生命周期 |
+| `ModelPriceSchedule` | 绑定精确 Catalog Revision 的只追加 Token 价格时间片 |
 | `ModelConnection` | `USER/TEAM/ORGANIZATION` 所有的模型 Endpoint、Region、Credential Reference、账单主体和健康事实 |
 | `WorkGraph` | 从领域事实生成的 WorkItem、Task、责任、依赖、贡献、Artifact 和外部资源关系读模型 |
 | `WorkProject` | WorkItem、成员、代码仓库和项目配置的组织单元 |
@@ -600,7 +601,13 @@ CommandEvidence 摘要 + 完整 AcceptanceResult
 ContextPackageHash
 ```
 
-默认预算为 128 个变更文件、512 KiB Patch Hunk、64 个 CommandEvidence 和 100 条 AcceptanceResult。超限内容通过 purpose-bound Artifact 引用分片读取。完整仓库、完整会话、原始环境、任意原始命令、凭证和 Context 外 Artifact 不进入 Reviewer Prompt。
+默认预算为 128 个变更 Hunk、512 KiB Patch 内容、64 个 CommandEvidence 和 100 条 AcceptanceResult。超限内容通过 purpose-bound Artifact 引用分片读取。完整仓库、完整会话、原始环境、任意原始命令、凭证和 Context 外 Artifact 不进入 Reviewer Prompt。
+
+M5-D06 将该协议实现为独立 `review` 领域：`ReviewSubject` 固定 WorkItem Scope、Task、TaskExecution attempt、CodingTarget 与最终 Diff；`ContextPackageV1` 规范排序并 Hash 闭合 Diff、Hunk、TestEvidence、CommandEvidence 摘要、完整 AcceptanceResult、Reviewer AgentProfile、TemplateVersion、ConfigurationRevision 和 PolicySnapshot v2。`ReviewRequest` 使用 `OPEN -> IN_PROGRESS -> COMPLETED` 状态机，任何非失效状态均可因 Subject、Diff、TestEvidence、Reviewer Configuration、Policy 或 Context 漂移进入不可逆 `INVALIDATED`。Reviewer 启动、恢复和输出完成命令必须携带当前 ContextPackage 并复验完整坐标，调用方无法绕过陈旧检查；旧 Request 失效后才能创建连续 Revision 的后继请求。
+
+M5-D07 将 Finding 与成员 Gate 实现为两条独立的领域链路。`ReviewFinding` 只接受精确 `IN_PROGRESS` ReviewRequest 上的 Reviewer Specialist Agent 输出，创建前复验 Request ETag 和当前 ContextPackage；每条 Evidence 必须命中当前 DiffArtifact ID/Hash、ManifestHash、TestEvidence ID/Hash、Acceptance Index 及真实 Hunk 行号范围。服务端使用 SubjectHash、Category、规范路径、行号范围和 Unicode NFKC 规范 Claim 计算 Fingerprint；Title、Severity 和 SuggestedFix 不改变 Finding 身份，相同 Fingerprint 的后续输出作为只追加 `ReviewFindingObservation` 保留。Finding 始终为 `ADVISORY`，`SELF_REVIEW` 同样不获得 Gate 效力。
+
+`ReviewDecision` 是已完成且当前有效 ReviewRequest 上的独立 `GATE` 命令。调用者必须同时是 Active USER Principal、Active TeamMember 和当前 Active USER Reviewer Assignment 持有者，资格校验复用 M1 `ReviewerEligibilityPolicy` 与 Owner/Executor 职责分离；单人团队只能按显式 PolicyPack 降级。Agent 和 Service 无法创建 Gate Decision。`COMMENTED` 可连续追加，`APPROVED/CHANGES_REQUESTED/REJECTED` 是当前请求不可替换的终结结论；`CHANGES_REQUESTED` 创建只追加修改轮次，后续轮次必须来自同一 Task 下连续 Revision 的 ReviewRequest。领域实现与验证见 [M5-D07 ReviewFinding 与成员 Gate 领域契约](testing/M5-D07-ReviewFinding与成员Gate领域契约.md)。
 
 Reviewer Prompt 固定要求：只报告影响正确性、安全、可靠性、可维护性、测试或验收的可执行问题；正确变更返回空 Finding；每条 Finding 同时引用真实变更 Hunk、DiffArtifact、TestEvidence 和 AcceptanceResult；不推断 Context 外事实；不产生 Gate Decision。
 
@@ -1499,12 +1506,47 @@ CrewScope 使用独立 Model Registry 管理模型厂商与运行适配。GitHub
 | 对象 | 内容 |
 |---|---|
 | `ModelProviderDefinition` | Provider Key、显示名、AgentScope Adapter Key、Endpoint 规则、Region、数据保留和训练政策 |
-| `ModelCatalogEntry` | Model ID、精确 Revision、Tool/Structured Output/Vision 能力、Context Window、Token 单价和状态 |
+| `ModelCatalogEntry` | Model ID、精确 Revision、Tool/Structured Output/Vision 能力、Context/Output Token 上限、Region 和状态 |
+| `ModelPriceSchedule` | 绑定精确 Catalog Revision 的输入/输出/缓存 Token 单价、币种、来源和只追加生效时间点 |
 | `ModelConnection` | USER/TEAM/ORGANIZATION 所有权、Endpoint、Region、Credential Reference、账单主体、健康和版本 |
 | `AgentTemplateDefinition` | Ownership/RuntimeRole 可用范围、Prompt 基线、Tool/Skill/Schema/Memory/Sandbox 策略、所需模型能力和版本 |
 | `AgentConfigurationVersion` | AgentProfile 的 PERSONAL/TEAM 主模型与 Fallback、受控 Prompt 扩展、Skill/Memory/Policy 引用和预算 |
 
+Model Registry 将产品厂商、运行 Adapter 和具体模型版本分别建模。`ModelProviderDefinition` 使用稳定 `providerKey`，显式引用受信 `adapterKey`，并固定默认 Endpoint、可用 Region、数据保留与训练政策。DeepSeek 始终保持产品厂商 `deepseek`，运行时通过 `openai-compatible` Adapter 调用。Provider 内容和生命周期状态分离，停用或归档不改变内容 Hash。
+
+`ModelCatalogEntry` 使用稳定 Entry ID 和 `providerKey + modelId` 业务坐标。Catalog Revision 从 1 连续追加，显式引用直接前一 Revision；每个 Revision 固定精确厂商 Model Revision、显示名、Context/Output Token 上限、ModelCapability、Region、Provider Definition Hash 和内容 Hash。能力、Region、数据政策或精确厂商版本变化时追加新 Catalog Revision，不覆盖旧 Revision。
+
+`ModelPriceSchedule` 绑定精确 `ModelCatalogEntry + CatalogRevision`。每个价格 Revision 只保存 `effectiveFrom`、输入/输出/缓存每百万 Token 单价、币种、来源、创建审计和内容 Hash；下一个 `effectiveFrom` 自动形成上一价格的排他上界。价格 Revision 只能按时间和序号向后追加，不更新旧行，因此时间片不重叠，历史 PolicySnapshot 可以继续引用精确价格 Revision 和单价。创建审计不进入价格内容 Hash。
+
+ACTIVE Provider 和 ACTIVE Catalog Revision 才能进入新的模型选择。停用只阻止新选择与新价格追加；历史 AgentConfigurationVersion、TaskExecution、PolicySnapshot、Usage 和成本证据仍按精确 Catalog/Price Revision 复原。
+
+`ModelConnection` 使用稳定 Connection ID，固定精确 Provider Definition Hash、Endpoint、Region、Owner、Credential Binding 和 Billing Subject。Owner 使用 `USER/TEAM/ORGANIZATION`，Credential 与 Billing Subject 使用 `PRINCIPAL/TEAM/ORGANIZATION`：USER Owner 只能使用同一 Principal Subject，TEAM Owner 可使用同 Team 或 Organization Subject，ORGANIZATION Owner 只能使用同 Organization Subject。任一 Subject 都必须与 Connection 的 Organization 一致。
+
+Credential Binding 只保存 `organizationId + credentialId + subject + credentialVersion`，不保存 Key、Secret、Header 或可恢复凭证的元数据。创建和轮换时 Key 只单向交给 `CredentialStore`；ModelConnection Repository、DomainEvent、AuditEvent、API DTO 和异常不接收凭证明文。轮换保持 Connection ID、Credential ID、Owner 和 Subject 不变，Credential Version 必须连续增加。
+
+ModelConnection 使用 `ACTIVE/SUSPENDED/REVOKED` 生命周期和独立健康快照。新建及凭证轮换后健康为 `UNKNOWN`；验证只记录 `HEALTHY/UNHEALTHY`、当前 Credential Version、检查时间、最后成功时间、连续失败数和平台稳定错误码，不保存 Provider 原始错误。REVOKED 只保存平台稳定 `ModelConnectionRevocationReason`，不保存可能携带凭证或 Provider 响应的自由文本。新选择要求 Provider ACTIVE、Connection ACTIVE、当前凭证版本的健康为 HEALTHY，并在调用边界再校验 CredentialStore 当前事实。
+
+轮换、验证、停用、恢复和撤销均使用强 Expected Version。健康结果同时校验 Expected Connection Version 和 Expected Credential Version；凭证轮换或其他并发变更后，旧探测结果必须冲突而不得覆盖当前健康。REVOKED 是不可逆终态；SUSPENDED 恢复前必须具有当前凭证版本的 HEALTHY 快照。
+
+Agent 模板领域使用独立 `AgentTemplatePublisherScope` 表达 Organization Catalog 或 Team Catalog，避免借用 Workspace 类型推断发布边界。`AgentTemplateKey` 在发布 Scope 内稳定，`AgentTemplateVersion` 从 1 连续追加并显式引用前一版本；RuntimeRole 在同一 Key 的追加链中保持稳定。Template 的生命周期状态独立于不可变内容，停用只阻止创建新 Agent，历史 AgentProfile、Session、TaskExecution 和 Review 继续引用原精确版本。
+
+`AgentTemplateCapabilities` 分别保存模板声明能力和所需模型能力，并生成规范 `capabilityHash`。`AgentTemplatePolicy` 固定 System Prompt 基线、Tool、批准 Skill、Structured Output Schema 与成员/管理员可配置槽位，并生成规范 `policyHash`。`AgentTemplateDefinition.contentHash` 覆盖 PublisherScope、Key/Version、PreviousVersion、RuntimeRole、允许的 Ownership/ExecutionScope、CapabilityHash 和 PolicyHash。集合进入 Hash 前按稳定键排序，字符串使用长度前缀编码；持久化复原时重新计算并拒绝不一致的 Hash。
+
+成员可配置槽位由服务端枚举，包含名称、描述、补充指令、批准 Skill、知识范围、模型/Provider Binding、预算和输出偏好。System Prompt 基线、Tool 集和 Structured Output Schema 不属于可配置槽位。补充指令只作为低优先级受控扩展；运行 Tool 必须是模板 Tool 的子集，Structured Output Schema 必须与模板 Hash 精确一致，任何扩权请求失败关闭。
+
+`AgentProfile` 保存显式 `AgentOwnership`、`AgentRuntimeRole` 和 `AgentTemplateVersion`，并保留 `AgentProfileType` 作为兼容身份。新 Profile 只能从 ACTIVE Template 创建，Principal 类型、可见性、Workspace Scope 与 Ownership 必须一致。只有 USER-owned Personal Assistant 可以标记为默认 Profile；跨 Profile 的“每成员唯一默认 Personal”继续由 `DefaultPersonalAgentService` 与原子 Repository 约束保证。旧 Profile 仅按 `AgentProfileType + ownerMemberId` 投影到 `personal-assistant@1`、`team-coordinator@1` 或 `coding@1`，不读取显示名、Prompt 或历史输出。
+
 用户可为默认 Personal Agent 和个人创建的 Specialist 选择当前授权范围内的模型厂商、主模型和 Fallback。初始默认值按 `AgentProfile 当前 ExecutionScope 显式配置 -> Team Template + ExecutionScope 默认 -> Organization Template + ExecutionScope 默认` 解析。配置保存后引用精确 ModelConnection 和 ModelCatalogEntry，运行时不使用显示名或模糊匹配。
+
+`AgentConfigurationVersion` 使用从 1 开始的连续 Configuration Revision，并显式引用同一 AgentProfile 的直接前一 Revision。每个版本固定 Organization、AgentProfile、Agent Ownership、Owner USER Principal（仅 USER-owned）、精确 AgentTemplateVersion/ContentHash、PERSONAL/TEAM Binding、模板 Prompt/Tool/Schema 结果、批准 Skill、Memory/Budget Policy Reference、PolicyPack Reference、SafeGenerateOptions、配置 Hash 和创建审计；历史版本不可更新或删除。
+
+`AgentModelSelection` 只保存稳定 Connection ID、不可变 Connection Owner 快照、精确 ModelCatalogCoordinate、Provider Definition Hash 和 Catalog Content Hash。它不保存 Connection 乐观版本、Credential ID/Version、Endpoint、Header、Key 或健康响应。新配置捕获 Selection 时要求 Connection ACTIVE 且当前 Credential Version HEALTHY、Catalog Revision ACTIVE、Provider Definition Hash 一致、Connection Region 属于 Catalog Region；运行前仍由 M5-D05 对当前目录、授权、健康、预算和策略重新 Preflight。
+
+PERSONAL Binding 只能使用 `DIRECT`，主模型必填且 Fallback 可选；TEAM Binding 对执行 Agent使用 `DIRECT` 或 `INHERIT_TEAM_DEFAULT`，默认 Personal Agent 使用 `ORCHESTRATION_ONLY`。Fallback 必须与主模型不同，并按相同 Ownership、ExecutionScope、Provider/Catalog/Region 规则独立校验。PERSONAL Binding 不得继承 Team 默认，TEAM Binding 不得回退到 PERSONAL Binding；模板未允许的 ExecutionScope 不得保存 Binding。
+
+`AgentModelDefault` 按 Organization/Team Scope、精确 TemplateVersion、ExecutionScope 和连续 Default Revision 只追加，固定主/Fallback、PolicyPack 和内容 Hash。Team 默认只引用同 Team 或 Organization Connection，Organization 默认只引用 Organization Connection，任何默认都不能引用 USER Connection。`INHERIT_TEAM_DEFAULT` 在 M5-D05 解析时按精确 Team 默认再到 Organization 默认的顺序选择并固定，不在运行中动态继承。
+
+配置写入使用显式 `AgentConfigurationDraft` 白名单，只接受 Connection ID、Catalog Entry ID/Revision、补充指令、批准 Skill、Memory/Budget Reference 和 SafeGenerateOptions。客户端不能提交 Provider/Adapter Key、Model ID/显示名、Connection Owner、Catalog/Provider Hash、System Prompt、Tool、Schema、PolicyPack、Base URL、Endpoint、Credential Reference、Header 或任意 GenerateOptions Map；这些受信事实由服务端目录和模板补齐。
 
 当前可选集合由服务端取以下交集：
 
@@ -2629,6 +2671,8 @@ Confirmation 绑定 `action_digest`。Team、发起成员、执行 Agent、执�
 
 ActionBundle 使用有序 PlannedAction ActionDigest 计算 `bundle_digest`。用户可以一次确认整个 Bundle，Confirmation 绑定 `bundle_digest` 和全部子 ActionDigest；任一动作的参数、顺序、依赖、Review、目标前置版本、责任、Binding、Grant、Policy 或风险变化都会使整个 Bundle 授权失效。每个 PlannedAction 独立领取、执行、对账并保存唯一逻辑 ActionReceipt；结果不确定时不能作为普通失败直接重放写操作。
 
+M5 源码交付使用类型化 `PushBranchActionParameters` 与 `CreateDraftPullRequestActionParameters`，不接受通用参数 Map。服务端使用 `planned-action-v1` 与 `action-bundle-v1` 长度前缀规范编码计算 SHA-256；ActionDigest 固定动作 ID/Kind、顺序、依赖、规范参数、ReviewDecision/ReviewRequest/ReviewSubject/Diff、Owner Responsibility、ProviderBinding/Connection/ConnectionGrant/执行身份/有效权限、PolicySnapshot、SafetyEnforcementOverlay、RepositoryBinding/CodingTarget/Baseline/Delivery、风险和有效期。BundleDigest 按动作顺序固定 Action ID、ActionDigest 和依赖。生成 Bundle 与后续确认前都从当前领域对象重建 `ActionAuthoritySnapshot`；未批准或陈旧 Review、责任释放、Connection/Grant 撤权或过期、Binding/Policy/Overlay/Repository 版本漂移和目标前置变化全部失败关闭。M5-D08 契约与验证见 [M5-D08 ActionBundle 与 PlannedAction 领域契约](testing/M5-D08-ActionBundle与PlannedAction领域契约.md)。
+
 ### 13.4 Confirmation
 
 Confirmation 类型：
@@ -2672,6 +2716,8 @@ AG-UI `resume[]` 承载交互恢复协议。服务端根据 Confirmation 记录�
 ActionBundle、PlannedAction、Confirmation、DomainEvent、Outbox 和初始 Dispatch 在同一数据库事务中提交。Worker 只领取已提交 Dispatch；每次 Claim 递增 Fencing Token，Lease 到期后的接管 Worker 先查询外部权威事实，旧 Worker 不能提交迟到 Receipt。依赖动作拥有成功 Receipt 后才释放后继动作；Push 成功而 PR 失败或不确定时只处理 PR。
 
 每个 PlannedAction 只有一个逻辑 ActionReceipt，查询、Webhook、执行尝试和人工调查作为多个 Observation/Audit 追加。Webhook 使用 Connection + Delivery/Event ID 去重，按 Provider 单调版本、状态序列和 Provider 时间裁决乱序，与主动查询合并到同一 ExternalResult。长期无法证明结果的动作进入人工队列；人工结论必须包含 Actor、强版本、原因和证据，终态不被迟到 Webhook、查询、重试或旧 Worker 逆转。Command Receipt 负责 API 命令提交幂等，ActionReceipt 负责数据库外部副作用收敛，两者独立保存。
+
+M5-D09 将该协议落为正式领域状态机。Confirmation 只由当前人类 Owner 建立，精确固定 BundleDigest 与全部有序 ActionDigest。READY 只能领取 EXECUTE Claim；UNKNOWN 或过期的 RUNNING/RECONCILING 只能使用更新 Fencing Token 领取 RECONCILE Claim。Confirmation 过期后禁止新写入，保留对可能已经发生写入的动作进行只读对账的能力。普通重试必须提供 `NO_SIDE_EFFECT_*` 证据；无法确定的结果进入 UNKNOWN，有界对账耗尽后进入 MANUAL_REVIEW。ActionReceipt 固定 Scope、Bundle、ActionDigest 和服务端幂等键，人工终结只接受 USER Principal、稳定原因码与同码证据。ExternalResult 优先按 Provider Version 合并，无版本时按 Provider UpdatedAt 与受控迁移合并；手工终态和 PR `MERGED` 不可回退。领域契约见 [M5-D09 Confirmation 与 Action 结果状态机](testing/M5-D09-Confirmation与Action结果状态机领域契约.md)。
 
 GitHub 交付使用两个不可互换的外部身份。TEAM-owned GitHub App 绑定 `TEAM_SERVICE_ACCOUNT` 和 TEAM/ORGANIZATION Credential Subject，通过 Installation ID、Repository Allowlist 与短期 Installation Token 执行团队动作；USER-owned OAuth 绑定 `DELEGATED_USER` 和 PRINCIPAL Credential Subject，只能用于成员个人执行及其当前授权资源。Binding Owner、Credential Subject、外部身份、ConnectionGrant 和 Repository ID 分别固化到 PolicySnapshot 与 ActionDigest。
 
@@ -2859,10 +2905,11 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 |---|---|
 | `model_provider_definition` | 厂商 Key、显示名、AgentScope Adapter/Factory Key、Endpoint 规则、区域、数据保留/训练政策、状态、版本和审计 |
 | `model_catalog_entry` | Provider、Model ID、Model Revision、Catalog Revision、Tool/Structured Output/Vision 能力、Context Window、生命周期和审计 |
-| `model_price_schedule` | ModelCatalogEntry、生效时间片、输入/输出/缓存 Token 单价、币种、来源和版本；历史价格只追加 |
-| `model_connection` | Organization/Team/USER Owner、Provider、Endpoint、Region、Credential Reference/Subject、Billing Subject、ACTIVE/SUSPENDED/REVOKED/EXPIRED、健康、版本和审计 |
-| `agent_template_definition` | 发布者 Scope、稳定 Template Key、追加 Version、RuntimeRole、能力、Prompt 基线、Tool/Skill/Schema/Memory/Sandbox 策略、可配置槽位、内容 Hash 和状态 |
-| `agent_configuration_version` | AgentProfile、单调 Configuration Revision、PERSONAL/TEAM 主/Fallback Model Binding、Prompt 扩展、Skill/Memory/Policy 引用、预算、配置 Hash 和创建审计 |
+| `model_price_revision` | ModelCatalogEntry、生效时间、输入/输出/缓存 Token 单价、币种、来源、Price Revision 和创建审计；历史价格只追加 |
+| `model_connection` | Organization/Team/USER Owner、Provider Definition Hash、Endpoint、Region、Credential Reference/Subject/Version、Billing Subject、ACTIVE/SUSPENDED/REVOKED、当前凭证版本健康快照、乐观锁和审计 |
+| `agent_template_version` | 发布者 Scope、稳定 Template Key、连续 Version、RuntimeRole、能力、Prompt 基线、Tool/Skill/Schema 策略、可配置槽位、内容 Hash 和生命周期 |
+| `agent_configuration_version` | AgentProfile、连续 Configuration Revision、Ownership/Template 快照、Prompt 扩展、Tool/Skill/Memory/Policy 引用、预算、安全 GenerateOptions、配置 Hash 和创建审计 |
+| `agent_configuration_model_binding` | Configuration Revision 的 PERSONAL/TEAM 执行范围、`DIRECT/INHERIT_TEAM_DEFAULT/ORCHESTRATION_ONLY`、Primary/Fallback Connection 与精确 Catalog Hash 快照 |
 | `agent_model_default` | Organization/Team Scope、TemplateVersion、ExecutionScope、默认 ModelConnection/Catalog Entry、Fallback、PolicyPack 和版本 |
 | `agent_runtime_session` | V10 实现 `PERSONAL/TASK/STEP/SPECIALIST` 互斥形状、Owner/任务绑定、Agent 与配置版本、userId、sessionId 和状态引用；`TEAM/CONTRIBUTION` 在对应领域引入时扩展 |
 | `execution_runtime` | Organization、RuntimeEnvironment、stable runtime key、显示名、实现版本、能力快照、`ACTIVE/DISABLED/ARCHIVED` 状态、乐观锁和审计字段 |
@@ -2870,6 +2917,18 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `agent_run` | Team、发起成员、执行身份、责任、协作请求、输入输出、模型、成本、状态和 Trace |
 | `agent_interrupt` | Interrupt 类型、ToolCall、Action、Confirmation、Resume 和时间 |
 | `agent_state_snapshot` | Agent Session、检查点版本、对象存储引用、哈希、创建时间和保留期限 |
+
+V20 创建上述 8 张 Model Registry、Connection、Template 和 Configuration 物理表。它对 Catalog/Price/Template/Configuration/Default 使用 Revision、内容 Hash、完整 Scope 复合外键和 `ON DELETE RESTRICT` 保留历史，对 ModelConnection 使用精确 Credential Subject/Version 引用和所有权/账单/健康形状约束。
+
+V20 为 `agent_profile` 增加 Ownership、Ownership Team、RuntimeRole 和 Template Key/Version，为 `agent_runtime_session` 增加相同身份坐标与成对的可选 Configuration Revision/Hash，为 `policy_snapshot` 增加 `schema_version` 和非秘密 `agent_execution_configuration` JSON。旧 PolicySnapshot 保持 v1 及原 Hash；新 v2 必须保存 JSON Object 执行配置。
+
+M2–M4 Profile 按旧 Profile Type 和 Owner Member 确定性投影为 `personal-assistant@1`、`team-coordinator@1` 或 `coding@1`，Session 跟随 Profile 回填。V20 不从显示名、Prompt 或历史输出推断 Reviewer，不合成 Connection、Credential 或 Configuration。滚动升级触发器仅对四个 M5 Profile 核心坐标全部缺省的 V19 写入执行旧字段投影；部分坐标或伪造坐标保持失败关闭。
+
+V21 创建 25 张 Review、GitHub 和 Action 物理表。Review 使用 `review_subject`、`review_context_package` 及有序 Hunk/Command/Acceptance 子表固定 M4 Diff/Test 证据和 Reviewer Profile/Template/Configuration/Policy 坐标；`review_request` 保存可变工作流根，`review_request_state` 为每个乐观版本追加不可变状态事实，Finding、Decision 和 ModificationRound 引用精确状态版本。
+
+GitHub 使用 `github_connection_profile`、`github_repository_catalog_entry` 和 `github_rate_limit_snapshot` 保存安全外部身份、Repository Catalog、权限/Allowlist Hash、缓存和限流事实。TEAM-owned App 固定 `APP_INSTALLATION + TEAM_SERVICE_ACCOUNT`，USER-owned OAuth 固定 `OAUTH_USER + DELEGATED_USER`。Token、Secret、原始 Provider Payload、Authorization Header 和内部 Endpoint 不进入这些表。
+
+Action 使用完整 Scope/Version/Hash 复合外键固定 ReviewDecision、ReviewSubject/Context/Diff、OWNER Responsibility、ProviderBinding/Definition/Implementation/Connection/Grant、PolicySnapshot、Safety Overlay、RepositoryBinding 和 CodingTarget。ActionBundle、PlannedAction、Receipt、Observation 等历史事实由数据库触发器强制只追加；Confirmation、Dispatch 和 ExternalResult 使用受控状态迁移、强乐观版本、Fencing Token 单调递增和 Provider Version/时间单调合并。
 
 ### 14.8 动作与制品数据
 
@@ -2879,9 +2938,9 @@ M2 用户消息入口只接受 Markdown 内容和 `Idempotency-Key`。服务端�
 | `action_bundle` | 一次精确确认覆盖的动作集合、动作顺序、依赖、整体摘要和状态 |
 | `action_dispatch` | PlannedAction、依赖就绪、调度状态、Worker、Lease、Fencing Token、下一对账时间、尝试摘要和乐观版本；只在事务提交后可领取 |
 | `action_receipt` | PlannedAction 唯一逻辑结果、外部 Operation ID/业务键、结果、目标版本、响应哈希、证据、接收时间和对账来源；终态不可改写 |
-| `action_observation` | Action、Attempt、Webhook/查询/人工来源、Provider Version/时间、安全摘要、Evidence Hash 和观察时间；只追加且不替代 Receipt |
+| `external_observation` | Connection-scoped ObservationKey、Action、Webhook/查询/写响应来源、Provider Version/时间、安全 Evidence Hash 和观察时间；只追加且不替代 Receipt |
 | `external_result` | Connection、外部稳定 ID、Provider 状态/版本/更新时间、最后可信来源、对账状态、人工终结和乐观版本 |
-| `confirmation` | 类型、摘要、ActionDigest、PolicySnapshot、安全覆盖版本、用户确认、审批路由、结论、有效期和执行结果 |
+| `action_confirmation` / `confirmation_action` | 精确 BundleDigest、有序 ActionDigest、确认成员、有效期、取消原因和乐观版本 |
 | `tool_binding` | Plugin、Provider、ProviderImplementation、Connector、AgentScope Tool、平台 Tool、MCP、版本和风险 |
 | `skill_binding` | Skill、仓库、版本、哈希、可见性和发布状态 |
 | `skill_definition` | 所有者、名称、描述、能力需求、可见性和生命周期 |

@@ -5,6 +5,10 @@
 > 影响里程碑：M5–M6<br>
 > 关联决策：[ADR-005](ADR-005-事件与投影协议.md)、[ADR-007](ADR-007-API命令与并发协议.md)、[ADR-013](ADR-013-AgentScope事件映射与披露协议.md)、[ADR-016](ADR-016-Agent所有权、模板与执行配置.md)
 
+M5-D06 已将 `ReviewSubject`、`ContextPackageV1` 和 `ReviewRequest` 实现为正式领域契约。M5-D07 已实现严格 `ReviewFinding`、服务端 Fingerprint、只追加重复 Observation、`ADVISORY/GATE` 分离、成员 `ReviewDecision`、既有 `ReviewerEligibilityPolicy` 复用和连续修改轮次。AgentScope Evidence Resolver 与命令事务由 M5-I06/A05 接续。
+
+Review 持久化 Port 不暴露仅按 Subject、Package、Request、Finding、Decision 或 Task ID 的读取方法。每个查询必须显式带入 `OrganizationId`，Adapter 同时用租户谓词和返回对象 Scope 失败关闭。
+
 ## 背景
 
 M4 已交付不可变 `CodingTargetSnapshot`、`DiffArtifact`、`CommandEvidence` 和 `TestEvidence`。M5 的 Reviewer Specialist 需要利用这些事实发现代码问题，同时保持以下产品边界：
@@ -48,7 +52,7 @@ TestEvidence、CommandEvidence 摘要与全部 AcceptanceResult
 ContextPackage Hash
 ```
 
-默认上限：128 个变更文件、512 KiB Patch Hunk、64 个 CommandEvidence、100 条 AcceptanceResult。超限内容通过受权 Artifact 引用分片读取，不把整个仓库、完整会话、原始环境、原始任意命令、凭证、Provider 原始错误或未引用 Artifact 放入上下文。
+默认上限：128 个变更 Hunk、512 KiB Patch 内容、64 个 CommandEvidence、100 条 AcceptanceResult。超限内容通过受权 Artifact 引用分片读取，不把整个仓库、完整会话、原始环境、原始任意命令、凭证、Provider 原始错误或未引用 Artifact 放入上下文。
 
 `ContextHash` 使用规范顺序闭合全部引用、版本、Hash、路径与 Hunk 坐标。Reviewer 开始、恢复和输出落库前都复验 ContextHash 与当前 ReviewRequest。
 
@@ -138,6 +142,7 @@ eligible TeamMember
 6. ReviewRequest 失效后禁止新 Finding、Gate Decision 和 ActionBundle；进行中的 Agent 调用在安全点失败关闭。
 7. Finding、Decision、失效、重复合并和修改轮次产生 DomainEvent、Outbox 与 AuditEvent。
 8. API 和前端分别展示“Agent 建议”与“成员结论”，不得把 Advisory 渲染为已批准状态。
+9. M5-D11 已用 V21 落地 ReviewSubject、ContextPackage、ReviewRequest/State、Finding/Evidence/Observation、Decision 和 ModificationRound；精确 Scope/Version/Hash 外键、终结 Gate 唯一键和只追加触发器形成数据库边界。
 
 ## 结果
 

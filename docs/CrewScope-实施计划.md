@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.3`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05 已完成，下一任务为 M5-D01（2026-08-22）
+> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05、M5-D01 至 M5-D11 已完成，下一任务为 M5-I01（2026-08-23）
 
 ## 1. 实施目标
 
@@ -698,8 +698,8 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V17__delegated_specialist_runtime_session.sql` | Coding Specialist 独立 STEP Session 与委托 Agent 身份、Profile 约束 | M4 |
 | `V18__finalizing_workspace_recovery_shape.sql` | FINALIZING 中断后的 Workspace RECOVERING 完成事实约束 | M4 |
 | `V19__workspace_epoch_evidence_lineage.sql` | Workspace 所有权 Epoch 与 Command/Test/Diff/Checkpoint 不可变证据血缘 | M4 |
-| `V20__model_catalog_agent_template_and_configuration.sql` | Model Registry、ModelConnection、AgentTemplateVersion、Agent Ownership、PERSONAL/TEAM Binding、AgentConfigurationVersion 和 AgentModelDefault | M5 |
-| `V21__review_action_and_github.sql` | Review、GitHub Connection 扩展、ActionBundle、PlannedAction、Confirmation、ActionReceipt | M5 |
+| `V20__model_catalog_agent_template_and_configuration.sql` | 8 张 Model Registry/Connection/Template/Configuration 表，AgentProfile Ownership/RuntimeRole/Template 扩展，Session 运行坐标，PolicySnapshot v1/v2，M2–M4 回填与 V19 滚动升级投影 | M5 |
+| `V21__review_action_and_github.sql` | 25 张 Review/GitHub/Action 表；ContextPackage、ReviewRequestState、Finding/Decision、GitHub Connection/Catalog/RateLimit、ActionBundle/Confirmation/Dispatch/Receipt、Observation/ExternalResult；完整 Scope/Version/Hash 外键、只追加事实、Fencing 与单调对账触发器 | M5 |
 | `V22__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
@@ -841,7 +841,7 @@ M4 共 44 个可执行任务，已全部完成并通过 M4-Q04 Release Gate。�
 
 M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 36 次真实模型固定矩阵评测和 CrewScope 自修改闭环。权威聚合为 29 / 36、端到端成功率 80.56%、Pass@1 75%、任务成功率 100%、安全合规率 100%，CrewScope 闭环与质量门禁均通过；7 次未成功运行均为路径违规。Token 作为成本与效率指标持续聚合，运行时使用 60 万输入 Token、6.4 万输出 Token 和 80 次模型调用作为资源失控保护。验收证据导出遗漏通过哈希绑定的追加修正链修复，原始报告保持不可变，详见 [M4-Q03 Coding Agent 质量基线](testing/M4-Q03-Coding-Agent质量基线.md)。
 
-M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 已完成 AgentScope 2.0.0 动态模型源码映射、DeepSeek/OpenAI 双 Connection Tool + Structured Output、Retry/Fallback 和 Spring 多 Adapter 验证，冻结受信 Adapter Registry 与 Connection-scoped Model 边界。M5-S02 已完成旧 Agent 身份向 Ownership/RuntimeRole/TemplateVersion 的确定性投影、PERSONAL/TEAM 双绑定矩阵与 PolicySnapshot v1/v2 兼容验证，原 Principal/Profile ID、Session、StateReference 和历史 Hash 保持可读。M5-S03 已完成 Reviewer 最小 ContextPackage、严格 ReviewFindingListV1、真实 Diff/Test/Acceptance Evidence Resolver、规范 Fingerprint、SELF_REVIEW Advisory 与 TeamMember Gate 边界验证。M5-S04 已完成 GitHub App/OAuth 身份隔离、Repository Catalog/RateLimit、动作级 AskPass、受管 Mirror、远端 Head 与原子 Lease Push、Draft PR 查询对账、最小权限和安全错误验证。M5-S05 已完成 ActionBundle 精确摘要、事务提交后 Dispatch、Lease/Fencing 接管、唯一 Receipt、UNKNOWN、Webhook/主动查询合并和人工终态验证。五个架构 Spike 已全部关闭，下一任务为 `M5-D01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
+M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 至 M5-S05 已关闭动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险。M5-D01 至 M5-D09 已完成 Agent、模型、连接、执行配置、Reviewer 和 Action 领域契约。M5-D10 已新增 V20 迁移，落地模型目录、连接、模板和配置表，扩展 AgentProfile、RuntimeSession 与 PolicySnapshot，并完成 M2–M4 历史回填和滚动升级投影。M5-D11 已新增 V21 迁移，以 25 张表落地 ReviewRequestState、ContextPackage、Finding/Decision、GitHub Connection/Catalog/RateLimit、ActionBundle/Confirmation/Dispatch/Receipt 和外部结果对账；完整 Scope/Version/Hash 外键、只追加触发器、Fencing、Connection-scoped 唯一键与单调合并均由 7 个专项场景验证。下一任务为 `M5-I01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 19. 项目管理与进度跟踪
 

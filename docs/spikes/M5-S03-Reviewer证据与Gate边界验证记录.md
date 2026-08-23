@@ -37,7 +37,7 @@ AgentScope 负责模型调用、Schema 和修复循环。CrewScope 继续负责 
 - 服务端推导的 Reviewer Agent/Owner/Subject Owner 与 Relationship；
 - 规范 `ContextHash`。
 
-固定预算为 128 个文件、512 KiB Patch Hunk、64 个 CommandEvidence 和 100 条 AcceptanceResult。凭证、原始环境、任意原始命令、完整仓库和 Context 外 Artifact 不进入 Prompt。
+固定预算为 128 个变更 Hunk、512 KiB Patch 内容、64 个 CommandEvidence 和 100 条 AcceptanceResult。凭证、原始环境、任意原始命令、完整仓库和 Context 外 Artifact 不进入 Prompt。
 
 ### 3.2 ReviewFindingListV1
 

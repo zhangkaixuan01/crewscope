@@ -30,6 +30,8 @@ PolicySnapshot/Safety Overlay Version
 
 BundleDigest 按动作顺序覆盖每个 Action ID、ActionDigest 和依赖关系。Confirmation 绑定精确 BundleDigest 和全部子 ActionDigest。参数、顺序、依赖、Review、责任、Binding、Grant、策略、目标前置版本或风险任一变化都会生成新摘要，旧 Confirmation 失效。浏览器、Agent 和 Provider 不能提交或覆盖服务端计算的摘要事实。
 
+源码交付 Bundle 在计划时就要求 EffectiveAccess 完整包含目标 Repository 上的 `source.write` 和 `pull-request.create`。权限和资源的部分交集不是充分授权，不能用于生成 Push + Draft PR 动作图。
+
 ### 事务提交与 Dispatch
 
 ActionBundle、PlannedAction、Confirmation、DomainEvent、Outbox 和初始 ActionDispatch 在同一个 REQUIRED 数据库事务中提交。Worker 只 Claim 已提交的 Dispatch 行；事务提交前和回滚后外部调用数量必须为零。生产实现使用事务性 Outbox 唤醒 Worker，进程内 `afterCommit` 回调不能作为唯一耐久调度事实。
@@ -90,7 +92,7 @@ Action 成功只表达已完成确认过的写操作；PR 后续关闭、重开�
 5. Observation 与原始 Provider Payload 分离；持久化内容经过大小限制、字段白名单、哈希和 Secret 脱敏。
 6. Webhook Delivery 去重键包含 Connection，防止不同 Provider 安装使用相同 Event ID 冲突。
 7. Reconcile 批次、退避、RateLimit、最大 UNKNOWN 时间和人工队列阈值可配置并具有低基数指标。
-8. M5-S05 的测试内 Probe 只冻结协议；正式领域对象、迁移、Worker 和 Provider Adapter 分别由 M5-D08、M5-D09、M5-D11 与 M5-I08 至 M5-I12 实现。
+8. M5-D08 已交付正式 ActionBundle、PlannedAction、类型化参数、动作图、Digest 与当前事实失效规则；M5-D09 已交付 Confirmation、Dispatch/Lease/Fencing、唯一 Receipt、UNKNOWN/Reconcile、ExternalResult 单调合并与人工终态；M5-D11 已用 V21 落地精确权威外键、Digest/外部业务键唯一约束、只追加 Receipt/Observation、受控 Dispatch 状态与 Fencing、单调 ExternalResult；Worker 和 Provider Adapter 由 M5-I08 至 M5-I12 实现。
 
 ## 结果
 
@@ -111,7 +113,7 @@ Action 成功只表达已完成确认过的写操作；PR 后续关闭、重开�
 7. 人工终结必须有证据和 Audit，终态不被迟到 Webhook、查询或 Worker 逆转。
 8. Push 成功、PR 不确定或失败时只继续 PR，Push 不重复执行。
 
-验证证据见 [M5-S05 ActionBundle 与外部结果对账验证记录](../spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)。
+协议验证见 [M5-S05 ActionBundle 与外部结果对账验证记录](../spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)，正式领域契约见 [M5-D09 Confirmation 与 Action 结果状态机](../testing/M5-D09-Confirmation与Action结果状态机领域契约.md)。
 
 ## 重新评估条件
 

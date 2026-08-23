@@ -135,7 +135,7 @@ Provider 错误在基础设施边界归一化：
 4. Redirect 默认拒绝；如 GitHub 官方下载端点需要 Redirect，必须使用独立只读 Client 和域名 Allowlist。
 5. Push/PR 写操作只由事务提交后的 Action Worker 执行，Controller、Agent Tool 和前端不能直接调用 Adapter 写方法。
 6. HTTP 与 Git 的请求计数、耗时、错误分类和 RateLimit 使用低基数指标；Repository、Branch、Token、URL 和用户标识不作为指标 Label。
-7. M5-S04 的测试内 Probe 只冻结契约；正式类型、持久化与 Adapter 分别由 M5-D11、M5-I08、M5-I09 和 M5-I10 实现。
+7. M5-S04 的测试内 Probe 冻结契约；M5-D11 已用 V21 落地 GitHub Connection Profile、Repository Catalog、RateLimit Snapshot、Connection-scoped 外部唯一键与 TEAM App/USER OAuth 身份矩阵；Adapter 由 M5-I08、M5-I09 和 M5-I10 实现。
 
 ## 结果
 
