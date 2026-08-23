@@ -566,6 +566,8 @@ M4-I11 的 `CodingSpecialistFactory` 为每次 Specialist 调用创建短生命�
 
 M4-I12 的 `CodingSpecialistStepRuntime` 将 Specialist 调用绑定到当前 TaskExecution、StepExecution、ExecutionLease、Fencing、RuntimeSession、AgentRun 与 Segment。测试失败按 WorkspacePolicy 的修复轮次预算在同一 attempt、Run 和 Session 内继续；每轮按耐久事件、AgentState Snapshot、CodingCheckpoint、StepCheckpoint 顺序提交。Worker 在 Task Agent 与 Specialist 共用的 Lease 窗口内把成员 Pause/Cancel 路由到当前活动 Session；Specialist Pause 保留 Workspace 与 Sandbox 的恢复边界。模型调用、Structured Output 恢复和 Tool 调用逐项形成连续事件序列，成功、失败、暂停和取消结果的计数均来自该累计遥测。Resume 先完成 Workspace 对账和 Snapshot 恢复，再进入同 Run 的 RESUME Segment。模型生成 changeSummary、limitations 和 risks；M4-A03 在测试成功后固化 DiffArtifact，并使用平台权威 RepositoryAnalysis、CodingTarget、Workspace、DiffArtifact 和 TestEvidence 坐标构造最终 CodeChangeResultV1，再执行完整输出复验。Task Agent 与 Coding Specialist 分别使用 `crewscope-task-*` 和 `crewscope-coding-*` 稳定 namespace。`CodingSpecialistAuthorityGateway` 连接 Worktree、Sandbox、Tool Session、Diff Monitor 与 Finalizer。实现与验证见 [M4-I12 Coding Specialist Step 执行与恢复](testing/M4-I12-Coding-Specialist-Step执行与恢复.md)与 [M4-A03 Coding Workspace 执行生命周期](testing/M4-A03-Coding-Workspace执行生命周期.md)。
 
+M5-I05 使用 `AgentTemplateRuntimeAssembler + AgentTemplateRuntimeRegistry` 将 Active AgentProfile、精确 TemplateVersion、ConfigurationRevision/Hash、完整 Preflight 结果和动态 Primary/Fallback Model 组装为受控运行定义。Registry 要求 Personal、Team、Specialist 三类 Factory 各且仅有一个。每次创建前同时闭合 Agent Principal、Profile ID/Version、Ownership、RuntimeRole、AgentScope SessionKey、StateReference、Tool、Skill 与 Structured Output Schema；Runtime Toolkit 必须和启用 Tool 完全相同。成员补充指令追加在 Template Baseline 之后，只收窄任务，不参与 Tool、Skill、Schema、数据、模型、审批或 Sandbox 解析。Personal 使用 Conversation Session，Team 使用 Task/Step Session，Specialist 使用 Specialist Session；不同个人 Coding/Reviewer Agent 使用各自 Principal、Profile、Session 与 State 槽。`coding` Template 继续委托 M4 Coding Factory，保留固定 Toolkit/Skill、Plan/Todo、Compaction、Eviction、Telemetry 与 AgentState；Reviewer 使用关闭 Filesystem、Shell、Subagent、Memory、Dynamic Skill 和 Compaction 的受限入口，M5-I06 以零 Tool 和一次性有界 ContextPackage 接入 Finding 执行。实现与验证见 [M5-I05 TemplateRegistry 与 Agent Factory](testing/M5-I05-TemplateRegistry与Agent-Factory.md)。
+
 实时修改以 `DiffManifest + Generation` 投影，经 RESET/DELTA Event 和不透明 Cursor 提供可恢复观察；`DiffFileEntry` 保存 canonical 当前路径、Rename/Copy 原路径、变更类型、增删行、二进制、截断标记、完整单文件 Patch Hash 和有界 Preview。Manifest 当前路径唯一并按 Unicode 代码点排序，Content Hash 覆盖排序后的 Git 权威事实，不覆盖 Generation 和 Preview；权威 Hash 未变化时不增加 Generation。
 
 Worker 使用 `WorkspaceDiffWatcher` 将 AllowedPaths 内的 WatchService 事件合并为路径无关提示，`WorkspaceDiffMonitor` 串行执行完整 Git Reconcile。未跟踪文件通过不修改 Index 的类型化 `diff --no-index` 进入实时投影。`WorkspaceDiffEventStore` 按 Workspace Fingerprint 与 Recovery Generation 隔离 Stream Epoch，提供有界 RESET/DELTA Replay；部署稳定的 HMAC 密钥保护 Cursor，旧 Epoch 和过期窗口返回 RESET，签名篡改被拒绝。单文件 Patch、累计 Patch、Preview 和 Event 均受预算限制，非权威 Preview 可在 Event 超限时省略。实现与验证见 [M4-I08 Workspace Diff 与最终 DiffArtifact](testing/M4-I08-Workspace-Diff与最终DiffArtifact.md)。
@@ -601,11 +603,19 @@ CommandEvidence 摘要 + 完整 AcceptanceResult
 ContextPackageHash
 ```
 
-默认预算为 128 个变更 Hunk、512 KiB Patch 内容、64 个 CommandEvidence 和 100 条 AcceptanceResult。超限内容通过 purpose-bound Artifact 引用分片读取。完整仓库、完整会话、原始环境、任意原始命令、凭证和 Context 外 Artifact 不进入 Reviewer Prompt。
+默认预算为 128 个变更 Hunk、512 KiB Patch 内容、64 个 CommandEvidence 和 100 条 AcceptanceResult。Reviewer Agent 不持有 Artifact Tool；服务端在调用前读取并复验完整 Restricted Patch，再一次性构建有界 ContextPackage。超限交付拒绝自动评审，由调用方拆分交付或转人工评审。完整仓库、完整会话、原始环境、任意原始命令、凭证和 Context 外 Artifact 不进入 Reviewer Prompt。
 
 M5-D06 将该协议实现为独立 `review` 领域：`ReviewSubject` 固定 WorkItem Scope、Task、TaskExecution attempt、CodingTarget 与最终 Diff；`ContextPackageV1` 规范排序并 Hash 闭合 Diff、Hunk、TestEvidence、CommandEvidence 摘要、完整 AcceptanceResult、Reviewer AgentProfile、TemplateVersion、ConfigurationRevision 和 PolicySnapshot v2。`ReviewRequest` 使用 `OPEN -> IN_PROGRESS -> COMPLETED` 状态机，任何非失效状态均可因 Subject、Diff、TestEvidence、Reviewer Configuration、Policy 或 Context 漂移进入不可逆 `INVALIDATED`。Reviewer 启动、恢复和输出完成命令必须携带当前 ContextPackage 并复验完整坐标，调用方无法绕过陈旧检查；旧 Request 失效后才能创建连续 Revision 的后继请求。
 
 M5-D07 将 Finding 与成员 Gate 实现为两条独立的领域链路。`ReviewFinding` 只接受精确 `IN_PROGRESS` ReviewRequest 上的 Reviewer Specialist Agent 输出，创建前复验 Request ETag 和当前 ContextPackage；每条 Evidence 必须命中当前 DiffArtifact ID/Hash、ManifestHash、TestEvidence ID/Hash、Acceptance Index 及真实 Hunk 行号范围。服务端使用 SubjectHash、Category、规范路径、行号范围和 Unicode NFKC 规范 Claim 计算 Fingerprint；Title、Severity 和 SuggestedFix 不改变 Finding 身份，相同 Fingerprint 的后续输出作为只追加 `ReviewFindingObservation` 保留。Finding 始终为 `ADVISORY`，`SELF_REVIEW` 同样不获得 Gate 效力。
+
+M5-I06 使用 `ContextPackageBuilder` 将精确 M4 Diff、Test、Command 与 Patch Artifact 转换为 Review 上下文。Builder 复验 Scope、TaskExecution、attempt、CodingTarget、DiffGeneration、ManifestHash、Command 引用顺序、ArtifactAccess、完整字节数、已提交 Hash、重新计算 SHA-256、Canonical UTF-8、Manifest Path 和 Unified Diff Hunk 计数。新文件段重置路径权威，Patch 内形似 `---/+++` 的真实删除或新增内容仍按 Hunk 操作解析。
+
+`ReviewerSpecialistRuntime` 精确锁定 `reviewer@1`、Agent Principal、AgentProfile ID/Version、Template Hash、Configuration Revision/Hash、Structured Output Schema Hash、当前 ContextPackage 和 ReviewRequest ETag。Reviewer 使用独立 AgentScope Specialist Session 和原生 Structured Output，Tool Surface 为空，并关闭 Filesystem、Shell、Subagent、Memory、Dynamic Skill、Workspace Context 与 Compaction。Context JSON 内全部字符串与 Patch 均被标记为不可信证据。严格 Decoder 之后由领域 Evidence Resolver 决定证据效力，服务端生成 Relationship、Effect 和 Fingerprint；单批重复与恢复重放只追加 Observation。最多 20 条 Finding 进入后续 Coding 修复摘要。实现与验证见 [M5-I06 Reviewer Specialist 与 Evidence Resolver](testing/M5-I06-Reviewer-Specialist与Evidence-Resolver.md)。
+
+M5-I07 将 ReviewSubject、ContextPackage、ReviewRequest、Finding、Observation、Decision 和 ModificationRound 保存为 Organization Scope 内的权威事实。ContextPackage 使用关系列保存可索引权威坐标，并使用显式非秘密 JSONB 保存完整 Diff、Hunk、TestEvidence、Acceptance 与 Reviewer 执行快照；恢复时重新计算 Context Hash，逐项校验 JSONB、标量列和三个子投影，任何漂移都失败关闭。V24 补齐 Decision 的冲突职责、PolicyPack 与完整 Override Reason，V21 至 V23 保持不可变。
+
+Review Workbench 查询使用可删除、可按 Request 或 Organization 重建的 `review_request_projection`，按 Request、Execution Attempt 和 Task History 提供有界索引查询。ReviewRequest 以 Version 乐观锁更新；相同 Request/Fingerprint 通过数据库唯一约束保留首条 Finding，Finding 行锁串行追加连续 Observation。Review 事件在一个 REQUIRED 事务写入 DomainEvent、TaskEvent 与 Outbox，再由既有 Audit 投影消费；事件载荷排除 Claim、SuggestedFix、Patch、Prompt 和凭证。新的 Final Diff 发布后，消费者会将旧 ReviewRequest 原子标记为 `DIFF_CHANGED` 并发布安全失效事件。实现与验证见 [M5-I07 Review 持久化与失效监听](testing/M5-I07-Review持久化与失效监听.md)。
 
 `ReviewDecision` 是已完成且当前有效 ReviewRequest 上的独立 `GATE` 命令。调用者必须同时是 Active USER Principal、Active TeamMember 和当前 Active USER Reviewer Assignment 持有者，资格校验复用 M1 `ReviewerEligibilityPolicy` 与 Owner/Executor 职责分离；单人团队只能按显式 PolicyPack 降级。Agent 和 Service 无法创建 Gate Decision。`COMMENTED` 可连续追加，`APPROVED/CHANGES_REQUESTED/REJECTED` 是当前请求不可替换的终结结论；`CHANGES_REQUESTED` 创建只追加修改轮次，后续轮次必须来自同一 Task 下连续 Revision 的 ReviewRequest。领域实现与验证见 [M5-D07 ReviewFinding 与成员 Gate 领域契约](testing/M5-D07-ReviewFinding与成员Gate领域契约.md)。
 
@@ -1524,6 +1534,8 @@ ACTIVE Provider 和 ACTIVE Catalog Revision 才能进入新的模型选择。停
 
 Credential Binding 只保存 `organizationId + credentialId + subject + credentialVersion`，不保存 Key、Secret、Header 或可恢复凭证的元数据。创建和轮换时 Key 只单向交给 `CredentialStore`；ModelConnection Repository、DomainEvent、AuditEvent、API DTO 和异常不接收凭证明文。轮换保持 Connection ID、Credential ID、Owner 和 Subject 不变，Credential Version 必须连续增加。
 
+Credential 使用独立的 Envelope Version 和 Secret Version：Secret Rotate 同时推进两者，KMS Rewrap 和 Revoke 只推进 Envelope Version，ModelConnection 只引用 Secret Version。存量升级从已提交 Connection Binding 回填非零 Secret Version；同一 Credential 的当前绑定版本冲突时迁移失败关闭。
+
 ModelConnection 使用 `ACTIVE/SUSPENDED/REVOKED` 生命周期和独立健康快照。新建及凭证轮换后健康为 `UNKNOWN`；验证只记录 `HEALTHY/UNHEALTHY`、当前 Credential Version、检查时间、最后成功时间、连续失败数和平台稳定错误码，不保存 Provider 原始错误。REVOKED 只保存平台稳定 `ModelConnectionRevocationReason`，不保存可能携带凭证或 Provider 响应的自由文本。新选择要求 Provider ACTIVE、Connection ACTIVE、当前凭证版本的健康为 HEALTHY，并在调用边界再校验 CredentialStore 当前事实。
 
 轮换、验证、停用、恢复和撤销均使用强 Expected Version。健康结果同时校验 Expected Connection Version 和 Expected Credential Version；凭证轮换或其他并发变更后，旧探测结果必须冲突而不得覆盖当前健康。REVOKED 是不可逆终态；SUSPENDED 恢复前必须具有当前凭证版本的 HEALTHY 快照。
@@ -1558,6 +1570,8 @@ ACTIVE ModelCatalogEntry
 ∩ Team 允许列表、成本预算与配额
 ∩ Principal 对 Connection 的使用权
 ```
+
+执行 Preflight 在 AgentScope Model Factory 之前复验 Connection 当前状态、当前 Credential Version 的健康快照与 CredentialStore 非秘密元数据。可用性决策只允许使用有界短 TTL 缓存，缓存键同时固定 Organization、请求 Principal、Connection ID/Version 和 Credential Version；不同 Principal 不共享决策，Credential 到期时间构成缓存有效期上限，Connection 创建、验证、轮换和撤销成功后主动失效全部相关缓存。
 
 默认 Personal Agent 和 USER-owned Specialist 的 PERSONAL Binding 可使用 Owner USER Connection 或授权的 TEAM/ORGANIZATION Connection。USER Connection 只在组织 PolicyPack 允许 BYOK 时创建。USER-owned Specialist 的 TEAM Binding、Team Agent 和 TEAM-owned Specialist 使用 TEAM/ORGANIZATION Connection，团队耐久任务保持稳定账单和凭证主体。默认 Personal Agent、各个人 Specialist 和团队 Agent 的配置互不覆盖。
 
@@ -2928,6 +2942,18 @@ V21 创建 25 张 Review、GitHub 和 Action 物理表。Review 使用 `review_s
 
 GitHub 使用 `github_connection_profile`、`github_repository_catalog_entry` 和 `github_rate_limit_snapshot` 保存安全外部身份、Repository Catalog、权限/Allowlist Hash、缓存和限流事实。TEAM-owned App 固定 `APP_INSTALLATION + TEAM_SERVICE_ACCOUNT`，USER-owned OAuth 固定 `OAUTH_USER + DELEGATED_USER`。Token、Secret、原始 Provider Payload、Authorization Header 和内部 Endpoint 不进入这些表。
 
+M5-I08 将 GitHub SourceCodeProvider 固定为 Connection-required Provider，能力集合为 Repository Catalog、Repository Read、Repository Push 和 Draft PR Create。每次 GitHub 调用重新校验 Connection/Grant Version、Owner/Grantee、Credential Subject、Secret Version、Capability 与 Repository Resource 交集。App Installation 使用 Metadata Read、Contents Read/Write 和 Pull Requests Write 最小权限；USER OAuth 的传统 `repo` Scope 由组织策略显式启用并在每次调用时复验。
+
+Repository Catalog 保存全部 `DELIVERABLE`、`BLOCKED` 和 `STALE` 事实，选择界面只读取 `DELIVERABLE`。Preflight 依据稳定 Repository ID 重新读取 Owner/Name、默认分支、Visibility、Pull/Push/PR 权限、Allowlist、Owner Policy 与 RateLimit。GitHub HTTP Adapter 固定 API Version 和 Accept Header，拒绝 Redirect 与跨 Origin Pagination，并使用 4 MiB Response 和 100 页 Catalog 上限。V25 为每个 Connection Version 保存独立 Profile，Catalog、RateLimit 和 ExternalObservation 引用精确版本；连接推进后重新验证，历史版本继续服务已确认 Action 的审计与恢复。实现证据见 [M5-I08 GitHub Provider 与 Repository Preflight](testing/M5-I08-GitHub-Provider与Repository-Preflight.md)。
+
+M5-I09 以 `GitHubPushPort` 承接已确认 `PushBranchActionParameters`、`ProviderAuthorizationReference` 和 `ActionTargetPrecondition`。Mirror 路径只由 Organization、固定 Provider Key 与数字 GitHub Repository ID 派生，创建后复验真实路径、Owner 和 bare 形状；Remote 只接受平台配置的 origin-only HTTPS 基址与 Preflight 返回的规范 Repository Full Name，不写入 Git Config。每次 Push 前后复验 ProviderBinding、RepositoryBinding、Connection、Grant、Credential Secret Version、Repository 权限、基线与 Delivery 提交谱系。Git 进程关闭系统/全局配置、Hook、Pager、交互、Credential Helper 与 Redirect，动作窗口只注入 AskPass 程序和 Secret 文件路径。Push 协议依次处理同 Head 幂等、Expected Remote Head 冲突、Fast-forward、完整 SHA RefSpec 和精确 `--force-with-lease`；超时后重新读取 Head，已到达 Delivery Head 时返回 `RECOVERED_AFTER_UNKNOWN`。实现证据见 [M5-I09 GitHub Mirror、AskPass 与幂等 Push](testing/M5-I09-GitHub-Mirror-AskPass与幂等Push.md)。
+
+M5-I10 以 `GitHubDraftPullRequestPort` 承接已确认的精确 Draft PR 参数。Adapter 在写入前重新复验 Binding、Grant、Repository、Base 和 Delivery，并按 Repository、Head Owner/Branch、Base 查询 Open/Closed 候选；候选必须同时匹配 Draft、Head SHA、标题和正文，远端 Branch Head 漂移在 Create 前失败关闭。网络中断、`5xx` 和疑似重复 `422` 先查询外部权威，精确匹配时恢复唯一成功，禁止盲目重放写请求。`GitHubPullRequestWebhookPort` 使用短窗口 Secret、HMAC-SHA256 常量时间验签、Connection-scoped Delivery Key、Repository/PR Identity 复验和只追加 Observation 去重，将关闭、重开、合并与乱序 Provider 时间交给 `ExternalResult` 单调合并。实现证据见 [M5-I10 Draft PR 幂等与 Webhook 对账](testing/M5-I10-Draft-PR幂等与Webhook对账.md)。
+
+M5-I11 使用 `ActionWorker` 编排已提交且依赖就绪的 `READY` Dispatch。Worker 在短事务内通过 `FOR UPDATE SKIP LOCKED` 领取动作，重新解析当前 Review、OWNER、Provider/Connection/Grant、Policy/Safety、CodingTarget 和 RepositoryBinding 事实，递增 Fencing Token，并原子写入 Dispatch 事件、TaskEvent 与 Outbox；Claim 提交后才执行 GitHub Preflight、Push 或 Draft PR。Provider 返回后，Worker 在新事务中复验精确 Claim 与有效 Lease，将唯一 Receipt、终态 Dispatch、DomainEvent、TaskEvent 和 Outbox 一次提交。Push 成功 Receipt 是 Draft PR 的数据库依赖释放条件；明确失败形成唯一失败 Receipt，已证明无副作用的暂时错误延迟重试。策略解析、请求装配和 Receipt/Event/Outbox 等平台内部异常保持可见并触发事务回滚；只有已经进入 Provider 调用窗口、可能越过外部写边界的不确定结果进入 `UNKNOWN`。V26 为自动 Receipt 保存完整 Claim Mode 和 Lease 坐标；空 Repository Allowlist 失败关闭。实现证据见 [M5-I11 Action Worker 与两步交付事务](testing/M5-I11-Action-Worker与两步交付事务.md)。
+
+M5-I12 使用独立 `ActionReconciliationWorker` 接管到期 `UNKNOWN`、过期 `RUNNING` 和过期 `RECONCILING`。数据库发现与 `FOR UPDATE SKIP LOCKED` 领取按 Organization 隔离，每次接管递增 Fencing Token 并建立 `RECONCILE` Claim 与有界 Lease。Worker 只调用 GitHub Branch Head 与精确 Draft PR 查询接口，禁止调用 Push、Create PR 或任何写协议；精确匹配形成唯一 Receipt，限流、Provider 不可用与查询缺失进入有界退避，达到最大次数或最大 UNKNOWN 时长后进入 `MANUAL_REVIEW`。Webhook 与主动查询都追加 `ExternalObservation`，再由同一个 `ExternalResultMerger` 按 Provider Version 或更新时间进行单调合并；已提交 Webhook 可以先于主动查询完成 Action，旧 Fencing Token 和迟到事实不能覆盖唯一 Receipt。人工终结要求当前有效 OWNER USER、强 `expectedVersion`、稳定 Reason、说明和成功结果所需的外部身份/版本证据，并与 Dispatch、DomainEvent、TaskEvent、Outbox 原子提交。周期 Scheduler 与 Startup Runner 支持多实例恢复；指标只使用 Action Kind、Claim Mode、Outcome 和队列状态等低基数标签，TaskExecutionId、ReviewDecisionId 与 ActionId 仅进入 Trace/结构化日志，Health 仅暴露聚合数量和最老未终结年龄。实现证据见 [M5-I12 UNKNOWN 对账与运行诊断](testing/M5-I12-UNKNOWN对账与运行诊断.md)。
+
 Action 使用完整 Scope/Version/Hash 复合外键固定 ReviewDecision、ReviewSubject/Context/Diff、OWNER Responsibility、ProviderBinding/Definition/Implementation/Connection/Grant、PolicySnapshot、Safety Overlay、RepositoryBinding 和 CodingTarget。ActionBundle、PlannedAction、Receipt、Observation 等历史事实由数据库触发器强制只追加；Confirmation、Dispatch 和 ExternalResult 使用受控状态迁移、强乐观版本、Fencing Token 单调递增和 Provider Version/时间单调合并。
 
 ### 14.8 动作与制品数据
@@ -2937,7 +2963,7 @@ Action 使用完整 Scope/Version/Hash 复合外键固定 ReviewDecision、Revie
 | `planned_action` | Team、发起成员、执行 Agent、Plan/Step/责任版本、目标前置版本、ProviderBinding、身份、Tool、参数、风险、幂等键和状态 |
 | `action_bundle` | 一次精确确认覆盖的动作集合、动作顺序、依赖、整体摘要和状态 |
 | `action_dispatch` | PlannedAction、依赖就绪、调度状态、Worker、Lease、Fencing Token、下一对账时间、尝试摘要和乐观版本；只在事务提交后可领取 |
-| `action_receipt` | PlannedAction 唯一逻辑结果、外部 Operation ID/业务键、结果、目标版本、响应哈希、证据、接收时间和对账来源；终态不可改写 |
+| `action_receipt` | PlannedAction 唯一逻辑结果、完整自动 Claim/Fencing/Lease 坐标、外部 Operation ID/业务键、结果、目标版本、响应哈希、证据、接收时间和对账来源；终态不可改写 |
 | `external_observation` | Connection-scoped ObservationKey、Action、Webhook/查询/写响应来源、Provider Version/时间、安全 Evidence Hash 和观察时间；只追加且不替代 Receipt |
 | `external_result` | Connection、外部稳定 ID、Provider 状态/版本/更新时间、最后可信来源、对账状态、人工终结和乐观版本 |
 | `action_confirmation` / `confirmation_action` | 精确 BundleDigest、有序 ActionDigest、确认成员、有效期、取消原因和乐观版本 |

@@ -5,7 +5,7 @@
 > 影响里程碑：M5–M6<br>
 > 关联决策：[ADR-005](ADR-005-事件与投影协议.md)、[ADR-007](ADR-007-API命令与并发协议.md)、[ADR-013](ADR-013-AgentScope事件映射与披露协议.md)、[ADR-016](ADR-016-Agent所有权、模板与执行配置.md)
 
-M5-D06 已将 `ReviewSubject`、`ContextPackageV1` 和 `ReviewRequest` 实现为正式领域契约。M5-D07 已实现严格 `ReviewFinding`、服务端 Fingerprint、只追加重复 Observation、`ADVISORY/GATE` 分离、成员 `ReviewDecision`、既有 `ReviewerEligibilityPolicy` 复用和连续修改轮次。AgentScope Evidence Resolver 与命令事务由 M5-I06/A05 接续。
+M5-D06 已将 `ReviewSubject`、`ContextPackageV1` 和 `ReviewRequest` 实现为正式领域契约。M5-D07 已实现严格 `ReviewFinding`、服务端 Fingerprint、只追加重复 Observation、`ADVISORY/GATE` 分离、成员 `ReviewDecision`、既有 `ReviewerEligibilityPolicy` 复用和连续修改轮次。M5-I06 已交付 AgentScope Reviewer Specialist、严格 Structured Output、Evidence Resolver 与恢复去重；命令事务由 M5-A05 接续。
 
 Review 持久化 Port 不暴露仅按 Subject、Package、Request、Finding、Decision 或 Task ID 的读取方法。每个查询必须显式带入 `OrganizationId`，Adapter 同时用租户谓词和返回对象 Scope 失败关闭。
 

@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.3`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05、M5-D01 至 M5-D11 已完成，下一任务为 M5-I01（2026-08-23）
+> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05、M5-D01 至 M5-D11、M5-I01 至 M5-I12 已完成，下一任务为 M5-A01（2026-08-24）
 
 ## 1. 实施目标
 
@@ -700,7 +700,12 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V19__workspace_epoch_evidence_lineage.sql` | Workspace 所有权 Epoch 与 Command/Test/Diff/Checkpoint 不可变证据血缘 | M4 |
 | `V20__model_catalog_agent_template_and_configuration.sql` | 8 张 Model Registry/Connection/Template/Configuration 表，AgentProfile Ownership/RuntimeRole/Template 扩展，Session 运行坐标，PolicySnapshot v1/v2，M2–M4 回填与 V19 滚动升级投影 | M5 |
 | `V21__review_action_and_github.sql` | 25 张 Review/GitHub/Action 表；ContextPackage、ReviewRequestState、Finding/Decision、GitHub Connection/Catalog/RateLimit、ActionBundle/Confirmation/Dispatch/Receipt、Observation/ExternalResult；完整 Scope/Version/Hash 外键、只追加事实、Fencing 与单调对账触发器 | M5 |
-| `V22__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
+| `V22__model_catalog_revision_identity.sql` | 稳定 ModelCatalogEntry ID 与每个 Catalog Revision 独立的价格 Revision 流，保留 V20 历史身份 | M5 |
+| `V23__credential_secret_business_version.sql` | Credential Envelope Version 与业务 Secret Version 分离，支持 KMS Rewrap 不改变连接授权版本 | M5 |
+| `V24__review_persistence_projection.sql` | 补齐 ReviewDecision 冲突职责、PolicyPack、完整 Override Reason 与可重建查询投影 | M5 |
+| `V25__github_connection_profile_revision.sql` | GitHub Profile 按 Connection Version 保存验证快照；Catalog、RateLimit 与 ExternalObservation 精确引用版本，支持连接推进后重新验证并保留历史权威 | M5 |
+| `V26__action_receipt_claim_coordinates.sql` | 自动 ActionReceipt 保存完整 Claim Mode、获取/心跳/Lease 坐标，约束历史兼容回填并恢复只追加保护 | M5 |
+| `V27__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
@@ -841,7 +846,7 @@ M4 共 44 个可执行任务，已全部完成并通过 M4-Q04 Release Gate。�
 
 M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 36 次真实模型固定矩阵评测和 CrewScope 自修改闭环。权威聚合为 29 / 36、端到端成功率 80.56%、Pass@1 75%、任务成功率 100%、安全合规率 100%，CrewScope 闭环与质量门禁均通过；7 次未成功运行均为路径违规。Token 作为成本与效率指标持续聚合，运行时使用 60 万输入 Token、6.4 万输出 Token 和 80 次模型调用作为资源失控保护。验收证据导出遗漏通过哈希绑定的追加修正链修复，原始报告保持不可变，详见 [M4-Q03 Coding Agent 质量基线](testing/M4-Q03-Coding-Agent质量基线.md)。
 
-M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 至 M5-S05 已关闭动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险。M5-D01 至 M5-D09 已完成 Agent、模型、连接、执行配置、Reviewer 和 Action 领域契约。M5-D10 已新增 V20 迁移，落地模型目录、连接、模板和配置表，扩展 AgentProfile、RuntimeSession 与 PolicySnapshot，并完成 M2–M4 历史回填和滚动升级投影。M5-D11 已新增 V21 迁移，以 25 张表落地 ReviewRequestState、ContextPackage、Finding/Decision、GitHub Connection/Catalog/RateLimit、ActionBundle/Confirmation/Dispatch/Receipt 和外部结果对账；完整 Scope/Version/Hash 外键、只追加触发器、Fencing、Connection-scoped 唯一键与单调合并均由 7 个专项场景验证。下一任务为 `M5-I01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
+M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 至 M5-S05 已关闭动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险。M5-D01 至 M5-D09 已完成 Agent、模型、连接、执行配置、Reviewer 和 Action 领域契约。M5-D10 已新增 V20 迁移，落地模型目录、连接、模板和配置表，扩展 AgentProfile、RuntimeSession 与 PolicySnapshot，并完成 M2–M4 历史回填和滚动升级投影。M5-D11 已新增 V21 迁移，以 25 张表落地 ReviewRequestState、ContextPackage、Finding/Decision、GitHub Connection/Catalog/RateLimit、ActionBundle/Confirmation、Dispatch/Receipt 和外部结果对账；完整 Scope/Version/Hash 外键、只追加触发器、Fencing、Connection-scoped 唯一键与单调合并均由 7 个专项场景验证。M5-I01 已交付模型目录、连接、Template、AgentProfile、Configuration、Default 与 PolicySnapshot v2 PostgreSQL Adapter，使用事务锁保证连续修订，以固定联表查询重建 Configuration 图，并通过 V22 使稳定 Catalog Entry ID 和每 Catalog Revision 独立价格流与领域契约一致。M5-I02 已通过 V23 拆分 Credential Envelope Version 与 Secret Version，交付 ModelConnection/CredentialStore 原子生命周期、真实 Provider 健康探测、短生命周期 Credential Handle 和安全 Audit/Outbox。M5-I03 已交付可信动态 AgentScope Model Factory、Provider Adapter Registry、DeepSeek/OpenAI Formatter、连接绑定保护、有界版本缓存和正式双 Endpoint 隔离测试。M5-I04 已交付服务端可选模型交集、精确配置解析、凭证到期 Preflight、主动失效的短 TTL 健康缓存、Team/Organization 默认和 PolicySnapshot v2 装配。M5-I05 已交付精确 Template Runtime Definition、Personal/Team/Specialist Factory、动态 Model 装配、Principal/Profile/Session/State 隔离和 M4 Coding Runtime 复用。M5-I06 已交付 Hash 闭合 ContextPackageBuilder、零 Tool `reviewer@1` Specialist、严格 Structured Output、Evidence Resolver、Finding 去重、恢复 Observation 和有界修复摘要。M5-I07 已通过 V24 补齐 ReviewDecision 权威恢复，交付七类 Review 事实 PostgreSQL Adapter、可重建查询投影、强乐观锁、并发 Finding/Observation、DomainEvent/TaskEvent/Outbox/Audit 原子链路和 Final Diff 自动失效。M5-I08 已交付 GitHub App/OAuth 身份验证、逐调用 Connection/Grant/Credential 授权复验、Repository Catalog/Preflight、安全错误与 Spring 装配，并通过 V25 固定每个 Connection Version 的 Profile、Catalog、RateLimit 和 ExternalObservation 权威。M5-I09 已交付 Organization/Provider/Repository ID 受管 bare Mirror、动作级 Owner-only AskPass、无凭证 HTTPS Remote、平台 Binding/本地提交/远端 Head 复验、精确 SHA/Lease Push、同 Head 幂等和超时后查询恢复。M5-I10 已交付精确 Draft PR 查询/创建、Head/Base/Commit/内容复验、响应不确定查询恢复、HMAC-SHA256 Webhook 验签、Connection-scoped Delivery 持久去重和关闭/重开/乱序状态 Observation。M5-I11 已交付只领取 READY 的多租户 Action Worker、提交后 Provider 调用、当前授权复验、Push→Draft PR 成功依赖释放、Fencing/Receipt/Dispatch/Event/Outbox 原子事务、V26 完整 Claim 恢复和条件 Spring 装配。M5-I12 已交付 UNKNOWN 与过期 Lease 的 Fenced 接管、GitHub Branch/PR 只查询恢复、Webhook/主动查询统一单调合并、有界退避与人工队列、当前 OWNER 强版本终结、启动/周期调度、关联 Trace、低基数指标与脱敏健康摘要。下一任务为 `M5-A01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 19. 项目管理与进度跟踪
 

@@ -18,7 +18,7 @@ M5-D07 在 `crewscope-domain` 与 `crewscope-application` 交付：
 - Finding、Observation、Decision、ModificationRound 和 ReviewRequest 失效安全 DomainEvent；
 - Finding、Observation、Decision 和 ModificationRound Repository Port；所有读取方法显式携带 `OrganizationId`，不接受跨租户裸 ID 查询。
 
-V21 表结构与 PostgreSQL Adapter 属于 M5-D11/I07；ContextPackageBuilder、Structured Output Decoder、Evidence Resolver 和 Reviewer Specialist 属于 M5-I06；命令事务、Outbox 和 API 属于 M5-A05。
+V21 表结构已由 M5-D11 交付，PostgreSQL Adapter 属于 M5-I07；ContextPackageBuilder、Structured Output Decoder、Evidence Resolver 和 Reviewer Specialist 已由 M5-I06 交付；命令事务、Outbox 和 API 属于 M5-A05。
 
 ## 2. Finding 契约
 

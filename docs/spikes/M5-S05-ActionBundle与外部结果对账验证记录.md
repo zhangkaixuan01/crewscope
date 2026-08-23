@@ -141,7 +141,7 @@ BUILD SUCCESS
 - M5-D11 使用 V21 唯一约束、复合 Scope 外键和 Append-only Observation/Audit 落库；
 - M5-I08 至 I10 实现 GitHub Adapter、Push、Draft PR、Webhook 和主动查询；
 - M5-I11 实现事务 Outbox 后 Worker、Claim、Lease、Fencing、依赖释放与 Receipt 边界；
-- M5-I12 实现 UNKNOWN Reconcile、启动对账、人工队列、Trace、指标和健康摘要。
+- M5-I12 已实现 UNKNOWN Reconcile、启动对账、人工队列、Trace、指标和健康摘要，证据见 [M5-I12 UNKNOWN 对账与运行诊断](../testing/M5-I12-UNKNOWN对账与运行诊断.md)。
 
 ## 10. 结论
 

@@ -4,7 +4,7 @@
 > 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016、ADR-017、ADR-018、ADR-019 已接受<br>
 > 目标周期：6–8 周，按纵向波次推进<br>
 > 目标结果：成员可创建和配置个人执行 Agent，团队可治理模型与共享 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review 和精确确认后，由 GitHubSourceCodeProvider 创建可审计 Draft PR<br>
-> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11` 已完成，下一任务为 `M5-I01`（2026-08-23）
+> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12` 已完成，下一任务为 `M5-A01`（2026-08-24）
 
 ## 1. 出口结果与范围
 
@@ -122,18 +122,18 @@ M5-F02..F07 -> M5-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M5-I01` | TASK | D10 | infrastructure | 实现 Model Registry、Connection、Template、AgentProfile 扩展、Configuration、Default 和 Policy 查询的 PostgreSQL Adapter 与锁定写入 | 完整对象图往返、分页、N+1、并发 Revision、唯一默认、跨 Scope 与 Spring 独立装配测试 |
-| `M5-I02` | TASK | D03, ADR-004 | infrastructure/server | 将 ModelConnection 接入 CredentialStore，提供创建、验证、轮换、撤销、健康探测和短生命周期 Provider Credential Handle | 明文零持久化/零返回/零日志；撤销并发、错误脱敏、句柄关闭、旧版本失效和 Audit 测试 |
-| `M5-I03` | FEATURE | S01, D02..D05 | agentscope/server | 实现 AgentScopeModelFactory、Provider Adapter Registry、DeepSeek/OpenAI-compatible 与备用 Provider Adapter、受控 Formatter/GenerateOptions | 多租户并发不串线；Tool/Structured Output、Retry、Fallback、Usage、取消和 Provider 安全错误集成测试 |
-| `M5-I04` | TASK | I01..I03 | application/server | 实现模型目录可选交集、配置解析、Preflight、短 TTL 健康缓存、Team 默认和 ResolvedModelSelection 到 PolicySnapshot 的装配 | 禁用、撤销、过期、能力不符、区域、预算、歧义和缓存失效在 AgentScope 前失败关闭 |
-| `M5-I05` | FEATURE | D01,D04,D05,I03 | agentscope/application | 实现 TemplateRegistry、Personal/Team/Specialist Agent Factory 和按 TemplateVersion 创建受控 AgentScope 实例；复用 M4 Coding Runtime | 多个个人 Coding/Reviewer Agent 的 Principal/Profile/Session/State 隔离；模板边界不可被用户补充指令扩大 |
-| `M5-I06` | FEATURE | S03,D06,D07,I03 | agentscope/application | 实现 ContextPackageBuilder、Reviewer Specialist、严格 ReviewFinding 输出、Evidence Resolver、Finding 去重和有界修复请求摘要 | 固定 Review 语料、真实 M4 Diff/Test Artifact、无证据结论拒绝、SELF_REVIEW 标记和恢复测试 |
-| `M5-I07` | TASK | D11,I06 | infrastructure | 实现 ContextPackage、ReviewRequest/Finding/Decision Repository、查询投影、事件、Outbox、Audit 与 Diff 变化失效监听 | 并发 Review、重复 Finding、旧 Decision、事件发布失败、投影重建、跨 Scope 和历史查询测试 |
-| `M5-I08` | FEATURE | S04,D11,ADR-006 | infrastructure | 实现 GitHub Provider Adapter、Connection Grant、Repository Catalog/Binding Preflight、GitHub App/OAuth 身份与权限校验 | 安装范围、仓库权限、默认分支、Fork/Archived、组织策略、限流和敏感响应脱敏测试 |
-| `M5-I09` | FEATURE | I08, M4-I01..I03 | infrastructure | 实现受管 GitHub Mirror/Remote、动作级 AskPass、基线/远端 Head 复验、Push Branch 和同 Head 幂等 | 凭证不进入仓库配置/进程列表/日志；Non-fast-forward、保护分支、超时与重复 Push 测试 |
-| `M5-I10` | FEATURE | I08,I09 | infrastructure | 实现 Create Draft PR、已有 PR 发现、Head/Base/Commit/标题正文校验、Webhook 验签去重和状态对账 | 响应丢失、重复请求、Webhook 乱序、远端 Head 漂移、关闭/重开和唯一 Draft PR 测试 |
-| `M5-I11` | FEATURE | D08,D09,I09,I10 | infrastructure/application | 实现 Outbox 后 Action Worker、依赖调度、Credential Handle、Dispatch/Receipt 事务边界和 Push→PR 两步执行 | 事务提交前零外部调用；崩溃点、重复领取、旧 Lease、部分成功和并发 Worker 不重复外部动作 |
-| `M5-I12` | TASK | I11 | infrastructure/server | 实现 UNKNOWN Reconcile、Webhook/主动查询合并、启动对账、人工队列、模型/Review/Action Trace、指标和低基数健康摘要 | 冷启动、限流、GitHub 不可用、Receipt 丢失、对账超时、人工终结和 Runtime Fleet 诊断测试 |
+| `M5-I01` | TASK | D10 | infrastructure | 已完成：实现 Model Registry、Connection、Template、AgentProfile 扩展、Configuration、Default 和 PolicySnapshot v2 的 PostgreSQL Adapter；使用事务 Advisory Lock 串行追加流，并以 V22 修复 Catalog/Price Revision 身份 | [M5-I01 模型与 Agent 配置持久化契约](../testing/M5-I01-模型与Agent配置持久化契约.md)；完整对象图、稳定分页、固定查询数、并发 Revision、唯一默认、跨 Scope、Schema v2 JSONB、Spring 装配和 V21→V22 升级测试通过 |
+| `M5-I02` | TASK | D03, ADR-004 | infrastructure/server | 已完成：以独立 Secret Version 将 ModelConnection 接入 CredentialStore，提供原子创建/轮换/撤销、事务外健康验证、真实 OpenAI-compatible 探测、短生命周期 Provider Credential Handle 和安全事件 | [M5-I02 模型连接 CredentialStore 与短期 Handle](../testing/M5-I02-模型连接CredentialStore与短期Handle.md)；明文零持久化/零返回/零日志，V22→V23、撤销并发、错误脱敏、Handle 关闭/过期、旧版本失效、KMS Rewrap 独立和 Audit 测试通过 |
+| `M5-I03` | FEATURE | S01, D02..D05 | agentscope/server | 已完成：实现 AgentScopeModelFactory、Provider Adapter Registry、DeepSeek/OpenAI-compatible 与 OpenAI 备用 Adapter、Connection-bound Model、版本化有界缓存和受控 Formatter/GenerateOptions | [M5-I03 AgentScope 动态模型工厂与 Provider Adapter](../testing/M5-I03-AgentScope动态模型工厂与Provider-Adapter.md)；真实双 Endpoint 并发隔离、Tool/Structured Output、Retry、Fallback、Usage、取消、缓存失效、越权覆盖和 Provider 安全错误测试通过 |
+| `M5-I04` | TASK | I01..I03 | application/server | 已完成：实现服务端模型目录可选交集、精确 Profile/Template/Configuration 解析、完整 Preflight、版本化短 TTL 健康/凭证缓存、Team→Organization 默认和 PolicySnapshot v2 装配 | [M5-I04 模型目录交集与执行 Preflight](../testing/M5-I04-模型目录交集与执行Preflight.md)；禁用、撤销、过期、能力、区域、数据、预算/配额、歧义、价格和缓存失效在 AgentScope 前失败关闭 |
+| `M5-I05` | FEATURE | D01,D04,D05,I03 | agentscope/application | 已完成：实现精确 Template Runtime Definition、TemplateRegistry、Personal/Team/Specialist Agent Factory、动态 Model 装配与 Spring 组合；Coding Template 复用 M4 Runtime | [M5-I05 TemplateRegistry 与 Agent Factory](../testing/M5-I05-TemplateRegistry与Agent-Factory.md)；Principal/Profile/Session/State 隔离，Tool/Skill/Schema/模型边界、版本竞态、受限 Reviewer 和 M4 Coding 能力回归通过 |
+| `M5-I06` | FEATURE | S03,D06,D07,I03 | agentscope/application | 已完成：实现 Hash 闭合 ContextPackageBuilder、零 Tool `reviewer@1` Specialist、严格 ReviewFindingListV1、Evidence Resolver、Fingerprint 去重、恢复 Observation 和有界修复摘要 | [M5-I06 Reviewer Specialist 与 Evidence Resolver](../testing/M5-I06-Reviewer-Specialist与Evidence-Resolver.md)；16 个专项测试覆盖真实 M4 Diff/Test/Command/Patch、Structured Output、无证据拒绝、SELF_REVIEW、重复恢复和 Gate 攻击 |
+| `M5-I07` | TASK | D11,I06 | infrastructure | 已完成：实现七类 Review 事实 PostgreSQL Adapter、Hash 闭合 ContextPackage 恢复、可重建查询投影、强乐观锁与并发 Finding/Observation、DomainEvent/TaskEvent/Outbox/Audit 事务链和 Final Diff 失效监听 | [M5-I07 Review 持久化与失效监听](../testing/M5-I07-Review持久化与失效监听.md)；V24、跨 Scope、历史查询、投影重建、并发唯一、原子回滚和 Diff 失效专项通过 |
+| `M5-I08` | FEATURE | S04,D11,ADR-006 | infrastructure | 已完成：实现 GitHub Provider Adapter、逐调用 Connection/Grant/Credential 复验、App/OAuth 身份与最小权限、Repository Catalog/Preflight、安全错误、Spring 装配和 V25 精确 Profile Version | [M5-I08 GitHub Provider 与 Repository Preflight](../testing/M5-I08-GitHub-Provider与Repository-Preflight.md)；11 个专项测试覆盖分页、资源/组织策略、Fork/Archived/Read-only、默认分支、RateLimit、脱敏、PostgreSQL 隔离和 V24→V25 |
+| `M5-I09` | FEATURE | I08, M4-I01..I03 | infrastructure | 已完成：实现 Organization/Provider/Repository ID 受管 bare Mirror、无凭证规范 HTTPS Remote、Owner-only 动作级 AskPass、Binding/Repository/基线/Delivery/远端 Head 复验、精确 SHA/Lease Push、同 Head 幂等和超时后查询恢复 | [M5-I09 GitHub Mirror、AskPass 与幂等 Push](../testing/M5-I09-GitHub-Mirror-AskPass与幂等Push.md)；真实 Git 覆盖首次/重复 Push、远端冲突、Non-fast-forward、保护分支分类、超时恢复、Mirror 路径和 Secret 权限/清理 |
+| `M5-I10` | FEATURE | I08,I09 | infrastructure | 已完成：实现精确 Create Draft PR、Open/Closed PR 发现、Head/Base/Commit/标题正文复验、响应不确定查询恢复、HMAC Webhook 验签、Connection-scoped Delivery 持久去重和状态 Observation | [M5-I10 Draft PR 幂等与 Webhook 对账](../testing/M5-I10-Draft-PR幂等与Webhook对账.md)；响应丢失、重复请求、Webhook 伪造/重放/乱序、远端 Head 漂移、关闭/重开和唯一 Draft PR 专项通过 |
+| `M5-I11` | FEATURE | D08,D09,I09,I10 | infrastructure/application | 已完成：实现 Outbox 后 Action Worker、READY 依赖调度、当前授权复验、Dispatch/Receipt/Fencing 事务边界、Push→PR 两步执行、V26 完整 Claim Receipt 恢复和条件 Spring 装配 | [M5-I11 Action Worker 与两步交付事务](../testing/M5-I11-Action-Worker与两步交付事务.md)；Provider 调用事务外、两 Worker `SKIP LOCKED`、旧 Fencing、Receipt/终态/Event/Outbox 原子性、重复 Receipt、部分成功和配置边界专项通过 |
+| `M5-I12` | TASK | I11 | infrastructure/server | 已完成：实现 UNKNOWN/过期 Lease 的 Fenced Reconcile、GitHub 只查询恢复、Webhook/主动查询统一 ExternalResult 合并、启动与周期对账、人工队列与 OWNER 强版本终结、模型/Review/Action Trace、低基数指标和健康摘要 | [M5-I12 UNKNOWN 对账与运行诊断](../testing/M5-I12-UNKNOWN对账与运行诊断.md)；Branch/PR 零写查询、冷启动、限流/不可用/缺失退避、最大次数/时长升级、旧 Fencing、人工终结、迟到 Observation、事务回滚、Spring 开关与诊断脱敏测试通过 |
 
 ## 8. 应用服务与 API
 
@@ -168,7 +168,7 @@ M5-F02..F07 -> M5-F08
 | `M5-Q01` | HARDENING | D01..D11,I01..I11,A01..A07,F01..F07 | all | 建立模型、凭证、Template、Agent 配置、Review、Confirmation、GitHub 与 Artifact 固定攻击集 | 跨 Owner/Scope、USER Key 注入团队任务、Prompt 扩权、Tool 扩权、伪造 Finding/Decision、确认欺骗、SSRF、Webhook 伪造和凭证泄漏阻断率 100% |
 | `M5-Q02` | HARDENING | I02..I12,A03..A08 | all | 注入模型停用/限流、凭证撤销、成员离队、Reviewer 退出、Diff 变化、Push/PR 超时、回执丢失、Webhook 乱序和 Worker 崩溃 | 固定故障恢复/对账率 `>=95%`；团队任务不回退 USER Key；外部重复 Push/PR/Receipt 为 0；UNKNOWN 最终进入确定状态或人工队列 |
 | `M5-Q03` | HARDENING | S03,I03,I06,F08 | all/evaluation | 冻结多模型兼容与 Reviewer 质量集，记录 Provider/Model/Template/Prompt/Skill/成本/延迟、Finding 准确性、证据引用和误报 | DeepSeek 与备用 Provider 协议门禁通过；Reviewer 固定缺陷召回、证据有效率和严重度基线达标；Agent 无 Gate Decision 越权 |
-| `M5-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M5 Release Gate，审查模型、Agent、迁移、Spring/AgentScope、Review、GitHub、Action、前端、M0–M4 回归、依赖和文档 | 后端、V20–V21、Docker、模型/Reviewer 评测、安全、故障、GitHub Fixture、Vitest、Playwright、Axe、视觉、依赖、链接和格式全部通过；形成版本化报告 |
+| `M5-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M5 Release Gate，审查模型、Agent、迁移、Spring/AgentScope、Review、GitHub、Action、前端、M0–M4 回归、依赖和文档 | 后端、V20–V26、Docker、模型/Reviewer 评测、安全、故障、GitHub Fixture、Vitest、Playwright、Axe、视觉、依赖、链接和格式全部通过；形成版本化报告 |
 
 ## 11. 纵向实施波次
 
@@ -202,7 +202,7 @@ M5 完成需要同时满足：
 14. UNKNOWN Action 在固定时间内进入确定状态或人工队列，Push 成功/PR 失败不重复 Push；
 15. Conversation Mode 与 Control Mode 展示同一 Agent 配置、Review、Action 和 GitHub 事实；
 16. 模型/Reviewer 固定质量集、安全攻击集和故障集达到门槛；
-17. M0–M4 全量回归、V20–V21、后端、前端、Docker、GitHub Fixture、依赖和文档门禁全部通过。
+17. M0–M4 全量回归、V20–V26、后端、前端、Docker、GitHub Fixture、依赖和文档门禁全部通过。
 
 ## 13. 开工与提交顺序
 

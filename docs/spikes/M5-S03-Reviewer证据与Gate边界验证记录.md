@@ -109,7 +109,7 @@ crewscope-agentscope/src/test/java/io/crewscope/agentscope/
 
 - M5-D06 将 Spike ContextPackage 形状实现为正式不可变领域对象、Hash 和失效状态机；
 - M5-D07 将 Finding、Evidence、Fingerprint、ReviewerRelationship、ReviewDecision 和 Eligibility Policy 实现为正式领域规则；
-- M5-I06 复用 M4 Artifact Reader 构建有界 Context，并接入真实 Reviewer Template 与模型；
+- M5-I06 已复用 M4 Artifact Reader 构建有界 Context，并接入真实 Reviewer Template、AgentScope Structured Output 与 Evidence Resolver；
 - M5-A05 将 Agent Advisory 与 TeamMember Gate 拆成不同命令、权限和审计入口；
 - M5-F06 在 Review Workbench 中分开展示 Agent Finding、SELF_REVIEW 和成员 Gate Decision。
 
