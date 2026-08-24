@@ -105,4 +105,3 @@ CREATE INDEX ix_review_request_projection_execution
         organization_id, task_execution_id, attempt,
         request_revision DESC, review_request_id DESC
     );
-
