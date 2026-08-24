@@ -4,7 +4,7 @@
 > 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016、ADR-017、ADR-018、ADR-019 已接受<br>
 > 目标周期：6–8 周，按纵向波次推进<br>
 > 目标结果：成员可创建和配置个人执行 Agent，团队可治理模型与共享 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review 和精确确认后，由 GitHubSourceCodeProvider 创建可审计 Draft PR<br>
-> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12` 已完成，下一任务为 `M5-A01`（2026-08-24）
+> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12`、`M5-A01` 至 `M5-A08` 已完成，下一任务为 `M5-F01`（2026-08-24）
 
 ## 1. 出口结果与范围
 
@@ -139,14 +139,14 @@ M5-F02..F07 -> M5-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M5-A01` | FEATURE | I01..I04 | application/server | 提供 Model Provider/Catalog 查询和 USER/TEAM/ORGANIZATION Connection 创建、列表、验证、轮换、停用、撤销 API | 目录交集、管理员权限、Owner 权限、Key 单向输入、幂等、ETag、Receipt、错误信封和路径/凭证不披露测试 |
-| `M5-A02` | FEATURE | D01,I01,I05 | application/server | 提供 AgentTemplate Catalog、个人/团队 Agent 创建、列表、详情、启停、归档和配置历史 API | 默认 Personal 不可重复、多个 Specialist、模板策略、Owner/管理员权限、Principal 原子创建和历史引用测试 |
-| `M5-A03` | FEATURE | A01,A02,I04 | application/server | 提供 Agent PERSONAL/TEAM Binding 配置、主/Fallback、受控偏好、Model Preflight 和 Conversation 安全点刷新 API | USER Key/TEAM 隔离、继承预览、生效范围、配置 Revision、活动调用、Interrupt、幂等和并发测试 |
-| `M5-A04` | FEATURE | D05,A02,A03,M3-A01 | application/server | 扩展 Task 委托，解析 Personal/Team ExecutionScope、选择个人/团队 Agent、责任资格和最终 PolicySnapshot；Retry 支持显式换配置 | 个人/团队任务判定、Agent 可用性、成员离队、TEAM Binding、默认歧义、在途固定和 Retry 审计测试 |
-| `M5-A05` | FEATURE | I06,I07,M4-A04..A06 | application/server | 提供 ReviewRequest 创建/列表/详情、Reviewer 执行、Finding、Gate Decision、修改请求和重新 Review API | Context 授权、Agent/成员边界、Reviewer Eligibility、SELF_REVIEW、Diff 失效、ETag、幂等和 Artifact 关系测试 |
-| `M5-A06` | FEATURE | I08 | application/server | 提供 GitHub Connection、Repository Catalog、Binding/Remote Preflight、Webhook 状态和授权健康 API | OAuth/App Scope、Team 管理权限、资源过滤、跨仓库、撤销、限流和敏感字段白名单测试 |
-| `M5-A07` | FEATURE | D08,D09,I11 | application/server | 提供 ActionBundle 预览、Confirmation、取消、Receipt、外部结果和 UNKNOWN Reconcile API；强制 Owner/责任/Review 当前事实 | 精确 Digest、风险展示、一次确认、旧页面、重复确认、部分成功、禁止直接 Dispatch 和强 ETag 测试 |
-| `M5-A08` | TASK | I12,A05..A07 | application/server | 扩展 Task Timeline、Conversation 卡片、Runtime Fleet、Actuator 和平台运维 API，关联 Agent 配置、Review、Action 与 GitHub 结果 | 成员安全摘要、管理员诊断、低基数指标、Trace/Audit、游标、持续授权和敏感内部状态不披露测试 |
+| `M5-A01` | FEATURE | I01..I04 | application/server | 已完成：提供 Organization-scoped Provider/Catalog 安全查询和 USER/TEAM/ORGANIZATION Connection 创建、列表、详情、验证、轮换、停用、撤销 API；服务端固化 Endpoint、Credential/Billing Subject，事务内幂等 Receipt 与事务外 Verify Probe 共存 | [M5-A01 模型目录与 Connection 管理 API](../testing/M5-A01-模型目录与Connection管理API.md)；Owner/管理员权限、Key 单向输入、同键回放、ETag、Receipt、错误信封和 Endpoint/凭证白名单测试通过 |
+| `M5-A02` | FEATURE | D01,I01,I05 | application/server | 已完成：提供 Organization/Team AgentTemplate Catalog、USER/TEAM Agent 创建、列表、详情、启停、归档和配置历史 API；持续复验 Owner/`AGENT_MANAGE`，原子同步 Principal/Profile 生命周期 | [M5-A02 Agent 模板与实例管理 API](../testing/M5-A02-Agent模板与实例管理API.md)；默认 Personal、多个 Specialist、模板策略、跨 Owner/Team、Receipt 回放、双表回滚、ETag 和安全 DTO 共 23 项专项通过 |
+| `M5-A03` | FEATURE | A01,A02,I04 | application/server | 已完成：提供 Agent PERSONAL/TEAM Binding 配置、主/Fallback、受控偏好、可选模型交集、Model Preflight 和 Conversation 安全点刷新 API；Session 固定 Configuration Pin，调用启动/Resume/刷新共享并发边界 | [M5-A03 Agent 配置与 Conversation 安全刷新 API](../testing/M5-A03-Agent配置与Conversation安全刷新API.md)；USER Key/TEAM 隔离、继承预览、生效范围、连续 Revision、活动调用、Interrupt、强 ETag、Receipt 回放和并发测试通过 |
+| `M5-A04` | FEATURE | D05,A02,A03,M3-A01 | application/server | 已完成：Task 委托由服务端按 Ownership/责任链推导 PERSONAL/TEAM，选择个人/团队 Agent、持续复验责任与成员资格并固定 PolicySnapshot v2；提供只读预检，Retry 默认沿用固定配置且支持显式 Revision 切换 | [M5-A04 Task 委托与 Retry 配置切换 API](../testing/M5-A04-Task委托与Retry配置切换API.md)；个人/团队判定、Owner 离队、Revision 映射、在途固定和 Retry 审计测试通过 |
+| `M5-A05` | FEATURE | I06,I07,M4-A04..A06 | application/server | 已完成：提供由当前 Diff/Test/Command/Reviewer PolicySnapshot 组装的 ReviewRequest 创建、列表、详情、AgentScope Reviewer 执行、Finding、成员 Gate Decision、修改请求和连续重新 Review API；模型调用不持有数据库事务，IN_PROGRESS 可恢复 | [M5-A05 Review 与 Gate Decision API](../testing/M5-A05-Review与Gate-Decision-API.md)；Context/Artifact 授权、Agent/成员边界、Reviewer Eligibility、SELF_REVIEW、Diff 失效、强 ETag、Receipt 回放和 DTO 白名单测试通过 |
+| `M5-A06` | FEATURE | I08 | application/server | 已完成：提供 TEAM App/USER OAuth GitHub Connection、显式 Repository Grant、GitHub ProviderBinding、Catalog 同步/选择、Binding-pinned Remote Preflight、Webhook/RateLimit/授权健康和安全错误 API；创建、Binding、撤销与 Event/Outbox/Receipt 原子提交 | [M5-A06 GitHub Connection、Catalog 与 Remote Preflight API](../testing/M5-A06-GitHub-Connection-Catalog与Remote-Preflight-API.md)；Owner/Subject 矩阵、Team 管理、资源过滤、旧 Binding、跨仓库、回放、限流、撤销和 DTO 白名单测试通过 |
+| `M5-A07` | FEATURE | D08,D09,I11 | application/server | 已完成：提供 ActionBundle 预览/查询、精确 Confirmation、取消、Receipt/ExternalResult、UNKNOWN 状态和 OWNER 人工终结 API；人工终结纳入 `Idempotency-Key + CommandReceipt + If-Match`，与 ActionReceipt/事件共享事务和 Correlation；服务端推导受管分支，规划/确认均重建 Review、责任、Provider、Policy、Safety、CodingTarget 与 Repository 当前事实 | [M5-A07 ActionBundle 确认与外部结果 API](../testing/M5-A07-ActionBundle确认与外部结果API.md)；精确 Digest、旧页、同键回放、READY 取消、GitHub Catalog/Grant 映射、安全 DTO、禁止直接 Dispatch、强 ETag 和 Spring 装配测试通过 |
+| `M5-A08` | TASK | I12,A05..A07 | application/server | 已完成：提供 Task Delivery Summary 与 Conversation 游标卡片，关联固定 Agent/模型、Review/Gate、ActionBundle/Confirmation 和 GitHub ExternalResult；Conversation 充实复用 Task 投影、共享只读事务并使用 `20/50` 独立页预算；扩展 Review/Action Task Timeline 白名单，并把 Team 隔离的 Action Delivery 队列健康并入 Runtime Fleet、Actuator 与运维视图 | [M5-A08 Task 交付摘要与平台观测 API](../testing/M5-A08-Task交付摘要与平台观测API.md)；成员安全摘要、管理员诊断、低基数指标、Trace/Audit、游标、持续授权和敏感内部状态不披露测试通过 |
 
 ## 9. 前端工作台
 

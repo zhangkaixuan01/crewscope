@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v4.3<br>
+> 文档版本：v4.7<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -1297,6 +1297,14 @@ Channel 负责用户与 Agent 的消息入口。CollaborationProvider 负责搜�
 8. Policy Engine 计算当前 Workspace 可用的标准 ToolGroup；
 9. 用户可以暂停 ProviderBinding，或重新授权和撤销 Connection。
 
+M5-A06 固化 GitHub 管理边界。`APP_INSTALLATION` 只能创建 TEAM Owner Connection，Credential Subject 使用同 Team 或由平台管理员批准的 Organization；`OAUTH_USER` 只能创建当前成员 USER Owner Connection，Credential Subject 使用对应 Principal。Connection 创建在一个事务内提交 Credential 密文、Connection、显式 Repository ConnectionGrant、DomainEvent、Outbox 与 Command Receipt；撤销在一个事务内终结 Grant、Credential 和 Connection。创建、Binding 与撤销命令要求 `Idempotency-Key`，更新要求强 `If-Match`。
+
+verify、Catalog synchronize 与 Remote Preflight 执行远端只读校验或本地缓存刷新，不生成领域命令 Command Receipt。它们的 Provider 网络 I/O 不放入数据库事务，请求使用服务端解析的 Connection、Grant、Binding、Credential 和 Repository 版本事实。
+
+GitHub ProviderBinding 只能把已完成远端身份验证的 Connection 绑定到当前成员所在的活动 Team Workspace。TEAM Owner 需要当前 `PROVIDER_MANAGE`，USER Owner 需要 Connection 本人和目标 Team 活动成员身份。Remote Preflight 只接收 Binding ID 和稳定 Repository ID；Connection/Grant/Binding 版本、Execution Identity、Capability、Repository Resource、默认分支和组织策略全部由服务端读取并重新求交集。跨 Connection Repository、旧 Binding、撤销 Grant、版本漂移和默认分支漂移失败关闭。
+
+Repository Catalog API 只返回当前 Connection Version 下缓存未过期的 `DELIVERABLE` Repository。授权健康 API 汇总 Connection、Grant、Credential、Profile、可交付 Repository、RateLimit 和 Webhook Receiver 配置状态。公开 DTO 不包含 Token、Credential ID、外部数字账号 ID、Grant 坐标、Provider Endpoint、Remote URL、原始 OAuth Scope、原始 HTTP Body 和内部异常。
+
 Agent 接收 `provider_binding_id`、`connection_id` 和标准 Tool Schema。真实凭证只在 Connector Worker 中解析。
 
 ProviderBinding 所有权：
@@ -1548,6 +1556,10 @@ Agent 模板领域使用独立 `AgentTemplatePublisherScope` 表达 Organization
 
 `AgentProfile` 保存显式 `AgentOwnership`、`AgentRuntimeRole` 和 `AgentTemplateVersion`，并保留 `AgentProfileType` 作为兼容身份。新 Profile 只能从 ACTIVE Template 创建，Principal 类型、可见性、Workspace Scope 与 Ownership 必须一致。只有 USER-owned Personal Assistant 可以标记为默认 Profile；跨 Profile 的“每成员唯一默认 Personal”继续由 `DefaultPersonalAgentService` 与原子 Repository 约束保证。旧 Profile 仅按 `AgentProfileType + ownerMemberId` 投影到 `personal-assistant@1`、`team-coordinator@1` 或 `coding@1`，不读取显示名、Prompt 或历史输出。
 
+M5-A02 提供 Team-scoped AgentTemplate Catalog 和 Agent 实例管理 API。Catalog 合并 Organization 与当前 Team 每个 Template Key 的最新 ACTIVE 版本，按目标 USER/TEAM Ownership 过滤可实例化策略，并排除平台初始化的默认 Personal Agent。成员可以创建多个彼此隔离的 USER-owned Specialist；TEAM-owned Agent 由有效 Team-wide `AGENT_MANAGE` 或平台管理员创建和管理。普通成员只发现自己的 USER Agent 和 Team Agent；平台管理员可管理当前 Team 全部 Agent。Organization-owned Agent 使用独立 Organization Workspace 路由，不从 Team 路由创建。
+
+Agent 创建由服务端根据 Template RuntimeRole、Ownership 和当前成员固化 PrincipalType、Visibility、Owner、Team Scope 与默认 Workspace，并在同一事务原子创建 Principal/Profile。启用、停用和归档使用两侧乐观版本谓词同步 Principal/Profile 生命周期；任一冲突回滚完整事务。命令同时写入 DomainEvent、Outbox 和 CommandReceipt，首次执行与 Receipt 回放前均复验当前权限。全部读取使用 `no-store`，详情返回强 ETag；Template DTO 不公开 Prompt/Tool/Schema，Configuration 历史 DTO 只公开 Revision、PreviousRevision、Template/Configuration Hash 与非秘密 Model Coordinate。实现与验证见 [M5-A02 Agent 模板与实例管理 API](testing/M5-A02-Agent模板与实例管理API.md)。
+
 用户可为默认 Personal Agent 和个人创建的 Specialist 选择当前授权范围内的模型厂商、主模型和 Fallback。初始默认值按 `AgentProfile 当前 ExecutionScope 显式配置 -> Team Template + ExecutionScope 默认 -> Organization Template + ExecutionScope 默认` 解析。配置保存后引用精确 ModelConnection 和 ModelCatalogEntry，运行时不使用显示名或模糊匹配。
 
 `AgentConfigurationVersion` 使用从 1 开始的连续 Configuration Revision，并显式引用同一 AgentProfile 的直接前一 Revision。每个版本固定 Organization、AgentProfile、Agent Ownership、Owner USER Principal（仅 USER-owned）、精确 AgentTemplateVersion/ContentHash、PERSONAL/TEAM Binding、模板 Prompt/Tool/Schema 结果、批准 Skill、Memory/Budget Policy Reference、PolicyPack Reference、SafeGenerateOptions、配置 Hash 和创建审计；历史版本不可更新或删除。
@@ -1580,6 +1592,10 @@ ACTIVE ModelCatalogEntry
 `crewscope-primary` 保留为本地开发和单模型部署的 Bootstrap Slot。企业多模型运行使用受信 `AgentScopeModelFactory`，根据服务端 ResolvedModelSelection 显式构建 AgentScope `Model`。产品 Provider 和传输 Adapter 独立记录：DeepSeek 在目录、审计和成本中保持 `deepseek`，调用层使用 `openai-compatible`/AgentScope OpenAI Adapter。DeepSeek 同时使用 Tool 和 Structured Output 时由 Adapter 固定 `nativeStructuredOutputWithTools(false)`。
 
 AgentRuntimeSession 固定 AgentConfigurationVersion。新 Conversation 使用当前版本；已存在 Conversation 在安全点通过显式 Configuration Refresh 生成新 Runtime Configuration Segment。TaskExecution 的 PolicySnapshot 固定 AgentConfigurationVersion、Provider、Connection、Model ID/Revision、价格和策略哈希，默认重试沿用原快照。
+
+M5-A03 提供 Team-scoped Agent Configuration、可选模型目录、Model Preflight 和 Conversation Configuration Refresh API。配置写入使用 Configuration Revision 强 ETag 和 CommandReceipt 幂等；Conversation 状态使用 Session Version 强 ETag。刷新只由 Conversation Owner 发起，服务端重新验证 Conversation、Workspace、Member、默认 Personal Agent、Session 和当前配置，且不接受客户端指定目标 Revision。
+
+Conversation 调用启动、Interrupt Resume 和配置刷新使用同一进程内 Conversation 配置边界。`INITIALIZING/ACTIVE/INTERRUPTED` 调用阻止刷新，终态允许刷新；刷新在安全点边界内完成 Session 乐观更新、DomainEvent、Outbox 和 Receipt。Session 只推进 Configuration Revision/Hash，保留 AgentScope Session Key 与 AgentState Reference；Personal Agent 缓存键包含 Configuration Pin，刷新后不复用旧 Revision 的 HarnessAgent。实现与验证见 [M5-A03 Agent 配置与 Conversation 安全刷新 API](testing/M5-A03-Agent配置与Conversation安全刷新API.md)。
 
 模型边界见 [ADR-015：Agent 模型目录、连接与配置解析](adr/ADR-015-Agent模型目录、连接与配置解析.md)，Agent Ownership、Template 和 ExecutionScope 边界见 [ADR-016：Agent 所有权、模板与执行配置](adr/ADR-016-Agent所有权、模板与执行配置.md)。
 
@@ -1670,6 +1686,36 @@ M3-A04 提供成员面向当前 attempt 的 Pause、Resume、Cancel 和 Retry �
 Pause 与有活动 Worker 的 Cancel 先写入 TaskExecution 请求态。Worker 在每次 Lease Heartbeat 成功后重读权威 TaskExecution，使用由 Execution ID 和不可变控制请求派生的稳定 Control Request ID 路由到当前活动的 Task Agent 或 Specialist Session。AgentScope 在安全点中断精确 Session，Pause 事件令牌使用同一 Control Request ID，耐久层只保存 Hash。Specialist 已激活时，控制请求不得停留在已终止的 Task Agent Session；Specialist 暂停必须保留 Workspace 与 Sandbox 的可恢复边界。已提交的 `PAUSE_REQUESTED/CANCEL_REQUESTED` 在稍后到达的 Runtime Complete 竞争中优先，分别收敛为 PAUSED/CANCELLED；没有活动 Worker 的 CREATED、READY、WAITING、PAUSED 和 RECOVERING 取消在命令事务内直接收敛。Cancel 同时关闭 Task 业务状态。
 
 Resume 只接受 PAUSED attempt，解析同一 AgentRun 上的当前 Pause Interrupt，用稳定 Control Request ID 重建原始 Interrupt Token，创建 RESUME Segment 并将原 TaskExecution 重新发布为 READY。新 Worker Claim 后先向 AgentScope 提交 RESUME 授权，再执行恢复 Segment。Retry 只接受当前可重试 FAILED attempt，不超过 `maxAttempts`；每次重试都重新验证 Executor Assignment ID/Version/Principal、AgentProfile 状态与版本，以及 ProviderBinding、Connection、ConnectionGrant 当前事实。通过后创建 `attempt + 1`、新 PolicySnapshot 和 SafetyEnforcementOverlay，继承已批准的优先级、PolicyPack、能力、Tool、Binding 和预算，将新 attempt 发布为 READY 并切换 Task 当前 attempt。
+
+M5-A04 将 AgentConfiguration 解析纳入 Task 委托。成员选择 AgentProfile 和可选的精确 Configuration Revision，ExecutionScope 由服务端根据 Agent Ownership 与当前 OWNER/EXECUTOR 责任链推导。TEAM/ORGANIZATION-owned Agent 固定为 TEAM；USER-owned Agent 仅在 Owner 是当前成员且责任链只包含该成员及其 Agent 时为 PERSONAL，其他协作委托为 TEAM。Owner 离队、Agent/Principal 停用或 Executor 责任变化时拒绝创建新 attempt。
+
+每个新 Task 创建 PolicySnapshot Schema v2，固定 AgentProfile、Configuration Revision/Hash、ExecutionScope、Binding Source、Template、主/Fallback Provider/Connection/Model/Catalog/Price Revision、PolicyPack 和 Resolution Hash。只读 Task Agent Preflight API 使用相同解析链并仅返回非敏感坐标。Retry 默认复用父 attempt 固定的 ResolvedAgentExecutionConfiguration，不重新继承变化后的 Team 默认；成员显式选择新的 Configuration Revision 时重新 Preflight，并在后继 attempt 与审计事件中固定新坐标。
+
+M5-A05 提供成员 Review Workbench 应用边界。创建 ReviewRequest 时，服务端从当前 Task attempt 加载唯一最终 DiffArtifact，选择与其 CodingTarget、Diff Generation 和 Manifest Hash 完全一致的 TestEvidence，再按 TestEvidence 引用顺序加载并复验每条 CommandEvidence。调用者只提交 Reviewer PolicySnapshot ID；Organization、Team、Workspace、WorkProject、WorkItem、Task、TaskExecution、attempt、Artifact、Reviewer Agent Principal/Profile、`reviewer@1` Template、Configuration、PolicySnapshot、Agent Owner、subject Owner 和当前 advisory Reviewer Assignment 全部由持久化权威事实解析。
+
+Reviewer Agent Owner 与 subject Owner 相同形成 `SELF_REVIEW`，不同形成 `INDEPENDENT`。两种关系都只生成 ADVISORY Finding。Reviewer 执行要求当前 Active Agent/Profile、Active Agent Owner TeamMember、Active Reviewer Assignment、精确 Specialist Session、PolicySnapshot Hash、ContextPackage 和 ReviewRequest 强 ETag。应用事务先提交 `OPEN -> IN_PROGRESS`、安全事件和 CommandReceipt，再在事务外调用 AgentScope；模型成功后在一个 REQUIRED 事务内完成 Evidence Resolver、Finding/Observation、`IN_PROGRESS -> COMPLETED`、Task Event、Outbox 和 Review Projection。模型失败时保留 IN_PROGRESS，调用者使用新幂等键和当前 ETag 恢复；并发恢复通过 Request 乐观锁、Finding 唯一约束和 Observation 行锁收敛。
+
+人工 Gate 命令在首次执行和 Receipt 回放前都重新验证 Active USER Principal、Active TeamMember、当前 Active USER Reviewer Assignment 与 ReviewerEligibilityPolicy。`COMMENTED` 可以追加，`APPROVED/CHANGES_REQUESTED/REJECTED` 形成不可替换终结结论；`CHANGES_REQUESTED` 同事务追加连续 ReviewModificationRound。Diff、TestEvidence、Reviewer Configuration、Policy 或 Context 变化后旧 Request 进入 INVALIDATED，保留详情审计读取，禁止继续执行、Finding 和 Decision。重新 Review 必须在 URL 中指定失效前驱，并从当前 Artifact 与 Reviewer PolicySnapshot 构建连续 ContextPackage/ReviewRequest Revision。
+
+Review API 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews` 路由根，提供创建、列表、详情、Reviewer 执行、Decision、修改请求和 re-review。命令要求 Idempotency-Key，状态命令同时要求强 If-Match。公开 DTO 只返回 Context/Diff/Test Hash 坐标、变更路径、Finding 文件位置、Decision 和修改轮次；Patch/Hunk 正文继续通过 M4 受限 Artifact 边界读取，Prompt、模型原始输出、Tool 原始结果、Credential、Endpoint、内部 Reasoning 和 Provider 错误不进入响应。实现与验证见 [M5-A05 Review 与 Gate Decision API](testing/M5-A05-Review与Gate-Decision-API.md)。
+
+M5-A07 提供 Action 交付应用边界。Owner 在当前 Task attempt 上选择已批准 ReviewDecision、GitHub ProviderBinding 和稳定 Repository ID；服务端重建 ReviewRequest、ContextPackage、ReviewDecision、OWNER 责任、Binding、Connection、Grant、PolicySnapshot、SafetyEnforcementOverlay、CodingTarget、RepositoryBinding 和已完成 ExecutionWorkspace 权威图。交付分支始终使用 ExecutionWorkspace 的受管 `managedBranch`，浏览器不能提供分支、Connection、Grant 或执行身份坐标。
+
+GitHub Catalog 将外部稳定 Repository ID 映射到规范 `github:repository:{owner}/{name}` Grant Resource Key。规划和确认均要求 Catalog 当前可交付、Connection Version 与 Execution Identity 一致，并且 Binding EffectiveAccess 精确覆盖该 Resource。ActionBundle 固定外部 Repository ID、完整 Effective Access Hash、Delivery Commit、远端前置、Push Branch 与 Draft PR 参数。Worker 执行前继续使用当前远端 Preflight，Catalog 只作为规划和确认的权威资源映射。
+
+Confirmation 要求强 Bundle Version 和小写 SHA-256 Digest，仅接受同 ReviewDecision 的最新 Bundle，并在提交前重新比对 Owner、Review、Provider、Policy、Safety、CodingTarget 和 Repository 当前事实。Confirmation、两个 READY Dispatch、DomainEvent、TaskEvent、Outbox 与 CommandReceipt 在一个事务中提交。取消 Confirmation 只终止仍为 READY 的动作，并为每个动作写入唯一无副作用 Receipt；已运行、UNKNOWN 或已产生外部结果的动作继续由只读 Reconcile 收敛，不执行盲目补偿。
+
+Action API 根路为 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/actions`，提供 Bundle 规划、列表、详情、精确确认、确认取消和人工终结。规划、确认、取消与人工终结统一使用 `Idempotency-Key + CommandReceipt`；人工终结同时绑定 Dispatch 强版本，请求 Hash 固定 Actor、完整路由、结果、外部身份安全 Hash、目标版本、原因和说明，同键回放在重新验证当前 Owner 后返回原 Receipt。ActionReceipt、Dispatch 终态、安全事件、TaskEvent、Outbox 与 CommandReceipt 共享一个事务和 Correlation ID。
+
+浏览器没有 Dispatch 创建、Claim 或 Worker 执行 API。公开投影展示风险、依赖、参数、Dispatch 状态、Receipt 和 ExternalResult；不返回 Connection ID、Credential、Grant、Endpoint、Worker ID、Lease、Fencing Token、内部幂等键、原始外部 ID/Business Key 或 Observation Key。外部对象身份只公开安全 Hash。实现与验证见 [M5-A07 ActionBundle 确认与外部结果 API](testing/M5-A07-ActionBundle确认与外部结果API.md)。
+
+M5-A08 增加统一 Task Delivery Summary。`GET /api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/delivery-summary` 将当前 Task attempt 固定的 Agent Template、Configuration Revision、ExecutionScope、Binding Source、主/Fallback 模型公开坐标，与最新 ReviewRequest/Finding/Gate Decision/修改轮次、ActionBundle/Confirmation、Push/Draft PR 分步状态和 GitHub ExternalResult 安全 Hash 合并为一个成员投影。投影不返回 Model/GitHub Connection、Credential、Grant、Policy/Safety 内部 Hash、Worker/Lease/Fencing、幂等键、原始外部 ID、Business Key 或 Observation Key。
+
+Conversation 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/delivery-cards` 读取同一交付摘要。该端点复用 Conversation/Task 关联查询和原有绑定 Organization、Team、Conversation、关联时间与 Task ID 的游标；服务端先重新授权 Conversation，再对每个返回 Task 重新验证当前 WorkItem/Team 可见性。成员退出、权限撤销或 PRIVATE Conversation 失去参与资格后，后续读取失败关闭，不能以空卡片或旧缓存继续展示。
+
+Conversation 交付卡片使用独立读模型预算：默认 `20`、最大 `50`。单页充实在一个事务内完成，直接复用关联查询已返回的 Task 投影，不重复回读 Task。Review 与 Action 充实未切换为批量读模型前不提高该上限；后续批量投影需以 Organization/Team/Task ID 集合为输入，固定 SQL 数量返回 Policy、Review、Action 子事实，并在应用层保留逐 Task 持续授权。
+
+两个端点都使用 `no-store`，并记录关联 Correlation ID 的结构化审计、Trace 和只含 View/Review/Delivery 状态的低基数指标。实现与验证见 [M5-A08 Task 交付摘要与平台观测 API](testing/M5-A08-Task交付摘要与平台观测API.md)。
 
 M3-A05 提供 `/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/events` 的 JSON 历史和 SSE。Task 创建、Worker/成员命令、AgentRun Event/Resume 与 Lease Recovery 在原业务事务内写入 V13 `task_event` 索引，索引关联 Task、TaskExecution、可选 StepExecution、AgentRun 和 ExecutionLease，并通过稳定 Task Stream Event ID 保留源 `domainEventId`。Cursor 绑定完整 Task 路由与 Position；SSE 支持 `Last-Event-ID` 断线补发，每次轮询重新复验当前 Membership 与 Task Scope，终态历史排空后关闭，达到单连接事件上限时在可续传 Cursor 边界轮换连接。
 
@@ -2478,6 +2524,8 @@ M4-A07 将 Worker 本地 Coding 资源作为 Runtime Fleet 的可选安全子投
 
 Actuator 使用同一个 Worker 本地观察适配器发布 Workspace 容量、Sandbox 健康、Watcher 健康和 I10 清理结果。清理尚未完成时为 `DOWN`；容量用尽、Sandbox/Watcher 失败、清理失败或批次触顶时为 `DOWN`；其余为 `UP`。详情只包含低基数状态和聚合计数。
 
+M5-A08 将 Action Delivery 队列健康并入 Team Runtime Fleet 和 `TEAM_OBSERVE` 运维视图。成员与管理员看到的 `actionDelivery` 只包含 `health/running/unknown/reconciling/manualReview/oldestUnresolvedAgeSeconds/stale`；查询按 Organization 与 Team 同时过滤，不泄露其他 Team 的积压，也不返回 ActionBundle、Dispatch、Connection、Worker、Lease 或 Fencing 标识。Actuator 保持平台级低基数健康，用于进程与全局告警；Task 级人工处理继续通过受权 Action API 完成，平台运维 API 不提供 Dispatch Claim 或 Worker 执行入口。
+
 平台运维命令为 `POST /api/v1/organizations/{organizationId}/runtime-health/operations/reconcile` 与 `POST /api/v1/organizations/{organizationId}/runtime-health/operations/archive`，使用可选 `environment` 和必需 `Idempotency-Key`。命令只接受当前 Organization 的 ACTIVE USER 平台管理员。Reconcile 先复用 M3 Lease/Task 启动对账围栏过期所有权，再执行 I10 Workspace、Sandbox 和 Watcher 修复；Archive 执行到期 Workspace 归档与 Tombstone Artifact 有界 Purge。两条命令复用 I10 权威 Reconciler，保持物理操作幂等。
 
 运维 HTTP 入口先解析当前 Organization 内的可行动 Principal，再判断本进程能力；应用层在任何物理操作前强制 ACTIVE USER 平台管理员权限。运维命令在同一应用事务中预留 CommandReceipt，成功后写入 `CODING_RUNTIME_*_COMPLETED` DomainEvent、Outbox 和完成 Receipt。重放返回原 Receipt 并跳过物理操作。成功、重放和失败写入结构化安全审计；`crewscope.runtime.maintenance.commands` 只使用 `operation/outcome` Tag。server-only 进程返回 `runtime_operations_unavailable`，Worker 环境 Scope 不匹配返回相同稳定错误。实现与证据见 [M4-A07 Runtime Fleet 与运维命令](testing/M4-A07-Runtime-Fleet与运维命令.md)。
@@ -3128,22 +3176,36 @@ DELETE /api/v1/connections/{connectionId}
 模型目录、连接与 Agent 配置使用独立 API：
 
 ```text
-GET    /api/v1/model-providers
-GET    /api/v1/model-catalog?agentProfileId={agentProfileId}
-GET    /api/v1/model-connections?ownerType={ownerType}&ownerId={ownerId}
-POST   /api/v1/model-connections
-POST   /api/v1/model-connections/{connectionId}/verify
-POST   /api/v1/model-connections/{connectionId}/rotate-credential
-DELETE /api/v1/model-connections/{connectionId}
+GET    /api/v1/organizations/{organizationId}/model-providers
+GET    /api/v1/organizations/{organizationId}/model-providers/{providerKey}/catalog
+GET    /api/v1/organizations/{organizationId}/model-connections?ownerType={ownerType}&teamId={teamId}
+POST   /api/v1/organizations/{organizationId}/model-connections
+GET    /api/v1/organizations/{organizationId}/model-connections/{connectionId}
+POST   /api/v1/organizations/{organizationId}/model-connections/{connectionId}/verify
+POST   /api/v1/organizations/{organizationId}/model-connections/{connectionId}/rotate
+POST   /api/v1/organizations/{organizationId}/model-connections/{connectionId}/suspend
+POST   /api/v1/organizations/{organizationId}/model-connections/{connectionId}/revoke
 
-GET    /api/v1/agent-profiles/{agentProfileId}/configurations/current
-GET    /api/v1/agent-profiles/{agentProfileId}/configurations
-POST   /api/v1/agent-profiles/{agentProfileId}/configurations
-POST   /api/v1/agent-profiles/{agentProfileId}/model-preflight
-POST   /api/v1/conversations/{conversationId}/agent-configuration-refresh
+GET    /api/v1/organizations/{organizationId}/model-catalog?agentProfileId={agentProfileId}
+
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/agent-templates
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/activate
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/disable
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/archive
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/configurations
+
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/configurations/current
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/configurations
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{agentProfileId}/model-preflight
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/agent-configuration-refresh
 ```
 
-`model-catalog` 只返回当前 Principal 在指定 AgentProfile 上通过 Scope、Connection、模型能力、数据策略、预算和配额交集后的可选项。配置写入创建新的 AgentConfigurationVersion，使用 `Idempotency-Key`、`If-Match` 和 Command Receipt。Credential 只在创建或轮换请求中单向输入。
+Provider Catalog 返回平台受信、版本化的 Provider/Model/价格公开元数据，不返回 Endpoint、Adapter 实现或 Credential 元数据。`model-catalog` 由 M5-A03 交付，只返回当前 Principal 在指定 AgentProfile 上通过 Scope、Connection、模型能力、数据策略、预算和配额交集后的可选项。
+
+ModelConnection 的 USER Owner 固定为当前登录 Principal；TEAM Owner 由 `teamId` 选择并要求当前有效 `PROVIDER_MANAGE`；ORGANIZATION Owner 只允许平台管理员。Endpoint 使用受信 Provider Definition 的默认值，Credential Subject 与 Billing Subject 由 Owner 类型服务端固化，客户端不能覆盖。列表和详情使用公开白名单 DTO，不返回 Endpoint、Credential ID、Credential Key、Metadata 或 Provider 原始响应。创建、验证、轮换、停用和撤销使用 `Idempotency-Key`、强 `If-Match`、Credential Version 和 Command Receipt；Credential 只在创建或轮换请求中单向输入。
 
 ### 15.3 责任与协作 API
 
