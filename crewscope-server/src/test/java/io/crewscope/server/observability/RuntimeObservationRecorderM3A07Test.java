@@ -72,7 +72,12 @@ class RuntimeObservationRecorderM3A07Test {
         Set<String> tagKeys = counters.iterator().next().getId().getTags().stream()
                 .map(tag -> tag.getKey())
                 .collect(java.util.stream.Collectors.toSet());
-        assertEquals(Set.of("view", "health", "workspace_health"), tagKeys);
+        assertEquals(
+                Set.of("view", "health", "workspace_health", "action_health"),
+                tagKeys);
+        assertEquals(
+                "unavailable",
+                counters.iterator().next().getId().getTag("action_health"));
         assertTrue(registry.getMeters().stream().noneMatch(meter ->
                 meter.getId().getTags().stream().anyMatch(tag ->
                         tag.getValue().contains("-"))));

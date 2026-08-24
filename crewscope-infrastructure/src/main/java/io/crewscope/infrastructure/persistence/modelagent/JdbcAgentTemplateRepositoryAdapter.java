@@ -182,6 +182,35 @@ public class JdbcAgentTemplateRepositoryAdapter implements AgentTemplateReposito
                 (row, ignored) -> mapper.template(row));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentTemplateDefinition> findLatestActivePage(
+            AgentTemplatePublisherScope publisherScope, int offset, int limit) {
+        ModelAgentJdbcGuard.requirePage(offset, limit, "agentTemplate.page");
+        return jdbc.query(
+                "SELECT * FROM (" + SELECT + """
+                 WHERE organization_id = :organizationId
+                   AND publisher_type = :publisherType AND publisher_id = :publisherId
+                   AND status = 'ACTIVE'
+                 ORDER BY template_key, template_version DESC
+                ) latest
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM crewscope.agent_template_version newer
+                     WHERE newer.organization_id = latest.organization_id
+                       AND newer.publisher_type = latest.publisher_type
+                       AND newer.publisher_id = latest.publisher_id
+                       AND newer.template_key = latest.template_key
+                       AND newer.template_version > latest.template_version
+                )
+                ORDER BY template_key
+                OFFSET :offset LIMIT :limit
+                """,
+                scopeParameters(Objects.requireNonNull(publisherScope))
+                        .addValue("offset", offset)
+                        .addValue("limit", limit),
+                (row, ignored) -> mapper.template(row));
+    }
+
     private MapSqlParameterSource parameters(AgentTemplateDefinition value) {
         PrincipalId createdBy = value.audit().createdBy().orElseThrow();
         PrincipalId updatedBy = value.audit().updatedBy().orElseThrow();

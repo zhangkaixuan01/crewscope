@@ -285,6 +285,7 @@ public final class PlatformExecutionContextResolver {
                 || !current.personalAgentPrincipalId().equals(supplied.personalAgentPrincipalId())
                 || !current.agentProfileId().equals(supplied.agentProfileId())
                 || current.agentProfileVersion() != supplied.agentProfileVersion()
+                || !current.configurationPin().equals(supplied.configurationPin())
                 || !current.agentScopeKey().equals(supplied.agentScopeKey())) {
             throw failure("EXECUTION_SESSION_STALE");
         }

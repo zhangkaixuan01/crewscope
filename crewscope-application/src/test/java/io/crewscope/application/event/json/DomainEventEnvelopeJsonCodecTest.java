@@ -16,6 +16,8 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.task.event.MemberTaskCommandAccepted;
+import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,64 @@ class DomainEventEnvelopeJsonCodecTest {
     }
 
     @Test
+    void readsV1TaskEventsThatPredateAgentConfigurationAuditFields() {
+        String delegatedPayload = """
+                {
+                  "taskId":"01989ee2-f6b0-7cda-97c4-1b337043d321",
+                  "taskExecutionId":"01989ee2-f6b0-7cda-97c4-1b337043d322",
+                  "workItemId":"01989ee2-f6b0-7cda-97c4-1b337043d323",
+                  "workItemVersion":1,
+                  "objective":"Legacy delegation",
+                  "acceptanceCriteria":["history remains readable"],
+                  "briefHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "sourceConversationId":null,
+                  "sourceMessageId":null,
+                  "sourceMessageSequence":null,
+                  "executorPrincipalId":"01989ee2-f6b0-7cda-97c4-1b337043d324",
+                  "executorAssignmentId":"01989ee2-f6b0-7cda-97c4-1b337043d325",
+                  "executorAssignmentVersion":1,
+                  "agentProfileId":"01989ee2-f6b0-7cda-97c4-1b337043d326",
+                  "agentProfileVersion":1,
+                  "policySnapshotId":"01989ee2-f6b0-7cda-97c4-1b337043d327",
+                  "policySnapshotHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "safetyOverlayId":"01989ee2-f6b0-7cda-97c4-1b337043d328",
+                  "safetyOverlayVersion":1,
+                  "providerBindingIds":[],
+                  "taskStatus":"READY",
+                  "executionStatus":"READY"
+                }
+                """;
+        DomainEventEnvelope<TaskDelegatedToAgent> delegated = CODEC.decode(
+                legacyEnvelope("TASK_DELEGATED_TO_AGENT", delegatedPayload),
+                TaskDelegatedToAgent.class);
+        assertTrue(delegated.payload().agentExecutionScope().isEmpty());
+        assertTrue(delegated.payload().agentConfigurationRevision().isEmpty());
+        assertTrue(delegated.payload().agentConfigurationHash().isEmpty());
+        assertTrue(delegated.payload().agentModelBindingSource().isEmpty());
+
+        String retryPayload = """
+                {
+                  "taskId":"01989ee2-f6b0-7cda-97c4-1b337043d321",
+                  "targetExecutionId":"01989ee2-f6b0-7cda-97c4-1b337043d322",
+                  "targetAttempt":1,
+                  "operation":"RETRY",
+                  "taskStatus":"READY",
+                  "executionStatus":"READY",
+                  "successorExecutionId":"01989ee2-f6b0-7cda-97c4-1b337043d329",
+                  "successorAttempt":2
+                }
+                """;
+        DomainEventEnvelope<MemberTaskCommandAccepted> retry = CODEC.decode(
+                legacyEnvelope("MEMBER_TASK_RETRY_ACCEPTED", retryPayload),
+                MemberTaskCommandAccepted.class);
+        assertTrue(retry.payload().successorPolicySnapshotId().isEmpty());
+        assertTrue(retry.payload().successorPolicySnapshotHash().isEmpty());
+        assertTrue(retry.payload().successorExecutionScope().isEmpty());
+        assertTrue(retry.payload().successorConfigurationRevision().isEmpty());
+        assertTrue(retry.payload().successorConfigurationHash().isEmpty());
+    }
+
+    @Test
     void rejectsMalformedIdentifiersVersionsAndPayloadShapes() {
         String canonical = CODEC.encode(domainEvent());
 
@@ -131,6 +191,27 @@ class DomainEventEnvelopeJsonCodecTest {
                 Optional.of("command-42"),
                 UtcTimestamp.parse("2026-08-06T10:00:00.123456Z"),
                 new StatusChangedPayload("READY", "IN_PROGRESS"));
+    }
+
+    private static String legacyEnvelope(String eventType, String payload) {
+        return """
+                {
+                  "eventId":"01989ee2-f6b0-7cda-97c4-1b337043d301",
+                  "eventType":"%s",
+                  "schemaVersion":"1",
+                  "organizationId":"01989ee2-f6b0-7cda-97c4-1b337043d310",
+                  "teamId":"01989ee2-f6b0-7cda-97c4-1b337043d311",
+                  "workspaceId":"01989ee2-f6b0-7cda-97c4-1b337043d312",
+                  "aggregateType":"TASK",
+                  "aggregateId":"01989ee2-f6b0-7cda-97c4-1b337043d321",
+                  "aggregateVersion":1,
+                  "actorType":"USER",
+                  "actorId":"01989ee2-f6b0-7cda-97c4-1b337043d314",
+                  "correlationId":"01989ee2-f6b0-7cda-97c4-1b337043d303",
+                  "occurredAt":"2026-08-06T10:00:00Z",
+                  "payload":%s
+                }
+                """.formatted(eventType, payload);
     }
 
     public record StatusChangedPayload(String previousStatus, String currentStatus)

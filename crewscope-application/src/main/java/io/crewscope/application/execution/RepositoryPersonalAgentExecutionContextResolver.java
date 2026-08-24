@@ -1,6 +1,7 @@
 package io.crewscope.application.execution;
 
 import io.crewscope.application.conversation.AgentRuntimeSessionService;
+import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -33,6 +34,7 @@ public final class RepositoryPersonalAgentExecutionContextResolver
     private final TeamMemberRepository teamMemberRepository;
     private final PrincipalRepository principalRepository;
     private final AgentProfileRepository agentProfileRepository;
+    private final AgentConfigurationRepository agentConfigurationRepository;
     private final AgentRuntimeSessionService runtimeSessionService;
     private final PlatformExecutionContextResolver platformContextResolver;
 
@@ -42,6 +44,7 @@ public final class RepositoryPersonalAgentExecutionContextResolver
             TeamMemberRepository teamMemberRepository,
             PrincipalRepository principalRepository,
             AgentProfileRepository agentProfileRepository,
+            AgentConfigurationRepository agentConfigurationRepository,
             AgentRuntimeSessionService runtimeSessionService,
             PlatformExecutionContextResolver platformContextResolver) {
         this.conversationRepository = Objects.requireNonNull(
@@ -54,6 +57,8 @@ public final class RepositoryPersonalAgentExecutionContextResolver
                 principalRepository, "principalRepository");
         this.agentProfileRepository = Objects.requireNonNull(
                 agentProfileRepository, "agentProfileRepository");
+        this.agentConfigurationRepository = Objects.requireNonNull(
+                agentConfigurationRepository, "agentConfigurationRepository");
         this.runtimeSessionService = Objects.requireNonNull(
                 runtimeSessionService, "runtimeSessionService");
         this.platformContextResolver = Objects.requireNonNull(
@@ -105,7 +110,12 @@ public final class RepositoryPersonalAgentExecutionContextResolver
         PersonalAgentInitialization personalAgent =
                 new PersonalAgentInitialization(agent, profile).requireDefaultFor(member, workspace);
         AgentRuntimeSession session = runtimeSessionService.ensurePersonal(
-                conversation, workspace, member, owner, personalAgent);
+                conversation,
+                workspace,
+                member,
+                owner,
+                personalAgent,
+                agentConfigurationRepository.findCurrent(organization, profile.id()));
         PlatformExecutionContext platformContext = platformContextResolver.resolve(
                 new PlatformExecutionContextResolutionRequest(
                         session,

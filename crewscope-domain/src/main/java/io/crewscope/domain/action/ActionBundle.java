@@ -77,10 +77,43 @@ public final class ActionBundle {
             UtcTimestamp validUntil,
             Principal actor,
             UtcTimestamp createdAt) {
+        ExternalRepositoryId requiredRepositoryId = Objects.requireNonNull(
+                repositoryId, "repositoryId");
+        return planSourceCodeDelivery(
+                bundleId,
+                pushActionId,
+                pullRequestActionId,
+                facts,
+                requiredRepositoryId,
+                "repository:" + requiredRepositoryId.value(),
+                deliveryBranch,
+                expectedRemoteHead,
+                title,
+                body,
+                validUntil,
+                actor,
+                createdAt);
+    }
+
+    /** Plans delivery after an application resolver binds the external ID to an exact Grant key. */
+    public static ActionBundle planSourceCodeDelivery(
+            ActionBundleId bundleId,
+            PlannedActionId pushActionId,
+            PlannedActionId pullRequestActionId,
+            ActionAuthorityFacts facts,
+            ExternalRepositoryId repositoryId,
+            String authorizedResourceKey,
+            RepositoryBranchReference deliveryBranch,
+            Optional<io.crewscope.domain.coding.RepositoryCommitId> expectedRemoteHead,
+            String title,
+            String body,
+            UtcTimestamp validUntil,
+            Principal actor,
+            UtcTimestamp createdAt) {
         UtcTimestamp requiredCreatedAt = Objects.requireNonNull(createdAt, "createdAt");
         UtcTimestamp requiredValidUntil = requireValidity(requiredCreatedAt, validUntil);
         ExternalRepositoryId requiredRepositoryId = Objects.requireNonNull(repositoryId, "repositoryId");
-        requireSourceDeliveryAccess(facts, requiredRepositoryId);
+        requireSourceDeliveryAccess(facts, authorizedResourceKey);
         ActionAuthoritySnapshot authority = ActionAuthoritySnapshot.capture(facts, requiredCreatedAt);
         PrincipalId actorId = requireActor(actor, authority.scope());
         RepositoryBranchName head = Objects.requireNonNull(deliveryBranch, "deliveryBranch").shortName();
@@ -263,10 +296,11 @@ public final class ActionBundle {
     }
 
     private static void requireSourceDeliveryAccess(
-            ActionAuthorityFacts facts, ExternalRepositoryId repositoryId) {
+            ActionAuthorityFacts facts, String authorizedResourceKey) {
         ProviderAccessScope required = new ProviderAccessScope(
                 ProviderCapabilities.of("source.write", "pull-request.create"),
-                ProviderResourceScope.of("repository:" + repositoryId.value()));
+                ProviderResourceScope.of(Objects.requireNonNull(
+                        authorizedResourceKey, "authorizedResourceKey")));
         ProviderAccessScope effective = Objects.requireNonNull(facts, "facts")
                 .providerBinding()
                 .effectiveAccess();

@@ -1,5 +1,7 @@
 package io.crewscope.application.task;
 
+import io.crewscope.application.agent.CreateResolvedPolicySnapshotRequest;
+import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.coding.BuildProfileCatalog;
 import io.crewscope.application.coding.CodingTargetSnapshotRepository;
 import io.crewscope.application.coding.CreateCodingTargetCommand;
@@ -23,6 +25,7 @@ import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.team.AgentProfileRepository;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
@@ -111,6 +114,8 @@ public final class AgentTaskCreationService {
     private final TransactionExecutor transactionExecutor;
     private final TimeProvider timeProvider;
     private final TaskCreationPolicySpec creationPolicy;
+    private final Optional<TaskAgentSelectionService> agentSelectionService;
+    private final Optional<ResolvedAgentPolicySnapshotService> resolvedPolicyService;
 
     public AgentTaskCreationService(
             WorkItemAccessPolicy accessPolicy,
@@ -137,6 +142,63 @@ public final class AgentTaskCreationService {
             TransactionExecutor transactionExecutor,
             TimeProvider timeProvider,
             TaskCreationPolicySpec creationPolicy) {
+        this(
+                accessPolicy,
+                workItemRepository,
+                assignmentRepository,
+                principalRepository,
+                profileRepository,
+                conversationService,
+                bindingResolver,
+                repositoryBindingRepository,
+                repositoryPreflight,
+                buildProfileCatalog,
+                codingTargetRepository,
+                taskRepository,
+                executionRepository,
+                policyRepository,
+                overlayRepository,
+                conversationTaskLinkRepository,
+                eventStore,
+                conversationEventRepository,
+                taskEventRepository,
+                outboxRepository,
+                receiptStore,
+                transactionExecutor,
+                timeProvider,
+                creationPolicy,
+                null,
+                null);
+    }
+
+    /** Production constructor enabling M5 Agent configuration preflight and Schema-v2 snapshots. */
+    public AgentTaskCreationService(
+            WorkItemAccessPolicy accessPolicy,
+            WorkItemRepository workItemRepository,
+            ResponsibilityAssignmentRepository assignmentRepository,
+            PrincipalRepository principalRepository,
+            AgentProfileRepository profileRepository,
+            ConversationApplicationService conversationService,
+            ProviderBindingResolver bindingResolver,
+            RepositoryBindingRepository repositoryBindingRepository,
+            RepositoryBindingPreflightPort repositoryPreflight,
+            BuildProfileCatalog buildProfileCatalog,
+            CodingTargetSnapshotRepository codingTargetRepository,
+            TaskRepository taskRepository,
+            TaskExecutionRepository executionRepository,
+            PolicySnapshotRepository policyRepository,
+            SafetyEnforcementOverlayRepository overlayRepository,
+            ConversationTaskLinkRepository conversationTaskLinkRepository,
+            DomainEventStore eventStore,
+            ConversationEventRepository conversationEventRepository,
+            TaskEventRepository taskEventRepository,
+            OutboxRepository outboxRepository,
+            CommandReceiptStore receiptStore,
+            TransactionExecutor transactionExecutor,
+            TimeProvider timeProvider,
+            TaskCreationPolicySpec creationPolicy,
+            TaskAgentSelectionService agentSelectionService,
+            ResolvedAgentPolicySnapshotService resolvedPolicyService) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.workItemRepository = Objects.requireNonNull(workItemRepository, "workItemRepository");
         this.assignmentRepository = Objects.requireNonNull(
@@ -169,6 +231,28 @@ public final class AgentTaskCreationService {
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.creationPolicy = Objects.requireNonNull(creationPolicy, "creationPolicy");
+        this.agentSelectionService = Optional.ofNullable(agentSelectionService);
+        this.resolvedPolicyService = Optional.ofNullable(resolvedPolicyService);
+    }
+
+    /** Returns the server-resolved execution configuration without creating a Task. */
+    public TaskAgentExecutionSelection preview(
+            TeamAccessContext context,
+            TeamId teamId,
+            WorkProjectId projectId,
+            WorkItemId workItemId,
+            TaskAgentSelectionRequest selection) {
+        return transactionExecutor.required(() -> {
+            TeamAccessContext trusted = Objects.requireNonNull(context, "context");
+            OrganizationId organizationId = trusted.actor().scope().organizationId();
+            WorkItem item = accessPolicy.requireVisibleWorkItem(
+                    trusted, organizationId, teamId, projectId, workItemId);
+            List<ResponsibilityAssignment> assignments = List.copyOf(
+                    assignmentRepository.findActiveByWorkItem(organizationId, workItemId));
+            requireDelegationAuthority(trusted.actor(), assignments);
+            return requireAgentSelectionService().resolve(
+                    trusted, item, assignments, selection, timeProvider.now());
+        });
     }
 
     public CommandExecution<AgentTaskCreationResult> create(
@@ -223,8 +307,12 @@ public final class AgentTaskCreationService {
         TaskResponsibilitySnapshot responsibilitySnapshot = TaskResponsibilitySnapshot.capture(
                 workItem, assignments, occurredAt);
 
-        AgentProfile profile = requireProfile(organizationId, workItem, command);
-        Principal executor = requireExecutor(organizationId, workItem, profile, assignments);
+        Optional<TaskAgentExecutionSelection> agentSelection = agentSelectionService.map(service ->
+                service.resolve(context.access(), workItem, assignments, command.agentSelection(), occurredAt));
+        AgentProfile profile = agentSelection.map(TaskAgentExecutionSelection::profile)
+                .orElseGet(() -> requireProfile(organizationId, workItem, command));
+        Principal executor = agentSelection.map(TaskAgentExecutionSelection::executor)
+                .orElseGet(() -> requireExecutor(organizationId, workItem, profile, assignments));
         Optional<ReadableConversationMessage> sourceMessage = command.conversationSource()
                 .map(source -> conversationService.requireReadableMessage(
                         context.access(),
@@ -274,20 +362,35 @@ public final class AgentTaskCreationService {
                 .map(target -> codingTools(
                         creationPolicy.allowedTools(), target.buildProfile()))
                 .orElse(creationPolicy.allowedTools());
-        PolicySnapshot policy = policyRepository.create(PolicySnapshot.initial(
-                PolicySnapshotId.generate(),
-                createdTask,
-                createdExecution,
-                executor,
-                creationPolicy.policyPack(),
-                profile.id(),
-                profile.version(),
-                capabilities,
-                allowedTools,
-                providerBindingIds,
-                creationPolicy.budget(),
-                actor,
-                occurredAt));
+        PolicySnapshot policy = agentSelection
+                .map(selection -> requireResolvedPolicyService().createInitial(
+                        new CreateResolvedPolicySnapshotRequest(
+                                PolicySnapshotId.generate(),
+                                createdTask,
+                                createdExecution,
+                                executor,
+                                selection.resolutionRequest(),
+                                capabilities,
+                                allowedTools,
+                                providerBindingIds,
+                                creationPolicy.budget(),
+                                actor,
+                                occurredAt),
+                        selection.resolvedConfiguration()))
+                .orElseGet(() -> policyRepository.create(PolicySnapshot.initial(
+                        PolicySnapshotId.generate(),
+                        createdTask,
+                        createdExecution,
+                        executor,
+                        creationPolicy.policyPack(),
+                        profile.id(),
+                        profile.version(),
+                        capabilities,
+                        allowedTools,
+                        providerBindingIds,
+                        creationPolicy.budget(),
+                        actor,
+                        occurredAt)));
         SafetyEnforcementOverlay overlay = overlayRepository.create(
                 SafetyEnforcementOverlay.unrestricted(
                         SafetyEnforcementOverlayId.generate(),
@@ -469,7 +572,9 @@ public final class AgentTaskCreationService {
         DomainEventEnvelope<TaskDelegatedToAgent> event = new DomainEventEnvelope<>(
                 eventId,
                 EventType.from("TASK_DELEGATED_TO_AGENT"),
-                SchemaVersion.V1,
+                result.policySnapshot().schemaVersion() == 2
+                        ? SchemaVersion.V2
+                        : SchemaVersion.V1,
                 task.scope().organizationId(),
                 Optional.of(task.scope().teamId()),
                 Optional.of(task.scope().workspaceId()),
@@ -527,6 +632,9 @@ public final class AgentTaskCreationService {
         fields.add(Integer.toString(command.brief().acceptanceCriteria().size()));
         fields.addAll(command.brief().acceptanceCriteria());
         fields.add(command.executorAgentProfileId().toString());
+        fields.add(command.agentConfigurationRevision()
+                .map(value -> Long.toString(value.value()))
+                .orElse("CURRENT"));
         fields.add(command.conversationSource()
                 .map(value -> value.conversationId().toString())
                 .orElse(""));
@@ -556,4 +664,14 @@ public final class AgentTaskCreationService {
             RepositoryBinding binding,
             RepositoryBindingPreflightResult preflight,
             BuildProfile buildProfile) {}
+
+    private TaskAgentSelectionService requireAgentSelectionService() {
+        return agentSelectionService.orElseThrow(() -> new IllegalStateException(
+                "Task Agent selection is unavailable in the legacy application composition"));
+    }
+
+    private ResolvedAgentPolicySnapshotService requireResolvedPolicyService() {
+        return resolvedPolicyService.orElseThrow(() -> new IllegalStateException(
+                "Resolved PolicySnapshot service is unavailable in the legacy application composition"));
+    }
 }

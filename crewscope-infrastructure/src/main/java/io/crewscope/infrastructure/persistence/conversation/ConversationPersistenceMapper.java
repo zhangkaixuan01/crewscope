@@ -3,6 +3,7 @@ package io.crewscope.infrastructure.persistence.conversation;
 import static io.crewscope.infrastructure.persistence.PersistenceMappingSupport.audit;
 
 import io.crewscope.domain.conversation.AgentRuntimeSession;
+import io.crewscope.domain.conversation.AgentRuntimeConfigurationPin;
 import io.crewscope.domain.conversation.AgentRuntimeSessionId;
 import io.crewscope.domain.conversation.AgentRuntimeSessionStatus;
 import io.crewscope.domain.conversation.AgentRuntimeStateReference;
@@ -31,6 +32,12 @@ import io.crewscope.domain.conversation.TaskIntentProposal;
 import io.crewscope.domain.conversation.TaskIntentResponsibility;
 import io.crewscope.domain.conversation.TaskIntentStatus;
 import io.crewscope.domain.identity.PrincipalType;
+import io.crewscope.domain.agent.AgentConfigurationHash;
+import io.crewscope.domain.agent.AgentConfigurationRevision;
+import io.crewscope.domain.agent.AgentOwnershipType;
+import io.crewscope.domain.agent.AgentRuntimeRole;
+import io.crewscope.domain.agent.AgentTemplateKey;
+import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -273,6 +280,18 @@ public class ConversationPersistenceMapper {
         row.personalAgentPrincipalId = value.personalAgentPrincipalId().value();
         row.agentProfileId = value.agentProfileId().value();
         row.agentProfileVersion = value.agentProfileVersion();
+        value.configurationPin().ifPresent(pin -> {
+            row.agentOwnershipType = pin.ownershipType().name();
+            row.agentRuntimeRole = pin.runtimeRole().name();
+            row.agentTemplateKey = pin.templateVersion().key().value();
+            row.agentTemplateVersion = pin.templateVersion().version();
+            row.agentConfigurationRevision = pin.configurationRevision()
+                    .map(AgentConfigurationRevision::value)
+                    .orElse(null);
+            row.agentConfigurationHash = pin.configurationHash()
+                    .map(AgentConfigurationHash::value)
+                    .orElse(null);
+        });
         // Personal sessions populate both the legacy Personal columns and V10's common identity.
         row.sessionPurpose = "PERSONAL";
         row.agentPrincipalId = value.personalAgentPrincipalId().value();
@@ -300,11 +319,29 @@ public class ConversationPersistenceMapper {
                 new PrincipalId(row.personalAgentPrincipalId),
                 new AgentProfileId(row.agentProfileId),
                 row.agentProfileVersion,
+                configurationPin(row),
                 new AgentScopeSessionKey(row.agentScopeUserId, row.agentScopeSessionId),
                 new AgentRuntimeStateReference(row.stateReference),
                 AgentRuntimeSessionStatus.valueOf(row.status),
                 row.version,
                 audit(row.createdByPrincipalId, row.createdAt, row.updatedByPrincipalId, row.updatedAt));
+    }
+
+    private static Optional<AgentRuntimeConfigurationPin> configurationPin(
+            AgentRuntimeSessionEntity row) {
+        if (row.agentOwnershipType == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new AgentRuntimeConfigurationPin(
+                AgentOwnershipType.valueOf(row.agentOwnershipType),
+                AgentRuntimeRole.valueOf(row.agentRuntimeRole),
+                new AgentTemplateVersion(
+                        new AgentTemplateKey(row.agentTemplateKey), row.agentTemplateVersion),
+                Optional.ofNullable(row.agentConfigurationRevision)
+                        .map(AgentConfigurationRevision::new),
+                Optional.ofNullable(row.agentConfigurationHash)
+                        .map(String::strip)
+                        .map(AgentConfigurationHash::new)));
     }
 
     private static ConversationScope scope(UUID organizationId, UUID teamId, UUID workspaceId) {

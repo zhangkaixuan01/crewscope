@@ -4,6 +4,7 @@ import io.crewscope.application.action.ActionDispatchRepository;
 import io.crewscope.application.action.ActionReceiptInsertResult;
 import io.crewscope.application.action.ActionReceiptRepository;
 import io.crewscope.application.action.ActionReconciliationHealth;
+import io.crewscope.application.action.TeamActionReconciliationHealthRepository;
 import io.crewscope.domain.action.ActionBundleDigest;
 import io.crewscope.domain.action.ActionBundleId;
 import io.crewscope.domain.action.ActionCancellationReason;
@@ -58,7 +59,9 @@ import org.springframework.transaction.annotation.Transactional;
 /** Fenced PostgreSQL queue and append-only logical Receipt store for Action execution. */
 @Repository
 public class JdbcActionExecutionRepositoryAdapter
-        implements ActionDispatchRepository, ActionReceiptRepository {
+        implements ActionDispatchRepository,
+                ActionReceiptRepository,
+                TeamActionReconciliationHealthRepository {
 
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
@@ -356,6 +359,34 @@ public class JdbcActionExecutionRepositoryAdapter
                         Optional.ofNullable(row.getObject(
                                         "oldest_unresolved_at", OffsetDateTime.class))
                                 .map(UtcTimestamp::from)));
+    }
+
+    @Override
+    public ActionReconciliationHealth reconciliationHealth(
+            OrganizationId organizationId, TeamId teamId) {
+        return jdbc.queryForObject(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'RUNNING') AS running,
+                    COUNT(*) FILTER (WHERE status = 'UNKNOWN') AS unknown_count,
+                    COUNT(*) FILTER (WHERE status = 'RECONCILING') AS reconciling,
+                    COUNT(*) FILTER (WHERE status = 'MANUAL_REVIEW') AS manual_review,
+                    MIN(updated_at) FILTER (WHERE status IN (
+                        'RUNNING', 'UNKNOWN', 'RECONCILING', 'MANUAL_REVIEW'
+                    )) AS oldest_unresolved_at
+                FROM crewscope.action_dispatch
+                WHERE organization_id = ? AND team_id = ?
+                """,
+                (row, ignored) -> new ActionReconciliationHealth(
+                        row.getLong("running"),
+                        row.getLong("unknown_count"),
+                        row.getLong("reconciling"),
+                        row.getLong("manual_review"),
+                        Optional.ofNullable(row.getObject(
+                                        "oldest_unresolved_at", OffsetDateTime.class))
+                                .map(UtcTimestamp::from)),
+                Objects.requireNonNull(organizationId, "organizationId").value(),
+                Objects.requireNonNull(teamId, "teamId").value());
     }
 
     @Override

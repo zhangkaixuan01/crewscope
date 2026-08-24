@@ -3,6 +3,7 @@ package io.crewscope.application.execution;
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.conversation.ClarificationAnswers;
+import io.crewscope.application.conversation.ConversationConfigurationRefreshGuard;
 import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.MessageRepository;
 import io.crewscope.application.conversation.PostConversationMessageCommand;
@@ -32,9 +33,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Supplier;
 
 /** Coordinates committed USER Messages with trusted Personal Agent runtime segments. */
-public final class PersonalAgentInvocationService {
+public final class PersonalAgentInvocationService implements ConversationConfigurationRefreshGuard {
 
     private static final String INVOCATION_NAMESPACE =
             "crewscope:personal-agent-invocation:v1:";
@@ -51,6 +53,8 @@ public final class PersonalAgentInvocationService {
     private final TimeProvider timeProvider;
     private final int terminalRetention;
     private final ConcurrentMap<RuntimeInvocationId, InvocationState> invocations =
+            new ConcurrentHashMap<>();
+    private final ConcurrentMap<ConversationExecutionKey, Object> configurationBoundaries =
             new ConcurrentHashMap<>();
     private final Queue<RuntimeInvocationId> terminalOrder = new ArrayDeque<>();
 
@@ -121,46 +125,50 @@ public final class PersonalAgentInvocationService {
                 conversationId,
                 PostConversationMessageCommand.fromMarkdown(message));
         Message input = committedMessage(posted, organizationId, conversationId, messageKey);
-        RuntimeInvocationId invocationId = invocationId(input);
-        InvocationState candidate = new InvocationState(
-                organizationId,
-                Objects.requireNonNull(teamId, "teamId"),
-                Objects.requireNonNull(conversationId, "conversationId"),
-                trusted.access().actor().id(),
-                input.id());
-        InvocationState state = invocations.putIfAbsent(invocationId, candidate);
-        if (state == null) {
-            state = candidate;
-        }
-        synchronized (state) {
-            state.requireRequest(organizationId, teamId, conversationId, trusted);
-            if (state.initialSegment != null) {
-                return state.initialSegment.replayed();
-            }
-            ResolvedPersonalAgentExecution resolved = contextResolver.resolve(
-                    trusted.access(),
+        ConversationExecutionKey executionKey = new ConversationExecutionKey(
+                organizationId, teamId, conversationId);
+        synchronized (configurationBoundary(executionKey)) {
+            RuntimeInvocationId invocationId = invocationId(input);
+            InvocationState candidate = new InvocationState(
                     organizationId,
-                    teamId,
-                    conversationId,
-                    invocationId,
-                    trusted.correlationId());
-            UUID segmentId = segmentId(input.id().value());
-            ExecutionEventMappingContext mappingContext = new ExecutionEventMappingContext(
-                    resolved.platformContext(),
-                    segmentId,
-                    Optional.of(posted.receipt().domainEventId()));
-            state.status = InvocationStatus.ACTIVE;
-            ExecutionHandle handle = runtime.invokeConversation(new ConversationExecutionRequest(
-                    invocationId,
-                    resolved.runtimeSession(),
-                    input,
-                    Optional.empty(),
-                    trusted.correlationId(),
-                    resolved.platformContext()));
-            ReplayableExecutionSegment publisher = publisher(
-                    state, handle, mappingContext, organizationId);
-            state.initialSegment = new StoredSegment(invocationId, segmentId, publisher);
-            return state.initialSegment.first();
+                    Objects.requireNonNull(teamId, "teamId"),
+                    Objects.requireNonNull(conversationId, "conversationId"),
+                    trusted.access().actor().id(),
+                    input.id());
+            InvocationState state = invocations.putIfAbsent(invocationId, candidate);
+            if (state == null) {
+                state = candidate;
+            }
+            synchronized (state) {
+                state.requireRequest(organizationId, teamId, conversationId, trusted);
+                if (state.initialSegment != null) {
+                    return state.initialSegment.replayed();
+                }
+                ResolvedPersonalAgentExecution resolved = contextResolver.resolve(
+                        trusted.access(),
+                        organizationId,
+                        teamId,
+                        conversationId,
+                        invocationId,
+                        trusted.correlationId());
+                UUID segmentId = segmentId(input.id().value());
+                ExecutionEventMappingContext mappingContext = new ExecutionEventMappingContext(
+                        resolved.platformContext(),
+                        segmentId,
+                        Optional.of(posted.receipt().domainEventId()));
+                state.status = InvocationStatus.ACTIVE;
+                ExecutionHandle handle = runtime.invokeConversation(new ConversationExecutionRequest(
+                        invocationId,
+                        resolved.runtimeSession(),
+                        input,
+                        Optional.empty(),
+                        trusted.correlationId(),
+                        resolved.platformContext()));
+                ReplayableExecutionSegment publisher = publisher(
+                        state, handle, mappingContext, organizationId);
+                state.initialSegment = new StoredSegment(invocationId, segmentId, publisher);
+                return state.initialSegment.first();
+            }
         }
     }
 
@@ -175,7 +183,10 @@ public final class PersonalAgentInvocationService {
         ClarificationAnswers requiredAnswers = Objects.requireNonNull(answers, "answers");
         InvocationState state = requireInvocation(invocationId);
         OrganizationId organizationId = trusted.access().actor().scope().organizationId();
-        synchronized (state) {
+        ConversationExecutionKey executionKey = new ConversationExecutionKey(
+                organizationId, teamId, conversationId);
+        synchronized (configurationBoundary(executionKey)) {
+          synchronized (state) {
             state.requireRequest(organizationId, teamId, conversationId, trusted);
             String requestHash = digest(requiredAnswers.canonicalValue());
             ResumeAttempt replay = state.resumeSegments.get(trusted.idempotencyKey().value());
@@ -237,6 +248,7 @@ public final class PersonalAgentInvocationService {
             state.resumeSegments.put(
                     trusted.idempotencyKey().value(), new ResumeAttempt(requestHash, stored));
             return stored.first();
+          }
         }
     }
 
@@ -310,6 +322,51 @@ public final class PersonalAgentInvocationService {
                     trusted.idempotencyKey().value(), new CancelAttempt(requestHash, result));
             return new ConversationAgentCancelExecution(invocationId, result, false);
         }
+    }
+
+    /** Blocks configuration replacement while a call runs or waits on a retained Interrupt. */
+    @Override
+    public void requireSafe(
+            OrganizationId organizationId,
+            TeamId teamId,
+            ConversationId conversationId) {
+        ConversationExecutionKey executionKey = new ConversationExecutionKey(
+                organizationId, teamId, conversationId);
+        synchronized (configurationBoundary(executionKey)) {
+            requireSafeInsideBoundary(executionKey);
+        }
+    }
+
+    @Override
+    public <T> T atSafePoint(
+            OrganizationId organizationId,
+            TeamId teamId,
+            ConversationId conversationId,
+            Supplier<T> action) {
+        ConversationExecutionKey executionKey = new ConversationExecutionKey(
+                organizationId, teamId, conversationId);
+        synchronized (configurationBoundary(executionKey)) {
+            requireSafeInsideBoundary(executionKey);
+            return Objects.requireNonNull(action, "action").get();
+        }
+    }
+
+    private void requireSafeInsideBoundary(ConversationExecutionKey executionKey) {
+        for (InvocationState state : invocations.values()) {
+            synchronized (state) {
+                if (state.organizationId.equals(executionKey.organizationId())
+                        && state.teamId.equals(executionKey.teamId())
+                        && state.conversationId.equals(executionKey.conversationId())
+                        && state.status != InvocationStatus.TERMINAL) {
+                    throw new PolicyDeniedException(
+                            "refresh configuration while a Personal Agent Invocation is active or interrupted");
+                }
+            }
+        }
+    }
+
+    private Object configurationBoundary(ConversationExecutionKey executionKey) {
+        return configurationBoundaries.computeIfAbsent(executionKey, ignored -> new Object());
     }
 
     private ReplayableExecutionSegment publisher(
@@ -478,4 +535,15 @@ public final class PersonalAgentInvocationService {
             String requestHash, CompletionStage<ExecutionCancelResult> result) {}
 
     private record ResumeAttempt(String requestHash, StoredSegment segment) {}
+
+    private record ConversationExecutionKey(
+            OrganizationId organizationId,
+            TeamId teamId,
+            ConversationId conversationId) {
+        private ConversationExecutionKey {
+            organizationId = Objects.requireNonNull(organizationId, "organizationId");
+            teamId = Objects.requireNonNull(teamId, "teamId");
+            conversationId = Objects.requireNonNull(conversationId, "conversationId");
+        }
+    }
 }

@@ -93,6 +93,12 @@ public class JpaAgentRuntimeSessionRepositoryAdapter implements AgentRuntimeSess
                         """
                         UPDATE AgentRuntimeSessionEntity value
                         SET value.agentProfileVersion = :agentProfileVersion,
+                            value.agentOwnershipType = :agentOwnershipType,
+                            value.agentRuntimeRole = :agentRuntimeRole,
+                            value.agentTemplateKey = :agentTemplateKey,
+                            value.agentTemplateVersion = :agentTemplateVersion,
+                            value.agentConfigurationRevision = :agentConfigurationRevision,
+                            value.agentConfigurationHash = :agentConfigurationHash,
                             value.status = :status,
                             value.updatedAt = :updatedAt,
                             value.updatedByPrincipalId = :updatedBy,
@@ -104,6 +110,12 @@ public class JpaAgentRuntimeSessionRepositoryAdapter implements AgentRuntimeSess
                           AND value.version = :expectedVersion
                         """)
                 .setParameter("agentProfileVersion", row.agentProfileVersion)
+                .setParameter("agentOwnershipType", row.agentOwnershipType)
+                .setParameter("agentRuntimeRole", row.agentRuntimeRole)
+                .setParameter("agentTemplateKey", row.agentTemplateKey)
+                .setParameter("agentTemplateVersion", row.agentTemplateVersion)
+                .setParameter("agentConfigurationRevision", row.agentConfigurationRevision)
+                .setParameter("agentConfigurationHash", row.agentConfigurationHash)
                 .setParameter("status", row.status)
                 .setParameter("updatedAt", row.updatedAt)
                 .setParameter("updatedBy", row.updatedByPrincipalId)

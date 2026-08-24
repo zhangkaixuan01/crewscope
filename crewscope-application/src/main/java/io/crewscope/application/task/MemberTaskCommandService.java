@@ -1,5 +1,7 @@
 package io.crewscope.application.task;
 
+import io.crewscope.application.agent.CreateResolvedPolicySnapshotRequest;
+import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
@@ -18,6 +20,7 @@ import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.team.AgentProfileRepository;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -100,6 +103,8 @@ public final class MemberTaskCommandService {
     private final CommandReceiptStore receiptStore;
     private final TransactionExecutor transactionExecutor;
     private final AuthoritativeTimeProvider timeProvider;
+    private final Optional<TaskAgentSelectionService> agentSelectionService;
+    private final Optional<ResolvedAgentPolicySnapshotService> resolvedPolicyService;
 
     public MemberTaskCommandService(
             WorkItemAccessPolicy accessPolicy,
@@ -120,6 +125,51 @@ public final class MemberTaskCommandService {
             CommandReceiptStore receiptStore,
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider timeProvider) {
+        this(
+                accessPolicy,
+                assignmentRepository,
+                principalRepository,
+                profileRepository,
+                bindingResolver,
+                taskRepository,
+                executionRepository,
+                policyRepository,
+                overlayRepository,
+                runRepository,
+                interruptRepository,
+                resumeService,
+                eventStore,
+                taskEventRepository,
+                outboxRepository,
+                receiptStore,
+                transactionExecutor,
+                timeProvider,
+                null,
+                null);
+    }
+
+    /** Production constructor enabling retry-time Agent configuration authorization. */
+    public MemberTaskCommandService(
+            WorkItemAccessPolicy accessPolicy,
+            ResponsibilityAssignmentRepository assignmentRepository,
+            PrincipalRepository principalRepository,
+            AgentProfileRepository profileRepository,
+            ProviderBindingResolver bindingResolver,
+            TaskRepository taskRepository,
+            TaskExecutionRepository executionRepository,
+            PolicySnapshotRepository policyRepository,
+            SafetyEnforcementOverlayRepository overlayRepository,
+            AgentRunRepository runRepository,
+            AgentInterruptRepository interruptRepository,
+            DurableAgentRunResumeService resumeService,
+            DomainEventStore eventStore,
+            TaskEventRepository taskEventRepository,
+            OutboxRepository outboxRepository,
+            CommandReceiptStore receiptStore,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            TaskAgentSelectionService agentSelectionService,
+            ResolvedAgentPolicySnapshotService resolvedPolicyService) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.assignmentRepository = Objects.requireNonNull(
                 assignmentRepository, "assignmentRepository");
@@ -140,6 +190,8 @@ public final class MemberTaskCommandService {
         this.receiptStore = Objects.requireNonNull(receiptStore, "receiptStore");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+        this.agentSelectionService = Optional.ofNullable(agentSelectionService);
+        this.resolvedPolicyService = Optional.ofNullable(resolvedPolicyService);
     }
 
     public CommandExecution<MemberTaskCommandResult> pause(
@@ -190,8 +242,11 @@ public final class MemberTaskCommandService {
                 executionId,
                 MemberTaskCommandOperation.RETRY,
                 command.expectedExecutionVersion(),
-                "",
-                (state, commandId, occurredAt) -> retry(state, context.access().actor(), occurredAt)));
+                command.configurationRevision()
+                        .map(value -> "CONFIGURATION_REVISION=" + value.value())
+                        .orElse("PINNED_CONFIGURATION"),
+                (state, commandId, occurredAt) -> retry(
+                        state, context.access(), command, occurredAt)));
     }
 
     private CommandExecution<MemberTaskCommandResult> control(
@@ -264,7 +319,10 @@ public final class MemberTaskCommandService {
         DomainEventEnvelope<MemberTaskCommandAccepted> event = new DomainEventEnvelope<>(
                 eventId,
                 EventType.from(commandType + "_ACCEPTED"),
-                SchemaVersion.V1,
+                result.successorPolicySnapshot()
+                        .filter(value -> value.schemaVersion() == 2)
+                        .map(value -> SchemaVersion.V2)
+                        .orElse(SchemaVersion.V1),
                 organizationId,
                 Optional.of(result.task().scope().teamId()),
                 Optional.of(result.task().scope().workspaceId()),
@@ -425,7 +483,11 @@ public final class MemberTaskCommandService {
     }
 
     private MemberTaskCommandResult retry(
-            State state, Principal actor, UtcTimestamp occurredAt) {
+            State state,
+            TeamAccessContext access,
+            RetryTaskCommand command,
+            UtcTimestamp occurredAt) {
+        Principal actor = access.actor();
         TaskExecution parent = state.execution();
         if (!parent.canRetry()) {
             throw new InvalidStateTransitionException(
@@ -436,7 +498,10 @@ public final class MemberTaskCommandService {
                         state.task().scope().organizationId(), context.policySnapshotId()))
                 .orElseThrow(() -> new DomainValidationException(
                         "taskRetry.policySnapshot", "must resolve the failed attempt current policy"));
-        Principal executor = requireRetryAuthorization(state, parentPolicy);
+        Optional<TaskAgentExecutionSelection> selection = retrySelection(
+                state, access, command, parentPolicy, occurredAt);
+        Principal executor = selection.map(TaskAgentExecutionSelection::executor)
+                .orElseGet(() -> requireRetryAuthorization(state, parentPolicy));
         Task failedTask = state.task().status() == TaskStatus.FAILED
                 ? state.task()
                 : taskRepository.update(state.task().synchronizeStatus(
@@ -449,20 +514,35 @@ public final class MemberTaskCommandService {
                 occurredAt,
                 actor,
                 occurredAt));
-        PolicySnapshot policy = policyRepository.create(PolicySnapshot.initial(
-                PolicySnapshotId.generate(),
-                failedTask,
-                created,
-                executor,
-                parentPolicy.policyPack(),
-                parentPolicy.agentProfileId(),
-                parentPolicy.agentProfileVersion(),
-                parentPolicy.capabilities(),
-                parentPolicy.allowedTools(),
-                parentPolicy.providerBindingIds(),
-                parentPolicy.budget(),
-                actor,
-                occurredAt));
+        PolicySnapshot policy = selection
+                .map(value -> requireResolvedPolicyService().createInitial(
+                        new CreateResolvedPolicySnapshotRequest(
+                                PolicySnapshotId.generate(),
+                                failedTask,
+                                created,
+                                executor,
+                                value.resolutionRequest(),
+                                parentPolicy.capabilities(),
+                                parentPolicy.allowedTools(),
+                                parentPolicy.providerBindingIds(),
+                                parentPolicy.budget(),
+                                actor,
+                                occurredAt),
+                        value.resolvedConfiguration()))
+                .orElseGet(() -> policyRepository.create(PolicySnapshot.initial(
+                        PolicySnapshotId.generate(),
+                        failedTask,
+                        created,
+                        executor,
+                        parentPolicy.policyPack(),
+                        parentPolicy.agentProfileId(),
+                        parentPolicy.agentProfileVersion(),
+                        parentPolicy.capabilities(),
+                        parentPolicy.allowedTools(),
+                        parentPolicy.providerBindingIds(),
+                        parentPolicy.budget(),
+                        actor,
+                        occurredAt)));
         SafetyEnforcementOverlay overlay = overlayRepository.create(
                 SafetyEnforcementOverlay.unrestricted(
                         SafetyEnforcementOverlayId.generate(),
@@ -477,7 +557,38 @@ public final class MemberTaskCommandService {
         Task active = taskRepository.update(failedTask.switchCurrentExecution(
                 Optional.of(parent.id()), ready.id(), failedTask.version(), actor, occurredAt));
         return new MemberTaskCommandResult(
-                MemberTaskCommandOperation.RETRY, active, parent, Optional.of(ready));
+                MemberTaskCommandOperation.RETRY,
+                active,
+                parent,
+                Optional.of(ready),
+                Optional.of(policy));
+    }
+
+    private Optional<TaskAgentExecutionSelection> retrySelection(
+            State state,
+            TeamAccessContext access,
+            RetryTaskCommand command,
+            PolicySnapshot parentPolicy,
+            UtcTimestamp occurredAt) {
+        if (agentSelectionService.isEmpty()) {
+            return Optional.empty();
+        }
+        if (command.configurationRevision().isPresent()) {
+            return Optional.of(requireAgentSelectionService().resolve(
+                    access,
+                    state.workItem(),
+                    state.assignments(),
+                    new TaskAgentSelectionRequest(
+                            parentPolicy.agentProfileId(), command.configurationRevision()),
+                    occurredAt));
+        }
+        return parentPolicy.agentExecutionConfiguration().map(configuration ->
+                requireAgentSelectionService().authorizePinned(
+                        access,
+                        state.workItem(),
+                        state.assignments(),
+                        configuration,
+                        occurredAt));
     }
 
     private Principal requireRetryAuthorization(State state, PolicySnapshot policy) {
@@ -554,6 +665,8 @@ public final class MemberTaskCommandService {
 
     private static MemberTaskCommandAccepted payload(MemberTaskCommandResult result) {
         Optional<TaskExecution> successor = result.successorExecution();
+        Optional<PolicySnapshot> successorPolicy = result.successorPolicySnapshot();
+        var resolved = successorPolicy.flatMap(PolicySnapshot::agentExecutionConfiguration);
         TaskExecution visibleExecution = successor.orElse(result.targetExecution());
         return new MemberTaskCommandAccepted(
                 result.task().id().value(),
@@ -563,7 +676,12 @@ public final class MemberTaskCommandService {
                 result.task().status().name(),
                 visibleExecution.status().name(),
                 successor.map(value -> value.id().value()),
-                successor.map(TaskExecution::attempt));
+                successor.map(TaskExecution::attempt),
+                successorPolicy.map(value -> value.id().value()),
+                successorPolicy.map(value -> value.snapshotHash().value()),
+                resolved.map(value -> value.executionScope().name()),
+                resolved.map(value -> value.configurationRevision().value()),
+                resolved.map(value -> value.configurationHash().toString()));
     }
 
     @FunctionalInterface
@@ -576,4 +694,14 @@ public final class MemberTaskCommandService {
             TaskExecution execution,
             WorkItem workItem,
             List<ResponsibilityAssignment> assignments) {}
+
+    private TaskAgentSelectionService requireAgentSelectionService() {
+        return agentSelectionService.orElseThrow(() -> new IllegalStateException(
+                "Task Agent selection is unavailable in the legacy application composition"));
+    }
+
+    private ResolvedAgentPolicySnapshotService requireResolvedPolicyService() {
+        return resolvedPolicyService.orElseThrow(() -> new IllegalStateException(
+                "Resolved PolicySnapshot service is unavailable in the legacy application composition"));
+    }
 }

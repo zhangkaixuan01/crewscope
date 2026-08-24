@@ -2,6 +2,8 @@ package io.crewscope.application.model;
 
 import io.crewscope.domain.model.ModelCatalogCoordinate;
 import io.crewscope.domain.model.ModelCatalogEntry;
+import io.crewscope.domain.model.ModelCatalogEntryId;
+import io.crewscope.domain.model.ModelCatalogRevision;
 import io.crewscope.domain.model.ModelId;
 import io.crewscope.domain.model.ModelProviderKey;
 import java.util.List;
@@ -17,6 +19,12 @@ public interface ModelCatalogEntryRepository {
     ModelCatalogEntry updateLifecycle(ModelCatalogEntry entry);
 
     Optional<ModelCatalogEntry> findByCoordinate(ModelCatalogCoordinate coordinate);
+
+    /** Resolves client-safe stable entry/revision IDs without accepting provider or model text. */
+    default Optional<ModelCatalogEntry> findByEntryRevision(
+            ModelCatalogEntryId entryId, ModelCatalogRevision revision) {
+        throw new UnsupportedOperationException("Catalog entry/revision lookup is not implemented");
+    }
 
     Optional<ModelCatalogEntry> findLatest(
             ModelProviderKey providerKey, ModelId modelId);

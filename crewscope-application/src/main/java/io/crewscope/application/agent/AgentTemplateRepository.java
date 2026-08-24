@@ -28,4 +28,10 @@ public interface AgentTemplateRepository {
     /** Returns a stable template-key/version window inside one publisher boundary. */
     List<AgentTemplateDefinition> findPage(
             AgentTemplatePublisherScope publisherScope, int offset, int limit);
+
+    /** Returns only the latest active version of each template key in one publisher boundary. */
+    default List<AgentTemplateDefinition> findLatestActivePage(
+            AgentTemplatePublisherScope publisherScope, int offset, int limit) {
+        return findPage(publisherScope, offset, limit);
+    }
 }

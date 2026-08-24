@@ -1,6 +1,7 @@
 package io.crewscope.application.execution;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,6 +36,7 @@ import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.error.IdempotencyConflictException;
+import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.event.RealtimeEventEnvelope;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -104,7 +106,19 @@ class PersonalAgentInvocationServiceTest {
         assertFalse(invoked.replayed());
         assertTrue(replayedInvoke.replayed());
         assertEquals(invoked.invocationId(), replayedInvoke.invocationId());
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.requireSafe(
+                        fixture.owner.scope().organizationId(),
+                        fixture.initialization.team().id(),
+                        fixture.conversation.conversation().id()));
         assertEquals(List.of("RUN_STARTED", "RUN_INTERRUPTED"), collect(invoked));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.requireSafe(
+                        fixture.owner.scope().organizationId(),
+                        fixture.initialization.team().id(),
+                        fixture.conversation.conversation().id()));
 
         ConversationAgentSegment resumed = service.resume(
                 fixture.context("resume-1"),
@@ -121,6 +135,13 @@ class PersonalAgentInvocationServiceTest {
         assertEquals(
                 List.of("RUN_STARTED", "TEXT_MESSAGE_CONTENT", "RUN_FINISHED"),
                 collect(resumed));
+        assertEquals(
+                "refreshed",
+                assertDoesNotThrow(() -> service.atSafePoint(
+                        fixture.owner.scope().organizationId(),
+                        fixture.initialization.team().id(),
+                        fixture.conversation.conversation().id(),
+                        () -> "refreshed")));
         assertTrue(replayedResume.replayed());
         assertEquals("pending-clarification", runtime.resumedToken);
         assertThrows(

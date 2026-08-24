@@ -15,6 +15,9 @@ public interface ConfirmationRepository {
 
     Optional<Confirmation> findById(OrganizationId organizationId, ConfirmationId id);
 
+    Optional<Confirmation> findByBundle(
+            OrganizationId organizationId, ActionBundleId bundleId);
+
     Optional<Confirmation> findActiveByBundle(
             OrganizationId organizationId, ActionBundleId bundleId);
 }

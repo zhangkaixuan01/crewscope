@@ -20,7 +20,6 @@ import io.crewscope.domain.shared.event.EventActor;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.time.UtcTimestamp;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,7 +102,7 @@ public final class DurableActionWorkerEventPublisher implements ActionWorkerEven
             UUID correlationId,
             DomainEvent payload) {
         ActionBundle requiredBundle = Objects.requireNonNull(bundle, "bundle");
-        UUID eventId = stableId(type, aggregateId, aggregateVersion);
+        UUID eventId = ActionEventIds.stable(type, aggregateId, aggregateVersion);
         DomainEventEnvelope<DomainEvent> envelope = new DomainEventEnvelope<>(
                 eventId,
                 EventType.from(type),
@@ -128,8 +127,4 @@ public final class DurableActionWorkerEventPublisher implements ActionWorkerEven
         outbox.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), envelope));
     }
 
-    private static UUID stableId(String type, UUID aggregateId, long aggregateVersion) {
-        String source = "crewscope:action:" + type + ':' + aggregateId + ':' + aggregateVersion;
-        return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8));
-    }
 }

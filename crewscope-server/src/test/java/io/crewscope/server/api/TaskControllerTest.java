@@ -82,6 +82,7 @@ class TaskControllerTest {
                           "objective":"Create durable Task API",
                           "acceptanceCriteria":["Create READY execution","Publish audit event"],
                           "executorAgentProfileId":"%s",
+                          "agentConfigurationRevision":3,
                           "providerBindingIds":[]
                         }
                         """.formatted(profileId))
@@ -96,6 +97,9 @@ class TaskControllerTest {
         verify(service).create(any(), any(), any(), any(), command.capture());
         assertEquals(7, command.getValue().expectedWorkItemVersion());
         assertEquals(profileId, command.getValue().executorAgentProfileId());
+        assertEquals(
+                3,
+                command.getValue().agentConfigurationRevision().orElseThrow().value());
         assertEquals("Create durable Task API", command.getValue().brief().objective());
         assertTrue(command.getValue().codingTarget().isEmpty());
     }

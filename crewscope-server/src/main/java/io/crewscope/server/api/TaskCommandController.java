@@ -5,11 +5,13 @@ import io.crewscope.application.task.MemberTaskCommandService;
 import io.crewscope.application.task.MemberTaskControlCommand;
 import io.crewscope.application.task.RetryTaskCommand;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.domain.agent.AgentConfigurationRevision;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.Map;
@@ -117,10 +119,9 @@ public final class TaskCommandController {
             @PathVariable String executionId,
             @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
             @RequestHeader(name = ApiHeaders.IF_MATCH, required = false) String ifMatch,
-            @RequestBody(required = false) String body,
+            @Valid @RequestBody(required = false) RetryRequest request,
             Authentication authentication,
             ServerWebExchange exchange) {
-        requireEmptyBody(body);
         Route route = route(organizationId, teamId, taskId, executionId);
         long expectedVersion = ApiHeaders.requireIfMatch(ifMatch);
         return command(authentication, route, key, exchange, context -> service.retry(
@@ -128,7 +129,11 @@ public final class TaskCommandController {
                 route.teamId(),
                 route.taskId(),
                 route.executionId(),
-                new RetryTaskCommand(expectedVersion)));
+                new RetryTaskCommand(
+                        expectedVersion,
+                        Optional.ofNullable(request)
+                                .map(RetryRequest::agentConfigurationRevision)
+                                .map(AgentConfigurationRevision::new))));
     }
 
     private Mono<ResponseEntity<CommandReceiptResponse>> command(
@@ -179,6 +184,9 @@ public final class TaskCommandController {
 
     public record ControlRequest(
             @NotBlank @Size(max = MemberTaskControlCommand.MAX_REASON_LENGTH) String reason) {}
+
+    /** Optional explicit configuration switch; an absent body keeps the pinned parent graph. */
+    public record RetryRequest(@Min(1) long agentConfigurationRevision) {}
 
     private record Route(
             OrganizationId organizationId,

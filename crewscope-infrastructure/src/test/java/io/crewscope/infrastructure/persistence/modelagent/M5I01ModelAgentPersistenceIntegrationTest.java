@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentInstance;
+import io.crewscope.application.agent.AgentInstanceRepository;
 import io.crewscope.application.agent.AgentModelDefaultRepository;
 import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
@@ -34,6 +36,10 @@ import io.crewscope.domain.agent.AgentTemplatePolicy;
 import io.crewscope.domain.agent.AgentTemplatePublisherScope;
 import io.crewscope.domain.agent.AgentToolKey;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
+import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.identity.PrincipalScope;
+import io.crewscope.domain.identity.PrincipalType;
+import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.model.ModelAdapterKey;
 import io.crewscope.domain.model.ModelBillingSubject;
 import io.crewscope.domain.model.ModelCapability;
@@ -60,6 +66,7 @@ import io.crewscope.domain.policy.PolicyPackId;
 import io.crewscope.domain.policy.PolicyPackReference;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.error.DomainValidationException;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.CredentialId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -72,6 +79,7 @@ import io.crewscope.domain.workspace.AgentProfileStatus;
 import io.crewscope.domain.workspace.AgentProfileType;
 import io.crewscope.domain.workspace.WorkspaceScope;
 import io.crewscope.infrastructure.persistence.team.JpaAgentProfileRepositoryAdapter;
+import io.crewscope.infrastructure.persistence.team.JpaAgentInstanceRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.team.TeamPersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
 import jakarta.persistence.EntityManagerFactory;
@@ -98,6 +106,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** PostgreSQL contract for the complete M5 model, template and Agent configuration graph. */
 @SpringBootTest(
@@ -127,8 +136,10 @@ class M5I01ModelAgentPersistenceIntegrationTest
     @Autowired private AgentProfileRepository profiles;
     @Autowired private AgentConfigurationRepository configurations;
     @Autowired private AgentModelDefaultRepository defaults;
+    @Autowired private AgentInstanceRepository agentInstances;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private EntityManagerFactory entityManagerFactory;
+    @Autowired private TransactionTemplate transactions;
 
     @BeforeEach
     void resetBusinessData() {
@@ -175,6 +186,134 @@ class M5I01ModelAgentPersistenceIntegrationTest
         assertThrows(DomainValidationException.class, () -> defaults.findCurrent(
                 AgentModelDefaultScope.organization(OrganizationId.generate()),
                 graph.template().templateVersion(), AgentExecutionScope.TEAM));
+    }
+
+    @Test
+    void atomicallyCreatesAndTransitionsAnAgentPrincipalProfilePair() {
+        Fixture fixture = seedFixture("a02-instance");
+        AgentTemplateDefinition template = templates.append(template(fixture));
+        Principal principal = Principal.create(
+                PrincipalId.generate(),
+                PrincipalScope.team(fixture.organizationId(), fixture.teamId()),
+                PrincipalType.SPECIALIST_AGENT,
+                Optional.of(fixture.actorId()),
+                "A02 Team Coding",
+                Optional.empty(),
+                PrincipalVisibility.TEAM,
+                CREATED);
+        AgentProfile profile = AgentProfile.reconstituteTemplateInstance(
+                AgentProfileId.generate(),
+                WorkspaceScope.team(fixture.organizationId(), fixture.teamId()),
+                fixture.workspaceId(),
+                principal.id(),
+                AgentOwnership.team(fixture.organizationId(), fixture.teamId()),
+                AgentRuntimeRole.SPECIALIST,
+                template.templateVersion(),
+                AgentProfileType.SPECIALIST,
+                false,
+                AgentProfileStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(fixture.actorId(), CREATED));
+
+        transactions.executeWithoutResult(ignored ->
+                agentInstances.create(new AgentInstance(principal, profile)));
+
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM crewscope.principal WHERE id = ?",
+                Integer.class,
+                principal.id().value()));
+        AgentProfile loaded = profiles.findById(
+                fixture.organizationId(), profile.id()).orElseThrow();
+        assertEquals(profile.id(), loaded.id());
+        assertEquals(profile.ownership(), loaded.ownership());
+        assertEquals(profile.templateVersion(), loaded.templateVersion());
+
+        Principal disabledPrincipal = principal.transitionTo(
+                io.crewscope.domain.identity.PrincipalStatus.DISABLED, LATER);
+        AgentProfile disabledProfile = profile.disable(fixture.actorId(), LATER);
+        transactions.executeWithoutResult(ignored -> agentInstances.updateLifecycle(
+                new AgentInstance(disabledPrincipal, disabledProfile)));
+
+        assertEquals("DISABLED", jdbc.queryForObject(
+                "SELECT status FROM crewscope.principal WHERE id = ?",
+                String.class,
+                principal.id().value()));
+        assertEquals(AgentProfileStatus.DISABLED, profiles.findById(
+                fixture.organizationId(), profile.id()).orElseThrow().status());
+    }
+
+    @Test
+    void rollsBackPrincipalLifecycleWhenTheProfileVersionConflicts() {
+        Fixture fixture = seedFixture("a02-instance-rollback");
+        AgentTemplateDefinition template = templates.append(template(fixture));
+        Principal principal = Principal.create(
+                PrincipalId.generate(),
+                PrincipalScope.team(fixture.organizationId(), fixture.teamId()),
+                PrincipalType.SPECIALIST_AGENT,
+                Optional.of(fixture.actorId()),
+                "A02 Atomic Coding",
+                Optional.empty(),
+                PrincipalVisibility.TEAM,
+                CREATED);
+        AgentProfile profile = AgentProfile.reconstituteTemplateInstance(
+                AgentProfileId.generate(),
+                WorkspaceScope.team(fixture.organizationId(), fixture.teamId()),
+                fixture.workspaceId(),
+                principal.id(),
+                AgentOwnership.team(fixture.organizationId(), fixture.teamId()),
+                AgentRuntimeRole.SPECIALIST,
+                template.templateVersion(),
+                AgentProfileType.SPECIALIST,
+                false,
+                AgentProfileStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(fixture.actorId(), CREATED));
+        transactions.executeWithoutResult(ignored ->
+                agentInstances.create(new AgentInstance(principal, profile)));
+        jdbc.update(
+                "UPDATE crewscope.agent_profile SET version = 1 WHERE organization_id = ? AND id = ?",
+                fixture.organizationId().value(),
+                profile.id().value());
+
+        AgentInstance disabled = new AgentInstance(
+                principal.transitionTo(
+                        io.crewscope.domain.identity.PrincipalStatus.DISABLED, LATER),
+                profile.disable(fixture.actorId(), LATER));
+        assertThrows(
+                OptimisticLockConflictException.class,
+                () -> transactions.executeWithoutResult(
+                        ignored -> agentInstances.updateLifecycle(disabled)));
+
+        assertEquals("ACTIVE", jdbc.queryForObject(
+                "SELECT status FROM crewscope.principal WHERE id = ?",
+                String.class,
+                principal.id().value()));
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT version FROM crewscope.principal WHERE id = ?",
+                Long.class,
+                principal.id().value()));
+    }
+
+    @Test
+    void latestActiveTemplatePageDoesNotFallBackToAnOlderVersion() {
+        Fixture fixture = seedFixture("a02-catalog");
+        AgentTemplateDefinition first = templates.append(template(fixture));
+        AgentTemplateDefinition second = templates.append(first.publishNext(
+                first.allowedOwnershipTypes(),
+                first.allowedExecutionScopes(),
+                first.capabilities(),
+                first.policy(),
+                fixture.actorId(),
+                VERIFIED));
+
+        List<AgentTemplateDefinition> latest = templates.findLatestActivePage(
+                first.publisherScope(), 0, 20);
+        assertEquals(1, latest.size());
+        assertEquals(second.templateVersion(), latest.get(0).templateVersion());
+        assertEquals(second.contentHash(), latest.get(0).contentHash());
+
+        templates.updateLifecycle(second.disable(fixture.actorId(), LATER));
+        assertTrue(templates.findLatestActivePage(first.publisherScope(), 0, 20).isEmpty());
     }
 
     @Test
@@ -573,7 +712,8 @@ class M5I01ModelAgentPersistenceIntegrationTest
         JdbcAgentConfigurationRepositoryAdapter.class,
         JdbcAgentModelDefaultRepositoryAdapter.class,
         TeamPersistenceMapper.class,
-        JpaAgentProfileRepositoryAdapter.class
+        JpaAgentProfileRepositoryAdapter.class,
+        JpaAgentInstanceRepositoryAdapter.class
     })
     static class TestApplication {
 

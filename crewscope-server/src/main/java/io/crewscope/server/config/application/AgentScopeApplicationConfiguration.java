@@ -38,6 +38,7 @@ import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.team.WorkspaceRepository;
+import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.conversation.ConversationVisibilityPolicy;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -117,6 +118,7 @@ public class AgentScopeApplicationConfiguration {
       TeamMemberRepository teamMemberRepository,
       PrincipalRepository principalRepository,
       AgentProfileRepository agentProfileRepository,
+      AgentConfigurationRepository agentConfigurationRepository,
       AgentRuntimeSessionService runtimeSessionService,
       PlatformExecutionContextResolver platformContextResolver) {
     return new RepositoryPersonalAgentExecutionContextResolver(
@@ -125,6 +127,7 @@ public class AgentScopeApplicationConfiguration {
         teamMemberRepository,
         principalRepository,
         agentProfileRepository,
+        agentConfigurationRepository,
         runtimeSessionService,
         platformContextResolver);
   }

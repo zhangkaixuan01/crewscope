@@ -1,5 +1,8 @@
 package io.crewscope.server.config.application;
 
+import io.crewscope.application.agent.AgentExecutionConfigurationService;
+import io.crewscope.application.agent.AgentModelGovernance;
+import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.coding.BuildProfileCatalog;
 import io.crewscope.application.coding.CodingTargetSnapshotRepository;
 import io.crewscope.application.coding.CodingTargetSelectionService;
@@ -21,11 +24,14 @@ import io.crewscope.application.conversation.ConversationEventRepository;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.model.ModelConnectionAvailabilityVerifier;
+import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.runtime.RuntimeObservationRepository;
 import io.crewscope.application.runtime.RuntimeObservationService;
 import io.crewscope.application.runtime.CodingRuntimeOperationsPort;
+import io.crewscope.application.action.TeamActionReconciliationHealthRepository;
 import io.crewscope.application.task.AgentTaskCreationService;
 import io.crewscope.application.task.MemberTaskCommandService;
 import io.crewscope.application.task.ConversationTaskLinkRepository;
@@ -38,6 +44,7 @@ import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
 import io.crewscope.application.task.StepExecutionRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
+import io.crewscope.application.task.TaskAgentSelectionService;
 import io.crewscope.application.task.TaskAssociationRepository;
 import io.crewscope.application.task.TaskAssociationService;
 import io.crewscope.application.task.TaskCreationPolicySpec;
@@ -49,6 +56,8 @@ import io.crewscope.application.task.TaskPlanPublicationService;
 import io.crewscope.application.task.TaskQueryService;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.team.AgentProfileRepository;
+import io.crewscope.application.team.TeamMembershipQuery;
+import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
@@ -80,6 +89,27 @@ import org.springframework.beans.factory.ObjectProvider;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({TaskEventStreamProperties.class, RuntimeObservationProperties.class})
 public class TaskApplicationConfiguration {
+
+    @Bean
+    TaskAgentSelectionService taskAgentSelectionService(
+            AgentProfileRepository profiles,
+            PrincipalRepository principals,
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            ModelConnectionRepository connections,
+            ModelConnectionAvailabilityVerifier availability,
+            AgentModelGovernance governance,
+            AgentExecutionConfigurationService configurations) {
+        return new TaskAgentSelectionService(
+                profiles,
+                principals,
+                teams,
+                memberships,
+                connections,
+                availability,
+                governance,
+                configurations);
+    }
 
     @Bean
     TaskCreationPolicySpec taskCreationPolicySpec() {
@@ -173,7 +203,9 @@ public class TaskApplicationConfiguration {
             CommandReceiptStore commandReceiptStore,
             TransactionExecutor transactionExecutor,
             TimeProvider timeProvider,
-            TaskCreationPolicySpec taskCreationPolicySpec) {
+            TaskCreationPolicySpec taskCreationPolicySpec,
+            TaskAgentSelectionService taskAgentSelectionService,
+            ResolvedAgentPolicySnapshotService resolvedAgentPolicySnapshotService) {
         RepositoryBindingPreflightPort repositoryPreflight =
                 repositoryPreflightPorts.getIfAvailable(() -> (binding, baselineRef) -> {
                     throw new RepositoryBindingPreflightException(
@@ -204,7 +236,9 @@ public class TaskApplicationConfiguration {
                 commandReceiptStore,
                 transactionExecutor,
                 timeProvider,
-                taskCreationPolicySpec);
+                taskCreationPolicySpec,
+                taskAgentSelectionService,
+                resolvedAgentPolicySnapshotService);
     }
 
     @Bean
@@ -315,14 +349,20 @@ public class TaskApplicationConfiguration {
             TransactionExecutor transactionExecutor,
             AuthoritativeTimeProvider authoritativeTimeProvider,
             RuntimeObservationProperties properties,
-            ObjectProvider<CodingRuntimeOperationsPort> codingRuntimeOperations) {
+            ObjectProvider<CodingRuntimeOperationsPort> codingRuntimeOperations,
+            ObjectProvider<TeamActionReconciliationHealthRepository> actionDeliveryHealth,
+            ObjectProvider<ActionReconciliationProperties> actionReconciliationProperties) {
+        ActionReconciliationProperties actionProperties =
+                actionReconciliationProperties.getIfAvailable(ActionReconciliationProperties::new);
         return new RuntimeObservationService(
                 workItemAccessPolicy,
                 runtimeObservationRepository,
                 transactionExecutor,
                 authoritativeTimeProvider,
                 properties.validatedHeartbeatTimeout(),
-                codingRuntimeOperations.getIfAvailable());
+                codingRuntimeOperations.getIfAvailable(),
+                actionDeliveryHealth.getIfAvailable(),
+                actionProperties.validatedMaximumUnknownAge());
     }
 
     @Bean
@@ -365,7 +405,9 @@ public class TaskApplicationConfiguration {
             OutboxRepository outboxRepository,
             CommandReceiptStore commandReceiptStore,
             TransactionExecutor transactionExecutor,
-            AuthoritativeTimeProvider authoritativeTimeProvider) {
+            AuthoritativeTimeProvider authoritativeTimeProvider,
+            TaskAgentSelectionService taskAgentSelectionService,
+            ResolvedAgentPolicySnapshotService resolvedAgentPolicySnapshotService) {
         return new MemberTaskCommandService(
                 workItemAccessPolicy,
                 responsibilityAssignmentRepository,
@@ -384,6 +426,8 @@ public class TaskApplicationConfiguration {
                 outboxRepository,
                 commandReceiptStore,
                 transactionExecutor,
-                authoritativeTimeProvider);
+                authoritativeTimeProvider,
+                taskAgentSelectionService,
+                resolvedAgentPolicySnapshotService);
     }
 }

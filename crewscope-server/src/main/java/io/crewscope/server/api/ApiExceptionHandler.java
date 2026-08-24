@@ -6,6 +6,8 @@ import io.crewscope.application.coding.CodingArtifactRangeNotSatisfiableExceptio
 import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
+import io.crewscope.application.model.ModelConnectionCredentialException;
+import io.crewscope.application.github.GitHubProviderException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
@@ -81,6 +83,48 @@ public class ApiExceptionHandler {
                     false,
                     null,
                     Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof ModelConnectionCredentialException credentialFailure) {
+            HttpStatus status = switch (credentialFailure.error()) {
+                case CONNECTION_NOT_FOUND, PROVIDER_NOT_FOUND -> HttpStatus.NOT_FOUND;
+                case CREDENTIAL_MISMATCH -> HttpStatus.CONFLICT;
+                case CREDENTIAL_NOT_FOUND, CREDENTIAL_UNAVAILABLE -> HttpStatus.UNPROCESSABLE_CONTENT;
+            };
+            return response(
+                    status,
+                    "model_connection_" + credentialFailure.error().name().toLowerCase(Locale.ROOT),
+                    credentialFailure.getMessage(),
+                    false,
+                    null,
+                    Map.of("reason", credentialFailure.error().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof GitHubProviderException githubFailure) {
+            HttpStatus status = switch (githubFailure.code()) {
+                case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
+                case PERMISSION_DENIED -> HttpStatus.FORBIDDEN;
+                case RESOURCE_UNAVAILABLE -> HttpStatus.NOT_FOUND;
+                case CONFLICT, IDENTITY_MISMATCH, DEFAULT_BRANCH_MISMATCH -> HttpStatus.CONFLICT;
+                case VALIDATION_FAILED, REPOSITORY_BLOCKED, REPOSITORY_STALE,
+                        CONNECTION_UNAVAILABLE, GRANT_UNAVAILABLE, CREDENTIAL_UNAVAILABLE ->
+                        HttpStatus.UNPROCESSABLE_CONTENT;
+                case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+                case PROVIDER_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            };
+            boolean retryable = githubFailure.code()
+                    == io.crewscope.application.github.GitHubProviderErrorCode.RATE_LIMITED
+                    || githubFailure.code()
+                    == io.crewscope.application.github.GitHubProviderErrorCode.PROVIDER_UNAVAILABLE;
+            return response(
+                    status,
+                    "github_" + githubFailure.code().name().toLowerCase(Locale.ROOT),
+                    githubFailure.getMessage(),
+                    retryable,
+                    null,
+                    Map.of("reason", githubFailure.code().name()),
                     correlationId,
                     exchange);
         }

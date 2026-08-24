@@ -16,7 +16,12 @@ public record MemberTaskCommandAccepted(
         String taskStatus,
         String executionStatus,
         Optional<UUID> successorExecutionId,
-        Optional<Integer> successorAttempt) implements DomainEvent {
+        Optional<Integer> successorAttempt,
+        Optional<UUID> successorPolicySnapshotId,
+        Optional<String> successorPolicySnapshotHash,
+        Optional<String> successorExecutionScope,
+        Optional<Long> successorConfigurationRevision,
+        Optional<String> successorConfigurationHash) implements DomainEvent {
 
     private static final Set<String> OPERATIONS = Set.of("PAUSE", "RESUME", "CANCEL", "RETRY");
 
@@ -34,11 +39,38 @@ public record MemberTaskCommandAccepted(
         executionStatus = requireText(executionStatus, "executionStatus");
         successorExecutionId = Objects.requireNonNull(successorExecutionId, "successorExecutionId");
         successorAttempt = Objects.requireNonNull(successorAttempt, "successorAttempt");
+        successorPolicySnapshotId = Objects.requireNonNull(
+                successorPolicySnapshotId, "successorPolicySnapshotId");
+        successorPolicySnapshotHash = Objects.requireNonNull(
+                successorPolicySnapshotHash, "successorPolicySnapshotHash");
+        successorExecutionScope = Objects.requireNonNull(
+                successorExecutionScope, "successorExecutionScope");
+        successorConfigurationRevision = Objects.requireNonNull(
+                successorConfigurationRevision, "successorConfigurationRevision");
+        successorConfigurationHash = Objects.requireNonNull(
+                successorConfigurationHash, "successorConfigurationHash");
         if (successorExecutionId.isPresent() != successorAttempt.isPresent()
                 || (operation.equals("RETRY") != successorExecutionId.isPresent())) {
             throw new DomainValidationException(
                     "memberTaskCommand.successorExecutionId",
                     "must exist exactly for Retry with successorAttempt");
+        }
+        long policyFields = java.util.stream.Stream.of(
+                        successorPolicySnapshotId, successorPolicySnapshotHash)
+                .filter(Optional::isPresent)
+                .count();
+        long configurationFields = java.util.stream.Stream.of(
+                        successorExecutionScope,
+                        successorConfigurationRevision,
+                        successorConfigurationHash)
+                .filter(Optional::isPresent)
+                .count();
+        if ((policyFields != 0 && policyFields != 2)
+                || (configurationFields != 0 && configurationFields != 3)
+                || (configurationFields > 0 && policyFields == 0)) {
+            throw new DomainValidationException(
+                    "memberTaskCommand.successorPolicySnapshotId",
+                    "configuration audit fields must be present together");
         }
     }
 

@@ -5,7 +5,11 @@ import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.task.AgentTaskCreationService;
 import io.crewscope.application.task.CreateAgentTaskCommand;
 import io.crewscope.application.task.TaskConversationSource;
+import io.crewscope.application.task.TaskAgentExecutionSelection;
+import io.crewscope.application.task.TaskAgentSelectionRequest;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.domain.agent.AgentConfigurationRevision;
+import io.crewscope.domain.agent.ResolvedModelSelection;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.MessageId;
 import io.crewscope.domain.coding.BuildProfileReference;
@@ -88,6 +92,28 @@ public final class TaskController {
                 .map(CommandReceiptResponse::accepted);
     }
 
+    /** Preflights the exact Agent/model graph that would be pinned by Task creation. */
+    @PostMapping("/preflight")
+    public Mono<AgentPreflightResponse> preflight(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String projectId,
+            @PathVariable String workItemId,
+            @Valid @RequestBody AgentSelectionRequest request,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        Route route = route(organizationId, teamId, projectId, workItemId);
+        UUID correlationId = ApiCorrelationIds.resolve(exchange);
+        return identityResolver.resolve(authentication, route.organizationId(), correlationId)
+                .flatMap(access -> blocking(() -> service.preview(
+                        access,
+                        route.teamId(),
+                        route.projectId(),
+                        route.workItemId(),
+                        request.toSelection())))
+                .map(AgentPreflightResponse::from);
+    }
+
     private static Route route(
             String organizationId, String teamId, String projectId, String workItemId) {
         try {
@@ -116,6 +142,7 @@ public final class TaskController {
                     List<@NotBlank @Size(max = TaskBrief.MAX_ACCEPTANCE_CRITERION_LENGTH) String>
                             acceptanceCriteria,
             @NotNull UUID executorAgentProfileId,
+            @Min(1) Long agentConfigurationRevision,
             @Valid ConversationSourceRequest conversationSource,
             @NotNull @Size(max = 200) Set<@NotNull UUID> providerBindingIds,
             @Valid CodingTargetRequest codingTarget) {
@@ -124,6 +151,8 @@ public final class TaskController {
             return new CreateAgentTaskCommand(
                     new TaskBrief(objective, acceptanceCriteria),
                     new AgentProfileId(executorAgentProfileId),
+                    Optional.ofNullable(agentConfigurationRevision)
+                            .map(AgentConfigurationRevision::new),
                     Optional.ofNullable(conversationSource)
                             .map(ConversationSourceRequest::toSource),
                     providerBindingIds.stream()
@@ -131,6 +160,74 @@ public final class TaskController {
                             .collect(java.util.stream.Collectors.toUnmodifiableSet()),
                     Optional.ofNullable(codingTarget).map(CodingTargetRequest::toCommand),
                     expectedVersion);
+        }
+    }
+
+    public record AgentSelectionRequest(
+            @NotNull UUID executorAgentProfileId,
+            @Min(1) Long agentConfigurationRevision) {
+
+        TaskAgentSelectionRequest toSelection() {
+            return new TaskAgentSelectionRequest(
+                    new AgentProfileId(executorAgentProfileId),
+                    Optional.ofNullable(agentConfigurationRevision)
+                            .map(AgentConfigurationRevision::new));
+        }
+    }
+
+    /** Secret-free response containing the immutable coordinates used by a Task attempt. */
+    public record AgentPreflightResponse(
+            UUID agentProfileId,
+            long agentProfileVersion,
+            String executionScope,
+            long configurationRevision,
+            String configurationHash,
+            String bindingSource,
+            String templateVersion,
+            ModelSelectionResponse primary,
+            Optional<ModelSelectionResponse> fallback,
+            UUID policyPackId,
+            long policyPackVersion,
+            String resolutionHash) {
+
+        static AgentPreflightResponse from(TaskAgentExecutionSelection selection) {
+            var resolved = selection.resolvedConfiguration();
+            return new AgentPreflightResponse(
+                    resolved.agentProfileId().value(),
+                    resolved.agentProfileVersion(),
+                    resolved.executionScope().name(),
+                    resolved.configurationRevision().value(),
+                    resolved.configurationHash().toString(),
+                    resolved.bindingSource().name(),
+                    resolved.templateVersion().toString(),
+                    ModelSelectionResponse.from(resolved.primary()),
+                    resolved.fallback().map(ModelSelectionResponse::from),
+                    resolved.configurationPolicyPack().id().value(),
+                    resolved.configurationPolicyPack().version(),
+                    resolved.resolutionHash().toString());
+        }
+    }
+
+    public record ModelSelectionResponse(
+            String role,
+            String providerKey,
+            UUID connectionId,
+            String connectionOwnerType,
+            String modelId,
+            long catalogRevision,
+            String modelRevision,
+            long priceRevision) {
+
+        static ModelSelectionResponse from(ResolvedModelSelection value) {
+            return new ModelSelectionResponse(
+                    value.role().name(),
+                    value.providerKey().toString(),
+                    value.connectionId().value(),
+                    value.connectionOwner().type().name(),
+                    value.catalogCoordinate().modelId().toString(),
+                    value.catalogCoordinate().catalogRevision().value(),
+                    value.modelRevision().toString(),
+                    value.priceRevision());
         }
     }
 

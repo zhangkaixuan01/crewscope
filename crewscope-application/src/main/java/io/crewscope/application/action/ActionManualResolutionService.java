@@ -12,6 +12,7 @@ import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.time.TimeProvider;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Atomic human resolution path used later by the M5-A07 authorized API boundary. */
 public final class ActionManualResolutionService {
@@ -43,10 +44,19 @@ public final class ActionManualResolutionService {
 
     public ActionDispatch resolve(ResolveActionManuallyCommand command) {
         ResolveActionManuallyCommand required = Objects.requireNonNull(command, "command");
-        return transactions.required(() -> resolveInTransaction(required));
+        return resolve(required, required.dispatchId().value());
     }
 
-    private ActionDispatch resolveInTransaction(ResolveActionManuallyCommand command) {
+    /** Uses the initiating API correlation for Receipt and Dispatch timeline events. */
+    public ActionDispatch resolve(
+            ResolveActionManuallyCommand command, UUID correlationId) {
+        ResolveActionManuallyCommand required = Objects.requireNonNull(command, "command");
+        UUID correlation = Objects.requireNonNull(correlationId, "correlationId");
+        return transactions.required(() -> resolveInTransaction(required, correlation));
+    }
+
+    private ActionDispatch resolveInTransaction(
+            ResolveActionManuallyCommand command, UUID correlationId) {
         ActionDispatch dispatch = dispatches.findById(
                         command.organizationId(), command.dispatchId())
                 .orElseThrow(() -> new IllegalStateException("Action Dispatch is unavailable"));
@@ -94,9 +104,9 @@ public final class ActionManualResolutionService {
                 dispatch.version(), inserted.receipt(), now);
         ActionDispatch committed = dispatches.update(resolved);
         if (inserted.inserted()) {
-            events.receiptRecorded(inserted.receipt(), bundle, action.id().value());
+            events.receiptRecorded(inserted.receipt(), bundle, correlationId);
         }
-        events.dispatchTransitioned(committed, bundle, action.id().value());
+        events.dispatchTransitioned(committed, bundle, correlationId);
         return committed;
     }
 }

@@ -17,6 +17,8 @@ import io.crewscope.application.credential.CredentialStatus;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.credential.CredentialSubject;
 import io.crewscope.application.credential.ResolvedCredential;
+import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -212,6 +214,36 @@ class ModelConnectionCredentialServiceTest {
                         ACTOR_ID,
                         "model:stale-preflight",
                         UUID.randomUUID())));
+    }
+
+    @Test
+    void returnsACompletedVerifyReplayBeforeStaleVersionChecksOrProviderCalls() {
+        ModelConnection connection = create(FIRST_SECRET);
+        CommandReceipt receipt = new CommandReceipt(
+                UUID.randomUUID(), UUID.randomUUID(), connection.version() + 1, UUID.randomUUID());
+        int eventCount = events.size();
+
+        var replay = service.verify(command(connection), new ModelConnectionLifecycleCommandGate() {
+            @Override
+            public Optional<CommandReceipt> findCompletedReplay() {
+                return Optional.of(receipt);
+            }
+
+            @Override
+            public CommandReservation reserve(UtcTimestamp occurredAt) {
+                throw new AssertionError("a completed replay must not reserve again");
+            }
+
+            @Override
+            public CommandReceipt complete(
+                    UUID domainEventId, long committedVersion, UtcTimestamp occurredAt) {
+                throw new AssertionError("a completed replay must not commit again");
+            }
+        });
+
+        assertTrue(replay.replayed());
+        assertEquals(receipt, replay.receipt());
+        assertEquals(eventCount, events.size());
     }
 
     private ModelConnection create(String secretText) {

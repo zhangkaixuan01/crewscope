@@ -1,5 +1,6 @@
 package io.crewscope.application.runtime;
 
+import io.crewscope.application.action.TeamActionReconciliationHealthRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -37,6 +38,8 @@ public final class RuntimeObservationService {
     private final AuthoritativeTimeProvider timeProvider;
     private final Duration heartbeatTimeout;
     private final CodingRuntimeOperationsPort codingRuntime;
+    private final TeamActionReconciliationHealthRepository actionDelivery;
+    private final Duration actionStaleThreshold;
 
     public RuntimeObservationService(
             WorkItemAccessPolicy accessPolicy,
@@ -50,7 +53,9 @@ public final class RuntimeObservationService {
                 transactionExecutor,
                 timeProvider,
                 heartbeatTimeout,
-                null);
+                null,
+                null,
+                Duration.ofHours(1));
     }
 
     public RuntimeObservationService(
@@ -60,6 +65,20 @@ public final class RuntimeObservationService {
             AuthoritativeTimeProvider timeProvider,
             Duration heartbeatTimeout,
             CodingRuntimeOperationsPort codingRuntime) {
+        this(
+                accessPolicy, repository, transactionExecutor, timeProvider,
+                heartbeatTimeout, codingRuntime, null, Duration.ofHours(1));
+    }
+
+    public RuntimeObservationService(
+            WorkItemAccessPolicy accessPolicy,
+            RuntimeObservationRepository repository,
+            TransactionExecutor transactionExecutor,
+            AuthoritativeTimeProvider timeProvider,
+            Duration heartbeatTimeout,
+            CodingRuntimeOperationsPort codingRuntime,
+            TeamActionReconciliationHealthRepository actionDelivery,
+            Duration actionStaleThreshold) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.repository = Objects.requireNonNull(repository, "repository");
         this.transactionExecutor = Objects.requireNonNull(
@@ -73,6 +92,9 @@ public final class RuntimeObservationService {
         }
         this.heartbeatTimeout = requiredTimeout;
         this.codingRuntime = codingRuntime;
+        this.actionDelivery = actionDelivery;
+        this.actionStaleThreshold = Objects.requireNonNull(
+                actionStaleThreshold, "actionStaleThreshold");
     }
 
     /** Returns aggregate health and capacity without Runtime or Worker identities. */
@@ -137,7 +159,7 @@ public final class RuntimeObservationService {
             }
         });
         RuntimeFleetSummary summary = summary(
-                query.environment(), now, snapshot, runtimes, workers, waiting, coding);
+                query, now, snapshot, runtimes, workers, waiting, coding);
         return new DerivedObservation(summary, snapshot, workers, waiting, coding);
     }
 
@@ -182,7 +204,7 @@ public final class RuntimeObservationService {
     }
 
     private RuntimeFleetSummary summary(
-            RuntimeEnvironment environment,
+            RuntimeObservationQuery query,
             UtcTimestamp now,
             RuntimeObservationSnapshot snapshot,
             Map<ExecutionRuntimeId, ExecutionRuntime> runtimes,
@@ -219,7 +241,7 @@ public final class RuntimeObservationService {
         EnumMap<RuntimeWaitCause, Long> causes = new EnumMap<>(RuntimeWaitCause.class);
         waiting.forEach(value -> causes.merge(value.cause(), 1L, Long::sum));
         return new RuntimeFleetSummary(
-                environment,
+                query.environment(),
                 now,
                 health,
                 snapshot.runtimes().size(),
@@ -230,7 +252,14 @@ public final class RuntimeObservationService {
                 capacity,
                 waiting.size(),
                 causes,
-                codingRuntime.map(CodingWorkspaceFleetSummary::from));
+                codingRuntime.map(CodingWorkspaceFleetSummary::from),
+                actionDelivery == null
+                        ? Optional.empty()
+                        : Optional.of(ActionDeliveryFleetSummary.from(
+                                actionDelivery.reconciliationHealth(
+                                        query.organizationId(), query.teamId()),
+                                now,
+                                actionStaleThreshold)));
     }
 
     private static RuntimeFleetHealth fleetHealth(

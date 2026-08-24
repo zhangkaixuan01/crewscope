@@ -4,6 +4,7 @@ package io.crewscope.domain.shared.event;
 public record SchemaVersion(int value) implements Comparable<SchemaVersion> {
 
     public static final SchemaVersion V1 = new SchemaVersion(1);
+    public static final SchemaVersion V2 = new SchemaVersion(2);
 
     public SchemaVersion {
         if (value < 1) {

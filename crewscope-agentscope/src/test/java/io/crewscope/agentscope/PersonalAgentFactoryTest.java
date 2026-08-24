@@ -9,11 +9,20 @@ import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
+import io.crewscope.domain.conversation.AgentRuntimeConfigurationPin;
+import io.crewscope.domain.agent.AgentConfigurationHash;
+import io.crewscope.domain.agent.AgentConfigurationRevision;
+import io.crewscope.domain.agent.AgentOwnershipType;
+import io.crewscope.domain.agent.AgentRuntimeRole;
+import io.crewscope.domain.agent.AgentTemplateKey;
+import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PersonalAgentFactoryTest {
 
@@ -50,6 +59,21 @@ class PersonalAgentFactoryTest {
                 AgentScopeRuntimeTestFixture.session(profileId, 4));
 
         assertNotSame(versionThree, versionFour);
+        assertEquals(2, factory.cachedAgentCount());
+        factory.close();
+    }
+
+    @Test
+    void createsAnIndependentHarnessAgentAfterConfigurationRevisionRefresh() {
+        AgentProfileId profileId = AgentProfileId.generate();
+        PersonalAgentFactory factory = factory(profileId, new ScriptedModel("unused"));
+        AgentRuntimeSession revisionOne = pinnedSession(profileId, 1, "a");
+        AgentRuntimeSession revisionTwo = pinnedSession(profileId, 2, "b");
+
+        HarnessAgent first = factory.getOrCreate(revisionOne);
+        HarnessAgent refreshed = factory.getOrCreate(revisionTwo);
+
+        assertNotSame(first, refreshed);
         assertEquals(2, factory.cachedAgentCount());
         factory.close();
     }
@@ -125,6 +149,21 @@ class PersonalAgentFactoryTest {
                 "You are the CrewScope Personal Agent.",
                 6,
                 2);
+    }
+
+    private static AgentRuntimeSession pinnedSession(
+            AgentProfileId profileId, long revision, String hashCharacter) {
+        AgentRuntimeSession session = mock(AgentRuntimeSession.class);
+        AgentRuntimeConfigurationPin pin = new AgentRuntimeConfigurationPin(
+                AgentOwnershipType.USER,
+                AgentRuntimeRole.PERSONAL_ASSISTANT,
+                new AgentTemplateVersion(new AgentTemplateKey("personal-assistant"), 1),
+                Optional.of(new AgentConfigurationRevision(revision)),
+                Optional.of(new AgentConfigurationHash(hashCharacter.repeat(64))));
+        when(session.agentProfileId()).thenReturn(profileId);
+        when(session.agentProfileVersion()).thenReturn(3L);
+        when(session.configurationPin()).thenReturn(Optional.of(pin));
+        return session;
     }
 
 }

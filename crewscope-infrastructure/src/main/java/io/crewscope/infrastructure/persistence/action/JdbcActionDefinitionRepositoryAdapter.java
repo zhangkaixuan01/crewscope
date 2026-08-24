@@ -383,6 +383,18 @@ public class JdbcActionDefinitionRepositoryAdapter
     }
 
     @Override
+    public Optional<Confirmation> findByBundle(
+            OrganizationId organizationId, ActionBundleId bundleId) {
+        return one(jdbc.query(
+                """
+                SELECT * FROM crewscope.action_confirmation
+                WHERE organization_id = ? AND action_bundle_id = ?
+                """,
+                this::confirmation,
+                organizationId.value(), bundleId.value()));
+    }
+
+    @Override
     public Optional<Confirmation> findActiveByBundle(
             OrganizationId organizationId, ActionBundleId bundleId) {
         return one(jdbc.query(

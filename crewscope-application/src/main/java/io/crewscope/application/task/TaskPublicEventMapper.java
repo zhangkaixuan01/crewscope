@@ -29,7 +29,8 @@ public final class TaskPublicEventMapper {
             "sourceMessageSequence", "executorPrincipalId", "executorAssignmentId",
             "executorAssignmentVersion", "agentProfileId", "agentProfileVersion",
             "policySnapshotId", "policySnapshotHash", "safetyOverlayId",
-            "safetyOverlayVersion", "providerBindingIds", "taskStatus", "executionStatus");
+            "safetyOverlayVersion", "providerBindingIds", "taskStatus", "executionStatus",
+            "agentExecutionScope", "agentConfigurationRevision", "agentModelBindingSource");
     private static final Set<String> MEMBER_COMMAND_FIELDS = Set.of(
             "taskId", "targetExecutionId", "targetAttempt", "operation", "taskStatus",
             "executionStatus", "successorExecutionId", "successorAttempt");
@@ -70,8 +71,41 @@ public final class TaskPublicEventMapper {
             "diffArtifactId", "workspaceId", "taskExecutionId", "attempt",
             "diffGeneration", "manifestHash", "fileCount", "additions", "deletions",
             "finalHash");
+    private static final Set<String> REVIEW_REQUEST_FIELDS = Set.of(
+            "reviewRequestId", "taskId", "taskExecutionId", "attempt", "requestRevision",
+            "requestVersion", "aggregateVersion", "status", "reason");
+    private static final Set<String> REVIEW_FINDING_FIELDS = Set.of(
+            "findingId", "taskId", "taskExecutionId", "attempt", "reviewRequestId",
+            "reviewRequestRevision", "severity", "category", "reviewerRelationship");
+    private static final Set<String> REVIEW_DUPLICATE_FIELDS = Set.of(
+            "observationId", "findingId", "reviewRequestId", "observationNumber");
+    private static final Set<String> REVIEW_DECISION_FIELDS = Set.of(
+            "decisionId", "taskId", "reviewRequestId", "reviewRequestRevision",
+            "decisionRevision", "reviewerPrincipalId", "reviewerMemberId",
+            "eligibilityMode", "decisionType");
+    private static final Set<String> REVIEW_ROUND_FIELDS = Set.of(
+            "roundId", "taskId", "roundNumber", "sourceReviewRequestId",
+            "sourceReviewRequestRevision", "triggerDecisionId");
+    private static final Set<String> ACTION_BUNDLE_FIELDS = Set.of(
+            "actionBundleId", "taskId", "taskExecutionId", "reviewDecisionId",
+            "bundleDigest", "actionKinds", "actionDigests", "validUntil");
+    private static final Set<String> ACTION_CONFIRMATION_FIELDS = Set.of(
+            "confirmationId", "actionBundleId", "bundleDigest", "actionDigests",
+            "confirmedByPrincipalId", "validUntil", "cancellationReason",
+            "confirmationVersion");
+    private static final Set<String> ACTION_DISPATCH_FIELDS = Set.of(
+            "actionDispatchId", "actionBundleId", "plannedActionId", "actionDigest",
+            "status", "claimAttempts", "reconciliationAttempts", "dispatchVersion");
+    private static final Set<String> ACTION_RECEIPT_FIELDS = Set.of(
+            "actionReceiptId", "actionBundleId", "plannedActionId", "actionDigest",
+            "result", "source", "externalIdentityHash", "evidenceCode",
+            "resolvedByPrincipalId");
+    private static final Set<String> EXTERNAL_RESULT_FIELDS = Set.of(
+            "externalResultId", "plannedActionId", "externalIdentityHash",
+            "externalObjectType", "providerStatus", "providerVersion", "source",
+            "mergeOutcome", "resultVersion");
     private static final Set<String> LIST_FIELDS = Set.of(
-            "acceptanceCriteria", "providerBindingIds");
+            "acceptanceCriteria", "providerBindingIds", "actionKinds", "actionDigests");
 
     /** Returns a new immutable map containing only fields approved for the public Task stream. */
     public Map<String, Object> map(String eventType, Map<String, Object> payload) {
@@ -99,6 +133,30 @@ public final class TaskPublicEventMapper {
             fields = TEST_EVIDENCE_FIELDS;
         } else if (type.equals("FINAL_DIFF_ARTIFACT_PUBLISHED")) {
             fields = FINAL_DIFF_FIELDS;
+        } else if (type.equals("REVIEW_REQUEST_CREATED")
+                || type.equals("REVIEW_REQUEST_STARTED")
+                || type.equals("REVIEW_REQUEST_COMPLETED")
+                || type.equals("REVIEW_REQUEST_INVALIDATED")) {
+            fields = REVIEW_REQUEST_FIELDS;
+        } else if (type.equals("REVIEW_FINDING_RECORDED")) {
+            fields = REVIEW_FINDING_FIELDS;
+        } else if (type.equals("REVIEW_FINDING_DUPLICATE_OBSERVED")) {
+            fields = REVIEW_DUPLICATE_FIELDS;
+        } else if (type.equals("REVIEW_DECISION_RECORDED")) {
+            fields = REVIEW_DECISION_FIELDS;
+        } else if (type.equals("REVIEW_MODIFICATION_ROUND_STARTED")) {
+            fields = REVIEW_ROUND_FIELDS;
+        } else if (type.equals("ACTION_BUNDLE_PLANNED")) {
+            fields = ACTION_BUNDLE_FIELDS;
+        } else if (type.equals("ACTION_BUNDLE_CONFIRMED")
+                || type.equals("ACTION_CONFIRMATION_CANCELLED")) {
+            fields = ACTION_CONFIRMATION_FIELDS;
+        } else if (type.equals("ACTION_DISPATCH_TRANSITIONED")) {
+            fields = ACTION_DISPATCH_FIELDS;
+        } else if (type.equals("ACTION_RECEIPT_RECORDED")) {
+            fields = ACTION_RECEIPT_FIELDS;
+        } else if (type.equals("EXTERNAL_RESULT_MERGED")) {
+            fields = EXTERNAL_RESULT_FIELDS;
         } else {
             throw new IllegalStateException("Task Event type is not publicly mapped: " + type);
         }

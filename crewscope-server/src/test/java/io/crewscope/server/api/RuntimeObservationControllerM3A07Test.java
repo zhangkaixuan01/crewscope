@@ -12,6 +12,7 @@ import io.crewscope.application.runtime.RuntimeObservationService;
 import io.crewscope.application.runtime.RuntimeOperationsView;
 import io.crewscope.application.runtime.RuntimeWaitCause;
 import io.crewscope.application.runtime.RuntimeWorkerObservation;
+import io.crewscope.application.runtime.ActionDeliveryFleetSummary;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -175,6 +176,39 @@ class RuntimeObservationControllerM3A07Test {
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("invalid_request")
                 .jsonPath("$.details.field").isEqualTo("environment");
+    }
+
+    @Test
+    void actionDeliveryHealthExposesOnlyLowCardinalityTeamSummary() {
+        RuntimeFleetSummary base = summary(RuntimeFleetHealth.HEALTHY);
+        RuntimeFleetSummary value = new RuntimeFleetSummary(
+                base.environment(),
+                base.observedAt(),
+                base.health(),
+                base.runtimeCount(),
+                base.workerCount(),
+                base.activeWorkerCount(),
+                base.staleWorkerCount(),
+                base.drainingWorkerCount(),
+                base.capacity(),
+                base.waitingRuntimeExecutions(),
+                base.waitingCauses(),
+                base.codingWorkspaces(),
+                Optional.of(new ActionDeliveryFleetSummary(
+                        "ATTENTION_REQUIRED", 1, 2, 1, 1, 90, true)));
+        when(service.summary(any(), any(), any(), any())).thenReturn(value);
+
+        client.get()
+                .uri(root())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.actionDelivery.health").isEqualTo("ATTENTION_REQUIRED")
+                .jsonPath("$.actionDelivery.unknown").isEqualTo(2)
+                .jsonPath("$.actionDelivery.stale").isEqualTo(true)
+                .jsonPath("$.actionDelivery.workerId").doesNotExist()
+                .jsonPath("$.actionDelivery.lease").doesNotExist()
+                .jsonPath("$.actionDelivery.connectionId").doesNotExist();
     }
 
     private RuntimeFleetSummary summary(RuntimeFleetHealth health) {

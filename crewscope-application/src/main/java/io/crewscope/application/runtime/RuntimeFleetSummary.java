@@ -19,7 +19,27 @@ public record RuntimeFleetSummary(
         RuntimeCapacitySummary capacity,
         int waitingRuntimeExecutions,
         Map<RuntimeWaitCause, Long> waitingCauses,
-        Optional<CodingWorkspaceFleetSummary> codingWorkspaces) {
+        Optional<CodingWorkspaceFleetSummary> codingWorkspaces,
+        Optional<ActionDeliveryFleetSummary> actionDelivery) {
+
+    public RuntimeFleetSummary(
+            RuntimeEnvironment environment,
+            UtcTimestamp observedAt,
+            RuntimeFleetHealth health,
+            int runtimeCount,
+            int workerCount,
+            int activeWorkerCount,
+            int staleWorkerCount,
+            int drainingWorkerCount,
+            RuntimeCapacitySummary capacity,
+            int waitingRuntimeExecutions,
+            Map<RuntimeWaitCause, Long> waitingCauses,
+            Optional<CodingWorkspaceFleetSummary> codingWorkspaces) {
+        this(
+                environment, observedAt, health, runtimeCount, workerCount,
+                activeWorkerCount, staleWorkerCount, drainingWorkerCount, capacity,
+                waitingRuntimeExecutions, waitingCauses, codingWorkspaces, Optional.empty());
+    }
 
     public RuntimeFleetSummary {
         environment = Objects.requireNonNull(environment, "environment");
@@ -28,6 +48,7 @@ public record RuntimeFleetSummary(
         capacity = Objects.requireNonNull(capacity, "capacity");
         waitingCauses = Map.copyOf(Objects.requireNonNull(waitingCauses, "waitingCauses"));
         codingWorkspaces = Objects.requireNonNull(codingWorkspaces, "codingWorkspaces");
+        actionDelivery = Objects.requireNonNull(actionDelivery, "actionDelivery");
         if (runtimeCount < 0
                 || workerCount < 0
                 || activeWorkerCount < 0

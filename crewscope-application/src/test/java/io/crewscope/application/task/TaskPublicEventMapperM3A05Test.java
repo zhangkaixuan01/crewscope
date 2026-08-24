@@ -100,4 +100,56 @@ class TaskPublicEventMapperM3A05Test {
         assertFalse(result.containsKey("upserts"));
         assertEquals(List.of("safe.txt"), result.get("removals"));
     }
+
+    @Test
+    void publishesReviewAndActionFactsWithoutInternalAuthorityOrWorkerCoordinates() {
+        Map<String, Object> review = mapper.map(
+                "REVIEW_DECISION_RECORDED",
+                Map.of(
+                        "decisionId", "decision",
+                        "decisionType", "APPROVED",
+                        "eligibilityMode", "INDEPENDENT_MEMBER",
+                        "decisionHash", "internal-authority-hash",
+                        "overrideReason", "private"));
+        assertEquals("APPROVED", review.get("decisionType"));
+        assertFalse(review.containsKey("decisionHash"));
+        assertFalse(review.containsKey("overrideReason"));
+
+        Map<String, Object> action = mapper.map(
+                "ACTION_DISPATCH_TRANSITIONED",
+                Map.of(
+                        "actionBundleId", "bundle",
+                        "plannedActionId", "action",
+                        "status", "UNKNOWN",
+                        "claimAttempts", 1,
+                        "reconciliationAttempts", 2,
+                        "fencingToken", 99,
+                        "claimWorkerId", "worker-secret",
+                        "idempotencyKey", "internal-key"));
+        assertEquals("UNKNOWN", action.get("status"));
+        assertFalse(action.containsKey("fencingToken"));
+        assertFalse(action.containsKey("claimWorkerId"));
+        assertFalse(action.containsKey("idempotencyKey"));
+    }
+
+    @Test
+    void publishesOnlyHashedExternalIdentityForGithubResultTimelineFacts() {
+        Map<String, Object> result = mapper.map(
+                "EXTERNAL_RESULT_MERGED",
+                Map.of(
+                        "externalObjectType", "PULL_REQUEST",
+                        "providerStatus", "OPEN",
+                        "externalIdentityHash", "a".repeat(64),
+                        "externalId", "123",
+                        "externalBusinessKey", "owner/repo#123",
+                        "connectionId", "secret-connection",
+                        "lastObservationKey", "private"));
+
+        assertEquals("OPEN", result.get("providerStatus"));
+        assertEquals("a".repeat(64), result.get("externalIdentityHash"));
+        assertFalse(result.containsKey("externalId"));
+        assertFalse(result.containsKey("externalBusinessKey"));
+        assertFalse(result.containsKey("connectionId"));
+        assertFalse(result.containsKey("lastObservationKey"));
+    }
 }

@@ -9,6 +9,9 @@ import io.crewscope.application.credential.CredentialSecret;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.credential.CredentialSubject;
 import io.crewscope.application.credential.ResolvedCredential;
+import io.crewscope.application.command.CommandExecution;
+import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.event.PendingOutboxEvent;
@@ -106,10 +109,36 @@ public final class ModelConnectionCredentialService {
             CreateModelConnectionCredentialCommand command, CredentialSecret plaintext) {
         CreateModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
         try (CredentialSecret secret = Objects.requireNonNull(plaintext, "plaintext")) {
-            ModelConnection created = transactionExecutor.required(
+            LifecycleChange created = transactionExecutor.required(
                     () -> createInTransaction(required, secret));
-            availabilityVerifier.invalidate(created.organizationId(), created.id());
-            return created;
+            availabilityVerifier.invalidate(
+                    created.connection().organizationId(), created.connection().id());
+            return created.connection();
+        }
+    }
+
+    /** Creates through a public idempotency gate committed with the same domain event. */
+    public CommandExecution<ModelConnection> create(
+            CreateModelConnectionCredentialCommand command,
+            CredentialSecret plaintext,
+            ModelConnectionLifecycleCommandGate gate) {
+        CreateModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        ModelConnectionLifecycleCommandGate requiredGate = Objects.requireNonNull(gate, "gate");
+        try (CredentialSecret secret = Objects.requireNonNull(plaintext, "plaintext")) {
+            CommandExecution<ModelConnection> execution = transactionExecutor.required(() -> {
+                UtcTimestamp now = timeProvider.now();
+                CommandReservation reservation = requiredGate.reserve(now);
+                if (!reservation.acquired()) {
+                    return CommandExecution.replayed(reservation.receipt().orElseThrow());
+                }
+                LifecycleChange change = createInTransaction(required, secret);
+                CommandReceipt receipt = requiredGate.complete(
+                        change.domainEventId(), change.connection().version(), timeProvider.now());
+                return CommandExecution.completed(change.connection(), receipt);
+            });
+            execution.result().ifPresent(connection ->
+                    availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+            return execution;
         }
     }
 
@@ -118,19 +147,49 @@ public final class ModelConnectionCredentialService {
             ModelConnectionCredentialCommand command, CredentialSecret replacement) {
         ModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
         try (CredentialSecret secret = Objects.requireNonNull(replacement, "replacement")) {
-            ModelConnection rotated = transactionExecutor.required(
+            LifecycleChange rotated = transactionExecutor.required(
                     () -> rotateInTransaction(required, secret));
-            availabilityVerifier.invalidate(rotated.organizationId(), rotated.id());
-            return rotated;
+            availabilityVerifier.invalidate(
+                    rotated.connection().organizationId(), rotated.connection().id());
+            return rotated.connection();
+        }
+    }
+
+    /** Rotates through a public idempotency gate without retaining plaintext in the receipt. */
+    public CommandExecution<ModelConnection> rotate(
+            ModelConnectionCredentialCommand command,
+            CredentialSecret replacement,
+            ModelConnectionLifecycleCommandGate gate) {
+        ModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        try (CredentialSecret secret = Objects.requireNonNull(replacement, "replacement")) {
+            CommandExecution<ModelConnection> execution = gated(
+                    Objects.requireNonNull(gate, "gate"),
+                    () -> rotateInTransaction(required, secret));
+            execution.result().ifPresent(connection ->
+                    availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+            return execution;
         }
     }
 
     /** Irreversibly revokes the encrypted credential and connection in one transaction. */
     public ModelConnection revoke(RevokeModelConnectionCredentialCommand command) {
         RevokeModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
-        ModelConnection revoked = transactionExecutor.required(() -> revokeInTransaction(required));
-        availabilityVerifier.invalidate(revoked.organizationId(), revoked.id());
-        return revoked;
+        LifecycleChange revoked = transactionExecutor.required(() -> revokeInTransaction(required));
+        availabilityVerifier.invalidate(
+                revoked.connection().organizationId(), revoked.connection().id());
+        return revoked.connection();
+    }
+
+    /** Revokes through a public idempotency gate committed with CredentialStore revocation. */
+    public CommandExecution<ModelConnection> revoke(
+            RevokeModelConnectionCredentialCommand command,
+            ModelConnectionLifecycleCommandGate gate) {
+        RevokeModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        CommandExecution<ModelConnection> execution = gated(
+                Objects.requireNonNull(gate, "gate"), () -> revokeInTransaction(required));
+        execution.result().ifPresent(connection ->
+                availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+        return execution;
     }
 
     /** Probes outside a database transaction, then commits a version-checked sanitized result. */
@@ -148,10 +207,53 @@ public final class ModelConnectionCredentialService {
             }
         }
         ModelProviderHealthProbe.ProbeResult sanitized = result;
-        ModelConnection verified = transactionExecutor.required(
+        LifecycleChange verified = transactionExecutor.required(
                 () -> recordVerification(required, sanitized));
-        availabilityVerifier.invalidate(verified.organizationId(), verified.id());
-        return verified;
+        availabilityVerifier.invalidate(
+                verified.connection().organizationId(), verified.connection().id());
+        return verified.connection();
+    }
+
+    /** Probes outside a transaction and gates only the final versioned health commit. */
+    public CommandExecution<ModelConnection> verify(
+            ModelConnectionCredentialCommand command,
+            ModelConnectionLifecycleCommandGate gate) {
+        ModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        ModelConnectionLifecycleCommandGate requiredGate = Objects.requireNonNull(gate, "gate");
+        Optional<CommandReceipt> replay = transactionExecutor.required(
+                requiredGate::findCompletedReplay);
+        if (replay.isPresent()) {
+            return CommandExecution.replayed(replay.orElseThrow());
+        }
+        VerificationTarget target = transactionExecutor.required(() -> prepareVerification(required));
+        ModelProviderHealthProbe.ProbeResult result;
+        try (ProviderCredentialHandle handle = target.handle()) {
+            try {
+                result = healthProbe.probe(target.provider(), target.connection(), handle);
+            } catch (RuntimeException ignored) {
+                result = ModelProviderHealthProbe.ProbeResult.failed(
+                        ModelConnectionHealthFailureCode.PROVIDER_REJECTED);
+            }
+        }
+        ModelProviderHealthProbe.ProbeResult sanitized = result;
+        CommandExecution<ModelConnection> execution = gated(
+                requiredGate,
+                () -> recordVerification(required, sanitized));
+        execution.result().ifPresent(connection ->
+                availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+        return execution;
+    }
+
+    /** Suspends future selection while retaining the encrypted credential for audit and recovery. */
+    public CommandExecution<ModelConnection> suspend(
+            ModelConnectionCredentialCommand command,
+            ModelConnectionLifecycleCommandGate gate) {
+        ModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        CommandExecution<ModelConnection> execution = gated(
+                Objects.requireNonNull(gate, "gate"), () -> suspendInTransaction(required));
+        execution.result().ifPresent(connection ->
+                availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+        return execution;
     }
 
     /** Issues a metadata-only capability; each use rechecks status and exact secret revision. */
@@ -160,7 +262,7 @@ public final class ModelConnectionCredentialService {
         return transactionExecutor.required(() -> openHandleInTransaction(required));
     }
 
-    private ModelConnection createInTransaction(
+    private LifecycleChange createInTransaction(
             CreateModelConnectionCredentialCommand command, CredentialSecret secret) {
         ModelProviderDefinition provider = requireProvider(command.providerKey());
         UtcTimestamp occurredAt = timeProvider.now();
@@ -190,11 +292,12 @@ public final class ModelConnectionCredentialService {
                 command.actor(),
                 occurredAt);
         ModelConnection registered = connectionRepository.register(connection);
-        appendEvent(registered, "CREATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
-        return registered;
+        UUID eventId = appendEvent(
+                registered, "CREATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
+        return new LifecycleChange(registered, eventId);
     }
 
-    private ModelConnection rotateInTransaction(
+    private LifecycleChange rotateInTransaction(
             ModelConnectionCredentialCommand command, CredentialSecret replacement) {
         ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
         requireExpectedVersions(connection, command.expectedConnectionVersion(), command.expectedCredentialVersion());
@@ -212,11 +315,12 @@ public final class ModelConnectionCredentialService {
         UtcTimestamp occurredAt = timeProvider.now();
         ModelConnection updated = connectionRepository.update(connection.rotateCredential(
                 command.expectedConnectionVersion(), nextVersion, command.actor(), occurredAt));
-        appendEvent(updated, "CREDENTIAL_ROTATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
-        return updated;
+        UUID eventId = appendEvent(
+                updated, "CREDENTIAL_ROTATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
+        return new LifecycleChange(updated, eventId);
     }
 
-    private ModelConnection revokeInTransaction(RevokeModelConnectionCredentialCommand command) {
+    private LifecycleChange revokeInTransaction(RevokeModelConnectionCredentialCommand command) {
         ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
         requireExpectedVersions(connection, command.expectedConnectionVersion(), command.expectedCredentialVersion());
         CredentialDescriptor descriptor = requireDescriptor(
@@ -232,8 +336,21 @@ public final class ModelConnectionCredentialService {
         UtcTimestamp occurredAt = timeProvider.now();
         ModelConnection updated = connectionRepository.update(connection.revoke(
                 command.expectedConnectionVersion(), command.connectionReason(), command.actor(), occurredAt));
-        appendEvent(updated, "REVOKED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
-        return updated;
+        UUID eventId = appendEvent(
+                updated, "REVOKED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
+        return new LifecycleChange(updated, eventId);
+    }
+
+    private LifecycleChange suspendInTransaction(ModelConnectionCredentialCommand command) {
+        ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
+        requireExpectedVersions(
+                connection, command.expectedConnectionVersion(), command.expectedCredentialVersion());
+        UtcTimestamp occurredAt = timeProvider.now();
+        ModelConnection updated = connectionRepository.update(connection.suspend(
+                command.expectedConnectionVersion(), command.actor(), occurredAt));
+        UUID eventId = appendEvent(
+                updated, "SUSPENDED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
+        return new LifecycleChange(updated, eventId);
     }
 
     private VerificationTarget prepareVerification(ModelConnectionCredentialCommand command) {
@@ -250,7 +367,7 @@ public final class ModelConnectionCredentialService {
         return new VerificationTarget(connection, provider, handle);
     }
 
-    private ModelConnection recordVerification(
+    private LifecycleChange recordVerification(
             ModelConnectionCredentialCommand command, ModelProviderHealthProbe.ProbeResult result) {
         ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
         ModelProviderDefinition provider = requireProvider(connection.providerKey());
@@ -270,14 +387,28 @@ public final class ModelConnectionCredentialService {
                         command.actor(),
                         occurredAt);
         ModelConnection updated = connectionRepository.update(verified);
-        appendEvent(
+        UUID eventId = appendEvent(
                 updated,
                 result.healthy() ? "VERIFIED" : "VERIFICATION_FAILED",
                 result.failureCode().map(Enum::name),
                 command.actor(),
                 command.correlationId(),
                 occurredAt);
-        return updated;
+        return new LifecycleChange(updated, eventId);
+    }
+
+    private CommandExecution<ModelConnection> gated(
+            ModelConnectionLifecycleCommandGate gate, LifecycleMutation mutation) {
+        return transactionExecutor.required(() -> {
+            CommandReservation reservation = gate.reserve(timeProvider.now());
+            if (!reservation.acquired()) {
+                return CommandExecution.replayed(reservation.receipt().orElseThrow());
+            }
+            LifecycleChange change = mutation.apply();
+            CommandReceipt receipt = gate.complete(
+                    change.domainEventId(), change.connection().version(), timeProvider.now());
+            return CommandExecution.completed(change.connection(), receipt);
+        });
     }
 
     private ProviderCredentialHandle openHandleInTransaction(OpenProviderCredentialHandleRequest request) {
@@ -417,7 +548,7 @@ public final class ModelConnectionCredentialService {
                 purpose);
     }
 
-    private void appendEvent(
+    private UUID appendEvent(
             ModelConnection connection,
             String operation,
             Optional<String> failureCode,
@@ -448,6 +579,7 @@ public final class ModelConnectionCredentialService {
                         failureCode));
         eventStore.append(event);
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
+        return eventId;
     }
 
     private static ModelCredentialSubject toModelSubject(CredentialSubject subject) {
@@ -490,4 +622,11 @@ public final class ModelConnectionCredentialService {
             ModelConnection connection,
             ModelProviderDefinition provider,
             ProviderCredentialHandle handle) {}
+
+    private record LifecycleChange(ModelConnection connection, UUID domainEventId) {}
+
+    @FunctionalInterface
+    private interface LifecycleMutation {
+        LifecycleChange apply();
+    }
 }

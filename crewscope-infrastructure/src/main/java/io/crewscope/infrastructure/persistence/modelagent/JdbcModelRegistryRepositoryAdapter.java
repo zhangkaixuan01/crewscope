@@ -5,6 +5,8 @@ import io.crewscope.application.model.ModelPriceScheduleRepository;
 import io.crewscope.application.model.ModelProviderDefinitionRepository;
 import io.crewscope.domain.model.ModelCatalogCoordinate;
 import io.crewscope.domain.model.ModelCatalogEntry;
+import io.crewscope.domain.model.ModelCatalogEntryId;
+import io.crewscope.domain.model.ModelCatalogRevision;
 import io.crewscope.domain.model.ModelId;
 import io.crewscope.domain.model.ModelPriceRevision;
 import io.crewscope.domain.model.ModelPriceSchedule;
@@ -209,6 +211,31 @@ public class JdbcModelRegistryRepositoryAdapter
                         catalogCoordinateParameters(required),
                         (row, ignored) -> mapper.catalog(row, provider))
                 .stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ModelCatalogEntry> findByEntryRevision(
+            ModelCatalogEntryId entryId, ModelCatalogRevision revision) {
+        List<ModelCatalogEntry> matches = jdbc.query(
+                CATALOG_SELECT + " WHERE id = :id AND catalog_revision = :catalogRevision",
+                new MapSqlParameterSource()
+                        .addValue("id", Objects.requireNonNull(entryId, "entryId").value())
+                        .addValue(
+                                "catalogRevision",
+                                Objects.requireNonNull(revision, "revision").value()),
+                (row, ignored) -> {
+                    ModelProviderDefinition provider = findByKey(
+                                    new ModelProviderKey(row.getString("provider_key")))
+                            .orElseThrow(() -> new DomainValidationException(
+                                    "modelCatalog.providerKey",
+                                    "references a missing provider definition"));
+                    return mapper.catalog(row, provider);
+                });
+        if (matches.size() > 1) {
+            throw new IllegalStateException("Catalog entry/revision uniqueness was violated");
+        }
+        return matches.stream().findFirst();
     }
 
     @Override

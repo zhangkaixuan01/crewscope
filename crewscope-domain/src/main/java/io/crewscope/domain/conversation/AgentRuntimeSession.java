@@ -1,6 +1,7 @@
 package io.crewscope.domain.conversation;
 
 import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.agent.AgentConfigurationVersion;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.InvalidStateTransitionException;
@@ -15,6 +16,7 @@ import io.crewscope.domain.workspace.Workspace;
 import io.crewscope.domain.workspace.WorkspaceStatus;
 import io.crewscope.domain.workspace.WorkspaceType;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Durable trusted binding between a Personal Agent Conversation and AgentScope state. */
 public final class AgentRuntimeSession {
@@ -27,6 +29,7 @@ public final class AgentRuntimeSession {
     private final PrincipalId personalAgentPrincipalId;
     private final AgentProfileId agentProfileId;
     private final long agentProfileVersion;
+    private final Optional<AgentRuntimeConfigurationPin> configurationPin;
     private final AgentScopeSessionKey agentScopeKey;
     private final AgentRuntimeStateReference stateReference;
     private final AgentRuntimeSessionStatus status;
@@ -42,6 +45,7 @@ public final class AgentRuntimeSession {
             PrincipalId personalAgentPrincipalId,
             AgentProfileId agentProfileId,
             long agentProfileVersion,
+            Optional<AgentRuntimeConfigurationPin> configurationPin,
             AgentScopeSessionKey agentScopeKey,
             AgentRuntimeStateReference stateReference,
             AgentRuntimeSessionStatus status,
@@ -58,6 +62,7 @@ public final class AgentRuntimeSession {
         this.agentProfileId = Objects.requireNonNull(agentProfileId, "agentProfileId");
         this.agentProfileVersion = requireVersion(
                 agentProfileVersion, "agentRuntimeSession.agentProfileVersion");
+        this.configurationPin = Objects.requireNonNull(configurationPin, "configurationPin");
         this.agentScopeKey = requireDerivedAgentScopeKey(agentScopeKey);
         this.stateReference = requireDerivedStateReference(stateReference);
         this.status = Objects.requireNonNull(status, "status");
@@ -77,6 +82,25 @@ public final class AgentRuntimeSession {
             TeamMember ownerMember,
             Principal ownerUser,
             PersonalAgentInitialization personalAgent,
+            UtcTimestamp occurredAt) {
+        return initializePersonal(
+                conversation,
+                workspace,
+                ownerMember,
+                ownerUser,
+                personalAgent,
+                Optional.empty(),
+                occurredAt);
+    }
+
+    /** Creates a new M5 Session with the current configuration pinned when one exists. */
+    public static AgentRuntimeSession initializePersonal(
+            Conversation conversation,
+            Workspace workspace,
+            TeamMember ownerMember,
+            Principal ownerUser,
+            PersonalAgentInitialization personalAgent,
+            Optional<AgentConfigurationVersion> configuration,
             UtcTimestamp occurredAt) {
         BindingFacts facts = BindingFacts.resolve(
                 conversation, workspace, ownerMember, ownerUser, personalAgent, true);
@@ -99,6 +123,8 @@ public final class AgentRuntimeSession {
                 facts.personalAgent().agentPrincipal().id(),
                 facts.personalAgent().agentProfile().id(),
                 facts.personalAgent().agentProfile().version(),
+                Optional.of(AgentRuntimeConfigurationPin.from(
+                        facts.personalAgent().agentProfile(), configuration)),
                 key,
                 AgentRuntimeStateReference.forSession(id),
                 AgentRuntimeSessionStatus.ACTIVE,
@@ -130,6 +156,40 @@ public final class AgentRuntimeSession {
                 personalAgentPrincipalId,
                 agentProfileId,
                 agentProfileVersion,
+                Optional.empty(),
+                agentScopeKey,
+                stateReference,
+                status,
+                version,
+                audit);
+    }
+
+    /** Reconstitutes the V20 identity/configuration projection, retaining legacy-null rows. */
+    public static AgentRuntimeSession reconstitute(
+            AgentRuntimeSessionId id,
+            ConversationScope scope,
+            ConversationId conversationId,
+            TeamMemberId ownerMemberId,
+            PrincipalId ownerPrincipalId,
+            PrincipalId personalAgentPrincipalId,
+            AgentProfileId agentProfileId,
+            long agentProfileVersion,
+            Optional<AgentRuntimeConfigurationPin> configurationPin,
+            AgentScopeSessionKey agentScopeKey,
+            AgentRuntimeStateReference stateReference,
+            AgentRuntimeSessionStatus status,
+            long version,
+            AuditMetadata audit) {
+        return new AgentRuntimeSession(
+                id,
+                scope,
+                conversationId,
+                ownerMemberId,
+                ownerPrincipalId,
+                personalAgentPrincipalId,
+                agentProfileId,
+                agentProfileVersion,
+                configurationPin,
                 agentScopeKey,
                 stateReference,
                 status,
@@ -158,6 +218,14 @@ public final class AgentRuntimeSession {
                 || !personalAgentPrincipalId.equals(facts.personalAgent().agentPrincipal().id())
                 || !agentProfileId.equals(facts.personalAgent().agentProfile().id())
                 || agentProfileVersion > facts.personalAgent().agentProfile().version()
+                || configurationPin.filter(pin ->
+                                pin.ownershipType()
+                                                != facts.personalAgent().agentProfile().ownership().type()
+                                        || pin.runtimeRole()
+                                                != facts.personalAgent().agentProfile().runtimeRole()
+                                        || !pin.templateVersion().equals(
+                                                facts.personalAgent().agentProfile().templateVersion()))
+                        .isPresent()
                 || (status == AgentRuntimeSessionStatus.ARCHIVED
                         && facts.conversation().status() != ConversationStatus.ARCHIVED)) {
             throw new DomainValidationException(
@@ -175,6 +243,7 @@ public final class AgentRuntimeSession {
         PrincipalId actorId = requireActor(actor);
         return copy(
                 agentProfileVersion,
+                configurationPin,
                 AgentRuntimeSessionStatus.DISABLED,
                 version + 1,
                 audit.modifiedBy(actorId, occurredAt));
@@ -196,6 +265,7 @@ public final class AgentRuntimeSession {
         PrincipalId actorId = requireActor(actor);
         return copy(
                 personalAgent.agentProfile().version(),
+                configurationPin,
                 AgentRuntimeSessionStatus.ACTIVE,
                 version + 1,
                 audit.modifiedBy(actorId, occurredAt));
@@ -223,6 +293,35 @@ public final class AgentRuntimeSession {
         PrincipalId actorId = requireActor(actor);
         return copy(
                 currentProfileVersion,
+                configurationPin,
+                AgentRuntimeSessionStatus.ACTIVE,
+                version + 1,
+                audit.modifiedBy(actorId, occurredAt));
+    }
+
+    /** Advances only the pinned append-only configuration at an externally verified safe point. */
+    public AgentRuntimeSession refreshConfigurationVersion(
+            long expectedVersion,
+            Conversation conversation,
+            Workspace workspace,
+            TeamMember ownerMember,
+            Principal ownerUser,
+            PersonalAgentInitialization personalAgent,
+            AgentConfigurationVersion configuration,
+            Principal actor,
+            UtcTimestamp occurredAt) {
+        requireExpectedVersion(expectedVersion);
+        ensureStatus(AgentRuntimeSessionStatus.ACTIVE, AgentRuntimeSessionStatus.ACTIVE);
+        requireBinding(conversation, workspace, ownerMember, ownerUser, personalAgent);
+        AgentRuntimeConfigurationPin current = configurationPin.orElseGet(() ->
+                AgentRuntimeConfigurationPin.from(
+                        personalAgent.agentProfile(), Optional.empty()));
+        AgentRuntimeConfigurationPin refreshed = current.refresh(
+                personalAgent.agentProfile(), configuration);
+        PrincipalId actorId = requireActor(actor);
+        return copy(
+                personalAgent.agentProfile().version(),
+                Optional.of(refreshed),
                 AgentRuntimeSessionStatus.ACTIVE,
                 version + 1,
                 audit.modifiedBy(actorId, occurredAt));
@@ -250,6 +349,7 @@ public final class AgentRuntimeSession {
         PrincipalId actorId = requireActor(actor);
         return copy(
                 agentProfileVersion,
+                configurationPin,
                 AgentRuntimeSessionStatus.ARCHIVED,
                 version + 1,
                 audit.modifiedBy(actorId, occurredAt));
@@ -291,6 +391,10 @@ public final class AgentRuntimeSession {
         return agentProfileVersion;
     }
 
+    public Optional<AgentRuntimeConfigurationPin> configurationPin() {
+        return configurationPin;
+    }
+
     public AgentScopeSessionKey agentScopeKey() {
         return agentScopeKey;
     }
@@ -313,6 +417,7 @@ public final class AgentRuntimeSession {
 
     private AgentRuntimeSession copy(
             long targetProfileVersion,
+            Optional<AgentRuntimeConfigurationPin> targetConfigurationPin,
             AgentRuntimeSessionStatus targetStatus,
             long targetVersion,
             AuditMetadata targetAudit) {
@@ -325,6 +430,7 @@ public final class AgentRuntimeSession {
                 personalAgentPrincipalId,
                 agentProfileId,
                 targetProfileVersion,
+                targetConfigurationPin,
                 agentScopeKey,
                 stateReference,
                 targetStatus,

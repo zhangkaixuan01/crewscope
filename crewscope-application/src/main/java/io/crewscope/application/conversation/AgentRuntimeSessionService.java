@@ -2,6 +2,7 @@ package io.crewscope.application.conversation;
 
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
+import io.crewscope.domain.agent.AgentConfigurationVersion;
 import io.crewscope.domain.conversation.Conversation;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -9,6 +10,7 @@ import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.workspace.PersonalAgentInitialization;
 import io.crewscope.domain.workspace.Workspace;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Idempotently establishes the trusted Conversation-to-AgentScope runtime binding. */
 public final class AgentRuntimeSessionService {
@@ -34,6 +36,23 @@ public final class AgentRuntimeSessionService {
             TeamMember ownerMember,
             Principal ownerUser,
             PersonalAgentInitialization personalAgent) {
+        return ensurePersonal(
+                conversation,
+                workspace,
+                ownerMember,
+                ownerUser,
+                personalAgent,
+                Optional.empty());
+    }
+
+    /** Initializes a new M5 Session with the current configuration while preserving old callers. */
+    public AgentRuntimeSession ensurePersonal(
+            Conversation conversation,
+            Workspace workspace,
+            TeamMember ownerMember,
+            Principal ownerUser,
+            PersonalAgentInitialization personalAgent,
+            Optional<AgentConfigurationVersion> configuration) {
         Conversation requiredConversation = Objects.requireNonNull(
                 conversation, "conversation");
         Workspace requiredWorkspace = Objects.requireNonNull(workspace, "workspace");
@@ -41,6 +60,8 @@ public final class AgentRuntimeSessionService {
         Principal requiredOwner = Objects.requireNonNull(ownerUser, "ownerUser");
         PersonalAgentInitialization requiredAgent = Objects.requireNonNull(
                 personalAgent, "personalAgent");
+        Optional<AgentConfigurationVersion> requiredConfiguration = Objects.requireNonNull(
+                configuration, "configuration");
         return transactionExecutor.required(() -> {
             AgentRuntimeSession candidate = AgentRuntimeSession.initializePersonal(
                     requiredConversation,
@@ -48,6 +69,7 @@ public final class AgentRuntimeSessionService {
                     requiredMember,
                     requiredOwner,
                     requiredAgent,
+                    requiredConfiguration,
                     timeProvider.now());
             AgentRuntimeSession resolved = Objects.requireNonNull(
                     repository.initializeIfAbsent(candidate),

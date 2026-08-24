@@ -5,18 +5,20 @@ import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
+import io.crewscope.domain.conversation.AgentRuntimeConfigurationPin;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-/** Creates and reuses one safely configured HarnessAgent for each pinned AgentProfile version. */
+/** Creates and reuses one safely configured HarnessAgent for each pinned runtime configuration. */
 public final class PersonalAgentFactory implements AutoCloseable {
 
     private final PersonalAgentConfigurationSource configurationSource;
@@ -25,7 +27,8 @@ public final class PersonalAgentFactory implements AutoCloseable {
     private final Supplier<Toolkit> toolkitFactory;
     private final Path runtimeRoot;
     private final java.util.List<io.agentscope.core.middleware.MiddlewareBase> middlewares;
-    private final ConcurrentMap<ProfileVersion, HarnessAgent> agents = new ConcurrentHashMap<>();
+    private final ConcurrentMap<RuntimeConfigurationKey, HarnessAgent> agents =
+            new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     PersonalAgentFactory(
@@ -82,8 +85,10 @@ public final class PersonalAgentFactory implements AutoCloseable {
         if (closed.get()) {
             throw new IllegalStateException("PersonalAgentFactory is closed");
         }
-        ProfileVersion key = new ProfileVersion(
-                required.agentProfileId(), required.agentProfileVersion());
+        RuntimeConfigurationKey key = new RuntimeConfigurationKey(
+                required.agentProfileId(),
+                required.agentProfileVersion(),
+                required.configurationPin());
         return agents.computeIfAbsent(key, this::createAgent);
     }
 
@@ -91,7 +96,7 @@ public final class PersonalAgentFactory implements AutoCloseable {
         return agents.size();
     }
 
-    private HarnessAgent createAgent(ProfileVersion key) {
+    private HarnessAgent createAgent(RuntimeConfigurationKey key) {
         AgentScopePersonalAgentConfiguration configuration = Objects.requireNonNull(
                 configurationSource.load(key.agentProfileId(), key.version()),
                 "configurationSource result");
@@ -108,7 +113,8 @@ public final class PersonalAgentFactory implements AutoCloseable {
         String stableName = "crewscope-personal-"
                 + key.agentProfileId()
                 + "-v"
-                + key.version();
+                + key.version()
+                + key.configurationSuffix();
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .name(stableName)
@@ -147,9 +153,12 @@ public final class PersonalAgentFactory implements AutoCloseable {
         return new ObservableAgentScopeModel(resolved, role);
     }
 
-    private Path createWorkspace(ProfileVersion key) {
+    private Path createWorkspace(RuntimeConfigurationKey key) {
         Path workspace = runtimeRoot.resolve(
-                key.agentProfileId() + "-v" + key.version()).normalize();
+                key.agentProfileId()
+                        + "-v"
+                        + key.version()
+                        + key.configurationSuffix()).normalize();
         if (!workspace.startsWith(runtimeRoot)) {
             throw new IllegalStateException("Personal Agent workspace escaped the runtime root");
         }
@@ -183,12 +192,23 @@ public final class PersonalAgentFactory implements AutoCloseable {
         }
     }
 
-    private record ProfileVersion(AgentProfileId agentProfileId, long version) {
-        private ProfileVersion {
+    private record RuntimeConfigurationKey(
+            AgentProfileId agentProfileId,
+            long version,
+            Optional<AgentRuntimeConfigurationPin> configurationPin) {
+        private RuntimeConfigurationKey {
             agentProfileId = Objects.requireNonNull(agentProfileId, "agentProfileId");
             if (version < 0) {
                 throw new IllegalArgumentException("version must not be negative");
             }
+            configurationPin = Objects.requireNonNull(configurationPin, "configurationPin");
+        }
+
+        private String configurationSuffix() {
+            return configurationPin
+                    .flatMap(AgentRuntimeConfigurationPin::configurationRevision)
+                    .map(revision -> "-c" + revision.value())
+                    .orElse("-legacy");
         }
     }
 }

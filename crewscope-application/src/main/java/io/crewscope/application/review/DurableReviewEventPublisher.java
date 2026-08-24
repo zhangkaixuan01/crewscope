@@ -16,6 +16,9 @@ import io.crewscope.domain.review.event.ReviewFindingDuplicateObserved;
 import io.crewscope.domain.review.event.ReviewFindingRecorded;
 import io.crewscope.domain.review.event.ReviewModificationRoundStarted;
 import io.crewscope.domain.review.event.ReviewRequestInvalidated;
+import io.crewscope.domain.review.event.ReviewRequestCompleted;
+import io.crewscope.domain.review.event.ReviewRequestCreated;
+import io.crewscope.domain.review.event.ReviewRequestStarted;
 import io.crewscope.domain.shared.DomainEvent;
 import io.crewscope.domain.shared.event.AggregateReference;
 import io.crewscope.domain.shared.event.DomainEventEnvelope;
@@ -50,6 +53,30 @@ public final class DurableReviewEventPublisher implements ReviewEventPublisher {
         this.taskEvents = Objects.requireNonNull(taskEvents, "taskEvents");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
+    }
+
+    @Override
+    public UUID requestCreated(ReviewRequest request, EventActor actor, UUID correlationId) {
+        ReviewRequest value = Objects.requireNonNull(request, "request");
+        return appendRequest(
+                "REVIEW_REQUEST_CREATED", value, 0, value.audit().createdAt(), actor,
+                correlationId, ReviewRequestCreated.from(value));
+    }
+
+    @Override
+    public UUID requestStarted(ReviewRequest request, EventActor actor, UUID correlationId) {
+        ReviewRequest value = Objects.requireNonNull(request, "request");
+        return appendRequest(
+                "REVIEW_REQUEST_STARTED", value, value.version(), value.audit().updatedAt(), actor,
+                correlationId, ReviewRequestStarted.from(value));
+    }
+
+    @Override
+    public UUID requestCompleted(ReviewRequest request, EventActor actor, UUID correlationId) {
+        ReviewRequest value = Objects.requireNonNull(request, "request");
+        return appendRequest(
+                "REVIEW_REQUEST_COMPLETED", value, value.version(), value.audit().updatedAt(), actor,
+                correlationId, ReviewRequestCompleted.from(value));
     }
 
     @Override
@@ -93,9 +120,9 @@ public final class DurableReviewEventPublisher implements ReviewEventPublisher {
     }
 
     @Override
-    public void decisionRecorded(ReviewDecision decision, EventActor actor, UUID correlationId) {
+    public UUID decisionRecorded(ReviewDecision decision, EventActor actor, UUID correlationId) {
         ReviewDecision value = Objects.requireNonNull(decision, "decision");
-        append(
+        return append(
                 "REVIEW_DECISION_RECORDED",
                 "REVIEW_DECISION_CHAIN",
                 value.reviewRequest().id().value(),
@@ -150,7 +177,31 @@ public final class DurableReviewEventPublisher implements ReviewEventPublisher {
                 ReviewRequestInvalidated.from(value));
     }
 
-    private void append(
+    private UUID appendRequest(
+            String eventType,
+            ReviewRequest request,
+            long aggregateVersion,
+            UtcTimestamp occurredAt,
+            EventActor actor,
+            UUID correlationId,
+            DomainEvent payload) {
+        return append(
+                eventType,
+                "REVIEW_REQUEST",
+                request.id().value(),
+                aggregateVersion,
+                request.scope().organizationId(),
+                request.scope().teamId(),
+                request.scope().workspaceId(),
+                request.taskId(),
+                request.taskExecutionId(),
+                occurredAt,
+                actor,
+                correlationId,
+                payload);
+    }
+
+    private UUID append(
             String eventType,
             String aggregateType,
             UUID aggregateId,
@@ -188,6 +239,7 @@ public final class DurableReviewEventPublisher implements ReviewEventPublisher {
             outbox.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), envelope));
             return null;
         });
+        return eventId;
     }
 
     private static UUID stableId(String eventType, UUID aggregateId, long aggregateVersion) {

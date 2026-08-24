@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
@@ -26,6 +27,33 @@ public class JdbcCommandReceiptStore implements CommandReceiptStore {
 
     public JdbcCommandReceiptStore(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate, "jdbcTemplate");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CommandReceipt> findCompleted(
+            OrganizationId organizationId,
+            IdempotencyKey idempotencyKey,
+            String commandType,
+            io.crewscope.application.command.CommandRequestHash requestHash) {
+        ExistingReservation existing = findOptional(
+                        Objects.requireNonNull(organizationId, "organizationId"),
+                        Objects.requireNonNull(idempotencyKey, "idempotencyKey"))
+                .orElse(null);
+        if (existing == null) {
+            return Optional.empty();
+        }
+        String requiredType = Objects.requireNonNull(commandType, "commandType");
+        String requiredHash = Objects.requireNonNull(requestHash, "requestHash").value();
+        if (!existing.commandType().equals(requiredType)
+                || !existing.requestHash().equals(requiredHash)) {
+            throw new IdempotencyConflictException(
+                    idempotencyKey.value(), existing.requestHash(), requiredHash);
+        }
+        if (existing.receipt() == null) {
+            throw new IllegalStateException("A visible command reservation must be completed");
+        }
+        return Optional.of(existing.receipt());
     }
 
     @Override
@@ -97,6 +125,13 @@ public class JdbcCommandReceiptStore implements CommandReceiptStore {
     }
 
     private ExistingReservation find(OrganizationId organizationId, IdempotencyKey key) {
+        return findOptional(organizationId, key)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Conflicting command reservation was not found"));
+    }
+
+    private Optional<ExistingReservation> findOptional(
+            OrganizationId organizationId, IdempotencyKey key) {
         List<ExistingReservation> rows = jdbcTemplate.query(
                 """
                 SELECT command_type, request_hash, command_id, domain_event_id,
@@ -107,10 +142,10 @@ public class JdbcCommandReceiptStore implements CommandReceiptStore {
                 this::mapRow,
                 organizationId.value(),
                 key.value());
-        if (rows.size() != 1) {
-            throw new IllegalStateException("Conflicting command reservation was not found");
+        if (rows.size() > 1) {
+            throw new IllegalStateException("Command reservation uniqueness was violated");
         }
-        return rows.get(0);
+        return rows.stream().findFirst();
     }
 
     private ExistingReservation mapRow(ResultSet resultSet, int rowNumber) throws SQLException {

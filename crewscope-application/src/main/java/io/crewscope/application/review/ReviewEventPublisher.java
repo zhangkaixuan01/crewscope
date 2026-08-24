@@ -11,12 +11,18 @@ import java.util.UUID;
 /** Transactional event boundary for safe Review facts, Task timeline, Outbox and Audit. */
 public interface ReviewEventPublisher {
 
+    UUID requestCreated(ReviewRequest request, EventActor actor, UUID correlationId);
+
+    UUID requestStarted(ReviewRequest request, EventActor actor, UUID correlationId);
+
+    UUID requestCompleted(ReviewRequest request, EventActor actor, UUID correlationId);
+
     void findingRecorded(ReviewFinding finding, EventActor actor, UUID correlationId);
 
     void duplicateObserved(
             ReviewFindingObservation observation, EventActor actor, UUID correlationId);
 
-    void decisionRecorded(ReviewDecision decision, EventActor actor, UUID correlationId);
+    UUID decisionRecorded(ReviewDecision decision, EventActor actor, UUID correlationId);
 
     void modificationRoundStarted(
             ReviewModificationRound round, EventActor actor, UUID correlationId);

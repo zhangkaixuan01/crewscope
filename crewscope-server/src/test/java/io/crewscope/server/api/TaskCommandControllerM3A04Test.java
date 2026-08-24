@@ -132,6 +132,25 @@ class TaskCommandControllerM3A04Test {
     }
 
     @Test
+    void retryAcceptsAnExplicitAgentConfigurationRevision() {
+        stubAllCommands();
+
+        client.post().uri(root() + "/retry")
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "task-retry-switch-configuration")
+                .header(ApiHeaders.IF_MATCH, "\"10\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"agentConfigurationRevision\":4}")
+                .exchange().expectStatus().isAccepted();
+
+        ArgumentCaptor<RetryTaskCommand> command =
+                ArgumentCaptor.forClass(RetryTaskCommand.class);
+        verify(service).retry(any(), any(), any(), any(), command.capture());
+        assertEquals(
+                4,
+                command.getValue().configurationRevision().orElseThrow().value());
+    }
+
+    @Test
     void rejectsBodiesForResumeAndRetryInsteadOfAcceptingIdentityOrScheduleFields() {
         client.post().uri(root() + "/resume")
                 .header(ApiHeaders.IDEMPOTENCY_KEY, "task-resume-forged")

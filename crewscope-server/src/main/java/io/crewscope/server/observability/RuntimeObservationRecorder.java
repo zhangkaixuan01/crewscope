@@ -45,6 +45,10 @@ public class RuntimeObservationRecorder {
                         "workspace_health",
                                 requiredSummary.codingWorkspaces()
                                         .map(value -> value.health().name().toLowerCase(Locale.ROOT))
+                                        .orElse("unavailable"),
+                        "action_health",
+                                requiredSummary.actionDelivery()
+                                        .map(value -> value.health().toLowerCase(Locale.ROOT))
                                         .orElse("unavailable"))
                 .register(registry)
                 .increment();
@@ -57,7 +61,12 @@ public class RuntimeObservationRecorder {
                 .addKeyValue("actorPrincipalId", Objects.requireNonNull(access, "access").actor().id())
                 .addKeyValue("correlationId", Objects.requireNonNull(correlationId, "correlationId"))
                 .addKeyValue("health", requiredSummary.health().name())
-                .addKeyValue("waitingRuntimeExecutions", requiredSummary.waitingRuntimeExecutions());
+                .addKeyValue("waitingRuntimeExecutions", requiredSummary.waitingRuntimeExecutions())
+                .addKeyValue(
+                        "actionDeliveryHealth",
+                        requiredSummary.actionDelivery()
+                                .map(value -> value.health())
+                                .orElse("UNAVAILABLE"));
         event.log("Runtime observation read authorized");
     }
 

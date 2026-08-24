@@ -7,7 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.command.CommandExecution;
+import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.event.PendingOutboxEvent;
@@ -177,7 +179,8 @@ class DomainEventTransactionIntegrationTest
         assertEquals(outbox.get("created_at"), outbox.get("updated_at"));
         Map<String, Object> receipt = jdbcTemplate.queryForMap(
                 """
-                SELECT command_id, domain_event_id, committed_version, correlation_id, status
+                SELECT command_id, command_type, request_hash, domain_event_id,
+                       committed_version, correlation_id, status
                 FROM crewscope.command_receipt
                 """);
         assertEquals(execution.receipt().commandId(), receipt.get("command_id"));
@@ -187,6 +190,13 @@ class DomainEventTransactionIntegrationTest
                 ((Number) receipt.get("committed_version")).longValue());
         assertEquals(execution.receipt().correlationId(), receipt.get("correlation_id"));
         assertEquals("COMPLETED", receipt.get("status"));
+        assertEquals(
+                Optional.of(execution.receipt()),
+                commandReceiptStore.findCompleted(
+                        fixture.organizationId(),
+                        IdempotencyKey.from("create-atomic-1"),
+                        (String) receipt.get("command_type"),
+                        new CommandRequestHash((String) receipt.get("request_hash"))));
     }
 
     @Test

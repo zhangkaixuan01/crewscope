@@ -34,7 +34,11 @@ public record TaskDelegatedToAgent(
         long safetyOverlayVersion,
         List<UUID> providerBindingIds,
         String taskStatus,
-        String executionStatus) implements DomainEvent {
+        String executionStatus,
+        Optional<String> agentExecutionScope,
+        Optional<Long> agentConfigurationRevision,
+        Optional<String> agentConfigurationHash,
+        Optional<String> agentModelBindingSource) implements DomainEvent {
 
     public TaskDelegatedToAgent {
         taskId = Objects.requireNonNull(taskId, "taskId");
@@ -67,6 +71,24 @@ public record TaskDelegatedToAgent(
                 providerBindingIds, "providerBindingIds"));
         taskStatus = Objects.requireNonNull(taskStatus, "taskStatus");
         executionStatus = Objects.requireNonNull(executionStatus, "executionStatus");
+        agentExecutionScope = Objects.requireNonNull(agentExecutionScope, "agentExecutionScope");
+        agentConfigurationRevision = Objects.requireNonNull(
+                agentConfigurationRevision, "agentConfigurationRevision");
+        agentConfigurationHash = Objects.requireNonNull(
+                agentConfigurationHash, "agentConfigurationHash");
+        agentModelBindingSource = Objects.requireNonNull(
+                agentModelBindingSource, "agentModelBindingSource");
+        long configuredFields = java.util.stream.Stream.of(
+                        agentExecutionScope,
+                        agentConfigurationRevision,
+                        agentConfigurationHash,
+                        agentModelBindingSource)
+                .filter(Optional::isPresent)
+                .count();
+        if (configuredFields != 0 && configuredFields != 4) {
+            throw new IllegalArgumentException(
+                    "Agent execution configuration audit fields must be present together");
+        }
     }
 
     public static TaskDelegatedToAgent from(
@@ -102,6 +124,14 @@ public record TaskDelegatedToAgent(
                         .sorted()
                         .toList(),
                 requiredTask.status().name(),
-                execution.status().name());
+                execution.status().name(),
+                requiredPolicy.agentExecutionConfiguration()
+                        .map(value -> value.executionScope().name()),
+                requiredPolicy.agentExecutionConfiguration()
+                        .map(value -> value.configurationRevision().value()),
+                requiredPolicy.agentExecutionConfiguration()
+                        .map(value -> value.configurationHash().toString()),
+                requiredPolicy.agentExecutionConfiguration()
+                        .map(value -> value.bindingSource().name()));
     }
 }

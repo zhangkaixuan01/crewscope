@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.agentscope.core.state.AgentStateStore;
+import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -112,6 +113,9 @@ class ApplicationCompositionConfigurationTest {
           .withBean(TeamRoleRepository.class, () -> mock(TeamRoleRepository.class))
           .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))
           .withBean(AgentProfileRepository.class, () -> mock(AgentProfileRepository.class))
+          .withBean(
+              AgentConfigurationRepository.class,
+              () -> mock(AgentConfigurationRepository.class))
           .withBean(ConversationRepository.class, () -> mock(ConversationRepository.class))
           .withBean(
               ConversationParticipantRepository.class,

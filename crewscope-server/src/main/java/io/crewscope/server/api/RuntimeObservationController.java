@@ -10,6 +10,7 @@ import io.crewscope.application.runtime.CodingCleanupSummary;
 import io.crewscope.application.runtime.CodingRuntimeComponentSummary;
 import io.crewscope.application.runtime.CodingRuntimeSnapshot;
 import io.crewscope.application.runtime.CodingWorkspaceFleetSummary;
+import io.crewscope.application.runtime.ActionDeliveryFleetSummary;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.runtime.ExecutionRuntime;
 import io.crewscope.domain.runtime.RuntimeCapabilities;
@@ -184,7 +185,8 @@ public final class RuntimeObservationController {
             RuntimeCapacityResponse capacity,
             int waitingRuntimeExecutions,
             List<RuntimeWaitCauseResponse> waitingCauses,
-            CodingWorkspaceFleetResponse codingWorkspaces) {
+            CodingWorkspaceFleetResponse codingWorkspaces,
+            ActionDeliveryFleetResponse actionDelivery) {
 
         static RuntimeFleetSummaryResponse from(RuntimeFleetSummary value) {
             return new RuntimeFleetSummaryResponse(
@@ -205,7 +207,32 @@ public final class RuntimeObservationController {
                             .toList(),
                     value.codingWorkspaces()
                             .map(CodingWorkspaceFleetResponse::from)
+                            .orElse(null),
+                    value.actionDelivery()
+                            .map(ActionDeliveryFleetResponse::from)
                             .orElse(null));
+        }
+    }
+
+    /** Low-cardinality queue state; no Action, Worker, Lease or Provider identity is exposed. */
+    public record ActionDeliveryFleetResponse(
+            String health,
+            long running,
+            long unknown,
+            long reconciling,
+            long manualReview,
+            long oldestUnresolvedAgeSeconds,
+            boolean stale) {
+
+        static ActionDeliveryFleetResponse from(ActionDeliveryFleetSummary value) {
+            return new ActionDeliveryFleetResponse(
+                    value.health(),
+                    value.running(),
+                    value.unknown(),
+                    value.reconciling(),
+                    value.manualReview(),
+                    value.oldestUnresolvedAgeSeconds(),
+                    value.stale());
         }
     }
 

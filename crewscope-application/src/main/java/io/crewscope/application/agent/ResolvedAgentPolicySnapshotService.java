@@ -22,6 +22,21 @@ public final class ResolvedAgentPolicySnapshotService {
         CreateResolvedPolicySnapshotRequest required = Objects.requireNonNull(request, "request");
         ResolvedAgentExecutionConfiguration resolved = configurations.resolve(
                 required.resolutionRequest());
+        return createInitial(required, resolved);
+    }
+
+    /** Persists a configuration already preflighted by the Task selection boundary. */
+    public PolicySnapshot createInitial(
+            CreateResolvedPolicySnapshotRequest request,
+            ResolvedAgentExecutionConfiguration resolvedConfiguration) {
+        CreateResolvedPolicySnapshotRequest required = Objects.requireNonNull(request, "request");
+        ResolvedAgentExecutionConfiguration resolved = Objects.requireNonNull(
+                resolvedConfiguration, "resolvedConfiguration");
+        if (!required.resolutionRequest().agentProfileId().equals(resolved.agentProfileId())
+                || !required.executor().id().equals(resolved.agentPrincipalId())) {
+            throw new IllegalArgumentException(
+                    "PolicySnapshot request and resolved configuration must share an Agent");
+        }
         PolicySnapshot snapshot = PolicySnapshot.initialV2(
                 required.snapshotId(),
                 required.task(),

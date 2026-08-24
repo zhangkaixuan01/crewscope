@@ -14,6 +14,7 @@ import io.crewscope.application.review.ReviewFindingBatchResult;
 import io.crewscope.application.review.output.ReviewFindingListV1;
 import io.crewscope.application.review.output.ReviewerStructuredOutputSpecs;
 import io.crewscope.domain.shared.error.DomainValidationException;
+import io.crewscope.domain.review.ReviewFindingCandidate;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -49,6 +50,18 @@ public final class ReviewerSpecialistRuntime {
 
     public Mono<ReviewFindingBatchResult> review(ReviewerSpecialistRequest request) {
         ReviewerSpecialistRequest required = Objects.requireNonNull(request, "request");
+        return analyze(required).map(candidates -> recorder.record(
+                required.reviewRequest(),
+                required.contextPackage(),
+                candidates,
+                required.expectedRequestVersion(),
+                required.reviewerAgent(),
+                required.observedAt()));
+    }
+
+    /** Returns decoded candidates so the application layer can own the completion transaction. */
+    public Mono<List<ReviewFindingCandidate>> analyze(ReviewerSpecialistRequest request) {
+        ReviewerSpecialistRequest required = Objects.requireNonNull(request, "request");
         JsonNode schema = schema();
         RuntimeContext context = RuntimeContext.builder()
                 .userId(required.agentBuild().identity().agentScopeKey().userId())
@@ -63,7 +76,7 @@ public final class ReviewerSpecialistRuntime {
                 .onErrorMap(TimeoutException.class, SafeModelFailures::sanitize);
     }
 
-    private Mono<ReviewFindingBatchResult> call(
+    private Mono<List<ReviewFindingCandidate>> call(
             HarnessAgent agent,
             ReviewerSpecialistRequest request,
             JsonNode schema,
@@ -73,14 +86,7 @@ public final class ReviewerSpecialistRuntime {
                         schema,
                         runtimeContext)
                 .onErrorMap(ReviewerSpecialistRuntime::sanitizeModelFailure)
-                .map(message -> decode(message).toCandidates())
-                .map(candidates -> recorder.record(
-                        request.reviewRequest(),
-                        request.contextPackage(),
-                        candidates,
-                        request.expectedRequestVersion(),
-                        request.reviewerAgent(),
-                        request.observedAt()));
+                .map(message -> decode(message).toCandidates());
     }
 
     private static ReviewFindingListV1 decode(Msg message) {

@@ -9,6 +9,7 @@ import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamMemberStatus;
 import io.crewscope.domain.workspace.AgentProfile;
@@ -201,6 +202,56 @@ public class JpaAgentProfileRepositoryAdapter
                         """,
                         AgentProfileEntity.class)
                 .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setFirstResult(offset)
+                .setMaxResults(limit)
+                .getResultList().stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentProfile> findVisibleToMember(
+            OrganizationId organizationId,
+            TeamId teamId,
+            TeamMemberId memberId,
+            int offset,
+            int limit) {
+        requirePage(offset, limit);
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId AND value.teamId = :teamId
+                          AND (value.ownerMemberId = :memberId OR value.ownershipType = 'TEAM')
+                        ORDER BY value.updatedAt DESC, value.id DESC
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("memberId", Objects.requireNonNull(memberId).value())
+                .setFirstResult(offset)
+                .setMaxResults(limit)
+                .getResultList().stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentProfile> findByTeam(
+            OrganizationId organizationId, TeamId teamId, int offset, int limit) {
+        requirePage(offset, limit);
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId AND value.teamId = :teamId
+                        ORDER BY value.updatedAt DESC, value.id DESC
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
                 .setFirstResult(offset)
                 .setMaxResults(limit)
                 .getResultList().stream()
