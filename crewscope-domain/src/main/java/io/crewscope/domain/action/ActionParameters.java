@@ -1,8 +1,10 @@
 package io.crewscope.domain.action;
 
-/** Closed, typed parameter contract for every M5 action kind. */
+/** Closed, typed parameter contract for every externally observable action kind. */
 public sealed interface ActionParameters
-        permits PushBranchActionParameters, CreateDraftPullRequestActionParameters {
+        permits PushBranchActionParameters,
+                CreateDraftPullRequestActionParameters,
+                NotifyCollaborationActionParameters {
 
     ActionKind kind();
 

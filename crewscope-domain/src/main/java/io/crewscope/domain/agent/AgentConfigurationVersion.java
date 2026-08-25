@@ -418,12 +418,14 @@ public final class AgentConfigurationVersion {
                     "agentConfiguration.templateVersion",
                     "must match the Profile and template Organization");
         }
+        // Disabled built-in Agents must be configurable before their explicit activation gate.
+        // Archived Profiles and inactive templates remain immutable historical facts.
         if (requireActiveFacts
-                && (profile.status() != AgentProfileStatus.ACTIVE
+                && (profile.status() == AgentProfileStatus.ARCHIVED
                         || template.status() != AgentTemplateStatus.ACTIVE)) {
             throw new DomainValidationException(
                     "agentConfiguration.status",
-                    "Profile and Agent template must both be ACTIVE");
+                    "Profile must not be ARCHIVED and Agent template must be ACTIVE");
         }
     }
 

@@ -50,6 +50,7 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamInitialization;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import java.util.List;
 import java.util.Optional;
@@ -227,6 +228,43 @@ class AgentManagementApplicationServiceM5A02Test {
                 20);
 
         assertEquals(List.of(coding), result);
+    }
+
+    @Test
+    void hidesBuiltInTeamObserverAndRejectsGenericCreationByTemplateVersion() {
+        AgentTemplateDefinition observer =
+                TeamObserverTemplate.create(organizationId, actor.id(), NOW);
+        when(templates.findLatestActivePage(
+                        AgentTemplatePublisherScope.organization(organizationId), 0, 20))
+                .thenReturn(List.of(coding, observer));
+        when(templates.findLatestActivePage(
+                        AgentTemplatePublisherScope.team(
+                                organizationId, initialization.team().id()), 0, 20))
+                .thenReturn(List.of());
+        when(templates.findByVersion(observer.publisherScope(), observer.templateVersion()))
+                .thenReturn(Optional.of(observer));
+
+        List<AgentTemplateDefinition> catalog = service.listTemplates(
+                access(),
+                organizationId,
+                initialization.team().id(),
+                AgentOwnershipType.TEAM,
+                0,
+                20);
+        CreateAgentRequest request = new CreateAgentRequest(
+                AgentOwnershipType.TEAM,
+                observer.publisherScope(),
+                observer.templateVersion(),
+                "Duplicate Team Observer");
+
+        assertEquals(List.of(coding), catalog);
+        assertThrows(
+                DomainValidationException.class,
+                () -> service.create(
+                        context("m6-d05-observer-create"),
+                        initialization.team().id(),
+                        request));
+        verify(instances, never()).create(any());
     }
 
     @Test

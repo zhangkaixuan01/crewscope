@@ -1,7 +1,8 @@
 package io.crewscope.domain.action;
 
-/** M5 source-delivery write operations with separate execution and reconciliation semantics. */
+/** Shared external action vocabulary with explicit delivery-boundary enforcement. */
 public enum ActionKind {
     PUSH_BRANCH,
-    CREATE_DRAFT_PR
+    CREATE_DRAFT_PR,
+    NOTIFY_COLLABORATION
 }

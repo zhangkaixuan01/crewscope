@@ -265,6 +265,11 @@ public final class ActionBundle {
         for (int index = 0; index < required.size(); index++) {
             PlannedAction action = Objects.requireNonNull(required.get(index), "plannedAction");
             int expectedSequence = index + 1;
+            if (action.kind() == ActionKind.NOTIFY_COLLABORATION) {
+                throw new DomainValidationException(
+                        "actionBundle.actions",
+                        "NOTIFY_COLLABORATION uses the policy-preauthorized notification contract");
+            }
             if (action.sequence() != expectedSequence
                     || !action.authority().equals(authority)
                     || !ids.add(action.id())) {

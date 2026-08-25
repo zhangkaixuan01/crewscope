@@ -212,6 +212,8 @@ public final class ActionReconciliationWorker {
             return switch (claimed.action().kind()) {
                 case PUSH_BRANCH -> reconcilePush(claimed, facts);
                 case CREATE_DRAFT_PR -> reconcilePullRequest(claimed, facts);
+                case NOTIFY_COLLABORATION -> throw new IllegalStateException(
+                        "M5 Action reconciliation cannot inspect collaboration notifications");
             };
         } catch (GitHubPushException
                 | GitHubDraftPullRequestException

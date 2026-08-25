@@ -52,6 +52,7 @@ import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.AgentProfileStatus;
@@ -188,6 +189,11 @@ public final class AgentManagementApplicationService {
                     .orElseThrow(() -> new DomainValidationException(
                             "agentTemplate", "the exact approved template version was not found"));
             template.requireInstantiable(ownership);
+            if (TeamObserverTemplate.isTemplateVersion(template.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Team Observer is provisioned only by Team initialization");
+            }
             if (template.runtimeRole() == AgentRuntimeRole.PERSONAL_ASSISTANT) {
                 throw new DomainValidationException(
                         "agentProfile.runtimeRole",
@@ -325,6 +331,11 @@ public final class AgentManagementApplicationService {
                 throw new DomainValidationException(
                         "agentProfile.defaultProfile",
                         "the TeamMember default Personal Agent lifecycle is platform-managed");
+            }
+            if (TeamObserverTemplate.isTemplateVersion(current.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Team Observer lifecycle uses its configuration Preflight gate");
             }
             if (current.version() != expectedVersion) {
                 throw new OptimisticLockConflictException(
@@ -546,7 +557,8 @@ public final class AgentManagementApplicationService {
             AgentTemplateDefinition template, AgentOwnership ownership) {
         try {
             template.requireInstantiable(ownership);
-            return template.runtimeRole() != AgentRuntimeRole.PERSONAL_ASSISTANT;
+            return template.runtimeRole() != AgentRuntimeRole.PERSONAL_ASSISTANT
+                    && !TeamObserverTemplate.isTemplateVersion(template.templateVersion());
         } catch (DomainValidationException denied) {
             return false;
         }

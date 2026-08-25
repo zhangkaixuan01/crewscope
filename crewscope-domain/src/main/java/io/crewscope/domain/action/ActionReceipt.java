@@ -292,11 +292,19 @@ public final class ActionReceipt {
 
     static void requireExternalShape(
             PlannedAction action, Optional<ExternalResultIdentity> identity) {
+        if (action.kind() == ActionKind.NOTIFY_COLLABORATION) {
+            throw new DomainValidationException(
+                    "actionReceipt.actionKind",
+                    "NOTIFY_COLLABORATION is owned by the notification delivery contract");
+        }
         Optional<ExternalResultIdentity> required = Objects.requireNonNull(identity, "externalIdentity");
         required.ifPresent(value -> {
             ExternalObjectType expectedType = switch (action.kind()) {
                 case PUSH_BRANCH -> ExternalObjectType.BRANCH;
                 case CREATE_DRAFT_PR -> ExternalObjectType.PULL_REQUEST;
+                case NOTIFY_COLLABORATION -> throw new DomainValidationException(
+                        "actionReceipt.actionKind",
+                        "NOTIFY_COLLABORATION is owned by the notification delivery contract");
             };
             ConnectionId expectedConnection;
             if (action.parameters() instanceof PushBranchActionParameters push) {

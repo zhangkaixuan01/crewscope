@@ -196,6 +196,8 @@ public final class ActionWorker {
         return switch (claimed.action().kind()) {
             case PUSH_BRANCH -> executePush(claimed);
             case CREATE_DRAFT_PR -> executePullRequest(claimed);
+            case NOTIFY_COLLABORATION -> throw new IllegalStateException(
+                    "M5 Action Worker cannot execute collaboration notifications");
         };
     }
 
