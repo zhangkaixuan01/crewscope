@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.0<br>
+> 文档版本：v5.1<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -1179,6 +1179,24 @@ Outbox 状态为 `PENDING`、`CLAIMED`、`DELIVERED` 和 `DEAD_LETTER`。发布�
 Projection Runner 以 `organizationId + projectionName + partitionKey` 锁定持久化 Checkpoint。新分区从 Aggregate Version 0 开始；一次聚合提交产生多个 DomainEvent 时，同版本事件继续按 OccurredAt 和 Event ID 推进，下一聚合版本为当前版本加一。过期重放不产生副作用，版本缺口使整个消费事务回滚。Consumer Receipt、AuditEvent 和 Checkpoint 在同一事务提交，进程重启后从数据库 Checkpoint 继续。
 
 DomainEvent 是业务变化事实，ActivityEvent 是团队可读投影，AuditEvent 是安全治理投影，NotificationDelivery 是面向成员的投递记录。投影失败通过 Outbox 重试和游标补偿恢复。
+
+M6 将投影重建收紧为影子 Generation：新代际先登记为实时消费者，再从规范 DomainEvent 全量构建，完成数量、规范 SHA-256、版本缺口和抽样校验后原子切换。现有 Outbox 没有全局单调重放高水位，历史重放不使用时间戳截断。失败或取消保持在线代际，Generation Fencing Token 拒绝旧 Worker 迟到写入。Activity Cursor 绑定 Organization、Team、Generation、投影版本和过滤条件；切换后旧 Cursor 明确过期。Inbox 来源是否仍需处理属于可重建投影，成员 `READ/ACTED/ARCHIVED` 属于独立权威处置事实，重建不能清除成员状态。完整投影契约与验证见 [ADR-020](adr/ADR-020-投影代际重建与游标协议.md) 和 [M6-S01 验证记录](spikes/M6-S01-投影代际与影子重建验证记录.md)。
+
+Team Event、Conversation Event 与 AG-UI 使用独立恢复坐标。Team Event 使用绑定 Projection Generation、Filter Fingerprint 和 Team Sequence 的签名 Cursor，Conversation Event 使用绑定 Conversation Position/Event ID 的耐久 Cursor，AG-UI 使用 Invocation Segment、Idempotency Key 和流内 Event ID 重放。Team Generation 过期只替换 Team 快照，Scope Epoch 拒绝旧 Team 迟到帧。合并 Conversation 工作面按 DomainEvent ID 去重耐久事实，使用 `occurredAt + eventId` 形成稳定展示顺序，不声明跨流全局事务顺序。完整三流契约与验证见 [ADR-021](adr/ADR-021-三流恢复与前端合并协议.md)、[M6-S02 验证记录](spikes/M6-S02-三流Cursor与Scope恢复验证记录.md) 和 [M6 执行清单](plans/M6-团队观测与MVP发布.md)。
+
+M6 的飞书通知只允许版本化固定模板和结构化变量白名单。Inbox 使用可重建的来源投影和独立权威的成员处置：来源坐标由 Organization、Member、ItemType、SourceType、Source ID 和 Source Revision 组成，影子重建恢复相同 InboxItem 身份并保留成员 `READ/ACTED/ARCHIVED`；责任释放、Review 被替代、Confirmation 终结和异常恢复通过新事实关闭旧来源并保留 CloseReason 与历史。
+
+每次自动投递形成 `NOTIFY_COLLABORATION` PlannedAction。`POLICY_PREAUTHORIZED` Authorization Snapshot 和 Action Digest 精确绑定通知来源 Revision、Template ID/Version、规范变量 Hash、Recipient Mapping ID/Version、ProviderBinding ID/Version、Connection/Grant ID/Version、Team Policy Version、成员 Preference Version 和去重键。任一事实变化都会生成新 Digest 并使旧 Dispatch 失效；相同来源和相同事实的重复投影、Outbox 重放与调度只产生一个自动逻辑投递和一个不可变 Receipt。任意正文、未知变量、原始 DomainEvent Payload 和 Agent 自由输出均不能作为消息正文。
+
+通知最终失败后进入失败 Inbox。成员使用新的幂等 Command ID 发起再次投递，平台按当前授权事实创建带 `redeliveryOf` 的新 PlannedAction、Dispatch、Attempt 与 Receipt；相同 Command ID 收敛到同一新动作，原失败 Receipt 保持不可变。`POLICY_PREAUTHORIZED` 只适用于固定模板 `NOTIFY_COLLABORATION`；GitHub Push、Draft PR 和其他 M5 Action 继续要求成员 Gate 与精确 Confirmation。
+
+Lark Connector 使用固定 `https://open.feishu.cn` Endpoint 和企业自建应用 Tenant Access Token。Token Cache Key 闭合 Organization、Connection/Grant ID 与 Version、Credential ID/Version 和预期 Tenant Key，保留 60 秒到期安全余量；401 只刷新精确 Cache Entry 一次，每次调用先复验当前 Connection/Grant，撤权后旧 Token 不可使用。`app_secret` 通过 CredentialStore 动作级 Handle 使用并立即清理，Key、Token、Endpoint、Authorization 和原始 Body 不进入公开结果与可观测数据。
+
+成员映射由 Team Admin 使用 `tenant_key + open_id` 精确确认。验证 Proof 闭合 Organization、Team、Connection/Grant ID 与 Version、Tenant、Open ID、Union ID 和 Provider Version，并且只能由生成 Proof 的同一条当前 Connection/Grant 确认。同一 Organization 内的外部身份和同一 Team Member 均保持单活动 Mapping，不同 Organization 的 Mapping 相互隔离；显示名、姓名、昵称、手机号和模糊邮箱不参与自动绑定。固定模板完成变量 Schema、长度、可信 Scheme/Host/Port Origin 和 JSON 转义校验后，通过 Lark `receive_id_type=open_id` 投递。
+
+每个通知 PlannedAction 使用 Organization、Connection 和 Action Digest 派生稳定 Provider UUID。同一动作在同一 Connection 的重复 Event、Dispatch、Timeout、Lease 接管和 429/5xx 重试使用相同 UUID，不同 Organization、Tenant 或 Connection 使用不同 UUID，并限制在 Provider 去重保留期内。发送取得 Message ID 后查询精确消息存在性，Receipt 记录 `ACCEPTED` 和安全证据；该状态表达 Provider 接受消息，不表达成员已读。响应丢失时用相同 UUID 恢复原 Message ID；超过自动尝试或去重窗口进入 `UNKNOWN/RECONCILING` 与人工处理。完整协议见 [ADR-022](adr/ADR-022-Inbox与固定模板通知授权协议.md)、[M6-S03 验证记录](spikes/M6-S03-Inbox与固定模板通知授权验证记录.md) 和 [M6-S04 验证记录](spikes/M6-S04-Lark-OpenAPI与通知投递验证记录.md)。
+
+M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding、完成 Preflight 并显式启用后，Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
 
 ## 6. 交互入口与连接协议
 
@@ -3693,6 +3711,12 @@ M2 通过 `AgentCallTraceContextProvider` 把当前 Micrometer Trace ID 与 Span
 
 月度可用性和线上延迟属于发布后的运营 SLO。MVP 发布前使用固定样本量、并发量、故障注入次数和通过率作为 Release Gate；每项测试保存环境、版本、随机种子和运行证据，不能用尚未产生的月度数据阻塞发布。
 
+Team Beta 的 Prometheus 标签使用受控枚举注册表，允许 `outcome`、`status`、`type`、`providerKey`、`projectionName`、`workerRole`、`operation`、`errorCode`、`streamType` 和 `result`。每项自定义指标的理论 Series 上限为 256，CrewScope 自定义指标总上限为 2,000。Organization、Team、Member、Conversation、WorkItem、Task、AgentRun、Action、Notification、Event、Correlation、Trace、Message 等 ID，URI、Repository、异常消息、Provider 原始错误、凭证和 Secret 禁止成为标签。受控关联 ID 进入 Trace 与脱敏结构化日志。
+
+发布性能环境固定为 Linux amd64、8 vCPU、16 GiB 和至少 100 GiB 磁盘，使用 Temurin 17、Node 24、pnpm 11.9.0、Dataset `m6-team-beta-v1` 与 Seed `20260825`。固定负载使用 Web 并发 10、Task 并发 2、Warmup 120 秒、Measurement 600 秒和 3 次独立重复，每项指标每轮至少 500 个样本。P95 使用 `ceil(0.95 * N)` 的 nearest-rank 算法，每轮独立满足 READY Claim 与 Team Projection P95 `< 2s`，错误率 `<= 0.1%`。固定故障矩阵至少 100 个样本，自动恢复率 `>= 99%`，重复 Action/Notification、丢失 Inbox Disposition 与旧 Fencing 写入均为 0。
+
+每份性能与恢复证据保存 Environment Fingerprint、Git Revision、Image Digest、Schema、Dataset、Seed、样本数、错误率、P95、故障结果和 Evidence Hash。macOS/arm64 结果用于开发诊断，发布证据由固定 Linux amd64 环境生成。完整协议见 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md) 和 [M6-S05 验证记录](spikes/M6-S05-Team-Beta部署与发布验证记录.md)。
+
 Web 前端的 Vitest Release Gate 固定全局最低覆盖率：Statements 80%、Branches 70%、Functions 75%、Lines 80%。报告生成与门槛判定在同一命令中执行，任一指标不足即阻断合并。
 
 ### 17.3 团队观测面
@@ -4110,12 +4134,18 @@ crewscope-plugin-lark
 `crewscope-server` 生成一个可执行 Jar，通过 Spring Profile 支持三种运行方式：
 
 ```text
-all     API、Agent Runtime 与 Worker，适合本地开发和 MVP
+all     API、Agent Runtime 与 Worker，只用于本地开发
 server  REST、AG-UI、Webhook 与实时事件入口
 worker  Step 调度、Provider Action、Connector 调用、Sandbox 和对账
 ```
 
-MVP 使用 `all` 模式部署一个应用实例，Execution Worker、Worktree 根目录、Docker Daemon 和 Diff Watcher 位于同一执行主机。生产环境可以使用同一镜像分别启动 `server` 和 `worker`，按交互流量与任务负载独立扩缩容；进入 Kubernetes 前必须先实现专用 Worker 节点调度与共享/节点存储 ADR。
+Team Beta 在一台专用 Linux 主机上固定运行 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务，并使用同一不可变应用镜像分别启动 `server` 与 `worker`。Web/TLS Reverse Proxy 是唯一公开入口；API、Worker、PostgreSQL、Redis、OTel Collector、Prometheus 和 Actuator 位于内部网络。API 是 Flyway 单一迁移角色，Worker 在迁移完成和 API Ready 后开始 Claim。Web、API 和 Worker 使用非 Root、只读根文件系统与受控 `secret-ref:` 外部 Secret；所有应用、基础设施和 Sandbox 镜像使用 SHA-256 Digest。
+
+Execution Worker、Worktree 根目录、Repository Mirror、Docker Daemon 和 Diff Watcher 位于同一执行主机。只有 Worker 可以访问 Docker Socket，该权限按宿主机高权限边界治理。进入 Kubernetes 前先实现专用 Worker 节点调度与共享/节点存储 ADR。
+
+Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact 和 Redis Snapshot。备份前进入 Maintenance Mode，停止新命令与 Claim，并等待 TaskExecution、Action Dispatch 和 Notification Dispatch 归零。Manifest 保存组件 SHA-256、应用与 Schema 版本、加密标记和 Credential Key ID；Key Material 由进程外 Secret/KMS 独立保管。恢复目标必须为空，按“校验 Manifest → PostgreSQL → Artifact → Redis/二级重建 → 引用校验 → 投影重建 → Maintenance Smoke → 开放流量”执行。目标为 RPO 24 小时、RTO 4 小时，恢复开始时间与 Manifest 创建时间之差必须位于 0 至 24 小时。
+
+发布门禁分为无真实凭证的 Pull Request、无真实凭证的 Nightly 和受保护人工触发的 Release Candidate，依赖只按该顺序单向推进。真实 Lark Smoke 只发送固定模板到专用测试接收者。所有 Required Step 必须成功并归档证据，缺失或跳过均阻止发布。拓扑、备份和门禁细节见 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md)。
 
 ### 19.7 编码与注释规范
 

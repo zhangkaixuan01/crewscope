@@ -96,7 +96,10 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M3：耐久 Task Runtime](M3-耐久Task-Runtime.md)
 - [M4：AgentScope 原生 Coding Agent](M4-AgentScope原生Coding-Agent.md)
 - [M5：Agent 模型、个人执行 Agent、Review 与 GitHub Draft PR](M5-Agent模型与Review交付.md)
+- [M6：团队观测、飞书通知与 MVP 发布](M6-团队观测与MVP发布.md)
 
 M0 至 M5 已完成。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
 
 M5 的 48 个任务和 [M5-Q04 Release Gate](../testing/M5-Q04-Release-Gate.md) 已全部关闭。当前已交付模型/Agent 配置与动态 AgentScope Model、个人/团队/Specialist Factory、Reviewer 证据和持久化闭环，以及 GitHub App/OAuth 身份验证、Repository Catalog/Preflight、受管 Mirror、AskPass/Lease Push、Draft PR 查询幂等、Webhook 去重、Action Worker、UNKNOWN/过期 Lease Fenced 对账、人工队列与终结、Fencing/Receipt 原子事务、V26 Claim 恢复和条件 Spring 装配。前端已闭合 Agent 与模型管理、Task 委托和配置预检、Review Workbench、GitHub Delivery Workbench，并完成全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段 CI 门禁。最终门禁为 Maven 1862 / 1862、Vitest 311 / 311、Playwright/视觉/Axe 150 / 150；M5-Q01 固定攻击 84 / 84 被阻断，M5-Q02 固定故障 48 / 48 收敛，M5-Q03 Reviewer 质量门禁通过。
+
+M6 已拆分为 50 个任务，覆盖 Activity、Inbox、Audit、影子投影重建、三流 Cursor、固定模板 Lark 通知、只读 Team Observer、OTel/Prometheus、部署、备份恢复、故障、负载和 MVP Release Gate。`M6-S01` 至 `M6-S05` 已完成，[ADR-020](../adr/ADR-020-投影代际重建与游标协议.md)、[ADR-021](../adr/ADR-021-三流恢复与前端合并协议.md)、[ADR-022](../adr/ADR-022-Inbox与固定模板通知授权协议.md) 和 [ADR-023](../adr/ADR-023-Team-Beta单机部署与发布验证协议.md) 已接受；下一任务为 `M6-D01`，实现 Activity、Generation 与 Cursor 的领域契约。

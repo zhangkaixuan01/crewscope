@@ -95,6 +95,7 @@ Action 成功只表达已完成确认过的写操作；PR 后续关闭、重开�
 6. Webhook Delivery 去重键包含 Connection，防止不同 Provider 安装使用相同 Event ID 冲突。
 7. Reconcile 批次、退避、RateLimit、最大 UNKNOWN 时间和人工队列阈值可配置并具有低基数指标。
 8. M5-D08 已交付正式 ActionBundle、PlannedAction、类型化参数、动作图、Digest 与当前事实失效规则；M5-D09 已交付 Confirmation、Dispatch/Lease/Fencing、唯一 Receipt、UNKNOWN/Reconcile、ExternalResult 单调合并与人工终态；M5-D11 已用 V21 落地精确权威外键、Digest/外部业务键唯一约束、只追加 Receipt/Observation、受控 Dispatch 状态与 Fencing、单调 ExternalResult；Worker 和 Provider Adapter 由 M5-I08 至 M5-I12 实现。
+9. M6 固定模板通知的 `POLICY_PREAUTHORIZED` 使用独立授权联合类型，只能进入 `NOTIFY_COLLABORATION` Worker；它不能代替本 ADR 的 GitHub Action Confirmation。通知协议见 [ADR-022](ADR-022-Inbox与固定模板通知授权协议.md)。
 
 ## 结果
 

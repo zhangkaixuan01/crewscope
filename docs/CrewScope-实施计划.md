@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.26<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.0`<br>
+> 文档版本：v1.32<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.1`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5 已全部完成；M5-Q04 Release Gate 已通过（2026-08-25）
+> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05 已完成，下一任务为 M6-D01（2026-08-25）
 
 ## 1. 实施目标
 
@@ -127,6 +127,9 @@ Agent 运行环境只获得 Task Token。长期 OAuth Token、PAT、GitHub App K
 - [M1：Team、WorkItem 与责任基础执行清单](plans/M1-Team与WorkItem.md)；
 - [M2：Conversation 与 Personal Agent 执行清单](plans/M2-Conversation与Personal-Agent.md)；
 - [M3：耐久 Task Runtime 执行清单](plans/M3-耐久Task-Runtime.md)；
+- [M4：AgentScope 原生 Coding Agent 执行清单](plans/M4-AgentScope原生Coding-Agent.md)；
+- [M5：Agent 模型、Review 与 GitHub Draft PR 执行清单](plans/M5-Agent模型与Review交付.md)；
+- [M6：团队观测、飞书通知与 MVP 发布执行清单](plans/M6-团队观测与MVP发布.md)；
 - [CrewScope 前端设计规范](CrewScope-前端设计规范.md)；
 - [Architecture Decision Records](adr/README.md)。
 
@@ -622,7 +625,7 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 重复事件、乱序事件和投影重建；
 - 成员的“我的负责”、“我的执行”、“待 Review”、“待确认”和“异常”收件箱。
 
-本里程碑同时创建默认 Team Service Principal 与只读 Team AgentProfile。Team Agent 只能读取团队可见 WorkItem、Task、Activity、Inbox 统计和 Artifact 摘要，用于团队进度、阻塞、Review 积压和风险汇总。
+本里程碑同时创建默认 Team Service Principal 与只读 Team AgentProfile。迁移创建的 Profile 默认 `DISABLED`，不猜测 Team ModelConnection 或 AgentConfiguration；管理员完成有效 TEAM Binding 与 Preflight 后显式启用。Team Agent 只能读取团队可见 WorkItem、Task、Activity、Inbox 统计和 Artifact 摘要，用于团队进度、阻塞、Review 积压和风险汇总。
 
 ### 12.3 Lark Collaboration Provider
 
@@ -666,6 +669,8 @@ MVP 的飞书能力仅为 CollaborationProvider 出站成员查询和固定模�
 9. 所有后端、前端、集成、端到端和故障测试经过 CI；
 10. 固定负载测试下 READY TaskExecution Claim 延迟与团队投影延迟达到目标，测试环境、并发量、样本量和结果归档；
 11. 月度可用性与长期延迟作为上线后的运营 SLO，不作为发布前无法观测的阻塞条件。
+
+M6 已拆分为 5 个 Spike、9 个领域/迁移任务、7 个事件/投影任务、10 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 50 项。M6-S01 已通过 PostgreSQL/Testcontainers 验证并接受 [ADR-020 投影代际重建与游标协议](adr/ADR-020-投影代际重建与游标协议.md)；M6-S02 已通过 6 个可控断线/重连场景并接受 [ADR-021 三流恢复与前端合并协议](adr/ADR-021-三流恢复与前端合并协议.md)；M6-S03 已通过 7 个 Inbox/通知领域协议场景；M6-S04 已通过 6 个 Loopback Lark OpenAPI 场景，完成 Tenant Token、精确成员映射、固定模板 UUID 投递、查询恢复、限流和安全错误验证，并接受 [ADR-022 Inbox 与固定模板通知授权协议](adr/ADR-022-Inbox与固定模板通知授权协议.md)；M6-S05 已通过 6 个 Team Beta 发布协议场景，冻结七服务单机拓扑、Environment Fingerprint、低基数 Series 预算、固定负载与 nearest-rank P95、三组件备份恢复和三层 Release Gate，并接受 [ADR-023 Team Beta 单机部署与发布验证协议](adr/ADR-023-Team-Beta单机部署与发布验证协议.md)。完整依赖、任务验收和 Release Gate 见 [M6 执行清单](plans/M6-团队观测与MVP发布.md)。
 
 ## 13. 模块实施边界
 
@@ -714,6 +719,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V25__github_connection_profile_revision.sql` | GitHub Profile 按 Connection Version 保存验证快照；Catalog、RateLimit 与 ExternalObservation 精确引用版本，支持连接推进后重新验证并保留历史权威 | M5 |
 | `V26__action_receipt_claim_coordinates.sql` | 自动 ActionReceipt 保存完整 Claim Mode、获取/心跳/Lease 坐标，约束历史兼容回填并恢复只追加保护 | M5 |
 | `V27__activity_inbox_notification.sql` | Activity、Inbox、Notification 与团队读模型 | M6 |
+| `V28__lark_mapping_and_team_observer.sql` | Lark Tenant/Member Mapping，既有 Team 的 Service Principal、`team-observer@1` 与默认 `DISABLED` Team Observer 确定性补齐；不生成 ModelConnection/Configuration | M6 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 

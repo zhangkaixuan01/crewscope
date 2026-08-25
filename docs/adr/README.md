@@ -34,6 +34,10 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-017](ADR-017-Reviewer证据与人工Gate边界.md) | Reviewer 最小上下文、Finding 证据、SELF_REVIEW 与成员 Gate 边界 | ACCEPTED |
 | [ADR-018](ADR-018-GitHub连接与Draft-PR交付边界.md) | GitHub 双连接、动作凭证、Push 幂等与 Draft PR 对账边界 | ACCEPTED |
 | [ADR-019](ADR-019-ActionBundle调度与外部结果对账协议.md) | ActionBundle 精确确认、事务 Dispatch、唯一 Receipt 与外部结果对账 | ACCEPTED |
+| [ADR-020](ADR-020-投影代际重建与游标协议.md) | Projection Generation、影子重建、原子切换、Fencing 与 Cursor 过期 | ACCEPTED |
+| [ADR-021](ADR-021-三流恢复与前端合并协议.md) | Team/Conversation/AG-UI 独立恢复、快照、Scope Epoch 与合并去重 | ACCEPTED |
+| [ADR-022](ADR-022-Inbox与固定模板通知授权协议.md) | Inbox 来源/处置分离、固定模板通知策略预授权、Lark 精确身份与幂等投递 | ACCEPTED |
+| [ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md) | Team Beta 单机拓扑、低基数观测、固定负载、备份恢复与发布门禁 | ACCEPTED |
 
 ## ADR 内容要求
 

@@ -3,6 +3,7 @@
 > 状态：ACCEPTED<br>
 > 日期：2026-08-05<br>
 > 更新：2026-08-20（M4-A06 增加成员受权内容 API、传输预算与并发治理）<br>
+> M6 部署扩展：[ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md)<br>
 > 影响里程碑：M0、M3、M4、M6
 
 ## 背景
@@ -44,7 +45,8 @@ SHA-256 使用 64 位小写十六进制规范文本。DataClassification 使用 
 ### 实现
 
 - 开发环境：FilesystemArtifactStore；
-- Team Beta：S3/MinIOArtifactStore；
+- Team Beta：FilesystemArtifactStore 使用专用加密持久卷，并作为 PostgreSQL/Redis Snapshot 整包备份的一部分；
+- 生产规模化：S3/MinIOArtifactStore；
 - AgentScope Sandbox Snapshot：通过 ArtifactStore Snapshot Adapter 保存；
 - PostgreSQL：保存 RuntimeArtifact 和 AgentStateSnapshot 元数据；
 - Redis：保存 AgentState 和小型短期数据。
