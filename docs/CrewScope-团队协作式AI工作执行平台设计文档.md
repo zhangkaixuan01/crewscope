@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.1<br>
+> 文档版本：v5.2<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -1182,21 +1182,45 @@ DomainEvent 是业务变化事实，ActivityEvent 是团队可读投影，AuditE
 
 M6 将投影重建收紧为影子 Generation：新代际先登记为实时消费者，再从规范 DomainEvent 全量构建，完成数量、规范 SHA-256、版本缺口和抽样校验后原子切换。现有 Outbox 没有全局单调重放高水位，历史重放不使用时间戳截断。失败或取消保持在线代际，Generation Fencing Token 拒绝旧 Worker 迟到写入。Activity Cursor 绑定 Organization、Team、Generation、投影版本和过滤条件；切换后旧 Cursor 明确过期。Inbox 来源是否仍需处理属于可重建投影，成员 `READ/ACTED/ARCHIVED` 属于独立权威处置事实，重建不能清除成员状态。完整投影契约与验证见 [ADR-020](adr/ADR-020-投影代际重建与游标协议.md) 和 [M6-S01 验证记录](spikes/M6-S01-投影代际与影子重建验证记录.md)。
 
+投影 Registry 使用版本化 `ProjectionDefinition` 固定 Projection Schema、规范编码器和校验器坐标。Generation 完整身份为 Organization、Projection Name 和正整数代际；独立 Pointer 指向唯一在线代际，每个投影最多存在一个 `BUILDING/VALIDATING` 影子代际。RebuildJob 与目标 Generation 一一绑定，终态 Job 和 Generation 保持不可变；失败或取消后的重试创建新 Job、新 Generation 和新 Fencing Token。ValidationResult 精确绑定 Definition Version、Generation、RebuildJob、操作者和校验时间，保存期望/实际 Count、规范 SHA-256、Gap 与仅含 Partition Hash/有界 FailureCode 的失败分区。进入校验、激活、退役、失败或取消均提升 Token，Worker 在写 Receipt、Checkpoint 和投影行的同一事务校验完整 Generation Lease。
+
+原子切换按 Pointer、目标 Generation、旧 ACTIVE、RebuildJob 固定顺序加锁，重新计算目标 Count/Hash 并与成功校验快照完全比较，再一次提交旧代际退役、目标激活、Pointer 更新、Job 完成、Command Receipt、DomainEvent 和 `PROJECTION` Audit。校验后的新事件使快照不同并要求再次校验。管理员命令每次复验当前 Organization 管理权限，携带绑定动作/Projection/目标 Generation 的强确认、Organization 内 Command ID、安全请求指纹和全部强版本；精确重放返回原 Receipt，Command ID 语义复用失败关闭。Checkpoint 和 Dead Letter 引用闭合完整 Generation，公开事件只包含低基数状态、安全身份与有界错误码。领域与应用契约见 [M6-D07 投影代际重建与管理员命令契约](testing/M6-D07-投影代际重建与管理员命令契约.md)。
+
+V27 将该协议落到 PostgreSQL。Projection Definition、Generation、Pointer、RebuildJob、Validation、ConsumerReceipt、Checkpoint、DeadLetter 和管理员 CommandReceipt 组成完整代际图；部分唯一索引限制单 ACTIVE 与单影子，延迟约束在事务提交时校验 Pointer 精确指向唯一 ACTIVE，写入触发器使用 Generation 状态和 Fencing Token 拒绝迟到 Worker。Activity、Inbox 来源和 Notification Intent 按 Generation 隔离，InboxDisposition 只绑定稳定 InboxItem 身份并在旧代际清理后保留。Notification Template/Variable、Preference、独立 PlannedAction、Delivery/Receipt 和 RedeliveryReceipt 保存固定模板授权与不可变投递历史。AuditEvent 增加分类、保留级别、Provider 安全引用、Keyset 索引和追加写保护。滚动升级期间保留既有单代际 Checkpoint，并确定性回填 Generation 1；Generation-aware Runner 在 M6-E01 接管新 Checkpoint 与 ConsumerReceipt。持久化契约见 [M6-D08 Activity、Inbox、Notification 与投影代际迁移契约](testing/M6-D08-Activity-Inbox-Notification与投影代际迁移契约.md)。
+
+ActivityEvent 使用 DomainEvent ID 确定性派生稳定 Activity ID，Projection Generation 不参与身份派生，Team 与 WorkItem 查询返回同一 Canonical Activity Event。Activity 公开字段由版本化 Payload Schema 白名单验证，Subject、Actor 和 Reference 只保存类型化公开身份。TeamSequence 在 Team、Projection 和 Generation 内单调递增。Team Cursor Scope 完整绑定 Organization、Team、Projection Name、Generation、Projection Schema Version、Filter Fingerprint、TeamSequence 和 Event ID；跨 Scope、代际、Schema 或过滤条件的 Cursor 失败关闭。成员可见性按 Team Membership、Team Admin 和精确 WorkItem 访问事实裁决。领域与应用契约见 [M6-D01 Activity 领域与 Cursor Scope 契约](testing/M6-D01-Activity领域与Cursor-Scope契约.md)。
+
 Team Event、Conversation Event 与 AG-UI 使用独立恢复坐标。Team Event 使用绑定 Projection Generation、Filter Fingerprint 和 Team Sequence 的签名 Cursor，Conversation Event 使用绑定 Conversation Position/Event ID 的耐久 Cursor，AG-UI 使用 Invocation Segment、Idempotency Key 和流内 Event ID 重放。Team Generation 过期只替换 Team 快照，Scope Epoch 拒绝旧 Team 迟到帧。合并 Conversation 工作面按 DomainEvent ID 去重耐久事实，使用 `occurredAt + eventId` 形成稳定展示顺序，不声明跨流全局事务顺序。完整三流契约与验证见 [ADR-021](adr/ADR-021-三流恢复与前端合并协议.md)、[M6-S02 验证记录](spikes/M6-S02-三流Cursor与Scope恢复验证记录.md) 和 [M6 执行清单](plans/M6-团队观测与MVP发布.md)。
 
 M6 的飞书通知只允许版本化固定模板和结构化变量白名单。Inbox 使用可重建的来源投影和独立权威的成员处置：来源坐标由 Organization、Member、ItemType、SourceType、Source ID 和 Source Revision 组成，影子重建恢复相同 InboxItem 身份并保留成员 `READ/ACTED/ARCHIVED`；责任释放、Review 被替代、Confirmation 终结和异常恢复通过新事实关闭旧来源并保留 CloseReason 与历史。
 
+Inbox 的五类固定视图为 `OWNERSHIP`、`EXECUTION`、`REVIEW`、`CONFIRMATION` 和 `EXCEPTION`。InboxItem ID 由稳定来源坐标确定性派生，Projection Name、Generation 和 Schema Version 只定位可替换来源行。优先级、截止时间、打开时间、关闭原因和关闭时间属于来源事实。`UNREAD` 由不存在 Disposition 行表示并使用 Version 0；成员命令携带强 ETag，处置单调进入 `READ/ACTED/ARCHIVED`，相同状态的当前版本重试不产生新写入。Disposition 闭合 Organization、Team、Member 和 InboxItem ID，查询由服务端将当前 Generation 来源与 Generation 外处置合并。每次命令重新解析 ACTIVE TeamMember，其他成员不能修改目标成员处置，平台管理员标志不授予额外处置权。领域与应用契约见 [M6-D02 Inbox 来源与成员处置契约](testing/M6-D02-Inbox来源与成员处置契约.md)。
+
 每次自动投递形成 `NOTIFY_COLLABORATION` PlannedAction。`POLICY_PREAUTHORIZED` Authorization Snapshot 和 Action Digest 精确绑定通知来源 Revision、Template ID/Version、规范变量 Hash、Recipient Mapping ID/Version、ProviderBinding ID/Version、Connection/Grant ID/Version、Team Policy Version、成员 Preference Version 和去重键。任一事实变化都会生成新 Digest 并使旧 Dispatch 失效；相同来源和相同事实的重复投影、Outbox 重放与调度只产生一个自动逻辑投递和一个不可变 Receipt。任意正文、未知变量、原始 DomainEvent Payload 和 Agent 自由输出均不能作为消息正文。
 
-通知最终失败后进入失败 Inbox。成员使用新的幂等 Command ID 发起再次投递，平台按当前授权事实创建带 `redeliveryOf` 的新 PlannedAction、Dispatch、Attempt 与 Receipt；相同 Command ID 收敛到同一新动作，原失败 Receipt 保持不可变。`POLICY_PREAUTHORIZED` 只适用于固定模板 `NOTIFY_COLLABORATION`；GitHub Push、Draft PR 和其他 M5 Action 继续要求成员 Gate 与精确 Confirmation。
+固定模板 Registry 只接受当前 `PUBLISHED` 版本。变量集合必须与 Schema 完全相等，`TEXT` 执行长度和控制字符校验，`TRUSTED_LINK` 额外执行 HTTPS 与精确 Scheme/Host/有效 Port Origin 校验。验证后的变量按名称排序、长度前缀编码并生成 SHA-256。Notification Intent 只能从 OPEN InboxSource 创建，稳定 Intent ID 由 InboxItem ID 确定性派生。成员偏好返回 `ALLOWED/DEFERRED/DENIED`，免打扰将 Action 的 `notBefore` 延后，拒绝偏好不生成投递。
+
+通知使用独立 `NotificationPlannedAction` 和 `NotificationDelivery`，风险固定为 `LOW_RISK_WRITE`。Delivery 状态覆盖 `READY/RUNNING/RETRY_WAIT/UNKNOWN/RECONCILING/SUCCEEDED/FAILED_FINAL/INVALIDATED/CANCELLED`，每次迁移提交强 Version；Timeout 和响应丢失进入 UNKNOWN 并经过查询对账。终态 Receipt 只保存稳定结果、安全 Evidence Code、FailureCode 或 Provider/Message Hash。M5 ActionBundle、Action Worker、Reconciliation Worker 和 ActionReceipt 显式拒绝 `NOTIFY_COLLABORATION`，通知 Planner 只创建通知动作。领域与应用契约见 [M6-D03 固定模板通知与再次投递契约](testing/M6-D03-固定模板通知与再次投递契约.md)。
+
+通知最终失败后进入失败 Inbox。成员使用新的幂等 Command ID 发起再次投递，平台按当前授权事实创建带 `redeliveryOf` 的新 PlannedAction、Dispatch、Attempt 与 Receipt；相同 Command ID 收敛到同一新动作，首次执行和 Receipt 回放都重新校验当前成员权限，权限撤销后不返回旧回放结果，原失败 Receipt 保持不可变。`POLICY_PREAUTHORIZED` 只适用于固定模板 `NOTIFY_COLLABORATION`；GitHub Push、Draft PR 和其他 M5 Action 继要求成员 Gate 与精确 Confirmation。
 
 Lark Connector 使用固定 `https://open.feishu.cn` Endpoint 和企业自建应用 Tenant Access Token。Token Cache Key 闭合 Organization、Connection/Grant ID 与 Version、Credential ID/Version 和预期 Tenant Key，保留 60 秒到期安全余量；401 只刷新精确 Cache Entry 一次，每次调用先复验当前 Connection/Grant，撤权后旧 Token 不可使用。`app_secret` 通过 CredentialStore 动作级 Handle 使用并立即清理，Key、Token、Endpoint、Authorization 和原始 Body 不进入公开结果与可观测数据。
 
-成员映射由 Team Admin 使用 `tenant_key + open_id` 精确确认。验证 Proof 闭合 Organization、Team、Connection/Grant ID 与 Version、Tenant、Open ID、Union ID 和 Provider Version，并且只能由生成 Proof 的同一条当前 Connection/Grant 确认。同一 Organization 内的外部身份和同一 Team Member 均保持单活动 Mapping，不同 Organization 的 Mapping 相互隔离；显示名、姓名、昵称、手机号和模糊邮箱不参与自动绑定。固定模板完成变量 Schema、长度、可信 Scheme/Host/Port Origin 和 JSON 转义校验后，通过 Lark `receive_id_type=open_id` 投递。
+成员映射由 Team Admin 使用 `tenant_key + open_id` 精确确认。验证 Proof 闭合 Organization、Team、Connection/Grant ID 与 Version、Tenant、Open ID、Union ID 和 Provider Version，并且只能由生成 Proof 的同一条当前 Connection/Grant 确认。ExternalTenant 失效后作为不可复活的历史证据保留，重新接入需要新 Connection 与新 Tenant 证据。同一 Organization 内的外部身份和同一 Team Member 均保持单活动 Mapping，不同 Organization 的 Mapping 相互隔离；显示名、姓名、昵称、手机号和模糊邮箱不参与自动绑定。固定模板完成变量 Schema、长度、可信 Scheme/Host/Port Origin 和 JSON 转义校验后，通过 Lark `receive_id_type=open_id` 投递。
 
 每个通知 PlannedAction 使用 Organization、Connection 和 Action Digest 派生稳定 Provider UUID。同一动作在同一 Connection 的重复 Event、Dispatch、Timeout、Lease 接管和 429/5xx 重试使用相同 UUID，不同 Organization、Tenant 或 Connection 使用不同 UUID，并限制在 Provider 去重保留期内。发送取得 Message ID 后查询精确消息存在性，Receipt 记录 `ACCEPTED` 和安全证据；该状态表达 Provider 接受消息，不表达成员已读。响应丢失时用相同 UUID 恢复原 Message ID；超过自动尝试或去重窗口进入 `UNKNOWN/RECONCILING` 与人工处理。完整协议见 [ADR-022](adr/ADR-022-Inbox与固定模板通知授权协议.md)、[M6-S03 验证记录](spikes/M6-S03-Inbox与固定模板通知授权验证记录.md) 和 [M6-S04 验证记录](spikes/M6-S04-Lark-OpenAPI与通知投递验证记录.md)。
 
 M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding、完成 Preflight 并显式启用后，Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
+
+`team-observer@1` 固定为 Organization 发布、TEAM Ownership、TEAM Execution Scope 和 `TEAM_COORDINATOR` Runtime Role。Tool 精确集合为 `team.activity.read`、`team.inbox.summary.read`、`workitem.summary.read`、`task.summary.read`、`artifact.summary.read`，Approved Skill 和成员可配置槽为空。只有 `MODEL_BINDING` 与 `BUDGET` 由管理员配置。
+
+Observer Principal ID 和 Profile ID 使用不同命名空间按 Team ID 确定性派生。Principal/Profile 以同步 `DISABLED` 状态原子初始化。`DISABLED` Profile 允许追加当前 AgentConfiguration，启用要求 PERSONAL Binding 为空、TEAM Binding 存在、当前 `AGENT_MANAGE` 授权与 TEAM/ORGANIZATION ModelConnection Preflight 成功，再原子同步启用 Principal/Profile。通用 Agent 创建和生命周期命令不处理内置 Observer。
+
+V28 将版本化 Lark ExternalTenant、15 分钟内有效的精确成员 Proof 和管理员确认 Mapping 分表保存。Organization、Team、Member、ProviderBinding、Connection、Grant 与 ExternalTenant 使用复合外键闭合；同一 Team Member 和同一 `tenant_key + open_id` 均通过 ACTIVE 部分唯一索引保持单活动映射。Mapping 只允许从 `ACTIVE` 单调进入 `REVOKED/INVALIDATED`，历史身份与授权快照禁止修改或删除。V27 已存在的通知计划通过 `NOT VALID` Mapping 外键兼容，V28 后的新计划立即校验 Mapping Scope，Mapping Version 在计划和投递时重新与当前版本比较。
+
+V28 只为 Owner Member、Owner USER 和 Default TEAM Workspace 均有效的既有 ACTIVE Team 回填 Observer。模板 Hash 使用与 Java `AgentTemplateDefinition` 相同的长度前缀 SHA-256 规范，Principal/Profile UUID 使用与 `UUID.nameUUIDFromBytes` 相同的 UUID v3。`team-observer@1` 是 Organization 级全局保留坐标；迁移在选择可回填 Team 之前检查所有 Organization 的既有坐标，即使当前没有完整 Team，与内置契约冲突也必须整笔回滚。确定性 Principal/Profile ID 只对当前候选回填 Team 检查冲突。迁移不覆盖旧数据，也不生成 ModelConnection、AgentConfiguration 或模型绑定。数据库部署需要预装或允许迁移用户首次安装 PostgreSQL `pgcrypto` 扩展。
+
+`TeamSummaryRequest` 绑定 Organization、Team、当前 ACTIVE Member 和每段上限。`TeamSummaryResult` 固定返回进度、阻塞、Review 积压、待确认和异常五段数组，每条绑定成员可见性、批准的 Activity/Inbox/WorkItem/Task/Artifact 摘要数据范围和无 Scheme/Query/Fragment、无明文或百分号编码遍历、无空白或控制/格式字符的内部证据路径；摘要正文同样拒绝 Unicode 格式控制字符。打开证据链接时继续重新授权。领域与应用契约见 [M6-D05 Team Observer 领域与启用契约](testing/M6-D05-Team-Observer领域与启用契约.md)。
 
 ## 6. 交互入口与连接协议
 
@@ -3105,10 +3129,15 @@ Action 使用完整 Scope/Version/Hash 复合外键固定 ReviewDecision、Revie
 | `inbox_item` | 成员、来源对象、待办类型、优先级、状态、截止时间和已读时间 |
 | `notification_preference` | 成员、事件类型、Channel、免打扰时间、值班规则、频率和升级策略 |
 | `notification_delivery` | InboxItem、Channel、ProviderBinding、PlannedAction、去重键、投递状态、外部回执和重试信息 |
+| `lark_external_tenant` | Organization、Connection/Grant 强版本、Tenant Key、Provider Version、验证状态和时间 |
+| `lark_member_verification_proof` | Team/Binding/Connection/Grant/Tenant 完整坐标、精确 Open ID、Union ID、Provider Version、验证来源和最长 15 分钟有效窗口 |
+| `lark_member_mapping` | TeamMember 与 Tenant/Open ID 的管理员确认映射、授权强版本、状态、终结原因和审计信息 |
 | `event_projection_checkpoint` | Organization、投影名称、分区、最后 Event ID、Aggregate Version Cursor、发生时间、乐观版本和更新时间 |
 | `audit_event` | 追加写安全事实、Initiator、Actor、Agent、Credential Subject、授权、结果、Correlation 和时间 |
 
 InboxItem 类型覆盖 Collaboration、Review、Handoff、Takeover、Confirmation、Assignment、Mention、Failure 和 Risk。通知策略根据成员偏好、值班状态、免打扰时间、风险等级和升级规则选择站内、邮件或 CollaborationProvider。
+
+Lark 成员映射只接受类型化精确 `open_id`，不提供显示名、邮箱、手机号和模糊查询入口。Tenant、短期 VerificationProof、MemberMapping 和 CollaborationRecipient 全部绑定 Organization、Team、ProviderBinding、Connection、ConnectionGrant、Tenant 与对应 Version。ACTIVE Mapping 使用 `Organization + Team + Member` 和 `Organization + TenantKey + OpenId` 双唯一键；撤销或授权漂移保留历史证据。Recipient 在每次投递前重新校验 ACTIVE 成员、当前 Mapping、Tenant、Binding、Connection、Grant 和 `collaboration.notification.send-fixed-template` 能力。实现契约见 [M6-D04 Lark 外部身份与成员映射契约](testing/M6-D04-Lark外部身份与成员映射契约.md)。
 
 ### 14.10 AuditEvent
 
@@ -3169,6 +3198,14 @@ actor_type
 actor_id
 occurred_at
 ```
+
+M6 的 Audit 查询形状使用 14 类稳定 EventCategory、`SUCCEEDED/DENIED/FAILED` Outcome 和 `STANDARD/EXTENDED/LEGAL_HOLD` 保留级别。Initiator、Actor 和 Agent 分别保存；Subject 使用类型化 AggregateReference；Provider 只公开 ProviderBinding/Connection 引用和外部操作 Hash；Correlation 只公开 Correlation/Causation/DomainEvent ID。
+
+Audit Explorer 不返回 `audit_event.payload`。`AuditSummarySchemaRegistry` 按 `EventType + Payload SchemaVersion` 精确选择白名单 Schema，未注册事件、未知版本、未知字段和敏感值失败关闭。脱敏摘要拒绝 Secret、Credential、Authorization、Token、Prompt、Endpoint、Request/Response Body、URL、邮箱、电话和控制字符。
+
+Audit 组合筛选支持时间、Category、Outcome、Initiator、Actor、Agent、Subject、ProviderBinding 和 Correlation。Cursor 绑定 Organization、Team 和规范化 Filter SHA-256，按 `occurredAt DESC, eventId DESC` 进行 Keyset 分页，UUID 次排序与 PostgreSQL 无符号字节序一致，单页最多 200 条。
+
+每次查询重新复验当前 Organization USER、ACTIVE Team Membership、Role 和 MemberRole。Team Admin 的 `AUDIT_READ` 可读，Team Owner、Auditor 和其他同时持有 `GOVERNANCE_EXPORT` 的当前授权可导出，平台管理员可在当前 Organization 范围内操作。导出必须指定显式时间起点和排他上界，最多覆盖 31 天并返回 10,000 条。AuditEvent 继续只追加，M6 不提供更新或删除命令。领域与应用契约见 [M6-D06 Audit 查询与有界导出契约](testing/M6-D06-Audit查询与有界导出契约.md)。
 
 ## 15. API 与事件
 
