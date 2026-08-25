@@ -36,6 +36,8 @@ BundleDigest 按动作顺序覆盖每个 Action ID、ActionDigest 和依赖关�
 
 ActionBundle、PlannedAction、Confirmation、DomainEvent、Outbox 和初始 ActionDispatch 在同一个 REQUIRED 数据库事务中提交。Worker 只 Claim 已提交的 Dispatch 行；事务提交前和回滚后外部调用数量必须为零。生产实现使用事务性 Outbox 唤醒 Worker，进程内 `afterCommit` 回调不能作为唯一耐久调度事实。
 
+Confirmation 恢复和每次授权复验同时闭合 Organization/Team/Workspace/WorkProject Scope、当前 Bundle ID/Digest、全部有序 Action Digest、确认人和 Audit 创建人。确认人必须仍等于 Bundle 当前责任快照中的人类 Owner；仅篡改 Confirmation 行的 Scope、确认人、Bundle Digest 或子动作 Digest 不能获得外部写权限。
+
 Dispatch 使用至少一次领取和有限 Lease：
 
 - 每次 Claim 递增 Fencing Token，并保存 Worker、Lease 到期时间和尝试事实；
@@ -113,7 +115,7 @@ Action 成功只表达已完成确认过的写操作；PR 后续关闭、重开�
 7. 人工终结必须有证据和 Audit，终态不被迟到 Webhook、查询或 Worker 逆转。
 8. Push 成功、PR 不确定或失败时只继续 PR，Push 不重复执行。
 
-协议验证见 [M5-S05 ActionBundle 与外部结果对账验证记录](../spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)，正式领域契约见 [M5-D09 Confirmation 与 Action 结果状态机](../testing/M5-D09-Confirmation与Action结果状态机领域契约.md)。
+协议验证见 [M5-S05 ActionBundle 与外部结果对账验证记录](../spikes/M5-S05-ActionBundle与外部结果对账验证记录.md)，正式领域契约见 [M5-D09 Confirmation 与 Action 结果状态机](../testing/M5-D09-Confirmation与Action结果状态机领域契约.md)。M5-Q02 已验证 48 / 48 固定故障收敛，重复逻辑 Receipt、旧 Fencing 终态写入和未进入确定状态或人工队列的 UNKNOWN 均为 0，见 [M5-Q02 模型、Review 与 GitHub 交付故障恢复](../testing/M5-Q02-Fault-Recovery.md)。
 
 ## 重新评估条件
 

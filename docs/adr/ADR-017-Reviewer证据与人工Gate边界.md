@@ -163,6 +163,10 @@ eligible TeamMember
 7. Agent 输出 `APPROVED` 等额外字段时 AgentScope Schema 拒绝并允许修复为合法 Finding List。
 8. Agent Principal 调用 Gate 命令被拒绝，只有通过 Eligibility Policy 的 TeamMember 可提交。
 
+M5-Q02 进一步固定 Reviewer Assignment 释放、Owner 离队、Diff/Context/Evidence/ETag 变化和旧命令重放；旧 Review 均保留历史且不能满足当前 Gate，证据见 [M5-Q02 模型、Review 与 GitHub 交付故障恢复](../testing/M5-Q02-Fault-Recovery.md)。
+
+M5-Q03 将 `reviewer@1` Prompt、ContextPackage Policy、空 Skill/Tool 集和 8 个缺陷加 4 个正确变更冻结为版本化质量集。DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 的正式批次达到缺陷召回 100%、正确变更特异度 100%、证据有效率 100%、类别准确率 75%、严重度准确率 87.5%，Gate Decision 越权为 0。模型质量分数不改变本 ADR 的失败关闭和成员 Gate 边界，验证见 [M5-Q03 多模型兼容与 Reviewer 质量基线](../testing/M5-Q03-Reviewer质量基线.md)。
+
 ## 重新评估条件
 
 - 产品允许 Agent 在无人参与下控制生产发布或不可逆外部动作；

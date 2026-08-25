@@ -1267,6 +1267,8 @@ Push 与 Draft PR 使用两个独立 Stage 展示 Dispatch、Receipt 和 Externa
 
 M5 前端完成定义覆盖 Agent、Model、Review 与 Action 的全状态、双视口响应式、键盘焦点、ARIA Live、Reduced Motion、Histoire、视觉回归和 Axe WCAG 2.2 AA。Review Gate、ActionBundle 确认与人工终结保持最上层模态焦点边界，关闭后返回精确触发器。CI 扫描公开 Web 契约与 Story，阻止 Credential、Token、Remote URL、Worker/Lease/Fencing 和原始 Provider/模型输出进入浏览器状态；API Key 只作为不进入 Store 的单向命令输入。实现与验证见 [M5-F08 前端全状态与质量门禁](testing/M5-F08-前端全状态与质量门禁.md)。
 
+M5 安全基线使用固定编号攻击集覆盖 Owner/Scope、USER Key 团队注入、Prompt/Tool 扩权、Finding/Decision 伪造、Confirmation 欺骗、SSRF、Webhook 伪造、Artifact 越权和凭证泄漏。成员补充指令经过 XML 元字符编码后进入位于平台基线之后的独立不可信 Prompt 分区；运行时 Tool、Skill 与 Schema 继续来自不可变 Template。Confirmation 恢复与每次授权复验同时比较 Scope、当前人类 Owner、Audit 创建人、Bundle Digest 和全部有序 Action Digest。实现与验证见 [M5-Q01 安全硬化与固定攻击集](testing/M5-Q01-Security-Hardening.md)。
+
 M3-F03 在 Control Mode 交付 Task 详情抽屉。左栏展示 Task 目标、验收标准、不可变责任快照、当前/历史 attempt 和 Team 级 Runtime Fleet 安全摘要；右栏展示所选 attempt 的 PlanVersion、Todo、StepExecution、AgentSession/AgentRun、continuity gap、Lease、Snapshot 和 Interrupt 摘要。窄屏使用同一语义 DOM，按 Task、责任、attempt、Runtime、Plan、Step、AgentRun、恢复事实顺序阅读。
 
 attempt 切换使用 `taskId:executionId` 独立缓存，Team 切换后同时丢弃 Runtime Facts 与 Fleet 摘要，旧请求不能覆盖新 Scope。Fleet 默认只读取成员安全 `/runtime-health`，不读取 `/runtime-health/operations`。HTTP Gateway 对容量、失联 Worker 数和聚合等待原因执行显式白名单映射。具体 Lease 只展示 A02 已公开的截断 Runtime/Worker 标识和时间事实；执行凭证、内部运行载荷和原始状态不进入 Web 状态。关闭 Task 抽屉只移除 `task` 查询参数，保留 Team、WorkProject、WorkItem 和筛选上下文，并恢复来源 Task 控件的焦点。
@@ -3036,6 +3038,12 @@ M5-I11 使用 `ActionWorker` 编排已提交且依赖就绪的 `READY` Dispatch�
 
 M5-I12 使用独立 `ActionReconciliationWorker` 接管到期 `UNKNOWN`、过期 `RUNNING` 和过期 `RECONCILING`。数据库发现与 `FOR UPDATE SKIP LOCKED` 领取按 Organization 隔离，每次接管递增 Fencing Token 并建立 `RECONCILE` Claim 与有界 Lease。Worker 只调用 GitHub Branch Head 与精确 Draft PR 查询接口，禁止调用 Push、Create PR 或任何写协议；精确匹配形成唯一 Receipt，限流、Provider 不可用与查询缺失进入有界退避，达到最大次数或最大 UNKNOWN 时长后进入 `MANUAL_REVIEW`。Webhook 与主动查询都追加 `ExternalObservation`，再由同一个 `ExternalResultMerger` 按 Provider Version 或更新时间进行单调合并；已提交 Webhook 可以先于主动查询完成 Action，旧 Fencing Token 和迟到事实不能覆盖唯一 Receipt。人工终结要求当前有效 OWNER USER、强 `expectedVersion`、稳定 Reason、说明和成功结果所需的外部身份/版本证据，并与 Dispatch、DomainEvent、TaskEvent、Outbox 原子提交。周期 Scheduler 与 Startup Runner 支持多实例恢复；指标只使用 Action Kind、Claim Mode、Outcome 和队列状态等低基数标签，TaskExecutionId、ReviewDecisionId 与 ActionId 仅进入 Trace/结构化日志，Health 仅暴露聚合数量和最老未终结年龄。实现证据见 [M5-I12 UNKNOWN 对账与运行诊断](testing/M5-I12-UNKNOWN对账与运行诊断.md)。
 
+M5-Q02 将模型停用/限流、凭证撤销、成员与 Reviewer 离队、Diff 变化、Push/PR 超时、Receipt 提交窗口、Webhook 乱序和 Worker 退出冻结为 48 项恢复矩阵。TEAM 执行的模型恢复只接受原配置中通过 TEAM Scope 约束的 TEAM/ORGANIZATION Connection，当前选择不可用时不得查询或尝试 USER Connection。Review 恢复始终复验当前成员资格、Reviewer Eligibility 与 Diff/Test/Context Hash。外部写恢复始终使用 query-only 协议和唯一 Receipt；无法证明结果时有界进入人工队列。固定矩阵恢复率为 100%，TEAM 回退 USER Key、重复 Push/PR/Receipt 和未收敛 UNKNOWN 均为 0，验证见 [M5-Q02 模型、Review 与 GitHub 交付故障恢复](testing/M5-Q02-Fault-Recovery.md)。
+
+M5-Q03 在 `evaluation/m5/reviewer-q03` 冻结 DeepSeek 与备用 OpenAI-compatible 协议、`reviewer@1` System Prompt、ContextPackage Policy、空 Skill/Tool 集和 8 个缺陷加 4 个正确变更。真实 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 批次的 Structured Output、缺陷召回、正确变更特异度和 Evidence 有效率均为 100%，Category 准确率 75%、Severity 准确率 87.5%、Gate Decision 越权为 0。报告固定 Provider、Model Revision、Template、Prompt/协议/集合 Hash、Token、缓存 Token、保守成本、延迟和脱敏 Finding 证据；API Key、原始模型文本和内部推理不进入归档。验证见 [M5-Q03 多模型兼容与 Reviewer 质量基线](testing/M5-Q03-Reviewer质量基线.md)。
+
+M5-Q04 使用 `scripts/m5-release-gate.sh` 统一验证 M0–M5 后端、V1–V26 迁移、AgentScope 动态模型与执行 Agent、Review、GitHub/Action、固定安全与故障集、M4 Judge Pack、前端 Coverage/Build/Histoire、双视口视觉/Axe、依赖和文档。最终 Maven `1862 / 1862`、Vitest `311 / 311`、Playwright `150 / 150`，失败、错误和跳过均为 0，M5 的 17 项出口条件全部通过。验证见 [M5-Q04 Release Gate](testing/M5-Q04-Release-Gate.md)。
+
 Action 使用完整 Scope/Version/Hash 复合外键固定 ReviewDecision、ReviewSubject/Context/Diff、OWNER Responsibility、ProviderBinding/Definition/Implementation/Connection/Grant、PolicySnapshot、Safety Overlay、RepositoryBinding 和 CodingTarget。ActionBundle、PlannedAction、Receipt、Observation 等历史事实由数据库触发器强制只追加；Confirmation、Dispatch 和 ExternalResult 使用受控状态迁移、强乐观版本、Fencing Token 单调递增和 Provider Version/时间单调合并。
 
 ### 14.8 动作与制品数据
@@ -3757,6 +3765,8 @@ M4 Coding Agent 使用 `crewscope-java-spring-coding@1.0.0` 版本化评测集�
 M4-Q03 在 `evaluation/m4/coding-q03` 建立真实模型质量层。`crewscope-primary` 由独立 Spring 配置解析到 AgentScope Provider Starter 创建的唯一 `Model` Bean，显式 Provider 模型键继续使用 AgentScope `ModelRegistry`。模型凭证只通过环境进入 Provider，不进入 RunLock、日志、遥测或归档。服务可在未配置模型时启动，Agent 首次调用在模型槽位缺失或不唯一时失败关闭。
 
 评测准备阶段生成 12 个任务乘 3 个 Seed 的 36 次不可变 RunLock，并使用隔离 Maven 仓库完成全部 Judge Pack 的离线依赖物化。依赖目录移除写权限后，以路径、大小和文件字节生成树 SHA-256；Worker 在启动每次评测前复验 Snapshot ID 与 Hash，并将缓存只读挂载到 `/maven-cache`。聚合器逐 Run 调用平台 Judge，交叉复验平台预算、模型遥测、人工判定和运行边界，使用冻结单价计算成本。70% 成功率门禁同时要求成功运行的编译、测试、验收、路径、安全和人工复核全通过，并要求至少一个 CrewScope 自身修改形成 Workspace、AgentRun、CommandEvidence、TestEvidence、DiffArtifact、Delivery Commit 与 CodingResult 闭环。
+
+M5 Reviewer 使用独立的 `crewscope-java-reviewer@1.0.0` 固定质量集。协议轨道验证 DeepSeek/OpenAI-compatible Adapter、Formatter、Structured Output、模型隔离和安全失败，不计入模型能力分数；真实模型轨道逐样本创建精确 ContextPackage，通过生产 Reviewer Prompt Renderer、严格 Schema 和 AgentScope Runtime 生成 Finding。聚合器分别计算缺陷召回、正确样本特异度、Evidence 有效率、Category/Severity 准确率、Gate 越权、Token、成本和延迟，历史批次只追加。Reviewer 能力分数不能扩大 Tool、Skill、上下文或 Gate 权限，也不能把无效 Evidence 降级保存。
 
 Coding Task 成功由平台复验产生。判定器核对 Suite/Task、Real Model RunLock、Baseline、实际 Git Changed Paths、Sandbox、预算、固定 CommandEvidence、Agent 不可见 Judge Test、Structured Output Schema 和 Final Manifest Hash。Git 路径使用 NUL 分隔原值判定，不执行空白裁剪；报告拒绝顶层未知字段、重复 Command ID、额外 Command、额外 Budget 字段和未知轨道。Agent 自述、Plan、Todo、自行报告的命令或测试结果不能形成成功事实。稳定失败分类按 Suite、RunLock、Baseline、Path、Sandbox、Budget、Evidence、Timeout、Acceptance、Evidence Hash、Structured Result 和 Final Hash 的顺序失败关闭。
 

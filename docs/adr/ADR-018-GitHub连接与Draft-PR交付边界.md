@@ -156,7 +156,7 @@ Provider 错误在基础设施边界归一化：
 7. 401、403、404、409、422、429 与 5xx 转为安全错误，原始 Body、Token 与内部 Endpoint 不泄漏。
 8. 最小权限集合不包含 Administration、Actions、Secrets、Members 或 Webhooks Write。
 
-验证证据见 [M5-S04 GitHub 连接与 Draft PR 验证记录](../spikes/M5-S04-GitHub连接与Draft-PR验证记录.md)。
+验证证据见 [M5-S04 GitHub 连接与 Draft PR 验证记录](../spikes/M5-S04-GitHub连接与Draft-PR验证记录.md)。M5-Q02 固定 Push/PR 超时、响应丢失、部分成功、Webhook 乱序与 Worker 退出矩阵，重复 Push 和 Draft PR Create 均为 0，见 [M5-Q02 模型、Review 与 GitHub 交付故障恢复](../testing/M5-Q02-Fault-Recovery.md)。
 
 ## 重新评估条件
 

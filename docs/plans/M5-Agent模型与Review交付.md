@@ -4,7 +4,7 @@
 > 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016、ADR-017、ADR-018、ADR-019 已接受<br>
 > 目标周期：6–8 周，按纵向波次推进<br>
 > 目标结果：成员可创建和配置个人执行 Agent，团队可治理模型与共享 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review 和精确确认后，由 GitHubSourceCodeProvider 创建可审计 Draft PR<br>
-> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12`、`M5-A01` 至 `M5-A08`、`M5-F01` 至 `M5-F08` 已完成，下一任务为 `M5-Q01`（2026-08-25）
+> 当前进度：M5 的 48 个任务已全部完成，`M5-Q04` Release Gate 已通过（2026-08-25）
 
 ## 1. 出口结果与范围
 
@@ -193,10 +193,10 @@ A05 创建与重新 Review 要求服务端绑定精确 Reviewer PolicySnapshot�
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M5-Q01` | HARDENING | D01..D11,I01..I11,A01..A07,F01..F07 | all | 建立模型、凭证、Template、Agent 配置、Review、Confirmation、GitHub 与 Artifact 固定攻击集 | 跨 Owner/Scope、USER Key 注入团队任务、Prompt 扩权、Tool 扩权、伪造 Finding/Decision、确认欺骗、SSRF、Webhook 伪造和凭证泄漏阻断率 100% |
-| `M5-Q02` | HARDENING | I02..I12,A03..A08 | all | 注入模型停用/限流、凭证撤销、成员离队、Reviewer 退出、Diff 变化、Push/PR 超时、回执丢失、Webhook 乱序和 Worker 崩溃 | 固定故障恢复/对账率 `>=95%`；团队任务不回退 USER Key；外部重复 Push/PR/Receipt 为 0；UNKNOWN 最终进入确定状态或人工队列 |
-| `M5-Q03` | HARDENING | S03,I03,I06,F08 | all/evaluation | 冻结多模型兼容与 Reviewer 质量集，记录 Provider/Model/Template/Prompt/Skill/成本/延迟、Finding 准确性、证据引用和误报 | DeepSeek 与备用 Provider 协议门禁通过；Reviewer 固定缺陷召回、证据有效率和严重度基线达标；Agent 无 Gate Decision 越权 |
-| `M5-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M5 Release Gate，审查模型、Agent、迁移、Spring/AgentScope、Review、GitHub、Action、前端、M0–M4 回归、依赖和文档 | 后端、V20–V26、Docker、模型/Reviewer 评测、安全、故障、GitHub Fixture、Vitest、Playwright、Axe、视觉、依赖、链接和格式全部通过；形成版本化报告 |
+| `M5-Q01` | HARDENING | D01..D11,I01..I11,A01..A07,F01..F07 | all | 已完成：建立模型、凭证、Template、Agent 配置、Review、Confirmation、GitHub 与 Artifact 固定攻击集；补齐成员 Prompt 编码分区和 Confirmation Scope/确认人/Audit 恢复闭包 | [M5-Q01 安全硬化与固定攻击集](../testing/M5-Q01-Security-Hardening.md)；84 / 84 固定攻击样本被阻断，阻断率 100%；197 项关联安全回归通过；公开 DTO、Web 状态和 Provider 错误泄漏探针命中数为 0 |
+| `M5-Q02` | HARDENING | I02..I12,A03..A08 | all | 已完成：注入模型停用/限流、凭证撤销、成员离队、Reviewer 退出、Diff 变化、Push/PR 超时、回执丢失、Webhook 乱序和 Worker 崩溃；补齐 TEAM 模型不可用不查询 USER Connection、Push 限流无副作用重试和 Push 成功/PR UNKNOWN 直证 | [M5-Q02 模型、Review 与 GitHub 交付故障恢复](../testing/M5-Q02-Fault-Recovery.md)；48 / 48 固定故障样本收敛，恢复率 100%；TEAM 回退 USER Key、重复 Push/PR/Receipt 和未收敛 UNKNOWN 均为 0；188 项专项门禁通过 |
+| `M5-Q03` | HARDENING | S03,I03,I06,F08 | all/evaluation | 已完成：冻结 DeepSeek/备用 OpenAI-compatible 协议、`reviewer@1` Prompt、空 Skill/Tool 和 8 缺陷 + 4 正确样本，记录版本、资产 Hash、Finding、Evidence、Token、成本与延迟 | [M5-Q03 多模型兼容与 Reviewer 质量基线](../testing/M5-Q03-Reviewer质量基线.md)；协议门禁 21 / 21；真实模型缺陷召回/正确样本特异度/证据有效率均为 100%，类别 75%，严重度 87.5%，Gate 越权 0 |
+| `M5-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 已完成：建立 M5 统一 Release Gate，审查模型、Agent、迁移、Spring/AgentScope、Review、GitHub、Action、前端、M0–M4 回归、依赖、CI 和文档 | [M5-Q04 Release Gate](../testing/M5-Q04-Release-Gate.md)；Maven 1862 / 1862、Vitest 311 / 311、Playwright/视觉/Axe 150 / 150、V20–V26、Judge Pack、Histoire、Audit、链接和格式全部通过 |
 
 ## 11. 纵向实施波次
 

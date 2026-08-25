@@ -214,6 +214,8 @@ AgentRun 和模型调用遥测记录 Organization、Team、AgentProfile/Configur
 8. API、日志、事件、Artifact、AgentState 和前端状态中不出现 Key、Credential Reference 或 Provider 原始错误。
 9. DeepSeek 与备用 OpenAI Provider 通过两个独立 Connection 完成 Tool + Structured Output；重试保持原 Connection，Fallback 只使用自己的 Endpoint、Key、模型和 Formatter。
 
+M5-Q02 进一步固定 Provider 停用、429、Credential 轮换/撤销和 TEAM 默认不可用故障；48 项跨域矩阵中 TEAM 查询或回退 USER Connection 次数为 0，证据见 [M5-Q02 模型、Review 与 GitHub 交付故障恢复](../testing/M5-Q02-Fault-Recovery.md)。
+
 ## 重新评估条件
 
 - 所有模型流量收敛到统一企业 Model Gateway；

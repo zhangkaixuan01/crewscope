@@ -141,7 +141,7 @@ V20 的 `project_legacy_agent_profile_v20` INSERT 前触发器只兼容仍按 V1
 1. Agent 所有权、运行角色、模板、执行范围和模型连接分别建模，禁止用 Agent 名称或 Template Key 推断所有权。
 2. AgentTemplateVersion、AgentConfigurationVersion 和 PolicySnapshot 都只追加；运行事实引用精确版本和内容 Hash。
 3. USER Connection 只能由 Owner 的 PERSONAL 执行使用，TEAM Task 不得隐式继承 USER Connection。
-4. 用户补充指令只能进入模板声明的扩展槽位，平台安全指令和 Tool Policy 始终具有更高优先级。
+4. 用户补充指令只能进入模板声明的扩展槽位，并作为经过 XML 元字符编码的独立不可信 Prompt 分区追加在平台基线之后；平台安全指令和 Tool Policy 始终具有更高优先级。
 5. Agent 创建、配置、模板升级、模型 Preflight、停用、归档和团队任务委托生成 DomainEvent、CommandReceipt 与 AuditEvent。
 6. 普通成员不能创建带任意 Tool、Shell、网络或 Credential Scope 的模板；自定义模板发布属于团队/组织管理员能力并经过策略校验。
 7. Agent 可见目录、模型目录和 Provider 目录均由服务端返回权限与策略交集，前端不自行拼接可用项。
