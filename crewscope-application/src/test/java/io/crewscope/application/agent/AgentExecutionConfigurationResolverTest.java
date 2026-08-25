@@ -277,6 +277,28 @@ class AgentExecutionConfigurationResolverTest {
     }
 
     @Test
+    void unavailableTeamModelNeverFallsBackToAnAuthorizedUserConnection() {
+        AgentModelDefault teamDefault = modelDefault(
+                AgentModelDefaultScope.team(ORGANIZATION_ID, TEAM_ID), teamPrimary);
+        when(defaults.findCurrentCandidates(
+                        AgentModelDefaultScope.team(ORGANIZATION_ID, TEAM_ID),
+                        template.templateVersion(),
+                        AgentExecutionScope.TEAM))
+                .thenReturn(List.of(teamDefault));
+        when(connections.findById(ORGANIZATION_ID, teamPrimary.connection().id()))
+                .thenReturn(Optional.empty());
+
+        // A USER connection may be usable for PERSONAL work, but it is not a TEAM recovery path.
+        assertRejected(
+                AgentModelPreflightRejectionCode.CONNECTION_UNAVAILABLE,
+                () -> resolveTeam(authorization(
+                        teamPrimary.connection().id(), personalPrimary.connection().id())));
+
+        verify(connections, never()).findById(
+                ORGANIZATION_ID, personalPrimary.connection().id());
+    }
+
+    @Test
     void teamExecutionRequiresCurrentParticipationAndEffectivePrice() {
         AgentModelDefault teamDefault = modelDefault(
                 AgentModelDefaultScope.team(ORGANIZATION_ID, TEAM_ID), teamPrimary);

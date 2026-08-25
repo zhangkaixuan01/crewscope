@@ -165,6 +165,27 @@ class ActionReconciliationWorkerM5I12Test {
                 anyLong(), any(), anyInt(), any(), any());
     }
 
+    @Test
+    void revokedAuthorityNeverReopensAWritePathAndEscalatesToManualReview() {
+        Fixture fixture = new Fixture();
+        when(fixture.authorityResolver.resolveCurrent(fixture.authority))
+                .thenThrow(new io.crewscope.domain.shared.error.DomainValidationException(
+                        "actionAuthority", "Connection grant was revoked"));
+        when(fixture.claimed.recordInconclusiveReconciliation(
+                        anyLong(), any(), anyInt(), any(), any()))
+                .thenReturn(fixture.manualReview);
+
+        ActionReconciliationBatchResult result = fixture.worker(1)
+                .runOnce(fixture.organizationId);
+
+        assertEquals(new ActionReconciliationBatchResult(1, 0, 0, 1, 0), result);
+        verify(fixture.pushPort, never()).queryBranch(any());
+        verify(fixture.pullRequestPort, never()).queryDraft(any());
+        verify(fixture.pushPort, never()).pushBranch(any());
+        verify(fixture.pullRequestPort, never()).ensureDraft(any());
+        verify(fixture.receipts, never()).insertIfAbsent(any());
+    }
+
     private static final class Fixture {
 
         private final UtcTimestamp now = UtcTimestamp.parse("2026-08-24T08:00:00Z");

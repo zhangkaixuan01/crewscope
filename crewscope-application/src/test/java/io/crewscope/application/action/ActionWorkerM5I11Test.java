@@ -187,6 +187,46 @@ class ActionWorkerM5I11Test {
         verify(fixture.pushClaimed).markUnknown(anyLong(), any(), any());
     }
 
+    @Test
+    void rateLimitedPushUsesOnlyTheProvenNoSideEffectRetryPath() {
+        Fixture fixture = new Fixture();
+        fixture.queue(fixture.pushCandidate);
+        when(fixture.pushPort.pushBranch(any())).thenThrow(
+                new io.crewscope.application.github.GitHubProviderException(
+                        io.crewscope.application.github.GitHubProviderErrorCode.RATE_LIMITED,
+                        "GitHub rate limited"));
+        ActionDispatch retry = fixture.terminal(
+                fixture.pushClaimed, ActionDispatchStatus.READY);
+        when(fixture.pushClaimed.scheduleRetry(anyLong(), any(), any(), any()))
+                .thenReturn(retry);
+
+        ActionWorkerBatchResult result = fixture.worker().runOnce(fixture.organizationId);
+
+        assertEquals(new ActionWorkerBatchResult(1, 0, 0, 0, 1), result);
+        verify(fixture.pushClaimed).scheduleRetry(anyLong(), any(), any(), any());
+        verify(fixture.pushClaimed, never()).markUnknown(anyLong(), any(), any());
+        assertEquals(0, fixture.committedReceipts.size());
+    }
+
+    @Test
+    void uncertainDraftPullRequestKeepsThePushReceiptAndNeverRepeatsThePush() {
+        Fixture fixture = new Fixture();
+        fixture.queue(fixture.pushCandidate, fixture.pullRequestCandidate);
+        when(fixture.pushPort.pushBranch(any())).thenReturn(fixture.pushResult());
+        when(fixture.pullRequestPort.ensureDraft(any())).thenThrow(
+                new GitHubDraftPullRequestException(
+                        GitHubDraftPullRequestErrorCode.UNKNOWN,
+                        "Draft Pull Request outcome requires reconciliation"));
+
+        ActionWorkerBatchResult result = fixture.worker().runOnce(fixture.organizationId);
+
+        assertEquals(new ActionWorkerBatchResult(2, 1, 0, 1, 0), result);
+        assertEquals(1, fixture.committedReceipts.size());
+        verify(fixture.pushPort).pushBranch(any());
+        verify(fixture.pullRequestPort).ensureDraft(any());
+        verify(fixture.pullRequestClaimed).markUnknown(anyLong(), any(), any());
+    }
+
     private static final class Fixture {
 
         private final UtcTimestamp now = UtcTimestamp.parse("2026-08-23T12:00:00Z");
@@ -340,6 +380,10 @@ class ActionWorkerM5I11Test {
                     pushClaimed, ActionDispatchStatus.UNKNOWN);
             when(pushClaimed.markUnknown(anyLong(), any(), any()))
                     .thenReturn(pushUnknown);
+            ActionDispatch pullRequestUnknown = terminal(
+                    pullRequestClaimed, ActionDispatchStatus.UNKNOWN);
+            when(pullRequestClaimed.markUnknown(anyLong(), any(), any()))
+                    .thenReturn(pullRequestUnknown);
         }
 
         private void queue(ActionDispatch... values) {
