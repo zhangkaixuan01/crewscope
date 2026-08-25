@@ -46,9 +46,42 @@ export interface CreateTaskInput {
   objective: string
   acceptanceCriteria: string[]
   executorAgentProfileId: string
+  agentConfigurationRevision: number
   conversationSource: { conversationId: string, messageId: string } | null
   providerBindingIds: string[]
   codingTarget?: CodingTargetSelection | null
+}
+
+export interface TaskDelegationSelection {
+  executorAgentProfileId: string
+  agentConfigurationRevision: number | null
+}
+
+export interface TaskDelegationModelSelection {
+  role: string
+  providerKey: string
+  connectionId: string
+  connectionOwnerType: string
+  modelId: string
+  catalogRevision: number
+  modelRevision: string
+  priceRevision: number
+}
+
+/** Public, secret-free coordinates returned by the authoritative Task preflight. */
+export interface TaskDelegationPreflight {
+  agentProfileId: string
+  agentProfileVersion: number
+  executionScope: 'PERSONAL' | 'TEAM'
+  configurationRevision: number
+  configurationHash: string
+  bindingSource: string
+  templateVersion: string
+  primary: TaskDelegationModelSelection
+  fallback: TaskDelegationModelSelection | null
+  policyPackId: string
+  policyPackVersion: number
+  resolutionHash: string
 }
 
 export interface CreateTaskCommand {
@@ -71,6 +104,7 @@ export interface MemberTaskCommand {
   expectedVersion: number
   operation: MemberTaskCommandOperation
   reason?: string
+  agentConfigurationRevision?: number
 }
 
 export interface TaskCommandVersionConflict {

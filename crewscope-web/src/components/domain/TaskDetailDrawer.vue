@@ -22,6 +22,8 @@ import type { CodingPhase, CodingResource } from '../../domains/coding/store'
 import type { ArtifactTextDocument, CodingAttemptSummary, CodingPatchDocument, CommandEvidenceSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
 import type { SemanticTone } from '../base/types'
 import type { TaskLiveState, TaskPhase } from '../../domains/task/store'
+import type { ReviewCommandState, ReviewPhase } from '../../domains/review/store'
+import type { EtaggedReview, ReviewDecisionInput, ReviewFindingEvidence, ReviewSummary } from '../../domains/review/types'
 import type {
   MemberTaskCommandOperation,
   PlanVersion,
@@ -42,6 +44,8 @@ import CodingDiffExplorer from './CodingDiffExplorer.vue'
 import CodingEvidencePanel from './CodingEvidencePanel.vue'
 import TaskControlPanel from './TaskControlPanel.vue'
 import TaskTimelinePanel from './TaskTimelinePanel.vue'
+import ReviewWorkbench from './ReviewWorkbench.vue'
+import ActionDeliveryWorkbench from './ActionDeliveryWorkbench.vue'
 
 const props = defineProps<{
   phase: TaskPhase
@@ -76,6 +80,16 @@ const props = defineProps<{
   eventPage: TaskEventPage | null
   eventErrorMessage: string | null
   liveState: TaskLiveState | null
+  reviewListPhase: ReviewPhase
+  reviews: ReviewSummary[] | null
+  selectedReviewRequestId: string | null
+  reviewDetailPhase: ReviewPhase
+  review: EtaggedReview | null
+  reviewListErrorMessage: string | null
+  reviewDetailErrorMessage: string | null
+  reviewCommand: ReviewCommandState
+  canGateReview: boolean
+  canConfirmDelivery: boolean
   principals: Array<{ principalId: string, displayName: string }>
   canControl: boolean
   online: boolean
@@ -96,7 +110,15 @@ const props = defineProps<{
   onRetryAssociations: () => void
   onLoadEventsMore: () => void
   onRetryEvents: () => void
-  onCommand: (operation: MemberTaskCommandOperation, reason?: string) => Promise<void>
+  onSelectReview: (reviewRequestId: string) => void
+  onRetryReviews: () => void
+  onRetryReviewDetail: () => void
+  onExecuteReviewer: () => Promise<boolean>
+  onDecideReview: (input: ReviewDecisionInput) => Promise<boolean>
+  onRequestReviewChanges: (rationale: string) => Promise<boolean>
+  onRetryReviewCommand: () => Promise<boolean>
+  onClearReviewCommand: () => void
+  onCommand: (operation: MemberTaskCommandOperation, reason?: string, agentConfigurationRevision?: number) => Promise<void>
   onRetryCommand: () => Promise<void>
   onClearCommand: () => void
 }>()
@@ -105,6 +127,7 @@ const emit = defineEmits<{ close: [], openWorkItem: [], openConversation: [conve
 const drawer = useTemplateRef<HTMLElement>('drawer')
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const selectedPlanVersionId = ref<string | null>(null)
+const reviewLocation = ref<ReviewFindingEvidence | null>(null)
 let previousBodyOverflow = ''
 
 const selectedAttempt = computed(() => props.attempts.find(item => item.id === props.selectedExecutionId) ?? null)
@@ -200,6 +223,16 @@ function factTone(status: string): SemanticTone {
 function roleLabel(role: string): string {
   return ({ OWNER: 'Owner', EXECUTOR: 'Executor', REVIEWER: 'Reviewer' } as Record<string, string>)[role] ?? role
 }
+
+function locateReviewFinding(location: ReviewFindingEvidence): void {
+  reviewLocation.value = { ...location }
+  if (props.codingPatchPhase === 'idle') props.onLoadCodingPatch()
+  void nextTick(() => {
+    const explorer = drawer.value?.querySelector<HTMLElement>('#coding-diff-explorer')
+    explorer?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    explorer?.focus({ preventScroll: true })
+  })
+}
 </script>
 
 <template>
@@ -265,6 +298,7 @@ function roleLabel(role: string): string {
           :patch-phase="codingPatchPhase"
           :patch="codingPatch"
           :patch-error-message="codingPatchErrorMessage"
+          :review-location="reviewLocation"
           :on-load-patch="onLoadCodingPatch"
           :on-reconcile="onRetryCoding"
         />
@@ -284,6 +318,39 @@ function roleLabel(role: string): string {
           :on-load-tests-more="onLoadCodingTestsMore"
           :on-load-command-log="onLoadCodingCommandLog"
           :on-load-test-report="onLoadCodingTestReport"
+        />
+        <ReviewWorkbench
+          v-if="codingAttempt?.coding && codingAttempt.details"
+          :list-phase="reviewListPhase"
+          :reviews="reviews"
+          :selected-review-request-id="selectedReviewRequestId"
+          :detail-phase="reviewDetailPhase"
+          :review="review"
+          :list-error-message="reviewListErrorMessage"
+          :detail-error-message="reviewDetailErrorMessage"
+          :coding-attempt="codingAttempt"
+          :tests="codingTests"
+          :can-gate="canGateReview"
+          :online="online"
+          :command="reviewCommand"
+          :on-select="onSelectReview"
+          :on-retry-list="onRetryReviews"
+          :on-retry-detail="onRetryReviewDetail"
+          :on-execute="onExecuteReviewer"
+          :on-decide="onDecideReview"
+          :on-request-changes="onRequestReviewChanges"
+          :on-retry-command="onRetryReviewCommand"
+          :on-clear-command="onClearReviewCommand"
+          @locate="locateReviewFinding"
+        />
+        <ActionDeliveryWorkbench
+          v-if="codingAttempt?.coding && codingAttempt.details"
+          :task-id="details.id"
+          :execution-id="codingAttempt.executionId"
+          :objective="details.objective"
+          :review="review"
+          :online="online"
+          :can-confirm="canConfirmDelivery"
         />
         <div class="task-detail-columns">
           <div class="task-detail-column task-detail-column--context">

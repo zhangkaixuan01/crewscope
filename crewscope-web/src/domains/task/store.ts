@@ -18,6 +18,8 @@ import type {
   TaskStatus,
   TaskSummary,
   TaskCommandVersionConflict,
+  TaskDelegationPreflight,
+  TaskDelegationSelection,
 } from './types'
 
 export type TaskPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -34,6 +36,8 @@ export interface CachedResource<T> {
   value: T | null
   errorMessage: string | null
   errorStatus: number | null
+  errorCode?: string | null
+  errorDetails?: Record<string, unknown>
 }
 
 interface TaskState {
@@ -54,6 +58,7 @@ interface TaskState {
   events: Record<string, CachedResource<TaskEventPage>>
   associationPages: Record<string, CachedResource<TaskAssociationPage>>
   taskAssociations: Record<string, CachedResource<TaskAssociations>>
+  delegationPreflights: Record<string, CachedResource<TaskDelegationPreflight>>
   liveTasks: Record<string, TaskLiveState>
   liveRefreshVersion: number
   liveUpdatedTaskId: string | null
@@ -83,6 +88,12 @@ export interface TaskStore {
   loadByWorkItem(projectId: string, workItemId: string, more?: boolean): Promise<void>
   loadByConversation(conversationId: string, more?: boolean, force?: boolean): Promise<void>
   loadAssociations(taskId: string, more?: boolean): Promise<void>
+  preflightDelegation(
+    projectId: string,
+    workItemId: string,
+    selection: TaskDelegationSelection,
+  ): Promise<TaskDelegationPreflight | null>
+  clearDelegationPreflight(projectId: string, workItemId: string): void
   synchronizeLiveTasks(taskIds: string[]): void
   stopLiveTasks(): void
   createTask(command: CreateTaskCommand): Promise<string | null>
@@ -122,6 +133,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     events: {},
     associationPages: {},
     taskAssociations: {},
+    delegationPreflights: {},
     liveTasks: {},
     liveRefreshVersion: 0,
     liveUpdatedTaskId: null,
@@ -558,6 +570,37 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     )
   }
 
+  async function preflightDelegation(
+    projectId: string,
+    workItemId: string,
+    selection: TaskDelegationSelection,
+  ): Promise<TaskDelegationPreflight | null> {
+    const scope = requireScope()
+    clearDelegationPreflight(projectId, workItemId)
+    const cacheKey = delegationPreflightKey(projectId, workItemId, selection)
+    await loadCached(
+      `delegation-preflight:${projectId}:${workItemId}`,
+      state.delegationPreflights,
+      cacheKey,
+      true,
+      signal => gateway.preflightDelegation(scope, projectId, workItemId, selection, signal),
+      'Task 模型预检未通过，请检查 Agent、责任与模型配置',
+    )
+    const resource = state.delegationPreflights[cacheKey]
+    return resource?.phase === 'ready' ? resource.value : null
+  }
+
+  function clearDelegationPreflight(projectId: string, workItemId: string): void {
+    const requestKey = `delegation-preflight:${projectId}:${workItemId}`
+    resourceVersions.set(requestKey, (resourceVersions.get(requestKey) ?? 0) + 1)
+    resourceAborts.get(requestKey)?.abort()
+    resourceAborts.delete(requestKey)
+    const prefix = `${projectId}:${workItemId}:`
+    for (const key of Object.keys(state.delegationPreflights)) {
+      if (key.startsWith(prefix)) delete state.delegationPreflights[key]
+    }
+  }
+
   async function createTask(command: CreateTaskCommand): Promise<string | null> {
     if (state.createPhase === 'submitting') return null
     createGeneration += 1
@@ -800,6 +843,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
         value: existing?.value ?? null,
         errorMessage: presentError(error, fallback),
         errorStatus: statusOf(error),
+        errorCode: error instanceof CrewScopeApiError ? error.envelope.code : null,
+        errorDetails: error instanceof CrewScopeApiError ? { ...error.envelope.details } : {},
       }
     } finally {
       if (resourceAborts.get(requestKey) === controller) resourceAborts.delete(requestKey)
@@ -833,6 +878,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     }
     state.associationPages = {}
     state.taskAssociations = {}
+    state.delegationPreflights = {}
     state.createPhase = 'idle'
     state.createErrorMessage = null
     state.createErrorStatus = null
@@ -893,6 +939,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.events = {}
     state.associationPages = {}
     state.taskAssociations = {}
+    state.delegationPreflights = {}
     state.liveTasks = {}
     state.liveRefreshVersion = 0
     state.liveUpdatedTaskId = null
@@ -970,6 +1017,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     loadByWorkItem,
     loadByConversation,
     loadAssociations,
+    preflightDelegation,
+    clearDelegationPreflight,
     synchronizeLiveTasks,
     stopLiveTasks,
     createTask,
@@ -982,6 +1031,14 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     invalidateAssociations,
     reset,
   }
+}
+
+export function delegationPreflightKey(
+  projectId: string,
+  workItemId: string,
+  selection: TaskDelegationSelection,
+): string {
+  return `${projectId}:${workItemId}:${selection.executorAgentProfileId}:${selection.agentConfigurationRevision ?? 'current'}`
 }
 
 function defaultReconnectDelay(attempt: number, signal: AbortSignal): Promise<void> {

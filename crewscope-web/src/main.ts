@@ -21,6 +21,14 @@ import { HttpTaskGateway } from './domains/task/gateway'
 import { installTaskStore } from './domains/task/store'
 import { HttpCodingGateway } from './domains/coding/gateway'
 import { installCodingStore } from './domains/coding/store'
+import { HttpModelGateway } from './domains/model/gateway'
+import { installModelStore } from './domains/model/store'
+import { HttpAgentGateway } from './domains/agent/gateway'
+import { installAgentStore } from './domains/agent/store'
+import { HttpReviewGateway } from './domains/review/gateway'
+import { installReviewStore } from './domains/review/store'
+import { HttpDeliveryGateway } from './domains/delivery/gateway'
+import { installDeliveryStore } from './domains/delivery/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -37,6 +45,10 @@ installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGatewa
 installWorkItemStore(app, new HttpWorkItemGateway())
 installTaskStore(app, new HttpTaskGateway())
 installCodingStore(app, new HttpCodingGateway())
+installModelStore(app, new HttpModelGateway())
+installAgentStore(app, new HttpAgentGateway())
+installReviewStore(app, new HttpReviewGateway())
+installDeliveryStore(app, new HttpDeliveryGateway())
 installGlobalErrorHandling(app)
 app.use(router)
 app.mount('#app')

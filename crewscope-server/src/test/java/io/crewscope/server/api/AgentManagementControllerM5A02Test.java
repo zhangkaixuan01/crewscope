@@ -109,6 +109,7 @@ class AgentManagementControllerM5A02Test {
                 .expectBody()
                 .jsonPath("$.items[0].key").isEqualTo("coding")
                 .jsonPath("$.items[0].runtimeRole").isEqualTo("SPECIALIST")
+                .jsonPath("$.items[0].approvedSkillKeys[0]").isEqualTo("coding-baseline")
                 .jsonPath("$.items[0].systemPromptBaseline").doesNotExist()
                 .jsonPath("$.items[0].structuredOutputSchema").doesNotExist()
                 .jsonPath("$.items[0].allowedTools").doesNotExist();

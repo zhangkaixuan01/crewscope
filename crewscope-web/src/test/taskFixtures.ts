@@ -13,6 +13,8 @@ import type {
   TaskRuntimeFacts,
   TaskScope,
   TaskCommandReceipt,
+  TaskDelegationPreflight,
+  TaskDelegationSelection,
   TaskSummary,
 } from '../domains/task/types'
 import { fixtureIds } from './scopeFixtures'
@@ -53,6 +55,24 @@ export class FixtureTaskGateway implements TaskGateway {
   createCalls: Array<{ command: CreateTaskCommand, idempotencyKey: string }> = []
   commandCalls: Array<{ command: MemberTaskCommand, idempotencyKey: string }> = []
   runtimeCalls: string[] = []
+  preflightCalls: Array<{
+    scope: TaskScope
+    projectId: string
+    workItemId: string
+    selection: TaskDelegationSelection
+  }> = []
+
+  async preflightDelegation(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+    selection: TaskDelegationSelection,
+  ): Promise<TaskDelegationPreflight> {
+    this.preflightCalls.push({
+      scope: structuredClone(scope), projectId, workItemId, selection: structuredClone(selection),
+    })
+    return delegationPreflight(selection.executorAgentProfileId, selection.agentConfigurationRevision ?? 2)
+  }
 
   async createTask(command: CreateTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt> {
     this.createCalls.push({ command: structuredClone(command), idempotencyKey })
@@ -237,6 +257,27 @@ export class FixtureTaskGateway implements TaskGateway {
       items: task ? [{ origin: 'WORK_ITEM_ROOT', associatedAt: task.createdAt, task: { ...task, href: `/work?task=${task.id}` } }] : [],
       nextCursor: null,
     }
+  }
+}
+
+export function delegationPreflight(agentProfileId: string, revision: number): TaskDelegationPreflight {
+  return {
+    agentProfileId,
+    agentProfileVersion: 2,
+    executionScope: 'PERSONAL',
+    configurationRevision: revision,
+    configurationHash: 'c'.repeat(64),
+    bindingSource: 'DIRECT',
+    templateVersion: 'personal-assistant@1',
+    primary: {
+      role: 'PRIMARY', providerKey: 'deepseek', connectionId: crypto.randomUUID(),
+      connectionOwnerType: 'USER', modelId: 'deepseek-v4-flash', catalogRevision: 7,
+      modelRevision: '2026-08-01', priceRevision: 3,
+    },
+    fallback: null,
+    policyPackId: crypto.randomUUID(),
+    policyPackVersion: 4,
+    resolutionHash: 'd'.repeat(64),
   }
 }
 

@@ -29,9 +29,30 @@ const ids = {
   taskRun: '00000000-0000-0000-0000-000000001631',
   taskLease: '00000000-0000-0000-0000-000000001641',
   agentProfile: '00000000-0000-0000-0000-000000001701',
+  agentCoding: '00000000-0000-0000-0000-000000001702',
+  agentReviewer: '00000000-0000-0000-0000-000000001703',
+  agentTeam: '00000000-0000-0000-0000-000000001704',
+  agentCreated: '00000000-0000-0000-0000-000000001705',
   repositoryBinding: '00000000-0000-0000-0000-000000001801',
   codingWorkspace: '00000000-0000-0000-0000-000000001901',
   previousCodingWorkspace: '00000000-0000-0000-0000-000000001902',
+  userModelConnection: '00000000-0000-0000-0000-000000002001',
+  teamModelConnection: '00000000-0000-0000-0000-000000002002',
+  reviewRequest: '00000000-0000-0000-0000-000000002101',
+  previousReviewRequest: '00000000-0000-0000-0000-000000002102',
+  reviewFinding: '00000000-0000-0000-0000-000000002103',
+  reviewContext: '00000000-0000-0000-0000-000000002104',
+  reviewDiffArtifact: '00000000-0000-0000-0000-000000002105',
+  reviewDecision: '00000000-0000-0000-0000-000000002106',
+  reviewModificationRound: '00000000-0000-0000-0000-000000002107',
+  githubConnection: '00000000-0000-0000-0000-000000002201',
+  githubBinding: '00000000-0000-0000-0000-000000002202',
+  actionBundle: '00000000-0000-0000-0000-000000002203',
+  actionConfirmation: '00000000-0000-0000-0000-000000002204',
+  pushAction: '00000000-0000-0000-0000-000000002205',
+  pullRequestAction: '00000000-0000-0000-0000-000000002206',
+  pushDispatch: '00000000-0000-0000-0000-000000002207',
+  pullRequestDispatch: '00000000-0000-0000-0000-000000002208',
 }
 
 test.beforeEach(async ({ page }) => {
@@ -78,6 +99,47 @@ test.beforeEach(async ({ page }) => {
   const acceptedInvocations = new Map<string, { invocationId: string; userMessageId: string; agentMessageId: string }>()
   let repositoryBindingVersion = 1
   let repositoryBindingStatus = 'ACTIVE'
+  let managedAgents = agentDirectory()
+  const configurationRevisions = new Map(managedAgents.map(agent => [agent.id, 2]))
+  let modelConnections = [
+    modelConnection(ids.userModelConnection, 'USER', ids.principal, 'HEALTHY'),
+    modelConnection(ids.teamModelConnection, 'TEAM', ids.team, 'UNHEALTHY'),
+  ]
+  let reviewVersion = 1
+  let reviewStatus = 'OPEN'
+  let reviewLatestDecision: string | null = null
+  let reviewDecisions: ReturnType<typeof reviewDecision>[] = []
+  let reviewModificationRounds: ReturnType<typeof reviewModificationRound>[] = []
+  const acceptedReviewCommandKeys = new Set<string>()
+  const acceptedDeliveryCommandKeys = new Set<string>()
+  let plannedDelivery: ReturnType<typeof githubActionBundle> | null = null
+  let deliveryConfirmed = false
+  let deliveryDetailReadsAfterConfirmation = 0
+  const deliveryProjection = () => {
+    const value = structuredClone(plannedDelivery!)
+    if (!deliveryConfirmed) return value
+    value.version = 1
+    value.confirmation = {
+      id: ids.actionConfirmation, version: 0, status: 'ACTIVE', confirmedByPrincipalId: ids.principal,
+      confirmedAt: '2026-08-08T04:00:00Z', validUntil: '2026-08-08T05:00:00Z', cancellationReason: null,
+    }
+    value.actions[0]!.dispatch = actionDispatch(ids.pushDispatch, 'SUCCEEDED', 0)
+    value.actions[0]!.receipt = actionReceipt('SUCCEEDED', 'BRANCH', 'REMOTE_HEAD_MATCHED')
+    const webhookObserved = deliveryDetailReadsAfterConfirmation >= 2
+    value.actions[1]!.dispatch = actionDispatch(
+      ids.pullRequestDispatch, webhookObserved ? 'SUCCEEDED' : 'FAILED', webhookObserved ? 1 : 0,
+    )
+    value.actions[1]!.receipt = actionReceipt(
+      webhookObserved ? 'SUCCEEDED' : 'FAILED', webhookObserved ? 'PULL_REQUEST' : null,
+      webhookObserved ? 'DRAFT_PR_VERIFIED' : 'PROVIDER_UNAVAILABLE',
+    )
+    value.actions[1]!.externalResult = webhookObserved ? {
+      status: 'OPEN', externalObjectType: 'PULL_REQUEST', externalIdentityHash: '3'.repeat(64),
+      providerVersion: 42, providerUpdatedAt: '2026-08-08T04:02:00Z', source: 'WEBHOOK',
+      observedAt: '2026-08-08T04:02:01Z', version: 2,
+    } : null
+    return value
+  }
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -100,6 +162,163 @@ test.beforeEach(async ({ page }) => {
         { id: '00000000-0000-0000-0000-000000000302', userPrincipalId: ids.secondPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:10:00Z', version: 0 },
         { id: '00000000-0000-0000-0000-000000000303', userPrincipalId: ids.thirdPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:20:00Z', version: 0 },
       ])
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/model-providers')) {
+      await fulfillJson(route, { items: [modelProvider()] })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/model-providers/deepseek/catalog')) {
+      await fulfillJson(route, { items: modelCatalog() })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/model-connections')) {
+      const ownerType = url.searchParams.get('ownerType')
+      await fulfillJson(route, { items: modelConnections.filter(connection => connection.ownerType === ownerType) })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith('/model-connections')) {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const input = request.postDataJSON() as { providerKey: string, ownerType: string, teamId: string | null, region: string, apiKey: string, credentialExpiresAt: string | null }
+      expect(input.apiKey).toBeTruthy()
+      expect(Object.keys(input).sort()).toEqual(['apiKey', 'credentialExpiresAt', 'ownerType', 'providerKey', 'region', 'teamId'])
+      const created = modelConnection(crypto.randomUUID(), input.ownerType, input.ownerType === 'TEAM' ? ids.team : ids.principal, 'UNKNOWN')
+      modelConnections = [...modelConnections, created]
+      await fulfillReceipt(route, 0)
+      return
+    }
+    const modelConnectionCommand = path.match(/\/model-connections\/([^/]+)\/(verify|rotate|suspend|revoke)$/)
+    if (request.method() === 'POST' && modelConnectionCommand) {
+      const current = modelConnections.find(connection => connection.id === modelConnectionCommand[1])!
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(request.headers()['if-match']).toBe(`"${current.version}"`)
+      const input = request.postDataJSON() as { credentialVersion: number, apiKey?: string, reason?: string }
+      expect(input.credentialVersion).toBe(current.credentialVersion)
+      const operation = modelConnectionCommand[2]
+      if (operation === 'rotate') expect(input.apiKey).toBeTruthy()
+      if (operation === 'revoke') expect(['OWNER_REQUESTED', 'CREDENTIAL_REVOKED', 'PROVIDER_DISABLED', 'POLICY_REVOKED', 'SECURITY_INCIDENT']).toContain(input.reason)
+      const updated = {
+        ...current,
+        credentialVersion: operation === 'rotate' ? current.credentialVersion + 1 : current.credentialVersion,
+        status: operation === 'suspend' ? 'SUSPENDED' : operation === 'revoke' ? 'REVOKED' : current.status,
+        healthStatus: operation === 'verify' ? 'HEALTHY' : operation === 'rotate' ? 'UNKNOWN' : current.healthStatus,
+        healthFailureCode: operation === 'verify' || operation === 'rotate' ? null : current.healthFailureCode,
+        checkedAt: operation === 'verify' ? '2026-08-08T04:00:00Z' : current.checkedAt,
+        lastHealthyAt: operation === 'verify' ? '2026-08-08T04:00:00Z' : current.lastHealthyAt,
+        consecutiveFailures: operation === 'verify' || operation === 'rotate' ? 0 : current.consecutiveFailures,
+        revocationReason: operation === 'revoke' ? input.reason ?? 'OWNER_REQUESTED' : current.revocationReason,
+        version: current.version + 1,
+      }
+      modelConnections = modelConnections.map(connection => connection.id === current.id ? updated : connection)
+      await fulfillReceipt(route, updated.version)
+      return
+    }
+    const modelConnectionDetail = path.match(/\/model-connections\/([^/]+)$/)
+    if (request.method() === 'GET' && modelConnectionDetail) {
+      const current = modelConnections.find(connection => connection.id === modelConnectionDetail[1])
+      if (!current) return fulfillError(route, 404, 'model_connection_not_found', 'Model Connection 不存在')
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${current.version}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(current) })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/agent-templates')) {
+      const ownershipType = url.searchParams.get('ownershipType')
+      await fulfillJson(route, { items: agentTemplates(ownershipType === 'TEAM' ? 'TEAM' : 'USER') })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/agent-profiles')) {
+      const requestedTeam = path.match(/\/teams\/([^/]+)\/agent-profiles$/)?.[1]
+      await fulfillJson(route, { items: requestedTeam === ids.team ? managedAgents : [] })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith('/agent-profiles')) {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const input = request.postDataJSON() as {
+        publisherType: string, templateKey: string, templateVersion: number,
+        ownershipType: string, displayName: string,
+      }
+      expect(Object.keys(input).sort()).toEqual([
+        'displayName', 'ownershipType', 'publisherType', 'templateKey', 'templateVersion',
+      ])
+      const runtimeRole = input.templateKey.includes('review') ? 'REVIEWER' : 'CODING'
+      managedAgents = [...managedAgents, agentProfile(
+        ids.agentCreated, input.displayName, input.ownershipType, runtimeRole,
+        input.templateKey, false, 'ACTIVE', input.templateVersion, null,
+      )]
+      configurationRevisions.delete(ids.agentCreated)
+      await fulfillReceipt(route, 0)
+      return
+    }
+    const agentDetailMatch = path.match(/\/agent-profiles\/([^/]+)$/)
+    if (request.method() === 'GET' && agentDetailMatch) {
+      const profile = managedAgents.find(agent => agent.id === agentDetailMatch[1])
+      if (!profile) {
+        await fulfillError(route, 404, 'agent_not_found', 'Agent 不存在')
+        return
+      }
+      await route.fulfill({
+        status: 200, contentType: 'application/json', headers: { ETag: `"${profile.version}"` },
+        body: JSON.stringify(profile),
+      })
+      return
+    }
+    const agentHistoryMatch = path.match(/\/agent-profiles\/([^/]+)\/configurations$/)
+    if (request.method() === 'GET' && agentHistoryMatch) {
+      const revision = configurationRevisions.get(agentHistoryMatch[1]!)
+      await fulfillJson(route, { items: revision ? configurationHistory(agentHistoryMatch[1]!, revision) : [] })
+      return
+    }
+    const agentConfigurationMatch = path.match(/\/agent-profiles\/([^/]+)\/configurations\/current$/)
+    if (request.method() === 'GET' && agentConfigurationMatch) {
+      const revision = configurationRevisions.get(agentConfigurationMatch[1]!)
+      if (!revision) {
+        await fulfillError(route, 404, 'configuration_not_found', 'Configuration 尚未创建')
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { ETag: `"${revision}"` },
+        body: JSON.stringify(agentConfiguration(agentConfigurationMatch[1]!, revision)),
+      })
+      return
+    }
+    const agentModelCatalogMatch = path.match(/\/agent-profiles\/([^/]+)\/model-catalog$/)
+    if (request.method() === 'GET' && agentModelCatalogMatch) {
+      await fulfillJson(route, { items: selectableAgentModels(url.searchParams.get('executionScope') ?? 'PERSONAL') })
+      return
+    }
+    const agentConfigurationAppendMatch = path.match(/\/agent-profiles\/([^/]+)\/configurations$/)
+    if (request.method() === 'POST' && agentConfigurationAppendMatch) {
+      const profileId = agentConfigurationAppendMatch[1]!
+      const expected = configurationRevisions.get(profileId) ?? 0
+      expect(request.headers()['if-match']).toBe(`"${expected}"`)
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(JSON.stringify(request.postDataJSON())).not.toMatch(/apiKey|credential|systemPrompt|toolPayload/)
+      const committed = expected + 1
+      configurationRevisions.set(profileId, committed)
+      managedAgents = managedAgents.map(agent => agent.id === profileId
+        ? { ...agent, currentConfigurationRevision: committed, currentConfigurationHash: 'c'.repeat(64) }
+        : agent)
+      await fulfillReceipt(route, committed)
+      return
+    }
+    const agentPreflightMatch = path.match(/\/agent-profiles\/([^/]+)\/model-preflight$/)
+    if (request.method() === 'POST' && agentPreflightMatch) {
+      const executionScope = (request.postDataJSON() as { executionScope: string }).executionScope
+      const revision = configurationRevisions.get(agentPreflightMatch[1]!) ?? 1
+      await fulfillJson(route, agentPreflight(agentPreflightMatch[1]!, executionScope, revision))
+      return
+    }
+    const agentLifecycleMatch = path.match(/\/agent-profiles\/([^/]+)\/(activate|disable|archive)$/)
+    if (request.method() === 'POST' && agentLifecycleMatch) {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const profile = managedAgents.find(agent => agent.id === agentLifecycleMatch[1])!
+      expect(request.headers()['if-match']).toBe(`"${profile.version}"`)
+      const status = agentLifecycleMatch[2] === 'activate' ? 'ACTIVE' : agentLifecycleMatch[2]!.toUpperCase() + 'D'
+      managedAgents = managedAgents.map(agent => agent.id === profile.id
+        ? { ...agent, status, principalStatus: status, version: agent.version + 1 }
+        : agent)
+      await fulfillReceipt(route, profile.version + 1)
       return
     }
     if (request.method() === 'GET' && path.endsWith('/repository-catalog')) {
@@ -162,6 +381,31 @@ test.beforeEach(async ({ page }) => {
       })
       return
     }
+    const workItemTaskPreflightMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/tasks\/preflight$/)
+    if (workItemTaskPreflightMatch && request.method() === 'POST') {
+      const input = request.postDataJSON() as { executorAgentProfileId: string; agentConfigurationRevision: number | null }
+      expect(input.executorAgentProfileId).toBe(ids.agentProfile)
+      const revision = input.agentConfigurationRevision ?? configurationRevisions.get(input.executorAgentProfileId) ?? 2
+      await fulfillJson(route, {
+        agentProfileId: input.executorAgentProfileId,
+        agentProfileVersion: 2,
+        executionScope: 'PERSONAL',
+        configurationRevision: revision,
+        configurationHash: 'c'.repeat(64),
+        bindingSource: 'DIRECT',
+        templateVersion: 'personal-assistant@1',
+        primary: {
+          role: 'PRIMARY', providerKey: 'deepseek', connectionId: ids.userModelConnection,
+          connectionOwnerType: 'USER', modelId: 'deepseek-v4-flash', catalogRevision: 7,
+          modelRevision: '2026-08', priceRevision: 3,
+        },
+        fallback: null,
+        policyPackId: '00000000-0000-0000-0000-000000002101',
+        policyPackVersion: 4,
+        resolutionHash: 'd'.repeat(64),
+      })
+      return
+    }
     const workItemTaskMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/tasks$/)
     if (workItemTaskMatch && request.method() === 'GET') {
       await fulfillJson(route, {
@@ -175,8 +419,9 @@ test.beforeEach(async ({ page }) => {
       const key = request.headers()['idempotency-key']!
       expect(key).toBeTruthy()
       expect(request.headers()['if-match']).toBe('"0"')
-      const input = request.postDataJSON() as { objective: string; acceptanceCriteria: string[]; executorAgentProfileId: string; conversationSource: { conversationId: string, messageId: string } | null; codingTarget: { repositoryBindingId: string, baselineRef: string, allowedPaths: string[], buildProfile: { key: string, version: number, profileHash: string } } | null }
+      const input = request.postDataJSON() as { objective: string; acceptanceCriteria: string[]; executorAgentProfileId: string; agentConfigurationRevision: number; conversationSource: { conversationId: string, messageId: string } | null; codingTarget: { repositoryBindingId: string, baselineRef: string, allowedPaths: string[], buildProfile: { key: string, version: number, profileHash: string } } | null }
       expect(input.executorAgentProfileId).toBe(ids.agentProfile)
+      expect(input.agentConfigurationRevision).toBe(2)
       expect(input.codingTarget).toEqual({
         repositoryBindingId: ids.repositoryBinding,
         baselineRef: 'main',
@@ -229,6 +474,183 @@ test.beforeEach(async ({ page }) => {
         selected.version += 1
       }
       await fulfillReceipt(route, selected.executionVersion)
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/github-connections')) {
+      const ownerType = url.searchParams.get('ownerType')
+      await fulfillJson(route, { items: ownerType === 'TEAM' ? [githubConnection()] : [] })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith(`/${ids.githubConnection}/bindings`)) {
+      await fulfillJson(route, { items: [githubProviderBinding()] })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith(`/${ids.githubConnection}/repositories`)) {
+      await fulfillJson(route, { items: [githubRepository()] })
+      return
+    }
+    if (request.method() === 'POST' && path.endsWith(`/${ids.githubConnection}/repositories/synchronize`)) {
+      expect(request.headers()['if-match']).toBe('"3"')
+      await fulfillJson(route, { items: [githubRepository()] })
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith(`/${ids.githubConnection}/health`)) {
+      await fulfillJson(route, githubHealth())
+      return
+    }
+    const githubPreflightMatch = path.match(/\/github-connections\/([^/]+)\/repositories\/([^/]+)\/preflight$/)
+    if (githubPreflightMatch && request.method() === 'POST') {
+      expect(githubPreflightMatch.slice(1)).toEqual([ids.githubConnection, '101'])
+      expect(url.searchParams.get('bindingId')).toBe(ids.githubBinding)
+      expect(request.headers()['if-match']).toBe('"3"')
+      await fulfillJson(route, {
+        connectionVersion: 3, externalRepositoryId: '101', fullName: 'crewscope/crewscope-java',
+        defaultBranch: 'main', permissionsHash: '1'.repeat(64),
+      })
+      return
+    }
+    const actionCollectionMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/actions\/bundles$/)
+    if (actionCollectionMatch && request.method() === 'GET') {
+      await fulfillJson(route, { items: plannedDelivery ? [deliveryProjection()] : [] })
+      return
+    }
+    if (actionCollectionMatch && request.method() === 'POST') {
+      expect(actionCollectionMatch.slice(1)).toEqual([ids.task, ids.taskExecution])
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      const input = request.postDataJSON() as {
+        reviewDecisionId: string, providerBindingId: string, repositoryId: string,
+        expectedRemoteHead?: string, title: string, body: string,
+      }
+      expect(input).toMatchObject({ reviewDecisionId: ids.reviewDecision, providerBindingId: ids.githubBinding, repositoryId: '101' })
+      if (!acceptedDeliveryCommandKeys.has(key)) {
+        acceptedDeliveryCommandKeys.add(key)
+        plannedDelivery = githubActionBundle(input.title, input.body)
+      }
+      await fulfillCommandReceipt(route, 0)
+      return
+    }
+    const actionDetailMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/actions\/bundles\/([^/]+)$/)
+    if (actionDetailMatch && request.method() === 'GET') {
+      if (!plannedDelivery || actionDetailMatch[3] !== ids.actionBundle) {
+        return fulfillError(route, 404, 'action_bundle_not_found', 'ActionBundle not found')
+      }
+      if (deliveryConfirmed) deliveryDetailReadsAfterConfirmation += 1
+      const detail = deliveryProjection()
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        headers: { ETag: `"${detail.version}"`, 'Cache-Control': 'no-store' },
+        body: JSON.stringify(detail),
+      })
+      return
+    }
+    const actionConfirmMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/actions\/bundles\/([^/]+)\/confirmations$/)
+    if (actionConfirmMatch && request.method() === 'POST') {
+      expect(actionConfirmMatch.slice(1)).toEqual([ids.task, ids.taskExecution, ids.actionBundle])
+      expect(request.headers()['if-match']).toBe('"0"')
+      expect((request.postDataJSON() as { bundleDigest: string }).bundleDigest).toBe('a'.repeat(64))
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      if (!acceptedDeliveryCommandKeys.has(key)) {
+        acceptedDeliveryCommandKeys.add(key)
+        deliveryConfirmed = true
+        deliveryDetailReadsAfterConfirmation = 0
+      }
+      await fulfillCommandReceipt(route, 1)
+      return
+    }
+    const reviewCollectionMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/reviews$/)
+    if (reviewCollectionMatch && request.method() === 'GET') {
+      const currentAttempt = reviewCollectionMatch[1] === ids.task && reviewCollectionMatch[2] === ids.taskExecution
+      await fulfillJson(route, { items: currentAttempt ? [
+        reviewSummary(ids.reviewRequest, 2, reviewVersion, reviewStatus, null, reviewLatestDecision, reviewModificationRounds.length),
+        reviewSummary(ids.previousReviewRequest, 1, 3, 'INVALIDATED', 'DIFF_CHANGED', 'COMMENTED', 0),
+      ] : [] })
+      return
+    }
+    const reviewDetailMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/reviews\/([^/]+)$/)
+    if (reviewDetailMatch && request.method() === 'GET') {
+      const reviewRequestId = reviewDetailMatch[3]!
+      if (reviewDetailMatch[1] !== ids.task || reviewDetailMatch[2] !== ids.taskExecution
+        || ![ids.reviewRequest, ids.previousReviewRequest].includes(reviewRequestId)) {
+        return fulfillError(route, 404, 'review_request_not_found', 'Review request not found')
+      }
+      const previous = reviewRequestId === ids.previousReviewRequest
+      const detail = reviewDetails({
+        id: reviewRequestId,
+        revision: previous ? 1 : 2,
+        version: previous ? 3 : reviewVersion,
+        status: previous ? 'INVALIDATED' : reviewStatus,
+        invalidationReason: previous ? 'DIFF_CHANGED' : null,
+        decisions: previous
+          ? [reviewDecision('COMMENTED', '历史 Review 已记录，等待新 Diff。', 1)]
+          : reviewDecisions,
+        modificationRounds: previous ? [] : reviewModificationRounds,
+      })
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { ETag: `"${detail.version}"`, 'Cache-Control': 'no-store' },
+        body: JSON.stringify(detail),
+      })
+      return
+    }
+    const reviewExecuteMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/reviews\/([^/]+)\/execute$/)
+    if (reviewExecuteMatch && request.method() === 'POST') {
+      expect(reviewExecuteMatch.slice(1)).toEqual([ids.task, ids.taskExecution, ids.reviewRequest])
+      expect(request.headers()['if-match']).toBe(`"${reviewVersion}"`)
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      if (!acceptedReviewCommandKeys.has(key)) {
+        acceptedReviewCommandKeys.add(key)
+        reviewStatus = 'COMPLETED'
+        reviewVersion += 1
+      }
+      const receipt = commandReceipt(reviewVersion)
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${reviewVersion}"` }, body: JSON.stringify({
+        receipt,
+        reviewRequestId: ids.reviewRequest,
+        reviewRequestVersion: reviewVersion,
+        status: reviewStatus,
+        effectiveFindingCount: 1,
+        insertedFindingCount: 1,
+        duplicateObservationCount: 0,
+      }) })
+      return
+    }
+    const reviewDecisionMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/reviews\/([^/]+)\/decisions$/)
+    if (reviewDecisionMatch && request.method() === 'POST') {
+      expect(reviewDecisionMatch.slice(1)).toEqual([ids.task, ids.taskExecution, ids.reviewRequest])
+      expect(request.headers()['if-match']).toBe(`"${reviewVersion}"`)
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      const input = request.postDataJSON() as { type: string, rationale: string }
+      expect(input.rationale).toBeTruthy()
+      if (!acceptedReviewCommandKeys.has(key)) {
+        acceptedReviewCommandKeys.add(key)
+        reviewVersion += 1
+        reviewLatestDecision = input.type
+        reviewDecisions.push(reviewDecision(input.type, input.rationale, reviewDecisions.length + 1))
+      }
+      await fulfillCommandReceipt(route, reviewVersion)
+      return
+    }
+    const reviewModificationMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/reviews\/([^/]+)\/modifications$/)
+    if (reviewModificationMatch && request.method() === 'POST') {
+      expect(reviewModificationMatch.slice(1)).toEqual([ids.task, ids.taskExecution, ids.reviewRequest])
+      expect(request.headers()['if-match']).toBe(`"${reviewVersion}"`)
+      const key = request.headers()['idempotency-key']!
+      expect(key).toBeTruthy()
+      const input = request.postDataJSON() as { rationale: string }
+      expect(input.rationale).toBeTruthy()
+      if (!acceptedReviewCommandKeys.has(key)) {
+        acceptedReviewCommandKeys.add(key)
+        reviewVersion += 1
+        reviewLatestDecision = 'CHANGES_REQUESTED'
+        reviewDecisions.push(reviewDecision('CHANGES_REQUESTED', input.rationale, reviewDecisions.length + 1))
+        reviewModificationRounds.push(reviewModificationRound(reviewDecisions.at(-1)!.id))
+      }
+      await fulfillCommandReceipt(route, reviewVersion)
       return
     }
     const codingCommandMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/coding\/commands$/)
@@ -1144,6 +1566,70 @@ test('member management remains usable at the configured viewport', async ({ pag
   await expect(page.getByRole('button', { name: '添加成员', exact: true }).first()).toBeVisible()
 })
 
+test('My Agents restores a deep link and remains keyboard-operable at desktop and narrow viewports', async ({ page }) => {
+  await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}&configurationRevision=2`)
+
+  await expect(page.getByRole('heading', { name: 'Platform Engineering · 我的 Agent' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '默认 Personal Agent' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '团队 Agent' })).toBeVisible()
+  const selected = page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)
+  await expect(selected).toHaveAttribute('aria-current', 'page')
+  await expect(selected).toContainText('deepseek-v4-flash')
+  await expect(page.getByText('已禁用', { exact: true })).toBeVisible()
+  await expect(page.getByText('已归档', { exact: true })).toBeVisible()
+
+  await selected.focus()
+  await expect(selected).toBeFocused()
+  await page.keyboard.press('Enter')
+  expect(new URL(page.url()).searchParams.get('agent')).toBe(ids.agentCoding)
+  expect(new URL(page.url()).searchParams.get('configurationRevision')).toBe('2')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await expect(page.locator('body')).not.toContainText(/sk-|credential|system prompt/i)
+
+  await page.getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+  await expect(page).not.toHaveURL(/agent=/)
+  expect(new URL(page.url()).searchParams.get('configurationRevision')).toBeNull()
+  await expect(page.getByRole('heading', { name: 'Security Engineering · 我的 Agent' })).toBeVisible()
+  await expect(page.getByText('还没有可访问的 Agent')).toBeVisible()
+})
+
+test('Model settings verifies and rotates a Team credential without retaining its Key', async ({ page }) => {
+  await page.goto(`/settings/models?team=${ids.team}&provider=deepseek&ownerType=TEAM&connection=${ids.teamModelConnection}`)
+
+  await expect(page.getByRole('heading', { name: 'Platform Engineering · 模型与凭证' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'DeepSeek V4 Flash' })).toBeVisible()
+  await expect(page.getByText('身份验证失败')).toBeVisible()
+  await page.getByRole('button', { name: '验证健康' }).click()
+  await expect(page.locator('.connection-detail').getByText('HEALTHY', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Correlation/)).toBeVisible()
+
+  await page.getByRole('button', { name: '轮换凭证' }).click()
+  const rotate = page.getByRole('dialog', { name: '轮换模型凭证' })
+  await expect(rotate.getByLabel('API Key')).toBeFocused()
+  await rotate.getByLabel('API Key').fill('e2e-one-way-secret')
+  await rotate.getByRole('button', { name: '轮换凭证' }).click()
+
+  await expect(rotate).toHaveCount(0)
+  await expect(page.locator('.connection-detail')).toContainText('Credential Version3')
+  await expect(page.locator('.connection-list')).toContainText('Credential v3')
+  await expect(page.locator('body')).not.toContainText('e2e-one-way-secret')
+  expect(new URL(page.url()).search).not.toContain('e2e-one-way-secret')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+})
+
+test('Model settings visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/settings/models?team=${ids.team}&provider=deepseek&ownerType=TEAM&connection=${ids.teamModelConnection}`)
+  await expect(page.getByText('身份验证失败')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'DeepSeek V4 Flash' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`model-settings-${testInfo.project.name}.png`, { fullPage: true })
+
+  await page.getByRole('button', { name: '创建连接' }).first().click()
+  await expect(page.getByRole('dialog', { name: '创建模型连接' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`model-credential-create-${testInfo.project.name}.png`, { fullPage: true })
+})
+
 test('Repository settings preflights and transitions a binding at desktop and narrow viewports', async ({ page }) => {
   await page.goto(`/settings/repositories?team=${ids.team}&project=${ids.project}`)
 
@@ -1291,9 +1777,9 @@ test('WorkItem responsibility management and Timeline keep server policy boundar
   await dialog.getByRole('button', { name: '替换', exact: true }).click()
   await expect(dialog.getByText('周宁').first()).toBeVisible()
 
-  await dialog.getByLabel('Gate Reviewer').selectOption(ids.secondPrincipal)
+  await dialog.getByLabel('Gate Reviewer', { exact: true }).selectOption(ids.secondPrincipal)
   await expect(dialog.getByText(/默认职责分离策略会拒绝/)).toBeVisible()
-  await dialog.getByLabel('Gate Reviewer').selectOption(ids.thirdPrincipal)
+  await dialog.getByLabel('Gate Reviewer', { exact: true }).selectOption(ids.thirdPrincipal)
   await dialog.locator('.responsibility-actions > form').nth(2).getByRole('button', { name: '添加' }).click()
   await expect(dialog.getByText('具备 Gate 审查效力')).toBeVisible()
 
@@ -1321,6 +1807,19 @@ test('WorkItem delegates to its assigned Agent and refreshes the Task deep link'
   await expect(page.getByRole('heading', { name: '由 Personal Agent 验证 M3-F02', exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('task')).toBeTruthy()
   expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
+})
+
+test('Task delegation preflight remains accessible and visually stable', async ({ page }, testInfo) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
+  await page.getByRole('dialog', { name: 'CRW-18 工作项详情' }).getByRole('button', { name: '交给 Agent 处理' }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+
+  await expect(delegate.getByText('PolicySnapshot Preflight 通过')).toBeVisible()
+  await expect(delegate.locator('.preflight-header').getByText('PERSONAL', { exact: true })).toBeVisible()
+  await expect(delegate.getByText(/deepseek \/ deepseek-v4-flash/)).toBeVisible()
+  await expect(delegate.getByText(/当前 Preflight API 不披露 Billing Subject/)).toBeVisible()
+  expect((await new AxeBuilder({ page }).include('.delegate-dialog').analyze()).violations).toEqual([])
+  await expect(delegate).toHaveScreenshot(`task-delegation-preflight-${testInfo.project.name}.png`, { animations: 'disabled' })
 })
 
 test('CodingTarget loading indicator honors reduced motion', async ({ page }) => {
@@ -1816,6 +2315,7 @@ test('Task Retry preserves the failed attempt and selects the server-created suc
     if (request.method() === 'POST' && path.endsWith('/retry')) {
       expect(request.headers()['if-match']).toBe('"4"')
       expect(request.headers()['idempotency-key']).toBeTruthy()
+      expect(request.postDataJSON()).toEqual({ agentConfigurationRevision: 4 })
       serverTask.previousExecutionId = serverTask.currentExecutionId
       serverTask.previousAttempt = serverTask.currentAttempt
       serverTask.currentExecutionId = crypto.randomUUID()
@@ -1833,7 +2333,8 @@ test('Task Retry preserves the failed attempt and selects the server-created suc
 
   await taskDialog.getByRole('button', { name: '重试当前 Task' }).click()
   const confirm = page.getByRole('dialog', { name: '创建新的执行 Attempt' })
-  await expect(confirm.getByText(/失败 attempt 会作为历史证据保留/)).toBeVisible()
+  await expect(confirm.getByText(/留空会沿用父 attempt 固定配置/)).toBeVisible()
+  await confirm.getByLabel(/切换 Configuration Revision/).fill('4')
   await confirm.getByRole('button', { name: '确认重试' }).click()
 
   await expect(confirm).toBeHidden()
@@ -1892,6 +2393,180 @@ test('WorkItem detail refreshes after an optimistic version conflict', async ({ 
   await expect(dialog.getByText('v2', { exact: true })).toBeVisible()
 })
 
+test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer execution and human Gate', async ({ page }) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, gateEligibleResponsibilities()))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const taskDialog = page.getByRole('dialog', { name: /完成 Agent Task 列表与委托入口 Task 详情/ })
+  const workbench = taskDialog.getByTestId('review-workbench')
+
+  await expect(workbench.getByRole('heading', { name: 'Review Workbench' })).toBeVisible()
+  await expect(workbench.getByRole('heading', { name: 'ContextPackage 摘要' })).toBeVisible()
+  await expect(workbench.getByText('SELF_REVIEW · Advisory only')).toBeVisible()
+  await expect(workbench.getByText('ADVISORY', { exact: true })).toBeVisible()
+  await expect(workbench.getByText('207', { exact: true })).toBeVisible()
+  await expect(workbench.getByText('关键测试通过', { exact: true })).toBeVisible()
+  await expect(workbench.getByText('项目可编译', { exact: true })).toBeVisible()
+  await expect(workbench).not.toContainText(/private|credential|typedArgv|browser-must-hide/)
+
+  await workbench.locator('.finding-locations button').click()
+  const explorer = taskDialog.getByTestId('coding-diff-explorer')
+  await expect(explorer.getByText(/Review Finding 定位：src\/Main.java · L2–3/)).toBeVisible()
+  await expect(explorer.getByRole('button', { name: /Main.java/ })).toHaveAttribute('aria-pressed', 'true')
+
+  await workbench.getByRole('button', { name: '运行 Reviewer' }).click()
+  await expect(workbench.getByText('COMPLETED', { exact: true }).first()).toBeVisible()
+  await workbench.getByRole('button', { name: '提交成员结论' }).click()
+  const gate = page.getByRole('dialog', { name: '提交成员 Review 结论' })
+  await expect(gate).toBeVisible()
+  const gateAxe = await new AxeBuilder({ page })
+    .include('.gate-dialog')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(gateAxe.violations, formatAxeViolations(gateAxe.violations)).toEqual([])
+
+  await gate.getByRole('button', { name: '关闭 Gate Decision' }).focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(gate.getByRole('button', { name: '确认提交' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(gate).toBeHidden()
+
+  await workbench.getByRole('button', { name: '提交成员结论' }).click()
+  await gate.getByLabel('结论').selectOption('CHANGES_REQUESTED')
+  await gate.getByLabel('理由').fill('补齐空值分支测试后重新交付。')
+  await gate.getByRole('button', { name: '确认提交' }).click()
+  await expect(workbench.getByText('CHANGES_REQUESTED', { exact: true }).first()).toBeVisible()
+  await expect(workbench.getByText('Round 1', { exact: false }).last()).toBeVisible()
+  await expect(workbench.getByText('补齐空值分支测试后重新交付。')).toBeVisible()
+})
+
+test('Review Workbench keeps DIFF_CHANGED history read-only and explains missing human eligibility', async ({ page }) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, [
+    responsibility('00000000-0000-0000-0000-000000000901', 'OWNER', ids.principal, 'USER', '张凯旋'),
+    responsibility('00000000-0000-0000-0000-000000000903', 'REVIEWER', ids.specialistAgent, 'SPECIALIST_AGENT', 'Architecture Reviewer'),
+  ]))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const workbench = page.getByTestId('review-workbench')
+
+  await expect(workbench.getByText('当前成员不持有可用于 Gate 的 Active USER Reviewer 责任')).toBeVisible()
+  await workbench.getByRole('button', { name: /Review r1/ }).click()
+  await expect(workbench.getByText('旧 Review 已失效')).toBeVisible()
+  await expect(workbench.getByText(/DIFF_CHANGED/)).toBeVisible()
+  await expect(workbench.getByRole('button', { name: /运行 Reviewer|恢复 Reviewer|提交成员结论/ })).toHaveCount(0)
+})
+
+test('Review Gate fails closed when the server rejects Reviewer eligibility', async ({ page }) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, gateEligibleResponsibilities()))
+  await page.route(new RegExp(`/reviews/${ids.reviewRequest}$`), async route => {
+    const detail = reviewDetails({ status: 'COMPLETED', version: 4 })
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"4"' }, body: JSON.stringify(detail) })
+  })
+  await page.route(new RegExp(`/reviews/${ids.reviewRequest}/decisions$`), route => (
+    fulfillError(route, 403, 'reviewer_not_eligible', 'Reviewer eligibility changed')
+  ))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const workbench = page.getByTestId('review-workbench')
+
+  await workbench.getByRole('button', { name: '提交成员结论' }).click()
+  const gate = page.getByRole('dialog', { name: '提交成员 Review 结论' })
+  await gate.getByLabel('结论').selectOption('APPROVED')
+  await gate.getByLabel('理由').fill('证据完整，可以进入交付 Gate。')
+  await gate.getByRole('button', { name: '确认提交' }).click()
+
+  await expect(page).toHaveURL(/\/access-denied/)
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+})
+
+test('M5 GitHub Delivery confirms an exact ActionBundle and reconciles partial delivery', async ({ page }) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, gateEligibleResponsibilities()))
+  await page.route(new RegExp(`/reviews/${ids.reviewRequest}$`), async route => {
+    const detail = reviewDetails({
+      status: 'COMPLETED', version: 4, reviewerRelationship: 'INDEPENDENT',
+      decisions: [reviewDecision('APPROVED', '证据完整且验收通过。', 1)],
+    })
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"4"' }, body: JSON.stringify(detail) })
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const workbench = page.getByTestId('action-delivery-workbench')
+
+  await expect(workbench.getByLabel('GitHub Connection')).toHaveValue(ids.githubConnection)
+  await workbench.getByRole('button', { name: 'Remote Preflight' }).click()
+  await expect(workbench.getByText(/权限 111111/)).toBeVisible()
+  await workbench.getByRole('button', { name: '生成 ActionBundle' }).click()
+
+  await expect(workbench.getByText('HIGH_RISK_WRITE')).toBeVisible()
+  await expect(workbench.getByText('refs/heads/crewscope/tasks/crw-18/attempt-2', { exact: true })).toBeVisible()
+  const confirmationOpener = workbench.getByRole('button', { name: '审查并确认' })
+  await confirmationOpener.click()
+  let confirm = page.getByRole('dialog', { name: '确认执行 GitHub 写操作' })
+  await expect(confirm.getByRole('button', { name: '关闭确认对话框' })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(confirm.getByRole('button', { name: '取消' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(confirm).toBeHidden()
+  await expect(confirmationOpener).toBeFocused()
+
+  await confirmationOpener.click()
+  confirm = page.getByRole('dialog', { name: '确认执行 GitHub 写操作' })
+  await expect(confirm.getByText('a'.repeat(64))).toBeVisible()
+  await confirm.getByRole('checkbox').check()
+  await confirm.getByRole('button', { name: '精确确认' }).click()
+
+  const stages = workbench.locator('.action-stage')
+  await expect(stages.nth(0)).toContainText('SUCCEEDED')
+  await expect(stages.nth(1)).toContainText('FAILED')
+  await workbench.getByRole('button', { name: '刷新结果' }).click()
+  await expect(stages.nth(1)).toContainText('OPEN')
+  await expect(stages.nth(1)).toContainText('WEBHOOK')
+  await expect(stages.nth(0)).toContainText('SUCCEEDED')
+})
+
+test('M5 GitHub Delivery visual baseline', async ({ page }, testInfo) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, gateEligibleResponsibilities()))
+  await page.route(new RegExp(`/reviews/${ids.reviewRequest}$`), async route => {
+    const detail = reviewDetails({
+      status: 'COMPLETED', version: 4, reviewerRelationship: 'INDEPENDENT',
+      decisions: [reviewDecision('APPROVED', '证据完整且验收通过。', 1)],
+    })
+    await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"4"' }, body: JSON.stringify(detail) })
+  })
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const workbench = page.getByTestId('action-delivery-workbench')
+  await workbench.getByRole('button', { name: 'Remote Preflight' }).click()
+  await workbench.getByRole('button', { name: '生成 ActionBundle' }).click()
+  await expect(workbench.getByText('HIGH_RISK_WRITE')).toBeVisible()
+  // Remove the fixed drawer clip so the baseline captures the complete responsive delivery graph.
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: viewport.width, height: 2600 })
+  await page.locator('.task-detail-header, .task-detail-footer, .skip-link').evaluateAll(elements => elements.forEach(element => element.remove()))
+  await page.addStyleTag({ content: `
+    .task-detail-backdrop { position: absolute !important; min-height: 5000px !important; }
+    .task-detail-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
+    .task-detail-content { overflow: visible !important; }
+    .task-detail-header, .task-detail-footer, .skip-link { display: none !important; }
+  ` })
+  await workbench.scrollIntoViewIfNeeded()
+  await expect(workbench).toHaveScreenshot(`action-delivery-workbench-${testInfo.project.name}.png`)
+})
+
+test('M5 Review Workbench visual baseline', async ({ page }, testInfo) => {
+  await page.route(/\/work-items\/[^/]+\/responsibilities$/, route => fulfillJson(route, gateEligibleResponsibilities()))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&review=${ids.reviewRequest}`)
+  const workbench = page.getByTestId('review-workbench')
+  await expect(workbench.getByText('SELF_REVIEW · Advisory only')).toBeVisible()
+  if (testInfo.project.name === 'narrow-chromium') {
+    // Remove the drawer viewport clip so the baseline captures the entire responsive Workbench,
+    // including its heading, revision selector and Gate section.
+    await page.addStyleTag({ content: `
+      .task-detail-backdrop { position: absolute !important; min-height: 5000px !important; }
+      .task-detail-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
+      .task-detail-content { overflow: visible !important; }
+      .task-detail-header, .task-detail-footer { display: none !important; }
+    ` })
+  }
+  await workbench.scrollIntoViewIfNeeded()
+  await expect(workbench).toHaveScreenshot(`review-workbench-${testInfo.project.name}.png`)
+})
+
 test('AppShell visual baseline', async ({ page }, testInfo) => {
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
@@ -1937,7 +2612,50 @@ test('M4 Repository and Execution Studio visual baseline', async ({ page }, test
   await expect(page).toHaveScreenshot(`execution-studio-${testInfo.project.name}.png`)
 })
 
-test('M1 through M4 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+test('M5 Agent creation and configuration preserve server-owned boundaries', async ({ page }) => {
+  await page.goto(`/settings/agents?team=${ids.team}`)
+  await page.getByRole('button', { name: '创建 Agent' }).click()
+  const createDialog = page.getByRole('dialog', { name: '创建执行 Agent' })
+  await expect(createDialog).toBeVisible()
+  await createDialog.getByText('Coding Agent', { exact: true }).click()
+  await createDialog.getByPlaceholder('例如：我的 Java Coding Agent').fill('我的 Java Coding Agent')
+  await createDialog.getByRole('button', { name: '创建 Agent', exact: true }).click()
+
+  await expect(page).toHaveURL(new RegExp(`agent=${ids.agentCreated}`))
+  const configuration = page.locator('.agent-configuration')
+  await expect(configuration.getByRole('heading', { name: '我的 Java Coding Agent' })).toBeVisible()
+  const personalBinding = configuration.locator('.binding-editor').filter({ hasText: 'PERSONAL' })
+  await personalBinding.getByLabel('主模型').selectOption({ index: 1 })
+  await personalBinding.getByLabel('Fallback').selectOption({ index: 1 })
+  await configuration.getByLabel(/补充指令/).fill('遵循团队代码规范并保留验证证据。')
+  await configuration.getByText('coding-baseline', { exact: true }).click()
+  await configuration.getByRole('button', { name: '保存并预检' }).click()
+
+  await expect(page).toHaveURL(new RegExp('configurationRevision=1'))
+  await expect(page.getByText('Revision 1', { exact: true }).first()).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('sk-private')
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate(element => element.clientWidth))
+})
+
+test('M5 My Agents visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/settings/agents?team=${ids.team}`)
+  await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
+  await expect(page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)).toContainText('deepseek-v4-flash')
+  await expect(page).toHaveScreenshot(`agent-settings-${testInfo.project.name}.png`, { fullPage: true })
+
+  await page.getByRole('button', { name: '创建 Agent' }).click()
+  await expect(page.getByRole('dialog', { name: '创建执行 Agent' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`agent-create-${testInfo.project.name}.png`, { fullPage: true })
+  await page.getByRole('button', { name: '关闭创建 Agent' }).click()
+
+  await page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`).click()
+  await expect(page.locator('.agent-configuration').getByRole('heading', { name: 'CrewScope Coding Agent' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`agent-configuration-${testInfo.project.name}.png`, { fullPage: true })
+})
+
+test('M1 through M5 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+  // This gate intentionally visits every primary page and several dialogs in one browser context.
+  test.setTimeout(60_000)
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
@@ -1948,6 +2666,8 @@ test('M1 through M4 primary pages meet automated WCAG 2.2 AA checks', async ({ p
     { path: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`, ready: () => page.getByRole('region', { name: 'Agent Tasks' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`, ready: () => page.getByRole('dialog', { name: /Task 详情/ }) },
     { path: `/settings/repositories?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'CrewScope 仓库设置' }) },
+    { path: `/settings/agents?team=${ids.team}&agent=${ids.agentCoding}`, ready: () => page.getByRole('heading', { name: '我的 Specialist' }) },
+    { path: `/settings/models?team=${ids.team}&provider=deepseek&ownerType=TEAM&connection=${ids.teamModelConnection}`, ready: () => page.getByRole('heading', { name: '模型连接详情' }) },
   ]
 
   for (const route of routes) {
@@ -1958,6 +2678,22 @@ test('M1 through M4 primary pages meet automated WCAG 2.2 AA checks', async ({ p
       .analyze()
     expect(result.violations, `${route.path}\n${formatAxeViolations(result.violations)}`).toEqual([])
   }
+
+  await page.goto(`/settings/agents?team=${ids.team}`)
+  await page.getByRole('button', { name: '创建 Agent' }).click()
+  const createResult = await new AxeBuilder({ page })
+    .include('[role="dialog"][aria-labelledby="agent-create-title"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(createResult.violations, formatAxeViolations(createResult.violations)).toEqual([])
+
+  await page.goto(`/settings/models?team=${ids.team}`)
+  await page.getByRole('button', { name: '创建连接' }).first().click()
+  const credentialResult = await new AxeBuilder({ page })
+    .include('[role="dialog"][aria-labelledby="credential-create-title"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(credentialResult.violations, formatAxeViolations(credentialResult.violations)).toEqual([])
 })
 
 function team(id: string, name: string, workspaceId: string) {
@@ -1966,6 +2702,229 @@ function team(id: string, name: string, workspaceId: string) {
 
 function project(id: string, teamId: string, workspaceId: string, key: string, name: string) {
   return { id, organizationId: ids.organization, teamId, workspaceId, key, name, status: 'ACTIVE', version: 0, createdAt: '2026-08-08T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-08-08T02:00:00Z', updatedByPrincipalId: ids.principal }
+}
+
+function githubConnection() {
+  return {
+    id: ids.githubConnection, ownerType: 'TEAM', teamId: ids.team,
+    authenticationType: 'APP_INSTALLATION', executionIdentity: 'TEAM', externalAccountLogin: 'crewscope-labs',
+    status: 'ACTIVE', version: 3, repositoryAllowlist: ['github:repository:101'],
+    credentialStatus: 'ACTIVE', expiresAt: null, verifiedAt: '2026-08-08T03:00:00Z',
+    createdAt: '2026-08-07T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z',
+  }
+}
+
+function githubProviderBinding() {
+  return {
+    id: ids.githubBinding, teamId: ids.team, workspaceId: ids.workspace,
+    connectionId: ids.githubConnection, connectionVersion: 3, executionIdentity: 'TEAM',
+    repositoryAllowlist: ['github:repository:101'], status: 'ACTIVE', defaultUsage: true, version: 1,
+  }
+}
+
+function githubRepository() {
+  return {
+    externalRepositoryId: '101', fullName: 'crewscope/crewscope-java', defaultBranch: 'main',
+    visibility: 'PRIVATE', discoveredAt: '2026-08-08T03:00:00Z', cacheExpiresAt: '2026-08-08T04:15:00Z',
+  }
+}
+
+function githubHealth() {
+  return {
+    authorizationStatus: 'HEALTHY', connectionUsable: true, grantUsable: true,
+    credentialUsable: true, profileCurrent: true, deliverableRepositoryCount: 1,
+    webhookStatus: 'READY', rateLimit: {
+      resource: 'core', limit: 5000, remaining: 4980,
+      resetsAt: '2026-08-08T05:00:00Z', observedAt: '2026-08-08T04:00:00Z',
+    },
+  }
+}
+
+function githubActionBundle(title: string, body: string) {
+  return {
+    id: ids.actionBundle, version: 0, digest: 'a'.repeat(64), validity: 'CURRENT', staleReason: null,
+    taskId: ids.task, taskExecutionId: ids.taskExecution, reviewDecisionId: ids.reviewDecision,
+    repositoryBindingId: ids.repositoryBinding, repositoryKey: 'crewscope/crewscope-java',
+    baselineCommit: 'b'.repeat(40), deliveryCommit: 'c'.repeat(40), confirmation: null as null | Record<string, unknown>,
+    actions: [
+      {
+        id: ids.pushAction, sequence: 1, kind: 'PUSH_BRANCH', risk: 'HIGH_RISK_WRITE',
+        digest: 'd'.repeat(64), validUntil: '2026-08-08T05:00:00Z', dependencyActionIds: [],
+        parameters: {
+          repositoryId: '101', branch: 'refs/heads/crewscope/tasks/crw-18/attempt-2',
+          deliveryHead: 'c'.repeat(40), expectedRemoteHead: null, pullRequestHead: null,
+          pullRequestBase: null, pullRequestHeadSha: null, title: null, body: null, draft: null,
+        }, dispatch: null as null | ReturnType<typeof actionDispatch>,
+        receipt: null as null | ReturnType<typeof actionReceipt>, externalResult: null as null | Record<string, unknown>,
+      },
+      {
+        id: ids.pullRequestAction, sequence: 2, kind: 'CREATE_DRAFT_PR', risk: 'LOW_RISK_WRITE',
+        digest: 'e'.repeat(64), validUntil: '2026-08-08T05:00:00Z', dependencyActionIds: [ids.pushAction],
+        parameters: {
+          repositoryId: '101', branch: null, deliveryHead: null, expectedRemoteHead: null,
+          pullRequestHead: 'crewscope/tasks/crw-18/attempt-2', pullRequestBase: 'main',
+          pullRequestHeadSha: 'c'.repeat(40), title, body, draft: true,
+        }, dispatch: null as null | ReturnType<typeof actionDispatch>,
+        receipt: null as null | ReturnType<typeof actionReceipt>, externalResult: null as null | Record<string, unknown>,
+      },
+    ],
+  }
+}
+
+function actionDispatch(id: string, status: string, reconciliationAttempts: number) {
+  return {
+    id, version: 2 + reconciliationAttempts, status, claimAttempts: 1, reconciliationAttempts,
+    nextAttemptAt: '2026-08-08T04:03:00Z', cancellationReason: null, compensationDisposition: 'NONE',
+  }
+}
+
+function actionReceipt(result: string, externalObjectType: string | null, evidenceCode: string) {
+  return {
+    id: crypto.randomUUID(), result, source: 'WORKER', externalObjectType,
+    externalIdentityHash: externalObjectType ? '2'.repeat(64) : null, targetVersion: null,
+    evidenceCode, manualReason: null, receivedAt: '2026-08-08T04:01:00Z',
+  }
+}
+
+function modelProvider() {
+  return {
+    key: 'deepseek', displayName: 'DeepSeek', availableRegions: ['cn', 'sg'], retentionMode: 'NONE',
+    maximumRetentionSeconds: null, trainingUsagePolicy: 'DISABLED', status: 'ACTIVE', version: 2,
+  }
+}
+
+function modelCatalog() {
+  return [{
+    id: '00000000-0000-0000-0000-000000002101', providerKey: 'deepseek', modelId: 'deepseek-v4-flash',
+    catalogRevision: 4, modelRevision: 'DeepSeek-V4-Flash-0801', displayName: 'DeepSeek V4 Flash',
+    contextWindowTokens: 128000, maximumOutputTokens: 120000, capabilities: ['TOOLS', 'STRUCTURED_OUTPUT'],
+    availableRegions: ['cn', 'sg'], status: 'ACTIVE', version: 2,
+    effectivePrice: {
+      revision: 2, effectiveFrom: '2026-08-01T00:00:00Z', inputPerMillionTokens: '0.1',
+      outputPerMillionTokens: '0.2', cachedInputPerMillionTokens: '0.02', currencyCode: 'USD',
+    },
+  }]
+}
+
+function modelConnection(id: string, ownerType: string, ownerId: string, healthStatus: string) {
+  return {
+    id, organizationId: ids.organization, providerKey: 'deepseek', ownerType, ownerId, region: 'cn',
+    billingSubjectType: ownerType, billingSubjectId: ownerId, credentialVersion: 2, status: 'ACTIVE',
+    healthStatus, healthFailureCode: (healthStatus === 'UNHEALTHY' ? 'AUTHENTICATION_FAILED' : null) as string | null,
+    checkedAt: '2026-08-08T03:30:00Z', lastHealthyAt: (healthStatus === 'HEALTHY' ? '2026-08-08T03:30:00Z' : null) as string | null,
+    consecutiveFailures: healthStatus === 'UNHEALTHY' ? 2 : 0, revocationReason: null as string | null,
+    createdAt: '2026-08-07T01:00:00Z', updatedAt: '2026-08-08T03:30:00Z', version: 4,
+  }
+}
+
+function agentDirectory() {
+  return [
+    agentProfile(ids.agentProfile, '张凯旋的 Personal Agent', 'USER', 'PERSONAL', 'personal-assistant', true, 'ACTIVE'),
+    agentProfile(ids.agentCoding, 'CrewScope Coding Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3),
+    agentProfile(ids.agentReviewer, 'Architecture Reviewer', 'USER', 'REVIEWER', 'reviewer-specialist', false, 'DISABLED', 2),
+    agentProfile(ids.agentTeam, 'Team Delivery Agent', 'TEAM', 'ORCHESTRATOR', 'team-orchestrator', false, 'ARCHIVED'),
+  ]
+}
+
+function agentProfile(id: string, displayName: string, ownershipType: string, runtimeRole: string, templateKey: string, defaultProfile: boolean, status: string, templateVersion = 1, currentRevision: number | null = 2) {
+  return {
+    id, principalId: crypto.randomUUID(), displayName, principalStatus: status,
+    organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace,
+    ownershipType, ownerMemberId: ownershipType === 'USER' ? ids.member : null,
+    runtimeRole, templateKey, templateVersion, defaultProfile, status,
+    currentConfigurationRevision: currentRevision, currentConfigurationHash: currentRevision ? 'a'.repeat(64) : null,
+    createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T04:00:00Z', version: 2,
+  }
+}
+
+function agentConfiguration(profileId: string, revision = 2) {
+  const profile = agentDirectory().find(agent => agent.id === profileId)
+    ?? (profileId === ids.agentCreated
+      ? agentProfile(ids.agentCreated, '我的 Java Coding Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3, revision)
+      : undefined)
+  const binding = (executionScope: string) => ({
+    executionScope, kind: 'EXPLICIT',
+    primary: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-v4-flash', catalogRevision: 4 },
+    fallback: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-chat', catalogRevision: 3 },
+  })
+  return {
+    revision, previousRevision: revision > 1 ? revision - 1 : null,
+    templateKey: profile?.templateKey ?? 'coding-specialist', templateVersion: profile?.templateVersion ?? 1,
+    templateContentHash: 'b'.repeat(64),
+    personalBinding: profileId === ids.agentTeam ? null : binding('PERSONAL'),
+    teamBinding: profileId === ids.agentProfile ? null : binding('TEAM'),
+    supplementalInstructions: null, approvedSkillKeys: [], memoryPolicy: null, budgetPolicy: null,
+    generateOptions: { temperature: null, topP: null, maximumOutputTokens: 120000, reasoningMode: 'DEFAULT', cacheEnabled: true, parallelToolCalls: true, seed: null, maximumAttempts: 2 },
+    policyPackId: 'default', policyPackVersion: 1, configurationHash: 'c'.repeat(64), createdAt: '2026-08-08T04:00:00Z',
+  }
+}
+
+function agentTemplates(ownershipType: 'USER' | 'TEAM') {
+  const definition = (
+    key: string,
+    version: number,
+    runtimeRole: string,
+    allowedExecutionScopes: string[],
+    approvedSkillKeys: string[] = [],
+  ) => ({
+    publisherType: 'ORGANIZATION', publisherId: ids.organization, key, version, runtimeRole,
+    allowedOwnershipTypes: [ownershipType], allowedExecutionScopes,
+    declaredCapabilities: runtimeRole === 'CODING' ? ['coding', 'repository'] : ['collaboration'],
+    requiredModelCapabilities: ['TOOLS'], approvedSkillKeys,
+    memberConfigurableSlots: ['MODEL_BINDING', 'SUPPLEMENTAL_INSTRUCTIONS', 'APPROVED_SKILLS', 'OUTPUT_PREFERENCE'],
+    administratorConfigurableSlots: ['BUDGET'], contentHash: 'd'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+  })
+  if (ownershipType === 'TEAM') return [definition('team-orchestrator', 1, 'ORCHESTRATOR', ['TEAM'])]
+  return [
+    definition('coding-specialist', 3, 'CODING', ['PERSONAL', 'TEAM'], ['coding-baseline']),
+    definition('reviewer-specialist', 2, 'REVIEWER', ['PERSONAL'], ['review-baseline']),
+    definition('personal-assistant', 1, 'PERSONAL_ASSISTANT', ['PERSONAL', 'TEAM']),
+  ]
+}
+
+function configurationHistory(profileId: string, currentRevision: number) {
+  const current = agentConfiguration(profileId, currentRevision)
+  const item = (revision: number) => ({
+    revision, previousRevision: revision > 1 ? revision - 1 : null,
+    templateKey: current.templateKey, templateVersion: current.templateVersion,
+    templateContentHash: current.templateContentHash,
+    personalBinding: current.personalBinding, teamBinding: current.teamBinding,
+    configurationHash: revision === currentRevision ? current.configurationHash : 'e'.repeat(64),
+    createdAt: revision === currentRevision ? '2026-08-08T04:00:00Z' : '2026-08-07T04:00:00Z',
+    createdBy: ids.principal,
+  })
+  return Array.from({ length: currentRevision }, (_, index) => item(currentRevision - index))
+}
+
+function selectableAgentModels(executionScope: string) {
+  const model = (modelId: string, suffix: string) => ({
+    connectionId: `00000000-0000-0000-0000-0000000020${suffix}`,
+    connectionOwnerType: executionScope === 'TEAM' ? 'TEAM' : 'USER',
+    connectionOwnerId: executionScope === 'TEAM' ? ids.team : ids.principal,
+    providerKey: 'deepseek', providerDisplayName: 'DeepSeek',
+    catalogEntryId: `00000000-0000-0000-0000-0000000021${suffix}`,
+    modelId, catalogRevision: 4, modelDisplayName: modelId, region: 'cn',
+    contextWindowTokens: 128000, maximumOutputTokens: 120000, capabilities: ['TOOLS'],
+    price: { inputPerMillionTokens: '0.1', outputPerMillionTokens: '0.2', cachedInputPerMillionTokens: '0.02', currencyCode: 'USD' },
+  })
+  return [model('deepseek-v4-flash', '01'), model('deepseek-chat', '02')]
+}
+
+function agentPreflight(profileId: string, executionScope: string, revision: number) {
+  const primary = selectableAgentModels(executionScope)[0]!
+  return {
+    agentProfileId: profileId, agentProfileVersion: 2, configurationRevision: revision,
+    configurationHash: 'c'.repeat(64), executionScope, bindingSource: executionScope === 'TEAM' ? 'TEAM_DEFAULT' : 'DIRECT',
+    modelDefault: null,
+    primary: {
+      role: 'PRIMARY', providerKey: primary.providerKey, connectionId: primary.connectionId,
+      connectionOwnerType: primary.connectionOwnerType, connectionOwnerId: primary.connectionOwnerId,
+      region: primary.region, catalogEntryId: primary.catalogEntryId, modelId: primary.modelId,
+      catalogRevision: primary.catalogRevision, modelRevision: 'deepseek-v4-flash-2026-08', priceRevision: 3,
+      price: primary.price,
+    },
+    fallback: null, resolutionHash: 'f'.repeat(64),
+  }
 }
 
 function workItem(id: string, key: string, title: string, type: string, status: string, priority: string) {
@@ -2019,6 +2978,14 @@ function conversationWorkItemAssociation() {
 
 function responsibility(id: string, role: string, actorPrincipalId: string, actorType: string, actorDisplayName: string, actorAgentProfileId: string | null = null) {
   return { id, workItemId: ids.workItem, role, actorPrincipalId, actorType, actorMemberId: actorType === 'USER' ? crypto.randomUUID() : null, actorDisplayName, actorAgentProfileId, status: 'ACTIVE', assignedByPrincipalId: ids.principal, assignedAt: '2026-08-08T03:20:00Z', acceptedAt: '2026-08-08T03:20:00Z', version: 0 }
+}
+
+function gateEligibleResponsibilities() {
+  return [
+    responsibility('00000000-0000-0000-0000-000000000901', 'OWNER', ids.principal, 'USER', '张凯旋'),
+    responsibility('00000000-0000-0000-0000-000000000903', 'REVIEWER', ids.specialistAgent, 'SPECIALIST_AGENT', 'Architecture Reviewer'),
+    responsibility('00000000-0000-0000-0000-000000000905', 'REVIEWER', ids.principal, 'USER', '张凯旋'),
+  ]
 }
 
 function task(id: string, workItemId: string, objective: string, status: string, executionStatus: string, waitingReason: string | null, currentAttempt = 1) {
@@ -2262,6 +3229,78 @@ function codingTestEvidence(executionId: string) {
   }
 }
 
+function reviewSummary(
+  id: string,
+  revision: number,
+  version: number,
+  status: string,
+  invalidationReason: string | null,
+  latestDecisionType: string | null,
+  modificationRound: number,
+) {
+  return {
+    id, revision, version, status, invalidationReason, contextHash: '8'.repeat(64),
+    findingCount: 1, blockerCount: 0, highCount: 1, latestDecisionType, modificationRound,
+  }
+}
+
+function reviewDetails(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ids.reviewRequest,
+    revision: 2,
+    version: 1,
+    status: 'OPEN',
+    invalidationReason: null,
+    reviewerRelationship: 'SELF_REVIEW',
+    reviewerAgentProfileId: ids.agentReviewer,
+    contextPackageId: ids.reviewContext,
+    contextHash: '8'.repeat(64),
+    diffArtifactId: ids.reviewDiffArtifact,
+    diffArtifactHash: '9'.repeat(64),
+    baselineCommit: 'a'.repeat(40),
+    deliveryCommit: 'b'.repeat(40),
+    changedPaths: ['src/Main.java', 'src/NewFeature.java'],
+    testEvidenceId: codingTestEvidence(ids.taskExecution).id,
+    testEvidenceHash: codingTestEvidence(ids.taskExecution).evidenceHash,
+    findings: [{
+      id: ids.reviewFinding,
+      severity: 'HIGH',
+      category: 'CORRECTNESS',
+      title: '空值分支缺少防护',
+      claim: 'Main 在配置缺失时会继续进入执行分支。',
+      suggestedFix: '在进入执行分支前校验配置并返回明确错误。',
+      relationship: 'SELF_REVIEW',
+      fingerprint: 'c'.repeat(64),
+      evidence: [{ path: 'src/Main.java', startLine: 2, endLine: 3, acceptanceCriterionIndex: 0 }],
+    }],
+    decisions: [],
+    modificationRounds: [],
+    ...overrides,
+  }
+}
+
+function reviewDecision(type: string, rationale: string, revision: number) {
+  return {
+    id: revision === 1 ? ids.reviewDecision : crypto.randomUUID(),
+    revision,
+    type,
+    rationale,
+    reviewerMemberId: ids.member,
+    eligibilityMode: 'INDEPENDENT_USER_REVIEWER',
+    decidedAt: '2026-08-08T04:10:00Z',
+  }
+}
+
+function reviewModificationRound(triggerDecisionId: string) {
+  return {
+    id: ids.reviewModificationRound,
+    roundNumber: 1,
+    sourceReviewRequestId: ids.reviewRequest,
+    triggerDecisionId,
+    createdAt: '2026-08-08T04:12:00Z',
+  }
+}
+
 function codingCommandLog(): string {
   return '[INFO] 207 tests passed\nAuthorization: Bearer browser-must-hide\n[INFO] BUILD SUCCESS\n'
 }
@@ -2378,7 +3417,15 @@ function fulfillJson(route: Route, value: unknown): Promise<void> {
 }
 
 function fulfillReceipt(route: Route, committedVersion: number): Promise<void> {
-  return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion, correlationId: crypto.randomUUID() }) })
+  return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(commandReceipt(committedVersion)) })
+}
+
+function fulfillCommandReceipt(route: Route, committedVersion: number): Promise<void> {
+  return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify(commandReceipt(committedVersion)) })
+}
+
+function commandReceipt(committedVersion: number) {
+  return { commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion, correlationId: crypto.randomUUID() }
 }
 
 function fulfillSse(route: Route, events: unknown[], headers: Record<string, string> = {}): Promise<void> {

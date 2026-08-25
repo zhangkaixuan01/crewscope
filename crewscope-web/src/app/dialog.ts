@@ -4,6 +4,8 @@
  */
 export function isTopmostModal(element: HTMLElement | null): element is HTMLElement {
   if (!element) return false
-  const modals = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')
+  const modals = document.querySelectorAll<HTMLElement>(
+    '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]',
+  )
   return modals.item(modals.length - 1) === element
 }

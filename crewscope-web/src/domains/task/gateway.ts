@@ -24,10 +24,19 @@ import type {
   TaskScope,
   TaskSummary,
   TaskCommandReceipt,
+  TaskDelegationPreflight,
+  TaskDelegationSelection,
 } from './types'
 
 export interface TaskGateway {
   createTask(command: CreateTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt>
+  preflightDelegation(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+    selection: TaskDelegationSelection,
+    signal?: AbortSignal,
+  ): Promise<TaskDelegationPreflight>
   commandTask(command: MemberTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt>
   listTasks(query: TaskListQuery, signal?: AbortSignal): Promise<TaskPage>
   getTask(scope: TaskScope, taskId: string, signal?: AbortSignal): Promise<TaskDetails>
@@ -77,10 +86,28 @@ export class HttpTaskGateway implements TaskGateway {
     )
   }
 
+  async preflightDelegation(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+    selection: TaskDelegationSelection,
+    signal?: AbortSignal,
+  ): Promise<TaskDelegationPreflight> {
+    const value = await this.client.post<TaskDelegationPreflight>(
+      `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}`
+        + `/work-projects/${segment(projectId)}/work-items/${segment(workItemId)}/tasks/preflight`,
+      selection,
+      { signal },
+    )
+    return mapDelegationPreflight(value)
+  }
+
   commandTask(command: MemberTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt> {
     const body = command.operation === 'PAUSE' || command.operation === 'CANCEL'
       ? { reason: command.reason }
-      : undefined
+      : command.operation === 'RETRY' && command.agentConfigurationRevision !== undefined
+        ? { agentConfigurationRevision: command.agentConfigurationRevision }
+        : undefined
     return this.client.post(
       `${root(command.scope)}/${segment(command.taskId)}/attempts/${segment(command.executionId)}`
         + `/${command.operation.toLowerCase()}`,
@@ -227,6 +254,25 @@ export class HttpTaskGateway implements TaskGateway {
       },
     }
   }
+}
+
+function mapDelegationPreflight(value: TaskDelegationPreflight): TaskDelegationPreflight {
+  return {
+    ...pick(value, [
+      'agentProfileId', 'agentProfileVersion', 'executionScope', 'configurationRevision',
+      'configurationHash', 'bindingSource', 'templateVersion', 'policyPackId',
+      'policyPackVersion', 'resolutionHash',
+    ]),
+    primary: mapDelegationModel(value.primary),
+    fallback: value.fallback ? mapDelegationModel(value.fallback) : null,
+  }
+}
+
+function mapDelegationModel(value: TaskDelegationPreflight['primary']): TaskDelegationPreflight['primary'] {
+  return { ...pick(value, [
+    'role', 'providerKey', 'connectionId', 'connectionOwnerType', 'modelId',
+    'catalogRevision', 'modelRevision', 'priceRevision',
+  ]) }
 }
 
 function root(scope: TaskScope): string {

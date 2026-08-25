@@ -40,6 +40,7 @@ describe('HttpTaskGateway', () => {
       objective: '完成 M3-F02',
       acceptanceCriteria: ['列表可观测'],
       executorAgentProfileId: crypto.randomUUID(),
+      agentConfigurationRevision: 2,
       conversationSource: null,
       providerBindingIds: [],
     }
@@ -61,6 +62,48 @@ describe('HttpTaskGateway', () => {
     expect(request?.body).toBe(JSON.stringify(input))
   })
 
+  it('preflights the exact Task Agent revision through a secret-free response whitelist', async () => {
+    const profileId = crypto.randomUUID()
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      agentProfileId: profileId,
+      agentProfileVersion: 3,
+      executionScope: 'TEAM',
+      configurationRevision: 4,
+      configurationHash: 'c'.repeat(64),
+      bindingSource: 'TEAM_DEFAULT',
+      templateVersion: 'team-orchestrator@2',
+      primary: {
+        role: 'PRIMARY', providerKey: 'deepseek', connectionId: crypto.randomUUID(),
+        connectionOwnerType: 'TEAM', modelId: 'deepseek-v4-flash', catalogRevision: 7,
+        modelRevision: '2026-08', priceRevision: 3, endpoint: 'https://private.example',
+        credentialId: 'private',
+      },
+      fallback: null,
+      policyPackId: crypto.randomUUID(),
+      policyPackVersion: 5,
+      resolutionHash: 'd'.repeat(64),
+      billingSubject: 'must-not-enter-web-state',
+      systemPrompt: 'private',
+    }))
+    const gateway = new HttpTaskGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    const value = await gateway.preflightDelegation(
+      scope,
+      fixtureIds.projectCrewScope,
+      taskIds.workItem,
+      { executorAgentProfileId: profileId, agentConfigurationRevision: 4 },
+    )
+
+    expect(fetcher.mock.calls[0]?.[0]).toContain(`/work-items/${taskIds.workItem}/tasks/preflight`)
+    expect(fetcher.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({
+      executorAgentProfileId: profileId,
+      agentConfigurationRevision: 4,
+    }))
+    expect(value.executionScope).toBe('TEAM')
+    expect(value.primary.connectionOwnerType).toBe('TEAM')
+    expect(JSON.stringify(value)).not.toMatch(/private|billingSubject|systemPrompt|credential|endpoint/i)
+  })
+
   it('sends member Task commands to the current attempt with strong version and exact body rules', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({
       commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 3, correlationId: crypto.randomUUID(),
@@ -75,6 +118,10 @@ describe('HttpTaskGateway', () => {
       scope, taskId: taskIds.first, executionId: taskIds.execution,
       expectedVersion: 3, operation: 'RESUME',
     }, 'task-resume-1')
+    await gateway.commandTask({
+      scope, taskId: taskIds.first, executionId: taskIds.execution,
+      expectedVersion: 4, operation: 'RETRY', agentConfigurationRevision: 6,
+    }, 'task-retry-1')
 
     const pause = fetcher.mock.calls[0]!
     expect(pause[0]).toBe(`/api/v1/organizations/${scope.organizationId}/teams/${scope.teamId}/tasks/${taskIds.first}/attempts/${taskIds.execution}/pause`)
@@ -85,6 +132,10 @@ describe('HttpTaskGateway', () => {
     expect(resume[0]).toContain(`/attempts/${taskIds.execution}/resume`)
     expect(resume[1]?.body).toBeUndefined()
     expect(new Headers(resume[1]?.headers).get('If-Match')).toBe('"3"')
+    const retry = fetcher.mock.calls[2]!
+    expect(retry[0]).toContain(`/attempts/${taskIds.execution}/retry`)
+    expect(retry[1]?.body).toBe(JSON.stringify({ agentConfigurationRevision: 6 }))
+    expect(new Headers(retry[1]?.headers).get('Idempotency-Key')).toBe('task-retry-1')
   })
 
   it('loads detail, attempts and Runtime facts from stable nested routes without retaining security fields', async () => {

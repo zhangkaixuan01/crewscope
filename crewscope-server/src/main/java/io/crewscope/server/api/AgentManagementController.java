@@ -374,6 +374,7 @@ public final class AgentManagementController {
             List<String> allowedExecutionScopes,
             List<String> declaredCapabilities,
             List<String> requiredModelCapabilities,
+            List<String> approvedSkillKeys,
             List<String> memberConfigurableSlots,
             List<String> administratorConfigurableSlots,
             String contentHash,
@@ -394,6 +395,7 @@ public final class AgentManagementController {
                             .map(Object::toString).sorted().toList(),
                     value.capabilities().requiredModelCapabilities().stream()
                             .map(Object::toString).sorted().toList(),
+                    value.policy().approvedSkillKeys().stream().sorted().toList(),
                     value.policy().memberConfigurableSlots().stream()
                             .map(Enum::name).sorted().toList(),
                     value.policy().administratorConfigurableSlots().stream()

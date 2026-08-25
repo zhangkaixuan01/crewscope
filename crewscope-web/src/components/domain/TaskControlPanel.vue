@@ -17,7 +17,7 @@ const props = defineProps<{
   errorMessage: string | null
   retryable: boolean
   versionConflict: TaskCommandVersionConflict | null
-  onCommand: (operation: MemberTaskCommandOperation, reason?: string) => Promise<void>
+  onCommand: (operation: MemberTaskCommandOperation, reason?: string, agentConfigurationRevision?: number) => Promise<void>
   onRetry: () => Promise<void>
   onClearFeedback: () => void
 }>()
@@ -26,6 +26,7 @@ const dialog = useTemplateRef<HTMLElement>('dialog')
 const reasonInput = useTemplateRef<HTMLTextAreaElement>('reasonInput')
 const operation = ref<MemberTaskCommandOperation | null>(null)
 const reason = ref('')
+const retryRevision = ref('')
 const submitted = ref(false)
 let trigger: HTMLElement | null = null
 
@@ -58,6 +59,9 @@ const reasonValid = computed(() => !needsReason.value || (
   && reason.value.trim().length <= 500
   && !/[\u0000-\u001f\u007f-\u009f]/.test(reason.value.trim())
 ))
+const retryRevisionValid = computed(() => operation.value !== 'RETRY'
+  || retryRevision.value === ''
+  || (Number.isInteger(Number(retryRevision.value)) && Number(retryRevision.value) >= 1))
 
 watch(
   () => [props.attempt?.id, props.attempt?.status, availableOperations.value.join(','), props.pending] as const,
@@ -72,6 +76,7 @@ function openDialog(next: MemberTaskCommandOperation, event: MouseEvent): void {
   trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   operation.value = next
   reason.value = ''
+  retryRevision.value = ''
   submitted.value = false
   void nextTick(() => (needsReason.value ? reasonInput.value : dialog.value)?.focus())
 }
@@ -80,6 +85,7 @@ function closeDialog(): void {
   if (props.pending) return
   operation.value = null
   reason.value = ''
+  retryRevision.value = ''
   submitted.value = false
   const returnTarget = trigger
   trigger = null
@@ -88,9 +94,13 @@ function closeDialog(): void {
 
 async function submit(): Promise<void> {
   submitted.value = true
-  if (!operation.value || !reasonValid.value || !props.online || props.pending) return
+  if (!operation.value || !reasonValid.value || !retryRevisionValid.value || !props.online || props.pending) return
   try {
-    await props.onCommand(operation.value, needsReason.value ? reason.value.trim() : undefined)
+    if (operation.value === 'RETRY') {
+      await props.onCommand(operation.value, undefined, retryRevision.value ? Number(retryRevision.value) : undefined)
+    } else {
+      await props.onCommand(operation.value, needsReason.value ? reason.value.trim() : undefined)
+    }
     closeDialog()
   } catch {
     // Store retains the exact command for safe retry or publishes refreshed conflict facts.
@@ -114,7 +124,7 @@ function handleDialogKeydown(event: KeyboardEvent): void {
     return
   }
   if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled)')]
+  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')]
     .filter(element => element.offsetParent !== null)
   const first = controls[0]
   const last = controls.at(-1)
@@ -147,7 +157,7 @@ const definitions: Record<MemberTaskCommandOperation, {
   },
   RETRY: {
     label: '重试', title: '创建新的执行 Attempt',
-    impact: '失败 attempt 会作为历史证据保留；服务端重新校验责任、Agent Profile 和 Provider Binding 后创建新的 READY attempt。',
+    impact: '留空会沿用父 attempt 固定配置；填写 Revision 会重新执行模型预检并为新 attempt 固定该配置。失败 attempt 继续保留为历史证据。',
   },
 }
 </script>
@@ -227,7 +237,9 @@ const definitions: Record<MemberTaskCommandOperation, {
         <header><div><p>Attempt {{ attempt?.attempt }} · v{{ attempt?.version }}</p><h4>{{ selectedDefinition.title }}</h4></div><button type="button" aria-label="关闭 Task 控制确认" :disabled="Boolean(pending)" @click="closeDialog"><X :size="17" /></button></header>
         <p class="task-command-impact">{{ selectedDefinition.impact }}</p>
         <label v-if="needsReason"><span>{{ operation === 'PAUSE' ? '暂停原因' : '取消原因' }}</span><textarea ref="reasonInput" v-model="reason" rows="4" maxlength="500" :disabled="Boolean(pending)" :aria-invalid="submitted && !reasonValid" placeholder="说明团队可见的控制原因" /></label>
+        <label v-if="operation === 'RETRY'"><span>切换 Configuration Revision <small>可选；留空沿用父 attempt</small></span><input v-model="retryRevision" type="number" min="1" step="1" inputmode="numeric" :disabled="Boolean(pending)" :aria-invalid="submitted && !retryRevisionValid" placeholder="例如 4"></label>
         <p v-if="submitted && !reasonValid" class="task-command-validation" role="alert">请输入 1–500 个不含控制字符的原因。</p>
+        <p v-if="submitted && !retryRevisionValid" class="task-command-validation" role="alert">Configuration Revision 必须是大于等于 1 的整数。</p>
         <footer><BaseButton type="button" variant="ghost" :disabled="Boolean(pending)" @click="closeDialog">返回</BaseButton><BaseButton type="submit" :variant="operation === 'CANCEL' ? 'danger' : 'primary'" :disabled="!online" :loading="pending === operation">确认{{ selectedDefinition.label }}</BaseButton></footer>
       </form>
     </div>
@@ -235,6 +247,6 @@ const definitions: Record<MemberTaskCommandOperation, {
 </template>
 
 <style scoped>
-.task-control-panel { padding: 14px; border: 1px solid var(--cs-brand-200); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-brand-50), var(--cs-surface) 72%); }.task-control-heading, .task-control-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.task-control-heading p, .task-control-heading h3 { margin: 0; }.task-control-heading p { color: var(--cs-brand-600); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.task-control-heading h3 { margin-top: 2px; font-size: 12px; }.task-control-heading > svg { color: var(--cs-brand-600); }.task-control-current { padding: 9px 0 8px; margin-top: 9px; border-top: 1px solid var(--cs-brand-100); color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; }.task-control-actions { display: flex; flex-wrap: wrap; gap: 6px; }.task-control-actions :deep(.base-button:last-child) { margin-left: auto; }.task-control-note { margin: 7px 0 0; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.task-control-offline { display: flex; align-items: center; gap: 6px; margin: 9px 0 0; color: var(--cs-warning); font-size: 9px; }.task-control-conflict, .task-control-error { margin-top: 9px; border-radius: 8px; font-size: 9px; }.task-control-conflict { display: flex; align-items: flex-start; gap: 7px; padding: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.task-control-conflict svg { flex: 0 0 auto; }.task-control-conflict strong, .task-control-conflict span { display: block; }.task-control-conflict span { margin-top: 2px; color: var(--cs-text-secondary); line-height: 1.45; }.task-control-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 9px; background: #fff6f5; color: var(--cs-danger); }.task-command-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgb(21 35 29 / 32%); backdrop-filter: blur(3px); }.task-command-dialog { width: min(510px, 100%); overflow: hidden; border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.task-command-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 17px 18px 13px; border-bottom: 1px solid var(--cs-border); }.task-command-dialog header p, .task-command-dialog header h4 { margin: 0; }.task-command-dialog header p { color: var(--cs-text-muted); font: 8px var(--cs-font-mono); }.task-command-dialog header h4 { margin-top: 3px; font-size: 15px; }.task-command-dialog header button { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.task-command-impact { margin: 0; padding: 14px 18px 10px; color: var(--cs-text-secondary); font-size: 10px; line-height: 1.6; }.task-command-dialog label { display: grid; gap: 6px; padding: 3px 18px 8px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.task-command-dialog textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); resize: vertical; }.task-command-dialog textarea[aria-invalid="true"] { border-color: var(--cs-danger); }.task-command-validation { margin: 0 18px; color: var(--cs-danger); font-size: 9px; }.task-command-dialog footer { display: flex; justify-content: flex-end; gap: 7px; padding: 14px 18px 17px; }
+.task-control-panel { padding: 14px; border: 1px solid var(--cs-brand-200); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-brand-50), var(--cs-surface) 72%); }.task-control-heading, .task-control-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.task-control-heading p, .task-control-heading h3 { margin: 0; }.task-control-heading p { color: var(--cs-brand-600); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.task-control-heading h3 { margin-top: 2px; font-size: 12px; }.task-control-heading > svg { color: var(--cs-brand-600); }.task-control-current { padding: 9px 0 8px; margin-top: 9px; border-top: 1px solid var(--cs-brand-100); color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; }.task-control-actions { display: flex; flex-wrap: wrap; gap: 6px; }.task-control-actions :deep(.base-button:last-child) { margin-left: auto; }.task-control-note { margin: 7px 0 0; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.task-control-offline { display: flex; align-items: center; gap: 6px; margin: 9px 0 0; color: var(--cs-warning); font-size: 9px; }.task-control-conflict, .task-control-error { margin-top: 9px; border-radius: 8px; font-size: 9px; }.task-control-conflict { display: flex; align-items: flex-start; gap: 7px; padding: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.task-control-conflict svg { flex: 0 0 auto; }.task-control-conflict strong, .task-control-conflict span { display: block; }.task-control-conflict span { margin-top: 2px; color: var(--cs-text-secondary); line-height: 1.45; }.task-control-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 9px; background: #fff6f5; color: var(--cs-danger); }.task-command-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgb(21 35 29 / 32%); backdrop-filter: blur(3px); }.task-command-dialog { width: min(510px, 100%); overflow: hidden; border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.task-command-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 17px 18px 13px; border-bottom: 1px solid var(--cs-border); }.task-command-dialog header p, .task-command-dialog header h4 { margin: 0; }.task-command-dialog header p { color: var(--cs-text-muted); font: 8px var(--cs-font-mono); }.task-command-dialog header h4 { margin-top: 3px; font-size: 15px; }.task-command-dialog header button { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.task-command-impact { margin: 0; padding: 14px 18px 10px; color: var(--cs-text-secondary); font-size: 10px; line-height: 1.6; }.task-command-dialog label { display: grid; gap: 6px; padding: 3px 18px 8px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.task-command-dialog label small { color: var(--cs-text-muted); font-weight: 500; }.task-command-dialog textarea, .task-command-dialog input { width: 100%; padding: 9px 10px; border: 1px solid var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); resize: vertical; }.task-command-dialog [aria-invalid="true"] { border-color: var(--cs-danger); }.task-command-validation { margin: 0 18px; color: var(--cs-danger); font-size: 9px; }.task-command-dialog footer { display: flex; justify-content: flex-end; gap: 7px; padding: 14px 18px 17px; }
 @media (max-width: 767px) { .task-control-actions { display: grid; grid-template-columns: 1fr 1fr; }.task-control-actions :deep(.base-button:last-child) { margin-left: 0; }.task-command-backdrop { align-items: end; padding: 0; }.task-command-dialog { width: 100%; border-radius: 16px 16px 0 0; }.task-command-dialog footer { display: grid; grid-template-columns: 1fr 1fr; }.task-control-error { align-items: stretch; flex-direction: column; } }
 </style>

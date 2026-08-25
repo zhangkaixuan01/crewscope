@@ -14,6 +14,7 @@ import {
   UsersRound,
   Workflow,
   GitFork,
+  KeyRound,
 } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -43,12 +44,13 @@ const navigation = [
   { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
   { label: 'Work', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
   { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
+  { label: '我的 Agent', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
+  { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
   { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
 ]
 
 const futureNavigation = [
   { label: 'WorkGraph', icon: Workflow },
-  { label: 'Agent 与能力', icon: Bot },
   { label: 'Activity', icon: Activity },
   { label: '治理与设置', icon: ShieldCheck },
 ]
@@ -112,12 +114,12 @@ function queryValue(value: unknown): string | null {
           <span>{{ item.label }}</span>
         </RouterLink>
         <p>Operate</p>
-        <button v-for="item in futureNavigation.slice(0, 3)" :key="item.label" type="button" disabled>
+        <button v-for="item in futureNavigation.slice(0, 2)" :key="item.label" type="button" disabled>
           <component :is="item.icon" :size="17" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
         <p>System</p>
-        <button v-for="item in futureNavigation.slice(3)" :key="item.label" type="button" disabled>
+        <button v-for="item in futureNavigation.slice(2)" :key="item.label" type="button" disabled>
           <component :is="item.icon" :size="17" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>

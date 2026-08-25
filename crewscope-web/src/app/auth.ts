@@ -23,6 +23,8 @@ export const permissions = {
   workParticipate: 'work:participate',
   responsibilityManage: 'responsibility:manage',
   repositoriesManage: 'repositories:manage',
+  agentManage: 'agent:manage',
+  providerManage: 'provider:manage',
 } as const
 
 /**

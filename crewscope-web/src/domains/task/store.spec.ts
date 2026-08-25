@@ -151,6 +151,33 @@ describe('TaskStore', () => {
     expect(store.state.details?.id).toBe(taskIds.second)
   })
 
+  it('isolates Task delegation preflight by WorkItem, Agent revision and Team Scope', async () => {
+    const gateway = new FixtureTaskGateway()
+    const store = createTaskStore(gateway)
+    store.activateScope(platformScope)
+    const profileId = crypto.randomUUID()
+
+    const value = await store.preflightDelegation(
+      fixtureIds.projectCrewScope,
+      taskIds.workItem,
+      { executorAgentProfileId: profileId, agentConfigurationRevision: 4 },
+    )
+
+    expect(value?.configurationRevision).toBe(4)
+    expect(gateway.preflightCalls[0]).toEqual({
+      scope: platformScope,
+      projectId: fixtureIds.projectCrewScope,
+      workItemId: taskIds.workItem,
+      selection: { executorAgentProfileId: profileId, agentConfigurationRevision: 4 },
+    })
+    expect(Object.keys(store.state.delegationPreflights)).toEqual([
+      `${fixtureIds.projectCrewScope}:${taskIds.workItem}:${profileId}:4`,
+    ])
+
+    store.activateScope(securityScope)
+    expect(store.state.delegationPreflights).toEqual({})
+  })
+
   it('reuses the exact idempotency key on retry and refreshes the server-authored Task identity', async () => {
     const gateway = new FixtureTaskGateway()
     const originalCreate = gateway.createTask.bind(gateway)
@@ -173,7 +200,7 @@ describe('TaskStore', () => {
       expectedVersion: 3,
       input: {
         objective: '验证幂等委托', acceptanceCriteria: ['只创建一个 Task'],
-        executorAgentProfileId: crypto.randomUUID(), conversationSource: null, providerBindingIds: [],
+        executorAgentProfileId: crypto.randomUUID(), agentConfigurationRevision: 2, conversationSource: null, providerBindingIds: [],
         codingTarget: {
           repositoryBindingId: crypto.randomUUID(), baselineRef: 'main', allowedPaths: ['src/main'],
           buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
@@ -207,7 +234,7 @@ describe('TaskStore', () => {
       expectedVersion: 3,
       input: {
         objective: '跨 Scope 委托回执', acceptanceCriteria: ['不污染新 Team'],
-        executorAgentProfileId: crypto.randomUUID(), conversationSource: null, providerBindingIds: [],
+        executorAgentProfileId: crypto.randomUUID(), agentConfigurationRevision: 2, conversationSource: null, providerBindingIds: [],
       },
     })
     await flushPromises()
@@ -233,7 +260,7 @@ describe('TaskStore', () => {
       workItemId: taskIds.workItem,
       expectedVersion: 3,
       input: {
-        objective: '无权委托', acceptanceCriteria: ['必须拒绝'], executorAgentProfileId: crypto.randomUUID(),
+        objective: '无权委托', acceptanceCriteria: ['必须拒绝'], executorAgentProfileId: crypto.randomUUID(), agentConfigurationRevision: 2,
         conversationSource: null, providerBindingIds: [],
       },
     })).rejects.toMatchObject({ status: 403 })

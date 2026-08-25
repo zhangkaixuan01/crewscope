@@ -16,6 +16,7 @@ import type { CodingPhase } from '../../domains/coding/store'
 import type { CodingAttemptSummary, CodingPatchDocument, DiffFileSummary } from '../../domains/coding/types'
 import type { TaskLiveState } from '../../domains/task/store'
 import type { TaskEventPage } from '../../domains/task/types'
+import type { ReviewFindingEvidence } from '../../domains/review/types'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 
@@ -26,6 +27,7 @@ const props = defineProps<{
   patchPhase: CodingPhase
   patch: CodingPatchDocument | null
   patchErrorMessage: string | null
+  reviewLocation?: ReviewFindingEvidence | null
   onLoadPatch: () => void
   onReconcile: () => void
 }>()
@@ -75,6 +77,15 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.reviewLocation,
+  location => {
+    if (!location || !projection.value.files.some(file => file.path === location.path)) return
+    search.value = ''
+    selectedPath.value = location.path
+  },
+)
+
 function changeLabel(kind: string): string {
   return ({ ADDED: 'A', MODIFIED: 'M', DELETED: 'D', RENAMED: 'R', COPIED: 'C' } as Record<string, string>)[kind] ?? kind.slice(0, 1)
 }
@@ -97,7 +108,7 @@ function lineKind(line: string): string {
 </script>
 
 <template>
-  <section class="diff-explorer detail-card" aria-labelledby="diff-explorer-title" data-testid="coding-diff-explorer">
+  <section id="coding-diff-explorer" class="diff-explorer detail-card" aria-labelledby="diff-explorer-title" data-testid="coding-diff-explorer" tabindex="-1">
     <header class="diff-heading">
       <div>
         <p>Workspace changes · Durable stream</p>
@@ -181,6 +192,10 @@ function lineKind(line: string): string {
             <span><b>+{{ selectedFile.additions }}</b><i>-{{ selectedFile.deletions }}</i></span>
           </header>
 
+          <p v-if="reviewLocation && selectedFile?.path === reviewLocation.path" class="review-location-note" role="status">
+            Review Finding 定位：{{ reviewLocation.path }} · L{{ reviewLocation.startLine }}–{{ reviewLocation.endLine }}。源代码行号由服务端 Evidence Resolver 校验；这里展示对应文件的只读 Patch。
+          </p>
+
           <div v-if="selectedFile?.binary" class="patch-message">
             <Binary :size="22" /><strong>Binary 变更</strong><span>二进制内容不进入浏览器 Patch 视图。</span>
           </div>
@@ -210,5 +225,6 @@ function lineKind(line: string): string {
 
 <style scoped>
 .diff-explorer { padding: 0; overflow: hidden; }.diff-heading { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--cs-border); }.diff-heading p, .diff-heading h3 { margin: 0; }.diff-heading p { color: var(--cs-brand-600); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.diff-heading h3 { margin-top: 2px; font-size: 13px; }.diff-heading__status { display: flex; align-items: center; gap: 5px; color: var(--cs-text-muted); font-size: 8px; }.diff-heading__status svg { color: var(--cs-brand-600); }.diff-explorer > :deep(.state-panel) { min-height: 112px; border: 0; border-radius: 0; }.diff-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-stats > div { display: grid; min-width: 0; grid-template-columns: auto 1fr; align-items: center; gap: 2px 6px; padding: 9px 12px; border-right: 1px solid var(--cs-border); }.diff-stats > div:last-child { border-right: 0; }.diff-stats svg { grid-row: 1 / 3; color: var(--cs-text-muted); }.diff-stats span { color: var(--cs-text-muted); font-size: 7px; text-transform: uppercase; }.diff-stats strong { font: 11px var(--cs-font-mono); }.diff-stats__addition strong { color: #237a50; }.diff-stats__deletion strong { color: #b34e56; }.diff-gap { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #efd4aa; background: var(--cs-warning-soft); color: #7c4a12; font-size: 8px; }.diff-gap button, .patch-message button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 7px; border-radius: 6px; background: rgb(255 255 255 / 70%); color: inherit; font-size: 8px; font-weight: 800; cursor: pointer; }.diff-workspace { display: grid; min-height: 350px; grid-template-columns: minmax(220px, .34fr) minmax(0, 1fr); }.diff-tree { min-width: 0; border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-search { display: flex; align-items: center; gap: 6px; margin: 9px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-muted); }.diff-search input { width: 100%; min-width: 0; height: 31px; background: transparent; font-size: 9px; outline: 0; }.diff-tree__list { max-height: 430px; overflow: auto; padding: 0 6px 8px; }.diff-tree__folder, .diff-tree__file { --indent: calc(var(--depth) * 12px); padding-left: calc(7px + var(--indent)); }.diff-tree__folder { display: flex; align-items: center; gap: 5px; min-height: 25px; color: var(--cs-text-muted); font-size: 8px; font-weight: 750; }.diff-tree__file { display: grid; width: 100%; min-height: 29px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; padding-right: 6px; border: 1px solid transparent; border-radius: 7px; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.diff-tree__file > span { overflow: hidden; font: 8px var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }.diff-tree__file.selected { border-color: var(--cs-brand-200); background: var(--cs-brand-50); color: var(--cs-brand-800); }.diff-tree__file :deep(.status-badge) { min-width: 19px; justify-content: center; padding-inline: 4px; }.diff-tree__limit { margin: 0; padding: 8px 10px; border-top: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: 8px; line-height: 1.45; }.patch-view { min-width: 0; background: #fbfcfb; }.patch-view > header { display: flex; min-height: 49px; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.patch-view header strong, .patch-view header small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.patch-view header strong { font: 9px var(--cs-font-mono); }.patch-view header small { margin-top: 3px; color: var(--cs-text-muted); font: 7px var(--cs-font-mono); }.patch-view header > span { display: flex; gap: 7px; font: 8px var(--cs-font-mono); }.patch-view header b { color: #237a50; }.patch-view header i { color: #b34e56; font-style: normal; }.patch-view > :deep(.state-panel) { min-height: 250px; border: 0; }.patch-message { display: grid; min-height: 250px; place-content: center; justify-items: center; gap: 6px; padding: 24px; color: var(--cs-text-muted); text-align: center; }.patch-message svg { color: var(--cs-brand-500); }.patch-message strong { color: var(--cs-text-secondary); font-size: 10px; }.patch-message span { max-width: 320px; font-size: 8px; line-height: 1.5; }.patch-message button { margin-top: 4px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.patch-code { max-height: 430px; overflow: auto; outline: none; }.patch-code:focus-visible { box-shadow: inset 0 0 0 2px var(--cs-focus); }.patch-code code { display: table; min-width: 100%; padding: 6px 0; font: 8px/1.55 var(--cs-font-mono); }.patch-line { display: table-row; }.patch-line > i { display: table-cell; width: 1%; padding: 0 9px; color: #9aa29e; font-style: normal; text-align: right; user-select: none; }.patch-line > b { display: table-cell; padding-right: 12px; font-weight: 450; white-space: pre; }.patch-line--addition { background: #eef8f1; color: #286645; }.patch-line--deletion { background: #fdf0f1; color: #96434b; }.patch-line--hunk { background: #eef4fa; color: #496c89; }.patch-line--meta { color: var(--cs-text-muted); }.patch-code > p { margin: 0; padding: 8px 11px; background: var(--cs-warning-soft); color: #7c4a12; font-size: 8px; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.review-location-note{margin:0;padding:7px 10px;border-bottom:1px solid var(--cs-brand-200);background:var(--cs-brand-50);color:var(--cs-brand-700);font-size:8px;line-height:1.5}
 @media (max-width: 720px) { .diff-heading { align-items: flex-start; flex-direction: column; }.diff-stats { grid-template-columns: repeat(2, 1fr); }.diff-stats > div:nth-child(2) { border-right: 0; }.diff-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--cs-border); }.diff-workspace { grid-template-columns: 1fr; }.diff-tree { border-right: 0; border-bottom: 1px solid var(--cs-border); }.diff-tree__list { max-height: 250px; }.patch-code { max-height: 460px; } }
 </style>

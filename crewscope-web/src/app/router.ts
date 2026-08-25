@@ -48,6 +48,18 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'repositories', requiredPermission: permissions.repositoriesManage },
       },
       {
+        path: '/settings/agents',
+        name: 'agent-settings',
+        component: () => import('../pages/AgentSettingsPage.vue'),
+        meta: { mode: 'control', section: 'agents', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/settings/models',
+        name: 'model-settings',
+        component: () => import('../pages/ModelSettingsPage.vue'),
+        meta: { mode: 'control', section: 'models', requiredPermission: permissions.scopeRead },
+      },
+      {
         path: '/control',
         redirect: to => ({ name: 'today', query: to.query }),
       },

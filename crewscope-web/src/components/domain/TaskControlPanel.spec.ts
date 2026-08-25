@@ -28,7 +28,7 @@ describe('TaskControlPanel', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it('discovers Resume and retryable-failure actions from durable attempt facts', async () => {
+  it('discovers Resume and allows Retry to pin an explicitly switched configuration', async () => {
     const paused = executionWith({ status: 'PAUSED' })
     const wrapper = mount(TaskControlPanel, { props: props({ attempt: paused }) })
     expect(wrapper.find('[aria-label="恢复当前 Task"]').exists()).toBe(true)
@@ -41,9 +41,14 @@ describe('TaskControlPanel', () => {
         failureClass: 'TRANSIENT', failureCode: 'WORKER_LOST',
       },
     })
-    await wrapper.setProps({ attempt: failed })
+    const onCommand = vi.fn().mockResolvedValue(undefined)
+    await wrapper.setProps({ attempt: failed, onCommand })
     await wrapper.get('[aria-label="重试当前 Task"]').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('创建新的 READY attempt')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('留空会沿用父 attempt 固定配置')
+    await wrapper.get('input[type="number"]').setValue('4')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(onCommand).toHaveBeenCalledWith('RETRY', undefined, 4)
 
     failed.terminal!.failureClass = 'VALIDATION'
     await wrapper.setProps({ attempt: structuredClone(failed) })
