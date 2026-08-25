@@ -3,6 +3,7 @@ package io.crewscope.domain.review;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
@@ -10,10 +11,14 @@ import io.crewscope.domain.review.event.ReviewFindingDuplicateObserved;
 import io.crewscope.domain.review.event.ReviewFindingRecorded;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.task.RuntimeContentHash;
 import io.crewscope.domain.task.TaskFactHash;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 
 class ReviewFindingTest {
 
@@ -219,6 +224,66 @@ class ReviewFindingTest {
                 ReviewDomainFixture.LATER));
     }
 
+    /** Stable M5-Q01 forged Finding authority and evidence attack set. */
+    @TestFactory
+    Stream<DynamicTest> m5Q01RejectsForgedFindingAttackSet() {
+        ReviewDomainFixture fixture = new ReviewDomainFixture();
+        ReviewRequest running = runningRequest(fixture, fixture.context);
+        FindingEvidence valid = evidence(fixture.context, 14, 14, 1);
+        List<NamedAttack> attacks = List.of(
+                new NamedAttack("RV-01-DIFF-ARTIFACT", candidate(
+                        "Forged Diff artifact",
+                        List.of(new FindingEvidence(
+                                valid.location(),
+                                fixture.diff("foreign-diff", 2).artifact(),
+                                valid.diffManifestHash(),
+                                valid.testEvidenceId(),
+                                valid.testEvidenceHash(),
+                                valid.acceptanceCriterionIndex()))), fixture.reviewerAgent),
+                new NamedAttack("RV-02-DIFF-MANIFEST", candidate(
+                        "Forged Diff manifest",
+                        List.of(new FindingEvidence(
+                                valid.location(),
+                                valid.diffArtifact(),
+                                RuntimeContentHash.sha256("forged-manifest"),
+                                valid.testEvidenceId(),
+                                valid.testEvidenceHash(),
+                                valid.acceptanceCriterionIndex()))), fixture.reviewerAgent),
+                new NamedAttack("RV-03-TEST-EVIDENCE-HASH", candidate(
+                        "Forged test evidence",
+                        List.of(new FindingEvidence(
+                                valid.location(),
+                                valid.diffArtifact(),
+                                valid.diffManifestHash(),
+                                valid.testEvidenceId(),
+                                TaskFactHash.sha256("forged-test"),
+                                valid.acceptanceCriterionIndex()))), fixture.reviewerAgent),
+                new NamedAttack("RV-04-UNKNOWN-ACCEPTANCE", candidate(
+                        "Unknown acceptance",
+                        List.of(new FindingEvidence(
+                                valid.location(),
+                                valid.diffArtifact(),
+                                valid.diffManifestHash(),
+                                valid.testEvidenceId(),
+                                valid.testEvidenceHash(),
+                                99))), fixture.reviewerAgent),
+                new NamedAttack("RV-05-OUTSIDE-DIFF-HUNK", candidate(
+                        "Outside hunk",
+                        List.of(evidence(fixture.context, 15, 15, 1))), fixture.reviewerAgent),
+                new NamedAttack("RV-06-HUMAN-FORGES-AGENT-FINDING", candidate(
+                        fixture, fixture.context, "Human forged Finding"), fixture.actor));
+        return attacks.stream().map(attack -> dynamicTest(attack.id(), () -> assertThrows(
+                DomainValidationException.class,
+                () -> ReviewFinding.record(
+                        ReviewFindingId.generate(),
+                        running,
+                        fixture.context,
+                        attack.candidate(),
+                        1,
+                        attack.actor(),
+                        ReviewDomainFixture.LATER))));
+    }
+
     private static ReviewRequest runningRequest(
             ReviewDomainFixture fixture, ContextPackage context) {
         return ReviewRequest.initial(
@@ -255,4 +320,7 @@ class ReviewFindingTest {
                 context.testEvidence().evidenceHash(),
                 acceptanceIndex);
     }
+
+    private record NamedAttack(
+            String id, ReviewFindingCandidate candidate, Principal actor) {}
 }

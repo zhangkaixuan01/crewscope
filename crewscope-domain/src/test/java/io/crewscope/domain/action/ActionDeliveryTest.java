@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.crewscope.domain.action.event.ActionBundleConfirmed;
 import io.crewscope.domain.action.event.ActionDispatchTransitioned;
@@ -22,7 +23,10 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskFactHash;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 
 class ActionDeliveryTest {
 
@@ -250,6 +254,111 @@ class ActionDeliveryTest {
         assertThrows(InvalidStateTransitionException.class, () -> claimedPush.cancel(
                 claimedPush.version(), cancelledPushReceipt,
                 ActionCancellationReason.MEMBER_CANCELLED, List.of(), plus(CONFIRMED_AT, 9)));
+    }
+
+    /** Stable M5-Q01 human identity, Scope, digest and validity deception attack set. */
+    @TestFactory
+    Stream<DynamicTest> m5Q01RejectsConfirmationDeceptionAttackSet() {
+        List<NamedAttack> attacks = List.of(
+                new NamedAttack("CF-01-NON-OWNER-CONFIRMER", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    assertThrows(DomainValidationException.class, () -> Confirmation.confirm(
+                            ConfirmationId.generate(),
+                            fixture.bundle(),
+                            fixture.facts(),
+                            fixture.reviewer,
+                            CONFIRMED_AT));
+                }),
+                new NamedAttack("CF-02-FOREIGN-SCOPE", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    io.crewscope.domain.workitem.WorkItemScope foreignScope =
+                            new io.crewscope.domain.workitem.WorkItemScope(
+                                    io.crewscope.domain.shared.id.OrganizationId.generate(),
+                                    valid.scope().teamId(),
+                                    valid.scope().workspaceId(),
+                                    valid.scope().projectId());
+                    Confirmation forged = Confirmation.reconstitute(
+                            valid.id(), foreignScope, valid.bundleId(), valid.bundleDigest(),
+                            valid.actions(), valid.confirmedByPrincipalId(), valid.confirmedAt(),
+                            valid.validUntil(), valid.status(), valid.cancellationReason(),
+                            valid.version(), valid.audit());
+                    assertThrows(DomainValidationException.class, () -> forged.requireAuthorizes(
+                            bundle, fixture.facts(), plus(CONFIRMED_AT, 1)));
+                }),
+                new NamedAttack("CF-03-FOREIGN-CONFIRMER", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    assertThrows(DomainValidationException.class, () -> Confirmation.reconstitute(
+                            valid.id(), valid.scope(), valid.bundleId(), valid.bundleDigest(),
+                            valid.actions(), PrincipalId.generate(), valid.confirmedAt(),
+                            valid.validUntil(), valid.status(), valid.cancellationReason(),
+                            valid.version(), valid.audit()));
+                }),
+                new NamedAttack("CF-04-BUNDLE-DIGEST", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    Confirmation forged = Confirmation.reconstitute(
+                            valid.id(), valid.scope(), valid.bundleId(),
+                            new ActionBundleDigest(TaskFactHash.sha256("forged-bundle")),
+                            valid.actions(), valid.confirmedByPrincipalId(), valid.confirmedAt(),
+                            valid.validUntil(), valid.status(), valid.cancellationReason(),
+                            valid.version(), valid.audit());
+                    assertThrows(DomainValidationException.class, () -> forged.requireAuthorizes(
+                            bundle, fixture.facts(), plus(CONFIRMED_AT, 1)));
+                }),
+                new NamedAttack("CF-05-ACTION-DIGEST", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    ConfirmedActionReference original = valid.actions().get(0);
+                    List<ConfirmedActionReference> forgedActions = new java.util.ArrayList<>(
+                            valid.actions());
+                    forgedActions.set(0, new ConfirmedActionReference(
+                            original.actionId(), original.sequence(),
+                            new ActionDigest(TaskFactHash.sha256("forged-action"))));
+                    Confirmation forged = Confirmation.reconstitute(
+                            valid.id(), valid.scope(), valid.bundleId(), valid.bundleDigest(),
+                            forgedActions, valid.confirmedByPrincipalId(), valid.confirmedAt(),
+                            valid.validUntil(), valid.status(), valid.cancellationReason(),
+                            valid.version(), valid.audit());
+                    assertThrows(DomainValidationException.class, () -> forged.requireAuthorizes(
+                            bundle, fixture.facts(), plus(CONFIRMED_AT, 1)));
+                }),
+                new NamedAttack("CF-06-EXPIRED-CONFIRMATION", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    assertThrows(DomainValidationException.class, () -> valid.requireAuthorizes(
+                            bundle, fixture.facts(), valid.validUntil()));
+                }),
+                new NamedAttack("CF-07-CANCELLED-CONFIRMATION", () -> {
+                    ActionBundleTest.Fixture fixture = new ActionBundleTest.Fixture();
+                    ActionBundle bundle = fixture.bundle();
+                    Confirmation valid = Confirmation.confirm(
+                            ConfirmationId.generate(), bundle, fixture.facts(),
+                            fixture.owner, CONFIRMED_AT);
+                    Confirmation cancelled = valid.cancel(
+                            valid.version(), ActionCancellationReason.MEMBER_CANCELLED,
+                            fixture.owner, plus(CONFIRMED_AT, 1));
+                    assertThrows(DomainValidationException.class, () -> cancelled.requireAuthorizes(
+                            bundle, fixture.facts(), plus(CONFIRMED_AT, 2)));
+                }));
+        return attacks.stream().map(attack -> dynamicTest(
+                attack.id(), attack.operation()::run));
     }
 
     @Test
@@ -524,4 +633,6 @@ class ActionDeliveryTest {
             PlannedAction pullRequest,
             ActionDispatch pushDispatch,
             ActionDispatch pullRequestDispatch) {}
+
+    private record NamedAttack(String id, Runnable operation) {}
 }

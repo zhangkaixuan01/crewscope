@@ -72,6 +72,10 @@ public final class Confirmation {
             throw new DomainValidationException(
                     "confirmation.audit.createdAt", "must equal confirmedAt");
         }
+        if (this.audit.createdBy().filter(this.confirmedByPrincipalId::equals).isEmpty()) {
+            throw new DomainValidationException(
+                    "confirmation.audit.createdBy", "must identify the confirming OWNER");
+        }
     }
 
     /** Confirms only a current Bundle and only by its current accountable human OWNER. */
@@ -126,6 +130,9 @@ public final class Confirmation {
         if (status != ConfirmationStatus.ACTIVE
                 || requiredNow.compareTo(confirmedAt) < 0
                 || requiredNow.compareTo(validUntil) >= 0
+                || !scope.equals(requiredBundle.authority().scope())
+                || !confirmedByPrincipalId.equals(
+                        requiredBundle.authority().responsibility().actorPrincipalId())
                 || !bundleId.equals(requiredBundle.id())
                 || !bundleDigest.equals(requiredBundle.digest())
                 || !actions.equals(requiredBundle.actions().stream()

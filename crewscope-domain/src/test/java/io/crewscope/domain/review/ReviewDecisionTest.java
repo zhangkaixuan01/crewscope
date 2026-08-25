@@ -3,6 +3,7 @@ package io.crewscope.domain.review;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -34,7 +35,10 @@ import io.crewscope.domain.workitem.WorkItemKey;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 
 class ReviewDecisionTest {
 
@@ -226,6 +230,104 @@ class ReviewDecisionTest {
                 ReviewDomainFixture.LATER));
     }
 
+    /** Stable M5-Q01 Agent, assignment, ETag and stale-context Decision forgery attack set. */
+    @TestFactory
+    Stream<DynamicTest> m5Q01RejectsForgedGateDecisionAttackSet() {
+        List<NamedAttack> attacks = List.of(
+                new NamedAttack("GD-01-AGENT-GATE", () -> {
+                    GateFixture fixture = new GateFixture();
+                    assertThrows(DomainValidationException.class, () -> fixture.decisionAs(
+                            ReviewDecisionType.APPROVED,
+                            fixture.review.reviewerAgent,
+                            fixture.gateMember,
+                            fixture.assignments,
+                            "Agent cannot approve"));
+                }),
+                new NamedAttack("GD-02-MISSING-REVIEWER-ASSIGNMENT", () -> {
+                    GateFixture fixture = new GateFixture();
+                    assertThrows(DomainValidationException.class, () -> fixture.decisionAs(
+                            ReviewDecisionType.APPROVED,
+                            fixture.gateReviewer,
+                            fixture.gateMember,
+                            List.of(fixture.ownerAssignment, fixture.executorAssignment),
+                            "Missing assignment"));
+                }),
+                new NamedAttack("GD-03-OWNER-SELF-APPROVAL", () -> {
+                    GateFixture fixture = new GateFixture();
+                    ResponsibilityAssignment ownerReviewer = ResponsibilityAssignment.assign(
+                            ResponsibilityAssignmentId.generate(),
+                            fixture.workItem,
+                            ResponsibilityRole.REVIEWER,
+                            fixture.review.actor,
+                            Optional.of(fixture.ownerMember),
+                            fixture.review.actor,
+                            ReviewDomainFixture.CREATED_AT);
+                    assertThrows(ReviewerPolicyViolationException.class, () -> fixture.decisionAs(
+                            ReviewDecisionType.APPROVED,
+                            fixture.review.actor,
+                            fixture.ownerMember,
+                            List.of(
+                                    fixture.ownerAssignment,
+                                    fixture.executorAssignment,
+                                    fixture.gateAssignment,
+                                    ownerReviewer),
+                            "Owner cannot self-approve"));
+                }),
+                new NamedAttack("GD-04-STALE-ETAG", () -> {
+                    GateFixture fixture = new GateFixture();
+                    assertThrows(OptimisticLockConflictException.class, () -> fixture.decisionFor(
+                            fixture.completedRequest,
+                            fixture.review.context,
+                            ReviewDecisionType.APPROVED,
+                            1,
+                            "Stale ETag"));
+                }),
+                new NamedAttack("GD-05-RUNNING-REQUEST", () -> {
+                    GateFixture fixture = new GateFixture();
+                    ReviewRequest running = ReviewRequest.initial(
+                                    ReviewRequestId.generate(),
+                                    fixture.review.context,
+                                    fixture.review.actor,
+                                    ReviewDomainFixture.CREATED_AT)
+                            .start(
+                                    fixture.review.context,
+                                    0,
+                                    fixture.review.actor,
+                                    ReviewDomainFixture.LATER);
+                    assertThrows(DomainValidationException.class, () -> fixture.decisionFor(
+                            running,
+                            fixture.review.context,
+                            ReviewDecisionType.APPROVED,
+                            1,
+                            "Running request"));
+                }),
+                new NamedAttack("GD-06-STALE-CONTEXT", () -> {
+                    GateFixture fixture = new GateFixture();
+                    ContextPackage changed = fixture.review.successor(
+                            fixture.review.context,
+                            fixture.review.subject,
+                            fixture.review.diff,
+                            fixture.review.testEvidence,
+                            fixture.review.reviewer,
+                            "+return name.strip();\n");
+                    assertThrows(StaleReviewRequestException.class, () -> fixture.decisionFor(
+                            fixture.completedRequest,
+                            changed,
+                            ReviewDecisionType.APPROVED,
+                            2,
+                            "Stale context"));
+                }),
+                new NamedAttack("GD-07-TERMINAL-DECISION-REPLACEMENT", () -> {
+                    GateFixture fixture = new GateFixture();
+                    ReviewDecision approved = fixture.decision(
+                            ReviewDecisionType.APPROVED, "Approved");
+                    assertThrows(DomainValidationException.class, () -> fixture.successor(
+                            approved, ReviewDecisionType.REJECTED, "Replace conclusion"));
+                }));
+        return attacks.stream().map(attack -> dynamicTest(
+                attack.id(), attack.operation()::run));
+    }
+
     private static final class GateFixture {
 
         private final ReviewDomainFixture review = new ReviewDomainFixture();
@@ -394,4 +496,6 @@ class ReviewDecisionTest {
                     ReviewDomainFixture.LATER);
         }
     }
+
+    private record NamedAttack(String id, Runnable operation) {}
 }

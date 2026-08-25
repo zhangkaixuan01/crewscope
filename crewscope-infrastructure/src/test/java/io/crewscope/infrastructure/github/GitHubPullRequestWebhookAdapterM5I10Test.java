@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.github;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import io.crewscope.application.action.ExternalObservationRepository;
 import io.crewscope.application.github.AcceptGitHubPullRequestWebhookRequest;
@@ -44,9 +45,12 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /** M5-I10 proof for HMAC, Connection-scoped replay and monotonic PR state reconciliation. */
@@ -159,6 +163,66 @@ class GitHubPullRequestWebhookAdapterM5I10Test {
         assertEquals(4, repository.values.size());
     }
 
+    /** Stable M5-Q01 signature, event and routed-identity forgery attack set. */
+    @TestFactory
+    Stream<DynamicTest> m5Q01RejectsWebhookForgeryAttackSet() throws Exception {
+        byte[] opened = payload("opened", "open", false, "2026-08-23T11:00:00Z");
+        byte[] tampered = payload("closed", "closed", false, "2026-08-23T11:01:00Z");
+        byte[] unsupported = payload("labeled", "open", false, "2026-08-23T11:00:00Z");
+        byte[] wrongRepository = JSON.writeValueAsBytes(java.util.Map.of(
+                "action", "opened",
+                "repository", java.util.Map.of("id", 202),
+                "pull_request", pullRequest("open", false, "2026-08-23T11:00:00Z")));
+        byte[] wrongPullRequest = JSON.writeValueAsBytes(java.util.Map.of(
+                "action", "opened",
+                "repository", java.util.Map.of("id", 101),
+                "pull_request", java.util.Map.of(
+                        "id", 9002,
+                        "number", 42,
+                        "state", "open",
+                        "merged", false,
+                        "updated_at", "2026-08-23T11:00:00Z")));
+        List<WebhookAttack> attacks = List.of(
+                new WebhookAttack(
+                        "WH-01-ZERO-SIGNATURE",
+                        request("q01-zero", opened, "sha256=" + "0".repeat(64)),
+                        GitHubWebhookErrorCode.SIGNATURE_INVALID),
+                new WebhookAttack(
+                        "WH-02-MISSING-SIGNATURE-PREFIX",
+                        request("q01-prefix", opened, "0".repeat(64)),
+                        GitHubWebhookErrorCode.SIGNATURE_INVALID),
+                new WebhookAttack(
+                        "WH-03-UPPERCASE-SIGNATURE",
+                        request("q01-uppercase", opened, signature(opened).toUpperCase()),
+                        GitHubWebhookErrorCode.SIGNATURE_INVALID),
+                new WebhookAttack(
+                        "WH-04-SIGNED-DIFFERENT-BODY",
+                        request("q01-body", tampered, signature(opened)),
+                        GitHubWebhookErrorCode.SIGNATURE_INVALID),
+                new WebhookAttack(
+                        "WH-05-WRONG-EVENT",
+                        request("q01-event", opened, signature(opened), IDENTITY, "push"),
+                        GitHubWebhookErrorCode.EVENT_UNSUPPORTED),
+                new WebhookAttack(
+                        "WH-06-UNSUPPORTED-ACTION",
+                        request("q01-action", unsupported, signature(unsupported)),
+                        GitHubWebhookErrorCode.EVENT_UNSUPPORTED),
+                new WebhookAttack(
+                        "WH-07-REPOSITORY-DRIFT",
+                        request("q01-repository", wrongRepository, signature(wrongRepository)),
+                        GitHubWebhookErrorCode.IDENTITY_MISMATCH),
+                new WebhookAttack(
+                        "WH-08-PULL-REQUEST-DRIFT",
+                        request("q01-pull-request", wrongPullRequest, signature(wrongPullRequest)),
+                        GitHubWebhookErrorCode.IDENTITY_MISMATCH));
+        return attacks.stream().map(attack -> dynamicTest(attack.id(), () -> {
+            GitHubWebhookException failure = assertThrows(
+                    GitHubWebhookException.class,
+                    () -> adapter(new InMemoryObservations()).accept(attack.request()));
+            assertEquals(attack.expected(), failure.code());
+        }));
+    }
+
     private static ExternalObservation accept(
             GitHubPullRequestWebhookAdapter adapter,
             String delivery,
@@ -195,6 +259,15 @@ class GitHubPullRequestWebhookAdapterM5I10Test {
             byte[] payload,
             String signature,
             ExternalResultIdentity identity) {
+        return request(deliveryId, payload, signature, identity, "pull_request");
+    }
+
+    private static AcceptGitHubPullRequestWebhookRequest request(
+            String deliveryId,
+            byte[] payload,
+            String signature,
+            ExternalResultIdentity identity,
+            String eventName) {
         return new AcceptGitHubPullRequestWebhookRequest(
                 ORGANIZATION_ID,
                 ACTION_ID,
@@ -202,7 +275,7 @@ class GitHubPullRequestWebhookAdapterM5I10Test {
                 identity,
                 new ExternalRepositoryId("101"),
                 deliveryId,
-                "pull_request",
+                eventName,
                 signature,
                 payload,
                 RECEIVED_AT);
@@ -231,6 +304,11 @@ class GitHubPullRequestWebhookAdapterM5I10Test {
         mac.init(new SecretKeySpec(SECRET, "HmacSHA256"));
         return "sha256=" + HexFormat.of().formatHex(mac.doFinal(payload));
     }
+
+    private record WebhookAttack(
+            String id,
+            AcceptGitHubPullRequestWebhookRequest request,
+            GitHubWebhookErrorCode expected) {}
 
     private static final class InMemoryObservations implements ExternalObservationRepository {
 

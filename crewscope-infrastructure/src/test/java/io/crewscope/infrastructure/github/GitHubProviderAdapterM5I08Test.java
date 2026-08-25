@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -69,7 +70,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /** M5-I08 contract tests for GitHub identity, catalog, Preflight and safe failures. */
@@ -242,9 +246,72 @@ class GitHubProviderAdapterM5I08Test {
                         .code());
     }
 
+    /** Stable M5-Q01 base-endpoint SSRF attack set. */
+    @TestFactory
+    Stream<DynamicTest> m5Q01RejectsUntrustedGitHubEndpointAttackSet() {
+        List<EndpointAttack> attacks = List.of(
+                new EndpointAttack(
+                        "SS-01-METADATA-HTTP",
+                        URI.create("http://169.254.169.254/latest/meta-data"),
+                        true),
+                new EndpointAttack(
+                        "SS-02-LOOPBACK-NOT-ENABLED",
+                        URI.create("http://127.0.0.1:18080"),
+                        false),
+                new EndpointAttack(
+                        "SS-03-IPV6-LOOPBACK",
+                        URI.create("http://[::1]:18080"),
+                        true),
+                new EndpointAttack(
+                        "SS-04-FILE-SCHEME",
+                        URI.create("file:///etc/passwd"),
+                        true),
+                new EndpointAttack(
+                        "SS-05-EMBEDDED-CREDENTIAL",
+                        URI.create("https://user:secret@api.github.com"),
+                        false),
+                new EndpointAttack(
+                        "SS-06-BASE-PATH",
+                        URI.create("https://api.github.com/internal"),
+                        false),
+                new EndpointAttack(
+                        "SS-07-BASE-QUERY",
+                        URI.create("https://api.github.com?target=127.0.0.1"),
+                        false),
+                new EndpointAttack(
+                        "SS-08-BASE-FRAGMENT",
+                        URI.create("https://api.github.com#internal"),
+                        false));
+        return attacks.stream().map(attack -> dynamicTest(
+                attack.id(),
+                () -> assertThrows(
+                        IllegalArgumentException.class,
+                        () -> adapterForUntrustedEndpoint(
+                                attack.endpoint(), attack.allowLoopbackHttp()))));
+    }
+
+    private static GitHubProviderAdapter adapterForUntrustedEndpoint(
+            URI endpoint, boolean allowLoopbackHttp) {
+        return new GitHubProviderAdapter(
+                HttpClient.newHttpClient(),
+                new ObjectMapper(),
+                endpoint,
+                Duration.ofSeconds(5),
+                Duration.ofMinutes(5),
+                Duration.ofSeconds(30),
+                TimeProvider.from(Clock.fixed(NOW, ZoneOffset.UTC)),
+                mock(ConnectionRepository.class),
+                mock(ConnectionGrantRepository.class),
+                mock(CredentialStore.class),
+                mock(GitHubProviderRepository.class),
+                allowLoopbackHttp);
+    }
+
     private static void assertCode(GitHubProviderErrorCode expected, Runnable operation) {
         assertEquals(expected, assertThrows(GitHubProviderException.class, operation::run).code());
     }
+
+    private record EndpointAttack(String id, URI endpoint, boolean allowLoopbackHttp) {}
 
     private static final class Fixture {
         private final OrganizationId organizationId = new OrganizationId(UUID.randomUUID());
