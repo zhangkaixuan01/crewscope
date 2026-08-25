@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "crewscope.reviewer-quality-suite/v1",
+  "suiteId": "crewscope-java-reviewer",
+  "suiteVersion": "1.0.0",
+  "cases": [
+    {
+      "id": "null-guard-regression",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/UserNameNormalizer.java",
+      "startLine": 14,
+      "endLine": 14,
+      "patch": "+        return value.strip().toLowerCase(Locale.ROOT);\n",
+      "acceptanceCriterion": "A null user name returns an empty value instead of throwing",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["CORRECTNESS", "ACCEPTANCE"],
+      "expectedSeverities": ["HIGH", "MEDIUM"]
+    },
+    {
+      "id": "team-authorization-bypass",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/TaskQueryService.java",
+      "startLine": 41,
+      "endLine": 42,
+      "patch": "+        // Team authorization was removed to reduce query latency.\n+         return tasks.findById(taskId).orElseThrow();\n",
+      "acceptanceCriterion": "A member cannot read a task owned by another team",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["SECURITY"],
+      "expectedSeverities": ["BLOCKER", "HIGH"]
+    },
+    {
+      "id": "credential-log-leak",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/ProviderClient.java",
+      "startLine": 28,
+      "endLine": 28,
+      "patch": "+        log.info(\"Calling provider with apiKey={}\", apiKey);\n",
+      "acceptanceCriterion": "Provider credentials never enter logs or exception messages",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["SECURITY"],
+      "expectedSeverities": ["BLOCKER", "HIGH"]
+    },
+    {
+      "id": "interrupt-swallowed",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/LeaseWorker.java",
+      "startLine": 55,
+      "endLine": 57,
+      "patch": "+        } catch (InterruptedException ignored) {\n+            return Optional.empty();\n+        }\n",
+      "acceptanceCriterion": "Worker interruption restores the thread interrupt flag and stops claiming work",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["RELIABILITY", "CORRECTNESS"],
+      "expectedSeverities": ["HIGH", "MEDIUM"]
+    },
+    {
+      "id": "sql-injection",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/AuditSearchRepository.java",
+      "startLine": 33,
+      "endLine": 34,
+      "patch": "+        String sql = \"select * from audit_event where actor = '\" + actor + \"'\";\n+        return jdbc.query(sql, mapper);\n",
+      "acceptanceCriterion": "Audit search uses bound parameters for every member-supplied value",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["SECURITY"],
+      "expectedSeverities": ["BLOCKER", "HIGH"]
+    },
+    {
+      "id": "cross-team-cache-key",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/TaskSummaryCache.java",
+      "startLine": 19,
+      "endLine": 19,
+      "patch": "+        return cache.get(organizationId + \":\" + taskId);\n",
+      "acceptanceCriterion": "Task summary cache keys isolate organization, team and task",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["SECURITY", "CORRECTNESS"],
+      "expectedSeverities": ["HIGH", "MEDIUM"]
+    },
+    {
+      "id": "non-idempotent-retry",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/DeliveryService.java",
+      "startLine": 72,
+      "endLine": 73,
+      "patch": "+        provider.createDraftPullRequest(command);\n+        receipts.save(ActionReceipt.success(command.id()));\n",
+      "acceptanceCriterion": "Retrying the same delivery command creates at most one external pull request",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["RELIABILITY", "CORRECTNESS"],
+      "expectedSeverities": ["BLOCKER", "HIGH"]
+    },
+    {
+      "id": "wrong-http-status",
+      "defect": true,
+      "canonicalPath": "src/main/java/io/crewscope/sample/ApiExceptionHandler.java",
+      "startLine": 24,
+      "endLine": 24,
+      "patch": "+        return ResponseEntity.ok(new ErrorResponse(\"VALIDATION_FAILED\"));\n",
+      "acceptanceCriterion": "Validation failures return HTTP 400 with the stable error envelope",
+      "acceptanceStatus": "FAILED",
+      "expectedCategories": ["CORRECTNESS", "ACCEPTANCE"],
+      "expectedSeverities": ["MEDIUM", "LOW"]
+    },
+    {
+      "id": "clean-null-normalization",
+      "defect": false,
+      "canonicalPath": "src/main/java/io/crewscope/sample/UserNameNormalizer.java",
+      "startLine": 14,
+      "endLine": 14,
+      "patch": "+        return value == null ? \"\" : value.strip().toLowerCase(Locale.ROOT);\n",
+      "acceptanceCriterion": "A null user name returns an empty value instead of throwing",
+      "acceptanceStatus": "PASSED",
+      "expectedCategories": [],
+      "expectedSeverities": []
+    },
+    {
+      "id": "clean-parameterized-query",
+      "defect": false,
+      "canonicalPath": "src/main/java/io/crewscope/sample/AuditSearchRepository.java",
+      "startLine": 33,
+      "endLine": 34,
+      "patch": "+        String sql = \"select * from audit_event where actor = ?\";\n+        return jdbc.query(sql, mapper, actor);\n",
+      "acceptanceCriterion": "Audit search uses bound parameters for every member-supplied value",
+      "acceptanceStatus": "PASSED",
+      "expectedCategories": [],
+      "expectedSeverities": []
+    },
+    {
+      "id": "clean-team-cache-key",
+      "defect": false,
+      "canonicalPath": "src/main/java/io/crewscope/sample/TaskSummaryCache.java",
+      "startLine": 19,
+      "endLine": 20,
+      "patch": "+        return cache.get(organizationId + \":\" + teamId\n+                + \":\" + taskId);\n",
+      "acceptanceCriterion": "Task summary cache keys isolate organization, team and task",
+      "acceptanceStatus": "PASSED",
+      "expectedCategories": [],
+      "expectedSeverities": []
+    },
+    {
+      "id": "clean-interrupt-restoration",
+      "defect": false,
+      "canonicalPath": "src/main/java/io/crewscope/sample/LeaseWorker.java",
+      "startLine": 55,
+      "endLine": 58,
+      "patch": "+        } catch (InterruptedException interrupted) {\n+            Thread.currentThread().interrupt();\n+            return Optional.empty();\n+        }\n",
+      "acceptanceCriterion": "Worker interruption restores the thread interrupt flag and stops claiming work",
+      "acceptanceStatus": "PASSED",
+      "expectedCategories": [],
+      "expectedSeverities": []
+    }
+  ]
+}

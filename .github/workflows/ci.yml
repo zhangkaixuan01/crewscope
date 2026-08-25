@@ -130,6 +130,10 @@ jobs:
           node evaluation/m4/coding-q03/scripts/benchmark.mjs validate
           node --test evaluation/m4/coding-q03/scripts/benchmark.test.mjs
           node --test evaluation/m4/coding-q03/scripts/benchmark.integration.test.mjs
+      - name: Validate M5-Q03 Reviewer benchmark protocol
+        run: |
+          node evaluation/m5/reviewer-q03/scripts/benchmark.mjs validate
+          node --test evaluation/m5/reviewer-q03/scripts/benchmark.test.mjs
 
   dependency_security_osv:
     name: Audit Maven and web dependency manifests

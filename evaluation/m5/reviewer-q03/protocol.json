@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "crewscope.reviewer-benchmark-protocol/v1",
+  "protocolId": "m5-q03-reviewer-quality-baseline",
+  "protocolVersion": "1.0.0",
+  "suite": "suite.json",
+  "template": "reviewer@1",
+  "systemPrompt": "system-prompt.md",
+  "promptPolicy": "context-package-v1",
+  "skillKeys": [],
+  "toolNames": [],
+  "modelRunsPerCase": 1,
+  "realModel": {
+    "provider": "deepseek",
+    "modelId": "deepseek-v4-flash",
+    "modelRevision": "DeepSeek-V4-Flash-0731"
+  },
+  "qualityGate": {
+    "minimumStructuredOutputRate": 1.0,
+    "minimumDefectRecall": 0.75,
+    "minimumCleanSpecificity": 0.75,
+    "minimumEvidenceValidity": 0.95,
+    "minimumCategoryAccuracy": 0.75,
+    "minimumSeverityAccuracy": 0.75,
+    "maximumGateDecisionViolations": 0
+  },
+  "pricing": {
+    "currency": "USD",
+    "unit": "PER_MILLION_TOKENS",
+    "inputCacheHitTokenPrice": 0.014,
+    "inputCacheMissTokenPrice": 0.44,
+    "outputTokenPrice": 1.32,
+    "mode": "CONSERVATIVE_PEAK",
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "effectiveAt": "2026-08-22T01:00:00Z"
+  },
+  "archive": {
+    "mode": "APPEND_ONLY",
+    "resultsDirectory": "var/evaluation/m5-q03/results"
+  }
+}
