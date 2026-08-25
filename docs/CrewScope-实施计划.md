@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.16<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.7`<br>
+> 文档版本：v1.22<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.0`<br>
 > 技术基线：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05、M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08 已完成，下一任务为 M5-F01（2026-08-24）
+> 当前进度：M0 至 M4 已完成；M5-S01 至 M5-S05、M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08、M5-F01 至 M5-F08 已完成，下一任务为 M5-Q01（2026-08-25）
 
 ## 1. 实施目标
 
@@ -529,6 +529,10 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 将单 Spring `Model` Bean 升级为受信 `AgentScopeModelFactory`，根据 ResolvedModelSelection 构建 DeepSeek/OpenAI-compatible、OpenAI、DashScope、Gemini、Anthropic 或 Ollama Model；
 - DeepSeek 保持产品 Provider `deepseek`，Adapter 使用 `openai-compatible`，Tool 与 Structured Output 共存时固定 `nativeStructuredOutputWithTools(false)`；
 - AgentRuntimeSession 固定 AgentConfigurationVersion，Conversation 在安全点显式刷新，TaskExecution 通过 PolicySnapshot 固定 Provider/Connection/Model Revision/单价/策略哈希；
+- M5-F01 已建立 `我的 Agent` 和 `模型与凭证` 共用的公开 DTO、真实 HTTP Gateway、Scope 隔离 Store、强 ETag、offset 分页与设置深链接契约；
+- M5-F02 已交付 `我的 Agent` 列表；M5-F03 已交付批准 Template 创建向导、USER/TEAM 权限、详情设置、不可变 Configuration 历史、PERSONAL/TEAM 主/Fallback、继承默认、Preflight 与生命周期；M5-F04 已交付 Provider/Catalog、价格、Owner-scoped Connection、凭证单向输入、验证、轮换、停用、撤销、健康和 Command Receipt 证据入口；
+- M5-F05 已交付 Conversation/WorkItem 共用委托：从当前责任链选择个人/团队 Agent 与 Configuration Revision，自动完成 Task Model Preflight，展示服务端推导的 PERSONAL/TEAM、Binding Source、实际主/Fallback 模型、价格 Revision 和 PolicySnapshot 坐标；创建固定预检返回的精确 Revision，Retry 支持沿用父配置或显式切换；Billing Subject 未公开时保持明确披露边界；
+- M5-F06 已交付 Review Workbench：按 attempt 展示 Review 修订历史、ContextPackage、精确 Diff/Test/Acceptance、Agent Advisory Finding、SELF_REVIEW、文件与行号定位、Reviewer 执行、成员 Gate Decision、修改轮次和失效历史；命令使用强 ETag、Idempotency-Key 与冲突回读，浏览器不接受或推导 Reviewer PolicySnapshot ID；
 - 实现 `我的 Agent` 和 `模型与凭证` 两个设置面，包含 Agent 创建、PERSONAL/TEAM Binding、Model Preflight、生效范围、配置历史、连接健康、成本归属和 BYOK 策略。
 
 ### 11.3 Review
@@ -846,7 +850,7 @@ M4 共 44 个可执行任务，已全部完成并通过 M4-Q04 Release Gate。�
 
 M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 36 次真实模型固定矩阵评测和 CrewScope 自修改闭环。权威聚合为 29 / 36、端到端成功率 80.56%、Pass@1 75%、任务成功率 100%、安全合规率 100%，CrewScope 闭环与质量门禁均通过；7 次未成功运行均为路径违规。Token 作为成本与效率指标持续聚合，运行时使用 60 万输入 Token、6.4 万输出 Token 和 80 次模型调用作为资源失控保护。验收证据导出遗漏通过哈希绑定的追加修正链修复，原始报告保持不可变，详见 [M4-Q03 Coding Agent 质量基线](testing/M4-Q03-Coding-Agent质量基线.md)。
 
-M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 至 M5-S05 已关闭动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险。M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08 已完成领域、迁移、基础设施和应用/API 交付。M5-A01 至 A07 已交付模型、Agent、Review、GitHub 与 Action 管理闭环；M5-A08 已交付 Task Delivery Summary、Conversation 游标卡片、Review/Action Task Timeline 白名单、Team Action Delivery Runtime Fleet、Actuator/运维安全摘要，以及 Trace/Audit/低基数指标。下一任务为 `M5-F01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
+M5 已按 5 个 Spike、11 个领域/迁移任务、12 个基础设施任务、8 个应用/API 任务、8 个前端任务和 4 个质量任务拆分，共 48 项。M5-S01 至 M5-S05 已关闭动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险。M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08 已完成领域、迁移、基础设施和应用/API 交付。M5-A01 至 A07 已交付模型、Agent、Review、GitHub 与 Action 管理闭环；M5-A08 已交付 Task Delivery Summary、Conversation 游标卡片、Review/Action Task Timeline 白名单、Team Action Delivery Runtime Fleet、Actuator/运维安全摘要，以及 Trace/Audit/低基数指标。M5-F01 至 F07 已交付 Agent、模型、Task 委托、Review 与 GitHub Delivery 的完整前端闭环；M5-F08 已完成全状态、响应式、键盘焦点、ARIA、Reduced Motion、Histoire、双视口视觉、Axe 和敏感字段 CI 门禁收口。下一任务为 `M5-Q01`，详细依赖和 Release Gate 见 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 ## 19. 项目管理与进度跟踪
 

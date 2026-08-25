@@ -1,7 +1,7 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.2<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v4.1`<br>
+> 文档版本：v1.5<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.0`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
 
@@ -123,6 +123,12 @@ M4-F03 在 WorkItem 委托和 TaskIntent 确认结果中复用统一 CodingTarge
 
 TaskIntent 确认继续使用空请求体，先原子创建 WorkItem 和责任链。确认结果卡向当前 Owner 提供“配置 Coding Task”入口，携带 Conversation、WorkItem 与最新持久 USER Message 坐标进入同一委托表单。服务端逐次复验 WorkItem 责任、Repository Scope、Binding 状态、BuildProfile 和 Ref；Conversation 与 Control 两个入口共享同一 Coding Task 创建流程。
 
+M5-F05 在这份统一委托表单中增加 Agent 与 Configuration 选择。候选只取当前 WorkItem 责任链中的 Personal Agent 和 Team Agent Executor，Agent 目录只补充 Ownership、RuntimeRole、生命周期和当前 Revision。选择变化触发 Task 路由的服务端 Preflight，旧请求与旧结果立即失效；创建按钮仅在 CodingTarget 与 Model Preflight 都通过时可用，并提交 Preflight 返回的精确 Configuration Revision。
+
+Preflight 卡展示服务端推导的 PERSONAL/TEAM、Binding Source、Primary/Fallback Provider/Model、Connection Owner Type、Catalog/Price Revision、PolicyPack Version 和 Resolution Hash。TEAM 结果显示 USER Key 禁用边界。Billing Subject 未进入公开 DTO 时，成本主体区域显示“服务端已固定、当前 API 未披露”，不能从 Connection Owner、Agent Ownership 或 Team 默认推导。Credential、Endpoint、Prompt、Tool Payload 和完整策略载荷不进入 Store、DOM、URL、错误信息或草稿。
+
+委托草稿按 Organization、Team、WorkProject 和 WorkItem 分区保存在 SessionStorage，只包含目标、验收文本、AgentProfile ID 与公开 Revision；创建成功后清除。可重试失败冻结表单并复用 Task Store 中的原命令与 Idempotency-Key。Task Retry 留空沿用父 attempt 固定配置，填写正整数 Revision 时提交显式切换并由服务端重新 Preflight。Modal 初始焦点位于对话框容器，避免窄屏自动滚离 Agent/Preflight 上下文，并支持 Escape 与 Focus Trap。
+
 M4-F04 在 Task 详情顶部提供统一 Execution Studio。页面从 Coding Store、Task Runtime Store 和服务端公开投影组合不可变基线、Workspace/Sandbox、Coding Agent、当前 Plan/Step、最近结构化 CommandEvidence、资源预算和恢复代次。attempt 选择写入 `attempt` Query，服务端返回的 Workspace ID 写入 `workspace` Query；恢复时先验证完整 Team、WorkProject、Task、attempt 和 Workspace 归属，再切换 Task Runtime 与 Coding 事实。Conversation 和 Control 入口进入同一 Task URL，读取同一事实。
 
 Execution Studio 的 Loading、非 Coding Empty、Error、Forbidden、Recovering 和 Terminal 使用独立稳定状态。Recovering 展示恢复代次和对账含义，Terminal 展示完成原因或稳定失败码与证据保留语义。资源预算同时显示耐久命令与变更文件用量，以及 CPU、内存、PID、命令时长、输出、写入、单文件、Diff 和测试修复上限。浏览器状态只保存公开坐标与摘要。
@@ -139,23 +145,43 @@ M4-F07 在 Execution Studio 中提供 Coding 进度与执行控制。进度轨�
 
 进度面板展示当前 Plan Todo、最近 Step Checkpoint、当前 Agent Run 的 State Snapshot 摘要、当前 Step、Checkpoint 连续性缺口、最新 TestEvidence 序号与 WorkspacePolicy 修复预算上限。TestEvidence 序号表达证据发布顺序，公开 API 当前未披露 Specialist 已用修复轮次，前端不推导该数值。当前 Coding attempt 与 TaskExecution ID 对齐后嵌入 M3 `TaskControlPanel`；历史 attempt 保持只读，对齐中的当前 attempt 显示同步状态。Pause、Resume、Cancel 与 Retry 沿用 `If-Match`、`Idempotency-Key`、409/412 回读、原命令重试、离线关闭、确认对话框和焦点恢复协议。
 
+M5-F06 在 Evidence 面板下方提供 Review Workbench。`review` Query 保存当前 ReviewRequest ID，并依赖完整 `team + project + task + attempt` 坐标；修订列表按 revision 倒序展示当前与失效历史。Review Store 使用 Organization、Team、Task、attempt 和 ReviewRequest 分区列表与强 ETag 详情，Scope 或 attempt 切换取消旧请求，重复的同坐标同步复用在途请求。Task/Coding 规范 Query 写入引发的短暂 loading 不取消同一 Review 读取。
+
+Workbench 依次展示 SELF_REVIEW/失效提示、不可变 ContextPackage、Baseline/Delivery、精确 Diff 范围、对应 TestEvidence 与 Acceptance、Agent Findings 和成员 Gate。Agent Finding 固定标记 `ADVISORY`，包含严重级别、类别、主张、建议修复与服务端 Evidence；点击路径和行号后选择 Diff Explorer 的对应文件，滚动并聚焦只读 Patch 区。`SELF_REVIEW` Finding 可用于修复，不能形成 Gate Approval。`INVALIDATED/DIFF_CHANGED` 历史保留 Finding、Decision 与修改轮次，只读且不显示新命令。
+
+Reviewer 执行只在 OPEN/IN_PROGRESS 且在线时启用。Gate Decision 只向持有 ACTIVE USER Reviewer 责任的当前成员开放，支持 `COMMENTED`、`APPROVED`、`CHANGES_REQUESTED` 和 `REJECTED`；最终 Eligibility、职责分离和 Review 当前性始终由服务端复验。命令绑定详情 ETag，使用独立 Idempotency-Key；可重试失败复用原键，409/412 回读权威详情。`CHANGES_REQUESTED` 使用 modification 路由并展示连续 Round。
+
+Gate 对话框提供 Escape、Focus Trap、理由必填和 4,000 字符上限。桌面将 Diff 与 Test 并排，窄屏依次阅读；两种视口共享同一语义 DOM，并通过 Axe WCAG 2.2 AA 与独立视觉基线。Review DTO 白名单排除 Patch 正文、Prompt、Credential、模型原始输出和 Reasoning。A05 未公开 Reviewer PolicySnapshot 选择目录，因此空态只说明服务端编排边界，不提供 UUID 输入，也不从 Agent、责任链或 Task PolicySnapshot 推导。
+
+M5-F07 在 Review Workbench 后提供 GitHub Delivery。页面同时读取当前成员可用的 TEAM GitHub App 与 USER OAuth Connection 安全投影，并从当前 Connection 下选择 ACTIVE Team ProviderBinding 和服务端 DELIVERABLE Repository Catalog 项。Repository 使用稳定外部 ID；页面没有 owner/repo、Remote URL、分支、Connection Secret、Grant 或任意 Action 参数输入。Catalog 同步与 Remote Preflight 绑定 Connection Version，Preflight 同时绑定 Team Binding 与 Repository ID。
+
+只有当前未失效 Review 的成员 `APPROVED` Decision、HEALTHY Authorization 和 Remote Preflight 同时成立时才能规划 ActionBundle。浏览器只提交 ReviewDecision、ProviderBinding、Repository、可选 Expected Remote Head、PR Title 与 Body；受管 Branch、Delivery Head、Base、Draft、风险、依赖和 Digest 由服务端生成。`STALE` Bundle 保留只读证据并重新开放规划表单。
+
+ActionBundle 依次展示 Repository/Review/Baseline/Delivery、完整 Bundle Digest、Push Branch 与 Create Draft PR 两个 Stage。Confirmation Dialog 再次显示 Version 与完整 Digest，并要求成员显式勾选后提交强 ETag 与 Digest。可重试失败复用原 Idempotency-Key；409/412 回读权威 Bundle，不对旧 Digest自动确认。CommandReceipt 只保留 Correlation ID，不在浏览器生成 Confirmation、Dispatch、Receipt 或 ExternalResult。
+
+Push 与 PR 分别展示 Dispatch、Receipt 和 ExternalResult。Push 成功而 PR 失败时保持两个独立结果，刷新只回读 Webhook/主动查询合并后的单调外部事实，不触发 Push。`UNKNOWN/RECONCILING` 显示只查询对账、尝试次数和下次时间，`MANUAL_REVIEW` 只向合格 Owner 开放有证据的失败终结。浏览器不提供 Dispatch 创建、Claim、Heartbeat、Lease、Fencing 或 Worker 执行入口。
+
+离线保留已加载 Review、Catalog、ActionBundle 与结果，同时关闭 Catalog 同步、Preflight、Plan、Confirm、Cancel 与人工终结。外部对象只展示类型与安全身份 Hash；公开 API 未返回规范 PR URL 时不构造链接，未来外链只接受没有用户名或密码的 `https:` URL。Desktop 使用选择器、多列事实和分步轨道，窄屏按 Connection、Plan、Bundle、Push、PR、Confirmation 顺序阅读，并使用独立双视口视觉基线。
+
 M4-F08 将 Repository Settings 与 Execution Studio 纳入统一页面完成门禁。Repository 离线时保留已加载事实并关闭绑定、Preflight、启停和刷新；绑定面板聚焦首个字段，Escape 关闭后使用稳定触发器标识恢复当前 DOM 焦点。Execution Studio 固定提供 Ready、Recovering、Terminal、Offline、Loading、Empty 和 Error 组件状态。Preflight、状态同步和分页错误使用相应 Live Region，CodingTarget 动效服从 Reduced Motion。
 
 M4 页面在 desktop Chromium 与 390×844 narrow Chromium 执行交互、视觉和 Axe WCAG 2.2 AA 回归。Histoire 保存 Repository 五种状态与 Coding Execution 七种状态。Artifact 权限边界只消费当前 Task/attempt 的 Patch、Command Log 与 Test Report 状态，历史 attempt 缓存不能改变后续 Task 的权限导航。浏览器公开状态继续排除宿主路径、容器坐标、Token、Lease/Fencing、AgentState、State Reference、Checkpoint Hash 和 reasoning。实现与门禁见 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
+
+M5 页面复用相同桌面/窄屏、视觉和 Axe 门禁，并将 Agent、Model、Review、Action 的代表状态纳入独立 Histoire Story。Review Gate 与外部写操作确认框必须在最上层模态内执行初始焦点、Tab 环、Escape 和焦点恢复。Web 敏感字段门禁扫描公开 DTO、组件状态与 Story，API Key 只允许作为不进入 Store 的单向命令输入。实现与验证见 [M5-F08 前端全状态与质量门禁](testing/M5-F08-前端全状态与质量门禁.md)。
 
 M5 增加 Agent 与模型设置路由：
 
 ```text
 /settings/agents?team=<teamId>
-/settings/agents/:agentProfileId?team=<teamId>
-/settings/models?team=<teamId>
+/settings/agents?team=<teamId>&agent=<agentProfileId>&configurationRevision=<revision>
+/settings/models?team=<teamId>&provider=<providerKey>&ownerType=<USER|TEAM|ORGANIZATION>&connection=<connectionId>
 ```
 
-`/settings/agents` 面向当前 TeamMember，展示唯一默认 Personal Agent、成员创建的 USER-owned Specialist 和有权查看的 TEAM-owned Agent。成员从服务端批准的 AgentTemplate 创建 Coding/Reviewer Agent；列表和详情展示 Ownership、RuntimeRole、TemplateVersion、当前 Configuration Revision、PERSONAL/TEAM Binding、状态、任务和成本摘要。DeepSeek 显示为 DeepSeek，OpenAI-compatible 仅作为管理详情中的 Adapter 元数据。
+`/settings/agents` 面向当前 TeamMember，展示唯一默认 Personal Agent、成员创建的 USER-owned Specialist 和有权查看的 TEAM-owned Agent。成员从服务端批准的 AgentTemplate 创建 Coding/Reviewer Agent；列表展示 Ownership、RuntimeRole、TemplateVersion、当前 Configuration Revision、PERSONAL/TEAM Binding 与生命周期状态。任务和成本只从按 Agent 授权的服务端聚合投影读取，在投影交付前显示明确的未接入说明，不在浏览器端扫描 Task 推导数字。DeepSeek 显示为 DeepSeek，OpenAI-compatible 仅作为管理详情中的 Adapter 元数据。
 
 Agent 创建与配置表单只展示 Template 声明的可配置槽位。PERSONAL 与 TEAM Binding 分区使用主模型与 Fallback 独立选择器；TEAM Binding 只显示 TEAM/ORGANIZATION Connection 或“继承团队默认”。Fallback 候选集排除主模型并重新执行能力、数据和成本策略过滤。保存前执行 Model Preflight，确认卡显示个人/团队任务适用范围、新 Conversation 生效、已有 Conversation 保持原版本和运行中 Task 继续使用 PolicySnapshot。已有 Conversation 只在服务端返回安全可刷新状态时提供“切换到新配置”命令。
 
-`/settings/models` 面向具有团队或组织模型管理权限的成员，管理 ModelConnection、允许模型、Template + ExecutionScope 默认值、BYOK 策略、配额、健康和变更历史。Credential 只在创建和轮换表单中单向输入；成功后页面只显示凭证已配置、验证时间、过期时间和健康结果。浏览器 Store、URL、Toast、Telemetry 和错误详情不保存 Key、Credential Reference、原始 Endpoint 私有参数和 Provider 原始错误。
+`/settings/models` 面向当前 Organization 用户展示版本化 Provider/Catalog、Region、Retention、能力和价格；当前成员管理自己的 USER Connection，活动 TeamMember 查看 TEAM Connection 安全投影，Team Provider Manager 执行 TEAM 写操作，平台管理员管理 ORGANIZATION Connection。Credential 只在创建和轮换表单中单向输入；页面只显示 Credential Version、验证时间、健康和稳定失败码。浏览器 Store、URL、Toast、Telemetry 和错误详情不保存 Key、Credential Reference、原始 Endpoint 私有参数和 Provider 原始错误。Team/Organization Model Default、允许列表、预算和完整 Audit 时间线没有公开管理 API 时展示明确只读缺口，不提供本地假配置。
 
 路由守卫和按钮权限来自当前会话，只负责裁剪界面和给出明确的 Access Denied 反馈。所有资源读取和命令继续由服务端执行 Membership、Role Scope 与 Principal 校验。
 
@@ -434,6 +460,45 @@ M0 建立 Histoire 组件工作台，至少覆盖 Token、基础控件与 CrewSc
 6. 核心路径具备 Vitest 和 Playwright 覆盖；
 7. 截图已完成视觉回归；
 8. 与参考产品的布局、视觉、组件和任务流差异已在 PR 中说明。
+
+### 10.3 Agent 创建与配置
+
+- Agent 创建只提交服务端批准的 Template 坐标、USER/TEAM Ownership 和显示名称；命令回执没有 Profile ID 时，刷新后只对唯一新增 ID 执行跳转；
+- USER Agent 由 Owner 配置，TEAM Agent 的写操作要求 `agent:manage`。按钮权限用于界面守卫，服务端授权是最终边界；
+- 详情按 Profile、当前 Configuration、不可变历史、模型可选交集和 Preflight 分资源加载，单个派生事实失败不伪造替代事实；
+- 首次 Configuration 使用 `If-Match: "0"`，后续使用当前 Revision 强 ETag；失败重试复用 Idempotency-Key，输入变化生成新 Key；
+- Skill 候选只来自 Template 公共白名单。Memory/Budget 没有公开目录时只展示并保留当前引用，不提供任意 UUID 输入；
+- Credential、Endpoint、API Key、System Prompt、Tool Payload 和 Structured Output Schema 不进入 Agent 页面状态；Key 的单向录入集中在模型与凭证页；
+- 桌面使用内嵌详情，移动端提供页面内创建入口和 Bottom Sheet。对话框必须实现初始焦点、Escape、Focus Trap 与关闭后焦点恢复。
+
+### 10.4 模型与凭证管理
+
+- Provider/Catalog 只展示服务端公开白名单字段；ModelConnection DTO 排除 Endpoint、Credential ID、API Key、Metadata、Adapter 和 Provider 原始响应；
+- USER Connection 由当前 Owner 管理；TEAM Connection 对活动成员可见，写操作要求 `provider:manage` 界面权限并由服务端 `PROVIDER_MANAGE` 最终授权；ORGANIZATION 管理入口只向平台管理员展示；
+- 创建和轮换 Key 只存在于 Dialog 局部状态。未修改输入的失败重试复用 Idempotency-Key，输入变化换 Key，成功、关闭、Escape、Scope 切换和卸载立即清空；
+- 验证、轮换、停用和撤销使用详情强 ETag、当前 Credential Version 和 Idempotency-Key；409/412 回读权威详情；
+- 撤销只接受稳定原因枚举并要求不可恢复确认；SUSPENDED 在 activate API 交付前不显示伪恢复按钮；
+- 健康只显示稳定状态与失败码。Command Receipt 的 Correlation ID 是后续统一 Audit 页入口，不冒充完整审计时间线；
+- 桌面使用目录、卡片和内嵌详情，移动端使用单列与 Bottom Sheet；动态 Map Resource 必须通过 reactive proxy 修改，避免已挂载视图停留在 Loading。
+
+### 10.5 Task 委托与模型预检
+
+- Agent 下拉框只呈现当前责任链允许的 AgentProfile；前端选择不修改 ResponsibilityAssignment；
+- “当前配置”必须在 Preflight 后转换为精确 Revision 再提交，避免配置在预检与创建之间漂移；
+- Preflight Cache Key 包含 WorkProject、WorkItem、AgentProfile 和 Revision，Scope 或输入变化取消旧请求并清空结果；
+- Preflight 失败按稳定 `reason` 映射无敏感信息的修复提示；无 Team Binding、默认缺失/歧义、Owner 离队、责任变化、Agent/Principal 不可用均失败关闭；
+- 模型来源与成本主体分别表达。Connection Owner Type 是模型来源事实，Billing Subject 只在服务端公开后展示；
+- Conversation Mode 与 Control Mode 复用同一组件、Task Gateway、Task Store、CodingTarget 表单和草稿协议，不维护两套委托状态机。
+
+### 10.6 GitHub Delivery 与 ActionBundle
+
+- GitHub Connection、ProviderBinding 与 Repository Catalog 是三层独立选择；Repository 必须来自当前 Connection 的 DELIVERABLE Catalog；
+- Authorization Health 同时展示 Connection、Grant、Credential、Profile、Webhook、RateLimit 与可交付仓库摘要，浏览器不接触 Secret 或 Provider 原始错误；
+- Plan 前必须存在当前 `APPROVED` ReviewDecision 与同选择的 Remote Preflight；Review Approval 与 Action Confirmation 是两次独立的人类决策；
+- Bundle 详情保留强 ETag，Confirmation 发送完整 Digest；Digest、Version 或当前事实变化后旧命令失败关闭并重新规划；
+- Push/PR 独立展示 Dispatch、Receipt 和 ExternalResult，部分成功、UNKNOWN、RECONCILING 与 MANUAL_REVIEW 不折叠为一个布尔状态；
+- 同键重试复用原请求，成功后回读权威事实；CommandReceipt、Webhook 和 Timeline Event 不直接构造业务结果；
+- 外链只允许无凭证 `https:`，公开 DTO 未提供 URL 时仅展示安全 Hash，不猜测 PR 地址。
 
 ## 11. 分阶段落地
 

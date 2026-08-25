@@ -4,7 +4,7 @@
 > 前置条件：M4 Release Gate 通过，ADR-004、ADR-006、ADR-015、ADR-016、ADR-017、ADR-018、ADR-019 已接受<br>
 > 目标周期：6–8 周，按纵向波次推进<br>
 > 目标结果：成员可创建和配置个人执行 Agent，团队可治理模型与共享 Agent；Coding 结果经过独立 Reviewer Advisory、成员 Gate Review 和精确确认后，由 GitHubSourceCodeProvider 创建可审计 Draft PR<br>
-> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12`、`M5-A01` 至 `M5-A08` 已完成，下一任务为 `M5-F01`（2026-08-24）
+> 当前进度：`M5-S01` 至 `M5-S05`、`M5-D01` 至 `M5-D11`、`M5-I01` 至 `M5-I12`、`M5-A01` 至 `M5-A08`、`M5-F01` 至 `M5-F08` 已完成，下一任务为 `M5-Q01`（2026-08-25）
 
 ## 1. 出口结果与范围
 
@@ -152,14 +152,42 @@ M5-F02..F07 -> M5-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M5-F01` | TASK | A01..A03 | web | 建立 Model/Connection/AgentTemplate/AgentProfile/Configuration Gateway、公开 DTO、Store、缓存、错误与设置路由 | DTO 白名单、Scope 切换、Cursor、ETag、旧请求隔离、凭证不缓存和配置版本测试 |
-| `M5-F02` | FEATURE | F01,A02 | web | 交付“我的 Agent”列表，区分默认 Personal、个人 Specialist 和团队 Agent，展示 Template、状态、模型绑定、任务与成本摘要 | Empty/Loading/Error/Forbidden、多 Agent、禁用/归档、桌面/390×844、键盘、Axe 和深链接测试 |
-| `M5-F03` | FEATURE | F01,A02,A03 | web | 交付 Agent 创建向导和详情设置：选择批准 Template、名称、补充指令、Skill/知识范围、PERSONAL/TEAM Binding、主/Fallback 和 Preflight | Coding/Reviewer、无可用模板、USER BYOK、继承团队默认、能力不符、未保存 Key、版本生效说明和同键重试测试 |
-| `M5-F04` | FEATURE | F01,A01 | web | 交付“模型与凭证”管理页，支持目录、Connection 创建/验证/轮换/停用、Team 默认、允许列表、区域、价格、预算和健康 | 普通成员/管理员差异、Key 单向输入、轮换清空、撤销确认、冲突刷新、健康失败和审计入口测试 |
-| `M5-F05` | FEATURE | F01,A04,M4-F03 | web | 扩展 Conversation/WorkItem Task 委托，选择个人/团队 Agent，展示 PERSONAL/TEAM 范围、实际模型来源、成本主体和 PolicySnapshot 预检 | 团队任务 USER Key 禁用、无 TEAM Binding、成员离队、继承默认、Retry 换配置、草稿恢复和双入口测试 |
-| `M5-F06` | FEATURE | A05,M4-F05..F07 | web | 交付 Review Workbench：Context 摘要、Diff/Test/Acceptance、Finding 文件定位、SELF_REVIEW、Reviewer 执行、Gate Decision 和修改轮次 | 旧 Diff 失效、Reviewer Eligibility、Advisory/Gate 区分、键盘审阅、桌面/窄屏、Axe 和视觉测试 |
-| `M5-F07` | FEATURE | A06,A07,F06 | web | 交付 GitHub Connection/Repository 选择、ActionBundle 风险与参数审查、精确确认、Push/PR 分步状态、UNKNOWN/Reconcile 和 Draft PR 结果 | 未批准 Review、Digest 变化、重复确认、Push 成功 PR 失败、离线、Webhook 更新、外链安全和同键重试测试 |
-| `M5-F08` | HARDENING | F02..F07 | web | 收口模型、Agent、Review、Action 全状态、响应式、键盘、ARIA Live、Reduced Motion、Histoire、视觉和 Axe WCAG 2.2 AA | Vitest 覆盖率不低于既有门槛；双视口 Playwright、视觉、Axe、Story 和敏感字段扫描全部通过 |
+| `M5-F01` | TASK | A01..A03 | web | 已完成：建立 Model/Connection/AgentTemplate/AgentProfile/Configuration Gateway、公开 DTO、双 Store、缓存、错误与设置深链接路由契约；应用组合根安装真实 HTTP Gateway | [M5-F01 Agent 与模型前端数据层](../testing/M5-F01-Agent与模型前端数据层.md)；23 个专项 Vitest 与 260 个前端全量测试覆盖 DTO 白名单、Scope 切换、有界 offset 分页、强 ETag、旧读写请求隔离、凭证不缓存、配置版本和生产构建 |
+| `M5-F02` | FEATURE | F01,A02,A03 | web | 已完成：交付“我的 Agent”导航与列表，区分默认 Personal、个人 Specialist 和团队 Agent，展示 Template、生命周期、Configuration Revision 与 PERSONAL/TEAM 主/Fallback 模型；任务数与成本等待服务端 Agent 聚合投影，不从 Task/Conversation 在浏览器反向聚合 | [M5-F02 我的 Agent 列表](../testing/M5-F02-我的Agent列表.md)；59 个前端测试文件、265 项 Vitest、130 项双视口 Playwright、Axe WCAG 2.2 AA、视觉基线和生产构建通过 |
+| `M5-F03` | FEATURE | F01,A02,A03 | web | 已完成：交付 Agent 创建向导和详情设置，支持批准 Template、USER/TEAM Ownership、名称、受控补充指令、Template Skill 白名单、PERSONAL/TEAM 主/Fallback、继承团队默认、首次/后续 Revision、Preflight、历史只读和生命周期；Memory/Budget 在公开目录交付前只保留精确引用 | [M5-F03 Agent 创建与详情设置](../testing/M5-F03-Agent创建与详情设置.md)；61 个前端测试文件、273 项 Vitest、132 项双视口 Playwright、Axe WCAG 2.2 AA、6 份 Agent 双视口视觉基线、生产构建和服务端 DTO 专项测试通过 |
+| `M5-F04` | FEATURE | F01,A01 | web | 已完成：交付“模型与凭证”管理页，支持 Provider/Catalog、Region、Retention、能力、价格、USER/TEAM/ORGANIZATION Connection 安全投影，以及创建、验证、轮换、停用、撤销、健康和 Command Receipt 证据入口；Team 默认、允许列表、预算和完整 Audit 查询在公开管理 API 交付前保持明确只读缺口 | [M5-F04 模型与凭证管理](../testing/M5-F04-模型与凭证管理.md)；64 个前端测试文件、282 项 Vitest、136 项双视口 Playwright、Axe、4 份视觉基线、生产构建和服务端 A01 专项 5 项通过 |
+| `M5-F05` | FEATURE | F01,A04,M4-F03 | web | 已完成：扩展 Conversation/WorkItem 共用 Task 委托，按责任链选择个人/团队 Agent 与 Configuration Revision，自动展示 PERSONAL/TEAM、Binding Source、主/Fallback 模型、Catalog/Price Revision、PolicyPack/Resolution Hash 和成本披露边界；Retry 支持沿用父配置或显式换 Revision | [M5-F05 Task 委托与模型预检](../testing/M5-F05-Task委托与模型预检.md)；64 个前端测试文件、286 项 Vitest、138 项双视口 Playwright、Axe WCAG 2.2 AA、2 份视觉基线、生产构建和文档门禁通过 |
+| `M5-F06` | FEATURE | A05,M4-F05..F07 | web | 已完成：交付 attempt-scoped Review Workbench、修订历史、Context/Diff/Test/Acceptance 精确证据、Finding 文件与行号定位、SELF_REVIEW Advisory、Reviewer 执行、成员 Gate Decision、修改轮次及失效历史只读；Review 创建继续由服务端绑定 Reviewer PolicySnapshot | [M5-F06 Review Workbench](../testing/M5-F06-Review-Workbench.md)；67 个前端测试文件、296 项 Vitest、146 项双视口 Playwright、Axe WCAG 2.2 AA、2 份视觉基线、生产构建和文档门禁通过 |
+| `M5-F07` | FEATURE | A06,A07,F06 | web | 已完成：交付 GitHub Connection/Binding/Repository Catalog 选择、授权健康与 Remote Preflight、ActionBundle 风险/依赖/参数审查、完整 Digest 精确确认、Push/PR 独立 Dispatch/Receipt/ExternalResult、UNKNOWN/Reconcile/人工队列和 Draft PR 安全结果 | [M5-F07 GitHub Delivery Workbench](../testing/M5-F07-GitHub-Delivery-Workbench.md)；70 个前端测试文件、309 项 Vitest、150 项双视口 Playwright、Axe WCAG 2.2 AA、2 份视觉基线、生产构建和文档门禁通过 |
+| `M5-F08` | HARDENING | F02..F07 | web | 已完成：收口模型、Agent、Review、Action 全状态与响应式，补齐 Review/Delivery 模态键盘焦点边界、ARIA 状态语义、Reduced Motion、M5 Histoire 状态目录、双视口视觉、Axe 和敏感字段 CI 门禁 | [M5-F08 前端全状态与质量门禁](../testing/M5-F08-前端全状态与质量门禁.md)；Coverage 门槛、8 个 Story/39 个 Variant、双视口 Playwright、视觉、Axe 和 Web 敏感字段扫描通过 |
+
+### 9.1 M5-F01 浏览器数据边界
+
+M5-F01 按 `organizationId + teamId` 隔离 Agent 与 Model Store。Organization Model Provider、Catalog 和 Connection 查询仍绑定当前登录 Organization；TEAM Connection、AgentTemplate、AgentProfile、Configuration 与 Conversation 配置同时绑定当前 Team。Scope 切换必须取消活动请求、推进请求代次并清空旧 Team 缓存；即使底层请求忽略 `AbortSignal`，晚到响应也不能写回新 Scope。
+
+A01 至 A03 的集合 API 使用有界 `offset/limit`，浏览器按响应项数推导下一 `offset`，不生成或模拟服务端 Cursor。详情读取保留强 ETag：Connection 与 AgentProfile 使用聚合版本，当前 Agent Configuration 使用配置 Revision，Conversation 配置使用 Runtime Session Version。写命令继续提交原始 ETag 对应的 `If-Match` 和独立 `Idempotency-Key`，成功后失效相关集合与详情缓存，不在客户端乐观构造业务事实。
+
+Gateway 对所有响应执行显式字段白名单，Provider Endpoint、AgentScope Adapter Key、Credential ID、API Key、System Prompt、Tool/Schema Payload、Provider 原始错误和内部策略载荷不能进入浏览器状态。API Key 只作为创建或轮换调用的瞬时参数传给 HTTP Client；Store 不保存 Secret、请求体、可重放闭包或包含 Secret 的错误上下文。凭证命令失败后由后续页面保留本地输入并显式决定是否使用同一幂等键重试。
+
+M5-F02 的 Agent 列表只消费 A02/A03 公开事实。A08 `TaskDeliverySummary` 以 Task 或 Conversation 为查询坐标，不是 Agent 维度的统计投影；因此页面不扫描 Task 分页来推导任务数、Token 或成本。在服务端交付可按 Agent 查询且已完成授权、币种和计费版本固定的聚合投影前，该区域保持明确的未接入状态。
+
+M5-F04 只把 A01 已公开的 Provider/Catalog 与 Connection 生命周期做成可写闭环。USER Owner 由当前成员管理，TEAM Owner 向活动成员提供安全只读投影并要求 Provider Manager 才显示写操作，ORGANIZATION 管理入口只向平台管理员展示。Key 局部单向输入，命令使用强 ETag、Credential Version 与 Idempotency-Key，健康只展示稳定失败码，Command Receipt 提供 Correlation 证据入口。AgentModelDefault、Allowlist、Budget Policy 和 Audit Timeline 虽已有领域或运行时读取能力，但缺少公开管理 API，因此页面明确标记待交付，不生成浏览器替代事实。
+
+M5-F05 的 Agent 候选只来自 WorkItem 当前责任链中的 Personal/Team Agent Executor，并用 Agent 目录补充 Ownership、RuntimeRole、生命周期和当前 Configuration Revision；目录事实不参与最终授权。选择 Agent 或 Revision 后调用同一 WorkItem Task 路由的只读 Preflight，Store 按 Organization、Team、WorkProject、WorkItem、AgentProfile 和 Revision 分区，变化时取消旧请求。创建命令固定 Preflight 返回的精确 Revision，避免“当前配置”在预检与提交之间漂移。
+
+Preflight 页面只展示 A04 已公开的非敏感坐标。`connectionOwnerType` 用于说明模型 Connection 来源，不等同于 Billing Subject；A04 未公开成本主体时，页面明确显示“服务端已固定、当前 Preflight API 未披露”，不从 Agent Ownership 或 Connection Owner 推导。TEAM 结果明确提示 USER Key 被服务端禁用。无 Binding、默认缺失/歧义、Owner 离队、责任变化和 Agent/Principal 不可用使用稳定安全原因失败关闭。委托草稿按完整 Scope 与 WorkItem 存入 SessionStorage，不保存 Preflight、Credential、Endpoint 或 Prompt；可重试状态冻结原请求并复用原 Idempotency-Key。Task Retry 留空沿用父 attempt 固定配置，显式 Revision 则由服务端重新 Preflight。
+
+设置深链接使用稳定服务端 ID：Agent 设置坐标为 `team + agent + configurationRevision`，模型设置坐标为 `team + provider + connection + ownerType`。重复 Query、缺少 Team 的资源坐标、未知 OwnerType、非法 Revision 以及与当前 Organization/Team 不一致的服务端 DTO 均失败关闭。
+
+### 9.2 M5-F06 Review Workbench 边界
+
+Review Workbench 以 `organizationId + teamId + taskId + executionId + reviewRequestId` 为完整坐标，`review` Query 只保存服务端 ReviewRequest ID。列表按 revision 展示当前和失效历史；详情要求响应强 ETag 与 body version 完全一致。Scope、Task 或 attempt 切换取消旧请求并隔离晚到响应；Coding 路由写入规范 attempt/workspace 坐标时产生的瞬时 loading 保留同一 Review 读取，避免重复同步相互取消。
+
+页面把 Agent Advisory 与成员 Gate 分成两个区块。Reviewer Agent 只生成带严重级别、类别、修复建议和服务端校验 Evidence 的 Finding；`SELF_REVIEW` 明确标记为 Advisory only，不能形成 Gate Approval。Finding 点击后选择 Diff Explorer 中的对应文件并显示源代码行号与 Acceptance 坐标。成员 Gate 只向当前持有 ACTIVE USER Reviewer 责任的成员开放交互，服务端在命令提交时继续复验 Reviewer Eligibility 与职责分离。
+
+Reviewer 执行、`COMMENTED/APPROVED/REJECTED` 和 `CHANGES_REQUESTED` 分别使用 A05 的 execute、decisions 与 modifications 路由，提交当前 ETag 对应的 `If-Match` 和独立 `Idempotency-Key`。可重试失败复用原命令键；409/412 丢弃陈旧命令并回读权威 Review。`CHANGES_REQUESTED` 展示连续修改轮次。`INVALIDATED/DIFF_CHANGED` Review 只保留 Finding、Decision 和轮次证据，不再显示执行或 Gate 命令。
+
+A05 创建与重新 Review 要求服务端绑定精确 Reviewer PolicySnapshot、最终 Diff 和测试证据，但当前没有向浏览器公开可选择的 Reviewer PolicySnapshot 目录。F06 因此不提供原始 UUID 输入，也不从 Agent、责任链或 Task Executor PolicySnapshot 推导该坐标；服务端创建完成的 ReviewRequest 才进入 Workbench。
 
 ## 10. 测试、评测与发布
 

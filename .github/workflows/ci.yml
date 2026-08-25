@@ -121,6 +121,8 @@ jobs:
         run: git diff --check "$BASE_SHA" "$HEAD_SHA"
       - name: Check documentation links
         run: node scripts/check-doc-links.mjs
+      - name: Check Web public projections for sensitive fields
+        run: node scripts/check-web-sensitive-fields.mjs
       - name: Validate frozen M4 coding evaluation suite
         run: node evaluation/m4/coding-v1/scripts/evaluate.mjs validate
       - name: Validate M4-Q03 benchmark protocol
