@@ -99,6 +99,30 @@ public final class NotificationPlannedAction {
                 0);
     }
 
+    /** Rebuilds a persisted action and rejects identity or digest tampering. */
+    public static NotificationPlannedAction reconstitute(
+            PlannedActionId id,
+            NotifyCollaborationActionParameters parameters,
+            NotificationAuthorizationSnapshot authority,
+            UtcTimestamp notBefore,
+            UtcTimestamp validUntil,
+            NotificationPlannedActionStatus status,
+            Optional<NotificationInvalidationReason> invalidationReason,
+            Optional<NotificationDeliveryId> redeliveryOf,
+            ActionDigest persistedDigest,
+            long version) {
+        NotificationPlannedAction action = new NotificationPlannedAction(
+                id, parameters, authority, notBefore, validUntil, status, invalidationReason,
+                redeliveryOf, version);
+        if (!deterministicId(authority.deduplicationKey()).equals(action.id)
+                || !action.digest.equals(Objects.requireNonNull(persistedDigest, "persistedDigest"))) {
+            throw new DomainValidationException(
+                    "notificationPlannedAction.digest",
+                    "does not match the persisted action coordinates");
+        }
+        return action;
+    }
+
     public NotificationPlannedAction invalidate(
             long expectedVersion, NotificationInvalidationReason reason) {
         requireVersion(expectedVersion);

@@ -66,39 +66,66 @@ public final class NotificationPlanningApplicationService {
 
     public NotificationRedeliveryRecord redeliver(RedeliverNotificationCommand command) {
         RedeliverNotificationCommand required = Objects.requireNonNull(command, "command");
+        return redeliver(
+                required.commandId(), required.organizationId(), required.originalDeliveryId(),
+                required.expectedDeliveryVersion(), Optional.of(required.actor()));
+    }
+
+    /**
+     * Consumes an already authorized Operations recovery schedule. Current notification facts are
+     * still re-resolved; the original failed Delivery and Receipt remain immutable.
+     */
+    public NotificationRedeliveryRecord redeliverScheduled(
+            io.crewscope.domain.notification.NotificationRedeliveryCommandId commandId,
+            io.crewscope.domain.shared.id.OrganizationId organizationId,
+            NotificationDeliveryId originalDeliveryId,
+            long expectedDeliveryVersion) {
+        return redeliver(
+                Objects.requireNonNull(commandId, "commandId"),
+                Objects.requireNonNull(organizationId, "organizationId"),
+                Objects.requireNonNull(originalDeliveryId, "originalDeliveryId"),
+                expectedDeliveryVersion,
+                Optional.empty());
+    }
+
+    private NotificationRedeliveryRecord redeliver(
+            io.crewscope.domain.notification.NotificationRedeliveryCommandId commandId,
+            io.crewscope.domain.shared.id.OrganizationId organizationId,
+            NotificationDeliveryId originalDeliveryId,
+            long expectedDeliveryVersion,
+            Optional<io.crewscope.domain.identity.Principal> actor) {
+        if (expectedDeliveryVersion < 0) {
+            throw new IllegalArgumentException("expectedDeliveryVersion must not be negative");
+        }
         Optional<NotificationRedeliveryRecord> replay = plans.findRedelivery(
-                required.organizationId(), required.commandId());
+                organizationId, commandId);
         if (replay.isPresent()) {
             NotificationRedeliveryRecord existing = replay.orElseThrow();
-            if (!existing.originalDeliveryId().equals(required.originalDeliveryId())) {
+            if (!existing.originalDeliveryId().equals(originalDeliveryId)) {
                 throw new DomainValidationException(
                         "redeliverNotification.commandId", "is already bound to another delivery");
             }
             // Command receipts deduplicate the write; they never preserve a caller's old access.
-            recipientAuthorization.requireActiveRecipient(
-                    required.organizationId(),
-                    existing.plan().action().parameters().recipientMemberId(),
-                    required.actor());
+            actor.ifPresent(value -> recipientAuthorization.requireActiveRecipient(
+                    organizationId, existing.plan().action().parameters().recipientMemberId(), value));
             return existing;
         }
         NotificationPlan original = plans.findByDeliveryId(
-                        required.organizationId(), required.originalDeliveryId())
+                        organizationId, originalDeliveryId)
                 .orElseThrow(() -> new IllegalArgumentException("Notification delivery was not found"));
-        if (original.delivery().version() != required.expectedDeliveryVersion()) {
+        if (original.delivery().version() != expectedDeliveryVersion) {
             throw new IllegalStateException("Notification delivery version conflict");
         }
         if (original.delivery().status() != NotificationDeliveryStatus.FAILED_FINAL) {
             throw new DomainValidationException(
                     "redeliverNotification.delivery", "must be FAILED_FINAL");
         }
-        recipientAuthorization.requireActiveRecipient(
-                required.organizationId(),
-                original.action().parameters().recipientMemberId(),
-                required.actor());
+        actor.ifPresent(value -> recipientAuthorization.requireActiveRecipient(
+                organizationId, original.action().parameters().recipientMemberId(), value));
         NotificationAuthorizationFacts facts = factsResolver.resolveCurrent(
                 original.action().parameters().intentId());
         if (!facts.intent().id().equals(original.action().parameters().intentId())
-                || !facts.intent().organizationId().equals(required.organizationId())
+                || !facts.intent().organizationId().equals(organizationId)
                 || !facts.intent().recipientMemberId().equals(
                         original.action().parameters().recipientMemberId())) {
             throw new DomainValidationException(
@@ -110,13 +137,13 @@ public final class NotificationPlanningApplicationService {
         UtcTimestamp notBefore = requirePreference(facts, now);
         NotificationAuthorizationSnapshot snapshot =
                 NotificationAuthorizationSnapshot.captureRedelivery(
-                        facts, original.delivery().id(), required.commandId());
+                        facts, original.delivery().id(), commandId);
         NotificationPlan redelivery = plans.findByDeduplicationKey(
-                        required.organizationId(), snapshot.deduplicationKey())
+                        organizationId, snapshot.deduplicationKey())
                 .orElseGet(() -> newPlan(
                         facts, snapshot, notBefore, now, Optional.of(original.delivery().id())));
         return plans.saveRedelivery(new NotificationRedeliveryRecord(
-                required.commandId(), original.delivery().id(), redelivery));
+                commandId, original.delivery().id(), redelivery));
     }
 
     private Optional<NotificationPlan> replaceDriftedPlan(

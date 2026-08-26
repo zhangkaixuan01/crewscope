@@ -2,6 +2,8 @@ package io.crewscope.infrastructure.event.projection;
 
 import io.crewscope.application.notification.NotificationIntentPolicy;
 import io.crewscope.application.notification.NotificationIntentPolicyRegistry;
+import io.crewscope.application.notification.NotificationAuthorizationFactsResolver;
+import io.crewscope.application.notification.NotificationTemplateCatalog;
 import io.crewscope.domain.inbox.InboxCloseReason;
 import io.crewscope.domain.inbox.InboxItem;
 import io.crewscope.domain.inbox.InboxItemId;
@@ -36,6 +38,7 @@ import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.team.TeamMemberId;
@@ -53,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -64,7 +68,8 @@ import tools.jackson.databind.ObjectMapper;
  * plans only for the active member-inbox Generation. It never invokes a collaboration provider.
  */
 @Component
-public class NotificationIntentProjector {
+public class NotificationIntentProjector
+        implements NotificationAuthorizationFactsResolver, NotificationTemplateCatalog {
 
     private static final String FIXED_TEMPLATE_CAPABILITY =
             "collaboration.notification.send-fixed-template";
@@ -76,16 +81,143 @@ public class NotificationIntentProjector {
     private final ObjectMapper objectMapper;
     private final NotificationIntentPolicyRegistry policies;
     private final URI publicBaseUri;
+    private final TimeProvider timeProvider;
 
+    @Autowired
     public NotificationIntentProjector(
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             NotificationIntentPolicyRegistry policies,
+            TimeProvider timeProvider,
             @Value("${crewscope.notification.public-base-uri:https://localhost}") String publicBaseUri) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.policies = Objects.requireNonNull(policies, "policies");
+        this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.publicBaseUri = requirePublicBaseUri(publicBaseUri);
+    }
+
+    /** Test-compatible constructor; production composition injects the shared TimeProvider. */
+    public NotificationIntentProjector(
+            JdbcTemplate jdbc,
+            ObjectMapper objectMapper,
+            NotificationIntentPolicyRegistry policies,
+            String publicBaseUri) {
+        this(
+                jdbc,
+                objectMapper,
+                policies,
+                TimeProvider.from(java.time.Clock.systemUTC()),
+                publicBaseUri);
+    }
+
+    /**
+     * Resolves the exact active-generation Intent and all current authorization coordinates.
+     *
+     * <p>The Worker invokes this outside its claim transaction before every Provider operation.
+     */
+    @Override
+    public NotificationAuthorizationFacts resolveCurrent(NotificationIntentId intentId) {
+        CurrentIntentRow row = one(jdbc.query(
+                """
+                SELECT intent.organization_id, intent.team_id,
+                       intent.recipient_member_id AS member_id,
+                       intent.projection_name, intent.generation, intent.intent_id,
+                       intent.projection_schema_version, intent.inbox_item_id,
+                       intent.item_type, intent.source_type, intent.source_id,
+                       intent.source_revision, intent.template_id, intent.template_version,
+                       intent.variables::TEXT AS variables, intent.variable_hash,
+                       intent.created_at AS intent_created_at,
+                       item.priority, item.deadline, item.opened_at,
+                       item.source_status, item.close_reason, item.closed_at
+                FROM crewscope.projection_pointer pointer
+                JOIN crewscope.notification_intent intent
+                  ON intent.organization_id = pointer.organization_id
+                 AND intent.projection_name = pointer.projection_name
+                 AND intent.generation = pointer.active_generation
+                JOIN crewscope.inbox_item item
+                  ON item.organization_id = intent.organization_id
+                 AND item.team_id = intent.team_id
+                 AND item.member_id = intent.recipient_member_id
+                 AND item.projection_name = intent.projection_name
+                 AND item.generation = intent.generation
+                 AND item.inbox_item_id = intent.inbox_item_id
+                WHERE pointer.projection_name = ? AND intent.intent_id = ?
+                """,
+                (result, ignored) -> new CurrentIntentRow(
+                        projectedInbox(result),
+                        new NotificationIntentId(result.getObject("intent_id", UUID.class)),
+                        new NotificationTemplateRef(
+                                new NotificationTemplateId(
+                                        result.getObject("template_id", UUID.class)),
+                                new NotificationTemplateVersion(
+                                        result.getLong("template_version"))),
+                        result.getString("variables"),
+                        result.getString("variable_hash"),
+                        UtcTimestamp.from(result.getObject(
+                                "intent_created_at", OffsetDateTime.class))),
+                InboxEventProjector.PROJECTION_NAME.value(),
+                Objects.requireNonNull(intentId, "intentId").value()),
+                "current notification Intent");
+        InboxItem item = row.projected().item();
+        if (!item.source().isOpen()
+                || !row.intentId().equals(NotificationIntentId.fromInboxItem(item.id()))) {
+            throw new IllegalStateException(
+                    "Notification Intent is not an exact open active-generation source");
+        }
+        NotificationTemplate template = requireCurrentPublished(row.template());
+        NotificationIntentPolicy policy = policies.find(
+                        item.source().key().itemType(), item.source().key().sourceType())
+                .filter(value -> value.serverTemplateKey().equals(template.serverTemplateKey()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Notification Intent is outside the current fixed policy registry"));
+        Map<String, String> values = variableValues(row.variablesJson());
+        var validatedVariables = template.validateVariables(values);
+        if (!validatedVariables.hash().toString().equals(row.variableHash())) {
+            throw new IllegalStateException("Notification Intent variable hash is invalid");
+        }
+        NotificationIntent intent = new NotificationIntent(
+                row.intentId(),
+                item.organizationId(),
+                item.teamId(),
+                item.memberId(),
+                item.source().key(),
+                item.projectionGeneration(),
+                item.projectionSchemaVersion(),
+                template.ref(),
+                validatedVariables,
+                row.createdAt());
+        NotificationPreference preference = preference(item)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Notification preference is unavailable"));
+        UtcTimestamp now = timeProvider.now();
+        if (preference.decide(item.source().key().itemType(), now)
+                == NotificationPreferenceDecision.DENIED) {
+            throw new IllegalStateException("Notification preference no longer authorizes delivery");
+        }
+        return authorization(intent, preference, policy, now)
+                .facts()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Notification authorization facts are unavailable"));
+    }
+
+    @Override
+    public NotificationTemplate requireCurrentPublished(NotificationTemplateRef ref) {
+        NotificationTemplateRef required = Objects.requireNonNull(ref, "ref");
+        return oneOptional(jdbc.query(
+                """
+                SELECT template_id, template_version, server_template_key
+                FROM crewscope.notification_template
+                WHERE template_id = ? AND template_version = ? AND status = 'PUBLISHED'
+                """,
+                (row, ignored) -> new TemplateRow(
+                        row.getObject("template_id", UUID.class),
+                        row.getLong("template_version"),
+                        row.getString("server_template_key")),
+                required.templateId().value(), required.version().value()))
+                .flatMap(this::materializeTemplate)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Notification template is not the exact published version"));
     }
 
     /** Reconciles intents, plans and delivery-failure Inbox sources for one exact Team Generation. */
@@ -783,7 +915,8 @@ public class NotificationIntentProjector {
                 UPDATE crewscope.notification_delivery
                 SET status = 'INVALIDATED', next_attempt_at = NULL,
                     invalidation_reason = ?, receipt_id = ?,
-                    version = version + 1, updated_at = ?
+                    version = version + 1, updated_at = ?, claimed_by = NULL,
+                    lease_expires_at = NULL, heartbeat_at = NULL
                 WHERE organization_id = ? AND delivery_id = ?
                   AND status IN ('READY', 'RUNNING', 'RETRY_WAIT', 'UNKNOWN', 'RECONCILING')
                 """,
@@ -997,6 +1130,28 @@ public class NotificationIntentProjector {
         }
     }
 
+    private Map<String, String> variableValues(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (root == null || !root.isObject() || root.size() > SAFE_VARIABLES.size()) {
+                throw new IllegalArgumentException(
+                        "Notification variables must be a bounded object");
+            }
+            Map<String, String> values = new LinkedHashMap<>();
+            root.properties().forEach(entry -> {
+                if (!SAFE_VARIABLES.contains(entry.getKey())
+                        || !entry.getValue().isString()
+                        || values.put(entry.getKey(), entry.getValue().stringValue()) != null) {
+                    throw new IllegalArgumentException(
+                            "Notification variables contain an unsupported entry");
+                }
+            });
+            return Map.copyOf(values);
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("Notification variables are invalid", exception);
+        }
+    }
+
     private String json(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -1057,6 +1212,14 @@ public class NotificationIntentProjector {
     }
 
     private record ProjectedInbox(InboxItem item) {}
+
+    private record CurrentIntentRow(
+            ProjectedInbox projected,
+            NotificationIntentId intentId,
+            NotificationTemplateRef template,
+            String variablesJson,
+            String variableHash,
+            UtcTimestamp createdAt) {}
 
     private record TemplateRow(UUID id, long version, String key) {}
 

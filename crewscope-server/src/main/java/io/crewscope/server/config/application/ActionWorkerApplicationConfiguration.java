@@ -43,19 +43,6 @@ import org.springframework.context.annotation.Configuration;
 public class ActionWorkerApplicationConfiguration {
 
     @Bean
-    @ConditionalOnBean({
-        ReviewRequestRepository.class,
-        ContextPackageRepository.class,
-        ReviewDecisionRepository.class,
-        ResponsibilityAssignmentRepository.class,
-        ProviderBindingRepository.class,
-        ConnectionRepository.class,
-        ConnectionGrantRepository.class,
-        PolicySnapshotRepository.class,
-        SafetyEnforcementOverlayRepository.class,
-        CodingTargetSnapshotRepository.class,
-        RepositoryBindingRepository.class
-    })
     @ConditionalOnMissingBean(ActionAuthorityFactsResolver.class)
     ActionAuthorityFactsResolver actionAuthorityFactsResolver(
             ReviewRequestRepository reviewRequests,
@@ -96,7 +83,6 @@ public class ActionWorkerApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({DomainEventStore.class, TaskEventRepository.class, OutboxRepository.class})
     @ConditionalOnMissingBean(ActionWorkerEventPublisher.class)
     ActionWorkerEventPublisher actionWorkerEventPublisher(
             DomainEventStore events,

@@ -68,10 +68,11 @@ public final class LarkMemberMappingApplicationService {
                 required.teamId(),
                 required.providerBindingId(),
                 LarkCollaborationCapabilities.MEMBER_MAPPING);
-        LarkTenantObservation tenantObservation = verification.verifyTenant(authorization);
+        LarkTenantObservation tenantObservation = verification.verifyTenant(
+                authorization, required.actor().id());
         LarkExternalTenant tenant = upsertTenant(authorization, tenantObservation);
         LarkMemberObservation member = verification.verifyMember(
-                authorization, tenant, required.openId());
+                authorization, tenant, required.openId(), required.actor().id());
         LarkMemberVerificationProof proof = LarkMemberVerificationProof.verified(
                 LarkMemberVerificationProofId.generate(),
                 authorization,
@@ -154,6 +155,20 @@ public final class LarkMemberMappingApplicationService {
         return mappings.update(mapping.terminate(
                 required.expectedVersion(), LarkMemberMappingStatus.REVOKED,
                 required.reason(), required.actor(), now));
+    }
+
+    /** Returns only one administrator-authorized, exact-Team, stable keyset page. */
+    public LarkMemberMappingPage listMappings(ListLarkMemberMappingsQuery query) {
+        ListLarkMemberMappingsQuery required = Objects.requireNonNull(query, "query");
+        UtcTimestamp now = timeProvider.now();
+        administration.requireProviderAdministrator(
+                required.organizationId(), required.teamId(), required.actor(), now);
+        return mappings.findPage(new LarkMemberMappingPageRequest(
+                required.organizationId(),
+                required.teamId(),
+                required.status(),
+                required.after(),
+                required.limit()));
     }
 
     /** Resolves the exact open_id only after rechecking member, mapping and provider authorization. */

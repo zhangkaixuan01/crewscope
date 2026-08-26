@@ -43,6 +43,8 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamScope;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -243,6 +245,49 @@ class LarkMemberMappingM6D04Test {
                         admin)));
     }
 
+    @Test
+    void listsExactTeamMappingsWithStableBoundedKeysetPagination() {
+        service.confirmMapping(confirm(MEMBER_ONE, verify("ou_member_100").id()));
+        service.confirmMapping(confirm(MEMBER_TWO, verify("ou_member_200").id()));
+
+        LarkMemberMappingPage first = service.listMappings(new ListLarkMemberMappingsQuery(
+                ORGANIZATION_ID,
+                TEAM_ID,
+                Optional.of(LarkMemberMappingStatus.ACTIVE),
+                Optional.empty(),
+                1,
+                admin));
+        LarkMemberMappingPage second = service.listMappings(new ListLarkMemberMappingsQuery(
+                ORGANIZATION_ID,
+                TEAM_ID,
+                Optional.of(LarkMemberMappingStatus.ACTIVE),
+                first.nextCursor(),
+                1,
+                admin));
+
+        assertEquals(1, first.items().size());
+        assertEquals(1, second.items().size());
+        assertNotEquals(first.items().get(0).id(), second.items().get(0).id());
+        assertEquals(Optional.empty(), second.nextCursor());
+
+        administration.allowed = false;
+        assertThrows(DomainValidationException.class, () -> service.listMappings(
+                new ListLarkMemberMappingsQuery(
+                        ORGANIZATION_ID,
+                        TEAM_ID,
+                        Optional.empty(),
+                        Optional.empty(),
+                        10,
+                        admin)));
+        assertThrows(IllegalArgumentException.class, () -> new ListLarkMemberMappingsQuery(
+                ORGANIZATION_ID,
+                TEAM_ID,
+                Optional.empty(),
+                Optional.empty(),
+                101,
+                admin));
+    }
+
     private LarkMemberVerificationProof verify(String openId) {
         return service.verifyMember(new VerifyLarkMemberCommand(
                 ORGANIZATION_ID, TEAM_ID, BINDING_ID, new LarkOpenId(openId), admin));
@@ -364,7 +409,8 @@ class LarkMemberMappingM6D04Test {
         private int memberCalls;
 
         @Override
-        public LarkTenantObservation verifyTenant(LarkConnectionAuthorization authorization) {
+        public LarkTenantObservation verifyTenant(
+                LarkConnectionAuthorization authorization, PrincipalId actor) {
             tenantCalls++;
             return new LarkTenantObservation(
                     tenantKey, tenantProviderVersion, NOW);
@@ -374,7 +420,8 @@ class LarkMemberMappingM6D04Test {
         public LarkMemberObservation verifyMember(
                 LarkConnectionAuthorization authorization,
                 LarkExternalTenant tenant,
-                LarkOpenId exactOpenId) {
+                LarkOpenId exactOpenId,
+                PrincipalId actor) {
             memberCalls++;
             LarkOpenId observed = returnDifferentOpenId
                     ? new LarkOpenId("ou_different_999")
@@ -456,6 +503,37 @@ class LarkMemberMappingM6D04Test {
         @Override
         public Optional<LarkMemberMapping> findActiveByExternalKey(LarkExternalMemberKey key) {
             return Optional.ofNullable(activeExternal.get(key));
+        }
+
+        @Override
+        public LarkMemberMappingPage findPage(LarkMemberMappingPageRequest request) {
+            Comparator<LarkMemberMapping> order = Comparator
+                    .comparing((LarkMemberMapping value) -> value.audit().updatedAt())
+                    .thenComparing(value -> value.id().toString())
+                    .reversed();
+            List<LarkMemberMapping> candidates = byId.values().stream()
+                    .filter(value -> value.organizationId().equals(request.organizationId()))
+                    .filter(value -> value.teamId().equals(request.teamId()))
+                    .filter(value -> request.status().map(value.status()::equals).orElse(true))
+                    .filter(value -> request.after().map(cursor ->
+                                    value.audit().updatedAt().compareTo(cursor.updatedAt()) < 0
+                                            || (value.audit().updatedAt().equals(cursor.updatedAt())
+                                                    && value.id().toString().compareTo(
+                                                            cursor.mappingId().toString()) < 0))
+                            .orElse(true))
+                    .sorted(order)
+                    .limit(request.limit() + 1L)
+                    .toList();
+            boolean hasMore = candidates.size() > request.limit();
+            List<LarkMemberMapping> page = hasMore
+                    ? candidates.subList(0, request.limit())
+                    : candidates;
+            return new LarkMemberMappingPage(
+                    page,
+                    hasMore
+                            ? Optional.of(LarkMemberMappingCursor.from(
+                                    page.get(page.size() - 1)))
+                            : Optional.empty());
         }
 
         @Override

@@ -17,6 +17,11 @@ public interface LarkMemberMappingRepository {
 
     Optional<LarkMemberMapping> findActiveByExternalKey(LarkExternalMemberKey key);
 
+    /** Lists one exact Team using descending updated-at/ID keyset ordering. */
+    default LarkMemberMappingPage findPage(LarkMemberMappingPageRequest request) {
+        throw new UnsupportedOperationException("Lark mapping pagination is not implemented");
+    }
+
     /** Atomically enforces one active mapping per internal key and external key. */
     LarkMemberMapping createActive(LarkMemberMapping mapping);
 

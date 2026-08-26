@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -26,6 +27,7 @@ public class JdbcProjectionGenerationLifecycle {
     private final Clock clock;
     private final TransactionTemplate transaction;
 
+    @Autowired
     public JdbcProjectionGenerationLifecycle(
             JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
         this(jdbcTemplate, transactionManager, Clock.systemUTC());

@@ -12,7 +12,9 @@ public record NotificationPlan(
         action = Objects.requireNonNull(action, "action");
         delivery = Objects.requireNonNull(delivery, "delivery");
         if (!action.id().equals(delivery.actionId())
-                || !action.digest().equals(delivery.actionDigest())) {
+                || !action.digest().equals(delivery.actionDigest())
+                || !action.authority().deduplicationKey().equals(delivery.deduplicationKey())
+                || !action.redeliveryOf().equals(delivery.redeliveryOf())) {
             throw new IllegalArgumentException("Notification plan action and delivery must match");
         }
     }

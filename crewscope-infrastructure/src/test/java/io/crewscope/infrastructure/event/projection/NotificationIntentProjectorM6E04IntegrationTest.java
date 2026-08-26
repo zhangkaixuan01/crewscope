@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.event.projection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.crewscope.application.notification.CrewScopeNotificationIntentPolicies;
 import io.crewscope.domain.collaboration.LarkExternalTenantId;
@@ -12,6 +13,10 @@ import io.crewscope.domain.inbox.InboxSource;
 import io.crewscope.domain.inbox.InboxSourceKey;
 import io.crewscope.domain.inbox.InboxSourceRevision;
 import io.crewscope.domain.inbox.InboxSourceType;
+import io.crewscope.domain.notification.NotificationIntentId;
+import io.crewscope.domain.notification.NotificationTemplateId;
+import io.crewscope.domain.notification.NotificationTemplateRef;
+import io.crewscope.domain.notification.NotificationTemplateVersion;
 import io.crewscope.domain.projection.ProjectionFencingToken;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionGenerationKey;
@@ -204,6 +209,35 @@ class NotificationIntentProjectorM6E04IntegrationTest
         assertEquals(1, count("notification_planned_action"));
         assertEquals(2L, jdbc.queryForObject(
                 "SELECT generation FROM crewscope.notification_planned_action", Long.class));
+    }
+
+    @Test
+    void resolvesOnlyTheCurrentGenerationPublishedTemplateAndExactAuthorizationFacts() {
+        UUID mappingId = seedMapping(graph);
+        reconcile(lease(ProjectionGeneration.FIRST, 1));
+        NotificationIntentId intentId = new NotificationIntentId(jdbc.queryForObject(
+                "SELECT intent_id FROM crewscope.notification_intent", UUID.class));
+
+        var facts = projector.resolveCurrent(intentId);
+
+        assertEquals(mappingId, facts.recipientMappingId().value());
+        assertEquals(templateId, facts.intent().template().templateId().value());
+        assertEquals(1, facts.intent().template().version().value());
+        assertEquals(
+                "review-required",
+                projector.requireCurrentPublished(new NotificationTemplateRef(
+                                new NotificationTemplateId(templateId),
+                                new NotificationTemplateVersion(1)))
+                        .serverTemplateKey());
+
+        jdbc.update(
+                "UPDATE crewscope.notification_template SET status = 'RETIRED' "
+                        + "WHERE template_id = ? AND template_version = 1",
+                templateId);
+        assertThrows(IllegalStateException.class, () -> projector.resolveCurrent(intentId));
+        assertThrows(
+                IllegalStateException.class,
+                () -> projector.requireCurrentPublished(facts.intent().template()));
     }
 
     @Test

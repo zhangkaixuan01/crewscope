@@ -4,6 +4,7 @@ import io.crewscope.domain.inbox.InboxSourceKey;
 import io.crewscope.domain.provider.ConnectionGrantId;
 import io.crewscope.domain.provider.ConnectionId;
 import io.crewscope.domain.provider.ProviderBindingId;
+import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.task.TaskFactHash;
 import java.util.Objects;
 import java.util.Optional;
@@ -57,6 +58,54 @@ public final class NotificationAuthorizationSnapshot {
                         + encode(this.deduplicationKey.toString())));
     }
 
+    private NotificationAuthorizationSnapshot(
+            NotificationAuthorizationMode mode,
+            NotificationIntentId intentId,
+            InboxSourceKey sourceKey,
+            NotificationTemplateRef template,
+            NotificationVariableHash variableHash,
+            NotificationRecipientMappingId recipientMappingId,
+            long recipientMappingVersion,
+            ProviderBindingId providerBindingId,
+            long providerBindingVersion,
+            ConnectionId connectionId,
+            long connectionVersion,
+            ConnectionGrantId grantId,
+            long grantVersion,
+            TeamNotificationPolicyId teamPolicyId,
+            long teamPolicyVersion,
+            long preferenceVersion,
+            NotificationDeduplicationKey deduplicationKey,
+            NotificationAuthorizationDigest persistedDigest) {
+        this.mode = Objects.requireNonNull(mode, "mode");
+        this.intentId = Objects.requireNonNull(intentId, "intentId");
+        this.sourceKey = Objects.requireNonNull(sourceKey, "sourceKey");
+        this.template = Objects.requireNonNull(template, "template");
+        this.variableHash = Objects.requireNonNull(variableHash, "variableHash");
+        this.recipientMappingId = Objects.requireNonNull(recipientMappingId, "recipientMappingId");
+        this.recipientMappingVersion = requireVersion(
+                recipientMappingVersion, "recipientMappingVersion");
+        this.providerBindingId = Objects.requireNonNull(providerBindingId, "providerBindingId");
+        this.providerBindingVersion = requireVersion(providerBindingVersion, "providerBindingVersion");
+        this.connectionId = Objects.requireNonNull(connectionId, "connectionId");
+        this.connectionVersion = requireVersion(connectionVersion, "connectionVersion");
+        this.grantId = Objects.requireNonNull(grantId, "grantId");
+        this.grantVersion = requireVersion(grantVersion, "grantVersion");
+        this.teamPolicyId = Objects.requireNonNull(teamPolicyId, "teamPolicyId");
+        this.teamPolicyVersion = requireVersion(teamPolicyVersion, "teamPolicyVersion");
+        this.preferenceVersion = requireVersion(preferenceVersion, "preferenceVersion");
+        this.deduplicationKey = Objects.requireNonNull(deduplicationKey, "deduplicationKey");
+        NotificationAuthorizationDigest expected = new NotificationAuthorizationDigest(
+                TaskFactHash.sha256("notification-authorization-v1" + canonicalFacts()
+                        + encode(this.deduplicationKey.toString())));
+        if (!expected.equals(Objects.requireNonNull(persistedDigest, "persistedDigest"))) {
+            throw new DomainValidationException(
+                    "notificationAuthorizationSnapshot.digest",
+                    "does not match the persisted authorization coordinates");
+        }
+        this.digest = expected;
+    }
+
     public static NotificationAuthorizationSnapshot captureAutomatic(
             NotificationAuthorizationFacts facts) {
         return new NotificationAuthorizationSnapshot(facts, "automatic");
@@ -71,6 +120,33 @@ public final class NotificationAuthorizationSnapshot {
                 facts,
                 "redelivery:" + Objects.requireNonNull(originalDeliveryId, "originalDeliveryId")
                         + ':' + Objects.requireNonNull(commandId, "commandId"));
+    }
+
+    /** Rebuilds a snapshot while verifying its server-computed authorization digest. */
+    public static NotificationAuthorizationSnapshot reconstitute(
+            NotificationAuthorizationMode mode,
+            NotificationIntentId intentId,
+            InboxSourceKey sourceKey,
+            NotificationTemplateRef template,
+            NotificationVariableHash variableHash,
+            NotificationRecipientMappingId recipientMappingId,
+            long recipientMappingVersion,
+            ProviderBindingId providerBindingId,
+            long providerBindingVersion,
+            ConnectionId connectionId,
+            long connectionVersion,
+            ConnectionGrantId grantId,
+            long grantVersion,
+            TeamNotificationPolicyId teamPolicyId,
+            long teamPolicyVersion,
+            long preferenceVersion,
+            NotificationDeduplicationKey deduplicationKey,
+            NotificationAuthorizationDigest persistedDigest) {
+        return new NotificationAuthorizationSnapshot(
+                mode, intentId, sourceKey, template, variableHash, recipientMappingId,
+                recipientMappingVersion, providerBindingId, providerBindingVersion, connectionId,
+                connectionVersion, grantId, grantVersion, teamPolicyId, teamPolicyVersion,
+                preferenceVersion, deduplicationKey, persistedDigest);
     }
 
     /** Returns the first current server fact that differs from this immutable snapshot. */
@@ -138,6 +214,14 @@ public final class NotificationAuthorizationSnapshot {
             encoded.append('|').append(value.length()).append(':').append(value);
         }
         return encoded.toString();
+    }
+
+    private static long requireVersion(long value, String field) {
+        if (value < 0) {
+            throw new DomainValidationException(
+                    "notificationAuthorizationSnapshot." + field, "must not be negative");
+        }
+        return value;
     }
 
     public NotificationAuthorizationMode mode() { return mode; }

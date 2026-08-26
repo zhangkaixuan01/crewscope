@@ -37,7 +37,6 @@ import io.crewscope.application.task.TaskDeliverySummaryService;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.shared.time.TimeProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,22 +46,6 @@ import org.springframework.context.annotation.Configuration;
 public class ActionDeliveryApplicationConfiguration {
 
     @Bean
-    @ConditionalOnBean({
-        ReviewRequestRepository.class,
-        ContextPackageRepository.class,
-        ReviewDecisionRepository.class,
-        ResponsibilityAssignmentRepository.class,
-        ProviderBindingRepository.class,
-        ConnectionRepository.class,
-        ConnectionGrantRepository.class,
-        PolicySnapshotRepository.class,
-        SafetyEnforcementOverlayRepository.class,
-        CodingTargetSnapshotRepository.class,
-        RepositoryBindingRepository.class,
-        ExecutionWorkspaceRepository.class,
-        GitHubProviderRepository.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(ActionDeliveryPlanningResolver.class)
     ActionDeliveryPlanningResolver actionDeliveryPlanningResolver(
             ReviewRequestRepository reviewRequests,
@@ -97,7 +80,6 @@ public class ActionDeliveryApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({DomainEventStore.class, TaskEventRepository.class, OutboxRepository.class})
     @ConditionalOnMissingBean(ActionCommandEventPublisher.class)
     ActionCommandEventPublisher actionCommandEventPublisher(
             DomainEventStore events,
@@ -107,25 +89,6 @@ public class ActionDeliveryApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        WorkItemAccessPolicy.class,
-        TaskRepository.class,
-        TaskExecutionRepository.class,
-        ResponsibilityAssignmentRepository.class,
-        ActionDeliveryPlanningResolver.class,
-        ActionAuthorityFactsResolver.class,
-        ActionBundleRepository.class,
-        ConfirmationRepository.class,
-        ActionDispatchRepository.class,
-        ActionReceiptRepository.class,
-        ExternalResultRepository.class,
-        ActionManualResolutionService.class,
-        ActionCommandEventPublisher.class,
-        ActionWorkerEventPublisher.class,
-        CommandReceiptStore.class,
-        TransactionExecutor.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(ActionDeliveryApplicationService.class)
     ActionDeliveryApplicationService actionDeliveryApplicationService(
             WorkItemAccessPolicy accessPolicy,
@@ -166,15 +129,6 @@ public class ActionDeliveryApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        WorkItemAccessPolicy.class,
-        TaskRepository.class,
-        TaskExecutionRepository.class,
-        PolicySnapshotRepository.class,
-        ReviewRequestApplicationService.class,
-        ActionDeliveryApplicationService.class,
-        TransactionExecutor.class
-    })
     @ConditionalOnMissingBean(TaskDeliverySummaryService.class)
     TaskDeliverySummaryService taskDeliverySummaryService(
             WorkItemAccessPolicy accessPolicy,

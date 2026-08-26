@@ -5,6 +5,7 @@ import io.crewscope.domain.provider.ProviderCapabilities;
 /** Product-owned capability vocabulary for the MVP Lark Collaboration Provider. */
 public final class LarkCollaborationCapabilities {
 
+    public static final String CONNECTOR_KEY = "lark-collaboration";
     public static final String MEMBER_LOOKUP = "collaboration.member.lookup-exact";
     public static final String FIXED_TEMPLATE_NOTIFY =
             "collaboration.notification.send-fixed-template";

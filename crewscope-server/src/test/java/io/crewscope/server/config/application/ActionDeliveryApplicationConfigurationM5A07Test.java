@@ -26,6 +26,7 @@ import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.review.ContextPackageRepository;
 import io.crewscope.application.review.ReviewDecisionRepository;
+import io.crewscope.application.review.ReviewRequestApplicationService;
 import io.crewscope.application.review.ReviewRequestRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
@@ -66,6 +67,8 @@ class ActionDeliveryApplicationConfigurationM5A07Test {
             .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
             .withBean(TaskEventRepository.class, () -> mock(TaskEventRepository.class))
             .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
+            .withBean(ReviewRequestApplicationService.class,
+                    () -> mock(ReviewRequestApplicationService.class))
             .withBean(WorkItemAccessPolicy.class, () -> mock(WorkItemAccessPolicy.class))
             .withBean(TaskRepository.class, () -> mock(TaskRepository.class))
             .withBean(TaskExecutionRepository.class, () -> mock(TaskExecutionRepository.class))
@@ -90,5 +93,13 @@ class ActionDeliveryApplicationConfigurationM5A07Test {
                 .hasSingleBean(ActionDeliveryPlanningResolver.class)
                 .hasSingleBean(ActionCommandEventPublisher.class)
                 .hasSingleBean(ActionDeliveryApplicationService.class));
+    }
+
+    @Test
+    void keepsApiDeliveryServiceWhenActionWorkerPollingIsDisabled() {
+        runner.withPropertyValues("crewscope.action.worker.enabled=false")
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(ActionDeliveryApplicationService.class));
     }
 }

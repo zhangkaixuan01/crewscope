@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.event.projection;
 
 import java.time.Clock;
 import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -15,6 +16,7 @@ public class GenerationAwareProjectionRunnerFactory {
     private final PlatformTransactionManager transactionManager;
     private final Clock clock;
 
+    @Autowired
     public GenerationAwareProjectionRunnerFactory(
             JdbcProjectionGenerationRegistry registry,
             JdbcGenerationProjectionStore store,

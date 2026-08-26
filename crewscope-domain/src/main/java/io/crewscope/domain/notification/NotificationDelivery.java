@@ -82,6 +82,39 @@ public final class NotificationDelivery {
                 0);
     }
 
+    /** Rebuilds a persisted delivery while preserving state-machine shape validation. */
+    public static NotificationDelivery reconstitute(
+            NotificationDeliveryId id,
+            PlannedActionId actionId,
+            ActionDigest actionDigest,
+            NotificationDeduplicationKey deduplicationKey,
+            Optional<NotificationDeliveryId> redeliveryOf,
+            NotificationDeliveryStatus status,
+            int attemptCount,
+            Optional<UtcTimestamp> nextAttemptAt,
+            Optional<NotificationInvalidationReason> invalidationReason,
+            Optional<NotificationReceipt> receipt,
+            UtcTimestamp createdAt,
+            UtcTimestamp updatedAt,
+            long version) {
+        if (!NotificationDeliveryId.fromDeduplicationKey(deduplicationKey).equals(id)) {
+            throw new DomainValidationException(
+                    "notificationDelivery.id", "does not match its deduplication key");
+        }
+        NotificationDelivery delivery = new NotificationDelivery(
+                id, actionId, actionDigest, deduplicationKey, redeliveryOf, status, attemptCount,
+                nextAttemptAt, invalidationReason, receipt, createdAt, updatedAt, version);
+        receipt.ifPresent(value -> {
+            if (!delivery.actionId.equals(value.actionId())
+                    || !delivery.actionDigest.equals(value.actionDigest())
+                    || !delivery.deduplicationKey.equals(value.deduplicationKey())) {
+                throw new DomainValidationException(
+                        "notificationDelivery.receipt", "must bind the exact persisted delivery");
+            }
+        });
+        return delivery;
+    }
+
     public NotificationDelivery start(
             long expectedVersion, NotificationPlannedAction action, UtcTimestamp now) {
         requireVersionAndAction(expectedVersion, action);
@@ -124,6 +157,24 @@ public final class NotificationDelivery {
     public NotificationDelivery beginReconciliation(long expectedVersion, UtcTimestamp now) {
         requireVersion(expectedVersion);
         requireStatus(NotificationDeliveryStatus.UNKNOWN);
+        return transition(
+                NotificationDeliveryStatus.RECONCILING, attemptCount, Optional.empty(),
+                Optional.empty(), Optional.empty(), now);
+    }
+
+    /** Keeps an uncertain result query-only when the Provider query itself is inconclusive. */
+    public NotificationDelivery deferReconciliation(long expectedVersion, UtcTimestamp now) {
+        requireVersion(expectedVersion);
+        requireStatus(NotificationDeliveryStatus.RECONCILING);
+        return transition(
+                NotificationDeliveryStatus.UNKNOWN, attemptCount, Optional.empty(),
+                Optional.empty(), Optional.empty(), now);
+    }
+
+    /** Re-fences an expired query claim without permitting another external write. */
+    public NotificationDelivery reclaimReconciliation(long expectedVersion, UtcTimestamp now) {
+        requireVersion(expectedVersion);
+        requireStatus(NotificationDeliveryStatus.RECONCILING);
         return transition(
                 NotificationDeliveryStatus.RECONCILING, attemptCount, Optional.empty(),
                 Optional.empty(), Optional.empty(), now);

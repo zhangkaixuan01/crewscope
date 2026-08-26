@@ -35,12 +35,6 @@ import org.springframework.context.annotation.Configuration;
 public class ActionReconciliationApplicationConfiguration {
 
     @Bean
-    @ConditionalOnBean({
-        ExternalObservationRepository.class,
-        ExternalResultRepository.class,
-        ActionReceiptRepository.class,
-        ActionWorkerEventPublisher.class
-    })
     @ConditionalOnMissingBean(ExternalResultMerger.class)
     ExternalResultMerger externalResultMerger(
             ExternalObservationRepository observations,
@@ -51,15 +45,6 @@ public class ActionReconciliationApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        ActionDispatchRepository.class,
-        ActionReceiptRepository.class,
-        ActionBundleRepository.class,
-        ActionAuthorityFactsResolver.class,
-        ActionWorkerEventPublisher.class,
-        TransactionExecutor.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(ActionManualResolutionService.class)
     ActionManualResolutionService actionManualResolutionService(
             ActionDispatchRepository dispatches,

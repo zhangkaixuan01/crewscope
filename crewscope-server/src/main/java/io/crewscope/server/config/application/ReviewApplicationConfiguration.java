@@ -10,14 +10,11 @@ import io.crewscope.application.coding.CommandEvidenceRepository;
 import io.crewscope.application.coding.DiffArtifactRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.command.CommandReceiptStore;
-import io.crewscope.application.event.DomainEventStore;
-import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.review.ContextPackageBuilder;
 import io.crewscope.application.review.ContextPackageRepository;
-import io.crewscope.application.review.DurableReviewEventPublisher;
 import io.crewscope.application.review.ReviewDecisionRepository;
 import io.crewscope.application.review.ReviewEventPublisher;
 import io.crewscope.application.review.ReviewFindingBatchRecorder;
@@ -33,7 +30,6 @@ import io.crewscope.application.review.ReviewerExecutionApplicationService;
 import io.crewscope.application.review.ReviewerExecutionPort;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
-import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -59,15 +55,6 @@ public class ReviewApplicationConfiguration {
             ReviewFindingRepository findings,
             ReviewFindingObservationRepository observations) {
         return new ReviewFindingBatchRecorder(findings, observations);
-    }
-
-    @Bean
-    ReviewEventPublisher reviewEventPublisher(
-            DomainEventStore events,
-            TaskEventRepository taskEvents,
-            OutboxRepository outbox,
-            TransactionExecutor transactions) {
-        return new DurableReviewEventPublisher(events, taskEvents, outbox, transactions);
     }
 
     @Bean

@@ -13,8 +13,6 @@ import io.crewscope.application.coding.CommandEvidenceRepository;
 import io.crewscope.application.coding.DiffArtifactRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.command.CommandReceiptStore;
-import io.crewscope.application.event.DomainEventStore;
-import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
@@ -35,7 +33,6 @@ import io.crewscope.application.review.ReviewerExecutionApplicationService;
 import io.crewscope.application.review.ReviewerExecutionPort;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
-import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -81,9 +78,9 @@ class ReviewApplicationCompositionTest {
                 .withBean(GateReviewerPolicyProvider.class,
                         () -> mock(GateReviewerPolicyProvider.class))
                 .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
-                .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
-                .withBean(TaskEventRepository.class, () -> mock(TaskEventRepository.class))
-                .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
+                // The persistence module owns the durable publisher; this isolated application
+                // composition test supplies the port exactly as production scanning does.
+                .withBean(ReviewEventPublisher.class, () -> mock(ReviewEventPublisher.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withBean(TimeProvider.class, () -> mock(TimeProvider.class))
                 .withBean(AgentTemplateRepository.class, () -> mock(AgentTemplateRepository.class))

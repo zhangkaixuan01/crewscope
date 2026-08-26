@@ -6,6 +6,7 @@ import io.crewscope.domain.conversation.AgentScopeSessionKey;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeSession;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,7 +16,8 @@ public final class TemplateAgentSessionIdentity {
 
     public enum Kind {
         CONVERSATION,
-        TASK
+        TASK,
+        TEAM_OBSERVER
     }
 
     private final Kind kind;
@@ -74,6 +76,19 @@ public final class TemplateAgentSessionIdentity {
                 required.agentScopeKey(),
                 required.stateReference(),
                 Optional.of(required));
+    }
+
+    /** Creates an identity from the server-derived Team/member Observer state coordinates. */
+    public static TemplateAgentSessionIdentity teamObserver(TeamObserverRuntimeSession session) {
+        TeamObserverRuntimeSession required = Objects.requireNonNull(session, "session");
+        return new TemplateAgentSessionIdentity(
+                Kind.TEAM_OBSERVER,
+                required.observerPrincipalId(),
+                required.observerProfileId(),
+                required.observerProfileVersion(),
+                required.agentScopeKey(),
+                required.stateReference(),
+                Optional.empty());
     }
 
     public void requireDefinition(AgentTemplateRuntimeDefinition definition) {
