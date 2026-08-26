@@ -1,19 +1,20 @@
 package io.crewscope.server.api;
 
+import io.crewscope.application.activity.TeamActivityCursorExpiredException;
+import io.crewscope.application.coding.CodingArtifactRangeNotSatisfiableException;
 import io.crewscope.application.coding.RepositoryBindingPreflightException;
 import io.crewscope.application.coding.RepositoryCatalogUnavailableException;
-import io.crewscope.application.coding.CodingArtifactRangeNotSatisfiableException;
 import io.crewscope.application.conversation.ConversationEventCursorExpiredException;
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
-import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.github.GitHubProviderException;
+import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
-import io.crewscope.server.observability.ApiObservabilityContext;
 import io.crewscope.infrastructure.workspace.repository.CodingArtifactException;
+import io.crewscope.server.observability.ApiObservabilityContext;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Locale;
 import java.util.Map;
@@ -22,13 +23,13 @@ import java.util.UUID;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
-import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -69,6 +70,17 @@ public class ApiExceptionHandler {
                     HttpStatus.GONE,
                     "cursor_expired",
                     "The Task Event cursor is no longer retained",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof TeamActivityCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The Team Activity cursor is no longer retained",
                     false,
                     null,
                     Map.of(),

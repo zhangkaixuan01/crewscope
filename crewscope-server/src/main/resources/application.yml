@@ -204,6 +204,18 @@ crewscope:
   conversation-events:
     poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
+  team-activity-realtime:
+    # M6-I01 enables this after contributing the PostgreSQL TeamRealtimeEventStore Adapter.
+    enabled: ${CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED:false}
+    poll-interval: ${CREWSCOPE_TEAM_ACTIVITY_REALTIME_POLL_INTERVAL:500ms}
+    heartbeat-interval: ${CREWSCOPE_TEAM_ACTIVITY_REALTIME_HEARTBEAT_INTERVAL:15s}
+    batch-size: ${CREWSCOPE_TEAM_ACTIVITY_REALTIME_BATCH_SIZE:100}
+    cursor-maximum-age: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_MAXIMUM_AGE:24h}
+    cursor-future-skew: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_FUTURE_SKEW:30s}
+    # No development fallback: enabled deployments provide current-key-id and Base64 keys.
+    current-key-id: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID:v1}
+    keys:
+      v1: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_KEY_V1:}
   task-events:
     poll-interval: ${CREWSCOPE_TASK_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_TASK_EVENT_BATCH_SIZE:100}
@@ -246,6 +258,33 @@ crewscope:
     max-attempts: ${CREWSCOPE_OUTBOX_MAX_ATTEMPTS:8}
     initial-backoff: ${CREWSCOPE_OUTBOX_INITIAL_BACKOFF:1s}
     maximum-backoff: ${CREWSCOPE_OUTBOX_MAXIMUM_BACKOFF:5m}
+  operations-health:
+    # Member views expose only these bounded component classifications and aggregate counts.
+    projection:
+      degraded-after: ${CREWSCOPE_OPERATIONS_PROJECTION_DEGRADED_AFTER:30s}
+      attention-after: ${CREWSCOPE_OPERATIONS_PROJECTION_ATTENTION_AFTER:2m}
+      degraded-backlog: ${CREWSCOPE_OPERATIONS_PROJECTION_DEGRADED_BACKLOG:1}
+      attention-backlog: ${CREWSCOPE_OPERATIONS_PROJECTION_ATTENTION_BACKLOG:10}
+    outbox:
+      degraded-after: ${CREWSCOPE_OPERATIONS_OUTBOX_DEGRADED_AFTER:30s}
+      attention-after: ${CREWSCOPE_OPERATIONS_OUTBOX_ATTENTION_AFTER:2m}
+      degraded-backlog: ${CREWSCOPE_OPERATIONS_OUTBOX_DEGRADED_BACKLOG:10}
+      attention-backlog: ${CREWSCOPE_OPERATIONS_OUTBOX_ATTENTION_BACKLOG:100}
+    dead-letter:
+      degraded-after: ${CREWSCOPE_OPERATIONS_DEAD_LETTER_DEGRADED_AFTER:1s}
+      attention-after: ${CREWSCOPE_OPERATIONS_DEAD_LETTER_ATTENTION_AFTER:1s}
+      degraded-backlog: ${CREWSCOPE_OPERATIONS_DEAD_LETTER_DEGRADED_BACKLOG:1}
+      attention-backlog: ${CREWSCOPE_OPERATIONS_DEAD_LETTER_ATTENTION_BACKLOG:1}
+    cursor:
+      degraded-after: ${CREWSCOPE_OPERATIONS_CURSOR_DEGRADED_AFTER:1m}
+      attention-after: ${CREWSCOPE_OPERATIONS_CURSOR_ATTENTION_AFTER:5m}
+      degraded-backlog: ${CREWSCOPE_OPERATIONS_CURSOR_DEGRADED_BACKLOG:10}
+      attention-backlog: ${CREWSCOPE_OPERATIONS_CURSOR_ATTENTION_BACKLOG:100}
+    notification:
+      degraded-after: ${CREWSCOPE_OPERATIONS_NOTIFICATION_DEGRADED_AFTER:1m}
+      attention-after: ${CREWSCOPE_OPERATIONS_NOTIFICATION_ATTENTION_AFTER:5m}
+      degraded-backlog: ${CREWSCOPE_OPERATIONS_NOTIFICATION_DEGRADED_BACKLOG:10}
+      attention-backlog: ${CREWSCOPE_OPERATIONS_NOTIFICATION_ATTENTION_BACKLOG:100}
   security:
     # bootstrap uses operator Basic auth; oidc enables OAuth2 Login and browser-session CSRF.
     mode: ${CREWSCOPE_SECURITY_MODE:bootstrap}
