@@ -54,6 +54,7 @@ public class RedisAgentStateConfiguration {
         return new RedisSingleActiveExecutionGuard(
                 redisClient,
                 keyspace,
+                properties.getOwnershipScope(),
                 instanceId,
                 properties.getOwnershipLease(),
                 properties.getOwnershipRenewal());

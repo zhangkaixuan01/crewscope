@@ -1,0 +1,280 @@
+name: crewscope-team-beta
+
+x-backend-common: &backend-common
+  image: ${CREWSCOPE_BACKEND_IMAGE:?set an immutable backend image ending in @sha256:<digest>}
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
+    - /var/crewscope/ephemeral:rw,nosuid,nodev,noexec,size=64m,uid=10001,gid=10001,mode=0700
+  environment: &backend-environment
+    SPRING_PROFILES_ACTIVE: team-beta
+    SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+    CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE: external
+    CREWSCOPE_DEPLOYMENT_SECRET_SOURCE: external-file
+    CREWSCOPE_ENVIRONMENT: team-beta
+    CREWSCOPE_DB_URL: jdbc:postgresql://postgres:5432/crewscope?currentSchema=crewscope,public
+    CREWSCOPE_DB_USERNAME: crewscope
+    CREWSCOPE_BOOTSTRAP_USERNAME: crewscope-monitor
+    CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID: v1
+    CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID: v1
+    CREWSCOPE_TASK_TOKEN_ENABLED: "true"
+    CREWSCOPE_TASK_TOKEN_CURRENT_KEY_ID: v1
+    CREWSCOPE_RUNTIME_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
+    CREWSCOPE_RUNTIME_ACTOR_PRINCIPAL_ID: ${CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID:?set the Runtime Service Principal UUID}
+    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ENABLED: "true"
+    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
+    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_NAME: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_NAME:?set the Team Beta Organization name}
+    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_RUNTIME_PRINCIPAL_ID: ${CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID:?set the Runtime Service Principal UUID}
+    CREWSCOPE_OTLP_TRACING_ENABLED: "true"
+    CREWSCOPE_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+    CREWSCOPE_LOG_FORMAT: logstash
+    CREWSCOPE_ARTIFACT_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+    CREWSCOPE_GITHUB_MIRROR_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
+    CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/ephemeral/github-credentials
+    CREWSCOPE_CODING_GIT_COMMAND_HOME: /var/crewscope/ephemeral/git-home
+    CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
+    CREWSCOPE_CODING_WORKTREE_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
+    CREWSCOPE_CODING_WORKTREE_LOCK_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
+    CREWSCOPE_CODING_REPOSITORY_REQUIRED_OWNER: crewscope
+    CREWSCOPE_CODING_WORKTREE_REQUIRED_OWNER: crewscope
+    CREWSCOPE_GITHUB_REQUIRED_OWNER: crewscope
+    CREWSCOPE_TASK_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
+    CREWSCOPE_CODING_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
+    CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
+    CREWSCOPE_TEMPLATE_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
+  secrets: &backend-secrets
+    - source: database_password
+      target: spring.datasource.password
+    - source: bootstrap_password
+      target: crewscope.security.bootstrap.password
+    - source: credential_keys
+      target: crewscope.credential.encryption.keys
+    - source: activity_cursor_key
+      target: crewscope.team-activity-realtime.keys.v1
+    - source: diff_cursor_secret
+      target: crewscope.coding.diff.cursor-secret
+    - source: task_token_key
+      target: crewscope.security.task-token.keys.v1
+    - source: redis_url
+      target: crewscope.runtime.redis.url
+  networks: [backend, observability]
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: crewscope
+      POSTGRES_USER: crewscope
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U crewscope -d crewscope"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks: [backend]
+
+  redis:
+    image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --aclfile, /run/secrets/redis_acl]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777
+    secrets: [redis_acl]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, --user, health, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    networks: [backend]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea
+    restart: unless-stopped
+    command: [--config=/etc/otelcol-contrib/config.yaml]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    healthcheck:
+      test: [CMD, /otelcol-contrib, components]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [observability]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    secrets: [bootstrap_password]
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: [CMD, /bin/wget, -q, --spider, http://127.0.0.1:9090/-/ready]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [observability]
+
+  api:
+    <<: *backend-common
+    environment:
+      <<: *backend-environment
+      CREWSCOPE_EXECUTION_PROFILE: server
+      CREWSCOPE_SERVER_PORT: "8080"
+      CREWSCOPE_FLYWAY_ENABLED: "true"
+      CREWSCOPE_OUTBOX_ENABLED: "false"
+      CREWSCOPE_ACTION_WORKER_ENABLED: "false"
+      CREWSCOPE_ACTION_RECONCILIATION_ENABLED: "false"
+      CREWSCOPE_ACTION_RECONCILIATION_STARTUP_ENABLED: "false"
+      CREWSCOPE_NOTIFICATION_WORKER_ENABLED: "false"
+      CREWSCOPE_NOTIFICATION_RECONCILIATION_ENABLED: "false"
+      CREWSCOPE_NOTIFICATION_REDELIVERY_ENABLED: "false"
+      CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "false"
+      CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "true"
+      CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api-1
+      CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: server
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/actuator/health/readiness]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  worker:
+    <<: *backend-common
+    environment:
+      <<: *backend-environment
+      CREWSCOPE_EXECUTION_PROFILE: worker
+      CREWSCOPE_SERVER_PORT: "8081"
+      CREWSCOPE_FLYWAY_ENABLED: "false"
+      CREWSCOPE_OUTBOX_ENABLED: "true"
+      CREWSCOPE_OUTBOX_WORKER_ID: team-beta-outbox-1
+      CREWSCOPE_ACTION_WORKER_ENABLED: "true"
+      CREWSCOPE_ACTION_WORKER_ID: team-beta-action-1
+      CREWSCOPE_ACTION_RECONCILIATION_ENABLED: "true"
+      CREWSCOPE_ACTION_RECONCILIATION_STARTUP_ENABLED: "true"
+      CREWSCOPE_ACTION_RECONCILIATION_WORKER_ID: team-beta-action-reconciler-1
+      CREWSCOPE_NOTIFICATION_WORKER_ENABLED: "true"
+      CREWSCOPE_NOTIFICATION_RECONCILIATION_ENABLED: "true"
+      CREWSCOPE_NOTIFICATION_REDELIVERY_ENABLED: "true"
+      CREWSCOPE_NOTIFICATION_WORKER_ID: team-beta-notification-1
+      CREWSCOPE_NOTIFICATION_RECONCILIATION_WORKER_ID: team-beta-notification-reconciler-1
+      CREWSCOPE_NOTIFICATION_REDELIVERY_WORKER_ID: team-beta-notification-redelivery-1
+      CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "true"
+      CREWSCOPE_PROJECTION_SUPERVISOR_INSTANCE_ID: team-beta-projection-1
+      CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "false"
+      CREWSCOPE_RUNTIME_WORKER_STABLE_KEY: team-beta-worker-1
+      CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-worker-1
+      CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: worker
+    depends_on:
+      api: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    group_add:
+      - ${CREWSCOPE_DOCKER_GID:?set the host Docker socket group ID}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8081/actuator/health/readiness]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  web:
+    image: ${CREWSCOPE_WEB_IMAGE:?set an immutable Web image ending in @sha256:<digest>}
+    restart: unless-stopped
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=101,gid=101,mode=1777
+    depends_on:
+      api: {condition: service_healthy}
+    ports:
+      - 127.0.0.1:${CREWSCOPE_WEB_PORT:-8080}:8080
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [edge, backend]
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+  observability:
+    internal: true
+
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  prometheus-data: {}
+
+secrets:
+  database_password:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/database_password
+  bootstrap_password:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/bootstrap_password
+  credential_keys:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/credential_keys
+  activity_cursor_key:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/activity_cursor_key
+  diff_cursor_secret:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/diff_cursor_secret
+  task_token_key:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/task_token_key
+  redis_url:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_url
+  redis_acl:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_acl

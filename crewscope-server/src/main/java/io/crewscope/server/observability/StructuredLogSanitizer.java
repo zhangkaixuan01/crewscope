@@ -2,12 +2,21 @@ package io.crewscope.server.observability;
 
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** Applies the shared field-level redaction and log-injection boundary. */
 public final class StructuredLogSanitizer {
 
     public static final String REDACTED = "[REDACTED]";
     public static final int MAX_VALUE_LENGTH = 256;
+
+    private static final Pattern SENSITIVE_VALUE = Pattern.compile(
+            "(?i)(bearer\\s+\\S+"
+                    + "|\\b(?:sk|ghp|github_pat)[-_][a-z0-9_\\-]{8,}"
+                    + "|\\b[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}\\b"
+                    + "|\\b1[3-9]\\d{9}\\b"
+                    + "|(?:password|passwd|secret|access[_-]?token|refresh[_-]?token|api[_-]?key)"
+                    + "\\s*[:=]\\s*[^\\s,;]+)");
 
     private static final Set<String> EXACT_SENSITIVE_FIELDS = Set.of(
             "authorization",
@@ -48,7 +57,21 @@ public final class StructuredLogSanitizer {
             "providerrequest",
             "providerresponse",
             "providerpayload",
-            "rawprovidererror");
+            "rawprovidererror",
+            "email",
+            "emailaddress",
+            "phone",
+            "phonenumber",
+            "mobile",
+            "mobilephone",
+            "displayname",
+            "fullname",
+            "openid",
+            "unionid",
+            "stacktrace",
+            "exception",
+            "exceptionmessage",
+            "throwable");
 
     private StructuredLogSanitizer() {}
 
@@ -60,11 +83,13 @@ public final class StructuredLogSanitizer {
         if (value == null) {
             return "";
         }
-        String normalized = value.toString()
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .replace('\t', ' ')
-                .strip();
+        StringBuilder safe = new StringBuilder();
+        value.toString().codePoints().forEach(codePoint -> safe.appendCodePoint(
+                isLogSeparator(codePoint) ? ' ' : codePoint));
+        String normalized = safe.toString().strip();
+        if (SENSITIVE_VALUE.matcher(normalized).find()) {
+            return REDACTED;
+        }
         if (normalized.length() <= MAX_VALUE_LENGTH) {
             return normalized;
         }
@@ -99,5 +124,9 @@ public final class StructuredLogSanitizer {
                         || canonical.endsWith("args")
                         || canonical.endsWith("result")
                         || canonical.endsWith("output"));
+    }
+
+    private static boolean isLogSeparator(int codePoint) {
+        return Character.isISOControl(codePoint) || codePoint == 0x2028 || codePoint == 0x2029;
     }
 }

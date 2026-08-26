@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.event;
 
 import io.crewscope.application.event.publication.EventTransport;
+import io.crewscope.application.observability.OperationalTelemetry;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ public class PollingOutboxPublisher {
     private final OutboxDeliveryPolicy policy;
     private final Clock clock;
     private final Executor executor;
+    private final OperationalTelemetry telemetry;
 
     public PollingOutboxPublisher(
             String workerId,
@@ -29,33 +31,72 @@ public class PollingOutboxPublisher {
             OutboxDeliveryPolicy policy,
             Clock clock,
             Executor executor) {
+        this(workerId, claimStore, eventTransport, policy, clock, executor,
+                OperationalTelemetry.noop());
+    }
+
+    public PollingOutboxPublisher(
+            String workerId,
+            OutboxClaimStore claimStore,
+            EventTransport eventTransport,
+            OutboxDeliveryPolicy policy,
+            Clock clock,
+            Executor executor,
+            OperationalTelemetry telemetry) {
         this.workerId = requireWorkerId(workerId);
         this.claimStore = Objects.requireNonNull(claimStore, "claimStore");
         this.eventTransport = Objects.requireNonNull(eventTransport, "eventTransport");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.executor = Objects.requireNonNull(executor, "executor");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
     /** Executes one bounded polling cycle and waits for all claimed publications to settle. */
     public OutboxPublicationBatchResult publishAvailable() {
-        List<ClaimedOutboxEvent> claimed = claimStore.claimAvailable(
-                workerId, clock.instant(), policy);
-        if (claimed.isEmpty()) {
-            return OutboxPublicationBatchResult.empty();
-        }
+        OperationalTelemetry.Observation observation = telemetry.start(
+                OperationalTelemetry.Request.outbox());
+        try {
+            List<ClaimedOutboxEvent> claimed = claimStore.claimAvailable(
+                    workerId, clock.instant(), policy);
+            if (claimed.isEmpty()) {
+                observation.succeed();
+                return OutboxPublicationBatchResult.empty();
+            }
 
-        AtomicInteger delivered = new AtomicInteger();
-        AtomicInteger failed = new AtomicInteger();
-        AtomicInteger unconfirmed = new AtomicInteger();
-        List<CompletableFuture<Void>> publications = new ArrayList<>(claimed.size());
-        for (ClaimedOutboxEvent event : claimed) {
-            publications.add(CompletableFuture.runAsync(
-                    () -> publishOne(event, delivered, failed, unconfirmed), executor));
+            AtomicInteger delivered = new AtomicInteger();
+            AtomicInteger failed = new AtomicInteger();
+            AtomicInteger unconfirmed = new AtomicInteger();
+            List<CompletableFuture<Void>> publications = new ArrayList<>(claimed.size());
+            for (ClaimedOutboxEvent event : claimed) {
+                publications.add(CompletableFuture.runAsync(
+                        () -> publishOne(event, delivered, failed, unconfirmed), executor));
+            }
+            CompletableFuture.allOf(publications.toArray(CompletableFuture[]::new)).join();
+            OutboxPublicationBatchResult result = new OutboxPublicationBatchResult(
+                    claimed.size(), delivered.get(), failed.get(), unconfirmed.get());
+            completeObservation(observation, result);
+            return result;
+        } catch (RuntimeException failure) {
+            observation.fail(OperationalTelemetry.ErrorCode.INTERNAL);
+            throw failure;
         }
-        CompletableFuture.allOf(publications.toArray(CompletableFuture[]::new)).join();
-        return new OutboxPublicationBatchResult(
-                claimed.size(), delivered.get(), failed.get(), unconfirmed.get());
+    }
+
+    private static void completeObservation(
+            OperationalTelemetry.Observation observation,
+            OutboxPublicationBatchResult result) {
+        if (result.failed() > 0) {
+            observation.complete(
+                    OperationalTelemetry.Outcome.RETRY,
+                    OperationalTelemetry.ErrorCode.TRANSPORT_FAILURE);
+        } else if (result.unconfirmed() > 0) {
+            observation.complete(
+                    OperationalTelemetry.Outcome.DEGRADED,
+                    OperationalTelemetry.ErrorCode.ACK_UNCONFIRMED);
+        } else {
+            observation.succeed();
+        }
     }
 
     private void publishOne(

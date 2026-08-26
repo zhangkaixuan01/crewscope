@@ -30,6 +30,9 @@ class ApiObservabilityConfigurationTest {
                 "${CREWSCOPE_LOG_FORMAT:logstash}",
                 property(sources, "logging.structured.format.console"));
         assertEquals("true", property(sources, "logging.structured.json.context.include"));
+        assertEquals(
+                SafeStructuredLoggingJsonCustomizer.class.getName(),
+                property(sources, "logging.structured.json.customizer"));
     }
 
     private static String property(List<PropertySource<?>> sources, String name) {

@@ -11,6 +11,7 @@ public class AgentStateRedisProperties {
     private String url = "redis://localhost:6379";
     private String environment = "development";
     private String instanceId = "";
+    private String ownershipScope = "default";
     private Duration ownershipLease = Duration.ofSeconds(30);
     private Duration ownershipRenewal = Duration.ofSeconds(5);
     private Duration writeProbeTtl = Duration.ofSeconds(10);
@@ -45,6 +46,14 @@ public class AgentStateRedisProperties {
 
     public void setInstanceId(String instanceId) {
         this.instanceId = instanceId;
+    }
+
+    public String getOwnershipScope() {
+        return ownershipScope;
+    }
+
+    public void setOwnershipScope(String ownershipScope) {
+        this.ownershipScope = ownershipScope;
     }
 
     public Duration getOwnershipLease() {

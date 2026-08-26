@@ -1,0 +1,17 @@
+.git
+.github
+.idea
+.vscode
+.DS_Store
+**/target
+**/node_modules
+**/dist
+**/.histoire
+**/coverage
+**/playwright-report
+**/test-results
+.env
+.env.*
+!.env.example
+deploy/team-beta/.runtime
+var

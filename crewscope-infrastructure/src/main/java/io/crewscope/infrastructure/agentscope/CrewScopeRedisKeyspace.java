@@ -28,6 +28,19 @@ public final class CrewScopeRedisKeyspace {
         return basePrefix + "ownership:active-instance";
     }
 
+    /** Keeps Agent state shared while isolating the active owner lease by deployment role. */
+    public String activeExecutionOwnerKey(String scope) {
+        String normalized = Objects.requireNonNull(scope, "scope").strip();
+        if ("default".equals(normalized)) {
+            return activeExecutionOwnerKey();
+        }
+        if (!ENVIRONMENT.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "Redis ownership scope must use 1 to 32 lowercase letters, digits or hyphens");
+        }
+        return basePrefix + "ownership:active-instance:" + normalized;
+    }
+
     public String writeProbeKey(String token) {
         String required = Objects.requireNonNull(token, "token").strip();
         if (required.isEmpty()) {

@@ -69,7 +69,14 @@ public class SecurityConfiguration {
     http.authorizeExchange(
             exchange ->
                 exchange
-                    .pathMatchers("/actuator/health", "/actuator/info", "/api/v1/system/info")
+                    // Kubernetes/Compose probes expose only the health status; component details
+                    // remain suppressed by Actuator configuration.
+                    .pathMatchers(
+                        "/actuator/health",
+                        "/actuator/health/liveness",
+                        "/actuator/health/readiness",
+                        "/actuator/info",
+                        "/api/v1/system/info")
                     .permitAll()
                     .pathMatchers("/api/internal/v1/worker/**")
                     .hasAuthority("TASK_RUNTIME")

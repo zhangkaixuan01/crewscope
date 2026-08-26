@@ -41,8 +41,19 @@ public final class RedisSingleActiveExecutionGuard implements AutoCloseable {
             String instanceId,
             Duration leaseDuration,
             Duration renewalInterval) {
+        this(jedis, keyspace, "default", instanceId, leaseDuration, renewalInterval);
+    }
+
+    public RedisSingleActiveExecutionGuard(
+            UnifiedJedis jedis,
+            CrewScopeRedisKeyspace keyspace,
+            String ownershipScope,
+            String instanceId,
+            Duration leaseDuration,
+            Duration renewalInterval) {
         this.jedis = Objects.requireNonNull(jedis, "jedis");
-        this.ownerKey = Objects.requireNonNull(keyspace, "keyspace").activeExecutionOwnerKey();
+        this.ownerKey = Objects.requireNonNull(keyspace, "keyspace")
+                .activeExecutionOwnerKey(ownershipScope);
         String requiredInstanceId = requireInstanceId(instanceId);
         this.ownerToken = requiredInstanceId + ":" + UUID.randomUUID();
         this.leaseMillis = requireMillis(leaseDuration, "leaseDuration");

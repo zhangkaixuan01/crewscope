@@ -29,6 +29,10 @@ class StructuredLogSanitizerTest {
         assertTrue(StructuredLogSanitizer.isSensitiveField("claim_token_hash"));
         assertTrue(StructuredLogSanitizer.isSensitiveField("providerPayload"));
         assertTrue(StructuredLogSanitizer.isSensitiveField("rawProviderError"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("emailAddress"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("mobilePhone"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("open_id"));
+        assertTrue(StructuredLogSanitizer.isSensitiveField("stack_trace"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("correlationId"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("promptVersion"));
         assertFalse(StructuredLogSanitizer.isSensitiveField("toolName"));
@@ -38,8 +42,13 @@ class StructuredLogSanitizerTest {
     @Test
     void neutralizesControlCharactersThatCouldForgeLogRecords() {
         assertEquals(
-                "first second third fourth",
-                StructuredLogSanitizer.sanitize("message", "first\rsecond\nthird\tfourth"));
+                "first second third fourth fifth sixth seventh",
+                StructuredLogSanitizer.sanitize(
+                        "message",
+                        "first\rsecond\nthird\tfourth"
+                                + Character.toString(0) + "fifth"
+                                + Character.toString(27) + "sixth"
+                                + Character.toString(0x2028) + "seventh"));
     }
 
     @Test
@@ -48,5 +57,22 @@ class StructuredLogSanitizerTest {
 
         assertEquals(StructuredLogSanitizer.MAX_VALUE_LENGTH, sanitized.length());
         assertTrue(sanitized.endsWith("…"));
+    }
+
+    @Test
+    void redactsHighConfidenceSecretAndPiiContentEvenUnderGenericFieldNames() {
+        assertEquals(
+                StructuredLogSanitizer.REDACTED,
+                StructuredLogSanitizer.sanitize(
+                        "message", "Authorization failed for Bearer private-token"));
+        assertEquals(
+                StructuredLogSanitizer.REDACTED,
+                StructuredLogSanitizer.sanitize("message", "contact member@example.test"));
+        assertEquals(
+                StructuredLogSanitizer.REDACTED,
+                StructuredLogSanitizer.sanitize("message", "mobile=13800138000"));
+        assertEquals(
+                StructuredLogSanitizer.REDACTED,
+                StructuredLogSanitizer.sanitize("message", "api_key=private-value"));
     }
 }

@@ -37,6 +37,7 @@ class ApiObservabilityWebFilterTest {
 
     private SimpleMeterRegistry registry;
     private WebTestClient client;
+    private TeamBetaOperationalTelemetry operationalTelemetry;
     private ch.qos.logback.classic.Logger logger;
     private ListAppender<ILoggingEvent> appender;
 
@@ -55,9 +56,12 @@ class ApiObservabilityWebFilterTest {
     void setUp() {
         registry = new SimpleMeterRegistry();
         ApiObservabilityMetrics metrics = new ApiObservabilityMetrics(registry);
+        operationalTelemetry = new TeamBetaOperationalTelemetry(
+                registry, Tracer.NOOP, new TelemetryDegradationState());
         client = WebTestClient.bindToController(new ObservabilityController())
                 .controllerAdvice(new ApiExceptionHandler())
-                .webFilter(new ApiObservabilityWebFilter(metrics, Tracer.NOOP))
+                .webFilter(new ApiObservabilityWebFilter(
+                        metrics, Tracer.NOOP, operationalTelemetry))
                 .build();
 
         logger = (ch.qos.logback.classic.Logger)
@@ -236,6 +240,28 @@ class ApiObservabilityWebFilterTest {
         }
     }
 
+    @Test
+    void classifiesSseAndInboxRequestsIntoTheM6BoundedMetrics() {
+        client.get()
+                .uri("/api/v1/observability/conversations/demo/events")
+                .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM)
+                .exchange()
+                .expectStatus()
+                .isOk();
+        client.get()
+                .uri("/api/v1/observability/inbox")
+                .exchange()
+                .expectStatus()
+                .isOk();
+
+        assertEquals(1, registry.get(TeamBetaOperationalTelemetry.SSE_DURATION)
+                .tags("streamType", "conversation", "outcome", "success")
+                .timer().count());
+        assertEquals(1, registry.get(TeamBetaOperationalTelemetry.INBOX_DURATION)
+                .tag("outcome", "success")
+                .timer().count());
+    }
+
     private String responseCorrelation(WebTestClient.RequestHeadersSpec<?> request) {
         return request.exchange()
                 .expectStatus()
@@ -279,6 +305,18 @@ class ApiObservabilityWebFilterTest {
         @GetMapping("/domain-fail")
         void domainFail() {
             throw new DomainValidationException("workItem.title", "must not be blank");
+        }
+
+        @GetMapping(
+                path = "/conversations/demo/events",
+                produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+        Mono<String> stream() {
+            return Mono.just("event");
+        }
+
+        @GetMapping("/inbox")
+        String inbox() {
+            return "ok";
         }
     }
 }

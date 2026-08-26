@@ -1,0 +1,50 @@
+services:
+  postgres:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_POSTGRES_IMAGE:-postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73}
+  redis:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_REDIS_IMAGE:-redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf}
+  otel-collector:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_OTEL_IMAGE:-otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea}
+  prometheus:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996}
+  api:
+    profiles: [demo]
+    platform: linux/amd64
+    image: crewscope-backend:demo
+    build:
+      context: ../..
+      dockerfile: deploy/team-beta/backend.Dockerfile
+      args:
+        MAVEN_IMAGE: ${CREWSCOPE_DEMO_MAVEN_IMAGE:-maven:3.9.11-eclipse-temurin-17-alpine@sha256:b6ecb971326f147d214081527518bd32bceb55dba3bd5460d9a1d9f4b04464fd}
+        RUNTIME_IMAGE: ${CREWSCOPE_DEMO_JRE_IMAGE:-eclipse-temurin:17-jre-alpine@sha256:27cc0849148c0fd32ee8e95988917becf9bc96a3182a24f99d9763aa8e90f8cb}
+        HTTP_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTPS_PROXY:-}
+        MAVEN_OPTS: ${CREWSCOPE_DEMO_MAVEN_OPTS:-}
+  worker:
+    profiles: [demo]
+    platform: linux/amd64
+    image: crewscope-backend:demo
+    build:
+      context: ../..
+      dockerfile: deploy/team-beta/backend.Dockerfile
+      args:
+        MAVEN_IMAGE: ${CREWSCOPE_DEMO_MAVEN_IMAGE:-maven:3.9.11-eclipse-temurin-17-alpine@sha256:b6ecb971326f147d214081527518bd32bceb55dba3bd5460d9a1d9f4b04464fd}
+        RUNTIME_IMAGE: ${CREWSCOPE_DEMO_JRE_IMAGE:-eclipse-temurin:17-jre-alpine@sha256:27cc0849148c0fd32ee8e95988917becf9bc96a3182a24f99d9763aa8e90f8cb}
+        HTTP_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTPS_PROXY:-}
+        MAVEN_OPTS: ${CREWSCOPE_DEMO_MAVEN_OPTS:-}
+  web:
+    profiles: [demo]
+    image: crewscope-web:demo
+    build:
+      context: ../..
+      dockerfile: deploy/team-beta/web.Dockerfile
+      args:
+        NODE_IMAGE: ${CREWSCOPE_DEMO_NODE_IMAGE:-node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43}
+        WEB_IMAGE: ${CREWSCOPE_DEMO_NGINX_IMAGE:-nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6}
+        HTTP_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${CREWSCOPE_DEMO_BUILD_HTTPS_PROXY:-}

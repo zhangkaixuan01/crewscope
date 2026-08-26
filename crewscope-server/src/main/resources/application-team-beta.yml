@@ -1,0 +1,41 @@
+spring:
+  datasource:
+    url: ${CREWSCOPE_DB_URL}
+    username: ${CREWSCOPE_DB_USERNAME}
+  flyway:
+    # API sets true and is the only migration owner; Worker sets false and waits for API health.
+    enabled: ${CREWSCOPE_FLYWAY_ENABLED}
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
+
+server:
+  forward-headers-strategy: framework
+
+management:
+  tracing:
+    export:
+      otlp:
+        enabled: ${CREWSCOPE_OTLP_TRACING_ENABLED}
+  opentelemetry:
+    tracing:
+      export:
+        max-queue-size: 2048
+        max-batch-size: 512
+        timeout: 5s
+        otlp:
+          endpoint: ${CREWSCOPE_OTLP_TRACING_ENDPOINT}
+          connect-timeout: 2s
+          timeout: 5s
+
+crewscope:
+  deployment:
+    config-source: ${CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE}
+    secret-source: ${CREWSCOPE_DEPLOYMENT_SECRET_SOURCE}
+    bootstrap:
+      enabled: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ENABLED}
+      organization-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID}
+      organization-name: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_NAME}
+      runtime-principal-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_RUNTIME_PRINCIPAL_ID}
+  security:
+    bootstrap:
+      username: ${CREWSCOPE_BOOTSTRAP_USERNAME}

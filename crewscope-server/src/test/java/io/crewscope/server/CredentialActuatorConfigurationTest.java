@@ -40,6 +40,9 @@ class CredentialActuatorConfigurationTest {
                 "${CREWSCOPE_ENVIRONMENT:development}",
                 property(sources, "crewscope.runtime.redis.environment"));
         assertEquals(
+                "${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE:default}",
+                property(sources, "crewscope.runtime.redis.ownership-scope"));
+        assertEquals(
                 "${CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_LEASE:30s}",
                 property(sources, "crewscope.runtime.redis.ownership-lease"));
         assertEquals(

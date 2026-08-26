@@ -1,8 +1,11 @@
 package io.crewscope.server.observability;
 
+import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.server.api.ApiCorrelationIds;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -10,8 +13,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.slf4j.spi.LoggingEventBuilder;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -33,10 +39,31 @@ public final class ApiObservabilityWebFilter implements WebFilter {
 
     private final ApiObservabilityMetrics metrics;
     private final Tracer tracer;
+    private final OperationalTelemetry operationalTelemetry;
 
     public ApiObservabilityWebFilter(ApiObservabilityMetrics metrics, Tracer tracer) {
+        this(metrics, tracer, OperationalTelemetry.noop());
+    }
+
+    @Autowired
+    public ApiObservabilityWebFilter(
+            ApiObservabilityMetrics metrics,
+            Tracer tracer,
+            ObjectProvider<OperationalTelemetry> operationalTelemetry) {
+        this(
+                metrics,
+                tracer,
+                operationalTelemetry.getIfAvailable(OperationalTelemetry::noop));
+    }
+
+    ApiObservabilityWebFilter(
+            ApiObservabilityMetrics metrics,
+            Tracer tracer,
+            OperationalTelemetry operationalTelemetry) {
         this.metrics = metrics;
         this.tracer = tracer;
+        this.operationalTelemetry = Objects.requireNonNull(
+                operationalTelemetry, "operationalTelemetry");
     }
 
     @Override
@@ -48,6 +75,8 @@ public final class ApiObservabilityWebFilter implements WebFilter {
         long startedAt = System.nanoTime();
         AtomicBoolean recorded = new AtomicBoolean();
         AtomicReference<TraceIds> traceIds = new AtomicReference<>(TraceIds.unavailable());
+        Optional<OperationalTelemetry.Observation> boundary = boundary(exchange)
+                .map(operationalTelemetry::start);
 
         traceIds.set(currentTraceIds());
         return chain.filter(exchange)
@@ -57,10 +86,53 @@ public final class ApiObservabilityWebFilter implements WebFilter {
                         ApiRequestObservation observation = metrics.record(
                                 exchange, System.nanoTime() - startedAt, signalType);
                         logCompletion(correlationId, traceIds.get(), observation);
+                        boundary.ifPresent(value -> completeBoundary(
+                                value, observation, signalType));
                     }
                 })
                 .contextWrite(context -> context.put(
                         CorrelationIdThreadLocalAccessor.KEY, correlationId.toString()));
+    }
+
+    private static Optional<OperationalTelemetry.Request> boundary(ServerWebExchange exchange) {
+        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        boolean sse = exchange.getRequest().getHeaders().getAccept().stream()
+                .anyMatch(MediaType.TEXT_EVENT_STREAM::isCompatibleWith);
+        if (sse) {
+            OperationalTelemetry.StreamType type;
+            if (path.contains("/conversations/")) {
+                type = OperationalTelemetry.StreamType.CONVERSATION;
+            } else if (path.contains("/tasks/")) {
+                type = OperationalTelemetry.StreamType.TASK;
+            } else {
+                type = OperationalTelemetry.StreamType.TEAM;
+            }
+            return Optional.of(OperationalTelemetry.Request.sse(type));
+        }
+        if (path.contains("/inbox") || path.contains("/inbox/")) {
+            return Optional.of(OperationalTelemetry.Request.inbox());
+        }
+        return Optional.empty();
+    }
+
+    private static void completeBoundary(
+            OperationalTelemetry.Observation observation,
+            ApiRequestObservation request,
+            reactor.core.publisher.SignalType signalType) {
+        if (signalType == reactor.core.publisher.SignalType.CANCEL) {
+            observation.cancel();
+            return;
+        }
+        int status = Integer.parseInt(request.status());
+        if (status >= 500) {
+            observation.fail(OperationalTelemetry.ErrorCode.INTERNAL);
+        } else if (status >= 400) {
+            observation.complete(
+                    OperationalTelemetry.Outcome.REJECTED,
+                    OperationalTelemetry.ErrorCode.INVALID_INPUT);
+        } else {
+            observation.succeed();
+        }
     }
 
     private void captureTraceIds(Signal<Void> signal, AtomicReference<TraceIds> traceIds) {

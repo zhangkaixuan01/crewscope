@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.event;
 
 import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.event.publication.EventTransport;
+import io.crewscope.application.observability.OperationalTelemetry;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -72,6 +73,7 @@ public class OutboxPublisherConfiguration {
             EventTransport eventTransport,
             OutboxDeliveryPolicy policy,
             @Qualifier("outboxPublicationExecutor") ExecutorService executor,
+            ObjectProvider<OperationalTelemetry> telemetry,
             @Value("${crewscope.outbox.worker-id:}") String configuredWorkerId) {
         String workerId = configuredWorkerId.isBlank()
                 ? "crewscope-" + UUID.randomUUID()
@@ -82,6 +84,7 @@ public class OutboxPublisherConfiguration {
                 eventTransport,
                 policy,
                 Clock.systemUTC(),
-                executor);
+                executor,
+                telemetry.getIfAvailable(OperationalTelemetry::noop));
     }
 }
