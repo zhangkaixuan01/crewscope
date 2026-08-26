@@ -141,7 +141,7 @@ Active Action Dispatch = 0
 Active Notification Dispatch = 0
 ```
 
-备份包包含 PostgreSQL、Content-addressed Artifact 和 Redis Snapshot。不可变 Manifest 保存组件长度、SHA-256、Manifest Digest、应用版本、Schema V28、加密标记和 Credential Key ID。Manifest 与证据均不保存 Key Material。
+备份包包含 PostgreSQL、Content-addressed Artifact 和 Redis Snapshot。不可变 Manifest 保存组件长度、SHA-256、Manifest Digest、应用版本、当前 Schema Version（M6-I09 基线为 V30）、加密标记和 Credential Key ID。Manifest 与证据均不保存 Key Material。
 
 目标固定为 RPO 24 小时、RTO 4 小时。恢复时刻必须位于 Manifest 创建后的 24 小时内，未来时间戳和过期备份失败关闭。恢复只能写入空目标，顺序为：
 
@@ -157,7 +157,7 @@ SMOKE_TEST
 ENABLE_TRAFFIC
 ```
 
-Harness 验证 3 小时 RTO 通过，并验证 Artifact 篡改、非空目标与活动执行全部失败关闭。M6-I10 需要把 Manifest、组件 Hash、加密、Retention 和恢复顺序实现为脚本；M6-Q03 在干净环境执行真实恢复演练。
+Harness 验证 3 小时 RTO 通过，并验证 Artifact 篡改、非空目标与活动执行全部失败关闭。M6-I10 已把 Manifest、组件 Hash、加密、Retention 和恢复顺序实现为脚本，并实际完成 V30→V30、V26→V30 空目标恢复；M6-Q03 在 Canonical 环境执行发布级恢复演练。
 
 ## 8. Release Gate 分层
 
@@ -213,9 +213,9 @@ BUILD SUCCESS
 
 ## 10. 后续实现边界
 
-- M6-I08：构建非 Root、只读运行、固定 Digest 的 API/Worker 与 Web 镜像；
-- M6-I09：实现单机 Compose、角色分离、网络、卷、Healthcheck、Secret 和启动顺序；
-- M6-I10：实现 OTel Collector、Prometheus、备份恢复、Environment Fingerprint、负载与 Release Gate 脚本；
+- M6-I08：已实现 OTel Collector/Prometheus 运行契约、低基数指标和日志安全；
+- M6-I09：已构建非 Root、只读运行、固定 Digest 的 API/Worker 与 Web 镜像，并实现单机 Compose、角色分离、网络、卷、Readiness、Secret 和启动顺序；
+- M6-I10：已实现备份恢复、Environment Fingerprint、版本边界与 Team Beta Runbook；
 - M6-A06/A07：交付运行健康、诊断、配置与运维管理 API；
 - M6-F07：交付运维与部署管理界面；
 - M6-Q03：执行完整 MVP、负载、故障和恢复验收；

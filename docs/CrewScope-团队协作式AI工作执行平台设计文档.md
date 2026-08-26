@@ -1,10 +1,10 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.8<br>
+> 文档版本：v5.18<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
-> 技术栈：Java 17、Spring Boot 4.0.4、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis、Docker/Kubernetes
+> 技术栈：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis、Docker/Kubernetes
 
 ## 1. 产品定义
 
@@ -1218,11 +1218,31 @@ Notification Intent Projector 作为 `member-inbox` 的后置投影阶段运行�
 
 通知最终失败后进入 `EXCEPTION + NOTIFICATION_DELIVERY` 失败 Inbox，该来源不进入通知策略，避免形成递归通知。成员使用新的幂等 Command ID 发起再次投递，平台按当前授权事实创建带 `redeliveryOf` 的新 PlannedAction、Dispatch、Attempt 与 Receipt；相同 Command ID 收敛到同一新动作，成功再次投递将失败 Inbox 关闭为 `EXCEPTION_RESOLVED`。首次执行和 Receipt 回放都重新校验当前成员权限，权限撤销后不返回旧回放结果，原失败 Receipt 保持不可变。`POLICY_PREAUTHORIZED` 只适用于固定模板 `NOTIFY_COLLABORATION`；GitHub Push、Draft PR 和其他 M5 Action 继续要求成员 Gate 与精确 Confirmation。
 
-Lark Connector 使用固定 `https://open.feishu.cn` Endpoint 和企业自建应用 Tenant Access Token。Token Cache Key 闭合 Organization、Connection/Grant ID 与 Version、Credential ID/Version 和预期 Tenant Key，保留 60 秒到期安全余量；401 只刷新精确 Cache Entry 一次，每次调用先复验当前 Connection/Grant，撤权后旧 Token 不可使用。`app_secret` 通过 CredentialStore 动作级 Handle 使用并立即清理，Key、Token、Endpoint、Authorization 和原始 Body 不进入公开结果与可观测数据。
+M6-I01 将查询与通知计划 Port 接入真实 PostgreSQL。Activity 以 `Organization + Team + Projection + Generation + TeamSequence + ActivityEventId` 执行升序 Keyset，每页一次读取事件、一次批量读取 Reference；快照在同一 `REPEATABLE READ` 事务中读取 Pointer、ACTIVE Generation、Projection Schema 和 Team 高水位，退休代际、Schema 漂移或已清理位置返回 Cursor 过期。Audit 以 `occurredAt DESC + AuditEventId DESC` 执行 PostgreSQL UUID Keyset，只映射 Audit 投影中的 Registry 白名单摘要，Legacy 与 Unregistered 行返回空摘要。有界导出继续受 31 天和 10,000 行领域上限约束。
 
-成员映射由 Team Admin 使用 `tenant_key + open_id` 精确确认。验证 Proof 闭合 Organization、Team、Connection/Grant ID 与 Version、Tenant、Open ID、Union ID 和 Provider Version，并且只能由生成 Proof 的同一条当前 Connection/Grant 确认。ExternalTenant 失效后作为不可复活的历史证据保留，重新接入需要新 Connection 与新 Tenant 证据。同一 Organization 内的外部身份和同一 Team Member 均保持单活动 Mapping，不同 Organization 的 Mapping 相互隔离；显示名、姓名、昵称、手机号和模糊邮箱不参与自动绑定。固定模板完成变量 Schema、长度、可信 Scheme/Host/Port Origin 和 JSON 转义校验后，通过 Lark `receive_id_type=open_id` 投递。
+Inbox 查询只读取 Pointer 指向的当前 `member-inbox` Generation，并与 Generation 外的 Disposition 合并；首次处置依赖完整 Organization/Team/Member/Item 唯一坐标，后续处置使用版本 Compare-and-Set。Notification Repository 在同一事务持久化 PlannedAction、Delivery、终态 Receipt 与 Redelivery Command Receipt；并发 Deduplication Key 插入通过 PostgreSQL 冲突收敛并按 Organization 回读同一逻辑计划。持久化重建重新计算 Authorization Digest、Action ID、Action Digest 和 Delivery ID，数据库坐标被修改时失败关闭。Operations Health 在一个只读快照中使用固定查询集合返回 Projection、Outbox、DeadLetter、Cursor 和 Notification 五组件聚合，以及有界 Generation/Rebuild/Recovery 坐标，不读取原始 Payload、异常文本、通知正文或凭证。实现与验证见 [M6-I01 PostgreSQL 查询 Adapter 与 Keyset](testing/M6-I01-PostgreSQL查询Adapter与Keyset.md)。
 
-每个通知 PlannedAction 使用 Organization、Connection 和 Action Digest 派生稳定 Provider UUID。同一动作在同一 Connection 的重复 Event、Dispatch、Timeout、Lease 接管和 429/5xx 重试使用相同 UUID，不同 Organization、Tenant 或 Connection 使用不同 UUID，并限制在 Provider 去重保留期内。发送取得 Message ID 后查询精确消息存在性，Receipt 记录 `ACCEPTED` 和安全证据；该状态表达 Provider 接受消息，不表达成员已读。响应丢失时用相同 UUID 恢复原 Message ID；超过自动尝试或去重窗口进入 `UNKNOWN/RECONCILING` 与人工处理。完整协议见 [ADR-022](adr/ADR-022-Inbox与固定模板通知授权协议.md)、[M6-S03 验证记录](spikes/M6-S03-Inbox与固定模板通知授权验证记录.md) 和 [M6-S04 验证记录](spikes/M6-S04-Lark-OpenAPI与通知投递验证记录.md)。
+M6-I02 将 Projection Administration 和 Operations Recovery Port 接入 PostgreSQL。管理员命令遵循 Pointer、目标 Generation、旧 ACTIVE Generation、RebuildJob 的固定锁序，并在同一事务提交状态 CAS、CommandReceipt、安全 DomainEvent、Outbox 和 Audit；Audit Consumer Receipt 随直接 Audit 投影一并落库，后续至少一次分发不会重复追加。投影与通知恢复锁定精确目标并复验 Expected Version，只新增不可变恢复调度，不修改或删除原 DeadLetter、Delivery 和失败历史；通知外部发送仍由后续 Notification Worker 执行。
+
+Projection Supervisor 为 ONLINE 与 SHADOW Generation 保存独立 Claim 坐标，只领取 `BUILDING/VALIDATING` 影子代际，使用数据库 Lease、单调 Worker Fencing、Generation Fencing 和持久化 Keyset Cursor 每次重放有界一页。只有 `RUNNING` Claim 可保留 Owner、Lease 和 Heartbeat；`IDLE/INTERRUPTED/CAUGHT_UP` 必须清空运行所有权坐标，历史 Cursor 与单调 Fencing Token 继续保留。Startup Recovery 把过期 RUNNING Claim 转为可接管状态，正常关机中断本实例仍持有的工作。Retention/Cleanup 只选择超过保护期、未被 Pointer 引用且无有效 Lease 的 `RETIRED/FAILED/CANCELLED` 代际；Audit、DomainEvent、Inbox Disposition、Notification 历史、Generation/Job 墓碑和管理 Receipt 永久排除，`member-inbox` 中被 Notification Intent 引用的来源行继续保留。Actuator 仅输出运行、追平、中断、过期、待恢复和可清理数量。实现与验证见 [M6-I02 投影管理、Supervisor 与受审计恢复](testing/M6-I02-投影管理Supervisor与受审计恢复.md)。
+
+M6-I03 将通知写入和不确定结果恢复拆成两个 Worker。写 Worker 只领取 `READY/RETRY_WAIT`，Claim 事务提交后才签发动作级短期 Credential Handle 并调用 Provider；查询 Worker只领取 `UNKNOWN` 或过期的 `RUNNING/RECONCILING`，过期写 Claim 先提交 `UNKNOWN` 再进入查询，不能直接重发。每次结果回写必须同时匹配 Organization、Delivery Version、Worker ID、单调 Fencing Token 和未过期 Lease，旧 Worker 无法写入状态或 Receipt。稳定 Provider UUID 由 Organization、Connection 与 Action Digest 确定性派生，写入和查询恢复使用同一 UUID。
+
+Provider 返回统一归一化为 `ACCEPTED/RETRYABLE/UNKNOWN/FAILED_FINAL` 与 `FOUND/NOT_FOUND/RETRYABLE/UNKNOWN/FAILED_FINAL`。明确未写入才进入有界指数退避，可能已写入始终停留在查询恢复路径；达到写入或查询上限后保存唯一确定性终态 Receipt。Receipt 只保存 Provider Reference Hash、Message ID Hash、FailureCode 和稳定 Evidence Code，结果对象的 Provider 坐标在日志字符串中固定脱敏。人工再次投递消费 I02 的受审计 Recovery Schedule，以原 Operations Command ID 幂等创建带 `redeliveryOf` 的新 Delivery，再把 Schedule 指向 Replacement Delivery；原 `FAILED_FINAL` Delivery 和 Receipt 永不重置。实现与验证见 [M6-I03 Notification Worker 与查询恢复](testing/M6-I03-Notification-Worker与查询恢复.md)。
+
+M6-I04 的 Lark Connector 使用固定 `https://open.feishu.cn` Origin 和企业自建应用 Tenant Access Token，只暴露 Tenant 查询、精确 `open_id` 成员查询、固定 Text 传输和精确 Message ID 查询，不提供任意 URL、Method 或 Body 入口。成员操作必须具有 `collaboration.member.lookup-exact`，消息操作必须具有 `collaboration.notification.send-fixed-template`；每次 HTTP 调用前重新读取并验证当前 Connection、Grant、Credential 元数据及 Credential Subject，撤权或版本漂移后旧 Token 不可使用。
+
+Token Cache Key 闭合 Organization、Connection/Grant ID 与 Version、Credential ID/Version、Secret Version 和预期 Tenant Key，按 Key Single Flight、有界容量并保留至少 60 秒到期安全余量。401 精确失效当前 Key 并最多刷新一次，第二次 401 同样清除坏 Token；429、5xx 和普通传输失败归一化交给 M6-I03 的耐久 Worker，Connector 内不建立第二套重试状态机。`app_id/app_secret` 只从 CredentialStore 的动作级短期 Handle 读取，临时 Secret 与响应 Buffer 在回调结束后清理；Key、Token、Endpoint、Authorization、原始 Body 和身份值不进入公开结果、异常字符串或可观测数据。Spring 使用构造器注入，生产 Origin 固定，HTTP Loopback 仅允许测试显式开启的 `127.0.0.1` 或 `::1` 字面量。此层提供 M6-I05/I06 的安全传输基础，不承担成员 Mapping、模板 Registry 或 Notification Provider 映射。实现与验证见 [M6-I04 Lark Connector 与 Tenant Token 安全缓存](testing/M6-I04-Lark-Connector与Tenant-Token安全缓存.md)。
+
+M6-I05 的 `LarkCollaborationProvider` 固定声明 `COLLABORATION / lark-collaboration / REQUIRED` 和完整 Lark 能力，只把 Tenant 查询与精确 `open_id` 查询映射为应用 Port。成员身份要求请求与返回 Open ID 完全相同，保存 Union ID 和 Connector 声明的 `contact-user-open-api-v1` 契约版本；显示名、昵称、手机号、邮箱、任意 URL 和模糊搜索均不进入 Provider 接口。
+
+管理员 Preflight 复用 ADR-006 `ProviderBindingResolver.resolveCurrent`，要求精确 Organization、Team、Binding、TEAM Owner、Lark Implementation、当前 Connection/Grant 和所需 Capability。调用者必须是当前 ACTIVE Team Member，并通过 TEAM Scope 的 `PROVIDER_MANAGE`；Preflight 最后执行一次实时 Tenant 查询。安全结果只包含 Binding/Connection/Grant ID 与 Version、封闭健康状态、受限 Retry-After、Evidence Code 和检查时间。授权无法解析时直接返回 `AUTHORIZATION_UNAVAILABLE`，已缓存 Tenant Token 不能绕过每次远端调用前的 Connection、Grant、Credential 与能力复验。
+
+成员映射由 Team Admin 使用 `tenant_key + open_id` 精确确认。验证 Proof 闭合 Organization、Team、Connection/Grant ID 与 Version、Tenant、Open ID、Union ID 和 Provider Version，并且只能由生成 Proof 的同一条当前 Connection/Grant 确认。ExternalTenant 失效后作为不可复活的历史证据保留，重新接入需要新 Connection 与新 Tenant 证据。同一 Organization 内的外部身份和同一 Team Member 均保持单活动 Mapping，不同 Organization 的 Mapping 相互隔离；显示名、姓名、昵称、手机号和模糊邮箱不参与自动绑定。映射管理固定 Organization/Team，可按精确 Status 过滤，按 `updated_at DESC, id DESC` 使用稳定 Keyset 和 1 至 100 的有界页大小；PostgreSQL Adapter 在一个事务内终结旧 Mapping 并插入 Replacement。M6-I05 实现与验证见 [M6-I05 Lark Collaboration Provider 与映射 Preflight](testing/M6-I05-Lark-Collaboration-Provider与映射Preflight.md)。
+
+M6-I06 的固定模板 Renderer 只接受当前发布的精确 Template ID/Version 和封闭变量 Schema，输出字段顺序稳定并与 Lark Operation 共同限制为 4,000 字符。Lark Notification Provider 在写入前重新验证 ACTIVE TeamMember、ACTIVE Mapping 版本、VERIFIED ExternalTenant、Binding/Connection/Grant 版本、变量 Hash 和当前发布模板，再通过 `receive_id_type=open_id` 投递双层 JSON 编码后的固定 Text。调用面不暴露任意正文、任意 Recipient、任意 URL/Method/Body 或飞书入站消息。实现与验证见 [M6-I06 固定模板 Lark 投递与 Receipt 恢复](testing/M6-I06-固定模板Lark投递与Receipt恢复.md)。
+
+每个通知 PlannedAction 使用 Organization、Connection、Action ID、Action Digest 和 Notification Deduplication Key 派生稳定 Provider UUID。同一逻辑投递的重复 Event、Dispatch、Timeout、Lease 接管和查询恢复使用相同 UUID；管理员再次投递通过新的 Redelivery Plan 和 Deduplication Key 获得新的 UUID。发送取得 Message ID 后查询精确消息存在性，Receipt 记录 `ACCEPTED` 和安全证据；该状态表达 Provider 接受消息，不表达成员已读。Lark 没有按 UUID 查询消息的接口，响应丢失恢复会重放完全相同的固定 Recipient、正文和 UUID，依赖 Provider 幂等语义返回原 Message ID；该操作恢复原投递，不创建新的业务投递。超过自动恢复上限进入失败闭环与人工处理。完整协议见 [ADR-022](adr/ADR-022-Inbox与固定模板通知授权协议.md)、[M6-S03 验证记录](spikes/M6-S03-Inbox与固定模板通知授权验证记录.md)、[M6-S04 验证记录](spikes/M6-S04-Lark-OpenAPI与通知投递验证记录.md) 和 [M6-I06 验证记录](testing/M6-I06-固定模板Lark投递与Receipt恢复.md)。
 
 M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding、完成 Preflight 并显式启用后，Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
 
@@ -1235,6 +1255,10 @@ V28 将版本化 Lark ExternalTenant、15 分钟内有效的精确成员 Proof �
 V28 只为 Owner Member、Owner USER 和 Default TEAM Workspace 均有效的既有 ACTIVE Team 回填 Observer。模板 Hash 使用与 Java `AgentTemplateDefinition` 相同的长度前缀 SHA-256 规范，Principal/Profile UUID 使用与 `UUID.nameUUIDFromBytes` 相同的 UUID v3。`team-observer@1` 是 Organization 级全局保留坐标；迁移在选择可回填 Team 之前检查所有 Organization 的既有坐标，即使当前没有完整 Team，与内置契约冲突也必须整笔回滚。确定性 Principal/Profile ID 只对当前候选回填 Team 检查冲突。迁移不覆盖旧数据，也不生成 ModelConnection、AgentConfiguration 或模型绑定。数据库部署需要预装或允许迁移用户首次安装 PostgreSQL `pgcrypto` 扩展。
 
 `TeamSummaryRequest` 绑定 Organization、Team、当前 ACTIVE Member 和每段上限。`TeamSummaryResult` 固定返回进度、阻塞、Review 积压、待确认和异常五段数组，每条绑定成员可见性、批准的 Activity/Inbox/WorkItem/Task/Artifact 摘要数据范围和无 Scheme/Query/Fragment、无明文或百分号编码遍历、无空白或控制/格式字符的内部证据路径；摘要正文同样拒绝 Unicode 格式控制字符。打开证据链接时继续重新授权。领域与应用契约见 [M6-D05 Team Observer 领域与启用契约](testing/M6-D05-Team-Observer领域与启用契约.md)。
+
+M6-I07 将 `team-observer@1` 落为独立的 AgentScope 只读运行时。Runtime Registry 在模型 Credential 打开前闭合 ACTIVE Profile、固定 Template、当前 Configuration、TEAM Resolved Configuration、TEAM/ORGANIZATION Connection Owner、五 Tool、空 Skill、空成员补充 Prompt 与 Structured Output Schema Hash。五个 Tool 无模型可控的 Organization、Team、Member、Cursor 或 Limit 参数，每次调用从 Server 绑定的 `TeamSummaryRequest` 重新验证当前 ACTIVE 成员，并只向模型提供 Section、脱敏摘要和内部 Evidence Path。
+
+每次 Observer 调用创建新的 Toolkit 和证据目录。模型输出的每个 `summary + evidencePath` 必须与本次已执行 Tool 返回的同 Section 精确一致，改写摘要、虚构链接、重复选择、引用未读取数据和 Prompt 注入产生的新内容全部失败关闭。模型完成后再次复验成员资格，关闭调用期间离队或停用的披露竞态。AgentScope User/Session Key 与 State Reference 绑定 Organization、Team、Member、确定性 Observer Profile 和服务端 Session UUID；运行时同时关闭文件系统、Shell、Subagent、Memory、动态 Skill 与 Workspace Context。实现与验证见 [M6-I07 Team Observer AgentScope 只读运行时](testing/M6-I07-Team-Observer-AgentScope只读运行时.md)。
 
 ## 6. 交互入口与连接协议
 
@@ -1265,7 +1289,7 @@ CrewScope 扩展：
 
 客户端 Agent ID、Thread/Run ID、Tool、Context、State、ForwardedProps、Principal、Role、ProviderBinding、Connection 和 Session 不进入授权裁决或 RuntimeContext。AgentScope `userId/sessionId` 只读取持久化 AgentRuntimeSession 的版本化 Session Key。Thinking、Tool 参数与原始结果、State、Custom、Provider 原始错误和内部授权事实不进入 Web 协议。受控边界见 [ADR-005](adr/ADR-005-事件与投影协议.md)、[ADR-013](adr/ADR-013-AgentScope事件映射与披露协议.md)、[M2-S01 验证记录](spikes/M2-S01-受控AG-UI-Bridge验证记录.md)和 [M2-I06 验证记录](testing/M2-I06-AgentScope事件映射与脱敏.md)。
 
-M2 Agent 调用只在单个活动 CrewScope Server 实例上执行。实例内同 Session FIFO、跨 Session 并行；Redis 使用 CrewScope 环境与 Schema 版本前缀保存 AgentState。正常完成和 Graceful Shutdown 检查点可以跨进程恢复，硬中断从最后保存的检查点与 PostgreSQL Conversation 事实继续。部署和恢复协议见 [ADR-009](adr/ADR-009-会话执行所有权与恢复协议.md)。
+Agent 调用在同一执行角色内只允许单个活动 CrewScope 实例。Team Beta 的 API 和 Worker 共享同一 CrewScope 环境与 Schema 版本 Redis 前缀，因此 AgentState、Pending Tool 和 Session 检查点可跨角色恢复；执行所有权分别使用 `server` 和 `worker` Scope 的独立租约，防止 API/Worker 启动时互相排斥。每个角色内同 Session FIFO、跨 Session 并行；正常完成和 Graceful Shutdown 检查点可以跨进程恢复，硬中断从最后保存的检查点与 PostgreSQL Conversation 事实继续。部署和恢复协议见 [ADR-009](adr/ADR-009-会话执行所有权与恢复协议.md)和 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md)。
 
 Personal Agent 的任务提案使用 `TaskIntentV1` Structured Output，需要澄清时使用平台内置只读 `request_clarification` Tool 输出 `ClarificationRequestV1`。模型输出依次通过 AgentScope JSON Schema、CrewScope Bean Validation 和当前服务端领域事实校验。澄清 Tool 通过 AgentScope Permission ASK 进入中断，Web 只提交 `fieldKey -> answer`；Bridge 以服务端 Pending Tool 为基线绑定回答，内置 Tool 验证答案属于已声明问题且覆盖全部 Required 问题，再通过 Tool Result 把回答送回模型。客户端不能提交原生 ConfirmResult、ToolUseBlock、PermissionRule、replyId、toolCallId、Session 或 Tool 参数。
 
@@ -3772,6 +3796,16 @@ M2 通过 `AgentCallTraceContextProvider` 把当前 Micrometer Trace ID 与 Span
 
 Team Beta 的 Prometheus 标签使用受控枚举注册表，允许 `outcome`、`status`、`type`、`providerKey`、`projectionName`、`workerRole`、`operation`、`errorCode`、`streamType` 和 `result`。每项自定义指标的理论 Series 上限为 256，CrewScope 自定义指标总上限为 2,000。Organization、Team、Member、Conversation、WorkItem、Task、AgentRun、Action、Notification、Event、Correlation、Trace、Message 等 ID，URI、Repository、异常消息、Provider 原始错误、凭证和 Secret 禁止成为标签。受控关联 ID 进入 Trace 与脱敏结构化日志。
 
+M6-I08 使用不接受动态标签的 `OperationalTelemetry` 端口连接 Outbox、Projection、SSE、Inbox、Notification、Lark 和只读 Team Observer。实现预注册 `crewscope.m6.*` 指标及 Operations Health Gauge，理论 Series 总上限为 688；未声明指标、标签集、枚举值和动态身份标签均由 `MeterFilter` 拒绝。结构化日志在 Spring Boot 日志系统初始化阶段全局清理 Secret、PII、Prompt、Tool 内容、异常与控制字符。Trace、Metric、Baggage 或 Log 后端失效时，平台只更新无身份的聚合降级计数，不改变业务结果。实现与验证见 [M6-I08 OTel、Prometheus 与日志安全](testing/M6-I08-OTel-Prometheus与日志安全.md)。
+
+M6-I09 将 Team Beta 固定为 PostgreSQL、Redis、OTel Collector、Prometheus、API、Worker 和 Web 七服务单机拓扑。API/Worker 共用同一个后端不可变镜像，通过 `server/worker` 执行 Profile 分离网络入口与后台 Claim；API 独占 Flyway，Worker 在 API Readiness 通过后启动。Web 是唯一宿主入口，仅代理 `/api/`，Actuator、数据库、Redis 与观测组件留在内部网络。容器健康检查使用 Spring Boot Readiness 组件，业务积压通过 Prometheus 告警，不把可服务进程误判为容器故障。
+
+后端和 Web 使用多阶段构建、固定 UID/GID、非 Root、只读根文件系统、`no-new-privileges` 和全 Capability Drop。Docker Socket 仅挂载给 Worker，该 Worker 视为专用主机高权限边界；API 只挂载 Artifact，Web 不挂载业务数据。Secret 通过外部 Config Tree 文件注入，Compose 和镜像不携带可用凭证；Demo 启动输出仅提供 Owner-only Secret 文件坐标，不把 Bootstrap 密码写入终端输出、日志或证据。`team-beta` Profile 在就绪前校验角色、Flyway/Worker 开关、Redis Ownership Scope、外部 Secret、认证 Redis URL 与绝对数据路径；配置缺失或角色混合时失败关闭。空库首启在 V30 迁移后幂等创建 Organization 和 Runtime Service Principal。实现与真实 Compose 证据见 [M6-I09 生产镜像与 Team Beta 部署](testing/M6-I09-生产镜像与Team-Beta部署.md)。
+
+M6-I10 将 PostgreSQL Custom Dump、完整 Content-addressed Artifact 和 Redis RDB 组成一个整体加密恢复单元。备份先关闭 Web 入口，等待 Task/Action/Notification 活动归零，再停止 API/Worker 捕获三组件；Manifest 固定组件长度、SHA-256、Schema、Credential Key ID、Environment Fingerprint 与 Maintenance 证明，Envelope 固定密文长度、密文 SHA-256 和 Manifest SHA-256。Bundle/Envelope 先在私有临时目录内完整生成，发布时先写 Envelope、最后以 Bundle 作为可发现提交标记；普通失败和可捕获信号清理本次部分文件，强制中断也不会留下可被 Retention 误认的孤立 Bundle。Daily/Weekly 分别保留 7/4 份，Retention 默认只预览。
+
+恢复只允许写入新的 Compose Project、空 PostgreSQL/Redis Volume 和空 Artifact 根。写入前校验包、24 小时 RPO、V26–V30 Schema 与 Key ID；Artifact 根、Reference/Object 目录和存储文件都拒绝符号链接，Reference 的绝对 `file:` URI 在 Hash 校验后重定位到目标 Data Root，并再次验证全部 Object。API 单独启动完成至 V30 的 Flyway 与 Readiness Smoke，Worker/Web 在证据确认后开放。失败目标保留诊断并废弃，重试使用新空目标。开发机真实演练完成 V30→V30 与 V26→V30，RTO 分别为 63/64 秒，证据见 [M6-I10 Team Beta 备份恢复与 Runbook](testing/M6-I10-Team-Beta备份恢复与Runbook.md)和 [Team Beta 单机运维手册](runbooks/Team-Beta单机运维手册.md)。
+
 发布性能环境固定为 Linux amd64、8 vCPU、16 GiB 和至少 100 GiB 磁盘，使用 Temurin 17、Node 24、pnpm 11.9.0、Dataset `m6-team-beta-v1` 与 Seed `20260825`。固定负载使用 Web 并发 10、Task 并发 2、Warmup 120 秒、Measurement 600 秒和 3 次独立重复，每项指标每轮至少 500 个样本。P95 使用 `ceil(0.95 * N)` 的 nearest-rank 算法，每轮独立满足 READY Claim 与 Team Projection P95 `< 2s`，错误率 `<= 0.1%`。固定故障矩阵至少 100 个样本，自动恢复率 `>= 99%`，重复 Action/Notification、丢失 Inbox Disposition 与旧 Fencing 写入均为 0。
 
 每份性能与恢复证据保存 Environment Fingerprint、Git Revision、Image Digest、Schema、Dataset、Seed、样本数、错误率、P95、故障结果和 Evidence Hash。macOS/arm64 结果用于开发诊断，发布证据由固定 Linux amd64 环境生成。完整协议见 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md) 和 [M6-S05 验证记录](spikes/M6-S05-Team-Beta部署与发布验证记录.md)。
@@ -4243,7 +4277,7 @@ Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact �
 ```xml
 <properties>
     <java.version>17</java.version>
-    <spring-boot.version>4.0.4</spring-boot.version>
+    <spring-boot.version>4.0.6</spring-boot.version>
     <agentscope.version>2.0.0</agentscope.version>
 </properties>
 
@@ -4382,7 +4416,7 @@ Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact �
 </dependency>
 ```
 
-Spring Boot `4.0.4` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。本地单模型部署可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter；企业多模型部署引入对应 Model Extension，由受信 AgentScopeModelFactory 按 ResolvedModelSelection 显式构建 Model。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
+Spring Boot `4.0.6` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。本地单模型部署可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter；企业多模型部署引入对应 Model Extension，由受信 AgentScopeModelFactory 按 ResolvedModelSelection 显式构建 Model。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
 
 MVP 的 Docker Sandbox 由 `agentscope-harness` 内置 `DockerFilesystemSpec` 提供，不需要 Kubernetes Sandbox 扩展。仓库中现有 `agentscope-extensions-sandbox-kubernetes` 依赖保持未启用状态，完成 Kubernetes 执行拓扑 ADR 后再进入运行配置。
 
@@ -4548,7 +4582,7 @@ flowchart LR
 
 ### Phase 0：AgentScope 2.0.0 技术验证
 
-1. Spring Boot `4.0.4`、AgentScope `2.0.0`、Maven BOM 和六模块工程启动；
+1. Spring Boot `4.0.6`、AgentScope `2.0.0`、Maven BOM 和六模块工程启动；
 2. AG-UI WebFlux、Token Usage、Custom Event、Interrupt 和 Resume；
 3. RuntimeContext 使用 `userId/sessionId` 和类型化 `PlatformExecutionContext` 注入可信上下文；
 4. Structured Output、Plan Mode、Todo 和 PlanVersion；

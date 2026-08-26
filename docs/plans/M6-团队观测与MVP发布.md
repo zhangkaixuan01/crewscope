@@ -4,7 +4,7 @@
 > 前置条件：M5 Release Gate 通过，M0 Outbox/Projection/Audit、M1 Team/WorkItem、M2 Conversation、M3 Runtime、M4 Coding、M5 Review/Action/GitHub 契约稳定<br>
 > 目标周期：3–4 周，按纵向波次推进<br>
 > 目标结果：团队成员通过 Activity、Inbox、Audit 和只读 Team Observer 获得共享工作视野；固定模板通知可靠投递到飞书；完整 MVP 闭环具备可观测、可恢复、可部署和可重复验收能力<br>
-> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-I01`（2026-08-26）
+> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-A01`（2026-08-26）
 
 ## 1. 出口结果与范围
 
@@ -145,16 +145,16 @@ M6-F02..F07 -> M6-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M6-I01` | TASK | D08,E02..E07 | infrastructure | 实现 Activity、Inbox、Disposition、Notification、Audit Query、Generation/Rebuild/DeadLetter 与 OperationsHealthQueryPort 的 PostgreSQL Adapter 和 Keyset Query | 真实 PostgreSQL 对象图、稳定 Cursor、固定查询数、并发处置、代际隔离、跨租户和索引执行计划测试 |
-| `M6-I02` | TASK | E01,E07,I01 | infrastructure/server | 实现 Projection Supervisor、Startup Recovery、周期调度、Retention/Cleanup 与安全 Operations Port；在线代际和影子代际使用独立 Worker Claim | 多实例接管、关机中断、过期任务、旧 Fencing、清理保护、Actuator/Spring 条件装配和运维摘要测试 |
-| `M6-I03` | FEATURE | D03,E04,I01 | application/infrastructure | 实现 Notification Worker、Claim/Lease/Fencing、动作级短期凭证、发送/查询/Receipt、退避、失败终结和人工再次投递 | 事务提交前零调用、重复调度零重复消息、响应丢失查询恢复、旧 Worker 零回写和唯一逻辑 Receipt 测试 |
-| `M6-I04` | FEATURE | S04,D04 | integration/infrastructure | 实现 Lark Connector HTTP Client、tenant token 安全缓存、精确 Endpoint、超时、限流、错误归一化、CredentialStore Handle 和日志脱敏 | Loopback HTTP 验证 Token 刷新隔离、401/403/404/429/5xx、超时、取消、撤销、SSRF 和原始 Body 零泄漏 |
-| `M6-I05` | FEATURE | D04,I04 | integration/application | 实现 `LarkCollaborationProvider` 成员精确查询、管理员映射验证、Connection/Grant/Binding Preflight 与健康检查 | Tenant/User 精确身份、分页、限流、映射冲突、Owner/Scope、撤权、缓存失效和 Provider 契约测试 |
-| `M6-I06` | FEATURE | D03,I03..I05 | integration/application | 实现固定模板消息渲染、Lark 投递、客户端幂等键/查询恢复、外部回执安全投影与重复结果合并 | 模板/变量 Hash、消息转义、响应丢失、重复请求、外部版本乱序、Receipt 唯一和任意文本拒绝测试 |
-| `M6-I07` | FEATURE | D05,D09,E02,E03,I01 | agentscope/application | 实现 Team Observer Template Registry、TEAM Model Factory、五类只读 Tool、最小 Context、Structured Output、Session/State 隔离和脱敏证据链接 | Loopback 模型验证进度/阻塞/Review/确认/异常摘要，Tool 写攻击、跨 Team、私有事实、Prompt 注入和超限查询全部拒绝 |
-| `M6-I08` | TASK | S05,E07,I02,I03,I07 | infrastructure/server | 完成 OTel Span、Baggage 白名单、Prometheus 指标、日志字段与脱敏 Filter，覆盖 Outbox、Projection、SSE、Inbox、Notification、Lark 和 Team Observer | Trace 链完整、低基数标签扫描、Secret/PII 探针、指标聚合、日志快照、Actuator 授权和 Collector 失效降级测试 |
-| `M6-I09` | FEATURE | S05,I02,I03,I08 | server/infrastructure | 完善后端/Web/Worker 非 Root Dockerfile、Compose、健康检查、启动依赖、外部配置/Secret、Flyway、数据卷和一键演示 Profile | 干净主机启动、V1→V28、重启恢复、镜像扫描、只读文件系统、故障退出、配置缺失失败和一键演示测试 |
-| `M6-I10` | TASK | D08,D09,I09 | infrastructure/docs | 实现 PostgreSQL/Artifact/Redis-Snapshot 备份恢复、版本升级/回滚边界、数据校验清单和单机 Team Beta Runbook | 备份还原、V26→V28、应用版本回退兼容边界、坏备份失败关闭、恢复校验、RPO/RTO 实测记录和运维演练 |
+| `M6-I01` | TASK | D08,E02..E07 | infrastructure | 已完成：实现 Activity Query/TeamRealtimeEventStore、Audit Query/有界导出、NotificationPlanRepository 和 OperationsHealthQueryPort 的 PostgreSQL Adapter；复用当前代际 Inbox 与 Generation 外 Disposition Adapter；Activity/Audit 使用稳定 Keyset，Notification 持久化重建复验授权/动作/投递 Digest 与确定性 ID，Operations 以固定查询集合聚合 Generation/Rebuild/DeadLetter 安全坐标 | [M6-I01 PostgreSQL 查询 Adapter 与 Keyset](../testing/M6-I01-PostgreSQL查询Adapter与Keyset.md)；10 个真实 PostgreSQL 专项测试及既有 Inbox 联合回归覆盖稳定 Cursor、并发去重/CAS、代际隔离、跨租户、Digest 篡改失败关闭和索引执行计划 |
+| `M6-I02` | TASK | E01,E07,I01 | infrastructure/server | 已完成：实现 ProjectionAdministrationRepository、OperationsRecoveryRepository、Projection Supervisor、Startup Recovery、周期调度、Retention/Cleanup 与安全 Operations Port；管理员状态变更、CommandReceipt、DomainEvent、Outbox 和 Audit 原子提交，在线代际和影子代际使用独立 Worker Claim；通知恢复只生成新调度事实，外部投递留给 I03 | [M6-I02 投影管理、Supervisor 与受审计恢复](../testing/M6-I02-投影管理Supervisor与受审计恢复.md)；14 个专项测试覆盖真实 PostgreSQL 完整管理生命周期、Receipt 回放、三类恢复、并发收敛、历史不可变、多实例接管、Startup Recovery、旧 Fencing、Cursor、清理保护、Actuator/Spring 条件装配和低基数摘要 |
+| `M6-I03` | FEATURE | D03,E04,I01 | application/infrastructure | 已完成：实现 Provider 无关的 Notification 写 Worker与独立查询恢复 Worker、PostgreSQL Claim/Lease/单调 Fencing、动作级短期 Credential Handle、稳定 Provider UUID、发送/查询归一化结果、有界指数退避、失败终结、确定性唯一 Receipt 和受审计人工再次投递调度消费；过期 RUNNING 先持久化 UNKNOWN 再查询，旧 Worker 必须同时匹配 Organization/Version/Worker/Token/未过期 Lease 才能回写 | [M6-I03 Notification Worker 与查询恢复](../testing/M6-I03-Notification-Worker与查询恢复.md)；10 个 M6-I03 专项测试及 5 个 I01 联合回归覆盖事务提交前零调用、重复调度零重复消息、响应丢失查询恢复、并发 Claim、过期 Lease 接管、旧 Worker 零回写、唯一逻辑 Receipt、人工再次投递、配置边界和 Spring 失败关闭 |
+| `M6-I04` | FEATURE | S04,D04 | integration/server | 已完成：实现无通用 URL/Method/Body 入口的固定操作 Lark OpenAPI Client；每次调用复验 Connection/Grant/Credential 与动作能力，Tenant Token Cache Key 闭合 Organization、Connection/Grant/Credential/Secret Version 和 Tenant，按 Key Single Flight、有界容量与 60 秒安全余量；401 精确失效并最多刷新一次，429/5xx 交给 I03 Worker，Credential Handle 与响应 Buffer 及时清理，Spring 固定生产 Origin 并仅显式允许字面量 Loopback | [M6-I04 Lark Connector 与 Tenant Token 安全缓存](../testing/M6-I04-Lark-Connector与Tenant-Token安全缓存.md)；16 个 I04/S04/Spring 测试覆盖 Tenant 隔离、并发 Single Flight、两次 401、撤权/轮换、能力、固定成员/消息操作、403/404/429/5xx、读写超时、取消、非法/超大响应、SSRF、脱敏和配置失败关闭 |
+| `M6-I05` | FEATURE | D04,I04 | integration/application | 已完成：实现 `LarkCollaborationProvider` 固定 Tenant/精确 `open_id` 查询、ADR-006 当前授权 Preflight、安全健康状态、`PROVIDER_MANAGE` 管理员映射验证、稳定 Keyset 分页、双唯一 PostgreSQL Adapter 和 Spring 条件装配；Token Cache 命中后仍复验 Connection/Grant/Credential | [M6-I05 Lark Collaboration Provider 与映射 Preflight](../testing/M6-I05-Lark-Collaboration-Provider与映射Preflight.md)；26 个专项及联合回归覆盖 Tenant/User 精确身份、分页、429、映射冲突、Owner/Scope、撤权、缓存后再校验、数据库和 Provider 契约 |
+| `M6-I06` | FEATURE | D03,I03..I05 | integration/application | 已完成：实现当前发布版本复验的五类固定模板渲染、Claim 绑定短期 Lark Credential、当前 Member/Mapping/Tenant/Binding/Connection/Grant 写前复验、32 位稳定 UUID 投递、同 UUID 响应丢失恢复、精确 Message ID 确认和单调 Receipt Observation 合并；任意正文入口与飞书入站保持关闭 | [M6-I06 固定模板 Lark 投递与 Receipt 恢复](../testing/M6-I06-固定模板Lark投递与Receipt恢复.md)；专项及联合回归覆盖模板/变量 Hash、双层 JSON 转义、响应丢失、重复请求、授权漂移外部零写、观察时间乱序、Receipt 身份冲突、唯一逻辑 Receipt 和任意文本拒绝 |
+| `M6-I07` | FEATURE | D05,D09,E02,E03,I01 | agentscope/application | 已完成：实现精确 `team-observer@1` Runtime Registry、Credential 打开前 TEAM Model Factory、五个参数封闭只读 Tool、逐次成员复验、最小 Context、冻结 Structured Output、调用级证据目录、Team/成员/Session 状态隔离和安全 Evidence Path 选择 | [M6-I07 Team Observer AgentScope 只读运行时](../testing/M6-I07-Team-Observer-AgentScope只读运行时.md)；真实 Harness Loopback 与攻击测试覆盖五段摘要、写 Tool 缺失、跨 Team/成员、私有事实、Prompt 注入、虚构 Evidence、撤权竞态和超限查询拒绝 |
+| `M6-I08` | TASK | S05,E07,I02,I03,I07 | infrastructure/server | 已完成：建立强类型低基数 `OperationalTelemetry` 端口，为 Outbox、Projection、SSE、Inbox、Notification、Lark 和 Team Observer 提供 OTel Span、三项内部 Baggage 白名单、`crewscope.m6.*` Prometheus 指标与全局结构化日志脱敏；未申明/动态标签失败关闭，观测后端失效时业务无损降级 | [M6-I08 OTel、Prometheus 与日志安全](../testing/M6-I08-OTel-Prometheus与日志安全.md)；55 个专项与联合回归覆盖七类边界、低基数标签扫描、Secret/PII JSON 快照、Operations Health Gauge、Actuator 授权和 Collector/Registry 故障降级 |
+| `M6-I09` | FEATURE | S05,I02,I03,I08 | server/infrastructure | 已完成：交付后端与 Web 多阶段不可变镜像、API/Worker 角色分离、七服务 Compose、内部网络、外部 Config Tree Secret、API 独占 Flyway、Readiness 启动依赖、数据卷和一键 Demo；三个应用容器非 Root、只读 RootFS、Drop ALL Capability，Docker Socket 仅属于 Worker；AgentState 共享而执行所有权按 `server/worker` Scope 隔离，Team Beta 配置与空库引导失败关闭 | [M6-I09 生产镜像与 Team Beta 部署](../testing/M6-I09-生产镜像与Team-Beta部署.md)；静态合同、Spring 角色/空库契约、正式镜像七服务实际 Healthy、V1→V30、API/Worker 重启恢复、只读文件系统、UID/GID、Socket 隔离、配置缺失和镜像扫描 |
+| `M6-I10` | TASK | D08,D09,I09 | infrastructure/docs | 已完成：实现 Maintenance/零活动、PostgreSQL Custom Dump、完整 Artifact、Redis RDB、Manifest/Envelope、整体加密、Environment Fingerprint、Key ID、Retention、空目标恢复、Artifact URI 重定位、V26–V30 到 V30 边界、RPO/RTO Evidence 和单机 Runbook | [M6-I10 备份恢复与 Runbook](../testing/M6-I10-Team-Beta备份恢复与Runbook.md)；合同门禁、V30→V30、V26→V30、坏包、非空目标、Artifact/Redis/Organization/Principal 与实际 RPO/RTO |
 
 ## 9. 应用、API 与 Team Observer
 
@@ -188,7 +188,7 @@ M6-F02..F07 -> M6-F08
 | `M6-Q01` | HARDENING | D01..D09,E01..E07,I01..I08,A01..A07,F01..F07 | all | 建立 Activity/Inbox/Audit/Team Observer/Lark/Notification/Operations 固定攻击集，覆盖跨 Scope、Cursor、Payload、Prompt、映射、模板、凭证、重建和运维命令 | 越权工具与资源访问阻断率 100%；Team Observer 写调用 0；Secret/PII/原始 Payload 泄漏 0；普通成员重建/重放命令 0 |
 | `M6-Q02` | HARDENING | E01..E07,I01..I07,A01..A06 | all | 注入 Outbox、Projection、SSE、Redis/Snapshot、Worker、Worktree、Model、GitHub、Lark、Notification 和数据库提交窗口故障，冻结至少 100 个样本 | 自动恢复率 ≥99%；重复 Action/Notification Dispatch 为 0；处置状态不丢失；最终失败进入人工队列；旧 Fencing 写入 0 |
 | `M6-Q03` | HARDENING | S05,I06,I08..I10,A01..A07,F08 | all/performance | 执行固定负载、重启恢复、备份还原、完整 MVP E2E 和显式凭证真实 Lark 烟测；真实轨道只向专用测试接收者发送固定模板并追加归档脱敏报告，普通 CI 不读取凭证 | Team Activity/Inbox 投影 P95 <2s；READY Claim P95 <2s；Worktree 回滚 100%；干净环境完整闭环可重复运行；真实 Lark 固定模板取得安全 Receipt |
-| `M6-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M6 与 MVP Release Gate，审查 V27–V28、M0–M5 回归、后端、前端、AgentScope、Docker、Provider、依赖、文档、部署和演示证据 | 所有自动化零失败/零跳过；安全/故障/负载门槛通过；镜像与依赖零阻断漏洞；形成版本化 M6 Release Gate 报告 |
+| `M6-Q04` | HARDENING | Q01,Q02,Q03 | all/docs/ci | 执行 M6 与 MVP Release Gate，审查 V27–V30、M0–M5 回归、后端、前端、AgentScope、Docker、Provider、依赖、文档、部署和演示证据 | 所有自动化零失败/零跳过；安全/故障/负载门槛通过；镜像与依赖零阻断漏洞；形成版本化 M6 Release Gate 报告 |
 
 ## 12. 纵向实施波次
 
@@ -223,7 +223,7 @@ M6 完成需要同时满足：
 15. Outbox、Projection、Notification、Team Observer 和 Provider 具备 Trace、低基数指标、健康摘要和安全 Audit；
 16. 固定 100 个以上故障样本的自动恢复率达到 ≥99%，重复 Action/Notification Dispatch 为 0；
 17. 固定负载下 Team Activity/Inbox 投影和 READY TaskExecution Claim 的 P95 延迟均小于 2 秒；
-18. 干净环境可以启动 V1–V28、使用年龄不超过 24 小时的完整备份在 4 小时内恢复，并重复演示首条完整 MVP 纵向闭环；
+18. 干净环境可以启动 V1–V30、使用年龄不超过 24 小时的完整备份在 4 小时内恢复，并重复演示首条完整 MVP 纵向闭环；
 19. Conversation Mode 与 Control Mode 展示同一 Activity、Inbox、Observer、Notification 和 Audit 事实；
 20. M0–M5 全量回归、后端、前端、Docker、AgentScope、GitHub/Lark Fixture、真实 Lark 固定模板烟测、依赖、链接和格式门禁全部通过。
 

@@ -7,7 +7,7 @@
 
 ## 背景
 
-CrewScope Team Beta 需要一套可重复部署、观测、压测、备份恢复和发布验收协议。现有 `compose.yaml` 只提供 PostgreSQL 与 Redis 开发依赖，`docs/Dockerfile` 仍是文档构建占位镜像。M6-I08 至 I10 将根据本 ADR 交付生产形态的镜像、Compose、可观测配置、备份恢复脚本和发布门禁。
+CrewScope Team Beta 使用一套可重复部署、观测、压测、备份恢复和发布验收协议。M6-I08 已落地 OTel/Prometheus 与日志安全；M6-I09 已交付生产形态的后端/Web 镜像、七服务 Compose、外部 Secret、角色分离和一键演示 Profile，原 `docs/Dockerfile` 占位镜像已删除；M6-I10 已交付三组件加密备份、空目标恢复、版本边界与单机 Runbook。
 
 Team Beta 面向单团队试用，采用一台专用 Linux 主机。该阶段验证完整产品闭环、数据可恢复性和运维证据，不承诺多机高可用、跨区域容灾或 Kubernetes 拓扑。
 
@@ -43,12 +43,13 @@ Prometheus
 - Web、API 和 Worker 使用独立运行角色与独立进程；
 - Web 是唯一公开端口，API、Worker、Actuator、PostgreSQL、Redis、OTel Collector 和 Prometheus 只在内部网络访问；
 - API 负责 Flyway 迁移。Worker 关闭 Flyway，并在数据库迁移完成且 API Ready 后启动 Claim；
+- API 与 Worker 共享同一 Redis AgentState Keyspace，执行所有权按 `server` 和 `worker` Scope 使用独立租约，每个角色仍只允许单个活动执行实例；
 - Web、API 和 Worker 使用非 Root 用户、只读根文件系统、受控 `tmpfs` 和最小 Linux Capability；
 - 所有应用、基础设施和 Sandbox 镜像使用不可变 SHA-256 Digest；
 - Secret 通过受控 `secret-ref:` 外部文件或环境引用注入，Compose 文件不提供真实默认值、明文和可用测试凭证；
 - 只有 Worker 可以访问 Docker Socket。该能力等同宿主机高权限，Team Beta 必须运行在专用主机，Worker 只接受平台校验过的 Sandbox 请求；
 - PostgreSQL、Redis、Artifact、Repository、Worktree 和 Prometheus 使用分离的持久卷与最小读写权限；
-- 每个服务提供健康检查，启动依赖使用健康与就绪状态，不使用固定等待时间推断可用性。
+- 每个服务提供健康检查，API/Worker 使用 Spring Boot Readiness Group，Prometheus 使用 `/-/ready`；启动依赖使用就绪状态，不使用聚合业务健康或固定等待时间推断进程可用性。
 
 ### Canonical Release Environment
 
@@ -63,7 +64,7 @@ Prometheus
 | Maven | Wrapper 3.9.11 |
 | Node.js | 24.x |
 | pnpm | 11.9.0 |
-| Schema | V28 |
+| Schema | V30 |
 | Dataset | `m6-team-beta-v1` |
 | Seed | `20260825` |
 
@@ -168,9 +169,9 @@ Manifest、组件 Hash、Schema 兼容性、Credential Key 可用性、目标为
 
 ## 实现约束
 
-1. M6-I08 构建 API/Worker 与 Web 多阶段镜像，镜像内使用固定 UID/GID、非 Root 和只读运行约束。
-2. M6-I09 实现 Role 分离、Compose 网络、持久卷、健康检查、Digest、Secret 引用和 Worker Docker Socket 高权限边界。
-3. M6-I10 实现 OTel Collector、Prometheus、备份、空目标恢复、Environment Fingerprint、负载和 Release Gate 脚本。
+1. M6-I08 实现 OTel Span、内部 Baggage 白名单、Prometheus 低基数预算、结构化日志脱敏与观测后端失效降级。
+2. M6-I09 已构建 API/Worker 与 Web 多阶段镜像，实现 Role 分离、Compose 网络、持久卷、Readiness 健康检查、Digest、Config Tree Secret、角色级 Redis Ownership 和 Worker Docker Socket 高权限边界，镜像内使用固定 UID/GID、非 Root 和只读运行约束。
+3. M6-I10 已实现备份、空目标恢复、Artifact URI 重定位、版本升级/回滚边界、数据校验清单和 Team Beta Runbook。
 4. API 是 Flyway 单一迁移角色。Worker/Web 不竞争数据库迁移锁，也不在 API Ready 前处理任务。
 5. 生产配置缺失、使用浮动镜像、公开内部端口、Root 用户、可写根文件系统或内联 Secret 时启动失败关闭。
 6. 低基数预算、P95 算法、样本量、Seed、恢复顺序和 Required Gate Step 属于版本化协议；变更必须更新测试、ADR 和 Release Manifest Schema。
@@ -197,7 +198,7 @@ M6-S05 test-only Harness 覆盖 6 个场景：
 5. Maintenance/Quiescence、三组件 Hash Manifest、空目标有序恢复和 RPO/RTO；
 6. PR、Nightly、受保护 Release Candidate 分层，Required Step 缺失或跳过时拒绝发布。
 
-验证证据见 [M6-S05 Team Beta 部署与发布验证记录](../spikes/M6-S05-Team-Beta部署与发布验证记录.md)。
+验证证据见 [M6-S05 Team Beta 部署与发布验证记录](../spikes/M6-S05-Team-Beta部署与发布验证记录.md)、[M6-I09 生产镜像与 Team Beta 部署](../testing/M6-I09-生产镜像与Team-Beta部署.md)和 [M6-I10 Team Beta 备份恢复与 Runbook](../testing/M6-I10-Team-Beta备份恢复与Runbook.md)。M6-I09 在本机真实 Compose 中验证七服务同时 Healthy、V1→V30、空库幂等引导、API/Worker 重启恢复、只读 RootFS、UID/GID 与 Docker Socket 隔离；M6-I10 实际验证 V30→V30、V26→V30、Artifact 重定位、坏包和非空目标失败关闭，RTO 为 63/64 秒。该 macOS/arm64 记录是开发证据，不替代 Canonical Linux amd64 Release Evidence。
 
 ## 重新评估条件
 
