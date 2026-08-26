@@ -4,7 +4,7 @@
 > 前置条件：M5 Release Gate 通过，M0 Outbox/Projection/Audit、M1 Team/WorkItem、M2 Conversation、M3 Runtime、M4 Coding、M5 Review/Action/GitHub 契约稳定<br>
 > 目标周期：3–4 周，按纵向波次推进<br>
 > 目标结果：团队成员通过 Activity、Inbox、Audit 和只读 Team Observer 获得共享工作视野；固定模板通知可靠投递到飞书；完整 MVP 闭环具备可观测、可恢复、可部署和可重复验收能力<br>
-> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-E01`（2026-08-25）
+> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-I01`（2026-08-26）
 
 ## 1. 出口结果与范围
 
@@ -92,7 +92,7 @@ M6-S03 + S04 -> M6-D03,D04 -> M6-D08,D09 -> M6-E04 -> M6-I03..I06
 M6-D05 -> M6-D09 -> M6-I07 -> M6-A05 -> M6-F06
 M6-S05 -> M6-I08..I10 -> M6-A06,A07 -> M6-F07
 
-M6-I01,I02 + M6-E01..E05 -> M6-A01..A03
+M6-I01,I02 + M6-E01..E07 -> M6-A01..A03,A06
 M6-I03..I06 -> M6-A04 -> M6-F05
 M6-A01..A04 -> M6-F01..F05
 M6-A05 -> M6-F06
@@ -133,19 +133,19 @@ M6-F02..F07 -> M6-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M6-E01` | FEATURE | S01,D07,D08 | infrastructure/server | 加固 Outbox Publisher、消费调度、Checkpoint 和 Projection Registry；实现 Generation-aware Runner、影子重建、验证和原子切换 | 多实例 SKIP LOCKED、Claim 过期、旧 Token、重复 Receipt、版本缺口、构建失败、切换竞态和进程重启 Testcontainers 测试 |
-| `M6-E02` | FEATURE | D01,D08,E01 | application/infrastructure | 实现 EventType Registry 与 Activity Projector，把 M0–M5 评审通过的 Team/WorkItem/Task/Review/Action/Provider 事件映射为安全 Activity | 公开 Payload 快照、同事件去重、同 Aggregate 多事件、跨 Aggregate 顺序、未知事件忽略/告警和重建 Hash 测试 |
-| `M6-E03` | FEATURE | D02,D08,E01 | application/infrastructure | 实现 Inbox Projector，按当前责任和成员资格生成/关闭五类成员待办，并与独立 Disposition 合并查询 | Owner/Executor/Reviewer/Confirmer/异常矩阵、离队、职责释放、旧 Review/Action、重复重放、重建保留已读状态测试 |
-| `M6-E04` | FEATURE | D03,D04,D08,E01,E03 | application/infrastructure | 实现 Notification Intent Projector，按固定策略、成员偏好、DND 和 Lark Mapping 从 Inbox 产生策略授权 PlannedAction；最终结果回写 Delivery 与失败 Inbox | 相同来源零重复、DND 延后、映射缺失、撤权、模板升级、失败闭环和投影回环防护测试 |
-| `M6-E05` | FEATURE | S02,D01,E01,E02 | application/server | 实现 Team Realtime Event Store、签名 Cursor、快照/缺口读取、SSE 心跳、背压、过期和断线补发；保留 Conversation/AG-UI 独立 Cursor | 双连接、断线、批量缺口、慢消费者、Cursor 篡改/过期、Scope 切换和同微秒 Event ID 顺序测试 |
-| `M6-E06` | TASK | D06,E01,E02..E04 | infrastructure | 扩展 Audit Projector 覆盖 M3–M6 Runtime、Agent、Model、Review、Action、Projection、Notification 与 Lark 安全事件，提供脱敏查询形状 | Correlation 链、Initiator/Actor/Agent、授权结果、Provider 安全码、未知字段、Secret 探针和重建一致性测试 |
-| `M6-E07` | TASK | E01..E06 | application/server | 提供投影 Lag、Dead Letter、Generation、重建、Cursor 和 Notification 积压的低基数健康摘要、管理员诊断与受审计恢复命令 | 成员只读安全摘要、管理员详情、重放/重建强确认、命令幂等、并发冲突、指标基数和敏感字段测试 |
+| `M6-E01` | FEATURE | S01,D07,D08 | infrastructure/server | 已完成：保留 Outbox `SKIP LOCKED`/Claim 过期/旧 Token 边界，实现持久化 Registry 动态路由、ACTIVE 优先的 Generation 独立事务、Receipt/Checkpoint/Fencing、Definition Version 写前复验、有界 Keyset 历史重放、规范快照验证和 Pointer-first 原子切换；旧 Checkpoint Runner 保持滚动升级兼容 | [M6-E01 Generation-aware 投影运行时与原子切换](../testing/M6-E01-Generation-aware投影运行时与原子切换.md)；6 个专项与 34 个联合回归覆盖多实例 Claim、过期接管、在线先提交、重复 Receipt、Definition 错配拒绝、缺口/失败回滚、旧 Fencing、切换竞态和进程重启 |
+| `M6-E02` | FEATURE | D01,D08,E01 | application/infrastructure | 已完成：实现按 `EventType + SchemaVersion` 精确匹配的 35 个事件类型、40 个安全 Schema 坐标 Registry，以及 Generation-aware `team-activity` Projector；Task V1/V2 均显式评审，公开 Payload 只提取白名单标量，未知事件和有效非 Team Provider 事件安全忽略，已注册损坏事件失败关闭；首事件原子引导 Definition/Generation/Pointer，同 Team 跨 Aggregate 写入串行分配序号，历史与在线代际使用同源规范 Hash | [M6-E02 安全 Activity EventType Registry 与 Projector](../testing/M6-E02-安全Activity-EventType-Registry与Projector.md)；13 个专项测试覆盖公开 Payload、敏感字段排除、Task V2、精确 Schema、重复事件、同/跨 Aggregate 顺序、首事件引导、非 Team Provider、未知事件、事务回滚和影子重建 Hash |
+| `M6-E03` | FEATURE | D02,D08,E01 | application/infrastructure | 已完成：实现按 `EventType + SchemaVersion` 精确匹配的 16 个事件坐标 Registry 和 Generation-aware `member-inbox` Projector；按当前责任、冻结 Reviewer/Confirmer 和成员资格生成/关闭五类来源，迟到打开事件服从当前权威终态；当前 Pointer 来源与 Generation 外 Disposition 服务端合并，无处置返回 `UNREAD@0`，影子重建与切换保留稳定 Item ID 和成员状态 | [M6-E03 Inbox Projector 与 Disposition 合并查询](../testing/M6-E03-Inbox-Projector与Disposition合并查询.md)；9 个专项测试覆盖 Owner/Executor/Reviewer/Confirmer/Task 与 Action 异常、离队、职责释放、旧 Review/Action、防重复、成功零噪声、重建切换和 `READ@1` 保留 |
+| `M6-E04` | FEATURE | D03,D04,D08,E01,E03 | application/infrastructure | 已完成：实现与 `member-inbox` 共代际的 Notification Intent Projector，按五类固定策略、精确模板与变量、成员偏好、DND 和 Lark Mapping/Binding/Connection/Grant/Tenant 当前授权产生策略授权 PlannedAction；影子代际只构建 Intent，Pointer 切换后计划；最终失败生成 Inbox，成功再次投递关闭，通知失败来源禁止递归 | [M6-E04 固定模板通知意图投影与失败 Inbox 闭环](../testing/M6-E04-固定模板通知意图投影与失败Inbox闭环.md)；7 个专项测试覆盖相同来源零重复、DND、映射缺失/撤销、完整授权漂移、不可变模板升级、影子切换、失败闭环和投影回环防护 |
+| `M6-E05` | FEATURE | S02,D01,E01,E02 | application/server | 已完成：冻结 Team Realtime Event Store 的同读快照/高水位/缺口契约，实现版本化 Base64URL + HMAC-SHA256 Cursor、带 Key ID 的有界轮换、时间与完整 Scope 校验，以及首批预读、逐页串行补发、空轮询合并、无位置心跳、代际/保留过期和单连接独立 Position；Conversation/AG-UI Cursor 保持独立 | [M6-E05 Team Realtime Event Store 与签名 Cursor/SSE 恢复](../testing/M6-E05-Team-Realtime-Event-Store与签名Cursor-SSE恢复.md)；14 个专项测试覆盖双连接、断线、批量缺口、慢消费者、同微秒顺序、心跳、快照竞态、Cursor 篡改/过期、Scope 切换、Key 轮换和 fail-closed 装配 |
+| `M6-E06` | TASK | D06,E01,E02..E04 | infrastructure | 已完成：建立 96 个 `EventType + SchemaVersion` 精确坐标的 M0–M6 Audit Registry；扩展追加写 Projector，映射 Category/Outcome/Retention、Initiator/Actor/Agent、Correlation/Causation 和 Provider 安全引用，只保存白名单低基数摘要；已注册未知字段失败回滚，未注册事件保留 `SYSTEM/STANDARD` 事实且原始 Payload 零复制；Legacy 追加写行保持不可变并以空摘要参与规范校验；提供 DomainEvent 历史与 Audit 当前行规范 Count/SHA-256 校验 | [M6-E06 安全 Audit Registry 与追加写 Projector](../testing/M6-E06-安全Audit-Registry与追加写Projector.md)；24 个专项/回归测试覆盖精确坐标、失败 Outcome、身份链、Provider Hash、未知字段、Secret/PII 探针、未注册事件、Legacy 空摘要、追加写回归和规范一致性 |
+| `M6-E07` | TASK | E01..E06 | application/server | 已完成：建立 Projection、Outbox、DeadLetter、Cursor、Notification 五组件健康契约，成员只见枚举状态和聚合计数，管理员额外获得 Generation/Rebuild/有界错误与闭集恢复坐标；Outbox/Projection DeadLetter 和 Notification 恢复绑定 Expected Version、强确认、Command ID、语义 SHA-256 与原子 Audit/Receipt 契约；提供低基数 Metric Sample、配置阈值和 I01/I02 Port 条件装配 | [M6-E07 运行健康诊断与受审计恢复命令](../testing/M6-E07-运行健康诊断与受审计恢复命令.md)；18 个专项测试覆盖成员/管理员分层、跨 Scope/未来时间、强确认、精确回放、语义复用、并发冲突、98 项 Audit Registry、指标字段和 Spring 失败关闭 |
 
 ## 8. 基础设施、Provider 与运行平台
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M6-I01` | TASK | D08,E02..E06 | infrastructure | 实现 Activity、Inbox、Disposition、Notification、Audit Query、Generation/Rebuild/DeadLetter 的 PostgreSQL Adapter 和 Keyset Query | 真实 PostgreSQL 对象图、稳定 Cursor、固定查询数、并发处置、代际隔离、跨租户和索引执行计划测试 |
+| `M6-I01` | TASK | D08,E02..E07 | infrastructure | 实现 Activity、Inbox、Disposition、Notification、Audit Query、Generation/Rebuild/DeadLetter 与 OperationsHealthQueryPort 的 PostgreSQL Adapter 和 Keyset Query | 真实 PostgreSQL 对象图、稳定 Cursor、固定查询数、并发处置、代际隔离、跨租户和索引执行计划测试 |
 | `M6-I02` | TASK | E01,E07,I01 | infrastructure/server | 实现 Projection Supervisor、Startup Recovery、周期调度、Retention/Cleanup 与安全 Operations Port；在线代际和影子代际使用独立 Worker Claim | 多实例接管、关机中断、过期任务、旧 Fencing、清理保护、Actuator/Spring 条件装配和运维摘要测试 |
 | `M6-I03` | FEATURE | D03,E04,I01 | application/infrastructure | 实现 Notification Worker、Claim/Lease/Fencing、动作级短期凭证、发送/查询/Receipt、退避、失败终结和人工再次投递 | 事务提交前零调用、重复调度零重复消息、响应丢失查询恢复、旧 Worker 零回写和唯一逻辑 Receipt 测试 |
 | `M6-I04` | FEATURE | S04,D04 | integration/infrastructure | 实现 Lark Connector HTTP Client、tenant token 安全缓存、精确 Endpoint、超时、限流、错误归一化、CredentialStore Handle 和日志脱敏 | Loopback HTTP 验证 Token 刷新隔离、401/403/404/429/5xx、超时、取消、撤销、SSRF 和原始 Body 零泄漏 |
