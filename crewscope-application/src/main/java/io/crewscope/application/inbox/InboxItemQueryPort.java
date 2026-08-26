@@ -11,4 +11,15 @@ public interface InboxItemQueryPort {
 
     Optional<InboxItem> findCurrent(
             OrganizationId organizationId, TeamId teamId, InboxItemId inboxItemId);
+
+    /**
+     * Returns the current source merged with Generation-independent member authority. Adapters
+     * must override this method; the default keeps small domain/application test doubles source
+     * compatible and represents an absent authority row as UNREAD@0.
+     */
+    default Optional<InboxItemView> findCurrentView(
+            OrganizationId organizationId, TeamId teamId, InboxItemId inboxItemId) {
+        return findCurrent(organizationId, teamId, inboxItemId)
+                .map(item -> InboxItemView.merge(item, Optional.empty()));
+    }
 }

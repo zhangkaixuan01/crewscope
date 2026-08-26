@@ -72,10 +72,10 @@ public final class AuditSummarySchema {
         }
         HashSet<String> allowed = new HashSet<>(this.requiredFields);
         allowed.addAll(this.optionalFields);
-        if (allowed.isEmpty() || allowed.size() > MAX_FIELDS) {
+        if (allowed.size() > MAX_FIELDS) {
             throw new DomainValidationException(
                     "auditSummarySchema.fields",
-                    "must contain between 1 and " + MAX_FIELDS + " safe fields");
+                    "must contain at most " + MAX_FIELDS + " safe fields");
         }
         this.allowedFields = Set.copyOf(allowed);
     }

@@ -129,7 +129,9 @@ class AuditProjectionIntegrationTest extends AbstractPostgresRedisContainerInteg
                 """
                 SELECT principal_id, initiator_id, actor_type, actor_id,
                        agent_principal_id, event_type, subject_type, subject_id,
-                       outcome, domain_event_id, correlation_id, schema_version,
+                       event_category, outcome, retention_level, domain_event_id,
+                       correlation_id, schema_version,
+                       authorization_context::TEXT AS authorization_context,
                        payload::TEXT AS payload
                 FROM crewscope.audit_event
                 WHERE domain_event_id = ?
@@ -143,12 +145,21 @@ class AuditProjectionIntegrationTest extends AbstractPostgresRedisContainerInteg
         assertEquals("WORK_ITEM_CREATED", audit.get("event_type"));
         assertEquals("WORK_ITEM", audit.get("subject_type"));
         assertEquals(aggregateId, audit.get("subject_id"));
+        assertEquals("WORK", audit.get("event_category"));
         assertEquals("SUCCEEDED", audit.get("outcome"));
+        assertEquals("STANDARD", audit.get("retention_level"));
         assertEquals(versionZero.eventId(), audit.get("domain_event_id"));
         assertEquals("1", audit.get("schema_version"));
-        assertEquals(0, objectMapper.readTree((String) audit.get("payload"))
-                .get("sequence")
-                .intValue());
+        assertEquals(
+                "AUD-1",
+                objectMapper.readTree((String) audit.get("payload"))
+                        .get("itemKey")
+                        .stringValue());
+        assertEquals(
+                "REVIEWED",
+                objectMapper.readTree((String) audit.get("authorization_context"))
+                        .get("classification")
+                        .stringValue());
     }
 
     @Test
@@ -327,7 +338,16 @@ class AuditProjectionIntegrationTest extends AbstractPostgresRedisContainerInteg
                 eventActorId,
                 correlationId,
                 occurredAt.atOffset(ZoneOffset.UTC),
-                "{\"sequence\":" + aggregateVersion + "}");
+                """
+                {
+                  "projectId":"%s",
+                  "itemKey":"AUD-1",
+                  "title":"Projection work",
+                  "status":"OPEN",
+                  "initialOwnerAssignmentId":null,
+                  "initialOwnerPrincipalId":null
+                }
+                """.formatted(UUID.randomUUID()));
         UUID outboxId = UUID.randomUUID();
         String partitionKey = "%s:WORK_ITEM:%s".formatted(organizationId, aggregateId);
         if (outbox) {
@@ -362,7 +382,12 @@ class AuditProjectionIntegrationTest extends AbstractPostgresRedisContainerInteg
         root.set("idempotencyKey", objectMapper.nullNode());
         root.put("occurredAt", occurredAt.toString());
         ObjectNode payload = objectMapper.createObjectNode();
-        payload.put("sequence", aggregateVersion);
+        payload.put("projectId", UUID.randomUUID().toString());
+        payload.put("itemKey", "AUD-1");
+        payload.put("title", "Projection work");
+        payload.put("status", "OPEN");
+        payload.set("initialOwnerAssignmentId", objectMapper.nullNode());
+        payload.set("initialOwnerPrincipalId", objectMapper.nullNode());
         root.set("payload", payload);
         return new EventPublication(
                 outboxId,

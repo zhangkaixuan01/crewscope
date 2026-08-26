@@ -11,15 +11,15 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Rebuilds the canonical external envelope from the normalized DomainEvent fact columns. */
-final class JdbcDomainEventJsonMapper {
+public final class JdbcDomainEventJsonMapper {
 
     private final ObjectMapper objectMapper;
 
-    JdbcDomainEventJsonMapper(ObjectMapper objectMapper) {
+    public JdbcDomainEventJsonMapper(ObjectMapper objectMapper) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
 
-    String map(ResultSet resultSet) throws SQLException {
+    public String map(ResultSet resultSet) throws SQLException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("eventId", resultSet.getObject("event_id").toString());
         root.put("eventType", resultSet.getString("event_type"));
