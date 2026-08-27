@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.77<br>
+> 文档版本：v1.78<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.37`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5、M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08、M6-Q01 至 M6-Q02 已完成；M6-Q03 Fixture 与 M6-Q04 本机确定性预检已完成，待 Linux amd64 Canonical Nightly 空目标恢复、受保护真实 Lark Release Candidate 与权威 CI 证据（2026-08-27）
+> 当前进度：M0 至 M5、M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08、M6-Q01 至 M6-Q03 已完成；M6-Q04 本机与 Linux amd64 Release Candidate 确定性门禁已完成，仅待 GitHub Actions 固定 Digest、OSV 与 Trivy 权威扫描（2026-08-28）
 
 ## 1. 实施目标
 
@@ -909,9 +909,9 @@ M6-Q01 已冻结 110 个稳定编号攻击样本：六类 Cursor 的 36 个规�
 
 M6-Q02 已冻结 `FI-001` 至 `FI-121` 的故障矩阵，覆盖 Outbox、Projection、SSE、Redis/Snapshot、Worker、Worktree、Model、GitHub、Lark、Notification 和数据库提交窗口。121 个样本全部收敛，120 个自动恢复、1 个最终 UNKNOWN 进入人工队列，自动恢复率 `99.17%`；重复 Action/Notification Dispatch、Inbox Disposition 丢失和旧 Fencing 写入均为 `0`。专项门禁为 Java `304 / 304`、Web `67 / 67`，实现与证据见 [M6-Q02 固定故障与恢复攻击集](testing/M6-Q02-Fault-Recovery.md)。
 
-M6-Q03 已实现 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Fixture 同时保留独立 PostgreSQL 协议基线，并在真实 V1–V30 Schema 通过生产 `JdbcTaskExecutionQueueRepositoryAdapter`、Activity/Inbox `GenerationAwareProjectionRunner`、Receipt 和 Checkpoint 完成三轮各 500 个样本；生产 READY Claim P95 为 `59 / 47 / 57ms`，Activity P95 为 `113 / 95 / 115ms`，Inbox P95 为 `90 / 66 / 84ms`，错误率均为 `0`。Java 生产负载/重启/恢复/Worktree/Provider 专项 `84 / 84`、完整 MVP Playwright `180 / 180`、前端生产构建、七服务部署合同和三组件加密恢复合同通过。当前 macOS/aarch64 证据明确标记为非 Canonical；Linux amd64 Nightly 必须重新执行 120 秒/600 秒三轮生产负载和新备份空目标恢复，Release Candidate 必须由受保护环境显式确认后向专用接收者发送固定 Lark 模板，全部完成前 M6-Q03 不关闭。实现与证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
+M6-Q03 已完成 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Linux amd64 Canonical 在 8 vCPU/16 GB 主机完成 120 秒 Warmup 与三轮各 600 秒 Measurement，每轮 `5,960` 请求；生产 READY Claim P95 为 `12 / 11 / 11ms`，Activity P95 为 `18 / 15 / 13ms`，Inbox P95 为 `13 / 13 / 11ms`，错误率均为 `0`。新备份空 Target 恢复到 V30，RPO `26s`、RTO `71s`、traffic 开启；真实飞书 `release-candidate-smoke@1` 固定模板返回 `SUCCEEDED`。完整 MVP Playwright 在 macOS 与 Linux 分平台基线均为 `180 / 180`。M6-Q03 已关闭，实现与证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
 
-M6-Q04 已建立 `local-preflight` 与 `release-candidate` 双轨 Release Gate。本机确定性预检完成 299 份 Markdown 链接、M4/M5 评测协议、V1–V30 与 7 模块 Maven `2554 / 2554`、Q01/Q02、Q03 Fixture、Vitest `450 / 450`、Playwright `180 / 180`、14 个 Story/104 个 Variant、生产构建、Coverage、生产依赖 Audit、本机缓存生产镜像构建和容器烟测；所有本机可执行项零失败、零错误、零跳过。Docker Hub 固定 Digest 解析、OSV 和 Trivy 保留给 Linux amd64 权威 CI，M6-Q03 Canonical 与真实 Lark 未关闭前不作出 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
+M6-Q04 已完成 `local-preflight` 与 Linux amd64 `release-candidate` 的确定性门禁。除本机既有 `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 Story/104 Variant 外，Canonical 主机使用非 root 发布用户完成 7 模块 `clean verify`、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Coverage、生产构建、Histoire 与零已知生产依赖漏洞。Q03 已关闭；M6-Q04 仅待 GitHub Actions 固定 Digest、OSV 与 Trivy 权威扫描通过后作出最终 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
 ## 19. 项目管理与进度跟踪
 

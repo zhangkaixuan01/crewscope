@@ -1,8 +1,8 @@
 # M6-Q04 MVP Release Gate
 
 > 任务：`M6-Q04`<br>
-> 状态：本机可执行项已完成，发布决策待 Q03 Canonical 与权威 CI 证据<br>
-> 日期：2026-08-27<br>
+> 状态：本机与 Linux amd64 Release Candidate 已完成，发布决策待权威 CI 扫描<br>
+> 日期：2026-08-28<br>
 > 范围：M0–M6 回归、V1–V30、AgentScope、前端、Docker、Provider、安全、故障、负载、恢复、依赖、文档与 MVP 发布决策
 
 ## 1. 决策边界
@@ -60,11 +60,16 @@ Fixture Evidence 保存在 `var/release/m6-q04/`。生产镜像使用 Dockerfile
 | 证据 | 执行环境 | 当前状态 |
 |---|---|---|
 | M6-Q04 本机确定性预检 | macOS/aarch64 开发机 | 已完成 |
-| Q03 生产负载完整时间窗口 | Linux amd64 Canonical | 待执行 |
-| Q03 新备份独立空目标恢复 | Linux amd64 Canonical 双 Operator Environment | 待执行 |
-| Q03 真实 Lark 固定模板 Receipt | 受保护 Release Candidate | 待执行 |
+| Q03 生产负载完整时间窗口 | Linux amd64 Canonical | 已完成，三轮错误率 `0` |
+| Q03 新备份独立空目标恢复 | Linux amd64 Canonical 双 Operator Environment | 已完成，RPO `26s`、RTO `71s` |
+| Q03 真实 Lark 固定模板 Receipt | 受保护 Release Candidate | 已完成，`SUCCEEDED` |
+| Linux amd64 Release Candidate 回归 | 8 vCPU / 16 GB 主机 | 已完成 |
 | 固定 Digest 生产镜像、OSV 清单与 Trivy 扫描 | GitHub Actions Linux amd64 | 待推送后执行 |
+
+Release Candidate 绑定 Git Revision `a5020c9eafc21ac09d2d0ad8ced17049c026e4b4`。Q03、Playwright `180 / 180`、非 root Maven `clean verify` 7 个 Reactor 模块、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Vitest `450 / 450`、Coverage、生产构建、14 个 Story/104 个 Variant 与生产依赖 Audit 全部通过。
+
+Canonical 主机最初以 root 执行 Maven 时，真实 Sandbox 测试按设计拒绝 root-owned Worktree。正式续跑使用专用 UID/GID `1001:1001` 的非 root 发布用户并加入 Docker 组；`TaskExecutionSandboxFactoryM4I04DockerIntegrationTest` 随后 `12 / 12`、零跳过通过。发布环境不得通过削弱 Worktree 所有权校验兼容 root Runner。
 
 ## 5. 关闭规则
 
-本机预检通过后，报告只记录“本机可完成项已完成”。Q03 未正式关闭、权威依赖/镜像扫描未通过或任一自动化存在失败/跳过时，M6-Q04 保持进行中，不作出 MVP Release 决定。
+Q03 已正式关闭，开发机与 Canonical Release Candidate 的确定性门禁均已完成。GitHub Actions 的固定 Digest、OSV 与 Trivy 任一未通过前，M6-Q04 保持进行中，不作出最终 MVP Release 决定。

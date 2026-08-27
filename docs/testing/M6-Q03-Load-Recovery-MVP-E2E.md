@@ -1,8 +1,8 @@
 # M6-Q03 固定负载、恢复与完整 MVP E2E
 
 > 任务：`M6-Q03`<br>
-> 状态：Fixture 轨道已完成，Canonical Nightly 与 Release Candidate 待执行<br>
-> 日期：2026-08-27<br>
+> 状态：已完成<br>
+> 日期：2026-08-28<br>
 > 范围：固定负载、重启恢复、Worktree 回滚、备份/空目标恢复、完整 MVP E2E、真实 Lark 固定模板烟测
 
 ## 1. 交付结果
@@ -54,6 +54,16 @@ Fixture 保存两份职责不同的负载 Evidence：
 
 生产链路 Warmup 实际耗时 `12,022ms`，三轮 Measurement 实际耗时分别为 `50,610 / 50,380 / 50,559ms`。三项指标均直接来自生产表的数据库权威时间，三轮均严格低于 2 秒；Canonical Nightly 继续在冻结的完整时间窗口重新生成同一 Schema 的 Evidence。
 
+Linux amd64 Release Candidate 在 8 vCPU、约 14.7 GiB 物理内存、Temurin 17 和 PostgreSQL 17.11 上完成 120 秒 Warmup 与三轮各 600 秒 Measurement。每轮完成 `5,960` 个生产请求，三项指标各 `5,960` 个样本：
+
+| 轮次 | READY Repository Claim P95 | Activity Active Generation P95 | Inbox Active Generation P95 | 错误率 |
+|---:|---:|---:|---:|---:|
+| 1 | `12ms` | `18ms` | `13ms` | `0` |
+| 2 | `11ms` | `15ms` | `13ms` | `0` |
+| 3 | `11ms` | `13ms` | `11ms` | `0` |
+
+Warmup 完成 `1,194` 个请求且错误率为 `0`。三轮 P95 均严格低于 `2s`，错误率均低于 `0.1%`。Canonical Production Evidence SHA-256 为 `a62dbcdd68f3183d8bc4639f551fbb929ce4e5a63de29e640fc06463cd3d2c6b`。
+
 ## 3. 重启、Worktree 与 Provider 恢复
 
 Java Fixture 使用真实 PostgreSQL/Redis Testcontainers、真实本地 Git 和 Loopback Provider，覆盖：
@@ -76,11 +86,15 @@ CREWSCOPE_M6_Q03_SOURCE_OPERATOR_ENV
 CREWSCOPE_M6_Q03_TARGET_OPERATOR_ENV
 ```
 
-门禁调用生产 `backup.sh` 生成新的 Release Bundle，再调用生产 `restore.sh --enable-traffic` 写入独立空目标，并校验 Schema V30、API Readiness、AgentScope Java System Info、零活动执行、Artifact 引用、RPO `<=24h` 和 RTO `<=4h`。本机本轮没有满足 Canonical 资源和双环境坐标，因此没有生成新的 Nightly Restore Evidence。
+门禁调用生产 `backup.sh` 生成新的 Release Bundle，再调用生产 `restore.sh --enable-traffic` 写入独立空目标，并校验 Schema V30、API Readiness、AgentScope Java System Info、零活动执行、Artifact 引用、RPO `<=24h` 和 RTO `<=4h`。
+
+Release Candidate 从新的 Source 备份恢复到无运行服务、无数据卷内容的 Target：Source/Target Schema 均为 V30，API Readiness 为 `UP`，System Info 为 `AgentScope Java`，活动执行数为 `0`，traffic 已开启；实际 RPO 为 `26s`，RTO 为 `71s`。Restore Evidence SHA-256 为 `2b999ec311527da4485a517d7e1988b54879a5096b5b4104cb36192e9e0a1987`。
 
 ## 5. 完整 MVP E2E
 
 Playwright 使用干净 Vite Server 与每用例独立 Route Fixture，覆盖 Conversation、TaskIntent、Native WorkItem、Responsibility、Task 委托、Coding Workspace、Diff/Evidence、Reviewer、Human Gate、GitHub Delivery，以及 Activity、Inbox、Audit、Lark/Notification、Team Observer 和 Operations。Desktop/Narrow、视觉、Axe、离线、Cursor、冲突和恢复路径共 `180 / 180` 通过，TypeScript 与 Vite 生产构建通过。
+
+视觉基线按 `darwin` 与 `linux` 分平台保存，保持 `maxDiffPixelRatio=0.02`，不使用放宽阈值吸收字体光栅化差异。macOS 与 Linux amd64 分别完整执行 `180 / 180`，两套 52 张基线一一配对。
 
 ## 6. 真实 Lark 安全入口
 
@@ -91,9 +105,11 @@ Playwright 使用干净 Vite Server 与每用例独立 Route Fixture，覆盖 Co
 - 官方 Feishu/Lark OpenAPI Origin；
 - 显式短期 App 凭证、接收者身份类型/值和绝对 Evidence 路径。
 
-脚本只发送冻结的 `release-candidate-smoke@1` 文本，不接受任意消息正文。Evidence 只保存 App、接收者、Provider Message 和 Idempotency Key 的 SHA-256，不保存原始身份、凭证、正文或 Provider Body。本轮未获得专用接收者与显式发送确认，因此没有调用真实 Lark。
+脚本只发送冻结的 `release-candidate-smoke@1` 文本，不接受任意消息正文。Evidence 只保存 App、接收者、Provider Message 和 Idempotency Key 的 SHA-256，不保存原始身份、凭证、正文或 Provider Body。
 
-## 7. Fixture 验收结果
+Release Candidate 使用专用接收者与显式确认完成真实飞书发送，Provider 返回 `SUCCEEDED`。脱敏 Evidence 只保留身份 Hash、消息 Hash、幂等 Hash、模板与时间坐标，SHA-256 为 `e32129cfae903a741bafab3823d3f7284392959620b4b3597a2597299d96b3ad`。
+
+## 7. 最终验收结果
 
 | 门禁 | 结果 |
 |---|---|
@@ -106,5 +122,8 @@ Playwright 使用干净 Vite Server 与每用例独立 Route Fixture，覆盖 Co
 | 完整 MVP Playwright | `180 / 180` |
 | TypeScript / Vite | 生产构建通过 |
 | Fixture Aggregate Evidence Hash | `1df1c35f978611917c9d59515b0a6f8853d452b61132c302f68ce8aef71cfff3` |
+| Linux amd64 Canonical 生产负载 | 三轮各 `5,960` 请求，三项 P95 均 `<2s`，错误率 `0` |
+| 新备份空目标恢复 | V30，RPO `26s`，RTO `71s`，traffic 开启 |
+| 真实飞书固定模板 | `release-candidate-smoke@1`，`SUCCEEDED`，仅保存脱敏 Hash |
 
-本机可完成的 Fixture 轨道已完成。M6-Q03 的关闭条件只剩 Linux amd64 Canonical Nightly 的生产 Queue/Activity/Inbox 120 秒/600 秒三轮负载、新备份空目标恢复 Evidence，以及受保护 Release Candidate 的真实 Lark 固定模板安全 Receipt。
+Fixture、Linux amd64 Canonical 与受保护 Release Candidate 三条轨道全部完成，M6-Q03 关闭。正式执行绑定 Git Revision `a5020c9eafc21ac09d2d0ad8ced17049c026e4b4` 及不可变 Backend/Web 镜像摘要。
