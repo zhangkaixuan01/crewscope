@@ -63,6 +63,8 @@ Secret 文件位于 Compose 外部目录，通过 Spring `configtree:/run/secret
 
 Compose 中不提供可用默认值。`TeamBetaDeploymentGuard` 在应用就绪前复验外部配置来源、Secret 强度、认证 Redis URL、角色开关和绝对数据路径。开发密钥、未认证 Redis、角色混合或缺失配置会失败关闭。
 
+文件型 Compose Secret 保留宿主机 Owner 与 Mode。Linux 启动前由幂等的 `prepare-secret-permissions.sh` 将 Secret 目录固定为 `root:root/0700`，应用与监控需要的文件固定为 `root:10001/0440`；Prometheus 只附加该只读组。`redis_acl` 与备份口令保持 `root:root/0600`。Redis 启动阶段只将 ACL 复制到私有 `tmpfs`，设置为 `redis:redis/0400`，随后通过 Redis 官方入口降权运行。该流程使 API、Worker、Prometheus 和 Redis 只读取职责所需 Secret，不产生全局可读文件。
+
 API 的 Flyway Strategy 在迁移完成后幂等创建一个 Team Beta Organization 和一个 Runtime Service Principal。既有坐标的不可变事实不一致时拒绝启动，不覆盖数据。
 
 ## 5. 静态与自动化契约
@@ -74,6 +76,8 @@ API 的 Flyway Strategy 在迁移完成后幂等创建一个 Team Beta Organizat
 - API/Worker 的 Flyway、Scheduler、Readiness 和 Redis Ownership Scope 精确分离；
 - Docker Socket 只属于 Worker；
 - Secret 只通过 Config Tree 注入；
+- Linux Secret 权限准备脚本覆盖固定运行组、Prometheus 只读附加组与 Owner-only Redis ACL；
+- Redis 可在宿主机 `root:root/0600` ACL 下通过容器私有副本完成安全降权启动；
 - Demo Profile 仍保持相同七服务和真实多阶段构建；
 - 丢失生产必需参数时 Compose 解析失败。
 

@@ -85,7 +85,16 @@ services:
   redis:
     image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     restart: unless-stopped
-    command: [redis-server, --appendonly, "yes", --aclfile, /run/secrets/redis_acl]
+    # Compose mounts file-backed Secrets with their host ownership. Copy the owner-only ACL into
+    # the container tmpfs before the official entrypoint drops from root to the redis user.
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        cp /run/secrets/redis_acl /tmp/redis_acl
+        chown redis:redis /tmp/redis_acl
+        chmod 0400 /tmp/redis_acl
+        exec /usr/local/bin/docker-entrypoint.sh redis-server --appendonly yes --aclfile /tmp/redis_acl
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777
@@ -123,6 +132,8 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    # The monitoring password is shared read-only with the fixed backend runtime group.
+    group_add: ["10001"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

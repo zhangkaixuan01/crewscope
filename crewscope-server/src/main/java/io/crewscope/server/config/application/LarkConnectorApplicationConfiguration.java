@@ -24,6 +24,7 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.notification.NotificationAdministrationRepository;
 import io.crewscope.application.notification.NotificationAdministrationService;
 import io.crewscope.application.notification.NotificationAuthorizationFactsResolver;
+import io.crewscope.application.notification.DefaultNotificationRecipientAuthorization;
 import io.crewscope.application.notification.NotificationPlanRepository;
 import io.crewscope.application.notification.NotificationPlanningApplicationService;
 import io.crewscope.application.notification.NotificationRecipientAuthorization;
@@ -52,7 +53,6 @@ import io.crewscope.integration.provider.collaboration.LarkTenantTokenCache;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -77,12 +77,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        ConnectionRepository.class,
-        ConnectionGrantRepository.class,
-        CredentialStore.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(LarkCredentialAccessManager.class)
     LarkCredentialAccessManager larkCredentialAccessManager(
             ConnectionRepository connections,
@@ -104,12 +98,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    @ConditionalOnBean({
-        LarkCredentialAccessManager.class,
-        LarkTenantTokenCache.class,
-        ObjectMapper.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(LarkOpenApiClient.class)
     LarkOpenApiClient larkOpenApiClient(
             ObjectMapper objectMapper,
@@ -130,7 +118,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(ProviderBindingResolver.class)
     @ConditionalOnMissingBean(LarkConnectionAuthorizationResolver.class)
     LarkConnectionAuthorizationResolver larkConnectionAuthorizationResolver(
             ProviderBindingResolver bindings) {
@@ -138,11 +125,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        TeamMemberRepository.class,
-        TeamRoleRepository.class,
-        MemberRoleRepository.class
-    })
     @ConditionalOnMissingBean(LarkMappingAdministration.class)
     LarkMappingAdministration larkMappingAdministration(
             TeamMemberRepository members,
@@ -152,12 +134,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkConnectionAuthorizationResolver.class,
-        LarkMappingAdministration.class,
-        LarkOpenApiClient.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(LarkCollaborationApplicationService.class)
     LarkCollaborationApplicationService larkCollaborationApplicationService(
             LarkConnectionAuthorizationResolver authorizations,
@@ -169,16 +145,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkConnectionAuthorizationResolver.class,
-        LarkMappingAdministration.class,
-        LarkOpenApiClient.class,
-        LarkExternalTenantRepository.class,
-        LarkMemberVerificationProofRepository.class,
-        LarkMemberMappingRepository.class,
-        TeamMemberRepository.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(LarkMemberMappingApplicationService.class)
     LarkMemberMappingApplicationService larkMemberMappingApplicationService(
             LarkConnectionAuthorizationResolver authorizations,
@@ -203,7 +169,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(NotificationTemplateCatalog.class)
     @ConditionalOnMissingBean(FixedNotificationTemplateRenderer.class)
     FixedNotificationTemplateRenderer fixedNotificationTemplateRenderer(
             NotificationTemplateCatalog templates) {
@@ -211,11 +176,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkConnectionAuthorizationResolver.class,
-        LarkCredentialAccessManager.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(NotificationCredentialIssuer.class)
     NotificationCredentialIssuer larkNotificationCredentialIssuer(
             LarkConnectionAuthorizationResolver authorizations,
@@ -226,13 +186,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkOpenApiClient.class,
-        FixedNotificationTemplateRenderer.class,
-        LarkMemberMappingRepository.class,
-        LarkExternalTenantRepository.class,
-        TeamMemberRepository.class
-    })
     @ConditionalOnMissingBean(NotificationProviderPort.class)
     NotificationProviderPort larkNotificationProviderPort(
             LarkOpenApiClient client,
@@ -245,13 +198,13 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        NotificationTemplateCatalog.class,
-        NotificationAuthorizationFactsResolver.class,
-        NotificationRecipientAuthorization.class,
-        NotificationPlanRepository.class,
-        TimeProvider.class
-    })
+    @ConditionalOnMissingBean(NotificationRecipientAuthorization.class)
+    NotificationRecipientAuthorization notificationRecipientAuthorization(
+            TeamMemberRepository members) {
+        return new DefaultNotificationRecipientAuthorization(members);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(NotificationPlanningApplicationService.class)
     NotificationPlanningApplicationService notificationPlanningApplicationService(
             NotificationTemplateCatalog templates,
@@ -264,12 +217,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkMappingAdministration.class,
-        NotificationAdministrationRepository.class,
-        NotificationPlanningApplicationService.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(NotificationAdministrationService.class)
     NotificationAdministrationService notificationAdministrationService(
             LarkMappingAdministration administration,
@@ -281,22 +228,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkMappingAdministration.class,
-        ConnectionRepository.class,
-        ConnectionGrantRepository.class,
-        CredentialStore.class,
-        TeamRepository.class,
-        WorkspaceRepository.class,
-        ProviderDefinitionRepository.class,
-        ProviderImplementationRepository.class,
-        ProviderBindingRepository.class,
-        ProviderBootstrapLock.class,
-        CommandReceiptStore.class,
-        TransactionExecutor.class,
-        TimeProvider.class,
-        ObjectMapper.class
-    })
     @ConditionalOnMissingBean(LarkConnectionApplicationService.class)
     LarkConnectionApplicationService larkConnectionApplicationService(
             LarkMappingAdministration administration,
@@ -327,14 +258,6 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        LarkMappingAdministration.class,
-        LarkMemberMappingApplicationService.class,
-        NotificationAdministrationService.class,
-        CommandReceiptStore.class,
-        TransactionExecutor.class,
-        TimeProvider.class
-    })
     @ConditionalOnMissingBean(LarkAdministrationCommandService.class)
     LarkAdministrationCommandService larkAdministrationCommandService(
             LarkMappingAdministration administration,
@@ -348,14 +271,12 @@ public class LarkConnectorApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
     @ConditionalOnMissingBean(LarkMappingCursorCodec.class)
     LarkMappingCursorCodec larkMappingCursorCodec(TeamActivityCursorKeyRing keyRing) {
         return new LarkMappingCursorCodec(keyRing);
     }
 
     @Bean
-    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
     @ConditionalOnMissingBean(NotificationDeliveryCursorCodec.class)
     NotificationDeliveryCursorCodec notificationDeliveryCursorCodec(
             TeamActivityCursorKeyRing keyRing) {

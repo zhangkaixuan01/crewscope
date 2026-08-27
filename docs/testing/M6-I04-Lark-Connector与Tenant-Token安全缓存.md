@@ -15,7 +15,8 @@
 - 401 只失效精确 Cache Key 并最多刷新一次；第二次 401 同样清除坏 Token。429、5xx 和传输错误只归一化，不在 Connector 内重试，由 M6-I03 Worker 统一管理耐久重试与查询恢复。
 - 读超时归一化为 `PROVIDER_UNAVAILABLE`，可能已经写入的消息超时归一化为 `UNKNOWN_DELIVERY`，线程中断恢复中断标记并返回 `CANCELLED`。`Retry-After` 只接受 1 至 300 秒。
 - 错误只保留稳定 Code、Retryable、受限 Retry-After 和 Evidence Code；Endpoint、Authorization、Token、Secret、原始 Body 和外部身份不进入异常、结果或安全摘要。
-- Spring 使用构造器注入和条件装配。缺少 ConnectionRepository、ConnectionGrantRepository 或 CredentialStore 时不创建网络 Client；配置边界在 Bean 创建时失败关闭。
+- Spring 使用构造器注入强制装配 Lark 管理 API 所需的 Connector、授权、映射、通知与 Cursor 组件。必需 Bean 不使用依赖注册顺序的 `@ConditionalOnBean`；缺少任一生产 Port 时上下文失败关闭。
+- `DefaultNotificationRecipientAuthorization` 使用当前 TeamMember 事实校验手动重投人：只允许同组织、同团队、同 USER Principal 且状态为 ACTIVE 的接收成员重投自己的最终失败通知。
 
 M6-I04 提供 I05 成员映射与健康检查、I06 固定模板通知 Provider 的低层安全传输基础；本任务不实现 Mapping Adapter、模板 Registry、NotificationProviderPort 或 Receipt 映射。
 
@@ -46,7 +47,7 @@ LarkOpenApiM6S04IntegrationTest \
   -Dsurefire.failIfNoSpecifiedTests=false test
 ```
 
-结果：16 个测试通过，0 Failure，0 Error，0 Skip。其中 6 个生产 Connector Loopback 场景、4 个 Spring 装配场景、6 个 S04 冻结协议回归。
+结果：18 个测试通过，0 Failure，0 Error，0 Skip。其中 7 个生产 Connector Loopback 场景、5 个 Spring 完整装配与失败关闭场景、6 个 S04 冻结协议回归。
 
 覆盖：
 

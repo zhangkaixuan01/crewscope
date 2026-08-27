@@ -63,6 +63,17 @@ prepare_runtime() {
     chmod 600 "$SECRETS_ROOT/redis_acl"
   fi
 
+  # File-backed Secrets keep host ownership on Linux. Retain the local owner while granting the
+  # fixed backend runtime group read-only access; Redis stages its owner-only ACL in container tmpfs.
+  docker run --rm -v "$SECRETS_ROOT:/secrets" "$ALPINE_IMAGE" sh -ec '
+    for name in database_password bootstrap_password credential_keys activity_cursor_key \
+        diff_cursor_secret task_token_key redis_url; do
+      chgrp 10001 "/secrets/$name"
+      chmod 0440 "/secrets/$name"
+    done
+    chmod 0600 /secrets/redis_acl
+  '
+
   # Bind sources keep the same absolute path inside Worker and sibling Sandbox containers. A
   # one-shot pinned helper assigns the fixed image UID without adding an eighth long-running service.
   docker run --rm -v "$DATA_ROOT:$DATA_ROOT" "$ALPINE_IMAGE" \

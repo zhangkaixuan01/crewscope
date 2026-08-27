@@ -8,6 +8,10 @@ const root = resolve(import.meta.dirname, '..')
 const composeFile = join(root, 'deploy/team-beta/compose.yaml')
 const demoFile = join(root, 'deploy/team-beta/compose.demo.yaml')
 const demoScriptFile = join(root, 'deploy/team-beta/demo.sh')
+const secretPreparationFile = join(
+  root,
+  'deploy/team-beta/operations/prepare-secret-permissions.sh',
+)
 const backendDockerfile = join(root, 'deploy/team-beta/backend.Dockerfile')
 const webDockerfile = join(root, 'deploy/team-beta/web.Dockerfile')
 const nginxConfig = join(root, 'deploy/team-beta/nginx.conf')
@@ -99,6 +103,13 @@ try {
     model.services.prometheus.healthcheck.test,
     ['CMD', '/bin/wget', '-q', '--spider', 'http://127.0.0.1:9090/-/ready'],
   )
+  const redisCommand = model.services.redis.command.join(' ')
+  assert.match(redisCommand, /cp \/run\/secrets\/redis_acl \/tmp\/redis_acl/)
+  assert.match(redisCommand, /chown redis:redis \/tmp\/redis_acl/)
+  assert.match(redisCommand, /chmod 0400 \/tmp\/redis_acl/)
+  assert.match(redisCommand, /--aclfile \/tmp\/redis_acl/)
+  assert.doesNotMatch(redisCommand, /--aclfile \/run\/secrets\/redis_acl/)
+  assert.deepEqual(model.services.prometheus.group_add, ['10001'])
 
   assertRole(model.services.api, 'server', true, false)
   assertRole(model.services.worker, 'worker', false, true)
@@ -149,6 +160,12 @@ try {
   const demoScript = readFileSync(demoScriptFile, 'utf8')
   assert.match(demoScript, /Bootstrap password file:/)
   assert.doesNotMatch(demoScript, /Bootstrap password:/)
+  const secretPreparation = readFileSync(secretPreparationFile, 'utf8')
+  assert.match(secretPreparation, /chown 0:10001 "\$secret_file"/)
+  assert.match(secretPreparation, /chmod 0440 "\$secret_file"/)
+  assert.match(secretPreparation, /chmod 0600 "\$redis_acl"/)
+  assert.match(secretPreparation, /chmod 0600 "\$CREWSCOPE_BACKUP_PASSPHRASE_FILE"/)
+  assert.doesNotMatch(secretPreparation, /(?:cat|head|tail) "?\$secret_file/)
 
   assertMissingConfigurationFails()
   console.log('Team Beta deployment contract passed: 7 services, immutable production images, role isolation and external Secrets.')

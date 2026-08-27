@@ -50,6 +50,10 @@ if [[ "$lane" != fixture ]]; then
     echo "Canonical M6-Q03 requires pnpm 11.9.0." >&2
     exit 2
   }
+  deploy/team-beta/operations/prepare-secret-permissions.sh \
+    "$CREWSCOPE_M6_Q03_SOURCE_OPERATOR_ENV"
+  deploy/team-beta/operations/prepare-secret-permissions.sh \
+    "$CREWSCOPE_M6_Q03_TARGET_OPERATOR_ENV"
 fi
 node scripts/check-team-beta-deployment.mjs
 node scripts/check-team-beta-recovery.mjs
