@@ -7,6 +7,7 @@ import io.crewscope.application.operations.OperationsHealthService;
 import io.crewscope.application.operations.OperationsHealthThresholds;
 import io.crewscope.application.operations.OperationsRecoveryRepository;
 import io.crewscope.application.operations.OperationsRecoveryService;
+import io.crewscope.application.projection.DefaultProjectionAdministration;
 import io.crewscope.application.projection.ProjectionAdministration;
 import io.crewscope.application.projection.ProjectionAdministrationRepository;
 import io.crewscope.application.projection.ProjectionAdministrationService;
@@ -17,27 +18,20 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-/** Conditional assembly and fail-closed threshold configuration tests for M6-E07. */
+/** Required production assembly and fail-closed threshold configuration tests for M6-E07. */
 class OperationsApplicationConfigurationM6E07Test {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(OperationsApplicationConfiguration.class);
 
     @Test
-    void exposesOnlyValidatedThresholdsUntilInfrastructurePortsExist() {
-        runner.run(context -> context.assertThat()
-                .hasNotFailed()
-                .hasSingleBean(OperationsHealthThresholds.class)
-                .doesNotHaveBean(OperationsHealthService.class)
-                .doesNotHaveBean(OperationsRecoveryService.class)
-                .doesNotHaveBean(ProjectionAdministrationService.class));
+    void failsClosedUntilAllProductionPortsExist() {
+        runner.run(context -> context.assertThat().hasFailed());
     }
 
     @Test
     void wiresHealthRecoveryAndProjectionAdministrationWhenPortsExist() {
         runner.withBean(WorkItemAccessPolicy.class, () -> mock(WorkItemAccessPolicy.class))
-                .withBean(ProjectionAdministration.class,
-                        () -> mock(ProjectionAdministration.class))
                 .withBean(OperationsHealthQueryPort.class,
                         () -> mock(OperationsHealthQueryPort.class))
                 .withBean(OperationsRecoveryRepository.class,
@@ -52,7 +46,9 @@ class OperationsApplicationConfigurationM6E07Test {
                         .hasNotFailed()
                         .hasSingleBean(OperationsHealthService.class)
                         .hasSingleBean(OperationsRecoveryService.class)
-                        .hasSingleBean(ProjectionAdministrationService.class));
+                        .hasSingleBean(ProjectionAdministrationService.class)
+                        .hasSingleBean(ProjectionAdministration.class)
+                        .hasSingleBean(DefaultProjectionAdministration.class));
     }
 
     @Test

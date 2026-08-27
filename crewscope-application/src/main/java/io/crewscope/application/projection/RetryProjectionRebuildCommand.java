@@ -1,6 +1,6 @@
 package io.crewscope.application.projection;
 
-import io.crewscope.domain.identity.Principal;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.projection.ProjectionDefinitionVersion;
 import io.crewscope.domain.projection.ProjectionName;
 import io.crewscope.domain.projection.ProjectionRebuildJobId;
@@ -17,7 +17,7 @@ public record RetryProjectionRebuildCommand(
         long expectedRetryOfJobVersion,
         ProjectionDefinitionVersion expectedDefinitionVersion,
         long expectedPointerVersion,
-        Principal actor,
+        TeamAccessContext access,
         ProjectionStrongConfirmation confirmation) {
 
     public RetryProjectionRebuildCommand {
@@ -27,7 +27,7 @@ public record RetryProjectionRebuildCommand(
         retryOfJobId = Objects.requireNonNull(retryOfJobId, "retryOfJobId");
         expectedDefinitionVersion = Objects.requireNonNull(
                 expectedDefinitionVersion, "expectedDefinitionVersion");
-        actor = Objects.requireNonNull(actor, "actor");
+        access = Objects.requireNonNull(access, "access");
         confirmation = Objects.requireNonNull(confirmation, "confirmation");
         if (expectedRetryOfJobVersion < 0 || expectedPointerVersion < 0) {
             throw new IllegalArgumentException("Retry command versions must not be negative");

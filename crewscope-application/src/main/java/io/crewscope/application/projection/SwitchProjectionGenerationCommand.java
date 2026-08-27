@@ -1,6 +1,6 @@
 package io.crewscope.application.projection;
 
-import io.crewscope.domain.identity.Principal;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.projection.ProjectionDefinitionVersion;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
@@ -22,7 +22,7 @@ public record SwitchProjectionGenerationCommand(
         long expectedPreviousGenerationVersion,
         long expectedTargetGenerationVersion,
         long expectedJobVersion,
-        Principal actor,
+        TeamAccessContext access,
         ProjectionStrongConfirmation confirmation) {
 
     public SwitchProjectionGenerationCommand {
@@ -35,7 +35,7 @@ public record SwitchProjectionGenerationCommand(
                 previousActiveGeneration, "previousActiveGeneration");
         targetGeneration = Objects.requireNonNull(targetGeneration, "targetGeneration");
         rebuildJobId = Objects.requireNonNull(rebuildJobId, "rebuildJobId");
-        actor = Objects.requireNonNull(actor, "actor");
+        access = Objects.requireNonNull(access, "access");
         confirmation = Objects.requireNonNull(confirmation, "confirmation");
         if (expectedPointerVersion < 0
                 || expectedPreviousGenerationVersion < 0

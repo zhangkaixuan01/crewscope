@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.projection.ProjectionAdministration;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -43,6 +44,7 @@ class OperationsRecoveryServiceM6E07Test {
 
     private OrganizationId organizationId;
     private Principal actor;
+    private TeamAccessContext access;
     private ProjectionAdministration administration;
     private OperationsRecoveryRepository repository;
     private OperationsRecoveryService service;
@@ -59,6 +61,7 @@ class OperationsRecoveryServiceM6E07Test {
                 Optional.empty(),
                 PrincipalVisibility.ORGANIZATION,
                 NOW);
+        access = new TeamAccessContext(actor, true);
         administration = mock(ProjectionAdministration.class);
         repository = mock(OperationsRecoveryRepository.class);
         service = new OperationsRecoveryService(
@@ -71,7 +74,7 @@ class OperationsRecoveryServiceM6E07Test {
                 OperationsRecoveryCommandId.generate(), target(0));
         doThrow(new IllegalStateException("denied"))
                 .when(administration)
-                .requireOrganizationAdministrator(organizationId, actor, NOW);
+                .requireOrganizationAdministrator(organizationId, access, NOW);
 
         assertThrows(IllegalStateException.class, () -> service.recover(command));
 
@@ -90,7 +93,7 @@ class OperationsRecoveryServiceM6E07Test {
                         OperationsRecoveryCommandId.generate(),
                         organizationId,
                         changed,
-                        actor,
+                        access,
                         OperationsRecoveryStrongConfirmation.confirm(first)));
     }
 
@@ -181,7 +184,7 @@ class OperationsRecoveryServiceM6E07Test {
                 commandId,
                 organizationId,
                 target,
-                actor,
+                access,
                 OperationsRecoveryStrongConfirmation.confirm(target));
     }
 

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -59,6 +60,7 @@ class ProjectionAdministrationServiceM6D07Test {
     private OrganizationId organizationId;
     private ProjectionDefinition definition;
     private Principal actor;
+    private TeamAccessContext access;
     private ProjectionGenerationState active;
     private ProjectionPointer pointer;
     private ProjectionAdministration administration;
@@ -84,6 +86,7 @@ class ProjectionAdministrationServiceM6D07Test {
                 Optional.empty(),
                 PrincipalVisibility.ORGANIZATION,
                 NOW);
+        access = new TeamAccessContext(actor, true);
         active = ProjectionGenerationState.active(
                 organizationId, definition, ProjectionGeneration.FIRST, NOW);
         pointer = ProjectionPointer.initialize(active, NOW);
@@ -100,7 +103,7 @@ class ProjectionAdministrationServiceM6D07Test {
                 ProjectionAdministrationCommandId.generate(), 0);
         doThrow(new IllegalStateException("denied"))
                 .when(administration)
-                .requireOrganizationAdministrator(organizationId, actor, NOW);
+                .requireOrganizationAdministrator(organizationId, access, NOW);
 
         assertThrows(IllegalStateException.class, () -> service.start(command));
 
@@ -190,7 +193,7 @@ class ProjectionAdministrationServiceM6D07Test {
         TerminateProjectionRebuildCommand command = new TerminateProjectionRebuildCommand(
                 ProjectionAdministrationCommandId.generate(), organizationId, definition.name(),
                 start.generation().key().generation(), start.job().id(), 1, 0,
-                ProjectionAdministrationAction.CANCEL_REBUILD, Optional.empty(), actor,
+                ProjectionAdministrationAction.CANCEL_REBUILD, Optional.empty(), access,
                 ProjectionStrongConfirmation.confirm(
                         ProjectionAdministrationAction.CANCEL_REBUILD,
                         definition.name(), Optional.of(start.generation().key().generation())));
@@ -248,7 +251,7 @@ class ProjectionAdministrationServiceM6D07Test {
                 definition.version(), active.key().generation(),
                 validation.generation().key().generation(), validation.job().id(),
                 pointer.version(), active.version(), validation.generation().version(),
-                validation.job().version(), actor,
+                validation.job().version(), access,
                 ProjectionStrongConfirmation.confirm(
                         ProjectionAdministrationAction.SWITCH_GENERATION,
                         definition.name(), Optional.of(validation.generation().key().generation())));
@@ -274,7 +277,7 @@ class ProjectionAdministrationServiceM6D07Test {
                 definition.name(),
                 definition.version(),
                 expectedPointerVersion,
-                actor,
+                access,
                 ProjectionStrongConfirmation.confirm(
                         ProjectionAdministrationAction.START_REBUILD,
                         definition.name(),
@@ -288,7 +291,7 @@ class ProjectionAdministrationServiceM6D07Test {
         return new ValidateProjectionGenerationCommand(
                 ProjectionAdministrationCommandId.generate(), organizationId, definition.name(),
                 definition.version(), start.generation().key().generation(), start.job().id(),
-                generationVersion, jobVersion, actor,
+                generationVersion, jobVersion, access,
                 ProjectionStrongConfirmation.confirm(
                         ProjectionAdministrationAction.VALIDATE_GENERATION,
                         definition.name(), Optional.of(start.generation().key().generation())));

@@ -108,7 +108,7 @@ public final class OperationsController {
         OrganizationId organization = organizationId(organizationId);
         return resolve(authentication, organization, exchange)
                 .flatMap(access -> blocking(() -> health.diagnostics(
-                        organization, access.actor())))
+                        organization, access)))
                 .map(value -> ok(AdministratorDiagnosticsResponse.from(value)));
     }
 
@@ -133,7 +133,7 @@ public final class OperationsController {
                         target.action(), target.referenceHash(), body.confirmation());
         return resolve(authentication, organization, exchange)
                 .flatMap(access -> blocking(() -> recovery.recover(new OperationsRecoveryCommand(
-                        commandId, organization, target, access.actor(), confirmation))))
+                        commandId, organization, target, access, confirmation))))
                 .map(result -> ResponseEntity.accepted()
                         .cacheControl(CacheControl.noStore())
                         .body(RecoveryResponse.from(commandId, result)));
@@ -159,7 +159,7 @@ public final class OperationsController {
                             name,
                             definitionVersion(request.expectedDefinitionVersion()),
                             version(request.expectedPointerVersion(), "expectedPointerVersion"),
-                            access.actor(),
+                            access,
                             confirmation(
                                     ProjectionAdministrationAction.START_REBUILD,
                                     name,
@@ -196,7 +196,7 @@ public final class OperationsController {
                                     "expectedRetryOfJobVersion"),
                             definitionVersion(request.expectedDefinitionVersion()),
                             version(request.expectedPointerVersion(), "expectedPointerVersion"),
-                            access.actor(),
+                            access,
                             confirmation(
                                     ProjectionAdministrationAction.RETRY_REBUILD,
                                     name,
@@ -235,7 +235,7 @@ public final class OperationsController {
                             rebuildJobId(request.rebuildJobId()),
                             expectedGeneration,
                             expectedJob,
-                            access.actor(),
+                            access,
                             confirmation(
                                     ProjectionAdministrationAction.VALIDATE_GENERATION,
                                     name,
@@ -284,7 +284,7 @@ public final class OperationsController {
                                     "expectedPreviousGenerationVersion"),
                             expectedTarget,
                             expectedJob,
-                            access.actor(),
+                            access,
                             confirmation(
                                     ProjectionAdministrationAction.SWITCH_GENERATION,
                                     name,
@@ -377,7 +377,7 @@ public final class OperationsController {
                             expectedJob,
                             action,
                             failureCode,
-                            access.actor(),
+                            access,
                             confirmation(
                                     action,
                                     name,

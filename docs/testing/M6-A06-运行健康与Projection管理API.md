@@ -33,7 +33,7 @@ M6-A06 在 M6-E07、M6-I01、M6-I02 和 M6-I08 已完成的健康查询、原子
 - `PROJECTION_DEAD_LETTER`：Projection、Generation、DeadLetter、DomainEvent 和 Expected Generation Version；
 - `NOTIFICATION_DELIVERY`：Delivery 和 Expected Version。
 
-类型不匹配的额外字段、任意 SQL、URL、Method、Body、表名和未知属性全部在传输边界拒绝。所有恢复命令要求 `Idempotency-Key` 和精确确认短语；服务端按命名空间、Organization 和 Idempotency-Key 派生稳定 Command UUID。应用与 PostgreSQL 层继续负责当前管理员复验、Command Fingerprint 回放、目标锁定、版本比较、恢复调度、DomainEvent、Outbox 与 Audit 原子提交。
+类型不匹配的额外字段、任意 SQL、URL、Method、Body、表名和未知属性全部在传输边界拒绝。所有恢复命令要求 `Idempotency-Key` 和精确确认短语；服务端按命名空间、Organization 和 Idempotency-Key 派生稳定 Command UUID。Controller 将当前认证解析出的完整 `TeamAccessContext` 传入应用层。应用层复验 ACTIVE USER、Organization Scope 和可信平台管理员事实；PostgreSQL 层继续负责 Command Fingerprint 回放、目标锁定、版本比较、恢复调度、DomainEvent、Outbox 与 Audit 原子提交。
 
 Projection 管理不提供通用 Action 执行入口。Start、Retry、Validate、Switch、Cancel 和 Fail 各自映射为一个强类型 Command。命令体携带本次事务涉及的完整 Definition、Pointer、Generation 和 RebuildJob Expected Version；Generation 来自路径且必须与确认短语一致。Switch 继续使用固定锁顺序并仅能激活已经通过规范快照校验的影子代际。命令响应返回新的安全状态以及后续命令需要的 Generation、RebuildJob 和 Pointer Version。
 
@@ -58,11 +58,11 @@ Projection 管理不提供通用 Action 执行入口。Start、Retry、Validate�
 
 ```bash
 ./mvnw -pl crewscope-server -am \
-  -Dtest='OperationsControllerM6A06Test,OperationsControllerAssemblyM6A06Test,OperationsApplicationConfigurationM6E07Test,TeamBetaOperationalTelemetryM6I08Test,ProjectionAdministrationServiceM6D07Test' \
+  -Dtest='OperationsControllerM6A06Test,OperationsControllerAssemblyM6A06Test,OperationsApplicationConfigurationM6E07Test,TeamBetaOperationalTelemetryM6I08Test,ProjectionAdministrationServiceM6D07Test,DefaultProjectionAdministrationM6D07Test' \
   -Dsurefire.failIfNoSpecifiedTests=false test
 ./mvnw clean verify
 node scripts/check-doc-links.mjs
 git diff --check
 ```
 
-结果：27 / 27 专项测试通过，包含 7 项 Projection 应用层版本冲突与不可变写入边界。
+结果：28 / 28 专项测试通过，包含 7 项 Projection 应用层版本冲突与不可变写入边界，以及平台管理员可信上下文拒绝边界。

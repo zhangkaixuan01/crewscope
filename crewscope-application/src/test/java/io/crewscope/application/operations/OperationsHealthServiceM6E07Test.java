@@ -127,12 +127,12 @@ class OperationsHealthServiceM6E07Test {
         OperationsHealthSnapshot snapshot = snapshot(organizationId);
         when(queries.observe(organizationId)).thenReturn(snapshot);
 
-        OperationsAdministratorDiagnostics result = service.diagnostics(organizationId, actor);
+        OperationsAdministratorDiagnostics result = service.diagnostics(organizationId, context);
 
         assertEquals(new ProjectionName("team-activity"),
                 result.projections().get(0).projectionName());
         assertEquals(1, result.recoveryCandidates().size());
-        verify(administration).requireOrganizationAdministrator(organizationId, actor, NOW);
+        verify(administration).requireOrganizationAdministrator(organizationId, context, NOW);
     }
 
     @Test
@@ -140,7 +140,7 @@ class OperationsHealthServiceM6E07Test {
         when(queries.observe(organizationId)).thenReturn(snapshot(OrganizationId.generate()));
         assertThrows(
                 IllegalStateException.class,
-                () -> service.diagnostics(organizationId, actor));
+                () -> service.diagnostics(organizationId, context));
 
         OperationsHealthSnapshot valid = snapshot(organizationId);
         when(queries.observe(organizationId)).thenReturn(new OperationsHealthSnapshot(
@@ -151,7 +151,7 @@ class OperationsHealthServiceM6E07Test {
                 valid.recoveryCandidates()));
         assertThrows(
                 IllegalStateException.class,
-                () -> service.diagnostics(organizationId, actor));
+                () -> service.diagnostics(organizationId, context));
     }
 
     @Test

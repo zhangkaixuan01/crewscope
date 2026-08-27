@@ -4,7 +4,6 @@ import io.crewscope.application.projection.ProjectionAdministration;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
-import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -50,10 +49,10 @@ public final class OperationsHealthService {
     }
 
     public OperationsAdministratorDiagnostics diagnostics(
-            OrganizationId organizationId, Principal actor) {
+            OrganizationId organizationId, TeamAccessContext access) {
         return transactions.required(() -> {
             UtcTimestamp now = timeProvider.now();
-            administration.requireOrganizationAdministrator(organizationId, actor, now);
+            administration.requireOrganizationAdministrator(organizationId, access, now);
             OperationsHealthSnapshot snapshot = requireSnapshot(organizationId);
             return new OperationsAdministratorDiagnostics(
                     derive(snapshot, now),

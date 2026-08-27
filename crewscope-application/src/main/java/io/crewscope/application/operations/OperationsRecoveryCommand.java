@@ -1,6 +1,6 @@
 package io.crewscope.application.operations;
 
-import io.crewscope.domain.identity.Principal;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.shared.id.OrganizationId;
 import java.util.Objects;
 
@@ -9,14 +9,14 @@ public record OperationsRecoveryCommand(
         OperationsRecoveryCommandId commandId,
         OrganizationId organizationId,
         OperationsRecoveryTarget target,
-        Principal actor,
+        TeamAccessContext access,
         OperationsRecoveryStrongConfirmation confirmation) {
 
     public OperationsRecoveryCommand {
         commandId = Objects.requireNonNull(commandId, "commandId");
         organizationId = Objects.requireNonNull(organizationId, "organizationId");
         target = Objects.requireNonNull(target, "target");
-        actor = Objects.requireNonNull(actor, "actor");
+        access = Objects.requireNonNull(access, "access");
         confirmation = Objects.requireNonNull(confirmation, "confirmation");
         confirmation.require(target);
     }

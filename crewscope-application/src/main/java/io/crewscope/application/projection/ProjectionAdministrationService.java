@@ -1,5 +1,6 @@
 package io.crewscope.application.projection;
 
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.projection.ProjectionDefinition;
 import io.crewscope.domain.projection.ProjectionFailureCode;
@@ -50,7 +51,7 @@ public final class ProjectionAdministrationService {
                 ProjectionAdministrationAction.START_REBUILD,
                 required.organizationId(), required.projectionName().value(),
                 required.expectedDefinitionVersion().value(), required.expectedPointerVersion(),
-                required.actor().id());
+                required.access().actor().id());
         return transactions.required(() -> startInTransaction(required, fingerprint));
     }
 
@@ -61,7 +62,7 @@ public final class ProjectionAdministrationService {
                 required.organizationId(), required.projectionName().value(),
                 required.retryOfJobId(), required.expectedRetryOfJobVersion(),
                 required.expectedDefinitionVersion().value(), required.expectedPointerVersion(),
-                required.actor().id());
+                required.access().actor().id());
         return transactions.required(() -> retryInTransaction(required, fingerprint));
     }
 
@@ -72,7 +73,7 @@ public final class ProjectionAdministrationService {
                 required.organizationId(), required.projectionName().value(),
                 required.expectedDefinitionVersion().value(), required.generation().value(),
                 required.rebuildJobId(), required.expectedGenerationVersion(),
-                required.expectedJobVersion(), required.actor().id());
+                required.expectedJobVersion(), required.access().actor().id());
         return transactions.required(() -> validateInTransaction(required, fingerprint));
     }
 
@@ -87,7 +88,7 @@ public final class ProjectionAdministrationService {
                 required.rebuildJobId(), required.expectedPointerVersion(),
                 required.expectedPreviousGenerationVersion(),
                 required.expectedTargetGenerationVersion(), required.expectedJobVersion(),
-                required.actor().id());
+                required.access().actor().id());
         return transactions.required(() -> switchInTransaction(required, fingerprint));
     }
 
@@ -98,13 +99,13 @@ public final class ProjectionAdministrationService {
                 required.generation().value(), required.rebuildJobId(),
                 required.expectedGenerationVersion(), required.expectedJobVersion(),
                 required.failureCode().map(ProjectionFailureCode::value).orElse("none"),
-                required.actor().id());
+                required.access().actor().id());
         return transactions.required(() -> terminateInTransaction(required, fingerprint));
     }
 
     private ProjectionAdministrationResult startInTransaction(
             StartProjectionRebuildCommand command, ProjectionCommandFingerprint fingerprint) {
-        UtcTimestamp now = authorize(command.organizationId(), command.actor());
+        UtcTimestamp now = authorize(command.organizationId(), command.access());
         Optional<ProjectionAdministrationResult> replay = replay(
                 command.organizationId(), command.commandId(), fingerprint);
         if (replay.isPresent()) {
@@ -117,14 +118,14 @@ public final class ProjectionAdministrationService {
         ProjectionRebuildStart start = ProjectionRebuildStart.start(
                 command.organizationId(), registry.definition(), registry.pointer(),
                 registry.generations(), ProjectionRebuildJobId.generate(), Optional.empty(),
-                command.actor().id(), now);
-        return saveStart(command.commandId(), command.actor().id(), start,
+                command.access().actor().id(), now);
+        return saveStart(command.commandId(), command.access().actor().id(), start,
                 ProjectionAdministrationAction.START_REBUILD, fingerprint, now);
     }
 
     private ProjectionAdministrationResult retryInTransaction(
             RetryProjectionRebuildCommand command, ProjectionCommandFingerprint fingerprint) {
-        UtcTimestamp now = authorize(command.organizationId(), command.actor());
+        UtcTimestamp now = authorize(command.organizationId(), command.access());
         Optional<ProjectionAdministrationResult> replay = replay(
                 command.organizationId(), command.commandId(), fingerprint);
         if (replay.isPresent()) {
@@ -140,15 +141,15 @@ public final class ProjectionAdministrationService {
         ProjectionRebuildStart start = ProjectionRebuildStart.start(
                 command.organizationId(), registry.definition(), registry.pointer(),
                 registry.generations(), ProjectionRebuildJobId.generate(), Optional.of(previous),
-                command.actor().id(), now);
-        return saveStart(command.commandId(), command.actor().id(), start,
+                command.access().actor().id(), now);
+        return saveStart(command.commandId(), command.access().actor().id(), start,
                 ProjectionAdministrationAction.RETRY_REBUILD, fingerprint, now);
     }
 
     private ProjectionAdministrationResult validateInTransaction(
             ValidateProjectionGenerationCommand command,
             ProjectionCommandFingerprint fingerprint) {
-        UtcTimestamp now = authorize(command.organizationId(), command.actor());
+        UtcTimestamp now = authorize(command.organizationId(), command.access());
         Optional<ProjectionAdministrationResult> replay = replay(
                 command.organizationId(), command.commandId(), fingerprint);
         if (replay.isPresent()) {
@@ -168,14 +169,14 @@ public final class ProjectionAdministrationService {
         ProjectionValidationPlan plan = ProjectionValidationPlan.validate(
                 registry.definition(), generation, job, command.expectedGenerationVersion(),
                 command.expectedJobVersion(), snapshots.expected(), snapshots.actual(),
-                command.actor().id(), now);
+                command.access().actor().id(), now);
         ProjectionAdministrationAction action = plan.result().passed()
                 ? ProjectionAdministrationAction.VALIDATION_PASSED
                 : ProjectionAdministrationAction.VALIDATION_FAILED;
         ProjectionAdministrationResult result = result(
                 plan.generation(), plan.job(), OptionalLong.empty());
         ProjectionLifecycleEvent event = event(
-                command.commandId(), command.actor().id(),
+                command.commandId(), command.access().actor().id(),
                 plan.generation(), plan.job(), action, Optional.empty(), Optional.empty(), now);
         ProjectionCommandReceipt receipt = receipt(command.commandId(), fingerprint, result);
         return repository.saveValidation(plan, event, receipt).replay(fingerprint);
@@ -184,7 +185,7 @@ public final class ProjectionAdministrationService {
     private ProjectionAdministrationResult switchInTransaction(
             SwitchProjectionGenerationCommand command,
             ProjectionCommandFingerprint fingerprint) {
-        UtcTimestamp now = authorize(command.organizationId(), command.actor());
+        UtcTimestamp now = authorize(command.organizationId(), command.access());
         Optional<ProjectionAdministrationResult> replay = replay(
                 command.organizationId(), command.commandId(), fingerprint);
         if (replay.isPresent()) {
@@ -218,7 +219,7 @@ public final class ProjectionAdministrationService {
                 plan.activatedTarget(), plan.completedJob(),
                 OptionalLong.of(plan.pointer().version()));
         ProjectionLifecycleEvent event = event(
-                command.commandId(), command.actor().id(),
+                command.commandId(), command.access().actor().id(),
                 plan.activatedTarget(), plan.completedJob(),
                 ProjectionAdministrationAction.SWITCH_GENERATION,
                 Optional.of(command.previousActiveGeneration()), Optional.empty(), now);
@@ -229,7 +230,7 @@ public final class ProjectionAdministrationService {
     private ProjectionAdministrationResult terminateInTransaction(
             TerminateProjectionRebuildCommand command,
             ProjectionCommandFingerprint fingerprint) {
-        UtcTimestamp now = authorize(command.organizationId(), command.actor());
+        UtcTimestamp now = authorize(command.organizationId(), command.access());
         Optional<ProjectionAdministrationResult> replay = replay(
                 command.organizationId(), command.commandId(), fingerprint);
         if (replay.isPresent()) {
@@ -254,7 +255,7 @@ public final class ProjectionAdministrationService {
         ProjectionAdministrationResult result = result(
                 plan.generation(), plan.job(), OptionalLong.empty());
         ProjectionLifecycleEvent event = event(
-                command.commandId(), command.actor().id(),
+                command.commandId(), command.access().actor().id(),
                 plan.generation(), plan.job(), command.action(), Optional.empty(),
                 command.failureCode(), now);
         ProjectionCommandReceipt receipt = receipt(command.commandId(), fingerprint, result);
@@ -278,9 +279,9 @@ public final class ProjectionAdministrationService {
     }
 
     private UtcTimestamp authorize(
-            OrganizationId organizationId, io.crewscope.domain.identity.Principal actor) {
+            OrganizationId organizationId, TeamAccessContext access) {
         UtcTimestamp now = timeProvider.now();
-        administration.requireOrganizationAdministrator(organizationId, actor, now);
+        administration.requireOrganizationAdministrator(organizationId, access, now);
         return now;
     }
 

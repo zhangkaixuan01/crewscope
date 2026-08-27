@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import io.crewscope.application.audit.CrewScopeAuditEventTypes;
 import io.crewscope.application.projection.*;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -68,6 +69,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
 
     private OrganizationId organizationId;
     private Principal actor;
+    private TeamAccessContext access;
     private JdbcProjectionAdministrationRepositoryAdapter repository;
     private ProjectionAdministrationService service;
 
@@ -88,6 +90,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
                 Optional.empty(),
                 PrincipalVisibility.ORGANIZATION,
                 NOW);
+        access = new TeamAccessContext(actor, true);
         jdbc.update(
                 "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Org', 'ACTIVE')",
                 organizationId.value());
@@ -138,7 +141,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
                         started.rebuildJobId(),
                         0,
                         0,
-                        actor,
+                        access,
                         confirmation(
                                 ProjectionAdministrationAction.VALIDATE_GENERATION,
                                 Optional.of(started.generation()))));
@@ -157,7 +160,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
                         0,
                         1,
                         1,
-                        actor,
+                        access,
                         confirmation(
                                 ProjectionAdministrationAction.SWITCH_GENERATION,
                                 Optional.of(started.generation()))));
@@ -177,7 +180,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
                         0,
                         ProjectionAdministrationAction.CANCEL_REBUILD,
                         Optional.empty(),
-                        actor,
+                        access,
                         confirmation(
                                 ProjectionAdministrationAction.CANCEL_REBUILD,
                                 Optional.of(second.generation()))));
@@ -218,7 +221,7 @@ class JdbcProjectionAdministrationRepositoryM6I02IntegrationTest
                 PROJECTION_NAME,
                 DEFINITION_VERSION,
                 pointerVersion,
-                actor,
+                access,
                 confirmation(ProjectionAdministrationAction.START_REBUILD, Optional.empty()));
     }
 

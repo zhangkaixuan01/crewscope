@@ -1,6 +1,6 @@
 package io.crewscope.application.projection;
 
-import io.crewscope.domain.identity.Principal;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.projection.ProjectionFailureCode;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
@@ -20,7 +20,7 @@ public record TerminateProjectionRebuildCommand(
         long expectedJobVersion,
         ProjectionAdministrationAction action,
         Optional<ProjectionFailureCode> failureCode,
-        Principal actor,
+        TeamAccessContext access,
         ProjectionStrongConfirmation confirmation) {
 
     public TerminateProjectionRebuildCommand {
@@ -31,7 +31,7 @@ public record TerminateProjectionRebuildCommand(
         rebuildJobId = Objects.requireNonNull(rebuildJobId, "rebuildJobId");
         action = Objects.requireNonNull(action, "action");
         failureCode = Objects.requireNonNull(failureCode, "failureCode");
-        actor = Objects.requireNonNull(actor, "actor");
+        access = Objects.requireNonNull(access, "access");
         confirmation = Objects.requireNonNull(confirmation, "confirmation");
         if (expectedGenerationVersion < 0 || expectedJobVersion < 0) {
             throw new IllegalArgumentException("Termination command versions must not be negative");

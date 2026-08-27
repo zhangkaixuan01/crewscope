@@ -85,7 +85,7 @@ class OperationsControllerM6A06Test {
                 Optional.empty(),
                 PrincipalVisibility.ORGANIZATION,
                 NOW);
-        access = new TeamAccessContext(actor, false);
+        access = new TeamAccessContext(actor, true);
         health = mock(OperationsHealthService.class);
         recovery = mock(OperationsRecoveryService.class);
         projections = mock(ProjectionAdministrationService.class);
@@ -137,7 +137,7 @@ class OperationsControllerM6A06Test {
                 0,
                 1,
                 Optional.empty());
-        when(health.diagnostics(ORGANIZATION_ID, access.actor()))
+        when(health.diagnostics(ORGANIZATION_ID, access))
                 .thenReturn(new OperationsAdministratorDiagnostics(
                         summary(), List.of(projection), List.of(candidate)));
 
@@ -163,7 +163,7 @@ class OperationsControllerM6A06Test {
 
     @Test
     void administratorAuthorizationFailureIsMappedToForbidden() {
-        when(health.diagnostics(ORGANIZATION_ID, access.actor()))
+        when(health.diagnostics(ORGANIZATION_ID, access))
                 .thenThrow(new PolicyDeniedException("inspect operations diagnostics"));
 
         client.get()

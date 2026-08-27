@@ -40,7 +40,7 @@ public final class OperationsRecoveryService {
             OperationsRecoveryCommand command, OperationsRecoveryFingerprint fingerprint) {
         UtcTimestamp now = timeProvider.now();
         administration.requireOrganizationAdministrator(
-                command.organizationId(), command.actor(), now);
+                command.organizationId(), command.access(), now);
         Optional<OperationsRecoveryReceipt> existing = repository.findReceipt(
                 command.organizationId(), command.commandId());
         if (existing.isPresent()) {
@@ -50,7 +50,7 @@ public final class OperationsRecoveryService {
                 command.commandId(),
                 command.organizationId(),
                 command.target(),
-                command.actor().id(),
+                command.access().actor().id(),
                 fingerprint,
                 now);
         OperationsRecoveryReceipt receipt = Objects.requireNonNull(
@@ -74,7 +74,7 @@ public final class OperationsRecoveryService {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             update(digest, command.organizationId().toString());
-            update(digest, command.actor().id().toString());
+            update(digest, command.access().actor().id().toString());
             for (String coordinate : command.target().fingerprintCoordinates()) {
                 update(digest, coordinate);
             }

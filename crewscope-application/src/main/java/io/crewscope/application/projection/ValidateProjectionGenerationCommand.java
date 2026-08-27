@@ -1,6 +1,6 @@
 package io.crewscope.application.projection;
 
-import io.crewscope.domain.identity.Principal;
+import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.projection.ProjectionDefinitionVersion;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
@@ -19,7 +19,7 @@ public record ValidateProjectionGenerationCommand(
         ProjectionRebuildJobId rebuildJobId,
         long expectedGenerationVersion,
         long expectedJobVersion,
-        Principal actor,
+        TeamAccessContext access,
         ProjectionStrongConfirmation confirmation) {
 
     public ValidateProjectionGenerationCommand {
@@ -30,7 +30,7 @@ public record ValidateProjectionGenerationCommand(
                 expectedDefinitionVersion, "expectedDefinitionVersion");
         generation = Objects.requireNonNull(generation, "generation");
         rebuildJobId = Objects.requireNonNull(rebuildJobId, "rebuildJobId");
-        actor = Objects.requireNonNull(actor, "actor");
+        access = Objects.requireNonNull(access, "access");
         confirmation = Objects.requireNonNull(confirmation, "confirmation");
         if (expectedGenerationVersion < 0 || expectedJobVersion < 0) {
             throw new IllegalArgumentException("Validation command versions must not be negative");
