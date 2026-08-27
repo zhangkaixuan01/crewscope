@@ -9,17 +9,26 @@ public final class OptimisticLockConflictException extends DomainException {
 
     public OptimisticLockConflictException(
             String aggregateType, AggregateId aggregateId, long expectedVersion, long actualVersion) {
+        this(aggregateType, Objects.requireNonNull(aggregateId, "aggregateId").toString(),
+                expectedVersion, actualVersion);
+    }
+
+    /**
+     * Reports a conflict for a versioned resource whose canonical identity is not a UUID aggregate.
+     */
+    public OptimisticLockConflictException(
+            String aggregateType, String aggregateId, long expectedVersion, long actualVersion) {
         super(new DomainError(
                 DomainErrorCode.OPTIMISTIC_LOCK_CONFLICT,
                 "%s %s version conflict: expected %d, actual %d"
                         .formatted(
                                 requireAggregateType(aggregateType),
-                                Objects.requireNonNull(aggregateId, "aggregateId"),
+                                requireAggregateId(aggregateId),
                                 requireVersion(expectedVersion, "expectedVersion"),
                                 requireVersion(actualVersion, "actualVersion")),
                 Map.of(
                         "aggregateType", aggregateType.strip(),
-                        "aggregateId", aggregateId.toString(),
+                        "aggregateId", aggregateId.strip(),
                         "expectedVersion", Long.toString(expectedVersion),
                         "actualVersion", Long.toString(actualVersion))));
     }
@@ -27,6 +36,13 @@ public final class OptimisticLockConflictException extends DomainException {
     private static String requireAggregateType(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("aggregateType must not be blank");
+        }
+        return value.strip();
+    }
+
+    private static String requireAggregateId(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("aggregateId must not be blank");
         }
         return value.strip();
     }

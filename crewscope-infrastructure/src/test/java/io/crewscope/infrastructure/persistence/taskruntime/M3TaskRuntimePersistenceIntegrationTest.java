@@ -1158,6 +1158,32 @@ class M3TaskRuntimePersistenceIntegrationTest
                     envelope);
             return null;
         });
+        UUID unknownDomainEventId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version,
+                    organization_id, team_id, workspace_id,
+                    subject_type, subject_id, aggregate_version,
+                    actor_type, actor_id, correlation_id, occurred_at, payload
+                ) VALUES (?, 'FUTURE_TASK_CREDENTIAL_EVENT', '1', ?, ?, ?,
+                          'TASK', ?, 999, 'TEAM_AGENT', ?, ?, ?,
+                          '{"credential":"never-public"}'::JSONB)
+                """,
+                unknownDomainEventId,
+                fixture.organizationId.value(), fixture.teamId.value(), fixture.workspaceId.value(),
+                graph.task().id().value(), fixture.executor.id().value(), correlationId,
+                RUNNING.toOffsetDateTime());
+        jdbcTemplate.update(
+                """
+                INSERT INTO crewscope.task_event (
+                    event_id, organization_id, team_id, workspace_id, project_id, task_id,
+                    domain_event_id, occurred_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(), fixture.organizationId.value(), fixture.teamId.value(),
+                fixture.workspaceId.value(), fixture.projectId.value(), graph.task().id().value(),
+                unknownDomainEventId, RUNNING.toOffsetDateTime(), RUNNING.toOffsetDateTime());
 
         TaskEventPage page = taskEventRepository.findPage(
                 new TaskEventQuery(
@@ -1165,6 +1191,7 @@ class M3TaskRuntimePersistenceIntegrationTest
                 false);
 
         assertEquals(1, page.events().size());
+        assertFalse(page.hasMore());
         assertTrue(page.events().get(0).projectionGap());
         assertEquals(Optional.of(graph.step().id()), page.events().get(0).context().stepExecutionId());
         assertEquals(Optional.of(run.id()), page.events().get(0).context().agentRunId());

@@ -111,55 +111,8 @@ public final class TaskPublicEventMapper {
     public Map<String, Object> map(String eventType, Map<String, Object> payload) {
         String type = Objects.requireNonNull(eventType, "eventType");
         Map<String, Object> source = Objects.requireNonNull(payload, "payload");
-        Set<String> fields;
-        if (type.equals("TASK_DELEGATED_TO_AGENT")) {
-            fields = DELEGATION_FIELDS;
-        } else if (MEMBER_COMMAND_TYPES.contains(type)) {
-            fields = MEMBER_COMMAND_FIELDS;
-        } else if (WORKER_COMMAND_TYPES.contains(type)) {
-            fields = WORKER_COMMAND_FIELDS;
-        } else if (type.equals("TASK_EXECUTION_RECOVERY_STARTED")) {
-            fields = RECOVERY_FIELDS;
-        } else if (type.equals("AGENT_RUN_RESUMED")) {
-            fields = RESUME_FIELDS;
-        } else if (type.equals("AGENT_RUN_EVENT_RECORDED")) {
-            fields = AGENT_RUN_FIELDS;
-        } else if (type.equals("EXECUTION_WORKSPACE_CHANGED")) {
-            fields = WORKSPACE_FIELDS;
-        } else if (type.equals("WORKSPACE_DIFF_RESET")
-                || type.equals("WORKSPACE_DIFF_DELTA")) {
-            fields = DIFF_FIELDS;
-        } else if (type.equals("TEST_EVIDENCE_PUBLISHED")) {
-            fields = TEST_EVIDENCE_FIELDS;
-        } else if (type.equals("FINAL_DIFF_ARTIFACT_PUBLISHED")) {
-            fields = FINAL_DIFF_FIELDS;
-        } else if (type.equals("REVIEW_REQUEST_CREATED")
-                || type.equals("REVIEW_REQUEST_STARTED")
-                || type.equals("REVIEW_REQUEST_COMPLETED")
-                || type.equals("REVIEW_REQUEST_INVALIDATED")) {
-            fields = REVIEW_REQUEST_FIELDS;
-        } else if (type.equals("REVIEW_FINDING_RECORDED")) {
-            fields = REVIEW_FINDING_FIELDS;
-        } else if (type.equals("REVIEW_FINDING_DUPLICATE_OBSERVED")) {
-            fields = REVIEW_DUPLICATE_FIELDS;
-        } else if (type.equals("REVIEW_DECISION_RECORDED")) {
-            fields = REVIEW_DECISION_FIELDS;
-        } else if (type.equals("REVIEW_MODIFICATION_ROUND_STARTED")) {
-            fields = REVIEW_ROUND_FIELDS;
-        } else if (type.equals("ACTION_BUNDLE_PLANNED")) {
-            fields = ACTION_BUNDLE_FIELDS;
-        } else if (type.equals("ACTION_BUNDLE_CONFIRMED")
-                || type.equals("ACTION_CONFIRMATION_CANCELLED")) {
-            fields = ACTION_CONFIRMATION_FIELDS;
-        } else if (type.equals("ACTION_DISPATCH_TRANSITIONED")) {
-            fields = ACTION_DISPATCH_FIELDS;
-        } else if (type.equals("ACTION_RECEIPT_RECORDED")) {
-            fields = ACTION_RECEIPT_FIELDS;
-        } else if (type.equals("EXTERNAL_RESULT_MERGED")) {
-            fields = EXTERNAL_RESULT_FIELDS;
-        } else {
-            throw new IllegalStateException("Task Event type is not publicly mapped: " + type);
-        }
+        Set<String> fields = fieldsFor(type).orElseThrow(() ->
+                new IllegalStateException("Task Event type is not publicly mapped: " + type));
 
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         source.forEach((key, value) -> {
@@ -168,6 +121,82 @@ public final class TaskPublicEventMapper {
             }
         });
         return Collections.unmodifiableMap(result);
+    }
+
+    /** Allows persistence readers to skip future event types before they enter a public page. */
+    public boolean supports(String eventType) {
+        return fieldsFor(Objects.requireNonNull(eventType, "eventType")).isPresent();
+    }
+
+    /** Returns the frozen event-type whitelist used by SQL readers and contract tests. */
+    public Set<String> publicEventTypes() {
+        java.util.LinkedHashSet<String> types = new java.util.LinkedHashSet<>();
+        types.add("TASK_DELEGATED_TO_AGENT");
+        types.addAll(MEMBER_COMMAND_TYPES);
+        types.addAll(WORKER_COMMAND_TYPES);
+        types.addAll(Set.of(
+                "TASK_EXECUTION_RECOVERY_STARTED", "AGENT_RUN_RESUMED",
+                "AGENT_RUN_EVENT_RECORDED", "EXECUTION_WORKSPACE_CHANGED",
+                "WORKSPACE_DIFF_RESET", "WORKSPACE_DIFF_DELTA",
+                "TEST_EVIDENCE_PUBLISHED", "FINAL_DIFF_ARTIFACT_PUBLISHED",
+                "REVIEW_REQUEST_CREATED", "REVIEW_REQUEST_STARTED",
+                "REVIEW_REQUEST_COMPLETED", "REVIEW_REQUEST_INVALIDATED",
+                "REVIEW_FINDING_RECORDED", "REVIEW_FINDING_DUPLICATE_OBSERVED",
+                "REVIEW_DECISION_RECORDED", "REVIEW_MODIFICATION_ROUND_STARTED",
+                "ACTION_BUNDLE_PLANNED", "ACTION_BUNDLE_CONFIRMED",
+                "ACTION_CONFIRMATION_CANCELLED", "ACTION_DISPATCH_TRANSITIONED",
+                "ACTION_RECEIPT_RECORDED", "EXTERNAL_RESULT_MERGED"));
+        return Collections.unmodifiableSet(types);
+    }
+
+    private static Optional<Set<String>> fieldsFor(String type) {
+        if (type.equals("TASK_DELEGATED_TO_AGENT")) {
+            return Optional.of(DELEGATION_FIELDS);
+        } else if (MEMBER_COMMAND_TYPES.contains(type)) {
+            return Optional.of(MEMBER_COMMAND_FIELDS);
+        } else if (WORKER_COMMAND_TYPES.contains(type)) {
+            return Optional.of(WORKER_COMMAND_FIELDS);
+        } else if (type.equals("TASK_EXECUTION_RECOVERY_STARTED")) {
+            return Optional.of(RECOVERY_FIELDS);
+        } else if (type.equals("AGENT_RUN_RESUMED")) {
+            return Optional.of(RESUME_FIELDS);
+        } else if (type.equals("AGENT_RUN_EVENT_RECORDED")) {
+            return Optional.of(AGENT_RUN_FIELDS);
+        } else if (type.equals("EXECUTION_WORKSPACE_CHANGED")) {
+            return Optional.of(WORKSPACE_FIELDS);
+        } else if (type.equals("WORKSPACE_DIFF_RESET")
+                || type.equals("WORKSPACE_DIFF_DELTA")) {
+            return Optional.of(DIFF_FIELDS);
+        } else if (type.equals("TEST_EVIDENCE_PUBLISHED")) {
+            return Optional.of(TEST_EVIDENCE_FIELDS);
+        } else if (type.equals("FINAL_DIFF_ARTIFACT_PUBLISHED")) {
+            return Optional.of(FINAL_DIFF_FIELDS);
+        } else if (type.equals("REVIEW_REQUEST_CREATED")
+                || type.equals("REVIEW_REQUEST_STARTED")
+                || type.equals("REVIEW_REQUEST_COMPLETED")
+                || type.equals("REVIEW_REQUEST_INVALIDATED")) {
+            return Optional.of(REVIEW_REQUEST_FIELDS);
+        } else if (type.equals("REVIEW_FINDING_RECORDED")) {
+            return Optional.of(REVIEW_FINDING_FIELDS);
+        } else if (type.equals("REVIEW_FINDING_DUPLICATE_OBSERVED")) {
+            return Optional.of(REVIEW_DUPLICATE_FIELDS);
+        } else if (type.equals("REVIEW_DECISION_RECORDED")) {
+            return Optional.of(REVIEW_DECISION_FIELDS);
+        } else if (type.equals("REVIEW_MODIFICATION_ROUND_STARTED")) {
+            return Optional.of(REVIEW_ROUND_FIELDS);
+        } else if (type.equals("ACTION_BUNDLE_PLANNED")) {
+            return Optional.of(ACTION_BUNDLE_FIELDS);
+        } else if (type.equals("ACTION_BUNDLE_CONFIRMED")
+                || type.equals("ACTION_CONFIRMATION_CANCELLED")) {
+            return Optional.of(ACTION_CONFIRMATION_FIELDS);
+        } else if (type.equals("ACTION_DISPATCH_TRANSITIONED")) {
+            return Optional.of(ACTION_DISPATCH_FIELDS);
+        } else if (type.equals("ACTION_RECEIPT_RECORDED")) {
+            return Optional.of(ACTION_RECEIPT_FIELDS);
+        } else if (type.equals("EXTERNAL_RESULT_MERGED")) {
+            return Optional.of(EXTERNAL_RESULT_FIELDS);
+        }
+        return Optional.empty();
     }
 
     private static Optional<Object> publicValue(String eventType, String key, Object value) {

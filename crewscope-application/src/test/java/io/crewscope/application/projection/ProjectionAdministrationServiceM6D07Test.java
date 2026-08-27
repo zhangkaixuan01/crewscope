@@ -34,6 +34,7 @@ import io.crewscope.domain.projection.ProjectionRebuildStart;
 import io.crewscope.domain.projection.ProjectionSnapshot;
 import io.crewscope.domain.projection.ProjectionValidationPlan;
 import io.crewscope.domain.shared.error.IdempotencyConflictException;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -160,6 +161,50 @@ class ProjectionAdministrationServiceM6D07Test {
                 IdempotencyConflictException.class,
                 () -> service.start(startCommand(commandId, 1)));
         verify(repository, never()).loadForUpdate(any(), any());
+        verifyNoInteractions(verifier);
+    }
+
+    @Test
+    void stalePointerUsesStableOptimisticConflictBeforeMutation() {
+        StartProjectionRebuildCommand command = startCommand(
+                ProjectionAdministrationCommandId.generate(), 4);
+        when(repository.findReceipt(organizationId, command.commandId()))
+                .thenReturn(Optional.empty());
+        when(repository.loadForUpdate(organizationId, definition.name()))
+                .thenReturn(registry(List.of(active), List.of()));
+
+        OptimisticLockConflictException failure = assertThrows(
+                OptimisticLockConflictException.class, () -> service.start(command));
+
+        assertEquals("4", failure.error().details().get("expectedVersion"));
+        assertEquals("0", failure.error().details().get("actualVersion"));
+        verify(repository, never()).createRebuild(any(), any(), any());
+        verifyNoInteractions(verifier);
+    }
+
+    @Test
+    void staleTerminationVersionUsesStableConflictBeforeMutation() {
+        ProjectionRebuildStart start = ProjectionRebuildStart.start(
+                organizationId, definition, pointer, List.of(active),
+                ProjectionRebuildJobId.generate(), Optional.empty(), actor.id(), NOW);
+        TerminateProjectionRebuildCommand command = new TerminateProjectionRebuildCommand(
+                ProjectionAdministrationCommandId.generate(), organizationId, definition.name(),
+                start.generation().key().generation(), start.job().id(), 1, 0,
+                ProjectionAdministrationAction.CANCEL_REBUILD, Optional.empty(), actor,
+                ProjectionStrongConfirmation.confirm(
+                        ProjectionAdministrationAction.CANCEL_REBUILD,
+                        definition.name(), Optional.of(start.generation().key().generation())));
+        when(repository.findReceipt(organizationId, command.commandId()))
+                .thenReturn(Optional.empty());
+        when(repository.loadForUpdate(organizationId, definition.name()))
+                .thenReturn(registry(List.of(active, start.generation()), List.of(start.job())));
+
+        OptimisticLockConflictException failure = assertThrows(
+                OptimisticLockConflictException.class, () -> service.terminate(command));
+
+        assertEquals("1", failure.error().details().get("expectedVersion"));
+        assertEquals("0", failure.error().details().get("actualVersion"));
+        verify(repository, never()).terminateRebuild(any(), any(), any());
         verifyNoInteractions(verifier);
     }
 

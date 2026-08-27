@@ -14,6 +14,7 @@ import io.crewscope.domain.projection.ProjectionSnapshot;
 import io.crewscope.domain.projection.ProjectionSwitchPlan;
 import io.crewscope.domain.projection.ProjectionTerminationPlan;
 import io.crewscope.domain.projection.ProjectionValidationPlan;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -111,8 +112,8 @@ public final class ProjectionAdministrationService {
         }
         ProjectionRegistrySnapshot registry = repository.loadForUpdate(
                 command.organizationId(), command.projectionName());
-        requireDefinitionAndPointer(
-                registry, command.expectedDefinitionVersion(), command.expectedPointerVersion());
+        requireDefinitionAndPointer(command.organizationId(), registry,
+                command.expectedDefinitionVersion(), command.expectedPointerVersion());
         ProjectionRebuildStart start = ProjectionRebuildStart.start(
                 command.organizationId(), registry.definition(), registry.pointer(),
                 registry.generations(), ProjectionRebuildJobId.generate(), Optional.empty(),
@@ -131,10 +132,11 @@ public final class ProjectionAdministrationService {
         }
         ProjectionRegistrySnapshot registry = repository.loadForUpdate(
                 command.organizationId(), command.projectionName());
-        requireDefinitionAndPointer(
-                registry, command.expectedDefinitionVersion(), command.expectedPointerVersion());
+        requireDefinitionAndPointer(command.organizationId(), registry,
+                command.expectedDefinitionVersion(), command.expectedPointerVersion());
         ProjectionRebuildJob previous = registry.requireJob(command.retryOfJobId());
-        requireVersion("retryOf RebuildJob", command.expectedRetryOfJobVersion(), previous.version());
+        requireVersion("ProjectionRebuildJob", previous.id().toString(),
+                command.expectedRetryOfJobVersion(), previous.version());
         ProjectionRebuildStart start = ProjectionRebuildStart.start(
                 command.organizationId(), registry.definition(), registry.pointer(),
                 registry.generations(), ProjectionRebuildJobId.generate(), Optional.of(previous),
@@ -154,12 +156,14 @@ public final class ProjectionAdministrationService {
         }
         ProjectionRegistrySnapshot registry = repository.loadForUpdate(
                 command.organizationId(), command.projectionName());
-        requireDefinition(registry.definition(), command.expectedDefinitionVersion());
+        requireDefinition(command.organizationId(), registry.definition(),
+                command.expectedDefinitionVersion());
         ProjectionGenerationState generation = registry.requireGeneration(command.generation());
         ProjectionRebuildJob job = registry.requireJob(command.rebuildJobId());
-        requireVersion(
-                "Projection Generation", command.expectedGenerationVersion(), generation.version());
-        requireVersion("Projection RebuildJob", command.expectedJobVersion(), job.version());
+        requireVersion("ProjectionGeneration", generationIdentity(generation),
+                command.expectedGenerationVersion(), generation.version());
+        requireVersion("ProjectionRebuildJob", job.id().toString(),
+                command.expectedJobVersion(), job.version());
         ProjectionVerificationSnapshots snapshots = verifier.verify(registry.definition(), generation);
         ProjectionValidationPlan plan = ProjectionValidationPlan.validate(
                 registry.definition(), generation, job, command.expectedGenerationVersion(),
@@ -188,22 +192,23 @@ public final class ProjectionAdministrationService {
         }
         ProjectionRegistrySnapshot registry = repository.loadForSwitch(
                 command.organizationId(), command.projectionName(), command.targetGeneration());
-        requireDefinition(registry.definition(), command.expectedDefinitionVersion());
+        requireDefinition(command.organizationId(), registry.definition(),
+                command.expectedDefinitionVersion());
         ProjectionGenerationState previous = registry.requireGeneration(
                 command.previousActiveGeneration());
         ProjectionGenerationState target = registry.requireGeneration(command.targetGeneration());
         ProjectionRebuildJob job = registry.requireJob(command.rebuildJobId());
-        requireVersion(
-                "Projection Pointer", command.expectedPointerVersion(), registry.pointer().version());
-        requireVersion(
-                "previous Projection Generation",
+        requireVersion("ProjectionPointer", projectionIdentity(
+                        command.organizationId(), command.projectionName()),
+                command.expectedPointerVersion(), registry.pointer().version());
+        requireVersion("ProjectionGeneration", generationIdentity(previous),
                 command.expectedPreviousGenerationVersion(),
                 previous.version());
-        requireVersion(
-                "target Projection Generation",
+        requireVersion("ProjectionGeneration", generationIdentity(target),
                 command.expectedTargetGenerationVersion(),
                 target.version());
-        requireVersion("Projection RebuildJob", command.expectedJobVersion(), job.version());
+        requireVersion("ProjectionRebuildJob", job.id().toString(),
+                command.expectedJobVersion(), job.version());
         ProjectionSnapshot current = verifier.current(registry.definition(), target);
         ProjectionSwitchPlan plan = ProjectionSwitchPlan.switchValidated(
                 registry.pointer(), previous, target, job, current,
@@ -234,6 +239,10 @@ public final class ProjectionAdministrationService {
                 command.organizationId(), command.projectionName());
         ProjectionGenerationState generation = registry.requireGeneration(command.generation());
         ProjectionRebuildJob job = registry.requireJob(command.rebuildJobId());
+        requireVersion("ProjectionGeneration", generationIdentity(generation),
+                command.expectedGenerationVersion(), generation.version());
+        requireVersion("ProjectionRebuildJob", job.id().toString(),
+                command.expectedJobVersion(), job.version());
         ProjectionTerminationPlan plan = command.action()
                         == ProjectionAdministrationAction.CANCEL_REBUILD
                 ? ProjectionTerminationPlan.cancel(
@@ -284,28 +293,47 @@ public final class ProjectionAdministrationService {
     }
 
     private static void requireDefinitionAndPointer(
+            OrganizationId organizationId,
             ProjectionRegistrySnapshot registry,
             io.crewscope.domain.projection.ProjectionDefinitionVersion expectedDefinitionVersion,
             long expectedPointerVersion) {
-        requireDefinition(registry.definition(), expectedDefinitionVersion);
-        requireVersion("Projection Pointer", expectedPointerVersion, registry.pointer().version());
+        requireDefinition(organizationId, registry.definition(), expectedDefinitionVersion);
+        requireVersion("ProjectionPointer",
+                projectionIdentity(organizationId, registry.definition().name()),
+                expectedPointerVersion, registry.pointer().version());
     }
 
     private static void requireDefinition(
+            OrganizationId organizationId,
             ProjectionDefinition definition,
             io.crewscope.domain.projection.ProjectionDefinitionVersion expected) {
         if (!definition.version().equals(expected)) {
-            throw new IllegalStateException(
-                    "Projection Definition version conflict: expected "
-                            + expected.value() + ", actual " + definition.version().value());
+            throw new OptimisticLockConflictException(
+                    "ProjectionDefinition",
+                    projectionIdentity(organizationId, definition.name()),
+                    expected.value(),
+                    definition.version().value());
         }
     }
 
-    private static void requireVersion(String type, long expected, long actual) {
+    private static void requireVersion(
+            String type, String identity, long expected, long actual) {
         if (expected != actual) {
-            throw new IllegalStateException(
-                    type + " version conflict: expected " + expected + ", actual " + actual);
+            throw new OptimisticLockConflictException(type, identity, expected, actual);
         }
+    }
+
+    private static String projectionIdentity(
+            OrganizationId organizationId,
+            io.crewscope.domain.projection.ProjectionName projectionName) {
+        return organizationId + "/" + projectionName;
+    }
+
+    private static String generationIdentity(ProjectionGenerationState generation) {
+        return projectionIdentity(
+                        generation.key().organizationId(), generation.key().projectionName())
+                + "/"
+                + generation.key().generation().value();
     }
 
     private static ProjectionAdministrationResult result(

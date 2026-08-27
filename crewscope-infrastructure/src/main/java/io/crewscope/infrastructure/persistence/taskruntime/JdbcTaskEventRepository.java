@@ -101,6 +101,13 @@ public class JdbcTaskEventRepository implements TaskEventRepository {
         TaskEventQuery required = Objects.requireNonNull(query, "query");
         required.cursor().ifPresent(cursor -> requireRetained(required, cursor));
         long afterPosition = required.cursor().map(TaskEventCursor::position).orElse(0L);
+        java.util.ArrayList<Object> parameters = new java.util.ArrayList<>();
+        parameters.add(required.scope().organizationId().value());
+        parameters.add(required.scope().teamId().value());
+        parameters.add(required.taskId().value());
+        parameters.add(afterPosition);
+        parameters.addAll(publicEventMapper.publicEventTypes());
+        parameters.add(required.limit() + 1);
         List<TaskEvent> rows = jdbcTemplate.query(
                 """
                 SELECT stream.position, stream.event_id AS stream_event_id,
@@ -133,20 +140,22 @@ public class JdbcTaskEventRepository implements TaskEventRepository {
                   AND stream.team_id = ?
                   AND stream.task_id = ?
                   AND stream.position > ?
+                  AND event.event_type IN (%s)
                 ORDER BY stream.position ASC
                 LIMIT ?
-                """,
+                """.formatted(publicEventPlaceholders()),
                 this::mapEvent,
-                required.scope().organizationId().value(),
-                required.scope().teamId().value(),
-                required.taskId().value(),
-                afterPosition,
-                required.limit() + 1);
+                parameters.toArray());
         boolean hasMore = rows.size() > required.limit();
         List<TaskEvent> page = hasMore
                 ? List.copyOf(rows.subList(0, required.limit()))
                 : List.copyOf(rows);
         return new TaskEventPage(page, hasMore, taskTerminal);
+    }
+
+    private String publicEventPlaceholders() {
+        return String.join(", ", java.util.Collections.nCopies(
+                publicEventMapper.publicEventTypes().size(), "?"));
     }
 
     private void requireRetained(TaskEventQuery query, TaskEventCursor cursor) {

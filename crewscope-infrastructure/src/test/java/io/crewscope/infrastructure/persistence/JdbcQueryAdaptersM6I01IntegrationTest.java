@@ -10,24 +10,40 @@ import io.crewscope.application.activity.ActivityPage;
 import io.crewscope.application.activity.ActivityQuery;
 import io.crewscope.application.activity.CrewScopeActivityEventTypes;
 import io.crewscope.application.activity.TeamActivityCursorExpiredException;
+import io.crewscope.application.audit.AuditAccessRecord;
 import io.crewscope.application.audit.AuditPage;
 import io.crewscope.application.audit.AuditQuery;
 import io.crewscope.application.audit.AuditQueryFilter;
 import io.crewscope.application.audit.CrewScopeAuditEventTypes;
+import io.crewscope.application.correlation.CorrelationObjectType;
+import io.crewscope.application.correlation.CorrelationPage;
+import io.crewscope.application.correlation.CorrelationQuery;
 import io.crewscope.domain.activity.ActivityEventId;
+import io.crewscope.domain.audit.AuditEventCategory;
+import io.crewscope.domain.audit.AuditOutcome;
+import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.identity.PrincipalScope;
+import io.crewscope.domain.identity.PrincipalType;
+import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.event.projection.ActivityEventProjector;
 import io.crewscope.infrastructure.persistence.activity.JdbcActivityQueryAdapter;
+import io.crewscope.infrastructure.persistence.audit.JdbcAuditAccessRecorder;
 import io.crewscope.infrastructure.persistence.audit.JdbcAuditQueryAdapter;
+import io.crewscope.infrastructure.persistence.correlation.JdbcCorrelationQueryAdapter;
 import io.crewscope.infrastructure.persistence.operations.JdbcOperationsHealthQueryAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +52,7 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -68,6 +85,7 @@ class JdbcQueryAdaptersM6I01IntegrationTest
     private JdbcActivityQueryAdapter activity;
     private JdbcAuditQueryAdapter audit;
     private JdbcOperationsHealthQueryAdapter operations;
+    private JdbcCorrelationQueryAdapter correlations;
 
     @BeforeEach
     void setUp() {
@@ -85,6 +103,51 @@ class JdbcQueryAdaptersM6I01IntegrationTest
         audit = new JdbcAuditQueryAdapter(
                 jdbc, objectMapper, CrewScopeAuditEventTypes.reviewedRegistry());
         operations = new JdbcOperationsHealthQueryAdapter(jdbc);
+        correlations = new JdbcCorrelationQueryAdapter(
+                new NamedParameterJdbcTemplate(jdbc), objectMapper,
+                CrewScopeAuditEventTypes.reviewedRegistry());
+    }
+
+    @Test
+    void correlationUsesAReviewedKeysetAndBuildsBidirectionalActivityLinks() {
+        UUID correlationId = UUID.randomUUID();
+        seedActivity(1, BASE_TIME, "CORR-1", correlationId);
+        seedActivity(2, BASE_TIME.plusSeconds(1), "CORR-2", correlationId);
+        seedActivity(3, BASE_TIME.plusSeconds(2), "CORR-3", correlationId);
+        jdbc.update(
+                """
+                INSERT INTO crewscope.domain_event (
+                    event_id, event_type, schema_version, organization_id, team_id,
+                    subject_type, subject_id, aggregate_version, actor_type, actor_id,
+                    correlation_id, occurred_at, payload
+                ) VALUES (?, 'FUTURE_CREDENTIAL_EXPOSED', '1', ?, ?, 'WORK_ITEM', ?, 0,
+                          'USER', ?, ?, ?, '{"credential":"never-public"}'::JSONB)
+                """,
+                UUID.randomUUID(), organizationId.value(), teamId.value(), UUID.randomUUID(),
+                principalId, correlationId,
+                BASE_TIME.plusSeconds(3).atOffset(ZoneOffset.UTC));
+        CorrelationQuery firstQuery = new CorrelationQuery(
+                organizationId, teamId,
+                io.crewscope.domain.team.TeamMemberId.generate(), correlationId,
+                Optional.empty(), 2);
+
+        CorrelationPage first = correlations.find(firstQuery);
+
+        assertEquals(2, first.events().size());
+        assertTrue(first.hasMore());
+        assertTrue(first.events().stream()
+                .noneMatch(event -> event.eventType().equals("FUTURE_CREDENTIAL_EXPOSED")));
+        assertTrue(first.events().stream().allMatch(event -> event.references().stream()
+                .anyMatch(reference -> reference.type() == CorrelationObjectType.ACTIVITY)));
+        assertTrue(first.objects().stream().allMatch(object -> object.eventIds().stream()
+                .allMatch(eventId -> first.events().stream()
+                        .anyMatch(event -> event.eventId().equals(eventId)))));
+
+        CorrelationPage second = correlations.find(new CorrelationQuery(
+                organizationId, teamId, firstQuery.memberId(), correlationId,
+                first.nextCursor(), 2));
+        assertEquals(1, second.events().size());
+        assertFalse(second.hasMore());
     }
 
     @Test
@@ -135,6 +198,28 @@ class JdbcQueryAdaptersM6I01IntegrationTest
     }
 
     @Test
+    void activityDetailReadsOnlyTheCurrentGenerationAndExactTenantScope() {
+        UUID domainEventId = seedActivity(1, BASE_TIME, "OPS-DETAIL");
+        ActivityEventId eventId = ActivityEventId.fromDomainEvent(domainEventId);
+
+        assertEquals(
+                eventId,
+                activity.findCurrentById(organizationId, teamId, eventId)
+                        .orElseThrow()
+                        .id());
+        assertTrue(activity.findCurrentById(
+                        organizationId, TeamId.generate(), eventId)
+                .isEmpty());
+        assertTrue(activity.findCurrentById(
+                        OrganizationId.generate(), teamId, eventId)
+                .isEmpty());
+
+        switchToEmptyGenerationTwo();
+
+        assertTrue(activity.findCurrentById(organizationId, teamId, eventId).isEmpty());
+    }
+
+    @Test
     void auditUsesPostgresUuidTieBreakAndReturnsEmptyUnregisteredSummary() {
         UUID smaller = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID larger = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
@@ -150,6 +235,77 @@ class JdbcQueryAdaptersM6I01IntegrationTest
         assertEquals(larger, first.events().get(0).id().value());
         assertEquals(smaller, second.events().get(0).id().value());
         assertTrue(first.events().get(0).summary().values().isEmpty());
+    }
+
+    @Test
+    void auditExplorerAccessIsAppendOnlySafeAndTeamScoped() {
+        Principal actor = Principal.create(
+                new PrincipalId(principalId),
+                PrincipalScope.organization(organizationId),
+                PrincipalType.USER,
+                Optional.empty(),
+                "Primary User",
+                Optional.empty(),
+                PrincipalVisibility.ORGANIZATION,
+                UtcTimestamp.from(BASE_TIME));
+        UUID correlationId = UUID.randomUUID();
+        JdbcAuditAccessRecorder recorder = new JdbcAuditAccessRecorder(jdbc, objectMapper);
+        recorder.record(new AuditAccessRecord(
+                AuditAccessRecord.Operation.QUERY,
+                organizationId,
+                teamId,
+                actor,
+                correlationId,
+                AuditOutcome.SUCCEEDED,
+                7,
+                UtcTimestamp.from(BASE_TIME)));
+        TeamId otherTeam = TeamId.generate();
+        jdbc.update(
+                "INSERT INTO crewscope.team (id, organization_id, name, status) "
+                        + "VALUES (?, ?, 'Other Team', 'ACTIVE')",
+                otherTeam.value(), organizationId.value());
+        recorder.record(new AuditAccessRecord(
+                AuditAccessRecord.Operation.EXPORT,
+                organizationId,
+                otherTeam,
+                actor,
+                UUID.randomUUID(),
+                AuditOutcome.SUCCEEDED,
+                3,
+                UtcTimestamp.from(BASE_TIME.plusSeconds(1))));
+        AuditQueryFilter filter = new AuditQueryFilter(
+                Optional.empty(),
+                Optional.empty(),
+                Set.of(AuditEventCategory.SECURITY),
+                Set.of(AuditOutcome.SUCCEEDED),
+                Set.of(),
+                Set.of(new PrincipalId(principalId)),
+                Set.of(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(correlationId));
+
+        AuditPage page = audit.find(AuditQuery.create(
+                organizationId, teamId, filter, Optional.empty(), 20));
+
+        assertEquals(1, page.events().size());
+        var event = page.events().get(0);
+        assertEquals("AUDIT_EXPLORER_QUERIED", event.summary().eventType().value());
+        assertEquals(AuditEventCategory.SECURITY, event.category());
+        assertEquals(AuditOutcome.SUCCEEDED, event.outcome());
+        assertEquals(correlationId, event.correlation().correlationId());
+        assertEquals(
+                Map.of("operation", "QUERY", "result", "SUCCEEDED", "rowCount", "7"),
+                event.summary().values());
+        assertEquals(teamId, event.teamId());
+        assertEquals(
+                3L,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM crewscope.audit_event, "
+                                + "LATERAL jsonb_object_keys(payload) "
+                                + "WHERE correlation_id = ?",
+                        Long.class,
+                        correlationId));
     }
 
     @Test
@@ -243,6 +399,11 @@ class JdbcQueryAdaptersM6I01IntegrationTest
     }
 
     private UUID seedActivity(long sequence, Instant occurredAt, String itemKey) {
+        return seedActivity(sequence, occurredAt, itemKey, UUID.randomUUID());
+    }
+
+    private UUID seedActivity(
+            long sequence, Instant occurredAt, String itemKey, UUID correlationId) {
         UUID domainEventId = UUID.randomUUID();
         UUID subjectId = UUID.randomUUID();
         jdbc.update(
@@ -255,7 +416,7 @@ class JdbcQueryAdaptersM6I01IntegrationTest
                           'USER', ?, ?, ?, '{}'::JSONB)
                 """,
                 domainEventId, organizationId.value(), teamId.value(), subjectId, sequence - 1,
-                principalId, UUID.randomUUID(), occurredAt.atOffset(ZoneOffset.UTC));
+                principalId, correlationId, occurredAt.atOffset(ZoneOffset.UTC));
         ActivityEventId eventId = ActivityEventId.fromDomainEvent(domainEventId);
         jdbc.update(
                 """
