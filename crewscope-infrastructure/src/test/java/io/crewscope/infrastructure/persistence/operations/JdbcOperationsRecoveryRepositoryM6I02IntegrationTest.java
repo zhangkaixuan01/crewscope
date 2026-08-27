@@ -238,7 +238,9 @@ class JdbcOperationsRecoveryRepositoryM6I02IntegrationTest
     }
 
     private ProjectionDeadLetterRecoveryTarget seedProjectionDeadLetter() {
-        ProjectionName name = new ProjectionName("operations-test-" + UUID.randomUUID());
+        // Keep the public Audit fixture deterministic and free from random digit runs that can
+        // intentionally be classified as phone-like PII by the fail-closed summary boundary.
+        ProjectionName name = new ProjectionName("operations-test-recovery");
         ProjectionDeadLetterId deadLetterId = ProjectionDeadLetterId.generate();
         transaction.executeWithoutResult(status -> {
             jdbc.update(
