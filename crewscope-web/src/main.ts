@@ -29,6 +29,11 @@ import { HttpReviewGateway } from './domains/review/gateway'
 import { installReviewStore } from './domains/review/store'
 import { HttpDeliveryGateway } from './domains/delivery/gateway'
 import { installDeliveryStore } from './domains/delivery/store'
+import { HttpTeamOpsGateway } from './domains/teamops/gateway'
+import { installTeamOpsStore } from './domains/teamops/store'
+import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
+import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
+import { installTeamObserverStore } from './domains/teamobserver/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -49,6 +54,10 @@ installModelStore(app, new HttpModelGateway())
 installAgentStore(app, new HttpAgentGateway())
 installReviewStore(app, new HttpReviewGateway())
 installDeliveryStore(app, new HttpDeliveryGateway())
+const teamOpsGateway = new HttpTeamOpsGateway()
+const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
+installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
+installTeamObserverStore(app, new HttpTeamObserverGateway())
 installGlobalErrorHandling(app)
 app.use(router)
 app.mount('#app')
