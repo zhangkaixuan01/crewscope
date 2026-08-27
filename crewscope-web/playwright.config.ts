@@ -1,8 +1,12 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const snapshotPlatform = process.platform
+
 export default defineConfig({
   testDir: './e2e',
-  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
+  // Text rasterization differs materially between macOS and the Linux amd64 release host.
+  // Keep reviewed baselines per OS instead of weakening the visual regression threshold.
+  snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-${snapshotPlatform}{ext}`,
   fullyParallel: true,
   // The release gate runs after Docker-heavy integration tests; two browser workers avoid launch starvation.
   workers: 2,
