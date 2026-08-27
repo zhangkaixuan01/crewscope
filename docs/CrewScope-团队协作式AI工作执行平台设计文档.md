@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.34<br>
+> 文档版本：v5.37<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -3775,6 +3775,34 @@ AgentScope Admin Starter 部署在内部管理网络。CrewScope IAM 包装以�
 - 模型请求保存 Provider、模型、区域、数据分类、脱敏规则版本和 Trace；
 - SafetyEnforcementOverlay 可以实时停用模型、区域和数据类型组合；
 - 企业模型网关统一实施认证、速率、配额、审计和内容策略。
+
+### 16.11 固定攻击集与披露门禁
+
+M6 团队观测面使用稳定编号的固定攻击集持续验证 Activity、Inbox、Audit、Team Observer、Lark/Notification 和 Operations。当前基线冻结 110 个样本：36 个覆盖六类 Cursor 的规范化与截断输入，50 个覆盖全部 M6 公开响应形状，24 个覆盖 Team Observer Evidence 的外部 URL、编码绕过、路径穿越、跨 Organization/Team 和未批准资源。固定分母由测试代码自校验，样本减少直接使门禁失败。
+
+固定攻击集之外继续运行授权行为回归：Team Observer 的五个 Tool 必须全部只读，每次调用复验成员与 Team Scope，PERSONAL Model Connection、PERSONAL Execution Scope、未知 Tool、写 Tool、Prompt 注入、Structured Output 扩字段和虚构 Evidence 全部失败关闭；Lark 映射绑定当前 Connection/Grant/Binding 版本，通知只接受当前固定模板与变量白名单；Projection 和 Dead Letter 管理命令绑定管理员权限、精确目标、强版本、强确认和幂等命令身份，授权失败时 Repository、Verifier 与 Provider 零交互。
+
+Web 敏感字段门禁扫描 Agent、Model、Review、Delivery、TeamOps 和 TeamObserver 生产契约以及全部 Story。`appSecret`、`tenantKey` 和 `openId` 只允许存在于 Gateway 的单次命令输入，禁止进入公开 DTO、响应式 Store、Story 和命令回执；Secret、Token、原始 Payload、Prompt 内部数据、Tool 参数、Provider Body、Lease/Fencing/Claim 与数据库坐标禁止进入所有 M6 浏览器公开状态。实现与验证见 [M6-Q01 团队观测固定攻击集与安全加固](testing/M6-Q01-Security-Hardening.md)。
+
+### 16.12 固定故障矩阵与恢复门禁
+
+M6 Team Beta 使用 `FI-001` 至 `FI-121` 的固定故障矩阵验证 Outbox、Projection、SSE、Redis/Snapshot、Worker、Worktree、Model、GitHub、Lark、Notification 和数据库提交窗口。11 个故障面各冻结 11 个稳定样本；编号、分组、样本数、终态与零副作用指标由测试代码自校验。矩阵以真实 PostgreSQL/Redis、真实本地 Git、AgentScope 可控模型和 Loopback Provider 的所有权边界回归为行为证据，不调用真实外部账户。
+
+内部中断按 Command、Operation、Delivery、Projection、Workspace 和 Fencing 身份查询权威事实。未提交工作只能由更大 Fencing Token 重新 Claim；已提交工作复用唯一 Receipt、Checkpoint、Artifact 或 Delivery。外部写响应丢失保持 UNKNOWN，使用相同 Idempotency Key 或 Provider UUID 执行 query-only 对账；明确证明未发生副作用才允许延迟重试，最终仍不可证明时进入人工队列。浏览器从最后已应用的签名 Cursor 恢复，Retention Gap 或 Generation 变化使用权威 Snapshot/Reset，Inbox Disposition 不受来源投影重放影响。
+
+当前固定结果为 121 / 121 收敛，其中 120 个自动恢复、1 个最终 UNKNOWN 进入人工队列，自动恢复率 99.17%；重复 Action/Notification Dispatch、Inbox Disposition 丢失和旧 Fencing 终态写入均为 0。完整矩阵与自动化证据见 [M6-Q02 固定故障与恢复攻击集](testing/M6-Q02-Fault-Recovery.md)。
+
+### 16.13 负载、恢复与 MVP 验收轨道
+
+M6-Q03 使用 `fixture`、`nightly` 和 `release-candidate` 三种显式轨道执行同一版本化门禁。Fixture 轨道不读取真实 Provider 凭证，同时运行独立 PostgreSQL 协议基线与生产 Queue/Activity/Inbox 固定样本负载；生产路径使用真实 V1–V30 Schema、`JdbcTaskExecutionQueueRepositoryAdapter`、Activity/Inbox `GenerationAwareProjectionRunner`、Generation Receipt 和 Checkpoint。Fixture 继续覆盖 Redis/进程替换恢复、真实本地 Git Worktree 回滚、部署/加密恢复合同、前端生产构建和完整 MVP Playwright。Nightly 只把生产路径扩展到 120 秒 Warmup 与三轮各 600 秒 Measurement，并要求独立的源/空目标 Operator Environment调用生产备份恢复。Release Candidate 继续要求显式真实 Lark 确认、专用测试接收者标签和短期凭证，只发送 `release-candidate-smoke@1` 固定模板。
+
+负载证据保存 Canonical Profile、执行环境、三轮独立样本数、错误数、nearest-rank P95 与原始直方图。开发机执行会写明实际 OS/架构并把 `canonicalLinuxAmd64` 标记为 `false`；该结果只能证明协议和实现，不得替代 Linux amd64、8 vCPU、16 GiB、120 秒 Warmup 与 600 秒 Measurement 的正式发布证据。备份恢复与真实 Lark Evidence 只保存安全摘要、Hash、RPO/RTO、Schema 和 Receipt 身份 Hash，不保存凭证、接收者原始身份或消息正文。实现与当前证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
+
+### 16.14 MVP Release Gate
+
+M6-Q04 使用 `local-preflight` 与 `release-candidate` 两条轨道聚合 M0–M6 发布证据。Local Preflight 负责开发机可权威判定的确定性合同、全量回归、固定攻击/故障集、Q03 Fixture、前端 Coverage/Build/Histoire/Playwright、M4/M5 冻结评测协议、Dockerfile 构建、生产依赖 Audit、文档链接和敏感字段。Release Candidate 继续强制 Q03 Canonical 完整窗口、新备份独立空目标恢复和真实 Lark 固定模板 Receipt；任何证据缺失、失败、跳过或 Hash 不一致均拒绝发布。
+
+本机预检已完成 Maven `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 个 Story/104 个 Variant、M4 Frozen Judge Pack 独立物化编译、生产依赖零已知漏洞以及 Backend/Web 本机缓存镜像构建与容器烟测。开发机 Docker Registry Resolver 未完成远端固定 Digest 解析，该步骤不降级为本机缓存结论；Linux amd64 GitHub Actions 必须使用 Dockerfile 冻结 Digest 重新构建，并完成 OSV 与 Trivy 权威扫描。M6-Q03 与 CI 证据正式关闭前，M6-Q04 保持进行中且不作出 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
 ## 17. 可观测性与评测
 

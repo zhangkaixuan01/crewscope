@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.74<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.34`<br>
+> 文档版本：v1.77<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.37`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08 已完成，下一任务为 M6-Q01（2026-08-27）
+> 当前进度：M0 至 M5、M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08、M6-Q01 至 M6-Q02 已完成；M6-Q03 Fixture 与 M6-Q04 本机确定性预检已完成，待 Linux amd64 Canonical Nightly 空目标恢复、受保护真实 Lark Release Candidate 与权威 CI 证据（2026-08-27）
 
 ## 1. 实施目标
 
@@ -904,6 +904,14 @@ M6-F07 已交付 `/operations` 健康与 MVP 管理页，成员读取五组件�
 M6-F08 已统一收口六个 M6 工作台的全状态、离线缓存与恢复、响应式、ARIA、Reduced Motion、Histoire、视觉、Axe、Coverage 和公开字段扫描。修复 Activity 离线续页仍可点击以及 Operations 初始/诊断错误态无法触发刷新两个缺口；补齐 Provider、Observer 与 Operations 离线纵向用例和 Observer/Operations 专属状态 Story。提交前 Review 后最终前端门禁为 Vitest `426 / 426`，Coverage Statements `80.78%`、Branches `74.05%`、Functions `81.16%`、Lines `83.18%`，Histoire `14` 个 Story / `104` 个 Variant，Playwright/视觉/Axe `180 / 180`；Lark 服务端强版本契约 `4 / 4` 通过。实现与验证见 [M6-F08 M6 前端全状态与质量门禁](testing/M6-F08-M6前端全状态与质量门禁.md)。
 
 M6-F01 至 M6-F08 提交前整体 Review 补强四项一致性门禁：普通资源刷新失败保留最近公开事实；统一命令槽在 Pending 期间拒绝第二个命令；Team Observer 的 Cancel、Summary、Evidence 使用 Abort 与 `Scope + Session + Invocation + Generation` 双重隔离；Conversation 切入 Observer 前推进页面同步代次，阻断 Personal Conversation 旧异步链。回归测试覆盖 Gateway 忽略 AbortSignal 的最坏情况，门禁结果记录在 M6-F08 验证文档。
+
+M6-Q01 已冻结 110 个稳定编号攻击样本：六类 Cursor 的 36 个规范化攻击、50 个 M6 公开 Projection 字段泄漏探针和 24 个 Team Observer Evidence 路由攻击全部阻断。行为回归同时验证成员持续授权、TEAM-only 模型、固定五类只读 Tool、Prompt/Structured Output/Evidence 失败关闭、固定通知模板、映射与版本漂移、Projection 强确认及普通成员零运维命令。专项门禁为 Java `173 / 173`、Web `83 / 83`，Web 敏感字段扫描扩展到 TeamOps/TeamObserver 生产契约、六个 M6 页面与六个工作台组件后覆盖 40 个生产文件和 14 个 Story；实现与证据见 [M6-Q01 团队观测固定攻击集与安全加固](testing/M6-Q01-Security-Hardening.md)。
+
+M6-Q02 已冻结 `FI-001` 至 `FI-121` 的故障矩阵，覆盖 Outbox、Projection、SSE、Redis/Snapshot、Worker、Worktree、Model、GitHub、Lark、Notification 和数据库提交窗口。121 个样本全部收敛，120 个自动恢复、1 个最终 UNKNOWN 进入人工队列，自动恢复率 `99.17%`；重复 Action/Notification Dispatch、Inbox Disposition 丢失和旧 Fencing 写入均为 `0`。专项门禁为 Java `304 / 304`、Web `67 / 67`，实现与证据见 [M6-Q02 固定故障与恢复攻击集](testing/M6-Q02-Fault-Recovery.md)。
+
+M6-Q03 已实现 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Fixture 同时保留独立 PostgreSQL 协议基线，并在真实 V1–V30 Schema 通过生产 `JdbcTaskExecutionQueueRepositoryAdapter`、Activity/Inbox `GenerationAwareProjectionRunner`、Receipt 和 Checkpoint 完成三轮各 500 个样本；生产 READY Claim P95 为 `59 / 47 / 57ms`，Activity P95 为 `113 / 95 / 115ms`，Inbox P95 为 `90 / 66 / 84ms`，错误率均为 `0`。Java 生产负载/重启/恢复/Worktree/Provider 专项 `84 / 84`、完整 MVP Playwright `180 / 180`、前端生产构建、七服务部署合同和三组件加密恢复合同通过。当前 macOS/aarch64 证据明确标记为非 Canonical；Linux amd64 Nightly 必须重新执行 120 秒/600 秒三轮生产负载和新备份空目标恢复，Release Candidate 必须由受保护环境显式确认后向专用接收者发送固定 Lark 模板，全部完成前 M6-Q03 不关闭。实现与证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
+
+M6-Q04 已建立 `local-preflight` 与 `release-candidate` 双轨 Release Gate。本机确定性预检完成 299 份 Markdown 链接、M4/M5 评测协议、V1–V30 与 7 模块 Maven `2554 / 2554`、Q01/Q02、Q03 Fixture、Vitest `450 / 450`、Playwright `180 / 180`、14 个 Story/104 个 Variant、生产构建、Coverage、生产依赖 Audit、本机缓存生产镜像构建和容器烟测；所有本机可执行项零失败、零错误、零跳过。Docker Hub 固定 Digest 解析、OSV 和 Trivy 保留给 Linux amd64 权威 CI，M6-Q03 Canonical 与真实 Lark 未关闭前不作出 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
 ## 19. 项目管理与进度跟踪
 
