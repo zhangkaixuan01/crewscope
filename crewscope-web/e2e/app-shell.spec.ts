@@ -973,6 +973,17 @@ test.beforeEach(async ({ page }) => {
         : { items: timeline, nextCursor: 'timeline-page-2' })
       return
     }
+    const workItemActivityMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/activity(?:\/snapshot)?$/)
+    if (workItemActivityMatch && request.method() === 'GET') {
+      const items = [workItemActivity('00000000-0000-0000-0000-000000002301', workItemActivityMatch[2]!)]
+      await fulfillJson(route, {
+        items,
+        hasMore: false,
+        nextCursor: null,
+        snapshotCursor: path.endsWith('/snapshot') ? 'work-item-activity-cursor' : undefined,
+      })
+      return
+    }
     const detailMatch = path.match(/\/work-items\/([^/]+)$/)
     if (detailMatch && request.method() === 'GET') {
       const item = workItems.find(candidate => candidate.id === detailMatch[1])
@@ -1800,7 +1811,7 @@ test('WorkItem delegates to its assigned Agent and refreshes the Task deep link'
   await expect(delegate.getByText('Executor · 张凯旋的 Personal Agent')).toBeVisible()
   await delegate.getByLabel('执行目标').fill('由 Personal Agent 验证 M3-F02')
   await delegate.getByRole('button', { name: '验证 Ref' }).click()
-  await expect(delegate.getByText(/Preflight 通过/)).toBeVisible()
+  await expect(delegate.getByText(/^Preflight 通过 ·/)).toBeVisible()
   await delegate.getByRole('button', { name: '创建 Task' }).click()
 
   await expect(delegate).toBeHidden()
@@ -3390,6 +3401,25 @@ function taskDetails(value: ReturnType<typeof task>) {
 
 function timelineEvent(eventId: string, eventType: string, occurredAt: string, actorDisplayName: string) {
   return { eventId, domainEventId: eventId, source: 'DOMAIN_EVENT', eventType, schemaVersion: '1', aggregateType: 'WorkItem', aggregateId: ids.workItem, aggregateVersion: 0, actorType: 'USER', actorPrincipalId: ids.principal, actorDisplayName, correlationId: crypto.randomUUID(), causationId: null, occurredAt, outcome: 'SUCCEEDED', payload: { workItemId: ids.workItem } }
+}
+
+function workItemActivity(eventId: string, workItemId: string) {
+  return {
+    eventId,
+    domainEventId: eventId,
+    teamSequence: 18,
+    eventType: 'TASK_EXECUTION_COMPLETED',
+    category: 'EXECUTION',
+    visibility: 'TEAM',
+    subject: { type: 'WORK_ITEM', id: workItemId },
+    actor: { type: 'PERSONAL_AGENT', principalId: ids.personalAgent },
+    references: [
+      { type: 'WORK_ITEM', id: workItemId },
+      { type: 'TASK', id: ids.task },
+    ],
+    occurredAt: '2026-08-08T03:42:00Z',
+    payload: { schemaName: 'task-execution-completed', schemaVersion: 1, values: { outcome: 'COMPLETED' } },
+  }
 }
 
 function taskEventItem(
