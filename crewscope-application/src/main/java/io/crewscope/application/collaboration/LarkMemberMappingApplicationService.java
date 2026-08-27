@@ -171,6 +171,13 @@ public final class LarkMemberMappingApplicationService {
                 required.limit()));
     }
 
+    /** Performs the administrator check required before a signed mapping Cursor is decoded. */
+    public void requireAdministrator(
+            OrganizationId organizationId, TeamId teamId, io.crewscope.domain.identity.Principal actor) {
+        administration.requireProviderAdministrator(
+                organizationId, teamId, actor, timeProvider.now());
+    }
+
     /** Resolves the exact open_id only after rechecking member, mapping and provider authorization. */
     public CollaborationRecipient resolveRecipient(
             OrganizationId organizationId,

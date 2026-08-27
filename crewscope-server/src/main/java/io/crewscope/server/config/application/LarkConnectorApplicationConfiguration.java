@@ -4,6 +4,8 @@ import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.collaboration.DefaultLarkConnectionAuthorizationResolver;
 import io.crewscope.application.collaboration.DefaultLarkMappingAdministration;
 import io.crewscope.application.collaboration.LarkCollaborationApplicationService;
+import io.crewscope.application.collaboration.LarkAdministrationCommandService;
+import io.crewscope.application.collaboration.LarkConnectionApplicationService;
 import io.crewscope.application.collaboration.LarkConnectionAuthorizationResolver;
 import io.crewscope.application.collaboration.LarkExternalTenantRepository;
 import io.crewscope.application.collaboration.LarkMappingAdministration;
@@ -12,7 +14,19 @@ import io.crewscope.application.collaboration.LarkMemberMappingRepository;
 import io.crewscope.application.collaboration.LarkMemberVerificationProofRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
+import io.crewscope.application.provider.BuiltInProviderRegistration;
+import io.crewscope.application.provider.ProviderBindingRepository;
+import io.crewscope.application.provider.ProviderBootstrapLock;
+import io.crewscope.application.provider.ProviderDefinitionRepository;
+import io.crewscope.application.provider.ProviderImplementationRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
+import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.notification.NotificationAdministrationRepository;
+import io.crewscope.application.notification.NotificationAdministrationService;
+import io.crewscope.application.notification.NotificationAuthorizationFactsResolver;
+import io.crewscope.application.notification.NotificationPlanRepository;
+import io.crewscope.application.notification.NotificationPlanningApplicationService;
+import io.crewscope.application.notification.NotificationRecipientAuthorization;
 import io.crewscope.application.notification.FixedNotificationTemplateRenderer;
 import io.crewscope.application.notification.NotificationCredentialIssuer;
 import io.crewscope.application.notification.NotificationProviderPort;
@@ -20,7 +34,14 @@ import io.crewscope.application.notification.NotificationTemplateCatalog;
 import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMemberRepository;
+import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.team.WorkspaceRepository;
+import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.domain.collaboration.LarkCollaborationCapabilities;
+import io.crewscope.server.api.LarkMappingCursorCodec;
+import io.crewscope.server.api.NotificationDeliveryCursorCodec;
+import io.crewscope.server.api.TeamActivityCursorKeyRing;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.integration.provider.collaboration.LarkCollaborationProvider;
 import io.crewscope.integration.provider.collaboration.LarkCredentialAccessManager;
@@ -29,6 +50,7 @@ import io.crewscope.integration.provider.collaboration.LarkNotificationCredentia
 import io.crewscope.integration.provider.collaboration.LarkNotificationProviderAdapter;
 import io.crewscope.integration.provider.collaboration.LarkTenantTokenCache;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -220,5 +242,123 @@ public class LarkConnectorApplicationConfiguration {
             TeamMemberRepository members) {
         return new LarkNotificationProviderAdapter(
                 client, renderer, mappings, tenants, members);
+    }
+
+    @Bean
+    @ConditionalOnBean({
+        NotificationTemplateCatalog.class,
+        NotificationAuthorizationFactsResolver.class,
+        NotificationRecipientAuthorization.class,
+        NotificationPlanRepository.class,
+        TimeProvider.class
+    })
+    @ConditionalOnMissingBean(NotificationPlanningApplicationService.class)
+    NotificationPlanningApplicationService notificationPlanningApplicationService(
+            NotificationTemplateCatalog templates,
+            NotificationAuthorizationFactsResolver facts,
+            NotificationRecipientAuthorization recipients,
+            NotificationPlanRepository plans,
+            TimeProvider timeProvider) {
+        return new NotificationPlanningApplicationService(
+                templates, facts, recipients, plans, timeProvider, Duration.ofHours(1));
+    }
+
+    @Bean
+    @ConditionalOnBean({
+        LarkMappingAdministration.class,
+        NotificationAdministrationRepository.class,
+        NotificationPlanningApplicationService.class,
+        TimeProvider.class
+    })
+    @ConditionalOnMissingBean(NotificationAdministrationService.class)
+    NotificationAdministrationService notificationAdministrationService(
+            LarkMappingAdministration administration,
+            NotificationAdministrationRepository repository,
+            NotificationPlanningApplicationService planning,
+            TimeProvider timeProvider) {
+        return new NotificationAdministrationService(
+                administration, repository, planning, timeProvider);
+    }
+
+    @Bean
+    @ConditionalOnBean({
+        LarkMappingAdministration.class,
+        ConnectionRepository.class,
+        ConnectionGrantRepository.class,
+        CredentialStore.class,
+        TeamRepository.class,
+        WorkspaceRepository.class,
+        ProviderDefinitionRepository.class,
+        ProviderImplementationRepository.class,
+        ProviderBindingRepository.class,
+        ProviderBootstrapLock.class,
+        CommandReceiptStore.class,
+        TransactionExecutor.class,
+        TimeProvider.class,
+        ObjectMapper.class
+    })
+    @ConditionalOnMissingBean(LarkConnectionApplicationService.class)
+    LarkConnectionApplicationService larkConnectionApplicationService(
+            LarkMappingAdministration administration,
+            ConnectionRepository connections,
+            ConnectionGrantRepository grants,
+            CredentialStore credentials,
+            TeamRepository teams,
+            WorkspaceRepository workspaces,
+            ProviderDefinitionRepository definitions,
+            ProviderImplementationRepository implementations,
+            ProviderBindingRepository bindings,
+            ProviderBootstrapLock bootstrapLock,
+            CommandReceiptStore receipts,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider,
+            ObjectMapper objectMapper,
+            LarkCollaborationProvider provider) {
+        var descriptor = provider.descriptor();
+        BuiltInProviderRegistration registration = new BuiltInProviderRegistration(
+                LarkCollaborationCapabilities.CONNECTOR_KEY,
+                descriptor.type(), descriptor.interfaceVersion(), descriptor.displayName(),
+                LarkCollaborationCapabilities.CONNECTOR_KEY, "1.0.0",
+                LarkCollaborationCapabilities.COMPLETE);
+        return new LarkConnectionApplicationService(
+                administration, connections, grants, credentials, teams, workspaces,
+                definitions, implementations, bindings, bootstrapLock, registration,
+                receipts, transactions, timeProvider, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnBean({
+        LarkMappingAdministration.class,
+        LarkMemberMappingApplicationService.class,
+        NotificationAdministrationService.class,
+        CommandReceiptStore.class,
+        TransactionExecutor.class,
+        TimeProvider.class
+    })
+    @ConditionalOnMissingBean(LarkAdministrationCommandService.class)
+    LarkAdministrationCommandService larkAdministrationCommandService(
+            LarkMappingAdministration administration,
+            LarkMemberMappingApplicationService mappings,
+            NotificationAdministrationService notifications,
+            CommandReceiptStore receipts,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider) {
+        return new LarkAdministrationCommandService(
+                administration, mappings, notifications, receipts, transactions, timeProvider);
+    }
+
+    @Bean
+    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
+    @ConditionalOnMissingBean(LarkMappingCursorCodec.class)
+    LarkMappingCursorCodec larkMappingCursorCodec(TeamActivityCursorKeyRing keyRing) {
+        return new LarkMappingCursorCodec(keyRing);
+    }
+
+    @Bean
+    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
+    @ConditionalOnMissingBean(NotificationDeliveryCursorCodec.class)
+    NotificationDeliveryCursorCodec notificationDeliveryCursorCodec(
+            TeamActivityCursorKeyRing keyRing) {
+        return new NotificationDeliveryCursorCodec(keyRing);
     }
 }
