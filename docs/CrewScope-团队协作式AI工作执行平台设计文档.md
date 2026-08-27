@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.18<br>
+> 文档版本：v5.25<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -1244,6 +1244,8 @@ M6-I06 的固定模板 Renderer 只接受当前发布的精确 Template ID/Versi
 
 每个通知 PlannedAction 使用 Organization、Connection、Action ID、Action Digest 和 Notification Deduplication Key 派生稳定 Provider UUID。同一逻辑投递的重复 Event、Dispatch、Timeout、Lease 接管和查询恢复使用相同 UUID；管理员再次投递通过新的 Redelivery Plan 和 Deduplication Key 获得新的 UUID。发送取得 Message ID 后查询精确消息存在性，Receipt 记录 `ACCEPTED` 和安全证据；该状态表达 Provider 接受消息，不表达成员已读。Lark 没有按 UUID 查询消息的接口，响应丢失恢复会重放完全相同的固定 Recipient、正文和 UUID，依赖 Provider 幂等语义返回原 Message ID；该操作恢复原投递，不创建新的业务投递。超过自动恢复上限进入失败闭环与人工处理。完整协议见 [ADR-022](adr/ADR-022-Inbox与固定模板通知授权协议.md)、[M6-S03 验证记录](spikes/M6-S03-Inbox与固定模板通知授权验证记录.md)、[M6-S04 验证记录](spikes/M6-S04-Lark-OpenAPI与通知投递验证记录.md) 和 [M6-I06 验证记录](testing/M6-I06-固定模板Lark投递与Receipt恢复.md)。
 
+M6-A04 在 `/api/v1/organizations/{organizationId}/teams/{teamId}/lark` 暴露 Team 管理入口。Connection 创建以 `tenant_key`、`app_id` 和 `app_secret` 为单向输入，在同一事务闭合 TEAM Credential、Connection、完整 Capability Grant 和默认 Workspace ProviderBinding；轮换只更新 Credential Secret Version，撤销同时终结 Credential、Grant、Connection 并禁用 Binding。所有读取和命令重新验证当前 `PROVIDER_MANAGE`，所有状态变更要求强 ETag、Idempotency-Key 和持久化 Receipt。成员 Mapping 与 Notification Delivery 使用独立 HMAC 签名域的 Scope/Filter-bound Keyset Cursor；当前管理权限必须在 Cursor 解码前完成复验，不向失去权限的调用者暴露 Token 有效性。所有强 ETag 不匹配统一返回 `409 optimistic_lock_conflict` 和当前版本，不映射为 500。公开 DTO 只返回内部管理坐标和安全状态，不返回 App Secret、Credential/Grant ID、Tenant Key、Open ID、Union ID、变量、授权快照、Digest、Provider Message ID、Endpoint、请求/响应 Body、Claim、Lease 或原始错误。实现与验证见 [M6-A04 Lark 与 Notification 管理 API](testing/M6-A04-Lark与Notification管理API.md)。
+
 M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding、完成 Preflight 并显式启用后，Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
 
 `team-observer@1` 固定为 Organization 发布、TEAM Ownership、TEAM Execution Scope 和 `TEAM_COORDINATOR` Runtime Role。Tool 精确集合为 `team.activity.read`、`team.inbox.summary.read`、`workitem.summary.read`、`task.summary.read`、`artifact.summary.read`，Approved Skill 和成员可配置槽为空。只有 `MODEL_BINDING` 与 `BUDGET` 由管理员配置。
@@ -1259,6 +1261,16 @@ V28 只为 Owner Member、Owner USER 和 Default TEAM Workspace 均有效的既�
 M6-I07 将 `team-observer@1` 落为独立的 AgentScope 只读运行时。Runtime Registry 在模型 Credential 打开前闭合 ACTIVE Profile、固定 Template、当前 Configuration、TEAM Resolved Configuration、TEAM/ORGANIZATION Connection Owner、五 Tool、空 Skill、空成员补充 Prompt 与 Structured Output Schema Hash。五个 Tool 无模型可控的 Organization、Team、Member、Cursor 或 Limit 参数，每次调用从 Server 绑定的 `TeamSummaryRequest` 重新验证当前 ACTIVE 成员，并只向模型提供 Section、脱敏摘要和内部 Evidence Path。
 
 每次 Observer 调用创建新的 Toolkit 和证据目录。模型输出的每个 `summary + evidencePath` 必须与本次已执行 Tool 返回的同 Section 精确一致，改写摘要、虚构链接、重复选择、引用未读取数据和 Prompt 注入产生的新内容全部失败关闭。模型完成后再次复验成员资格，关闭调用期间离队或停用的披露竞态。AgentScope User/Session Key 与 State Reference 绑定 Organization、Team、Member、确定性 Observer Profile 和服务端 Session UUID；运行时同时关闭文件系统、Shell、Subagent、Memory、动态 Skill 与 Workspace Context。实现与验证见 [M6-I07 Team Observer AgentScope 只读运行时](testing/M6-I07-Team-Observer-AgentScope只读运行时.md)。
+
+M6-A05 使用专用 Team Observer Session 承载团队对话，并复用 Conversation Mode 的 Session、Invocation、SSE、Resume 与显式取消交互语义。专用 Session 绑定 Organization、Team、当前 Member、USER Principal、确定性 Observer Profile 和服务端 UUID；它不写入只允许 Personal Agent 的 `Conversation` 聚合。SSE 断开只终止 Transport Subscriber，运行继续到终态；Resume 重放并继续订阅同一 Invocation，不重复调用模型；业务取消只能通过显式 API 触发。每个安全 SSE 业务帧在写入响应前重新校验当前 ACTIVE 成员、Session 与 Invocation 归属；连接期间离队或停用会终止后续披露，不取消已由平台持有的 AgentScope 业务运行。
+
+生产执行适配器在每次调用重新加载 ACTIVE Observer Profile、精确 `team-observer@1`、当前 Configuration 和 TEAM Resolved Configuration，只枚举 TEAM/ORGANIZATION Model Connection。客户端只提交有界指令和每段条数，不能提交 Agent、Profile、Model、Connection、Provider、Tool、Skill、State 或写命令。公开流固定为 `STARTED / SUMMARY_COMPLETED / CANCELLED / FAILED`，不输出 Thinking、模型文本增量、Tool 参数/结果、Provider 错误和授权事实。
+
+团队摘要生产投影读取当前代际 `TEAM_MEMBERS` Activity、当前成员 Inbox，以及同 Team 的 WorkItem、Task 和 Artifact 白名单元数据；Activity 原始 Payload、管理员事件和 WorkItem 参与者事件不进入模型。摘要 DTO 只返回五段条目和 Evidence Index。证据解析在当前成员复验、Session/Invocation 所属校验和已选择 Evidence 精确匹配后返回内部路径，目标 API 继续独立授权。实现与验证见 [M6-A05 Team Observer 对话与摘要 API](testing/M6-A05-Team-Observer对话与摘要API.md)。
+
+M6-A06 提供成员与管理员分层的运行健康入口。当前 Team 成员从 Team Scope 读取无身份的五组件摘要；Organization Administrator 从 Organization Scope 读取 Projection Name、Definition/Pointer/Generation/RebuildJob 强版本、Lag、Gap、DeadLetter 计数、有界 FailureCode 和三类精确恢复坐标。诊断响应给出服务端计算的强确认短语，公开 DTO 不包含原始 Payload、通知正文、Provider Body、Credential、Worker、Lease、Cursor Token、身份或异常文本。
+
+危险操作通过固定资源路由映射到 Outbox DeadLetter、Projection DeadLetter、Notification Delivery Recovery，以及 Projection Start、Retry、Validate、Switch、Cancel 和 Fail 强类型命令。HTTP 边界不提供通用 Action、SQL、URL、Method、Body、表名或任意目标入口；请求类型不匹配字段和未知属性失败关闭。每条命令要求 Idempotency-Key、完整 Expected Version 和绑定 Action/目标/版本的确认短语，服务端生成稳定 Command UUID，并复用 M6-I02 的锁序、CAS、Receipt、DomainEvent、Outbox 与 Audit 原子事务。实现与验证见 [M6-A06 运行健康与 Projection 管理 API](testing/M6-A06-运行健康与Projection管理API.md)。
 
 ## 6. 交互入口与连接协议
 
@@ -3239,7 +3251,7 @@ occurred_at
 
 M6 的 Audit 查询形状使用 14 类稳定 EventCategory、`SUCCEEDED/DENIED/FAILED` Outcome 和 `STANDARD/EXTENDED/LEGAL_HOLD` 保留级别。Initiator、Actor 和 Agent 分别保存；Subject 使用类型化 AggregateReference；Provider 只公开 ProviderBinding/Connection 引用和外部操作 Hash；Correlation 只公开 Correlation/Causation/DomainEvent ID。
 
-Audit Explorer 不返回 DomainEvent 原始 Payload。`AuditEventTypeRegistry` 按 `EventType + DomainEvent SchemaVersion` 精确选择已评审定义；当前覆盖 M0–M6 的 98 个坐标，其中 M6-E06 建立 96 个初始坐标，M6-E07 增加两类 Dead Letter 恢复事实。已注册事件出现未知顶层字段、缺失必填字段、非法标量或敏感值时失败关闭并回滚投影事务。未注册 EventType 或 SchemaVersion 仍追加 `SYSTEM/STANDARD` Audit 事实，摘要固定为 `{}` 并标记 `UNREGISTERED`，不复制原始 Payload。脱敏摘要只保存白名单低基数字段或集合数量，拒绝 Secret、Credential、Authorization、Token、Prompt、Endpoint、Request/Response Body、URL、邮箱、电话和控制字符。
+Audit Explorer 不返回 DomainEvent 原始 Payload。`AuditEventTypeRegistry` 按 `EventType + DomainEvent SchemaVersion` 精确选择已评审定义；当前覆盖 M0–M6 的 100 个坐标，其中 M6-E06 建立 96 个初始坐标，M6-E07 增加两类 Dead Letter 恢复事实，M6-A03 增加查询与导出自身 Audit。已注册事件出现未知顶层字段、缺失必填字段、非法标量或敏感值时失败关闭并回滚投影事务。未注册 EventType 或 SchemaVersion 仍追加 `SYSTEM/STANDARD` Audit 事实，摘要固定为 `{}` 并标记 `UNREGISTERED`，不复制原始 Payload。脱敏摘要只保存白名单低基数字段或集合数量，拒绝 Secret、Credential、Authorization、Token、Prompt、Endpoint、Request/Response Body、URL、邮箱、电话和控制字符。
 
 Audit Projector 映射稳定 Category、Outcome、Retention、Initiator/Actor/Agent、Subject、Correlation/Causation/DomainEvent 和 ProviderBinding/Connection/ExternalOperationHash 安全坐标。USER Actor 同时作为 Initiator；Agent Actor 同时作为 AgentPrincipal。Provider 外部操作仅允许 64 位小写 SHA-256。DomainEvent 权威历史和追加写 Audit 当前行使用同源规范编码生成 Count/SHA-256 校验快照；校验不更新、删除或代际替换 Audit 历史。实现与验证见 [M6-E06 安全 Audit Registry 与追加写 Projector](testing/M6-E06-安全Audit-Registry与追加写Projector.md)。
 
@@ -3247,11 +3259,21 @@ V27 升级前已追加的 AuditEvent 保持字节级不可变，不使用新 Reg
 
 M6-E07 将 Projection、Outbox、Dead Letter、Cursor 和 Notification 统一为五组件运行健康。活跃 Team 成员只读取枚举 Health、Backlog、InFlight、Failure、Affected、最老积压秒数和 Stale，不读取 Organization、Team、Projection、Generation、Event、Delivery、Worker、Lease、Cursor Token 或错误文本。管理员通过当前 Organization 权限复验后，额外读取 Projection Name、Definition/Generation/Pointer/Rebuild 强版本、Lag、Gap、Dead Letter Count、有界 FailureCode 和闭集恢复目标。Scope 不一致、未来时间、组件缺失/重复和非法部署阈值均失败关闭。
 
+Projection Start、Retry、Validate、Switch、Cancel 和 Fail 命令对 Definition、Pointer、Generation 与 RebuildJob 执行强版本比较。任一 Expected Version 与当前事实不一致时，统一返回 `409 optimistic_lock_conflict`，响应包含安全的资源类型与标识、`expectedVersion`、`actualVersion` 和 `currentVersion`；该冲突不得落入 `500 internal_error`，也不产生 Projection 更改、Lifecycle Event、Outbox、Audit 或 Command Receipt。
+
 恢复命令仅支持 Outbox Dead Letter 重放、Projection Dead Letter 重放和 Notification 最终失败再次投递。每个目标携带精确权威身份和 Expected Version，强确认短语绑定 Action、目标与版本；Command ID 与 Organization、Actor、目标坐标 SHA-256 提供幂等语义。Adapter 必须锁定当前目标、比较版本，并在同一事务提交新恢复调度、Command Receipt、安全 DomainEvent 和 Audit，既有失败历史保持不可变。成员指标只使用固定 Component/Health 枚举，禁止租户、业务 ID、Correlation 或错误消息成为标签。实现与验证见 [M6-E07 运行健康诊断与受审计恢复命令](testing/M6-E07-运行健康诊断与受审计恢复命令.md)。
 
 Audit 组合筛选支持时间、Category、Outcome、Initiator、Actor、Agent、Subject、ProviderBinding 和 Correlation。Cursor 绑定 Organization、Team 和规范化 Filter SHA-256，按 `occurredAt DESC, eventId DESC` 进行 Keyset 分页，UUID 次排序与 PostgreSQL 无符号字节序一致，单页最多 200 条。
 
 每次查询重新复验当前 Organization USER、ACTIVE Team Membership、Role 和 MemberRole。Team Admin 的 `AUDIT_READ` 可读，Team Owner、Auditor 和其他同时持有 `GOVERNANCE_EXPORT` 的当前授权可导出，平台管理员可在当前 Organization 范围内操作。导出必须指定显式时间起点和排他上界，最多覆盖 31 天并返回 10,000 条。AuditEvent 继续只追加，M6 不提供更新或删除命令。领域与应用契约见 [M6-D06 Audit 查询与有界导出契约](testing/M6-D06-Audit查询与有界导出契约.md)。
+
+M6-A03 通过 `GET /api/v1/organizations/{organizationId}/teams/{teamId}/audit-events` 提供组合查询，通过同路径 `/export` 的 POST 提供 `application/vnd.crewscope.audit-export+json` 下载。服务端使用独立签名域的 HMAC-SHA256 Cursor，把 Organization、Team、Filter Fingerprint、OccurredAt 与 EventId 绑定；授权在 Cursor 解码前复验。公开 DTO 只包含已评审身份链、Subject、Provider 安全引用、Correlation、保留级别和脱敏摘要，不包含 Organization/Team 冗余范围、原始 Payload、Authorization Context、Credential、Endpoint、Trace 或 Provider Body。每次查询与导出追加 `AUDIT_EXPLORER_QUERIED` 或 `AUDIT_EXPORT_GENERATED` 安全事实，摘要只含 Operation、Result 和 RowCount；成功请求的自身 Audit 持久化失败时整体失败关闭。实现与验证见 [M6-A03 Team Admin Audit Explorer](testing/M6-A03-Team-Admin-Audit-Explorer.md)。
+
+M6-A07 通过 `GET /api/v1/organizations/{organizationId}/teams/{teamId}/correlations/{correlationId}` 提供成员级关联图查询。查询合并已评审 DomainEvent 和不对应 DomainEvent 的直接 Audit；Audit 投影副本按 DomainEvent ID 去重。公开对象闭合为 Conversation、WorkItem、Task、Review、Action、PullRequest、Activity、当前成员 Inbox、当前成员 Notification 和 Audit。事件返回正向对象引用，对象返回当前页相关 Event ID，站内链接全部由服务端固定路由生成。
+
+Correlation Cursor 使用独立 HMAC 签名域并绑定 Organization、Team、Correlation、OccurredAt、EventId 和 Source。每次首读与翻页重新验证 ACTIVE Team Membership，授权先于 Cursor 解码。Activity、Inbox 和 Notification 只读取当前 Projection Generation；Inbox 与 Notification 进一步绑定当前 TeamMember。单页 1–100 条，Adapter 在 REPEATABLE READ 中执行一条候选查询和至多一条批量对象丰富查询，禁止逐事件查询。公开响应不包含原始 Payload、Authorization Context、Credential、Hash、Trace、Projection Generation、Connection、Grant、Provider 外部 ID、PR Business Key、Repository 或外部 URL。
+
+Task Timeline 继续使用耐久 `task_event` 提交顺序、强 Scope Cursor、JSON History 与 SSE 持续授权。`TaskPublicEventMapper` 提供冻结的 EventType 与 Payload 字段双白名单；JDBC 在分页 SQL 中先过滤未注册 EventType，再映射标量和已审查嵌套形状。未来未知事件不进入公开历史，也不会阻断已知事件页面。实现与验证见 [M6-A07 Correlation 查询与 Task Timeline 白名单](testing/M6-A07-Correlation查询与Task-Timeline白名单.md)。
 
 ## 15. API 与事件
 

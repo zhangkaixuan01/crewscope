@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.56<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.18`<br>
+> 文档版本：v1.65<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.25`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10 已完成，下一任务为 M6-A01（2026-08-26）
+> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07 已完成，下一任务为 M6-F01（2026-08-27）
 
 ## 1. 实施目标
 
@@ -651,6 +651,14 @@ M6-I06 已完成当前发布版本复验的固定模板渲染、Claim 绑定 Lar
 - Audit 支持按 Team、Member、WorkItem、Task、Provider 和 Correlation ID 查询；
 - 敏感字段、Token、命令输出和 Provider 响应完成脱敏。
 
+M6-A07 已交付 Team 成员 Correlation 查询，将已评审 DomainEvent 与直接 Audit 按同一
+Correlation 合并，并提供 Conversation、WorkItem、Task、Review、Action、PR、Activity、
+当前成员 Inbox/Notification 和 Audit 的双向站内引用。签名 Cursor 绑定完整 Scope，
+每页持续授权；Adapter 使用一条候选查询和至多一条批量丰富查询，公开 DTO 不包含原始
+Payload、Authorization、Provider 外部身份或 Projection 内部坐标。Task Timeline 在 JDBC
+分页前应用冻结 EventType 白名单，未来未知事件不公开且不阻断页面。验证见
+[M6-A07 Correlation 查询与 Task Timeline 白名单](testing/M6-A07-Correlation查询与Task-Timeline白名单.md)。
+
 M6-I08 已建立强类型 `OperationalTelemetry` 边界，覆盖 Outbox、Projection、SSE、Inbox、Notification、Lark 和 Team Observer；内部 Baggage 只允许 Correlation、Operation 和 Worker Role，外部 Provider 不传播。`crewscope.m6.*` 指标通过预声明注册表锁定标签与枚举值，理论 Series 总上限为 688；全局结构化日志在启动期装配 Secret/PII 脱敏器，观测后端故障仅记录聚合丢弃计数，不影响业务结果。验证见 [M6-I08 OTel、Prometheus 与日志安全](testing/M6-I08-OTel-Prometheus与日志安全.md)。
 
 M6-I09 已交付 API/Worker 与 Web 多阶段不可变镜像、PostgreSQL/Redis/OTel Collector/Prometheus/API/Worker/Web 七服务 Compose、内部网络、持久数据、外部 Config Tree Secret 和一键 Demo。API 独占 Flyway 并承担入口，Worker 承担后台 Claim 与 Docker Sandbox；两者共享 AgentState，执行所有权按 `server/worker` Scope 隔离。三个应用容器非 Root、只读 RootFS、全 Capability Drop，Docker Socket 只属于 Worker。Demo 只输出 Bootstrap Secret 文件坐标，不回显密码。正式镜像实际验证七服务 Healthy、V1→V30、空库引导、Readiness 与 API/Worker 重启恢复，证据见 [M6-I09 生产镜像与 Team Beta 部署](testing/M6-I09-生产镜像与Team-Beta部署.md)。
@@ -877,7 +885,7 @@ M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 3
 
 M5 的 48 个任务已全部完成并通过 M5-Q04 Release Gate。M5-S01 至 M5-S05 关闭了动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险；M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08 完成领域、迁移、基础设施与应用/API 交付；M5-F01 至 F08 交付 Agent、模型、Task 委托、Review、GitHub Delivery、全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段门禁。M5-Q01 的 84 项固定攻击全部阻断，M5-Q02 的 48 项固定故障全部收敛，M5-Q03 真实 Reviewer 的缺陷召回、正确样本特异度和证据有效率均为 100%，Gate 越权为 0。最终门禁为 Maven `1862 / 1862`、Vitest `311 / 311`、Playwright/视觉/Axe `150 / 150`，详细证据见 [M5-Q04 Release Gate](testing/M5-Q04-Release-Gate.md)与 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
-M6-S01 至 M6-S05 已冻结投影代际、三流恢复、Inbox/通知授权、Lark OpenAPI 和 Team Beta 发布协议。M6-D01 至 M6-D09 已交付 Activity、Inbox、通知、Lark、Team Observer、Audit、Projection Generation 及 V27/V28 持久化契约。M6-E01 至 M6-E04 已交付 Generation-aware 运行时、Activity/Inbox/Notification Intent Projector 和通知失败闭环；对应验证见 [M6 执行清单](plans/M6-团队观测与MVP发布.md)。M6-E05 已交付 Team Realtime Event Store 快照/高水位/缺口契约、版本化 HMAC 签名 Cursor、Key 轮换、首批预读、逐页 SSE 补发、空轮询背压、无位置心跳、断线恢复和 Generation/保留过期；Team、Conversation 和 AG-UI 继续使用独立恢复坐标，验证见 [M6-E05 Team Realtime Event Store 与签名 Cursor/SSE 恢复](testing/M6-E05-Team-Realtime-Event-Store与签名Cursor-SSE恢复.md)。M6-E06 已交付 96 个精确坐标的 M0–M6 Audit Registry、Category/Outcome/Retention 与身份/Provider 安全映射、白名单低基数摘要、未注册事件原始 Payload 零复制、Legacy 追加写事实空摘要兼容和规范快照校验，验证见 [M6-E06 安全 Audit Registry 与追加写 Projector](testing/M6-E06-安全Audit-Registry与追加写Projector.md)。M6-E07 已交付五组件成员健康摘要、管理员安全诊断、三类强版本恢复目标、强确认/幂等/并发契约、98 项 Audit Registry 和条件 Spring 装配，验证见 [M6-E07 运行健康诊断与受审计恢复命令](testing/M6-E07-运行健康诊断与受审计恢复命令.md)。M6-I01 已交付 Activity/Realtime、Audit、Notification Plan 和 Operations Health PostgreSQL Adapter，复用当前代际 Inbox 与 Generation 外 Disposition Repository；Activity/Audit 使用稳定 Keyset，Notification 按 Deduplication Key 并发收敛并验证持久化 Digest，Operations 使用固定查询集合返回五组件安全快照。验证见 [M6-I01 PostgreSQL 查询 Adapter 与 Keyset](testing/M6-I01-PostgreSQL查询Adapter与Keyset.md)。M6-I02 已交付投影管理与运行恢复 PostgreSQL Adapter、影子代际 Supervisor、Startup Recovery、持久化 Claim/Cursor、Fencing、Retention/Cleanup、条件调度和低基数 Actuator Health；管理状态、Receipt、DomainEvent、Outbox 与 Audit 原子提交，恢复请求保持原失败历史不可变。验证见 [M6-I02 投影管理、Supervisor 与受审计恢复](testing/M6-I02-投影管理Supervisor与受审计恢复.md)。M6-I03 已交付 Provider 无关的 Notification 写 Worker、查询恢复 Worker、动作级短期 Credential Handle、PostgreSQL Claim/Lease/Fencing、稳定 Provider 幂等键、有界退避、唯一终态 Receipt 和受审计人工再次投递调度消费；过期写 Claim 只进入查询恢复，原失败 Delivery/Receipt 保持不可变。验证见 [M6-I03 Notification Worker 与查询恢复](testing/M6-I03-Notification-Worker与查询恢复.md)。M6-I04 已交付固定操作 Lark OpenAPI Client、授权坐标闭合的 Tenant Token Single Flight 缓存、精确 401 刷新、动作能力校验、CredentialStore Handle、错误归一化和 Spring 安全装配；验证见 [M6-I04 Lark Connector 与 Tenant Token 安全缓存](testing/M6-I04-Lark-Connector与Tenant-Token安全缓存.md)。M6-I05 已交付 Lark Collaboration Provider、ADR-006 当前授权 Preflight、`PROVIDER_MANAGE` 管理员映射验证、安全健康状态、稳定 Keyset 分页、双唯一 PostgreSQL Adapter 和 Spring 条件装配；验证见 [M6-I05 Lark Collaboration Provider 与映射 Preflight](testing/M6-I05-Lark-Collaboration-Provider与映射Preflight.md)。M6-I06 已交付固定模板 Renderer、Claim 绑定 Lark Credential、全授权材料写前复验、稳定 UUID 幂等投递与响应丢失恢复、精确 Message ID 确认和 Receipt Observation 安全合并；验证见 [M6-I06 固定模板 Lark 投递与 Receipt 恢复](testing/M6-I06-固定模板Lark投递与Receipt恢复.md)。
+M6-S01 至 M6-S05 已冻结投影代际、三流恢复、Inbox/通知授权、Lark OpenAPI 和 Team Beta 发布协议。M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10 已完成领域、投影、Lark 通知、只读 Team Observer、观测、部署和恢复基础。M6-A01 至 M6-A03 已交付 Activity、Inbox 与 Audit Explorer。M6-A04 已交付 Team 管理范围的 Lark Connection、Preflight/Health、精确成员验证与映射、固定模板/偏好、通知投递历史与失败再次投递 API；所有变更命令使用强 ETag、Idempotency-Key 和 Receipt，两类 Keyset Cursor 使用独立签名域并绑定 Scope/Filter，公开 DTO 不暴露 Credential、外部身份或 Provider Body。验证见 [M6-A04 Lark 与 Notification 管理 API](testing/M6-A04-Lark与Notification管理API.md)。M6-A05 已交付当前成员绑定的 Team Observer Session、AgentScope TEAM-only 模型装配、四类安全 SSE 事件、同 Invocation Resume、显式取消、五段 Structured Output、证据持续授权和五类只读安全投影；客户端不能选择模型、连接、Tool 或写命令。验证见 [M6-A05 Team Observer 对话与摘要 API](testing/M6-A05-Team-Observer对话与摘要API.md)。M6-A06 已交付成员五组件低基数健康摘要、管理员 Projection 强版本诊断、三类恢复候选以及 Start/Retry/Validate/Switch/Cancel/Fail 固定管理 API；所有危险命令使用闭合请求、精确确认、稳定 Idempotency Command UUID，并复用 M6-I02 的原子 Receipt、DomainEvent、Outbox 与 Audit。验证见 [M6-A06 运行健康与 Projection 管理 API](testing/M6-A06-运行健康与Projection管理API.md)。M6-A07 已交付成员级 Correlation 安全查询、十类闭合对象双向引用、固定两查询预算和 Task Timeline EventType/Payload 双白名单；当前成员 Inbox/Notification、当前 Projection Generation、持续授权与签名 Scope Cursor 均已闭合。验证见 [M6-A07 Correlation 查询与 Task Timeline 白名单](testing/M6-A07-Correlation查询与Task-Timeline白名单.md)。
 
 ## 19. 项目管理与进度跟踪
 

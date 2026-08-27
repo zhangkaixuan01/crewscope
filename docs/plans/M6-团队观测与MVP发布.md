@@ -4,7 +4,7 @@
 > 前置条件：M5 Release Gate 通过，M0 Outbox/Projection/Audit、M1 Team/WorkItem、M2 Conversation、M3 Runtime、M4 Coding、M5 Review/Action/GitHub 契约稳定<br>
 > 目标周期：3–4 周，按纵向波次推进<br>
 > 目标结果：团队成员通过 Activity、Inbox、Audit 和只读 Team Observer 获得共享工作视野；固定模板通知可靠投递到飞书；完整 MVP 闭环具备可观测、可恢复、可部署和可重复验收能力<br>
-> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-A01`（2026-08-26）
+> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10`、`M6-A01` 至 `M6-A07` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-F01`（2026-08-27）
 
 ## 1. 出口结果与范围
 
@@ -160,13 +160,13 @@ M6-F02..F07 -> M6-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M6-A01` | FEATURE | E02,E05,I01 | application/server | 提供 Team/WorkItem Activity Keyset 查询、事件详情、快照和 Team SSE API；Cursor 与过滤条件、Scope、投影版本绑定 | 成员资格、WorkItem 可见性、稳定分页、断线补发、Cursor 篡改/过期、旧 Scope 和安全 DTO 测试 |
-| `M6-A02` | FEATURE | E03,I01 | application/server | 提供“我的 Inbox”五类查询、计数、详情、READ/ACTED/ARCHIVED 命令和来源对象安全跳转 API | 只读自己的 Inbox、强 ETag、幂等回放、重建并发、来源终结、离队、分页和公开 DTO 测试 |
-| `M6-A03` | FEATURE | D06,E06,I01 | application/server | 提供 Team Admin Audit Explorer：按时间、Member、WorkItem、Task、Provider、Category、Outcome 和 Correlation 查询及有界导出 | 管理员授权、组合过滤、Keyset、导出上限、脱敏、未知 Payload、跨 Team、审计查询自身 Audit 和安全错误测试 |
-| `M6-A04` | FEATURE | I03..I06 | application/server | 提供 Lark Connection、成员映射验证、固定模板/偏好、通知投递历史、失败详情和再次投递 API；所有命令使用 ETag、Idempotency-Key 和 Receipt | Team 管理权限、凭证单向输入、映射冲突、撤销、DND、模板白名单、失败重投、回放和 DTO 泄漏测试 |
-| `M6-A05` | FEATURE | I07,M2-A03 | application/server | 提供 Team Observer 对话运行、流式事件、团队摘要与证据链接 API；复用 Conversation 但固定 TEAM Agent/Profile/Configuration 和只读 Runtime | 当前成员授权、TEAM 模型连接、Session 隔离、Resume、取消、Structured Output、写命令拒绝、引用持续授权和安全投影测试 |
-| `M6-A06` | FEATURE | E07,I02,I08 | application/server | 提供成员运行健康摘要和管理员 Projection/Outbox/Notification 诊断、重放、影子重建与切换 API；危险命令要求强确认和审计 | 成员/管理员分层、低基数摘要、精确 Generation、旧页、并发重建、命令回放、失败关闭和 Actuator 装配测试 |
-| `M6-A07` | TASK | A01..A06,M5-A08 | application/server | 完成跨 Conversation、WorkItem、Task、Review、Action、PR、Activity、Inbox、Notification 与 Audit 的 Correlation 查询和 Task Timeline 白名单 | 同一 Correlation 链、对象双向链接、分页预算、N+1 上限、持续授权、未知事件不公开和敏感内部字段测试 |
+| `M6-A01` | FEATURE | E02,E05,I01 | application/server | 已完成：交付 Team/WorkItem Activity Keyset 历史、当前代际详情、双 Cursor 快照和 Team SSE API；签名 Cursor 绑定 Organization/Team/Projection/Generation/Schema/Filter，SSE 逐帧与心跳复验当前成员及角色，隐藏事件仅推进服务端位置 | [M6-A01 Team 与 WorkItem Activity API](../testing/M6-A01-Team与WorkItem-Activity-API.md)；专项与 M6-E05/M6-I01 联合回归覆盖成员资格、WorkItem 可见性、稳定分页、断线补发、Cursor 篡改/过期/旧 Scope、当前 Generation 与安全 DTO |
+| `M6-A02` | FEATURE | E03,I01 | application/server | 已完成：交付“我的 Inbox”五类过滤与稳定 Keyset、OPEN 非归档总数/未读数、当前代际详情、READ/ACTED/ARCHIVED 强 ETag 命令、Idempotency-Key Receipt 回放和服务端固定模板来源跳转；Cursor 绑定 Organization/Team/Generation/Filter，跳转按当前 Member 与 WorkItem 权限复验 | [M6-A02 我的 Inbox API](../testing/M6-A02-我的Inbox-API.md)；12 个应用/HTTP/Spring 专项及 8 个真实 PostgreSQL 联合回归覆盖成员隔离、公开 DTO、强 ETag、回放、分页、计数、来源解析、终结、离队、重建处置保留和旧 Cursor 失效 |
+| `M6-A03` | FEATURE | D06,E06,I01 | application/server | 已完成：交付 Team Admin Audit Explorer，支持时间、Category、Outcome、Initiator、Actor、Agent、Subject、ProviderBinding 和 Correlation 组合过滤；HMAC Cursor 绑定 Organization/Team/Filter 并使用稳定 Keyset；治理导出限定 31 天与 10,000 行；公开 DTO 使用白名单；查询与导出追加安全自身 Audit | [M6-A03 Team Admin Audit Explorer](../testing/M6-A03-Team-Admin-Audit-Explorer.md)；16 个新增应用/HTTP/Cursor/Spring/PostgreSQL 测试及 Registry/I01 联合回归覆盖授权、组合过滤、跨 Scope、篡改、轮换、导出上限、脱敏、自身 Audit 和安全错误 |
+| `M6-A04` | FEATURE | I03..I06 | application/server | 已完成：交付 Team-scoped Lark Connection/Credential/Grant/Binding 生命周期、Preflight/Health、精确成员验证与映射、固定模板/偏好、通知投递历史与失败再次投递 API；状态命令使用强 ETag、Idempotency-Key 和 Receipt，两类 HMAC Cursor 绑定 Scope/Filter，DTO 使用安全白名单 | [M6-A04 Lark 与 Notification 管理 API](../testing/M6-A04-Lark与Notification管理API.md)；专项测试覆盖 Cursor Round Trip、篡改、跨 Team、Filter Replay 和 Key 轮换，M6-I03 至 I06 回归覆盖授权、映射冲突、DND、模板、投递与恢复内核 |
+| `M6-A05` | FEATURE | I07,M2-A03 | application/server | 已完成：提供当前成员绑定的专用 Team Observer Session、TEAM-only AgentScope 模型装配、四类安全 SSE、同 Invocation Resume、显式取消、五段摘要、证据持续授权和五类白名单投影；复用 Conversation Mode 交互语义且不伪造 Personal Conversation | [M6-A05 Team Observer 对话与摘要 API](../testing/M6-A05-Team-Observer对话与摘要API.md)；专项与 I07 回归覆盖当前成员、TEAM 模型连接、Session 隔离、Resume、取消、Structured Output、写命令拒绝、引用持续授权、Prompt 攻击和安全投影 |
+| `M6-A06` | FEATURE | E07,I02,I08 | application/server | 已完成：提供成员五组件低基数运行健康摘要、管理员 Projection 强版本诊断和三类恢复坐标；交付 Outbox/Projection DeadLetter 重放、Notification 再次投递以及 Start/Retry/Validate/Switch/Cancel/Fail 固定 Projection 命令 API；危险命令使用精确强确认、稳定 Idempotency Command UUID 和既有原子 Audit | [M6-A06 运行健康与 Projection 管理 API](../testing/M6-A06-运行健康与Projection管理API.md)；专项与 D07/E07/I01/I02/I08 回归覆盖成员/管理员分层、安全 DTO、三类恢复、精确 Generation/版本、旧版本、并发重建、验证失败、命令回放、失败关闭和 Actuator 装配 |
+| `M6-A07` | TASK | A01..A06,M5-A08 | application/server | 已完成：交付跨 Conversation、WorkItem、Task、Review、Action、PR、Activity、Inbox、Notification 与 Audit 的 Correlation 安全查询；HMAC Cursor 绑定 Organization/Team/Correlation/Keyset，事件与对象提供双向站内链接；固定两查询预算，Inbox/Notification 限当前成员；Task Timeline 在 SQL 层应用事件类型和 Payload 双白名单 | [M6-A07 Correlation 查询与 Task Timeline 白名单](../testing/M6-A07-Correlation查询与Task-Timeline白名单.md)；专项与真实 PostgreSQL 回归覆盖同链分页、对象双向链接、N+1 上限、持续授权、未知事件不公开、当前 Generation 和敏感字段零泄漏 |
 
 ## 10. 前端工作台
 
