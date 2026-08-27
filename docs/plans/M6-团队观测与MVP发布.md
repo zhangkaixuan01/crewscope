@@ -4,7 +4,7 @@
 > 前置条件：M5 Release Gate 通过，M0 Outbox/Projection/Audit、M1 Team/WorkItem、M2 Conversation、M3 Runtime、M4 Coding、M5 Review/Action/GitHub 契约稳定<br>
 > 目标周期：3–4 周，按纵向波次推进<br>
 > 目标结果：团队成员通过 Activity、Inbox、Audit 和只读 Team Observer 获得共享工作视野；固定模板通知可靠投递到飞书；完整 MVP 闭环具备可观测、可恢复、可部署和可重复验收能力<br>
-> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10`、`M6-A01` 至 `M6-A07` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-F01`（2026-08-27）
+> 当前进度：`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10`、`M6-A01` 至 `M6-A07`、`M6-F01` 至 `M6-F08` 已完成，ADR-020 至 ADR-023 已接受；下一任务为 `M6-Q01`（2026-08-27）
 
 ## 1. 出口结果与范围
 
@@ -172,14 +172,14 @@ M6-F02..F07 -> M6-F08
 
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
-| `M6-F01` | TASK | A01..A04,A06 | web | 建立 Activity、Inbox、Audit、Lark/Notification、Projection Health Gateway、公开 DTO、Store、Scope 缓存、三流 Cursor 和错误契约 | DTO 白名单、请求代次、旧 Team 晚到响应、Cursor 恢复、强 ETag、凭证不缓存和生产构建测试 |
-| `M6-F02` | FEATURE | F01,A01,A07 | web | 交付 Team Activity Stream 和 WorkItem Activity 嵌入入口，展示 Actor、Subject、Outcome、证据链接、实时状态和断线补发 | Desktop/Narrow、Loading/Empty/Error/Forbidden/Offline/CursorExpired、重复事件、键盘、Axe、视觉和 E2E 测试 |
-| `M6-F03` | FEATURE | F01,A02 | web | 交付“我的 Inbox”，提供五类视图、计数、优先级、截止时间、来源跳转及 READ/ACTED/ARCHIVED 操作 | 成员隔离、筛选分页、强 ETag、冲突回读、重建不丢已读、响应式、键盘、Axe 和视觉测试 |
-| `M6-F04` | FEATURE | F01,A03,A07 | web | 交付 Team Admin Audit Explorer，支持组合筛选、Correlation 链、对象跳转和有界导出，不展示原始 Payload | 权限、过滤/分页、脱敏、导出状态、窄屏表格降级、键盘、Axe、视觉和 E2E 测试 |
-| `M6-F05` | FEATURE | F01,A04 | web | 交付 Lark Connection、成员映射、固定模板偏好和通知投递页，显示安全健康、Receipt、失败 Inbox 与再次投递 | Secret 单向输入、映射确认、DND、失败重投、旧页冲突、全状态、响应式、Axe 和视觉测试 |
-| `M6-F06` | FEATURE | A05,F01,F02,F03 | web | 在 Conversation Mode 交付 Team Observer 对话入口，在 Control Mode 交付只读团队摘要；展示进度、阻塞、Review、待确认、异常和证据链接 | Agent 身份、只读说明、流式 Resume、Scope 切换、Prompt 攻击安全结果、双入口一致、Axe、视觉和 E2E 测试 |
-| `M6-F07` | FEATURE | A06,A07,F01 | web | 交付运行健康与 MVP 管理页：Projection/Outbox/Notification Lag、Dead Letter、Generation、影子重建、切换和一键演示证据入口 | 成员/管理员分层、强确认模态、命令回放、实时刷新、低基数摘要、键盘焦点、Axe 和视觉测试 |
-| `M6-F08` | HARDENING | F02..F07 | web | 收口 Activity/Inbox/Audit/Lark/Observer/Operations 全状态、三流离线恢复、响应式、ARIA、Reduced Motion、Histoire、视觉、Axe 和敏感字段门禁 | Coverage 不低于既有门槛；Story/Variant、双视口 Playwright、视觉、Axe、离线恢复和公开字段扫描全部通过 |
+| `M6-F01` | TASK | A01..A04,A06 | web | 已完成：建立 Activity、Inbox、Audit、Lark/Notification、Projection Health Gateway、显式公开 DTO、Organization+Team Scope Generation Store、资源级 Cursor 分页缓存、三流恢复存储和稳定错误契约；秘密与危险命令参数只进入单次调用栈 | [M6-F01 团队观测前端数据层](../testing/M6-F01-团队观测前端数据层.md)；13 个专项测试覆盖 DTO 白名单、请求代次、旧 Team 晚到响应、Cursor 恢复/过期、强 ETag、凭证不缓存与生产构建 |
+| `M6-F02` | FEATURE | F01,A01,A07 | web | 已完成：交付 Team Activity Stream 独立路由、WorkItem Activity 嵌入入口、公开 Actor/Subject/Outcome/证据链接、筛选分页、事件详情和 Team SSE 耐久恢复；Scope 切换隔离旧流，重复事件去重，格式错误帧不推进 Cursor | [M6-F02 Team 与 WorkItem Activity UI](../testing/M6-F02-Team与WorkItem-Activity-UI.md)；Desktop/Narrow、Loading/Empty/Error/Forbidden/Offline/CursorExpired、重复事件、键盘、Axe、视觉、Vitest、Histoire 与 E2E 通过 |
+| `M6-F03` | FEATURE | F01,A02 | web | 已完成：交付“我的 Inbox”独立路由、五类成员视图、服务端计数、优先级、截止时间、授权来源跳转和 READ/ACTED/ARCHIVED；成员由服务端解析，Cursor 按 InboxItem ID 去重，强 ETag 冲突显式回读 | [M6-F03 我的 Inbox UI](../testing/M6-F03-我的Inbox-UI.md)；成员隔离、筛选分页、重建保留处置、离线缓存、冲突重试、响应式、键盘、Axe、视觉、Histoire 与全量 E2E 通过 |
+| `M6-F04` | FEATURE | F01,A03,A07 | web | 已完成：交付独立 `/audit` Team Admin Audit Explorer、时间/Category/Outcome/身份/Subject/Provider/Correlation 组合筛选、稳定分页、公开详情、Correlation 去重分页与服务端生成对象跳转、31 天/10,000 行有界 JSON 导出；查询与导出权限分层，原始 Payload 和敏感字段不进入浏览器 | [M6-F04 Team Admin Audit Explorer UI](../testing/M6-F04-Team-Admin-Audit-Explorer-UI.md)；DTO 闭集/脱敏、权限、分页、导出状态、Offline/CursorExpired、窄屏表格降级、键盘、Axe、双视口视觉、Vitest、Histoire 与全量 E2E 通过 |
+| `M6-F05` | FEATURE | F01,A04 | web | 已完成：交付独立 Lark/Notification Team 管理页、Connection/Credential、Preflight/Health、精确成员验证与映射、固定模板偏好、DND、通知历史、安全 Receipt 和失败再次投递；Credential/Binding 强版本分离，Secret/open_id 单向输入，公开 DTO 闭集失败关闭 | [M6-F05 Lark 与 Notification 管理 UI](../testing/M6-F05-Lark与Notification管理UI.md)；映射确认、DND、失败重投、旧页冲突、Loading/Empty/Error/Forbidden/Offline/CursorExpired/Conflict、响应式、键盘、Axe、双视口视觉、Vitest、Histoire 与 E2E 通过 |
+| `M6-F06` | FEATURE | A05,F01,F02,F03 | web | 已完成：在 Conversation Mode 交付独立 Team Observer 对话入口，在 Control Mode 交付只读团队摘要；共用 Scope 隔离的 Session/Invocation Store 与五段摘要组件；同 Invocation Resume、显式 Cancel、Prompt 纯文本化和持续授权 Evidence API 路由映射失败关闭 | [M6-F06 Team Observer 双入口 UI](../testing/M6-F06-Team-Observer双入口UI.md)；Agent 身份、只读说明、断线 Resume、Scope 晚到隔离、Prompt 攻击、双入口一致、Axe、双视口视觉、Vitest、Histoire 与 E2E 通过 |
+| `M6-F07` | FEATURE | A06,A07,F01 | web | 已完成：交付独立 `/operations` 运行健康与 MVP 管理页、五组件低基数摘要、15 秒刷新、权限过滤的 Activity/Inbox/Observer/Audit/Lark 证据入口，以及管理员 Projection Active/Shadow Generation、Lag/Gap/DeadLetter、Start/Validate/Switch/Cancel/Fail 和三类 Recovery 管理 | [M6-F07 运行健康与 MVP 管理 UI](../testing/M6-F07-运行健康与MVP管理UI.md)；成员/管理员分层、DTO/Recovery Target 闭集、强版本/强确认、命令回读不自动重放、离线缓存、键盘焦点、Histoire、Axe、双视口视觉、Vitest 与 E2E 通过 |
+| `M6-F08` | HARDENING | F02..F07 | web | 已完成：收口 Activity/Inbox/Audit/Lark/Observer/Operations 全状态、三流离线恢复、响应式、ARIA、Reduced Motion、Histoire、视觉、Axe 和敏感字段门禁；离线续页、缓存刷新、命令并发、跨 Scope 晚到与错误态重试缺口已修复 | [M6-F08 M6 前端全状态与质量门禁](../testing/M6-F08-M6前端全状态与质量门禁.md)；Vitest 426/426，Coverage 四项过线，14 Story/104 Variant，双视口 Playwright/视觉/Axe 180/180，敏感字段扫描通过 |
 
 ## 11. 测试、故障、负载与发布
 

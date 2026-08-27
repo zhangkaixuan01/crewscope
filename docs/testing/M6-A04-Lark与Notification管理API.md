@@ -16,7 +16,7 @@ M6-A04 为 Team 管理员提供 Lark Connection、成员映射、固定模板偏
 - `GET/PUT /notification-preferences/{memberId}`；
 - `GET /notification-deliveries`、`GET /notification-deliveries/{deliveryId}`、`POST /notification-deliveries/{deliveryId}/redeliver`。
 
-Connection 创建在一个事务内闭合 TEAM Credential、Connection、完整 Capability Grant 和默认 Team Workspace ProviderBinding。请求必须提供预期 `tenant_key`、`app_id` 和 `app_secret`。Credential Secret 由 `ObjectMapper` 编码为固定 JSON 后单向写入 CredentialStore；响应只包含脱敏 App ID，不返回 Secret、Credential ID、Grant ID、Tenant Key、Token 或 Endpoint。
+Connection 创建在一个事务内闭合 TEAM Credential、Connection、完整 Capability Grant 和默认 Team Workspace ProviderBinding。请求必须提供预期 `tenant_key`、`app_id` 和 `app_secret`。Credential Secret 由 `ObjectMapper` 编码为固定 JSON 后单向写入 CredentialStore；响应只包含脱敏 App ID、Credential Version 和独立 ProviderBinding Version，不返回 Secret、Credential ID、Grant ID、Tenant Key、Token 或 Endpoint。
 
 成员验证只接受精确 `open_id`，公开 Proof 通过 Receipt 引用，映射 DTO 只返回内部 Member、Binding、状态和时间，不返回 Open ID、Union ID 或 Tenant Key。通知历史 DTO 不返回变量、授权快照、Digest、Provider Message ID、请求/响应 Body、Claim、Lease 或原始错误文本。
 

@@ -1,7 +1,7 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.5<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.1`<br>
+> 文档版本：v1.14<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.34`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
 
@@ -168,6 +168,10 @@ M4-F08 将 Repository Settings 与 Execution Studio 纳入统一页面完成门�
 M4 页面在 desktop Chromium 与 390×844 narrow Chromium 执行交互、视觉和 Axe WCAG 2.2 AA 回归。Histoire 保存 Repository 五种状态与 Coding Execution 七种状态。Artifact 权限边界只消费当前 Task/attempt 的 Patch、Command Log 与 Test Report 状态，历史 attempt 缓存不能改变后续 Task 的权限导航。浏览器公开状态继续排除宿主路径、容器坐标、Token、Lease/Fencing、AgentState、State Reference、Checkpoint Hash 和 reasoning。实现与门禁见 [M4-F08 前端全状态与质量门禁](testing/M4-F08-前端全状态与质量门禁.md)。
 
 M5 页面复用相同桌面/窄屏、视觉和 Axe 门禁，并将 Agent、Model、Review、Action 的代表状态纳入独立 Histoire Story。Review Gate 与外部写操作确认框必须在最上层模态内执行初始焦点、Tab 环、Escape 和焦点恢复。Web 敏感字段门禁扫描公开 DTO、组件状态与 Story，API Key 只允许作为不进入 Store 的单向命令输入。实现与验证见 [M5-F08 前端全状态与质量门禁](testing/M5-F08-前端全状态与质量门禁.md)。
+
+M6 将 Activity、Inbox、Audit、Lark/Notification、Team Observer 与 Operations 作为同一质量矩阵收口。每个工作台固化 Ready、Loading、Empty、Error、Forbidden、Offline、CursorExpired、Conflict 及其领域专属状态；已有公开缓存在离线和续页失败时保持可读，分页、证据跳转、外部动作与管理命令按在线性和权限失败关闭。Team Event、Conversation Event 与 AG-UI 分别保存耐久 Cursor 或 Invocation Resume 坐标，不能互换命名空间或推导全局顺序。Histoire、Desktop/Narrow Playwright、视觉、Axe、Reduced Motion、Coverage 与敏感字段扫描共同构成发布门禁。实现与验证见 [M6-F08 M6 前端全状态与质量门禁](testing/M6-F08-M6前端全状态与质量门禁.md)。
+
+M6 前端整体 Review 固化两条通用一致性规则：已经成功加载的公开资源在刷新失败时保留原值并进入 Error，只有首次失败保持空值；任何异步结果都必须同时匹配发起时的 Scope Generation 与精确业务坐标，Abort 只是资源回收手段，Generation 与坐标校验才是晚到写入边界。
 
 M5 增加 Agent 与模型设置路由：
 
@@ -434,7 +438,81 @@ src/
 - 枚举显示文案、图标和语义色集中映射；
 - 权限隐藏提升可用性，服务端授权仍是安全边界。
 
-### 9.3 组件工作台
+### 9.3 M6 团队观测数据层
+
+- `teamops` Gateway 覆盖 Activity、Inbox、Audit、Lark/Notification、Operations Health 与 Projection 固定命令，并通过显式 Mapper 重建公开 DTO；未知顶层字段、内部 Payload、Credential、Provider Body 和运维内部坐标不进入浏览器；
+- Store 的缓存边界为 `Organization + Team`。Scope 变化中止全部请求、递增 Generation、清空查询/命令缓存；请求完成时同时校验 Scope Key、Generation、Request Key 和请求身份；
+- 普通资源与分页资源刷新失败时保留最近一次成功加载的公开值，只更新 Phase 与稳定错误；首次加载失败时值保持为空。旧值只用于明确的 Cached Error/Offline 阅读，不能据此开放写命令或外部动作；
+- Activity、Inbox、Audit、成员映射和 Notification Delivery 分别保存不透明 Continuation Cursor，续页按公开稳定 ID 去重。`410 cursor_expired` 清空当前资源 Cursor，由页面回读 Snapshot 或首屏恢复；
+- Inbox、Lark Connection、Notification Preference/Delivery 详情只接受 Header 强 ETag 与公开 Version 一致的响应。命令使用已加载 ETag，409 保存 `currentVersion` 后显式回读；
+- App Secret、`open_id`、Idempotency-Key、确认短语提交参数与隐式重试闭包不得进入 Reactive State；秘密只存在于表单局部状态和单次 Gateway 调用栈；
+- `teamops` 的统一命令槽执行单飞约束。任一命令处于 Pending 时，后续 Inbox、Provider、Notification、Projection 或 Recovery 命令必须在进入 Gateway 前返回失败；页面禁用只承担交互提示，Store 是防止回执和错误覆盖的最终前端边界；
+- Team Event 和 Conversation Event 使用 Scope 化耐久 Cursor。AG-UI 使用 Invocation 恢复坐标，不把 SSE ID 写入耐久 Cursor；损坏 LocalStorage 条目删除并失败关闭。
+
+### 9.4 M6 Team Activity 与 WorkItem Activity
+
+- `/activity` 是 Control Mode 的 Team Activity 入口，URL 保留 Team、WorkProject、Category 和当前 Event；切换 Team 清除 Event 并由 Scope Store 恢复规范范围；
+- 页面先读取 Snapshot，再从 Snapshot Cursor 或当前 Team 的耐久 Cursor 建立 SSE。Scope 变化关闭旧传输并使用代次隔离晚到帧；
+- SSE 与 JSON 统一经过公开 Activity Mapper。Activity 校验并合并成功后推进耐久 Cursor；Heartbeat 可以推进服务端声明的安全恢复坐标，格式错误的业务帧不能推进 Cursor；
+- 列表展示 Actor、Subject、Outcome、发生时间和类型化证据链接。WorkItem、Conversation 使用站内深链接，其余引用进入 Activity 事件详情；
+- Activity Event ID 是浏览器去重身份。实时事件插入当前快照头部，历史分页保持服务端顺序并删除重叠项；
+- WorkItem 详情在业务时间线之后嵌入 Compact Activity Stream，使用 `Organization + Team + WorkProject + WorkItem` 资源坐标读取同一服务端投影；
+- Loading、Empty、Error、Forbidden、Offline、CursorExpired、Connecting、Live 和 Reconnecting 使用独立稳定状态。离线和补发期间保留最近同步的公开事实；
+- Desktop 使用活动流与事件详情双列，Narrow 依次显示事件详情、筛选和活动流。证据链接、详情按钮、关闭和分页均支持键盘操作。
+
+### 9.5 M6 我的 Inbox
+
+- `/inbox` 是 Control Mode 的成员专属队列入口，URL 保存 `inboxType`、`sourceStatus`、`disposition` 和 `inboxItem`；非法闭集值恢复默认值，非法 InboxItem ID 从 URL 清除；
+- 浏览器请求不提交 Member ID。服务端从当前 Principal 和 Team Membership 解析成员，前端以 `Organization + Team` Scope 隔离缓存并在 Team 切换时清除选中项；
+- `OWNERSHIP/EXECUTION/REVIEW/CONFIRMATION/EXCEPTION` 五类总数和未读数只消费服务端计数 API。计数加载或失败时显示同步中或不可用，不能扫描分页列表推导计数，也不能把未知结果显示为零；
+- 列表使用不透明 Cursor 分页并按 InboxItem ID 去重，展示优先级、截止时间、来源类型与 Revision、来源状态和成员处置状态；
+- 详情响应只接受 Header 强 ETag、Body ETag 与 Disposition Version 一致的结果。`READ/ACTED/ARCHIVED` 命令只提交新状态，绑定当前 ETag；可重试传输失败复用原 Idempotency-Key，409 回读列表、计数和详情，成员重新确认时生成新 Idempotency-Key；
+- 来源按钮每次向服务端解析授权 Target。Gateway 只允许 `/work` 和 `/settings/integrations`，拒绝外部 URL、协议相对 URL、Fragment 和其他路径；离线时关闭 Target 解析与成员处置；
+- Loading、Empty、Error、Forbidden、Offline、CursorExpired、Conflict 使用稳定状态。Desktop 使用列表与粘性详情双列，Narrow 使用横向五类视图和详情优先的单列阅读顺序；详情打开后把焦点移到标题。
+
+### 9.6 M6 Team Admin Audit Explorer
+
+- `/audit` 是 Control Mode 的 Team 审计入口。URL 保存组合筛选、`auditEvent` 详情和 `chain` Correlation 坐标；Team 切换清除审计坐标，WorkProject 补全不清除 Team 级 Correlation；
+- 路由和导航要求 `audit:read`，导出按钮另要求 `governance:export`。前端权限只改善可用性，查询、续页、Correlation 与导出均由服务端重新授权；
+- Gateway 对 Audit 闭集、正整数 Schema、64 位小写 Operation Hash 和有界公开 Summary 失败关闭。敏感语义键、控制字符、原始 Payload、Credential、Endpoint、Trace 和 Provider Body 不进入 Store 或 DOM；
+- 组合筛选要求 Subject Type/ID 成对、UUID 合法且起点早于排他上界。列表使用不透明 Cursor 并按 Event ID 去重；31 天范围只约束导出，不限制授权成员的历史分页查询；
+- Correlation 图按 Event ID 与 `ObjectType + ObjectId` 去重，合并 RelatedEventIds。对象跳转仅接受 Gateway 验证的 `/activity` 站内路径；外部 URL、协议相对 URL、Fragment 和其他路径失败关闭；
+- 导出必须在线、具备治理权限且拥有显式有效时间范围，MaximumRows 位于 1 至 10,000。响应行数、事件数和上限必须一致，成功下载安全 JSON 后刷新自身 Audit；
+- Loading、Empty、Error、Forbidden、Offline、CursorExpired、导出和 Correlation 使用稳定状态。Desktop 使用表格与粘性侧栏，Narrow 使用详情优先的单列和语义表格卡片化降级；详情打开后焦点进入标题，筛选、分页和对象跳转均支持键盘。
+
+### 9.7 飞书与通知管理
+
+- `/settings/integrations/lark` 要求 `provider:manage`，URL 保存 `tab`、`connection`、`mappingStatus`、`deliveryStatus`、`deliveryType`、`recipient` 和 `delivery`；这些坐标均为 Team-bound，WorkProject 规范化保留，Team 切换全部清除；
+- Credential Version 和 ProviderBinding Version 是两个独立并发坐标。创建、轮换和撤销绑定 Credential Version，Preflight 和精确成员验证绑定 ProviderBinding Version；409 回读对应权威详情，不自动重放 Secret、Proof、撤销或重投命令；
+- Tenant Key、App ID、App Secret 和精确 `open_id` 只存在于局部表单。Secret 成功、关闭、Scope 切换和卸载后清空；`open_id` 在验证请求发出后清空，Store、URL、DOM Receipt 和日志都不保存；
+- 当前成员通过 Team Member 目录的 `userPrincipalId` 与当前 Principal 精确匹配。成员验证 Receipt 的 `domainEventId` 作为一次性 Proof ID，确认 Mapping 只提交内部 Member、Binding 与 Proof；
+- 通知偏好只使用服务端固定模板和五类 InboxItemType，DND 使用绝对 UTC 时间提交；投递历史只展示安全状态、尝试次数、Failure/Evidence Code、Template/Binding/Recipient 安全坐标和 Receipt 关系；
+- 只有 `FAILED_FINAL` Delivery 可以使用当前 Delivery ETag 与新 Idempotency-Key 显式再次投递。Gateway 对公开枚举使用闭集 Mapper，Secret、外部身份、Credential/Grant ID、Token、Endpoint、变量值、Provider Message ID、Body、Claim、Lease 和原始错误不得进入 Store 或 DOM；
+- Loading、Empty、Error、Forbidden、Offline、CursorExpired 和 Conflict 使用稳定状态。CursorExpired/Offline 保留已加载映射和投递事实；Desktop 使用 Connection 双列与通知三列，Narrow 使用详情优先单列，所有控件支持键盘与 Axe。
+
+### 9.8 M6 Team Observer 双入口
+
+- Conversation Mode 使用 `/conversation?assistant=team-observer`，Control Mode 使用 `/team/observer`。两个入口复用 `teamobserver` Gateway、Store 和 `TeamObserverWorkspace`，Team Observer 状态不进入 Personal Conversation Store、消息历史或 TaskIntent；
+- Session 与 Invocation 绑定 `Organization + Team`。Team 切换立即 Abort 旧传输、递增 Generation 并清除 Session、Invocation、Sequence 与 Summary；WorkProject 变化保留 Team 级 Observer 状态；
+- 客户端请求体固定为 `instruction + maxItemsPerSection`，不得加入 Agent、Model、Provider、Connection、Tool、Skill、身份或写命令。公开 SSE 只接受 `STARTED/SUMMARY_COMPLETED/CANCELLED/FAILED`，按 Invocation 与 Sequence 校验和去重；
+- Transport 完成或异常且业务未终态时，使用同 Session 与同 Invocation 调用 Resume，最多执行有界重连；Resume 返回不同 Invocation 时失败关闭。离开页面只移除视图，业务取消只能由显式 Cancel API 触发；
+- 进展、阻塞、Review、待确认和异常使用同一五段只读卡片。摘要正文只用 Vue 文本插值，不使用 Markdown、`v-html`、动态组件或模型生成链接；Provider 错误与 Prompt 内容不进入稳定错误文案；
+- Evidence Index 每次通过 Evidence API 重新授权。Gateway 只接受当前 Organization/Team 下 Activity、Inbox、WorkItem、Task 四类规范 API 路径，映射到 `/activity`、`/inbox`、`/work`；跨 Scope、外部、Query、Fragment、编码、遍历和未知资源路径失败关闭；
+- Cancel、Summary 与 Evidence 请求捕获发起时的 Scope、Session、Invocation 与 Generation，并携带 AbortSignal。Scope 切换、新 Invocation 或 Reset 会取消旧请求；即使 Gateway 忽略取消，晚到成功与失败也不得改变当前 Store；
+- Agent 固定身份、`team-observer@1`、只读说明、Session/Invocation 状态、生成时间和 Evidence Scope 可见。Desktop 使用摘要双列，Narrow 使用同语义单列；离线保留摘要阅读并关闭生成、恢复与证据解析；
+- Conversation 切入 Team Observer 时先使 Personal Conversation 页面同步代次失效，再清空 Conversation、Message、Realtime、TaskIntent、Link 与 Task 状态；旧同步链不得在清空后重新建立实时订阅。
+
+### 9.9 M6 运行健康与 MVP 管理
+
+- `/operations` 使用 Team Scope 健康摘要作为成员入口。`scope:read` 成员只看到固定五组件、封闭健康状态和有界计数，不请求或渲染 Organization 级 Projection/Recovery 诊断；
+- `operations:manage` 只负责前端裁剪管理员区域，服务端继续执行 Organization Administrator 授权。管理员区域展示 Active/Shadow Generation、Definition/Pointer/Generation/Job Version、Lag、Gap、Dead Letter、FailureCode 和恢复候选；
+- Operations Gateway 通过公开 DTO 白名单和闭集 Parser 重建响应。五组件必须恰好出现一次；Shadow Generation/Status/Version/RebuildJob ID/Version 必须同时存在或同时缺失；UUID、版本、Projection Name、FailureCode、状态与时间无效时失败关闭；
+- Start、Validate、Switch、Cancel 和 Fail 的 Body 只从当前诊断坐标构造，确认短语必须来自同一响应。Recovery Candidate 回传时按三类 Target 重新序列化，不能把响应专用 `action/referenceHash/confirmation` 放入 Target；
+- 强确认模态逐字匹配服务端短语，每次打开新命令生成新 Idempotency-Key，同一未改变输入的传输重试复用原 Key。成功或冲突后回读权威健康和诊断，不自动重放；Confirmation、FailureCode 和 Idempotency-Key 不进入 URL 或持久缓存；
+- 在线时提供 15 秒自动刷新与手动刷新；离线暂停定时器、保留缓存并关闭写命令。刷新失败保留上一份摘要并明确标记；Team 切换取消旧请求、清除诊断和模态坐标；
+- MVP 证据区只提供 Activity、Inbox、Team Observer、Audit 与 Lark/Notification 的有权站内入口，不生成虚假“已通过”状态；
+- 模态具备 Heading 初始焦点、Tab 环、Escape 和触发器焦点恢复；桌面与窄屏共享语义 DOM，通过 Histoire、双视口 Playwright、视觉和 Axe WCAG 2.2 AA。
+### 9.10 组件工作台
 
 M0 建立 Histoire 组件工作台，至少覆盖 Token、基础控件与 CrewScope 核心卡片。每个领域组件提供正常、加载、空、错误、无权限、冲突和长内容状态。
 

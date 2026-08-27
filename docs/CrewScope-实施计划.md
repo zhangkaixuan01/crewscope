@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.65<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.25`<br>
+> 文档版本：v1.74<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.34`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07 已完成，下一任务为 M6-F01（2026-08-27）
+> 当前进度：M0 至 M5 已全部完成；M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08 已完成，下一任务为 M6-Q01（2026-08-27）
 
 ## 1. 实施目标
 
@@ -886,6 +886,24 @@ M4-Q03 最终使用 DeepSeek `deepseek-v4-flash@DeepSeek-V4-Flash-0731` 完成 3
 M5 的 48 个任务已全部完成并通过 M5-Q04 Release Gate。M5-S01 至 M5-S05 关闭了动态模型、Agent 所有权升级、Reviewer 证据、GitHub 身份与 ActionBundle 协议风险；M5-D01 至 M5-D11、M5-I01 至 M5-I12、M5-A01 至 M5-A08 完成领域、迁移、基础设施与应用/API 交付；M5-F01 至 F08 交付 Agent、模型、Task 委托、Review、GitHub Delivery、全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段门禁。M5-Q01 的 84 项固定攻击全部阻断，M5-Q02 的 48 项固定故障全部收敛，M5-Q03 真实 Reviewer 的缺陷召回、正确样本特异度和证据有效率均为 100%，Gate 越权为 0。最终门禁为 Maven `1862 / 1862`、Vitest `311 / 311`、Playwright/视觉/Axe `150 / 150`，详细证据见 [M5-Q04 Release Gate](testing/M5-Q04-Release-Gate.md)与 [M5 执行清单](plans/M5-Agent模型与Review交付.md)。
 
 M6-S01 至 M6-S05 已冻结投影代际、三流恢复、Inbox/通知授权、Lark OpenAPI 和 Team Beta 发布协议。M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10 已完成领域、投影、Lark 通知、只读 Team Observer、观测、部署和恢复基础。M6-A01 至 M6-A03 已交付 Activity、Inbox 与 Audit Explorer。M6-A04 已交付 Team 管理范围的 Lark Connection、Preflight/Health、精确成员验证与映射、固定模板/偏好、通知投递历史与失败再次投递 API；所有变更命令使用强 ETag、Idempotency-Key 和 Receipt，两类 Keyset Cursor 使用独立签名域并绑定 Scope/Filter，公开 DTO 不暴露 Credential、外部身份或 Provider Body。验证见 [M6-A04 Lark 与 Notification 管理 API](testing/M6-A04-Lark与Notification管理API.md)。M6-A05 已交付当前成员绑定的 Team Observer Session、AgentScope TEAM-only 模型装配、四类安全 SSE 事件、同 Invocation Resume、显式取消、五段 Structured Output、证据持续授权和五类只读安全投影；客户端不能选择模型、连接、Tool 或写命令。验证见 [M6-A05 Team Observer 对话与摘要 API](testing/M6-A05-Team-Observer对话与摘要API.md)。M6-A06 已交付成员五组件低基数健康摘要、管理员 Projection 强版本诊断、三类恢复候选以及 Start/Retry/Validate/Switch/Cancel/Fail 固定管理 API；所有危险命令使用闭合请求、精确确认、稳定 Idempotency Command UUID，并复用 M6-I02 的原子 Receipt、DomainEvent、Outbox 与 Audit。验证见 [M6-A06 运行健康与 Projection 管理 API](testing/M6-A06-运行健康与Projection管理API.md)。M6-A07 已交付成员级 Correlation 安全查询、十类闭合对象双向引用、固定两查询预算和 Task Timeline EventType/Payload 双白名单；当前成员 Inbox/Notification、当前 Projection Generation、持续授权与签名 Scope Cursor 均已闭合。验证见 [M6-A07 Correlation 查询与 Task Timeline 白名单](testing/M6-A07-Correlation查询与Task-Timeline白名单.md)。
+
+M6-F01 已建立 Activity、Inbox、Audit、Lark/Notification 与 Operations 的统一前端 Gateway、公开 DTO、Scope Generation Store、稳定错误契约和三流 Cursor Storage。公开 Mapper、强 ETag 对账、旧 Team 晚到响应隔离、Cursor 过期、分页去重及凭证不缓存均由专项测试覆盖；实现与验证见 [M6-F01 团队观测前端数据层](testing/M6-F01-团队观测前端数据层.md)。
+
+M6-F02 已交付 Team Activity 独立页面、WorkItem Activity 嵌入入口和 Team SSE 恢复 Store。页面展示 Actor、Subject、Outcome、发生时间与证据链接，支持 Category/Actor 筛选、历史分页和事件详情；Desktop/Narrow、Loading/Empty/Error/Forbidden/Offline/CursorExpired、重复事件、键盘、Axe 与视觉基线均已覆盖。耐久 Cursor 只在 Activity 公开 DTO 校验并成功合并后推进，Scope 切换、旧流迟到帧和格式错误帧均不能污染当前恢复坐标。实现与验证见 [M6-F02 Team 与 WorkItem Activity UI](testing/M6-F02-Team与WorkItem-Activity-UI.md)。
+
+M6-F03 已交付独立 `/inbox` 页面、五类成员视图、服务端总数/未读计数、筛选分页、详情、优先级、截止时间和服务端授权来源跳转。浏览器不提交 Member ID；Inbox Target 只允许批准的站内路由。`READ/ACTED/ARCHIVED` 使用强 ETag 和 Idempotency-Key，409 后回读权威列表、计数与详情并要求成员以新命令重新确认，可重试传输失败沿用原命令键。页面覆盖计数失败、Loading、Empty、Error、Forbidden、Offline、CursorExpired、Conflict、Desktop/Narrow、键盘、Axe、Histoire 和视觉基线；实现与验证见 [M6-F03 我的 Inbox UI](testing/M6-F03-我的Inbox-UI.md)。
+
+M6-F04 已交付独立 `/audit` Team Admin Audit Explorer。页面支持时间、Category、Outcome、Initiator、Actor、Agent Principal、Subject、ProviderBinding 与 Correlation 组合筛选，使用稳定 Cursor 分页并按 Event ID 去重；详情只展示 Registry 公开事实、安全 Provider 引用与有界摘要。Correlation 图按 Event/Object 去重合并，站内对象跳转只接受 Gateway 验证的 `/activity` 路径。Audit 查询使用 `AUDIT_READ`，导出另需 `GOVERNANCE_EXPORT`，服务端仍逐请求授权；导出要求显式且不超过 31 天的时间范围、最多 10,000 行，并展示 Pending/Success/Error/Forbidden。Loading、Empty、Error、Forbidden、Offline、CursorExpired、Desktop/Narrow 卡片化表格、键盘焦点、Axe、Histoire、双视口视觉与 166 项全量 E2E 已通过；实现与验证见 [M6-F04 Team Admin Audit Explorer UI](testing/M6-F04-Team-Admin-Audit-Explorer-UI.md)。
+
+M6-F05 已交付独立 `/settings/integrations/lark` 页面和 `provider:manage` 导航/路由守卫，覆盖 Lark Connection 创建、轮换、撤销、Preflight、Health、精确成员验证/映射、固定模板偏好、DND、通知投递详情与失败再次投递。Credential 与 ProviderBinding 使用独立强版本；Secret 与 `open_id` 单向输入，Proof 只从 Receipt 安全坐标继续；公开 DTO 全部闭集失败关闭。Team 切换清理所有集成坐标，CursorExpired/Offline 保留已加载事实，Conflict 回读权威版本且不自动重放。Desktop/Narrow E2E、Axe、视觉、Vitest、Histoire 和敏感字段门禁纳入发布验证；实现与验证见 [M6-F05 Lark 与 Notification 管理 UI](testing/M6-F05-Lark与Notification管理UI.md)。
+
+M6-F06 已在 Conversation Mode 与 Control Mode 交付共享的只读 Team Observer，覆盖 Scope 隔离 Session、同 Invocation Resume、显式 Cancel、五段纯文本摘要和每次重新授权的证据跳转；实现与验证见 [M6-F06 Team Observer 双入口 UI](testing/M6-F06-Team-Observer双入口UI.md)。
+
+M6-F07 已交付 `/operations` 健康与 MVP 管理页，成员读取五组件低基数摘要，管理员使用诊断响应的强版本、强确认和闭合恢复目标执行 Projection 与三类 Recovery 命令；实现与验证见 [M6-F07 运行健康与 MVP 管理 UI](testing/M6-F07-运行健康与MVP管理UI.md)。
+
+M6-F08 已统一收口六个 M6 工作台的全状态、离线缓存与恢复、响应式、ARIA、Reduced Motion、Histoire、视觉、Axe、Coverage 和公开字段扫描。修复 Activity 离线续页仍可点击以及 Operations 初始/诊断错误态无法触发刷新两个缺口；补齐 Provider、Observer 与 Operations 离线纵向用例和 Observer/Operations 专属状态 Story。提交前 Review 后最终前端门禁为 Vitest `426 / 426`，Coverage Statements `80.78%`、Branches `74.05%`、Functions `81.16%`、Lines `83.18%`，Histoire `14` 个 Story / `104` 个 Variant，Playwright/视觉/Axe `180 / 180`；Lark 服务端强版本契约 `4 / 4` 通过。实现与验证见 [M6-F08 M6 前端全状态与质量门禁](testing/M6-F08-M6前端全状态与质量门禁.md)。
+
+M6-F01 至 M6-F08 提交前整体 Review 补强四项一致性门禁：普通资源刷新失败保留最近公开事实；统一命令槽在 Pending 期间拒绝第二个命令；Team Observer 的 Cancel、Summary、Evidence 使用 Abort 与 `Scope + Session + Invocation + Generation` 双重隔离；Conversation 切入 Observer 前推进页面同步代次，阻断 Personal Conversation 旧异步链。回归测试覆盖 Gateway 忽略 AbortSignal 的最坏情况，门禁结果记录在 M6-F08 验证文档。
 
 ## 19. 项目管理与进度跟踪
 
