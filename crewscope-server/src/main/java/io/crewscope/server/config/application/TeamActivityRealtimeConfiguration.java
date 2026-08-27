@@ -10,13 +10,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Conditional wiring for the M6 Team realtime engine; M6-I01 contributes the durable Store. */
+/** Shared signed-cursor wiring plus the conditional M6 Team realtime engine. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(TeamActivityRealtimeProperties.class)
-@ConditionalOnProperty(
-    prefix = "crewscope.team-activity-realtime",
-    name = "enabled",
-    havingValue = "true")
 public class TeamActivityRealtimeConfiguration {
 
   @Bean
@@ -36,6 +32,10 @@ public class TeamActivityRealtimeConfiguration {
   }
 
   @Bean
+  @ConditionalOnProperty(
+      prefix = "crewscope.team-activity-realtime",
+      name = "enabled",
+      havingValue = "true")
   TeamActivityRealtimeStream teamActivityRealtimeStream(
       TeamRealtimeEventStore store,
       TeamActivityCursorCodec cursorCodec,

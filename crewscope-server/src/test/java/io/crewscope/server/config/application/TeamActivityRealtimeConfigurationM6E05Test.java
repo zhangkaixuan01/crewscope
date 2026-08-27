@@ -17,17 +17,20 @@ class TeamActivityRealtimeConfigurationM6E05Test {
 
   private final ApplicationContextRunner runner =
       new ApplicationContextRunner()
-          .withUserConfiguration(TeamActivityRealtimeConfiguration.class);
+          .withUserConfiguration(TeamActivityRealtimeConfiguration.class)
+          .withPropertyValues(
+              "crewscope.team-activity-realtime.current-key-id=current",
+              "crewscope.team-activity-realtime.keys.current=" + VALID_KEY);
 
   @Test
-  void keepsRealtimeBeansDisabledWhenTheFeatureSwitchIsFalse() {
+  void keepsSharedCursorSecurityAvailableWhenRealtimeIsDisabled() {
     runner.withPropertyValues("crewscope.team-activity-realtime.enabled=false").run(
         context ->
             context
                 .assertThat()
                 .hasNotFailed()
-                .doesNotHaveBean(TeamActivityCursorKeyRing.class)
-                .doesNotHaveBean(TeamActivityCursorCodec.class)
+                .hasSingleBean(TeamActivityCursorKeyRing.class)
+                .hasSingleBean(TeamActivityCursorCodec.class)
                 .doesNotHaveBean(TeamActivityRealtimeStream.class));
   }
 
@@ -64,7 +67,6 @@ class TeamActivityRealtimeConfigurationM6E05Test {
   private ApplicationContextRunner enabledRunner(String encodedKey) {
     return runner.withPropertyValues(
         "crewscope.team-activity-realtime.enabled=true",
-        "crewscope.team-activity-realtime.current-key-id=current",
         "crewscope.team-activity-realtime.keys.current=" + encodedKey);
   }
 }

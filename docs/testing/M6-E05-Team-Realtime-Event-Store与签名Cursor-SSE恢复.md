@@ -52,7 +52,7 @@ version + keyId + projectionName
 - 服务端先验证 HMAC，再判断过期状态；无效签名无法探测 Token 时间和 Scope。
 - Organization、Team、Projection 或 Filter 变化返回 `400 invalid_cursor`。
 - 有效签名 Token 的时间到期，以及 Store 发现 Generation、Schema 或保留位置失效，返回 `410 cursor_expired`。
-- HMAC Key 至少 256 bit，通过外部标准 Base64 配置注入。启用 Team Realtime 时缺少有效 Key Ring 将启动失败。
+- HMAC Key 至少 256 bit，通过外部标准 Base64 配置注入。Key Ring 与历史、Audit、Correlation、Lark 和 Notification Cursor 共用，因此 API 与 Worker 进程都必须装配；缺少有效 Key Ring 时启动失败。`enabled` 只控制 Realtime Store/SSE Stream，不关闭共享 Cursor 安全能力。
 
 ## 4. SSE 背压与连接模型
 
@@ -76,7 +76,7 @@ crewscope:
       v1: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_KEY_V1}
 ```
 
-M6-I01 提供 PostgreSQL `TeamRealtimeEventStore` Adapter 后启用该装配。M6-A01 在此能力上增加成员资格、WorkItem 可见性、公开 DTO、JSON 历史和 Team SSE HTTP API。
+M6-I01 提供 PostgreSQL `TeamRealtimeEventStore` Adapter 后启用 Realtime Stream 装配。共享 Key Ring 与 Cursor Codec 始终装配，使关闭 SSE 的 Worker 仍可安全创建 Lark、Notification、Audit 与 Correlation API 依赖。M6-A01 在此能力上增加成员资格、WorkItem 可见性、公开 DTO、JSON 历史和 Team SSE HTTP API。
 
 ## 6. 验证结果
 
