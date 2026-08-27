@@ -14,6 +14,7 @@ public record LarkConnectionView(
         ConnectionId connectionId,
         TeamId teamId,
         Optional<ProviderBindingId> providerBindingId,
+        Optional<Long> providerBindingVersion,
         String maskedAppId,
         ConnectionStatus status,
         CredentialStatus credentialStatus,
@@ -26,14 +27,18 @@ public record LarkConnectionView(
         connectionId = Objects.requireNonNull(connectionId, "connectionId");
         teamId = Objects.requireNonNull(teamId, "teamId");
         providerBindingId = Objects.requireNonNull(providerBindingId, "providerBindingId");
+        providerBindingVersion = Objects.requireNonNull(
+                providerBindingVersion, "providerBindingVersion");
         maskedAppId = Objects.requireNonNull(maskedAppId, "maskedAppId");
         status = Objects.requireNonNull(status, "status");
         credentialStatus = Objects.requireNonNull(credentialStatus, "credentialStatus");
         expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
         createdAt = Objects.requireNonNull(createdAt, "createdAt");
         updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
-        if (version < 0) {
-            throw new IllegalArgumentException("version must not be negative");
+        if (version < 0 || providerBindingVersion.filter(value -> value < 0).isPresent()
+                || providerBindingId.isPresent() != providerBindingVersion.isPresent()) {
+            throw new IllegalArgumentException(
+                    "versions must be non-negative and ProviderBinding coordinates complete");
         }
     }
 }

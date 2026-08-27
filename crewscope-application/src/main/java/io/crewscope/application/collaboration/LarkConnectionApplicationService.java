@@ -435,6 +435,7 @@ public final class LarkConnectionApplicationService {
         return new LarkConnectionView(
                 connection.id(), connection.owner().teamId().orElseThrow(),
                 binding.map(ProviderBinding::id),
+                binding.map(ProviderBinding::version),
                 "****" + credential.metadata().getOrDefault("appIdSuffix", ""),
                 connection.status(), credential.status(), connection.expiresAt(),
                 connection.audit().createdAt(), connection.audit().updatedAt(), credential.version());

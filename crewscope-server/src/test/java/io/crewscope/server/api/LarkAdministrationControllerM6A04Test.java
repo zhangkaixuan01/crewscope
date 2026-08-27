@@ -13,17 +13,21 @@ import io.crewscope.application.collaboration.LarkAdministrationCommandService;
 import io.crewscope.application.collaboration.LarkCollaborationApplicationService;
 import io.crewscope.application.collaboration.LarkConnectionApplicationService;
 import io.crewscope.application.collaboration.LarkConnectionPreflightResult;
+import io.crewscope.application.collaboration.LarkConnectionView;
 import io.crewscope.application.collaboration.LarkMemberMappingApplicationService;
+import io.crewscope.application.credential.CredentialStatus;
 import io.crewscope.application.notification.NotificationAdministrationService;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.provider.ConnectionGrantId;
 import io.crewscope.domain.provider.ConnectionId;
+import io.crewscope.domain.provider.ConnectionStatus;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -122,6 +126,36 @@ class LarkAdministrationControllerM6A04Test {
                 .jsonPath("$.currentVersion").isEqualTo(2)
                 .jsonPath("$.details.expectedVersion").isEqualTo("1")
                 .jsonPath("$.details.actualVersion").isEqualTo("2");
+    }
+
+    @Test
+    void connectionResponseExposesTheProviderBindingStrongVersionSeparatelyFromCredentialVersion() {
+        ConnectionId connectionId = ConnectionId.generate();
+        ProviderBindingId bindingId = ProviderBindingId.generate();
+        UtcTimestamp now = UtcTimestamp.parse("2026-08-27T06:00:00Z");
+        when(connections.get(access, ORGANIZATION_ID, TEAM_ID, connectionId))
+                .thenReturn(new LarkConnectionView(
+                        connectionId,
+                        TEAM_ID,
+                        Optional.of(bindingId),
+                        Optional.of(7L),
+                        "****1234",
+                        ConnectionStatus.ACTIVE,
+                        CredentialStatus.ACTIVE,
+                        Optional.empty(),
+                        now,
+                        now,
+                        11));
+
+        client.get()
+                .uri(route("/connections/" + connectionId))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(ApiHeaders.ETAG, "\"11\"")
+                .expectBody()
+                .jsonPath("$.providerBindingId.value").isEqualTo(bindingId.toString())
+                .jsonPath("$.providerBindingVersion").isEqualTo(7)
+                .jsonPath("$.version").isEqualTo(11);
     }
 
     @Test
