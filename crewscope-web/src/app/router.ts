@@ -36,6 +36,36 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'work', requiredPermission: permissions.workRead },
       },
       {
+        path: '/activity',
+        name: 'activity',
+        component: () => import('../pages/ActivityPage.vue'),
+        meta: { mode: 'control', section: 'activity', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/inbox',
+        name: 'inbox',
+        component: () => import('../pages/InboxPage.vue'),
+        meta: { mode: 'control', section: 'inbox', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/team/observer',
+        name: 'team-observer',
+        component: () => import('../pages/TeamObserverPage.vue'),
+        meta: { mode: 'control', section: 'team-observer', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/operations',
+        name: 'operations',
+        component: () => import('../pages/OperationsPage.vue'),
+        meta: { mode: 'control', section: 'operations', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/audit',
+        name: 'audit',
+        component: () => import('../pages/AuditPage.vue'),
+        meta: { mode: 'control', section: 'audit', requiredPermission: permissions.auditRead },
+      },
+      {
         path: '/team/members',
         name: 'team-members',
         component: () => import('../pages/TeamMembersPage.vue'),
@@ -58,6 +88,12 @@ export function createCrewScopeRouter(
         name: 'model-settings',
         component: () => import('../pages/ModelSettingsPage.vue'),
         meta: { mode: 'control', section: 'models', requiredPermission: permissions.scopeRead },
+      },
+      {
+        path: '/settings/integrations/lark',
+        name: 'lark-settings',
+        component: () => import('../pages/LarkSettingsPage.vue'),
+        meta: { mode: 'control', section: 'lark', requiredPermission: permissions.providerManage },
       },
       {
         path: '/control',

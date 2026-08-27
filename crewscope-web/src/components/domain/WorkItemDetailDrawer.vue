@@ -298,6 +298,10 @@ const statusLabels: Record<WorkItemStatus, string> = {
             :on-load-more="onLoadTimelineMore"
           />
         </section>
+
+        <section v-if="$slots.activity" class="detail-section activity-projection-section">
+          <slot name="activity" />
+        </section>
       </div>
 
       <footer class="detail-footer">

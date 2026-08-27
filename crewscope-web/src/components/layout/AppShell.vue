@@ -14,7 +14,11 @@ import {
   UsersRound,
   Workflow,
   GitFork,
+  Inbox,
+  ScanSearch,
   KeyRound,
+  Send,
+  Gauge,
 } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -43,15 +47,20 @@ let scopeSynchronizationVersion = 0
 const navigation = [
   { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
   { label: 'Work', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
+  { label: 'Activity', icon: Activity, name: 'activity', section: 'activity', permission: permissions.scopeRead },
+  { label: '我的 Inbox', icon: Inbox, name: 'inbox', section: 'inbox', permission: permissions.scopeRead },
+  { label: 'Team Observer', icon: ScanSearch, name: 'team-observer', section: 'team-observer', permission: permissions.scopeRead },
+  { label: '运行与发布', icon: Gauge, name: 'operations', section: 'operations', permission: permissions.scopeRead },
+  { label: '审计中心', icon: ShieldCheck, name: 'audit', section: 'audit', permission: permissions.auditRead },
   { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
   { label: '我的 Agent', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
   { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
+  { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
   { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
 ]
 
 const futureNavigation = [
   { label: 'WorkGraph', icon: Workflow },
-  { label: 'Activity', icon: Activity },
   { label: '治理与设置', icon: ShieldCheck },
 ]
 
@@ -74,12 +83,40 @@ watch(
     if (selection.projectId) nextQuery.project = selection.projectId
     else delete nextQuery.project
 
-    const scopeChanged = queryValue(route.query.team) !== selection.teamId || queryValue(route.query.project) !== selection.projectId
+    const teamChanged = queryValue(route.query.team) !== selection.teamId
+    const scopeChanged = teamChanged || queryValue(route.query.project) !== selection.projectId
     if (scopeChanged) {
       // Object identity belongs to the original Scope and cannot survive URL canonicalization.
       delete nextQuery.workItem
       delete nextQuery.focus
       delete nextQuery.conversation
+      if (teamChanged) {
+        // Audit identities and Correlation graphs are Team-bound but independent of WorkProject.
+        delete nextQuery.auditEvent
+        delete nextQuery.chain
+        delete nextQuery.initiator
+        delete nextQuery.actor
+        delete nextQuery.agent
+        delete nextQuery.subjectType
+        delete nextQuery.subjectId
+        delete nextQuery.providerBinding
+        delete nextQuery.correlation
+        delete nextQuery.connection
+        delete nextQuery.mapping
+        delete nextQuery.delivery
+        delete nextQuery.mappingStatus
+        delete nextQuery.deliveryStatus
+        delete nextQuery.deliveryType
+        delete nextQuery.recipient
+        delete nextQuery.tab
+        delete nextQuery.event
+        delete nextQuery.inboxItem
+        delete nextQuery.assistant
+        delete nextQuery.session
+        delete nextQuery.invocation
+        delete nextQuery.projection
+        delete nextQuery.recovery
+      }
       await router.replace({ query: nextQuery })
     }
   },
@@ -114,12 +151,12 @@ function queryValue(value: unknown): string | null {
           <span>{{ item.label }}</span>
         </RouterLink>
         <p>Operate</p>
-        <button v-for="item in futureNavigation.slice(0, 2)" :key="item.label" type="button" disabled>
+        <button v-for="item in futureNavigation.slice(0, 1)" :key="item.label" type="button" disabled>
           <component :is="item.icon" :size="17" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
         <p>System</p>
-        <button v-for="item in futureNavigation.slice(2)" :key="item.label" type="button" disabled>
+        <button v-for="item in futureNavigation.slice(1)" :key="item.label" type="button" disabled>
           <component :is="item.icon" :size="17" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
@@ -136,7 +173,7 @@ function queryValue(value: unknown): string | null {
       <div v-if="!isOnline" class="network-banner" role="status" aria-live="polite" aria-atomic="true">
         <span aria-hidden="true">●</span>当前离线：已加载事实和草稿已保留，联网后可继续提交。
       </div>
-      <header class="topbar">
+      <div class="topbar" role="region" aria-label="全局工具栏">
         <div class="mode-switcher" aria-label="工作模式">
           <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')">
             <MessageSquare :size="16" aria-hidden="true" />对话
@@ -150,7 +187,7 @@ function queryValue(value: unknown): string | null {
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
         <button class="icon-button" type="button" aria-label="通知"><Bell :size="18" /></button>
-      </header>
+      </div>
 
       <header class="context-header">
         <div>

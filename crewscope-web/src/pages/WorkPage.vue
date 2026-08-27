@@ -8,6 +8,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import WorkItemCard from '../components/domain/WorkItemCard.vue'
 import WorkItemDetailDrawer from '../components/domain/WorkItemDetailDrawer.vue'
+import ActivityStream from '../components/domain/ActivityStream.vue'
 import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vue'
 import TaskListPanel from '../components/domain/TaskListPanel.vue'
 import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
@@ -31,6 +32,8 @@ import { useCodingStore } from '../domains/coding/store'
 import { reviewAttemptKey, reviewDetailKey, useReviewStore } from '../domains/review/store'
 import type { ReviewDecisionInput } from '../domains/review/types'
 import { deliveryAttemptKey, deliveryBundleKey, useDeliveryStore } from '../domains/delivery/store'
+import { useTeamOpsStore, workItemActivityCacheKey } from '../domains/teamops/store'
+import type { WorkItemActivityRoute } from '../domains/teamops/types'
 import type { CodingScope } from '../domains/coding/types'
 import {
   taskStatuses,
@@ -63,6 +66,7 @@ const taskStore = useTaskStore()
 const codingStore = useCodingStore()
 const reviewStore = useReviewStore()
 const deliveryStore = useDeliveryStore()
+const teamOpsStore = useTeamOpsStore()
 const isOnline = useNetworkStatus()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
@@ -112,6 +116,15 @@ const form = reactive({ key: '', type: 'TASK' as WorkItemType, title: '', descri
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
+const selectedWorkItemActivityRoute = computed<WorkItemActivityRoute | null>(() => {
+  const projectId = scopeStore.state.selectedProjectId
+  const workItemId = workStore.state.detail?.workItem.id
+  return projectId && workItemId ? { projectId, workItemId } : null
+})
+const selectedWorkItemActivity = computed(() => {
+  const coordinates = selectedWorkItemActivityRoute.value
+  return coordinates ? teamOpsStore.state.workItemActivity[workItemActivityCacheKey(coordinates)] ?? null : null
+})
 
 const selectedRuntimeResource = computed(() => {
   const taskId = taskStore.state.selectedTaskId
@@ -480,6 +493,16 @@ watch(
 )
 
 watch(
+  () => [scopeStore.state.selectedTeamId, selectedWorkItemActivityRoute.value?.projectId, selectedWorkItemActivityRoute.value?.workItemId] as const,
+  ([teamId, projectId, workItemId]) => {
+    if (!principal || !teamId || !projectId || !workItemId) return
+    teamOpsStore.activateScope({ organizationId: principal.organizationId, teamId })
+    void teamOpsStore.loadWorkItemActivity({ projectId, workItemId }, {}, false, true)
+  },
+  { immediate: true },
+)
+
+watch(
   () => [route.query.delegate, workStore.state.detail?.workItem.id, canDelegate.value] as const,
   ([delegate, workItemId, permitted]) => {
     if (delegate !== 'coding' || !workItemId || !permitted) return
@@ -610,6 +633,11 @@ function retryLinks(): void {
     workStore.state.selectedWorkItemId,
     true,
   )
+}
+
+function retryWorkItemActivity(): void {
+  if (!selectedWorkItemActivityRoute.value) return
+  void teamOpsStore.loadWorkItemActivity(selectedWorkItemActivityRoute.value, {}, false, true)
 }
 
 function updateTaskStatus(value: TaskStatus | 'all'): void {
@@ -1172,7 +1200,24 @@ const statusLabels: Record<WorkItemStatus, string> = {
       @conversation="openConversation"
       @open-conversation="openLinkedConversation"
       @delegate="openDelegate"
-    />
+    >
+      <template #activity>
+        <ActivityStream
+          :phase="selectedWorkItemActivity?.phase ?? 'idle'"
+          :items="selectedWorkItemActivity?.value ?? []"
+          :next-cursor="selectedWorkItemActivity?.nextCursor ?? null"
+          :loading-more="selectedWorkItemActivity?.loadingMore ?? false"
+          :error="selectedWorkItemActivity?.error ?? null"
+          realtime-phase="idle"
+          :online="isOnline"
+          compact
+          heading="WorkItem Activity"
+          description="此工作项在 Team Activity 投影中的公开事实。"
+          @retry="retryWorkItemActivity"
+          @load-more="selectedWorkItemActivityRoute && teamOpsStore.loadWorkItemActivity(selectedWorkItemActivityRoute, {}, true)"
+        />
+      </template>
+    </WorkItemDetailDrawer>
 
     <TaskDetailDrawer
       v-if="queryValue(route.query.task)"

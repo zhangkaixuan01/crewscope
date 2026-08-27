@@ -23,6 +23,7 @@ import SafeMarkdown from '../components/domain/SafeMarkdown.vue'
 import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
+import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useConversationMessageStore } from '../domains/conversation/messageStore'
@@ -42,6 +43,7 @@ import type {
 import { useScopeStore } from '../domains/scope/store'
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
+import type { TeamObserverScope } from '../domains/teamobserver/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,12 +71,17 @@ let pendingListFocusConversationId: string | null = null
 let synchronizationVersion = 0
 
 const teamName = computed(() => scopeStore.selectedTeam.value?.name ?? '团队工作区')
+const observerMode = computed(() => queryValue(route.query.assistant) === 'team-observer')
+const observerScope = computed<TeamObserverScope | null>(() => principal && scopeStore.state.selectedTeamId
+  ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
+  : null)
 const selected = computed(() => conversationStore.state.details?.conversation ?? null)
 const activeParticipants = computed(
   () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
 )
 const focus = computed(() => queryValue(route.query.focus))
 const pageTitle = computed(() => {
+  if (observerMode.value) return 'Team Observer'
   if (selected.value) return selected.value.title
   return focus.value ? `团队对话 · ${focus.value}` : '团队对话'
 })
@@ -144,8 +151,8 @@ const canConfigureConfirmedCoding = computed(() => Boolean(
 ))
 
 watch(
-  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation] as const,
-  async ([phase, teamId, conversation]) => {
+  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation, route.query.assistant] as const,
+  async ([phase, teamId, conversation, assistant]) => {
     if (phase !== 'ready' || !teamId || !principal) {
       if (phase === 'empty') {
         conversationStore.reset()
@@ -154,6 +161,18 @@ watch(
         taskIntentStore.reset()
         taskStore.reset()
       }
+      return
+    }
+    if (queryValue(assistant) === 'team-observer') {
+      // Team Observer owns a dedicated Session/Invocation state machine, never a Personal Conversation aggregate.
+      // Invalidate the whole Personal Conversation synchronization chain before clearing its stores.
+      synchronizationVersion += 1
+      conversationStore.reset()
+      messageStore.reset()
+      realtimeStore.reset()
+      taskIntentStore.reset()
+      linkStore.reset()
+      taskStore.reset()
       return
     }
     const version = ++synchronizationVersion
@@ -168,6 +187,7 @@ watch(
         linkStore.loadByConversation(messageScope),
         synchronizeConversationTasks(scope, conversationId),
       ])
+      if (version !== synchronizationVersion) return
       realtimeStore.synchronize(messageScope)
       await taskIntentStore.synchronize(messageScope, realtimeStore.state.latestTaskIntentId)
       realtimeStore.reconcile(messageStore.state.items)
@@ -587,18 +607,25 @@ function queryValue(value: unknown): string | null {
 <template>
   <AppShell :eyebrow="`Conversation · ${teamName}`" :title="pageTitle">
     <template #actions>
-      <BaseButton size="small" @click="openCreate">
+      <RouterLink v-if="observerMode" v-slot="{ navigate }" custom :to="{ name: 'conversation', query: { ...route.query, assistant: undefined } }">
+        <BaseButton variant="secondary" size="small" @click="navigate"><Bot :size="14" />Personal Agent 对话</BaseButton>
+      </RouterLink>
+      <RouterLink v-else v-slot="{ navigate }" custom :to="{ name: 'conversation', query: { ...route.query, conversation: undefined, assistant: 'team-observer' } }">
+        <BaseButton variant="secondary" size="small" @click="navigate"><UsersRound :size="14" />Team Observer</BaseButton>
+      </RouterLink>
+      <BaseButton v-if="!observerMode" size="small" @click="openCreate">
         <template #icon><Plus :size="14" aria-hidden="true" /></template>
         新建对话
       </BaseButton>
-      <RouterLink v-slot="{ navigate }" custom :to="{ name: 'today', query: route.query }">
+      <RouterLink v-slot="{ navigate }" custom :to="observerMode ? { name: 'team-observer', query: route.query } : { name: 'today', query: route.query }">
         <BaseButton variant="secondary" size="small" @click="navigate">
-          在工作台查看<ArrowRight :size="14" aria-hidden="true" />
+          {{ observerMode ? '查看团队摘要' : '在工作台查看' }}<ArrowRight :size="14" aria-hidden="true" />
         </BaseButton>
       </RouterLink>
     </template>
 
-    <div class="conversation-workspace" :class="workspaceClass">
+    <TeamObserverWorkspace v-if="observerMode && observerScope" :scope="observerScope" :team-name="teamName" :online="isOnline" variant="conversation" />
+    <div v-else class="conversation-workspace" :class="workspaceClass">
       <section class="panel conversation-list-panel" aria-label="对话列表">
         <header class="conversation-list-header">
           <div>
@@ -929,7 +956,7 @@ function queryValue(value: unknown): string | null {
       </aside>
     </div>
 
-    <div v-if="createOpen" class="dialog-backdrop" @keydown="handleCreateDialogKeydown">
+    <div v-if="createOpen && !observerMode" class="dialog-backdrop" @keydown="handleCreateDialogKeydown">
       <section ref="createDialog" class="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-conversation-title">
         <header>
           <div><p class="eyebrow">New conversation</p><h2 id="create-conversation-title">新建对话</h2></div>

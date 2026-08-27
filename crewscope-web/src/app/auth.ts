@@ -25,6 +25,9 @@ export const permissions = {
   repositoriesManage: 'repositories:manage',
   agentManage: 'agent:manage',
   providerManage: 'provider:manage',
+  auditRead: 'audit:read',
+  governanceExport: 'governance:export',
+  operationsManage: 'operations:manage',
 } as const
 
 /**

@@ -65,6 +65,21 @@ describe('WorkItemDetailDrawer', () => {
     wrapper.unmount()
   })
 
+  it('embeds the WorkItem Activity projection after its business timeline', () => {
+    const wrapper = mount(WorkItemDetailDrawer, {
+      props: props(),
+      slots: {
+        activity: '<div data-testid="work-item-activity">WorkItem Activity projection</div>',
+      },
+    })
+
+    const timeline = wrapper.get('.timeline-section')
+    const projection = wrapper.get('.activity-projection-section')
+    expect(projection.text()).toContain('WorkItem Activity projection')
+    expect(timeline.element.compareDocumentPosition(projection.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    wrapper.unmount()
+  })
+
   it('keeps drafts on command failure and validates empty collaboration forms', async () => {
     const onTransition = vi.fn().mockRejectedValue(new Error('conflict'))
     const onAddComment = vi.fn().mockRejectedValue(new Error('comment failed'))

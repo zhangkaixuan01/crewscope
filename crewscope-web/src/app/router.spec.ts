@@ -6,17 +6,21 @@ import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from './auth
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import { createConversationStore, CONVERSATION_STORE } from '../domains/conversation/store'
 import { createConversationMessageStore, CONVERSATION_MESSAGE_STORE } from '../domains/conversation/messageStore'
+import type { ConversationMessageGateway } from '../domains/conversation/messageGateway'
 import { createConversationRealtimeStore, CONVERSATION_REALTIME_STORE } from '../domains/conversation/realtimeStore'
 import { createTaskIntentStore, TASK_INTENT_STORE } from '../domains/conversation/taskIntentStore'
 import type { TaskIntentGateway } from '../domains/conversation/taskIntentGateway'
 import { createConversationWorkItemLinkStore, CONVERSATION_WORK_ITEM_LINK_STORE } from '../domains/conversation/workItemLinkStore'
 import type { ConversationWorkItemLinkGateway } from '../domains/conversation/workItemLinkGateway'
-import { FixtureConversationGateway } from '../test/conversationFixtures'
+import { conversationIds, FixtureConversationGateway } from '../test/conversationFixtures'
 import { FixtureConversationMessageGateway } from '../test/conversationMessageFixtures'
 import { FixtureConversationRealtimeGateway } from '../test/conversationRealtimeFixtures'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
 import { createTaskStore, TASK_STORE } from '../domains/task/store'
 import { FixtureTaskGateway } from '../test/taskFixtures'
+import { createTeamObserverStore, TEAM_OBSERVER_STORE } from '../domains/teamobserver/store'
+import type { TeamObserverGateway } from '../domains/teamobserver/gateway'
+import type { ConversationMessagePage } from '../domains/conversation/types'
 
 const principal: AuthenticatedPrincipal = {
   id: 'test-user',
@@ -82,6 +86,51 @@ describe('application routing', () => {
     expect(wrapper.text()).toContain('Platform Engineering')
   })
 
+  it('does not restart a late Personal Conversation realtime chain after entering Team Observer', async () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    await router.push(`/conversation?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}&conversation=${conversationIds.provider}`)
+    await router.isReady()
+    const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
+    const conversationStore = createConversationStore(new FixtureConversationGateway())
+    const pendingMessages = deferred<ConversationMessagePage>()
+    const messageGateway = new FixtureConversationMessageGateway() as ConversationMessageGateway
+    messageGateway.listMessages = vi.fn(async () => pendingMessages.promise)
+    const messageStore = createConversationMessageStore(messageGateway)
+    const realtimeGateway = new FixtureConversationRealtimeGateway()
+    const streamEvents = vi.spyOn(realtimeGateway, 'streamEvents')
+    const realtimeStore = createConversationRealtimeStore(realtimeGateway, { storage: null })
+    const taskIntentStore = createTaskIntentStore(quietTaskIntentGateway())
+    const linkStore = createConversationWorkItemLinkStore(quietLinkGateway())
+    const taskStore = createTaskStore(new FixtureTaskGateway(), { storage: null })
+    const observerStore = createTeamObserverStore({} as TeamObserverGateway)
+    const wrapper = mount(App, {
+      global: {
+        plugins: [router],
+        provide: {
+          [AUTH_PRINCIPAL as symbol]: principal,
+          [SCOPE_STORE as symbol]: scopeStore,
+          [CONVERSATION_STORE as symbol]: conversationStore,
+          [CONVERSATION_MESSAGE_STORE as symbol]: messageStore,
+          [CONVERSATION_REALTIME_STORE as symbol]: realtimeStore,
+          [TASK_INTENT_STORE as symbol]: taskIntentStore,
+          [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: linkStore,
+          [TASK_STORE as symbol]: taskStore,
+          [TEAM_OBSERVER_STORE as symbol]: observerStore,
+        },
+      },
+    })
+    await vi.waitFor(() => expect(messageGateway.listMessages).toHaveBeenCalledTimes(1))
+
+    await router.push({ name: 'conversation', query: { ...router.currentRoute.value.query, assistant: 'team-observer' } })
+    await flushPromises()
+    pendingMessages.resolve({ items: [], nextCursor: null })
+    await flushPromises()
+
+    expect(streamEvents).not.toHaveBeenCalled()
+    expect(realtimeStore.state.invocationPhase).toBe('idle')
+    wrapper.unmount()
+  })
+
   it('redirects an unauthorized member route and records the denied destination', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
     const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
@@ -126,6 +175,30 @@ describe('application routing', () => {
     expect(router.currentRoute.value.name).toBe('access-denied')
     expect(router.currentRoute.value.query.from).toBe(destination)
   })
+
+  it('guards the Audit Explorer with Audit read permission', async () => {
+    const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
+    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const destination = `/audit?team=${fixtureIds.teamPlatform}`
+
+    await router.push(destination)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('access-denied')
+    expect(router.currentRoute.value.query.from).toBe(destination)
+  })
+
+  it('allows a Team member to enter Operations health without administrator permission', async () => {
+    const memberPrincipal = { ...principal, permissions: new Set<string>([permissions.scopeRead]) }
+    const router = createCrewScopeRouter(createMemoryHistory(), memberPrincipal)
+    const destination = `/operations?team=${fixtureIds.teamPlatform}`
+
+    await router.push(destination)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('operations')
+    expect(memberPrincipal.permissions.has(permissions.operationsManage)).toBe(false)
+  })
 })
 
 function quietTaskIntentGateway(): TaskIntentGateway {
@@ -143,4 +216,10 @@ function quietLinkGateway(): ConversationWorkItemLinkGateway {
     async listByConversation() { return [] },
     async listByWorkItem() { return [] },
   }
+}
+
+function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
 }
