@@ -11,6 +11,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    // Keep datetime-local inputs and localized audit timestamps deterministic across developer and CI hosts.
+    timezoneId: 'Asia/Shanghai',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     contextOptions: { reducedMotion: 'reduce' },
