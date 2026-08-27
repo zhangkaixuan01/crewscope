@@ -42,7 +42,7 @@ Fixture 保存两份职责不同的负载 Evidence：
 | 2 | `355ms` | `354ms` | `500 / 500` | `0` |
 | 3 | `594ms` | `593ms` | `500 / 500` | `0` |
 
-本轮 Warmup 实际耗时 `345ms`，三轮 Measurement 实际耗时分别为 `728 / 702 / 880ms`。执行环境为 macOS/aarch64、8 个可用处理器、16 GiB 物理内存、约 228 GiB 磁盘、Microsoft JDK 21.0.12。三轮均满足协议 Fixture 门槛；该结果不替代 Linux amd64、8 vCPU、16 GiB、Temurin 17、120 秒 Warmup 和三轮各 600 秒 Measurement 的 Canonical 正式结果。
+本轮 Warmup 实际耗时 `345ms`，三轮 Measurement 实际耗时分别为 `728 / 702 / 880ms`。执行环境为 macOS/aarch64、8 个可用处理器、16 GiB 物理内存、约 228 GiB 磁盘、Microsoft JDK 21.0.12。三轮均满足协议 Fixture 门槛；该结果不替代 Linux amd64、8 vCPU、16 GB 云主机规格（Linux OS 报告值至少 14 GiB）、Temurin 17、120 秒 Warmup 和三轮各 600 秒 Measurement 的 Canonical 正式结果。
 
 本次同机生产链路 Fixture：
 

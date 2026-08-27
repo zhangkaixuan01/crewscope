@@ -40,7 +40,7 @@ M6-S05 冻结以下协议：
 ```text
 Host OS/Arch: macOS 26.3.1 arm64
 CPU: 8
-Memory: 16 GiB
+Memory: 16 GB instance class; Linux OS-reported memory >= 14 GiB
 Java: Microsoft OpenJDK 21.0.12（Maven release=17）
 Maven Wrapper: 3.9.11
 Node.js: v24.13.1
@@ -52,7 +52,7 @@ Docker Compose: 5.3.1
 Docker OS/Arch: linux/arm64
 ```
 
-Canonical Release Environment 固定为 Linux amd64、8 vCPU、16 GiB、至少 100 GiB 磁盘，推荐 200 GiB；Java 使用 Temurin 17，Node 使用 24.x，pnpm 使用 11.9.0。作者环境只证明协议 Harness 可运行，性能与恢复 Release Evidence 必须在 Canonical 环境生成。
+Canonical Release Environment 固定为 Linux amd64、8 vCPU、16 GB 云主机规格（Linux OS 报告值至少 14 GiB）、至少 100 GiB 磁盘，推荐 200 GiB；Java 使用 Temurin 17，Node 使用 24.x，pnpm 使用 11.9.0。作者环境只证明协议 Harness 可运行，性能与恢复 Release Evidence 必须在 Canonical 环境生成。
 
 每次发布计算包含工具链、硬件、Git Revision、Image Digest、Schema、Dataset、Seed 和负载参数的 SHA-256 Environment Fingerprint。任何坐标变化都会形成不同 Fingerprint。
 

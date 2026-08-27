@@ -3796,7 +3796,7 @@ M6 Team Beta 使用 `FI-001` 至 `FI-121` 的固定故障矩阵验证 Outbox、P
 
 M6-Q03 使用 `fixture`、`nightly` 和 `release-candidate` 三种显式轨道执行同一版本化门禁。Fixture 轨道不读取真实 Provider 凭证，同时运行独立 PostgreSQL 协议基线与生产 Queue/Activity/Inbox 固定样本负载；生产路径使用真实 V1–V30 Schema、`JdbcTaskExecutionQueueRepositoryAdapter`、Activity/Inbox `GenerationAwareProjectionRunner`、Generation Receipt 和 Checkpoint。Fixture 继续覆盖 Redis/进程替换恢复、真实本地 Git Worktree 回滚、部署/加密恢复合同、前端生产构建和完整 MVP Playwright。Nightly 只把生产路径扩展到 120 秒 Warmup 与三轮各 600 秒 Measurement，并要求独立的源/空目标 Operator Environment调用生产备份恢复。Release Candidate 继续要求显式真实 Lark 确认、专用测试接收者标签和短期凭证，只发送 `release-candidate-smoke@1` 固定模板。
 
-负载证据保存 Canonical Profile、执行环境、三轮独立样本数、错误数、nearest-rank P95 与原始直方图。开发机执行会写明实际 OS/架构并把 `canonicalLinuxAmd64` 标记为 `false`；该结果只能证明协议和实现，不得替代 Linux amd64、8 vCPU、16 GiB、120 秒 Warmup 与 600 秒 Measurement 的正式发布证据。备份恢复与真实 Lark Evidence 只保存安全摘要、Hash、RPO/RTO、Schema 和 Receipt 身份 Hash，不保存凭证、接收者原始身份或消息正文。实现与当前证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
+负载证据保存 Canonical Profile、执行环境、三轮独立样本数、错误数、nearest-rank P95 与原始直方图。开发机执行会写明实际 OS/架构并把 `canonicalLinuxAmd64` 标记为 `false`；该结果只能证明协议和实现，不得替代 Linux amd64、8 vCPU、16 GB 云主机规格（Linux OS 报告值至少 14 GiB）、120 秒 Warmup 与 600 秒 Measurement 的正式发布证据。备份恢复与真实 Lark Evidence 只保存安全摘要、Hash、RPO/RTO、Schema 和 Receipt 身份 Hash，不保存凭证、接收者原始身份或消息正文。实现与当前证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
 
 ### 16.14 MVP Release Gate
 
@@ -3884,7 +3884,7 @@ M6-I10 将 PostgreSQL Custom Dump、完整 Content-addressed Artifact 和 Redis 
 
 恢复只允许写入新的 Compose Project、空 PostgreSQL/Redis Volume 和空 Artifact 根。写入前校验包、24 小时 RPO、V26–V30 Schema 与 Key ID；Artifact 根、Reference/Object 目录和存储文件都拒绝符号链接，Reference 的绝对 `file:` URI 在 Hash 校验后重定位到目标 Data Root，并再次验证全部 Object。API 单独启动完成至 V30 的 Flyway 与 Readiness Smoke，Worker/Web 在证据确认后开放。失败目标保留诊断并废弃，重试使用新空目标。开发机真实演练完成 V30→V30 与 V26→V30，RTO 分别为 63/64 秒，证据见 [M6-I10 Team Beta 备份恢复与 Runbook](testing/M6-I10-Team-Beta备份恢复与Runbook.md)和 [Team Beta 单机运维手册](runbooks/Team-Beta单机运维手册.md)。
 
-发布性能环境固定为 Linux amd64、8 vCPU、16 GiB 和至少 100 GiB 磁盘，使用 Temurin 17、Node 24、pnpm 11.9.0、Dataset `m6-team-beta-v1` 与 Seed `20260825`。固定负载使用 Web 并发 10、Task 并发 2、Warmup 120 秒、Measurement 600 秒和 3 次独立重复，每项指标每轮至少 500 个样本。P95 使用 `ceil(0.95 * N)` 的 nearest-rank 算法，每轮独立满足 READY Claim 与 Team Projection P95 `< 2s`，错误率 `<= 0.1%`。固定故障矩阵至少 100 个样本，自动恢复率 `>= 99%`，重复 Action/Notification、丢失 Inbox Disposition 与旧 Fencing 写入均为 0。
+发布性能环境固定为 Linux amd64、8 vCPU、16 GB 云主机规格（Linux OS 报告值至少 14 GiB）和至少 100 GiB 磁盘，使用 Temurin 17、Node 24、pnpm 11.9.0、Dataset `m6-team-beta-v1` 与 Seed `20260825`。固定负载使用 Web 并发 10、Task 并发 2、Warmup 120 秒、Measurement 600 秒和 3 次独立重复，每项指标每轮至少 500 个样本。P95 使用 `ceil(0.95 * N)` 的 nearest-rank 算法，每轮独立满足 READY Claim 与 Team Projection P95 `< 2s`，错误率 `<= 0.1%`。固定故障矩阵至少 100 个样本，自动恢复率 `>= 99%`，重复 Action/Notification、丢失 Inbox Disposition 与旧 Fencing 写入均为 0。
 
 每份性能与恢复证据保存 Environment Fingerprint、Git Revision、Image Digest、Schema、Dataset、Seed、样本数、错误率、P95、故障结果和 Evidence Hash。macOS/arm64 结果用于开发诊断，发布证据由固定 Linux amd64 环境生成。完整协议见 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md) 和 [M6-S05 验证记录](spikes/M6-S05-Team-Beta部署与发布验证记录.md)。
 

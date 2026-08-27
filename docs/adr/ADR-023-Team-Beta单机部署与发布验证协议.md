@@ -58,7 +58,7 @@ Prometheus
 | 坐标 | 冻结值 |
 |---|---|
 | CPU | 8 vCPU |
-| 内存 | 16 GiB |
+| 内存 | 16 GB 云主机规格，Linux OS 报告值不得低于 14 GiB |
 | 磁盘 | 至少 100 GiB，推荐 200 GiB |
 | Java Runtime | Eclipse Temurin 17 |
 | Maven | Wrapper 3.9.11 |

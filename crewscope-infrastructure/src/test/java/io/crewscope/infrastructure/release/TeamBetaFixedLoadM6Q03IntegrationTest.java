@@ -63,6 +63,8 @@ class TeamBetaFixedLoadM6Q03IntegrationTest {
     private static final int WARMUP_SAMPLES = 120;
     private static final int MEASUREMENT_SAMPLES = 500;
     private static final Duration CANONICAL_REQUEST_INTERVAL = Duration.ofSeconds(1);
+    // A 16 GB cloud instance normally reports less memory after hypervisor and kernel reservation.
+    private static final long MINIMUM_OS_REPORTED_MEMORY_BYTES = 14L * 1024 * 1024 * 1024;
     private static final long LATENCY_TARGET_MILLIS = 2_000L;
     private static final double MAXIMUM_ERROR_RATE = 0.001D;
     private static final Path DEFAULT_EVIDENCE =
@@ -432,15 +434,16 @@ class TeamBetaFixedLoadM6Q03IntegrationTest {
         String specification = System.getProperty("java.specification.version", "");
         return os.contains("linux") && (arch.equals("amd64") || arch.equals("x86_64"))
                 && Runtime.getRuntime().availableProcessors() >= 8
-                && physicalMemoryBytes() >= 16L * 1024 * 1024 * 1024
+                && physicalMemoryBytes() >= MINIMUM_OS_REPORTED_MEMORY_BYTES
                 && diskTotalBytes() >= 100L * 1024 * 1024 * 1024
                 && specification.equals("17")
                 && vendor.contains("eclipse adoptium");
     }
 
     private static String canonicalFailure() {
-        return "canonical lane requires Linux amd64, 8 CPUs, 16 GiB memory, 100 GiB disk, "
-                + "and Eclipse Temurin 17; actual environment is "
+        return "canonical lane requires Linux amd64, 8 CPUs, a 16 GB instance with at least "
+                + "14 GiB OS-reported memory, 100 GiB disk and Eclipse Temurin 17; actual "
+                + "environment is "
                 + System.getProperty("os.name") + '/' + System.getProperty("os.arch")
                 + ", processors=" + Runtime.getRuntime().availableProcessors()
                 + ", memoryBytes=" + physicalMemoryBytes()
