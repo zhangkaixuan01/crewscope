@@ -1,12 +1,19 @@
 package io.crewscope.infrastructure.event.projection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.event.publication.EventPublication;
 import io.crewscope.application.inbox.CrewScopeInboxEventTypes;
+import io.crewscope.application.inbox.InboxCursor;
+import io.crewscope.application.inbox.InboxCursorExpiredException;
+import io.crewscope.application.inbox.InboxFilter;
 import io.crewscope.application.inbox.InboxItemView;
+import io.crewscope.application.inbox.InboxPage;
+import io.crewscope.application.inbox.InboxQuery;
+import io.crewscope.application.inbox.InboxSourceTarget;
 import io.crewscope.domain.inbox.InboxDisposition;
 import io.crewscope.domain.inbox.InboxDispositionStatus;
 import io.crewscope.domain.inbox.InboxItem;
@@ -133,6 +140,50 @@ class InboxEventProjectorM6E03IntegrationTest
     }
 
     @Test
+    void memberQueueProvidesStableKeysetCountsAndServerResolvedTarget() {
+        UUID ownerAssignment = seedAssignment("OWNER", BASE_TIME);
+        UUID executorAssignment = seedAssignment("EXECUTOR", BASE_TIME.plusSeconds(1));
+        runner.consume(publication(seedEvent(
+                "WORK_ITEM_OWNER_ASSIGNED", ownerAssignment, 0, BASE_TIME,
+                responsibilityPayload("OWNER", Optional.empty()))));
+        runner.consume(publication(seedEvent(
+                "WORK_ITEM_EXECUTOR_ASSIGNED", executorAssignment, 0,
+                BASE_TIME.plusSeconds(1), responsibilityPayload("EXECUTOR", Optional.empty()))));
+
+        InboxQuery firstQuery = new InboxQuery(
+                organizationId,
+                new TeamId(teamId),
+                new io.crewscope.domain.team.TeamMemberId(memberId),
+                InboxFilter.OPEN,
+                Optional.empty(),
+                1);
+        InboxPage first = repository.findCurrentPage(firstQuery);
+        InboxCursor cursor = first.nextCursor().orElseThrow();
+        InboxPage second = repository.findCurrentPage(new InboxQuery(
+                firstQuery.organizationId(),
+                firstQuery.teamId(),
+                firstQuery.memberId(),
+                firstQuery.filter(),
+                Optional.of(cursor),
+                1));
+
+        assertEquals(1, first.items().size());
+        assertEquals(1, second.items().size());
+        assertEquals(2, repository.countCurrent(
+                organizationId, new TeamId(teamId), firstQuery.memberId()).total());
+        assertEquals(2, repository.countCurrent(
+                organizationId, new TeamId(teamId), firstQuery.memberId()).unread());
+        InboxSourceTarget target = repository.resolveCurrentTarget(
+                        organizationId,
+                        new TeamId(teamId),
+                        firstQuery.memberId(),
+                        first.items().get(0).item().id())
+                .orElseThrow();
+        assertEquals(InboxSourceTarget.Kind.WORK_ITEM, target.kind());
+        assertEquals(workItemId, target.workItemId().orElseThrow().value());
+    }
+
+    @Test
     void oldAssignmentDeliveredAfterReleaseCannotReopenMemberWork() {
         UUID assignmentId = seedAssignment("OWNER", BASE_TIME);
         release(assignmentId, BASE_TIME.plusSeconds(2));
@@ -192,6 +243,14 @@ class InboxEventProjectorM6E03IntegrationTest
                 item, InboxDispositionStatus.READ, 0, new PrincipalId(principalId),
                 UtcTimestamp.from(BASE_TIME.plusSeconds(10)));
         repository.save(read, 0);
+        InboxCursor oldCursor = InboxCursor.from(repository.findCurrentPage(new InboxQuery(
+                        organizationId,
+                        new TeamId(teamId),
+                        item.memberId(),
+                        InboxFilter.OPEN,
+                        Optional.empty(),
+                        1))
+                .items().get(0));
 
         Shadow shadow = startShadow();
         Optional<ProjectionHistoryCursor> cursor = Optional.empty();
@@ -225,6 +284,15 @@ class InboxEventProjectorM6E03IntegrationTest
         assertEquals(1, merged.dispositionVersion());
         assertEquals(1, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM crewscope.inbox_disposition", Integer.class));
+        assertThrows(
+                InboxCursorExpiredException.class,
+                () -> repository.findCurrentPage(new InboxQuery(
+                        organizationId,
+                        new TeamId(teamId),
+                        item.memberId(),
+                        InboxFilter.OPEN,
+                        Optional.of(oldCursor),
+                        1)));
     }
 
     @Test

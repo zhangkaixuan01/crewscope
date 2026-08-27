@@ -25,10 +25,13 @@ import io.crewscope.domain.activity.ActivitySubjectType;
 import io.crewscope.domain.activity.ActivityVisibility;
 import io.crewscope.domain.activity.TeamSequence;
 import io.crewscope.domain.projection.ProjectionGeneration;
+import io.crewscope.domain.projection.ProjectionName;
 import io.crewscope.domain.shared.event.EventActorType;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
+import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -52,6 +55,8 @@ import tools.jackson.databind.ObjectMapper;
 @Repository
 public class JdbcActivityQueryAdapter implements ActivityQueryPort, TeamRealtimeEventStore {
 
+    private static final ProjectionName TEAM_ACTIVITY_PROJECTION =
+            new ProjectionName("team-activity");
     private static final String EVENT_SELECT = """
             SELECT event.organization_id, event.team_id, event.projection_name,
                    event.generation, event.activity_event_id, event.domain_event_id,
@@ -82,6 +87,43 @@ public class JdbcActivityQueryAdapter implements ActivityQueryPort, TeamRealtime
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ActivityPage find(ActivityQuery query) {
         return read(query);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<ActivityEvent> findCurrentById(
+            OrganizationId organizationId, TeamId teamId, ActivityEventId eventId) {
+        OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
+        TeamId team = Objects.requireNonNull(teamId, "teamId");
+        ActivityEventId id = Objects.requireNonNull(eventId, "eventId");
+        Optional<ProjectionCoordinate> current = findCurrentCoordinate(
+                organization.value(), TEAM_ACTIVITY_PROJECTION.value());
+        if (current.isEmpty()) {
+            return Optional.empty();
+        }
+        ProjectionCoordinate coordinate = current.orElseThrow();
+        List<ActivityRow> rows = jdbc.query(
+                EVENT_SELECT + " AND event.activity_event_id = ?",
+                this::activityRow,
+                organization.value(),
+                team.value(),
+                TEAM_ACTIVITY_PROJECTION.value(),
+                coordinate.generation(),
+                id.value());
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        ActivityRow row = rows.get(0);
+        var scope = io.crewscope.application.activity.ActivityCursorScope.of(
+                organization,
+                team,
+                TEAM_ACTIVITY_PROJECTION,
+                new ProjectionGeneration(coordinate.generation()),
+                new SchemaVersion(coordinate.schemaVersion()),
+                ActivityFilter.ALL);
+        List<ActivityReference> eventReferences = references(scope, rows)
+                .getOrDefault(row.eventId(), List.of());
+        return Optional.of(row.toEvent(eventReferences));
     }
 
     @Override
@@ -141,6 +183,12 @@ public class JdbcActivityQueryAdapter implements ActivityQueryPort, TeamRealtime
     }
 
     private ProjectionCoordinate currentCoordinate(UUID organizationId, String projectionName) {
+        return findCurrentCoordinate(organizationId, projectionName)
+                .orElseThrow(TeamActivityCursorExpiredException::new);
+    }
+
+    private Optional<ProjectionCoordinate> findCurrentCoordinate(
+            UUID organizationId, String projectionName) {
         List<ProjectionCoordinate> rows = jdbc.query(
                 """
                 SELECT pointer.active_generation, definition.projection_schema_version
@@ -160,10 +208,10 @@ public class JdbcActivityQueryAdapter implements ActivityQueryPort, TeamRealtime
                         row.getInt("projection_schema_version")),
                 organizationId,
                 projectionName);
-        if (rows.size() != 1) {
-            throw new TeamActivityCursorExpiredException();
+        if (rows.size() > 1) {
+            throw new IllegalStateException("Projection Pointer resolved more than one ACTIVE row");
         }
-        return rows.get(0);
+        return rows.stream().findFirst();
     }
 
     private Optional<HighWater> highWater(

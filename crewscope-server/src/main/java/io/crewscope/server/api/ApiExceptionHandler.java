@@ -8,12 +8,15 @@ import io.crewscope.application.conversation.ConversationEventCursorExpiredExcep
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
 import io.crewscope.application.github.GitHubProviderException;
+import io.crewscope.application.collaboration.LarkConnectionPreflightException;
+import io.crewscope.application.inbox.InboxCursorExpiredException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
 import io.crewscope.infrastructure.workspace.repository.CodingArtifactException;
+import io.crewscope.integration.provider.collaboration.LarkProviderException;
 import io.crewscope.server.observability.ApiObservabilityContext;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Locale;
@@ -87,6 +90,17 @@ public class ApiExceptionHandler {
                     correlationId,
                     exchange);
         }
+        if (failure instanceof InboxCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The Inbox page belongs to a projection generation that is no longer active",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
         if (failure instanceof PlatformExecutionContextResolutionException) {
             return response(
                     HttpStatus.FORBIDDEN,
@@ -137,6 +151,40 @@ public class ApiExceptionHandler {
                     retryable,
                     null,
                     Map.of("reason", githubFailure.code().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof LarkConnectionPreflightException preflightFailure) {
+            var health = preflightFailure.health();
+            return response(
+                    health.retryable() ? HttpStatus.SERVICE_UNAVAILABLE
+                            : HttpStatus.UNPROCESSABLE_CONTENT,
+                    "lark_preflight_" + health.status().name().toLowerCase(Locale.ROOT),
+                    "Lark Connection Preflight did not establish a healthy authorization",
+                    health.retryable(),
+                    null,
+                    Map.of("evidenceCode", health.evidenceCode()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof LarkProviderException larkFailure) {
+            HttpStatus status = switch (larkFailure.code()) {
+                case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
+                case PERMISSION_DENIED -> HttpStatus.FORBIDDEN;
+                case RESOURCE_UNAVAILABLE -> HttpStatus.NOT_FOUND;
+                case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+                case PROVIDER_UNAVAILABLE, UNKNOWN_DELIVERY -> HttpStatus.SERVICE_UNAVAILABLE;
+                case IDENTITY_MISMATCH -> HttpStatus.CONFLICT;
+                case INVALID_RESPONSE, CONNECTION_UNAVAILABLE, CREDENTIAL_UNAVAILABLE,
+                        CANCELLED -> HttpStatus.UNPROCESSABLE_CONTENT;
+            };
+            return response(
+                    status,
+                    "lark_" + larkFailure.code().name().toLowerCase(Locale.ROOT),
+                    "The Lark operation could not be completed",
+                    larkFailure.retryable(),
+                    null,
+                    Map.of("evidenceCode", larkFailure.evidenceCode()),
                     correlationId,
                     exchange);
         }

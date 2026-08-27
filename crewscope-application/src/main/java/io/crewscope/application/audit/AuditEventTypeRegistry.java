@@ -3,6 +3,8 @@ package io.crewscope.application.audit;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -37,6 +39,15 @@ public final class AuditEventTypeRegistry {
 
     public int size() {
         return definitions.size();
+    }
+
+    /** Returns the reviewed coordinates for fail-closed readers such as Correlation history. */
+    public List<AuditEventTypeDefinition> definitions() {
+        return definitions.values().stream()
+                .sorted(Comparator
+                        .comparing((AuditEventTypeDefinition value) -> value.eventType().value())
+                        .thenComparingInt(value -> value.sourceSchemaVersion().value()))
+                .toList();
     }
 
     private record Coordinate(EventType eventType, SchemaVersion schemaVersion) {}

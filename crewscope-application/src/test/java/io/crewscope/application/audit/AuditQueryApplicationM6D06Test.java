@@ -89,6 +89,7 @@ class AuditQueryApplicationM6D06Test {
         service = new AuditQueryApplicationService(
                 port,
                 new DefaultAuditAuthorization(memberships, roles, grants),
+                AuditAccessRecorder.noOp(),
                 () -> NOW);
     }
 

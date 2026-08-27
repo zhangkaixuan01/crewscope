@@ -21,7 +21,7 @@ class AuditEventTypeRegistryM6E06Test {
 
     @Test
     void registersTheReviewedM3ToM6Coordinates() {
-        assertEquals(98, registry.size());
+        assertEquals(100, registry.size());
         assertCategory("WORK_ITEM_CREATED", SchemaVersion.V1, AuditEventCategory.WORK);
         assertCategory("TASK_DELEGATED_TO_AGENT", SchemaVersion.V2, AuditEventCategory.EXECUTION);
         assertCategory("AGENT_PROFILE_CREATED", SchemaVersion.V1, AuditEventCategory.AGENT);
@@ -48,6 +48,14 @@ class AuditEventTypeRegistryM6E06Test {
                 "PROJECTION_DEAD_LETTER_REPLAY_REQUESTED",
                 SchemaVersion.V1,
                 AuditEventCategory.PROJECTION);
+        assertCategory(
+                "AUDIT_EXPLORER_QUERIED",
+                SchemaVersion.V1,
+                AuditEventCategory.SECURITY);
+        assertCategory(
+                "AUDIT_EXPORT_GENERATED",
+                SchemaVersion.V1,
+                AuditEventCategory.SECURITY);
     }
 
     @Test

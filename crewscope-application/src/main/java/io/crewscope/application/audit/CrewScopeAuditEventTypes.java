@@ -606,6 +606,20 @@ public final class CrewScopeAuditEventTypes {
     }
 
     private static void registerM6SecurityEvents(List<AuditEventTypeDefinition> target) {
+        registerExplicit(
+                target,
+                "AUDIT_EXPLORER_QUERIED",
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                Set.of("operation", "result", "rowCount"),
+                required("operation"), required("result"), required("rowCount"));
+        registerExplicit(
+                target,
+                "AUDIT_EXPORT_GENERATED",
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                Set.of("operation", "result", "rowCount"),
+                required("operation"), required("result"), required("rowCount"));
         for (String type : List.of(
                 "PROJECTION_REBUILD_STARTED",
                 "PROJECTION_REBUILD_RETRIED",

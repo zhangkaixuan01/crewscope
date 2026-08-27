@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Stable Activity stream identity derived from the canonical DomainEvent identity. */
-public record ActivityEventId(UUID value) {
+public record ActivityEventId(UUID value) implements AggregateId {
 
     private static final String NAMESPACE = "crewscope:activity-event:v1:";
 
@@ -22,6 +22,10 @@ public record ActivityEventId(UUID value) {
         UUID required = AggregateId.requireValue(domainEventId, "ActivityEvent.domainEventId");
         return new ActivityEventId(UUID.nameUUIDFromBytes(
                 (NAMESPACE + required).getBytes(StandardCharsets.UTF_8)));
+    }
+
+    public static ActivityEventId from(String value) {
+        return new ActivityEventId(AggregateId.parseCanonical(value, "ActivityEventId"));
     }
 
     public ActivityEventId requireDomainEvent(UUID domainEventId) {
