@@ -56,7 +56,10 @@ class LarkOpenApiM6S04IntegrationTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Instant NOW = Instant.parse("2026-08-25T09:00:00Z");
-    private static final Duration REQUEST_TIMEOUT = Duration.ofMillis(150);
+    // Keep loopback calls bounded while leaving enough headroom for the full Maven suite's
+    // Docker- and AgentScope-heavy modules to release host resources before this test starts.
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(1);
+    private static final Duration LOST_RESPONSE_DELAY = Duration.ofMillis(1_500);
     private static final String APP_A = "cli_a_m6s04";
     private static final String APP_B = "cli_b_m6s04";
     private static final String SECRET_A = "lark_app_secret_a_m6s04";
@@ -1399,7 +1402,7 @@ class LarkOpenApiM6S04IntegrationTest {
                 return created;
             });
             if (behavior == SendBehavior.LOSE_RESPONSE) {
-                Thread.sleep(300);
+                Thread.sleep(LOST_RESPONSE_DELAY.toMillis());
             }
             sendJson(exchange, 200, Map.of(
                     "code", 0,

@@ -14,6 +14,7 @@
 - Trace、Baggage、Metric 或结构化日志写入失败只累计 `crewscope.m6.telemetry.dropped` 安全计数，不改变事务、Worker 或 Provider 调用结果。`crewscopeTelemetry` Health Indicator 只返回按失败类型聚合的丢弃数，不公开原始异常、Payload 或 Credential。
 - `SafeStructuredLoggingJsonCustomizer` 在 Spring Boot 日志系统初始化阶段处理所有结构化 String 成员。`StructuredLogSanitizer` 覆盖 Secret、Token、Credential、Prompt、Tool 输入输出、邮箱、电话、飞书身份、异常与堆栈，并按 Code Point 清理全部 ISO 控制字符与 Unicode 行/段分隔符、限制安全值为 256 字符；通用 Message 中的 Bearer Token、API Key、邮箱和手机号同样被拦截。
 - Actuator 保持 `/actuator/health` 与 `/actuator/info` 可匿名访问、Health Detail 隐藏；`/actuator/prometheus` 必须通过平台认证。
+- Actuator 授权切片测试关闭 Redis Health Indicator，使用例只验证 HTTP 暴露面与认证边界；生产配置仍保留 Redis 健康检查。
 
 ## 2. 安全与降级边界
 

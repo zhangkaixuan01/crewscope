@@ -21,6 +21,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
             "management.endpoints.web.exposure.include=health,info,prometheus",
             "management.endpoint.health.show-details=never",
             "management.endpoint.health.probes.enabled=true",
+            // This slice verifies HTTP authorization, not external Redis availability.
+            "management.health.redis.enabled=false",
             "management.tracing.export.otlp.enabled=false"
         })
 class ActuatorAuthorizationM6I08Test {

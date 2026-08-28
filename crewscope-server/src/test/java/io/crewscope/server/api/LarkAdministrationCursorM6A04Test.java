@@ -105,8 +105,11 @@ class LarkAdministrationCursorM6A04Test {
     }
 
     private static String tamper(String token) {
-        char replacement = token.charAt(token.length() - 1) == 'A' ? 'B' : 'A';
-        return token.substring(0, token.length() - 1) + replacement;
+        byte[] decoded = Base64.getUrlDecoder().decode(token);
+        // Flip an encoded payload byte instead of the final Base64 character: changing only
+        // unused padding bits can decode to the original bytes and make this assertion flaky.
+        decoded[decoded.length / 2] ^= 1;
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(decoded);
     }
 
     private static void assertInvalid(org.junit.jupiter.api.function.Executable executable) {

@@ -107,7 +107,7 @@ Template Version 漂移、额外 `arbitraryBody`、非可信 Host 和非默认�
 
 Lark `uuid` 由 Organization、Connection 和 PlannedAction Digest 规范派生为固定 32 位小写 SHA-256 前缀，不包含 Member、标题或 URL。一个 PlannedAction 在同一 Connection 的所有 Dispatch、Lease 接管和网络重试使用同一 UUID；不同 Organization、Tenant 或 Connection 形成不同 UUID。
 
-Loopback 第一次发送先保存消息，再延迟响应超过 150ms Client Timeout。第二次请求使用相同 UUID，Stub 返回同一 Message ID。随后 Client 使用该 Message ID 查询精确消息存在性。再次执行相同命令仍返回同一 Message ID。
+Loopback 第一次发送先保存消息，再延迟响应 1,500ms，超过 1s Client Timeout。第二次请求使用相同 UUID，Stub 返回同一 Message ID。随后 Client 使用该 Message ID 查询精确消息存在性。再次执行相同命令仍返回同一 Message ID。1s 是测试专用回环预算，可覆盖完整 Maven 门禁释放 Docker 与 AgentScope 资源时的宿主调度抖动；生产 Connector 继续使用部署配置的独立有界超时。
 
 结果为：
 
