@@ -22,7 +22,7 @@ CrewScope 将技术团队的对话目标转化为可执行、可协作、可追�
 
 当前 **Team Beta MVP** 已完成 M0–M6 全部里程碑，MVP Release Gate 结论为 [`PASS`](docs/testing/M6-Q04-MVP-Release-Gate.md)。
 
-![CrewScope 对话协作工作台](crewscope-web/e2e/app-shell.spec.ts-snapshots/conversation-desktop-chromium-linux.png)
+![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
 ## 核心工作流
 
