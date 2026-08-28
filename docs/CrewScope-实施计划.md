@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.84<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.42`<br>
+> 文档版本：v1.93<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.51`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04 已完成，下一任务为 `M7-D01`
+> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08 已完成，下一任务为 `M7-I01`
 
 ## 1. 实施目标
 
@@ -741,7 +741,7 @@ V30 升级保留既有 `bootstrap/crewscope-monitor` USER Principal ID、TeamMem
 8. V30→V32 升级后既有 Operator、团队、任务、Agent 和 Provider 数据保持有效；
 9. 完整任务依赖、配置、API 和 Release Gate 见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)。
 
-M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 已用真实 Redis 与双 Chromium Context 验证 8 KiB JSON 登录体预算、错误密码零会话旋转、SecurityContext 持久化、Session ID 旋转、Cookie CSRF、退出隔离、TTL 和 Web/API 同源代理，验证记录见 [M7-S01 WebFlux Session 与 CSRF 验证记录](spikes/M7-S01-WebFlux-Session与CSRF验证记录.md)。M7-S02 已冻结 Account、LoginIdentity、Binding、Principal 和 TeamMember 单向身份链，用 16 路并发与既有 Bootstrap Principal/TeamMember Fixture 验证唯一收敛、跨 Organization 拒绝和无损升级，并形成 [ADR-024 草案](adr/ADR-024-Account与Principal身份边界.md)；验证记录见 [M7-S02 Account 与 Principal 边界验证记录](spikes/M7-S02-Account与Principal边界验证记录.md)。M7-S03 已在阿里云原生 Linux 的 2C2G 与 8C16G Profile 完成 Argon2id/BCrypt 矩阵，冻结 Argon2id M32/T3/P1、2/4 路哈希 Permit、密码输入预算、标识/网络限流、15 分钟临时锁定和统一枚举防护，并形成 [ADR-025 草案](adr/ADR-025-本地密码与登录防护参数.md)；验证记录见 [M7-S03 密码与登录防护验证记录](spikes/M7-S03-密码与登录防护验证记录.md)。M7-S04 已冻结公开 AuthLayout、已登录 Account 设置页、12 个身份状态、双视口响应式、焦点顺序与 CrewScope 浅绿品牌基线，Darwin/Linux 视觉、Axe、Vitest、Histoire 和 Playwright 门禁通过；验证记录见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。下一任务为 `M7-D01`。
+M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04 已冻结 Session/CSRF、Account/Principal 边界、密码防护参数和开放身份视觉基线；M7-D01 至 M7-D06 已交付 Account、LoginIdentity、Credential、Binding、TeamInvitation 领域内核和安全事件契约；M7-D07 已通过 V31 落地本地账号与身份持久化；M7-D08 已通过 V32 落地 Digest-only TeamInvitation、跨 Scope 外键、一次性终态、过期索引和元数据视图。对应验证见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)，下一任务为 `M7-I01`。
 
 ## 14. 模块实施边界
 
@@ -793,8 +793,8 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V28__lark_mapping_and_team_observer.sql` | Lark Tenant/Member Mapping，既有 Team 的 Service Principal、`team-observer@1` 与默认 `DISABLED` Team Observer 确定性补齐；不生成 ModelConnection/Configuration | M6 |
 | `V29__projection_operations_runtime.sql` | Projection Supervisor Claim/Cursor、受审计恢复调度、Notification Redelivery 与 Operations 运行投影 | M6 |
 | `V30__notification_worker_runtime.sql` | Notification Worker Claim/Lease/Fencing、Attempt、Receipt Observation 与查询恢复运行事实 | M6 |
-| `V31__local_user_account_and_identity.sql` | UserAccount、PlatformRole、LoginIdentity、LocalCredential 元数据、AccountOrganizationBinding、规范用户名/邮箱唯一键与安全状态 | M7 |
-| `V32__team_invitation.sql` | TeamInvitation、Token Digest、目标角色、有效期、一次性接受、撤销与安全查询索引 | M7 |
+| `V31__local_user_account_and_identity.sql` | UserAccount、PlatformRole、LoginIdentity、LocalCredential/非敏感元数据视图、AccountOrganizationBinding、规范用户名/邮箱唯一键、跨 Organization 复合外键、Hash 权限及强版本/状态/审计触发器 | M7 |
+| `V32__team_invitation.sql` | TeamInvitation、受限 Token Digest、元数据视图、目标角色、有效期、跨 Scope 外键、一次性终态、强版本与安全查询索引 | M7 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 

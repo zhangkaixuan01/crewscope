@@ -128,6 +128,12 @@ M7-S02 测试内 Registry 模拟上述唯一索引和事务，已验证：
 
 验证记录见 [M7-S02 Account 与 Principal 边界验证记录](../spikes/M7-S02-Account与Principal边界验证记录.md)。
 
+M7-D01 已用正式生产类落地 `UserAccount`、`Username`、`NormalizedEmail`、`AccountStatus`、`PlatformRole` 和 `SecurityVersion`。注册工厂不接受角色并固定生成 USER，Bootstrap Operator 使用独立受信工厂；账号资料、状态和安全版本不依赖 Principal、TeamMember、Credential 或 Session。验证见 [M7-D01 账号领域内核](../testing/M7-D01-账号领域内核.md)。
+
+M7-D02 已落地 `LoginIdentity`、稳定精确 Subject、独立 Identity 状态机、部署全局 Provider/Subject 键和每 Account/Provider 键。本地 Subject 的生产构造路径只能使用 Account ID，ExternalIdentity 换绑不能原地修改 Subject。`LocalCredentialMetadata` 与哈希敏感值分离，两类应用 Repository 不反向引入 Principal、TeamMember 或 Session。验证见 [M7-D02 LoginIdentity 与 LocalCredential 契约](../testing/M7-D02-LoginIdentity与LocalCredential契约.md)。
+
+M7-D04 已落地 `AccountOrganizationBinding`、Account/Organization 键、Organization/Principal 键、`ACTIVE / DISABLED` 状态机与安全统一冲突。创建和重新启用验证 Account 与 USER Principal 当前可用，绑定端点保持不可变；并发相同绑定通过 Repository 唯一边界重读收敛。`AccountOrganizationPrincipalResolver` 只依赖不含 Provision 方法的 `OrganizationPrincipalReader`，未绑定 Organization、错误状态、类型或 Scope 均返回空解析且不创建任何事实。Principal 与 TeamMember 继续没有 Account、LoginIdentity 或 Binding 反向依赖。验证见 [M7-D04 AccountOrganizationBinding 领域契约](../testing/M7-D04-AccountOrganizationBinding领域契约.md)。
+
 ## 接受与重新评估条件
 
 ADR 在 M7-D01 至 M7-D04 冻结正式领域对象、M7-D07 通过 V31 真实 PostgreSQL 约束和 V30 升级测试后转为 `ACCEPTED`。

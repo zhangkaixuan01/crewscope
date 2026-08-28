@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.42<br>
+> 文档版本：v5.51<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -2629,9 +2629,19 @@ UserAccount
 
 `UserAccount` 是平台登录主体，保存规范用户名、规范邮箱、展示名、账号状态、Security Version 和 `USER / OPERATOR` 平台角色。自助注册只能创建 `USER`，`OPERATOR` 只由部署引导授予，与 TeamRole 分层。`LoginIdentity` 保存 Provider 与稳定 Subject；M7 的 `local` Subject 使用不可变 Account ID，不使用可以修改的邮箱。`LocalCredential` 只保存密码哈希算法、哈希值、密码版本和修改时间，任何明文、Hash、Session 或认证错误都不能进入领域事件、Audit、日志、Trace、指标和公开 DTO。
 
+M7-D01 将账号内核固定为不可变 `UserAccount` 聚合。`Username` 保留 NFC 展示值，并使用 NFKC 与 Locale-independent 小写形成 3–64 code point 规范唯一键；邮箱同时保留 NFC 展示值和 `NormalizedEmail`，后者统一大小写、全角兼容形与 IDN ASCII 域名。两类规范冲突均转换为无字段、无冲突值的 `account_identifier_conflict`，公开边界不能判断命中用户名还是邮箱。`ACTIVE / LOCKED / DISABLED / ARCHIVED` 使用闭合转移图，`ARCHIVED` 为终态；状态变更、改密或全会话撤销推进单调 `SecurityVersion`，资料变更只推进聚合业务版本。`register` 工厂固定生成 `USER`，`bootstrapOperator` 是唯一的受信 `OPERATOR` 创建路径；该角色不产生任何 Team 权限。实现与验证见 [M7-D01 账号领域内核](testing/M7-D01-账号领域内核.md)。
+
+M7-D02 将认证身份固定为独立 `LoginIdentity`。`IdentityProviderKey` 使用规范配置路径，`LoginIdentitySubject` 则保留 Provider 签发的精确文本值，不执行 trim、大小写转换或 Unicode 规范化；首尾空白和不安全 Unicode 直接拒绝，字符串表示固定脱敏。`local` Subject 只能由不可变 UserAccountId 派生；外部 Subject 创建后无原地修改命令，换绑通过撤销旧 Identity 并创建新 Identity 完成。`LoginIdentityKey(provider, subject)` 和 `AccountIdentityProviderKey(account, provider)` 分别对应部署全局唯一与每 Account/Provider 唯一约束，两类冲突都返回不含 Subject 的 `login_identity_conflict`。
+
+`LocalCredentialMetadata` 只保存 LocalCredentialId、AccountId、算法、单调 Credential Version、Password Changed At、乐观版本与生命周期，字段和应用查询端口均不含明文或哈希。`LocalPasswordHash` 是独立敏感值对象，只接受带 `{argon2id}` 或 `{bcrypt}` 前缀的有界 ASCII 编码，`toString` 始终脱敏。BCrypt 只是历史 Reader，新建和轮换只允许当前 Argon2id Writer，阻断算法降级。实现与验证见 [M7-D02 LoginIdentity 与 LocalCredential 契约](testing/M7-D02-LoginIdentity与LocalCredential契约.md)。
+
 `AccountOrganizationBinding` 显式允许 Account 进入 Organization，并绑定该 Organization 内唯一 USER Principal。Binding 单向引用 Account 与 Principal，Principal 不反向依赖 Account；新本地 Principal 不再把 `principal.identity_provider/external_subject` 作为登录真相，旧 Bootstrap/OIDC ExternalIdentity 仅作升级兼容数据保留。请求路径中的 Organization 必须存在当前 ACTIVE Binding；认证用户不能通过访问任意 Organization URL 触发 Principal 自动创建。Principal 继续统一承载用户、Agent 和服务身份，TeamMember 继续表达用户在 Team 中的参与和权限，两者不保存密码或 Session。PlatformRole 由服务端派生平台 Authority，不替代 TeamMember/TeamRole。M7 的本地流程只会话化 Bootstrap Organization 的一个 ACTIVE Binding，数据模型仍允许未来增加其他 Organization Binding。
 
 LoginIdentity 的 `(provider, subject)` 在部署内唯一，`(account_id, provider)` 同样唯一；一个 Account 可以拥有 local 与不同外部 Provider 身份，但同邮箱、用户名、显示名或 OIDC Email Claim 不触发自动账号合并。AccountOrganizationBinding 的 `(account_id, organization_id)` 与 `(organization_id, principal_id)` 分别唯一，创建 Binding 不创建 TeamMember。有效授权是 Account、LoginIdentity、Binding、Principal、TeamMember 和 TeamRole 当前状态的交集，任一层失效都不能被旧 Session 或 PlatformRole 绕过。账号、身份、Binding 和必要 Principal 在同一 PostgreSQL 事务内依靠唯一约束并发收敛，事务提交后才建立 Redis Session。
+
+M7-D04 将 Organization 映射落为 `AccountOrganizationBinding` 聚合、双唯一键和值对象。Binding 仅保存稳定 Account、Organization、USER Principal、状态、业务版本和生命周期，`ACTIVE / DISABLED` 使用闭合双向状态机；创建与重新启用时重新验证 Account 可认证以及 Principal 为同 Organization、Organization Scope、ACTIVE、USER。绑定服务只接受已有 Principal，并在唯一冲突后按 Account/Organization 规范键重读，完全相同的并发请求收敛为同一 Binding，不同 Principal 或跨 Account 所有权统一返回不含身份坐标的 `account_organization_binding_conflict`。
+
+登录请求使用独立只读 `OrganizationPrincipalReader` 与 `AccountOrganizationPrincipalResolver`。解析链同时要求 Account ACTIVE、LoginIdentity usable 且属于该 Account、Binding ACTIVE、Principal ACTIVE/USER/Organization Scope/同 Organization；任何缺失或冲突都折叠为空解析结果。该 Reader 不暴露 Principal Provision 方法，旧 `IdentityMappingService` 无法进入本地请求解析链。实现与验证见 [M7-D04 AccountOrganizationBinding 领域契约](testing/M7-D04-AccountOrganizationBinding领域契约.md)。
 
 M7 使用 Spring Security 与 Spring Session Data Redis 建立服务端会话。浏览器只保存 `HttpOnly`、`SameSite=Lax`、生产环境 `Secure` 的 Session Cookie，不保存长期 JWT。登录成功旋转 Session ID；退出、密码修改和全部设备退出使对应服务端 Session 失效。写请求使用 Cookie CSRF Token 与同源校验。Redis 认证状态不可用时失败关闭，不回退到客户端身份、HTTP Header Actor 或无状态管理员。
 
@@ -2639,9 +2649,31 @@ M7 使用 Spring Security 与 Spring Session Data Redis 建立服务端会话。
 
 密码哈希在独立有界执行器运行，2C2G Profile 使用 2 个公平 Permit，8C16G Profile 使用 4 个；Permit 最多等待 100 ms，溢出请求不启动 Hash 并返回 lookup-independent 的 `429 too_many_requests`。登录使用规范标识 HMAC 摘要的 10 次/15 分钟窗口和受控网络 HMAC 摘要的 60 次/5 分钟窗口；已知账号在 15 分钟内 10 次失败后锁定 15 分钟。未知、锁定、禁用和 Credential 损坏账号执行当前参数 Dummy Hash，与错误密码统一返回 `401 invalid_credentials`。Redis 限流状态不可用时失败关闭；原始标识、网络地址、密码和 Hash 不进入 Key、日志、指标或公开响应。实测参数、并发边界和重新评估条件见 [ADR-025](adr/ADR-025-本地密码与登录防护参数.md) 与 [M7-S03 验证记录](spikes/M7-S03-密码与登录防护验证记录.md)。
 
+M7-D03 将上述冻结值落为 `PasswordPolicy` 与 `LoginAttemptPolicy`。注册/改密使用 12–128 code point、512 UTF-8 byte 双预算与本地常见密码拒绝集；登录只限制最大预算，使历史短密码仍执行一次真实或 Dummy Match。两条路径都不 trim、不改大小写、不做 Unicode 规范化；密码值不被预算结果、登录状态或公开失败对象保留。
+
+`AccountLoginAttemptState` 表达已知 Account 的有界滑动失败窗口和临时锁定，只允许时间单调前进，第 10 次失败建立 15 分钟锁定，边界时刻到期清窗口，成功认证只清 Account 失败而不清限流资源窗口。该临时状态在 M7-I04 由 Redis 原子实现，不反复切换持久 `UserAccount.status`；持久 `LOCKED/DISABLED/ARCHIVED`、临时锁定、未知账号、Identity/Credential 不可用和密码错误全部折叠为完全相同的 `invalid_credentials`；标识/网络限流与 Hash 容量溢出折叠为带固定 Retry-After 的 `too_many_requests`。实现与验证见 [M7-D03 注册与登录防护领域契约](testing/M7-D03-注册与登录防护领域契约.md)。
+
 本地注册支持 `OPEN`、`INVITE_ONLY` 和 `DISABLED`。M7 的 `OPEN` 面向单 Organization 自托管实例，不承诺公共多租户 SaaS 隔离。注册只接受用户名、邮箱、展示名、密码和可选邀请 Token，不接受 Organization、Principal、Team、Role 或权限。无邀请注册原子创建 Account、Local Identity、Credential、Organization Binding 和 USER Principal；没有 ACTIVE Team 的用户进入 Onboarding，显式创建第一个 Team。带邀请注册在同一事务锁定并消费一次性 Token、创建 Membership，成功后直接进入已邀请 Team。Team 创建继续复用 M1 事务，原子建立 Owner Membership、默认 Workspace、内置 Role Grant 和默认 Personal Agent。
 
 Team Invitation 保存邀请 Team、邀请人、可选目标邮箱、目标内置角色、过期时间、状态和 Token Digest。明文 Token 只在创建成功时返回一次；Preview 只公开 Team 名称、邀请人展示名、过期状态和登录要求。Accept 在同一事务锁定邀请并复验 Account、Organization Binding、Team、Token Digest、版本和有效期，再复用成员加入服务。重复接受收敛为既有 Membership，重放、撤销、过期、邮箱不匹配和跨 Scope 使用失败关闭。M7 只提供复制式邀请链接，不发送邮件。
+
+M7-D05 将邀请落为 `TeamInvitation` 聚合。`PENDING / version=0` 只能单步转为 `ACCEPTED / REVOKED / EXPIRED / version=1`，三个终态不可逆；重建时同样拒绝状态与版本不一致的持久化形状。接受和撤销只允许发生在过期时刻之前，精确过期边界只允许进入 EXPIRED。邀请目标角色使用产品内置角色枚举并排除 TEAM_OWNER，所有权继续通过 Team Transfer Ownership 流程变更。可选目标邮箱使用与 Account 相同的 `NormalizedEmail` 比较；接受结果固化稳定 `UserAccountId` 与 `TeamMemberId`。
+
+`InvitationTokenDigest` 只接受 32-byte Digest 或 64 位小写十六进制编码，字符串表示固定脱敏，并使用常量时间比较已派生摘要。领域层不接收或生成明文 Token；CSPRNG Token、SHA-256/HMAC 派生和一次性返回由 M7-I06 基础设施边界完成。Token Digest 唯一冲突统一为不含 Digest、邮箱和身份坐标的 `team_invitation_conflict`。
+
+`TeamInvitationAcceptanceService` 生成需要在同一事务提交的 Invitation、Membership 与目标角色计划。没有 Membership 时创建 `INVITATION` 来源的 ACTIVE TeamMember；ACTIVE Membership 原位复用；INVITED、LEFT、REMOVED 使用原 TeamMember ID 恢复；SUSPENDED 必须经过管理员重新启用，邀请 Token 不能绕过。接受同时验证 Account ACTIVE、Binding ACTIVE 且解析到当前 ACTIVE USER Principal、Team ACTIVE、Membership ACTIVE/同 Team/同 Principal、目标邮箱、Digest 与有效期。Invitation 乐观版本保证并发接受只有一个终态提交。实现与验证见 [M7-D05 TeamInvitation 领域契约](testing/M7-D05-TeamInvitation领域契约.md)。
+
+M7-D06 冻结 10 个 V1 安全事件：账号注册、认证成功、认证失败聚合、临时锁定、退出、资料修改、密码修改以及邀请创建、接受、撤销。账号载荷只保存注册来源、平台角色、Provider Key、固定失败分类、聚合计数、策略时长、变更布尔值和单调版本；邀请载荷只保存目标角色、是否定向、有效期、稳定接受 ID 与 Membership 处理结果。事件不保存用户名、邮箱值、展示名、密码、Hash、Session ID、Cookie、CSRF、邀请 Token/Digest、原始网络地址或原始认证错误。
+
+上述 10 个事件全部进入 `CrewScopeAuditEventTypes` 的精确 `EventType + SchemaVersion` 注册表，保留级别统一为 EXTENDED。认证失败固定为 FAILED，临时锁定固定为 DENIED，其余成功事实固定为 SUCCEEDED；Audit Summary 只投影低基数枚举、布尔值、计数和版本，不投影 Account/Member ID、邀请有效期或任何提交值。未知 Payload 字段、未来 SchemaVersion、邮箱/电话/URL/Secret 形态值继续失败关闭。实现与验证见 [M7-D06 认证与邀请安全事件契约](testing/M7-D06-认证与邀请安全事件契约.md)。
+
+M7-D07 通过 `V31__local_user_account_and_identity.sql` 建立部署级 `user_account`、`login_identity`、`local_credential` 与 `account_organization_binding`。Account 保存用户名/邮箱的显示值与规范唯一键，规范键由 `Username / NormalizedEmail` 和 Repository Adapter 使用同一套 Unicode NFKC、Locale ROOT 大小写折叠与 IDNA 规则从显示值派生并原子写入；PostgreSQL 校验非空、长度、小写形状和唯一性，不使用语义不同的数据库 Locale 重算规范键。PlatformRole 闭合为 `USER / OPERATOR`，SecurityVersion 从 1 起且每次最多推进一版，业务版本从 0 起逐次推进；Identity 使用 `(provider, subject)` 全局唯一和 `(account_id, provider)` 每账号唯一，本地 Subject 必须精确等于 Account UUID。Local Credential 只接受 `{argon2id}` 与历史 `{bcrypt}` 有界 ASCII Hash，Credential Version 从 1 起并与业务版本同步单步轮换；`local_credential_metadata` 视图排除 Hash，底表与视图撤销 PUBLIC 权限，通用账号/审计 Reader 只授权该视图，认证 Adapter 才拥有底表敏感列权限。
+
+Binding 通过 `(account_id, organization_id)` 与 `(organization_id, principal_id)` 双唯一键关闭歧义，并用 Organization/Principal 复合外键阻断跨租户引用。约束触发器进一步要求目标为 Organization Scope USER Principal，并在存在 Binding 后禁止改变 Principal 身份形状。四类事实均使用 `created_at / updated_at / version` 审计边界和状态终态代替通用逻辑删除；账号可先于 Principal 注册，因此不虚构创建人字段。更新触发器保护不可变坐标、闭合状态、时间单调和强版本，删除被拒绝。实现与验证见 [M7-D07 本地账号与身份迁移](testing/M7-D07-本地账号与身份迁移.md)。
+
+M7-D08 通过 `V32__team_invitation.sql` 建立 `team_invitation`。邀请保存完整 Organization/Team Scope、Organization USER 邀请人、可选规范目标邮箱、非 Owner 内置角色、64 位小写 Token Digest、有效期、一次性状态、接受 Account/TeamMember 和强版本；Team、邀请人、接受 Member 使用复合外键阻断跨 Scope 引用。接受触发器在同一事务中使用状态互斥行锁，复核 ACTIVE Account、可选目标邮箱、ACTIVE Binding、ACTIVE Organization USER Principal、ACTIVE Team 与目标 Team ACTIVE Membership 的完整链路，并与并发停用和归档互斥。新邀请只能以 `PENDING / version=0` 建立，随后只允许单步关闭为 `ACCEPTED / REVOKED / EXPIRED / version=1`，终态不可修改或删除；接受和撤销必须早于有效期，过期终态必须位于有效期边界或之后。
+
+Token 明文没有数据库字段；Digest 全局唯一并由 64 位小写十六进制约束裁决。`team_invitation_metadata` 排除 Digest，底表和元数据视图撤销 PUBLIC 权限，通用管理/Preview/Audit Reader 只授权元数据视图。Team 列表、待过期扫描与定向邀请分别使用独立索引；历史安全 DomainEvent/AuditEvent 继续作为只追加事实独立保存，V32 不回写事件载荷。实现与验证见 [M7-D08 TeamInvitation 迁移](testing/M7-D08-TeamInvitation迁移.md)。
 
 V30 升级使用 `bootstrap/crewscope-monitor` ExternalIdentity 收敛既有 USER Principal，保留其 Principal ID、TeamMember 和 Audit 历史，并建立 OPERATOR Account/Binding。旧 `bootstrap_password` 只用于创建或轮换人类 Operator Credential。Prometheus 使用独立机器账号与 `monitoring_password`，只能访问精确的 Actuator 抓取路径，不创建 UserAccount、TeamMember 或业务 Session。普通 Web 业务入口不返回 HTTP Basic Challenge。企业 OIDC/LDAP/SCIM、邮件验证、忘记密码邮件、MFA、Passkey 和多 Organization 登录选择进入后续里程碑。未来 OIDC 只新增 LoginIdentity 与认证 Adapter，不改变 Principal、TeamMember、Conversation、Task 或 Provider 授权模型。
 
@@ -3017,7 +3049,7 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `connection_grant` | OAuth Scope、资源范围、用途、有效期和撤销状态 |
 | `team_invitation` | Team、邀请人、可选目标邮箱、目标角色、Token Digest、有效期、状态和接受账号 |
 
-V31 建立本地账号与身份数据。用户名和邮箱分别保存显示值与规范值，规范唯一索引裁决并发注册；PlatformRole 只允许 `USER / OPERATOR`，自助注册不接受该字段；LoginIdentity 的 Provider/Subject 全局唯一，AccountOrganizationBinding 的 Organization/Account 与 Organization/Principal 双唯一关闭身份歧义。Credential Hash 只允许认证 Adapter 读取，通用账号查询和审计 Adapter 不映射该列。V32 建立 TeamInvitation，Token 明文不落库，Token Digest、Team Scope、目标角色、有效期、接受账号和强版本共同裁决一次性接受。
+V31 已建立本地账号与身份数据。用户名和邮箱分别保存显示值与规范值，规范唯一索引裁决并发注册；PlatformRole 只允许 `USER / OPERATOR`，自助注册不接受该字段；LoginIdentity 的 Provider/Subject 全局唯一，AccountOrganizationBinding 的 Organization/Account 与 Organization/Principal 双唯一关闭身份歧义。Credential Hash 只允许认证 Adapter 读取，通用账号查询和审计 Adapter 通过不含 Hash 的元数据视图读取。V32 建立 TeamInvitation，Token 明文不落库，Token Digest、Team Scope、目标角色、有效期、接受账号和强版本共同裁决一次性接受。
 
 V7 为 Conversation、Participant、Message、TaskIntent、ConversationWorkItemLink、AgentRuntimeSession、ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 建立真实数据表。V8 增加 Conversation Event 耐久流。V9 为既有完整 ACTIVE Team 注册 NativeWorkItem Definition/Implementation，并向默认 ACTIVE Team Workspace 补齐唯一默认 connectionless Binding；迁移遇到稳定 Key 或稳定 ID 与产品契约冲突时失败关闭。所有 Team 业务关系使用 Organization、Team、Workspace 复合外键；Provider 授权关系使用 Organization、Owner、Definition、Implementation、Connection 和 Grant 复合外键。消息序号、客户端消息键、active Participant、active AgentRuntimeSession、确认 WorkItem 和 active 默认 Binding 由唯一约束完成并发裁决。
 
