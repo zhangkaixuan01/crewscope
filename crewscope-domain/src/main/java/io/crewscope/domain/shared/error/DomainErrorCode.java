@@ -9,6 +9,12 @@ public enum DomainErrorCode {
   AGGREGATE_NOT_FOUND("aggregate_not_found", DomainErrorCategory.NOT_FOUND),
   OPTIMISTIC_LOCK_CONFLICT("optimistic_lock_conflict", DomainErrorCategory.CONFLICT),
   IDENTITY_MAPPING_CONFLICT("identity_mapping_conflict", DomainErrorCategory.CONFLICT),
+  ACCOUNT_IDENTIFIER_CONFLICT("account_identifier_conflict", DomainErrorCategory.CONFLICT),
+  LOGIN_IDENTITY_CONFLICT("login_identity_conflict", DomainErrorCategory.CONFLICT),
+  LOCAL_CREDENTIAL_CONFLICT("local_credential_conflict", DomainErrorCategory.CONFLICT),
+  ACCOUNT_ORGANIZATION_BINDING_CONFLICT(
+      "account_organization_binding_conflict", DomainErrorCategory.CONFLICT),
+  TEAM_INVITATION_CONFLICT("team_invitation_conflict", DomainErrorCategory.CONFLICT),
   RESPONSIBILITY_CONFLICT("responsibility_conflict", DomainErrorCategory.CONFLICT),
   REPOSITORY_BINDING_KEY_CONFLICT(
       "repository_binding_key_conflict", DomainErrorCategory.CONFLICT),
