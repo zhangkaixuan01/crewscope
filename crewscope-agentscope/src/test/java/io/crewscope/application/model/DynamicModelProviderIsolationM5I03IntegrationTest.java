@@ -67,7 +67,9 @@ class DynamicModelProviderIsolationM5I03IntegrationTest {
     @Test
     void concurrentDeepSeekAndOpenAiCallsNeverCrossEndpointCredentialModelOrFormatter() throws Exception {
         try (ProviderStub deepSeek = ProviderStub.start(); ProviderStub openAi = ProviderStub.start()) {
-            Duration timeout = Duration.ofSeconds(5);
+            // This test verifies provider isolation, not a latency threshold. Keep enough headroom for
+            // loaded CI runners while retaining a bounded model request and caller wait.
+            Duration timeout = Duration.ofSeconds(15);
             Duration firstBackoff = Duration.ofMillis(1);
             Duration maximumBackoff = Duration.ofMillis(2);
             AgentScopeModelFactory factory = new AgentScopeModelFactory(
@@ -103,14 +105,20 @@ class DynamicModelProviderIsolationM5I03IntegrationTest {
                     openAiRequest, handle(openAiRequest, "openai-key"));
 
             CompletableFuture<?>[] calls = new CompletableFuture<?>[4];
-            for (int index = 0; index < calls.length; index++) {
-                Model selected = index % 2 == 0 ? deepSeekModel : openAiModel;
-                calls[index] = CompletableFuture.runAsync(() -> selected
-                        .stream(List.of(new UserMessage("isolation probe")), List.of(), null)
-                        .collectList()
-                        .block(Duration.ofSeconds(20)));
+            // Blocking model calls must not compete for the JVM common pool on small CI runners.
+            ExecutorService callers = Executors.newFixedThreadPool(calls.length);
+            try {
+                for (int index = 0; index < calls.length; index++) {
+                    Model selected = index % 2 == 0 ? deepSeekModel : openAiModel;
+                    calls[index] = CompletableFuture.runAsync(() -> selected
+                            .stream(List.of(new UserMessage("isolation probe")), List.of(), null)
+                            .collectList()
+                            .block(Duration.ofSeconds(30)), callers);
+                }
+                CompletableFuture.allOf(calls).join();
+            } finally {
+                callers.shutdownNow();
             }
-            CompletableFuture.allOf(calls).join();
 
             assertEquals(2, deepSeek.requests.size());
             assertEquals(2, openAi.requests.size());
