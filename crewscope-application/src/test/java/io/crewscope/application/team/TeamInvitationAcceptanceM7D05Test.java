@@ -29,6 +29,7 @@ import io.crewscope.domain.team.Team;
 import io.crewscope.domain.team.TeamInvitation;
 import io.crewscope.domain.team.TeamInvitationConflictException;
 import io.crewscope.domain.team.TeamInvitationId;
+import io.crewscope.domain.team.TeamInvitationStatus;
 import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamMemberStatus;
@@ -289,9 +290,15 @@ class TeamInvitationAcceptanceM7D05Test {
         assertThrows(
                 TeamInvitationConflictException.class,
                 () -> repository.create(second.invitation));
-        assertEquals(1, repository.findByTeam(
-                        first.organizationId, first.team.id())
-                .size());
+        assertEquals(
+                1,
+                repository.findByTeam(
+                                first.organizationId,
+                                first.team.id(),
+                                Optional.empty(),
+                                10)
+                        .invitations()
+                        .size());
     }
 
     private final class Fixture {
@@ -363,8 +370,11 @@ class TeamInvitationAcceptanceM7D05Test {
         }
 
         @Override
-        public synchronized List<TeamInvitation> findByTeam(
-                OrganizationId organizationId, TeamId teamId) {
+        public synchronized TeamInvitationPage findByTeam(
+                OrganizationId organizationId,
+                TeamId teamId,
+                Optional<TeamInvitationCursor> cursor,
+                int limit) {
             List<TeamInvitation> result = new ArrayList<>();
             for (TeamInvitation invitation : invitations.values()) {
                 if (invitation.scope().organizationId().equals(organizationId)
@@ -372,7 +382,17 @@ class TeamInvitationAcceptanceM7D05Test {
                     result.add(invitation);
                 }
             }
-            return List.copyOf(result);
+            return new TeamInvitationPage(List.copyOf(result), Optional.empty());
+        }
+
+        @Override
+        public synchronized List<TeamInvitation> lockExpiredBatch(
+                UtcTimestamp now, int limit) {
+            return invitations.values().stream()
+                    .filter(invitation -> !invitation.isPendingAt(now))
+                    .filter(invitation -> invitation.status() == TeamInvitationStatus.PENDING)
+                    .limit(limit)
+                    .toList();
         }
 
         @Override

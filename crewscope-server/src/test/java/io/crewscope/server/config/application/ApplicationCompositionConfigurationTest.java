@@ -28,7 +28,12 @@ import io.crewscope.application.execution.PersonalAgentInvocationService;
 import io.crewscope.application.execution.AgentStatePreflight;
 import io.crewscope.application.execution.ConversationExecutionEventMapper;
 import io.crewscope.application.execution.RealtimeDomainEventProjector;
+import io.crewscope.application.identity.AccountOrganizationBindingRepository;
+import io.crewscope.application.identity.AccountOrganizationPrincipalResolver;
+import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
+import io.crewscope.application.identity.CurrentAccountSnapshotReader;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.identity.LoginIdentityRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.provider.BuiltInProviderInitializationService;
@@ -102,6 +107,13 @@ class ApplicationCompositionConfigurationTest {
               AgentScopeApplicationConfiguration.class,
               WorkItemApplicationConfiguration.class)
           .withBean(PrincipalRepository.class, () -> mock(PrincipalRepository.class))
+          .withBean(
+              AccountOrganizationBindingRepository.class,
+              () -> mock(AccountOrganizationBindingRepository.class))
+          .withBean(LoginIdentityRepository.class, () -> mock(LoginIdentityRepository.class))
+          .withBean(
+              CurrentAccountSnapshotReader.class,
+              () -> mock(CurrentAccountSnapshotReader.class))
           .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
           .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
           .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
@@ -171,6 +183,8 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasNotFailed();
           assertThat(context).hasSingleBean(TimeProvider.class);
           assertThat(context).hasSingleBean(IdentityMappingService.class);
+          assertThat(context).hasSingleBean(AccountOrganizationPrincipalResolver.class);
+          assertThat(context).hasSingleBean(AuthenticatedAccountOrganizationResolver.class);
           assertThat(context).hasSingleBean(ProviderBindingResolver.class);
           assertThat(context).hasSingleBean(NativeWorkItemProvider.class);
           assertThat(context).hasSingleBean(BuiltInProviderRegistration.class);

@@ -29,6 +29,7 @@ management:
 
 crewscope:
   deployment:
+    transport: ${CREWSCOPE_DEPLOYMENT_TRANSPORT}
     config-source: ${CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE}
     secret-source: ${CREWSCOPE_DEPLOYMENT_SECRET_SOURCE}
     bootstrap:

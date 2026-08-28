@@ -21,12 +21,25 @@ public class TeamBetaObservabilityConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    AuthenticationMetricPolicy authenticationMetricPolicy() {
+        return new AuthenticationMetricPolicy();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     TelemetryDegradationState telemetryDegradationState() {
         return new TelemetryDegradationState();
     }
 
     @Bean
     MeterRegistryCustomizer<MeterRegistry> m6MetricBudgetCustomizer(TeamBetaMetricPolicy policy) {
+        MeterFilter filter = policy.meterFilter();
+        return registry -> registry.config().meterFilter(filter);
+    }
+
+    @Bean
+    MeterRegistryCustomizer<MeterRegistry> authenticationMetricBudgetCustomizer(
+            AuthenticationMetricPolicy policy) {
         MeterFilter filter = policy.meterFilter();
         return registry -> registry.config().meterFilter(filter);
     }

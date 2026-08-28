@@ -1,8 +1,9 @@
 package io.crewscope.server.config;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -12,20 +13,45 @@ import org.springframework.security.oauth2.client.registration.ReactiveClientReg
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.oidc.IdTokenClaimNames;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.WebFilterChainProxy;
+import org.springframework.security.web.server.context.WebSessionServerSecurityContextRepository;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 class SecurityConfigurationTest {
 
   @Test
   void buildsTheBootstrapProfile() {
     try (var context = context("bootstrap", false)) {
-      assertNotNull(context.getBean(SecurityWebFilterChain.class));
+      assertThat(context.getBeansOfType(SecurityWebFilterChain.class)).hasSize(2);
+    }
+  }
+
+  @Test
+  void bootstrapProfileDoesNotChallengeOrdinaryUnauthenticatedWebRequests() {
+    try (var context = context("bootstrap", false)) {
+      var chains = context.getBeansOfType(SecurityWebFilterChain.class).values();
+      var response =
+          WebTestClient.bindToController(new ProtectedProbeController())
+              .webFilter(new WebFilterChainProxy(List.copyOf(chains)))
+              .build()
+              .get()
+              .uri("/protected-probe")
+              .exchange()
+              .expectStatus()
+              .isUnauthorized()
+              .expectBody()
+              .returnResult();
+
+      assertThat(response.getResponseHeaders().getFirst("WWW-Authenticate")).isNull();
     }
   }
 
   @Test
   void buildsTheOidcProfileWhenAClientRegistrationExists() {
     try (var context = context("oidc", true)) {
-      assertNotNull(context.getBean(SecurityWebFilterChain.class));
+      assertThat(context.getBeansOfType(SecurityWebFilterChain.class)).hasSize(2);
     }
   }
 
@@ -56,6 +82,8 @@ class SecurityConfigurationTest {
             "crewscope.security.mode=" + mode,
             "crewscope.security.bootstrap.username=crewscope",
             "crewscope.security.bootstrap.password=test-password",
+            "crewscope.security.monitoring.username=crewscope-prometheus",
+            "crewscope.security.monitoring.password=monitoring-password",
             "crewscope.security.oidc.organization-id="
                 + (mode.equals("oidc") && bindOidcOrganization
                     ? "d3ff4c9c-7a93-4fc7-91ac-4e3f328acdea"
@@ -65,6 +93,9 @@ class SecurityConfigurationTest {
       context.registerBean(
           ReactiveClientRegistrationRepository.class,
           () -> new InMemoryReactiveClientRegistrationRepository(clientRegistration()));
+      context.registerBean(
+          WebSessionServerSecurityContextRepository.class,
+          WebSessionServerSecurityContextRepository::new);
     }
     context.register(SecurityConfiguration.class);
     context.refresh();
@@ -85,5 +116,14 @@ class SecurityConfigurationTest {
         .userNameAttributeName(IdTokenClaimNames.SUB)
         .clientName("Company")
         .build();
+  }
+
+  @RestController
+  private static class ProtectedProbeController {
+
+    @GetMapping("/protected-probe")
+    String probe() {
+      return "protected";
+    }
   }
 }

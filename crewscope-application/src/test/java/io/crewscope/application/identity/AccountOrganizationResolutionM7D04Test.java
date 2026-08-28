@@ -355,6 +355,12 @@ class AccountOrganizationResolutionM7D04Test {
         }
 
         @Override
+        public synchronized Optional<AccountOrganizationBinding>
+                findByAccountOrganizationKeyForUpdate(AccountOrganizationKey key) {
+            return findByAccountOrganizationKey(key);
+        }
+
+        @Override
         public synchronized Optional<AccountOrganizationBinding> findByOrganizationPrincipalKey(
                 OrganizationPrincipalKey key) {
             return Optional.ofNullable(byPrincipal.get(key)).map(byId::get);

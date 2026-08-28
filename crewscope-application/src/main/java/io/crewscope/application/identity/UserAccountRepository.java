@@ -13,6 +13,9 @@ public interface UserAccountRepository {
 
     Optional<UserAccount> findById(UserAccountId accountId);
 
+    /** Locks one account until the caller's outer transaction completes. */
+    Optional<UserAccount> findByIdForUpdate(UserAccountId accountId);
+
     /** Internal authentication lookup; callers must not expose hit/miss distinctions. */
     Optional<UserAccount> findByUsername(Username username);
 

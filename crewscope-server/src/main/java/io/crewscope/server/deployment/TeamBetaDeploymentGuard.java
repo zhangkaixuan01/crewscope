@@ -1,7 +1,11 @@
 package io.crewscope.server.deployment;
 
+import io.crewscope.domain.identity.RegistrationMode;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -37,12 +41,37 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireExact(environment, "crewscope.runtime.redis.ownership-scope", role);
         requireExact(environment, "crewscope.deployment.config-source", "external");
         requireExact(environment, "crewscope.deployment.secret-source", "external-file");
+        String transport = required(environment, "crewscope.deployment.transport")
+                .toLowerCase(Locale.ROOT);
+        if (!List.of("https", "local").contains(transport)) {
+            throw invalid("crewscope.deployment.transport must be https or local");
+        }
+        requireExact(
+                environment,
+                "crewscope.security.login-defense.environment",
+                transport.equals("local") ? "demo" : "team-beta");
         if (!required(environment, "spring.config.import").contains("configtree:")) {
             throw invalid("spring.config.import must load an external configtree Secret directory");
         }
 
         requireSecret(environment, "spring.datasource.password", 16, "crewscope");
-        requireSecret(environment, "crewscope.security.bootstrap.password", 16, "crewscope");
+        String bootstrapUsername = required(environment, "crewscope.security.bootstrap.username");
+        String bootstrapPassword =
+                requireSecret(environment, "crewscope.security.bootstrap.password", 16, "crewscope");
+        String monitoringUsername = required(environment, "crewscope.security.monitoring.username");
+        String monitoringPassword = requireSecret(
+                environment,
+                "crewscope.security.monitoring.password",
+                24,
+                "crewscope-monitoring");
+        requireDifferent(
+                bootstrapUsername,
+                monitoringUsername,
+                "Operator and monitoring usernames must differ");
+        requireDifferent(
+                bootstrapPassword,
+                monitoringPassword,
+                "Operator and monitoring passwords must differ");
         requireSecret(environment, "crewscope.credential.encryption.keys", 40, "");
         requireSecret(environment, "crewscope.team-activity-realtime.keys.v1", 40, "");
         requireSecret(environment, "crewscope.security.task-token.keys.v1", 40, "");
@@ -59,6 +88,10 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireBoolean(environment, "crewscope.security.task-token.enabled", true);
         requireBoolean(environment, "management.tracing.export.otlp.enabled", true);
         required(environment, "management.opentelemetry.tracing.export.otlp.endpoint");
+        requireExact(environment, "logging.structured.format.console", "logstash");
+        requireExact(environment, "management.endpoint.health.show-details", "never");
+        requireExposure(environment, "management.endpoints.web.exposure.include");
+        requireRegistrationMode(environment);
 
         boolean worker = role.equals("worker");
         requireBoolean(environment, "spring.flyway.enabled", !worker);
@@ -71,6 +104,20 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireBoolean(environment, "crewscope.notification.worker.redelivery-enabled", worker);
         requireBoolean(environment, "crewscope.projection.supervisor.enabled", worker);
         requireBoolean(environment, "crewscope.team-activity-realtime.enabled", !worker);
+        requireBoolean(environment, "crewscope.security.session.enabled", !worker);
+        requireBoolean(environment, "crewscope.security.login-defense.enabled", !worker);
+        requireBoolean(environment, "crewscope.invitation.token.enabled", !worker);
+        requireBoolean(environment, "crewscope.security.operator-bootstrap.enabled", !worker);
+        if (!worker) {
+            requireBase64Secret(environment, "crewscope.security.login-defense.hmac-key");
+            requireBase64Secret(environment, "crewscope.invitation.token.hmac-key");
+            required(environment, "crewscope.security.login-defense.trusted-proxies");
+            requireExact(
+                    environment,
+                    "crewscope.security.operator-bootstrap.username",
+                    bootstrapUsername);
+            requireCookiePolicy(environment, transport);
+        }
 
         requireAbsolutePath(environment, "crewscope.artifact.filesystem.root");
         requireAbsolutePath(environment, "crewscope.coding.repository.managed-root");
@@ -98,12 +145,63 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         }
     }
 
-    private static void requireSecret(
+    private static String requireSecret(
             Environment environment, String name, int minimumLength, String forbidden) {
         String value = required(environment, name);
         if (value.length() < minimumLength || (!forbidden.isEmpty() && forbidden.equals(value))) {
             throw invalid(name + " is missing or still uses a development value");
         }
+        return value;
+    }
+
+    private static void requireBase64Secret(Environment environment, String name) {
+        String encoded = required(environment, name);
+        try {
+            byte[] decoded = Base64.getDecoder().decode(encoded);
+            if (decoded.length < 32) {
+                throw invalid(name + " must decode to at least 32 bytes");
+            }
+        } catch (IllegalArgumentException failure) {
+            throw invalid(name + " must be valid Base64 for at least 32 bytes");
+        }
+    }
+
+    private static void requireDifferent(String left, String right, String message) {
+        if (MessageDigest.isEqual(
+                left.getBytes(StandardCharsets.UTF_8), right.getBytes(StandardCharsets.UTF_8))) {
+            throw invalid(message);
+        }
+    }
+
+    private static void requireRegistrationMode(Environment environment) {
+        String configured = required(environment, "crewscope.registration.mode");
+        try {
+            RegistrationMode.valueOf(configured.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+            throw invalid("crewscope.registration.mode must be OPEN, INVITE_ONLY or DISABLED");
+        }
+    }
+
+    private static void requireExposure(Environment environment, String name) {
+        List<String> exposed = java.util.Arrays.stream(
+                        required(environment, name).toLowerCase(Locale.ROOT).split(","))
+                .map(String::strip)
+                .toList();
+        if (!java.util.Set.copyOf(exposed).equals(
+                java.util.Set.of("health", "info", "prometheus"))) {
+            throw invalid(name + " must expose exactly health, info and prometheus");
+        }
+    }
+
+    private static void requireCookiePolicy(Environment environment, String transport) {
+        requireExact(environment, "server.reactive.session.cookie.name", "CREWSCOPE_SESSION");
+        requireExact(environment, "server.reactive.session.cookie.path", "/");
+        requireBoolean(environment, "server.reactive.session.cookie.http-only", true);
+        requireExact(environment, "server.reactive.session.cookie.same-site", "lax");
+        requireBoolean(
+                environment,
+                "server.reactive.session.cookie.secure",
+                transport.equals("https"));
     }
 
     private static void requireAbsolutePath(Environment environment, String name) {

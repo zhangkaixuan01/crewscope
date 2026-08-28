@@ -16,6 +16,12 @@ class TeamBetaDeploymentGuardM6I09Test {
     void acceptsExactApiAndWorkerRoles() {
         assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(false)));
         assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(true)));
+
+        MockEnvironment localDemo = environment(false)
+                .withProperty("crewscope.deployment.transport", "local")
+                .withProperty("crewscope.security.login-defense.environment", "demo")
+                .withProperty("server.reactive.session.cookie.secure", "false");
+        assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(localDemo));
     }
 
     @Test
@@ -54,15 +60,79 @@ class TeamBetaDeploymentGuardM6I09Test {
         assertTrue(schedulerFailure.getMessage().contains("crewscope.outbox.enabled must be false"));
     }
 
+    @Test
+    void rejectsSharedMonitoringCredentialAndInsecureHttpsCookie() {
+        MockEnvironment sharedCredential = environment(false)
+                .withProperty(
+                        "crewscope.security.monitoring.password",
+                        "bootstrap-password-with-32-bytes");
+        IllegalStateException sharedFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(sharedCredential));
+        assertTrue(sharedFailure.getMessage().contains("passwords must differ"));
+
+        MockEnvironment insecureCookie = environment(false)
+                .withProperty("server.reactive.session.cookie.secure", "false");
+        IllegalStateException cookieFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(insecureCookie));
+        assertTrue(cookieFailure.getMessage().contains("cookie.secure must be true"));
+
+        MockEnvironment developmentNamespace = environment(false)
+                .withProperty("crewscope.security.login-defense.environment", "development");
+        IllegalStateException namespaceFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(developmentNamespace));
+        assertTrue(namespaceFailure.getMessage().contains("must be team-beta"));
+    }
+
+    @Test
+    void rejectsMissingAuthenticationDefenseAndUnknownRegistrationMode() {
+        MockEnvironment defenseDisabled = environment(false)
+                .withProperty("crewscope.security.login-defense.enabled", "false");
+        IllegalStateException defenseFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(defenseDisabled));
+        assertTrue(defenseFailure.getMessage().contains("login-defense.enabled must be true"));
+
+        MockEnvironment unknownRegistration = environment(false)
+                .withProperty("crewscope.registration.mode", "PUBLIC");
+        IllegalStateException registrationFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(unknownRegistration));
+        assertTrue(registrationFailure.getMessage().contains("OPEN, INVITE_ONLY or DISABLED"));
+
+        MockEnvironment invalidHmac = environment(false)
+                .withProperty("crewscope.security.login-defense.hmac-key", "not-base64");
+        IllegalStateException hmacFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(invalidHmac));
+        assertTrue(hmacFailure.getMessage().contains("valid Base64"));
+
+        MockEnvironment extraActuator = environment(false)
+                .withProperty(
+                        "management.endpoints.web.exposure.include",
+                        "health, info, prometheus, env");
+        IllegalStateException actuatorFailure = assertThrows(
+                IllegalStateException.class,
+                () -> TeamBetaDeploymentGuard.validate(extraActuator));
+        assertTrue(actuatorFailure.getMessage().contains("expose exactly"));
+    }
+
     private static MockEnvironment environment(boolean worker) {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("crewscope.runtime.execution-profile", worker ? "worker" : "server");
         properties.put("crewscope.runtime.redis.ownership-scope", worker ? "worker" : "server");
         properties.put("crewscope.deployment.config-source", "external");
         properties.put("crewscope.deployment.secret-source", "external-file");
+        properties.put("crewscope.deployment.transport", "https");
         properties.put("spring.config.import", "configtree:/run/secrets/");
         properties.put("spring.datasource.password", "database-password-with-32-bytes");
         properties.put("crewscope.security.bootstrap.password", "bootstrap-password-with-32-bytes");
+        properties.put("crewscope.security.bootstrap.username", "crewscope-monitor");
+        properties.put("crewscope.security.monitoring.username", "crewscope-prometheus");
+        properties.put(
+                "crewscope.security.monitoring.password", "monitoring-password-with-32-bytes");
         properties.put(
                 "crewscope.credential.encryption.keys",
                 "v1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
@@ -79,6 +149,27 @@ class TeamBetaDeploymentGuardM6I09Test {
                 "crewscope.runtime.redis.url",
                 "redis://default:strong-password@redis:6379");
         properties.put("crewscope.security.task-token.enabled", "true");
+        properties.put("crewscope.security.session.enabled", Boolean.toString(!worker));
+        properties.put("crewscope.security.login-defense.enabled", Boolean.toString(!worker));
+        properties.put("crewscope.security.login-defense.environment", "team-beta");
+        properties.put("crewscope.security.login-defense.hmac-key", base64Secret());
+        properties.put("crewscope.security.login-defense.trusted-proxies", "172.30.0.0/24");
+        properties.put("crewscope.invitation.token.enabled", Boolean.toString(!worker));
+        properties.put("crewscope.invitation.token.hmac-key", base64Secret());
+        properties.put(
+                "crewscope.security.operator-bootstrap.enabled", Boolean.toString(!worker));
+        properties.put(
+                "crewscope.security.operator-bootstrap.username", "crewscope-monitor");
+        properties.put("crewscope.registration.mode", "INVITE_ONLY");
+        properties.put("server.reactive.session.cookie.name", "CREWSCOPE_SESSION");
+        properties.put("server.reactive.session.cookie.path", "/");
+        properties.put("server.reactive.session.cookie.http-only", "true");
+        properties.put("server.reactive.session.cookie.same-site", "lax");
+        properties.put("server.reactive.session.cookie.secure", "true");
+        properties.put("logging.structured.format.console", "logstash");
+        properties.put("management.endpoint.health.show-details", "never");
+        properties.put(
+                "management.endpoints.web.exposure.include", "health,info,prometheus");
         properties.put("management.tracing.export.otlp.enabled", "true");
         properties.put(
                 "management.opentelemetry.tracing.export.otlp.endpoint",
@@ -119,5 +210,9 @@ class TeamBetaDeploymentGuardM6I09Test {
         MockEnvironment environment = new MockEnvironment();
         properties.forEach(environment::withProperty);
         return environment;
+    }
+
+    private static String base64Secret() {
+        return "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
     }
 }

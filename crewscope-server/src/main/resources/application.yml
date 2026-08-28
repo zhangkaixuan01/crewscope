@@ -1,4 +1,9 @@
 spring:
+  autoconfigure:
+    # CrewScope owns conditional Redis browser-session assembly; Boot's unconditional starter
+    # auto-configuration would otherwise attach Session state to bootstrap and worker processes.
+    exclude:
+      - org.springframework.boot.session.data.redis.autoconfigure.SessionDataRedisAutoConfiguration
   application:
     name: crewscope-server
   codec:
@@ -27,6 +32,17 @@ spring:
   reactor:
     # Restore the request logging context across asynchronous Reactor operators.
     context-propagation: auto
+  data:
+    redis:
+      # Browser Session and Agent state share the deployment Redis service but use disjoint keys.
+      url: ${CREWSCOPE_REDIS_URL:redis://localhost:6379}
+  session:
+    timeout: ${crewscope.security.session.ttl}
+    data:
+      redis:
+        namespace: ${crewscope.security.session.namespace}
+        repository-type: indexed
+        save-mode: on-set-attribute
 
 # AgentScope provider starters create the Spring Model used by CrewScope's stable
 # `crewscope-primary` slot. Keep the provider empty for API-only development.
@@ -44,6 +60,16 @@ agentscope:
 server:
   port: ${CREWSCOPE_SERVER_PORT:8080}
   shutdown: graceful
+  reactive:
+    session:
+      timeout: ${crewscope.security.session.ttl}
+      cookie:
+        name: CREWSCOPE_SESSION
+        http-only: true
+        path: /
+        same-site: lax
+        # M7-I08 forces this to true for every HTTPS production deployment.
+        secure: ${CREWSCOPE_SESSION_COOKIE_SECURE:false}
 
 management:
   endpoints:
@@ -330,9 +356,34 @@ crewscope:
   security:
     # bootstrap uses operator Basic auth; oidc enables OAuth2 Login and browser-session CSRF.
     mode: ${CREWSCOPE_SECURITY_MODE:bootstrap}
+    password:
+      # ADR-025 selects 2 permits for 2C2G and 4 permits for 8C16G deployments.
+      hash-permits: ${CREWSCOPE_PASSWORD_HASH_PERMITS:2}
+    login-defense:
+      # Team Beta enables this only in the API after external HMAC and trusted proxies are installed.
+      enabled: ${CREWSCOPE_LOGIN_DEFENSE_ENABLED:false}
+      environment: ${CREWSCOPE_LOGIN_DEFENSE_ENVIRONMENT:${CREWSCOPE_ENVIRONMENT:development}}
+      hmac-key-id: ${CREWSCOPE_LOGIN_DEFENSE_HMAC_KEY_ID:v1}
+      hmac-key: ${CREWSCOPE_LOGIN_DEFENSE_HMAC_KEY:}
+      trusted-proxies: ${CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES:}
+    session:
+      enabled: ${CREWSCOPE_BROWSER_SESSION_ENABLED:false}
+      ttl: ${CREWSCOPE_SESSION_TTL:12h}
+      maximum-sessions: ${CREWSCOPE_MAXIMUM_SESSIONS:5}
+      namespace: ${CREWSCOPE_SESSION_NAMESPACE:crewscope:session}
     bootstrap:
       username: ${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope}
       password: ${CREWSCOPE_BOOTSTRAP_PASSWORD:crewscope}
+    monitoring:
+      username: ${CREWSCOPE_MONITORING_USERNAME:crewscope-prometheus}
+      password: ${CREWSCOPE_MONITORING_PASSWORD:crewscope-monitoring}
+    operator-bootstrap:
+      # Enable only in the migration-owning API process after the Bootstrap Organization exists.
+      enabled: ${CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED:false}
+      organization-id: ${CREWSCOPE_OPERATOR_BOOTSTRAP_ORGANIZATION_ID:}
+      username: ${CREWSCOPE_OPERATOR_BOOTSTRAP_USERNAME:${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope-monitor}}
+      email: ${CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL:crewscope-monitor@crewscope.local}
+      display-name: ${CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME:CrewScope Operator}
     oidc:
       # One OIDC deployment registration is bound to one Organization tenant boundary.
       organization-id: ${CREWSCOPE_OIDC_ORGANIZATION_ID:}
@@ -343,6 +394,13 @@ crewscope:
       current-key-id: ${CREWSCOPE_TASK_TOKEN_CURRENT_KEY_ID:v1}
       keys:
         v1: ${CREWSCOPE_TASK_TOKEN_KEY_V1:}
+  invitation:
+    token:
+      # M7-A05 enables invitation APIs only with an external 256-bit Base64 HMAC key.
+      enabled: ${CREWSCOPE_INVITATION_TOKEN_ENABLED:false}
+      hmac-key: ${CREWSCOPE_INVITATION_TOKEN_HMAC_KEY:}
+  registration:
+    mode: ${CREWSCOPE_REGISTRATION_MODE:OPEN}
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}

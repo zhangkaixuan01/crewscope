@@ -18,6 +18,10 @@ public interface AccountOrganizationBindingRepository {
     Optional<AccountOrganizationBinding> findByAccountOrganizationKey(
             AccountOrganizationKey key);
 
+    /** Locks the authorization bridge until the caller's outer transaction completes. */
+    Optional<AccountOrganizationBinding> findByAccountOrganizationKeyForUpdate(
+            AccountOrganizationKey key);
+
     Optional<AccountOrganizationBinding> findByOrganizationPrincipalKey(
             OrganizationPrincipalKey key);
 

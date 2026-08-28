@@ -17,6 +17,9 @@ public interface LoginIdentityRepository {
 
     Optional<LoginIdentity> findByIdentityKey(LoginIdentityKey identityKey);
 
+    /** Locks one provider identity for an authentication-sensitive outer transaction. */
+    Optional<LoginIdentity> findByIdentityKeyForUpdate(LoginIdentityKey identityKey);
+
     Optional<LoginIdentity> findByAccountProviderKey(AccountIdentityProviderKey accountProviderKey);
 
     List<LoginIdentity> findByAccountId(UserAccountId accountId);

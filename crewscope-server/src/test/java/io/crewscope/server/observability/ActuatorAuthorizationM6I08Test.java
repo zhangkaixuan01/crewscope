@@ -18,6 +18,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
             "crewscope.security.mode=bootstrap",
             "crewscope.security.bootstrap.username=operator",
             "crewscope.security.bootstrap.password=operator-password",
+            "crewscope.security.monitoring.username=prometheus",
+            "crewscope.security.monitoring.password=monitoring-password",
             "management.endpoints.web.exposure.include=health,info,prometheus",
             "management.endpoint.health.show-details=never",
             "management.endpoint.health.probes.enabled=true",
@@ -40,11 +42,13 @@ class ActuatorAuthorizationM6I08Test {
     }
 
     @Test
-    void permitsSafeHealthButRequiresAuthenticationForPrometheus() {
+    void permitsSafeHealthAndRestrictsPrometheusToTheMonitoringCredential() {
         client.get().uri("/actuator/health")
                 .exchange()
                 .expectStatus()
                 .isOk()
+                .expectHeader()
+                .doesNotExist("Set-Cookie")
                 .expectBody(String.class)
                 .value(body -> org.junit.jupiter.api.Assertions.assertFalse(
                         body.contains("dropped")));
@@ -66,10 +70,24 @@ class ActuatorAuthorizationM6I08Test {
                 .headers(headers -> headers.setBasicAuth("operator", "operator-password"))
                 .exchange()
                 .expectStatus()
+                .isUnauthorized();
+
+        client.get().uri("/actuator/prometheus")
+                .headers(headers -> headers.setBasicAuth("prometheus", "monitoring-password"))
+                .exchange()
+                .expectStatus()
                 .isOk()
+                .expectHeader()
+                .doesNotExist("Set-Cookie")
                 .expectBody(String.class)
                 .value(body -> org.junit.jupiter.api.Assertions.assertTrue(
                         body.contains("http_server_requests")));
+
+        client.get().uri("/api/v1/protected-probe")
+                .headers(headers -> headers.setBasicAuth("prometheus", "monitoring-password"))
+                .exchange()
+                .expectStatus()
+                .isUnauthorized();
     }
 
     @SpringBootConfiguration

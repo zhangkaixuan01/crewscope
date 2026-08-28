@@ -79,12 +79,14 @@ import reactor.core.publisher.Mono;
             "spring.autoconfigure.exclude="
                     + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                     + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
-                    + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
+                    + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration,"
+                    + "org.springframework.boot.session.data.redis.autoconfigure."
+                    + "SessionDataRedisAutoConfiguration"
         })
 class LocalSessionSecurityM7S01IntegrationTest {
 
     private static final int REDIS_PORT = 6379;
-    private static final String SESSION_COOKIE = "SESSION";
+    private static final String SESSION_COOKIE = "CREWSCOPE_SESSION";
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
     private static final String CSRF_HEADER = "X-XSRF-TOKEN";
     private static final int MAX_LOGIN_BODY_BYTES = 8 * 1024;
@@ -99,8 +101,9 @@ class LocalSessionSecurityM7S01IntegrationTest {
 
     @DynamicPropertySource
     static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(REDIS_PORT));
+        registry.add(
+                "spring.data.redis.url",
+                () -> "redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(REDIS_PORT));
     }
 
     private final WebTestClient client;
@@ -315,6 +318,9 @@ class LocalSessionSecurityM7S01IntegrationTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableWebFluxSecurity
+    @org.springframework.session.data.redis.config.annotation.web.server.EnableRedisIndexedWebSession(
+            maxInactiveIntervalInSeconds = 900,
+            redisNamespace = "crewscope:m7-s01")
     static class SpikeSecurityConfiguration {
 
         @Bean

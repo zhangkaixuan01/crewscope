@@ -183,6 +183,13 @@ class TeamBetaOperationalTelemetryM6I08Test {
         assertEquals(
                 StructuredLogSanitizer.REDACTED,
                 StructuredLogSanitizer.sanitize("message", "api_key=private-value"));
+        for (String authenticationField : List.of(
+                "username", "loginIdentifier", "networkAddress", "sessionId",
+                "csrfToken", "invitationToken", "passwordHash")) {
+            assertEquals(
+                    StructuredLogSanitizer.REDACTED,
+                    StructuredLogSanitizer.sanitize(authenticationField, "authentication-value"));
+        }
         assertEquals(
                 StructuredLogSanitizer.MAX_VALUE_LENGTH,
                 StructuredLogSanitizer.sanitize("safe", "x".repeat(400)).length());

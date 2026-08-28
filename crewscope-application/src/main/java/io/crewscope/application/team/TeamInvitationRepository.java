@@ -3,6 +3,7 @@ package io.crewscope.application.team;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.InvitationTokenDigest;
 import io.crewscope.domain.team.TeamInvitation;
 import io.crewscope.domain.team.TeamInvitationConflictException;
@@ -22,7 +23,15 @@ public interface TeamInvitationRepository {
     /** Acceptance lookup with a database row lock held until the surrounding transaction ends. */
     Optional<TeamInvitation> lockByTokenDigest(InvitationTokenDigest tokenDigest);
 
-    List<TeamInvitation> findByTeam(OrganizationId organizationId, TeamId teamId);
+    /** Returns one bounded newest-first keyset page for Team invitation management. */
+    TeamInvitationPage findByTeam(
+            OrganizationId organizationId,
+            TeamId teamId,
+            Optional<TeamInvitationCursor> cursor,
+            int limit);
+
+    /** Locks a bounded due batch with FOR UPDATE SKIP LOCKED for terminal expiry updates. */
+    List<TeamInvitation> lockExpiredBatch(UtcTimestamp now, int limit);
 
     TeamInvitation create(TeamInvitation invitation) throws TeamInvitationConflictException;
 

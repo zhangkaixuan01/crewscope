@@ -1,8 +1,11 @@
 package io.crewscope.server.security;
 
 import io.crewscope.domain.identity.ExternalIdentity;
+import io.crewscope.domain.identity.SecurityVersion;
+import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.server.security.session.BrowserSessionPrincipal;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -29,8 +32,14 @@ public final class AuthenticationSubjectExtractor {
     if (!trusted.isAuthenticated()) {
       throw new PolicyDeniedException("use an unauthenticated identity");
     }
+    if (trusted instanceof UsernamePasswordAuthenticationToken
+        && trusted.getPrincipal() instanceof BrowserSessionPrincipal sessionPrincipal) {
+      return new AccountSessionSubject(
+          new UserAccountId(sessionPrincipal.accountId()),
+          new SecurityVersion(sessionPrincipal.securityVersion()));
+    }
     if (trusted instanceof UsernamePasswordAuthenticationToken) {
-      return new AuthenticatedSubject(
+      return new ExternalAuthenticatedSubject(
           new ExternalIdentity("bootstrap", trusted.getName()),
           trusted.getName(),
           Optional.empty());
@@ -39,7 +48,7 @@ public final class AuthenticationSubjectExtractor {
         && oauth2.getPrincipal() instanceof OidcUser user) {
       String subject = requireSubject(user.getSubject());
       String provider = "oidc/" + oauth2.getAuthorizedClientRegistrationId();
-      return new AuthenticatedSubject(
+      return new ExternalAuthenticatedSubject(
           new ExternalIdentity(provider, subject),
           firstText(
               user.getClaimAsString("name"),
