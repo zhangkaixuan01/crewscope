@@ -1,7 +1,7 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.14<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.34`<br>
+> 文档版本：v1.15<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.42`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
 
@@ -244,6 +244,26 @@ Conversation 使用 Loading、Empty、Error、Offline、Reconnecting 和 Cancell
 离线提示使用浏览器网络信号，不替代服务端事实。页面保留已加载事实和按 Conversation 分区的草稿；离线时 Textarea 保持可编辑，发送按钮禁用，联网后不自动提交草稿。
 
 从列表选中 Conversation 后聚焦详情标题，窄屏返回后恢复原列表按钮。新建弹窗使用初始焦点、Tab 焦点陷阱、Escape 关闭和触发元素恢复；创建成功后聚焦新 Conversation 标题。
+
+### 3.8 M7 开放身份与 Onboarding 信息架构
+
+M7 新增五个身份与账号路由：
+
+```text
+/login              登录与会话恢复入口
+/register           OPEN / INVITE_ONLY / DISABLED 注册体验
+/onboarding         首次 Team、Workspace 和 Personal Agent 初始化
+/invite#token=...   团队邀请 Preview / Accept
+/account            已登录账号、密码与会话设置
+```
+
+`/login`、`/register`、`/onboarding` 和 `/invite#token=...` 使用独立 AuthLayout，不套用 AppShell 的后台导航。桌面端左侧固定 CrewScope 品牌与“成员 → Personal Agent → 团队”协作说明，右侧只承载当前登录、注册、邀请或 Onboarding 任务。390px 窄屏先显示简化品牌说明，再按单列展示当前任务。`/account` 属于已登录 AppShell 设置区，使用设置导航和内容分区，不沿用公开认证卡。
+
+身份体验必须覆盖 Session Loading/失败、登录失败/临时锁定、开放注册/仅邀请/关闭注册、Onboarding、邀请有效/失效和账号设置。登录失败使用不区分账号存在性的统一文案。普通表单聚焦首个输入，错误和锁定聚焦 `role=alert` 摘要，不可继续的注册/邀请状态聚焦标题。键盘顺序依据 DOM 语义，不使用正 `tabindex` 重排。
+
+登录字段使用 `autocomplete=username/current-password`，注册字段使用 `username/email/name/new-password`。密码显隐只保存在组件内存，密码、邀请 Token、Session ID、Cookie 和 CSRF Token 不进入 URL、LocalStorage、SessionStorage、Telemetry 或普通 Store。邀请 Token 从 Fragment 读入进程内存后立即清理地址栏。
+
+M7-S04 原型只用于冻结产品规范，显式标注“不提交数据”，不进入生产路由。正式页面由 `M7-F01` 至 `M7-F07` 接入 AuthStore 和服务端 API。完整状态、双视口、焦点与视觉证据见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。
 
 ## 4. 视觉身份
 
