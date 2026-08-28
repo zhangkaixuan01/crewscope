@@ -70,6 +70,8 @@ lifecycle
 
 类字段与 Metadata Repository 方法不包含 `LocalPasswordHash`、String Hash、明文密码或 Secret。`LocalPasswordHash` 单独保持有界可打印 ASCII 编码，只能通过显式 `encodedValue()` 交给后续受信 I03 Adapter；`toString()` 固定为 `LocalPasswordHash[REDACTED]`。
 
+M7-I01 将 `LocalCredentialMetadataRepository` 进一步收敛为只读与锁定端口。V31 的 Credential 行要求 Hash 与元数据原子写入，缺少 Hash 的 Metadata Port 不声明无法安全兑现的 `create/update`；M7-I03 的受信 Hash Store 负责创建、轮换和 compare-and-set，并继续通过 Metadata Port 向通用账号路径提供非秘密读取。
+
 `PasswordHashAlgorithm` 闭集包含 ARGON2ID 与 BCRYPT。两者都可作为历史 Reader，但只有 ARGON2ID 是当前 Writer：
 
 - 新建 Credential 要求 Argon2id；

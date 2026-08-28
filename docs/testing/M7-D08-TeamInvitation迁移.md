@@ -71,4 +71,4 @@ M7-D08 将 M7-D05 的 `TeamInvitation` 领域契约落入 PostgreSQL V32，并�
 
 ## 6. 结论
 
-M7-D08 完成。V31/V32 已形成开放用户体系的数据库基线，下一任务为 M7-I01：实现账号、身份、Credential Metadata 与 Organization Binding 的 PostgreSQL Repository Adapter 和事务边界。
+M7-D08 完成。V31/V32 已形成开放用户体系的数据库基线；M7-I01 已实现账号身份持久化，M7-I02 已实现 Redis 浏览器 Session 边界，下一任务为 M7-I03。

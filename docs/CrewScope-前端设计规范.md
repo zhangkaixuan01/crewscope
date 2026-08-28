@@ -1,7 +1,7 @@
 # CrewScope 前端设计规范
 
 > 文档版本：v1.15<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.51`<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.52`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
 

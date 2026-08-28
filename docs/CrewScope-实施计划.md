@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.93<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.51`<br>
+> 文档版本：v1.97<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.55`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08 已完成，下一任务为 `M7-I01`
+> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08 已完成，下一任务为 `M7-A01`
 
 ## 1. 实施目标
 
@@ -741,7 +741,7 @@ V30 升级保留既有 `bootstrap/crewscope-monitor` USER Principal ID、TeamMem
 8. V30→V32 升级后既有 Operator、团队、任务、Agent 和 Provider 数据保持有效；
 9. 完整任务依赖、配置、API 和 Release Gate 见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)。
 
-M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04 已冻结 Session/CSRF、Account/Principal 边界、密码防护参数和开放身份视觉基线；M7-D01 至 M7-D06 已交付 Account、LoginIdentity、Credential、Binding、TeamInvitation 领域内核和安全事件契约；M7-D07 已通过 V31 落地本地账号与身份持久化；M7-D08 已通过 V32 落地 Digest-only TeamInvitation、跨 Scope 外键、一次性终态、过期索引和元数据视图。对应验证见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)，下一任务为 `M7-I01`。
+M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04 已冻结 Session/CSRF、Account/Principal 边界、密码防护参数和开放身份视觉基线；M7-D01 至 M7-D06 已交付 Account、LoginIdentity、Credential、Binding、TeamInvitation 领域内核和安全事件契约；M7-D07 已通过 V31 落地本地账号与身份持久化；M7-D08 已通过 V32 落地 Digest-only TeamInvitation、跨 Scope 外键、一次性终态、过期索引和元数据视图；M7-I01 已交付四类账号身份 JDBC Adapter、规范键复核、行锁、乐观锁、REQUIRED 事务和单查询当前账号快照；M7-I02 已交付显式启用的 Indexed Redis 浏览器 Session、ID 旋转、当前退出、账号级 LRU 上限、Jackson 3 白名单序列化和 Redis 失败关闭；M7-I03 已交付受信 LocalCredentialStore、Argon2id Writer、弱 Argon2id/BCrypt Reader、Dummy Match、公平有界 Hash 执行器和并发安全 CAS Rehash；M7-I04 已交付用途分离 HMAC、Redis Lua 双资源原子准入、账号失败/临时锁定、受控代理网络解析、故障关闭与固定枚举指标；M7-I05 已交付本地 Account Session 复验、既有 Organization Binding/Principal 解析、持久化 PlatformRole Authority 和外部身份只读兼容路径；M7-I06 已交付 Digest-only 邀请 Repository、256-bit 一次性 Token、用途分离 HMAC、事务领取、Keyset 分页和有界并行过期清理；M7-I07 已交付旧 Bootstrap Principal 原位升级、持久化 OPERATOR、外部 Secret 幂等轮换和旧 `ROLE_ADMIN` 提权来源删除；M7-I08 已交付 Team Beta 正式/Demo 认证配置、Operator/Prometheus 凭证与安全链隔离、Registration/Cookie/Secret Guard、64 Series 认证指标闭集和 V32 恢复合同。对应验证见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)，下一任务为 `M7-A01`。
 
 ## 14. 模块实施边界
 

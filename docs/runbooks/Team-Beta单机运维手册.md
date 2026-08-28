@@ -1,7 +1,7 @@
 # CrewScope Team Beta 单机运维手册
 
 > 适用范围：CrewScope Team Beta 单机七服务部署
-> 恢复边界：备份 Schema V26–V30，当前应用目标 Schema V30
+> 恢复边界：备份 Schema V26–V32，当前应用目标 Schema V32
 > 恢复目标：RPO 24 小时，RTO 4 小时
 
 ## 1. 权威数据与职责
@@ -21,6 +21,7 @@ Repository Mirror、Worktree、AskPass、临时 Sandbox 和 Prometheus 数据不
 - 后端和 Web 不可变镜像 Digest；
 - 数据、Secret 与备份根目录；
 - Compose Project；
+- 8C16G 主机的密码 Hash Permit，当前冻结值为 4；
 - 应用版本、Git Revision、Dataset Version 与 Seed；
 - 备份口令文件；
 - 恢复 Schema 边界。
@@ -99,11 +100,11 @@ docker compose \
 
 ```text
 CREWSCOPE_RESTORE_MIN_SCHEMA=26
-CREWSCOPE_RESTORE_MAX_SCHEMA=30
-CREWSCOPE_RESTORE_TARGET_SCHEMA=30
+CREWSCOPE_RESTORE_MAX_SCHEMA=32
+CREWSCOPE_RESTORE_TARGET_SCHEMA=32
 ```
 
-应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V30 备份由当前镜像迁移到 V30；它不允许把 V30 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。
+应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V32 备份由当前镜像迁移到 V32；它不允许把 V32 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。
 
 ### 6.2 执行恢复
 
@@ -134,7 +135,7 @@ CREWSCOPE_RESTORE_TARGET_SCHEMA=30
   -> 恢复 PostgreSQL
   -> 恢复 Artifact，将 Reference storageUri 重定位到目标 Data Root 并复验全部 Object
   -> 恢复 Redis RDB
-  -> 仅启动 API，将 V26–V30 迁移到 V30
+  -> 仅启动 API，将 V26–V32 迁移到 V32
   -> Readiness、System Info 与零活动 Smoke
   -> 生成实际 RPO/RTO Evidence
   -> 可选启动 Worker/Web
@@ -144,7 +145,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 
 ### 6.3 失败处理
 
-密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V31、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
+密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V33、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
 
 重试步骤：
 
@@ -161,7 +162,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 每个 Release Candidate 至少完成一次空目标恢复演练。演练检查：
 
 - Manifest 与三组件 Hash；
-- V26–V30 迁移边界和不兼容 Schema 拒绝；
+- V26–V32 迁移边界和不兼容 Schema 拒绝；
 - Organization、Runtime Principal、Artifact、Redis 与 API Readiness；
 - 坏包、过期/未来包和非空目标失败关闭；
 - 实际 RPO `<= 86400s`、RTO `<= 14400s`；

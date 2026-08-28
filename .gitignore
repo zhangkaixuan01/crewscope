@@ -18,7 +18,6 @@ test-results/
 **/test-results/
 coverage/
 **/coverage/
-crewscope-web/e2e/*-snapshots/*-darwin.png
 
 .env
 .env.local

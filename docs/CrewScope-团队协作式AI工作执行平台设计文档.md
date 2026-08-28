@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.51<br>
+> 文档版本：v5.55<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -2659,7 +2659,9 @@ Team Invitation 保存邀请 Team、邀请人、可选目标邮箱、目标内�
 
 M7-D05 将邀请落为 `TeamInvitation` 聚合。`PENDING / version=0` 只能单步转为 `ACCEPTED / REVOKED / EXPIRED / version=1`，三个终态不可逆；重建时同样拒绝状态与版本不一致的持久化形状。接受和撤销只允许发生在过期时刻之前，精确过期边界只允许进入 EXPIRED。邀请目标角色使用产品内置角色枚举并排除 TEAM_OWNER，所有权继续通过 Team Transfer Ownership 流程变更。可选目标邮箱使用与 Account 相同的 `NormalizedEmail` 比较；接受结果固化稳定 `UserAccountId` 与 `TeamMemberId`。
 
-`InvitationTokenDigest` 只接受 32-byte Digest 或 64 位小写十六进制编码，字符串表示固定脱敏，并使用常量时间比较已派生摘要。领域层不接收或生成明文 Token；CSPRNG Token、SHA-256/HMAC 派生和一次性返回由 M7-I06 基础设施边界完成。Token Digest 唯一冲突统一为不含 Digest、邮箱和身份坐标的 `team_invitation_conflict`。
+`InvitationTokenDigest` 只接受 32-byte Digest 或 64 位小写十六进制编码，字符串表示固定脱敏，并使用常量时间比较已派生摘要。M7-I06 使用 CSPRNG 生成 256-bit 随机值并编码为 43 字符无填充 Base64URL Token，再以版本化用途前缀和至少 32-byte 外部密钥执行 HMAC-SHA256；Repository Port 和数据库只接收 Digest。明文 Token 只通过邀请首次创建结果返回，Token 与创建结果的字符串表示固定脱敏。生产装配默认关闭，显式启用但缺失或使用弱 HMAC Key 时启动失败关闭；HMAC Key 必须在所有 PENDING 邀请存续期间保持稳定，轮换前必须引入 Key Version 与多版本 Reader。Token Digest 唯一冲突统一为不含 Digest、邮箱和身份坐标的 `team_invitation_conflict`。
+
+邀请创建的 TTL 限制为 1 分钟至 30 天。接受与撤销通过 Token Digest 查询并使用 `FOR UPDATE` 行锁作为事务串行化点；Team 管理列表按 `created_at DESC, id DESC` 使用最多 200 条的 Keyset 分页。过期 Worker 以最多 500 条的 `FOR UPDATE SKIP LOCKED` 批次并行领取，只执行 `PENDING → EXPIRED`，不删除邀请、DomainEvent 或 Audit 事实。实现与验证见 [M7-I06 邀请持久化与一次性 Token](testing/M7-I06-邀请持久化与一次性Token.md)。
 
 `TeamInvitationAcceptanceService` 生成需要在同一事务提交的 Invitation、Membership 与目标角色计划。没有 Membership 时创建 `INVITATION` 来源的 ACTIVE TeamMember；ACTIVE Membership 原位复用；INVITED、LEFT、REMOVED 使用原 TeamMember ID 恢复；SUSPENDED 必须经过管理员重新启用，邀请 Token 不能绕过。接受同时验证 Account ACTIVE、Binding ACTIVE 且解析到当前 ACTIVE USER Principal、Team ACTIVE、Membership ACTIVE/同 Team/同 Principal、目标邮箱、Digest 与有效期。Invitation 乐观版本保证并发接受只有一个终态提交。实现与验证见 [M7-D05 TeamInvitation 领域契约](testing/M7-D05-TeamInvitation领域契约.md)。
 
@@ -2674,6 +2676,10 @@ Binding 通过 `(account_id, organization_id)` 与 `(organization_id, principal_
 M7-D08 通过 `V32__team_invitation.sql` 建立 `team_invitation`。邀请保存完整 Organization/Team Scope、Organization USER 邀请人、可选规范目标邮箱、非 Owner 内置角色、64 位小写 Token Digest、有效期、一次性状态、接受 Account/TeamMember 和强版本；Team、邀请人、接受 Member 使用复合外键阻断跨 Scope 引用。接受触发器在同一事务中使用状态互斥行锁，复核 ACTIVE Account、可选目标邮箱、ACTIVE Binding、ACTIVE Organization USER Principal、ACTIVE Team 与目标 Team ACTIVE Membership 的完整链路，并与并发停用和归档互斥。新邀请只能以 `PENDING / version=0` 建立，随后只允许单步关闭为 `ACCEPTED / REVOKED / EXPIRED / version=1`，终态不可修改或删除；接受和撤销必须早于有效期，过期终态必须位于有效期边界或之后。
 
 Token 明文没有数据库字段；Digest 全局唯一并由 64 位小写十六进制约束裁决。`team_invitation_metadata` 排除 Digest，底表和元数据视图撤销 PUBLIC 权限，通用管理/Preview/Audit Reader 只授权元数据视图。Team 列表、待过期扫描与定向邀请分别使用独立索引；历史安全 DomainEvent/AuditEvent 继续作为只追加事实独立保存，V32 不回写事件载荷。实现与验证见 [M7-D08 TeamInvitation 迁移](testing/M7-D08-TeamInvitation迁移.md)。
+
+M7-I01 使用 Spring JDBC 实现 `UserAccount`、`LoginIdentity`、`LocalCredentialMetadata` 与 `AccountOrganizationBinding` Repository Adapter。规范用户名与邮箱只从 `Username / NormalizedEmail` 领域值对象派生，写入端口不接收外部规范键；读取时重新派生并校验持久化规范键，任何漂移失败关闭。Account、Identity 与 Binding 的创建依靠 PostgreSQL 唯一约束裁决并发并映射为不泄漏冲突坐标的稳定领域错误，更新使用显式期望版本条件；按 Account、Provider Identity 和 Account/Organization 提供 `FOR UPDATE` 锁定读取，调用方必须保持外层 REQUIRED 事务直至受保护写入完成。
+
+`LocalCredentialMetadataRepository` 固定为只读与锁定端口，只访问不含 Hash 的 `local_credential_metadata` 视图。Credential 的创建、轮换和 Hash 版本条件更新由 M7-I03 的 `LocalCredentialStore` 同时提交敏感列和元数据，不允许 Metadata Adapter 伪造 Hash 或写入不完整 Credential；Store 使用认证时的 Credential Version 与乐观锁 Version 执行双条件 CAS。`CurrentAccountSnapshotReader` 使用一条固定 SQL 批量恢复 Account、全部 LoginIdentity、可选 Credential Metadata 和全部 Organization Binding，并在笛卡尔连接结果中按强类型 ID 去重，查询数不随 Identity 或 Binding 数量增加。所有 Adapter 使用 `@Repository`、构造器注入与 Spring REQUIRED/read-only 事务边界；实现与验证见 [M7-I01 账号身份持久化适配器](testing/M7-I01-账号身份持久化适配器.md)和 [M7-I03 本地密码编码与安全升级](testing/M7-I03-本地密码编码与安全升级.md)。
 
 V30 升级使用 `bootstrap/crewscope-monitor` ExternalIdentity 收敛既有 USER Principal，保留其 Principal ID、TeamMember 和 Audit 历史，并建立 OPERATOR Account/Binding。旧 `bootstrap_password` 只用于创建或轮换人类 Operator Credential。Prometheus 使用独立机器账号与 `monitoring_password`，只能访问精确的 Actuator 抓取路径，不创建 UserAccount、TeamMember 或业务 Session。普通 Web 业务入口不返回 HTTP Basic Challenge。企业 OIDC/LDAP/SCIM、邮件验证、忘记密码邮件、MFA、Passkey 和多 Organization 登录选择进入后续里程碑。未来 OIDC 只新增 LoginIdentity 与认证 Adapter，不改变 Principal、TeamMember、Conversation、Task 或 Provider 授权模型。
 
@@ -3380,6 +3386,30 @@ HTTP 状态、错误码、Idempotency-Key 范围、`If-Match` 强 ETag、Cursor 
 ### 15.2 账号、认证、Onboarding 与邀请 API
 
 M7 使用服务端 Session，认证 Cookie 不进入响应 DTO。`GET /api/v1/auth/session` 对匿名请求返回 `authenticated=false`、Registration Mode 与 CSRF Header/Token 公开坐标，对已登录请求追加当前 Account、Principal、Organization、可访问 Team 摘要和权限，是前端当前身份的唯一权威入口。防 CSRF Token 是同源前端需要回传的公开值，只出现在受控 CSRF Cookie、Session 公开投影和写请求 Header，不进入其他浏览器持久存储或 Telemetry。所有浏览器写请求包括登录、注册和邀请接受都提交 CSRF Token 并通过同源校验。
+
+M7-I02 由 CrewScope 显式启用 Spring Session Redis，排除 starter 基于 classpath 的无条件 Session 装配，避免 Bootstrap Basic 和 Worker 进程接管浏览器会话。浏览器认证使用 Indexed Repository、`crewscope:session` Namespace、12 小时 TTL、每账号最多 5 个 Session 和最久未使用淘汰；注册与登录共用 `BrowserSessionLifecycle` 完成 Session 建立、ID 旋转、并发 Session 裁决和 credential-free SecurityContext 保存。Session Principal 只含 Account UUID 与 SecurityVersion，Authority 使用固定 `ROLE_*`，Jackson 3 反序列化白名单不允许领域聚合。Redis 读取、旋转、裁决或最终保存失败时请求失败关闭，不回退到内存 Session、客户端身份或 Bootstrap 用户。Bootstrap SecurityContext 与 RequestCache 显式无状态，不返回浏览器 Session Cookie。
+
+M7-I03 使用独立 `LocalCredentialStore` 读取和原子更新密码 Hash，通用 Account/Identity Repository、当前账号快照、Audit 和公开 DTO 只接触 Credential Metadata。新密码由 Bouncy Castle 1.79 Argon2id M32/T3/P1 写入；Reader 仅兼容批准的较弱 Argon2id 与 BCrypt。进程启动时准备当前参数 Dummy Hash，未知、禁用、锁定或损坏 Credential 与可用账号都在输入预算和限流准入后执行恰好一次昂贵 Match。密码任务通过返回 `CompletionStage` 的公平有界专用执行器运行，队列等待最多 100 ms，2C2G/8C16G 分别配置 2/4 个 Permit，过载不启动 Hash；应用关闭时拒绝尚未开始的排队任务，Hash Provider 故障也必须完成对应异步结果。历史 Hash 成功匹配后以 Credential Version 与乐观锁 Version 双条件 CAS 升级；并发改密先提交时跳过 Rehash，旧密码产生的 Hash不重试、不覆盖新 Credential。Bootstrap 与本地 Credential 使用隔离的具名 PasswordEncoder，密码、Hash、解析原因与 Secret-bearing JDBC cause 不进入字符串、日志、事件、Trace、指标或公开错误。完整验证见 [M7-I03 本地密码编码与安全升级](testing/M7-I03-本地密码编码与安全升级.md)。
+
+M7-I04 使用两条 Redis Lua 原子实现本地认证防护。第一条在 Account 查询前同时裁决规范标识 10 次/15 分钟与受控网络 60 次/5 分钟，二者共同允许才消费，注册与登录使用隔离窗口；第二条为已知 Account 维护 10 次/15 分钟失败窗口和精确 15 分钟临时锁，锁定期间不增长失败，成功只清账号失败。Redis 返回的失败时间、锁定和观察时间重新通过 `AccountLoginAttemptState` 领域规则校验，异常、明显反向时间、Redis 不可用或脚本结果损坏统一失败关闭。
+
+标识、IPv4 `/24`、IPv6 `/64` 与 Account UUID 使用外部 256-bit-or-stronger 密钥执行版本化、用途分离 HMAC，Redis Key 只含 Key ID、Base64URL Digest 与 `{login-defense}` Cluster Hash Tag。非可信直接来源的 `X-Forwarded-For` 完全忽略；直接来源命中可信代理 CIDR 后，解析器只处理有界 IP 字面量并从右向左剥离可信链，不对 Header 执行 DNS。认证防护指标只接受 `flow / operation / outcome` 固定枚举，不包含身份、网络、Redis Key 或异常文本。实现与验证见 [M7-I04 Redis 登录防护与临时锁定](testing/M7-I04-Redis登录防护与临时锁定.md)。
+
+M7-I05 将认证 Token 提取结果闭合为本地 Account Session 与外部稳定身份两种类型。本地 Session 只携带 Account UUID 与 SecurityVersion；每个 Team、Task、Provider 请求都重新读取当前 Account Snapshot，精确验证 SecurityVersion、唯一 ACTIVE LoginIdentity、目标 Organization 的 ACTIVE Binding 和同 Scope 的 ACTIVE USER Principal。Account、LoginIdentity、Binding 或 Principal 任一失效，以及请求另一个 Organization，均失败关闭且不暴露缺失层级。TeamMember 与 TeamRole 继续裁决团队权限，PlatformRole 不替代成员关系。
+
+`ROLE_USER / ROLE_OPERATOR` 只从本次读取的持久化 PlatformRole 生成，自注册 Account 固定只有 USER；Session 中已有的 `ROLE_ADMIN / ROLE_OPERATOR` 不能为本地账号提权。`BrowserSessionLifecycle` 的公开建立入口只接受持久化 UserAccount，并同时派生最小 Session Principal 与 Authority。请求身份解析器不再调用 `IdentityMappingService.map(...)`，因此访问任意 Organization URL 不会创建 Principal 或 Binding。旧 Bootstrap/OIDC 身份仍可只读解析目标 Organization 中完全匹配的既有 ACTIVE USER Principal，但不具备 Provision 或平台 Operator 能力；旧 Bootstrap `ROLE_ADMIN` 不再是授权来源。实现与验证见 [M7-I05 Account 与 Organization 请求身份解析](testing/M7-I05-Account与Organization请求身份解析.md)。
+
+M7-I06 将 TeamInvitation 的 PostgreSQL Adapter 与一次性 Token 基础设施接入 Spring：读取路径不恢复明文，写入路径以 Digest 唯一约束和聚合版本裁决冲突；创建后按 Scope 重读并复核聚合身份。Token 领取在外层事务中持有行锁，过期清理在同一事务内领取并关闭有界批次，列表 Cursor 由创建时间与邀请 ID 共同组成，避免 Offset 分页在并发写入下产生重复或遗漏。
+
+M7-I07 在迁移所属 API 进程启动时按配置显式执行 Bootstrap Operator 引导。服务先锁定目标 Organization 行，再在同一 REQUIRED 事务内精确查找 `bootstrap/crewscope-monitor`：存在时原位保留 Principal、TeamMember 与 Audit ID，不存在时创建唯一的 ACTIVE Organization Scope USER Principal；随后创建或复核 Account、Local LoginIdentity、LocalCredential 与 AccountOrganizationBinding 完整链。OPERATOR 只能通过独立受信领域工厂授予，自注册路径固定为 USER。
+
+引导账号使用外部 Bootstrap Secret。相同 Secret 重启不写库；编码参数升级只执行 Credential Rehash，不撤销 Session；Secret 改变时使用 Credential 乐观版本与 Credential Version 双条件轮换，并推进 Account SecurityVersion 使旧 Session 失效。多实例启动由 Organization 行锁串行化，错误 Principal 类型/Scope/状态、错误 Account 角色、禁用身份、冲突坐标，或既有 Account 与当前部署的用户名/规范邮箱/展示名不一致，均使整笔事务失败关闭；部署配置不承担账号资料修改。命令、结果、异常和持久化错误面不回显密码或 Hash。Bootstrap Basic 仅兼容显式 Authorization Header，普通未认证 Web 请求返回无 `WWW-Authenticate` 的 401，避免浏览器原生登录弹窗。实现与验证见 [M7-I07 Bootstrap Operator 账号升级](testing/M7-I07-Bootstrap-Operator账号升级.md)。
+
+M7-I08 将 Team Beta 认证入口拆分为两条有序 SecurityWebFilterChain。`/actuator/prometheus` 只接受独立 `crewscope-prometheus` 机器账号，使用独立 UserDetailsService、PasswordEncoder 和 AuthenticationManager，不创建 Session；其余业务路径使用 Bootstrap/OIDC 应用链。Prometheus 只挂载 `monitoring_password`，Operator Secret 无权抓取指标，Monitoring Secret 无权访问业务 API，两套用户名或密码相同会在启动期失败关闭。
+
+正式 API 启用 Browser Session、登录防护、邀请 Token 与 Operator 引导，Worker 精确关闭四项浏览器认证能力。生产配置默认 `INVITE_ONLY + HTTPS + Secure Cookie`，Demo 使用 `OPEN + local + Secure=false`；Cookie 固定为 `CREWSCOPE_SESSION / HttpOnly / Path=/ / SameSite=Lax`。登录防护与邀请 Token 使用两个独立 256-bit Base64 HMAC Secret，只有 API 挂载。注册模式、受信代理、健康详情、Actuator 暴露、结构化日志格式、Cookie 属性和角色开关均由 Team Beta Guard 在就绪前复核。
+
+认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。备份恢复兼容边界为 `V26..V32 -> V32`，真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。实现与验证见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)。
 
 ```text
 POST   /api/v1/auth/register
