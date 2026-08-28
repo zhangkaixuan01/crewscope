@@ -21,6 +21,7 @@ describe('CrewScopeApiClient', () => {
     expect(headers.get('Content-Type')).toBe('application/json')
     expect(headers.get('Idempotency-Key')).toBe('cmd-001')
     expect(headers.get('If-Match')).toBe('"7"')
+    expect(request?.credentials).toBe('same-origin')
     expect(request?.body).toBe(JSON.stringify({ title: 'Demo' }))
     expect(request).not.toHaveProperty('idempotencyKey')
     expect(request).not.toHaveProperty('expectedVersion')

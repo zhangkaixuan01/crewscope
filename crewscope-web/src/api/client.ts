@@ -61,6 +61,10 @@ export class CrewScopeApiClient {
       // function with globalThis avoids an "Illegal invocation" when the client owns the reference.
       response = await this.fetcher.call(globalThis, `${this.baseUrl}${normalizePath(path)}`, {
         ...requestInit,
+        // CrewScope is served through one Web origin. Making the browser default explicit keeps
+        // Session and CSRF cookies attached to proxied API requests without enabling cross-origin
+        // credential forwarding.
+        credentials: 'same-origin',
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       })

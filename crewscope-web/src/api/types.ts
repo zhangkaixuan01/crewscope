@@ -7,7 +7,7 @@ export interface ApiErrorEnvelope {
   details: Record<string, string>
 }
 
-export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
+export interface ApiRequestOptions extends Omit<RequestInit, 'body' | 'credentials'> {
   body?: unknown
   idempotencyKey?: string
   expectedVersion?: number
