@@ -11,6 +11,15 @@
 
     <name>CrewScope</name>
     <description>Team-collaborative AI work execution platform</description>
+    <url>https://github.com/zhangkaixuan01/crewscope</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <modules>
         <module>crewscope-domain</module>

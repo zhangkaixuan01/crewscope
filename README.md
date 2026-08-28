@@ -88,3 +88,7 @@ JDK 17 或更高版本，Language level 保持 Java 17；Maven 可选择工程�
 - 外部副作用统一进入 PlannedAction、授权、Worker、Receipt 和 Reconcile 链路。
 - 领域状态、DomainEvent 和 Outbox 在同一事务提交。
 - 合并前执行与当前里程碑对应的 Release Gate。
+
+## 许可证
+
+CrewScope 基于 [Apache License 2.0](LICENSE) 开源，允许商业使用、修改和分发，使用与分发时须遵守许可证条款。
