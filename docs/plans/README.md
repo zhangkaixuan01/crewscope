@@ -97,9 +97,12 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M4：AgentScope 原生 Coding Agent](M4-AgentScope原生Coding-Agent.md)
 - [M5：Agent 模型、个人执行 Agent、Review 与 GitHub Draft PR](M5-Agent模型与Review交付.md)
 - [M6：团队观测、飞书通知与 MVP 发布](M6-团队观测与MVP发布.md)
+- [M7：开放用户体系与登录体验](M7-开放用户体系与登录体验.md)
 
-M0 至 M5 已完成。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
+M0 至 M6 已完成。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
 
 M5 的 48 个任务和 [M5-Q04 Release Gate](../testing/M5-Q04-Release-Gate.md) 已全部关闭。当前已交付模型/Agent 配置与动态 AgentScope Model、个人/团队/Specialist Factory、Reviewer 证据和持久化闭环，以及 GitHub App/OAuth 身份验证、Repository Catalog/Preflight、受管 Mirror、AskPass/Lease Push、Draft PR 查询幂等、Webhook 去重、Action Worker、UNKNOWN/过期 Lease Fenced 对账、人工队列与终结、Fencing/Receipt 原子事务、V26 Claim 恢复和条件 Spring 装配。前端已闭合 Agent 与模型管理、Task 委托和配置预检、Review Workbench、GitHub Delivery Workbench，并完成全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段 CI 门禁。最终门禁为 Maven 1862 / 1862、Vitest 311 / 311、Playwright/视觉/Axe 150 / 150；M5-Q01 固定攻击 84 / 84 被阻断，M5-Q02 固定故障 48 / 48 收敛，M5-Q03 Reviewer 质量门禁通过。
 
-M6 已拆分为 50 个任务，覆盖 Activity、Inbox、Audit、影子投影重建、三流 Cursor、固定模板 Lark 通知、只读 Team Observer、OTel/Prometheus、部署、备份恢复、故障、负载和 MVP Release Gate。`M6-S01` 至 `M6-S05`、`M6-D01` 至 `M6-D09`、`M6-E01` 至 `M6-E07`、`M6-I01` 至 `M6-I10`、`M6-A01` 至 `M6-A07`、`M6-F01` 至 `M6-F08`、`M6-Q01` 至 `M6-Q02` 已完成，[ADR-020](../adr/ADR-020-投影代际重建与游标协议.md)、[ADR-021](../adr/ADR-021-三流恢复与前端合并协议.md)、[ADR-022](../adr/ADR-022-Inbox与固定模板通知授权协议.md) 和 [ADR-023](../adr/ADR-023-Team-Beta单机部署与发布验证协议.md) 已接受。M6-Q01 的 110 / 110 固定攻击全部阻断；M6-Q02 的 121 / 121 固定故障全部收敛。M6-Q03 Fixture 与 M6-Q04 本机确定性预检已完成，Maven 2554/2554、Vitest 450/450、Playwright 180/180、14 Story/104 Variant、部署恢复合同、本机镜像和依赖门禁通过；下一步是在 Linux amd64 执行 Canonical Nightly 完整窗口、新备份空目标恢复、固定 Digest/OSV/Trivy 权威 CI，再由受保护 Release Candidate 发送专用接收者固定 Lark 模板。
+M6 的 50 个任务已全部完成，覆盖 Activity、Inbox、Audit、影子投影重建、三流 Cursor、固定模板 Lark 通知、只读 Team Observer、OTel/Prometheus、部署、备份恢复、故障、负载和 MVP Release Gate。[M6-Q04 MVP Release Gate](../testing/M6-Q04-MVP-Release-Gate.md) 已关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。
+
+M7 已拆分为 39 个任务：4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务。范围包括单 Organization 自托管本地账号、可配置开放注册、Spring Session Redis、正式登录/注册页、首次 Team Onboarding、默认 Personal Agent、一次性邀请链接、Operator/监控凭证分离、认证固定攻击集和 V30→V32 升级门禁。M7-S01 已完成 WebFlux Redis Session、JSON 登录、Session 旋转、Cookie CSRF 与双浏览器同源代理验证；M7-S02 已冻结 Account/Principal 单向身份链、唯一 Binding 和 Bootstrap Operator 无损升级协议；M7-S03 已以 2C2G/8C16G 实测冻结 Argon2id、Hash Permit、密码预算、两级限流、临时锁定与枚举防护；M7-S04 已冻结 12 个身份状态、公开 AuthLayout、Account 设置页、双视口、键盘焦点与 Darwin/Linux 视觉基线。`M7-S01` 至 `M7-S04` 已完成，下一任务为 `M7-D01`。

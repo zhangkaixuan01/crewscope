@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.38<br>
+> 文档版本：v5.42<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -2617,22 +2617,33 @@ TaskScopedToken
 
 ### 12.7 登录身份映射
 
-CrewScope 使用 Principal 统一承载用户、Agent 和服务身份。登录认证只处理 USER Principal：
+CrewScope 将平台登录账号与 Organization 内业务身份分离：
 
 ```text
-Bootstrap Basic -> bootstrap + username
-OIDC Login      -> oidc/{registrationId} + sub
+UserAccount
+  -> LoginIdentity(local / future oidc / future social)
+  -> AccountOrganizationBinding
+  -> Organization-scoped USER Principal
+  -> TeamMember / TeamRole
 ```
 
-外部身份唯一键为 `Organization + Provider + Subject`。OIDC `sub` 是稳定 Subject，`name/preferred_username/email` 只用于显示名。首次认证通过 PostgreSQL `INSERT ... ON CONFLICT DO NOTHING` 原子创建 ACTIVE、Organization Scope、ORGANIZATION 可见的 USER Principal；并发请求返回同一个 Principal。
+`UserAccount` 是平台登录主体，保存规范用户名、规范邮箱、展示名、账号状态、Security Version 和 `USER / OPERATOR` 平台角色。自助注册只能创建 `USER`，`OPERATOR` 只由部署引导授予，与 TeamRole 分层。`LoginIdentity` 保存 Provider 与稳定 Subject；M7 的 `local` Subject 使用不可变 Account ID，不使用可以修改的邮箱。`LocalCredential` 只保存密码哈希算法、哈希值、密码版本和修改时间，任何明文、Hash、Session 或认证错误都不能进入领域事件、Audit、日志、Trace、指标和公开 DTO。
 
-MVP 的一个 OIDC 部署实例通过 `CREWSCOPE_OIDC_ORGANIZATION_ID` 绑定一个 Organization。认证解析同时产生 Organization Constraint，请求路径中的 Organization 必须匹配该约束。单实例多 Organization 登录在后续里程碑使用持久化 Issuer/Registration Binding 扩展。
+`AccountOrganizationBinding` 显式允许 Account 进入 Organization，并绑定该 Organization 内唯一 USER Principal。Binding 单向引用 Account 与 Principal，Principal 不反向依赖 Account；新本地 Principal 不再把 `principal.identity_provider/external_subject` 作为登录真相，旧 Bootstrap/OIDC ExternalIdentity 仅作升级兼容数据保留。请求路径中的 Organization 必须存在当前 ACTIVE Binding；认证用户不能通过访问任意 Organization URL 触发 Principal 自动创建。Principal 继续统一承载用户、Agent 和服务身份，TeamMember 继续表达用户在 Team 中的参与和权限，两者不保存密码或 Session。PlatformRole 由服务端派生平台 Authority，不替代 TeamMember/TeamRole。M7 的本地流程只会话化 Bootstrap Organization 的一个 ACTIVE Binding，数据模型仍允许未来增加其他 Organization Binding。
 
-首次映射在同一事务写入 Principal、`USER_IDENTITY_MAPPED` DomainEvent 和 Outbox。事件保存 Provider，不保存原始 Subject。已有映射必须保持 USER 类型、Organization Scope 和相同 ExternalIdentity；类型或 Scope 冲突返回稳定冲突；`SUSPENDED/DISABLED/ARCHIVED` 账户拒绝访问。
+LoginIdentity 的 `(provider, subject)` 在部署内唯一，`(account_id, provider)` 同样唯一；一个 Account 可以拥有 local 与不同外部 Provider 身份，但同邮箱、用户名、显示名或 OIDC Email Claim 不触发自动账号合并。AccountOrganizationBinding 的 `(account_id, organization_id)` 与 `(organization_id, principal_id)` 分别唯一，创建 Binding 不创建 TeamMember。有效授权是 Account、LoginIdentity、Binding、Principal、TeamMember 和 TeamRole 当前状态的交集，任一层失效都不能被旧 Session 或 PlatformRole 绕过。账号、身份、Binding 和必要 Principal 在同一 PostgreSQL 事务内依靠唯一约束并发收敛，事务提交后才建立 Redis Session。
 
-登录建立 Principal，Team 业务用例建立 TeamMember。Team 创建为当前 Principal 创建 Owner Membership；成员管理命令为目标 Principal 创建 MEMBER Membership；读取 Team 资源要求已有 ACTIVE Membership。该边界阻止认证用户通过访问 Team URL 获得成员权限。
+M7 使用 Spring Security 与 Spring Session Data Redis 建立服务端会话。浏览器只保存 `HttpOnly`、`SameSite=Lax`、生产环境 `Secure` 的 Session Cookie，不保存长期 JWT。登录成功旋转 Session ID；退出、密码修改和全部设备退出使对应服务端 Session 失效。写请求使用 Cookie CSRF Token 与同源校验。Redis 认证状态不可用时失败关闭，不回退到客户端身份、HTTP Header Actor 或无状态管理员。
 
-`crewscope.security.mode` 支持 `bootstrap` 与 `oidc`。Bootstrap Profile 启用 HTTP Basic 和服务端管理员 Authority。OIDC Profile 启用 OAuth2 Login、浏览器 Session 和 Cookie CSRF Token。未知模式、缺少 OIDC Organization Binding 和缺少 OIDC ClientRegistration 的部署配置在启动阶段失败。
+本地 Credential 使用 `{argon2id}` 前缀、16-byte Salt、32-byte Hash、32,768 KiB Memory、3 Iterations 和 Parallelism 1。DelegatingPasswordEncoder 保留 BCrypt 与较弱 Argon2id Reader，只在成功认证并通过 Credential Version 条件更新时 Rehash。注册和改密接受 12–128 个 Unicode code point 且 UTF-8 最多 512 byte；登录沿用相同最大预算，超限输入在账号查询和昂贵哈希前拒绝。密码保持原始 code point 序列，不执行 trim、大小写转换或 Unicode 规范化。
+
+密码哈希在独立有界执行器运行，2C2G Profile 使用 2 个公平 Permit，8C16G Profile 使用 4 个；Permit 最多等待 100 ms，溢出请求不启动 Hash 并返回 lookup-independent 的 `429 too_many_requests`。登录使用规范标识 HMAC 摘要的 10 次/15 分钟窗口和受控网络 HMAC 摘要的 60 次/5 分钟窗口；已知账号在 15 分钟内 10 次失败后锁定 15 分钟。未知、锁定、禁用和 Credential 损坏账号执行当前参数 Dummy Hash，与错误密码统一返回 `401 invalid_credentials`。Redis 限流状态不可用时失败关闭；原始标识、网络地址、密码和 Hash 不进入 Key、日志、指标或公开响应。实测参数、并发边界和重新评估条件见 [ADR-025](adr/ADR-025-本地密码与登录防护参数.md) 与 [M7-S03 验证记录](spikes/M7-S03-密码与登录防护验证记录.md)。
+
+本地注册支持 `OPEN`、`INVITE_ONLY` 和 `DISABLED`。M7 的 `OPEN` 面向单 Organization 自托管实例，不承诺公共多租户 SaaS 隔离。注册只接受用户名、邮箱、展示名、密码和可选邀请 Token，不接受 Organization、Principal、Team、Role 或权限。无邀请注册原子创建 Account、Local Identity、Credential、Organization Binding 和 USER Principal；没有 ACTIVE Team 的用户进入 Onboarding，显式创建第一个 Team。带邀请注册在同一事务锁定并消费一次性 Token、创建 Membership，成功后直接进入已邀请 Team。Team 创建继续复用 M1 事务，原子建立 Owner Membership、默认 Workspace、内置 Role Grant 和默认 Personal Agent。
+
+Team Invitation 保存邀请 Team、邀请人、可选目标邮箱、目标内置角色、过期时间、状态和 Token Digest。明文 Token 只在创建成功时返回一次；Preview 只公开 Team 名称、邀请人展示名、过期状态和登录要求。Accept 在同一事务锁定邀请并复验 Account、Organization Binding、Team、Token Digest、版本和有效期，再复用成员加入服务。重复接受收敛为既有 Membership，重放、撤销、过期、邮箱不匹配和跨 Scope 使用失败关闭。M7 只提供复制式邀请链接，不发送邮件。
+
+V30 升级使用 `bootstrap/crewscope-monitor` ExternalIdentity 收敛既有 USER Principal，保留其 Principal ID、TeamMember 和 Audit 历史，并建立 OPERATOR Account/Binding。旧 `bootstrap_password` 只用于创建或轮换人类 Operator Credential。Prometheus 使用独立机器账号与 `monitoring_password`，只能访问精确的 Actuator 抓取路径，不创建 UserAccount、TeamMember 或业务 Session。普通 Web 业务入口不返回 HTTP Basic Challenge。企业 OIDC/LDAP/SCIM、邮件验证、忘记密码邮件、MFA、Passkey 和多 Organization 登录选择进入后续里程碑。未来 OIDC 只新增 LoginIdentity 与认证 Adapter，不改变 Principal、TeamMember、Conversation、Task 或 Provider 授权模型。
 
 ### 12.8 任务级身份
 
@@ -2945,7 +2956,7 @@ Repository Catalog 分页解析稳定 GitHub Repository ID、默认分支、Arch
 
 ## 14. 数据模型
 
-所有核心表包含 `organization_id`。团队数据包含 `team_id` 和 `workspace_id`，成员行为包含 `principal_id`。高频查询字段使用显式列，动态配置和快照使用 JSONB。
+所有业务核心表包含 `organization_id`。团队数据包含 `team_id` 和 `workspace_id`，成员行为包含 `principal_id`。M7 的平台登录账号和登录身份独立于具体 Organization，`user_account`、`login_identity` 与 `local_credential` 不携带业务租户字段；`account_organization_binding` 以完整外键把 Account 显式映射到 Organization 内 USER Principal。高频查询字段使用显式列，动态配置和快照使用 JSONB。
 
 ### 14.1 审计与生命周期字段
 
@@ -2978,6 +2989,10 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 
 | 表 | 核心内容 |
 |---|---|
+| `user_account` | 平台账号、用户名、规范邮箱、展示名、USER/OPERATOR 平台角色、状态、Security Version 和审计时间 |
+| `login_identity` | Account、Provider、稳定 Subject、绑定状态和最后认证时间；M7 实现 `local` |
+| `local_credential` | Account、密码算法/Hash、密码版本、修改时间和安全状态；不进入业务查询投影 |
+| `account_organization_binding` | Account、Organization、USER Principal、状态和绑定来源 |
 | `organization` | 企业、部署、域名、数据区域和状态 |
 | `team` | 名称、组织、Owner、状态、默认策略和默认 Workspace |
 | `principal` | `USER/PERSONAL_AGENT/TEAM_AGENT/SPECIALIST_AGENT/SERVICE`、所有者、可见性、状态和审计标识 |
@@ -3000,6 +3015,9 @@ DomainEvent 和 AuditEvent 是追加写事实，不支持逻辑删除。Outbox�
 | `connector_definition` | 认证方式、API Operation、Webhook、Event 和网络要求 |
 | `connection` | 所有者类型、Workspace、外部实例、外部身份、凭证引用和健康状态 |
 | `connection_grant` | OAuth Scope、资源范围、用途、有效期和撤销状态 |
+| `team_invitation` | Team、邀请人、可选目标邮箱、目标角色、Token Digest、有效期、状态和接受账号 |
+
+V31 建立本地账号与身份数据。用户名和邮箱分别保存显示值与规范值，规范唯一索引裁决并发注册；PlatformRole 只允许 `USER / OPERATOR`，自助注册不接受该字段；LoginIdentity 的 Provider/Subject 全局唯一，AccountOrganizationBinding 的 Organization/Account 与 Organization/Principal 双唯一关闭身份歧义。Credential Hash 只允许认证 Adapter 读取，通用账号查询和审计 Adapter 不映射该列。V32 建立 TeamInvitation，Token 明文不落库，Token Digest、Team Scope、目标角色、有效期、接受账号和强版本共同裁决一次性接受。
 
 V7 为 Conversation、Participant、Message、TaskIntent、ConversationWorkItemLink、AgentRuntimeSession、ProviderDefinition、ProviderImplementation、Connection、ConnectionGrant 和 ProviderBinding 建立真实数据表。V8 增加 Conversation Event 耐久流。V9 为既有完整 ACTIVE Team 注册 NativeWorkItem Definition/Implementation，并向默认 ACTIVE Team Workspace 补齐唯一默认 connectionless Binding；迁移遇到稳定 Key 或稳定 ID 与产品契约冲突时失败关闭。所有 Team 业务关系使用 Organization、Team、Workspace 复合外键；Provider 授权关系使用 Organization、Owner、Definition、Implementation、Connection 和 Grant 复合外键。消息序号、客户端消息键、active Participant、active AgentRuntimeSession、确认 WorkItem 和 active 默认 Binding 由唯一约束完成并发裁决。
 
@@ -3327,7 +3345,34 @@ Task Timeline 继续使用耐久 `task_event` 提交顺序、强 Scope Cursor、
 
 HTTP 状态、错误码、Idempotency-Key 范围、`If-Match` 强 ETag、Cursor 编码和持久化 Command Receipt 按 [ADR-007](adr/ADR-007-API命令与并发协议.md) 执行。API 与事件 Schema 独立版本化。Correlation、Trace、日志安全和指标标签按 [ADR-008](adr/ADR-008-可观测性与日志安全协议.md) 执行。服务端接收一个规范 `X-Correlation-Id`，缺失、重复或非法时生成新值，并在响应、Command、DomainEvent、Outbox、Projection 和 Audit 中保持一致。服务端只使用 W3C `traceparent` 继续技术调用链。命令成功响应统一返回 `commandId`、`domainEventId`、`committedVersion` 和 `correlationId`。前端在目标投影 Cursor 到达对应 `domainEventId/committedVersion` 后清理 optimistic state；超时则回读当前事实，不用瞬时 AG-UI 事件覆盖领域状态。
 
-### 15.2 Team、Workspace、Provider 与连接 API
+### 15.2 账号、认证、Onboarding 与邀请 API
+
+M7 使用服务端 Session，认证 Cookie 不进入响应 DTO。`GET /api/v1/auth/session` 对匿名请求返回 `authenticated=false`、Registration Mode 与 CSRF Header/Token 公开坐标，对已登录请求追加当前 Account、Principal、Organization、可访问 Team 摘要和权限，是前端当前身份的唯一权威入口。防 CSRF Token 是同源前端需要回传的公开值，只出现在受控 CSRF Cookie、Session 公开投影和写请求 Header，不进入其他浏览器持久存储或 Telemetry。所有浏览器写请求包括登录、注册和邀请接受都提交 CSRF Token 并通过同源校验。
+
+```text
+POST   /api/v1/auth/register
+POST   /api/v1/auth/login
+POST   /api/v1/auth/logout
+GET    /api/v1/auth/session
+
+GET    /api/v1/account
+PATCH  /api/v1/account
+POST   /api/v1/account/password
+POST   /api/v1/account/sessions/revoke
+
+GET    /api/v1/onboarding
+POST   /api/v1/onboarding/team
+
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/invitations
+GET    /api/v1/organizations/{organizationId}/teams/{teamId}/invitations
+POST   /api/v1/organizations/{organizationId}/teams/{teamId}/invitations/{invitationId}/revoke
+POST   /api/v1/invitations/preview
+POST   /api/v1/invitations/accept
+```
+
+注册和登录使用固定 JSON 白名单；登录请求体在聚合前执行 8 KiB 上限，注册和邀请请求由 M7-A06 按各自有界 DTO 冻结对应预算。注册、登录和 Preview 返回账号存在性无关的稳定错误；内部诊断只进入安全 Audit 分类。Session ID、认证 Cookie、密码、密码 Hash 和邀请 Token 不进入日志、Trace、指标、DomainEvent 或 Audit Payload。防 CSRF Token 只出现在受控 CSRF Cookie、Session 公开投影和同源写请求 Header，不进入其他浏览器持久存储或 Telemetry。邀请链接使用 `/invite#token=...`，Fragment 不发送给 Web/Nginx；前端读入内存后立即清除地址栏。邀请明文 Token 只允许出现在创建成功的一次性响应、Fragment、Preview/Accept POST Body 和页面进程内短期状态，不进入 HTTP Path/Query、邀请列表或浏览器持久存储。
+
+### 15.3 Team、Workspace、Provider 与连接 API
 
 ```text
 POST   /api/v1/teams
@@ -3400,7 +3445,7 @@ Provider Catalog 返回平台受信、版本化的 Provider/Model/价格公开�
 
 ModelConnection 的 USER Owner 固定为当前登录 Principal；TEAM Owner 由 `teamId` 选择并要求当前有效 `PROVIDER_MANAGE`；ORGANIZATION Owner 只允许平台管理员。Endpoint 使用受信 Provider Definition 的默认值，Credential Subject 与 Billing Subject 由 Owner 类型服务端固化，客户端不能覆盖。列表和详情使用公开白名单 DTO，不返回 Endpoint、Credential ID、Credential Key、Metadata 或 Provider 原始响应。创建、验证、轮换、停用和撤销使用 `Idempotency-Key`、强 `If-Match`、Credential Version 和 Command Receipt；Credential 只在创建或轮换请求中单向输入。
 
-### 15.3 责任与协作 API
+### 15.4 责任与协作 API
 
 ```text
 GET  /api/v1/subjects/{subjectType}/{subjectId}/responsibilities
@@ -3442,7 +3487,7 @@ DELETE /api/v1/subjects/{subjectType}/{subjectId}/watchers/{memberId}
 
 `CollaborationRequest` 的公开类型限定为 `REQUEST_HELP` 和 `INVITE_COLLABORATOR`。Review、Handoff 与 Takeover 使用独立资源和状态机。
 
-### 15.4 WorkGraph 与 WorkItem API
+### 15.5 WorkGraph 与 WorkItem API
 
 ```text
 POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects
@@ -3468,7 +3513,7 @@ GET   /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{proje
 
 `POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/tasks` 根据当前 WorkItem、责任、AgentProfile、可选 Conversation Message、ProviderBinding 和成员确认的 TaskBrief，原子创建 Task 与首个 READY TaskExecution。Conversation 是可选来源，不由该命令隐式创建。
 
-### 15.5 对话、收件箱与通知 API
+### 15.6 对话、收件箱与通知 API
 
 ```text
 POST /api/v1/conversations
@@ -3492,7 +3537,7 @@ POST /api/v1/me/notification-deliveries/{deliveryId}/retry
 
 AG-UI SSE 提供当前 AgentRun 的公开文本、受控中断和脱敏运行/工具进度。Conversation Event API 按游标补发持久化业务事件，Team Event API 补发团队投影事件。AG-UI 不作为 WorkItem、Task、Review、Action 和责任状态的事实源；三条流通过统一事件信封、DomainEvent ID 和投影版本完成合并与去重。
 
-### 15.6 任务与制品 API
+### 15.7 任务与制品 API
 
 ```text
 GET  /api/v1/organizations/{organizationId}/teams/{teamId}/tasks?projectId={projectId}&status={status}&after={cursor}&limit={limit}
@@ -3529,7 +3574,7 @@ GET  /api/v1/artifacts/{artifactId}/content
 
 Task 查询路由使用完整 Organization/Team 资源路径表达可见性边界。Task 详情与 attempt Runtime Facts 分开读取：前者支持管理与导航，后者只在用户选择具体 attempt 时加载运行图。列表和详情响应禁止缓存已授权的动态事实；Task 与 TaskExecution 详情使用领域版本生成强 ETag。
 
-### 15.7 确认与 Agent API
+### 15.8 确认与 Agent API
 
 ```text
 GET  /api/v1/confirmations
@@ -3546,7 +3591,7 @@ POST /api/v1/agent-runs/{agentRunId}/interrupt
 POST /api/v1/agent-interrupts/{interruptId}/resume
 ```
 
-### 15.8 Webhook
+### 15.9 Webhook
 
 ```text
 POST /api/v1/webhooks/github
@@ -3558,7 +3603,7 @@ POST /api/v1/webhooks/work-items/{provider}
 
 Webhook 处理包含验签、ProviderBinding 与 Connection 映射、限流、去重、自身事件过滤、稳定 Conversation ID 和稳定 Task Source Key。
 
-### 15.9 内部命令
+### 15.10 内部命令
 
 ```text
 PrepareExternalToolCall
@@ -3599,7 +3644,7 @@ DeliverNotification
 
 ### 16.1 可信上下文
 
-- Spring Security/SSO 提供用户身份；
+- Spring Security 与 Spring Session 提供可信 Account 身份；AccountOrganizationBinding 显式解析 Organization 内 USER Principal，客户端不得提交或覆盖该映射；
 - RuntimeContext 使用服务端解析的 Organization、Team、TeamMember、TeamRole、Workspace 和身份；
 - ResponsibilityAssignment 提供 Owner、Executor、Reviewer 和 Approver 事实；
 - CollaborationGrant 提供协作者的临时上下文、Tool、Artifact 和数据范围；
@@ -4116,7 +4161,9 @@ AppShell 在主导航前提供可聚焦的跳过链接。Conversation 从列表�
 
 Repository Settings 与 Execution Studio 复用同一可访问性契约。仓库绑定面板关闭时按稳定触发器标识查询当前 DOM 节点，Catalog 异步刷新引发按钮重建时仍能恢复焦点。Repository Preflight、执行事实同步与 Artifact 分页错误分别采用礼貌或紧急播报；CodingTarget 加载动画在 Reduced Motion 环境关闭旋转。M4 主要页面进入双视口键盘、截图和 Axe WCAG 2.2 AA 自动门禁。
 
-前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。Bootstrap 前端身份从环境读取 Organization/Principal ID；OIDC Session API 进入后替换该开发边界，不改变 Scope Store 与路由契约。
+前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。M7 使用 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite#token=...` 组成公开账号入口；应用启动先读取 Session 公开投影，再恢复 Scope Store。生产代码删除固定 `bootstrapPrincipal`，401 清理当前身份并返回登录页，403 保留已认证身份进入 Access Denied。登录成功只恢复同源站内目标，拒绝绝对 URL、协议相对 URL 和未注册路由；Session 过期、跨标签退出和旧认证请求迟到都不能闪现或恢复受保护页面。
+
+M7 的公开身份页使用独立 AuthLayout。桌面端左侧表达“成员 → Personal Agent → 团队”的协作关系，右侧承载当前登录、注册、邀请或 Onboarding 任务；390px 窄屏先展示简化品牌说明，再显示单列任务。`/account` 是已登录 AppShell 设置页，使用个人资料、密码与会话分区，不沿用公开认证卡。普通表单聚焦首个输入，错误/锁定聚焦错误摘要，注册关闭/邀请失效聚焦状态标题。密码显隐只存在组件内存，不写入浏览器持久存储。M7-S04 已以 12 个状态、5 个核心页的 Darwin/Linux 双视口截图、焦点顺序和 Axe 门禁冻结该基线，证据见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。
 
 ### 18.12 CrewScope 视觉语言
 

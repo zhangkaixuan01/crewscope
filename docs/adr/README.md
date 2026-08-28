@@ -38,6 +38,8 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-021](ADR-021-三流恢复与前端合并协议.md) | Team/Conversation/AG-UI 独立恢复、快照、Scope Epoch 与合并去重 | ACCEPTED |
 | [ADR-022](ADR-022-Inbox与固定模板通知授权协议.md) | Inbox 来源/处置分离、固定模板通知策略预授权、Lark 精确身份与幂等投递 | ACCEPTED |
 | [ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md) | Team Beta 单机拓扑、低基数观测、固定负载、备份恢复与发布门禁 | ACCEPTED |
+| [ADR-024](ADR-024-Account与Principal身份边界.md) | UserAccount、LoginIdentity、Organization Binding、Principal 与 TeamMember 分层 | PROPOSED |
+| [ADR-025](ADR-025-本地密码与登录防护参数.md) | Argon2id、密码预算、登录限流、临时锁定与账号枚举防护 | PROPOSED |
 
 ## ADR 内容要求
 

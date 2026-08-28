@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.79<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.37`<br>
+> 文档版本：v1.84<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.42`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过，CrewScope Team Beta MVP Release 决定为 `PASS`（2026-08-28）
+> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04 已完成，下一任务为 `M7-D01`
 
 ## 1. 实施目标
 
@@ -65,7 +65,7 @@ CrewScope 首个可用版本交付一条完整闭环：
 
 | 范围 | MVP 交付 |
 |---|---|
-| 用户 | TeamMember，开发环境支持 Bootstrap 用户，部署环境支持基础 OIDC |
+| 用户 | M6 提供 Principal/TeamMember 与 Bootstrap/OIDC 技术基线；M7 提供本地账号、开放注册、正式登录页、Redis Session、首次 Team Onboarding 与邀请协作 |
 | Agent | 每人一个默认 Personal Agent，成员可选策略允许的主/Fallback 模型；Task Orchestrator、Coding/Reviewer Specialist 和只读 Team Agent 使用独立团队配置 |
 | 仓库 | Java/Spring Boot、Git、Maven，单仓库为首个验收用例 |
 | 工作项 | Native WorkItem，支持创建、看板、状态、责任、评论和关联任务 |
@@ -120,7 +120,7 @@ Agent 运行环境只获得 Task Token。长期 OAuth Token、PAT、GitHub App K
 
 ### 4.8 分层计划
 
-本文件保存 M0–M6 的范围、依赖、周期和出口门槛。可执行 Backlog 与架构决策分别维护：
+本文件保存 M0–M7 的范围、依赖、周期和出口门槛。可执行 Backlog 与架构决策分别维护：
 
 - [里程碑执行清单与任务规范](plans/README.md)；
 - [M0：工程与数据基线执行清单](plans/M0-工程与数据基线.md)；
@@ -130,6 +130,7 @@ Agent 运行环境只获得 Task Token。长期 OAuth Token、PAT、GitHub App K
 - [M4：AgentScope 原生 Coding Agent 执行清单](plans/M4-AgentScope原生Coding-Agent.md)；
 - [M5：Agent 模型、Review 与 GitHub Draft PR 执行清单](plans/M5-Agent模型与Review交付.md)；
 - [M6：团队观测、飞书通知与 MVP 发布执行清单](plans/M6-团队观测与MVP发布.md)；
+- [M7：开放用户体系与登录体验执行清单](plans/M7-开放用户体系与登录体验.md)；
 - [CrewScope 前端设计规范](CrewScope-前端设计规范.md)；
 - [Architecture Decision Records](adr/README.md)。
 
@@ -160,6 +161,7 @@ flowchart LR
   M3 --> M4["M4 原生 Coding Agent"]
   M4 --> M5["M5 Agent 模型设置 / Review / GitHub Draft PR"]
   M5 --> M6["M6 团队观测与 MVP 发布"]
+  M6 --> M7["M7 开放用户体系与登录体验"]
 ```
 
 | 里程碑 | 可演示结果 | 建议周期 |
@@ -171,8 +173,9 @@ flowchart LR
 | M4 | AgentScope 原生 Coding Agent 在同机 Worktree 与 Docker Sandbox 中修改并测试代码 | 4–5 周 |
 | M5 | 成员创建和配置个人执行 Agent，团队治理模型与共享 Agent，完成 Gate Review 并通过 ActionBundle 创建 GitHub Draft PR | 6–8 周 |
 | M6 | Activity、Inbox、Audit、飞书通知、恢复和故障测试达标 | 3–4 周 |
+| M7 | 用户通过正式页面注册/登录，创建首个 Team、获得 Personal Agent 并邀请其他用户协作 | 3–4 周 |
 
-建议周期以 2 名后端与 1 名前端小组为基准，18–24 周交付 Team Beta。单人实施按 M0 到 M6 串行推进，建议预留 7–10 个月。生产级 Kubernetes 执行拓扑、Vault/KMS 高可用、容灾和长期 SLO 加固在 Team Beta 后单独排期。
+建议周期以 2 名后端与 1 名前端小组为基准，M0–M6 用 18–24 周交付 Team Beta，M7 追加 3–4 周完成开放用户入口。单人实施按 M0 到 M7 串行推进，建议预留 8–11 个月。生产级 Kubernetes 执行拓扑、Vault/KMS 高可用、企业身份、容灾和长期 SLO 加固单独排期。
 
 ## 6. M0：工程与数据基线
 
@@ -692,23 +695,71 @@ M6-I10 已交付 Maintenance/Quiescence 三组件加密备份、Manifest/Envelop
 
 M6 已拆分为 5 个 Spike、9 个领域/迁移任务、7 个事件/投影任务、10 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 50 项。M6-S01 已通过 PostgreSQL/Testcontainers 验证并接受 [ADR-020 投影代际重建与游标协议](adr/ADR-020-投影代际重建与游标协议.md)；M6-S02 已通过 6 个可控断线/重连场景并接受 [ADR-021 三流恢复与前端合并协议](adr/ADR-021-三流恢复与前端合并协议.md)；M6-S03 已通过 7 个 Inbox/通知领域协议场景；M6-S04 已通过 6 个 Loopback Lark OpenAPI 场景，完成 Tenant Token、精确成员映射、固定模板 UUID 投递、查询恢复、限流和安全错误验证，并接受 [ADR-022 Inbox 与固定模板通知授权协议](adr/ADR-022-Inbox与固定模板通知授权协议.md)；M6-S05 已通过 6 个 Team Beta 发布协议场景，冻结七服务单机拓扑、Environment Fingerprint、低基数 Series 预算、固定负载与 nearest-rank P95、三组件备份恢复和三层 Release Gate，并接受 [ADR-023 Team Beta 单机部署与发布验证协议](adr/ADR-023-Team-Beta单机部署与发布验证协议.md)。M6-D03 已完成固定模板、精确变量 Schema、Preference、Intent、策略预授权快照、通知投递状态机、自动去重和再次投递领域/应用契约，验证记录见 [M6-D03 固定模板通知与再次投递契约](testing/M6-D03-固定模板通知与再次投递契约.md)。M6-D04 已完成 Lark 精确外部身份、版本化 Tenant、短期 Proof、管理员确认 Mapping、双唯一 Repository 和发送前重新授权 Recipient 契约，验证记录见 [M6-D04 Lark 外部身份与成员映射契约](testing/M6-D04-Lark外部身份与成员映射契约.md)。M6-D05 已完成固定 `team-observer@1`、每 Team 确定性身份、默认禁用、TEAM 模型 Preflight 启用门禁、五类只读 Tool 和成员范围结构化摘要，验证记录见 [M6-D05 Team Observer 领域与启用契约](testing/M6-D05-Team-Observer领域与启用契约.md)。M6-D06 已完成稳定 Audit 分类、身份/资源/关联引用、Schema 白名单脱敏摘要、Team 授权、Keyset Cursor 和有界导出契约，验证记录见 [M6-D06 Audit 查询与有界导出契约](testing/M6-D06-Audit查询与有界导出契约.md)。M6-D07 已完成 Projection Definition、Generation/Pointer/RebuildJob、ValidationResult、Fencing、重试和管理员强确认/幂等/强版本契约，验证记录见 [M6-D07 投影代际重建与管理员命令契约](testing/M6-D07-投影代际重建与管理员命令契约.md)。M6-D08 已通过 V27 落地 Activity、Inbox、Notification、Projection Generation 和 Audit 查询持久化，保留成员处置与旧 Runner 滚动升级边界，验证记录见 [M6-D08 Activity、Inbox、Notification 与投影代际迁移契约](testing/M6-D08-Activity-Inbox-Notification与投影代际迁移契约.md)。M6-D09 已通过 V28 落地版本化 Lark Tenant/Proof/Mapping、双唯一与历史保护，并为完整既有 Team 确定性补齐 Java 同源 Hash/ID 的禁用 Team Observer，验证记录见 [M6-D09 Lark 成员映射与 Team Observer 迁移契约](testing/M6-D09-Lark成员映射与Team-Observer迁移契约.md)。M6-E01 已完成持久化 Registry 动态路由、Generation 独立事务、Receipt/Checkpoint/Fencing、有界历史重放、规范快照校验和 Pointer-first 原子切换，验证记录见 [M6-E01 Generation-aware 投影运行时与原子切换](testing/M6-E01-Generation-aware投影运行时与原子切换.md)。完整依赖、任务验收和 Release Gate 见 [M6 执行清单](plans/M6-团队观测与MVP发布.md)。
 
-## 13. 模块实施边界
+## 13. M7：开放用户体系与登录体验
+
+### 13.1 目标
+
+把 M0–M6 的 Principal、TeamMember 与 Bootstrap/OIDC 技术基线升级为用户可以直接使用的产品账号体系。用户通过 CrewScope 自有页面注册和登录，获得独立服务端 Session，创建第一个 Team 和默认 Personal Agent，并通过一次性邀请链接与其他真实用户协作。浏览器业务入口不再使用 HTTP Basic 原生认证弹窗。
+
+### 13.2 身份与会话
+
+- `UserAccount` 管理平台账号、规范用户名/邮箱、展示名、状态、安全版本和 `USER / OPERATOR` 平台角色；
+- `LoginIdentity` 管理 `local` 稳定 Subject，并为未来 OIDC、GitHub 和飞书登录保留扩展位；
+- `LocalCredential` 只保存强密码哈希元数据，密码和哈希不进入事件、日志、Audit 或公开 DTO；
+- `AccountOrganizationBinding` 显式绑定 Account 与 Organization 内 USER Principal，禁止通过任意 Organization URL 自动创建身份；
+- Spring Session Data Redis 保存 SecurityContext，浏览器使用 `HttpOnly`、`SameSite=Lax`、生产 `Secure` Cookie；
+- 登录旋转 Session ID，退出、改密和全部设备退出使相应服务端 Session 失效；
+- 写请求使用 Cookie CSRF Token，同源校验、Session 固定防护和账号枚举防护进入发布门禁。
+
+### 13.3 注册、Onboarding 与邀请
+
+- 注册模式支持 `OPEN / INVITE_ONLY / DISABLED`，新账号不获得平台管理员权限；
+- 无邀请注册创建 Account、Local Identity、Credential、Organization Binding 和 USER Principal；带邀请注册在同一事务消费邀请并创建 Membership；
+- 没有 ACTIVE Team 的账号进入 `/onboarding`，显式创建第一个 Team；
+- Team 初始化复用 M1 事务，原子创建 Owner Membership、默认 Workspace、内置 Role Grant 和默认 Personal Agent；
+- Team Owner/Admin 创建一次性邀请链接，明文 Token 只返回一次，数据库只保存 Digest；
+- 邀请接受支持已登录用户；新用户使用带邀请注册原子入 Team，重复接受收敛为既有 Membership；
+- M7 不发送邮件，邀请链接由成员复制交付。`OPEN` 注册面向单 Organization 自托管实例，不作为公共多租户 SaaS 隔离声明。企业 OIDC、邮件验证、密码找回邮件、MFA 和 Passkey 延后。
+
+### 13.4 API 与前端
+
+认证与账号 API 使用 `/api/v1/auth`、`/api/v1/account`、`/api/v1/onboarding` 和 Team Invitation 资源。`GET /api/v1/auth/session` 是前端当前身份、Registration Mode、Organization、Team 摘要、权限和 CSRF 的唯一公开入口。生产前端删除固定 `bootstrapPrincipal`，使用真实 AuthStore、Session 恢复和 Router Guard。
+
+V30 升级保留既有 `bootstrap/crewscope-monitor` USER Principal ID、TeamMember 和 Audit 历史，并为其建立 OPERATOR Account/Binding。人类 Operator 的 `bootstrap_password` 与 Prometheus 的 `monitoring_password` 分离；后者只可访问精确的 Actuator 抓取路径，不创建业务账号或 Session。
+
+新增 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite#token=...`。邀请 Token 使用不会发送给 Web/Nginx 的 URL Fragment，前端读入内存后立即清除地址栏，只通过 POST Body 执行 Preview/Accept。登录页延续 CrewScope 浅绿色团队协作视觉，提供完整 Loading、错误、锁定、注册关闭、邀请过期、离线、窄屏、键盘和可访问性状态。AppShell 用户菜单提供账号设置、退出和全部设备退出。
+
+### 13.5 验收
+
+1. 访问 Web 不再出现 HTTP Basic 原生弹窗；
+2. 两个用户拥有独立 Account、Session、Principal、TeamMember、Personal Agent 和 Audit 身份；
+3. 注册、登录、退出、Session 恢复/过期、资料与密码修改闭环通过；
+4. 首次 Team 初始化不产生重复 Workspace、Role Grant 或 Personal Agent；
+5. 邀请 Token 明文不落库、不可重放且跨 Scope 失败关闭；
+6. 密码、Hash、Session ID、认证 Cookie 和邀请 Token 不进入公开响应、事件、日志、Audit、Trace 或指标；防 CSRF Token 只出现在受控 CSRF Cookie、Session 公开投影和同源请求 Header，不进入其他浏览器持久存储或 Telemetry；
+7. Session 固定、CSRF、开放重定向、账号枚举和暴力尝试固定攻击集全部阻断；
+8. V30→V32 升级后既有 Operator、团队、任务、Agent 和 Provider 数据保持有效；
+9. 完整任务依赖、配置、API 和 Release Gate 见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)。
+
+M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 已用真实 Redis 与双 Chromium Context 验证 8 KiB JSON 登录体预算、错误密码零会话旋转、SecurityContext 持久化、Session ID 旋转、Cookie CSRF、退出隔离、TTL 和 Web/API 同源代理，验证记录见 [M7-S01 WebFlux Session 与 CSRF 验证记录](spikes/M7-S01-WebFlux-Session与CSRF验证记录.md)。M7-S02 已冻结 Account、LoginIdentity、Binding、Principal 和 TeamMember 单向身份链，用 16 路并发与既有 Bootstrap Principal/TeamMember Fixture 验证唯一收敛、跨 Organization 拒绝和无损升级，并形成 [ADR-024 草案](adr/ADR-024-Account与Principal身份边界.md)；验证记录见 [M7-S02 Account 与 Principal 边界验证记录](spikes/M7-S02-Account与Principal边界验证记录.md)。M7-S03 已在阿里云原生 Linux 的 2C2G 与 8C16G Profile 完成 Argon2id/BCrypt 矩阵，冻结 Argon2id M32/T3/P1、2/4 路哈希 Permit、密码输入预算、标识/网络限流、15 分钟临时锁定和统一枚举防护，并形成 [ADR-025 草案](adr/ADR-025-本地密码与登录防护参数.md)；验证记录见 [M7-S03 密码与登录防护验证记录](spikes/M7-S03-密码与登录防护验证记录.md)。M7-S04 已冻结公开 AuthLayout、已登录 Account 设置页、12 个身份状态、双视口响应式、焦点顺序与 CrewScope 浅绿品牌基线，Darwin/Linux 视觉、Axe、Vitest、Histoire 和 Playwright 门禁通过；验证记录见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。下一任务为 `M7-D01`。
+
+## 14. 模块实施边界
 
 | 模块 | 实施内容 |
 |---|---|
-| `crewscope-domain` | Principal、Team、WorkItem、Responsibility、Conversation、Task、Review、Action、Artifact 领域对象与状态机 |
-| `crewscope-application` | Command/Query Service、Repository Port、ExecutionRuntime Port、Provider Port、策略编排与事务边界 |
+| `crewscope-domain` | UserAccount、LoginIdentity、Principal、TeamMember、TeamInvitation、WorkItem、Responsibility、Conversation、Task、Review、Action、Artifact 领域对象与状态机 |
+| `crewscope-application` | Account/Auth/Onboarding/Invitation、Command/Query Service、Repository Port、ExecutionRuntime Port、Provider Port、策略编排与事务边界 |
 | `crewscope-agentscope` | Agent Factory、AgentScopeNativeRuntime、RuntimeContext、Middleware、Structured Output、AG-UI、Tool 和 Agent 恢复 |
-| `crewscope-infrastructure` | JPA/JDBC、Flyway、Outbox、Redis、Task Worker、Lease、Credential、Worktree、Sandbox、Artifact 和 Projection |
+| `crewscope-infrastructure` | JPA/JDBC、Flyway、Spring Session Redis、密码与限流、Outbox、Task Worker、Lease、Credential、Worktree、Sandbox、Artifact 和 Projection |
 | `crewscope-integration` | Native WorkItem、GitHub、Lark、Connector HTTP Client、OAuth/Webhook 与 Provider Adapter |
-| `crewscope-server` | Spring Boot 装配、Security、REST、AG-UI、SSE/WebSocket、Actuator 和内部 Worker 端点 |
-| `crewscope-web` | Team Workspace、WorkItem、Conversation、Task Timeline、Diff、Review、Confirmation、Inbox 和 Audit UI |
+| `crewscope-server` | Spring Boot 装配、Local/Session Security、REST、AG-UI、SSE/WebSocket、Actuator 和内部 Worker 端点 |
+| `crewscope-web` | 登录/注册/Onboarding/账号/邀请、Team Workspace、WorkItem、Conversation、Task Timeline、Diff、Review、Confirmation、Inbox 和 Audit UI |
 
 领域层保持纯 Java。应用层定义 Port。AgentScope、JPA、GitHub、飞书、Redis、Git 和 Sandbox 均作为外部适配器实现。
 
 Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/Identity/Team/WorkItem/<Business>` 拆分 `config/application/*ApplicationConfiguration`。Application Service 保持纯 Java，通过 `@Bean` 显式注册；Controller 使用 `@RestController` 和单构造器注入；基础设施 Adapter 使用 `@Repository` 与边界事务注解。禁止在 Domain/Application 引入 Spring 组件注解、使用字段注入，或重新创建聚合全部业务 Bean 的集中配置类。每个新业务边界同步维护 Spring Context 装配测试。
 
-## 14. 数据库迁移计划
+## 15. 数据库迁移计划
 
 | 迁移 | 主要内容 | 里程碑 |
 |---|---|---|
@@ -742,12 +793,14 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V28__lark_mapping_and_team_observer.sql` | Lark Tenant/Member Mapping，既有 Team 的 Service Principal、`team-observer@1` 与默认 `DISABLED` Team Observer 确定性补齐；不生成 ModelConnection/Configuration | M6 |
 | `V29__projection_operations_runtime.sql` | Projection Supervisor Claim/Cursor、受审计恢复调度、Notification Redelivery 与 Operations 运行投影 | M6 |
 | `V30__notification_worker_runtime.sql` | Notification Worker Claim/Lease/Fencing、Attempt、Receipt Observation 与查询恢复运行事实 | M6 |
+| `V31__local_user_account_and_identity.sql` | UserAccount、PlatformRole、LoginIdentity、LocalCredential 元数据、AccountOrganizationBinding、规范用户名/邮箱唯一键与安全状态 | M7 |
+| `V32__team_invitation.sql` | TeamInvitation、Token Digest、目标角色、有效期、一次性接受、撤销与安全查询索引 | M7 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
-## 15. 测试计划
+## 16. 测试计划
 
-### 15.1 测试分层
+### 16.1 测试分层
 
 | 层级 | 目标 | 主要工具 |
 |---|---|---|
@@ -758,11 +811,12 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | Git 与 Workspace 测试 | Worktree、分支、回滚、恢复和 Diff | 临时 Git Fixture Repository |
 | Provider 契约测试 | GitHub/Lark 请求、错误、重试、Webhook 和回执 | Mock HTTP Server |
 | API 测试 | Security、Validation、Idempotency、SSE 和错误信封 | WebTestClient |
+| 认证与会话测试 | 注册模式、密码、Session、CSRF、Cookie、邀请、账号枚举和跨用户隔离 | WebTestClient、Redis Testcontainers、Playwright |
 | 前端单元测试 | Store、Composable、组件和状态 | Vitest |
 | 端到端测试 | 用户闭环与断线恢复 | Playwright |
 | 故障注入测试 | 重复、崩溃、超时、乱序、失联和对账 | 可控 Worker/Connector Fault Hook |
 
-### 15.2 Coding Agent 评测
+### 16.2 Coding Agent 评测
 
 固定任务集包含：
 
@@ -794,15 +848,15 @@ M4 出口门槛：固定任务集端到端成功率 `>=70%`；成功任务编译
 
 M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime 使用同一任务集、环境和指标评测。
 
-### 15.3 Release Gate 与运营 SLO
+### 16.3 Release Gate 与运营 SLO
 
 发布前测试为每项指标声明样本量、并发量、超时、故障注入点、环境和通过率。月度 API 可用性、长期延迟和错误预算在上线后计算，属于运营 SLO。预发布报告与上线后 SLO 报告分别保存，不能使用未产生的月度数据替代发布验证。
 
 前端 Release Gate 固定 Vitest 全局最低覆盖率：Statements 80%、Branches 70%、Functions 75%、Lines 80%。覆盖率门槛随产品风险和测试成熟度只升不降，调整必须在里程碑审查记录中说明原因。
 
-## 16. 开发规范与完成定义
+## 17. 开发规范与完成定义
 
-### 16.1 编码规范
+### 17.1 编码规范
 
 - 公开类、公开方法、领域不变式、状态迁移、并发、恢复、幂等和安全逻辑编写注释；
 - 注释说明意图、边界和原因；
@@ -816,7 +870,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - 数据库迁移、API Schema、Event Schema 和 Structured Output Schema 版本化；
 - 现有迁移、API 和事件的兼容性变更通过 ADR 记录。
 
-### 16.2 每个开发任务的完成定义
+### 17.2 每个开发任务的完成定义
 
 1. 代码已实现并通过编译；
 2. 复杂逻辑和公开 API 已按约定添加注释；
@@ -829,9 +883,9 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 9. `./mvnw clean verify` 与 `pnpm build` 通过；
 10. 可在当前里程碑演示流程中完成验证。
 
-## 17. 风险与决策点
+## 18. 风险与决策点
 
-### 17.1 开工 ADR
+### 18.1 开工 ADR
 
 以下 ADR 已接受，实施任务遵循其中的边界和重新评估条件：
 
@@ -844,7 +898,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 7. [ADR-015：Agent 模型目录、连接与配置解析](adr/ADR-015-Agent模型目录、连接与配置解析.md)。
 8. [ADR-016：Agent 所有权、模板与执行配置](adr/ADR-016-Agent所有权、模板与执行配置.md)。
 
-### 17.2 风险表
+### 18.2 风险表
 
 | 风险 | 控制方式 | 决策点 |
 |---|---|---|
@@ -861,9 +915,12 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 | 个人执行 Agent 将 USER Key 带入团队任务 | TEAM Binding 独立解析、Team 默认、任务 Scope 判定和 USER Connection 固定攻击集 | M5 出口 |
 | 模型默认值变更导致在途会话或任务漂移 | AgentConfigurationVersion 追加、Session/PolicySnapshot 固定、安全点显式刷新 | M5 出口 |
 | 三条实时事件流重复或乱序 | 统一事件信封、DomainEvent ID、投影版本和 Cursor 去重 | M2 与 M6 出口 |
+| 开放注册产生暴力尝试、账号枚举或资源滥用 | 注册模式开关、统一公开错误、密码预算、Redis 限流、临时锁定、低基数指标和固定攻击集 | M7 出口 |
+| Session Cookie、CSRF 或登录重定向扩大 Web 攻击面 | 服务端 Session、ID 旋转、HttpOnly/Secure/SameSite Cookie、同源校验、目标路由白名单和跨浏览器 E2E | M7 出口 |
+| Account 与 Organization Principal 混用导致跨租户身份创建 | AccountOrganizationBinding、稳定 LoginIdentity Subject、服务端 Organization 约束和跨 Scope 迁移/API 测试 | M7 出口 |
 | 领域范围过大 | 按纵向闭环实现，MVP 仅保留必要状态与角色 | 每个里程碑评审 |
 
-## 18. 首批开发任务
+## 19. 首批开发任务
 
 详细任务位于：
 
@@ -874,6 +931,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 - [M4 执行清单](plans/M4-AgentScope原生Coding-Agent.md)：44 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 RepositoryBinding、CodingTarget、ExecutionWorkspace、Git Worktree、Docker Sandbox、受控代码工具、Coding Specialist、Diff/Test Artifact、Repository 管理、Execution Studio、安全、恢复和固定评测。
 - [M5 执行清单](plans/M5-Agent模型与Review交付.md)：48 个 SPIKE/TASK/FEATURE/HARDENING，覆盖动态模型、AgentTemplate、个人/团队执行 Agent、双执行范围模型绑定、Reviewer、Gate Review、GitHub Draft PR、PlannedAction、安全、恢复和评测。
 - [M6 执行清单](plans/M6-团队观测与MVP发布.md)：50 个 SPIKE/TASK/FEATURE/HARDENING，覆盖 Activity、Inbox、Audit、投影代际、三流恢复、飞书通知、Team Observer、可观测性、部署和 MVP Release Gate。
+- [M7 执行清单](plans/M7-开放用户体系与登录体验.md)：39 个 SPIKE/TASK/FEATURE/HARDENING，覆盖本地账号、开放注册、Redis Session、正式登录/注册页、Onboarding、Team 邀请、认证安全和 V30→V32 升级门禁。
 
 M0 至 M3 已通过各自 Release Gate。M2 已交付 Conversation、Personal Agent、TaskIntent、Provider Binding、Conversation/WorkItem 双向入口与安全恢复闭环；详细证据见 [M2 执行清单](plans/M2-Conversation与Personal-Agent.md)。
 
@@ -913,7 +971,7 @@ M6-Q03 已完成 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Li
 
 M6-Q04 已完成 `local-preflight`、Linux amd64 `release-candidate` 与 GitHub Actions 权威门禁。除本机既有 `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 Story/104 Variant 外，Canonical 主机使用非 root 发布用户完成 7 模块 `clean verify`、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Coverage、生产构建、Histoire 与零已知生产依赖漏洞；GitHub Actions 固定 Digest、OSV 和 Backend/Web Trivy 扫描全部成功，最终 `release-gate` 为 `success`。M6-Q04 已关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
-## 19. 项目管理与进度跟踪
+## 20. 项目管理与进度跟踪
 
 每个里程碑使用 CrewScope Native WorkItem 类型管理：
 
