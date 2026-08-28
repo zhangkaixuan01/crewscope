@@ -106,6 +106,17 @@ public final class Team {
         return TeamMember.invite(memberId, scope(), userPrincipal, invitedBy, occurredAt);
     }
 
+    /** Creates the active Membership committed together with a consumed TeamInvitation. */
+    public TeamMember acceptInvitedMember(
+            TeamMemberId memberId,
+            Principal userPrincipal,
+            PrincipalId invitedBy,
+            UtcTimestamp occurredAt) {
+        ensureActive("accept an invited member");
+        return TeamMember.acceptInvitation(
+                memberId, scope(), userPrincipal, invitedBy, occurredAt);
+    }
+
     /** Changes the accountable owner reference; role grants are changed in the same application transaction. */
     public Team transferOwnership(
             TeamMember newOwner, PrincipalId actor, UtcTimestamp occurredAt) {

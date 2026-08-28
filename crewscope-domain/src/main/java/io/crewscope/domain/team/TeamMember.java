@@ -88,6 +88,27 @@ public final class TeamMember {
                 LifecycleMetadata.createdAt(occurredAt));
     }
 
+    /** Creates an active membership when a one-time TeamInvitation is consumed atomically. */
+    public static TeamMember acceptInvitation(
+            TeamMemberId id,
+            TeamScope scope,
+            Principal userPrincipal,
+            PrincipalId invitedBy,
+            UtcTimestamp occurredAt) {
+        UtcTimestamp acceptedAt = Objects.requireNonNull(occurredAt, "occurredAt");
+        return new TeamMember(
+                id,
+                scope,
+                requireActiveUser(userPrincipal, scope),
+                TeamMemberStatus.ACTIVE,
+                TeamJoinMethod.INVITATION,
+                Optional.of(Objects.requireNonNull(invitedBy, "invitedBy")),
+                Optional.of(acceptedAt),
+                Optional.empty(),
+                0,
+                LifecycleMetadata.createdAt(acceptedAt));
+    }
+
     /** Creates an active membership from a trusted non-invitation identity source. */
     public static TeamMember join(
             TeamMemberId id,

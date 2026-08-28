@@ -22,7 +22,14 @@ import io.crewscope.domain.conversation.event.TaskIntentConfirmed;
 import io.crewscope.domain.conversation.event.TaskIntentProposed;
 import io.crewscope.domain.conversation.event.TaskIntentRejected;
 import io.crewscope.domain.conversation.event.TaskIntentRevised;
+import io.crewscope.domain.identity.event.AccountLoggedOut;
+import io.crewscope.domain.identity.event.AccountPasswordChanged;
+import io.crewscope.domain.identity.event.AccountProfileChanged;
+import io.crewscope.domain.identity.event.AccountTemporarilyLocked;
+import io.crewscope.domain.identity.event.AuthenticationFailuresAggregated;
+import io.crewscope.domain.identity.event.AuthenticationSucceeded;
 import io.crewscope.domain.identity.event.UserIdentityMapped;
+import io.crewscope.domain.identity.event.UserAccountRegistered;
 import io.crewscope.domain.model.event.ModelConnectionCredentialChanged;
 import io.crewscope.domain.projection.ProjectionLifecycleEvent;
 import io.crewscope.domain.provider.event.ConnectionLifecycleChanged;
@@ -50,6 +57,9 @@ import io.crewscope.domain.task.event.TaskExecutionRecoveryStarted;
 import io.crewscope.domain.task.event.WorkerTaskCommandAccepted;
 import io.crewscope.domain.team.event.TeamCreated;
 import io.crewscope.domain.team.event.TeamInitializationCompleted;
+import io.crewscope.domain.team.event.TeamInvitationAccepted;
+import io.crewscope.domain.team.event.TeamInvitationCreated;
+import io.crewscope.domain.team.event.TeamInvitationRevoked;
 import io.crewscope.domain.team.event.TeamMemberJoined;
 import io.crewscope.domain.workitem.event.WorkItemCommentAdded;
 import io.crewscope.domain.workitem.event.WorkItemCreated;
@@ -66,7 +76,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** Reviewed M0-M6 Audit catalog; raw payloads never become query summaries. */
+/** Reviewed M0-M7 Audit catalog; raw payloads never become query summaries. */
 public final class CrewScopeAuditEventTypes {
 
     private CrewScopeAuditEventTypes() {}
@@ -80,7 +90,114 @@ public final class CrewScopeAuditEventTypes {
         registerReviewEvents(definitions);
         registerActionAndProviderEvents(definitions);
         registerM6SecurityEvents(definitions);
+        registerM7IdentityEvents(definitions);
         return new AuditEventTypeRegistry(definitions);
+    }
+
+    private static void registerM7IdentityEvents(List<AuditEventTypeDefinition> target) {
+        register(
+                target,
+                List.of("USER_ACCOUNT_REGISTERED"),
+                List.of(SchemaVersion.V1),
+                UserAccountRegistered.class,
+                AuditEventCategory.IDENTITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("source"),
+                required("platformRole"));
+        register(
+                target,
+                List.of("AUTHENTICATION_SUCCEEDED"),
+                List.of(SchemaVersion.V1),
+                AuthenticationSucceeded.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("provider"),
+                required("upgradeApplied", "credentialUpgraded"),
+                required("securityVersion"));
+        register(
+                target,
+                List.of("AUTHENTICATION_FAILURES_AGGREGATED"),
+                List.of(SchemaVersion.V1),
+                AuthenticationFailuresAggregated.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.FAILED,
+                AuditRetentionLevel.EXTENDED,
+                required("failureClass"),
+                required("occurrenceCount"),
+                required("aggregationWindowSeconds"));
+        register(
+                target,
+                List.of("ACCOUNT_TEMPORARILY_LOCKED"),
+                List.of(SchemaVersion.V1),
+                AccountTemporarilyLocked.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.DENIED,
+                AuditRetentionLevel.EXTENDED,
+                required("failureCount"),
+                required("lockDurationSeconds"));
+        register(
+                target,
+                List.of("ACCOUNT_LOGGED_OUT"),
+                List.of(SchemaVersion.V1),
+                AccountLoggedOut.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("scope"),
+                required("securityVersion"));
+        register(
+                target,
+                List.of("ACCOUNT_PROFILE_CHANGED"),
+                List.of(SchemaVersion.V1),
+                AccountProfileChanged.class,
+                AuditEventCategory.IDENTITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("usernameChanged"),
+                required("mailChanged", "emailChanged"),
+                required("displayNameChanged"));
+        register(
+                target,
+                List.of("ACCOUNT_PASSWORD_CHANGED"),
+                List.of(SchemaVersion.V1),
+                AccountPasswordChanged.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("version", "credentialVersion"),
+                required("securityVersion"));
+        register(
+                target,
+                List.of("TEAM_INVITATION_CREATED"),
+                List.of(SchemaVersion.V1),
+                TeamInvitationCreated.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("targetRole"),
+                required("targetRestricted"));
+        register(
+                target,
+                List.of("TEAM_INVITATION_ACCEPTED"),
+                List.of(SchemaVersion.V1),
+                TeamInvitationAccepted.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("targetRole"),
+                required("membershipResult"));
+        register(
+                target,
+                List.of("TEAM_INVITATION_REVOKED"),
+                List.of(SchemaVersion.V1),
+                TeamInvitationRevoked.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("targetRole"),
+                required("targetRestricted"));
     }
 
     private static void registerFoundationEvents(List<AuditEventTypeDefinition> target) {

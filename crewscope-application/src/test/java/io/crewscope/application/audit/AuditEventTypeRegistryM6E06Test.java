@@ -14,14 +14,14 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-/** M6-E06 exact Audit catalog and safe-summary boundary tests. */
+/** M6-E06 Audit baseline with later reviewed coordinates and safe-summary regressions. */
 class AuditEventTypeRegistryM6E06Test {
 
     private final AuditEventTypeRegistry registry = CrewScopeAuditEventTypes.reviewedRegistry();
 
     @Test
-    void registersTheReviewedM3ToM6Coordinates() {
-        assertEquals(100, registry.size());
+    void registersTheReviewedM3ToM7Coordinates() {
+        assertEquals(110, registry.size());
         assertCategory("WORK_ITEM_CREATED", SchemaVersion.V1, AuditEventCategory.WORK);
         assertCategory("TASK_DELEGATED_TO_AGENT", SchemaVersion.V2, AuditEventCategory.EXECUTION);
         assertCategory("AGENT_PROFILE_CREATED", SchemaVersion.V1, AuditEventCategory.AGENT);
