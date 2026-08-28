@@ -103,7 +103,7 @@ compose run --rm --no-deps --user 0:0 --entrypoint sh \
 compose up --detach --wait redis >/dev/null
 STARTED_SERVICES=$(printf '%s\n%s\n' "$STARTED_SERVICES" redis)
 
-# API starts without Web or Worker, so Flyway can move V26..V29 to V30 while traffic and Claim
+# API starts without Web or Worker, so Flyway can move V26..V31 to V32 while traffic and Claim
 # remain closed. A lower target or an incompatible application image fails before traffic opens.
 compose up --detach --wait api >/dev/null
 STARTED_SERVICES=$(printf '%s\n%s\n' "$STARTED_SERVICES" api)

@@ -7,10 +7,13 @@
 
 - `database_password`：PostgreSQL 强随机密码；
 - `bootstrap_password`：`crewscope-monitor` 的强随机密码；
+- `monitoring_password`：仅供 `crewscope-prometheus` 抓取受控 Actuator 指标的独立强随机密码，必须与 `bootstrap_password` 不同；
 - `credential_keys`：`v1=<32-byte Base64>` 格式的 AES-256 Key Ring；
 - `activity_cursor_key`：32 字节随机值的 Base64；
 - `diff_cursor_secret`：至少 32 UTF-8 字节的随机值；
 - `task_token_key`：32 字节随机值的 Base64；
+- `login_defense_hmac_key`：32 字节随机值的 Base64，只用于登录/注册资源摘要；
+- `invitation_token_hmac_key`：32 字节随机值的 Base64，只用于邀请 Token 摘要；
 - `redis_url`：与 Redis ACL 一致的 `redis://default:<password>@redis:6379`；
 - `redis_acl`：至少包含受密码保护的 `default` 用户，以及只能执行 `PING` 的无密码 `health` 用户。
 - `backup_passphrase`：至少 32 字节的独立备份加密口令，由 Operator 环境文件的 `CREWSCOPE_BACKUP_PASSPHRASE_FILE` 引用，不挂载给应用容器。

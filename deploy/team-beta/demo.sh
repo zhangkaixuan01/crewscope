@@ -42,18 +42,24 @@ prepare_runtime() {
 
   database_password=$(openssl rand -hex 24)
   bootstrap_password=$(openssl rand -hex 24)
+  monitoring_password=$(openssl rand -hex 24)
   redis_password=$(openssl rand -hex 24)
   credential_key=$(openssl rand -base64 32 | tr -d '\n')
   activity_key=$(openssl rand -base64 32 | tr -d '\n')
   task_key=$(openssl rand -base64 32 | tr -d '\n')
   diff_secret=$(openssl rand -hex 32)
+  login_defense_key=$(openssl rand -base64 32 | tr -d '\n')
+  invitation_token_key=$(openssl rand -base64 32 | tr -d '\n')
 
   write_secret "$SECRETS_ROOT/database_password" "$database_password"
   write_secret "$SECRETS_ROOT/bootstrap_password" "$bootstrap_password"
+  write_secret "$SECRETS_ROOT/monitoring_password" "$monitoring_password"
   write_secret "$SECRETS_ROOT/credential_keys" "v1=$credential_key"
   write_secret "$SECRETS_ROOT/activity_cursor_key" "$activity_key"
   write_secret "$SECRETS_ROOT/task_token_key" "$task_key"
   write_secret "$SECRETS_ROOT/diff_cursor_secret" "$diff_secret"
+  write_secret "$SECRETS_ROOT/login_defense_hmac_key" "$login_defense_key"
+  write_secret "$SECRETS_ROOT/invitation_token_hmac_key" "$invitation_token_key"
   write_secret "$SECRETS_ROOT/redis_url" "redis://default:$redis_password@redis:6379"
   if [ ! -f "$SECRETS_ROOT/redis_acl" ]; then
     {
@@ -66,8 +72,9 @@ prepare_runtime() {
   # File-backed Secrets keep host ownership on Linux. Retain the local owner while granting the
   # fixed backend runtime group read-only access; Redis stages its owner-only ACL in container tmpfs.
   docker run --rm -v "$SECRETS_ROOT:/secrets" "$ALPINE_IMAGE" sh -ec '
-    for name in database_password bootstrap_password credential_keys activity_cursor_key \
-        diff_cursor_secret task_token_key redis_url; do
+    for name in database_password bootstrap_password monitoring_password credential_keys \
+        activity_cursor_key diff_cursor_secret task_token_key redis_url \
+        login_defense_hmac_key invitation_token_hmac_key; do
       chgrp 10001 "/secrets/$name"
       chmod 0440 "/secrets/$name"
     done
@@ -103,6 +110,7 @@ case "$action" in
     echo "CrewScope Team Beta: http://127.0.0.1:$CREWSCOPE_WEB_PORT"
     echo "Bootstrap user: crewscope-monitor"
     echo "Bootstrap password file: $SECRETS_ROOT/bootstrap_password"
+    echo "Prometheus machine user: crewscope-prometheus"
     ;;
   down)
     export_deployment_environment

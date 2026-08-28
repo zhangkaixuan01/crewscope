@@ -15,6 +15,7 @@ const secretPreparationFile = join(
 const backendDockerfile = join(root, 'deploy/team-beta/backend.Dockerfile')
 const webDockerfile = join(root, 'deploy/team-beta/web.Dockerfile')
 const nginxConfig = join(root, 'deploy/team-beta/nginx.conf')
+const prometheusConfig = join(root, 'deploy/team-beta/prometheus.yaml')
 const ciWorkflow = join(root, '.github/workflows/ci.yml')
 const gitIgnoreFile = join(root, '.gitignore')
 const expectedServices = [
@@ -37,12 +38,15 @@ try {
   for (const name of [
     'database_password',
     'bootstrap_password',
+    'monitoring_password',
     'credential_keys',
     'activity_cursor_key',
     'diff_cursor_secret',
     'task_token_key',
     'redis_url',
     'redis_acl',
+    'login_defense_hmac_key',
+    'invitation_token_hmac_key',
   ]) {
     writeFileSync(join(secrets, name), 'contract-only-placeholder\n', { mode: 0o600 })
   }
@@ -113,6 +117,18 @@ try {
 
   assertRole(model.services.api, 'server', true, false)
   assertRole(model.services.worker, 'worker', false, true)
+  assertAuthenticationRole(model.services.api, true, 'https', 'INVITE_ONLY', 'true')
+  assertAuthenticationRole(model.services.worker, false, 'https', 'INVITE_ONLY', 'true')
+  assert.equal(model.services.api.environment.CREWSCOPE_PASSWORD_HASH_PERMITS, '4')
+  assert.equal(model.services.worker.environment.CREWSCOPE_PASSWORD_HASH_PERMITS, '4')
+  assert.deepEqual(secretSources(model.services.prometheus), ['monitoring_password'])
+  assert.ok(secretSources(model.services.api).includes('bootstrap_password'))
+  assert.ok(secretSources(model.services.api).includes('monitoring_password'))
+  assert.ok(secretSources(model.services.api).includes('login_defense_hmac_key'))
+  assert.ok(secretSources(model.services.api).includes('invitation_token_hmac_key'))
+  assert.ok(!secretSources(model.services.worker).includes('login_defense_hmac_key'))
+  assert.ok(!secretSources(model.services.worker).includes('invitation_token_hmac_key'))
+  assert.ok(!secretSources(model.services.prometheus).includes('bootstrap_password'))
   for (const name of ['api', 'worker']) {
     const environment = model.services[name].environment
     for (const key of Object.keys(environment)) {
@@ -130,6 +146,12 @@ try {
   const nginx = readFileSync(nginxConfig, 'utf8')
   assert.match(nginx, /location \/api\//)
   assert.doesNotMatch(nginx, /location \/actuator/)
+  assert.match(nginx, /map \$http_x_forwarded_proto \$crewscope_forwarded_proto/)
+  assert.match(nginx, /proxy_set_header X-Forwarded-Proto \$crewscope_forwarded_proto/)
+  const prometheus = readFileSync(prometheusConfig, 'utf8')
+  assert.match(prometheus, /username: crewscope-prometheus/)
+  assert.match(prometheus, /password_file: \/run\/secrets\/monitoring_password/)
+  assert.doesNotMatch(prometheus, /bootstrap_password/)
 
   const ci = readFileSync(ciWorkflow, 'utf8')
   assert.match(ci, /image_security:/)
@@ -141,6 +163,13 @@ try {
   // Demo Secret and data material must never be staged with the deployment directory.
   const gitIgnore = readFileSync(gitIgnoreFile, 'utf8')
   assert.match(gitIgnore, /^deploy\/team-beta\/\.runtime\/$/m)
+  const trackedSecretMaterial = execFileSync(
+    'git',
+    ['ls-files', '--', '.env', 'deploy/team-beta/.env', 'deploy/team-beta/.runtime',
+      'deploy/team-beta/secrets'],
+    { cwd: root, encoding: 'utf8' },
+  ).trim()
+  assert.equal(trackedSecretMaterial, '', 'runtime Secret material must not be tracked')
 
   const demo = composeConfig(
     ['--profile', 'demo', '-f', composeFile, '-f', demoFile],
@@ -157,6 +186,10 @@ try {
   assert.ok(demo.services.api.build)
   assert.ok(demo.services.worker.build)
   assert.ok(demo.services.web.build)
+  assertAuthenticationRole(demo.services.api, true, 'local', 'OPEN', 'false')
+  assertAuthenticationRole(demo.services.worker, false, 'local', 'INVITE_ONLY', 'false')
+  assert.equal(demo.services.api.environment.CREWSCOPE_PASSWORD_HASH_PERMITS, '2')
+  assert.equal(demo.services.worker.environment.CREWSCOPE_PASSWORD_HASH_PERMITS, '2')
   const demoScript = readFileSync(demoScriptFile, 'utf8')
   assert.match(demoScript, /Bootstrap password file:/)
   assert.doesNotMatch(demoScript, /Bootstrap password:/)
@@ -168,7 +201,7 @@ try {
   assert.doesNotMatch(secretPreparation, /(?:cat|head|tail) "?\$secret_file/)
 
   assertMissingConfigurationFails()
-  console.log('Team Beta deployment contract passed: 7 services, immutable production images, role isolation and external Secrets.')
+  console.log('Team Beta deployment contract passed: 7 services, M7 authentication role isolation, immutable production images and external Secrets.')
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }
@@ -184,6 +217,10 @@ function composeConfig(args, env) {
 
 function volumeTargets(service) {
   return (service.volumes ?? []).map(volume => volume.target)
+}
+
+function secretSources(service) {
+  return (service.secrets ?? []).map(secret => secret.source).sort()
 }
 
 function dependency(service, name) {
@@ -203,6 +240,17 @@ function assertRole(service, role, flyway, worker) {
   ]) {
     assert.equal(env[key], String(worker), `${role} has the wrong ${key}`)
   }
+}
+
+function assertAuthenticationRole(service, api, transport, registrationMode, secureCookie) {
+  const env = service.environment
+  assert.equal(env.CREWSCOPE_DEPLOYMENT_TRANSPORT, transport)
+  assert.equal(env.CREWSCOPE_BROWSER_SESSION_ENABLED, String(api))
+  assert.equal(env.CREWSCOPE_LOGIN_DEFENSE_ENABLED, String(api))
+  assert.equal(env.CREWSCOPE_INVITATION_TOKEN_ENABLED, String(api))
+  assert.equal(env.CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED, String(api))
+  assert.equal(env.CREWSCOPE_REGISTRATION_MODE, registrationMode)
+  assert.equal(env.CREWSCOPE_SESSION_COOKIE_SECURE, secureCookie)
 }
 
 function assertDockerfile(path, requiredFragments) {

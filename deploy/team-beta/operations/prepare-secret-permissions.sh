@@ -14,8 +14,9 @@ load_operator_environment "${1:-}"
 chown 0:0 "$CREWSCOPE_SECRETS_ROOT"
 chmod 0700 "$CREWSCOPE_SECRETS_ROOT"
 
-for secret_name in database_password bootstrap_password credential_keys activity_cursor_key \
-    diff_cursor_secret task_token_key redis_url; do
+for secret_name in database_password bootstrap_password monitoring_password credential_keys \
+    activity_cursor_key diff_cursor_secret task_token_key redis_url login_defense_hmac_key \
+    invitation_token_hmac_key; do
   secret_file="$CREWSCOPE_SECRETS_ROOT/$secret_name"
   require_regular_file "$secret_file" "Team Beta Secret"
   [ ! -L "$secret_file" ] || fail "Team Beta Secret must not be a symbolic link: $secret_name"

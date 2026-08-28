@@ -6,15 +6,15 @@ scrape_configs:
   - job_name: crewscope-api
     metrics_path: /actuator/prometheus
     basic_auth:
-      username: crewscope-monitor
-      password_file: /run/secrets/bootstrap_password
+      username: crewscope-prometheus
+      password_file: /run/secrets/monitoring_password
     static_configs:
       - targets: [api:8080]
 
   - job_name: crewscope-worker
     metrics_path: /actuator/prometheus
     basic_auth:
-      username: crewscope-monitor
-      password_file: /run/secrets/bootstrap_password
+      username: crewscope-prometheus
+      password_file: /run/secrets/monitoring_password
     static_configs:
       - targets: [worker:8081]

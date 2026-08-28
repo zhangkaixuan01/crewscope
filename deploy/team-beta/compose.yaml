@@ -15,10 +15,21 @@ x-backend-common: &backend-common
     SPRING_CONFIG_IMPORT: configtree:/run/secrets/
     CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE: external
     CREWSCOPE_DEPLOYMENT_SECRET_SOURCE: external-file
+    CREWSCOPE_DEPLOYMENT_TRANSPORT: https
     CREWSCOPE_ENVIRONMENT: team-beta
     CREWSCOPE_DB_URL: jdbc:postgresql://postgres:5432/crewscope?currentSchema=crewscope,public
     CREWSCOPE_DB_USERNAME: crewscope
     CREWSCOPE_BOOTSTRAP_USERNAME: crewscope-monitor
+    CREWSCOPE_MONITORING_USERNAME: crewscope-prometheus
+    CREWSCOPE_OPERATOR_BOOTSTRAP_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
+    CREWSCOPE_OPERATOR_BOOTSTRAP_USERNAME: crewscope-monitor
+    CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL: crewscope-monitor@crewscope.local
+    CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME: CrewScope Operator
+    CREWSCOPE_REGISTRATION_MODE: ${CREWSCOPE_REGISTRATION_MODE:-INVITE_ONLY}
+    CREWSCOPE_PASSWORD_HASH_PERMITS: ${CREWSCOPE_PASSWORD_HASH_PERMITS:-4}
+    CREWSCOPE_SESSION_COOKIE_SECURE: "true"
+    CREWSCOPE_LOGIN_DEFENSE_ENVIRONMENT: team-beta
+    CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES: 172.30.0.10/32
     CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID: v1
     CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID: v1
     CREWSCOPE_TASK_TOKEN_ENABLED: "true"
@@ -51,6 +62,8 @@ x-backend-common: &backend-common
       target: spring.datasource.password
     - source: bootstrap_password
       target: crewscope.security.bootstrap.password
+    - source: monitoring_password
+      target: crewscope.security.monitoring.password
     - source: credential_keys
       target: crewscope.credential.encryption.keys
     - source: activity_cursor_key
@@ -132,13 +145,13 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    # The monitoring password is shared read-only with the fixed backend runtime group.
+    # Prometheus receives only its machine credential, never the human Operator Secret.
     group_add: ["10001"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
-    secrets: [bootstrap_password]
+    secrets: [monitoring_password]
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -154,6 +167,10 @@ services:
     environment:
       <<: *backend-environment
       CREWSCOPE_EXECUTION_PROFILE: server
+      CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED: "true"
+      CREWSCOPE_BROWSER_SESSION_ENABLED: "true"
+      CREWSCOPE_LOGIN_DEFENSE_ENABLED: "true"
+      CREWSCOPE_INVITATION_TOKEN_ENABLED: "true"
       CREWSCOPE_SERVER_PORT: "8080"
       CREWSCOPE_FLYWAY_ENABLED: "true"
       CREWSCOPE_OUTBOX_ENABLED: "false"
@@ -174,6 +191,27 @@ services:
       - type: bind
         source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
         target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+    secrets:
+      - source: database_password
+        target: spring.datasource.password
+      - source: bootstrap_password
+        target: crewscope.security.bootstrap.password
+      - source: monitoring_password
+        target: crewscope.security.monitoring.password
+      - source: credential_keys
+        target: crewscope.credential.encryption.keys
+      - source: activity_cursor_key
+        target: crewscope.team-activity-realtime.keys.v1
+      - source: diff_cursor_secret
+        target: crewscope.coding.diff.cursor-secret
+      - source: task_token_key
+        target: crewscope.security.task-token.keys.v1
+      - source: redis_url
+        target: crewscope.runtime.redis.url
+      - source: login_defense_hmac_key
+        target: crewscope.security.login-defense.hmac-key
+      - source: invitation_token_hmac_key
+        target: crewscope.invitation.token.hmac-key
     healthcheck:
       test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/actuator/health/readiness]
       interval: 10s
@@ -186,6 +224,10 @@ services:
     environment:
       <<: *backend-environment
       CREWSCOPE_EXECUTION_PROFILE: worker
+      CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED: "false"
+      CREWSCOPE_BROWSER_SESSION_ENABLED: "false"
+      CREWSCOPE_LOGIN_DEFENSE_ENABLED: "false"
+      CREWSCOPE_INVITATION_TOKEN_ENABLED: "false"
       CREWSCOPE_SERVER_PORT: "8081"
       CREWSCOPE_FLYWAY_ENABLED: "false"
       CREWSCOPE_OUTBOX_ENABLED: "true"
@@ -258,12 +300,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [edge, backend]
+    networks:
+      edge: {}
+      backend:
+        ipv4_address: 172.30.0.10
 
 networks:
   edge: {}
   backend:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   observability:
     internal: true
 
@@ -277,6 +325,8 @@ secrets:
     file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/database_password
   bootstrap_password:
     file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/bootstrap_password
+  monitoring_password:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/monitoring_password
   credential_keys:
     file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/credential_keys
   activity_cursor_key:
@@ -289,3 +339,7 @@ secrets:
     file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_url
   redis_acl:
     file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_acl
+  login_defense_hmac_key:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/login_defense_hmac_key
+  invitation_token_hmac_key:
+    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/invitation_token_hmac_key

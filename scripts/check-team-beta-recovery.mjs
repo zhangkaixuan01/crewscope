@@ -43,9 +43,9 @@ try {
     valid.payload,
     valid.envelope,
     '26',
-    '30',
+    '32',
   ))
-  assert.equal(verified.schemaVersion, 30)
+  assert.equal(verified.schemaVersion, 32)
   assert.deepEqual(Object.keys(verified.components).sort(), ['artifacts', 'postgres', 'redis'])
   for (const component of Object.values(verified.components)) {
     assert.ok(component.bytes > 0)
@@ -58,20 +58,20 @@ try {
 
   const badComponent = createFixture('bad-component')
   appendFileSync(join(badComponent.payload, 'postgres.dump'), 'tampered')
-  assertRecoveryFails('verify-payload', badComponent.payload, badComponent.envelope, '26', '30')
+  assertRecoveryFails('verify-payload', badComponent.payload, badComponent.envelope, '26', '32')
 
   const expired = createFixture('expired', { createdAt: instantFromNow(-25 * 60 * 60) })
-  assertRecoveryFails('verify-payload', expired.payload, expired.envelope, '26', '30')
+  assertRecoveryFails('verify-payload', expired.payload, expired.envelope, '26', '32')
   const future = createFixture('future', { createdAt: instantFromNow(60) })
-  assertRecoveryFails('verify-payload', future.payload, future.envelope, '26', '30')
-  for (const schemaVersion of [25, 31]) {
+  assertRecoveryFails('verify-payload', future.payload, future.envelope, '26', '32')
+  for (const schemaVersion of [25, 33]) {
     const incompatible = createFixture(`schema-${schemaVersion}`, { schemaVersion })
     assertRecoveryFails(
       'verify-payload',
       incompatible.payload,
       incompatible.envelope,
       '26',
-      '30',
+      '32',
     )
   }
 
@@ -114,7 +114,7 @@ try {
   assertStaticContracts()
   console.log(
     'Team Beta recovery contract passed: encrypted package integrity, Artifact verification, '
-      + 'V26..V30 boundary, safe archives, retention and Runbook.',
+      + 'V26..V32 boundary, safe archives, retention and Runbook.',
   )
 } finally {
   rmSync(temporary, { recursive: true, force: true })
@@ -144,7 +144,7 @@ function createFixture(name, overrides = {}) {
       activeActionDispatches: 0,
       activeNotificationDispatches: 0,
     },
-    schemaVersion: overrides.schemaVersion ?? 30,
+    schemaVersion: overrides.schemaVersion ?? 32,
   }))
   runRecovery('create-manifest', payload, metadata)
   const ciphertext = join(directory, `${name}.bundle.enc`)
@@ -252,7 +252,7 @@ function assertFingerprintContract() {
     dataRoot: temporary,
     datasetVersion: 'contract-v1',
     gitRevision: 'a'.repeat(40),
-    schemaVersion: 30,
+    schemaVersion: 32,
     seed: '20260825',
     webImage: `crewscope-web@sha256:${'2'.repeat(64)}`,
   }))
