@@ -91,4 +91,4 @@ Docker、Node.js 24 或 pnpm 不可用时门禁直接失败。数据库、Redis�
 | Maven 全量回归 | `2552 / 2552`，零失败、零跳过，7 个 Reactor 模块全部成功 |
 | Web 全量回归 | `450 / 450`，TypeScript 检查与 Vite 生产构建通过 |
 
-M6-Q02 未发现需要放宽生产恢复或幂等规则的问题。M6-Q01 全量回归发现的随机 Audit 夹具已在进入本门禁前改为确定性名称，因此 Operations 数据库提交窗口测试保持稳定。后续 M6-Q03 本机协议与生产 Queue/Activity/Inbox Fixture 已完成固定样本负载、重启恢复、备份恢复合同与完整 MVP E2E，仍待 Canonical Nightly 空目标恢复和受保护真实 Lark 证据。
+M6-Q02 未发现需要放宽生产恢复或幂等规则的问题。M6-Q01 全量回归发现的随机 Audit 夹具已在进入本门禁前改为确定性名称，因此 Operations 数据库提交窗口测试保持稳定。后续 M6-Q03 已完成 Canonical 生产负载、空目标恢复、真实 Lark 与完整 MVP E2E，M6-Q04 MVP Release Gate 已通过。

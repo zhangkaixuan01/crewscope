@@ -5,7 +5,7 @@ CrewScope 是面向技术团队的协作式 AI 工作执行平台。成员、Per
 ## 技术基线
 
 - Java 17
-- Spring Boot 4.0.4
+- Spring Boot 4.0.6
 - AgentScope Java 2.0.0
 - PostgreSQL 17
 - Redis 7.4

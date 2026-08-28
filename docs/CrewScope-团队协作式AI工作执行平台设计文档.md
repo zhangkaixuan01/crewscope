@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.37<br>
+> 文档版本：v5.38<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -3802,7 +3802,7 @@ M6-Q03 使用 `fixture`、`nightly` 和 `release-candidate` 三种显式轨道�
 
 M6-Q04 使用 `local-preflight` 与 `release-candidate` 两条轨道聚合 M0–M6 发布证据。Local Preflight 负责开发机可权威判定的确定性合同、全量回归、固定攻击/故障集、Q03 Fixture、前端 Coverage/Build/Histoire/Playwright、M4/M5 冻结评测协议、Dockerfile 构建、生产依赖 Audit、文档链接和敏感字段。Release Candidate 继续强制 Q03 Canonical 完整窗口、新备份独立空目标恢复和真实 Lark 固定模板 Receipt；任何证据缺失、失败、跳过或 Hash 不一致均拒绝发布。
 
-本机预检已完成 Maven `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 个 Story/104 个 Variant、M4 Frozen Judge Pack 独立物化编译、生产依赖零已知漏洞以及 Backend/Web 本机缓存镜像构建与容器烟测。开发机 Docker Registry Resolver 未完成远端固定 Digest 解析，该步骤不降级为本机缓存结论；Linux amd64 GitHub Actions 必须使用 Dockerfile 冻结 Digest 重新构建，并完成 OSV 与 Trivy 权威扫描。M6-Q03 与 CI 证据正式关闭前，M6-Q04 保持进行中且不作出 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
+本机预检已完成 Maven `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 个 Story/104 个 Variant、M4 Frozen Judge Pack 独立物化编译、生产依赖零已知漏洞以及 Backend/Web 本机缓存镜像构建与容器烟测。Linux amd64 Canonical 使用非 root 发布用户完成完整 Release Candidate，GitHub Actions 使用 Dockerfile 冻结 Digest 重新构建 Backend/Web 镜像并完成 OSV 与两项 Trivy 权威扫描，最终 `release-gate` 为 `success`。M6-Q03 与 M6-Q04 已正式关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
 ## 17. 可观测性与评测
 

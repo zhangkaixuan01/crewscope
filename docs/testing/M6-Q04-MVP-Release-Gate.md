@@ -1,7 +1,7 @@
 # M6-Q04 MVP Release Gate
 
 > 任务：`M6-Q04`<br>
-> 状态：本机与 Linux amd64 Release Candidate 已完成，发布决策待权威 CI 扫描<br>
+> 状态：已完成，MVP Release 决定通过<br>
 > 日期：2026-08-28<br>
 > 范围：M0–M6 回归、V1–V30、AgentScope、前端、Docker、Provider、安全、故障、负载、恢复、依赖、文档与 MVP 发布决策
 
@@ -55,7 +55,7 @@ Q04 只在以下三类证据同时通过后关闭：
 
 Fixture Evidence 保存在 `var/release/m6-q04/`。生产镜像使用 Dockerfile 的显式 Base Image 参数和本机离线缓存验证项目编译、分层、非 root 用户、Entrypoint 与静态站点启动。Docker Desktop 的 Registry Resolver 访问 Docker Hub 鉴权端点超时，因此本机没有把远端固定 Digest 解析冒充为成功；默认 Dockerfile 中的 Digest 未修改，Linux amd64 CI 必须使用这些冻结坐标重新构建并执行 Trivy。
 
-## 4. 当前待完成证据
+## 4. 最终证据
 
 | 证据 | 执行环境 | 当前状态 |
 |---|---|---|
@@ -64,12 +64,14 @@ Fixture Evidence 保存在 `var/release/m6-q04/`。生产镜像使用 Dockerfile
 | Q03 新备份独立空目标恢复 | Linux amd64 Canonical 双 Operator Environment | 已完成，RPO `26s`、RTO `71s` |
 | Q03 真实 Lark 固定模板 Receipt | 受保护 Release Candidate | 已完成，`SUCCEEDED` |
 | Linux amd64 Release Candidate 回归 | 8 vCPU / 16 GB 主机 | 已完成 |
-| 固定 Digest 生产镜像、OSV 清单与 Trivy 扫描 | GitHub Actions Linux amd64 | 待推送后执行 |
+| 固定 Digest 生产镜像、OSV 清单与 Trivy 扫描 | GitHub Actions Linux amd64 | 已完成，全部成功 |
 
 Release Candidate 绑定 Git Revision `a5020c9eafc21ac09d2d0ad8ced17049c026e4b4`。Q03、Playwright `180 / 180`、非 root Maven `clean verify` 7 个 Reactor 模块、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Vitest `450 / 450`、Coverage、生产构建、14 个 Story/104 个 Variant 与生产依赖 Audit 全部通过。
 
 Canonical 主机最初以 root 执行 Maven 时，真实 Sandbox 测试按设计拒绝 root-owned Worktree。正式续跑使用专用 UID/GID `1001:1001` 的非 root 发布用户并加入 Docker 组；`TaskExecutionSandboxFactoryM4I04DockerIntegrationTest` 随后 `12 / 12`、零跳过通过。发布环境不得通过削弱 Worktree 所有权校验兼容 root Runner。
 
+GitHub Actions 权威门禁绑定 Revision `8ac1cd0db4e045105deeeb76841a84b683b98661`，Run [33135936905](https://github.com/zhangkaixuan01/crewscope/actions/runs/33135936905) 的 Backend、Frontend、Quality、生产 Web 依赖 Audit、OSV、固定 Digest Backend/Web 镜像与两项 Trivy 扫描全部成功，最终 `release-gate` 为 `success`。Canonical Revision `a5020c9eafc21ac09d2d0ad8ced17049c026e4b4` 之后只增加发布证据文档、Apache-2.0 许可证元数据和并发 Provider 测试执行器稳定性修复，没有修改生产 Java/TypeScript、数据库迁移或部署合同。
+
 ## 5. 关闭规则
 
-Q03 已正式关闭，开发机与 Canonical Release Candidate 的确定性门禁均已完成。GitHub Actions 的固定 Digest、OSV 与 Trivy 任一未通过前，M6-Q04 保持进行中，不作出最终 MVP Release 决定。
+三类关闭证据全部满足：本机预检零失败、零跳过；Q03 Canonical 与受保护 Release Candidate 正式关闭；GitHub Actions 权威依赖、镜像和回归门禁全部成功。M6-Q04 正式关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。该决定表示当前候选版本满足 MVP 发布门槛，不扩大设计文档中明确排除的生产部署、Kubernetes 和跨区域容灾范围。

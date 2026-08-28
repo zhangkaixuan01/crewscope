@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v1.78<br>
+> 文档版本：v1.79<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.37`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M5、M6-S01 至 M6-S05、M6-D01 至 M6-D09、M6-E01 至 M6-E07、M6-I01 至 M6-I10、M6-A01 至 M6-A07、M6-F01 至 M6-F08、M6-Q01 至 M6-Q03 已完成；M6-Q04 本机与 Linux amd64 Release Candidate 确定性门禁已完成，仅待 GitHub Actions 固定 Digest、OSV 与 Trivy 权威扫描（2026-08-28）
+> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过，CrewScope Team Beta MVP Release 决定为 `PASS`（2026-08-28）
 
 ## 1. 实施目标
 
@@ -911,7 +911,7 @@ M6-Q02 已冻结 `FI-001` 至 `FI-121` 的故障矩阵，覆盖 Outbox、Project
 
 M6-Q03 已完成 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Linux amd64 Canonical 在 8 vCPU/16 GB 主机完成 120 秒 Warmup 与三轮各 600 秒 Measurement，每轮 `5,960` 请求；生产 READY Claim P95 为 `12 / 11 / 11ms`，Activity P95 为 `18 / 15 / 13ms`，Inbox P95 为 `13 / 13 / 11ms`，错误率均为 `0`。新备份空 Target 恢复到 V30，RPO `26s`、RTO `71s`、traffic 开启；真实飞书 `release-candidate-smoke@1` 固定模板返回 `SUCCEEDED`。完整 MVP Playwright 在 macOS 与 Linux 分平台基线均为 `180 / 180`。M6-Q03 已关闭，实现与证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
 
-M6-Q04 已完成 `local-preflight` 与 Linux amd64 `release-candidate` 的确定性门禁。除本机既有 `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 Story/104 Variant 外，Canonical 主机使用非 root 发布用户完成 7 模块 `clean verify`、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Coverage、生产构建、Histoire 与零已知生产依赖漏洞。Q03 已关闭；M6-Q04 仅待 GitHub Actions 固定 Digest、OSV 与 Trivy 权威扫描通过后作出最终 MVP Release 决定。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
+M6-Q04 已完成 `local-preflight`、Linux amd64 `release-candidate` 与 GitHub Actions 权威门禁。除本机既有 `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 Story/104 Variant 外，Canonical 主机使用非 root 发布用户完成 7 模块 `clean verify`、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Coverage、生产构建、Histoire 与零已知生产依赖漏洞；GitHub Actions 固定 Digest、OSV 和 Backend/Web Trivy 扫描全部成功，最终 `release-gate` 为 `success`。M6-Q04 已关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
 
 ## 19. 项目管理与进度跟踪
 

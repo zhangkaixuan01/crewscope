@@ -101,4 +101,4 @@ export PATH=/Users/zhangkaixuan/.nvm/versions/node/v24.13.1/bin:$PATH
 
 全量回归同时发现一个测试夹具随机性：M6-I02 恢复测试把随机 UUID 拼入公开 `projectionName`，随机数字段可能被安全摘要边界识别为 phone-like PII。夹具已改为确定性的安全名称，生产 PII 拦截规则保持不变，恢复路径专项回归 `4 / 4` 通过。
 
-最终指标：越权工具与资源访问阻断率 `100%`；Team Observer 写工具与写调用 `0`；Secret、PII、原始 Payload、Prompt 内部数据和 Provider Body 泄漏 `0`；普通成员 Projection 重建、切换、失败和 Dead Letter/Notification 重放命令 `0`。M6-Q01 验收完成；后续 M6-Q02 已完成固定故障与恢复攻击集，M6-Q03 本机协议与生产 Queue/Activity/Inbox Fixture 已完成并等待 Canonical Nightly 空目标恢复与受保护 Release Candidate 证据。
+最终指标：越权工具与资源访问阻断率 `100%`；Team Observer 写工具与写调用 `0`；Secret、PII、原始 Payload、Prompt 内部数据和 Provider Body 泄漏 `0`；普通成员 Projection 重建、切换、失败和 Dead Letter/Notification 重放命令 `0`。M6-Q01 验收完成；后续 M6-Q02 固定故障与恢复攻击集、M6-Q03 Canonical/Release Candidate 和 M6-Q04 MVP Release Gate 均已完成。
