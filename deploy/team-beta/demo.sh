@@ -108,9 +108,11 @@ case "$action" in
     # shellcheck disable=SC2086
     docker compose --profile demo $COMPOSE_FILES up --detach --build --wait
     echo "CrewScope Team Beta: http://127.0.0.1:$CREWSCOPE_WEB_PORT"
-    echo "Bootstrap user: crewscope-monitor"
-    echo "Bootstrap password file: $SECRETS_ROOT/bootstrap_password"
-    echo "Prometheus machine user: crewscope-prometheus"
+    echo "Open registration: http://127.0.0.1:$CREWSCOPE_WEB_PORT/register"
+    echo "Operator login: http://127.0.0.1:$CREWSCOPE_WEB_PORT/login"
+    echo "Operator username: crewscope-monitor"
+    echo "Operator password file: $SECRETS_ROOT/bootstrap_password"
+    echo "Prometheus machine user (not a Web login): crewscope-prometheus"
     ;;
   down)
     export_deployment_environment

@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.63<br>
+> 文档版本：v5.69<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -3472,6 +3472,10 @@ POST   /api/v1/invitations/accept
 
 注册和登录使用固定 JSON 白名单；登录、注册和邀请 POST 在聚合前分别执行 8 KiB、16 KiB 与 8 KiB 上限，并继续受各 DTO 更小的字段预算约束。注册、登录和 Preview 返回账号存在性无关的稳定错误；内部诊断只进入安全 Audit 分类。Session ID、认证 Cookie、密码、密码 Hash 和邀请 Token 不进入日志、Trace、指标、DomainEvent 或 Audit Payload。防 CSRF Token 只出现在受控 CSRF Cookie、Session 公开投影和同源请求 Header，不进入其他浏览器持久存储或 Telemetry。邀请链接使用 `/invite#token=...`，Fragment 不发送给 Web/Nginx；前端读入内存后立即清除地址栏。邀请明文 Token 只允许出现在创建成功的一次性响应、Fragment、Preview/Accept POST Body 和页面进程内短期状态，不进入 HTTP Path/Query、邀请列表或浏览器持久存储。
 
+正式注册入口为 `/register`。页面先读取匿名 Session 的 Registration Mode 与内存 CSRF 坐标：`OPEN` 允许普通注册和邀请注册，`INVITE_ONLY` 只在存在邀请上下文时展示表单，`DISABLED` 对普通与邀请注册均失败关闭。邀请页向新账号流程传递 `/register#token=...`；注册页只接受单个固定 43 字符 Base64URL Token，读入组件内存后立即替换当前 History Entry 清除 Fragment。普通注册成功进入 `/onboarding`，邀请注册在服务端事务内创建 Membership 并消费邀请后直接进入 Conversation。
+
+注册表单固定为用户名、邮箱、展示名和新密码，密码在浏览器侧按 12–128 Unicode code point 与 512 UTF-8 byte 双预算提示，服务端继续负责完整密码策略。每次提交意图生成内存 Idempotency Key，Pending 期间阻断重复提交；网络结果不确定、请求超时或账号已提交但 Session 建立失败时，使用同一 Key 与原注册信息恢复。字段修改废弃恢复 Key。用户名/邮箱冲突、邀请不存在、过期、撤销、已消费或邮箱不匹配均使用不披露命中字段和邀请状态的稳定文案。密码、邀请 Token、CSRF 与 Idempotency Key 不进入 URL Query、普通 Store、LocalStorage、SessionStorage、Telemetry 或日志。
+
 ### 15.3 Team、Workspace、Provider 与连接 API
 
 ```text
@@ -4262,6 +4266,24 @@ AppShell 在主导航前提供可聚焦的跳过链接。Conversation 从列表�
 Repository Settings 与 Execution Studio 复用同一可访问性契约。仓库绑定面板关闭时按稳定触发器标识查询当前 DOM 节点，Catalog 异步刷新引发按钮重建时仍能恢复焦点。Repository Preflight、执行事实同步与 Artifact 分页错误分别采用礼貌或紧急播报；CodingTarget 加载动画在 Reduced Motion 环境关闭旋转。M4 主要页面进入双视口键盘、截图和 Axe WCAG 2.2 AA 自动门禁。
 
 前端权限守卫依据当前会话权限裁剪导航、路由和命令按钮，未授权路由进入独立 Access Denied 页面并记录原目标。界面权限只改善可用性；Team 列表、WorkProject、成员读取和成员添加仍由服务端校验 Organization、ACTIVE Membership、TeamRole Scope 与目标 Principal。M7 使用 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite#token=...` 组成公开账号入口；应用启动先读取 Session 公开投影，再恢复 Scope Store。生产代码删除固定 `bootstrapPrincipal`，401 清理当前身份并返回登录页，403 保留已认证身份进入 Access Denied。登录成功只恢复同源站内目标，拒绝绝对 URL、协议相对 URL 和未注册路由；Session 过期、跨标签退出和旧认证请求迟到都不能闪现或恢复受保护页面。
+
+M7-F04 将 AuthStore 固定为浏览器身份的唯一权威。应用启动、刷新和受保护路由首次导航共用一个有界 Session 恢复请求；`idle / restoring / error` 阶段只渲染 AuthSessionBoundary，身份明确后才挂载 RouterView。Session 白名单投影原位更新稳定 Principal 引用，既有领域 Store 不保存第二份账号身份。登录或注册成功后先重新读取正式 Session、Account、Principal 与 Permission，再进入业务路由。
+
+业务 API 只有在 `HTTP 401 + authentication_required` 时触发统一身份失效；登录接口的 `invalid_credentials` 不清理当前身份，也不广播退出。身份失效递增恢复代次、清空 Principal、停止实时流并重置 Scope、Conversation、WorkItem、Task、Coding、Model、Agent、Review、Delivery、TeamOps 与 TeamObserver Store，迟到的 Session 或 Team 响应不能回写新账号状态。跨标签页只通过 `BroadcastChannel('crewscope-auth')` 发送无身份坐标的 `{type: 'signed-out'}`，随后每个标签重新读取匿名 Session 与 CSRF 坐标。Session 投影中的 CSRF 坐标只保存在受控内存，身份、权限和 CSRF 不写入 LocalStorage 或 SessionStorage。实现与验证见 [M7-F04 AuthStore 与会话路由守卫](testing/M7-F04-AuthStore与会话路由守卫.md)。
+
+M7-F05 将 `/onboarding` 固定为已认证无 Team 用户的首次协作入口。页面解释 Team、共享 Workspace、Owner 责任和默认 Personal Agent 的初始化边界；已有 ACTIVE Team 的用户经 `GET /api/v1/onboarding` 确认后直接进入 Conversation，不允许前端仅凭旧缓存决定跳过。创建请求只提交 Team 名称，CSRF 来自 AuthStore 内存 Session，Idempotency Key 只存在 OnboardingStore 私有内存。网络失败、超时和服务暂时不可用保留同一创建意图，幂等冲突清除旧 Key；收到 202 后若状态检查中断，重试只读取 Onboarding 状态，不重复创建 Team。
+
+Onboarding 不从命令回执推断完整就绪，也不展示客户端虚构百分比。前端依次重读正式 Session、新 Team `initializationStatus=READY` 投影，以及当前 TeamMember 拥有的 `USER + defaultProfile + ACTIVE` Personal Agent；所有事实收敛后才展示 Agent 名称与 `/conversation?team=<teamId>` 入口。Generation 与 AbortController 在身份失效、路由退出和重试时取消旧请求，迟到响应不能回写新身份。桌面与 390px 保持单一 `main`、零横向溢出，创建、错误与完成状态分别聚焦首个输入、错误摘要和完成标题。实现与验证见 [M7-F05 首次 Team Onboarding](testing/M7-F05-首次Team-Onboarding.md)。
+
+M7-F06 将 `/account` 固定为 AppShell 内的当前账号安全工作区，并在桌面侧栏与移动端顶栏提供用户菜单。Account Gateway 只消费当前账号资料、资料修改、改密和全部 Session 撤销接口；读取响应必须同时具备单值强 ETag，且 ETag 与 Body Version 一致。所有写请求使用 AuthStore 内存 CSRF 与单值强 `If-Match`。Account Store 只保存公开资料、ETag 和脱敏状态；Generation 与 AbortController 在身份失效、路由离开、重读和新命令时拒绝迟到响应。强版本冲突后立即重读服务端权威账号事实。
+
+展示名称可以独立修改；用户名或邮箱实际变化时才要求当前密码与 `securityVersion` Step-up。改密和退出全部设备都会撤销当前账号的全部 Session，成功后清理本地身份并返回登录页；AppShell 的退出当前设备只调用 `/auth/logout`。当前密码、新密码和确认密码只存在组件私有内存与一次 Gateway 调用中，不进入 Store、URL、浏览器持久存储或 Telemetry。离线时禁用全部账号写操作；全部设备退出使用包含当前设备说明的确认对话框，并提供初始焦点、焦点陷阱、Escape、错误聚焦和触发器焦点恢复。头像使用展示名称首个 Unicode code point 回退。实现与验证见 [M7-F06 账号设置与会话安全](testing/M7-F06-账号设置与会话安全.md)。
+
+M7-F07 将 Team 邀请管理固定在成员管理入口。只有当前 Session 具备目标 Team `MEMBER_MANAGE` 时才挂载邀请创建、Keyset 列表、复制和撤销组件；前端权限只减少无效操作，服务端继续复验 Organization、ACTIVE Membership、Team Scope Role 与目标 Role。创建首次响应的一次性 Token 只在组件内存中转换为当前 Origin 的 Fragment 链接，离开表单或切换 Team 后清理。邀请列表、响应式 Store、URL Query、Session 投影、浏览器持久化和 Telemetry 均不保存明文 Token。网络不确定时复用私有幂等键；重放不恢复 Token，页面重读服务端列表并要求撤销后创建新链接。
+
+正式 `/invite#token=...` 把 Fragment 证明读入 Invitation Store 私有内存后立即从地址栏和当前历史项清除，再调用匿名 Preview。Preview 只展示 `AVAILABLE / EXPIRED / UNAVAILABLE`、Team 名称、目标角色、有效期与是否定向，不返回目标邮箱、邀请人、Organization、Principal 或 Membership。已有账号通过无证明的 `/login?returnTo=/invite` 登录后继续 Accept；新用户通过内存交接进入正式注册页，由注册事务原子创建账号并加入 Team。Accept 请求只提交 Token，服务端从当前 Session 解析身份；成功后 AuthStore 重读 Session、ScopeStore 复验新增 Team，再进入目标 Conversation。无效、已接受、已撤销、邮箱不匹配和跨账号失败统一使用非识别性文案。实现与验证见 [M7-F07 Team 邀请管理与邀请接受体验](testing/M7-F07-Team邀请管理与邀请接受体验.md)。
+
+M7-F08 将开放身份前端的质量分母固定到 Identity、Account、Onboarding、Invitation 领域及五个正式页面，不再只统计 API、App 和组件目录。登录、注册、Session、账号、首次 Team 和邀请的错误映射使用稳定公开 Code 与非识别性文案矩阵；Coverage 阈值保持 Statements 80%、Branches 70%、Functions 75%、Lines 80%。Histoire、双视口 Playwright/Axe、分平台视觉基线、生产构建与敏感字段扫描形成统一前端门禁。生产 Web 扫描显式拒绝测试 `bootstrapPrincipal`、业务 Basic Auth 文案和浏览器身份持久化；README 与 Demo 只引导正式 `/register`、`/login` 和机器监控凭证隔离。实现与验证见 [M7-F08 认证与 Onboarding 前端收口](testing/M7-F08-认证与Onboarding前端收口.md)。
 
 M7 的公开身份页使用独立 AuthLayout。桌面端左侧表达“成员 → Personal Agent → 团队”的协作关系，右侧承载当前登录、注册、邀请或 Onboarding 任务；390px 窄屏先展示简化品牌说明，再显示单列任务。`/account` 是已登录 AppShell 设置页，使用个人资料、密码与会话分区，不沿用公开认证卡。普通表单聚焦首个输入，错误/锁定聚焦错误摘要，注册关闭/邀请失效聚焦状态标题。密码显隐只存在组件内存，不写入浏览器持久存储。M7-S04 已以 12 个状态、5 个核心页的 Darwin/Linux 双视口截图、焦点顺序和 Axe 门禁冻结该基线，证据见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。
 

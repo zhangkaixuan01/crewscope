@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v2.05<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.63`<br>
+> 文档版本：v2.13<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.69`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07 已完成，下一任务为 `M7-F01`
+> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07、M7-F01 至 M7-F08 已完成，下一任务为 `M7-Q01`
 
 ## 1. 实施目标
 
@@ -741,7 +741,7 @@ V30 升级保留既有 `bootstrap/crewscope-monitor` USER Principal ID、TeamMem
 8. V30→V32 升级后既有 Operator、团队、任务、Agent 和 Provider 数据保持有效；
 9. 完整任务依赖、配置、API 和 Release Gate 见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)。
 
-M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07 已完成；应用/API 波次已交付注册、JSON 登录与 Session 投影、当前账号资料/改密/全部设备退出、Onboarding、邀请管理、安全路由，以及闭合 DTO、稳定错误、单值幂等/强版本、10 个 Audit 映射和 Spring/Jackson 唯一装配合同。提交前审查进一步隔离 `CREATE_FIRST_TEAM / CREATE_TEAM` 幂等域，在 Membership 写入前复验目标 Role，只信任 Spring 规范化后的请求 Origin，并将有界身份持久化过载折叠为稳定 503。完整前端消费协议见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，对应验证见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)，下一任务为 `M7-F01`。
+M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07、M7-F01 至 M7-F08 已完成；应用/API 波次已交付注册、JSON 登录与 Session 投影、当前账号资料/改密/全部设备退出、Onboarding、邀请管理、安全路由，以及闭合 DTO、稳定错误、单值幂等/强版本、10 个 Audit 映射和 Spring/Jackson 唯一装配合同。提交前审查进一步隔离 `CREATE_FIRST_TEAM / CREATE_TEAM` 幂等域，在 Membership 写入前复验目标 Role，只信任 Spring 规范化后的请求 Origin，并将有界身份持久化过载折叠为稳定 503。前端已交付正式 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite`，以及真实 AuthStore、Router Guard、跨标签退出、账号强 ETag/密码 Step-up、邀请创建/列表/撤销、Fragment 内存证明、匿名 Preview、已有账号登录返回 Accept、新账号注册原子入 Team、Session/Team Scope 接受复验和敏感字段零持久化；F08 已将四个身份领域和五个正式页面纳入真实 Coverage 分母，补齐公开错误状态矩阵，并统一收口 Histoire、双视口 Playwright/Axe、视觉、README/Demo 与敏感字段 CI 门禁。完整前端消费协议见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，F01 至 F07 证据见对应测试记录，最终前端收口见 [M7-F08 认证与 Onboarding 前端收口](testing/M7-F08-认证与Onboarding前端收口.md)，下一任务为 `M7-Q01`。
 
 ## 14. 模块实施边界
 

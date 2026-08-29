@@ -20,7 +20,7 @@
 
 CrewScope 将技术团队的对话目标转化为可执行、可协作、可追踪的工作闭环。每位成员拥有代表自己的 Personal Agent；Team Agent 提供共享团队视野；Coding、Reviewer 等 Specialist Agent 承担专业执行；人始终负责目标、授权、Review 和最终决策。
 
-当前 **Team Beta MVP** 已完成 M0–M6 全部里程碑，MVP Release Gate 结论为 [`PASS`](docs/testing/M6-Q04-MVP-Release-Gate.md)。
+当前 **Team Beta MVP** 已完成 M0–M6 全部里程碑，MVP Release Gate 结论为 [`PASS`](docs/testing/M6-Q04-MVP-Release-Gate.md)。M7 的开放用户体系已完成 Spike、领域、基础设施、应用/API 与前端实现波次，提供正式注册、登录、Session、首次 Team Onboarding、账号安全和团队邀请入口；M7 安全与发布质量波次继续按计划执行。
 
 ![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
@@ -116,11 +116,19 @@ flowchart TB
 http://127.0.0.1:8080
 ```
 
-登录用户为 `crewscope-monitor`，随机密码保存在：
+Demo 使用 `OPEN` 注册模式。普通用户可以直接打开：
+
+```text
+http://127.0.0.1:8080/register
+```
+
+注册后会进入首次 Team Onboarding，并创建默认 Personal Agent。Demo 同时预置一个 Operator 账号；通过 `http://127.0.0.1:8080/login` 使用用户名 `crewscope-monitor` 登录，随机密码保存在：
 
 ```text
 deploy/team-beta/.runtime/secrets/bootstrap_password
 ```
+
+`crewscope-prometheus` 及 `monitoring_password` 只用于 Prometheus 机器抓取，不能登录 Web 或访问业务 API。邀请新成员时，由具备成员管理权限的用户在 Team 成员页创建一次性链接；链接会进入公开 `/invite` 页面，不在邀请列表或浏览器持久化中保存明文 Token。
 
 查看状态、日志或停止服务：
 
@@ -155,7 +163,7 @@ set +a
 java -jar crewscope-server/target/crewscope-server-0.1.0-SNAPSHOT.jar
 ```
 
-使用 `.env.example` 时，本地账号为 `crewscope / change-me`。该账号仅用于本机开发，部署环境必须设置独立强密码。
+根目录 `.env.example` 面向 API 与 Worker 源码调试，默认不建立可供浏览器使用的占位身份。需要验证完整账号、Session、Onboarding 和邀请流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
 
 ### 启动前端
 
@@ -183,16 +191,18 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 | 门禁 | 结果 |
 |---|---:|
-| Maven 全量回归 | `2554 / 2554` |
-| Vitest | `450 / 450` |
-| Playwright / Visual / Axe | macOS 与 Linux 均 `180 / 180` |
+| M6 Maven 全量回归 | `2554 / 2554` |
+| M7 Web Vitest / Coverage | `625 / 625`；Statements `80.13%`、Branches `73.84%`、Functions `82.63%`、Lines `83.83%` |
+| M7 Web Playwright / Visual / Axe | 桌面与 390px 共 `240 / 240` |
+| M7 Histoire | `21` Stories / `153` Variants |
+| M7 Web 敏感字段门禁 | `78` 个生产文件 / `21` 个 Stories |
 | 固定安全攻击集 | `110 / 110` 阻断 |
 | 固定故障与恢复集 | `121 / 121` 收敛 |
 | Canonical 生产负载 | 三轮各 `5,960` 请求，错误率 `0` |
 | 空目标恢复 | RPO `26s`、RTO `71s` |
 | 供应链门禁 | 固定 Digest、OSV、Backend/Web Trivy 全部通过 |
 
-完整证据见 [M6-Q04 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md) 和 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
+M6 发布证据见 [M6-Q04 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md)，M7 当前前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
 
 本地执行完整 Release Gate：
 
