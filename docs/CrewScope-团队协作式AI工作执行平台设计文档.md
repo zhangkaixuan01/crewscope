@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.55<br>
+> 文档版本：v5.63<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -2655,7 +2655,11 @@ M7-D03 将上述冻结值落为 `PasswordPolicy` 与 `LoginAttemptPolicy`。注�
 
 本地注册支持 `OPEN`、`INVITE_ONLY` 和 `DISABLED`。M7 的 `OPEN` 面向单 Organization 自托管实例，不承诺公共多租户 SaaS 隔离。注册只接受用户名、邮箱、展示名、密码和可选邀请 Token，不接受 Organization、Principal、Team、Role 或权限。无邀请注册原子创建 Account、Local Identity、Credential、Organization Binding 和 USER Principal；没有 ACTIVE Team 的用户进入 Onboarding，显式创建第一个 Team。带邀请注册在同一事务锁定并消费一次性 Token、创建 Membership，成功后直接进入已邀请 Team。Team 创建继续复用 M1 事务，原子建立 Owner Membership、默认 Workspace、内置 Role Grant 和默认 Personal Agent。
 
-Team Invitation 保存邀请 Team、邀请人、可选目标邮箱、目标内置角色、过期时间、状态和 Token Digest。明文 Token 只在创建成功时返回一次；Preview 只公开 Team 名称、邀请人展示名、过期状态和登录要求。Accept 在同一事务锁定邀请并复验 Account、Organization Binding、Team、Token Digest、版本和有效期，再复用成员加入服务。重复接受收敛为既有 Membership，重放、撤销、过期、邮箱不匹配和跨 Scope 使用失败关闭。M7 只提供复制式邀请链接，不发送邮件。
+注册 Organization 由部署配置固定，非空值必须在 Spring 启动期通过规范 UUID 校验；空值使公开注册 API 失败关闭。Argon2id 之后的阻塞身份持久化使用 1–4 个 Worker、64 个等待位的有界执行器；容量耗尽不回落 WebFlux Event Loop，按路由稳定返回可重试的 `503 registration_unavailable / account_service_unavailable`。带邀请注册和已登录 Accept 在任何 Membership/Grant 写入前必须确认目标 BuiltIn TeamRole 仍为 ACTIVE 且可授予；缺失或已停用统一折叠为非识别性邀请失败。
+
+Onboarding 和普通 Team 创建分别使用 `CREATE_FIRST_TEAM` 与 `CREATE_TEAM` Command Type，即使 Actor、Team 名和 `Idempotency-Key` 相同也不能跨两个业务入口重放 Receipt。`CREATE_FIRST_TEAM` 先命中自身完成 Receipt，再在 Account `FOR UPDATE` 保护下执行零活动 Team Guard；同键重试恢复原结果，新键并发只能创建一套 Team 基础。
+
+Team Invitation 保存邀请 Team、邀请人、可选目标邮箱、目标内置角色、过期时间、状态和 Token Digest。明文 Token 只在创建成功时返回一次；Preview 只公开可用状态、Team 名称、目标内置角色、过期时间和是否定向，不公开目标邮箱、Token Digest 或邀请人身份。Accept 在同一事务锁定邀请并复验 Account、Organization Binding、Team、Token Digest、版本和有效期，再复用成员加入服务。重复接受收敛为既有 Membership，重放、撤销、过期、邮箱不匹配和跨 Scope 使用失败关闭。M7 只提供复制式邀请链接，不发送邮件。
 
 M7-D05 将邀请落为 `TeamInvitation` 聚合。`PENDING / version=0` 只能单步转为 `ACCEPTED / REVOKED / EXPIRED / version=1`，三个终态不可逆；重建时同样拒绝状态与版本不一致的持久化形状。接受和撤销只允许发生在过期时刻之前，精确过期边界只允许进入 EXPIRED。邀请目标角色使用产品内置角色枚举并排除 TEAM_OWNER，所有权继续通过 Team Transfer Ownership 流程变更。可选目标邮箱使用与 Account 相同的 `NormalizedEmail` 比较；接受结果固化稳定 `UserAccountId` 与 `TeamMemberId`。
 
@@ -3409,6 +3413,40 @@ M7-I08 将 Team Beta 认证入口拆分为两条有序 SecurityWebFilterChain。
 
 正式 API 启用 Browser Session、登录防护、邀请 Token 与 Operator 引导，Worker 精确关闭四项浏览器认证能力。生产配置默认 `INVITE_ONLY + HTTPS + Secure Cookie`，Demo 使用 `OPEN + local + Secure=false`；Cookie 固定为 `CREWSCOPE_SESSION / HttpOnly / Path=/ / SameSite=Lax`。登录防护与邀请 Token 使用两个独立 256-bit Base64 HMAC Secret，只有 API 挂载。注册模式、受信代理、健康详情、Actuator 暴露、结构化日志格式、Cookie 属性和角色开关均由 Team Beta Guard 在就绪前复核。
 
+本地账号注册由一个服务端选定的 Organization 承载。公开请求只包含用户自助资料、密码和可选邀请 Token，不能指定 Organization、Principal、PlatformRole、Team 或 TeamRole；所有自助账号固定为 `USER`。匿名请求先消费 `REGISTRATION` 防护窗口，Argon2id 在数据库事务外执行，完整 Account、local LoginIdentity、Credential、Organization Binding、无 ExternalIdentity 的 Organization USER Principal、事件、Outbox 和 Receipt 在 PostgreSQL 同一事务提交。邀请模式额外锁定 Digest-only Token，在该事务创建 Membership、授予邀请目标 BuiltIn Role 并消费邀请。
+
+Redis Browser Session 只在 PostgreSQL 成功提交后建立。Session 写失败不回滚已提交身份事实；同一幂等键重试必须使用当前 Argon2id Credential 重新验证本次提交的密码，验证成功后才能恢复 Session。Command Request Hash 只包含规范化的非秘密身份值和邀请 Digest，不包含密码；事件、Outbox、Receipt、Audit、日志、Trace 和公开响应不保存密码、Hash、Token 明文或 Session ID。
+
+本地登录先使用 `AuthenticationFlow.LOGIN` 消费规范标识与受控网络的联合窗口，再查询账号。不存在、非法、停用、锁定、Identity/Credential 不可用和密码错误统一执行一次真实或 Dummy Match，并映射为同一个公开失败。已知账号密码失败推进该账号 Redis 失败状态，成功登录只清理该账号失败状态；任何 Redis 防护故障均失败关闭。成功后由 `BrowserSessionLifecycle` 旋转 Session ID、执行账号级 Session 上限并保存只含 Account ID、SecurityVersion 和持久化 PlatformRole Authority 的 SecurityContext。
+
+`GET /api/v1/auth/session` 是浏览器认证公开投影。匿名响应包含 Registration Mode 和 CSRF Header、Parameter、Token 坐标；认证响应在此基础上追加当前账号、Principal、Organization、Team Membership 和有效角色权限。每次投影都用 Session 的 Account ID 与 SecurityVersion 重新读取 PostgreSQL 当前 Account、唯一 ACTIVE Local Identity、Binding、Principal、TeamMember、MemberRole 和 TeamRole；任一状态撤销立即失效当前 Session。`POST /api/v1/auth/logout` 只删除当前浏览器 Session，其他账号、浏览器和设备保持隔离。Auth 响应全部 `no-store`，不返回密码、Hash、Credential、Session ID、Cookie、失败计数或锁定时间。
+
+M7-A03 将账号自助管理固定为当前登录账号专属边界。`GET /api/v1/account` 返回可编辑资料、Account Version 与 SecurityVersion，并使用 Account Version 生成强 ETag；`PATCH /api/v1/account` 以 `If-Match` 实现乐观并发控制，多字段资料修改只推进一个 Account Version。展示名修改不触发密码计算；用户名或邮箱修改必须同时提交当前密码和当前 SecurityVersion，两个规范唯一键的冲突统一返回无字段、无冲突值的 `account_identifier_conflict`，不提供用户名或邮箱可用性查询 API。
+
+`POST /api/v1/account/password` 和 `POST /api/v1/account/sessions/revoke` 都要求强 `If-Match`、当前密码和 SecurityVersion。改密先执行一次当前 Credential Match，再使用当前 Argon2id 参数编码新密码；Credential Version、Account SecurityVersion、Account Version、DomainEvent 与 Outbox 在一个事务内提交。全部设备退出只推进 Account SecurityVersion 与 Account Version，并记录 `ALL_SESSIONS` 安全事件。两条命令提交后按 Account 主体索引主动删除全部 Redis Session；即使会话存储随后故障，已推进的 SecurityVersion 仍使旧 Session 在下一次身份复验时失败关闭。公开 DTO、错误、事件和审计摘要不包含密码、Hash、Credential、Session ID、Cookie、完整冲突标识或内部认证原因。实现与验证见 [M7-A03 当前账号资料、改密与全会话撤销](testing/M7-A03-当前账号资料改密与全会话撤销.md)。
+
+M7-A04 将 Onboarding 固定为当前 Account 在当前 Organization 中的 Team 入口。`GET /api/v1/onboarding` 只从当前 USER Principal 的 ACTIVE Team Membership 派生 `TEAM_REQUIRED / COMPLETE`，并返回 `onboardingRequired` 和活动 Team 数量；任何活动 Team 都使引导完成，不强制已有成员重建 Team。读取与创建前都复验 Account 状态和 Session SecurityVersion，响应使用 `no-store`。
+
+`POST /api/v1/onboarding/team` 只接受 Team 名称并强制 `Idempotency-Key`。服务在最外层 REQUIRED 事务中使用 `UserAccount FOR UPDATE` 串行化同一账号的并发首 Team 命令，然后复用 M1 Team 创建事务，一次提交 Team、默认 Workspace、Owner Membership、5 个内置 Role、Owner Role Grant、默认 Personal Agent、Provider 初始化、`TEAM_CREATED` DomainEvent、Outbox 和 Command Receipt。相同幂等键在 Membership 检查前恢复已完成 Receipt；引导完成后使用新幂等键重复创建稳定返回 `409 onboarding_already_complete`。真实 PostgreSQL 双请求验证见 [M7-A04 当前账号 Onboarding 与首 Team 事务](testing/M7-A04-当前账号Onboarding与首Team事务.md)。
+
+M7-A05 提供 Team 邀请创建、Keyset 列表、匿名 Preview、撤销和当前登录账号 Accept。创建和撤销只允许拥有有效 `MEMBER_MANAGE` 的 Team Owner/Admin；Member、Lead 和 Auditor 不能管理邀请。创建成功的第一次响应返回邀请元数据与 256-bit 明文 Token，相同 `Idempotency-Key` 重放只恢复 Command Receipt，不恢复 Token 或邀请明细。列表可向有权管理成员的用户展示目标邮箱和邀请状态，但不返回 Token Digest。
+
+Preview 使用 Token Digest 查询并只返回 `AVAILABLE / EXPIRED / UNAVAILABLE` 三种状态。`AVAILABLE` 可附带 Invitation ID、Team 名称、目标内置角色、过期时间和是否定向；另外两种状态不携带邀请明细。Preview 不返回目标邮箱、Token Digest 或邀请人身份，未知、已接受和已撤销 Token 均收敛为 `UNAVAILABLE`。已登录 Accept 只使用当前 Session 重新解析出的 ACTIVE Account、Organization Binding 和 USER Principal，不接受客户端 Account、Organization、Principal、Team 或 Role 坐标。
+
+Accept 与撤销统一使用 Invitation → Team 的行锁顺序；`lockById` 和 `lockByTokenDigest` 锁定同一邀请行，避免管理命令与 Token 消费形成反向锁序。Accept 复用 `TeamInvitationAcceptanceService`：无 Membership 时创建，`INVITED / LEFT / REMOVED` 时激活，ACTIVE 时复用，SUSPENDED 时拒绝；目标 BuiltIn Role 的当前有效 Grant 已存在则复用，否则创建。Invitation、Membership、Role Grant、DomainEvent、Outbox 和 Command Receipt 在一个 REQUIRED 事务中提交。新账号带邀请注册继续复用同一个 Acceptance Service 并在注册事务中消费邀请。无效、过期、邮箱不匹配、跨 Organization 和 Token 重放统一返回 `422 invitation_invalid`；非 PENDING 撤销返回 `409 invitation_not_pending`。实现与验证见 [M7-A05 Team 邀请管理与当前账号接受](testing/M7-A05-Team邀请管理与当前账号接受.md)。
+
+M7-A06 将公开 SPA 入口、认证 Bootstrap API、受保护业务 API 和 Prometheus 机器入口固定为互不混淆的路由矩阵。`/`、`/index.html`、`/login`、`/register`、`/invite` 与 `/assets/**` 可匿名访问；匿名业务 API 对 JSON/HTML Accept 都返回统一 JSON `401 authentication_required`，已认证但权限不足返回 `403 access_denied`，不重定向且不返回 `WWW-Authenticate: Basic`。Basic 只保留在精确 `/actuator/prometheus` 独立 Chain；Bootstrap 显式凭证失败也使用业务安全信封。
+
+Local 与 OIDC 浏览器链统一使用原始 Cookie/Header CSRF 协议，缺失或错误 Token 返回 `403 csrf_rejected`。Credentialed CORS 关闭；带 Origin 的 `/api/**` 请求必须匹配直接请求 Origin 或反向代理覆盖的单值 Proto/Host，跨源、重复和非法 Origin 返回 `403 cross_origin_rejected` 且不发送 CORS 允许头。认证错误全部使用 `ApiErrorResponse` 同形字段、规范 Correlation ID 与 `no-store`。登录、注册和邀请 POST 在 DTO 聚合前分别执行 8 KiB、16 KiB 和 8 KiB 字节预算，超限统一返回 413；全局 DataBuffer 超限同样不落入 500。
+
+应用响应固定 CSP、Frame Deny、Nosniff、Same-Origin Referrer、Permissions Policy、COOP、CORP 和 HTTPS 一年 HSTS。Forwarded Host/Proto 只按部署入口覆盖后的单值使用，客户端链值不被接受。完整路由、错误、Origin、请求预算和响应头合同见 [M7-A06 认证路由与浏览器安全边界](testing/M7-A06-认证路由与浏览器安全边界.md)。
+
+M7-A07 将 Auth、Account、Onboarding 与 Invitation 的 8 个写请求 DTO 固定为闭合字段集。未知字段、拼写错误和客户端提交的 Organization、Principal、Account、Membership、Role、Permission、Credential 或 Session 坐标在 Jackson 3 解码阶段返回 `400 invalid_request`，不改变 M0–M6 的全局 Jackson 行为。注册、Onboarding 与邀请写命令要求一个单值 `Idempotency-Key`；当前账号修改要求一个单值强 `If-Match`。重复 Header 行、逗号多值、Weak ETag、通配符、前导零和非法版本全部失败关闭。`Idempotency-Replayed` 只在完成重放响应出现并固定为 `true`。
+
+公开响应通过字段闭集扫描，禁止 Credential、Credential Version、Password/Hash、Session ID、Cookie 和 Token Digest；CSRF Token 只允许出现在 Session CSRF 坐标，Invitation 明文 Token 只允许出现在首次创建响应。Registration、Current Account 与 Invitation 的全部应用失败枚举固定映射稳定 HTTP/Code，Rejected Value 和内部异常不进入错误、日志、Trace 或指标。10 个 M7 V1 Domain Event 各映射唯一 Reviewed Audit Definition，Allowed Source Fields 与事件 Record 精确一致。
+
+Spring Context 中五个 M7 Controller 与对应 Application Service 各只有一份；Invitation Application Service 缺失时不暴露 Controller。Spring Boot Web 使用独立 Jackson 3 Mapper，AgentScope 2.0 与 Coding Adapter 使用独立 Jackson 2 Mapper。完整路由、DTO、响应、Header、错误和 Audit 合同见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，实现证据见 [M7-A07 开放用户 API 与装配合同](testing/M7-A07-开放用户API与装配合同.md)。
+
 认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。备份恢复兼容边界为 `V26..V32 -> V32`，真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。实现与验证见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)。
 
 ```text
@@ -3432,7 +3470,7 @@ POST   /api/v1/invitations/preview
 POST   /api/v1/invitations/accept
 ```
 
-注册和登录使用固定 JSON 白名单；登录请求体在聚合前执行 8 KiB 上限，注册和邀请请求由 M7-A06 按各自有界 DTO 冻结对应预算。注册、登录和 Preview 返回账号存在性无关的稳定错误；内部诊断只进入安全 Audit 分类。Session ID、认证 Cookie、密码、密码 Hash 和邀请 Token 不进入日志、Trace、指标、DomainEvent 或 Audit Payload。防 CSRF Token 只出现在受控 CSRF Cookie、Session 公开投影和同源写请求 Header，不进入其他浏览器持久存储或 Telemetry。邀请链接使用 `/invite#token=...`，Fragment 不发送给 Web/Nginx；前端读入内存后立即清除地址栏。邀请明文 Token 只允许出现在创建成功的一次性响应、Fragment、Preview/Accept POST Body 和页面进程内短期状态，不进入 HTTP Path/Query、邀请列表或浏览器持久存储。
+注册和登录使用固定 JSON 白名单；登录、注册和邀请 POST 在聚合前分别执行 8 KiB、16 KiB 与 8 KiB 上限，并继续受各 DTO 更小的字段预算约束。注册、登录和 Preview 返回账号存在性无关的稳定错误；内部诊断只进入安全 Audit 分类。Session ID、认证 Cookie、密码、密码 Hash 和邀请 Token 不进入日志、Trace、指标、DomainEvent 或 Audit Payload。防 CSRF Token 只出现在受控 CSRF Cookie、Session 公开投影和同源请求 Header，不进入其他浏览器持久存储或 Telemetry。邀请链接使用 `/invite#token=...`，Fragment 不发送给 Web/Nginx；前端读入内存后立即清除地址栏。邀请明文 Token 只允许出现在创建成功的一次性响应、Fragment、Preview/Accept POST Body 和页面进程内短期状态，不进入 HTTP Path/Query、邀请列表或浏览器持久存储。
 
 ### 15.3 Team、Workspace、Provider 与连接 API
 

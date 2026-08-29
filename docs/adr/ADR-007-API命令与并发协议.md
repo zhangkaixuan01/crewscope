@@ -2,8 +2,8 @@
 
 > 状态：ACCEPTED<br>
 > 日期：2026-08-07<br>
-> 更新：2026-08-11（M2-A05 固化结构化澄清与 TaskIntent 并发协议）<br>
-> 影响里程碑：M0–M6
+> 更新：2026-08-29（M7-A07 固化浏览器命令单值 Header 与重放响应协议）<br>
+> 影响里程碑：M0–M7
 
 ## 背景
 
@@ -38,7 +38,7 @@ CrewScope 的 Web、Agent Tool 和 Provider Worker 会重试创建与状态变�
 
 ### Idempotency-Key 与 Command Receipt
 
-所有公开创建和状态变更命令必须携带 `Idempotency-Key`。Key 长度为 1–200，只允许字母、数字、`.`、`_`、`:`、`/` 和 `-`，不是跨 Organization 的全局标识。
+所有公开创建和状态变更命令必须携带一个单值 `Idempotency-Key`。Key 长度为 1–200，只允许字母、数字、`.`、`_`、`:`、`/` 和 `-`，不是跨 Organization 的全局标识。缺失、重复 Header 行、逗号多值和非法格式返回 `400 invalid_request`。
 
 命令执行使用 V5 `command_receipt`：
 
@@ -56,7 +56,7 @@ COMMIT
 - Command Type 和规范 Request SHA-256 相同时返回原 Receipt，不重复写业务事实和事件；
 - 同 Key 对应不同 Command Type 或 Request Hash 时返回 `409 idempotency_conflict`；
 - 业务、事件或 Outbox 失败时占位随事务回滚，后续请求可安全重试；
-- 公开响应为 `202 Accepted`，重放响应增加 `Idempotency-Replayed: true`。
+- 公开 Command Receipt 响应为 `202 Accepted`，重放响应增加 `Idempotency-Replayed: true`；该 Header 在首次执行响应中不存在。资源创建 API 可以使用 `201 Created`，完成恢复可以使用 `200 OK`，但重放 Header 语义保持一致。
 
 Command Receipt 固定包含：
 
@@ -94,10 +94,10 @@ AgentScope 2.0.0 原生重复 Resume 不会重复执行已经完成的 Tool，�
 
 ### If-Match
 
-更新和状态迁移必须携带强 ETag 形式的 `If-Match: "<version>"`。
+更新和状态迁移必须携带一个单值强 ETag 形式的 `If-Match: "<version>"`。
 
 - 缺失时返回 `428 precondition_required`；
-- Weak ETag、`*`、多值和非负版本以外的格式返回 `400 invalid_if_match`；
+- Weak ETag、`*`、重复 Header 行、逗号多值、前导零和非负版本以外的格式返回 `400 invalid_if_match`；
 - 预期版本与已提交版本不同时返回 `409 optimistic_lock_conflict` 和 `currentVersion`；
 - 事实查询响应使用同格式 `ETag` 返回当前版本。
 
