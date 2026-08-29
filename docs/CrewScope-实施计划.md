@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v2.13<br>
-> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.69`<br>
+> 文档版本：v2.16<br>
+> 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.72`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M6 全部完成，M6-Q04 MVP Release Gate 通过；M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07、M7-F01 至 M7-F08 已完成，下一任务为 `M7-Q01`
+> 当前进度：M0 至 M7 全部完成；M6-Q04 MVP Release Gate 与 M7-Q04 开放用户体系 Release Gate 均通过
 
 ## 1. 实施目标
 
@@ -741,7 +741,9 @@ V30 升级保留既有 `bootstrap/crewscope-monitor` USER Principal ID、TeamMem
 8. V30→V32 升级后既有 Operator、团队、任务、Agent 和 Provider 数据保持有效；
 9. 完整任务依赖、配置、API 和 Release Gate 见 [M7 执行清单](plans/M7-开放用户体系与登录体验.md)。
 
-M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项。M7-S01 至 M7-S04、M7-D01 至 M7-D08、M7-I01 至 M7-I08、M7-A01 至 M7-A07、M7-F01 至 M7-F08 已完成；应用/API 波次已交付注册、JSON 登录与 Session 投影、当前账号资料/改密/全部设备退出、Onboarding、邀请管理、安全路由，以及闭合 DTO、稳定错误、单值幂等/强版本、10 个 Audit 映射和 Spring/Jackson 唯一装配合同。提交前审查进一步隔离 `CREATE_FIRST_TEAM / CREATE_TEAM` 幂等域，在 Membership 写入前复验目标 Role，只信任 Spring 规范化后的请求 Origin，并将有界身份持久化过载折叠为稳定 503。前端已交付正式 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite`，以及真实 AuthStore、Router Guard、跨标签退出、账号强 ETag/密码 Step-up、邀请创建/列表/撤销、Fragment 内存证明、匿名 Preview、已有账号登录返回 Accept、新账号注册原子入 Team、Session/Team Scope 接受复验和敏感字段零持久化；F08 已将四个身份领域和五个正式页面纳入真实 Coverage 分母，补齐公开错误状态矩阵，并统一收口 Histoire、双视口 Playwright/Axe、视觉、README/Demo 与敏感字段 CI 门禁。完整前端消费协议见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，F01 至 F07 证据见对应测试记录，最终前端收口见 [M7-F08 认证与 Onboarding 前端收口](testing/M7-F08-认证与Onboarding前端收口.md)，下一任务为 `M7-Q01`。
+M7 已拆分为 4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务，共 39 项，现已全部完成。应用/API 波次已交付注册、JSON 登录与 Session 投影、当前账号资料/改密/全部设备退出、Onboarding、邀请管理、安全路由，以及闭合 DTO、稳定错误、单值幂等/强版本、10 个 Audit 映射和 Spring/Jackson 唯一装配合同。提交前审查进一步隔离 `CREATE_FIRST_TEAM / CREATE_TEAM` 幂等域，在 Membership 写入前复验目标 Role，只信任 Spring 规范化后的请求 Origin，并将有界身份持久化过载折叠为稳定 503。前端已交付正式 `/login`、`/register`、`/onboarding`、`/account` 和 `/invite`，以及真实 AuthStore、Router Guard、跨标签退出、账号强 ETag/密码 Step-up、邀请创建/列表/撤销、Fragment 内存证明、匿名 Preview、已有账号登录返回 Accept、新账号注册原子入 Team、Session/Team Scope 接受复验和敏感字段零持久化；F08 已将四个身份领域和五个正式页面纳入真实 Coverage 分母，补齐公开错误状态矩阵，并统一收口 Histoire、双视口 Playwright/Axe、视觉、README/Demo 与敏感字段 CI 门禁。Q01 已建立 Docker 强制的一键认证安全门禁，128/128 个固定认证攻击样本全部阻断；Q02 已冻结并收敛 72/72 个注册、Binding、邀请、Membership、迁移、Redis、事务、Operator 和进程故障样本，专项 Java `140 / 140` 零跳过；Q03 已在真实 PostgreSQL/Redis、V1→V32、Spring Boot 与生产 Web 上以两个独立 BrowserContext 完成双用户邀请、双 Personal Agent、TEAM Conversation、API 重启、Audit 双主体、Session 过期、分别重登与退出，Desktop/Narrow `2 / 2 passed`；Q04 已完成 3056 项 Maven 零跳过回归、652 项 Vitest、OPEN/INVITE_ONLY/DISABLED 真实 Profile E2E、V26..V32 恢复、文档与生产依赖审计，M7 Release Gate 本地结论为 `PASS`。Linux amd64、8 vCPU、16 GB Server RC 又以非 Root 发布用户原生构建 Backend/Web 候选镜像，并在同一业务数据上完成三 Profile `1 / 1 passed`；独立恢复既有 V30 备份后执行 V31/V32，Organization 等既有事实保持，Operator Account/Binding 建立，正式登录为 200，API 重启后仍恢复同一 Account，`X-Forwarded-Proto: https` 场景返回 `Secure; HttpOnly; SameSite=Lax` Session Cookie。服务器临时容器与卷已清理，现有 M6 环境未受影响；公网域名与 CA TLS 终结器仍属于部署基础设施，不包含在本次应用侧合同结论中。完整前端消费协议见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，安全证据见 [M7-Q01 本地认证安全硬化与固定攻击集](testing/M7-Q01-本地认证安全硬化与固定攻击集.md)，事务收敛证据见 [M7-Q02 身份邀请并发故障与事务收敛](testing/M7-Q02-身份邀请并发故障与事务收敛.md)，双用户证据见 [M7-Q03 双用户真实协作与会话恢复](testing/M7-Q03-双用户真实协作与会话恢复.md)，最终发布证据见 [M7-Q04 Release Gate](testing/M7-Q04-Release-Gate.md)。
+
+最终提交前 Review 将 Session 顶层权限收敛为账号级能力，AuthStore 按当前 Team 使用 `teams[].permissions`，避免跨 Team UI 权限并集；同时修复 Q04 独立构建开关的前置检查，并以发布合同锁定两项行为。
 
 ## 14. 模块实施边界
 

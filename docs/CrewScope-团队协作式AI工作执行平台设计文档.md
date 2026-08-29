@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.69<br>
+> 文档版本：v5.72<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -3449,6 +3449,10 @@ Spring Context 中五个 M7 Controller 与对应 Application Service 各只有�
 
 认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。备份恢复兼容边界为 `V26..V32 -> V32`，真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。实现与验证见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)。
 
+M7 本地认证安全基线使用 128 个稳定编号攻击样本冻结密码预算、标识/网络/账号暴力尝试、账号枚举、Session Principal 与序列化白名单、CSRF 双提交、Origin 规范化、生产 Cookie、登录安全返回目标以及日志/响应披露边界。固定分母减少、重复或语义漂移都会失败；Docker 是门禁强制前置条件，真实 PostgreSQL、Redis 和 HTTP 回归必须零跳过地证明登录前后 Session ID 轮换、窃取登录前 Session 无法获得认证态、续期/过期/并发上限、当前/全部设备退出和合法登录继续可用。实现与验证见 [M7-Q01 本地认证安全硬化与固定攻击集](testing/M7-Q01-本地认证安全硬化与固定攻击集.md)。
+
+M7 身份与邀请事务基线使用 `CF-001` 至 `CF-072` 冻结注册、Organization Binding、邀请、Membership、V30→V32、Redis、数据库提交窗口、Bootstrap Operator 和进程恢复。完整注册事务原子提交 Account、Identity、Credential、Organization USER Principal、Binding、DomainEvent、Outbox 和 CommandReceipt；邀请注册在同一事务追加 Membership、Role Grant 与 Invitation 终态。一个命令的主事件持有唯一 Idempotency Key，派生邀请事件使用主事件 ID 作为 Causation ID，避免重复占用 `ux_domain_event_idempotency` 并保持可审计因果链。Redis 注册前故障失败关闭且不写数据库；提交后的 Session 故障返回可恢复状态，同一 Idempotency Key 经密码证明恢复权威结果。实现与验证见 [M7-Q02 身份邀请并发故障与事务收敛](testing/M7-Q02-身份邀请并发故障与事务收敛.md)。
+
 ```text
 POST   /api/v1/auth/register
 POST   /api/v1/auth/login
@@ -4284,6 +4288,16 @@ M7-F07 将 Team 邀请管理固定在成员管理入口。只有当前 Session �
 正式 `/invite#token=...` 把 Fragment 证明读入 Invitation Store 私有内存后立即从地址栏和当前历史项清除，再调用匿名 Preview。Preview 只展示 `AVAILABLE / EXPIRED / UNAVAILABLE`、Team 名称、目标角色、有效期与是否定向，不返回目标邮箱、邀请人、Organization、Principal 或 Membership。已有账号通过无证明的 `/login?returnTo=/invite` 登录后继续 Accept；新用户通过内存交接进入正式注册页，由注册事务原子创建账号并加入 Team。Accept 请求只提交 Token，服务端从当前 Session 解析身份；成功后 AuthStore 重读 Session、ScopeStore 复验新增 Team，再进入目标 Conversation。无效、已接受、已撤销、邮箱不匹配和跨账号失败统一使用非识别性文案。实现与验证见 [M7-F07 Team 邀请管理与邀请接受体验](testing/M7-F07-Team邀请管理与邀请接受体验.md)。
 
 M7-F08 将开放身份前端的质量分母固定到 Identity、Account、Onboarding、Invitation 领域及五个正式页面，不再只统计 API、App 和组件目录。登录、注册、Session、账号、首次 Team 和邀请的错误映射使用稳定公开 Code 与非识别性文案矩阵；Coverage 阈值保持 Statements 80%、Branches 70%、Functions 75%、Lines 80%。Histoire、双视口 Playwright/Axe、分平台视觉基线、生产构建与敏感字段扫描形成统一前端门禁。生产 Web 扫描显式拒绝测试 `bootstrapPrincipal`、业务 Basic Auth 文案和浏览器身份持久化；README 与 Demo 只引导正式 `/register`、`/login` 和机器监控凭证隔离。实现与验证见 [M7-F08 认证与 Onboarding 前端收口](testing/M7-F08-认证与Onboarding前端收口.md)。
+
+M7-Q03 将双用户协作固定为真实生产门禁。每个 Desktop/Narrow Project 使用两个独立 BrowserContext，从空 PostgreSQL/Redis 与 V1→V32 开始，依次完成 A 注册建 Team、B 受邀注册、两套独立 Account/Principal/TeamMember/Session/默认 Personal Agent、同一 Team 成员事实、TEAM Conversation 协作、刷新、API 重启、Audit 双主体、Session 强制过期、分别重登与退出。Session 对浏览器只发布稳定的小写产品能力键，不暴露 Java TeamPermission 枚举名；顶层权限只承载账号级能力，AuthStore 按当前 URL/Scope 选中的 `teams[].permissions` 更新界面能力，禁止将一个 Team 的管理员权限并入另一个 Team。界面权限继续只控制入口，服务端按当前持久化事实重新授权。
+
+生产门禁同时把身份关键能力改为确定性装配：邀请与登录服务直接跟随各自部署属性开关，Audit/Correlation Cursor Codec 在启动期强制要求密钥环。已启用能力不能因 Spring 配置扫描顺序静默缺席；关键依赖不完整时应用拒绝启动。Team Beta configtree Redis Secret、非默认 Web 端口转发和受控数字代理地址均进入生产回归。最终 Desktop/Narrow `2 / 2 passed`，验证见 [M7-Q03 双用户真实协作与会话恢复](testing/M7-Q03-双用户真实协作与会话恢复.md)。
+
+M7-Q04 将开放用户体系的最终发布边界固定为同一真实 PostgreSQL/Redis 数据集上的三 Profile 连续切换。`OPEN` 完成 Owner 注册、Onboarding、Team 与邀请创建；`INVITE_ONLY` 拒绝普通注册并允许邀请注册加入同一 Team；`DISABLED` 拒绝包括有效邀请在内的新注册，同时允许既有 Owner 通过正式登录页恢复原 Account、Principal、Team 与成员事实。Profile 切换只重建 API，不清空业务数据，用于证明配置变化不会破坏既有身份连续性。正式登录页在全部 Profile 下都不发布 `WWW-Authenticate`，浏览器不会回退到 Bootstrap Basic Challenge。
+
+M7 Release Gate 聚合 M0–M7 全量 Maven、Vitest/Coverage、生产构建、Histoire、Playwright/Axe、固定攻击与故障集、Team Beta 部署恢复合同、生产依赖、敏感字段和文档门禁。最终本机结果为 Maven `3056 / 3056`、Vitest `652 / 652`、三 Profile E2E `1 / 1 passed`，零失败、零错误、零跳过；推送后的 GitHub Actions 继续执行权威 OSV 与 Backend/Web Trivy 扫描。
+
+Linux amd64 Server RC 使用 8 vCPU、16 GB 主机和非 Root 发布用户从候选源码原生构建 Backend/Web 镜像。真实 PostgreSQL/Redis 数据集完成 `OPEN → INVITE_ONLY → DISABLED` 连续 Profile E2E `1 / 1 passed`，覆盖 Owner 注册、Onboarding、邀请注册、禁用注册、既有 Owner 正式登录、两次 API 强制重建、Account/Team 连续性、Axe 与无 `WWW-Authenticate`。独立恢复现有 V30 发布备份后由 Flyway 执行 V31/V32，Schema 到达 V32，既有 Organization 等核心事实保持，并为 Bootstrap Operator 建立 UserAccount 与 AccountOrganizationBinding。Operator 正式登录返回 200，API 重启后认证态恢复且 Account ID 不变；反向代理发送 `X-Forwarded-Proto: https` 时，应用返回带 `Secure; HttpOnly; SameSite=Lax` 的 Session Cookie。该证据验证应用侧 HTTPS 转发合同；公网域名与 CA TLS 终结器尚未配置，不构成公网 TLS 握手结论。临时 Server RC/升级容器和卷已删除，既有 M6 环境保持健康。完整证据见 [M7-Q04 Release Gate](testing/M7-Q04-Release-Gate.md)。
 
 M7 的公开身份页使用独立 AuthLayout。桌面端左侧表达“成员 → Personal Agent → 团队”的协作关系，右侧承载当前登录、注册、邀请或 Onboarding 任务；390px 窄屏先展示简化品牌说明，再显示单列任务。`/account` 是已登录 AppShell 设置页，使用个人资料、密码与会话分区，不沿用公开认证卡。普通表单聚焦首个输入，错误/锁定聚焦错误摘要，注册关闭/邀请失效聚焦状态标题。密码显隐只存在组件内存，不写入浏览器持久存储。M7-S04 已以 12 个状态、5 个核心页的 Darwin/Linux 双视口截图、焦点顺序和 Axe 门禁冻结该基线，证据见 [M7-S04 开放身份体验与视觉基线验证记录](spikes/M7-S04-开放身份体验与视觉基线验证记录.md)。
 

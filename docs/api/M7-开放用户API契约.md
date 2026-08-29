@@ -48,6 +48,8 @@
 
 已认证 `account` 固定包含 `accountId`、`username`、`displayName`、`platformRole`、`securityVersion`、`version`；`principal` 包含 `principalId`、`organizationId`；每个 Team 包含 `teamId`、`name`、`memberId`、`permissions`。
 
+Session 不暴露 Java 枚举名。每个 `teams[].permissions` 使用稳定的小写产品能力键：ACTIVE TeamMember 固定获得 `scope:read`、`team:members:read`、`work-projects:read` 与 `work:read`；TeamRole 继续投影 `conversation:use`、`team:members:manage`、`work-projects:manage`、`work:create`、`work:participate`、`responsibility:manage`、`repositories:manage`、`agent:manage`、`provider:manage`、`audit:read` 和 `governance:export`。顶层 `permissions` 只发布账号级能力，当前仅允许持久化 `PlatformRole.OPERATOR` 产生 `operations:manage`，禁止合并多个 Team 的权限。AuthStore 使用当前 URL/Scope 选中的 Team 权限裁剪导航与操作入口，切换 Team 时原 Team 能力立即失效；服务端仍按当前数据库事实重新授权每个请求。
+
 ### 2.2 `POST /api/v1/auth/login`
 
 请求字段：

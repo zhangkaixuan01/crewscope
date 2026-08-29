@@ -20,7 +20,7 @@
 
 CrewScope 将技术团队的对话目标转化为可执行、可协作、可追踪的工作闭环。每位成员拥有代表自己的 Personal Agent；Team Agent 提供共享团队视野；Coding、Reviewer 等 Specialist Agent 承担专业执行；人始终负责目标、授权、Review 和最终决策。
 
-当前 **Team Beta MVP** 已完成 M0–M6 全部里程碑，MVP Release Gate 结论为 [`PASS`](docs/testing/M6-Q04-MVP-Release-Gate.md)。M7 的开放用户体系已完成 Spike、领域、基础设施、应用/API 与前端实现波次，提供正式注册、登录、Session、首次 Team Onboarding、账号安全和团队邀请入口；M7 安全与发布质量波次继续按计划执行。
+当前 **Team Beta MVP** 已完成 M0–M7 全部里程碑，[M6 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md) 已正式关闭，[M7 开放用户体系 Release Gate](docs/testing/M7-Q04-Release-Gate.md) 的本机与 Linux amd64 Server RC 结论均为 `PASS`。平台提供正式注册、登录、服务端 Session、首次 Team Onboarding、账号安全和团队邀请入口，并已通过 OPEN、INVITE_ONLY、DISABLED 三种注册 Profile 的真实生产链路验证。
 
 ![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
@@ -191,23 +191,26 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 | 门禁 | 结果 |
 |---|---:|
-| M6 Maven 全量回归 | `2554 / 2554` |
-| M7 Web Vitest / Coverage | `625 / 625`；Statements `80.13%`、Branches `73.84%`、Functions `82.63%`、Lines `83.83%` |
+| M7 Maven 全量回归 | `3056 / 3056`；547 个 Suite，零失败、零错误、零跳过 |
+| M7 Web Vitest / Coverage | `652 / 652`；Statements `80.18%`、Branches `73.91%`、Functions `82.72%`、Lines `83.90%` |
 | M7 Web Playwright / Visual / Axe | 桌面与 390px 共 `240 / 240` |
 | M7 Histoire | `21` Stories / `153` Variants |
 | M7 Web 敏感字段门禁 | `78` 个生产文件 / `21` 个 Stories |
-| 固定安全攻击集 | `110 / 110` 阻断 |
-| 固定故障与恢复集 | `121 / 121` 收敛 |
+| M7 固定认证攻击集 | `128 / 128` 阻断 |
+| M7 固定并发故障集 | `72 / 72` 收敛 |
+| M7 双用户生产 E2E | Desktop/Narrow `2 / 2 passed` |
+| M7 注册 Profile E2E | OPEN → INVITE_ONLY → DISABLED，`1 / 1 passed` |
+| M7 Linux amd64 Server RC | 原生镜像构建、V30→V32、Operator 登录、API 重启 Session 与 Secure Cookie 合同通过 |
 | Canonical 生产负载 | 三轮各 `5,960` 请求，错误率 `0` |
 | 空目标恢复 | RPO `26s`、RTO `71s` |
-| 供应链门禁 | 固定 Digest、OSV、Backend/Web Trivy 全部通过 |
+| 供应链门禁 | 本机生产依赖无已知漏洞；CI 强制 OSV、Backend/Web Trivy |
 
-M6 发布证据见 [M6-Q04 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md)，M7 当前前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
+完整发布证据见 [M7-Q04 Release Gate](docs/testing/M7-Q04-Release-Gate.md)，前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
 
 本地执行完整 Release Gate：
 
 ```bash
-./scripts/m6-release-gate.sh local-preflight
+./scripts/m7-release-gate.sh local-preflight
 ```
 
 该门禁会运行完整后端、前端、Docker、浏览器、评测和文档检查，耗时与资源占用均明显高于普通单元测试。

@@ -66,7 +66,7 @@ sh -n deploy/team-beta/demo.sh
 结果：
 
 - Vitest：111 个文件、625 个测试全部通过；
-- Coverage：Statements 80.13%、Branches 73.84%、Functions 82.63%、Lines 83.83%；
+- Coverage：Statements 80.18%、Branches 73.91%、Functions 82.72%、Lines 83.90%；
 - Production Build：Vue TypeScript 检查与 Vite Build 通过；
 - Histoire：21 个 Story、153 个 Variant 通过；
 - Playwright/Visual/Axe：Desktop 与 390px 共 240/240 通过；
