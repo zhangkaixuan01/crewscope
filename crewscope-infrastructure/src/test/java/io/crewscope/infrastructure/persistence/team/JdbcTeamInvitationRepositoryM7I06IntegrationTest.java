@@ -240,6 +240,49 @@ class JdbcTeamInvitationRepositoryM7I06IntegrationTest
     }
 
     @Test
+    void managementAndTokenClaimsUseTheSameInvitationRowLock() throws Exception {
+        Fixture fixture = fixture();
+        TeamInvitation invitation = createInvitation(fixture, 35, NOW, WEEK_LATER);
+        CountDownLatch firstLocked = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondAttempted = new CountDownLatch(1);
+        CountDownLatch secondCompleted = new CountDownLatch(1);
+
+        Future<Boolean> management = executor.submit(() -> transactions.required(() -> {
+            TeamInvitation claimed = invitations
+                    .lockById(fixture.organizationId(), invitation.id())
+                    .orElseThrow();
+            firstLocked.countDown();
+            await(releaseFirst);
+            invitations.update(claimed.revoke(NOW), claimed.version());
+            return true;
+        }));
+        assertTrue(firstLocked.await(10, TimeUnit.SECONDS));
+        Future<Boolean> tokenClaim = executor.submit(() -> transactions.required(() -> {
+            secondAttempted.countDown();
+            TeamInvitation claimed = invitations
+                    .lockByTokenDigest(invitation.tokenDigest())
+                    .orElseThrow();
+            secondCompleted.countDown();
+            if (claimed.status() != TeamInvitationStatus.PENDING) {
+                return false;
+            }
+            invitations.update(claimed.revoke(NOW), claimed.version());
+            return true;
+        }));
+        assertTrue(secondAttempted.await(10, TimeUnit.SECONDS));
+        assertFalse(secondCompleted.await(250, TimeUnit.MILLISECONDS));
+
+        releaseFirst.countDown();
+        assertTrue(management.get(20, TimeUnit.SECONDS));
+        assertFalse(tokenClaim.get(20, TimeUnit.SECONDS));
+        assertEquals(0, secondCompleted.getCount());
+        assertEquals(
+                TeamInvitationStatus.REVOKED,
+                invitations.findById(fixture.organizationId(), invitation.id()).orElseThrow().status());
+    }
+
+    @Test
     void boundedExpiryUsesSkipLockedAndNeverDeletesInvitationOrAuditFacts() throws Exception {
         Fixture fixture = fixture();
         insertAuditSourceFact(fixture);
@@ -358,6 +401,17 @@ class JdbcTeamInvitationRepositoryM7I06IntegrationTest
         byte[] value = new byte[InvitationTokenDigest.BYTE_LENGTH];
         value[0] = (byte) seed;
         return InvitationTokenDigest.fromBytes(value);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out waiting for invitation lock test");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("invitation lock test was interrupted", interrupted);
+        }
     }
 
     private record Fixture(

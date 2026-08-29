@@ -80,10 +80,11 @@ public class BrowserSessionConfiguration {
     @Bean
     BrowserSessionLifecycle browserSessionLifecycle(
             WebSessionServerSecurityContextRepository securityContexts,
+            ReactiveSessionRegistry registry,
             ConcurrentSessionControlServerAuthenticationSuccessHandler concurrentSessions,
             RegisterSessionServerAuthenticationSuccessHandler sessionRegistration) {
         return new BrowserSessionLifecycle(
-                securityContexts, concurrentSessions, sessionRegistration);
+                securityContexts, registry, concurrentSessions, sessionRegistration);
     }
 
     /** Spring Session discovers this exact bean name when constructing its Redis template. */

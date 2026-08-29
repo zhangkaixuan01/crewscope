@@ -91,6 +91,50 @@ class TeamApplicationServiceTest {
   }
 
   @Test
+  void firstTeamCreationReplaysBeforeTheCompletedOnboardingGuard() {
+    Fixture fixture = new Fixture();
+    TeamCommandContext context = fixture.context(fixture.owner, false, "first-team-replay");
+
+    CommandExecution<TeamInitialization> first =
+        fixture.service.createFirstTeam(context, new CreateTeamCommand("First Team"));
+    CommandExecution<TeamInitialization> replay =
+        fixture.service.createFirstTeam(context, new CreateTeamCommand("First Team"));
+
+    assertFalse(first.replayed());
+    assertTrue(replay.replayed());
+    assertEquals(first.receipt(), replay.receipt());
+    assertEquals(1, fixture.repository.teams.size());
+    assertEquals(1, fixture.repository.agents.size());
+  }
+
+  @Test
+  void firstTeamCreationRejectsAnotherKeyAfterMembershipExists() {
+    Fixture fixture = new Fixture();
+    fixture.service.createFirstTeam(
+        fixture.context(fixture.owner, false, "first-team-original"),
+        new CreateTeamCommand("First Team"));
+
+    assertThrows(
+        FirstTeamAlreadyExistsException.class,
+        () -> fixture.service.createFirstTeam(
+            fixture.context(fixture.owner, false, "first-team-second"),
+            new CreateTeamCommand("Unexpected Team")));
+    assertEquals(1, fixture.repository.teams.size());
+  }
+
+  @Test
+  void onboardingAndGeneralTeamCreationCannotShareAnIdempotencyReceipt() {
+    Fixture fixture = new Fixture();
+    TeamCommandContext context = fixture.context(fixture.owner, false, "team-route-boundary");
+
+    fixture.service.createTeam(context, new CreateTeamCommand("General Team"));
+
+    assertThrows(
+        IdempotencyConflictException.class,
+        () -> fixture.service.createFirstTeam(context, new CreateTeamCommand("General Team")));
+  }
+
+  @Test
   void rejectsChangedCreateContentForTheSameIdempotencyKey() {
     Fixture fixture = new Fixture();
     TeamCommandContext context = fixture.context(fixture.owner, false, "create-team-2");

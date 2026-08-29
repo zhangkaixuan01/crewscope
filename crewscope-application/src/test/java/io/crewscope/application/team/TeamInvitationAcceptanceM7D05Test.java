@@ -358,6 +358,12 @@ class TeamInvitationAcceptanceM7D05Test {
         }
 
         @Override
+        public synchronized Optional<TeamInvitation> lockById(
+                OrganizationId organizationId, TeamInvitationId invitationId) {
+            return findById(organizationId, invitationId);
+        }
+
+        @Override
         public synchronized Optional<TeamInvitation> findByTokenDigest(
                 InvitationTokenDigest tokenDigest) {
             return Optional.ofNullable(byDigest.get(tokenDigest)).map(invitations::get);

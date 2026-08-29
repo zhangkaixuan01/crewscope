@@ -10,8 +10,16 @@ import io.crewscope.application.execution.PlatformExecutionContextResolutionExce
 import io.crewscope.application.github.GitHubProviderException;
 import io.crewscope.application.collaboration.LarkConnectionPreflightException;
 import io.crewscope.application.inbox.InboxCursorExpiredException;
+import io.crewscope.application.identity.CurrentAccountMutationException;
+import io.crewscope.application.identity.IdentityPersistenceCapacityException;
+import io.crewscope.application.identity.LocalAccountRegistrationException;
+import io.crewscope.application.identity.LocalAccountLoginException;
+import io.crewscope.application.identity.LoginDefenseUnavailableException;
+import io.crewscope.application.identity.PasswordHashCapacityException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
+import io.crewscope.application.team.FirstTeamAlreadyExistsException;
+import io.crewscope.application.team.TeamInvitationApplicationException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
@@ -23,8 +31,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -45,7 +55,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<ApiErrorResponse> handle(
             Throwable failure, ServerWebExchange exchange) {
+        if (failure instanceof CompletionException completion && completion.getCause() != null) {
+            failure = completion.getCause();
+        }
         UUID correlationId = ApiCorrelationIds.resolve(exchange);
+        if (causedByDataBufferLimit(failure)) {
+            return response(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "request_too_large",
+                    "The request body exceeds the allowed size",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
         if (failure instanceof ApiRequestException apiFailure) {
             return response(
                     apiFailure.status(),
@@ -54,6 +78,140 @@ public class ApiExceptionHandler {
                     false,
                     null,
                     apiFailure.details(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof LocalAccountRegistrationException registrationFailure) {
+            HttpStatus status = switch (registrationFailure.failure()) {
+                case REGISTRATION_DISABLED -> HttpStatus.FORBIDDEN;
+                case INVITATION_REQUIRED, INVITATION_INVALID ->
+                        HttpStatus.UNPROCESSABLE_CONTENT;
+                case REGISTRATION_CONFLICT, REPLAY_AUTHENTICATION_FAILED -> HttpStatus.CONFLICT;
+                case REGISTRATION_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            };
+            String code = switch (registrationFailure.failure()) {
+                case REGISTRATION_CONFLICT -> "registration_conflict";
+                case REPLAY_AUTHENTICATION_FAILED -> "registration_recovery_failed";
+                default -> "registration_unavailable";
+            };
+            return response(
+                    status,
+                    code,
+                    "Registration could not be completed",
+                    status == HttpStatus.SERVICE_UNAVAILABLE,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof LocalAccountLoginException) {
+            return response(
+                    HttpStatus.UNAUTHORIZED,
+                    "invalid_credentials",
+                    "The submitted credentials could not be authenticated",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof CurrentAccountMutationException accountFailure) {
+            HttpStatus status = switch (accountFailure.failure()) {
+                case INVALID_CURRENT_PASSWORD -> HttpStatus.UNAUTHORIZED;
+                case SECURITY_VERSION_CONFLICT, CREDENTIAL_CONFLICT -> HttpStatus.CONFLICT;
+                case ACCOUNT_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            };
+            String code = switch (accountFailure.failure()) {
+                case INVALID_CURRENT_PASSWORD -> "invalid_credentials";
+                case SECURITY_VERSION_CONFLICT -> "security_version_conflict";
+                case CREDENTIAL_CONFLICT -> "account_credential_conflict";
+                case ACCOUNT_UNAVAILABLE -> "account_service_unavailable";
+            };
+            String message = accountFailure.failure()
+                            == io.crewscope.application.identity.CurrentAccountMutationFailure
+                                    .INVALID_CURRENT_PASSWORD
+                    ? "The submitted credentials could not be authenticated"
+                    : "The account operation could not be completed";
+            return response(
+                    status,
+                    code,
+                    message,
+                    status == HttpStatus.SERVICE_UNAVAILABLE,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof IdentityPersistenceCapacityException) {
+            boolean registration = isRegistrationRequest(exchange);
+            return response(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    registration ? "registration_unavailable" : "account_service_unavailable",
+                    registration
+                            ? "Registration is unavailable"
+                            : "The account service is unavailable",
+                    true,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof FirstTeamAlreadyExistsException) {
+            return response(
+                    HttpStatus.CONFLICT,
+                    "onboarding_already_complete",
+                    "First-Team onboarding has already been completed",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof TeamInvitationApplicationException invitationFailure) {
+            HttpStatus status = switch (invitationFailure.failure()) {
+                case INVALID_INVITATION -> HttpStatus.UNPROCESSABLE_CONTENT;
+                case INVITATION_NOT_PENDING -> HttpStatus.CONFLICT;
+            };
+            String code = switch (invitationFailure.failure()) {
+                case INVALID_INVITATION -> "invitation_invalid";
+                case INVITATION_NOT_PENDING -> "invitation_not_pending";
+            };
+            return response(
+                    status,
+                    code,
+                    "Invitation could not be processed",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof PasswordHashCapacityException) {
+            boolean login = isLoginRequest(exchange);
+            return withHeader(
+                    response(
+                            HttpStatus.TOO_MANY_REQUESTS,
+                            "too_many_requests",
+                            login
+                                    ? "Authentication is temporarily unavailable"
+                                    : "Registration is temporarily unavailable",
+                            true,
+                            null,
+                            Map.of(),
+                            correlationId,
+                            exchange),
+                    HttpHeaders.RETRY_AFTER,
+                    "1");
+        }
+        if (failure instanceof LoginDefenseUnavailableException) {
+            boolean login = isLoginRequest(exchange);
+            return response(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    login ? "authentication_unavailable" : "registration_unavailable",
+                    login ? "Authentication is unavailable" : "Registration is unavailable",
+                    true,
+                    null,
+                    Map.of(),
                     correlationId,
                     exchange);
         }
@@ -448,7 +606,30 @@ public class ApiExceptionHandler {
         }
     }
 
+    private static boolean causedByDataBufferLimit(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 8; depth++) {
+            if (current instanceof DataBufferLimitException) {
+                return true;
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                return false;
+            }
+            current = cause;
+        }
+        return false;
+    }
+
     private static boolean isWorkerRoute(ServerWebExchange exchange) {
         return exchange.getRequest().getPath().value().startsWith("/api/internal/v1/worker/");
+    }
+
+    private static boolean isLoginRequest(ServerWebExchange exchange) {
+        return "/api/v1/auth/login".equals(exchange.getRequest().getPath().value());
+    }
+
+    private static boolean isRegistrationRequest(ServerWebExchange exchange) {
+        return "/api/v1/auth/register".equals(exchange.getRequest().getPath().value());
     }
 }

@@ -80,6 +80,17 @@ public class JpaPrincipalRepositoryAdapter implements PrincipalRepository {
 
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
+  public Principal createLocalUser(Principal candidate) {
+    Principal value = requireLocalUserCandidate(candidate);
+    entityManager.persist(mapper.toEntity(value));
+    entityManager.flush();
+    return findById(value.scope().organizationId(), value.id())
+        .orElseThrow(
+            () -> new IllegalStateException("Local USER Principal was not visible after creation"));
+  }
+
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
   public PrincipalProvisioningResult provisionUser(Principal candidate) {
     Principal value = requireProvisioningCandidate(candidate);
     var external = value.externalIdentity().orElseThrow();
@@ -133,6 +144,21 @@ public class JpaPrincipalRepositoryAdapter implements PrincipalRepository {
       throw new IllegalArgumentException(
           "Provisioning candidate must be a new active organization-scoped USER with an external"
               + " identity");
+    }
+    return candidate;
+  }
+
+  private static Principal requireLocalUserCandidate(Principal value) {
+    Principal candidate = Objects.requireNonNull(value, "candidate");
+    if (candidate.type() != PrincipalType.USER
+        || candidate.scope().teamId().isPresent()
+        || candidate.ownerPrincipalId().isPresent()
+        || candidate.externalIdentity().isPresent()
+        || candidate.visibility() != PrincipalVisibility.ORGANIZATION
+        || candidate.status() != PrincipalStatus.ACTIVE
+        || candidate.version() != 0) {
+      throw new IllegalArgumentException(
+          "Local USER candidate must be new, active, organization-scoped and identity-free");
     }
     return candidate;
   }

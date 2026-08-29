@@ -38,6 +38,14 @@ class RegistrationConfigurationTest {
     runner("PUBLIC").run(context -> assertThat(context).hasFailed());
   }
 
+  @Test
+  void rejectsANonUuidRegistrationOrganizationAtStartup() {
+    new ApplicationContextRunner()
+        .withUserConfiguration(RegistrationConfiguration.class)
+        .withPropertyValues("crewscope.registration.organization-id=not-an-organization")
+        .run(context -> assertThat(context).hasFailed());
+  }
+
   private static ApplicationContextRunner runner(String mode) {
     return new ApplicationContextRunner()
         .withUserConfiguration(RegistrationConfiguration.class)

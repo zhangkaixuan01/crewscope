@@ -149,6 +149,7 @@ class TeamBetaDeploymentGuardM6I09Test {
                 "crewscope.runtime.redis.url",
                 "redis://default:strong-password@redis:6379");
         properties.put("crewscope.security.task-token.enabled", "true");
+        properties.put("crewscope.security.mode", worker ? "bootstrap" : "local");
         properties.put("crewscope.security.session.enabled", Boolean.toString(!worker));
         properties.put("crewscope.security.login-defense.enabled", Boolean.toString(!worker));
         properties.put("crewscope.security.login-defense.environment", "team-beta");
@@ -161,6 +162,12 @@ class TeamBetaDeploymentGuardM6I09Test {
         properties.put(
                 "crewscope.security.operator-bootstrap.username", "crewscope-monitor");
         properties.put("crewscope.registration.mode", "INVITE_ONLY");
+        properties.put(
+                "crewscope.registration.organization-id",
+                "0198a475-0831-7000-8000-000000000001");
+        properties.put(
+                "crewscope.deployment.bootstrap.organization-id",
+                "0198a475-0831-7000-8000-000000000001");
         properties.put("server.reactive.session.cookie.name", "CREWSCOPE_SESSION");
         properties.put("server.reactive.session.cookie.path", "/");
         properties.put("server.reactive.session.cookie.http-only", "true");

@@ -246,10 +246,15 @@ function assertAuthenticationRole(service, api, transport, registrationMode, sec
   const env = service.environment
   assert.equal(env.CREWSCOPE_DEPLOYMENT_TRANSPORT, transport)
   assert.equal(env.CREWSCOPE_BROWSER_SESSION_ENABLED, String(api))
+  assert.equal(env.CREWSCOPE_SECURITY_MODE, api ? 'local' : 'bootstrap')
   assert.equal(env.CREWSCOPE_LOGIN_DEFENSE_ENABLED, String(api))
   assert.equal(env.CREWSCOPE_INVITATION_TOKEN_ENABLED, String(api))
   assert.equal(env.CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED, String(api))
   assert.equal(env.CREWSCOPE_REGISTRATION_MODE, registrationMode)
+  assert.equal(
+    env.CREWSCOPE_REGISTRATION_ORGANIZATION_ID,
+    env.CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID,
+  )
   assert.equal(env.CREWSCOPE_SESSION_COOKIE_SECURE, secureCookie)
 }
 

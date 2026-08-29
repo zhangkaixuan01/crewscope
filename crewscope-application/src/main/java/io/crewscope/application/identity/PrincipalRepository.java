@@ -18,6 +18,14 @@ public interface PrincipalRepository {
   boolean organizationExists(OrganizationId organizationId);
 
   /**
+   * Inserts one new local USER Principal without fabricating an external identity. Local login
+   * truth remains in LoginIdentity and AccountOrganizationBinding.
+   */
+  default Principal createLocalUser(Principal candidate) {
+    throw new UnsupportedOperationException("Local USER Principal creation is not implemented");
+  }
+
+  /**
    * Inserts the candidate when its external identity is new, or returns the concurrently existing
    * Principal. Implementations must make this operation atomic at the database uniqueness boundary.
    */

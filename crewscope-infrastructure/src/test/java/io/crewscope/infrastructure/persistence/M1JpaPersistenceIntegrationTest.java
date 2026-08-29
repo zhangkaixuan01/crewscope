@@ -13,6 +13,7 @@ import io.crewscope.application.identity.IdentityMappingRequest;
 import io.crewscope.application.identity.IdentityMappingResult;
 import io.crewscope.application.identity.IdentityMappingService;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.provider.BuiltInProviderInitializationService;
 import io.crewscope.application.provider.BuiltInProviderRegistration;
 import io.crewscope.application.provider.ProviderBindingRepository;
@@ -31,7 +32,10 @@ import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.CreateTeamCommand;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
 import io.crewscope.application.team.DefaultPersonalAgentService;
+import io.crewscope.application.team.FirstTeamAlreadyExistsException;
 import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.OnboardingAccountContext;
+import io.crewscope.application.team.OnboardingApplicationService;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCommandContext;
@@ -68,6 +72,8 @@ import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
+import io.crewscope.domain.identity.UserAccount;
+import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.provider.ProviderCapabilities;
 import io.crewscope.domain.provider.ProviderType;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
@@ -116,6 +122,8 @@ import io.crewscope.domain.workspace.WorkspaceStatus;
 import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
 import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
 import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
+import io.crewscope.infrastructure.persistence.identity.IdentityPersistenceMapper;
+import io.crewscope.infrastructure.persistence.identity.JdbcUserAccountRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.provider.JpaProviderRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.provider.ProviderPersistenceMapper;
 import io.crewscope.infrastructure.persistence.responsibility.JpaResponsibilityAssignmentRepositoryAdapter;
@@ -188,6 +196,7 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   @Autowired private ResponsibilityAssignmentRepository assignmentRepository;
   @Autowired private TransactionExecutor transactionExecutor;
   @Autowired private PrincipalRepository principalRepository;
+  @Autowired private UserAccountRepository userAccountRepository;
   @Autowired private DomainEventStore domainEventStore;
   @Autowired private OutboxRepository outboxRepository;
   @Autowired private CommandReceiptStore commandReceiptStore;
@@ -469,6 +478,155 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     assertEquals(
         "COMPLETED",
         jdbcTemplate.queryForObject("SELECT status FROM crewscope.command_receipt", String.class));
+  }
+
+  @Test
+  void serializesConcurrentFirstTeamCreationToOneCompleteFoundation() throws Exception {
+    OrganizationId organizationId = OrganizationId.generate();
+    jdbcTemplate.update(
+        "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Onboarding', 'ACTIVE')",
+        organizationId.value());
+    Principal creator = createUser(organizationId, "Onboarding Owner");
+    UserAccount account =
+        userAccountRepository.create(
+            UserAccount.register(
+                UserAccountId.generate(),
+                "onboarding-owner",
+                "onboarding-owner@example.com",
+                "Onboarding Owner",
+                NOW));
+    TeamAccessContext access = new TeamAccessContext(creator, false);
+    OnboardingAccountContext accountContext =
+        new OnboardingAccountContext(account.id(), account.securityVersion(), access);
+    OnboardingApplicationService onboarding =
+        new OnboardingApplicationService(
+            userAccountRepository,
+            teamRepository,
+            teamApplicationService(),
+            transactionExecutor);
+    CountDownLatch start = new CountDownLatch(1);
+    AtomicInteger completed = new AtomicInteger();
+    AtomicInteger rejected = new AtomicInteger();
+
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      var first =
+          executor.submit(
+              () ->
+                  createFirstTeam(
+                      onboarding,
+                      accountContext,
+                      access,
+                      "onboarding-first-key",
+                      "First Team",
+                      start,
+                      completed,
+                      rejected));
+      var second =
+          executor.submit(
+              () ->
+                  createFirstTeam(
+                      onboarding,
+                      accountContext,
+                      access,
+                      "onboarding-second-key",
+                      "Second Team",
+                      start,
+                      completed,
+                      rejected));
+      start.countDown();
+      first.get(10, TimeUnit.SECONDS);
+      second.get(10, TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+    }
+
+    assertEquals(1, completed.get());
+    assertEquals(1, rejected.get());
+    UUID teamId =
+        jdbcTemplate.queryForObject(
+            "SELECT id FROM crewscope.team WHERE organization_id = ?",
+            UUID.class,
+            organizationId.value());
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.team WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.workspace WHERE organization_id = ? AND team_id = ?",
+            Integer.class,
+            organizationId.value(),
+            teamId));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.team_member WHERE organization_id = ? AND team_id = ?",
+            Integer.class,
+            organizationId.value(),
+            teamId));
+    assertEquals(
+        5,
+        jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.team_role WHERE organization_id = ? AND team_id = ?",
+            Integer.class,
+            organizationId.value(),
+            teamId));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.team_member_role
+             WHERE organization_id = ? AND team_id = ? AND status = 'ACTIVE'
+            """,
+            Integer.class,
+            organizationId.value(),
+            teamId));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.agent_profile
+             WHERE organization_id = ? AND team_id = ? AND profile_type = 'PERSONAL'
+               AND default_profile AND status = 'ACTIVE'
+            """,
+            Integer.class,
+            organizationId.value(),
+            teamId));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.domain_event
+             WHERE organization_id = ? AND event_type = 'TEAM_CREATED'
+            """,
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*)
+              FROM crewscope.outbox_event outbox
+              JOIN crewscope.domain_event event ON event.event_id = outbox.domain_event_id
+             WHERE event.organization_id = ?
+            """,
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.command_receipt
+             WHERE organization_id = ? AND command_type = 'CREATE_FIRST_TEAM'
+               AND status = 'COMPLETED'
+            """,
+            Integer.class,
+            organizationId.value()));
   }
 
   @Test
@@ -1824,6 +1982,31 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
         () -> NOW);
   }
 
+  private static void createFirstTeam(
+      OnboardingApplicationService onboarding,
+      OnboardingAccountContext accountContext,
+      TeamAccessContext access,
+      String idempotencyKey,
+      String teamName,
+      CountDownLatch start,
+      AtomicInteger completed,
+      AtomicInteger rejected) {
+    await(start);
+    try {
+      onboarding.createFirstTeam(
+          accountContext,
+          new TeamCommandContext(
+              access,
+              IdempotencyKey.from(idempotencyKey),
+              UUID.randomUUID(),
+              Optional.empty()),
+          new CreateTeamCommand(teamName));
+      completed.incrementAndGet();
+    } catch (FirstTeamAlreadyExistsException expected) {
+      rejected.incrementAndGet();
+    }
+  }
+
   private WorkItemCommandService workItemCommandService() {
     return new WorkItemCommandService(
         workItemRepository,
@@ -2170,6 +2353,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     JpaResponsibilityAssignmentRepositoryAdapter.class,
     ProviderPersistenceMapper.class,
     JpaProviderRepositoryAdapter.class,
+    IdentityPersistenceMapper.class,
+    JdbcUserAccountRepositoryAdapter.class,
     SpringTransactionExecutor.class
   })
   static class TestApplication {}

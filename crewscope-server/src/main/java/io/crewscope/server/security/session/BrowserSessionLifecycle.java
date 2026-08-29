@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.session.ReactiveSessionRegistry;
 import org.springframework.security.web.server.WebFilterExchange;
 import org.springframework.security.web.server.authentication.ConcurrentSessionControlServerAuthenticationSuccessHandler;
 import org.springframework.security.web.server.authentication.InvalidateLeastUsedServerMaximumSessionsExceededHandler;
@@ -29,14 +30,17 @@ public final class BrowserSessionLifecycle {
     private static final int MAXIMUM_AUTHORITIES = 16;
 
     private final WebSessionServerSecurityContextRepository securityContexts;
+    private final ReactiveSessionRegistry sessionRegistry;
     private final ConcurrentSessionControlServerAuthenticationSuccessHandler concurrentSessions;
     private final RegisterSessionServerAuthenticationSuccessHandler sessionRegistration;
 
     BrowserSessionLifecycle(
             WebSessionServerSecurityContextRepository securityContexts,
+            ReactiveSessionRegistry sessionRegistry,
             ConcurrentSessionControlServerAuthenticationSuccessHandler concurrentSessions,
             RegisterSessionServerAuthenticationSuccessHandler sessionRegistration) {
         this.securityContexts = Objects.requireNonNull(securityContexts, "securityContexts");
+        this.sessionRegistry = Objects.requireNonNull(sessionRegistry, "sessionRegistry");
         this.concurrentSessions = Objects.requireNonNull(concurrentSessions, "concurrentSessions");
         this.sessionRegistration = Objects.requireNonNull(sessionRegistration, "sessionRegistration");
     }
@@ -78,6 +82,15 @@ public final class BrowserSessionLifecycle {
         return Objects.requireNonNull(exchange, "exchange")
                 .getSession()
                 .flatMap(WebSession::invalidate);
+    }
+
+    /** Deletes every indexed Session for one Account without exposing any Session identifier. */
+    public Mono<Void> invalidateAll(java.util.UUID accountId) {
+        String principalName = Objects.requireNonNull(accountId, "accountId").toString();
+        return sessionRegistry
+                .getAllSessions(principalName)
+                .flatMap(information -> information.invalidate())
+                .then();
     }
 
     private static Authentication authentication(

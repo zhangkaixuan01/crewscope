@@ -46,8 +46,22 @@ public class JdbcTeamInvitationRepositoryAdapter implements TeamInvitationReposi
     @Transactional(readOnly = true)
     public Optional<TeamInvitation> findById(
             OrganizationId organizationId, TeamInvitationId invitationId) {
+        return findById(organizationId, invitationId, false);
+    }
+
+    @Override
+    @Transactional
+    public Optional<TeamInvitation> lockById(
+            OrganizationId organizationId, TeamInvitationId invitationId) {
+        return findById(organizationId, invitationId, true);
+    }
+
+    private Optional<TeamInvitation> findById(
+            OrganizationId organizationId, TeamInvitationId invitationId, boolean lock) {
         return first(
-                SELECT + " WHERE organization_id = :organizationId AND id = :id",
+                SELECT
+                        + " WHERE organization_id = :organizationId AND id = :id"
+                        + (lock ? " FOR UPDATE" : ""),
                 new MapSqlParameterSource()
                         .addValue("organizationId", requireOrganization(organizationId).value())
                         .addValue("id", requireInvitationId(invitationId).value()));

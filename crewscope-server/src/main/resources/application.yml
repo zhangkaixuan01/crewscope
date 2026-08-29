@@ -354,7 +354,7 @@ crewscope:
       degraded-backlog: ${CREWSCOPE_OPERATIONS_NOTIFICATION_DEGRADED_BACKLOG:10}
       attention-backlog: ${CREWSCOPE_OPERATIONS_NOTIFICATION_ATTENTION_BACKLOG:100}
   security:
-    # bootstrap uses operator Basic auth; oidc enables OAuth2 Login and browser-session CSRF.
+    # local uses CrewScope JSON login; bootstrap and oidc remain controlled compatibility modes.
     mode: ${CREWSCOPE_SECURITY_MODE:bootstrap}
     password:
       # ADR-025 selects 2 permits for 2C2G and 4 permits for 8C16G deployments.
@@ -401,6 +401,8 @@ crewscope:
       hmac-key: ${CREWSCOPE_INVITATION_TOKEN_HMAC_KEY:}
   registration:
     mode: ${CREWSCOPE_REGISTRATION_MODE:OPEN}
+    # Empty keeps the anonymous API closed until one deployment Organization is selected.
+    organization-id: ${CREWSCOPE_REGISTRATION_ORGANIZATION_ID:}
   runtime:
     agentscope-version: 2.0.0
     execution-profile: ${CREWSCOPE_EXECUTION_PROFILE:all}

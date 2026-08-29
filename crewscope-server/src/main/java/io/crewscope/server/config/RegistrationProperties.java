@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class RegistrationProperties {
 
   private RegistrationMode mode = RegistrationMode.OPEN;
+  private String organizationId = "";
 
   public RegistrationMode getMode() {
     return mode;
@@ -15,5 +16,13 @@ public class RegistrationProperties {
 
   public void setMode(RegistrationMode mode) {
     this.mode = mode;
+  }
+
+  public String getOrganizationId() {
+    return organizationId;
+  }
+
+  public void setOrganizationId(String organizationId) {
+    this.organizationId = organizationId;
   }
 }

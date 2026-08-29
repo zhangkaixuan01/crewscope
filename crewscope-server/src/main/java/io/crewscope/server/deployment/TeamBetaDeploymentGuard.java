@@ -94,6 +94,7 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireRegistrationMode(environment);
 
         boolean worker = role.equals("worker");
+        requireExact(environment, "crewscope.security.mode", worker ? "bootstrap" : "local");
         requireBoolean(environment, "spring.flyway.enabled", !worker);
         requireBoolean(environment, "crewscope.outbox.enabled", worker);
         requireBoolean(environment, "crewscope.action.worker.enabled", worker);
@@ -109,6 +110,10 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireBoolean(environment, "crewscope.invitation.token.enabled", !worker);
         requireBoolean(environment, "crewscope.security.operator-bootstrap.enabled", !worker);
         if (!worker) {
+            requireExact(
+                    environment,
+                    "crewscope.registration.organization-id",
+                    required(environment, "crewscope.deployment.bootstrap.organization-id"));
             requireBase64Secret(environment, "crewscope.security.login-defense.hmac-key");
             requireBase64Secret(environment, "crewscope.invitation.token.hmac-key");
             required(environment, "crewscope.security.login-defense.trusted-proxies");

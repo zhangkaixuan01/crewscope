@@ -28,6 +28,8 @@ management:
           timeout: 5s
 
 crewscope:
+  registration:
+    organization-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID}
   deployment:
     transport: ${CREWSCOPE_DEPLOYMENT_TRANSPORT}
     config-source: ${CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE}

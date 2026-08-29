@@ -17,6 +17,7 @@ import org.springframework.security.web.server.WebFilterChainProxy;
 import org.springframework.security.web.server.context.WebSessionServerSecurityContextRepository;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 class SecurityConfigurationTest {
@@ -25,6 +26,24 @@ class SecurityConfigurationTest {
   void buildsTheBootstrapProfile() {
     try (var context = context("bootstrap", false)) {
       assertThat(context.getBeansOfType(SecurityWebFilterChain.class)).hasSize(2);
+    }
+  }
+
+  @Test
+  void buildsTheLocalSessionProfileWithoutBasicAuthentication() {
+    try (var context = context("local", true)) {
+      assertThat(context.getBeansOfType(SecurityWebFilterChain.class)).hasSize(2);
+      var chains = context.getBeansOfType(SecurityWebFilterChain.class).values();
+      var response =
+          WebTestClient.bindToController(new ProtectedProbeController())
+              .webFilter(new WebFilterChainProxy(List.copyOf(chains)))
+              .build()
+              .post()
+              .uri("/api/v1/auth/login")
+              .exchange()
+              .expectBody()
+              .returnResult();
+      assertThat(response.getResponseHeaders().getFirst("WWW-Authenticate")).isNull();
     }
   }
 
@@ -45,6 +64,38 @@ class SecurityConfigurationTest {
               .returnResult();
 
       assertThat(response.getResponseHeaders().getFirst("WWW-Authenticate")).isNull();
+    }
+  }
+
+  @Test
+  void invitationPreviewIsPublicWhileAcceptanceAndManagementRequireAuthentication() {
+    try (var context = context("bootstrap", false)) {
+      var chains = context.getBeansOfType(SecurityWebFilterChain.class).values();
+      WebTestClient client =
+          WebTestClient.bindToController(new ProtectedProbeController())
+              .webFilter(new WebFilterChainProxy(List.copyOf(chains)))
+              .build();
+
+      client
+          .post()
+          .uri("/api/v1/invitations/preview")
+          .exchange()
+          .expectStatus()
+          .isOk();
+      client
+          .post()
+          .uri("/api/v1/invitations/accept")
+          .exchange()
+          .expectStatus()
+          .isUnauthorized();
+      client
+          .get()
+          .uri(
+              "/api/v1/organizations/d3ff4c9c-7a93-4fc7-91ac-4e3f328acdea"
+                  + "/teams/2e6ed1fa-b9ef-48b2-88db-e69fc711bcbd/invitations")
+          .exchange()
+          .expectStatus()
+          .isUnauthorized();
     }
   }
 
@@ -124,6 +175,22 @@ class SecurityConfigurationTest {
     @GetMapping("/protected-probe")
     String probe() {
       return "protected";
+    }
+
+    @PostMapping("/api/v1/invitations/preview")
+    String previewInvitation() {
+      return "preview";
+    }
+
+    @PostMapping("/api/v1/invitations/accept")
+    String acceptInvitation() {
+      return "accepted";
+    }
+
+    @GetMapping(
+        "/api/v1/organizations/{organizationId}/teams/{teamId}/invitations")
+    String listInvitations() {
+      return "invitations";
     }
   }
 }

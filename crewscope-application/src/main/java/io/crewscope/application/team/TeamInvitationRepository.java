@@ -17,6 +17,10 @@ public interface TeamInvitationRepository {
     Optional<TeamInvitation> findById(
             OrganizationId organizationId, TeamInvitationId invitationId);
 
+    /** Management mutation lookup using the same Invitation-before-Team lock order as acceptance. */
+    Optional<TeamInvitation> lockById(
+            OrganizationId organizationId, TeamInvitationId invitationId);
+
     /** Public preview lookup; adapters must never return or log a plaintext token. */
     Optional<TeamInvitation> findByTokenDigest(InvitationTokenDigest tokenDigest);
 

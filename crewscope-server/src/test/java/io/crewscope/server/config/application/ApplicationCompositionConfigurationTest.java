@@ -32,8 +32,16 @@ import io.crewscope.application.identity.AccountOrganizationBindingRepository;
 import io.crewscope.application.identity.AccountOrganizationPrincipalResolver;
 import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
 import io.crewscope.application.identity.CurrentAccountSnapshotReader;
+import io.crewscope.application.identity.CurrentAccountApplicationService;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.identity.LoginIdentityRepository;
+import io.crewscope.application.identity.LocalAccountLoginService;
+import io.crewscope.application.identity.LocalAccountRegistrationService;
+import io.crewscope.application.identity.LocalCredentialStore;
+import io.crewscope.application.identity.LocalPasswordAuthentication;
+import io.crewscope.application.identity.LoginDefense;
+import io.crewscope.application.identity.UserAccountRepository;
+import io.crewscope.application.team.OnboardingApplicationService;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.provider.BuiltInProviderInitializationService;
@@ -53,12 +61,17 @@ import io.crewscope.application.responsibility.ResponsibilityCommandService;
 import io.crewscope.application.responsibility.ResponsibilityQueryService;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
 import io.crewscope.application.team.AgentProfileRepository;
+import io.crewscope.application.team.InvitationTokenDigester;
+import io.crewscope.application.team.InvitationTokenGenerator;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.team.TeamInvitationRepository;
+import io.crewscope.application.team.TeamInvitationApplicationService;
+import io.crewscope.application.team.TeamInvitationIssueService;
 import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
@@ -111,6 +124,12 @@ class ApplicationCompositionConfigurationTest {
               AccountOrganizationBindingRepository.class,
               () -> mock(AccountOrganizationBindingRepository.class))
           .withBean(LoginIdentityRepository.class, () -> mock(LoginIdentityRepository.class))
+          .withBean(UserAccountRepository.class, () -> mock(UserAccountRepository.class))
+          .withBean(LocalCredentialStore.class, () -> mock(LocalCredentialStore.class))
+          .withBean(
+              LocalPasswordAuthentication.class,
+              () -> mock(LocalPasswordAuthentication.class))
+          .withBean(LoginDefense.class, () -> mock(LoginDefense.class))
           .withBean(
               CurrentAccountSnapshotReader.class,
               () -> mock(CurrentAccountSnapshotReader.class))
@@ -123,6 +142,12 @@ class ApplicationCompositionConfigurationTest {
           .withBean(TeamMemberRepository.class, () -> mock(TeamMemberRepository.class))
           .withBean(TeamMembershipQuery.class, () -> mock(TeamMembershipQuery.class))
           .withBean(TeamRoleRepository.class, () -> mock(TeamRoleRepository.class))
+          .withBean(
+              TeamInvitationRepository.class, () -> mock(TeamInvitationRepository.class))
+          .withBean(
+              InvitationTokenGenerator.class, () -> mock(InvitationTokenGenerator.class))
+          .withBean(
+              InvitationTokenDigester.class, () -> mock(InvitationTokenDigester.class))
           .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))
           .withBean(AgentProfileRepository.class, () -> mock(AgentProfileRepository.class))
           .withBean(
@@ -185,6 +210,12 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(IdentityMappingService.class);
           assertThat(context).hasSingleBean(AccountOrganizationPrincipalResolver.class);
           assertThat(context).hasSingleBean(AuthenticatedAccountOrganizationResolver.class);
+          assertThat(context).hasSingleBean(LocalAccountRegistrationService.class);
+          assertThat(context).hasSingleBean(LocalAccountLoginService.class);
+          assertThat(context).hasSingleBean(CurrentAccountApplicationService.class);
+          assertThat(context).hasSingleBean(OnboardingApplicationService.class);
+          assertThat(context).hasSingleBean(TeamInvitationIssueService.class);
+          assertThat(context).hasSingleBean(TeamInvitationApplicationService.class);
           assertThat(context).hasSingleBean(ProviderBindingResolver.class);
           assertThat(context).hasSingleBean(NativeWorkItemProvider.class);
           assertThat(context).hasSingleBean(BuiltInProviderRegistration.class);

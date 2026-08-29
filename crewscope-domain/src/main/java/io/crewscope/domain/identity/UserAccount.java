@@ -7,6 +7,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Deployment-level login aggregate, independent from Organization Principal and TeamMember. */
@@ -106,40 +107,58 @@ public final class UserAccount {
 
     /** Changes both username representations atomically while preserving the submitted display form. */
     public UserAccount changeUsername(String targetUsername, UtcTimestamp occurredAt) {
-        requireMutable();
-        return copy(
-                new Username(targetUsername),
-                email,
-                normalizedEmail,
-                displayName,
-                status,
-                securityVersion,
-                nextVersion(),
-                modifiedAt(occurredAt));
+        return changeProfile(
+                Optional.of(targetUsername), Optional.empty(), Optional.empty(), occurredAt);
     }
 
     /** Changes the display email and its normalized unique key in one aggregate version. */
     public UserAccount changeEmail(String targetEmail, UtcTimestamp occurredAt) {
-        requireMutable();
-        String safeEmail = emailDisplay(targetEmail);
-        return copy(
-                username,
-                safeEmail,
-                NormalizedEmail.fromDisplayValue(safeEmail),
-                displayName,
-                status,
-                securityVersion,
-                nextVersion(),
-                modifiedAt(occurredAt));
+        return changeProfile(
+                Optional.empty(), Optional.of(targetEmail), Optional.empty(), occurredAt);
     }
 
     public UserAccount changeDisplayName(String targetDisplayName, UtcTimestamp occurredAt) {
+        return changeProfile(
+                Optional.empty(), Optional.empty(), Optional.of(targetDisplayName), occurredAt);
+    }
+
+    /** Applies one profile form as one aggregate revision, even when several fields change. */
+    public UserAccount changeProfile(
+            Optional<String> targetUsername,
+            Optional<String> targetEmail,
+            Optional<String> targetDisplayName,
+            UtcTimestamp occurredAt) {
         requireMutable();
+        Optional<String> requestedUsername = Objects.requireNonNull(targetUsername, "targetUsername");
+        Optional<String> requestedEmail = Objects.requireNonNull(targetEmail, "targetEmail");
+        Optional<String> requestedDisplayName =
+                Objects.requireNonNull(targetDisplayName, "targetDisplayName");
+        if (requestedUsername.isEmpty()
+                && requestedEmail.isEmpty()
+                && requestedDisplayName.isEmpty()) {
+            throw new DomainValidationException(
+                    "userAccount.profile", "must contain at least one field");
+        }
+        Username changedUsername = requestedUsername.map(Username::new).orElse(username);
+        String changedEmail = requestedEmail.map(UserAccount::emailDisplay).orElse(email);
+        NormalizedEmail changedNormalizedEmail = requestedEmail
+                .map(ignored -> NormalizedEmail.fromDisplayValue(changedEmail))
+                .orElse(normalizedEmail);
+        String changedDisplayName = requestedDisplayName
+                .map(value -> AccountTextPolicy.displayText(
+                        value, "userAccount.displayName", 1, MAX_DISPLAY_NAME_LENGTH))
+                .orElse(displayName);
+        if (changedUsername.equals(username)
+                && changedEmail.equals(email)
+                && changedDisplayName.equals(displayName)) {
+            throw new DomainValidationException(
+                    "userAccount.profile", "must change at least one field");
+        }
         return copy(
-                username,
-                email,
-                normalizedEmail,
-                targetDisplayName,
+                changedUsername,
+                changedEmail,
+                changedNormalizedEmail,
+                changedDisplayName,
                 status,
                 securityVersion,
                 nextVersion(),

@@ -1,6 +1,7 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.command.IdempotencyKey;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +33,11 @@ public final class ApiHeaders {
         }
     }
 
+    /** Requires exactly one Idempotency-Key field value at the M7 browser API boundary. */
+    public static IdempotencyKey requireSingleIdempotencyKey(List<String> values) {
+        return requireIdempotencyKey(requireSingleValue(values, IDEMPOTENCY_KEY, false));
+    }
+
     /** Requires a single strong ETag containing one non-negative aggregate version. */
     public static long requireIfMatch(String value) {
         if (value == null || value.isBlank()) {
@@ -50,6 +56,11 @@ public final class ApiHeaders {
         } catch (NumberFormatException exception) {
             throw invalidIfMatch();
         }
+    }
+
+    /** Requires exactly one If-Match field value before parsing its strong version ETag. */
+    public static long requireSingleIfMatch(List<String> values) {
+        return requireIfMatch(requireSingleValue(values, IF_MATCH, true));
     }
 
     /** Formats a committed aggregate version as a strong HTTP ETag. */
@@ -74,5 +85,25 @@ public final class ApiHeaders {
                 "invalid_if_match",
                 "If-Match must contain one strong non-negative version ETag",
                 Map.of("header", IF_MATCH));
+    }
+    private static String requireSingleValue(
+            List<String> values, String header, boolean precondition) {
+        if (values == null || values.isEmpty()) {
+            if (precondition) {
+                throw new ApiRequestException(
+                        HttpStatus.PRECONDITION_REQUIRED,
+                        "precondition_required",
+                        "If-Match is required",
+                        Map.of("header", IF_MATCH));
+            }
+            throw invalidRequest(header, "is required");
+        }
+        if (values.size() != 1 || values.get(0) == null || values.get(0).contains(",")) {
+            if (precondition) {
+                throw invalidIfMatch();
+            }
+            throw invalidRequest(header, "must contain exactly one value");
+        }
+        return values.get(0);
     }
 }

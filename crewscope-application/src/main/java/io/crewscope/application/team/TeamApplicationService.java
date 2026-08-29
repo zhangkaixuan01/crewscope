@@ -60,6 +60,7 @@ public final class TeamApplicationService {
   private static final String TEAM_AGGREGATE = "TEAM";
   private static final String TEAM_MEMBER_AGGREGATE = "TEAM_MEMBER";
   private static final String CREATE_TEAM = "CREATE_TEAM";
+  private static final String CREATE_FIRST_TEAM = "CREATE_FIRST_TEAM";
   private static final String ADD_TEAM_MEMBER = "ADD_TEAM_MEMBER";
   private static final String COMPLETE_TEAM_INITIALIZATION = "COMPLETE_TEAM_INITIALIZATION";
 
@@ -115,17 +116,37 @@ public final class TeamApplicationService {
   /** Creates a complete Team foundation and its publication facts atomically. */
   public CommandExecution<TeamInitialization> createTeam(
       TeamCommandContext context, CreateTeamCommand command) {
+    return createTeam(context, command, false);
+  }
+
+  /** Creates the onboarding Team only while the actor has no active Team Membership. */
+  public CommandExecution<TeamInitialization> createFirstTeam(
+      TeamCommandContext context, CreateTeamCommand command) {
+    return createTeam(context, command, true);
+  }
+
+  private CommandExecution<TeamInitialization> createTeam(
+      TeamCommandContext context, CreateTeamCommand command, boolean firstTeamOnly) {
     TeamCommandContext trusted = requireCommandContext(context);
     CreateTeamCommand required = Objects.requireNonNull(command, "command");
+    String commandType = firstTeamOnly ? CREATE_FIRST_TEAM : CREATE_TEAM;
     return execute(
         trusted,
-        CREATE_TEAM,
+        commandType,
         CommandRequestHash.sha256(
-            CREATE_TEAM,
+            commandType,
             trusted.access().actor().id().toString(),
             trusted.causationId().map(UUID::toString).orElse(""),
             required.name().strip()),
         commandId -> {
+          if (firstTeamOnly
+              && !teamRepository
+                  .findActiveByMember(
+                      trusted.access().actor().scope().organizationId(),
+                      trusted.access().actor().id())
+                  .isEmpty()) {
+            throw new FirstTeamAlreadyExistsException();
+          }
           TeamInitialization result = creationService.create(trusted.access().actor(), required);
           return completed(
               trusted,

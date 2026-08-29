@@ -1,5 +1,6 @@
 package io.crewscope.server.config;
 
+import io.crewscope.domain.shared.id.OrganizationId;
 import java.util.Objects;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,6 +14,13 @@ public class RegistrationConfiguration {
 
   @Bean
   InitializingBean registrationModeGuard(RegistrationProperties properties) {
-    return () -> Objects.requireNonNull(properties.getMode(), "registration mode");
+    return () -> {
+      Objects.requireNonNull(properties.getMode(), "registration mode");
+      String organizationId =
+          Objects.requireNonNull(properties.getOrganizationId(), "registration organization id");
+      if (!organizationId.isBlank()) {
+        OrganizationId.from(organizationId.strip());
+      }
+    };
   }
 }

@@ -4,9 +4,17 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
+import io.crewscope.application.team.InvitationTokenDigester;
+import io.crewscope.application.team.InvitationTokenGenerator;
 import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.OnboardingApplicationService;
+import io.crewscope.application.team.TeamInvitationAcceptanceService;
+import io.crewscope.application.team.TeamInvitationApplicationService;
+import io.crewscope.application.team.TeamInvitationIssueService;
+import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCreationService;
 import io.crewscope.application.team.TeamMemberRepository;
@@ -16,6 +24,7 @@ import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -76,6 +85,60 @@ public class TeamApplicationConfiguration {
         outboxRepository,
         commandReceiptStore,
         transactionExecutor,
+        timeProvider);
+  }
+
+  @Bean
+  OnboardingApplicationService onboardingApplicationService(
+      UserAccountRepository userAccountRepository,
+      TeamRepository teamRepository,
+      TeamApplicationService teamApplicationService,
+      TransactionExecutor transactionExecutor) {
+    return new OnboardingApplicationService(
+        userAccountRepository, teamRepository, teamApplicationService, transactionExecutor);
+  }
+
+  @Bean
+  @ConditionalOnBean({InvitationTokenGenerator.class, InvitationTokenDigester.class})
+  TeamInvitationIssueService teamInvitationIssueService(
+      TeamInvitationRepository invitations,
+      InvitationTokenGenerator tokens,
+      InvitationTokenDigester digester,
+      TransactionExecutor transactions,
+      TimeProvider timeProvider) {
+    return new TeamInvitationIssueService(
+        invitations, tokens, digester, transactions, timeProvider);
+  }
+
+  @Bean
+  @ConditionalOnBean(TeamInvitationIssueService.class)
+  TeamInvitationApplicationService teamInvitationApplicationService(
+      TeamInvitationIssueService issueService,
+      InvitationTokenDigester digester,
+      TeamInvitationRepository invitations,
+      TeamRepository teams,
+      TeamMemberRepository members,
+      TeamRoleRepository roles,
+      MemberRoleRepository memberRoles,
+      TeamInvitationAcceptanceService acceptanceService,
+      DomainEventStore events,
+      OutboxRepository outbox,
+      CommandReceiptStore receipts,
+      TransactionExecutor transactions,
+      TimeProvider timeProvider) {
+    return new TeamInvitationApplicationService(
+        issueService,
+        digester,
+        invitations,
+        teams,
+        members,
+        roles,
+        memberRoles,
+        acceptanceService,
+        events,
+        outbox,
+        receipts,
+        transactions,
         timeProvider);
   }
 }

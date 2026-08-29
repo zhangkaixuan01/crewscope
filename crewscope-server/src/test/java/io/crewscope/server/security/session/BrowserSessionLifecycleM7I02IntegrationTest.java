@@ -192,6 +192,22 @@ class BrowserSessionLifecycleM7I02IntegrationTest {
     }
 
     @Test
+    void invalidatesEveryIndexedSessionForOnlyTheTargetAccount() throws Exception {
+        CookieJar firstAlice = established(ALICE);
+        CookieJar secondAlice = established(ALICE);
+        UUID bob = UUID.randomUUID();
+        CookieJar bobBrowser = established(bob);
+
+        post("/test/session/revoke-all/" + ALICE, new CookieJar(), HttpStatus.NO_CONTENT);
+
+        assertAnonymous(firstAlice);
+        assertAnonymous(secondAlice);
+        assertAuthenticated(bobBrowser, bob, 3);
+        assertThat(sessions.findByPrincipalName(ALICE.toString())
+                .block(Duration.ofSeconds(3))).isEmpty();
+    }
+
+    @Test
     void expiresWithoutFallingBackToAClientIdentity() throws Exception {
         CookieJar browser = established(UUID.randomUUID());
         String sessionId = browser.required(COOKIE);
@@ -381,6 +397,12 @@ class BrowserSessionLifecycleM7I02IntegrationTest {
         @ResponseStatus(HttpStatus.NO_CONTENT)
         Mono<Void> logout(ServerWebExchange exchange) {
             return sessions.invalidateCurrent(exchange);
+        }
+
+        @PostMapping("/revoke-all/{accountId}")
+        @ResponseStatus(HttpStatus.NO_CONTENT)
+        Mono<Void> revokeAll(@PathVariable UUID accountId) {
+            return sessions.invalidateAll(accountId);
         }
     }
 }
