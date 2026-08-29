@@ -35,6 +35,8 @@ jobs:
           done
       - name: Verify backend
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
+      - name: Enforce zero skipped backend tests
+        run: node scripts/check-test-report-zero-skips.mjs
       - name: Compile frozen M4 Judge Pack
         run: |
           evaluation_workspace="$(mktemp -d)"
@@ -131,6 +133,8 @@ jobs:
         run: node scripts/check-team-beta-recovery.mjs
       - name: Check Web public projections for sensitive fields
         run: node scripts/check-web-sensitive-fields.mjs
+      - name: Validate M7 release contract
+        run: node scripts/check-m7-release-contract.mjs
       - name: Validate frozen M4 coding evaluation suite
         run: node evaluation/m4/coding-v1/scripts/evaluate.mjs validate
       - name: Validate M4-Q03 benchmark protocol
@@ -206,7 +210,7 @@ jobs:
     needs: [backend, frontend, quality, dependency_security_osv, dependency_security_web, image_security]
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce the current milestone release gate
+      - name: Enforce the M7 release gate
         env:
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}

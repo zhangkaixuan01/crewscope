@@ -3,14 +3,31 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-RUNTIME_ROOT="$SCRIPT_DIR/.runtime"
+PROJECT_NAME="${CREWSCOPE_DEMO_PROJECT_NAME:-crewscope-team-beta}"
+RUNTIME_ROOT="${CREWSCOPE_DEMO_RUNTIME_ROOT:-$SCRIPT_DIR/.runtime}"
 DATA_ROOT="$RUNTIME_ROOT/data"
 SECRETS_ROOT="$RUNTIME_ROOT/secrets"
 COMPOSE_FILES="-f $SCRIPT_DIR/compose.yaml -f $SCRIPT_DIR/compose.demo.yaml"
 ALPINE_IMAGE="${CREWSCOPE_DEMO_HELPER_IMAGE:-alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce}"
 
 usage() {
-  echo "Usage: $0 up|down|status|logs"
+  echo "Usage: $0 up|down|reset|status|logs|set-registration-mode [OPEN|INVITE_ONLY|DISABLED]"
+}
+
+validate_isolation() {
+  case "$PROJECT_NAME" in
+    ''|*[!a-zA-Z0-9_-]*)
+      echo "CREWSCOPE_DEMO_PROJECT_NAME must contain only letters, numbers, '_' or '-'" >&2
+      exit 2
+      ;;
+  esac
+  case "$RUNTIME_ROOT" in
+    /*) ;;
+    *)
+      echo "CREWSCOPE_DEMO_RUNTIME_ROOT must be an absolute path" >&2
+      exit 2
+      ;;
+  esac
 }
 
 socket_group() {
@@ -100,13 +117,23 @@ export_deployment_environment() {
 }
 
 action="${1:-}"
+validate_isolation
 case "$action" in
   up)
     prepare_runtime
     export_deployment_environment
     cd "$REPOSITORY_ROOT"
-    # shellcheck disable=SC2086
-    docker compose --profile demo $COMPOSE_FILES up --detach --build --wait
+    if [ "${CREWSCOPE_DEMO_BUILD:-true}" = true ]; then
+      # shellcheck disable=SC2086
+      docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+        up --detach --build --wait
+    else
+      # Release sub-gates may reuse images already built by their enclosing Release Gate. Compose
+      # still fails closed when either explicit demo image is absent.
+      # shellcheck disable=SC2086
+      docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+        up --detach --wait
+    fi
     echo "CrewScope Team Beta: http://127.0.0.1:$CREWSCOPE_WEB_PORT"
     echo "Open registration: http://127.0.0.1:$CREWSCOPE_WEB_PORT/register"
     echo "Operator login: http://127.0.0.1:$CREWSCOPE_WEB_PORT/login"
@@ -119,19 +146,49 @@ case "$action" in
     cd "$REPOSITORY_ROOT"
     # Persistent volumes and Secret files are deliberately retained across restarts.
     # shellcheck disable=SC2086
-    docker compose --profile demo $COMPOSE_FILES down --remove-orphans
+    docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+      down --remove-orphans
+    ;;
+  reset)
+    export_deployment_environment
+    cd "$REPOSITORY_ROOT"
+    # This removes only volumes owned by the explicitly named Compose project. Runtime Secret
+    # files remain available for the next isolated run and are never printed by this script.
+    # shellcheck disable=SC2086
+    docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+      down --remove-orphans --volumes
     ;;
   status)
     export_deployment_environment
     cd "$REPOSITORY_ROOT"
     # shellcheck disable=SC2086
-    docker compose --profile demo $COMPOSE_FILES ps
+    docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES ps
     ;;
   logs)
     export_deployment_environment
     cd "$REPOSITORY_ROOT"
     # shellcheck disable=SC2086
-    docker compose --profile demo $COMPOSE_FILES logs --follow --tail 200
+    docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+      logs --follow --tail 200
+    ;;
+  set-registration-mode)
+    mode="${2:-}"
+    case "$mode" in
+      OPEN|INVITE_ONLY|DISABLED) ;;
+      *)
+        echo "Registration mode must be OPEN, INVITE_ONLY or DISABLED" >&2
+        exit 2
+        ;;
+    esac
+    export CREWSCOPE_REGISTRATION_MODE="$mode"
+    export_deployment_environment
+    cd "$REPOSITORY_ROOT"
+    # Recreate only the API process. PostgreSQL, Redis and browser Session state remain durable,
+    # which lets the release gate prove identity continuity while changing the registration policy.
+    # shellcheck disable=SC2086
+    docker compose --project-name "$PROJECT_NAME" --profile demo $COMPOSE_FILES \
+      up --detach --no-deps --force-recreate --wait api
+    echo "CrewScope registration mode: $mode"
     ;;
   *)
     usage

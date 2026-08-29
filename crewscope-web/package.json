@@ -14,6 +14,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:m7-q03": "playwright test --config playwright.m7-q03.config.ts",
+    "test:e2e:m7-q04-profiles": "playwright test --config playwright.m7-q04.config.ts",
     "test:e2e:update": "playwright test --update-snapshots",
     "check:sensitive": "node ../scripts/check-web-sensitive-fields.mjs",
     "story": "histoire dev",

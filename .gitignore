@@ -14,8 +14,12 @@ dist/
 **/.histoire/
 playwright-report/
 **/playwright-report/
+playwright-report-*/
+**/playwright-report-*/
 test-results/
 **/test-results/
+test-results-*/
+**/test-results-*/
 coverage/
 **/coverage/
 

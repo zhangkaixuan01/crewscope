@@ -121,7 +121,7 @@ function createManifest(payloadInput, metadataInput) {
     credentialKeyIds: [...metadata.credentialKeyIds].sort(),
     environmentFingerprint: metadata.environmentFingerprint,
     maintenance: metadata.maintenance,
-    compatibility: { minimumSchemaVersion: 26, maximumSchemaVersion: 30 },
+    compatibility: { minimumSchemaVersion: 26, maximumSchemaVersion: 32 },
     components,
   }
   const output = safeChild(payload, 'manifest.json')
@@ -205,7 +205,7 @@ function verifyPayload(payloadInput, envelopeInput, minimumSchema, maximumSchema
     throw new Error('Backup manifest has an unsupported PBKDF2 iteration count')
   }
   if (manifest.compatibility?.minimumSchemaVersion !== 26
-      || manifest.compatibility?.maximumSchemaVersion !== 30) {
+      || manifest.compatibility?.maximumSchemaVersion !== 32) {
     throw new Error('Backup manifest has an unsupported compatibility declaration')
   }
   requireIsoInstant(manifest.createdAt, 'manifest.createdAt')
