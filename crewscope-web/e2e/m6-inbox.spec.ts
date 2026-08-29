@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { authenticatedSession } from './auth-session'
 
 const ids = {
   organization: '00000000-0000-4000-8000-000000000001',
@@ -88,6 +89,7 @@ async function mockInboxApi(page: Page): Promise<void> {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
+    if (request.method() === 'GET' && path === '/api/v1/auth/session') return fulfillJson(route, authenticatedSession(ids.organization, ids.principal, ids.team))
     if (request.method() === 'GET' && path.endsWith('/teams')) {
       return fulfillJson(route, [{
         id: ids.team, organizationId: ids.organization, name: 'Platform Engineering', status: 'ACTIVE',

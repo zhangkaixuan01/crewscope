@@ -11,7 +11,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/api/**/*.ts', 'src/app/**/*.ts', 'src/components/**/*.vue'],
+      include: [
+        'src/api/**/*.ts',
+        'src/app/**/*.ts',
+        'src/components/**/*.vue',
+        'src/domains/{identity,account,onboarding,invitation}/**/*.ts',
+        'src/pages/{Login,Register,Onboarding,Account,Invite}Page.vue',
+      ],
       exclude: ['src/**/*.story.vue'],
       thresholds: {
         statements: 80,

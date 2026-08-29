@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { authenticatedSession } from './auth-session'
 
 const ids = {
   organization: uuid(1), principal: uuid(101), team: uuid(201), project: uuid(401), workspace: uuid(501),
@@ -87,6 +88,7 @@ async function mockAuditApi(page: Page): Promise<void> {
     const url = new URL(request.url())
     const path = url.pathname
     const scenario = new URL(page.url()).searchParams.get('scenario')
+    if (request.method() === 'GET' && path === '/api/v1/auth/session') return fulfillJson(route, authenticatedSession(ids.organization, ids.principal, ids.team))
     if (request.method() === 'GET' && path.endsWith('/teams')) return fulfillJson(route, [{ id: ids.team, organizationId: ids.organization, name: 'Platform Engineering', status: 'ACTIVE', initializationStatus: 'READY', ownerMemberId: 'member-1', defaultWorkspaceId: ids.workspace, version: 1 }])
     if (request.method() === 'GET' && path.endsWith(`/${ids.team}/work-projects`)) return fulfillJson(route, { items: [{ id: ids.project, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, key: 'CRW', name: 'CrewScope', status: 'ACTIVE', version: 1, createdAt: '2026-08-27T07:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-08-27T07:00:00Z', updatedByPrincipalId: ids.principal }], nextCursor: null })
     if (request.method() === 'GET' && path.endsWith('/audit-events')) {

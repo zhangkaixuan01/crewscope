@@ -97,4 +97,18 @@ describe('CrewScopeApiClient', () => {
     expect(error.envelope.retryable).toBe(true)
     expect(error.message).not.toContain('socket detail')
   })
+
+  it('notifies the identity boundary only for authentication-required 401 responses', async () => {
+    const handler = vi.fn()
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'authentication_required', message: 'Session expired', correlationId: 'corr-401',
+      retryable: false, currentVersion: null, details: {},
+    }), { status: 401, headers: { 'Content-Type': 'application/json' } }))
+    const client = new CrewScopeApiClient('/api/v1', fetcher as unknown as typeof fetch)
+    client.onAuthenticationRequired(handler)
+
+    await expect(client.get('/teams')).rejects.toMatchObject({ status: 401 })
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
 })

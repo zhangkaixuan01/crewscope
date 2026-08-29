@@ -1,5 +1,5 @@
-import { bootstrapPrincipal } from '../../app/auth'
-import { FixtureScopeGateway, fixtureIds } from '../../test/scopeFixtures'
+import { bootstrapPrincipal } from '../../test/authFixtures'
+import { FixtureScopeGateway, fixtureIds, fixtureMembers } from '../../test/scopeFixtures'
 import { createScopeStore } from './store'
 
 describe('scope store', () => {
@@ -65,4 +65,52 @@ describe('scope store', () => {
     expect(store.state.membersTeamId).toBe(fixtureIds.teamSecurity)
     expect(store.state.membersErrorMessage).toBeNull()
   })
+
+  it('clears cached scope and ignores a late Team response after identity removal', async () => {
+    const pending = deferred<Awaited<ReturnType<FixtureScopeGateway['listTeams']>>>()
+    const gateway = new FixtureScopeGateway()
+    gateway.listTeams = vi.fn(async () => pending.promise)
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+
+    const synchronization = store.synchronize()
+    store.reset()
+    pending.resolve([{
+      id: fixtureIds.teamPlatform,
+      organizationId: bootstrapPrincipal.organizationId,
+      name: 'Late Team',
+      status: 'ACTIVE',
+      initializationStatus: 'READY',
+      ownerMemberId: 'member-1',
+      defaultWorkspaceId: 'workspace-1',
+      version: 1,
+    }])
+    await synchronization
+
+    expect(store.state.phase).toBe('idle')
+    expect(store.state.teams).toEqual([])
+    expect(store.state.selectedTeamId).toBeNull()
+  })
+
+  it('ignores a late member response after identity removal', async () => {
+    const gateway = new FixtureScopeGateway()
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
+    const pending = deferred<Awaited<ReturnType<FixtureScopeGateway['listMembers']>>>()
+    gateway.listMembers = vi.fn(async () => pending.promise)
+
+    const membersRequest = store.loadMembers()
+    store.reset()
+    pending.resolve(structuredClone(fixtureMembers[fixtureIds.teamPlatform]))
+    await membersRequest
+
+    expect(store.state.members).toEqual([])
+    expect(store.state.membersTeamId).toBeNull()
+    expect(store.state.membersLoading).toBe(false)
+  })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(accept => { resolve = accept })
+  return { promise, resolve }
+}

@@ -6,6 +6,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
+import TeamInvitationManager from '../components/team/TeamInvitationManager.vue'
 import { useScopeStore } from '../domains/scope/store'
 
 const principal = inject(AUTH_PRINCIPAL)
@@ -81,15 +82,21 @@ function memberLabel(memberId: string, userPrincipalId: string): string {
         <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实" />
         <div v-else class="member-table" role="table" aria-label="团队成员列表">
           <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span><span role="columnheader">版本</span></div>
-          <article v-for="member in store.state.members" :key="member.id" class="member-row" role="row">
+          <div v-for="member in store.state.members" :key="member.id" class="member-row" role="row">
             <div class="member-identity" role="cell"><i>{{ memberLabel(member.id, member.userPrincipalId).slice(0, 1) }}</i><span><strong>{{ memberLabel(member.id, member.userPrincipalId) }} <em v-if="member.userPrincipalId === principal?.id">你</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }}</small></span></div>
             <span role="cell"><StatusBadge :tone="member.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ member.status }}</StatusBadge></span>
             <span class="join-method" role="cell">{{ member.joinMethod }}</span>
             <span class="joined-at" role="cell">{{ member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('zh-CN') : '—' }}</span>
             <span class="version mono" role="cell">v{{ member.version }} <Check v-if="member.id === team?.ownerMemberId" :size="12" aria-label="Team Owner" /></span>
-          </article>
+          </div>
         </div>
       </section>
+
+      <TeamInvitationManager
+        v-if="canManageMembers && team"
+        :organization-id="team.organizationId"
+        :team-id="team.id"
+      />
 
       <section class="permission-note"><ShieldCheck :size="17" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取和成员添加仍由服务端执行 ACTIVE Membership、Team Scope Role 与目标 Principal 校验。</span></div></section>
     </div>

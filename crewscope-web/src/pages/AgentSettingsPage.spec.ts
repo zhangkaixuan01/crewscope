@@ -4,6 +4,7 @@ import { createMemoryHistory } from 'vue-router'
 import { CrewScopeApiClient } from '../api/client'
 import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from '../app/auth'
 import { createCrewScopeRouter } from '../app/router'
+import { fixtureAuthStore } from '../test/authFixtures'
 import { HttpAgentGateway } from '../domains/agent/gateway'
 import { AGENT_STORE, createAgentStore } from '../domains/agent/store'
 import type { AgentSummary, CurrentAgentConfiguration } from '../domains/agent/types'
@@ -95,7 +96,7 @@ describe('AgentSettingsPage', () => {
 type FixtureMode = 'ready' | 'empty' | 'forbidden' | 'error' | 'loading' | 'configuration-error'
 
 async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDocument = false, settle = true) {
-  const router = createCrewScopeRouter(createMemoryHistory(), principal)
+  const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
   const agentStore = createAgentStore(new HttpAgentGateway(new CrewScopeApiClient('/api/v1', agentFetcher(mode))))

@@ -13,10 +13,16 @@ export class CrewScopeApiError extends Error {
 }
 
 export class CrewScopeApiClient {
+  private authenticationRequiredHandler: (() => void) | null = null
+
   constructor(
     private readonly baseUrl = '/api/v1',
     private readonly fetcher: typeof fetch = fetch,
   ) {}
+
+  onAuthenticationRequired(handler: (() => void) | null): void {
+    this.authenticationRequiredHandler = handler
+  }
 
   get<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
     return this.request<T>(path, { ...options, method: 'GET' })
@@ -83,7 +89,11 @@ export class CrewScopeApiClient {
       })
     }
     if (!response.ok) {
-      throw new CrewScopeApiError(response.status, await readErrorEnvelope(response))
+      const error = new CrewScopeApiError(response.status, await readErrorEnvelope(response))
+      if (error.status === 401 && error.envelope.code === 'authentication_required') {
+        this.authenticationRequiredHandler?.()
+      }
+      throw error
     }
     return response
   }

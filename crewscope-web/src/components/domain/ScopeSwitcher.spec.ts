@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { FixtureScopeGateway, fixtureIds } from '../../test/scopeFixtures'
 import { createScopeStore, SCOPE_STORE } from '../../domains/scope/store'
-import { bootstrapPrincipal } from '../../app/auth'
+import { bootstrapPrincipal } from '../../test/authFixtures'
 import ScopeSwitcher from './ScopeSwitcher.vue'
 
 describe('ScopeSwitcher', () => {

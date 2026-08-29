@@ -1,5 +1,6 @@
 import { expect, test, type Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { authenticatedSession } from './auth-session'
 
 const id = {
   org: '00000000-0000-0000-0000-000000000001', principal: '00000000-0000-0000-0000-000000000101', team: uuid(2), project: uuid(3), workspace: uuid(4),
@@ -16,6 +17,7 @@ test.beforeEach(async ({ page }) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
+    if (request.method() === 'GET' && path === '/api/v1/auth/session') return json(route, authenticatedSession(id.org, id.principal, id.team))
     if (request.method() === 'GET' && path.endsWith('/teams')) return json(route, [team()])
     if (request.method() === 'GET' && path.endsWith('/work-projects')) return json(route, { items: [project()], nextCursor: null })
     if (request.method() === 'GET' && path.endsWith('/members')) return json(route, [

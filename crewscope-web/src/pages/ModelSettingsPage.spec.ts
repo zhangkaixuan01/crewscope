@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from '../app/auth'
 import { createCrewScopeRouter } from '../app/router'
+import { fixtureAuthStore } from '../test/authFixtures'
 import type { Etagged, OffsetPage, SettingsScope } from '../domains/settings/types'
 import type { ModelGateway } from '../domains/model/gateway'
 import { createModelStore, MODEL_STORE } from '../domains/model/store'
@@ -78,7 +79,7 @@ describe('ModelSettingsPage', () => {
 })
 
 async function mountPage(principal: AuthenticatedPrincipal, query: string) {
-  const router = createCrewScopeRouter(createMemoryHistory(), principal)
+  const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
   const gateway = new FixtureModelGateway()

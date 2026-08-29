@@ -12,6 +12,7 @@ import type { CodingScope, RepositoryBinding } from '../domains/coding/types'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import RepositorySettingsPage from '../pages/RepositorySettingsPage.vue'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
+import { fixtureAuthStore } from '../test/authFixtures'
 
 type RepositoryStoryMode = 'ready' | 'empty' | 'loading' | 'error' | 'forbidden'
 
@@ -32,7 +33,7 @@ const forbiddenSetup = setupRepositoryStory('forbidden')
 
 function setupRepositoryStory(mode: RepositoryStoryMode) {
   return async ({ app }: { app: App }): Promise<void> => {
-    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
     const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
     await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
     const codingStore = createCodingStore(repositoryGateway(mode))

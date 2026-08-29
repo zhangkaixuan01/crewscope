@@ -42,6 +42,7 @@ export interface ScopeStore {
   reload(): Promise<ScopeSelection>
   loadMembers(force?: boolean): Promise<void>
   addMember(principalId: string): Promise<void>
+  reset(): void
 }
 
 export const SCOPE_STORE: InjectionKey<ScopeStore> = Symbol('crewscope-scope-store')
@@ -65,6 +66,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
   let teamsLoaded = false
   let teamsRequest: Promise<void> | null = null
   let synchronizationVersion = 0
+  let scopeGeneration = 0
 
   const selectedTeam = computed(
     () => state.teams.find(team => team.id === state.selectedTeamId) ?? null,
@@ -77,13 +79,16 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     if (teamsLoaded && !force) return
     if (teamsRequest && !force) return teamsRequest
 
-    teamsRequest = gateway.listTeams(principal.organizationId).then(teams => {
+    const requestGeneration = scopeGeneration
+    const request = gateway.listTeams(principal.organizationId).then(teams => {
+      if (requestGeneration !== scopeGeneration) return
       state.teams = teams.filter(team => team.status === 'ACTIVE')
       teamsLoaded = true
     }).finally(() => {
-      teamsRequest = null
+      if (teamsRequest === request) teamsRequest = null
     })
-    return teamsRequest
+    teamsRequest = request
+    return request
   }
 
   async function synchronize(teamId?: string | null, projectId?: string | null): Promise<ScopeSelection> {
@@ -145,35 +150,42 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
   async function loadMembers(force = false): Promise<void> {
     const teamId = state.selectedTeamId
     if (!teamId || (state.membersTeamId === teamId && !force)) return
+    const requestGeneration = scopeGeneration
     state.membersLoading = true
     state.membersErrorMessage = null
     try {
       const members = await gateway.listMembers(principal.organizationId, teamId)
-      if (state.selectedTeamId !== teamId) return
+      if (requestGeneration !== scopeGeneration || state.selectedTeamId !== teamId) return
       state.members = members
       state.membersTeamId = teamId
     } catch (error) {
       // A slow response from the previous Team must not overwrite the newly selected Team state.
-      if (state.selectedTeamId === teamId) state.membersErrorMessage = presentError(error)
+      if (requestGeneration === scopeGeneration && state.selectedTeamId === teamId) {
+        state.membersErrorMessage = presentError(error)
+      }
     } finally {
-      if (state.selectedTeamId === teamId) state.membersLoading = false
+      if (requestGeneration === scopeGeneration && state.selectedTeamId === teamId) {
+        state.membersLoading = false
+      }
     }
   }
 
   async function addMember(principalId: string): Promise<void> {
     const teamId = state.selectedTeamId
     if (!teamId) throw new Error('No Team is selected')
+    const requestGeneration = scopeGeneration
     state.memberCommandPending = true
     state.membersErrorMessage = null
     try {
       await gateway.addMember(principal.organizationId, teamId, principalId.trim(), crypto.randomUUID())
+      if (requestGeneration !== scopeGeneration) return
       state.membersTeamId = null
       await loadMembers(true)
     } catch (error) {
-      state.membersErrorMessage = presentError(error)
+      if (requestGeneration === scopeGeneration) state.membersErrorMessage = presentError(error)
       throw error
     } finally {
-      state.memberCommandPending = false
+      if (requestGeneration === scopeGeneration) state.memberCommandPending = false
     }
   }
 
@@ -190,6 +202,20 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     state.membersTeamId = null
   }
 
+  function reset(): void {
+    scopeGeneration += 1
+    synchronizationVersion += 1
+    teamsLoaded = false
+    teamsRequest = null
+    state.phase = 'idle'
+    state.teams = []
+    state.membersLoading = false
+    state.memberCommandPending = false
+    state.errorMessage = null
+    state.membersErrorMessage = null
+    clearScope()
+  }
+
   return {
     state: readonly(state) as Readonly<ScopeState>,
     selectedTeam,
@@ -198,6 +224,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     reload,
     loadMembers,
     addMember,
+    reset,
   }
 }
 

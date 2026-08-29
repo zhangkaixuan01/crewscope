@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { authenticatedSession } from './auth-session'
 
 const ids = {
   organization: '00000000-0000-0000-0000-000000000001', team: '00000000-0000-4000-8000-000000000201',
@@ -64,6 +65,7 @@ async function mockOperationsApi(page: Page) {
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && path === '/api/v1/auth/session') return json(route, authenticatedSession(ids.organization, ids.principal, ids.team))
     if (request.method() === 'GET' && path.endsWith('/teams')) return json(route, [{
       id: ids.team, organizationId: ids.organization, name: 'Platform Engineering', status: 'ACTIVE', initializationStatus: 'READY',
       ownerMemberId: 'member-1', defaultWorkspaceId: ids.workspace, version: 1,

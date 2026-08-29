@@ -1,18 +1,48 @@
 import {
   createRouter,
-  createWebHistory,
   type Router,
   type RouterHistory,
 } from 'vue-router'
-import { bootstrapPrincipal, can, permissions, type AuthenticatedPrincipal } from './auth'
+import { can, permissions } from './auth'
+import type { AuthStore } from '../domains/identity/store'
 
 export function createCrewScopeRouter(
   history: RouterHistory,
-  principal: AuthenticatedPrincipal = bootstrapPrincipal,
+  authStore: AuthStore,
 ): Router {
   const router = createRouter({
     history,
     routes: [
+      {
+        path: '/login',
+        name: 'login',
+        component: () => import('../pages/LoginPage.vue'),
+        meta: { section: 'identity', publicIdentity: true },
+      },
+      {
+        path: '/register',
+        name: 'register',
+        component: () => import('../pages/RegisterPage.vue'),
+        meta: { section: 'identity', publicIdentity: true },
+      },
+      {
+        path: '/invite',
+        name: 'invite',
+        component: () => import('../pages/InvitePage.vue'),
+        meta: { section: 'identity', publicIdentity: true },
+      },
+      {
+        path: '/onboarding',
+        name: 'onboarding',
+        component: () => import('../pages/OnboardingPage.vue'),
+        meta: { section: 'identity' },
+      },
+      {
+        path: '/account',
+        name: 'account',
+        component: () => import('../pages/AccountPage.vue'),
+        meta: { mode: 'control', section: 'account' },
+      },
       {
         path: '/',
         redirect: { name: 'conversation' },
@@ -114,15 +144,27 @@ export function createCrewScopeRouter(
     scrollBehavior: () => ({ top: 0 }),
   })
 
-  router.beforeEach(to => {
+  router.beforeEach(async to => {
+    if (authStore.state.phase === 'idle' || authStore.state.phase === 'restoring') {
+      await authStore.ensureRestored()
+    }
+    if (to.meta.publicIdentity === true) return true
+    if (authStore.state.phase !== 'authenticated') {
+      return { name: 'login', query: { returnTo: to.fullPath } }
+    }
     const requiredPermission = to.meta.requiredPermission
-    if (typeof requiredPermission === 'string' && !can(principal, requiredPermission)) {
+    if (typeof requiredPermission === 'string' && !can(authStore.principal, requiredPermission)) {
       return { name: 'access-denied', query: { from: to.fullPath } }
     }
     return true
   })
 
+  authStore.subscribe((phase, reason) => {
+    if (phase !== 'anonymous' || reason === 'restored') return
+    const current = router.currentRoute.value
+    if (current.meta.publicIdentity === true || typeof current.name !== 'string') return
+    void router.replace({ name: 'login', query: { returnTo: current.fullPath } })
+  })
+
   return router
 }
-
-export const router = createCrewScopeRouter(createWebHistory(), bootstrapPrincipal)

@@ -1,0 +1,52 @@
+.cs-auth-theme {
+  color-scheme: light;
+  --cs-auth-canvas: #edf4ef;
+  --cs-auth-story-surface: #f0f7f2;
+  --cs-auth-story-border: #d6e6da;
+  --cs-auth-stage-surface: #edf4ef;
+  --cs-auth-card-surface: rgb(255 255 255 / 95%);
+  --cs-auth-card-border: #d7e2d9;
+  --cs-auth-card-shadow: 0 24px 70px rgb(37 57 46 / 10%);
+  --cs-auth-input-surface: #ffffff;
+  --cs-auth-error-surface: #fff6f4;
+  --cs-auth-error-border: #e7bbb6;
+  --cs-auth-error-text: #873a34;
+  --cs-auth-control-height: 44px;
+  --cs-auth-card-radius: 22px;
+  --cs-auth-transition: var(--cs-transition-fast);
+}
+
+.cs-auth-theme[data-auth-brand-tone="dark"] {
+  --cs-auth-story-surface: var(--cs-brand-950);
+  --cs-auth-story-border: #345044;
+  --cs-auth-story-text: var(--cs-text-on-dark);
+  --cs-auth-story-muted: #c4d4ca;
+  --cs-auth-story-kicker: var(--cs-brand-300);
+  --cs-auth-story-node-surface: rgb(255 255 255 / 8%);
+  --cs-auth-story-node-border: rgb(223 246 231 / 22%);
+}
+
+.cs-auth-theme[data-auth-stage-tone="neutral"] {
+  --cs-auth-canvas: #f6f5f1;
+  --cs-auth-stage-surface: #f6f5f1;
+}
+
+/* Histoire can force the reduced-motion contract without changing OS settings. */
+.cs-auth-theme[data-auth-motion="reduced"] {
+  --cs-auth-transition: 0ms;
+}
+
+.cs-auth-theme[data-auth-motion="reduced"] *,
+.cs-auth-theme[data-auth-motion="reduced"] *::before,
+.cs-auth-theme[data-auth-motion="reduced"] *::after {
+  animation-duration: .01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: .01ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-auth-theme {
+    --cs-auth-transition: 0ms;
+  }
+}

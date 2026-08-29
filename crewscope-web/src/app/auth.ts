@@ -1,4 +1,4 @@
-import type { App, InjectionKey } from 'vue'
+import type { InjectionKey } from 'vue'
 
 export interface AuthenticatedPrincipal {
   id: string
@@ -29,26 +29,6 @@ export const permissions = {
   governanceExport: 'governance:export',
   operationsManage: 'operations:manage',
 } as const
-
-/**
- * Development identity used by the Bootstrap security profile.
- *
- * The server remains the authorization boundary. These permissions only drive navigation and
- * optimistic UI guards until the OIDC session endpoint replaces this development principal.
- */
-export const bootstrapPrincipal: AuthenticatedPrincipal = {
-  id: import.meta.env.VITE_CREWSCOPE_PRINCIPAL_ID ?? '00000000-0000-0000-0000-000000000101',
-  displayName: '张凯旋',
-  role: 'Team Owner',
-  organizationId: import.meta.env.VITE_CREWSCOPE_ORGANIZATION_ID ?? '00000000-0000-0000-0000-000000000001',
-  organization: 'Acme Technology',
-  permissions: new Set(Object.values(permissions)),
-}
-
-/** Installs an explicit Bootstrap identity boundary that will be replaced by OIDC session data. */
-export function installAuthPlaceholder(app: App, principal = bootstrapPrincipal): void {
-  app.provide(AUTH_PRINCIPAL, principal)
-}
 
 export function can(principal: AuthenticatedPrincipal, permission: string): boolean {
   return principal.permissions.has(permission)

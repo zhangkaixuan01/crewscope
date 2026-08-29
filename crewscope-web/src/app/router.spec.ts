@@ -21,6 +21,11 @@ import { FixtureTaskGateway } from '../test/taskFixtures'
 import { createTeamObserverStore, TEAM_OBSERVER_STORE } from '../domains/teamobserver/store'
 import type { TeamObserverGateway } from '../domains/teamobserver/gateway'
 import type { ConversationMessagePage } from '../domains/conversation/types'
+import { AUTH_STORE } from '../domains/identity/store'
+import { fixtureAuthStore } from '../test/authFixtures'
+import { createAuthStore } from '../domains/identity/store'
+import type { IdentityGateway } from '../domains/identity/gateway'
+import type { AuthSession } from '../domains/identity/types'
 
 const principal: AuthenticatedPrincipal = {
   id: 'test-user',
@@ -32,8 +37,102 @@ const principal: AuthenticatedPrincipal = {
 }
 
 describe('application routing', () => {
+  it('waits for Session recovery and sends an anonymous protected target to login', async () => {
+    const pending = deferred<AuthSession>()
+    const authStore = createAuthStore(identityGateway(() => pending.promise), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+    const navigation = router.push('/today?team=team-1')
+
+    expect(router.currentRoute.value.name).toBeUndefined()
+    pending.resolve(authSession(false))
+    await navigation
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.returnTo).toBe('/today?team=team-1')
+  })
+
+  it('uses restored permissions and redirects every open protected page after Session expiry', async () => {
+    let authenticated = true
+    const authStore = createAuthStore(identityGateway(async () => authSession(authenticated)), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+    await router.push('/conversation')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('conversation')
+
+    authenticated = false
+    authStore.authenticationRequired()
+
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
+    expect(router.currentRoute.value.query.returnTo).toBe('/conversation')
+    await vi.waitFor(() => expect(authStore.state.phase).toBe('anonymous'))
+  })
+
+  it('exposes the public login route without applying workspace permissions', async () => {
+    const noPermissions = { ...principal, permissions: new Set<string>() }
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))
+
+    await router.push('/login?returnTo=%2Fwork')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.returnTo).toBe('/work')
+  })
+
+  it('exposes the public registration route without applying workspace permissions', async () => {
+    const noPermissions = { ...principal, permissions: new Set<string>() }
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))
+
+    await router.push('/register')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('register')
+  })
+
+  it('exposes the proof-carrying invitation route without workspace permissions', async () => {
+    const noPermissions = { ...principal, permissions: new Set<string>() }
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))
+
+    await router.push(`/invite#token=${'A'.repeat(43)}`)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('invite')
+    expect(router.currentRoute.value.hash).toContain('token=')
+  })
+
+  it('admits authenticated accounts to Onboarding without workspace permissions', async () => {
+    const noPermissions = { ...principal, permissions: new Set<string>() }
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))
+
+    await router.push('/onboarding')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('onboarding')
+  })
+
+  it('preserves Onboarding as a protected login return target', async () => {
+    const authStore = createAuthStore(identityGateway(async () => authSession(false)), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+
+    await router.push('/onboarding')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.returnTo).toBe('/onboarding')
+  })
+
+  it('admits an authenticated account to account settings without Team permissions', async () => {
+    const noPermissions = { ...principal, permissions: new Set<string>() }
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))
+
+    await router.push('/account')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('account')
+  })
+
   it('redirects the root route to Conversation mode', async () => {
-    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
     await router.push('/')
     await router.isReady()
 
@@ -41,7 +140,8 @@ describe('application routing', () => {
   })
 
   it('preserves the focused object across Conversation and Control modes', async () => {
-    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    const authStore = fixtureAuthStore(principal)
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
     await router.push(`/conversation?focus=CRW-18&team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
     await router.isReady()
     const store = createScopeStore(new FixtureScopeGateway(), principal)
@@ -56,6 +156,7 @@ describe('application routing', () => {
         plugins: [router],
         provide: {
           [AUTH_PRINCIPAL as symbol]: principal,
+          [AUTH_STORE as symbol]: authStore,
           [SCOPE_STORE as symbol]: store,
           [CONVERSATION_STORE as symbol]: conversationStore,
           [CONVERSATION_MESSAGE_STORE as symbol]: messageStore,
@@ -87,7 +188,8 @@ describe('application routing', () => {
   })
 
   it('does not restart a late Personal Conversation realtime chain after entering Team Observer', async () => {
-    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    const authStore = fixtureAuthStore(principal)
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
     await router.push(`/conversation?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}&conversation=${conversationIds.provider}`)
     await router.isReady()
     const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
@@ -108,6 +210,7 @@ describe('application routing', () => {
         plugins: [router],
         provide: {
           [AUTH_PRINCIPAL as symbol]: principal,
+          [AUTH_STORE as symbol]: authStore,
           [SCOPE_STORE as symbol]: scopeStore,
           [CONVERSATION_STORE as symbol]: conversationStore,
           [CONVERSATION_MESSAGE_STORE as symbol]: messageStore,
@@ -133,7 +236,7 @@ describe('application routing', () => {
 
   it('redirects an unauthorized member route and records the denied destination', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
-    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))
 
     await router.push(`/team/members?team=${fixtureIds.teamPlatform}`)
     await router.isReady()
@@ -144,7 +247,7 @@ describe('application routing', () => {
 
   it('redirects a principal without Conversation permission before the page loads', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
-    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))
     const destination = `/conversation?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
 
     await router.push(destination)
@@ -155,7 +258,7 @@ describe('application routing', () => {
   })
 
   it('keeps the legacy Control URL as a query-preserving Today redirect', async () => {
-    const router = createCrewScopeRouter(createMemoryHistory(), principal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
 
     await router.push(`/control?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
     await router.isReady()
@@ -166,7 +269,7 @@ describe('application routing', () => {
 
   it('guards WorkProject Repository settings with repository management permission', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
-    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))
     const destination = `/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
 
     await router.push(destination)
@@ -178,7 +281,7 @@ describe('application routing', () => {
 
   it('guards the Audit Explorer with Audit read permission', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
-    const router = createCrewScopeRouter(createMemoryHistory(), readOnlyPrincipal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))
     const destination = `/audit?team=${fixtureIds.teamPlatform}`
 
     await router.push(destination)
@@ -190,7 +293,7 @@ describe('application routing', () => {
 
   it('allows a Team member to enter Operations health without administrator permission', async () => {
     const memberPrincipal = { ...principal, permissions: new Set<string>([permissions.scopeRead]) }
-    const router = createCrewScopeRouter(createMemoryHistory(), memberPrincipal)
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(memberPrincipal))
     const destination = `/operations?team=${fixtureIds.teamPlatform}`
 
     await router.push(destination)
@@ -222,4 +325,22 @@ function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
+}
+
+function identityGateway(load: () => Promise<AuthSession>): IdentityGateway {
+  return { session: vi.fn(load), login: vi.fn(), logout: vi.fn(), register: vi.fn() }
+}
+
+function authSession(authenticated: boolean): AuthSession {
+  return {
+    authenticated,
+    registrationMode: 'OPEN',
+    csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-router' },
+    account: authenticated ? {
+      accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+    } : null,
+    principal: authenticated ? { principalId: principal.id, organizationId: principal.organizationId } : null,
+    teams: authenticated ? [{ teamId: fixtureIds.teamPlatform, name: 'Platform', memberId: 'member-1', permissions: [...principal.permissions] }] : [],
+    permissions: authenticated ? [...principal.permissions] : [],
+  }
 }

@@ -1,6 +1,7 @@
 import { expect, test, type Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { createHash } from 'node:crypto'
+import { authenticatedSession } from './auth-session'
 
 const ids = {
   organization: '00000000-0000-0000-0000-000000000001',
@@ -144,6 +145,10 @@ test.beforeEach(async ({ page }) => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
+    if (request.method() === 'GET' && path === '/api/v1/auth/session') {
+      await fulfillJson(route, authenticatedSession(ids.organization, ids.principal, ids.team))
+      return
+    }
     if (request.method() === 'GET' && path.endsWith('/teams')) {
       await fulfillJson(route, [team(ids.team, 'Platform Engineering', ids.workspace), team(ids.secondTeam, 'Security Engineering', ids.secondWorkspace)])
       return

@@ -1,8 +1,9 @@
 import { createApp } from 'vue'
+import { createWebHistory } from 'vue-router'
 import App from './App.vue'
-import { bootstrapPrincipal, installAuthPlaceholder } from './app/auth'
 import { installGlobalErrorHandling } from './app/errors'
-import { router } from './app/router'
+import { createCrewScopeRouter } from './app/router'
+import { apiClient } from './api/client'
 import { HttpConversationGateway } from './domains/conversation/gateway'
 import { HttpConversationMessageGateway } from './domains/conversation/messageGateway'
 import { installConversationMessageStore } from './domains/conversation/messageStore'
@@ -34,30 +35,71 @@ import { installTeamOpsStore } from './domains/teamops/store'
 import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
 import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
 import { installTeamObserverStore } from './domains/teamobserver/store'
+import { HttpIdentityGateway, installIdentityGateway } from './domains/identity/gateway'
+import { createAuthStore, installAuthStore } from './domains/identity/store'
+import { HttpOnboardingGateway } from './domains/onboarding/gateway'
+import { createOnboardingStore, installOnboardingStore } from './domains/onboarding/store'
+import { HttpAccountGateway } from './domains/account/gateway'
+import { createAccountStore, installAccountStore } from './domains/account/store'
+import { HttpInvitationGateway } from './domains/invitation/gateway'
+import { createInvitationStore, installInvitationStore } from './domains/invitation/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
 
 const app = createApp(App)
 
-installAuthPlaceholder(app, bootstrapPrincipal)
-installScopeStore(app, new HttpScopeGateway(), bootstrapPrincipal)
-installConversationStore(app, new HttpConversationGateway())
-installConversationMessageStore(app, new HttpConversationMessageGateway())
-installConversationRealtimeStore(app, new HttpConversationRealtimeGateway())
-installTaskIntentStore(app, new HttpTaskIntentGateway())
-installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
-installWorkItemStore(app, new HttpWorkItemGateway())
-installTaskStore(app, new HttpTaskGateway())
-installCodingStore(app, new HttpCodingGateway())
-installModelStore(app, new HttpModelGateway())
-installAgentStore(app, new HttpAgentGateway())
-installReviewStore(app, new HttpReviewGateway())
-installDeliveryStore(app, new HttpDeliveryGateway())
+const identityGateway = new HttpIdentityGateway()
+const authStore = createAuthStore(identityGateway)
+installIdentityGateway(app, identityGateway)
+installAuthStore(app, authStore)
+const onboardingStore = createOnboardingStore(new HttpOnboardingGateway())
+installOnboardingStore(app, onboardingStore)
+const accountStore = installAccountStore(app, createAccountStore(new HttpAccountGateway()))
+const invitationStore = installInvitationStore(app, createInvitationStore(new HttpInvitationGateway()))
+const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
+const conversationStore = installConversationStore(app, new HttpConversationGateway())
+const conversationMessageStore = installConversationMessageStore(app, new HttpConversationMessageGateway())
+const conversationRealtimeStore = installConversationRealtimeStore(app, new HttpConversationRealtimeGateway())
+const taskIntentStore = installTaskIntentStore(app, new HttpTaskIntentGateway())
+const conversationWorkItemLinkStore = installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
+const workItemStore = installWorkItemStore(app, new HttpWorkItemGateway())
+const taskStore = installTaskStore(app, new HttpTaskGateway())
+const codingStore = installCodingStore(app, new HttpCodingGateway())
+const modelStore = installModelStore(app, new HttpModelGateway())
+const agentStore = installAgentStore(app, new HttpAgentGateway())
+const reviewStore = installReviewStore(app, new HttpReviewGateway())
+const deliveryStore = installDeliveryStore(app, new HttpDeliveryGateway())
 const teamOpsGateway = new HttpTeamOpsGateway()
 const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
-installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
-installTeamObserverStore(app, new HttpTeamObserverGateway())
+const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
+const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
 installGlobalErrorHandling(app)
+authStore.subscribe((phase, reason) => {
+  if (phase !== 'anonymous' || reason === 'restored') return
+  activityRealtimeStore.stop()
+  onboardingStore.reset()
+  accountStore.reset()
+  invitationStore.resetManagement()
+  if (reason === 'explicit-sign-out') invitationStore.clearProof()
+  scopeStore.reset()
+  conversationStore.reset()
+  conversationMessageStore.reset()
+  conversationRealtimeStore.reset()
+  taskIntentStore.reset()
+  conversationWorkItemLinkStore.reset()
+  workItemStore.reset()
+  taskStore.reset()
+  codingStore.reset()
+  modelStore.reset()
+  agentStore.reset()
+  reviewStore.reset()
+  deliveryStore.reset()
+  teamOpsStore.reset()
+  teamObserverStore.reset()
+})
+const router = createCrewScopeRouter(createWebHistory(), authStore)
+apiClient.onAuthenticationRequired(() => authStore.authenticationRequired())
+authStore.start()
 app.use(router)
 app.mount('#app')

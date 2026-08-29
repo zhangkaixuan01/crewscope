@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   MessageSquare,
   Search,
-  Settings,
   ShieldCheck,
   UsersRound,
   Workflow,
@@ -20,13 +19,17 @@ import {
   Send,
   Gauge,
 } from '@lucide/vue'
-import { computed, inject, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
+import { IDENTITY_GATEWAY } from '../../domains/identity/gateway'
+import { AUTH_STORE } from '../../domains/identity/store'
+import { CrewScopeApiError } from '../../api/client'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
+import UserAccountMenu from './UserAccountMenu.vue'
 
 defineProps<{
   title: string
@@ -37,12 +40,16 @@ const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = inject(SCOPE_STORE)
+const identityGateway = inject(IDENTITY_GATEWAY, null)
+const authStore = inject(AUTH_STORE, null)
 const activeMode = computed(() => route.meta.mode)
 const activeSection = computed(() => route.meta.section)
 const modeTarget = (name: 'conversation' | 'today') => ({ name, query: route.query })
 const canReadScope = computed(() => Boolean(principal && can(principal, permissions.scopeRead)))
 const isOnline = useNetworkStatus()
 let scopeSynchronizationVersion = 0
+const signingOut = ref(false)
+const signOutError = ref<string | null>(null)
 
 const navigation = [
   { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
@@ -126,6 +133,30 @@ watch(
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
+
+async function signOut(): Promise<void> {
+  signOutError.value = null
+  if (!isOnline.value) {
+    signOutError.value = '当前离线，恢复网络后才能退出当前设备。'
+    return
+  }
+  const csrf = authStore?.state.session?.csrf
+  if (!identityGateway || !authStore || !csrf) {
+    signOutError.value = '当前会话无法完成安全退出，请重新检查页面。'
+    return
+  }
+  signingOut.value = true
+  try {
+    await identityGateway.logout(csrf)
+    authStore.signOutLocally()
+  } catch (error) {
+    signOutError.value = error instanceof CrewScopeApiError && error.envelope.code === 'network_unavailable'
+      ? '网络连接不可用，当前设备尚未退出。'
+      : '退出服务暂时不可用，当前设备尚未退出。'
+  } finally {
+    signingOut.value = false
+  }
+}
 </script>
 
 <template>
@@ -162,11 +193,14 @@ function queryValue(value: unknown): string | null {
         </button>
       </nav>
 
-      <div class="rail-profile">
-        <span>{{ principal?.displayName.slice(0, 1) }}</span>
-        <div><strong>{{ principal?.displayName }}</strong><small>{{ principal?.role }}</small></div>
-        <Settings :size="16" aria-hidden="true" />
-      </div>
+      <UserAccountMenu
+        class="rail-profile"
+        :display-name="principal?.displayName ?? ''"
+        :role="principal?.role ?? ''"
+        :pending="signingOut"
+        :error="signOutError"
+        @sign-out="signOut"
+      />
     </aside>
 
     <div class="app-shell__body">
@@ -187,6 +221,15 @@ function queryValue(value: unknown): string | null {
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
         <button class="icon-button" type="button" aria-label="通知"><Bell :size="18" /></button>
+        <UserAccountMenu
+          class="mobile-profile"
+          compact
+          :display-name="principal?.displayName ?? ''"
+          :role="principal?.role ?? ''"
+          :pending="signingOut"
+          :error="signOutError"
+          @sign-out="signOut"
+        />
       </div>
 
       <header class="context-header">
@@ -221,12 +264,9 @@ function queryValue(value: unknown): string | null {
 .rail-navigation a, .rail-navigation button { display: grid; grid-template-columns: 19px 1fr auto; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 0 10px; border-radius: var(--cs-radius-sm); background: transparent; color: #4d6256; font-size: 12px; text-align: left; cursor: pointer; }
 .rail-navigation a:hover, .rail-navigation a.active { background: var(--cs-brand-100); color: var(--cs-brand-800); }.rail-navigation a.active { font-weight: 750; }
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
-.rail-profile { display: grid; grid-template-columns: 32px 1fr 16px; align-items: center; gap: 9px; padding: 11px 8px 3px; border-top: 1px solid #d8e4db; }
-.rail-profile > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-600); color: white; font-size: 11px; font-weight: 750; }
-.rail-profile strong, .rail-profile small { display: block; }
-.rail-profile strong { font-size: 11px; }.rail-profile small { color: var(--cs-text-muted); font-size: 9px; }
+.rail-profile { margin-top: auto; }
 .app-shell__body { min-height: 100vh; margin-left: 244px; }
-.topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 88%); backdrop-filter: blur(12px); }
+.topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 88%); backdrop-filter: blur(12px); }
 .mode-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }
 .mode-switcher a { display: flex; min-height: 31px; align-items: center; gap: 6px; padding: 0 10px; border-radius: 7px; color: var(--cs-text-muted); font-size: 11px; font-weight: 700; }
 .mode-switcher a.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-text); }
@@ -234,6 +274,7 @@ function queryValue(value: unknown): string | null {
 .command-search kbd { display: flex; align-items: center; gap: 2px; padding: 2px 5px; border: 1px solid var(--cs-border); border-radius: 5px; background: var(--cs-surface); font: 9px var(--cs-font-sans); }
 .icon-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
 .topbar-scope { display: none; }
+.mobile-profile { display: none; }
 .context-header { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 28px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
 .context-header p { margin-bottom: 3px; color: var(--cs-text-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .context-header h1 { margin-bottom: 0; font-size: 20px; font-weight: 720; letter-spacing: -.02em; }
@@ -242,16 +283,19 @@ function queryValue(value: unknown): string | null {
 .mobile-mode { display: none; }
 @media (max-width: 1100px) {
   .app-shell__rail { width: 76px; align-items: center; }
-  .brand > span, .rail-navigation p, .rail-navigation a span, .rail-navigation button span, .rail-profile div, .rail-profile svg { display: none; }
+  .brand > span, .rail-navigation p, .rail-navigation a span, .rail-navigation button span { display: none; }
   .rail-navigation a, .rail-navigation button { grid-template-columns: 19px; justify-content: center; width: 42px; }
-  .rail-profile { grid-template-columns: 32px; padding-inline: 0; }
+  .rail-profile { width: 34px; }
+  .rail-profile :deep(.user-menu__trigger) { min-height: 40px; grid-template-columns: 32px; padding: 4px 0; border: 0; }
+  .rail-profile :deep(.user-menu__identity), .rail-profile :deep(.user-menu__trigger > svg) { display: none; }
   .app-shell__body { margin-left: 76px; }
 }
 @media (max-width: 767px) {
   .app-shell__rail, .mode-switcher, .command-search { display: none; }
   .app-shell__body { margin-left: 0; padding-bottom: 64px; }
-  .topbar { height: 52px; grid-template-columns: minmax(0, 1fr) auto; justify-items: end; padding: 0 12px; }
+  .topbar { height: 52px; grid-template-columns: minmax(0, 1fr) auto auto; justify-items: end; padding: 0 12px; }
   .topbar-scope { display: block; justify-self: start; max-width: calc(100vw - 70px); }
+  .mobile-profile { display: block; }
   .context-header { min-height: 72px; align-items: flex-start; padding: 13px 16px; }
   .context-header h1 { font-size: 17px; }
   .context-header__actions { display: none; }
