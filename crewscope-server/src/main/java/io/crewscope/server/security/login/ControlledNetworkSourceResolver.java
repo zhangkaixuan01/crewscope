@@ -34,11 +34,14 @@ public final class ControlledNetworkSourceResolver {
     }
 
     public ControlledNetworkResource resolve(InetSocketAddress remote, HttpHeaders headers) {
-        InetAddress direct = Objects.requireNonNull(remote, "remote").getAddress();
-        if (direct == null) {
-            throw unavailable();
-        }
-        byte[] selected = normalizeAddress(direct.getAddress());
+        InetSocketAddress requiredRemote = Objects.requireNonNull(remote, "remote");
+        InetAddress direct = requiredRemote.getAddress();
+        // ForwardedHeaderTransformer deliberately creates an unresolved socket address from the
+        // already validated X-Forwarded-For literal. Parse only numeric literals here; never let an
+        // authentication request trigger DNS resolution.
+        byte[] selected = direct == null
+                ? normalizeAddress(parseForwardedLiteral(requiredRemote.getHostString()))
+                : normalizeAddress(direct.getAddress());
         if (isTrusted(selected)) {
             selected = forwardedClient(selected, Objects.requireNonNull(headers, "headers"));
         }

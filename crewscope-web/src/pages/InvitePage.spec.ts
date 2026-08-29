@@ -91,7 +91,7 @@ function fixtureGateway(): InvitationGateway {
 function fixtureAuthStore(authenticated: boolean): AuthStore {
   const state = {
     phase: authenticated ? 'authenticated' as const : 'anonymous' as const,
-    errorCode: null, errorMessage: null,
+    activeTeamId: null, errorCode: null, errorMessage: null,
     session: session(authenticated, false),
   }
   return {
@@ -99,7 +99,7 @@ function fixtureAuthStore(authenticated: boolean): AuthStore {
     principal: { id: authenticated ? 'principal-1' : '', displayName: authenticated ? 'Alice' : '', role: authenticated ? 'Member' : '', organizationId: authenticated ? 'organization-1' : '', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {},
     refresh: vi.fn(async () => { state.session = session(true, true); return true }),
-    async retry() {}, authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
+    async retry() {}, selectTeam() {}, authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
   }
 }
 

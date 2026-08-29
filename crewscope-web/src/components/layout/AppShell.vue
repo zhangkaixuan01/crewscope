@@ -83,6 +83,7 @@ watch(
     // Route changes can start a newer Scope restoration before the previous request settles.
     if (synchronizationVersion !== scopeSynchronizationVersion) return
     if (scopeStore.state.phase === 'error') return
+    authStore?.selectTeam(selection.teamId)
 
     const nextQuery = { ...route.query }
     if (selection.teamId) nextQuery.team = selection.teamId

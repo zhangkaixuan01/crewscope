@@ -68,6 +68,36 @@ describe('application routing', () => {
     await vi.waitFor(() => expect(authStore.state.phase).toBe('anonymous'))
   })
 
+  it('does not reuse an administrator capability after routing to an ordinary-member Team', async () => {
+    const scoped = authSession(true)
+    scoped.permissions = []
+    scoped.teams = [
+      {
+        teamId: 'team-admin',
+        name: 'Admin Team',
+        memberId: 'member-admin',
+        permissions: [permissions.scopeRead, permissions.auditRead],
+      },
+      {
+        teamId: 'team-member',
+        name: 'Member Team',
+        memberId: 'member-member',
+        permissions: [permissions.scopeRead],
+      },
+    ]
+    const authStore = createAuthStore(identityGateway(async () => scoped), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+
+    await router.push('/audit?team=team-admin')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('audit')
+    expect(authStore.state.activeTeamId).toBe('team-admin')
+
+    await router.push('/audit?team=team-member')
+    expect(router.currentRoute.value.name).toBe('access-denied')
+    expect(authStore.state.activeTeamId).toBe('team-member')
+  })
+
   it('exposes the public login route without applying workspace permissions', async () => {
     const noPermissions = { ...principal, permissions: new Set<string>() }
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))

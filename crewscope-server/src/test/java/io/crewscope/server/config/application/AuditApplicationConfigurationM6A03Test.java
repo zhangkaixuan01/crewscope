@@ -18,7 +18,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-/** Constructor-injection and conditional signed-Cursor composition proof for M6-A03. */
+/** Constructor-injection and fail-fast signed-Cursor composition proof for M6-A03. */
 class AuditApplicationConfigurationM6A03Test {
 
     @Test
@@ -28,28 +28,30 @@ class AuditApplicationConfigurationM6A03Test {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(AuditAuthorization.class);
                     assertThat(context).hasSingleBean(AuditQueryApplicationService.class);
-                    assertThat(context).doesNotHaveBean(AuditCursorCodec.class);
-                });
-    }
-
-    @Test
-    void createsAuditCursorCodecOnlyWhenTheServerKeyRingExists() {
-        runner()
-                .withBean(
-                        TeamActivityCursorKeyRing.class,
-                        () -> new TeamActivityCursorKeyRing(
-                                "k1",
-                                Map.of(
-                                        "k1",
-                                        Base64.getEncoder()
-                                                .encodeToString(new byte[32]))))
-                .run(context -> {
-                    assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(AuditCursorCodec.class);
                 });
     }
 
+    @Test
+    void failsStartupInsteadOfPublishingAnAuditApiWithoutItsCursorCodec() {
+        baseRunner().run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure())
+                    .hasMessageContaining("TeamActivityCursorKeyRing");
+        });
+    }
+
     private static ApplicationContextRunner runner() {
+        return baseRunner().withBean(
+                TeamActivityCursorKeyRing.class,
+                () -> new TeamActivityCursorKeyRing(
+                        "k1",
+                        Map.of(
+                                "k1",
+                                Base64.getEncoder().encodeToString(new byte[32]))));
+    }
+
+    private static ApplicationContextRunner baseRunner() {
         return new ApplicationContextRunner()
                 .withUserConfiguration(AuditApplicationConfiguration.class)
                 .withBean(AuditQueryPort.class, () -> mock(AuditQueryPort.class))

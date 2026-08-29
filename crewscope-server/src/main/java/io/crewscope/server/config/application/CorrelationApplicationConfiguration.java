@@ -6,7 +6,6 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.server.api.CorrelationCursorCodec;
 import io.crewscope.server.api.TeamActivityCursorKeyRing;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,7 +22,6 @@ public class CorrelationApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
     CorrelationCursorCodec correlationCursorCodec(TeamActivityCursorKeyRing keys) {
         return new CorrelationCursorCodec(keys);
     }

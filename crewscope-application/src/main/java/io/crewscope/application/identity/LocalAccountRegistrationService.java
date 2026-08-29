@@ -9,6 +9,7 @@ import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.team.InvitationTokenDigester;
+import io.crewscope.application.team.DefaultPersonalAgentService;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamInvitationAcceptancePlan;
 import io.crewscope.application.team.TeamInvitationAcceptanceService;
@@ -16,6 +17,7 @@ import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.AccountIdentifierConflictException;
 import io.crewscope.domain.identity.AccountOrganizationBinding;
@@ -64,6 +66,7 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.event.TeamInvitationAccepted;
 import io.crewscope.domain.team.event.TeamInvitationMembershipResult;
+import io.crewscope.domain.workspace.Workspace;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -88,6 +91,8 @@ public final class LocalAccountRegistrationService {
     private final TeamMemberRepository members;
     private final TeamRoleRepository roles;
     private final MemberRoleRepository memberRoles;
+    private final WorkspaceRepository workspaces;
+    private final DefaultPersonalAgentService defaultPersonalAgents;
     private final TeamInvitationAcceptanceService invitationAcceptance;
     private final Optional<InvitationTokenDigester> invitationDigester;
     private final LocalPasswordAuthentication passwords;
@@ -109,6 +114,8 @@ public final class LocalAccountRegistrationService {
             TeamMemberRepository members,
             TeamRoleRepository roles,
             MemberRoleRepository memberRoles,
+            WorkspaceRepository workspaces,
+            DefaultPersonalAgentService defaultPersonalAgents,
             TeamInvitationAcceptanceService invitationAcceptance,
             Optional<InvitationTokenDigester> invitationDigester,
             LocalPasswordAuthentication passwords,
@@ -128,6 +135,9 @@ public final class LocalAccountRegistrationService {
         this.members = Objects.requireNonNull(members, "members");
         this.roles = Objects.requireNonNull(roles, "roles");
         this.memberRoles = Objects.requireNonNull(memberRoles, "memberRoles");
+        this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
+        this.defaultPersonalAgents = Objects.requireNonNull(
+                defaultPersonalAgents, "defaultPersonalAgents");
         this.invitationAcceptance = Objects.requireNonNull(
                 invitationAcceptance, "invitationAcceptance");
         this.invitationDigester = Objects.requireNonNull(
@@ -280,7 +290,7 @@ public final class LocalAccountRegistrationService {
         UUID accountEventId = appendAccountEvent(
                 context, account, principal, acceptance.isPresent(), now);
         acceptance.ifPresent(value -> appendInvitationEvent(
-                context, value, principal, now));
+                context, value, principal, accountEventId, now));
         CommandReceipt receipt = new CommandReceipt(
                 commandId,
                 accountEventId,
@@ -342,6 +352,10 @@ public final class LocalAccountRegistrationService {
                 now,
                 now,
                 Optional.empty()));
+        Workspace workspace = workspaces
+                .findById(team.organizationId(), team.defaultWorkspaceId())
+                .orElseThrow(LocalAccountRegistrationService::invalidInvitation);
+        defaultPersonalAgents.ensureDefault(member, workspace, principal);
         TeamInvitation accepted = invitations.update(plan.invitation(), invitation.version());
         return new InvitationAcceptance(
                 accepted,
@@ -395,6 +409,7 @@ public final class LocalAccountRegistrationService {
             LocalAccountRegistrationContext context,
             InvitationAcceptance acceptance,
             Principal actor,
+            UUID accountEventId,
             UtcTimestamp now) {
         TeamInvitation invitation = acceptance.invitation();
         TeamMember membership = acceptance.membership();
@@ -409,8 +424,8 @@ public final class LocalAccountRegistrationService {
                 invitation.version(),
                 EventActor.principal(EventActorType.USER, actor.id()),
                 context.correlationId(),
-                context.causationId(),
-                Optional.of(context.idempotencyKey().value()),
+                Optional.of(accountEventId),
+                Optional.empty(),
                 now,
                 new TeamInvitationAccepted(
                         invitation.acceptedByAccountId().orElseThrow().value(),

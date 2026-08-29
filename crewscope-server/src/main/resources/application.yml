@@ -35,7 +35,8 @@ spring:
   data:
     redis:
       # Browser Session and Agent state share the deployment Redis service but use disjoint keys.
-      url: ${CREWSCOPE_REDIS_URL:redis://localhost:6379}
+      # Team Beta supplies the URL through configtree so credentials never enter the environment.
+      url: ${crewscope.runtime.redis.url:${CREWSCOPE_REDIS_URL:redis://localhost:6379}}
   session:
     timeout: ${crewscope.security.session.ttl}
     data:

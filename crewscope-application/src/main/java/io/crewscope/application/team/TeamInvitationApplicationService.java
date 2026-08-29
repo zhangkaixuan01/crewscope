@@ -44,6 +44,7 @@ import io.crewscope.domain.team.TeamRoleId;
 import io.crewscope.domain.team.event.TeamInvitationAccepted;
 import io.crewscope.domain.team.event.TeamInvitationCreated;
 import io.crewscope.domain.team.event.TeamInvitationRevoked;
+import io.crewscope.domain.workspace.Workspace;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -66,6 +67,8 @@ public final class TeamInvitationApplicationService {
     private final TeamMemberRepository members;
     private final TeamRoleRepository roles;
     private final MemberRoleRepository memberRoles;
+    private final WorkspaceRepository workspaces;
+    private final DefaultPersonalAgentService defaultPersonalAgents;
     private final TeamInvitationAcceptanceService acceptanceService;
     private final DomainEventStore events;
     private final OutboxRepository outbox;
@@ -81,6 +84,8 @@ public final class TeamInvitationApplicationService {
             TeamMemberRepository members,
             TeamRoleRepository roles,
             MemberRoleRepository memberRoles,
+            WorkspaceRepository workspaces,
+            DefaultPersonalAgentService defaultPersonalAgents,
             TeamInvitationAcceptanceService acceptanceService,
             DomainEventStore events,
             OutboxRepository outbox,
@@ -94,6 +99,9 @@ public final class TeamInvitationApplicationService {
         this.members = Objects.requireNonNull(members, "members");
         this.roles = Objects.requireNonNull(roles, "roles");
         this.memberRoles = Objects.requireNonNull(memberRoles, "memberRoles");
+        this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
+        this.defaultPersonalAgents = Objects.requireNonNull(
+                defaultPersonalAgents, "defaultPersonalAgents");
         this.acceptanceService = Objects.requireNonNull(acceptanceService, "acceptanceService");
         this.events = Objects.requireNonNull(events, "events");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
@@ -303,6 +311,10 @@ public final class TeamInvitationApplicationService {
         };
         boolean grantCreated = ensureRoleGrant(
                 membership, targetRole, invitation.invitedByPrincipalId(), now);
+        Workspace workspace = workspaces
+                .findById(team.organizationId(), team.defaultWorkspaceId())
+                .orElseThrow(TeamInvitationApplicationService::invalidInvitation);
+        defaultPersonalAgents.ensureDefault(membership, workspace, context.access().actor());
         TeamInvitation committed =
                 invitations.update(plan.invitation(), invitation.version());
         TeamInvitationAcceptanceResult result = new TeamInvitationAcceptanceResult(

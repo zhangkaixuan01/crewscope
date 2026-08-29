@@ -47,6 +47,21 @@ class LoginDefenseBoundaryM7I04Test {
     }
 
     @Test
+    void acceptsOnlyNumericUnresolvedAddressesProducedByForwardedNormalization() {
+        ControlledNetworkSourceResolver resolver = new ControlledNetworkSourceResolver(List.of());
+
+        assertThat(resolver.resolve(
+                        InetSocketAddress.createUnresolved("192.168.65.1", 18_080),
+                        new HttpHeaders())
+                .canonicalValue())
+                .isEqualTo("ipv4:c0a84100/24");
+        assertThatThrownBy(() -> resolver.resolve(
+                        InetSocketAddress.createUnresolved("attacker.example", 18_080),
+                        new HttpHeaders()))
+                .isExactlyInstanceOf(LoginDefenseUnavailableException.class);
+    }
+
+    @Test
     void failsClosedOnMalformedOrUnboundedTrustedForwarding() throws Exception {
         ControlledNetworkSourceResolver resolver =
                 new ControlledNetworkSourceResolver(List.of("10.0.0.0/8"));

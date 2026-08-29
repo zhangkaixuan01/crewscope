@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -177,11 +176,7 @@ public class AuthenticationController {
         .map(team -> teamView(team, resolution))
         .sorted(Comparator.comparing(TeamSessionView::name).thenComparing(TeamSessionView::teamId))
         .toList();
-    List<String> permissions = teamViews.stream()
-        .flatMap(team -> team.permissions().stream())
-        .collect(Collectors.toCollection(TreeSet::new))
-        .stream()
-        .toList();
+    List<String> permissions = BrowserPermissionProjection.account(account.platformRole());
     return new SessionResponse(
         true,
         registration.getMode(),
@@ -209,19 +204,21 @@ public class AuthenticationController {
         roles.findByTeam(team.organizationId(), team.id()).stream()
         .filter(TeamRole::isGrantable)
         .collect(Collectors.toMap(TeamRole::id, Function.identity()));
-    List<String> permissions = new ArrayList<>();
+    List<TeamPermission> permissions = new ArrayList<>();
     var observedAt = timeProvider.now();
     memberRoles.findByMember(team.organizationId(), member.id()).stream()
         .filter(grant -> grant.isEffectiveAt(observedAt))
         .map(grant -> currentRoles.get(grant.teamRoleId()))
         .filter(Objects::nonNull)
         .flatMap(role -> role.permissions().stream())
-        .map(TeamPermission::name)
         .distinct()
         .sorted()
         .forEach(permissions::add);
     return new TeamSessionView(
-        team.id().value(), team.name(), member.id().value(), List.copyOf(permissions));
+        team.id().value(),
+        team.name(),
+        member.id().value(),
+        BrowserPermissionProjection.team(permissions));
   }
 
   private SessionResponse anonymous(CsrfCoordinates csrf) {

@@ -81,7 +81,7 @@ async function mountManager() {
 function authStore(): AuthStore {
   return {
     state: {
-      phase: 'authenticated', errorCode: null, errorMessage: null,
+      phase: 'authenticated', activeTeamId: null, errorCode: null, errorMessage: null,
       session: {
         authenticated: true, registrationMode: 'OPEN',
         csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-manager' },
@@ -91,6 +91,7 @@ function authStore(): AuthStore {
     },
     principal: { id: 'principal-1', displayName: 'Alice', role: 'Owner', organizationId: 'organization-1', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {}, async refresh() { return true }, async retry() {},
+    selectTeam() {},
     authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
   }
 }

@@ -7,6 +7,7 @@ import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
+import io.crewscope.application.team.DefaultPersonalAgentService;
 import io.crewscope.application.team.InvitationTokenDigester;
 import io.crewscope.application.team.InvitationTokenGenerator;
 import io.crewscope.application.team.MemberRoleRepository;
@@ -24,13 +25,21 @@ import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /** Wires Team and membership use cases without introducing Spring into the application module. */
 @Configuration(proxyBeanMethods = false)
 public class TeamApplicationConfiguration {
+
+  @Bean
+  DefaultPersonalAgentService defaultPersonalAgentService(
+      DefaultPersonalAgentRepository repository,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
+    return new DefaultPersonalAgentService(repository, transactionExecutor, timeProvider);
+  }
 
   @Bean
   TeamCreationService teamCreationService(
@@ -99,7 +108,9 @@ public class TeamApplicationConfiguration {
   }
 
   @Bean
-  @ConditionalOnBean({InvitationTokenGenerator.class, InvitationTokenDigester.class})
+  @ConditionalOnProperty(
+      name = "crewscope.invitation.token.enabled",
+      havingValue = "true")
   TeamInvitationIssueService teamInvitationIssueService(
       TeamInvitationRepository invitations,
       InvitationTokenGenerator tokens,
@@ -111,7 +122,9 @@ public class TeamApplicationConfiguration {
   }
 
   @Bean
-  @ConditionalOnBean(TeamInvitationIssueService.class)
+  @ConditionalOnProperty(
+      name = "crewscope.invitation.token.enabled",
+      havingValue = "true")
   TeamInvitationApplicationService teamInvitationApplicationService(
       TeamInvitationIssueService issueService,
       InvitationTokenDigester digester,
@@ -120,6 +133,8 @@ public class TeamApplicationConfiguration {
       TeamMemberRepository members,
       TeamRoleRepository roles,
       MemberRoleRepository memberRoles,
+      WorkspaceRepository workspaces,
+      DefaultPersonalAgentService defaultPersonalAgents,
       TeamInvitationAcceptanceService acceptanceService,
       DomainEventStore events,
       OutboxRepository outbox,
@@ -134,6 +149,8 @@ public class TeamApplicationConfiguration {
         members,
         roles,
         memberRoles,
+        workspaces,
+        defaultPersonalAgents,
         acceptanceService,
         events,
         outbox,

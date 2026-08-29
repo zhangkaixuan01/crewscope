@@ -110,6 +110,9 @@ class ApplicationCompositionConfigurationTest {
 
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
+          .withPropertyValues(
+              "crewscope.invitation.token.enabled=true",
+              "crewscope.security.login-defense.enabled=true")
           .withUserConfiguration(
               PlatformApplicationConfiguration.class,
               IdentityApplicationConfiguration.class,

@@ -152,6 +152,10 @@ export function createCrewScopeRouter(
     if (authStore.state.phase !== 'authenticated') {
       return { name: 'login', query: { returnTo: to.fullPath } }
     }
+    const targetTeamId = queryValue(to.query.team)
+    if (targetTeamId !== null || authStore.state.activeTeamId === null) {
+      authStore.selectTeam(targetTeamId)
+    }
     const requiredPermission = to.meta.requiredPermission
     if (typeof requiredPermission === 'string' && !can(authStore.principal, requiredPermission)) {
       return { name: 'access-denied', query: { from: to.fullPath } }
@@ -167,4 +171,8 @@ export function createCrewScopeRouter(
   })
 
   return router
+}
+
+function queryValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
 }

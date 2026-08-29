@@ -17,13 +17,14 @@ export function fixtureAuthStore(
 ): AuthStore {
   const listeners = new Set<(phase: AuthPhase, reason: AuthTransitionReason) => void>()
   return {
-    state: { phase, session: null, errorCode: null, errorMessage: null },
+    state: { phase, session: null, activeTeamId: null, errorCode: null, errorMessage: null },
     principal,
     start() {},
     stop() {},
     async ensureRestored() {},
     async refresh() { return phase === 'authenticated' },
     async retry() {},
+    selectTeam() {},
     authenticationRequired() {
       for (const listener of listeners) listener('anonymous', 'authentication-required')
     },

@@ -226,7 +226,10 @@ class AuthenticationControllerM7A02Test {
     TeamRole role = mock(TeamRole.class);
     when(role.id()).thenReturn(roleId);
     when(role.isGrantable()).thenReturn(true);
-    when(role.permissions()).thenReturn(java.util.Set.of(TeamPermission.WORK_CREATE));
+    when(role.permissions()).thenReturn(java.util.Set.of(
+        TeamPermission.AUDIT_READ,
+        TeamPermission.MEMBER_MANAGE,
+        TeamPermission.WORK_CREATE));
     when(roles.findByTeam(organizationId, teamId)).thenReturn(List.of(role));
     MemberRole grant = mock(MemberRole.class);
     when(grant.teamRoleId()).thenReturn(roleId);
@@ -244,8 +247,19 @@ class AuthenticationControllerM7A02Test {
         .jsonPath("$.account.username").isEqualTo("alice")
         .jsonPath("$.principal.organizationId").isEqualTo(organizationId.toString())
         .jsonPath("$.teams[0].name").isEqualTo("Platform")
-        .jsonPath("$.teams[0].permissions[0]").isEqualTo("WORK_CREATE")
-        .jsonPath("$.permissions[0]").isEqualTo("WORK_CREATE")
+        .jsonPath("$.teams[0].permissions").value(value ->
+            org.assertj.core.api.Assertions.assertThat(value)
+                .isEqualTo(java.util.List.of(
+                    "audit:read",
+                    "scope:read",
+                    "team:members:manage",
+                    "team:members:read",
+                    "work-projects:read",
+                    "work:create",
+                    "work:read")))
+        .jsonPath("$.permissions").value(value ->
+            org.assertj.core.api.Assertions.assertThat(value)
+                .isEqualTo(java.util.List.of()))
         .jsonPath("$.password").doesNotExist()
         .jsonPath("$.sessionId").doesNotExist();
   }

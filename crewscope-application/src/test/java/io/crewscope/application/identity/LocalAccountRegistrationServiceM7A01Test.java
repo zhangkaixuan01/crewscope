@@ -17,11 +17,13 @@ import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.team.InvitationToken;
 import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.DefaultPersonalAgentService;
 import io.crewscope.application.team.TeamInvitationAcceptanceService;
 import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.LocalPasswordHash;
 import io.crewscope.domain.identity.Principal;
@@ -137,6 +139,8 @@ class LocalAccountRegistrationServiceM7A01Test {
                 members,
                 roles,
                 memberRoles,
+                mock(WorkspaceRepository.class),
+                mock(DefaultPersonalAgentService.class),
                 new TeamInvitationAcceptanceService(),
                 Optional.of(ignored -> digest),
                 passwords,

@@ -19,12 +19,14 @@ import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.team.InvitationTokenDigester;
+import io.crewscope.application.team.DefaultPersonalAgentService;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamInvitationAcceptanceService;
 import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import java.util.Optional;
@@ -35,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -109,6 +111,8 @@ public class IdentityApplicationConfiguration {
       TeamMemberRepository members,
       TeamRoleRepository roles,
       MemberRoleRepository memberRoles,
+      WorkspaceRepository workspaces,
+      DefaultPersonalAgentService defaultPersonalAgents,
       TeamInvitationAcceptanceService invitationAcceptance,
       ObjectProvider<InvitationTokenDigester> invitationDigester,
       LocalPasswordAuthentication passwords,
@@ -129,6 +133,8 @@ public class IdentityApplicationConfiguration {
         members,
         roles,
         memberRoles,
+        workspaces,
+        defaultPersonalAgents,
         invitationAcceptance,
         Optional.ofNullable(invitationDigester.getIfAvailable()),
         passwords,
@@ -141,7 +147,9 @@ public class IdentityApplicationConfiguration {
   }
 
   @Bean
-  @ConditionalOnBean(LoginDefense.class)
+  @ConditionalOnProperty(
+      name = "crewscope.security.login-defense.enabled",
+      havingValue = "true")
   LocalAccountLoginService localAccountLoginService(
       UserAccountRepository accounts,
       LoginIdentityRepository loginIdentities,

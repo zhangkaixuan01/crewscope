@@ -49,6 +49,8 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
 import io.crewscope.domain.team.TeamRoleStatus;
+import io.crewscope.domain.workspace.PersonalAgentInitialization;
+import io.crewscope.domain.workspace.Workspace;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -206,6 +208,7 @@ class TeamInvitationApplicationServiceM7A05Test {
         assertTrue(result.roleGrantCreated());
         assertEquals(TeamInvitationStatus.ACCEPTED, result.invitation().status());
         assertEquals(1, fixture.repository.membersFor(fixture.inviteePrincipal.id()).size());
+        assertEquals(1, fixture.repository.personalAgents.size());
         assertEquals(grantsBefore + 1, fixture.repository.grants.size());
         assertEquals(eventsBefore + 1, fixture.repository.events.size());
         assertTrue(replay.replayed());
@@ -298,6 +301,10 @@ class TeamInvitationApplicationServiceM7A05Test {
 
         private Fixture() {
             repository.teams.put(team.id(), team);
+            repository.workspaces.put(
+                    team.defaultWorkspaceId(),
+                    Workspace.createTeam(
+                            team.defaultWorkspaceId(), team, admin, "Team Workspace", NOW));
             TeamRole adminRole = TeamRole.createBuiltIn(
                     TeamRoleId.generate(), team.scope(), BuiltInTeamRole.TEAM_ADMIN, NOW);
             TeamRole memberRole = TeamRole.createBuiltIn(
@@ -340,6 +347,8 @@ class TeamInvitationApplicationServiceM7A05Test {
                     repository,
                     repository,
                     repository,
+                    repository,
+                    new DefaultPersonalAgentService(repository, repository, time),
                     new TeamInvitationAcceptanceService(),
                     repository,
                     repository,
@@ -391,6 +400,8 @@ class TeamInvitationApplicationServiceM7A05Test {
                     TeamMemberRepository,
                     TeamRoleRepository,
                     MemberRoleRepository,
+                    WorkspaceRepository,
+                    DefaultPersonalAgentRepository,
                     DomainEventStore,
                     OutboxRepository,
                     CommandReceiptStore,
@@ -401,6 +412,10 @@ class TeamInvitationApplicationServiceM7A05Test {
         private final Map<TeamMemberId, TeamMember> members = new LinkedHashMap<>();
         private final Map<TeamRoleId, TeamRole> roles = new LinkedHashMap<>();
         private final Map<MemberRoleId, MemberRole> grants = new LinkedHashMap<>();
+        private final Map<io.crewscope.domain.shared.id.WorkspaceId, Workspace> workspaces =
+                new LinkedHashMap<>();
+        private final Map<TeamMemberId, PersonalAgentInitialization> personalAgents =
+                new LinkedHashMap<>();
         private final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
         private final List<PendingOutboxEvent> outbox = new ArrayList<>();
         private final Map<String, ReceiptEntry> receipts = new HashMap<>();
@@ -487,6 +502,27 @@ class TeamInvitationApplicationServiceM7A05Test {
         @Override
         public Optional<Team> lockById(OrganizationId organizationId, TeamId id) {
             return findById(organizationId, id);
+        }
+
+        @Override
+        public Workspace create(Workspace workspace) {
+            workspaces.put(workspace.id(), workspace);
+            return workspace;
+        }
+
+        @Override
+        public Optional<Workspace> findById(
+                OrganizationId organizationId,
+                io.crewscope.domain.shared.id.WorkspaceId workspaceId) {
+            return Optional.ofNullable(workspaces.get(workspaceId))
+                    .filter(value -> value.scope().organizationId().equals(organizationId));
+        }
+
+        @Override
+        public PersonalAgentInitialization initializeIfAbsent(
+                PersonalAgentInitialization candidate) {
+            TeamMemberId ownerMemberId = candidate.agentProfile().ownerMemberId().orElseThrow();
+            return personalAgents.computeIfAbsent(ownerMemberId, ignored -> candidate);
         }
 
         @Override

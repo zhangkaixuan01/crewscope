@@ -16,6 +16,7 @@ export type AuthTransitionReason = 'restored' | 'authentication-required' | 'cro
 interface AuthState {
   phase: AuthPhase
   session: AuthSession | null
+  activeTeamId: string | null
   errorCode: 'network_unavailable' | 'session_timeout' | 'session_unavailable' | null
   errorMessage: string | null
 }
@@ -39,6 +40,7 @@ export interface AuthStore {
   ensureRestored(): Promise<void>
   refresh(): Promise<boolean>
   retry(): Promise<void>
+  selectTeam(teamId?: string | null): void
   authenticationRequired(): void
   signOutLocally(broadcast?: boolean): void
   subscribe(listener: (phase: AuthPhase, reason: AuthTransitionReason) => void): () => void
@@ -53,7 +55,13 @@ export const AUTH_STORE: InjectionKey<AuthStore> = Symbol('crewscope-auth-store'
 
 /** Session-backed identity state. Its stable Principal object keeps existing domain Stores reference-safe. */
 export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOptions = {}): AuthStore {
-  const state = reactive<AuthState>({ phase: 'idle', session: null, errorCode: null, errorMessage: null })
+  const state = reactive<AuthState>({
+    phase: 'idle',
+    session: null,
+    activeTeamId: null,
+    errorCode: null,
+    errorMessage: null,
+  })
   const principal = reactive<AuthenticatedPrincipal>({
     id: '',
     displayName: '',
@@ -105,6 +113,12 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
 
   async function retry(): Promise<void> {
     await restore(true)
+  }
+
+  function selectTeam(teamId?: string | null): void {
+    const session = state.session
+    if (!session?.authenticated) return
+    applyTeamPermissions(session, teamId)
   }
 
   async function restore(blocking: boolean): Promise<void> {
@@ -182,7 +196,16 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     principal.role = session.account.platformRole === 'OPERATOR' ? 'Operator' : 'Team Member'
     principal.organizationId = session.principal.organizationId
     principal.organization = 'CrewScope Organization'
-    principal.permissions = new Set(session.permissions)
+    applyTeamPermissions(session, state.activeTeamId)
+  }
+
+  function applyTeamPermissions(session: AuthSession, teamId?: string | null): void {
+    const selected = session.teams.find(team => team.teamId === teamId) ?? session.teams[0] ?? null
+    state.activeTeamId = selected?.teamId ?? null
+    // Session-level permissions are account-wide only. Team capabilities always come from the
+    // currently selected Team so an administrator role in one Team cannot light up controls in
+    // another Team where the same account is an ordinary member.
+    principal.permissions = new Set([...session.permissions, ...(selected?.permissions ?? [])])
   }
 
   function clearPrincipal(): void {
@@ -192,6 +215,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     principal.organizationId = ''
     principal.organization = ''
     principal.permissions = new Set<string>()
+    state.activeTeamId = null
   }
 
   return {
@@ -202,6 +226,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     ensureRestored,
     refresh,
     retry,
+    selectTeam,
     authenticationRequired,
     signOutLocally,
     subscribe,

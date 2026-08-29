@@ -32,6 +32,39 @@ describe('AuthStore', () => {
     expect(store.state.phase).toBe('anonymous')
   })
 
+  it('uses only the selected Team capabilities while preserving account-wide controls', async () => {
+    const scoped = session(true)
+    scoped.account!.platformRole = 'OPERATOR'
+    scoped.permissions = ['operations:manage']
+    scoped.teams = [
+      {
+        teamId: 'team-admin',
+        name: 'Admin Team',
+        memberId: 'member-admin',
+        permissions: ['scope:read', 'team:members:manage'],
+      },
+      {
+        teamId: 'team-member',
+        name: 'Member Team',
+        memberId: 'member-member',
+        permissions: ['scope:read'],
+      },
+    ]
+    const store = createAuthStore(gateway(async () => scoped), { channelFactory: () => null })
+
+    await store.ensureRestored()
+    expect(store.state.activeTeamId).toBe('team-admin')
+    expect([...store.principal.permissions]).toEqual([
+      'operations:manage',
+      'scope:read',
+      'team:members:manage',
+    ])
+
+    store.selectTeam('team-member')
+    expect(store.state.activeTeamId).toBe('team-member')
+    expect([...store.principal.permissions]).toEqual(['operations:manage', 'scope:read'])
+  })
+
   it('ignores an authenticated startup response that arrives after a cross-tab sign-out', async () => {
     const first = deferred<AuthSession>()
     let calls = 0
@@ -101,8 +134,13 @@ function session(authenticated: boolean): AuthSession {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
-    teams: authenticated ? [{ teamId: 'team-1', name: 'Platform', memberId: 'member-1', permissions: ['scope:read'] }] : [],
-    permissions: authenticated ? ['scope:read', 'conversation:use'] : [],
+    teams: authenticated ? [{
+      teamId: 'team-1',
+      name: 'Platform',
+      memberId: 'member-1',
+      permissions: ['scope:read', 'conversation:use'],
+    }] : [],
+    permissions: [],
   }
 }
 

@@ -11,7 +11,6 @@ import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.server.api.AuditCursorCodec;
 import io.crewscope.server.api.TeamActivityCursorKeyRing;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -38,7 +37,6 @@ public class AuditApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(TeamActivityCursorKeyRing.class)
     AuditCursorCodec auditCursorCodec(TeamActivityCursorKeyRing keyRing) {
         return new AuditCursorCodec(keyRing);
     }

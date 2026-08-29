@@ -119,7 +119,7 @@ class TeamBetaDeploymentGuardM6I09Test {
         assertTrue(actuatorFailure.getMessage().contains("expose exactly"));
     }
 
-    private static MockEnvironment environment(boolean worker) {
+    static MockEnvironment environment(boolean worker) {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("crewscope.runtime.execution-profile", worker ? "worker" : "server");
         properties.put("crewscope.runtime.redis.ownership-scope", worker ? "worker" : "server");

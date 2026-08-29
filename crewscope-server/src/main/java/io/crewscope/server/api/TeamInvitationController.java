@@ -37,7 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -55,7 +55,9 @@ import reactor.core.scheduler.Schedulers;
 
 /** Team invitation management plus token-only preview and current-account acceptance boundary. */
 @RestController
-@ConditionalOnBean(TeamInvitationApplicationService.class)
+@ConditionalOnProperty(
+        name = "crewscope.invitation.token.enabled",
+        havingValue = "true")
 public final class TeamInvitationController {
 
     private final TeamInvitationApplicationService invitations;

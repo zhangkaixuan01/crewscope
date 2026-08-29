@@ -72,6 +72,7 @@ class M7ApiCompositionM7A07Test {
     @Test
     void createsEachM7ControllerAndApplicationServiceExactlyOnce() {
         controllers
+                .withPropertyValues("crewscope.invitation.token.enabled=true")
                 .withBean(
                         TeamInvitationApplicationService.class,
                         () -> mock(TeamInvitationApplicationService.class))
@@ -91,7 +92,9 @@ class M7ApiCompositionM7A07Test {
 
     @Test
     void omitsInvitationHttpSurfaceWhenItsApplicationServiceIsUnavailable() {
-        controllers.run(context -> assertThat(context)
+        controllers
+            .withPropertyValues("crewscope.invitation.token.enabled=false")
+            .run(context -> assertThat(context)
                 .hasNotFailed()
                 .doesNotHaveBean(TeamInvitationController.class));
     }
