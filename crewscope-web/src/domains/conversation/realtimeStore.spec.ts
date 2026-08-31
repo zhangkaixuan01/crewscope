@@ -36,6 +36,36 @@ describe('conversation realtime store', () => {
     store.reset()
   })
 
+  it('preserves multiline Markdown and tabs while normalizing pasted line endings', async () => {
+    const gateway = new FixtureRealtimeGateway()
+    gateway.invocations.push(connection('invocation-multiline', [
+      item(agui('multiline-finished', 'RUN_FINISHED', { status: 'COMPLETED' })),
+    ]))
+    const store = createStore(gateway)
+    store.synchronize(scope)
+
+    expect(await store.invoke(
+      scope,
+      '  请完成以下任务：\r\n1. 修复登录提示\r\n2. 增加测试\t证据  ',
+      fixtureIds.principal,
+      4,
+    )).toBe(true)
+    expect(gateway.invokedMessages).toEqual([
+      '请完成以下任务：\n1. 修复登录提示\n2. 增加测试\t证据',
+    ])
+    store.reset()
+  })
+
+  it('rejects non-formatting control characters in message content', async () => {
+    const gateway = new FixtureRealtimeGateway()
+    const store = createStore(gateway)
+    store.synchronize(scope)
+
+    expect(await store.invoke(scope, '合法内容\u0000隐藏内容', fixtureIds.principal, 4)).toBe(false)
+    expect(gateway.invokedMessages).toEqual([])
+    store.reset()
+  })
+
   it('replays the same invocation after disconnect and removes duplicate events', async () => {
     const gateway = new FixtureRealtimeGateway()
     const started = agui('replay-1', 'RUN_STARTED', {})
@@ -257,18 +287,44 @@ describe('conversation realtime store', () => {
     expect(store.state.invocationPhase).toBe('idle')
     store.reset()
   })
+
+  it('normalizes CRLF in a valid browser recovery before reconnecting', async () => {
+    const gateway = new FixtureRealtimeGateway()
+    gateway.invocations.push(connection('invocation-recovered', [
+      item(agui('recovered-finished', 'RUN_FINISHED', { status: 'COMPLETED' })),
+    ]))
+    const storage = new MemoryStorage()
+    const storageKey = `crewscope:conversation:invocation:${scope.organizationId}:${scope.teamId}:${scope.conversationId}`
+    storage.setItem(storageKey, JSON.stringify({
+      content: '第一行\r\n第二行',
+      authorPrincipalId: fixtureIds.principal,
+      baselineSequence: 4,
+      idempotencyKey: 'recovery-crlf',
+    }))
+    const store = createStore(gateway, storage)
+
+    store.synchronize(scope)
+    await vi.waitFor(() => {
+      expect(gateway.invokedMessages).toEqual(['第一行\n第二行'])
+      expect(storage.getItem(storageKey)).toBeNull()
+    })
+
+    store.reset()
+  })
 })
 
 class FixtureRealtimeGateway implements ConversationRealtimeGateway {
   readonly invokeKeys: string[] = []
+  readonly invokedMessages: string[] = []
   readonly cancelled: Array<{ invocationId: string; reason: string }> = []
   readonly resumed: Array<{ invocationId: string; answers: Record<string, string> }> = []
   invocations: RealtimeConnection[] = []
   durableEvents: RealtimeStreamItem[] = []
   invokeFailure: unknown = null
 
-  async invoke(_scope: ConversationMessageScope, _input: { message: string }, key: string): Promise<RealtimeConnection> {
+  async invoke(_scope: ConversationMessageScope, input: { message: string }, key: string): Promise<RealtimeConnection> {
     this.invokeKeys.push(key)
+    this.invokedMessages.push(input.message)
     if (this.invokeFailure) throw this.invokeFailure
     const next = this.invocations.shift()
     if (!next) throw new Error('Missing invocation fixture')

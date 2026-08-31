@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Bot,
   ChevronRight,
-  CircleStop,
   LockKeyhole,
   MessageSquarePlus,
   Plus,
@@ -17,8 +16,8 @@ import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
+import ConversationAgentActionRegion from '../components/domain/ConversationAgentActionRegion.vue'
 import ConversationComposer from '../components/domain/ConversationComposer.vue'
-import ClarificationCard from '../components/domain/ClarificationCard.vue'
 import SafeMarkdown from '../components/domain/SafeMarkdown.vue'
 import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
@@ -63,6 +62,8 @@ const createError = ref<string | null>(null)
 const createDialog = ref<HTMLElement | null>(null)
 const createTitleInput = ref<HTMLInputElement | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
+const agentActionRegion = ref<HTMLElement | null>(null)
+const messageHistory = ref<HTMLElement | null>(null)
 const drafts = reactive(new Map<string, string>())
 let createReturnFocus: HTMLElement | null = null
 let conversationReturnFocus: HTMLElement | null = null
@@ -105,6 +106,16 @@ const composerPlaceholder = computed(() => {
   if (!isOnline.value) return '当前离线，可继续编辑草稿，联网后发送…'
   return canInvokeAgent.value ? '向 Personal Agent 描述目标或补充上下文…' : '向 Conversation 追加团队消息…'
 })
+const composerDisabledReason = computed(() => {
+  if (!canPostMessages.value) return '当前没有此 Conversation 的发言权限'
+  if (!isOnline.value) return '当前离线，恢复网络后才能发送'
+  if (agentBusy.value) return 'Personal Agent 正在处理上一条消息'
+  if (agentNeedsRecovery.value) return '上一条 Agent 调用失败，请先点击“重新连接”'
+  if (agentAwaitingClarification.value) return '请先完成 Personal Agent 需要的补充信息'
+  if (messageStore.state.phase === 'loading') return '正在加载消息历史'
+  if (messageStore.state.phase === 'error') return '消息历史加载失败，请先重试'
+  return null
+})
 const visibleInvocationMessage = computed(() => {
   const content = realtimeStore.state.submittedContent
   if (!content) return null
@@ -132,6 +143,10 @@ const agentStatusText = computed(() => ({
   cancelled: '本次 Agent 调用已取消',
   error: realtimeStore.state.errorMessage ?? 'Agent 暂时无法回复',
 }[realtimeStore.state.invocationPhase]))
+const showAgentActionRegion = computed(() => Boolean(
+  agentStatusText.value
+  || (realtimeStore.state.invocationPhase === 'interrupted' && realtimeStore.state.clarification),
+))
 const messageAnnouncement = computed(() => {
   if (agentStatusText.value) return ''
   const pending = messageStore.state.pending.at(-1)
@@ -149,6 +164,19 @@ const canConfigureConfirmedCoding = computed(() => Boolean(
     ? taskIntentStore.state.intent.proposal.owner.principalId === principal.id
     : selected.value?.ownerPrincipalId === principal.id),
 ))
+
+watch(
+  () => [realtimeStore.state.invocationPhase, Boolean(realtimeStore.state.clarification)] as const,
+  async ([phase, hasClarification]) => {
+    if (phase !== 'error' && !(phase === 'interrupted' && hasClarification)) return
+    await nextTick()
+    const history = messageHistory.value
+    if (!history || !agentActionRegion.value) return
+    // 只滚动消息历史；scrollIntoView 会连带滚动页面并把窄屏表单放到固定底栏下面。
+    history.scrollTo({ top: history.scrollHeight, behavior: 'smooth' })
+  },
+  { flush: 'post', immediate: true },
+)
 
 watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation, route.query.assistant] as const,
@@ -388,7 +416,9 @@ async function submitMessage(content: string): Promise<void> {
   const sent = invokesAgent
     ? await realtimeStore.invoke(scope, content, principal.id, newestMessageSequence())
     : await messageStore.send(scope, content, principal.id)
-  if (!invokesAgent && !sent && selected.value?.id === conversationId && !currentDraft.value) currentDraft.value = content
+  // Keep the original draft available when either transport rejects the submission. In
+  // particular, an Agent invocation can fail before a user-visible pending row is committed.
+  if (!sent && selected.value?.id === conversationId && !currentDraft.value) currentDraft.value = content
   realtimeStore.reconcile(messageStore.state.items)
   await redirectIfForbidden()
 }
@@ -752,36 +782,7 @@ function queryValue(value: unknown): string | null {
               :description="messageStore.state.errorMessage ?? undefined"
               @retry="retryMessages"
             />
-            <div v-else class="message-history">
-              <div
-                v-if="agentStatusText"
-                class="agent-live-status"
-                :class="{
-                  error: realtimeStore.state.invocationPhase === 'error',
-                  cancelled: realtimeStore.state.invocationPhase === 'cancelled',
-                }"
-                :role="realtimeStore.state.invocationPhase === 'error' ? 'alert' : 'status'"
-                :aria-live="realtimeStore.state.invocationPhase === 'error' ? 'assertive' : 'polite'"
-                aria-atomic="true"
-              >
-                <span>
-                  <CircleStop v-if="realtimeStore.state.invocationPhase === 'cancelled'" :size="14" aria-hidden="true" />
-                  <Bot v-else :size="14" aria-hidden="true" />
-                  {{ agentStatusText }}
-                </span>
-                <button
-                  v-if="(agentBusy || agentAwaitingClarification) && realtimeStore.state.invocationId"
-                  type="button"
-                  :disabled="realtimeStore.state.invocationPhase === 'cancelling' || !isOnline"
-                  @click="cancelAgentInvocation"
-                >取消</button>
-                <button
-                  v-else-if="agentNeedsRecovery"
-                  type="button"
-                  :disabled="!isOnline"
-                  @click="retryAgentInvocation"
-                >重新连接</button>
-              </div>
+            <div v-else ref="messageHistory" class="message-history">
               <div v-if="messageStore.state.nextCursor" class="older-messages">
                 <BaseButton
                   variant="ghost"
@@ -791,11 +792,6 @@ function queryValue(value: unknown): string | null {
                 >加载更早消息</BaseButton>
                 <span v-if="messageStore.state.olderErrorMessage" role="alert">{{ messageStore.state.olderErrorMessage }}</span>
               </div>
-              <ClarificationCard
-                v-if="realtimeStore.state.invocationPhase === 'interrupted' && realtimeStore.state.clarification"
-                :request="realtimeStore.state.clarification"
-                @submit="submitClarification"
-              />
               <StatePanel
                 v-if="taskIntentStore.state.phase === 'loading'"
                 state="loading"
@@ -908,6 +904,19 @@ function queryValue(value: unknown): string | null {
                   </article>
                 </li>
               </ol>
+              <div v-if="showAgentActionRegion" ref="agentActionRegion">
+                <ConversationAgentActionRegion
+                  :phase="realtimeStore.state.invocationPhase"
+                  :status-text="agentStatusText"
+                  :invocation-id="realtimeStore.state.invocationId"
+                  :online="isOnline"
+                  :retryable="realtimeStore.state.retryable"
+                  :clarification="realtimeStore.state.clarification"
+                  @cancel="cancelAgentInvocation"
+                  @retry="retryAgentInvocation"
+                  @submit-clarification="submitClarification"
+                />
+              </div>
             </div>
           </div>
           <ConversationComposer
@@ -915,6 +924,7 @@ function queryValue(value: unknown): string | null {
             :disabled="!canPostMessages || sendingMessage || agentNeedsRecovery || agentAwaitingClarification || messageStore.state.phase === 'loading' || messageStore.state.phase === 'error'"
             :submit-disabled="!isOnline"
             :offline="!isOnline"
+            :disabled-reason="composerDisabledReason"
             :sending="sendingMessage"
             :placeholder="composerPlaceholder"
             @submit="submitMessage"
@@ -1004,7 +1014,7 @@ function queryValue(value: unknown): string | null {
 .conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 15px; border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: 6px 0 4px; border-radius: 4px; font-size: 18px; }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-brand-200); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
 .conversation-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-brand-700); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, #fbfdfb 0%, #f7fbf8 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: 16px 20px 24px; }.older-messages { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 32px; margin-bottom: 8px; }.older-messages > span { color: var(--cs-danger); font-size: 9px; }.message-list { display: grid; gap: 14px; max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: #b9ddc5; background: var(--cs-brand-100); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-weight: 750; }.message-row.own .message-avatar { background: var(--cs-brand-600); color: white; }.message-row article { min-width: 0; padding: 9px 11px; border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: white; font-size: 11px; box-shadow: 0 3px 10px rgb(21 35 29 / 4%); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--cs-text-muted); font-size: 8px; }.message-row article > header strong { color: var(--cs-text-secondary); font-size: 9px; }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: 6px 10px; border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: 9px; }.message-row.system article > header { justify-content: center; margin-bottom: 2px; }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: #ecc7c2; background: #fff6f5; opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--cs-danger); font-size: 8px; }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: 9px; font-weight: 750; cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: 7px; margin: 70px auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid #ddd3ef; border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: 14px; }.message-empty p { color: var(--cs-text-muted); font-size: 10px; line-height: 1.55; }
-.agent-live-status { display: flex; max-width: 740px; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; margin: 0 auto 10px; border: 1px solid var(--cs-brand-200); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-800); font-size: 9px; }.agent-live-status > span { display: inline-flex; align-items: center; gap: 6px; }.agent-live-status button { border: 0; background: transparent; color: var(--cs-brand-800); font-size: 9px; font-weight: 750; cursor: pointer; }.agent-live-status button:disabled { cursor: wait; opacity: .55; }.agent-live-status.error { border-color: #ecc7c2; background: #fff6f5; color: var(--cs-danger); }.agent-live-status.cancelled { border-color: #cbd9cf; background: #f3f7f4; color: var(--cs-text-secondary); }.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
+.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: 60px 24px; text-align: center; }.conversation-welcome > span { margin-bottom: 18px; }.conversation-welcome h2 { margin-bottom: 9px; font: 22px var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: 20px; color: var(--cs-text-secondary); font-size: 12px; line-height: 1.65; }
 .participant-panel header { padding: 18px; border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: 8px; margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 10px; border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: 10px; }.participant-panel li small { color: var(--cs-text-muted); font-size: 8px; }.participant-placeholder { display: grid; place-items: center; gap: 10px; padding: 54px 28px; color: var(--cs-text-muted); font-size: 10px; line-height: 1.6; text-align: center; }
 .mobile-back { display: none; }.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(21 35 29 / 38%); backdrop-filter: blur(3px); }.create-dialog { width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 15px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 0; font-size: 18px; }.create-dialog header button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--cs-radius-sm); background: transparent; cursor: pointer; }.create-dialog form { display: grid; gap: 18px; padding: 20px 22px 22px; }.create-dialog form > label > span, .create-dialog legend { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 750; }.create-dialog input[type='text'], .create-dialog form > label > input { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.create-dialog fieldset { display: grid; gap: 8px; padding: 0; border: 0; }.create-dialog fieldset label { display: grid; grid-template-columns: 16px 18px 1fr; align-items: start; gap: 9px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); cursor: pointer; }.create-dialog fieldset label.active { border-color: var(--cs-brand-300); background: var(--cs-brand-50); }.create-dialog fieldset strong, .create-dialog fieldset small { display: block; }.create-dialog fieldset strong { font-size: 11px; }.create-dialog fieldset small { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.create-dialog form footer { display: flex; justify-content: flex-end; gap: 8px; }.form-error { margin: -6px 0 0; color: var(--cs-danger); font-size: 10px; }

@@ -21,6 +21,8 @@ const principal: AuthenticatedPrincipal = {
 }
 
 describe('RepositorySettingsPage', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('renders Catalog and Binding facts through the path-free browser boundary', async () => {
     const fetcher = repositoryFetcher()
     const wrapper = await mountPage(fetcher)
@@ -97,14 +99,41 @@ describe('RepositorySettingsPage', () => {
     expect(createButtons.every(button => button.attributes('disabled') !== undefined)).toBe(true)
     wrapper.unmount()
   })
+
+  it('creates the first WorkProject in place before loading repository settings', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountPage(repositoryFetcher(), true, true)
+
+    expect(wrapper.text()).toContain('这个 Team 还没有 WorkProject')
+    await wrapper.findAll('button').find(button => button.text().trim() === '创建 WorkProject')!.trigger('click')
+    const inputs = document.body.querySelectorAll<HTMLInputElement>('.project-create-dialog input')
+    inputs[0]!.value = 'crew'
+    inputs[0]!.dispatchEvent(new Event('input', { bubbles: true }))
+    inputs[1]!.value = 'CrewScope Platform'
+    inputs[1]!.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    document.body.querySelector<HTMLFormElement>('.project-create-dialog')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 个 RepositoryBinding')
+    expect(wrapper.text()).toContain('crewscope-java')
+    expect(document.body.querySelector('.project-create-dialog')).toBeNull()
+    wrapper.unmount()
+  })
 })
 
-async function mountPage(fetcher: typeof fetch, attachToDocument = false) {
+async function mountPage(fetcher: typeof fetch, attachToDocument = false, withoutProject = false) {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
-  const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
-  await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
+  const scopeGateway = new FixtureScopeGateway()
+  if (withoutProject) scopeGateway.projects[fixtureIds.teamPlatform] = []
+  const scopeStore = createScopeStore(scopeGateway, principal)
+  await scopeStore.synchronize(fixtureIds.teamPlatform, withoutProject ? null : fixtureIds.projectCrewScope)
   const codingStore = createCodingStore(new HttpCodingGateway(new CrewScopeApiClient('/api/v1', fetcher)))
-  await router.push(`/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
+  await router.push(withoutProject
+    ? `/settings/repositories?team=${fixtureIds.teamPlatform}`
+    : `/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
   await router.isReady()
   const wrapper = mount(RepositorySettingsPage, {
     attachTo: attachToDocument ? document.body : undefined,

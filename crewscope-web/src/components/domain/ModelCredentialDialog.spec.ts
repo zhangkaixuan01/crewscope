@@ -45,11 +45,32 @@ describe('ModelCredentialDialog', () => {
     expect(team.attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('需要 Team Provider 管理权限')
   })
+
+  it('keeps Provider and Region selects interactive and follows the selected Provider', async () => {
+    const wrapper = mount(ModelCredentialDialog, {
+      props: {
+        mode: 'create', providers: [provider(), provider('openai', 'OpenAI', ['global', 'us'])], connection: null,
+        teamId: 'team-1', canManageTeam: true, canManageOrganization: false, submitting: false,
+        retryable: false, errorMessage: null,
+      },
+    })
+
+    const providerSelect = wrapper.get<HTMLSelectElement>('select[aria-label="Provider"]')
+    const regionSelect = wrapper.get<HTMLSelectElement>('select[aria-label="Region"]')
+    expect(providerSelect.element.disabled).toBe(false)
+    expect(regionSelect.element.disabled).toBe(false)
+    expect(providerSelect.findAll('option').map(option => option.text())).toEqual(['DeepSeek', 'OpenAI'])
+    expect(regionSelect.findAll('option').map(option => option.text())).toEqual(['cn'])
+
+    await providerSelect.setValue('openai')
+    expect(regionSelect.element.value).toBe('global')
+    expect(regionSelect.findAll('option').map(option => option.text())).toEqual(['global', 'us'])
+  })
 })
 
-function provider() {
+function provider(key = 'deepseek', displayName = 'DeepSeek', availableRegions = ['cn']) {
   return {
-    key: 'deepseek', displayName: 'DeepSeek', availableRegions: ['cn'], retentionMode: 'NONE',
+    key, displayName, availableRegions, retentionMode: 'NONE',
     maximumRetentionSeconds: null, trainingUsagePolicy: 'DISABLED', status: 'ACTIVE', version: 1,
   }
 }

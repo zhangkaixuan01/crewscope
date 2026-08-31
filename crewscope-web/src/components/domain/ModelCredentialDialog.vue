@@ -157,8 +157,8 @@ function handleKeydown(event: KeyboardEvent): void {
         </fieldset>
 
         <div v-if="mode === 'create'" class="field-grid">
-          <label><span>Provider</span><select v-model="providerKey" :disabled="submitting"><option v-for="provider in activeProviders" :key="provider.key" :value="provider.key">{{ provider.displayName }}</option></select></label>
-          <label><span>Region</span><select v-model="region" :disabled="submitting"><option v-for="value in availableRegions" :key="value" :value="value">{{ value }}</option></select></label>
+          <label><span>Provider</span><select v-model="providerKey" aria-label="Provider" :disabled="submitting || activeProviders.length === 0"><option v-if="activeProviders.length === 0" value="" disabled>暂无可用 Provider</option><option v-for="provider in activeProviders" :key="provider.key" :value="provider.key">{{ provider.displayName }}</option></select></label>
+          <label><span>Region</span><select v-model="region" aria-label="Region" :disabled="submitting || availableRegions.length === 0"><option v-if="availableRegions.length === 0" value="" disabled>暂无可用 Region</option><option v-for="value in availableRegions" :key="value" :value="value">{{ value }}</option></select></label>
           <label class="wide"><span>凭证过期时间（可选）</span><input v-model="expiration" type="datetime-local" :disabled="submitting" /></label>
         </div>
 

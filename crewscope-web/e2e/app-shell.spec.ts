@@ -1131,6 +1131,18 @@ test('Conversation sends Markdown with Enter and restores the committed message 
   await expect(page.getByText('请补充 OAuth 边界。', { exact: true })).toBeVisible()
 })
 
+test('Conversation sends the current draft when the Send button is clicked', async ({ page }) => {
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const composer = page.getByRole('form', { name: '发送消息' })
+  const message = composer.getByLabel('消息内容')
+
+  await message.fill('点击发送按钮提交的消息。')
+  await composer.getByRole('button', { name: '发送' }).click()
+
+  await expect(page.getByText('已收到：点击发送按钮提交的消息。', { exact: true })).toBeVisible()
+  await expect(message).toHaveValue('')
+})
+
 test('Conversation shows the submitted owner message before the Agent stream is reconciled', async ({ page }) => {
   let releasePost!: () => void
   const postGate = new Promise<void>(resolve => { releasePost = resolve })
@@ -1180,6 +1192,22 @@ test('Conversation retains input after failure and retries the original message 
   await expect(page.getByText('需要可靠重试的消息。', { exact: true })).toBeVisible()
   await expect(page.getByText('发送失败', { exact: true })).toBeHidden()
   await expect(composer).toHaveValue('发送期间继续保留的新草稿。')
+})
+
+test('Conversation retains input when the Personal Agent invocation fails', async ({ page }) => {
+  await page.route(/\/agent-invocations$/, async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await fulfillError(route, 503, 'agent_unavailable', 'Agent provider unavailable')
+  })
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  const composer = page.getByLabel('消息内容')
+  const content = '请保留这份失败后可重试的 Agent 任务。'
+
+  await composer.fill(content)
+  await composer.press('Enter')
+
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(composer).toHaveValue(content)
 })
 
 test('Conversation loads older history from its opaque Cursor without duplicates', async ({ page }) => {
@@ -1465,6 +1493,39 @@ test('Conversation list remains operable at the configured viewport', async ({ p
   await expect(page.getByRole('button', { name: '新建对话', exact: true }).last()).toBeVisible()
 })
 
+test('desktop rail pins the account area while navigation scrolls independently', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 })
+  await page.goto(`/today?team=${ids.team}&project=${ids.project}`)
+
+  const rail = page.locator('.app-shell__rail')
+  const navigation = rail.locator('.rail-navigation')
+  const profile = rail.locator('.rail-profile')
+  await expect(profile.getByRole('button', { name: /账号菜单/ })).toBeVisible()
+
+  const layout = await navigation.evaluate(element => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+  expect(layout.overflowY).toBe('auto')
+  expect(layout.scrollHeight).toBeGreaterThan(layout.clientHeight)
+
+  const profileBeforeScroll = await profile.boundingBox()
+  await navigation.evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect(navigation.getByText('System', { exact: true })).toBeVisible()
+  const profileAfterScroll = await profile.boundingBox()
+  const railBox = await rail.boundingBox()
+
+  expect(profileBeforeScroll).not.toBeNull()
+  expect(profileAfterScroll).not.toBeNull()
+  expect(railBox).not.toBeNull()
+  expect(Math.abs(profileAfterScroll!.y - profileBeforeScroll!.y)).toBeLessThanOrEqual(1)
+  expect(profileAfterScroll!.y + profileAfterScroll!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height)
+
+  await profile.getByRole('button', { name: /账号菜单/ }).click()
+  await expect(page.getByRole('menu', { name: '账号菜单' })).toBeVisible()
+})
+
 test('Conversation preserves its draft offline and resumes submission online', async ({ page, context }) => {
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   const composer = page.getByRole('form', { name: '发送消息' })
@@ -1582,13 +1643,13 @@ test('member management remains usable at the configured viewport', async ({ pag
   await expect(page.getByRole('button', { name: '添加成员', exact: true }).first()).toBeVisible()
 })
 
-test('My Agents restores a deep link and remains keyboard-operable at desktop and narrow viewports', async ({ page }) => {
+test('Agent Center restores a deep link and remains keyboard-operable at desktop and narrow viewports', async ({ page }) => {
   await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}&configurationRevision=2`)
 
-  await expect(page.getByRole('heading', { name: 'Platform Engineering · 我的 Agent' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Platform Engineering · Agent 中心' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '默认 Personal Agent' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '团队 Agent' })).toBeVisible()
+  await expect(page.locator('#team-agent-directory').getByRole('heading', { name: '团队 Agent' })).toBeVisible()
   const selected = page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)
   await expect(selected).toHaveAttribute('aria-current', 'page')
   await expect(selected).toContainText('deepseek-v4-flash')
@@ -1607,8 +1668,8 @@ test('My Agents restores a deep link and remains keyboard-operable at desktop an
   await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
   await expect(page).not.toHaveURL(/agent=/)
   expect(new URL(page.url()).searchParams.get('configurationRevision')).toBeNull()
-  await expect(page.getByRole('heading', { name: 'Security Engineering · 我的 Agent' })).toBeVisible()
-  await expect(page.getByText('还没有可访问的 Agent')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Security Engineering · Agent 中心' })).toBeVisible()
+  await expect(page.getByText('这个 Team 还没有团队 Agent')).toBeVisible()
 })
 
 test('Model settings verifies and rotates a Team credential without retaining its Key', async ({ page }) => {
@@ -2043,7 +2104,8 @@ test('Evidence panel presents bounded command, test and acceptance artifacts as 
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`)
   const panel = page.getByTestId('coding-evidence-panel')
 
-  await expect(panel.getByRole('heading', { name: '命令、测试与验收证据' })).toBeVisible()
+  // 窄屏冷启动需要加载完整 Work 与 Coding 依赖图，等待服务端事实完成首次收敛。
+  await expect(panel.getByRole('heading', { name: '命令、测试与验收证据' })).toBeVisible({ timeout: 15_000 })
   await expect(panel.getByText('Exit Code')).toBeVisible()
   await expect(panel.getByText('207', { exact: true })).toBeVisible()
   await expect(panel.getByText('关键测试通过')).toBeVisible()
@@ -2223,8 +2285,11 @@ test('Task Timeline closes its live stream after authoritative terminal converge
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('执行已完成')).toBeVisible()
   await expect(dialog.getByText('COMPLETED', { exact: true }).first()).toBeVisible()
+  // 有限 SSE 结束到权威投影收敛之间可以短暂重连；终态可见后调用数必须保持稳定。
+  const callsAtTerminalConvergence = streamCalls
+  expect(callsAtTerminalConvergence).toBeGreaterThanOrEqual(1)
   await page.waitForTimeout(1_500)
-  expect(streamCalls).toBe(1)
+  expect(streamCalls).toBe(callsAtTerminalConvergence)
 })
 
 test('Task Cancel keeps server facts stable while pending and restores confirmation focus', async ({ page }) => {
@@ -2630,7 +2695,7 @@ test('M4 Repository and Execution Studio visual baseline', async ({ page }, test
 
 test('M5 Agent creation and configuration preserve server-owned boundaries', async ({ page }) => {
   await page.goto(`/settings/agents?team=${ids.team}`)
-  await page.getByRole('button', { name: '创建 Agent' }).click()
+  await page.getByRole('button', { name: '创建个人 Agent' }).first().click()
   const createDialog = page.getByRole('dialog', { name: '创建执行 Agent' })
   await expect(createDialog).toBeVisible()
   await createDialog.getByText('Coding Agent', { exact: true }).click()
@@ -2653,13 +2718,13 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate(element => element.clientWidth))
 })
 
-test('M5 My Agents visual baseline', async ({ page }, testInfo) => {
+test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
   await page.goto(`/settings/agents?team=${ids.team}`)
   await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
   await expect(page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)).toContainText('deepseek-v4-flash')
   await expect(page).toHaveScreenshot(`agent-settings-${testInfo.project.name}.png`, { fullPage: true })
 
-  await page.getByRole('button', { name: '创建 Agent' }).click()
+  await page.getByRole('button', { name: '创建个人 Agent' }).first().click()
   await expect(page.getByRole('dialog', { name: '创建执行 Agent' })).toBeVisible()
   await expect(page).toHaveScreenshot(`agent-create-${testInfo.project.name}.png`, { fullPage: true })
   await page.getByRole('button', { name: '关闭创建 Agent' }).click()
@@ -2696,7 +2761,7 @@ test('M1 through M5 primary pages meet automated WCAG 2.2 AA checks', async ({ p
   }
 
   await page.goto(`/settings/agents?team=${ids.team}`)
-  await page.getByRole('button', { name: '创建 Agent' }).click()
+  await page.getByRole('button', { name: '创建个人 Agent' }).first().click()
   const createResult = await new AxeBuilder({ page })
     .include('[role="dialog"][aria-labelledby="agent-create-title"]')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])

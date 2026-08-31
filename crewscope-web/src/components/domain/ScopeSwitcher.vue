@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { BriefcaseBusiness, Check, ChevronDown, Layers3, RefreshCw, UsersRound } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { BriefcaseBusiness, Check, ChevronDown, Layers3, Plus, RefreshCw, UsersRound } from '@lucide/vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useScopeStore } from '../../domains/scope/store'
+import { createWorkProjectCreationFlow } from '../../domains/scope/workProjectCreation'
+import WorkProjectCreateDialog from './WorkProjectCreateDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
 const store = useScopeStore()
+const principal = inject(AUTH_PRINCIPAL)
 const open = ref(false)
 const root = useTemplateRef<HTMLElement>('root')
+const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
+const projectCreation = createWorkProjectCreationFlow(store, router, route, 'push')
 
 const teamInitial = computed(() => store.selectedTeam.value?.name.slice(0, 1).toUpperCase() ?? 'T')
 const scopeLabel = computed(() => store.selectedTeam.value?.name ?? '选择 Team')
@@ -26,6 +32,11 @@ async function chooseTeam(teamId: string): Promise<void> {
 async function chooseProject(projectId: string): Promise<void> {
   open.value = false
   await router.push({ query: { ...route.query, project: projectId, workItem: undefined, focus: undefined } })
+}
+
+function openProjectCreate(): void {
+  open.value = false
+  projectCreation.show()
 }
 
 function closeOnOutsideClick(event: MouseEvent): void {
@@ -90,7 +101,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="scope-menu__group scope-menu__projects">
-          <p><BriefcaseBusiness :size="13" />WorkProject</p>
+          <div class="scope-menu__group-heading">
+            <p><BriefcaseBusiness :size="13" />WorkProject</p>
+            <button v-if="canManageProjects" type="button" aria-label="创建 WorkProject" @click="openProjectCreate"><Plus :size="13" />新建</button>
+          </div>
           <div v-if="store.state.projects.length === 0" class="scope-menu__state">这个 Team 还没有 WorkProject。</div>
           <button
             v-for="project in store.state.projects"
@@ -108,6 +122,18 @@ onBeforeUnmount(() => {
 
       <footer><Layers3 :size="13" />切换范围会保留当前入口，并清除不兼容的 Focus。</footer>
     </section>
+
+    <WorkProjectCreateDialog
+      v-if="projectCreation.open.value && store.selectedTeam.value"
+      :team-name="store.selectedTeam.value.name"
+      :submitting="store.state.projectCommandPending"
+      :retryable="store.state.projectCommandRetryable"
+      :error-message="store.state.projectCommandErrorMessage"
+      :check-key="store.checkWorkProjectKey"
+      @close="projectCreation.close"
+      @input-changed="store.clearProjectCommand"
+      @submit="projectCreation.submit"
+    />
   </div>
 </template>
 
@@ -122,6 +148,7 @@ onBeforeUnmount(() => {
 .scope-menu header { position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 14px 15px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 96%); }
 .scope-menu header span, .scope-menu header strong { display: block; }.scope-menu header span { color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.scope-menu header strong { font-size: 12px; }.scope-menu header button { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); cursor: pointer; }
 .scope-menu__group { padding: 9px; border-bottom: 1px solid var(--cs-border); }.scope-menu__group p { display: flex; align-items: center; gap: 6px; margin: 4px 6px 6px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.scope-menu__group-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.scope-menu__group-heading > button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 6px; background: var(--cs-brand-50); color: var(--cs-brand-700); font-size: 9px; font-weight: 750; cursor: pointer; }
 .scope-menu__group > button { display: grid; width: 100%; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 9px; border-radius: var(--cs-radius-sm); background: transparent; text-align: left; cursor: pointer; }.scope-menu__group > button:hover { background: var(--cs-brand-50); }.scope-menu__group > button.selected { background: var(--cs-brand-100); color: var(--cs-brand-800); }.scope-menu__group button span, .scope-menu__group button small { display: block; }.scope-menu__group button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }.scope-menu__group button small { color: var(--cs-text-muted); font-size: 9px; font-weight: 500; }
 .scope-menu__projects > button { grid-template-columns: 28px 1fr auto; }.scope-menu__projects button i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-style: normal; font-weight: 800; }
 .scope-menu__state { padding: 14px; color: var(--cs-text-muted); font-size: 10px; text-align: center; }.scope-menu__state--error { color: var(--cs-danger); }

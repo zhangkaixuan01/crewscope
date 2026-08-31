@@ -160,8 +160,8 @@ export function createConversationRealtimeStore(
     authorPrincipalId: string,
     baselineSequence: number,
   ): Promise<boolean> {
-    const content = message.trim()
-    if (!publicText(content, 1, MAX_MESSAGE_CONTENT_LENGTH)
+    const content = normalizeMessageContent(message)
+    if (!publicMessageText(content, 1, MAX_MESSAGE_CONTENT_LENGTH)
       || activeScopeKey !== scopeKey(scope)
       || invocationUnavailable(state.invocationPhase)) return false
     const recovery: InvocationRecovery = {
@@ -688,6 +688,26 @@ function publicText(value: unknown, minimum: number, maximum: number): value is 
     && !/\p{Cc}/u.test(value)
 }
 
+/**
+ * Normalizes user-authored message content while preserving its Markdown layout.
+ * Browser textareas can contain either LF or CRLF depending on how text was pasted.
+ */
+function normalizeMessageContent(value: string): string {
+  return value.replace(/\r\n?/g, '\n').trim()
+}
+
+/**
+ * Accepts the formatting controls used by multiline Markdown and rejects all other
+ * Unicode control characters before content reaches the invocation boundary.
+ */
+function publicMessageText(value: unknown, minimum: number, maximum: number): value is string {
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  return trimmed.length >= minimum
+    && trimmed.length <= maximum
+    && !/\p{Cc}/u.test(value.replace(/[\n\t]/g, ''))
+}
+
 function normalizeAnswers(
   answers: Record<string, string>,
   clarification: ClarificationRequest,
@@ -706,14 +726,15 @@ function normalizeAnswers(
 }
 
 function parseRecovery(value: unknown): SegmentRecovery | null {
-  if (!isRecord(value)
-    || !publicText(value.content, 1, MAX_MESSAGE_CONTENT_LENGTH)
+  if (!isRecord(value)) return null
+  const content = typeof value.content === 'string' ? normalizeMessageContent(value.content) : ''
+  if (!publicMessageText(content, 1, MAX_MESSAGE_CONTENT_LENGTH)
     || !publicText(value.authorPrincipalId, 1, 512)
     || !Number.isSafeInteger(value.baselineSequence)
     || (value.baselineSequence as number) < 0
     || !publicText(value.idempotencyKey, 1, 512)) return null
   const common = {
-    content: value.content.trim(),
+    content,
     authorPrincipalId: value.authorPrincipalId.trim(),
     baselineSequence: value.baselineSequence as number,
     idempotencyKey: value.idempotencyKey.trim(),

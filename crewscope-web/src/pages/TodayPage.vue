@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { ArrowRight, BriefcaseBusiness, CalendarDays, Layers3, MessageSquare, UsersRound } from '@lucide/vue'
+import { ArrowRight, BriefcaseBusiness, CalendarDays, Layers3, MessageSquare, Plus, UsersRound } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
+import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
+import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 
 const route = useRoute()
+const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const store = useScopeStore()
 const team = store.selectedTeam
 const project = store.selectedProject
 const canViewMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersRead)))
+const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
+const projectCreation = createWorkProjectCreationFlow(store, router, route)
 
 watch(() => store.state.selectedTeamId, () => store.loadMembers(), { immediate: true })
 
@@ -28,6 +33,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 <template>
   <AppShell eyebrow="Today · Team workspace" :title="team?.name ?? '团队工作区'">
     <template #actions>
+      <BaseButton v-if="canManageProjects" variant="secondary" size="small" @click="projectCreation.show"><Plus :size="14" />新建项目</BaseButton>
       <RouterLink v-slot="{ navigate }" custom :to="{ name: 'conversation', query: route.query }">
         <BaseButton variant="secondary" size="small" @click="navigate"><MessageSquare :size="14" />进入对话</BaseButton>
       </RouterLink>
@@ -68,7 +74,9 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             <div><small class="mono">{{ project.key }}</small><h3>{{ project.name }}</h3><p>Workspace <span class="mono">{{ project.workspaceId.slice(0, 8) }}…</span></p></div>
             <RouterLink :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="14" /></RouterLink>
           </div>
-          <StatePanel v-else state="empty" title="这个 Team 还没有 WorkProject" description="WorkProject 创建能力已由后端提供，前端创建流程将在后续管理迭代中进入。" />
+          <StatePanel v-else state="empty" title="这个 Team 还没有 WorkProject" description="创建第一个 WorkProject 后，即可进入 Work 管理并绑定代码仓库。">
+            <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+          </StatePanel>
         </section>
 
         <aside class="quick-actions">
@@ -84,6 +92,18 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         </aside>
       </div>
     </div>
+
+    <WorkProjectCreateDialog
+      v-if="projectCreation.open.value && team"
+      :team-name="team.name"
+      :submitting="store.state.projectCommandPending"
+      :retryable="store.state.projectCommandRetryable"
+      :error-message="store.state.projectCommandErrorMessage"
+      :check-key="store.checkWorkProjectKey"
+      @close="projectCreation.close"
+      @input-changed="store.clearProjectCommand"
+      @submit="projectCreation.submit"
+    />
   </AppShell>
 </template>
 

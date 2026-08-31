@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import ClarificationCard from './domain/ClarificationCard.vue'
+import ConversationAgentActionRegion from './domain/ConversationAgentActionRegion.vue'
 import TaskIntentCard from './domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from './domain/ConversationWorkItemLinks.vue'
 import { fixtureConversationWorkItemAssociation } from '../test/conversationWorkItemFixtures'
@@ -21,7 +21,28 @@ const clarification = {
 <template>
   <Story title="Conversation/Task actions" :layout="{ type: 'grid', width: 820 }">
     <Variant title="Clarification">
-      <ClarificationCard :request="clarification" @submit="answers => lastAction = JSON.stringify(answers)" />
+      <ConversationAgentActionRegion
+        phase="interrupted"
+        status-text="Personal Agent 需要补充信息"
+        invocation-id="story-invocation"
+        :online="true"
+        :retryable="false"
+        :clarification="clarification"
+        @cancel="lastAction = '取消调用'"
+        @submit-clarification="answers => lastAction = JSON.stringify(answers)"
+      />
+      <p class="story-result">{{ lastAction }}</p>
+    </Variant>
+    <Variant title="Agent failure recovery">
+      <ConversationAgentActionRegion
+        phase="error"
+        status-text="服务暂时无法完成请求"
+        invocation-id="story-invocation"
+        :online="true"
+        :retryable="true"
+        :clarification="null"
+        @retry="lastAction = '重新连接'"
+      />
       <p class="story-result">{{ lastAction }}</p>
     </Variant>
     <Variant title="TaskIntent owner review">

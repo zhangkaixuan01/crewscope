@@ -11,6 +11,7 @@ const props = defineProps<{
   teamTemplates: AgentTemplateSummary[]
   loading: boolean
   canManageTeamAgents: boolean
+  initialOwnershipType?: Extract<AgentOwnershipType, 'USER' | 'TEAM'>
   submitting: boolean
   retryable: boolean
   errorMessage: string | null
@@ -25,11 +26,16 @@ const emit = defineEmits<{
 
 const dialog = useTemplateRef<HTMLElement>('dialog')
 const nameInput = ref<HTMLInputElement | null>(null)
-const ownershipType = ref<Extract<AgentOwnershipType, 'USER' | 'TEAM'>>('USER')
+const ownershipType = ref<Extract<AgentOwnershipType, 'USER' | 'TEAM'>>(
+  props.initialOwnershipType === 'TEAM' && props.canManageTeamAgents ? 'TEAM' : 'USER',
+)
 const templateCoordinate = ref('')
 const displayName = ref('')
 const submitted = ref(false)
-const visibleTemplates = computed(() => ownershipType.value === 'USER' ? props.userTemplates : props.teamTemplates)
+const visibleTemplates = computed(() => (ownershipType.value === 'USER' ? props.userTemplates : props.teamTemplates)
+  // Personal Assistant is platform-managed: it must be available for existing-agent metadata,
+  // but users must not be offered a second default Personal Agent in the create dialog.
+  .filter(template => template.runtimeRole !== 'PERSONAL_ASSISTANT'))
 const selectedTemplate = computed(() => visibleTemplates.value.find(template => coordinate(template) === templateCoordinate.value) ?? null)
 const valid = computed(() => Boolean(selectedTemplate.value && displayName.value.trim() && displayName.value.trim().length <= 200))
 
@@ -49,6 +55,7 @@ function templateLabel(template: AgentTemplateSummary): string {
   const key = template.key.toLowerCase()
   if (key.includes('coding')) return 'Coding Agent'
   if (key.includes('review')) return 'Reviewer Agent'
+  if (key.includes('team-coordinator')) return 'Team Coordinator'
   return template.key
 }
 

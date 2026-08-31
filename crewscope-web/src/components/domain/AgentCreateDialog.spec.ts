@@ -30,13 +30,32 @@ describe('AgentCreateDialog', () => {
         userTemplates: [template('coding-specialist', 'USER')],
         teamTemplates: [template('team-orchestrator', 'TEAM')],
         canManageTeamAgents: false,
+        initialOwnershipType: 'TEAM',
       }),
     })
+    const personalButton = wrapper.findAll('.ownership-picker button').find(button => button.text().includes('个人 Agent'))!
     const teamButton = wrapper.findAll('.ownership-picker button').find(button => button.text().includes('团队 Agent'))!
     expect(teamButton.attributes('disabled')).toBeDefined()
+    expect(personalButton.classes()).toContain('active')
     await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
     expect(wrapper.emitted('close')).toHaveLength(1)
     wrapper.unmount()
+  })
+
+  it('opens on Team ownership from the dedicated Agent Center entry', () => {
+    const wrapper = mount(AgentCreateDialog, {
+      props: defaults({
+        initialOwnershipType: 'TEAM',
+        teamTemplates: [template('team-coordinator', 'TEAM')],
+      }),
+    })
+    const ownershipButtons = wrapper.findAll('.ownership-picker button')
+    const personalButton = ownershipButtons.find(button => button.text().includes('个人 Agent'))!
+    const teamButton = ownershipButtons.find(button => button.text().includes('团队 Agent'))!
+
+    expect(teamButton.classes()).toContain('active')
+    expect(personalButton.classes()).not.toContain('active')
+    expect(wrapper.get('.template-picker').text()).toContain('team-coordinator')
   })
 
   it('keeps input editable after a retryable failure so a changed request gets a new idempotency identity', async () => {
@@ -62,6 +81,19 @@ describe('AgentCreateDialog', () => {
     expect(wrapper.text()).not.toContain('没有可用模板')
     await wrapper.get('.state-panel button').trigger('click')
     expect(wrapper.emitted('retryTemplates')).toHaveLength(1)
+  })
+
+  it('hides the platform-managed Personal Assistant from the create choices', async () => {
+    const wrapper = mount(AgentCreateDialog, {
+      props: defaults({
+        userTemplates: [
+          { ...template('personal-assistant', 'USER'), runtimeRole: 'PERSONAL_ASSISTANT' },
+          template('coding-specialist', 'USER'),
+        ],
+      }),
+    })
+    expect(wrapper.get('.template-picker').text()).toContain('coding-specialist')
+    expect(wrapper.get('.template-picker').text()).not.toContain('personal-assistant')
   })
 })
 

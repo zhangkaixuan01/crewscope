@@ -10,7 +10,7 @@ import {
 import type { AuthenticatedPrincipal } from '../../app/auth'
 import { CrewScopeApiError } from '../../api/client'
 import type { ScopeGateway } from './gateway'
-import type { TeamMemberSummary, TeamSummary, WorkProjectSummary } from './types'
+import type { CreateWorkProjectInput, TeamMemberSummary, TeamSummary, WorkProjectSummary } from './types'
 
 export type ScopePhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -25,8 +25,11 @@ interface ScopeState {
   membersTeamId: string | null
   membersLoading: boolean
   memberCommandPending: boolean
+  projectCommandPending: boolean
+  projectCommandRetryable: boolean
   errorMessage: string | null
   membersErrorMessage: string | null
+  projectCommandErrorMessage: string | null
 }
 
 export interface ScopeSelection {
@@ -42,6 +45,9 @@ export interface ScopeStore {
   reload(): Promise<ScopeSelection>
   loadMembers(force?: boolean): Promise<void>
   addMember(principalId: string): Promise<void>
+  checkWorkProjectKey(key: string, signal?: AbortSignal): Promise<boolean>
+  createWorkProject(input: CreateWorkProjectInput, idempotencyKey: string): Promise<WorkProjectSummary>
+  clearProjectCommand(): void
   reset(): void
 }
 
@@ -59,8 +65,11 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     membersTeamId: null,
     membersLoading: false,
     memberCommandPending: false,
+    projectCommandPending: false,
+    projectCommandRetryable: false,
     errorMessage: null,
     membersErrorMessage: null,
+    projectCommandErrorMessage: null,
   })
 
   let teamsLoaded = false
@@ -111,6 +120,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
       if (teamChanged) {
         state.members = []
         state.membersTeamId = null
+        clearProjectCommand()
       }
 
       if (team.initializationStatus !== 'READY') {
@@ -189,6 +199,61 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     }
   }
 
+  async function checkWorkProjectKey(key: string, signal?: AbortSignal): Promise<boolean> {
+    const teamId = state.selectedTeamId
+    if (!teamId) throw new Error('No Team is selected')
+    const availability = await gateway.checkWorkProjectKey(
+      principal.organizationId,
+      teamId,
+      key.trim().toUpperCase(),
+      signal,
+    )
+    return availability.available
+  }
+
+  async function createWorkProject(
+    input: CreateWorkProjectInput,
+    idempotencyKey: string,
+  ): Promise<WorkProjectSummary> {
+    const teamId = state.selectedTeamId
+    if (!teamId) throw new Error('No Team is selected')
+    const requestGeneration = scopeGeneration
+    const normalized = { key: input.key.trim().toUpperCase(), name: input.name.trim() }
+    state.projectCommandPending = true
+    state.projectCommandRetryable = false
+    state.projectCommandErrorMessage = null
+    try {
+      await gateway.createWorkProject(principal.organizationId, teamId, normalized, idempotencyKey)
+      const page = await gateway.listWorkProjects(principal.organizationId, teamId)
+      if (requestGeneration !== scopeGeneration || state.selectedTeamId !== teamId) {
+        throw new Error('WorkProject scope changed while the command completed')
+      }
+      state.projects = page.items.filter(project => project.status === 'ACTIVE')
+      state.projectsTeamId = teamId
+      const created = state.projects.find(project => project.key === normalized.key)
+      if (!created) throw new Error('Created WorkProject projection is not ready')
+      state.selectedProjectId = created.id
+      clearProjectCommand()
+      return created
+    } catch (error) {
+      if (requestGeneration === scopeGeneration && state.selectedTeamId === teamId) {
+        state.projectCommandRetryable = retryable(error)
+        state.projectCommandErrorMessage = presentProjectCommandError(error)
+      }
+      throw error
+    } finally {
+      if (requestGeneration === scopeGeneration && state.selectedTeamId === teamId) {
+        state.projectCommandPending = false
+      }
+    }
+  }
+
+  function clearProjectCommand(): void {
+    state.projectCommandPending = false
+    state.projectCommandRetryable = false
+    state.projectCommandErrorMessage = null
+  }
+
   function currentSelection(): ScopeSelection {
     return { teamId: state.selectedTeamId, projectId: state.selectedProjectId }
   }
@@ -211,6 +276,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     state.teams = []
     state.membersLoading = false
     state.memberCommandPending = false
+    clearProjectCommand()
     state.errorMessage = null
     state.membersErrorMessage = null
     clearScope()
@@ -224,6 +290,9 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     reload,
     loadMembers,
     addMember,
+    checkWorkProjectKey,
+    createWorkProject,
+    clearProjectCommand,
     reset,
   }
 }
@@ -247,4 +316,13 @@ export function useScopeStore(): ScopeStore {
 function presentError(error: unknown): string {
   if (error instanceof CrewScopeApiError) return error.envelope.message
   return '暂时无法加载团队范围，请稍后重试'
+}
+
+function retryable(error: unknown): boolean {
+  return !(error instanceof CrewScopeApiError) || error.status === 0 || error.envelope.retryable
+}
+
+function presentProjectCommandError(error: unknown): string {
+  if (error instanceof CrewScopeApiError) return error.envelope.message
+  return 'WorkProject 创建已提交但最新事实暂时不可用，请使用原请求重试'
 }

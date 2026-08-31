@@ -12,9 +12,12 @@ import ActivityStream from '../components/domain/ActivityStream.vue'
 import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vue'
 import TaskListPanel from '../components/domain/TaskListPanel.vue'
 import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
+import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
+import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
+import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
@@ -60,6 +63,7 @@ const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
+const agentStore = useAgentStore()
 const workStore = useWorkItemStore()
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
@@ -71,8 +75,10 @@ const isOnline = useNetworkStatus()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
+const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const canParticipate = computed(() => Boolean(principal && can(principal, permissions.workParticipate)))
 const canManageResponsibility = computed(() => Boolean(principal && can(principal, permissions.responsibilityManage)))
+const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 const responsibilityCandidates = computed(() => scopeStore.state.members
   .filter(member => member.status === 'ACTIVE')
   .map(member => ({
@@ -80,6 +86,17 @@ const responsibilityCandidates = computed(() => scopeStore.state.members
     displayName: member.userPrincipalId === principal?.id
       ? principal.displayName
       : `团队成员 · ${member.userPrincipalId.slice(0, 8)}`,
+  })))
+const responsibilityAgentCandidates = computed(() => (agentStore.state.agents.value ?? [])
+  .filter(agent => agent.status === 'ACTIVE'
+    && agent.principalStatus === 'ACTIVE'
+    && agent.teamId === scopeStore.state.selectedTeamId
+    && agent.workspaceId === project.value?.workspaceId)
+  .map(agent => ({
+    principalId: agent.principalId,
+    displayName: agent.displayName,
+    ownershipType: agent.ownershipType,
+    runtimeRole: agent.runtimeRole,
   })))
 const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board'] as const, 'list'))
 const statusFilter = computed<FilterValue<WorkItemStatus>>(() => oneOf(route.query.status, ['all', ...workItemStatuses] as const, 'all'))
@@ -446,6 +463,7 @@ watch(
       return
     }
     void scopeStore.loadMembers()
+    if (canManageResponsibility.value) void loadResponsibilityAgents()
     const scope = { organizationId: principal.organizationId, teamId, projectId }
     void Promise.all([
       workStore.loadDetails(scope, workItemId),
@@ -454,6 +472,12 @@ watch(
   },
   { immediate: true },
 )
+
+async function loadResponsibilityAgents(force = false, more = false): Promise<void> {
+  if (!principal || !team.value) return
+  agentStore.activateScope({ organizationId: principal.organizationId, teamId: team.value.id })
+  await agentStore.loadAgents(more, force)
+}
 
 watch(
   () => [
@@ -1052,6 +1076,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 <template>
   <AppShell eyebrow="Work · Project scope" :title="project?.name ?? '项目工作区'">
     <template #actions>
+      <BaseButton v-if="!project && canManageProjects" size="small" @click="projectCreation.show"><Plus :size="14" />新建项目</BaseButton>
       <RouterLink v-slot="{ navigate }" custom :to="{ name: 'conversation', query: route.query }">
         <BaseButton variant="secondary" size="small" @click="navigate"><MessageSquare :size="14" />带到对话</BaseButton>
       </RouterLink>
@@ -1060,7 +1085,9 @@ const statusLabels: Record<WorkItemStatus, string> = {
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
     <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" />
-    <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject" description="创建 WorkProject 后即可管理团队工作项。" />
+    <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject" description="创建 WorkProject 后即可管理团队工作项。">
+      <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+    </StatePanel>
 
     <div v-else class="work-page page-shell">
       <section class="work-toolbar panel">
@@ -1128,6 +1155,18 @@ const statusLabels: Record<WorkItemStatus, string> = {
       <section class="scope-rule"><ShieldCheck :size="16" /><span>URL 保存 Team、WorkProject、视图和筛选状态；服务端仍逐次校验 Membership 与完整 Scope，前端筛选不构成授权边界。</span></section>
     </div>
 
+    <WorkProjectCreateDialog
+      v-if="projectCreation.open.value && team"
+      :team-name="team.name"
+      :submitting="scopeStore.state.projectCommandPending"
+      :retryable="scopeStore.state.projectCommandRetryable"
+      :error-message="scopeStore.state.projectCommandErrorMessage"
+      :check-key="scopeStore.checkWorkProjectKey"
+      @close="projectCreation.close"
+      @input-changed="scopeStore.clearProjectCommand"
+      @submit="projectCreation.submit"
+    />
+
     <div v-if="showCreate" class="dialog-backdrop" @click.self="showCreate = false">
       <form class="create-dialog panel" role="dialog" aria-modal="true" aria-labelledby="create-work-item-title" @submit.prevent="createWorkItem" @keydown.esc="showCreate = false">
         <header><div><p class="eyebrow">{{ project?.key }} · Native WorkItem</p><h2 id="create-work-item-title">新建工作项</h2><span>创建者将成为初始 Owner，服务端原子提交工作项与责任事实。</span></div><button type="button" aria-label="关闭新建工作项" @click="showCreate = false"><X :size="18" /></button></header>
@@ -1174,6 +1213,11 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :responsibility-phase="workStore.state.responsibilityPhase"
       :responsibilities="workStore.state.responsibilities"
       :responsibility-candidates="responsibilityCandidates"
+      :responsibility-agent-candidates="responsibilityAgentCandidates"
+      :responsibility-agent-phase="agentStore.state.agents.phase"
+      :responsibility-agent-error-message="agentStore.state.agents.errorMessage"
+      :responsibility-agent-loading-more="agentStore.state.agents.loadingMore"
+      :responsibility-agent-has-more="agentStore.state.agents.nextOffset !== null"
       :responsibility-error-message="workStore.state.responsibilityErrorMessage"
       :responsibility-command-pending="workStore.state.responsibilityCommandPending"
       :responsibility-command-error-message="workStore.state.responsibilityCommandErrorMessage"
@@ -1194,6 +1238,8 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :on-assign-gate-reviewer="workStore.assignGateReviewer"
       :on-assign-advisory-reviewer="workStore.assignAdvisoryReviewer"
       :on-release-responsibility="workStore.releaseResponsibility"
+      :on-retry-responsibility-agents="() => loadResponsibilityAgents(true)"
+      :on-load-more-responsibility-agents="() => loadResponsibilityAgents(false, true)"
       :on-load-timeline-more="workStore.loadTimelineMore"
       :on-retry-associations="retryLinks"
       @close="closeDetails"

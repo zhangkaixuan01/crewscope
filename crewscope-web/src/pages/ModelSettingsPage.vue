@@ -28,6 +28,8 @@ const ownerTypes = computed<ModelConnectionOwnerType[]>(() => canManageOrganizat
 const activeOwnerType = computed(() => ownerTypes.value.includes(selection.value.ownerType ?? 'USER')
   ? selection.value.ownerType ?? 'USER' : 'USER')
 const providers = computed(() => modelStore.state.providers.value ?? [])
+const providersReady = computed(() => modelStore.state.providers.phase === 'ready' && providers.value.length > 0)
+const canOpenCreate = computed(() => Boolean(scopeStore.state.selectedTeamId && providersReady.value))
 const selectedProvider = computed(() => providers.value.find(provider => provider.key === selection.value.providerKey) ?? null)
 const selectedCatalog = computed(() => selectedProvider.value ? modelStore.state.catalogs[selectedProvider.value.key] : null)
 const selectedConnectionResource = computed(() => selection.value.connectionId
@@ -136,6 +138,7 @@ async function closeDetail(): Promise<void> {
 }
 
 function openCreate(event?: MouseEvent): void {
+  if (!canOpenCreate.value) return
   if (event?.currentTarget instanceof HTMLElement) createTrigger.value = event.currentTarget
   modelStore.clearCommand()
   createOpen.value = true
@@ -236,7 +239,7 @@ function formatPrice(value: string, currency: string): string {
 
 <template>
   <AppShell eyebrow="Settings · Model governance" :title="`${team?.name ?? 'Team'} · 模型与凭证`">
-    <template #actions><BaseButton size="small" @click="openCreate"><Plus :size="14" />创建连接</BaseButton></template>
+    <template #actions><BaseButton size="small" :disabled="!canOpenCreate" @click="openCreate"><Plus :size="14" />创建连接</BaseButton></template>
 
     <ModelCredentialDialog
       v-if="createOpen || rotateConnection"
@@ -259,7 +262,7 @@ function formatPrice(value: string, currency: string): string {
       <section class="model-overview panel" aria-labelledby="model-overview-title">
         <div><span class="overview-icon"><Layers3 :size="23" /></span><div><p class="eyebrow">Trusted model plane</p><h2 id="model-overview-title">目录、连接与凭证健康</h2><p>Provider 和价格来自版本化服务端目录；API Key 只在创建与轮换时单向提交。</p></div></div>
         <dl><div><dt>Provider</dt><dd>{{ providers.length }}</dd></div><div><dt>Team Connections</dt><dd>{{ modelStore.state.connections.TEAM?.value?.length ?? 0 }}</dd></div><div><dt>Healthy</dt><dd>{{ Object.values(modelStore.state.connections).flatMap(value => value.value ?? []).filter(value => value.healthStatus === 'HEALTHY').length }}</dd></div></dl>
-        <BaseButton class="mobile-create" size="small" @click="openCreate"><Plus :size="14" />创建连接</BaseButton>
+        <BaseButton class="mobile-create" size="small" :disabled="!canOpenCreate" @click="openCreate"><Plus :size="14" />创建连接</BaseButton>
       </section>
 
       <section class="catalog-panel panel" aria-labelledby="provider-catalog-title">

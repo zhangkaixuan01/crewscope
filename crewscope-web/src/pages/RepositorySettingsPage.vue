@@ -11,18 +11,21 @@ import {
   X,
 } from '@lucide/vue'
 import { computed, inject, nextTick, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
+import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useCodingStore } from '../domains/coding/store'
 import type { CodingScope, RepositoryBinding, RepositoryBindingInput } from '../domains/coding/types'
 import { useScopeStore } from '../domains/scope/store'
-import { AUTH_PRINCIPAL } from '../app/auth'
+import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 
 const route = useRoute()
+const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const store = useCodingStore()
@@ -59,6 +62,8 @@ const initialLoading = computed(() => ['idle', 'loading'].includes(store.state.r
   || ['idle', 'loading'].includes(store.state.repositoryCatalog.phase))
 const forbidden = computed(() => store.state.repositories.errorStatus === 403
   || store.state.repositoryCatalog.errorStatus === 403)
+const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
+const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 
 watch(
   () => [scope.value?.teamId, scope.value?.projectId, route.fullPath] as const,
@@ -171,12 +176,17 @@ function updatedAt(value: string): string {
 <template>
   <AppShell eyebrow="WorkProject · Settings" :title="`${project?.name ?? 'WorkProject'} 仓库设置`">
     <template #actions>
-      <BaseButton data-repository-create-trigger="header" size="small" :disabled="!canCreateRepository" @click="openCreate">
+      <BaseButton v-if="!scope && canManageProjects" size="small" @click="projectCreation.show">
+        <Plus :size="14" />新建项目
+      </BaseButton>
+      <BaseButton v-else-if="scope" data-repository-create-trigger="header" size="small" :disabled="!canCreateRepository" @click="openCreate">
         <Plus :size="14" />绑定仓库
       </BaseButton>
     </template>
 
-    <StatePanel v-if="!scope" state="empty" title="请选择 WorkProject" description="RepositoryBinding 始终归属于一个完整的 Team 与 WorkProject 范围。" />
+    <StatePanel v-if="!scope" state="empty" title="这个 Team 还没有 WorkProject" description="先创建 WorkProject，再为它绑定受管代码仓库。">
+      <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+    </StatePanel>
     <StatePanel v-else-if="initialLoading" state="loading" />
     <StatePanel v-else-if="forbidden" state="forbidden" title="需要 Team 管理员权限" description="Team Owner、Team Admin 或平台管理员可以管理 RepositoryBinding。" />
     <StatePanel
@@ -294,6 +304,18 @@ function updatedAt(value: string): string {
 
       <section class="security-note"><ShieldCheck :size="17" /><div><strong>浏览器披露边界</strong><span>Canonical Path、Managed Root、文件系统用户和原始 Git 输出停留在受信基础设施内。</span></div></section>
     </div>
+
+    <WorkProjectCreateDialog
+      v-if="projectCreation.open.value && scopeStore.selectedTeam.value"
+      :team-name="scopeStore.selectedTeam.value.name"
+      :submitting="scopeStore.state.projectCommandPending"
+      :retryable="scopeStore.state.projectCommandRetryable"
+      :error-message="scopeStore.state.projectCommandErrorMessage"
+      :check-key="scopeStore.checkWorkProjectKey"
+      @close="projectCreation.close"
+      @input-changed="scopeStore.clearProjectCommand"
+      @submit="projectCreation.submit"
+    />
   </AppShell>
 </template>
 

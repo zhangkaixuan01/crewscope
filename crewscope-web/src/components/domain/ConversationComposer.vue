@@ -9,12 +9,14 @@ const props = withDefaults(defineProps<{
   sending?: boolean
   submitDisabled?: boolean
   offline?: boolean
+  disabledReason?: string | null
   placeholder?: string
 }>(), {
   disabled: false,
   sending: false,
   submitDisabled: false,
   offline: false,
+  disabledReason: null,
   placeholder: '向 Personal Agent 描述目标或补充上下文…',
 })
 
@@ -60,7 +62,7 @@ function handleEnter(event: KeyboardEvent): void {
       />
     </label>
     <footer>
-      <span :id="guidanceId">{{ offline ? '当前离线，可继续编辑草稿' : 'Enter 发送 · Shift + Enter 换行' }}</span>
+      <span :id="guidanceId">{{ disabledReason ?? (offline ? '当前离线，可继续编辑草稿' : 'Enter 发送 · Shift + Enter 换行') }}</span>
       <span :id="countId">{{ modelValue.length.toLocaleString('zh-CN') }} / 50,000</span>
       <BaseButton type="submit" size="small" :disabled="disabled || submitDisabled || !modelValue.trim()" :loading="sending">
         <template #icon><SendHorizontal :size="14" aria-hidden="true" /></template>

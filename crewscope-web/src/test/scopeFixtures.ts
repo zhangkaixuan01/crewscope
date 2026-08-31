@@ -1,9 +1,11 @@
 import type { ScopeGateway } from '../domains/scope/gateway'
 import type {
   CommandReceipt,
+  CreateWorkProjectInput,
   TeamMemberSummary,
   TeamSummary,
   WorkProjectPage,
+  WorkProjectKeyAvailability,
   WorkProjectSummary,
 } from '../domains/scope/types'
 
@@ -59,6 +61,7 @@ export const fixtureMembers: Record<string, TeamMemberSummary[]> = {
 
 export class FixtureScopeGateway implements ScopeGateway {
   readonly addedPrincipalIds: string[] = []
+  readonly createdProjects: Array<{ input: CreateWorkProjectInput, idempotencyKey?: string }> = []
 
   constructor(
     public teams = structuredClone(fixtureTeams),
@@ -74,6 +77,24 @@ export class FixtureScopeGateway implements ScopeGateway {
     return { items: structuredClone(this.projects[teamId] ?? []), nextCursor: null }
   }
 
+  async checkWorkProjectKey(_organizationId: string, teamId: string, key: string): Promise<WorkProjectKeyAvailability> {
+    return { key, available: !(this.projects[teamId] ?? []).some(project => project.key === key) }
+  }
+
+  async createWorkProject(
+    _organizationId: string,
+    teamId: string,
+    input: CreateWorkProjectInput,
+    idempotencyKey?: string,
+  ): Promise<CommandReceipt> {
+    this.createdProjects.push({ input, idempotencyKey })
+    const team = this.teams.find(candidate => candidate.id === teamId)
+    if (!team?.defaultWorkspaceId) throw new Error('Team default Workspace is unavailable')
+    const created = project(crypto.randomUUID(), teamId, team.defaultWorkspaceId, input.key, input.name)
+    this.projects[teamId] = [created, ...(this.projects[teamId] ?? [])]
+    return receipt()
+  }
+
   async listMembers(_organizationId: string, teamId: string): Promise<TeamMemberSummary[]> {
     return structuredClone(this.members[teamId] ?? [])
   }
@@ -82,12 +103,16 @@ export class FixtureScopeGateway implements ScopeGateway {
     this.addedPrincipalIds.push(principalId)
     const nextMember = member(crypto.randomUUID(), principalId, 'ADDED_BY_MEMBER')
     this.members[teamId] = [...(this.members[teamId] ?? []), nextMember]
-    return {
-      commandId: crypto.randomUUID(),
-      domainEventId: crypto.randomUUID(),
-      committedVersion: 0,
-      correlationId: crypto.randomUUID(),
-    }
+    return receipt()
+  }
+}
+
+function receipt(): CommandReceipt {
+  return {
+    commandId: crypto.randomUUID(),
+    domainEventId: crypto.randomUUID(),
+    committedVersion: 0,
+    correlationId: crypto.randomUUID(),
   }
 }
 

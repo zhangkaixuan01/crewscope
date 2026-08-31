@@ -32,14 +32,31 @@ describe('AgentSettingsPage', () => {
   it('groups Personal, Specialist and Team Agents and renders public configuration facts', async () => {
     const wrapper = await mountPage('ready', ids.coding)
 
+    expect(wrapper.text()).toContain('Agent 中心')
+    expect(wrapper.get('.agent-entry--personal').text()).toContain('个人 Agent')
+    expect(wrapper.get('.agent-entry--team').text()).toContain('通过 WorkItem 责任链')
     expect(wrapper.text()).toContain('默认 Personal Agent')
     expect(wrapper.text()).toContain('我的 Specialist')
     expect(wrapper.text()).toContain('团队 Agent')
     expect(wrapper.text()).toContain('deepseek-v4-flash')
     expect(wrapper.text()).toContain('Fallback deepseek-chat')
     expect(wrapper.text()).toContain('coding-specialist@3')
+    expect(wrapper.get('.team-agent-actions a').attributes('href')).not.toContain('agent=')
     expect(wrapper.get(`.agent-card[href*="agent=${ids.coding}"]`).attributes('aria-current')).toBe('page')
     expect(wrapper.text()).not.toContain('sk-private')
+  })
+
+  it('keeps the Team Agent entry visible when the Team has no Agents and preselects Team creation', async () => {
+    const wrapper = await mountPage('without-team')
+    const teamDirectory = wrapper.get('#team-agent-directory')
+
+    expect(teamDirectory.text()).toContain('这个 Team 还没有团队 Agent')
+    expect(teamDirectory.text()).toContain('WorkItem Executor')
+    await wrapper.get('.agent-entry--team').get('button').trigger('click')
+    await nextTick()
+    const teamOwnership = wrapper.findAll('.ownership-picker button')
+      .find(button => button.text().includes('团队 Agent'))!
+    expect(teamOwnership.classes()).toContain('active')
   })
 
   it('keeps disabled and archived Agents discoverable with explicit lifecycle states', async () => {
@@ -60,7 +77,8 @@ describe('AgentSettingsPage', () => {
     loading.unmount()
 
     const empty = await mountPage('empty')
-    expect(empty.text()).toContain('还没有可访问的 Agent')
+    expect(empty.text()).toContain('Personal Agent 尚未完成初始化')
+    expect(empty.text()).toContain('这个 Team 还没有团队 Agent')
     empty.unmount()
 
     const forbidden = await mountPage('forbidden')
@@ -93,7 +111,7 @@ describe('AgentSettingsPage', () => {
   })
 })
 
-type FixtureMode = 'ready' | 'empty' | 'forbidden' | 'error' | 'loading' | 'configuration-error'
+type FixtureMode = 'ready' | 'without-team' | 'empty' | 'forbidden' | 'error' | 'loading' | 'configuration-error'
 
 async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDocument = false, settle = true) {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
@@ -127,7 +145,7 @@ function agentFetcher(mode: FixtureMode): typeof fetch {
       if (mode === 'empty') return json({ items: [] })
       if (mode === 'forbidden') return apiError(403, 'policy_denied', 'Agent directory forbidden')
       if (mode === 'error') return apiError(503, 'agent_directory_unavailable', 'Agent 目录暂时不可用')
-      return json({ items: agents() })
+      return json({ items: mode === 'without-team' ? agents().filter(agent => agent.ownershipType !== 'TEAM') : agents() })
     }
     const configurationMatch = url.pathname.match(/\/agent-profiles\/([^/]+)\/configurations\/current$/)
     if (configurationMatch) {

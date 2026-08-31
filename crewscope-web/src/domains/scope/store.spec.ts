@@ -36,6 +36,48 @@ describe('scope store', () => {
     expect(store.state.memberCommandPending).toBe(false)
   })
 
+  it('creates, refreshes and selects a WorkProject under the active Team', async () => {
+    const gateway = new FixtureScopeGateway()
+    gateway.projects[fixtureIds.teamPlatform] = []
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+
+    expect(await store.checkWorkProjectKey('crew')).toBe(true)
+    const created = await store.createWorkProject(
+      { key: ' crew ', name: ' CrewScope Platform ' },
+      'project-command-1',
+    )
+
+    expect(gateway.createdProjects).toEqual([{
+      input: { key: 'CREW', name: 'CrewScope Platform' },
+      idempotencyKey: 'project-command-1',
+    }])
+    expect(store.state.selectedProjectId).toBe(created.id)
+    expect(store.selectedProject.value?.key).toBe('CREW')
+    expect(store.state.projectCommandPending).toBe(false)
+    expect(store.state.projectCommandErrorMessage).toBeNull()
+  })
+
+  it('keeps a retryable WorkProject command visible when its projection is delayed', async () => {
+    const gateway = new FixtureScopeGateway()
+    gateway.projects[fixtureIds.teamPlatform] = []
+    gateway.createWorkProject = vi.fn(async () => ({
+      commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(),
+      committedVersion: 0, correlationId: crypto.randomUUID(),
+    }))
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+
+    await expect(store.createWorkProject(
+      { key: 'CREW', name: 'CrewScope Platform' },
+      'project-command-retry',
+    )).rejects.toThrow('projection is not ready')
+
+    expect(store.state.projectCommandRetryable).toBe(true)
+    expect(store.state.projectCommandErrorMessage).toContain('最新事实暂时不可用')
+    expect(store.state.projectCommandPending).toBe(false)
+  })
+
   it('represents an account without Team membership as an empty scope', async () => {
     const store = createScopeStore(new FixtureScopeGateway([], {}, {}), bootstrapPrincipal)
 

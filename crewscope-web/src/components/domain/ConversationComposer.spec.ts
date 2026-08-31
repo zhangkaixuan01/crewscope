@@ -13,6 +13,14 @@ describe('ConversationComposer', () => {
     expect(wrapper.emitted('submit')).toEqual([['规划 Provider']])
   })
 
+  it('submits content containing line breaks without flattening it', async () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '  第一行\n第二行  ' } })
+
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+
+    expect(wrapper.emitted('submit')).toEqual([['第一行\n第二行']])
+  })
+
   it('retains long draft input and blocks empty or disabled submission', async () => {
     const draft = '边界'.repeat(1000)
     const wrapper = mount(ConversationComposer, { props: { modelValue: draft } })
@@ -35,5 +43,13 @@ describe('ConversationComposer', () => {
     expect(wrapper.text()).toContain('当前离线，可继续编辑草稿')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
     expect(wrapper.emitted('submit')).toBeUndefined()
+  })
+
+  it('explains why sending is currently unavailable', () => {
+    const wrapper = mount(ConversationComposer, {
+      props: { modelValue: '待发送内容', disabled: true, disabledReason: '请先点击“重新连接”' },
+    })
+
+    expect(wrapper.get('[id$="-guidance"]').text()).toBe('请先点击“重新连接”')
   })
 })

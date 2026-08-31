@@ -123,6 +123,11 @@ function fixtureScopeStore(): ScopeStore {
     selectedProject: { value: null } as ScopeStore['selectedProject'],
     synchronize: vi.fn(async teamId => ({ teamId: teamId ?? null, projectId: null })),
     reload: vi.fn(async () => ({ teamId: null, projectId: null })),
-    loadMembers: vi.fn(), addMember: vi.fn(), reset: vi.fn(),
+    loadMembers: vi.fn(),
+    addMember: vi.fn(),
+    checkWorkProjectKey: vi.fn(),
+    createWorkProject: vi.fn(),
+    clearProjectCommand: vi.fn(),
+    reset: vi.fn(),
   }
 }

@@ -60,7 +60,7 @@ const navigation = [
   { label: '运行与发布', icon: Gauge, name: 'operations', section: 'operations', permission: permissions.scopeRead },
   { label: '审计中心', icon: ShieldCheck, name: 'audit', section: 'audit', permission: permissions.auditRead },
   { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
-  { label: '我的 Agent', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
+  { label: 'Agent 中心', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
   { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
   { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
   { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
@@ -255,17 +255,19 @@ async function signOut(): Promise<void> {
 .app-shell { min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; padding: 9px 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-950); color: var(--cs-text-on-dark); font-size: 11px; transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
 .network-banner { position: relative; z-index: 40; display: flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid #d9a8a2; background: #fff4f2; color: #8f332b; font-size: 10px; font-weight: 700; text-align: center; }.network-banner span { color: var(--cs-danger); }
-.app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid #d8e4db; background: #f5faf6; color: var(--cs-text); }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 5px; font-family: var(--cs-font-display); font-size: 18px; }
+.app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid #d8e4db; background: #f5faf6; color: var(--cs-text); }
+.brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; padding: 0 5px; font-family: var(--cs-font-display); font-size: 18px; }
 .brand img { border: 1px solid rgb(184 239 202 / 24%); border-radius: 11px; }
 .brand span, .brand small { display: block; }
 .brand small { color: var(--cs-text-muted); font-family: var(--cs-font-sans); font-size: 9px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
-.rail-navigation { flex: 1; }
+.app-shell__rail > :deep(.scope-switcher-root) { flex: 0 0 auto; }
+.rail-navigation { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #b7c9bc transparent; scrollbar-width: thin; }
+.rail-navigation::-webkit-scrollbar { width: 6px; }.rail-navigation::-webkit-scrollbar-track { background: transparent; }.rail-navigation::-webkit-scrollbar-thumb { border-radius: 999px; background: #b7c9bc; }
 .rail-navigation p { margin: 15px 10px 6px; color: #50665a; font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .rail-navigation a, .rail-navigation button { display: grid; grid-template-columns: 19px 1fr auto; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 0 10px; border-radius: var(--cs-radius-sm); background: transparent; color: #4d6256; font-size: 12px; text-align: left; cursor: pointer; }
 .rail-navigation a:hover, .rail-navigation a.active { background: var(--cs-brand-100); color: var(--cs-brand-800); }.rail-navigation a.active { font-weight: 750; }
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
-.rail-profile { margin-top: auto; }
+.rail-profile { z-index: 1; flex: 0 0 auto; margin-top: 8px; background: #f5faf6; }
 .app-shell__body { min-height: 100vh; margin-left: 244px; }
 .topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 88%); backdrop-filter: blur(12px); }
 .mode-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }

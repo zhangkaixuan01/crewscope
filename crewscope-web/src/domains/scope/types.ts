@@ -29,6 +29,16 @@ export interface WorkProjectPage {
   nextCursor: string | null
 }
 
+export interface CreateWorkProjectInput {
+  key: string
+  name: string
+}
+
+export interface WorkProjectKeyAvailability {
+  key: string
+  available: boolean
+}
+
 export interface TeamMemberSummary {
   id: string
   userPrincipalId: string

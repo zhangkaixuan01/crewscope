@@ -33,7 +33,7 @@ import {
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
-import WorkItemResponsibilityPanel, { type ResponsibilityCandidate } from './WorkItemResponsibilityPanel.vue'
+import WorkItemResponsibilityPanel, { type ResponsibilityAgentCandidate, type ResponsibilityCandidate } from './WorkItemResponsibilityPanel.vue'
 import WorkItemTimeline from './WorkItemTimeline.vue'
 import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
 import type { ConversationWorkItemAssociation } from '../../domains/conversation/workItemLinkGateway'
@@ -52,6 +52,11 @@ const props = defineProps<{
   responsibilityPhase: WorkItemPhase
   responsibilities: ResponsibilityAssignment[]
   responsibilityCandidates: ResponsibilityCandidate[]
+  responsibilityAgentCandidates: ResponsibilityAgentCandidate[]
+  responsibilityAgentPhase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
+  responsibilityAgentErrorMessage: string | null
+  responsibilityAgentLoadingMore: boolean
+  responsibilityAgentHasMore: boolean
   responsibilityErrorMessage: string | null
   responsibilityCommandPending: ResponsibilityCommand | null
   responsibilityCommandErrorMessage: string | null
@@ -72,6 +77,8 @@ const props = defineProps<{
   onAssignGateReviewer: (actorPrincipalId: string) => Promise<void>
   onAssignAdvisoryReviewer: (actorPrincipalId: string) => Promise<void>
   onReleaseResponsibility: (assignment: ResponsibilityAssignment) => Promise<void>
+  onRetryResponsibilityAgents: () => void
+  onLoadMoreResponsibilityAgents: () => void
   onLoadTimelineMore: () => Promise<void>
   onRetryAssociations: () => void
 }>()
@@ -256,6 +263,11 @@ const statusLabels: Record<WorkItemStatus, string> = {
             :phase="responsibilityPhase"
             :members="responsibilities"
             :candidates="responsibilityCandidates"
+            :agent-candidates="responsibilityAgentCandidates"
+            :agent-phase="responsibilityAgentPhase"
+            :agent-error-message="responsibilityAgentErrorMessage"
+            :agent-loading-more="responsibilityAgentLoadingMore"
+            :agent-has-more="responsibilityAgentHasMore"
             :error-message="responsibilityErrorMessage"
             :command-pending="responsibilityCommandPending"
             :command-error-message="responsibilityCommandErrorMessage"
@@ -266,6 +278,8 @@ const statusLabels: Record<WorkItemStatus, string> = {
             :on-assign-gate-reviewer="onAssignGateReviewer"
             :on-assign-advisory-reviewer="onAssignAdvisoryReviewer"
             :on-release="onReleaseResponsibility"
+            :on-retry-agents="onRetryResponsibilityAgents"
+            :on-load-more-agents="onLoadMoreResponsibilityAgents"
           />
         </section>
 

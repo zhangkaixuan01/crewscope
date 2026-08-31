@@ -40,6 +40,38 @@ describe('HttpScopeGateway', () => {
     expect(request?.body).toBe(JSON.stringify({ userPrincipalId: fixtureIds.secondPrincipal }))
     expect(headers.get('Idempotency-Key')).toBe('member-command-1')
   })
+
+  it('checks a WorkProject key and creates the project with an idempotency key', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ key: 'CREW', available: true }))
+      .mockResolvedValueOnce(jsonResponse({
+        commandId: crypto.randomUUID(),
+        domainEventId: crypto.randomUUID(),
+        committedVersion: 0,
+        correlationId: crypto.randomUUID(),
+      }))
+    const gateway = new HttpScopeGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    expect(await gateway.checkWorkProjectKey(
+      fixtureIds.organization,
+      fixtureIds.teamPlatform,
+      'CREW',
+    )).toEqual({ key: 'CREW', available: true })
+    await gateway.createWorkProject(
+      fixtureIds.organization,
+      fixtureIds.teamPlatform,
+      { key: 'CREW', name: 'CrewScope Platform' },
+      'project-command-1',
+    )
+
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      `/api/v1/organizations/${fixtureIds.organization}/teams/${fixtureIds.teamPlatform}/work-projects/keys/CREW`,
+    )
+    const request = fetcher.mock.calls[1]?.[1]
+    expect(request?.method).toBe('POST')
+    expect(request?.body).toBe(JSON.stringify({ key: 'CREW', name: 'CrewScope Platform' }))
+    expect(new Headers(request?.headers).get('Idempotency-Key')).toBe('project-command-1')
+  })
 })
 
 function jsonResponse(body: unknown): Response {

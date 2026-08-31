@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Boxes, Cpu, Plus, ShieldCheck, Sparkles } from '@lucide/vue'
+import { ArrowRight, Bot, Boxes, Building2, Cpu, Plus, ShieldCheck, Sparkles, UserRound } from '@lucide/vue'
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
@@ -21,6 +21,7 @@ const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
 let activeTeamId: string | null = null
 const createOpen = ref(false)
+const createOwnership = ref<'USER' | 'TEAM'>('USER')
 const createTrigger = ref<HTMLElement | null>(null)
 const createKey = ref('')
 const createSignature = ref('')
@@ -34,19 +35,31 @@ const specialistAgents = computed(() => agents.value.filter(agent => agent.owner
 const teamAgents = computed(() => agents.value.filter(agent => agent.ownershipType === 'TEAM'))
 const agentGroups = computed(() => [
   {
-    key: 'personal', title: '默认 Personal Agent',
+    key: 'personal', title: '默认 Personal Agent', directoryId: 'personal-agent-directory',
     description: '每位成员唯一的对话入口，生命周期由平台管理。', agents: personalAgents.value,
+    emptyTitle: 'Personal Agent 尚未完成初始化',
+    emptyDescription: '完成 Team 初始化后，平台会在这里展示你的默认对话 Agent。',
   },
   {
-    key: 'specialist', title: '我的 Specialist',
+    key: 'specialist', title: '我的 Specialist', directoryId: 'specialist-agent-directory',
     description: '个人创建的 Coding、Reviewer 与其他受批准专业 Agent。', agents: specialistAgents.value,
+    emptyTitle: '还没有个人 Specialist',
+    emptyDescription: '从批准 Template 创建 Coding、Reviewer 或其他个人执行 Agent。',
   },
   {
-    key: 'team', title: '团队 Agent',
-    description: '团队共享的执行身份，只使用 TEAM 或 Organization 受管连接。', agents: teamAgents.value,
+    key: 'team', title: '团队 Agent', directoryId: 'team-agent-directory',
+    description: '团队共享的执行身份；配置受管模型后，在 WorkItem 责任链中担任 Executor。', agents: teamAgents.value,
+    emptyTitle: '这个 Team 还没有团队 Agent',
+    emptyDescription: canManageTeamAgents.value
+      ? '创建后配置 TEAM 模型连接，再前往 Work 将它分配为 WorkItem Executor。'
+      : 'Team Owner 或 Team Admin 创建后，你可以在 WorkItem 责任链中选择它。',
   },
-].filter(group => group.agents.length > 0))
+])
 const selectedAgent = computed(() => agents.value.find(agent => agent.id === selection.value.agentId) ?? null)
+const teamAgentWorkTarget = computed(() => ({
+  name: 'work',
+  query: { ...route.query, agent: undefined, configurationRevision: undefined },
+}))
 const forbidden = computed(() => agentStore.state.agents.phase === 'error' && agentStore.state.agents.errorStatus === 403)
 const canManageTeamAgents = computed(() => Boolean(principal && can(principal, permissions.agentManage)))
 const userTemplates = computed(() => agentStore.state.templates.USER?.value ?? [])
@@ -113,8 +126,9 @@ function findExactTemplate(agent: AgentSummary | null): AgentTemplateSummary | n
   return matches.length === 1 ? matches[0]! : null
 }
 
-function openCreate(event?: MouseEvent): void {
+function openCreate(event?: MouseEvent, ownership: 'USER' | 'TEAM' = 'USER'): void {
   if (event?.currentTarget instanceof HTMLElement) createTrigger.value = event.currentTarget
+  createOwnership.value = ownership === 'TEAM' && canManageTeamAgents.value ? 'TEAM' : 'USER'
   agentStore.clearCommand()
   createSignature.value = ''
   createKey.value = ''
@@ -238,9 +252,10 @@ function bindingLabel(binding: BindingView): string {
 </script>
 
 <template>
-  <AppShell eyebrow="Settings · Agent directory" :title="`${team?.name ?? 'Team'} · 我的 Agent`">
+  <AppShell eyebrow="Capabilities · Agent directory" :title="`${team?.name ?? 'Team'} · Agent 中心`">
     <template #actions>
-      <BaseButton size="small" :disabled="!scopeStore.state.selectedTeamId" @click="openCreate"><Plus :size="14" />创建 Agent</BaseButton>
+      <BaseButton size="small" :disabled="!scopeStore.state.selectedTeamId" @click="openCreate($event, 'USER')"><Plus :size="14" />创建个人 Agent</BaseButton>
+      <BaseButton v-if="canManageTeamAgents" variant="secondary" size="small" :disabled="!scopeStore.state.selectedTeamId" @click="openCreate($event, 'TEAM')"><Building2 :size="14" />创建团队 Agent</BaseButton>
     </template>
 
     <AgentCreateDialog
@@ -249,6 +264,7 @@ function bindingLabel(binding: BindingView): string {
       :team-templates="teamTemplates"
       :loading="templatesLoading"
       :can-manage-team-agents="canManageTeamAgents"
+      :initial-ownership-type="createOwnership"
       :submitting="createCommand?.phase === 'pending'"
       :retryable="Boolean(createCommand?.retryable)"
       :error-message="createCommand?.errorMessage ?? null"
@@ -275,19 +291,6 @@ function bindingLabel(binding: BindingView): string {
       :description="agentStore.state.agents.errorMessage ?? undefined"
       @retry="loadAgentsAndConfigurations(true)"
     />
-    <StatePanel
-      v-else-if="agentStore.state.agents.phase === 'empty'"
-      state="empty"
-      title="还没有可访问的 Agent"
-      description="Team 完成 Personal Agent 初始化后，它会出现在这里。"
-    />
-    <BaseButton
-      v-if="agentStore.state.agents.phase === 'empty'"
-      class="empty-mobile-create"
-      size="small"
-      @click="openCreate"
-    ><Plus :size="14" />创建第一个 Agent</BaseButton>
-
     <div v-else class="agent-page page-shell">
       <section class="agent-overview panel" aria-labelledby="agent-overview-title">
         <div class="overview-copy">
@@ -303,7 +306,21 @@ function bindingLabel(binding: BindingView): string {
           <div><dt>我的 Specialist</dt><dd>{{ specialistAgents.length }}</dd></div>
           <div><dt>团队 Agent</dt><dd>{{ teamAgents.length }}</dd></div>
         </dl>
-        <BaseButton class="mobile-create" size="small" @click="openCreate"><Plus :size="14" />创建 Agent</BaseButton>
+      </section>
+
+      <section class="agent-entry-grid" aria-label="Agent 类型入口">
+        <article class="agent-entry agent-entry--personal">
+          <span class="agent-entry__icon"><UserRound :size="21" aria-hidden="true" /></span>
+          <div><p class="eyebrow">Personal ownership</p><h2>个人 Agent</h2><p>默认 Personal Agent 承接对话；个人 Specialist 执行你的专业任务。</p></div>
+          <strong>{{ personalAgents.length + specialistAgents.length }} 个</strong>
+          <footer><a href="#personal-agent-directory">查看个人 Agent</a><BaseButton class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'USER')"><Plus :size="13" />创建个人 Agent</BaseButton></footer>
+        </article>
+        <article class="agent-entry agent-entry--team">
+          <span class="agent-entry__icon"><Building2 :size="21" aria-hidden="true" /></span>
+          <div><p class="eyebrow">Team ownership</p><h2>团队 Agent</h2><p>使用 TEAM/Organization 连接，通过 WorkItem 责任链承接团队耐久任务。</p></div>
+          <strong>{{ teamAgents.length }} 个</strong>
+          <footer><a href="#team-agent-directory">查看团队 Agent</a><BaseButton v-if="canManageTeamAgents" class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'TEAM')"><Plus :size="13" />创建团队 Agent</BaseButton></footer>
+        </article>
       </section>
 
       <p v-if="selection.agentId && !selectedAgent" class="selection-warning" role="status">
@@ -324,13 +341,23 @@ function bindingLabel(binding: BindingView): string {
       <section
         v-for="group in agentGroups"
         :key="group.key"
+        :id="group.directoryId"
         class="agent-group panel"
         :aria-labelledby="`agent-group-${group.key}`"
       >
         <header class="panel-heading">
           <div><p class="eyebrow">{{ group.agents.length }} agents</p><h2 :id="`agent-group-${group.key}`">{{ group.title }}</h2><p>{{ group.description }}</p></div>
+          <div v-if="group.key === 'team'" class="team-agent-actions">
+            <RouterLink :to="teamAgentWorkTarget">前往 Work 分配<ArrowRight :size="13" /></RouterLink>
+          </div>
         </header>
-        <ul class="agent-grid" role="list">
+        <div v-if="group.agents.length === 0" class="agent-group-empty" role="status">
+          <span><Bot :size="20" aria-hidden="true" /></span>
+          <div><strong>{{ group.emptyTitle }}</strong><p>{{ group.emptyDescription }}</p></div>
+          <BaseButton v-if="group.key === 'specialist'" size="small" variant="secondary" @click="openCreate($event, 'USER')">创建个人 Agent</BaseButton>
+          <BaseButton v-else-if="group.key === 'team' && canManageTeamAgents" size="small" variant="secondary" @click="openCreate($event, 'TEAM')">创建团队 Agent</BaseButton>
+        </div>
+        <ul v-else class="agent-grid" role="list">
           <li v-for="agent in group.agents" :key="agent.id">
             <RouterLink
               class="agent-card"
@@ -382,16 +409,15 @@ function bindingLabel(binding: BindingView): string {
 .agent-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 22px; background: linear-gradient(135deg, var(--cs-surface), #f1faf4); }
 .overview-copy { display: flex; align-items: center; gap: 14px; }.overview-icon { display: grid; width: 50px; height: 50px; flex: 0 0 auto; place-items: center; border-radius: 15px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.overview-copy h2 { margin-bottom: 4px; font-size: 18px; }.overview-copy p:last-child { max-width: 670px; margin: 0; color: var(--cs-text-muted); font-size: 10px; }
 .agent-totals { display: grid; grid-template-columns: repeat(3, minmax(94px, 1fr)); gap: 7px; margin: 0; }.agent-totals div { min-width: 94px; padding: 11px 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: rgb(255 255 255 / 75%); }.agent-totals dt { color: var(--cs-text-muted); font-size: 9px; }.agent-totals dd { margin-top: 4px; color: var(--cs-text); font: 750 18px var(--cs-font-display); }
-.mobile-create { display: none; }
-.empty-mobile-create { display: none; margin: 0 16px 16px; }
+.agent-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.agent-entry { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: start; gap: 11px; padding: 17px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.agent-entry--team { border-color: #d6cbe8; background: linear-gradient(135deg, var(--cs-surface), #fbf8ff); }.agent-entry__icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.agent-entry--team .agent-entry__icon { background: var(--cs-agent-soft); color: var(--cs-agent); }.agent-entry h2 { margin-bottom: 3px; font-size: 15px; }.agent-entry div > p:last-child { margin: 0; color: var(--cs-text-muted); font-size: 10px; line-height: 1.5; }.agent-entry > strong { color: var(--cs-text-secondary); font-size: 12px; }.agent-entry footer { display: flex; grid-column: 2 / -1; align-items: center; justify-content: space-between; gap: 8px; }.agent-entry footer > a { color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.agent-entry footer > a:hover, .agent-entry footer > a:focus-visible { text-decoration: underline; }.entry-create { display: none; }
 .selection-warning { margin: 0; padding: 10px 13px; border: 1px solid #f0d5ad; border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: #765022; font-size: 10px; }
-.agent-group { overflow: hidden; }.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; margin: 0; padding: 16px; list-style: none; }.agent-card { display: grid; height: 100%; gap: 14px; padding: 16px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: 0 1px 2px rgb(20 43 29 / 3%); color: var(--cs-text); }.agent-card:hover, .agent-card:focus-visible { border-color: var(--cs-brand-400); box-shadow: 0 5px 18px rgb(44 110 67 / 9%); }.agent-card.selected { border-color: var(--cs-brand-500); background: #f7fcf8; box-shadow: 0 0 0 2px rgb(83 173 107 / 12%); }.agent-card.unavailable { background: var(--cs-surface-subtle); }
+.agent-group { overflow: hidden; scroll-margin-top: 14px; }.team-agent-actions { display: flex; align-items: center; gap: 10px; }.team-agent-actions > a { display: inline-flex; align-items: center; gap: 4px; color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.agent-group-empty { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 18px; border-top: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.agent-group-empty > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.agent-group-empty strong { font-size: 11px; }.agent-group-empty p { margin: 3px 0 0; color: var(--cs-text-muted); font-size: 9px; }.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; margin: 0; padding: 16px; list-style: none; }.agent-card { display: grid; height: 100%; gap: 14px; padding: 16px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: 0 1px 2px rgb(20 43 29 / 3%); color: var(--cs-text); }.agent-card:hover, .agent-card:focus-visible { border-color: var(--cs-brand-400); box-shadow: 0 5px 18px rgb(44 110 67 / 9%); }.agent-card.selected { border-color: var(--cs-brand-500); background: #f7fcf8; box-shadow: 0 0 0 2px rgb(83 173 107 / 12%); }.agent-card.unavailable { background: var(--cs-surface-subtle); }
 .agent-card__heading { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; }.agent-avatar { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.agent-card__heading h3 { overflow: hidden; margin-bottom: 2px; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.agent-card__heading p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
 .agent-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; }.agent-facts div { min-width: 0; padding: 8px; border-radius: 8px; background: var(--cs-surface-subtle); }.agent-facts dt { color: var(--cs-text-muted); font-size: 8px; text-transform: uppercase; }.agent-facts dd { overflow: hidden; margin-top: 3px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .binding-list { display: grid; gap: 6px; }.binding-list p { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; margin: 0; }.binding-list span { color: var(--cs-text-muted); font-size: 8px; font-weight: 750; letter-spacing: .05em; }.binding-list strong { overflow: hidden; color: var(--cs-text-secondary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }.agent-card footer { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--cs-border); color: var(--cs-brand-700); font-size: 9px; font-weight: 700; }
 .load-more { justify-self: center; min-height: 34px; padding: 0 14px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); font-size: 10px; font-weight: 700; cursor: pointer; }.load-more:disabled { cursor: wait; opacity: .6; }
 .projection-note { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.projection-note > svg { flex: 0 0 auto; color: var(--cs-brand-600); }.projection-note strong, .projection-note span { display: block; }.projection-note strong { color: var(--cs-text-secondary); font-size: 10px; }.projection-note span { margin-top: 2px; font-size: 9px; }
-@media (max-width: 980px) { .agent-overview { grid-template-columns: 1fr; }.agent-totals { width: 100%; }.agent-grid { grid-template-columns: 1fr; } }
-@media (max-width: 767px) { .mobile-create, .empty-mobile-create { display: inline-flex; justify-self: stretch; width: calc(100% - 32px); }.mobile-create { width: 100%; }.empty-mobile-create { justify-self: center; } }
+@media (max-width: 980px) { .agent-overview { grid-template-columns: 1fr; }.agent-totals { width: 100%; }.agent-entry-grid { grid-template-columns: 1fr; }.agent-grid { grid-template-columns: 1fr; } }
+@media (max-width: 767px) { .entry-create { display: inline-flex; }.team-agent-actions > a { white-space: nowrap; }.agent-group-empty { grid-template-columns: 38px minmax(0, 1fr); }.agent-group-empty > button { grid-column: 2; justify-self: start; } }
 @media (max-width: 520px) { .agent-overview { padding: 16px; }.overview-copy { align-items: flex-start; }.overview-icon { width: 42px; height: 42px; }.agent-totals { grid-template-columns: 1fr; }.agent-totals div { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; }.agent-totals dd { margin: 0; font-size: 15px; }.agent-grid { padding: 12px; }.agent-card { padding: 13px; }.agent-card__heading { grid-template-columns: 36px minmax(0, 1fr); }.agent-avatar { width: 36px; height: 36px; }.agent-card__heading .status-badge { grid-column: 2; justify-self: start; }.agent-facts { grid-template-columns: 1fr; }.agent-facts div { display: flex; justify-content: space-between; gap: 12px; }.agent-facts dd { margin: 0; }.panel-heading { padding: 15px; } }
 </style>
