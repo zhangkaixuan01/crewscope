@@ -17,13 +17,14 @@ import {
 } from 'node:fs'
 import { arch, cpus, freemem, platform, release, totalmem } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const COMPONENTS = Object.freeze({
   postgres: Object.freeze({ file: 'postgres.dump', format: 'postgres-custom' }),
   artifacts: Object.freeze({ file: 'artifacts.tar.gz', format: 'tar-gzip' }),
   redis: Object.freeze({ file: 'redis.rdb', format: 'redis-rdb' }),
 })
+const MODULE_DIRECTORY = resolve(fileURLToPath(new URL('.', import.meta.url)))
 
 const command = process.argv[2]
 
@@ -121,7 +122,7 @@ function createManifest(payloadInput, metadataInput) {
     credentialKeyIds: [...metadata.credentialKeyIds].sort(),
     environmentFingerprint: metadata.environmentFingerprint,
     maintenance: metadata.maintenance,
-    compatibility: { minimumSchemaVersion: 26, maximumSchemaVersion: 32 },
+    compatibility: { minimumSchemaVersion: 26, maximumSchemaVersion: 33 },
     components,
   }
   const output = safeChild(payload, 'manifest.json')
@@ -205,7 +206,7 @@ function verifyPayload(payloadInput, envelopeInput, minimumSchema, maximumSchema
     throw new Error('Backup manifest has an unsupported PBKDF2 iteration count')
   }
   if (manifest.compatibility?.minimumSchemaVersion !== 26
-      || manifest.compatibility?.maximumSchemaVersion !== 32) {
+      || manifest.compatibility?.maximumSchemaVersion !== 33) {
     throw new Error('Backup manifest has an unsupported compatibility declaration')
   }
   requireIsoInstant(manifest.createdAt, 'manifest.createdAt')
@@ -494,7 +495,7 @@ function requiredInteger(index) {
 }
 
 function commandOutput(file, args, includeStderr = false) {
-  const result = spawnSync(file, args, { cwd: resolve(import.meta.dirname, '..'), encoding: 'utf8' })
+  const result = spawnSync(file, args, { cwd: resolve(MODULE_DIRECTORY, '..'), encoding: 'utf8' })
   if (result.status !== 0) throw new Error(`${file} failed while collecting the environment fingerprint`)
   return `${result.stdout ?? ''}${includeStderr ? result.stderr ?? '' : ''}`
 }

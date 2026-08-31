@@ -60,8 +60,8 @@ load_operator_environment() {
   CREWSCOPE_COMPOSE_PROFILE=${CREWSCOPE_COMPOSE_PROFILE:-}
   CREWSCOPE_COMPOSE_OVERLAY=${CREWSCOPE_COMPOSE_OVERLAY:-}
   CREWSCOPE_RESTORE_MIN_SCHEMA=${CREWSCOPE_RESTORE_MIN_SCHEMA:-26}
-  CREWSCOPE_RESTORE_MAX_SCHEMA=${CREWSCOPE_RESTORE_MAX_SCHEMA:-32}
-  CREWSCOPE_RESTORE_TARGET_SCHEMA=${CREWSCOPE_RESTORE_TARGET_SCHEMA:-32}
+  CREWSCOPE_RESTORE_MAX_SCHEMA=${CREWSCOPE_RESTORE_MAX_SCHEMA:-33}
+  CREWSCOPE_RESTORE_TARGET_SCHEMA=${CREWSCOPE_RESTORE_TARGET_SCHEMA:-33}
 
   for path in "$CREWSCOPE_DATA_ROOT" "$CREWSCOPE_SECRETS_ROOT" \
       "$CREWSCOPE_BACKUP_ROOT" "$CREWSCOPE_BACKUP_PASSPHRASE_FILE"; do
@@ -71,9 +71,9 @@ load_operator_environment() {
     [ "$directory" != / ] || fail "Team Beta directory coordinates must not be the filesystem root"
   done
   [ "$CREWSCOPE_RESTORE_MIN_SCHEMA" = 26 ] \
-    && [ "$CREWSCOPE_RESTORE_MAX_SCHEMA" = 32 ] \
-    && [ "$CREWSCOPE_RESTORE_TARGET_SCHEMA" = 32 ] \
-    || fail "Team Beta recovery boundary is frozen at V26..V32 -> V32"
+    && [ "$CREWSCOPE_RESTORE_MAX_SCHEMA" = 33 ] \
+    && [ "$CREWSCOPE_RESTORE_TARGET_SCHEMA" = 33 ] \
+    || fail "Team Beta recovery boundary is frozen at V26..V33 -> V33"
   require_regular_file "$CREWSCOPE_BACKUP_PASSPHRASE_FILE" "backup passphrase file"
   [ "$(wc -c <"$CREWSCOPE_BACKUP_PASSPHRASE_FILE" | tr -d ' ')" -ge 32 ] \
     || fail "backup passphrase must contain at least 32 bytes"

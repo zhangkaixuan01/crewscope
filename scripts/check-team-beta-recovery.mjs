@@ -114,7 +114,7 @@ try {
   assertStaticContracts()
   console.log(
     'Team Beta recovery contract passed: encrypted package integrity, Artifact verification, '
-      + 'V26..V32 boundary, safe archives, retention and Runbook.',
+      + 'V26..V33 boundary, safe archives, retention and Runbook.',
   )
 } finally {
   rmSync(temporary, { recursive: true, force: true })
@@ -252,7 +252,7 @@ function assertFingerprintContract() {
     dataRoot: temporary,
     datasetVersion: 'contract-v1',
     gitRevision: 'a'.repeat(40),
-    schemaVersion: 32,
+    schemaVersion: 33,
     seed: '20260825',
     webImage: `crewscope-web@sha256:${'2'.repeat(64)}`,
   }))
