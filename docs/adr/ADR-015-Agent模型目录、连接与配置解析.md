@@ -146,6 +146,12 @@ M5-D10 使用 `model_provider_definition`、`model_catalog_entry`、`model_price
 
 ModelConnection 绑定精确 Credential Subject 和 Version，并由数据库同时约束 Owner、Credential Subject、Billing Subject、健康快照和撤销形状。应用 Adapter 继续负责连续 Revision 的并发创建与只追加写语义，数据库负责终局冲突和跨 Scope 阻断。
 
+### 平台目录初始化
+
+模型 Provider 是平台受信目录，不要求首位用户先手工创建 Definition。`PlatformModelCatalogInitializer` 使用领域工厂生成规范 Hash，并通过正式 Repository 幂等确保内置 DeepSeek Provider、`deepseek-v4-flash@DeepSeek-V4-Flash-0731` Catalog Revision 与对应价格 Revision 存在。Team Beta API 在 Runtime Service Principal 建立后执行启动修复；新 Team 也在 foundation 事务中执行同一初始化器，因此干净数据库不会出现“没有可用 Provider”与无法创建连接的启动死锁。
+
+初始化器不读取或保存 API Key，不创建任何 Connection，不覆盖已发布的后续 Catalog/Price Revision，也不改变 Provider/Catalog 的停用状态。相同平台坐标出现不同不可变内容时启动或 Team 创建失败关闭，避免用临时 SQL、伪造 Hash 或静默覆盖掩盖目录漂移。
+
 ### API 与前端
 
 模型管理 API 包含：
@@ -167,6 +173,10 @@ POST   /api/v1/conversations/{conversationId}/agent-configuration-refresh
 ```
 
 `model-catalog` 返回当前 Principal 在指定 AgentProfile 上真实可选的交集，前端不自行合并全量模型和权限。配置写入使用 `Idempotency-Key` 和 `If-Match`，返回 Command Receipt 并等待投影追平。
+
+AgentTemplate Catalog 同时服务创建向导和既有 Agent 的精确元数据解析。公开 DTO 使用 `creatable` 与 `platformManaged` 显式区分两种用途：默认 Personal Agent 和内置 Team Observer 的模板可以读取但不能由通用创建入口实例化。Team Observer 保持平台唯一身份与只读 Tool 边界，具备 `AGENT_MANAGE` 的管理员仍可提交受控 TEAM Model Binding 并完成 Preflight；普通成员的只读展示不依赖管理级 Template Catalog 元数据，前端先按权限呈现托管身份与只读状态。
+
+Team foundation 将 `PlatformModelCatalogInitializer`、Team Provider、AgentTemplate Catalog 与 Team Observer 视为同一事务内的强制初始化依赖。应用装配必须显式提供全部初始化器，不允许以空实现静默创建缺少 Provider、模型目录或平台 Agent 的半可用 Team；测试若不验证某一初始化器，也必须在测试装配处显式声明替身。
 
 前端提供两个设置面：
 

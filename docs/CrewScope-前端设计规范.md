@@ -92,7 +92,7 @@ AppShell
 
 导航分组随权限裁剪，URL 始终保留当前 Team 和目标对象。对话入口在所有工作页面可见。
 
-`/settings/agents` 的产品名称为“Agent 中心”。页面顶部明确区分个人 Agent 与团队 Agent；两个入口不因当前数量为零而消失。团队 Agent 入口向有 `agent:manage` 权限的成员提供直接创建动作，向其他成员解释只读权限；团队区域同时提供进入 Work 的路径，说明 Team Agent 必须先成为 WorkItem Executor，再通过委托创建耐久 Task。普通 Conversation 继续固定使用 Personal Agent，不在浏览器中隐式切换执行身份。
+`/settings/agents` 的产品名称为“Agent 中心”。页面顶部明确区分个人 Agent 与团队 Agent；两个入口不因当前数量为零而消失。团队 Agent 入口向有 `agent:manage` 权限的成员提供直接创建动作，向其他成员解释只读权限；团队区域同时提供进入 Work 的路径，说明 Team Agent 必须先成为 WorkItem Executor，再通过委托创建耐久 Task。普通 Conversation 继续固定使用 Personal Agent，不在浏览器中隐式切换执行身份。内置 `team-observer@1` 单独归入“平台托管 Agent”：目录展示托管身份和生命周期事实，不把它计入 WorkItem Team Agent，也不展示通用 Template 缺失错误。具备 `agent:manage` 权限的管理员可以配置受控 TEAM Model Binding 并完成 Preflight；专用运行时在首次安全调用成功后完成就绪激活。普通成员保持只读，不开放重复创建、通用归档或任意生命周期操作。
 
 M1-F01 固化首批管理路由：
 
@@ -248,6 +248,8 @@ Conversation 使用 Loading、Empty、Error、Offline、Reconnecting 和 Cancell
 离线提示使用浏览器网络信号，不替代服务端事实。页面保留已加载事实和按 Conversation 分区的草稿；离线时 Textarea 保持可编辑，发送按钮禁用，联网后不自动提交草稿。
 
 从列表选中 Conversation 后聚焦详情标题，窄屏返回后恢复原列表按钮。新建弹窗使用初始焦点、Tab 焦点陷阱、Escape 关闭和触发元素恢复；创建成功后聚焦新 Conversation 标题。
+
+桌面右侧 Participant 面板直接消费 Conversation 详情中的身份投影。成员主标题使用 Principal `displayName`，副标题区分“对话创建者 · OWNER”和“团队参与者 · MEMBER”；Personal Agent 主标题使用 Agent `displayName`，副标题使用“{Owner displayName}的 Personal Agent · AGENT”，并显示“个人 Agent”标识。Team Agent 使用“团队 Agent · AGENT”和团队标识。页面不把 TEAM 可见性解释为全体成员或其 Personal Agent 已加入，也不通过 Principal ID 推测 Agent 归属。
 
 ### 3.8 M7 开放身份与 Onboarding 信息架构
 

@@ -33,6 +33,7 @@ authentication credential / provider assertion
 - `AccountOrganizationBinding` 单向引用 Account、Organization 和该 Organization 内的 USER Principal；
 - `Principal` 继续作为 Organization 内行为主体，不反向引用 Account、LoginIdentity、Credential 或 Session；
 - `TeamMember` 继续只引用 USER Principal，表达其在一个 Team 内的参与状态；TeamRole 继续表达 Team/Project 权限；
+- Team 成员目录从同 Organization 的 USER Principal 批量读取 `displayName` 作为人类可读身份；TeamMember API 不从 UserAccount 复制姓名，Web 不把 Principal ID 拼成伪显示名；
 - PlatformRole 只授予部署级能力，不代替 Organization Binding、TeamMember 或 TeamRole。
 
 ### LoginIdentity 唯一性与合并

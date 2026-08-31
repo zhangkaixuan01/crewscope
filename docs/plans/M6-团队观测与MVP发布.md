@@ -69,7 +69,7 @@ Conversation Mode 提供 Team Observer 对话入口和 Inbox/Activity 卡片；C
 
 ### 3.4 Team Observer
 
-- M6 创建默认 Team Service Principal、`team-observer@1` 和每 Team 唯一 TEAM-owned AgentProfile；已有完整 Team 使用确定性迁移补齐。迁移只创建 `DISABLED` Profile，不猜测 ModelConnection 或 Configuration；管理员完成有效 TEAM Binding 和 Preflight 后显式启用，新 Team 遵循同一规则；
+- M6 创建默认 Team Service Principal、`team-observer@1` 和每 Team 唯一 TEAM-owned AgentProfile；已有完整 Team 使用确定性迁移补齐。迁移只创建 `DISABLED` Profile，不猜测 ModelConnection 或 Configuration；管理员完成有效 TEAM Binding 和 Preflight 后，专用运行时在首次安全调用时完成就绪激活，新 Team 遵循同一规则；
 - Team Observer 只使用团队模型连接以及 `team.activity.read`、`team.inbox.summary.read`、`workitem.summary.read`、`task.summary.read`、`artifact.summary.read` 五类只读工具；
 - 工具在每次调用时复验当前成员可见性和 Team Scope，返回脱敏、有界、分页的摘要，不返回 Prompt、Credential、原始 Audit Payload、命令输出或私有成员事实；
 - Structured Output 只包含进度、阻塞、Review 积压、待确认、异常和证据链接；不能创建 WorkItem、分配责任、执行 Task、提交 Gate、确认 Action 或发送通知；

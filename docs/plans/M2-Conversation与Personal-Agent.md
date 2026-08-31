@@ -177,6 +177,8 @@ PRIVATE Conversation 仅对 Owner USER、其当前 Team 的 Personal Agent 和�
 
 M2-A01 使用当前认证 USER 和 TeamMember 建立服务端可信的 Conversation 上下文。创建命令只接收标题与 `PRIVATE/TEAM` 可见性，应用层从 Team 默认 Workspace、当前 TeamMember 的 ACTIVE 默认 Personal Agent Profile 和对应 Principal 重建 `PersonalConversationInitialization`，在同一事务提交 Conversation、OWNER Participant、AGENT Participant、DomainEvent、Outbox 与 CommandReceipt。客户端不能指定 Owner、Workspace、Personal Agent 或初始 Participant。
 
+Conversation 详情在同一事务快照中批量解析 Participant Principal 及其 Owner Principal，返回 `displayName`、`principalType`、`ownerPrincipalId` 和 `ownerDisplayName`。初始 AGENT Participant 因而可稳定表达为“Agent 名称 / A 的 Personal Agent”；TEAM 可见性不改变 Agent 所有权，其他成员加入时也不会自动加入自己的 Personal Agent。Principal 缺失或 Agent Owner 关系断裂时详情失败关闭，不由浏览器依据 ID 猜测身份。
+
 Conversation 列表在持久化 Keyset 查询中按当前 USER Principal 约束可见范围：`TEAM` 或存在该 Principal 的 Participant；应用层再使用 `ConversationVisibilityPolicy` 复验当前 ACTIVE Membership 与 Participant 生命周期。详情和消息历史将不可见的 PRIVATE Conversation 映射为资源不存在，跨 Team 的 Conversation ID 和跨 Conversation 的 Message Cursor 同样失败关闭。
 
 参与者管理采用以下规则：

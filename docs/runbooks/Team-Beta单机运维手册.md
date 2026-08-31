@@ -1,7 +1,7 @@
 # CrewScope Team Beta 单机运维手册
 
 > 适用范围：CrewScope Team Beta 单机七服务部署
-> 恢复边界：备份 Schema V26–V32，当前应用目标 Schema V32
+> 恢复边界：备份 Schema V26–V33，当前应用目标 Schema V33
 > 恢复目标：RPO 24 小时，RTO 4 小时
 
 ## 1. 权威数据与职责
@@ -16,6 +16,10 @@ Repository Mirror、Worktree、AskPass、临时 Sandbox 和 Prometheus 数据不
 
 ## 2. 首次配置
 
+宿主机使用 Linux amd64，并准备 Docker Engine、Docker Compose、OpenJDK 17、Node.js 24、
+pnpm 11.9.0、jq、OpenSSL、tar 与 gzip。备份 Environment Fingerprint 会调用这些固定工具；
+缺失工具或版本不兼容时备份失败关闭，并由清理钩子恢复进入维护模式前正在运行的服务。
+
 从 `deploy/team-beta/.env.example` 创建权限为 `0600` 的绝对路径 Operator 环境文件。生产文件至少配置：
 
 - 后端和 Web 不可变镜像 Digest；
@@ -29,6 +33,10 @@ Repository Mirror、Worktree、AskPass、临时 Sandbox 和 Prometheus 数据不
 备份口令文件至少 32 字节，独立于备份介质保存。Credential Encryption、Activity Cursor 和 Task Token 的 Key Material 继续由外部 Secret 生命周期管理；备份 Manifest 只记录恢复必需 Key ID，不复制密钥。
 
 Operator 环境文件可以包含受控坐标，不应包含数据库密码、Redis 密码、模型 Key、GitHub Token、飞书 Secret 或 Credential Key Material。
+
+正式 Compose 将 Web 仅绑定到宿主机环回地址。公网入口使用宿主机 TLS 终止器转发到该端口，
+可从 `deploy/team-beta/nginx-host-tls.conf.example` 开始配置，并替换示例中的全部域名坐标与证书路径。生产环境使用自有域名和受信任证书，
+并只对公网开放 80/443；API、Worker、PostgreSQL、Redis、Prometheus 和 OTel 端口保持不公开。
 
 ## 3. 日常启动与检查
 
@@ -47,6 +55,10 @@ docker compose \
 ```
 
 正常状态包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务。Web 是唯一宿主入口。API/Worker Readiness、Projection、Outbox、Action、Notification 和 Provider 指标用于日常诊断。
+
+首次干净启动时，API 会在 Runtime Service Principal 建立后幂等初始化非秘密模型目录。进入“模型与凭证”页面应至少看到 `DeepSeek / deepseek-v4-flash`，随后由成员创建 USER、TEAM 或 ORGANIZATION ModelConnection 并单向录入 API Key。启动初始化不会生成测试 Key、共享 Key 或默认 Connection。
+
+若页面显示“没有可用 Provider”，先检查 API 当前启动周期日志，再只读核对 `model_provider_definition`、`model_catalog_entry` 和 `model_price_revision`。三者均为空表示部署镜像未包含平台目录初始化；不要手写 Content Hash 或直接插入临时价格，应升级到包含 `PlatformModelCatalogInitializer` 的不可变后端镜像并重启 API。Provider 已存在但按钮仍禁用时，继续检查当前 Team 上下文和 Provider 状态。
 
 ## 4. 创建备份
 
@@ -100,11 +112,11 @@ docker compose \
 
 ```text
 CREWSCOPE_RESTORE_MIN_SCHEMA=26
-CREWSCOPE_RESTORE_MAX_SCHEMA=32
-CREWSCOPE_RESTORE_TARGET_SCHEMA=32
+CREWSCOPE_RESTORE_MAX_SCHEMA=33
+CREWSCOPE_RESTORE_TARGET_SCHEMA=33
 ```
 
-应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V32 备份由当前镜像迁移到 V32；它不允许把 V32 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。
+应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V33 备份由当前镜像迁移到 V33；它不允许把 V33 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。
 
 ### 6.2 执行恢复
 
@@ -135,7 +147,7 @@ CREWSCOPE_RESTORE_TARGET_SCHEMA=32
   -> 恢复 PostgreSQL
   -> 恢复 Artifact，将 Reference storageUri 重定位到目标 Data Root 并复验全部 Object
   -> 恢复 Redis RDB
-  -> 仅启动 API，将 V26–V32 迁移到 V32
+  -> 仅启动 API，将 V26–V33 迁移到 V33
   -> Readiness、System Info 与零活动 Smoke
   -> 生成实际 RPO/RTO Evidence
   -> 可选启动 Worker/Web
@@ -145,7 +157,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 
 ### 6.3 失败处理
 
-密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V33、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
+密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V34、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
 
 重试步骤：
 
@@ -162,7 +174,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 每个 Release Candidate 至少完成一次空目标恢复演练。演练检查：
 
 - Manifest 与三组件 Hash；
-- V26–V32 迁移边界和不兼容 Schema 拒绝；
+- V26–V33 迁移边界和不兼容 Schema 拒绝；
 - Organization、Runtime Principal、Artifact、Redis 与 API Readiness；
 - 坏包、过期/未来包和非空目标失败关闭；
 - 实际 RPO `<= 86400s`、RTO `<= 14400s`；

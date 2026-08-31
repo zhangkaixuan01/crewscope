@@ -1260,7 +1260,7 @@ M6-I06 的固定模板 Renderer 只接受当前发布的精确 Template ID/Versi
 
 M6-A04 在 `/api/v1/organizations/{organizationId}/teams/{teamId}/lark` 暴露 Team 管理入口。Connection 创建以 `tenant_key`、`app_id` 和 `app_secret` 为单向输入，在同一事务闭合 TEAM Credential、Connection、完整 Capability Grant 和默认 Workspace ProviderBinding；轮换只更新 Credential Secret Version，撤销同时终结 Credential、Grant、Connection 并禁用 Binding。所有读取和命令重新验证当前 `PROVIDER_MANAGE`，所有状态变更要求强 ETag、Idempotency-Key 和持久化 Receipt。成员 Mapping 与 Notification Delivery 使用独立 HMAC 签名域的 Scope/Filter-bound Keyset Cursor；当前管理权限必须在 Cursor 解码前完成复验，不向失去权限的调用者暴露 Token 有效性。所有强 ETag 不匹配统一返回 `409 optimistic_lock_conflict` 和当前版本，不映射为 500。公开 DTO 只返回内部管理坐标和安全状态，不返回 App Secret、Credential/Grant ID、Tenant Key、Open ID、Union ID、变量、授权快照、Digest、Provider Message ID、Endpoint、请求/响应 Body、Claim、Lease 或原始错误。实现与验证见 [M6-A04 Lark 与 Notification 管理 API](testing/M6-A04-Lark与Notification管理API.md)。
 
-M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding、完成 Preflight 并显式启用后，Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
+M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和默认 `DISABLED` Team Observer Profile，但迁移不猜测 ModelConnection 或 Configuration。管理员配置有效 TEAM/ORGANIZATION Binding 并完成 Preflight 后，专用运行时在首次安全调用时通过同一门禁完成就绪激活，随后 Team Observer 才能通过对话和控制台读取团队 Activity、Inbox 统计、WorkItem/Task 与 Artifact 摘要；其 Tool 全部只读，不能创建任务、变更责任、提交 Review、确认 Action 或发送通知。
 
 `team-observer@1` 固定为 Organization 发布、TEAM Ownership、TEAM Execution Scope 和 `TEAM_COORDINATOR` Runtime Role。Tool 精确集合为 `team.activity.read`、`team.inbox.summary.read`、`workitem.summary.read`、`task.summary.read`、`artifact.summary.read`，Approved Skill 和成员可配置槽为空。只有 `MODEL_BINDING` 与 `BUDGET` 由管理员配置。
 
@@ -1355,7 +1355,7 @@ Invocation 入口只接收 Markdown 消息，M2-A05 Resume 入口只接收字段
 
 Web 工作台采用三区域布局：左侧承载 Team、WorkProject、WorkItem 和成员导航；中间承载对话与协作；右侧承载责任、计划、实时步骤、工具调用、Review、确认和 Artifact。成员可以评论、@协作者、提交 Contribution、请求 Review、发起 Handoff、暂停、恢复、取消或接管。
 
-M2-F01 的 Conversation 页面交付服务端 Conversation 事实入口：左侧显示当前 Team 的可见 Conversation，中间显示选中 Conversation，右侧显示 ACTIVE Participant。创建入口只提交标题与 PRIVATE/TEAM 可见范围；Store 在 CommandReceipt 后刷新集合并选择新增服务端事实。`team/project/conversation` 进入 URL，Team 切换清除旧 Conversation，Collection 与 Detail 请求通过取消和版本裁决隔离竞态。窄屏在列表与详情之间显式切换。
+M2-F01 的 Conversation 页面交付服务端 Conversation 事实入口：左侧显示当前 Team 的可见 Conversation，中间显示选中 Conversation，右侧显示 ACTIVE Participant。Participant 详情由服务端批量补齐 Principal 名称、类型和 Owner 身份；Personal Agent 展示 Agent 名称及“创建者的 Personal Agent”，Team Agent 使用独立团队归属标识。TEAM 可见性只扩大团队发现与读取范围，不自动加入其他成员及其 Personal Agent。创建入口只提交标题与 PRIVATE/TEAM 可见范围；Store 在 CommandReceipt 后刷新集合并选择新增服务端事实。`team/project/conversation` 进入 URL，Team 切换清除旧 Conversation，Collection 与 Detail 请求通过取消和版本裁决隔离竞态。窄屏在列表与详情之间显式切换。
 
 M2-F02 在同一页面交付 Message 事实与 Composer。服务端倒序消息页按 `sequence` 转为正序展示，不透明 Cursor 用于续读更早历史，合并时按 Message ID 去重。USER、AGENT 和 SYSTEM 消息保留独立样式。用户发送后先建立本地 Pending，CommandReceipt 后回读最新历史并收口；失败项保留原消息与 `Idempotency-Key` 供安全重试，不覆盖用户的新草稿。Composer 支持 Enter 发送、Shift+Enter 换行和 50,000 字符上限。Markdown 禁用原始 HTML，渲染节点、属性和链接协议都经白名单清理。AG-UI 流式回复与 Conversation Event 恢复在 M2-F03 进入页面，TaskIntent 与确认在 M2-F04 进入页面。
 
@@ -1719,9 +1719,9 @@ Agent 模板领域使用独立 `AgentTemplatePublisherScope` 表达 Organization
 
 `AgentProfile` 保存显式 `AgentOwnership`、`AgentRuntimeRole` 和 `AgentTemplateVersion`，并保留 `AgentProfileType` 作为兼容身份。新 Profile 只能从 ACTIVE Template 创建，Principal 类型、可见性、Workspace Scope 与 Ownership 必须一致。只有 USER-owned Personal Assistant 可以标记为默认 Profile；跨 Profile 的“每成员唯一默认 Personal”继续由 `DefaultPersonalAgentService` 与原子 Repository 约束保证。旧 Profile 仅按 `AgentProfileType + ownerMemberId` 投影到 `personal-assistant@1`、`team-coordinator@1` 或 `coding@1`，不读取显示名、Prompt 或历史输出。
 
-M5-A02 提供 Team-scoped AgentTemplate Catalog 和 Agent 实例管理 API。Catalog 合并 Organization 与当前 Team 每个 Template Key 的最新 ACTIVE 版本，按目标 USER/TEAM Ownership 过滤可实例化策略，并排除平台初始化的默认 Personal Agent。成员可以创建多个彼此隔离的 USER-owned Specialist；TEAM-owned Agent 由有效 Team-wide `AGENT_MANAGE` 或平台管理员创建和管理。普通成员只发现自己的 USER Agent 和 Team Agent；平台管理员可管理当前 Team 全部 Agent。Organization-owned Agent 使用独立 Organization Workspace 路由，不从 Team 路由创建。
+M5-A02 提供 Team-scoped AgentTemplate Catalog 和 Agent 实例管理 API。Catalog 合并 Organization 与当前 Team 每个 Template Key 的最新 ACTIVE 版本，按目标 USER/TEAM Ownership 返回现有 Agent 解析精确元数据所需的可见模板，并使用公开 `creatable`、`platformManaged` 字段区分创建能力与平台托管能力。默认 Personal Agent 与 `team-observer@1` 保持可发现且 `creatable=false`；创建向导不展示它们，创建命令仍独立拒绝绕过请求。成员可以创建多个彼此隔离的 USER-owned Specialist；TEAM-owned Agent 由有效 Team-wide `AGENT_MANAGE` 或平台管理员创建和管理。普通成员只发现自己的 USER Agent 和 Team Agent；平台管理员可管理当前 Team 全部 Agent。Organization-owned Agent 使用独立 Organization Workspace 路由，不从 Team 路由创建。
 
-M5-F02 在 Control Mode 交付“Agent 中心”。页面保持 `/settings/agents` 路由，按个人 Agent 与团队 Agent 建立两个稳定入口；个人区域继续区分默认 Personal Agent 与成员所有 Specialist。团队 Agent 数量为零时仍展示团队区域、权限说明、创建入口和“进入 WorkItem 责任链后执行”的使用路径，不把空目录误呈现为能力缺失。目录保留 DISABLED/ARCHIVED 事实，展示 TemplateVersion、Configuration Revision 以及 PERSONAL/TEAM 主模型和 Fallback。路由坐标使用 `team + agent + configurationRevision`；跨 Team 或不可见 Agent 深链接只显示安全提示，不回显旧 Scope 事实。列表只消费 Agent/Profile/Configuration 公开 DTO，不读取 Credential、Endpoint、System Prompt 或 Tool Payload。A08 Task Delivery Summary 以 Task/Conversation 为授权坐标，不用于浏览器端反向聚合 Agent 任务数和成本；该统计等待独立的 Agent 聚合投影。
+M5-F02 在 Control Mode 交付“Agent 中心”。页面保持 `/settings/agents` 路由，按个人 Agent 与团队 Agent 建立两个稳定入口；个人区域继续区分默认 Personal Agent 与成员所有 Specialist。团队 Agent 数量为零时仍展示团队区域、权限说明、创建入口和“进入 WorkItem 责任链后执行”的使用路径，不把空目录误呈现为能力缺失。目录保留 DISABLED/ARCHIVED 事实，展示 TemplateVersion、Configuration Revision 以及 PERSONAL/TEAM 主模型和 Fallback。内置 `team-observer@1` 使用独立的“平台托管 Agent”分组，不计入可分配的 WorkItem Team Agent，也不允许重复创建或通用归档；管理员仍通过 Agent 设置提交受控 TEAM Binding 并完成 Preflight，专用运行时在首次安全调用时完成就绪激活。普通成员可以只读发现该 Agent，页面不会把缺少管理权限误报为 Template 元数据故障。路由坐标使用 `team + agent + configurationRevision`；跨 Team 或不可见 Agent 深链接只显示安全提示，不回显旧 Scope 事实。列表只消费 Agent/Profile/Configuration 公开 DTO，不读取 Credential、Endpoint、System Prompt 或 Tool Payload。A08 Task Delivery Summary 以 Task/Conversation 为授权坐标，不用于浏览器端反向聚合 Agent 任务数和成本；该统计等待独立的 Agent 聚合投影。
 
 M5-F03 在同一 Control Mode 页面交付 Agent 创建与详情配置。创建向导只接受服务端批准的 Template 坐标、USER/TEAM Ownership 和显示名称；CommandReceipt 不返回 Profile ID，因此页面刷新目录并只在出现唯一新 ID 时自动打开详情，并发新增时不猜测。USER-owned Agent 由 Owner 配置，TEAM-owned Agent 的创建、配置和生命周期要求 Team-wide `AGENT_MANAGE`。
 
@@ -1761,6 +1761,8 @@ ACTIVE ModelCatalogEntry
 主模型不可用时只切换到同一 AgentConfigurationVersion 中明确声明、且独立通过能力与数据策略校验的 Fallback。没有合法 Fallback 时以 `MODEL_UNAVAILABLE` 失败关闭。SafetyEnforcementOverlay 可在下一个模型边界停用 ModelConnection、ModelCatalogEntry 或数据区域组合。
 
 `crewscope-primary` 保留为本地开发和单模型部署的 Bootstrap Slot。企业多模型运行使用受信 `AgentScopeModelFactory`，根据服务端 ResolvedModelSelection 显式构建 AgentScope `Model`。产品 Provider 和传输 Adapter 独立记录：DeepSeek 在目录、审计和成本中保持 `deepseek`，调用层使用 `openai-compatible`/AgentScope OpenAI Adapter。DeepSeek 同时使用 Tool 和 Structured Output 时由 Adapter 固定 `nativeStructuredOutputWithTools(false)`。
+
+平台内置模型目录由应用层 `PlatformModelCatalogInitializer` 通过 Domain Factory 和正式 Repository 幂等发布。干净 Team Beta 启动以及新 Team foundation 事务都会确保 `deepseek` Provider、`deepseek-v4-flash@DeepSeek-V4-Flash-0731` Catalog Revision 和评测锁定的价格 Revision 存在。初始化只写非秘密目录事实，不创建 ModelConnection、Credential 或 API Key；成员仍在“模型与凭证”页面单向录入自己的 Key。重复初始化校验稳定 ID、内容 Hash 和初始价格 Hash，不重复写入、不覆盖后续 Revision、不自动恢复管理员停用的生命周期；平台坐标存在不同内容时失败关闭。
 
 AgentRuntimeSession 固定 AgentConfigurationVersion。新 Conversation 使用当前版本；已存在 Conversation 在安全点通过显式 Configuration Refresh 生成新 Runtime Configuration Segment。TaskExecution 的 PolicySnapshot 固定 AgentConfigurationVersion、Provider、Connection、Model ID/Revision、价格和策略哈希，默认重试沿用原快照。
 
@@ -3100,6 +3102,8 @@ Team 的 `owner_member_id/default_workspace_id` 使用完整 Scope 延后外键�
 
 Team 基础 API 使用 `/api/v1/organizations/{organizationId}/teams` 作为资源根。Team 创建自动闭合 Owner、默认 Team Workspace、五个内置角色、Owner Grant 和默认 Personal Agent；成员加入自动闭合 Membership、MEMBER Grant 和默认 Personal Agent。Team 列表和详情按当前 ACTIVE Membership 授权，成员管理只接受有效 Team Scope Grant 提供的 `MEMBER_MANAGE` 权限，WorkProject Scope Grant 不提升为 Team 管理权限。成员加入使用 Team 行锁串行化并发写入，保证重复请求收敛为稳定业务结果。
 
+Team 成员目录以 TeamMember 为参与事实，以同 Organization 的 USER Principal 为身份展示事实。成员列表在完成当前 ACTIVE Membership 授权后，按 Organization 范围批量解析全部成员 Principal，并返回 `displayName`；Principal 缺失、类型错误或 Scope 不闭合时失败关闭。Web 在成员页、对话参与者与作者、WorkItem/Task 负责人、评论、仓库操作人、Activity、Audit 和成员映射等人类可读位置统一使用该显示名。Principal ID 只作为辅助技术标识或未知历史事实的安全兜底，不拼接为成员主名称，也不从 UserAccount 绕过 Principal 读取姓名。
+
 WorkProject 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects` 作为资源根。创建者必须是 ACTIVE TeamMember，并通过有效 Team Scope Grant 具有 `WORK_PROJECT_MANAGE`；项目固定使用 Team 默认 Workspace。列表和详情要求 ACTIVE Membership，列表使用 `updated_at + id` 降序 Keyset Cursor。Key 可用性查询用于创建表单即时反馈，创建命令仍在 Team 行锁内检查唯一性，并由数据库 `(team_id, project_key)` 唯一约束兜底。创建事务原子提交 WorkProject、`WORK_PROJECT_CREATED`、Outbox 和 CommandReceipt。
 
 WorkItem 使用 `/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items` 作为资源根。Native WorkItem 创建要求 ACTIVE Membership 以及 Team Scope 或目标 WorkProject Scope 的 `WORK_CREATE`，状态迁移要求 `WORK_PARTICIPATE`。创建事务以 WorkProject 行串行化项目内 Key，并由 `(project_id, item_key)` 唯一约束兜底；Key 分配读取项目下最大数字后缀，避免字符串字典序导致 `KEY-9` 覆盖 `KEY-10`。状态迁移只接受强 `If-Match` 版本，使用版本条件原子更新；外部 Provider 投影的状态通过 Provider 同步，不接受本地迁移。成功命令原子提交 WorkItem、DomainEvent、Outbox 和 CommandReceipt。TaskIntent 确认入口复用相同创建与授权规则，但客户端不能提交 WorkItem ID、Key、Binding 或责任事实。
@@ -3464,7 +3468,7 @@ M7-A07 将 Auth、Account、Onboarding 与 Invitation 的 8 个写请求 DTO 固
 
 Spring Context 中五个 M7 Controller 与对应 Application Service 各只有一份；Invitation Application Service 缺失时不暴露 Controller。Spring Boot Web 使用独立 Jackson 3 Mapper，AgentScope 2.0 与 Coding Adapter 使用独立 Jackson 2 Mapper。完整路由、DTO、响应、Header、错误和 Audit 合同见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，实现证据见 [M7-A07 开放用户 API 与装配合同](testing/M7-A07-开放用户API与装配合同.md)。
 
-认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。备份恢复兼容边界为 `V26..V32 -> V32`，真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。实现与验证见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)。
+认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。当前备份恢复兼容边界为 `V26..V33 -> V33`；M7 历史验证中的真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。M7 实现证据见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)，当前恢复操作以 [Team Beta 单机运维手册](runbooks/Team-Beta单机运维手册.md) 为准。
 
 M7 本地认证安全基线使用 128 个稳定编号攻击样本冻结密码预算、标识/网络/账号暴力尝试、账号枚举、Session Principal 与序列化白名单、CSRF 双提交、Origin 规范化、生产 Cookie、登录安全返回目标以及日志/响应披露边界。固定分母减少、重复或语义漂移都会失败；Docker 是门禁强制前置条件，真实 PostgreSQL、Redis 和 HTTP 回归必须零跳过地证明登录前后 Session ID 轮换、窃取登录前 Session 无法获得认证态、续期/过期/并发上限、当前/全部设备退出和合法登录继续可用。实现与验证见 [M7-Q01 本地认证安全硬化与固定攻击集](testing/M7-Q01-本地认证安全硬化与固定攻击集.md)。
 
