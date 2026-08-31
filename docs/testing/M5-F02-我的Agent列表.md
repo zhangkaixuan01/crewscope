@@ -1,14 +1,14 @@
-# M5-F02 我的 Agent 列表
+# M5-F02 Agent 中心列表
 
 ## 交付结果
 
-M5-F02 在 Control Mode 交付 `/settings/agents`，使普通 TeamMember 可以查看当前 Team 授权范围内的 Agent：
+M5-F02 在 Control Mode 交付 `/settings/agents` Agent 中心，使普通 TeamMember 可以查看当前 Team 授权范围内的 Agent：
 
 - 唯一默认 Personal Agent；
 - 当前成员拥有的 USER-owned Coding、Reviewer 及其他 Specialist；
 - 当前 Team 可发现的 TEAM-owned Agent。
 
-导航中的“我的 Agent”使用成员可读的 Scope 权限显示，服务端仍在每次列表和配置读取时执行 Organization、ACTIVE Membership、Owner 和 Team 可见性校验。F02 不提供创建、配置与生命周期命令，这些交互属于 M5-F03。
+导航中的“Agent 中心”使用成员可读的 Scope 权限显示，服务端仍在每次列表和配置读取时执行 Organization、ACTIVE Membership、Owner 和 Team 可见性校验。页面始终提供“个人 Agent”和“团队 Agent”两个类型入口；Team Agent 为零时保留团队空状态、权限说明和 WorkItem Executor 使用路径。F02 的原始阶段不提供创建、配置与生命周期命令，这些交互由 M5-F03 补齐。
 
 ## 页面契约
 

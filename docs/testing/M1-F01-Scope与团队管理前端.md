@@ -12,9 +12,10 @@
 
 ### Scope Gateway 与 Store
 
-- `HttpScopeGateway` 映射 Team 列表、WorkProject 列表、成员列表和成员添加 API；
+- `HttpScopeGateway` 映射 Team 列表、WorkProject 列表、Key Availability、WorkProject 创建、成员列表和成员添加 API；
 - `ScopeStore` 按 Organization → Team → WorkProject 加载可访问范围；
-- Store 区分 `idle/loading/ready/empty/error`，成员查询与成员命令使用独立状态；
+- Store 区分 `idle/loading/ready/empty/error`，成员查询、成员命令与 WorkProject 命令使用独立状态；
+- WorkProject 创建使用 Idempotency-Key，成功后回读 ACTIVE 项目、选中新项目并更新 URL；命令完成但投影延迟时保留原请求重试语义；
 - 成员添加生成独立 `Idempotency-Key`，完成后回读成员事实；
 - OIDC 写请求自动把 `XSRF-TOKEN` Cookie 作为 `X-XSRF-TOKEN` Header 发送，Bootstrap 模式没有 Cookie 时不增加 Header；
 - Team 和 WorkProject 只保留 `ACTIVE` 对象，待初始化 Team 不读取 WorkProject；
@@ -39,9 +40,11 @@
 
 ### 页面与交互
 
-- `ScopeSwitcher` 在桌面侧栏、折叠侧栏和窄屏顶栏提供 Team/WorkProject 切换、Loading、Empty、Error 与 Escape 关闭；
-- Today 展示真实 Team、WorkProject 和 Active Membership 摘要，并提供 Work、成员与 Conversation 快捷入口；
-- Work 展示 WorkProject 目录、当前项目 Scope 和 M1-F02 WorkItem 视图承载区；
+- `ScopeSwitcher` 在桌面侧栏、折叠侧栏和窄屏顶栏提供 Team/WorkProject 切换、创建、Loading、Empty、Error 与 Escape 关闭；
+- Today 展示真实 Team、WorkProject 和 Active Membership 摘要，并提供 WorkProject 创建以及 Work、成员与 Conversation 快捷入口；
+- WorkProject 创建弹窗提供格式约束、服务端 Key 可用性检查、Focus Trap、Escape、窄屏底部 Modal 与安全错误反馈；
+- Repository Settings 在缺少 WorkProject 时复用同一创建弹窗，成功后原地加载新项目的 RepositoryBinding 管理范围；
+- Work 在缺少项目时提供首个 WorkProject 创建入口；创建成功后更新 URL 并直接进入当前项目 Scope 和 M1-F02 WorkItem 视图承载区；
 - 团队成员页展示 Membership 状态、加入方式、时间、版本和 Owner 标识；
 - 具备 `team:members:manage` 界面权限的成员可以按 USER Principal ID 添加成员；服务端要求 `MEMBER_MANAGE`；
 - 旧 M0 Control 演示页和演示 WorkItem 列表已移除，避免真实范围与演示事实并存。
@@ -53,6 +56,7 @@
 - Organization 与认证 Principal 约束；
 - ACTIVE Team Membership；
 - Team Scope `MEMBER_MANAGE` 与 WorkProject 权限；
+- Team Scope `WORK_PROJECT_MANAGE`、默认 Workspace 与项目 Key 唯一性；
 - 目标 USER Principal 类型、状态和 Organization Scope；
 - 幂等、并发、DomainEvent、Outbox 与 Command Receipt。
 

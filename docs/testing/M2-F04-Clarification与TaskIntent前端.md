@@ -7,6 +7,10 @@ M2-F04 在 Conversation 工作区交付结构化澄清和 TaskIntent 人工决�
 - AgentScope Adapter 从服务端 Pending `request_clarification` Tool 提取并约束公开 `ClarificationRequestV1`；
 - `RUN_INTERRUPTED` 只公开 Summary、Question、Context、Required、Choices 和稳定 FieldKey；
 - Clarification 卡使用原生单选与文本控件，只提交 `answers: fieldKey -> value`；
+- Agent 运行状态、失败恢复状态与 Clarification 表单统一进入消息流末尾的操作区，位于最后一条消息之后、Composer 之前；
+- `RUN_INTERRUPTED` 同时展示“Personal Agent 需要补充信息”状态和 HITL 表单，失败状态在同一区域提供安全重试；
+- 失败或待补充信息状态出现时，只滚动消息历史到操作区，用户无需回到消息历史开头，也不会把窄屏 HITL 控件滚入固定模式导航下方；
+- Clarification 原生单选控件定位在可见选项内部，整个选项均可点击，并保留键盘焦点样式；
 - Resume 使用独立 `Idempotency-Key`，断线重放复用原键，刷新恢复 Pending Clarification；
 - TaskIntent Gateway 保留并校验强 ETag；
 - TaskIntent Store 在修订、拒绝和确认后重新读取服务端事实；
@@ -23,9 +27,9 @@ M2-F04 在 Conversation 工作区交付结构化澄清和 TaskIntent 人工决�
 
 - AgentScope Native Runtime 集成测试验证生产 Clarification Tool 的公开 FieldKey 与字段化回答绑定；
 - Application 测试验证公开 Clarification Payload、终态映射和安全事件协议；
-- Vitest 覆盖 Gateway、Store、Clarification 卡、TaskIntent 卡、Resume 重放、强 ETag、空 Body 确认、Owner 提示、重复操作和冲突刷新；
-- Playwright 在桌面与窄屏验证结构化回答、无运行时字段泄漏、TaskIntent 当前事实、确认预检和空 Body Confirmation；
-- Histoire 提供 Clarification、Owner Review 和 Participant View 三个组件变体。
+- Vitest 覆盖 Gateway、Store、底部 Agent 操作区、Clarification 卡、TaskIntent 卡、Resume 重放、强 ETag、空 Body 确认、Owner 提示、重复操作和冲突刷新；
+- Playwright 在桌面与窄屏验证结构化回答、固定底栏下的选项可操作性、无运行时字段泄漏、TaskIntent 当前事实、确认预检和空 Body Confirmation；
+- Histoire 提供底部 Clarification、Agent 失败恢复、Owner Review 和 Participant View 等组件变体。
 
 验证结果：
 

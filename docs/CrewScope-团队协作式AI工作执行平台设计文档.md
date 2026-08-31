@@ -433,6 +433,8 @@ Owner、Executor 和 Gate Reviewer 的变更共享 WorkItem 责任链串行化�
 
 责任管理 API 只接受目标 Principal ID，Principal 类型、状态、Team Scope 和 USER Membership 由服务端解析。读取责任链要求 ACTIVE Membership；写入要求 Team Scope 或目标 WorkProject Scope 的 `RESPONSIBILITY_MANAGE`。Owner 替换同时比较当前 Assignment ID 和 Version，防止 ABA 覆盖；非 Owner 释放使用 Assignment 强 ETag。每个写命令以 `Idempotency-Key` 原子提交 ResponsibilityAssignment、DomainEvent、Outbox 和 CommandReceipt。
 
+WorkItem 责任面复用 Team AgentProfile 目录提供可选择的 Agent 候选。浏览器只展示当前 Team、当前 WorkProject Workspace 下 AgentProfile 与 Principal 均为 ACTIVE 的对象：Personal、Team 和 Specialist Agent 可作为 Executor，Advisory Reviewer 只接受 Specialist Agent。目录具备独立 Loading、Empty、Error、Retry 与分页状态；手动 Principal ID 仅作为高级兜底。候选过滤用于交互收敛，不构成授权边界，服务端仍逐次验证 Principal 类型、Agent 生命周期、Team/Workspace Scope 与责任资格。
+
 Gate Reviewer Policy 由服务端 Provider 根据 Team、WorkProject 和 PolicyPack 解析。默认严格分离 Owner、Executor 与 Gate Reviewer；客户端不能提交 PolicyPack 或降级理由。单人团队降级决策把 PolicyPack ID、版本、冲突角色和原因固化到领域事件，作为时间线和 Audit 证据。SPECIALIST_AGENT Reviewer 始终是 Advisory，不具有 Gate 效力。
 
 WorkItem 时间线通过完整 Organization/Team/WorkProject/WorkItem Scope 路径读取，要求当前 USER 具有目标 Team ACTIVE Membership。M1 直接合并 DomainEvent 与对应 AuditEvent，以 DomainEvent ID 作为规范事件身份，在分页前去重并优先保留 DomainEvent 事实；M6 在保持 Application Port 与 HTTP 契约稳定的前提下切换到物化 Activity 读模型。
@@ -1264,15 +1266,27 @@ M6 为既有 Team 确定性补齐 Team Service Principal、`team-observer@1` 和
 
 Observer Principal ID 和 Profile ID 使用不同命名空间按 Team ID 确定性派生。Principal/Profile 以同步 `DISABLED` 状态原子初始化。`DISABLED` Profile 允许追加当前 AgentConfiguration，启用要求 PERSONAL Binding 为空、TEAM Binding 存在、当前 `AGENT_MANAGE` 授权与 TEAM/ORGANIZATION ModelConnection Preflight 成功，再原子同步启用 Principal/Profile。通用 Agent 创建和生命周期命令不处理内置 Observer。
 
+Team 创建交易必须同时持久化 Organization 级 `team-observer@1` 内置模板和该 Team 的确定性 `DISABLED` Principal/Profile，不允许仅依赖一次性数据迁移。应用启动会扫描完整 ACTIVE Team 并幂等补齐模板与 Observer 身份；首次摘要调用在执行前再做一次同样的就绪修复，覆盖清库重建、旧版升级、启动期模型连接尚未就绪和并发请求。
+
+内置 Template Catalog 的幂等以精确 Publisher Scope、Template Version 与 Content Hash 为证明。并发初始化者在 Repository 串行化后可以接受另一实例提交的完全相同定义；相同坐标出现不同内容时失败关闭，不以“记录已存在”掩盖平台定义漂移。Team 创建组合根把 Catalog 与 Observer Initializer 作为必选依赖，缺失 Bean 时应用拒绝启动，不允许用 No-op 静默创建缺少 Agent 基础的 Team。
+
+当 Observer 没有当前 Configuration 且 Team/Organization 范围存在通过 Ownership、健康、区域、Capability、价格和策略交集的模型时，服务端从安全可选集按 Provider、Model、Connection Owner 和 Connection ID 稳定排序，生成一份直接 TEAM Binding 的初始配置，通过统一 Agent Configuration Preflight 后激活 Observer。已存在的管理员配置始终优先，自动修复不覆盖、不追加替代修订。没有安全可选模型时 Observer 保持 `DISABLED`，Team 和用户注册继续成功。
+
 V28 将版本化 Lark ExternalTenant、15 分钟内有效的精确成员 Proof 和管理员确认 Mapping 分表保存。Organization、Team、Member、ProviderBinding、Connection、Grant 与 ExternalTenant 使用复合外键闭合；同一 Team Member 和同一 `tenant_key + open_id` 均通过 ACTIVE 部分唯一索引保持单活动映射。Mapping 只允许从 `ACTIVE` 单调进入 `REVOKED/INVALIDATED`，历史身份与授权快照禁止修改或删除。V27 已存在的通知计划通过 `NOT VALID` Mapping 外键兼容，V28 后的新计划立即校验 Mapping Scope，Mapping Version 在计划和投递时重新与当前版本比较。
 
 V28 只为 Owner Member、Owner USER 和 Default TEAM Workspace 均有效的既有 ACTIVE Team 回填 Observer。模板 Hash 使用与 Java `AgentTemplateDefinition` 相同的长度前缀 SHA-256 规范，Principal/Profile UUID 使用与 `UUID.nameUUIDFromBytes` 相同的 UUID v3。`team-observer@1` 是 Organization 级全局保留坐标；迁移在选择可回填 Team 之前检查所有 Organization 的既有坐标，即使当前没有完整 Team，与内置契约冲突也必须整笔回滚。确定性 Principal/Profile ID 只对当前候选回填 Team 检查冲突。迁移不覆盖旧数据，也不生成 ModelConnection、AgentConfiguration 或模型绑定。数据库部署需要预装或允许迁移用户首次安装 PostgreSQL `pgcrypto` 扩展。
+
+V28 是历史数据基线，运行时初始化是新 Team 的权威路径。启动修复与首次调用修复都使用同一个应用服务、同一组 Domain Factory 和同一 Repository 乐观/悲观并发边界，不使用另一套 SQL Hash、UUID 或模板定义。
 
 `TeamSummaryRequest` 绑定 Organization、Team、当前 ACTIVE Member 和每段上限。`TeamSummaryResult` 固定返回进度、阻塞、Review 积压、待确认和异常五段数组，每条绑定成员可见性、批准的 Activity/Inbox/WorkItem/Task/Artifact 摘要数据范围和无 Scheme/Query/Fragment、无明文或百分号编码遍历、无空白或控制/格式字符的内部证据路径；摘要正文同样拒绝 Unicode 格式控制字符。打开证据链接时继续重新授权。领域与应用契约见 [M6-D05 Team Observer 领域与启用契约](testing/M6-D05-Team-Observer领域与启用契约.md)。
 
 M6-I07 将 `team-observer@1` 落为独立的 AgentScope 只读运行时。Runtime Registry 在模型 Credential 打开前闭合 ACTIVE Profile、固定 Template、当前 Configuration、TEAM Resolved Configuration、TEAM/ORGANIZATION Connection Owner、五 Tool、空 Skill、空成员补充 Prompt 与 Structured Output Schema Hash。五个 Tool 无模型可控的 Organization、Team、Member、Cursor 或 Limit 参数，每次调用从 Server 绑定的 `TeamSummaryRequest` 重新验证当前 ACTIVE 成员，并只向模型提供 Section、脱敏摘要和内部 Evidence Path。
 
+Agent Template 中的 Tool Key 是持久化、权限、Hash 和审计使用的稳定领域坐标，可使用点号分层；模型 Tool Function Name 是 Provider 协议坐标。`ModelToolNamePolicy` 将点号 Key 确定性映射为下划线运行别名，检查 64 字符上限、`[a-zA-Z0-9_-]` 字符集和别名唯一性，并在每个 `ObservableAgentScopeModel` 发起网络请求前复验全部 Tool Schema。AgentScope 2.0 的 Compaction、Consolidation 和内部摘要使用 `tools=null` 表达无 Tool 调用，该原生调用形态直接通过名称门禁。DeepSeek、OpenAI-compatible、Coding、Task、Reviewer、Observer 以及后续插件/MCP Tool 共用该门禁；非法名称和别名碰撞不会到达 Provider。
+
 每次 Observer 调用创建新的 Toolkit 和证据目录。模型输出的每个 `summary + evidencePath` 必须与本次已执行 Tool 返回的同 Section 精确一致，改写摘要、虚构链接、重复选择、引用未读取数据和 Prompt 注入产生的新内容全部失败关闭。模型完成后再次复验成员资格，关闭调用期间离队或停用的披露竞态。AgentScope User/Session Key 与 State Reference 绑定 Organization、Team、Member、确定性 Observer Profile 和服务端 Session UUID；运行时同时关闭文件系统、Shell、Subagent、Memory、动态 Skill 与 Workspace Context。实现与验证见 [M6-I07 Team Observer AgentScope 只读运行时](testing/M6-I07-Team-Observer-AgentScope只读运行时.md)。
+
+Team Observer 在 `RuntimeContext` 中携带服务端构造的 `TeamObserverRuntimeSession`，并使用专用 `TeamObserverRuntimeContextMiddleware` 复验确定性 Principal/Profile 与 AgentScope User/Session Key。它不构造虚假的 Personal Conversation、Participant 或个人 ProviderBinding。`RestrictedTemplateAgentBuilder` 只根据受信 Session Kind 选择中间件链：`TEAM_OBSERVER` 走 Observer 专用链，Conversation 与 Task 继续走完整平台上下文、ProviderBinding、Audit 和 AgentState Preflight 链。上下文缺失或坐标被篡改时在模型调用前失败关闭。
 
 M6-A05 使用专用 Team Observer Session 承载团队对话，并复用 Conversation Mode 的 Session、Invocation、SSE、Resume 与显式取消交互语义。专用 Session 绑定 Organization、Team、当前 Member、USER Principal、确定性 Observer Profile 和服务端 UUID；它不写入只允许 Personal Agent 的 `Conversation` 聚合。SSE 断开只终止 Transport Subscriber，运行继续到终态；Resume 重放并继续订阅同一 Invocation，不重复调用模型；业务取消只能通过显式 API 触发。每个安全 SSE 业务帧在写入响应前重新校验当前 ACTIVE 成员、Session 与 Invocation 归属；连接期间离队或停用会终止后续披露，不取消已由平台持有的 AgentScope 业务运行。
 
@@ -1648,6 +1662,7 @@ allowedCommands
 | Middleware | 职责 |
 |---|---|
 | `PlatformRuntimeContextMiddleware` | 校验 Team、TeamMember、TeamRole、Workspace、会话、任务、责任快照、CollaborationGrant、ProviderBinding、Connection、可见性和策略绑定 |
+| `TeamObserverRuntimeContextMiddleware` | 校验只读 Team Observer 的 Organization、Team、Member、确定性 Principal/Profile 和 AgentScope Session 坐标 |
 | `ResponsibilityMiddleware` | 校验 Owner、Executor、Reviewer、Approver 和参与关系 |
 | `CollaborationGrantMiddleware` | 限制协作者的 ContextPackage、Tool、Artifact 和数据范围 |
 | `PlatformPolicyMiddleware` | 模型与工具调用的硬限制 |
@@ -1706,7 +1721,7 @@ Agent 模板领域使用独立 `AgentTemplatePublisherScope` 表达 Organization
 
 M5-A02 提供 Team-scoped AgentTemplate Catalog 和 Agent 实例管理 API。Catalog 合并 Organization 与当前 Team 每个 Template Key 的最新 ACTIVE 版本，按目标 USER/TEAM Ownership 过滤可实例化策略，并排除平台初始化的默认 Personal Agent。成员可以创建多个彼此隔离的 USER-owned Specialist；TEAM-owned Agent 由有效 Team-wide `AGENT_MANAGE` 或平台管理员创建和管理。普通成员只发现自己的 USER Agent 和 Team Agent；平台管理员可管理当前 Team 全部 Agent。Organization-owned Agent 使用独立 Organization Workspace 路由，不从 Team 路由创建。
 
-M5-F02 在 Control Mode 交付“我的 Agent”目录。页面按默认 Personal、成员所有 Specialist 和 Team Agent 分组，保留 DISABLED/ARCHIVED 事实，展示 TemplateVersion、Configuration Revision 以及 PERSONAL/TEAM 主模型和 Fallback。路由坐标使用 `team + agent + configurationRevision`；跨 Team 或不可见 Agent 深链接只显示安全提示，不回显旧 Scope 事实。列表只消费 Agent/Profile/Configuration 公开 DTO，不读取 Credential、Endpoint、System Prompt 或 Tool Payload。A08 Task Delivery Summary 以 Task/Conversation 为授权坐标，不用于浏览器端反向聚合 Agent 任务数和成本；该统计等待独立的 Agent 聚合投影。
+M5-F02 在 Control Mode 交付“Agent 中心”。页面保持 `/settings/agents` 路由，按个人 Agent 与团队 Agent 建立两个稳定入口；个人区域继续区分默认 Personal Agent 与成员所有 Specialist。团队 Agent 数量为零时仍展示团队区域、权限说明、创建入口和“进入 WorkItem 责任链后执行”的使用路径，不把空目录误呈现为能力缺失。目录保留 DISABLED/ARCHIVED 事实，展示 TemplateVersion、Configuration Revision 以及 PERSONAL/TEAM 主模型和 Fallback。路由坐标使用 `team + agent + configurationRevision`；跨 Team 或不可见 Agent 深链接只显示安全提示，不回显旧 Scope 事实。列表只消费 Agent/Profile/Configuration 公开 DTO，不读取 Credential、Endpoint、System Prompt 或 Tool Payload。A08 Task Delivery Summary 以 Task/Conversation 为授权坐标，不用于浏览器端反向聚合 Agent 任务数和成本；该统计等待独立的 Agent 聚合投影。
 
 M5-F03 在同一 Control Mode 页面交付 Agent 创建与详情配置。创建向导只接受服务端批准的 Template 坐标、USER/TEAM Ownership 和显示名称；CommandReceipt 不返回 Profile ID，因此页面刷新目录并只在出现唯一新 ID 时自动打开详情，并发新增时不猜测。USER-owned Agent 由 Owner 配置，TEAM-owned Agent 的创建、配置和生命周期要求 Team-wide `AGENT_MANAGE`。
 
@@ -2679,6 +2694,8 @@ Binding 通过 `(account_id, organization_id)` 与 `(organization_id, principal_
 
 M7-D08 通过 `V32__team_invitation.sql` 建立 `team_invitation`。邀请保存完整 Organization/Team Scope、Organization USER 邀请人、可选规范目标邮箱、非 Owner 内置角色、64 位小写 Token Digest、有效期、一次性状态、接受 Account/TeamMember 和强版本；Team、邀请人、接受 Member 使用复合外键阻断跨 Scope 引用。接受触发器在同一事务中使用状态互斥行锁，复核 ACTIVE Account、可选目标邮箱、ACTIVE Binding、ACTIVE Organization USER Principal、ACTIVE Team 与目标 Team ACTIVE Membership 的完整链路，并与并发停用和归档互斥。新邀请只能以 `PENDING / version=0` 建立，随后只允许单步关闭为 `ACCEPTED / REVOKED / EXPIRED / version=1`，终态不可修改或删除；接受和撤销必须早于有效期，过期终态必须位于有效期边界或之后。
 
+本地 API 进程启用邀请能力时必须同时提供独立的 256-bit 或更强 Base64 HMAC Key；该 Key 不与登录防护、Session、Task Token 或 Activity Cursor 复用。Team Activity 页面依赖同进程 Realtime Stream，API 角色必须显式启用 `crewscope.team-activity-realtime.enabled`，避免历史查询可用而 SSE 入口返回 503。
+
 Token 明文没有数据库字段；Digest 全局唯一并由 64 位小写十六进制约束裁决。`team_invitation_metadata` 排除 Digest，底表和元数据视图撤销 PUBLIC 权限，通用管理/Preview/Audit Reader 只授权元数据视图。Team 列表、待过期扫描与定向邀请分别使用独立索引；历史安全 DomainEvent/AuditEvent 继续作为只追加事实独立保存，V32 不回写事件载荷。实现与验证见 [M7-D08 TeamInvitation 迁移](testing/M7-D08-TeamInvitation迁移.md)。
 
 M7-I01 使用 Spring JDBC 实现 `UserAccount`、`LoginIdentity`、`LocalCredentialMetadata` 与 `AccountOrganizationBinding` Repository Adapter。规范用户名与邮箱只从 `Username / NormalizedEmail` 领域值对象派生，写入端口不接收外部规范键；读取时重新派生并校验持久化规范键，任何漂移失败关闭。Account、Identity 与 Binding 的创建依靠 PostgreSQL 唯一约束裁决并发并映射为不泄漏冲突坐标的稳定领域错误，更新使用显式期望版本条件；按 Account、Provider Identity 和 Account/Organization 提供 `FOR UPDATE` 锁定读取，调用方必须保持外层 REQUIRED 事务直至受保护写入完成。
@@ -3391,7 +3408,7 @@ HTTP 状态、错误码、Idempotency-Key 范围、`If-Match` 强 ETag、Cursor 
 
 M7 使用服务端 Session，认证 Cookie 不进入响应 DTO。`GET /api/v1/auth/session` 对匿名请求返回 `authenticated=false`、Registration Mode 与 CSRF Header/Token 公开坐标，对已登录请求追加当前 Account、Principal、Organization、可访问 Team 摘要和权限，是前端当前身份的唯一权威入口。防 CSRF Token 是同源前端需要回传的公开值，只出现在受控 CSRF Cookie、Session 公开投影和写请求 Header，不进入其他浏览器持久存储或 Telemetry。所有浏览器写请求包括登录、注册和邀请接受都提交 CSRF Token 并通过同源校验。
 
-M7-I02 由 CrewScope 显式启用 Spring Session Redis，排除 starter 基于 classpath 的无条件 Session 装配，避免 Bootstrap Basic 和 Worker 进程接管浏览器会话。浏览器认证使用 Indexed Repository、`crewscope:session` Namespace、12 小时 TTL、每账号最多 5 个 Session 和最久未使用淘汰；注册与登录共用 `BrowserSessionLifecycle` 完成 Session 建立、ID 旋转、并发 Session 裁决和 credential-free SecurityContext 保存。Session Principal 只含 Account UUID 与 SecurityVersion，Authority 使用固定 `ROLE_*`，Jackson 3 反序列化白名单不允许领域聚合。Redis 读取、旋转、裁决或最终保存失败时请求失败关闭，不回退到内存 Session、客户端身份或 Bootstrap 用户。Bootstrap SecurityContext 与 RequestCache 显式无状态，不返回浏览器 Session Cookie。
+M7-I02 由 CrewScope 显式启用 Spring Session Redis，排除 starter 基于 classpath 的无条件 Session 装配，避免 Bootstrap Basic 和 Worker 进程接管浏览器会话。浏览器认证使用 Indexed Repository、`crewscope:session` Namespace、12 小时 TTL、每账号最多 5 个 Session 和最久未使用淘汰；注册与登录共用 `BrowserSessionLifecycle` 完成 Session 建立、ID 旋转、并发 Session 裁决和 credential-free SecurityContext 保存。Session Principal 只含 Account UUID 与 SecurityVersion，Authority 使用固定 `ROLE_*`。Jackson 3 反序列化白名单只接纳 Session 基础集合、时间类型、Security 类型、CrewScope Session Principal、数组，以及 Indexed Session 生命周期消息必需的 `Long` 时间戳，不允许领域聚合或任意 `java.lang` 类型。Redis 读取、旋转、裁决或最终保存失败时请求失败关闭，不回退到内存 Session、客户端身份或 Bootstrap 用户。Bootstrap SecurityContext 与 RequestCache 显式无状态，不返回浏览器 Session Cookie。
 
 M7-I03 使用独立 `LocalCredentialStore` 读取和原子更新密码 Hash，通用 Account/Identity Repository、当前账号快照、Audit 和公开 DTO 只接触 Credential Metadata。新密码由 Bouncy Castle 1.79 Argon2id M32/T3/P1 写入；Reader 仅兼容批准的较弱 Argon2id 与 BCrypt。进程启动时准备当前参数 Dummy Hash，未知、禁用、锁定或损坏 Credential 与可用账号都在输入预算和限流准入后执行恰好一次昂贵 Match。密码任务通过返回 `CompletionStage` 的公平有界专用执行器运行，队列等待最多 100 ms，2C2G/8C16G 分别配置 2/4 个 Permit，过载不启动 Hash；应用关闭时拒绝尚未开始的排队任务，Hash Provider 故障也必须完成对应异步结果。历史 Hash 成功匹配后以 Credential Version 与乐观锁 Version 双条件 CAS 升级；并发改密先提交时跳过 Rehash，旧密码产生的 Hash不重试、不覆盖新 Credential。Bootstrap 与本地 Credential 使用隔离的具名 PasswordEncoder，密码、Hash、解析原因与 Secret-bearing JDBC cause 不进入字符串、日志、事件、Trace、指标或公开错误。完整验证见 [M7-I03 本地密码编码与安全升级](testing/M7-I03-本地密码编码与安全升级.md)。
 
@@ -4197,7 +4214,10 @@ Web 工作台采用左侧团队导航、中间对话协作、右侧责任与执�
 
 ### 18.8 个人、团队与企业设置
 
-- `我的 Agent` 展示唯一默认 Personal Agent 以及成员创建的 Coding、Reviewer 等 USER-owned Specialist；成员可从服务端批准的 AgentTemplate 创建、配置、停用和归档执行 Agent；
+- `Agent 中心` 展示唯一默认 Personal Agent、成员创建的 USER-owned Specialist 和当前 Team 的 TEAM-owned Agent；个人与团队入口始终可发现，团队目录为空时仍显示权限、创建与使用指引；
+- WorkItem 由具备 `work:create` 的成员在 Work 页面创建，或由 Proposal Owner 确认 TaskIntent 后原子创建；创建者或 Proposal Owner 成为初始 Owner。Team Agent 在 MVP 阶段不能绕过人工确认主动创建 WorkItem；
+- 普通 Conversation 固定由 Personal Agent 接收成员目标。Team Agent 创建后先配置 TEAM/Organization 模型连接，再在 WorkItem 责任链中担任 Executor，并通过“交给 Agent 处理”创建耐久 Task；
+- 成员可从服务端批准的 AgentTemplate 创建、配置、停用和归档自己的执行 Agent；TEAM-owned Agent 的创建、配置和生命周期要求 `agent:manage`；
 - 每个 Agent 展示稳定身份、Ownership、TemplateVersion、当前 Configuration Revision、PERSONAL/TEAM 模型绑定、主模型、Fallback、输出偏好、连接所有者、成本归属和配置历史；
 - 模型候选项只使用服务端 `model-catalog` 可选交集，显示厂商、Model ID、能力、区域、价格、连接主体和健康；TEAM Binding 不显示或接受 USER Connection；
 - 保存前执行 Model Preflight，说明对个人任务、团队任务、新 Conversation、已有 Conversation 和运行中 Task 的生效范围；已有 Conversation 只在安全点提供显式刷新；
@@ -4460,7 +4480,7 @@ crewscope-server/src/main/java/io/crewscope/server/config/application/
 
 每个 `<Business>ApplicationConfiguration` 使用 `@Configuration(proxyBeanMethods = false)`，只创建该业务边界的 Application Service。跨业务共享的 `TimeProvider` 等基础依赖由 `PlatformApplicationConfiguration` 提供。禁止重新建立包含所有业务 Bean 的集中式 `ApplicationServiceConfiguration`。
 
-Controller 使用 `@RestController` 和构造器注入；`@RestController` 是 `@Controller + @ResponseBody` 的组合注解。单构造器不写 `@Autowired`，不使用字段注入。配置方法通过参数接收已注册 Port/Adapter，由 Spring 完成依赖解析。新增业务边界时同步新增或扩展对应配置类，并在 Spring Context 契约测试中证明关键 Application Service 恰好装配一次、无循环依赖和缺失 Port。
+Controller 使用 `@RestController` 和构造器注入；`@RestController` 是 `@Controller + @ResponseBody` 的组合注解。单构造器不写 `@Autowired`，不使用字段注入。配置方法通过参数接收已注册 Port/Adapter，由 Spring 完成依赖解析。参与事务完整性和安全边界的初始化器使用必选参数，禁止通过 `ObjectProvider` 或 No-op 实现静默降级；依赖不完整时应用拒绝启动。新增业务边界时同步新增或扩展对应配置类，并在 Spring Context 契约测试中证明关键 Application Service 恰好装配一次、无循环依赖和缺失 Port。
 
 这种装配方式让 Domain/Application 可以脱离 Spring 进行快速单元测试，同时让运行时实现、事务、HTTP 和安全能力留在外层。需要 Spring AOP 的事务、缓存、重试和观测能力由外层 Adapter、Decorator 或显式 Executor 提供，不通过给领域对象添加注解实现。
 

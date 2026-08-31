@@ -92,6 +92,8 @@ AppShell
 
 导航分组随权限裁剪，URL 始终保留当前 Team 和目标对象。对话入口在所有工作页面可见。
 
+`/settings/agents` 的产品名称为“Agent 中心”。页面顶部明确区分个人 Agent 与团队 Agent；两个入口不因当前数量为零而消失。团队 Agent 入口向有 `agent:manage` 权限的成员提供直接创建动作，向其他成员解释只读权限；团队区域同时提供进入 Work 的路径，说明 Team Agent 必须先成为 WorkItem Executor，再通过委托创建耐久 Task。普通 Conversation 继续固定使用 Personal Agent，不在浏览器中隐式切换执行身份。
+
 M1-F01 固化首批管理路由：
 
 ```text
@@ -102,6 +104,8 @@ M1-F01 固化首批管理路由：
 ```
 
 `team` 与 `project` Query 使用服务端 UUID。Scope Store 按 Team → WorkProject 顺序恢复范围；未知范围回落到第一个可访问对象并替换为规范 URL。切换 Team 清除旧 Project 与 Focus，切换 Project 保留当前页面。Conversation 与管理入口复用完整范围 Query。
+
+WorkProject 创建入口同时位于 Today 的 ContextHeader、首项目 Empty 状态、ScopeSwitcher、Work 管理页和 Repository Settings 缺失项目状态。入口要求 `work-projects:manage`，表单只提交 2–10 位规范 Key 与项目名称；Organization、Team 和默认 Workspace 由服务端解析。浏览器在提交前调用 Key Availability API 并失败关闭；写命令使用 Idempotency-Key，未修改表单的显式重试复用原 Key。创建完成后 Scope Store 回读 ACTIVE WorkProject、选中新项目并把服务端 UUID 写入 `project` Query，同时清除旧 WorkItem 与 Focus；Work 管理页直接进入新项目工作区，Repository Settings 原地进入新项目的 RepositoryBinding 流程。命令已提交但投影尚未可见时保留原请求重试提示。
 
 M4-F01 固化 Coding 对象深链接：
 
@@ -233,9 +237,9 @@ M1-F04 在详情打开时并行读取 A06 ACTIVE ResponsibilityAssignment 和 A0
 
 责任组件直接消费服务端 DTO。Owner 替换同时提交当前 Assignment ID 与 Version；Executor/Reviewer 释放使用 Assignment Version 的强 `If-Match`。`REVIEWER + USER` 表达 Gate Reviewer，`REVIEWER + SPECIALIST_AGENT` 表达无 Gate 效力的 Advisory Reviewer。前端只提示明显的 Owner/Executor 职责冲突，ReviewerEligibilityPolicy 与 PolicyPack 降级由服务端裁决。
 
-人类候选来自 ACTIVE TeamMember。A06 尚未提供 Agent 目录查询，M1 使用折叠的高级 Principal ID 输入，不构造模拟 Agent。WorkItem 列表契约也未返回责任摘要，M1 在详情展示完整责任；卡片的 Owner/Executor 摘要等待集合 Query 提供批量投影后交付，避免逐卡 N+1 请求。
+人类候选来自 ACTIVE TeamMember。M1-F04 交付时 A06 尚未提供 Agent 目录查询，因此只保留折叠的高级 Principal ID 输入；当前实现已接入 M5 Agent 目录，按当前 Team、Workspace、Agent/Principal ACTIVE 状态筛选 Executor 候选，并只把 Specialist Agent 列为 Advisory Reviewer 候选。目录支持 Loading、Empty、Error、Retry 和分页；当前页候选均已承担 Executor 或不存在 Specialist 时分别展示原因和“加载更多”路径，不渲染无选项的禁用下拉框。手动 Principal ID 降为高级兜底；服务端继续校验 Principal 类型、Team Scope、Workspace 和 Agent 状态。WorkItem 列表契约仍未返回责任摘要，完整责任在详情读取，避免逐卡 N+1 请求。
 
-“与 Personal Agent 讨论”保留对象与 Scope Query 进入 Conversation。“交给 Agent 处理（规划中）”只说明后续 TaskExecution 接入，不创建客户端假任务或虚假运行状态。
+“与 Personal Agent 讨论”保留对象与 Scope Query 进入 Conversation。“交给 Agent 处理”打开真实委托流程：读取责任链 Agent、AgentProfile 与可选模型，完成 CodingTarget 和模型 Preflight 后创建可审计 Task，并进入 Task、Coding、Review 与 Delivery 工作区。M1-F04 交付时使用的规划占位已由 M3–M5 的 TaskExecution 与 Coding 闭环替代，不创建客户端假任务或虚假运行状态。
 
 ### 3.7 M2 Conversation 状态与可访问性契约
 
@@ -355,10 +359,11 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 |---|---|---|
 | `ResponsibilityChain` | 角色、主体、有效期、来源、冲突和待接手状态 | WorkItem、Task、Review、Handoff |
 | `AgentPresence` | Agent 类型、状态、当前步骤、模型/Runtime、接管入口 | 对话、执行画布、团队首页 |
-| `AgentTemplateCard` | Template 名称、版本、RuntimeRole、能力、可用 Ownership/ExecutionScope、Tool/Skill 摘要和不可创建原因 | 我的 Agent、Agent 创建向导 |
+| `AgentTemplateCard` | Template 名称、版本、RuntimeRole、能力、可用 Ownership/ExecutionScope、Tool/Skill 摘要和不可创建原因 | Agent 中心、Agent 创建向导 |
 | `ModelSelectionField` | 厂商、Model ID、能力、区域、价格、Connection Owner、健康和不可选原因 | Agent 的 PERSONAL/TEAM Binding 设置 |
 | `ModelConnectionCard` | Scope Owner、Provider、Region、账单主体、凭证状态、健康、验证、轮换与撤销 | 模型与凭证设置 |
 | `AgentConfigurationHistory` | Configuration Revision、主/Fallback 模型、变更人、变更时间、生效范围和配置 Hash | Agent 设置与 Audit |
+| `ConversationAgentActionRegion` | Agent 运行与恢复状态、HITL Clarification、取消和安全重试 | Conversation 消息流末尾、Composer 上方 |
 | `WorkItemCard` | M1-F02：Key、目标、状态、类型、优先级、标签、Due Date；责任摘要等待集合批量投影，避免逐卡 N+1 | 列表、看板、对话引用 |
 | `WorkItemDetailDrawer` | 一致性详情、版本、合法迁移、评论、ResourceLink、责任链、时间线、并发冲突和 Personal Agent 跳转 | WorkItem List/Board 详情 |
 | `CodingTargetFormSection` | ACTIVE RepositoryBinding、Baseline Ref、AllowedPaths、精确 BuildProfile、Preflight、Scope 化草稿和通用任务切换 | WorkItem 委托、TaskIntent 确认结果 |
@@ -386,6 +391,10 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 
 工作区默认突出当前需要人处理的决策，运行日志和低层工具输出按需展开。
 
+Conversation 中的 Agent 运行状态、失败恢复和 HITL Clarification 使用同一个底部操作区。操作区位于最后一条消息之后、Composer 之前；失败或待补充信息状态出现时只滚动消息历史至该区域，不滚动 AppShell 页面。状态提示先于结构化表单展示，键盘焦点顺序与视觉顺序一致，消息历史顶部不重复放置 Agent 状态卡。窄屏下 Clarification 选项的原生表单控件必须绑定在可见选项内部，完整选项均为点击区域，自动滚动和固定模式导航不得遮挡 HITL 控件。
+
+Composer 接受 Markdown 多行文本，Enter 发送，Shift + Enter 插入换行，发送按钮可以提交粘贴得到的完整多行内容。浏览器写入和 Invocation Recovery 都先把 CRLF/CR 规范为 LF，再执行长度与控制字符校验；刷新恢复不会因操作系统换行格式丢弃合法内容或重复提交。
+
 ### 6.2 责任与协作
 
 - 任何 WorkItem 和 Task 都可在一屏内确认 Owner、Executor 和 Gate Reviewer；
@@ -399,6 +408,7 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 - Command 立即返回进行中反馈，并通过 Receipt 跟踪最终状态；
 - 乐观锁冲突展示当前事实与用户草稿，支持重新应用有效变更；
 - 网络断开显示最后同步时间、各事件流 Cursor 和恢复状态；
+- Agent 调用失败在消息流末尾展示安全错误摘要与重试入口，不显示 Provider 或服务端异常原文；
 - 长任务提供 Pause、Resume、Cancel 和 Takeover，按钮按权限与状态显示；
 - 危险动作展示目标、范围、身份、风险、回滚/补偿方式和确认有效期。
 
@@ -414,6 +424,8 @@ Serif 只用于低频识别元素，表格、表单、导航和执行信息使�
 | `< 768px` | 聚焦查看、评论、审批、确认和接管；复杂图与 Diff 提供摘要和跳转 |
 
 桌面端优先交付，所有新组件从 M0 起保留窄屏行为，不使用全局固定最小宽度阻断页面访问。
+
+桌面 AppShell 侧栏占满动态视口高度。品牌与 ScopeSwitcher 保持在顶部，账号菜单固定在底部，中间导航独立纵向滚动；较矮视口和浏览器 100% 缩放下不得依赖页面缩放才能访问 System 等末尾导航项或当前用户入口。
 
 窄屏 Composer 使用 16px 输入字号避免移动浏览器自动缩放，发送按钮最小高度为 42px，底部间距包含 `safe-area-inset-bottom`。
 

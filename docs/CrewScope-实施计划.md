@@ -276,10 +276,10 @@ flowchart LR
 
 #### 前端
 
-- Team/WorkProject ScopeSwitcher、Today 与 Work 管理导航；M1-F01 已交付真实 A01/A03 API Gateway、URL 范围恢复、成员管理与权限守卫，验证见[Scope 与团队管理前端](testing/M1-F01-Scope与团队管理前端.md)；
+- Team/WorkProject ScopeSwitcher、Today 与 Work 管理导航；M1-F01 已交付真实 A01/A03 API Gateway、URL 范围恢复、WorkProject 创建与 Key 校验、成员管理和权限守卫，验证见[Scope 与团队管理前端](testing/M1-F01-Scope与团队管理前端.md)；
 - WorkItem List/Board、筛选、详情抽屉和 URL 状态恢复；M1-F02 已交付真实 A04/A05 API Gateway、Native WorkItem 创建、Cursor、List/Board、共享 WorkItemCard 与 URL 视图状态，验证见[WorkItem 集合前端](testing/M1-F02-WorkItem集合前端.md)；
 - M1-F03 已交付 WorkItem 一致性详情、状态迁移、评论、ResourceLink、版本冲突刷新、详情深链接与 Conversation 对象级跳转，验证见[WorkItem 详情与协作前端](testing/M1-F03-WorkItem详情与协作前端.md)；
-- M1-F04 已交付 ResponsibilityChain、Owner/Executor/Gate/Advisory 分配与释放、资格提示、冲突刷新、业务时间线和 Personal Agent/执行占位入口，验证见[责任链与时间线前端](testing/M1-F04-责任链与时间线前端.md)；
+- M1-F04 已交付 ResponsibilityChain、Owner/Executor/Gate/Advisory 分配与释放、资格提示、冲突刷新、业务时间线和 Personal Agent 上下文入口；M5 Agent 目录已回填责任分配候选，按 Team、Workspace 和 ACTIVE 状态提供 Agent Executor 与 Specialist Advisory Reviewer，并对分页中“均已分配”和“无 Specialist”分别展示可继续操作的空态；M3–M5 已把原执行占位升级为真实 Task、Coding、Review 与 Delivery 委托闭环，验证见[责任链与时间线前端](testing/M1-F04-责任链与时间线前端.md)和[交给 Agent 处理应用与 API](testing/M3-A01-交给Agent处理应用与API.md)；
 - 评论、状态历史和责任活动统一进入 WorkItem 详情观察面；
 - 桌面/窄屏响应式、键盘操作、视觉回归与竞品差异检查。
 
@@ -535,15 +535,15 @@ M2 使用 `ConversationWorkItemLink` 保存已确认 TaskIntent 与 WorkItem 的
 - 将单 Spring `Model` Bean 升级为受信 `AgentScopeModelFactory`，根据 ResolvedModelSelection 构建 DeepSeek/OpenAI-compatible、OpenAI、DashScope、Gemini、Anthropic 或 Ollama Model；
 - DeepSeek 保持产品 Provider `deepseek`，Adapter 使用 `openai-compatible`，Tool 与 Structured Output 共存时固定 `nativeStructuredOutputWithTools(false)`；
 - AgentRuntimeSession 固定 AgentConfigurationVersion，Conversation 在安全点显式刷新，TaskExecution 通过 PolicySnapshot 固定 Provider/Connection/Model Revision/单价/策略哈希；
-- M5-F01 已建立 `我的 Agent` 和 `模型与凭证` 共用的公开 DTO、真实 HTTP Gateway、Scope 隔离 Store、强 ETag、offset 分页与设置深链接契约；
-- M5-F02 已交付 `我的 Agent` 列表；M5-F03 已交付批准 Template 创建向导、USER/TEAM 权限、详情设置、不可变 Configuration 历史、PERSONAL/TEAM 主/Fallback、继承默认、Preflight 与生命周期；M5-F04 已交付 Provider/Catalog、价格、Owner-scoped Connection、凭证单向输入、验证、轮换、停用、撤销、健康和 Command Receipt 证据入口；
+- M5-F01 已建立 `Agent 中心` 和 `模型与凭证` 共用的公开 DTO、真实 HTTP Gateway、Scope 隔离 Store、强 ETag、offset 分页与设置深链接契约；
+- M5-F02 已交付 `Agent 中心` 列表，并明确个人/团队入口、零 Team Agent 空状态和 WorkItem Executor 使用路径；M5-F03 已交付批准 Template 创建向导、USER/TEAM 权限、详情设置、不可变 Configuration 历史、PERSONAL/TEAM 主/Fallback、继承默认、Preflight 与生命周期；M5-F04 已交付 Provider/Catalog、价格、Owner-scoped Connection、凭证单向输入、验证、轮换、停用、撤销、健康和 Command Receipt 证据入口；
 - M5-F05 已交付 Conversation/WorkItem 共用委托：从当前责任链选择个人/团队 Agent 与 Configuration Revision，自动完成 Task Model Preflight，展示服务端推导的 PERSONAL/TEAM、Binding Source、实际主/Fallback 模型、价格 Revision 和 PolicySnapshot 坐标；创建固定预检返回的精确 Revision，Retry 支持沿用父配置或显式切换；Billing Subject 未公开时保持明确披露边界；
 - M5-F06 已交付 Review Workbench：按 attempt 展示 Review 修订历史、ContextPackage、精确 Diff/Test/Acceptance、Agent Advisory Finding、SELF_REVIEW、文件与行号定位、Reviewer 执行、成员 Gate Decision、修改轮次和失效历史；命令使用强 ETag、Idempotency-Key 与冲突回读，浏览器不接受或推导 Reviewer PolicySnapshot ID；
 - M5-Q01 已建立 84 项固定攻击集，覆盖 Owner/Scope、USER Key 团队注入、Prompt/Tool 扩权、Finding/Decision 伪造、Confirmation 欺骗、SSRF、Webhook 伪造、Artifact 越权和凭证泄漏；成员补充指令进入编码后的独立不可信 Prompt 分区，Confirmation 恢复与授权复验闭合 Scope、确认人、Audit、Bundle 和全部 Action Digest；
 - M5-Q02 已建立 48 项模型、凭证、成员、Reviewer、Diff、GitHub、Receipt、Webhook 与 Worker 固定故障集，恢复率 100%；TEAM 回退 USER Key、重复 Push/PR/Receipt 和未收敛 UNKNOWN 均为 0；
 - M5-Q03 已冻结 DeepSeek 与备用 OpenAI-compatible 协议、`reviewer@1` Prompt、空 Skill/Tool 和 12 项质量集；真实 DeepSeek 批次的缺陷召回、正确变更特异度和证据有效率均为 100%，类别准确率 75%、严重度准确率 87.5%、Gate 越权 0；
 - M5-Q04 已通过统一 Release Gate：Maven `1862 / 1862`、Vitest `311 / 311`、Playwright/视觉/Axe `150 / 150`，V20–V26、Docker、GitHub Fixture、M4 Judge Pack、Histoire、生产依赖审计、文档链接和格式全部通过；
-- 实现 `我的 Agent` 和 `模型与凭证` 两个设置面，包含 Agent 创建、PERSONAL/TEAM Binding、Model Preflight、生效范围、配置历史、连接健康、成本归属和 BYOK 策略。
+- 实现 `Agent 中心` 和 `模型与凭证` 两个设置面，包含 Agent 创建、PERSONAL/TEAM Binding、Model Preflight、生效范围、配置历史、连接健康、成本归属和 BYOK 策略。
 
 ### 11.3 Review
 
@@ -797,6 +797,7 @@ Spring Boot 装配统一位于 `crewscope-server` 组合根，并按 `Platform/I
 | `V30__notification_worker_runtime.sql` | Notification Worker Claim/Lease/Fencing、Attempt、Receipt Observation 与查询恢复运行事实 | M6 |
 | `V31__local_user_account_and_identity.sql` | UserAccount、PlatformRole、LoginIdentity、LocalCredential/非敏感元数据视图、AccountOrganizationBinding、规范用户名/邮箱唯一键、跨 Organization 复合外键、Hash 权限及强版本/状态/审计触发器 | M7 |
 | `V32__team_invitation.sql` | TeamInvitation、受限 Token Digest、元数据视图、目标角色、有效期、跨 Scope 外键、一次性终态、强版本与安全查询索引 | M7 |
+| `V33__repair_agent_model_outbox_projection.sql` | Agent Configuration 一基 Revision 到零基 DomainEvent Version 的历史校正，并将受 Audit Provider 引用兼容问题影响的 Agent/Model Outbox 死信恢复为有序重投 | 运行修复 |
 
 迁移只向前追加。已合并迁移文件保持不变。所有表、索引、约束和外键显式使用 `crewscope.*`；应用连接显式配置 `search_path`，测试同时覆盖默认与非默认 `search_path`。成员或 Agent 可修改的业务事实表记录创建和最后修改 Principal，技术表只保留自身运行时间与状态。约束、部分索引、外键删除语义和数据回填在同一迁移中明确声明。每个版本同时通过空库全量迁移和上一版本升级测试。
 
@@ -972,6 +973,14 @@ M6-Q02 已冻结 `FI-001` 至 `FI-121` 的故障矩阵，覆盖 Outbox、Project
 M6-Q03 已完成 `fixture`、`nightly` 与 `release-candidate` 三轨门禁。Linux amd64 Canonical 在 8 vCPU/16 GB 主机完成 120 秒 Warmup 与三轮各 600 秒 Measurement，每轮 `5,960` 请求；生产 READY Claim P95 为 `12 / 11 / 11ms`，Activity P95 为 `18 / 15 / 13ms`，Inbox P95 为 `13 / 13 / 11ms`，错误率均为 `0`。新备份空 Target 恢复到 V30，RPO `26s`、RTO `71s`、traffic 开启；真实飞书 `release-candidate-smoke@1` 固定模板返回 `SUCCEEDED`。完整 MVP Playwright 在 macOS 与 Linux 分平台基线均为 `180 / 180`。M6-Q03 已关闭，实现与证据见 [M6-Q03 固定负载、恢复与完整 MVP E2E](testing/M6-Q03-Load-Recovery-MVP-E2E.md)。
 
 M6-Q04 已完成 `local-preflight`、Linux amd64 `release-candidate` 与 GitHub Actions 权威门禁。除本机既有 `2554 / 2554`、Vitest `450 / 450`、Playwright `180 / 180`、14 Story/104 Variant 外，Canonical 主机使用非 root 发布用户完成 7 模块 `clean verify`、Q01 `110 / 110`、Q02 `121 / 121`、冻结 Judge Pack、Backend/Web 镜像、Coverage、生产构建、Histoire 与零已知生产依赖漏洞；GitHub Actions 固定 Digest、OSV 和 Backend/Web Trivy 扫描全部成功，最终 `release-gate` 为 `success`。M6-Q04 已关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。实现与证据见 [M6-Q04 MVP Release Gate](testing/M6-Q04-MVP-Release-Gate.md)。
+
+M7 本地账号会在应用启动后创建新 Organization 和 Team，因此 Team Observer 初始化不再以 V28 的一次性回填为唯一入口。修复任务将 `team-observer@1` 纳入平台内置 Template Catalog，实现 `DefaultTeamObserverRepository`、Spring 组装和幂等 Provisioning Service；Team 创建时原子生成禁用身份，应用启动与摘要调用前修复存量 Team。Template Catalog 的并发初始化只在精确 Version 与 Content Hash 都一致时接受竞争写入；相同坐标内容漂移时失败关闭。Team 创建组合根直接要求 Template Catalog 与 Team Observer Initializer，缺失依赖时拒绝启动，不再静默回退为空实现。存在安全可选的 TEAM/ORGANIZATION 模型时自动创建初始 TEAM Binding 并通过 Preflight 激活；已有配置不被自动覆盖，没有可选模型时保持禁用且不阻断注册。验收覆盖新 Team、存量 Team、重复启动、并发首次调用、内容漂移、无模型连接和已有管理员配置。
+
+Team Observer 本地运行修复将 Personal Conversation 中间件与 Observer 中间件按受信 Session Kind 分流。Observer 调用注入 `TeamObserverRuntimeSession`，专用 Middleware 在模型调用前校验 Team/成员/确定性 Observer/AgentScope Session 坐标；Conversation 和 Task 保留原 Platform Middleware 全链。运行遥测区分权限、授权漂移、结构化输出、超时、限流、认证和 Provider 不可用，不再将所有失败归类为 `output_invalid`。
+
+DeepSeek 真实调用暴露点号 Tool Function Name 不符合 OpenAI-compatible 协议。修复保留数据库和权限中的稳定点号 Tool Key，在 AgentScope 运行时使用确定性 snake_case 别名；全平台 `ModelToolNamePolicy` 对当前和未来 Template、Coding、Task、Reviewer、Observer、插件与 MCP Tool 执行 Provider 前名称、长度、唯一性和别名碰撞门禁。AgentScope 2.0 以 `tools=null` 表达无 Tool 的 Compaction、Consolidation 和内部摘要调用，门禁保留该原生契约并只校验实际存在的 Tool Schema。本修复不修改 Template/Configuration Hash，不需要数据迁移。
+
+本地邀请、Activity SSE 与 Outbox 运行修复补齐独立 Invitation HMAC、启用 Team Activity Realtime，并校正两类投影兼容问题。模型连接生命周期中的 `connectionId` 只验证其与 `MODEL_CONNECTION` Subject 一致，不伪造 ProviderBinding 引用；Agent Configuration 的一基 Revision 在 DomainEvent 边界转换为零基 Aggregate Version。V33 只恢复这两类已知 `TRANSPORT_FAILURE` 死信，仍由既有分区顺序、Consumer Receipt 和幂等协议完成重投。Spring Session 的受限 Jackson 白名单显式允许 Redis Indexed Session 生命周期消息所需的 `Long lastAccessedTime`，继续拒绝领域聚合与未受信类型；macOS 构建按本机 Profile 打包 Netty 原生 DNS Resolver，Linux 发布构建保持平台无关依赖集。
 
 ## 20. 项目管理与进度跟踪
 

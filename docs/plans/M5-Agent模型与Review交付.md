@@ -18,7 +18,7 @@ M5 完成后具备：
 - Reviewer Specialist、ContextPackage、ReviewRequest、ReviewFinding 与 TeamMember Gate ReviewDecision；
 - GitHub Connection、Repository 资源选择、受管远端同步、Push Branch、Create Draft PR 与 Webhook 对账；
 - ActionBundle、PlannedAction、Confirmation、ActionReceipt、UNKNOWN/Reconcile 与完整 Audit；
-- `我的 Agent`、`模型与凭证`、任务委托、Review Workbench 和 Draft PR 确认结果前端；
+- `Agent 中心`、`模型与凭证`、任务委托、Review Workbench 和 Draft PR 确认结果前端；
 - 模型、凭证、Review、外部动作的固定安全集、故障集、质量集和 M5 Release Gate。
 
 M5 的普通成员只能从平台或组织/团队批准的 AgentTemplate 创建 Agent。成员不能发布任意 Runtime、System Prompt、安全策略、Tool、Shell、网络、MCP 或 Credential Scope。M5 不开放 Plugin 市场、任意自定义 Agent 代码、自动合并 PR、生产部署、GitHub Issue 双向同步、定时 Autopilot 或跨 Organization Agent。
@@ -27,7 +27,7 @@ M5 的普通成员只能从平台或组织/团队批准的 AgentTemplate 创建 
 
 ```text
 Organization/Team Admin 配置模型目录、连接、允许列表和 Team 默认
-  -> 成员在“我的 Agent”从 Coding/Reviewer Template 创建个人执行 Agent
+  -> 成员在“Agent 中心”从 Coding/Reviewer Template 创建个人执行 Agent
   -> 成员分别配置 PERSONAL 与 TEAM 执行模型绑定并完成 Preflight
   -> 从 Conversation 或 WorkItem 选择 Agent 执行个人或团队 Coding Task
   -> TaskExecution 固定 Template/Agent/Configuration/Model/Connection/价格与策略
@@ -153,7 +153,7 @@ M5-F02..F07 -> M5-F08
 | ID | 类型 | 依赖 | 涉及模块 | 实施内容 | 验证 |
 |---|---|---|---|---|---|
 | `M5-F01` | TASK | A01..A03 | web | 已完成：建立 Model/Connection/AgentTemplate/AgentProfile/Configuration Gateway、公开 DTO、双 Store、缓存、错误与设置深链接路由契约；应用组合根安装真实 HTTP Gateway | [M5-F01 Agent 与模型前端数据层](../testing/M5-F01-Agent与模型前端数据层.md)；23 个专项 Vitest 与 260 个前端全量测试覆盖 DTO 白名单、Scope 切换、有界 offset 分页、强 ETag、旧读写请求隔离、凭证不缓存、配置版本和生产构建 |
-| `M5-F02` | FEATURE | F01,A02,A03 | web | 已完成：交付“我的 Agent”导航与列表，区分默认 Personal、个人 Specialist 和团队 Agent，展示 Template、生命周期、Configuration Revision 与 PERSONAL/TEAM 主/Fallback 模型；任务数与成本等待服务端 Agent 聚合投影，不从 Task/Conversation 在浏览器反向聚合 | [M5-F02 我的 Agent 列表](../testing/M5-F02-我的Agent列表.md)；59 个前端测试文件、265 项 Vitest、130 项双视口 Playwright、Axe WCAG 2.2 AA、视觉基线和生产构建通过 |
+| `M5-F02` | FEATURE | F01,A02,A03 | web | 已完成：交付“Agent 中心”导航与列表，区分默认 Personal、个人 Specialist 和团队 Agent，展示 Template、生命周期、Configuration Revision 与 PERSONAL/TEAM 主/Fallback 模型；个人/团队入口和零 Team Agent 空状态保持可发现；任务数与成本等待服务端 Agent 聚合投影，不从 Task/Conversation 在浏览器反向聚合 | [M5-F02 Agent 中心列表](../testing/M5-F02-我的Agent列表.md)；59 个前端测试文件、265 项 Vitest、130 项双视口 Playwright、Axe WCAG 2.2 AA、视觉基线和生产构建通过 |
 | `M5-F03` | FEATURE | F01,A02,A03 | web | 已完成：交付 Agent 创建向导和详情设置，支持批准 Template、USER/TEAM Ownership、名称、受控补充指令、Template Skill 白名单、PERSONAL/TEAM 主/Fallback、继承团队默认、首次/后续 Revision、Preflight、历史只读和生命周期；Memory/Budget 在公开目录交付前只保留精确引用 | [M5-F03 Agent 创建与详情设置](../testing/M5-F03-Agent创建与详情设置.md)；61 个前端测试文件、273 项 Vitest、132 项双视口 Playwright、Axe WCAG 2.2 AA、6 份 Agent 双视口视觉基线、生产构建和服务端 DTO 专项测试通过 |
 | `M5-F04` | FEATURE | F01,A01 | web | 已完成：交付“模型与凭证”管理页，支持 Provider/Catalog、Region、Retention、能力、价格、USER/TEAM/ORGANIZATION Connection 安全投影，以及创建、验证、轮换、停用、撤销、健康和 Command Receipt 证据入口；Team 默认、允许列表、预算和完整 Audit 查询在公开管理 API 交付前保持明确只读缺口 | [M5-F04 模型与凭证管理](../testing/M5-F04-模型与凭证管理.md)；64 个前端测试文件、282 项 Vitest、136 项双视口 Playwright、Axe、4 份视觉基线、生产构建和服务端 A01 专项 5 项通过 |
 | `M5-F05` | FEATURE | F01,A04,M4-F03 | web | 已完成：扩展 Conversation/WorkItem 共用 Task 委托，按责任链选择个人/团队 Agent 与 Configuration Revision，自动展示 PERSONAL/TEAM、Binding Source、主/Fallback 模型、Catalog/Price Revision、PolicyPack/Resolution Hash 和成本披露边界；Retry 支持沿用父配置或显式换 Revision | [M5-F05 Task 委托与模型预检](../testing/M5-F05-Task委托与模型预检.md)；64 个前端测试文件、286 项 Vitest、138 项双视口 Playwright、Axe WCAG 2.2 AA、2 份视觉基线、生产构建和文档门禁通过 |

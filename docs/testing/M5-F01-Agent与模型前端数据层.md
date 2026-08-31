@@ -13,7 +13,7 @@ M5-F01 建立 M5-F02 至 F05 共用的浏览器数据基础：
 - Model Store 与 Agent Store 按 `organizationId + teamId` 分区，提供有界分页、详情、配置历史、Preflight、生命周期命令和缓存失效；
 - `domains/settings/route.ts` 固定 `/settings/agents` 与 `/settings/models` 的 Team、Agent、Configuration Revision、Provider、Connection 和 OwnerType 深链接坐标；
 - 应用组合根安装 `HttpModelGateway`、`HttpAgentGateway` 及两个独立 Store；
-- 本阶段不交付设置页面；“我的 Agent”列表由 F02 接续，Agent 创建与配置由 F03 接续，“模型与凭证”页面由 F04 接续。
+- 本阶段不交付设置页面；“Agent 中心”列表由 F02 接续，Agent 创建与配置由 F03 接续，“模型与凭证”页面由 F04 接续。
 
 ## 2. 浏览器披露边界
 
@@ -91,4 +91,4 @@ pnpm --dir crewscope-web build
 
 ## 6. 下一阶段
 
-M5-F02 使用 Agent Gateway、Store 与设置深链接契约交付“我的 Agent”列表，区分默认 Personal Agent、USER-owned Specialist 和 TEAM-owned Agent，并补齐加载、空态、权限、生命周期和响应式页面验证。
+M5-F02 使用 Agent Gateway、Store 与设置深链接契约交付“Agent 中心”列表，区分默认 Personal Agent、USER-owned Specialist 和 TEAM-owned Agent，并补齐加载、空态、权限、生命周期和响应式页面验证。

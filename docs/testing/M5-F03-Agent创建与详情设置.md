@@ -2,7 +2,7 @@
 
 ## 交付结果
 
-M5-F03 在 `/settings/agents` 交付 Agent 创建向导和详情配置面板，覆盖 USER-owned Specialist 与 TEAM-owned Agent。普通成员可以管理自己拥有的 USER Agent；TEAM Agent 的创建、配置和生命周期操作要求 `agent:manage`。服务端继续执行 Organization、Team Membership、Ownership、Role、Template 和模型治理校验。
+M5-F03 在 `/settings/agents` Agent 中心交付 Agent 创建向导和详情配置面板，覆盖 USER-owned Specialist 与 TEAM-owned Agent。普通成员可以管理自己拥有的 USER Agent；TEAM Agent 的创建、配置和生命周期操作要求 `agent:manage`。团队区域提供预选 TEAM Ownership 的直接创建入口；目录为空时入口仍存在。服务端继续执行 Organization、Team Membership、Ownership、Role、Template 和模型治理校验。
 
 创建向导只接受服务端批准的 AgentTemplate、Ownership 和显示名称。创建命令回执不包含 AgentProfile ID，页面会记录创建前的可见 ID 集并刷新目录；只有刷新结果恰好出现一个新 ID 时才自动打开详情。并发创建产生多个新 ID 时页面保留权威列表，不猜测创建结果。
 
@@ -31,7 +31,7 @@ System Prompt、Allowed Tool、Structured Output Schema、Endpoint、Credential 
 
 ## 响应式与可访问性
 
-桌面端使用目录内嵌详情面板，移动端将创建向导呈现为 Bottom Sheet，并在页面摘要区提供可见的“创建 Agent”入口。创建向导支持初始焦点、Escape、Focus Trap 和关闭后焦点恢复；详情关闭后焦点返回原 Agent 卡片。390×844 视口没有水平溢出。
+桌面端使用目录内嵌详情面板，移动端将创建向导呈现为 Bottom Sheet。页面摘要区提供个人与团队类型入口，团队创建动作直接预选 TEAM Ownership；团队区域始终解释“配置模型 → 分配为 WorkItem Executor → 交给 Agent 处理”的使用顺序。创建向导支持初始焦点、Escape、Focus Trap 和关闭后焦点恢复；详情关闭后焦点返回原 Agent 卡片。390×844 视口没有水平溢出。
 
 ## 验证
 

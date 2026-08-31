@@ -127,3 +127,32 @@ ARTIFACT_SUMMARY
 - Principal/Profile 同步生命周期与失败 Preflight 零写入；
 - 通用模板目录和 Agent 创建入口防绕过；
 - ACTIVE 成员、固定五段摘要、DataScope、跨成员拒绝和内部证据路径。
+
+## 7. M7 新 Team 运行时补建回归
+
+M7 开放注册会在 V28 执行后持续创建 Organization 和 Team，因此 Observer 不能只依赖
+历史迁移回填。运行时使用同一个 `TeamObserverProvisioningService` 完成三条路径：
+
+1. Team 创建交易内持久化内置 Template 和确定性禁用 Principal/Profile；
+2. 应用就绪后扫描存量 ACTIVE Team 并幂等补建；
+3. 每次摘要执行前再次补建，覆盖启动时模型暂不可用和并发首次调用。
+
+首次配置存在一个独立的激活 Preflight 边界：仅对精确内置 `team-observer@1` 使用待提交的
+ACTIVE Profile 快照验证模型，持久 Profile 和 Principal 在 Preflight 成功前保持 `DISABLED`。
+普通禁用 Agent 继续使用原有 ACTIVE 执行门禁。已有 Configuration 不会被自动覆盖；没有安全
+可选的 TEAM/ORGANIZATION 模型时 Observer 保持禁用，应用启动和用户注册不受阻断。
+
+回归命令：
+
+```bash
+./mvnw --batch-mode --no-transfer-progress \
+  -pl crewscope-application -am \
+  -Dtest=TeamCreationServiceTest,TeamObserverProvisioningServiceTest,\
+AgentConfigurationApplicationServiceTeamObserverTest,DefaultTeamObserverServiceM6D05Test,\
+DefaultAgentTemplateCatalogInitializerTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+结果：17 个测试通过，0 Failure，0 Error，0 Skip。当前本地 PostgreSQL 运行事实同时验证
+Observer Principal/Profile 均为 `ACTIVE`、Configuration Revision 为 `1`，TEAM DIRECT
+Binding 指向健康的 `deepseek/deepseek-v4-flash`，未读取或记录 Credential。
