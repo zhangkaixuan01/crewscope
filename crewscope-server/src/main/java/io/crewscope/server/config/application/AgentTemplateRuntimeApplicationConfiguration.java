@@ -12,6 +12,7 @@ import io.crewscope.agentscope.template.TemplateAgentRuntimeFactory;
 import io.crewscope.agentscope.template.TemplatePersonalAgentFactory;
 import io.crewscope.agentscope.template.TemplateSpecialistAgentFactory;
 import io.crewscope.agentscope.template.TemplateTeamAgentFactory;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
 import io.crewscope.application.model.ModelConnectionCredentialService;
 import io.crewscope.application.model.ModelConnectionRepository;
@@ -46,15 +47,22 @@ public class AgentTemplateRuntimeApplicationConfiguration {
   }
 
   @Bean
+  TeamObserverRuntimeContextMiddleware teamObserverRuntimeContextMiddleware() {
+    return new TeamObserverRuntimeContextMiddleware();
+  }
+
+  @Bean
   RestrictedTemplateAgentBuilder restrictedTemplateAgentBuilder(
       AgentStateStore stateStore,
       PlatformAgentMiddlewareSet middlewareSet,
+      TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
       TemplateAgentRuntimeProperties properties) {
     return new RestrictedTemplateAgentBuilder(
         stateStore,
         properties.validatedRuntimeRoot(),
         properties.validatedMaximumIterations(),
-        middlewareSet);
+        middlewareSet,
+        teamObserverMiddleware);
   }
 
   @Bean

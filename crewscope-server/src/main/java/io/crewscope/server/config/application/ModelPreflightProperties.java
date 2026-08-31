@@ -10,7 +10,8 @@ public class ModelPreflightProperties {
 
     private Duration healthCacheTtl = Duration.ofSeconds(30);
     private int maximumHealthCacheEntries = 1_024;
-    private int maximumCatalogEntriesPerProvider = 1_000;
+    // The persistence adapter intentionally caps one catalog page at 200 rows.
+    private int maximumCatalogEntriesPerProvider = 200;
 
     public Duration getHealthCacheTtl() {
         return healthCacheTtl;
@@ -49,18 +50,18 @@ public class ModelPreflightProperties {
     public int validatedMaximumHealthCacheEntries() {
         return bounded(
                 maximumHealthCacheEntries,
-                "crewscope.model.preflight.maximum-health-cache-entries");
+                "crewscope.model.preflight.maximum-health-cache-entries", 10_000);
     }
 
     public int validatedMaximumCatalogEntriesPerProvider() {
         return bounded(
                 maximumCatalogEntriesPerProvider,
-                "crewscope.model.preflight.maximum-catalog-entries-per-provider");
+                "crewscope.model.preflight.maximum-catalog-entries-per-provider", 200);
     }
 
-    private static int bounded(int value, String field) {
-        if (value < 1 || value > 10_000) {
-            throw new IllegalStateException(field + " must be between 1 and 10000");
+    private static int bounded(int value, String field, int maximum) {
+        if (value < 1 || value > maximum) {
+            throw new IllegalStateException(field + " must be between 1 and " + maximum);
         }
         return value;
     }

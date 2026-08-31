@@ -1,7 +1,9 @@
 package io.crewscope.application.team;
 
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
 import io.crewscope.application.provider.TeamProviderInitializer;
+import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.team.MemberRole;
@@ -27,6 +29,8 @@ public final class TeamCreationService {
   private final TeamProviderInitializer providerInitializer;
   private final TransactionExecutor transactionExecutor;
   private final TimeProvider timeProvider;
+  private final AgentTemplateCatalogInitializer templateInitializer;
+  private final TeamObserverInitializer teamObserverInitializer;
 
   public TeamCreationService(
       TeamRepository teamRepository,
@@ -46,7 +50,9 @@ public final class TeamCreationService {
         defaultPersonalAgentRepository,
         (team, workspace, actor) -> {},
         transactionExecutor,
-        timeProvider);
+        timeProvider,
+        (organizationId, actor, occurredAt) -> {},
+        (team, workspace, ownerMember, ownerUser) -> {});
   }
 
   public TeamCreationService(
@@ -59,6 +65,57 @@ public final class TeamCreationService {
       TeamProviderInitializer providerInitializer,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
+    this(
+        teamRepository,
+        workspaceRepository,
+        teamMemberRepository,
+        teamRoleRepository,
+        memberRoleRepository,
+        defaultPersonalAgentRepository,
+        providerInitializer,
+        transactionExecutor,
+        timeProvider,
+        (organizationId, actor, occurredAt) -> {},
+        (team, workspace, ownerMember, ownerUser) -> {});
+  }
+
+  public TeamCreationService(
+      TeamRepository teamRepository,
+      WorkspaceRepository workspaceRepository,
+      TeamMemberRepository teamMemberRepository,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      DefaultPersonalAgentRepository defaultPersonalAgentRepository,
+      TeamProviderInitializer providerInitializer,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider,
+      AgentTemplateCatalogInitializer templateInitializer) {
+    this(
+        teamRepository,
+        workspaceRepository,
+        teamMemberRepository,
+        teamRoleRepository,
+        memberRoleRepository,
+        defaultPersonalAgentRepository,
+        providerInitializer,
+        transactionExecutor,
+        timeProvider,
+        templateInitializer,
+        (team, workspace, ownerMember, ownerUser) -> {});
+  }
+
+  public TeamCreationService(
+      TeamRepository teamRepository,
+      WorkspaceRepository workspaceRepository,
+      TeamMemberRepository teamMemberRepository,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      DefaultPersonalAgentRepository defaultPersonalAgentRepository,
+      TeamProviderInitializer providerInitializer,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider,
+      AgentTemplateCatalogInitializer templateInitializer,
+      TeamObserverInitializer teamObserverInitializer) {
     this.teamRepository = Objects.requireNonNull(teamRepository, "teamRepository");
     this.workspaceRepository = Objects.requireNonNull(workspaceRepository, "workspaceRepository");
     this.teamMemberRepository =
@@ -71,6 +128,9 @@ public final class TeamCreationService {
     this.providerInitializer = Objects.requireNonNull(providerInitializer, "providerInitializer");
     this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
     this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+    this.templateInitializer = Objects.requireNonNull(templateInitializer, "templateInitializer");
+    this.teamObserverInitializer =
+        Objects.requireNonNull(teamObserverInitializer, "teamObserverInitializer");
   }
 
   /**
@@ -121,6 +181,8 @@ public final class TeamCreationService {
                 "DefaultPersonalAgentRepository.initializeIfAbsent result")
             .requireDefaultFor(ownerMember, workspace);
     providerInitializer.initialize(team, workspace, actor);
+    templateInitializer.initialize(team.organizationId(), actor.id(), timeProvider.now());
+    teamObserverInitializer.initialize(team, workspace, ownerMember, actor);
     return new TeamInitialization(team, workspace, ownerMember, roles, ownerRole, personalAgent);
   }
 }

@@ -24,6 +24,7 @@ import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.domain.shared.event.DomainEventEnvelope;
 import io.crewscope.domain.agent.AgentConfigurableSlot;
 import io.crewscope.domain.agent.AgentConfigurationVersion;
 import io.crewscope.domain.agent.AgentExecutionScope;
@@ -61,6 +62,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /** M5-A03 owner isolation, inherited TEAM binding, Revision and atomic evidence tests. */
 class AgentConfigurationApplicationServiceM5A03Test {
@@ -202,7 +204,12 @@ class AgentConfigurationApplicationServiceM5A03Test {
                 io.crewscope.domain.agent.AgentModelBindingKind.INHERIT_TEAM_DEFAULT,
                 second.teamModelBinding().orElseThrow().kind());
         verify(configurations, org.mockito.Mockito.times(2)).append(any());
-        verify(events, org.mockito.Mockito.times(2)).append(any());
+        ArgumentCaptor<DomainEventEnvelope<?>> emitted =
+                ArgumentCaptor.forClass(DomainEventEnvelope.class);
+        verify(events, org.mockito.Mockito.times(2)).append(emitted.capture());
+        assertEquals(
+                List.of(0L, 1L),
+                emitted.getAllValues().stream().map(DomainEventEnvelope::aggregateVersion).toList());
         verify(outbox, org.mockito.Mockito.times(2)).enqueue(any());
         verify(receipts, org.mockito.Mockito.times(2)).complete(any(), any(), any(), any());
     }

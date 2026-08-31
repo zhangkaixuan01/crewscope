@@ -37,15 +37,18 @@ public final class ObservableAgentScopeModel implements Model {
     @Override
     public Flux<ChatResponse> stream(
             List<Msg> messages, List<ToolSchema> tools, GenerateOptions options) {
-        return Flux.deferContextual(contextView -> {
-            AgentCallObservationScope invocationScope =
-                    AgentCallObservationScope.find(contextView).orElse(null);
-            TaskAgentCallObservationScope taskScope =
-                    TaskAgentCallObservationScope.find(contextView).orElse(null);
-            if (invocationScope == null && taskScope == null) {
-                return Flux.defer(() -> delegate.stream(messages, tools, options));
-            }
-            return observed(invocationScope, taskScope, messages, tools, options);
+        return Flux.defer(() -> {
+            ModelToolNamePolicy.requireCompatibleSchemas(tools);
+            return Flux.deferContextual(contextView -> {
+                AgentCallObservationScope invocationScope =
+                        AgentCallObservationScope.find(contextView).orElse(null);
+                TaskAgentCallObservationScope taskScope =
+                        TaskAgentCallObservationScope.find(contextView).orElse(null);
+                if (invocationScope == null && taskScope == null) {
+                    return Flux.defer(() -> delegate.stream(messages, tools, options));
+                }
+                return observed(invocationScope, taskScope, messages, tools, options);
+            });
         });
     }
 

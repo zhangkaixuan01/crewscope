@@ -3,6 +3,7 @@ package io.crewscope.agentscope.template;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,13 +15,24 @@ public final class RestrictedTemplateAgentBuilder {
     private final AgentStateStore stateStore;
     private final Path runtimeRoot;
     private final int maximumIterations;
-    private final java.util.List<io.agentscope.core.middleware.MiddlewareBase> middlewares;
+    private final java.util.List<io.agentscope.core.middleware.MiddlewareBase> platformMiddlewares;
+    private final TeamObserverRuntimeContextMiddleware teamObserverMiddleware;
 
     public RestrictedTemplateAgentBuilder(
             AgentStateStore stateStore,
             Path runtimeRoot,
             int maximumIterations,
             PlatformAgentMiddlewareSet middlewareSet) {
+        this(stateStore, runtimeRoot, maximumIterations, middlewareSet,
+                new TeamObserverRuntimeContextMiddleware());
+    }
+
+    public RestrictedTemplateAgentBuilder(
+            AgentStateStore stateStore,
+            Path runtimeRoot,
+            int maximumIterations,
+            PlatformAgentMiddlewareSet middlewareSet,
+            TeamObserverRuntimeContextMiddleware teamObserverMiddleware) {
         this.stateStore = Objects.requireNonNull(stateStore, "stateStore");
         this.runtimeRoot = Objects.requireNonNull(runtimeRoot, "runtimeRoot")
                 .toAbsolutePath()
@@ -29,7 +41,9 @@ public final class RestrictedTemplateAgentBuilder {
             throw new IllegalArgumentException("maximumIterations must be between 1 and 200");
         }
         this.maximumIterations = maximumIterations;
-        this.middlewares = Objects.requireNonNull(middlewareSet, "middlewareSet").ordered();
+        this.platformMiddlewares = Objects.requireNonNull(middlewareSet, "middlewareSet").ordered();
+        this.teamObserverMiddleware = Objects.requireNonNull(
+                teamObserverMiddleware, "teamObserverMiddleware");
     }
 
     public HarnessAgent build(TemplateAgentBuildRequest request, String description) {
@@ -66,12 +80,12 @@ public final class RestrictedTemplateAgentBuilder {
                 .disableCompaction()
                 .enableAgentTracingLog(false);
         required.definition().fallbackModel().ifPresent(builder::fallbackModel);
-        middlewares.forEach(builder::middleware);
+        middlewaresFor(required.identity().kind()).forEach(builder::middleware);
         HarnessAgent agent = builder.build();
         try {
             agent.getToolkit().removeTool("wait_async_results");
             if (!agent.getToolkit().getToolNames().equals(
-                    required.definition().enabledToolNames())) {
+                    required.runtimeToolNames())) {
                 throw new IllegalStateException(
                         "HarnessAgent registered a Tool outside the exact Template surface");
             }
@@ -80,6 +94,15 @@ public final class RestrictedTemplateAgentBuilder {
             agent.close();
             throw exception;
         }
+    }
+
+    /** Selects the security chain from the trusted session kind, never from Template text. */
+    java.util.List<io.agentscope.core.middleware.MiddlewareBase> middlewaresFor(
+            TemplateAgentSessionIdentity.Kind kind) {
+        return Objects.requireNonNull(kind, "kind")
+                        == TemplateAgentSessionIdentity.Kind.TEAM_OBSERVER
+                ? java.util.List.of(teamObserverMiddleware)
+                : platformMiddlewares;
     }
 
     private String stableName(TemplateAgentBuildRequest request) {

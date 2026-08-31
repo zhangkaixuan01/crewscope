@@ -126,7 +126,11 @@ public final class AgentManagementApplicationService {
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
 
-    /** Returns the latest active Organization and Team templates the caller may instantiate. */
+    /**
+     * Returns the latest active Organization and Team templates visible to the caller.
+     * Platform-managed templates are included so existing Agent profiles can resolve their
+     * immutable metadata; creation still applies the stricter runtime-role guard.
+     */
     public List<AgentTemplateDefinition> listTemplates(
             TeamAccessContext context,
             OrganizationId organizationId,
@@ -557,8 +561,9 @@ public final class AgentManagementApplicationService {
             AgentTemplateDefinition template, AgentOwnership ownership) {
         try {
             template.requireInstantiable(ownership);
-            return template.runtimeRole() != AgentRuntimeRole.PERSONAL_ASSISTANT
-                    && !TeamObserverTemplate.isTemplateVersion(template.templateVersion());
+            // The catalog is also used to resolve metadata for existing Personal Agents. Keep
+            // those ACTIVE templates visible here; the create command still rejects them below.
+            return !TeamObserverTemplate.isTemplateVersion(template.templateVersion());
         } catch (DomainValidationException denied) {
             return false;
         }

@@ -233,7 +233,7 @@ public class AuditEventProjector implements ProjectionHandler {
         Optional<UUID> directBinding = uuid(payload, "providerBindingId", false);
         Optional<UUID> directConnection = uuid(payload, "connectionId", false);
         Optional<String> directHash = scalar(payload, "externalOperationHash", false);
-        if (directBinding.isPresent() || directConnection.isPresent() || directHash.isPresent()) {
+        if (directBinding.isPresent() || directHash.isPresent()) {
             if (directBinding.isEmpty() || directConnection.isEmpty()) {
                 throw invalid("Audit Provider references require Binding and Connection together");
             }
@@ -241,6 +241,17 @@ public class AuditEventProjector implements ProjectionHandler {
                     directBinding.orElseThrow(),
                     directConnection.orElseThrow(),
                     directHash.map(AuditEventProjector::requireSha256)));
+        }
+        if (directConnection.isPresent()) {
+            // Model credential lifecycle facts are scoped directly to MODEL_CONNECTION. They do
+            // not represent a ProviderBinding external operation and must not be forced into the
+            // paired Provider reference columns.
+            if (!event.aggregateType().equals("MODEL_CONNECTION")
+                    || !directConnection.orElseThrow().equals(event.aggregateId())) {
+                throw invalid(
+                        "Standalone Audit Connection references require a matching Model Connection");
+            }
+            return Optional.empty();
         }
         if (!event.aggregateType().equals("PROVIDER_BINDING")) {
             return Optional.empty();

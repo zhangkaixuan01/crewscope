@@ -9,4 +9,9 @@ public final class SafeModelFailures {
         return new SafeModelExecutionException(
                 AgentCallFailureClassifier.classify(AgentCallFailureClassifier.unwrap(failure)));
     }
+
+    /** Returns the bounded provider-neutral code without exposing provider exception text. */
+    public static String safeCode(Throwable failure) {
+        return AgentCallFailureClassifier.classify(AgentCallFailureClassifier.unwrap(failure));
+    }
 }

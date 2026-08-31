@@ -15,6 +15,7 @@ import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamRepository;
+import io.crewscope.application.teamobserver.TeamObserverReadiness;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -66,6 +67,7 @@ class AgentScopeTeamObserverExecutionAdapterM6A05Test {
                 mock(AgentExecutionConfigurationService.class),
                 mock(TeamObserverModelFactory.class),
                 mock(TeamObserverRuntime.class),
+                mock(TeamObserverReadiness.class),
                 () -> now);
 
         assertEquals(

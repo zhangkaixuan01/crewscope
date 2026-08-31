@@ -302,7 +302,7 @@ crewscope:
       # Availability decisions are exact-version keyed and never outlive credential expiration.
       health-cache-ttl: ${CREWSCOPE_MODEL_PREFLIGHT_HEALTH_CACHE_TTL:30s}
       maximum-health-cache-entries: ${CREWSCOPE_MODEL_PREFLIGHT_MAXIMUM_HEALTH_CACHE_ENTRIES:1024}
-      maximum-catalog-entries-per-provider: ${CREWSCOPE_MODEL_PREFLIGHT_MAXIMUM_CATALOG_ENTRIES_PER_PROVIDER:1000}
+      maximum-catalog-entries-per-provider: ${CREWSCOPE_MODEL_PREFLIGHT_MAXIMUM_CATALOG_ENTRIES_PER_PROVIDER:200}
     dynamic:
       # Dynamic models are bounded, version-keyed and never published as global Spring Model beans.
       cache-ttl: ${CREWSCOPE_MODEL_DYNAMIC_CACHE_TTL:5m}

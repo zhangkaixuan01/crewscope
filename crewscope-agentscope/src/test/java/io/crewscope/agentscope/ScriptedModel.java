@@ -57,7 +57,10 @@ final class ScriptedModel implements Model {
         }
 
         requests.add(List.copyOf(messages));
-        toolRequests.add(List.copyOf(tools));
+        // AgentScope 2.0 passes null for model calls with no Tool surface, such as Compaction.
+        // Record that native form as an empty immutable list so the deterministic fixture can
+        // exercise the complete model call instead of failing before its scripted response.
+        toolRequests.add(tools == null ? List.of() : List.copyOf(tools));
         this.options.add(options);
         return Flux.just(responses.get(invocation));
     }

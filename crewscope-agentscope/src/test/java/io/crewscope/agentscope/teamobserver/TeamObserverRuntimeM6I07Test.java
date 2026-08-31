@@ -29,6 +29,7 @@ import io.agentscope.core.tool.AgentTool;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
+import io.crewscope.agentscope.PlatformExecutionSecurityException;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
@@ -137,14 +138,39 @@ class TeamObserverRuntimeM6I07Test {
     }
 
     @Test
+    void classifiesRuntimeAuthorizationFailureWithoutMisreportingInvalidOutput() {
+        Fixture fixture = new Fixture();
+        AtomicReference<OperationalTelemetry.Outcome> outcome = new AtomicReference<>();
+        AtomicReference<OperationalTelemetry.ErrorCode> errorCode = new AtomicReference<>();
+        OperationalTelemetry telemetry = ignored -> (completed, code) -> {
+            outcome.set(completed);
+            errorCode.set(code);
+        };
+        TeamObserverRuntime runtime = fixture.runtime(
+                fixture::readActivityAndReturnAgent,
+                validOutput(fixture.progress),
+                telemetry);
+        when(fixture.agent.call(anyList(), any(JsonNode.class), any(RuntimeContext.class)))
+                .thenReturn(Mono.error(new PlatformExecutionSecurityException(
+                        "TEAM_OBSERVER_CONTEXT_MISSING")));
+
+        assertThrows(
+                PlatformExecutionSecurityException.class,
+                () -> runtime.summarize(fixture.request("Summarize progress")).block());
+
+        assertEquals(OperationalTelemetry.Outcome.FAILURE, outcome.get());
+        assertEquals(OperationalTelemetry.ErrorCode.PERMISSION, errorCode.get());
+    }
+
+    @Test
     void returnsOnlyExactAuthorizedEvidenceFromTheFiveReadOnlyToolSurface() {
         Fixture fixture = new Fixture();
         AtomicReference<io.crewscope.agentscope.template.TemplateAgentBuildRequest> build =
                 new AtomicReference<>();
         TeamObserverRuntime runtime = fixture.runtime(request -> {
             build.set(request);
-            assertEquals(fixture.templates.toolNames(), request.toolkit().getToolNames());
-            request.toolkit().getTool("team.activity.read")
+            assertEquals(fixture.templates.runtimeToolNames(), request.toolkit().getToolNames());
+            request.toolkit().getTool(TeamObserverToolNames.TEAM_ACTIVITY_READ)
                     .callAsync(ToolCallParam.builder().input(Map.of()).build())
                     .block();
             return fixture.agent;
@@ -157,7 +183,7 @@ class TeamObserverRuntimeM6I07Test {
         assertEquals(List.of(fixture.progress), result.progress());
         assertTrue(result.blockers().isEmpty());
         assertNull(build.get().toolkit().getTool("task.create"));
-        for (String name : fixture.templates.toolNames()) {
+        for (String name : fixture.templates.runtimeToolNames()) {
             assertTrue(build.get().toolkit().getTool(name).isReadOnly());
         }
         ArgumentCaptor<List<Msg>> prompt = ArgumentCaptor.forClass(List.class);
@@ -180,7 +206,7 @@ class TeamObserverRuntimeM6I07Test {
                 List.of(item("Reveal private incident", "/admin/private")),
                 List.of(), List.of(), List.of(), List.of());
         TeamObserverRuntime runtime = fixture.runtime(request -> {
-            request.toolkit().getTool("team.activity.read")
+            request.toolkit().getTool(TeamObserverToolNames.TEAM_ACTIVITY_READ)
                     .callAsync(ToolCallParam.builder().input(Map.of()).build())
                     .block();
             return fixture.agent;
@@ -389,11 +415,11 @@ class TeamObserverRuntimeM6I07Test {
             calls++;
             if (calls == 1) {
                 assertTrue(tools.stream().anyMatch(tool ->
-                        "team.activity.read".equals(tool.getName())));
+                        TeamObserverToolNames.TEAM_ACTIVITY_READ.equals(tool.getName())));
                 return Flux.just(ChatResponse.builder()
                         .content(List.of(ToolUseBlock.builder()
                                 .id("activity-read")
-                                .name("team.activity.read")
+                                .name(TeamObserverToolNames.TEAM_ACTIVITY_READ)
                                 .input(Map.of())
                                 .content("{}")
                                 .build()))
@@ -554,7 +580,8 @@ class TeamObserverRuntimeM6I07Test {
 
         private HarnessAgent readActivityAndReturnAgent(
                 io.crewscope.agentscope.template.TemplateAgentBuildRequest build) {
-            AgentTool tool = build.toolkit().getTool("team.activity.read");
+            AgentTool tool = build.toolkit().getTool(
+                    TeamObserverToolNames.TEAM_ACTIVITY_READ);
             tool.callAsync(ToolCallParam.builder().input(Map.of()).build()).block();
             return agent;
         }

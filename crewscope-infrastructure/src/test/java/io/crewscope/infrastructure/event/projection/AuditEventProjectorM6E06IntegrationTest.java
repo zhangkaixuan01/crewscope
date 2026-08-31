@@ -222,6 +222,41 @@ class AuditEventProjectorM6E06IntegrationTest
     }
 
     @Test
+    void acceptsModelConnectionLifecycleWithoutInventingAProviderBindingReference() {
+        UUID connectionId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("connectionId", connectionId.toString());
+        payload.put("operation", "CREATED");
+        payload.put("providerKey", "deepseek");
+        payload.put("credentialSecretVersion", 0);
+        payload.put("connectionStatus", "ACTIVE");
+        payload.putNull("failureCode");
+        ProjectionEvent event = event(
+                "MODEL_CONNECTION_CREATED",
+                "MODEL_CONNECTION",
+                connectionId,
+                EventActorType.USER,
+                userId,
+                payload,
+                Optional.empty());
+
+        persistAndProject(event);
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                """
+                SELECT event_category, provider_binding_id, connection_id, payload::TEXT AS payload
+                FROM crewscope.audit_event WHERE domain_event_id = ?
+                """,
+                event.eventId());
+        assertEquals("MODEL", row.get("event_category"));
+        assertNull(row.get("provider_binding_id"));
+        assertNull(row.get("connection_id"));
+        JsonNode summary = objectMapper.readTree((String) row.get("payload"));
+        assertEquals("deepseek", summary.get("providerKey").stringValue());
+        assertFalse(summary.has("credentialSecretVersion"));
+    }
+
+    @Test
     void failsClosedForUnknownFieldsInARegisteredPayload() {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("agentProfileId", UUID.randomUUID().toString());

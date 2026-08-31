@@ -1,5 +1,6 @@
 package io.crewscope.server.config.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.agent.AgentConfigurationRepository;
@@ -46,6 +47,16 @@ class ModelPreflightApplicationConfigurationM5I04Test {
                 .hasSingleBean(AgentExecutionConfigurationService.class)
                 .hasSingleBean(SelectableModelCatalogService.class)
                 .hasSingleBean(ResolvedAgentPolicySnapshotService.class));
+    }
+
+    @Test
+    void defaultsCatalogPageToThePersistenceAdapterLimit() {
+        runner.run(context -> {
+            context.assertThat().hasNotFailed();
+            assertThat(context.getBean(ModelPreflightProperties.class)
+                    .validatedMaximumCatalogEntriesPerProvider())
+                    .isEqualTo(200);
+        });
     }
 
     @Test

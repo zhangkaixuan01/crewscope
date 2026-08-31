@@ -98,4 +98,9 @@ public final class TeamObserverTemplateRuntimeRegistry {
     public Set<String> toolNames() {
         return TOOL_NAMES;
     }
+
+    /** Model-facing aliases; canonical dotted keys remain unchanged in policy and persistence. */
+    public Set<String> runtimeToolNames() {
+        return TeamObserverToolNames.runtimeNamesFor(TOOL_NAMES);
+    }
 }

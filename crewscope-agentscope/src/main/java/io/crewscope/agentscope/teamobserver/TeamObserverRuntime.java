@@ -7,6 +7,7 @@ import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.crewscope.agentscope.PlatformExecutionSecurityException;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
@@ -99,8 +100,7 @@ public final class TeamObserverRuntime {
                 OperationalTelemetry.Request.teamObserver());
         return summarizeAuthorized(required)
                 .doOnSuccess(ignored -> observation.succeed())
-                .doOnError(ignored -> observation.fail(
-                        OperationalTelemetry.ErrorCode.OUTPUT_INVALID))
+                .doOnError(failure -> observation.fail(telemetryError(failure)))
                 .doOnCancel(observation::cancel);
     }
 
@@ -115,6 +115,7 @@ public final class TeamObserverRuntime {
         RuntimeContext context = RuntimeContext.builder()
                 .userId(required.session().agentScopeKey().userId())
                 .sessionId(required.session().agentScopeKey().sessionId())
+                .put(TeamObserverRuntimeSession.class, required.session())
                 .build();
         JsonNode schema = JsonUtils.getJsonCodec().fromJson(
                 TeamObserverTemplate.outputSchema(), JsonNode.class);
@@ -176,10 +177,32 @@ public final class TeamObserverRuntime {
 
     private static Throwable sanitizeModelFailure(Throwable failure) {
         if (failure instanceof DomainValidationException
-                || failure instanceof IllegalArgumentException) {
+                || failure instanceof IllegalArgumentException
+                || failure instanceof PlatformExecutionSecurityException) {
             return failure;
         }
         return SafeModelFailures.sanitize(failure);
+    }
+
+    private static OperationalTelemetry.ErrorCode telemetryError(Throwable failure) {
+        Throwable required = Objects.requireNonNull(failure, "failure");
+        if (required instanceof PlatformExecutionSecurityException) {
+            return OperationalTelemetry.ErrorCode.PERMISSION;
+        }
+        if (required instanceof DomainValidationException) {
+            return OperationalTelemetry.ErrorCode.AUTHORIZATION_DRIFT;
+        }
+        if (required instanceof IllegalArgumentException) {
+            return OperationalTelemetry.ErrorCode.OUTPUT_INVALID;
+        }
+        return switch (SafeModelFailures.safeCode(required)) {
+            case "MODEL_TIMEOUT" -> OperationalTelemetry.ErrorCode.TIMEOUT;
+            case "MODEL_RATE_LIMITED" -> OperationalTelemetry.ErrorCode.RATE_LIMITED;
+            case "MODEL_AUTHENTICATION_FAILED" ->
+                    OperationalTelemetry.ErrorCode.AUTHENTICATION;
+            case "MODEL_REQUEST_REJECTED" -> OperationalTelemetry.ErrorCode.INVALID_RESPONSE;
+            default -> OperationalTelemetry.ErrorCode.UNAVAILABLE;
+        };
     }
 }
 

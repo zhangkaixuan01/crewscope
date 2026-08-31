@@ -62,8 +62,10 @@ import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
+import io.crewscope.domain.workspace.AgentProfileStatus;
 import io.crewscope.domain.workspace.event.AgentConfigurationChanged;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -366,10 +368,19 @@ public final class AgentConfigurationApplicationService {
 
     private void preflightCandidate(
             ManagementFacts facts, AgentConfigurationVersion configuration) {
+        AgentProfile preflightProfile = facts.profile();
+        if (preflightProfile.status() == AgentProfileStatus.DISABLED
+                && TeamObserverTemplate.isTemplateVersion(
+                        preflightProfile.templateVersion())) {
+            // Activation Preflight must evaluate the exact version that will be committed, while
+            // the durable pair remains DISABLED until every model check succeeds.
+            preflightProfile = preflightProfile.activate(facts.actor().id(), facts.now());
+        }
+        AgentProfile executableProfile = preflightProfile;
         configuration.personalModelBinding()
                 .filter(binding -> binding.kind() != AgentModelBindingKind.ORCHESTRATION_ONLY)
                 .ifPresent(binding -> resolver.resolve(
-                        facts.profile(),
+                        executableProfile,
                         facts.template(),
                         configuration,
                         scopeFacts(AgentExecutionScope.PERSONAL),
@@ -379,7 +390,7 @@ public final class AgentConfigurationApplicationService {
         configuration.teamModelBinding()
                 .filter(binding -> binding.kind() != AgentModelBindingKind.ORCHESTRATION_ONLY)
                 .ifPresent(binding -> resolver.resolve(
-                        facts.profile(),
+                        executableProfile,
                         facts.template(),
                         configuration,
                         scopeFacts(AgentExecutionScope.TEAM),
@@ -402,7 +413,9 @@ public final class AgentConfigurationApplicationService {
                 configuration.ownership().teamId(),
                 Optional.empty(),
                 AggregateReference.of(AGGREGATE_TYPE, configuration.agentProfileId()),
-                configuration.revision().value(),
+                // Configuration revisions are one-based while DomainEvent aggregate versions are
+                // zero-based. The initial revision therefore belongs at aggregate version zero.
+                configuration.revision().value() - 1,
                 EventActor.principal(EventActorType.USER, context.access().actor().id()),
                 context.correlationId(),
                 context.causationId(),

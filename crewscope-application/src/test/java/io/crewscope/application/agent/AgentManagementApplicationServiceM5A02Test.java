@@ -206,7 +206,7 @@ class AgentManagementApplicationServiceM5A02Test {
     }
 
     @Test
-    void catalogReturnsOnlyInstantiableNonPersonalTemplates() {
+    void catalogKeepsPersonalMetadataVisible() {
         AgentTemplateDefinition personal = template(
                 "personal-assistant",
                 AgentRuntimeRole.PERSONAL_ASSISTANT,
@@ -227,7 +227,7 @@ class AgentManagementApplicationServiceM5A02Test {
                 0,
                 20);
 
-        assertEquals(List.of(coding), result);
+        assertEquals(List.of(coding, personal), result);
     }
 
     @Test

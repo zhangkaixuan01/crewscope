@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.crewscope.domain.identity.SecurityVersion;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -86,6 +87,19 @@ class BrowserSessionConfigurationM7I02Test {
         byte[] unexpected = serializer.serialize(new SecurityVersion(1));
         assertThatThrownBy(() -> serializer.deserialize(unexpected))
                 .isInstanceOf(SerializationException.class);
+    }
+
+    @Test
+    void roundTripsTheIndexedSessionLifecycleEventShape() {
+        RedisSerializer<Object> serializer = configuration.springSessionDefaultRedisSerializer();
+        Map<String, Object> lifecycleEvent = new HashMap<>();
+        lifecycleEvent.put("sessionId", UUID.randomUUID().toString());
+        lifecycleEvent.put("lastAccessedTime", 1_799_000_000_000L);
+
+        byte[] encoded = serializer.serialize(lifecycleEvent);
+        Object decoded = serializer.deserialize(encoded);
+
+        assertThat(decoded).isEqualTo(lifecycleEvent);
     }
 
     private static BrowserSessionProperties properties() {

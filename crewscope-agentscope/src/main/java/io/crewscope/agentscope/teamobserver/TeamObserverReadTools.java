@@ -6,11 +6,11 @@ import io.crewscope.application.teamobserver.TeamObserverReadService;
 import io.crewscope.domain.teamobserver.TeamSummaryDataScope;
 import io.crewscope.domain.teamobserver.TeamSummaryEntry;
 import io.crewscope.domain.teamobserver.TeamSummaryRequest;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Collections;
 
 /** Invocation-bound implementation of the five fixed, parameter-free Observer read Tools. */
 final class TeamObserverReadTools {
@@ -29,7 +29,7 @@ final class TeamObserverReadTools {
     }
 
     @Tool(
-            name = "team.activity.read",
+            name = TeamObserverToolNames.TEAM_ACTIVITY_READ,
             readOnly = true,
             description = "Read bounded member-visible Team progress, blocker and anomaly activity.")
     public String teamActivity() {
@@ -37,7 +37,7 @@ final class TeamObserverReadTools {
     }
 
     @Tool(
-            name = "team.inbox.summary.read",
+            name = TeamObserverToolNames.TEAM_INBOX_SUMMARY_READ,
             readOnly = true,
             description = "Read bounded member-visible Review, confirmation and anomaly Inbox summaries.")
     public String teamInboxSummary() {
@@ -45,7 +45,7 @@ final class TeamObserverReadTools {
     }
 
     @Tool(
-            name = "workitem.summary.read",
+            name = TeamObserverToolNames.WORK_ITEM_SUMMARY_READ,
             readOnly = true,
             description = "Read bounded member-visible WorkItem progress, blockers and Review backlog.")
     public String workItemSummary() {
@@ -53,7 +53,7 @@ final class TeamObserverReadTools {
     }
 
     @Tool(
-            name = "task.summary.read",
+            name = TeamObserverToolNames.TASK_SUMMARY_READ,
             readOnly = true,
             description = "Read bounded member-visible Task progress, blockers, Review and anomalies.")
     public String taskSummary() {
@@ -61,7 +61,7 @@ final class TeamObserverReadTools {
     }
 
     @Tool(
-            name = "artifact.summary.read",
+            name = TeamObserverToolNames.ARTIFACT_SUMMARY_READ,
             readOnly = true,
             description = "Read bounded member-visible Artifact progress summaries.")
     public String artifactSummary() {

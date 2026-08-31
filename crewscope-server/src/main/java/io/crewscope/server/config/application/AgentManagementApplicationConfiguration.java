@@ -4,6 +4,8 @@ import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.agent.AgentInstanceRepository;
 import io.crewscope.application.agent.AgentManagementApplicationService;
 import io.crewscope.application.agent.AgentTemplateRepository;
+import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.agent.DefaultAgentTemplateCatalogInitializer;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -18,10 +20,17 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.ObjectMapper;
 
 /** Explicit composition root for M5-A02 Agent catalog and lifecycle management. */
 @Configuration(proxyBeanMethods = false)
 public class AgentManagementApplicationConfiguration {
+
+  @Bean
+  AgentTemplateCatalogInitializer agentTemplateCatalogInitializer(
+      AgentTemplateRepository templates, ObjectMapper objectMapper) {
+    return new DefaultAgentTemplateCatalogInitializer(templates, objectMapper);
+  }
 
     @Bean
     AgentManagementApplicationService agentManagementApplicationService(

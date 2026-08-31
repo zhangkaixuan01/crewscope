@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
@@ -12,12 +13,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.agentscope.core.model.Model;
+import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.ClarificationTool;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.model.ResolvedAgentScopeModels;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import io.crewscope.domain.agent.AgentConfigurationHash;
 import io.crewscope.domain.agent.AgentConfigurationRevision;
 import io.crewscope.domain.agent.AgentConfigurationVersion;
@@ -179,6 +182,27 @@ class AgentTemplateRuntimeRegistryM5I05Test {
             assertNotNull(agent.getStateStore());
             assertEquals(null, agent.getCompactionHook());
         }
+    }
+
+    @Test
+    void routesOnlyTeamObserverAwayFromThePersonalAndTaskPlatformMiddlewareChain() {
+        MiddlewareBase platform = mock(MiddlewareBase.class);
+        PlatformAgentMiddlewareSet middlewareSet = mock(PlatformAgentMiddlewareSet.class);
+        when(middlewareSet.ordered()).thenReturn(List.of(platform));
+        TeamObserverRuntimeContextMiddleware observer =
+                new TeamObserverRuntimeContextMiddleware();
+        RestrictedTemplateAgentBuilder builder = new RestrictedTemplateAgentBuilder(
+                new InMemoryAgentStateStore(), runtimeRoot, 12, middlewareSet, observer);
+
+        assertEquals(
+                List.of(platform),
+                builder.middlewaresFor(TemplateAgentSessionIdentity.Kind.CONVERSATION));
+        assertEquals(
+                List.of(platform),
+                builder.middlewaresFor(TemplateAgentSessionIdentity.Kind.TASK));
+        assertSame(
+                observer,
+                builder.middlewaresFor(TemplateAgentSessionIdentity.Kind.TEAM_OBSERVER).get(0));
     }
 
     @Test

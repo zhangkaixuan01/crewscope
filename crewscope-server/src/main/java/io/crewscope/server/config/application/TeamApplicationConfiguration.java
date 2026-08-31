@@ -18,6 +18,8 @@ import io.crewscope.application.team.TeamInvitationIssueService;
 import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCreationService;
+import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -51,7 +53,9 @@ public class TeamApplicationConfiguration {
       DefaultPersonalAgentRepository defaultPersonalAgentRepository,
       TeamProviderInitializer teamProviderInitializer,
       TransactionExecutor transactionExecutor,
-      TimeProvider timeProvider) {
+      TimeProvider timeProvider,
+      AgentTemplateCatalogInitializer templateInitializer,
+      TeamObserverInitializer teamObserverInitializer) {
     return new TeamCreationService(
         teamRepository,
         workspaceRepository,
@@ -61,7 +65,9 @@ public class TeamApplicationConfiguration {
         defaultPersonalAgentRepository,
         teamProviderInitializer,
         transactionExecutor,
-        timeProvider);
+        timeProvider,
+        templateInitializer,
+        teamObserverInitializer);
   }
 
   @Bean

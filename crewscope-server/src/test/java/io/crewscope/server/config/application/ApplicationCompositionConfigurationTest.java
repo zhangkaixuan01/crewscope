@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -69,6 +70,7 @@ import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamInvitationApplicationService;
 import io.crewscope.application.team.TeamInvitationIssueService;
@@ -152,6 +154,10 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               InvitationTokenDigester.class, () -> mock(InvitationTokenDigester.class))
           .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))
+          .withBean(
+              AgentTemplateCatalogInitializer.class,
+              () -> mock(AgentTemplateCatalogInitializer.class))
+          .withBean(TeamObserverInitializer.class, () -> mock(TeamObserverInitializer.class))
           .withBean(AgentProfileRepository.class, () -> mock(AgentProfileRepository.class))
           .withBean(
               AgentConfigurationRepository.class,

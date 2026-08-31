@@ -95,6 +95,9 @@ public class BrowserSessionConfiguration {
                 BasicPolymorphicTypeValidator.builder()
                         .allowIfSubType("java.util.")
                         .allowIfSubType("java.time.")
+                        // Spring Session publishes indexed lifecycle events as a Map whose
+                        // lastAccessedTime value is encoded with the concrete Long type id.
+                        .allowIfSubType(Long.class)
                         .allowIfSubType("org.springframework.security.")
                         .allowIfSubType("io.crewscope.server.security.session.")
                         .allowIfSubTypeIsArray();

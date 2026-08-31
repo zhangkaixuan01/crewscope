@@ -4,6 +4,7 @@ import static io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdap
 
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
+import io.crewscope.application.teamobserver.DefaultTeamObserverRepository;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
@@ -12,6 +13,8 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamMemberStatus;
+import io.crewscope.domain.teamobserver.TeamObserverInitialization;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.PersonalAgentInitialization;
@@ -27,7 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 /** Atomic JPA adapter for AgentProfile lifecycle and default Personal Agent initialization. */
 @Repository
 public class JpaAgentProfileRepositoryAdapter
-        implements AgentProfileRepository, DefaultPersonalAgentRepository {
+        implements AgentProfileRepository,
+                DefaultPersonalAgentRepository,
+                DefaultTeamObserverRepository {
     private final TeamPersistenceMapper mapper;
     @PersistenceContext private EntityManager entityManager;
 
@@ -106,6 +111,108 @@ public class JpaAgentProfileRepositoryAdapter
         entityManager.persist(mapper.toEntity(profile));
         entityManager.flush();
         return required;
+    }
+
+    @Override
+    @Transactional
+    public TeamObserverInitialization initializeIfAbsent(
+            TeamObserverInitialization candidate) {
+        TeamObserverInitialization required = Objects.requireNonNull(candidate, "candidate");
+        AgentProfile profile = required.agentProfile();
+        TeamId teamId = profile.scope().teamId().orElseThrow();
+
+        // Team is the stable serialization point for retry, startup repair and first invocation.
+        entityManager
+                .createQuery(
+                        """
+                        SELECT team FROM TeamEntity team
+                        WHERE team.organizationId = :organizationId AND team.id = :teamId
+                        """,
+                        TeamEntity.class)
+                .setParameter("organizationId", profile.scope().organizationId().value())
+                .setParameter("teamId", teamId.value())
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .getResultStream()
+                .findFirst()
+                .orElseThrow(() -> new AggregateNotFoundException("Team", teamId));
+
+        Optional<TeamObserverInitialization> existing =
+                findByTeam(profile.scope().organizationId(), teamId);
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+        entityManager.persist(mapper.toEntity(required.agentPrincipal()));
+        entityManager.persist(mapper.toEntity(profile));
+        entityManager.flush();
+        return findByTeam(profile.scope().organizationId(), teamId).orElseThrow();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TeamObserverInitialization> findByTeam(
+            OrganizationId organizationId, TeamId teamId) {
+        Optional<AgentProfileEntity> profile = entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.teamId = :teamId
+                          AND value.templateKey = :templateKey
+                          AND value.templateVersion = :templateVersion
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("templateKey", TeamObserverTemplate.VERSION.key().value())
+                .setParameter("templateVersion", TeamObserverTemplate.VERSION.version())
+                .getResultStream()
+                .findFirst();
+        if (profile.isEmpty()) {
+            return Optional.empty();
+        }
+        AgentProfile committedProfile = mapper.toDomain(profile.orElseThrow());
+        PrincipalEntity principal = findPrincipal(
+                        organizationId, committedProfile.agentPrincipalId().value())
+                .orElseThrow(() -> new AggregateNotFoundException(
+                        "Principal", committedProfile.agentPrincipalId()));
+        return Optional.of(new TeamObserverInitialization(
+                mapper.toDomain(principal), committedProfile));
+    }
+
+    @Override
+    @Transactional
+    public TeamObserverInitialization updateLifecycle(
+            TeamObserverInitialization initialization) {
+        TeamObserverInitialization required =
+                Objects.requireNonNull(initialization, "initialization");
+        var principal = required.agentPrincipal();
+        long expectedPrincipal = previousVersion(
+                principal.version(), "teamObserver.agentPrincipal.version");
+        int principalAffected = entityManager
+                .createQuery(
+                        """
+                        UPDATE PrincipalEntity value
+                           SET value.status = :status,
+                               value.updatedAt = :updatedAt,
+                               value.version = :version
+                         WHERE value.organizationId = :organizationId
+                           AND value.id = :id
+                           AND value.version = :expected
+                        """)
+                .setParameter("status", principal.status().name())
+                .setParameter("updatedAt", principal.lifecycle().updatedAt().value())
+                .setParameter("version", principal.version())
+                .setParameter("organizationId", principal.scope().organizationId().value())
+                .setParameter("id", principal.id().value())
+                .setParameter("expected", expectedPrincipal)
+                .executeUpdate();
+        verifyPrincipalLifecycleUpdate(principalAffected, principal, expectedPrincipal);
+        update(required.agentProfile());
+        entityManager.clear();
+        return findByTeam(
+                        required.agentProfile().scope().organizationId(),
+                        required.agentProfile().scope().teamId().orElseThrow())
+                .orElseThrow();
     }
 
     @Override
@@ -290,6 +397,31 @@ public class JpaAgentProfileRepositoryAdapter
                 .setParameter("id", id)
                 .getResultStream()
                 .findFirst();
+    }
+
+    private void verifyPrincipalLifecycleUpdate(
+            int affected,
+            io.crewscope.domain.identity.Principal principal,
+            long expectedVersion) {
+        if (affected != 0) {
+            return;
+        }
+        Optional<Long> actual = entityManager
+                .createQuery(
+                        """
+                        SELECT value.version FROM PrincipalEntity value
+                        WHERE value.organizationId = :organizationId AND value.id = :id
+                        """,
+                        Long.class)
+                .setParameter("organizationId", principal.scope().organizationId().value())
+                .setParameter("id", principal.id().value())
+                .getResultStream()
+                .findFirst();
+        if (actual.isEmpty()) {
+            throw new AggregateNotFoundException("Principal", principal.id());
+        }
+        throw new OptimisticLockConflictException(
+                "Principal", principal.id(), expectedVersion, actual.orElseThrow());
     }
 
     private void verify(int affected, AgentProfile value, long expected) {

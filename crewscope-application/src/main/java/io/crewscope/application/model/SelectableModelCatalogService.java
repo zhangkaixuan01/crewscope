@@ -38,9 +38,9 @@ public final class SelectableModelCatalogService {
         this.prices = Objects.requireNonNull(prices, "prices");
         this.availability = Objects.requireNonNull(availability, "availability");
         if (maximumCatalogEntriesPerProvider < 1
-                || maximumCatalogEntriesPerProvider > 10_000) {
+                || maximumCatalogEntriesPerProvider > 200) {
             throw new IllegalArgumentException(
-                    "maximumCatalogEntriesPerProvider must be between 1 and 10000");
+                    "maximumCatalogEntriesPerProvider must be between 1 and 200");
         }
         this.maximumCatalogEntriesPerProvider = maximumCatalogEntriesPerProvider;
     }

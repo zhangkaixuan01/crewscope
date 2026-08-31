@@ -14,6 +14,7 @@ import io.crewscope.agentscope.template.RestrictedTemplateAgentBuilder;
 import io.crewscope.agentscope.template.TemplatePersonalAgentFactory;
 import io.crewscope.agentscope.template.TemplateSpecialistAgentFactory;
 import io.crewscope.agentscope.template.TemplateTeamAgentFactory;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
 import io.crewscope.application.model.ModelConnectionCredentialService;
 import io.crewscope.application.model.ModelConnectionRepository;
@@ -46,6 +47,7 @@ class AgentTemplateRuntimeApplicationConfigurationM5I05Test {
             .hasNotFailed()
             .hasSingleBean(ResolvedAgentScopeModelFactory.class)
             .hasSingleBean(AgentTemplateRuntimeAssembler.class)
+            .hasSingleBean(TeamObserverRuntimeContextMiddleware.class)
             .hasSingleBean(RestrictedTemplateAgentBuilder.class)
             .hasSingleBean(TemplatePersonalAgentFactory.class)
             .hasSingleBean(TemplateTeamAgentFactory.class)

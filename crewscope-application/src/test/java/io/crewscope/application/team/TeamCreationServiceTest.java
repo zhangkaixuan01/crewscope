@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.provider.TeamProviderInitializer;
+import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -60,6 +63,47 @@ class TeamCreationServiceTest {
     assertEquals(
         creator.id(),
         result.ownerPersonalAgent().agentPrincipal().ownerPrincipalId().orElseThrow());
+  }
+
+  @Test
+  void initializesTheBuiltInObserverInsideTheTeamCreationTransaction() {
+    RecordingTransactionExecutor transaction = new RecordingTransactionExecutor();
+    RecordingRepositories repositories = new RecordingRepositories(transaction);
+    List<String> initialized = new ArrayList<>();
+    TeamProviderInitializer providers = (team, workspace, actor) -> {
+      assertTrue(transaction.inTransaction);
+      initialized.add("providers");
+    };
+    AgentTemplateCatalogInitializer templates = (organizationId, actor, occurredAt) -> {
+      assertTrue(transaction.inTransaction);
+      initialized.add("templates");
+    };
+    TeamObserverInitializer observer = (team, workspace, ownerMember, ownerUser) -> {
+      assertTrue(transaction.inTransaction);
+      assertEquals(ownerUser.id(), ownerMember.userPrincipalId());
+      initialized.add("observer");
+    };
+    TimeProvider timeProvider =
+        TimeProvider.from(
+            Clock.fixed(Instant.parse("2026-08-07T18:00:00.123456789Z"), ZoneOffset.UTC));
+    TeamCreationService service =
+        new TeamCreationService(
+            repositories,
+            repositories,
+            repositories,
+            repositories,
+            repositories,
+            repositories,
+            providers,
+            transaction,
+            timeProvider,
+            templates,
+            observer);
+
+    service.create(activeUser(), new CreateTeamCommand("Platform Crew"));
+
+    assertEquals(List.of("providers", "templates", "observer"), initialized);
+    assertEquals(1, transaction.requiredCalls);
   }
 
   @Test

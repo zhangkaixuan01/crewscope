@@ -15,6 +15,7 @@ import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.teamobserver.TeamObserverExecution;
 import io.crewscope.application.teamobserver.TeamObserverExecutionPort;
 import io.crewscope.application.teamobserver.TeamObserverExecutionRequest;
+import io.crewscope.application.teamobserver.TeamObserverReadiness;
 import io.crewscope.domain.agent.AgentExecutionAuthorizationFacts;
 import io.crewscope.domain.agent.AgentExecutionScopeFacts;
 import io.crewscope.domain.agent.AgentTemplateDefinition;
@@ -51,6 +52,7 @@ final class AgentScopeTeamObserverExecutionAdapter implements TeamObserverExecut
     private final AgentExecutionConfigurationService resolver;
     private final TeamObserverModelFactory models;
     private final TeamObserverRuntime runtime;
+    private final TeamObserverReadiness provisioning;
     private final io.crewscope.domain.shared.time.TimeProvider timeProvider;
 
     AgentScopeTeamObserverExecutionAdapter(
@@ -63,6 +65,7 @@ final class AgentScopeTeamObserverExecutionAdapter implements TeamObserverExecut
             AgentExecutionConfigurationService resolver,
             TeamObserverModelFactory models,
             TeamObserverRuntime runtime,
+            TeamObserverReadiness provisioning,
             io.crewscope.domain.shared.time.TimeProvider timeProvider) {
         this.teams = Objects.requireNonNull(teams, "teams");
         this.profiles = Objects.requireNonNull(profiles, "profiles");
@@ -73,6 +76,7 @@ final class AgentScopeTeamObserverExecutionAdapter implements TeamObserverExecut
         this.resolver = Objects.requireNonNull(resolver, "resolver");
         this.models = Objects.requireNonNull(models, "models");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
+        this.provisioning = Objects.requireNonNull(provisioning, "provisioning");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
 
@@ -82,6 +86,7 @@ final class AgentScopeTeamObserverExecutionAdapter implements TeamObserverExecut
         Team team = teams.findById(required.organizationId(), required.teamId())
                 .filter(Team::isActive)
                 .orElseThrow(() -> invalid("teamObserver.teamId", "must reference an active Team"));
+        provisioning.ensureReady(required.organizationId(), required.teamId());
         AgentProfile profile = profiles.findById(
                         required.organizationId(),
                         TeamObserverInitialization.stableProfileId(required.teamId()))
