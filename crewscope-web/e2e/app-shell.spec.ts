@@ -163,9 +163,9 @@ test.beforeEach(async ({ page }) => {
     }
     if (request.method() === 'GET' && path.endsWith('/members')) {
       await fulfillJson(route, [
-        { id: ids.member, userPrincipalId: ids.principal, status: 'ACTIVE', joinMethod: 'CREATED_WITH_TEAM', joinedAt: '2026-08-08T01:00:00Z', version: 0 },
-        { id: '00000000-0000-0000-0000-000000000302', userPrincipalId: ids.secondPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:10:00Z', version: 0 },
-        { id: '00000000-0000-0000-0000-000000000303', userPrincipalId: ids.thirdPrincipal, status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:20:00Z', version: 0 },
+        { id: ids.member, userPrincipalId: ids.principal, displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'CREATED_WITH_TEAM', joinedAt: '2026-08-08T01:00:00Z', version: 0 },
+        { id: '00000000-0000-0000-0000-000000000302', userPrincipalId: ids.secondPrincipal, displayName: 'Lin Chen', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:10:00Z', version: 0 },
+        { id: '00000000-0000-0000-0000-000000000303', userPrincipalId: ids.thirdPrincipal, displayName: 'Wang Rui', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-08T01:20:00Z', version: 0 },
       ])
       return
     }
@@ -1005,6 +1005,10 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
   await expect(page.getByText('请保留团队协作与最小权限原则。', { exact: true })).toBeVisible()
   await expect(page.getByText('Connection', { exact: true })).toBeVisible()
+  const participants = page.getByLabel('对话参与者')
+  await expect(participants.getByText('张凯旋 · Personal Agent', { exact: true })).toBeVisible()
+  await expect(participants.getByText('张凯旋的 Personal Agent · AGENT', { exact: true })).toBeVisible()
+  await expect(participants.getByText('个人 Agent', { exact: true })).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
@@ -1640,6 +1644,9 @@ test('member management remains usable at the configured viewport', async ({ pag
 
   await expect(page.getByRole('heading', { name: 'Platform Engineering 成员' })).toBeVisible()
   await expect(page.getByRole('table', { name: '团队成员列表' })).toBeVisible()
+  await expect(page.getByRole('table', { name: '团队成员列表' })).toContainText('Zhang Kaixuan')
+  await expect(page.getByRole('table', { name: '团队成员列表' })).toContainText('Lin Chen')
+  await expect(page.getByText('Principal 详细资料将在身份目录 API 进入后补全。')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '添加成员', exact: true }).first()).toBeVisible()
 })
 
@@ -3017,7 +3024,16 @@ function conversation(id: string, teamId: string, workspaceId: string, title: st
 }
 
 function participant(id: string, conversationId: string, principalId: string, teamMemberId: string | null, role: string) {
-  return { id, conversationId, principalId, teamMemberId, role, status: 'ACTIVE', joinedByPrincipalId: ids.principal, joinedAt: '2026-08-08T01:00:00Z', leftAt: null, version: 0 }
+  const personalAgent = role === 'AGENT'
+  return {
+    id, conversationId, principalId, teamMemberId,
+    displayName: personalAgent ? '张凯旋 · Personal Agent' : principalId === ids.principal ? '张凯旋' : '林晨',
+    principalType: personalAgent ? 'PERSONAL_AGENT' : 'USER',
+    ownerPrincipalId: personalAgent ? ids.principal : null,
+    ownerDisplayName: personalAgent ? '张凯旋' : null,
+    role, status: 'ACTIVE', joinedByPrincipalId: ids.principal,
+    joinedAt: '2026-08-08T01:00:00Z', leftAt: null, version: 0,
+  }
 }
 
 function conversationMessage(id: string, conversationId: string, sequence: number, type: string, authorPrincipalId: string | null, content: string, createdAt: string) {

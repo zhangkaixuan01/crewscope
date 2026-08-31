@@ -17,6 +17,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
+import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
@@ -79,13 +80,12 @@ const canManageProjects = computed(() => Boolean(principal && can(principal, per
 const canParticipate = computed(() => Boolean(principal && can(principal, permissions.workParticipate)))
 const canManageResponsibility = computed(() => Boolean(principal && can(principal, permissions.responsibilityManage)))
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
+const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const responsibilityCandidates = computed(() => scopeStore.state.members
   .filter(member => member.status === 'ACTIVE')
   .map(member => ({
     principalId: member.userPrincipalId,
-    displayName: member.userPrincipalId === principal?.id
-      ? principal.displayName
-      : `团队成员 · ${member.userPrincipalId.slice(0, 8)}`,
+    displayName: member.displayName,
   })))
 const responsibilityAgentCandidates = computed(() => (agentStore.state.agents.value ?? [])
   .filter(agent => agent.status === 'ACTIVE'
@@ -114,7 +114,7 @@ const taskOwnerOptions = computed(() => {
   }
   return [...responsibilityCandidates.value, {
     principalId: taskOwnerFilter.value,
-    displayName: `负责人 · ${taskOwnerFilter.value.slice(0, 8)}`,
+    displayName: principalDisplayName(principalNames.value, taskOwnerFilter.value, '历史负责人'),
   }]
 })
 const taskConversationSource = computed(() => {
@@ -1259,6 +1259,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
           compact
           heading="WorkItem Activity"
           description="此工作项在 Team Activity 投影中的公开事实。"
+          :principal-names="principalNames"
           @retry="retryWorkItemActivity"
           @load-more="selectedWorkItemActivityRoute && teamOpsStore.loadWorkItemActivity(selectedWorkItemActivityRoute, {}, true)"
         />
@@ -1309,7 +1310,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :review-command="reviewStore.state.command"
       :can-gate-review="canGateReview"
       :can-confirm-delivery="canConfirmDelivery"
-      :principals="responsibilityCandidates"
+      :principals="[...responsibilityCandidates, ...responsibilityAgentCandidates]"
       :can-control="canControlTask"
       :online="isOnline"
       :command-pending="taskStore.state.commandPending"

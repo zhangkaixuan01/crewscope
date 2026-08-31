@@ -24,6 +24,7 @@ import io.crewscope.domain.shared.event.EventActorType;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -226,12 +228,43 @@ public final class TeamApplicationService {
     return TeamView.from(team);
   }
 
-  public List<TeamMember> listMembers(
+  /** Returns Membership facts with authoritative Principal display names in one directory read. */
+  public List<TeamMemberView> listMembers(
       TeamAccessContext context, OrganizationId organizationId, TeamId teamId) {
     TeamAccessContext trusted = requireAccess(context, organizationId);
     Team team = requireTeam(organizationId, teamId);
     requireActiveMember(trusted.actor(), team);
-    return membershipQuery.findByTeam(organizationId, teamId);
+    List<TeamMember> members = membershipQuery.findByTeam(organizationId, teamId);
+    Set<PrincipalId> principalIds =
+        members.stream().map(TeamMember::userPrincipalId).collect(Collectors.toSet());
+    Map<PrincipalId, Principal> principals =
+        principalRepository.findByIds(organizationId, principalIds).stream()
+            .collect(Collectors.toMap(Principal::id, Function.identity()));
+    return members.stream()
+        .map(
+            member -> {
+              Principal principal =
+                  Optional.ofNullable(principals.get(member.userPrincipalId()))
+                      .orElseThrow(
+                          () ->
+                              new AggregateNotFoundException(
+                                  "Principal", member.userPrincipalId()));
+              requireUserDirectoryEntry(principal, organizationId, member);
+              return new TeamMemberView(member, principal.displayName());
+            })
+        .toList();
+  }
+
+  private static void requireUserDirectoryEntry(
+      Principal principal, OrganizationId organizationId, TeamMember member) {
+    if (principal.type() != PrincipalType.USER
+        || !principal.scope().organizationId().equals(organizationId)
+        || principal.scope().teamId().isPresent()
+        || !principal.id().equals(member.userPrincipalId())) {
+      throw new DomainValidationException(
+          "teamMember.userPrincipalId",
+          "must reference an organization-scoped USER Principal in the same Organization");
+    }
   }
 
   public Workspace getDefaultWorkspace(

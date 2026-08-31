@@ -11,12 +11,14 @@ import io.crewscope.domain.agent.AgentConfigurationVersion;
 import io.crewscope.domain.agent.AgentExecutionModelBinding;
 import io.crewscope.domain.agent.AgentModelSelection;
 import io.crewscope.domain.agent.AgentOwnershipType;
+import io.crewscope.domain.agent.AgentRuntimeRole;
 import io.crewscope.domain.agent.AgentTemplateDefinition;
 import io.crewscope.domain.agent.AgentTemplateKey;
 import io.crewscope.domain.agent.AgentTemplatePublisherScope;
 import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import jakarta.validation.Valid;
@@ -377,6 +379,8 @@ public final class AgentManagementController {
             List<String> approvedSkillKeys,
             List<String> memberConfigurableSlots,
             List<String> administratorConfigurableSlots,
+            boolean creatable,
+            boolean platformManaged,
             String contentHash,
             String status,
             long lifecycleVersion) {
@@ -400,9 +404,20 @@ public final class AgentManagementController {
                             .map(Enum::name).sorted().toList(),
                     value.policy().administratorConfigurableSlots().stream()
                             .map(Enum::name).sorted().toList(),
+                    creatable(value),
+                    platformManaged(value),
                     value.contentHash().toString(),
                     value.status().name(),
                     value.lifecycleVersion());
+        }
+
+        private static boolean creatable(AgentTemplateDefinition value) {
+            return !platformManaged(value);
+        }
+
+        private static boolean platformManaged(AgentTemplateDefinition value) {
+            return value.runtimeRole() == AgentRuntimeRole.PERSONAL_ASSISTANT
+                    || TeamObserverTemplate.isTemplateVersion(value.templateVersion());
         }
     }
 

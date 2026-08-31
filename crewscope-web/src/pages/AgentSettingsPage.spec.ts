@@ -17,6 +17,7 @@ const ids = {
   coding: '00000000-0000-0000-0000-000000005102',
   reviewer: '00000000-0000-0000-0000-000000005103',
   team: '00000000-0000-0000-0000-000000005104',
+  observer: '00000000-0000-0000-0000-000000005105',
 }
 
 const principal: AuthenticatedPrincipal = {
@@ -38,6 +39,8 @@ describe('AgentSettingsPage', () => {
     expect(wrapper.text()).toContain('默认 Personal Agent')
     expect(wrapper.text()).toContain('我的 Specialist')
     expect(wrapper.text()).toContain('团队 Agent')
+    expect(wrapper.text()).toContain('平台托管 Agent')
+    expect(wrapper.get('#managed-agent-directory').text()).toContain('Team Observer')
     expect(wrapper.text()).toContain('deepseek-v4-flash')
     expect(wrapper.text()).toContain('Fallback deepseek-chat')
     expect(wrapper.text()).toContain('coding-specialist@3')
@@ -57,6 +60,16 @@ describe('AgentSettingsPage', () => {
     const teamOwnership = wrapper.findAll('.ownership-picker button')
       .find(button => button.text().includes('团队 Agent'))!
     expect(teamOwnership.classes()).toContain('active')
+  })
+
+  it('keeps Team Observer outside WorkItem executors while exposing its governed model configuration', async () => {
+    const wrapper = await mountPage('ready', ids.observer)
+
+    expect(wrapper.get('.agent-entry--team').text()).toContain('1 个')
+    expect(wrapper.get('#managed-agent-directory').text()).toContain('配置模型与预检')
+    expect(wrapper.text()).toContain('平台托管 Team Observer')
+    expect(wrapper.text()).not.toContain('Template 元数据不可用')
+    expect(wrapper.find('.configuration-form').exists()).toBe(true)
   })
 
   it('keeps disabled and archived Agents discoverable with explicit lifecycle states', async () => {
@@ -140,6 +153,12 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
 function agentFetcher(mode: FixtureMode): typeof fetch {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'http://crewscope.test')
+    if (url.pathname.endsWith('/agent-templates')) {
+      const ownership = url.searchParams.get('ownershipType')
+      return json({ items: ownership === 'TEAM'
+        ? [templatePayload('team-orchestrator', 'TEAM', false), templatePayload('team-observer', 'TEAM', true)]
+        : [templatePayload('personal-assistant', 'USER', true), templatePayload('coding-specialist', 'USER', false, 3), templatePayload('reviewer-specialist', 'USER', false)] })
+    }
     if (url.pathname.endsWith('/agent-profiles')) {
       if (mode === 'loading') return new Promise<Response>(() => {})
       if (mode === 'empty') return json({ items: [] })
@@ -164,6 +183,7 @@ function agents(): AgentSummary[] {
     agent(ids.coding, '代码实现 Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3),
     agent(ids.reviewer, '质量审查 Agent', 'USER', 'REVIEWER', 'reviewer-specialist', false, 'DISABLED'),
     agent(ids.team, '团队交付 Agent', 'TEAM', 'ORCHESTRATOR', 'team-orchestrator', false, 'ARCHIVED'),
+    agent(ids.observer, 'Team Observer', 'TEAM', 'TEAM_COORDINATOR', 'team-observer', false, 'DISABLED'),
   ]
 }
 
@@ -189,7 +209,7 @@ function agent(
 }
 
 function configuration(profileId: string): CurrentAgentConfiguration & { apiKey?: string } {
-  const teamOwned = profileId === ids.team
+  const teamOwned = profileId === ids.team || profileId === ids.observer
   return {
     revision: 2, previousRevision: 1, templateKey: 'fixture-template', templateVersion: 1,
     templateContentHash: 'b'.repeat(64),
@@ -203,6 +223,22 @@ function configuration(profileId: string): CurrentAgentConfiguration & { apiKey?
     policyPackId: 'default', policyPackVersion: 1, configurationHash: 'c'.repeat(64),
     createdAt: '2026-08-25T02:00:00Z',
     apiKey: 'sk-private',
+  }
+}
+
+function templatePayload(
+  key: string,
+  ownershipType: 'USER' | 'TEAM',
+  platformManaged: boolean,
+  version = 1,
+) {
+  return {
+    publisherType: 'ORGANIZATION', publisherId: fixtureIds.organization, key, version,
+    runtimeRole: key === 'personal-assistant' ? 'PERSONAL_ASSISTANT' : key === 'team-observer' ? 'TEAM_COORDINATOR' : 'SPECIALIST',
+    allowedOwnershipTypes: [ownershipType], allowedExecutionScopes: ownershipType === 'TEAM' ? ['TEAM'] : ['PERSONAL'],
+    declaredCapabilities: ['fixture'], requiredModelCapabilities: ['TOOLS'], approvedSkillKeys: [],
+    memberConfigurableSlots: platformManaged ? [] : ['MODEL_BINDING'], administratorConfigurableSlots: ['MODEL_BINDING'],
+    creatable: !platformManaged, platformManaged, contentHash: 'd'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
   }
 }
 

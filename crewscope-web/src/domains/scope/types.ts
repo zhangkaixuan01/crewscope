@@ -42,6 +42,7 @@ export interface WorkProjectKeyAvailability {
 export interface TeamMemberSummary {
   id: string
   userPrincipalId: string
+  displayName: string
   status: string
   joinMethod: string
   joinedAt: string | null

@@ -33,9 +33,9 @@ const templateCoordinate = ref('')
 const displayName = ref('')
 const submitted = ref(false)
 const visibleTemplates = computed(() => (ownershipType.value === 'USER' ? props.userTemplates : props.teamTemplates)
-  // Personal Assistant is platform-managed: it must be available for existing-agent metadata,
-  // but users must not be offered a second default Personal Agent in the create dialog.
-  .filter(template => template.runtimeRole !== 'PERSONAL_ASSISTANT'))
+  // The same catalog serves existing-profile metadata and creation. Only the server's explicit
+  // creation contract belongs in this wizard; platform-managed templates remain discoverable.
+  .filter(template => template.creatable))
 const selectedTemplate = computed(() => visibleTemplates.value.find(template => coordinate(template) === templateCoordinate.value) ?? null)
 const valid = computed(() => Boolean(selectedTemplate.value && displayName.value.trim() && displayName.value.trim().length <= 200))
 

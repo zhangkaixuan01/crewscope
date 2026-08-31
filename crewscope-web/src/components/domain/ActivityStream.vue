@@ -5,6 +5,7 @@ import { RouterLink, useRoute, type RouteLocationRaw } from 'vue-router'
 import type { ActivityRealtimePhase } from '../../domains/teamops/activityRealtimeStore'
 import type { TeamOpsErrorState } from '../../domains/teamops/errors'
 import type { ActivityItem } from '../../domains/teamops/types'
+import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
@@ -20,12 +21,14 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   heading?: string
   description?: string
+  principalNames?: PrincipalNameDirectory
 }>(), {
   realtimePhase: 'idle',
   online: true,
   compact: false,
   heading: '团队活动',
   description: '责任、执行、Review 与交付事实按团队顺序汇聚。',
+  principalNames: () => ({}),
 })
 
 const emit = defineEmits<{ retry: [], loadMore: [], select: [item: ActivityItem] }>()
@@ -42,7 +45,7 @@ const realtimeLabel = computed(() => ({
 
 function actor(item: ActivityItem): string {
   if (!item.actor.principalId) return item.actor.type === 'SYSTEM' ? '系统' : item.actor.type
-  return `${item.actor.type} · ${item.actor.principalId.slice(0, 8)}`
+  return principalDisplayName(props.principalNames, item.actor.principalId, item.actor.type)
 }
 
 function subject(item: ActivityItem): string {

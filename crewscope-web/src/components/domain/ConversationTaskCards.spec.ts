@@ -5,11 +5,13 @@ import type { TaskAssociationSummary } from '../../domains/task/types'
 import ConversationTaskCards from './ConversationTaskCards.vue'
 
 describe('ConversationTaskCards', () => {
+  const principalNames = { [fixtureIds.principal]: 'Zhang Kaixuan' }
+
   it('renders multiple durable Task facts, waiting reason and independent live phases', () => {
     const associations = fixtures()
     const wrapper = mount(ConversationTaskCards, {
       props: {
-        phase: 'ready', associations, currentPrincipalId: fixtureIds.principal, errorMessage: null,
+        phase: 'ready', associations, currentPrincipalId: fixtureIds.principal, principalNames, errorMessage: null,
         liveTasks: {
           [associations[0]!.task.id]: { phase: 'connected', errorMessage: null, projectionGap: false },
           [associations[1]!.task.id]: { phase: 'reconnecting', errorMessage: '连接中断', projectionGap: true },
@@ -30,7 +32,7 @@ describe('ConversationTaskCards', () => {
     const association = fixtures()[0]!
     const wrapper = mount(ConversationTaskCards, {
       props: {
-        phase: 'ready', associations: [association], currentPrincipalId: fixtureIds.principal,
+        phase: 'ready', associations: [association], currentPrincipalId: fixtureIds.principal, principalNames,
         errorMessage: null, liveTasks: {},
       },
     })
@@ -45,7 +47,7 @@ describe('ConversationTaskCards', () => {
 
   it('keeps loading and stale-error feedback outside the message list', async () => {
     const loading = mount(ConversationTaskCards, {
-      props: { phase: 'loading', associations: [], currentPrincipalId: fixtureIds.principal, errorMessage: null, liveTasks: {} },
+      props: { phase: 'loading', associations: [], currentPrincipalId: fixtureIds.principal, principalNames, errorMessage: null, liveTasks: {} },
     })
     expect(loading.text()).toContain('正在恢复关联 Task')
     expect(loading.find('ol').exists()).toBe(false)
@@ -53,7 +55,7 @@ describe('ConversationTaskCards', () => {
     const association = fixtures()[0]!
     const stale = mount(ConversationTaskCards, {
       props: {
-        phase: 'error', associations: [association], currentPrincipalId: fixtureIds.principal,
+        phase: 'error', associations: [association], currentPrincipalId: fixtureIds.principal, principalNames,
         errorMessage: '实时事实暂时无法同步', liveTasks: {},
       },
     })

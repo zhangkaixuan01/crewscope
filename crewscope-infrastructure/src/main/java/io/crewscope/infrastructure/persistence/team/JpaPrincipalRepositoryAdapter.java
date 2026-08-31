@@ -10,8 +10,10 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +45,29 @@ public class JpaPrincipalRepositoryAdapter implements PrincipalRepository {
         .getResultStream()
         .findFirst()
         .map(mapper::toDomain);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<Principal> findByIds(
+      OrganizationId organizationId, Set<PrincipalId> principalIds) {
+    OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
+    Set<PrincipalId> ids = Set.copyOf(Objects.requireNonNull(principalIds, "principalIds"));
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return entityManager
+        .createQuery(
+            """
+            SELECT value FROM PrincipalEntity value
+            WHERE value.organizationId = :organizationId AND value.id IN :ids
+            """,
+            PrincipalEntity.class)
+        .setParameter("organizationId", organization.value())
+        .setParameter("ids", ids.stream().map(PrincipalId::value).toList())
+        .getResultStream()
+        .map(mapper::toDomain)
+        .toList();
   }
 
   @Override

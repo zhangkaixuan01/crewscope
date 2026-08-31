@@ -385,8 +385,12 @@ class M7IdentityInvitationTransactionConvergenceM7Q02IntegrationTest
                 roles,
                 memberRoles,
                 personalAgents,
+                (team, workspace, actor) -> {},
                 transactions,
-                () -> NOW);
+                () -> NOW,
+                (actor, occurredAt) -> {},
+                (catalogOrganizationId, actor, occurredAt) -> {},
+                (team, workspace, ownerMember, ownerUser) -> {});
         TeamInitialization initialization =
                 creation.create(inviter, new CreateTeamCommand("Invitation Team"));
         return new TeamFixture(inviter, initialization);

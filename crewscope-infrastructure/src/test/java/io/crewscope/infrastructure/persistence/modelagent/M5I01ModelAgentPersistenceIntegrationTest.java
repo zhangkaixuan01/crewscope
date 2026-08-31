@@ -14,6 +14,7 @@ import io.crewscope.application.agent.AgentModelDefaultRepository;
 import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
 import io.crewscope.application.model.ModelConnectionRepository;
+import io.crewscope.application.model.DefaultPlatformModelCatalogInitializer;
 import io.crewscope.application.model.ModelPriceScheduleRepository;
 import io.crewscope.application.model.ModelProviderDefinitionRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -144,6 +145,36 @@ class M5I01ModelAgentPersistenceIntegrationTest
     @BeforeEach
     void resetBusinessData() {
         jdbc.execute("TRUNCATE TABLE crewscope.organization CASCADE");
+    }
+
+    @Test
+    void idempotentlyPersistsTheCanonicalPlatformModelCatalog() {
+        Fixture fixture = seedFixture("platform-catalog");
+        DefaultPlatformModelCatalogInitializer initializer =
+                new DefaultPlatformModelCatalogInitializer(providers, catalogs, prices);
+
+        initializer.initialize(fixture.actorId(), CREATED);
+        initializer.initialize(fixture.actorId(), LATER);
+
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM crewscope.model_provider_definition",
+                Integer.class));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM crewscope.model_catalog_entry",
+                Integer.class));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM crewscope.model_price_revision",
+                Integer.class));
+        ModelCatalogEntry catalog = catalogs.findLatest(
+                        new ModelProviderKey("deepseek"), new ModelId("deepseek-v4-flash"))
+                .orElseThrow();
+        ModelPriceRevision price = prices.findEffectivePrice(catalog.coordinate(), LATER)
+                .orElseThrow();
+        assertEquals("DeepSeek-V4-Flash-0731", catalog.modelRevision().toString());
+        assertEquals("0.44", price.tokenPrice().inputPerMillionTokens().toPlainString());
+        assertEquals("1.32", price.tokenPrice().outputPerMillionTokens().toPlainString());
+        assertEquals("0.014", price.tokenPrice().cachedInputPerMillionTokens()
+                .orElseThrow().toPlainString());
     }
 
     @Test

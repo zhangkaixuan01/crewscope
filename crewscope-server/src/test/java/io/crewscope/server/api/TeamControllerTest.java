@@ -9,6 +9,7 @@ import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamInitializationStatus;
+import io.crewscope.application.team.TeamMemberView;
 import io.crewscope.application.team.TeamView;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -120,7 +121,7 @@ class TeamControllerTest {
         TeamInitialization.create(
             actor, "Platform Crew", UtcTimestamp.parse("2026-08-08T03:00:00Z"));
     when(service.listMembers(any(), any(), any()))
-        .thenReturn(List.of(initialization.ownerMember()));
+        .thenReturn(List.of(new TeamMemberView(initialization.ownerMember(), actor.displayName())));
     when(service.getDefaultWorkspace(any(), any(), any()))
         .thenReturn(initialization.defaultWorkspace());
 
@@ -137,7 +138,9 @@ class TeamControllerTest {
         .valueEquals("Cache-Control", "no-store")
         .expectBody()
         .jsonPath("$[0].userPrincipalId")
-        .isEqualTo(actor.id().toString());
+        .isEqualTo(actor.id().toString())
+        .jsonPath("$[0].displayName")
+        .isEqualTo("Owner");
 
     client
         .get()

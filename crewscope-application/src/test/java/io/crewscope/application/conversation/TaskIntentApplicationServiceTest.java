@@ -291,7 +291,11 @@ class TaskIntentApplicationServiceTest {
           .thenReturn(
               new ConversationDetails(
                   conversation.conversation(),
-                  List.of(conversation.ownerParticipant(), conversation.agentParticipant())));
+                  List.of(
+                      new ConversationParticipantView(
+                          conversation.ownerParticipant(), owner, Optional.empty()),
+                      new ConversationParticipantView(
+                          conversation.agentParticipant(), agent, Optional.of(owner)))));
       ConversationRepository conversations = mock(ConversationRepository.class);
       when(conversations.lockById(organizationId, conversation.conversation().id()))
           .thenReturn(Optional.of(conversation.conversation()));

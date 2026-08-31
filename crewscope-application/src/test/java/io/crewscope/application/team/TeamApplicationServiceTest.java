@@ -23,6 +23,7 @@ import io.crewscope.domain.identity.PrincipalStatus;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.shared.DomainEvent;
+import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.IdempotencyConflictException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
@@ -316,6 +317,39 @@ class TeamApplicationServiceTest {
   }
 
   @Test
+  void memberDirectoryReturnsAuthoritativePrincipalDisplayNames() {
+    Fixture fixture = new Fixture();
+    TeamInitialization team = fixture.createTeam("member-directory");
+    Principal developer = fixture.addPrincipal("Developer Zhang");
+    fixture.service.addMember(
+        fixture.context(fixture.owner, false, "member-directory-add"),
+        team.team().id(),
+        new AddTeamMemberCommand(developer.id()));
+
+    List<TeamMemberView> directory =
+        fixture.service.listMembers(
+            new TeamAccessContext(fixture.owner, false), ORGANIZATION_ID, team.team().id());
+
+    assertEquals(List.of("Owner", "Developer Zhang"),
+        directory.stream().map(TeamMemberView::displayName).toList());
+  }
+
+  @Test
+  void memberDirectoryFailsClosedWhenPrincipalFactIsMissing() {
+    Fixture fixture = new Fixture();
+    TeamInitialization team = fixture.createTeam("missing-member-directory");
+    fixture.repository.principals.remove(fixture.owner.id());
+
+    assertThrows(
+        AggregateNotFoundException.class,
+        () ->
+            fixture.service.listMembers(
+                new TeamAccessContext(fixture.owner, false),
+                ORGANIZATION_ID,
+                team.team().id()));
+  }
+
+  @Test
   void onlyPlatformAdministratorCanReadAndCompleteLegacyTeam() {
     Fixture fixture = new Fixture();
     TeamInitialization source = TeamInitialization.create(fixture.owner, "Legacy", NOW);
@@ -378,8 +412,12 @@ class TeamApplicationServiceTest {
               repository,
               repository,
               repository,
+              (team, workspace, actor) -> {},
               transactions,
-              time);
+              time,
+              (actor, occurredAt) -> {},
+              (organizationId, actor, occurredAt) -> {},
+              (team, workspace, ownerMember, ownerUser) -> {});
       service =
           new TeamApplicationService(
               creation,

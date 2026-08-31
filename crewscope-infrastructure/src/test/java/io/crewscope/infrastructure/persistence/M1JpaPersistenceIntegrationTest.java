@@ -239,6 +239,15 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             .orElseThrow()
             .userPrincipalId());
     assertEquals(
+        List.of(foundation.creator().displayName()),
+        principalRepository
+            .findByIds(
+                foundation.organizationId(),
+                Set.of(foundation.creator().id(), PrincipalId.generate()))
+            .stream()
+            .map(Principal::displayName)
+            .toList());
+    assertEquals(
         value.ownerMember().id(),
         teamMemberRepository
             .findByTeamAndUserPrincipalId(
@@ -330,7 +339,10 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             defaultPersonalAgentRepository,
             providerInitializer::initialize,
             transactionExecutor,
-            () -> NOW);
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (catalogOrganizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
 
     TeamInitialization foundation =
         teamCreation.create(creator, new CreateTeamCommand("Native Team"));
@@ -402,7 +414,10 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
               throw new IllegalStateException("provider bootstrap failed");
             },
             transactionExecutor,
-            () -> NOW);
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (catalogOrganizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
 
     assertThrows(
         IllegalStateException.class,
@@ -436,8 +451,12 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             teamRoleRepository,
             memberRoleRepository,
             defaultPersonalAgentRepository,
+            (team, workspace, actor) -> {},
             transactionExecutor,
-            () -> NOW);
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (catalogOrganizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
     TeamApplicationService service =
         new TeamApplicationService(
             creationService,
@@ -1933,8 +1952,12 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             teamRoleRepository,
             memberRoleRepository,
             defaultPersonalAgentRepository,
+            (team, workspace, actor) -> {},
             transactionExecutor,
-            () -> NOW);
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (catalogOrganizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
     return new Foundation(
         organizationId, creator, service.create(creator, new CreateTeamCommand("Team " + suffix)));
   }
@@ -1948,8 +1971,12 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             teamRoleRepository,
             memberRoleRepository,
             defaultPersonalAgentRepository,
+            (team, workspace, actor) -> {},
             transactionExecutor,
-            () -> NOW);
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (organizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
     return new TeamApplicationService(
         creationService,
         teamRepository,

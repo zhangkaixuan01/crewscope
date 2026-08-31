@@ -1,6 +1,10 @@
 package io.crewscope.server.deployment;
 
+import io.crewscope.application.model.PlatformModelCatalogInitializer;
+import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.time.TimeProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
@@ -28,5 +32,20 @@ public class TeamBetaBootstrapConfiguration {
             flyway.migrate();
             seeder.seed(flyway.getConfiguration().getDataSource());
         };
+    }
+
+    /** Restores the non-secret model directory after the Runtime Principal has been seeded. */
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "crewscope.runtime",
+            name = "execution-profile",
+            havingValue = "server")
+    ApplicationRunner teamBetaPlatformModelCatalogRunner(
+            PlatformModelCatalogInitializer modelCatalog,
+            TimeProvider timeProvider,
+            @Value("${crewscope.deployment.bootstrap.runtime-principal-id}")
+                    String runtimePrincipalId) {
+        PrincipalId actor = PrincipalId.from(runtimePrincipalId);
+        return arguments -> modelCatalog.initialize(actor, timeProvider.now());
     }
 }

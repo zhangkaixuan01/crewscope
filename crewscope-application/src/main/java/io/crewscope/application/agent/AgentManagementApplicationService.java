@@ -149,7 +149,7 @@ public final class AgentManagementApplicationService {
             candidates.addAll(templates.findLatestActivePage(
                     AgentTemplatePublisherScope.team(organizationId, teamId), 0, offset + limit));
             return candidates.stream()
-                    .filter(template -> canInstantiate(template, ownership))
+                    .filter(template -> isVisibleForOwnership(template, ownership))
                     .sorted(Comparator
                             .comparing((AgentTemplateDefinition value) ->
                                     value.templateVersion().key().value())
@@ -557,13 +557,14 @@ public final class AgentManagementApplicationService {
         }
     }
 
-    private static boolean canInstantiate(
+    private static boolean isVisibleForOwnership(
             AgentTemplateDefinition template, AgentOwnership ownership) {
         try {
             template.requireInstantiable(ownership);
-            // The catalog is also used to resolve metadata for existing Personal Agents. Keep
-            // those ACTIVE templates visible here; the create command still rejects them below.
-            return !TeamObserverTemplate.isTemplateVersion(template.templateVersion());
+            // The catalog resolves immutable metadata for existing platform-managed Agents as
+            // well as creation choices. The public DTO marks those templates non-creatable, and
+            // create() independently enforces the same boundary on the server.
+            return true;
         } catch (DomainValidationException denied) {
             return false;
         }

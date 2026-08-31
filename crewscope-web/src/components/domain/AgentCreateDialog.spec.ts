@@ -83,17 +83,27 @@ describe('AgentCreateDialog', () => {
     expect(wrapper.emitted('retryTemplates')).toHaveLength(1)
   })
 
-  it('hides the platform-managed Personal Assistant from the create choices', async () => {
+  it('hides every server-declared non-creatable platform template from the create choices', async () => {
     const wrapper = mount(AgentCreateDialog, {
       props: defaults({
         userTemplates: [
-          { ...template('personal-assistant', 'USER'), runtimeRole: 'PERSONAL_ASSISTANT' },
+          { ...template('personal-assistant', 'USER'), runtimeRole: 'PERSONAL_ASSISTANT', creatable: false, platformManaged: true },
           template('coding-specialist', 'USER'),
+        ],
+        teamTemplates: [
+          { ...template('team-observer', 'TEAM'), creatable: false, platformManaged: true },
+          template('team-coordinator', 'TEAM'),
         ],
       }),
     })
     expect(wrapper.get('.template-picker').text()).toContain('coding-specialist')
     expect(wrapper.get('.template-picker').text()).not.toContain('personal-assistant')
+
+    await wrapper.findAll('.ownership-picker button')
+      .find(button => button.text().includes('团队 Agent'))!
+      .trigger('click')
+    expect(wrapper.get('.template-picker').text()).toContain('team-coordinator')
+    expect(wrapper.get('.template-picker').text()).not.toContain('team-observer')
   })
 })
 
@@ -111,6 +121,7 @@ function template(key: string, ownership: 'USER' | 'TEAM'): AgentTemplateSummary
     allowedExecutionScopes: ownership === 'USER' ? ['PERSONAL'] : ['TEAM'],
     declaredCapabilities: ['coding'], requiredModelCapabilities: ['TOOLS'],
     approvedSkillKeys: ['coding-baseline'], memberConfigurableSlots: ['MODEL_BINDING'],
-    administratorConfigurableSlots: [], contentHash: 'a'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+    administratorConfigurableSlots: [], creatable: true, platformManaged: false,
+    contentHash: 'a'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
   }
 }

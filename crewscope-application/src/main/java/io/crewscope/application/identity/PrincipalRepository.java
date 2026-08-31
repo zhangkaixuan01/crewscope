@@ -3,7 +3,10 @@ package io.crewscope.application.identity;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Persistence Port for tenant-scoped Principal lookup and atomic external-identity provisioning.
@@ -11,6 +14,20 @@ import java.util.Optional;
 public interface PrincipalRepository {
 
   Optional<Principal> findById(OrganizationId organizationId, PrincipalId principalId);
+
+  /**
+   * Resolves a tenant-scoped Principal directory in one logical read. Persistence adapters should
+   * override this method with a batch query; the default keeps lightweight adapters compatible.
+   */
+  default List<Principal> findByIds(
+      OrganizationId organizationId, Set<PrincipalId> principalIds) {
+    OrganizationId organization = Objects.requireNonNull(organizationId, "organizationId");
+    Set<PrincipalId> ids = Set.copyOf(Objects.requireNonNull(principalIds, "principalIds"));
+    return ids.stream()
+        .map(principalId -> findById(organization, principalId))
+        .flatMap(Optional::stream)
+        .toList();
+  }
 
   Optional<Principal> findByExternalIdentity(
       OrganizationId organizationId, String provider, String subject);

@@ -106,7 +106,8 @@ function templatePayload(extra: Record<string, unknown> = {}) {
     runtimeRole: 'SPECIALIST', allowedOwnershipTypes: ['USER', 'TEAM'],
     allowedExecutionScopes: ['PERSONAL', 'TEAM'], declaredCapabilities: ['coding'],
     requiredModelCapabilities: ['TOOLS'], approvedSkillKeys: ['coding-baseline'], memberConfigurableSlots: ['SUPPLEMENTAL_INSTRUCTIONS'],
-    administratorConfigurableSlots: ['BUDGET_POLICY'], contentHash: 'a'.repeat(64), status: 'ACTIVE',
+    administratorConfigurableSlots: ['BUDGET_POLICY'], creatable: true, platformManaged: false,
+    contentHash: 'a'.repeat(64), status: 'ACTIVE',
     lifecycleVersion: 1, ...extra,
   }
 }

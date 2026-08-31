@@ -84,6 +84,60 @@ describe('AgentConfigurationPanel', () => {
     await flushPromises()
     expect(transitionAgent).toHaveBeenCalledWith(agentId, 'disable', expect.any(String))
   })
+
+  it('configures a platform-managed Team Observer without exposing generic lifecycle actions', async () => {
+    const { store, appendConfiguration, transitionAgent } = fixtureStore('TEAM')
+    const observer = {
+      ...agent(null, 'TEAM'),
+      displayName: 'Team Observer',
+      runtimeRole: 'TEAM_COORDINATOR',
+      templateKey: 'team-observer',
+      templateVersion: 1,
+      status: 'DISABLED',
+      principalStatus: 'DISABLED',
+    }
+    const wrapper = mount(AgentConfigurationPanel, {
+      props: {
+        agent: observer,
+        template: {
+          ...template('TEAM'), key: 'team-observer', version: 1,
+          platformManaged: true, creatable: false,
+          memberConfigurableSlots: [], administratorConfigurableSlots: ['MODEL_BINDING', 'BUDGET'],
+        },
+        canConfigure: true,
+        selectedRevision: null,
+      },
+      global: { provide: { [AGENT_STORE as symbol]: store } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('平台托管 Team Observer')
+    expect(wrapper.text()).not.toContain('Template 元数据不可用')
+    expect(wrapper.find('form').exists()).toBe(true)
+    expect(wrapper.text()).toContain('继承 Team/Organization 默认')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(appendConfiguration).toHaveBeenCalledOnce()
+    expect(appendConfiguration.mock.calls[0]?.[1]).toMatchObject({
+      personalModelBinding: null,
+      teamModelBinding: { kind: 'INHERIT_TEAM_DEFAULT', primary: null, fallback: null },
+    })
+    expect(wrapper.text()).toContain('不支持重复创建或通用归档')
+    expect(wrapper.text()).not.toContain('确认归档')
+    expect(transitionAgent).not.toHaveBeenCalled()
+  })
+
+  it('shows a visible Team Agent as read-only before requiring manager-only template metadata', async () => {
+    const { store } = fixtureStore('TEAM')
+    const wrapper = mount(AgentConfigurationPanel, {
+      props: { agent: agent(null, 'TEAM'), template: null, canConfigure: false, selectedRevision: null },
+      global: { provide: { [AGENT_STORE as symbol]: store } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('只读 Agent')
+    expect(wrapper.text()).not.toContain('Template 元数据不可用')
+  })
 })
 
 const agentId = '00000000-0000-0000-0000-000000005102'
@@ -150,7 +204,8 @@ function template(scope: 'PERSONAL' | 'TEAM'): AgentTemplateSummary {
     allowedExecutionScopes: [scope], declaredCapabilities: ['coding'], requiredModelCapabilities: ['TOOLS'],
     approvedSkillKeys: ['coding-baseline'],
     memberConfigurableSlots: ['MODEL_BINDING', 'SUPPLEMENTAL_INSTRUCTIONS', 'APPROVED_SKILLS', 'OUTPUT_PREFERENCE'],
-    administratorConfigurableSlots: [], contentHash: 'a'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+    administratorConfigurableSlots: [], creatable: true, platformManaged: false,
+    contentHash: 'a'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
   }
 }
 

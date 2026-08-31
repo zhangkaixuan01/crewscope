@@ -7,6 +7,7 @@ import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.ConversationDetails;
 import io.crewscope.application.conversation.ConversationMessageCursor;
 import io.crewscope.application.conversation.ConversationPage;
+import io.crewscope.application.conversation.ConversationParticipantView;
 import io.crewscope.application.conversation.CreateConversationCommand;
 import io.crewscope.application.conversation.MessagePage;
 import io.crewscope.application.conversation.PostConversationMessageCommand;
@@ -20,6 +21,7 @@ import io.crewscope.domain.conversation.ConversationStatus;
 import io.crewscope.domain.conversation.ConversationVisibility;
 import io.crewscope.domain.conversation.Message;
 import io.crewscope.domain.conversation.MessageContent;
+import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -404,6 +406,10 @@ public final class ConversationController {
       String conversationId,
       String principalId,
       String teamMemberId,
+      String displayName,
+      String principalType,
+      String ownerPrincipalId,
+      String ownerDisplayName,
       String role,
       String status,
       String joinedByPrincipalId,
@@ -411,12 +417,17 @@ public final class ConversationController {
       String leftAt,
       long version) {
 
-    static ConversationParticipantResponse from(ConversationParticipant participant) {
+    static ConversationParticipantResponse from(ConversationParticipantView view) {
+      ConversationParticipant participant = view.participant();
       return new ConversationParticipantResponse(
           participant.id().toString(),
           participant.conversationId().toString(),
           participant.principalId().toString(),
           participant.teamMemberId().map(Object::toString).orElse(null),
+          view.principal().displayName(),
+          view.principal().type().name(),
+          view.principal().ownerPrincipalId().map(Object::toString).orElse(null),
+          view.owner().map(Principal::displayName).orElse(null),
           participant.role().name(),
           participant.status().name(),
           participant.joinedByPrincipalId().toString(),

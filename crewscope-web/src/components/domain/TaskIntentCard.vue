@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, ClipboardCheck, Pencil, X } from '@lucide/vue'
 import type { TaskIntent, TaskIntentRevisionInput } from '../../domains/conversation/types'
+import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
@@ -11,6 +12,7 @@ const props = defineProps<{
   pending?: 'revise' | 'reject' | 'confirm' | null
   errorMessage?: string | null
   versionConflict?: boolean
+  principalNames?: PrincipalNameDirectory
 }>()
 
 const emit = defineEmits<{
@@ -77,6 +79,10 @@ function submitRejection(): void {
 function statusText(status: TaskIntent['status']): string {
   return ({ DRAFT: '草拟中', READY: '待确认', CONFIRMED: '已确认', REJECTED: '已拒绝', EXPIRED: '已过期' })[status]
 }
+
+function principalName(principalId: string): string {
+  return principalDisplayName(props.principalNames ?? {}, principalId)
+}
 </script>
 
 <template>
@@ -104,9 +110,9 @@ function statusText(status: TaskIntent['status']): string {
       <div class="objective"><span>目标</span><p>{{ intent.proposal.objective }}</p></div>
       <div class="criteria"><span>验收标准</span><ol><li v-for="criterion in intent.proposal.acceptanceCriteria" :key="criterion">{{ criterion }}</li></ol></div>
       <dl>
-        <div><dt>Owner</dt><dd>{{ intent.proposal.owner.principalId }}</dd></div>
-        <div><dt>Executor</dt><dd>{{ intent.proposal.executor?.principalId ?? '确认后分配' }}</dd></div>
-        <div><dt>Gate Reviewer</dt><dd>{{ intent.proposal.gateReviewer?.principalId ?? '未设置' }}</dd></div>
+        <div><dt>Owner</dt><dd>{{ principalName(intent.proposal.owner.principalId) }}</dd></div>
+        <div><dt>Executor</dt><dd>{{ intent.proposal.executor ? principalName(intent.proposal.executor.principalId) : '确认后分配' }}</dd></div>
+        <div><dt>Gate Reviewer</dt><dd>{{ intent.proposal.gateReviewer ? principalName(intent.proposal.gateReviewer.principalId) : '未设置' }}</dd></div>
         <div><dt>WorkProject</dt><dd>{{ intent.proposal.workProjectId }}</dd></div>
       </dl>
       <p v-if="!isOwner && reviewable" class="notice">只有提案 Owner 可以修订、确认或拒绝；当前成员可继续观察事实变化。</p>

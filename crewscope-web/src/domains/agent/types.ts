@@ -17,6 +17,8 @@ export interface AgentTemplateSummary {
   approvedSkillKeys: string[]
   memberConfigurableSlots: string[]
   administratorConfigurableSlots: string[]
+  creatable: boolean
+  platformManaged: boolean
   contentHash: string
   status: string
   lifecycleVersion: number

@@ -32,7 +32,9 @@ const selection = computed(() => agentSettingsSelection(route.query))
 const agents = computed(() => agentStore.state.agents.value ?? [])
 const personalAgents = computed(() => agents.value.filter(agent => agent.defaultProfile))
 const specialistAgents = computed(() => agents.value.filter(agent => agent.ownershipType === 'USER' && !agent.defaultProfile))
-const teamAgents = computed(() => agents.value.filter(agent => agent.ownershipType === 'TEAM'))
+// Built-in Team Observer has a dedicated read-only runtime and is not a WorkItem execution Agent.
+const platformManagedAgents = computed(() => agents.value.filter(isPlatformManagedAgent))
+const teamAgents = computed(() => agents.value.filter(agent => agent.ownershipType === 'TEAM' && !isPlatformManagedAgent(agent)))
 const agentGroups = computed(() => [
   {
     key: 'personal', title: '默认 Personal Agent', directoryId: 'personal-agent-directory',
@@ -54,7 +56,13 @@ const agentGroups = computed(() => [
       ? '创建后配置 TEAM 模型连接，再前往 Work 将它分配为 WorkItem Executor。'
       : 'Team Owner 或 Team Admin 创建后，你可以在 WorkItem 责任链中选择它。',
   },
-])
+  {
+    key: 'managed', title: '平台托管 Agent', directoryId: 'managed-agent-directory',
+    description: '由平台初始化且不可重复创建；管理员可配置受管模型并完成 Preflight。', agents: platformManagedAgents.value,
+    emptyTitle: '当前没有平台托管 Agent',
+    emptyDescription: '平台托管 Agent 会在相应团队能力初始化后出现。',
+  },
+].filter(group => group.key !== 'managed' || group.agents.length > 0))
 const selectedAgent = computed(() => agents.value.find(agent => agent.id === selection.value.agentId) ?? null)
 const teamAgentWorkTarget = computed(() => ({
   name: 'work',
@@ -227,10 +235,15 @@ function statusLabel(agent: AgentSummary): string {
 }
 
 function roleLabel(agent: AgentSummary): string {
+  if (isPlatformManagedAgent(agent)) return 'Team Observer · 平台托管'
   if (agent.defaultProfile) return 'Personal Agent'
   if (agent.runtimeRole === 'CODING') return 'Coding Specialist'
   if (agent.runtimeRole === 'REVIEWER') return 'Reviewer Specialist'
   return agent.runtimeRole.replaceAll('_', ' ')
+}
+
+function isPlatformManagedAgent(agent: AgentSummary): boolean {
+  return agent.templateKey === 'team-observer'
 }
 
 function modelBinding(agent: AgentSummary, scope: 'PERSONAL' | 'TEAM'): BindingView {
@@ -305,6 +318,7 @@ function bindingLabel(binding: BindingView): string {
           <div><dt>默认 Personal</dt><dd>{{ personalAgents.length }}</dd></div>
           <div><dt>我的 Specialist</dt><dd>{{ specialistAgents.length }}</dd></div>
           <div><dt>团队 Agent</dt><dd>{{ teamAgents.length }}</dd></div>
+          <div><dt>平台托管</dt><dd>{{ platformManagedAgents.length }}</dd></div>
         </dl>
       </section>
 
@@ -381,7 +395,7 @@ function bindingLabel(binding: BindingView): string {
                 <p v-if="agent.ownershipType === 'USER'"><span>PERSONAL</span><strong>{{ bindingLabel(modelBinding(agent, 'PERSONAL')) }}</strong></p>
                 <p v-if="!agent.defaultProfile"><span>TEAM</span><strong>{{ bindingLabel(modelBinding(agent, 'TEAM')) }}</strong></p>
               </div>
-              <footer><span>查看与配置</span><span v-if="selectedAgent?.id === agent.id">已选中</span></footer>
+              <footer><span>{{ isPlatformManagedAgent(agent) ? '配置模型与预检' : '查看与配置' }}</span><span v-if="selectedAgent?.id === agent.id">已选中</span></footer>
             </RouterLink>
           </li>
         </ul>

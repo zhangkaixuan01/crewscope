@@ -66,6 +66,8 @@ const preferences = reactive({
 })
 
 const currentResource = computed(() => store.state.currentConfigurations[props.agent.id])
+const platformManaged = computed(() => props.template?.platformManaged
+  ?? props.agent.templateKey === 'team-observer')
 const current = computed(() => currentResource.value?.value?.value ?? null)
 const historyResource = computed(() => store.state.configurationHistory[props.agent.id])
 const history = computed(() => historyResource.value?.value ?? [])
@@ -414,11 +416,11 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
 
         <template v-else>
           <section class="effect-note">
-            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>版本生效范围</strong><span>保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。</span></div>
+            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>{{ platformManaged ? '平台托管 Team Observer' : '版本生效范围' }}</strong><span>{{ platformManaged ? '平台负责创建唯一 Observer 并固定只读能力边界；管理员在此配置 TEAM 模型并完成 Preflight，Team Observer 运行时会在首次安全调用时完成就绪激活。' : '保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。' }}</span></div>
           </section>
 
-          <StatePanel v-if="!template" state="error" compact title="Template 元数据不可用" description="无法安全判断允许配置的槽位，设置已失败关闭。" @retry="loadFacts(true)" />
-          <StatePanel v-else-if="!canConfigure" state="forbidden" compact title="只读 Agent" description="你可以发现这个团队 Agent，但配置和生命周期操作需要 Agent 管理权限。" />
+          <StatePanel v-if="!canConfigure" state="forbidden" compact title="只读 Agent" description="你可以发现这个团队 Agent，但配置和生命周期操作需要 Agent 管理权限。" />
+          <StatePanel v-else-if="!template" state="error" compact title="Template 元数据不可用" description="无法安全判断允许配置的槽位，设置已失败关闭。" @retry="loadFacts(true)" />
 
           <form v-else class="configuration-form" @submit.prevent="save">
             <section class="form-section">
@@ -473,13 +475,16 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
             <footer class="save-actions"><span>“保存并预检”在服务端提交事务内先验证候选 Binding；失败不会追加 Revision。</span><BaseButton type="submit" :loading="saving" :disabled="!formValid || agent.status === 'ARCHIVED'"><Save :size="14" />{{ commandForAgent?.retryable ? '使用原请求重试' : '保存并预检' }}</BaseButton></footer>
           </form>
 
-          <section v-if="canConfigure && !agent.defaultProfile" class="lifecycle-section">
+          <section v-if="canConfigure && !agent.defaultProfile && !platformManaged" class="lifecycle-section">
             <div><p class="eyebrow">Lifecycle</p><h3>Agent 生命周期</h3><span>禁用可恢复；归档是不可逆终态。服务端同步 Principal 与 Profile 并使用强版本校验。</span></div>
             <div class="lifecycle-actions">
               <BaseButton v-if="agent.status === 'DISABLED'" variant="secondary" size="small" :loading="lifecyclePending" @click="transition('activate')"><Power :size="14" />{{ lifecycleConfirmation === 'activate' ? '确认启用' : '启用' }}</BaseButton>
               <BaseButton v-if="agent.status === 'ACTIVE'" variant="secondary" size="small" :loading="lifecyclePending" @click="transition('disable')">{{ lifecycleConfirmation === 'disable' ? '确认禁用' : '禁用' }}</BaseButton>
               <BaseButton v-if="agent.status !== 'ARCHIVED'" variant="danger" size="small" :loading="lifecyclePending" @click="transition('archive')">{{ lifecycleConfirmation === 'archive' ? '确认永久归档' : '归档' }}</BaseButton>
             </div>
+          </section>
+          <section v-else-if="canConfigure && platformManaged" class="lifecycle-section">
+            <div><p class="eyebrow">Managed lifecycle</p><h3>平台托管生命周期</h3><span>Team Observer 不支持重复创建或通用归档。有效 TEAM Configuration 通过 Preflight 后，专用运行时在首次调用时完成就绪激活。</span></div>
           </section>
         </template>
       </div>

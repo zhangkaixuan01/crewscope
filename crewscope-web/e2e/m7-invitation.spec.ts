@@ -184,7 +184,7 @@ async function installInvitationApi(page: Page, options: {
     if (path === `/api/v1/organizations/${ids.organization}/teams`) return route.fulfill(json([team()]))
     if (path.endsWith('/work-projects')) return route.fulfill(json({ items: [], nextCursor: null }))
     if (path.endsWith('/members')) return route.fulfill(json([{
-      id: ids.member, userPrincipalId: ids.principal, status: 'ACTIVE', joinMethod: 'CREATOR',
+      id: ids.member, userPrincipalId: ids.principal, displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'CREATOR',
       joinedAt: '2026-08-01T00:00:00Z', version: 0,
     }]))
     if (path.endsWith('/conversations')) return route.fulfill(json({ items: [], nextCursor: null }))

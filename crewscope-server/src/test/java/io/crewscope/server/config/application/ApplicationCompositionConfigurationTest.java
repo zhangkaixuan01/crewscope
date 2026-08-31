@@ -42,6 +42,7 @@ import io.crewscope.application.identity.LocalCredentialStore;
 import io.crewscope.application.identity.LocalPasswordAuthentication;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.UserAccountRepository;
+import io.crewscope.application.model.PlatformModelCatalogInitializer;
 import io.crewscope.application.team.OnboardingApplicationService;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
@@ -157,6 +158,9 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               AgentTemplateCatalogInitializer.class,
               () -> mock(AgentTemplateCatalogInitializer.class))
+          .withBean(
+              PlatformModelCatalogInitializer.class,
+              () -> mock(PlatformModelCatalogInitializer.class))
           .withBean(TeamObserverInitializer.class, () -> mock(TeamObserverInitializer.class))
           .withBean(AgentProfileRepository.class, () -> mock(AgentProfileRepository.class))
           .withBean(

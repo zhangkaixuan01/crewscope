@@ -32,6 +32,7 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.team.TeamInitialization;
+import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -109,10 +110,31 @@ class AgentManagementControllerM5A02Test {
                 .expectBody()
                 .jsonPath("$.items[0].key").isEqualTo("coding")
                 .jsonPath("$.items[0].runtimeRole").isEqualTo("SPECIALIST")
+                .jsonPath("$.items[0].creatable").isEqualTo(true)
+                .jsonPath("$.items[0].platformManaged").isEqualTo(false)
                 .jsonPath("$.items[0].approvedSkillKeys[0]").isEqualTo("coding-baseline")
                 .jsonPath("$.items[0].systemPromptBaseline").doesNotExist()
                 .jsonPath("$.items[0].structuredOutputSchema").doesNotExist()
                 .jsonPath("$.items[0].allowedTools").doesNotExist();
+    }
+
+    @Test
+    void marksBuiltInTeamObserverAsVisibleButNotCreatable() {
+        AgentTemplateDefinition observer =
+                TeamObserverTemplate.create(organizationId, actor.id(), NOW);
+        when(service.listTemplates(any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+                .thenReturn(List.of(observer));
+
+        client.get()
+                .uri(base() + "/agent-templates?ownershipType=TEAM")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.items[0].key").isEqualTo("team-observer")
+                .jsonPath("$.items[0].creatable").isEqualTo(false)
+                .jsonPath("$.items[0].platformManaged").isEqualTo(true)
+                .jsonPath("$.items[0].administratorConfigurableSlots[0]")
+                .isEqualTo("BUDGET");
     }
 
     @Test

@@ -28,6 +28,10 @@ export interface ConversationParticipant {
   conversationId: string
   principalId: string
   teamMemberId: string | null
+  displayName: string
+  principalType: 'USER' | 'PERSONAL_AGENT' | 'TEAM_AGENT' | 'SPECIALIST_AGENT' | 'SERVICE'
+  ownerPrincipalId: string | null
+  ownerDisplayName: string | null
   role: 'OWNER' | 'MEMBER' | 'AGENT'
   status: 'ACTIVE' | 'LEFT'
   joinedByPrincipalId: string

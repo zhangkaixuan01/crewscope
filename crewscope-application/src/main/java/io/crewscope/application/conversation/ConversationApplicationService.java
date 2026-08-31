@@ -49,6 +49,7 @@ import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.AggregateId;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -63,6 +64,7 @@ import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.PersonalAgentInitialization;
 import io.crewscope.domain.workspace.Workspace;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -204,8 +206,52 @@ public final class ConversationApplicationService {
         () -> {
           AccessSnapshot snapshot =
               requireReadable(context, organizationId, teamId, conversationId);
-          return new ConversationDetails(snapshot.conversation(), snapshot.participants());
+          return new ConversationDetails(
+              snapshot.conversation(), participantViews(snapshot));
         });
+  }
+
+  /** Resolves participant and owner names in bounded batch reads inside the detail snapshot. */
+  private List<ConversationParticipantView> participantViews(AccessSnapshot snapshot) {
+    OrganizationId organizationId = snapshot.conversation().scope().organizationId();
+    LinkedHashSet<PrincipalId> participantIds =
+        snapshot.participants().stream()
+            .map(ConversationParticipant::principalId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+    Map<PrincipalId, Principal> directory =
+        principalRepository.findByIds(organizationId, participantIds).stream()
+            .collect(Collectors.toMap(Principal::id, Function.identity()));
+    LinkedHashSet<PrincipalId> missingOwnerIds =
+        directory.values().stream()
+            .map(Principal::ownerPrincipalId)
+            .flatMap(Optional::stream)
+            .filter(ownerId -> !directory.containsKey(ownerId))
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+    principalRepository.findByIds(organizationId, missingOwnerIds).stream()
+        .forEach(principal -> directory.putIfAbsent(principal.id(), principal));
+    return snapshot.participants().stream()
+        .map(
+            participant -> {
+              Principal participantPrincipal =
+                  Optional.ofNullable(directory.get(participant.principalId()))
+                      .orElseThrow(
+                          () ->
+                              new AggregateNotFoundException(
+                                  "Principal", participant.principalId()));
+              Optional<Principal> owner =
+                  participantPrincipal
+                      .ownerPrincipalId()
+                      .map(
+                          ownerId ->
+                              Optional.ofNullable(directory.get(ownerId))
+                                  .orElseThrow(
+                                      () ->
+                                          new AggregateNotFoundException(
+                                              "Principal", ownerId)));
+              return new ConversationParticipantView(
+                  participant, participantPrincipal, owner);
+            })
+        .toList();
   }
 
   /** Returns descending committed history within the caller's current visibility cutoff. */

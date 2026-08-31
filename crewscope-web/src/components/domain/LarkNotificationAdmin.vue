@@ -277,7 +277,7 @@ function toLocalDate(value: string | null): string {
       <section class="mapping-flow panel">
         <header><div><p>Exact identity proof</p><h3>精确成员映射</h3></div><StatusBadge tone="neutral">open_id 不留存于浏览器状态</StatusBadge></header>
         <div class="mapping-steps">
-          <label><span>1 · CrewScope 成员</span><select v-model="mappingMemberId"><option value="">请选择成员</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.userPrincipalId === members.find(item => item.id === currentMemberId)?.userPrincipalId ? '当前成员 · ' : '' }}{{ shortId(member.id) }}</option></select></label>
+          <label><span>1 · CrewScope 成员</span><select v-model="mappingMemberId"><option value="">请选择成员</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.id === currentMemberId ? '当前成员 · ' : '' }}{{ member.displayName }}</option></select></label>
           <form @submit.prevent="verify"><label><span>2 · 精确飞书 open_id</span><input v-model="openId" type="password" maxlength="200" autocomplete="off" placeholder="仅用于本次验证" required></label><BaseButton size="small" type="submit" :disabled="!canMutate || !activeBinding || selectedConnection?.providerBindingVersion == null || !mappingMemberId || !openId.trim()"><UserCheck :size="13" />验证身份</BaseButton></form>
           <div class="proof"><span>3 · Proof Receipt</span><strong v-if="verified" class="mono">{{ shortId(verified.proofId) }}</strong><small v-else>验证通过后生成一次性安全坐标</small><BaseButton size="small" :disabled="!canMutate || !verified" @click="confirm"><UsersRound :size="13" />确认映射</BaseButton></div>
         </div>

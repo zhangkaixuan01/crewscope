@@ -21,8 +21,8 @@ test.beforeEach(async ({ page }) => {
     if (request.method() === 'GET' && path.endsWith('/teams')) return json(route, [team()])
     if (request.method() === 'GET' && path.endsWith('/work-projects')) return json(route, { items: [project()], nextCursor: null })
     if (request.method() === 'GET' && path.endsWith('/members')) return json(route, [
-      { id: id.member, userPrincipalId: id.principal, status: 'ACTIVE', joinMethod: 'CREATED_WITH_TEAM', joinedAt: '2026-08-01T00:00:00Z', version: 0 },
-      { id: id.member2, userPrincipalId: uuid(13), status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-02T00:00:00Z', version: 0 },
+      { id: id.member, userPrincipalId: id.principal, displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'CREATED_WITH_TEAM', joinedAt: '2026-08-01T00:00:00Z', version: 0 },
+      { id: id.member2, userPrincipalId: uuid(13), displayName: 'Lin Chen', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-02T00:00:00Z', version: 0 },
     ])
     if (request.method() === 'GET' && path.endsWith('/lark/connections')) return json(route, [connection(connectionVersion)])
     if (request.method() === 'GET' && path.endsWith(`/lark/connections/${id.connection}`)) return versioned(route, connection(connectionVersion), connectionVersion)

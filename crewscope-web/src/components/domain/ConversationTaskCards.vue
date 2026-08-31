@@ -3,6 +3,7 @@ import { Bot, CircleUserRound, Clock3, ExternalLink, Radio, RefreshCw } from '@l
 import type { SemanticTone } from '../base/types'
 import type { TaskLiveState, TaskPhase } from '../../domains/task/store'
 import type { TaskAssociationSummary, TaskStatus } from '../../domains/task/types'
+import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
@@ -13,6 +14,7 @@ defineProps<{
   liveTasks: Readonly<Record<string, TaskLiveState>>
   errorMessage: string | null
   currentPrincipalId: string
+  principalNames: PrincipalNameDirectory
 }>()
 
 defineEmits<{
@@ -40,10 +42,14 @@ function executionLabel(association: TaskAssociationSummary): string {
     : `Attempt ${task.currentAttempt} · ${task.currentExecutionStatus ?? 'UNKNOWN'}`
 }
 
-function ownerName(association: TaskAssociationSummary, currentPrincipalId: string): string {
+function ownerName(
+  association: TaskAssociationSummary,
+  currentPrincipalId: string,
+  principalNames: PrincipalNameDirectory,
+): string {
   const owner = association.task.ownerPrincipalId
   if (!owner) return '未记录 Owner'
-  return owner === currentPrincipalId ? '你' : `成员 ${owner.slice(0, 8)}`
+  return owner === currentPrincipalId ? '你' : principalDisplayName(principalNames, owner)
 }
 
 function originLabel(origin: string): string {
@@ -107,7 +113,7 @@ function displayDate(value: string): string {
             <StatusBadge :tone="statusTone(association.task.status)" dot>{{ statusLabels[association.task.status] }}</StatusBadge>
           </div>
           <div class="conversation-task-card__facts">
-            <span><CircleUserRound :size="12" aria-hidden="true" />{{ ownerName(association, currentPrincipalId) }}</span>
+            <span><CircleUserRound :size="12" aria-hidden="true" />{{ ownerName(association, currentPrincipalId, principalNames) }}</span>
             <span><Clock3 :size="12" aria-hidden="true" />{{ executionLabel(association) }}</span>
             <span v-if="liveTasks[association.task.id]" class="live-fact" :class="liveTasks[association.task.id]?.phase">
               <Radio :size="11" aria-hidden="true" />{{ liveLabel(liveTasks[association.task.id]) }}

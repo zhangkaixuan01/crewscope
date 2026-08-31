@@ -10,6 +10,7 @@ import ActivityStream from '../components/domain/ActivityStream.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
+import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useActivityRealtimeStore } from '../domains/teamops/activityRealtimeStore'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ActivityItem, TeamOpsScope } from '../domains/teamops/types'
@@ -21,6 +22,7 @@ const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const realtime = useActivityRealtimeStore()
 const online = useNetworkStatus()
+const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const actorFilter = ref('')
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -35,6 +37,9 @@ const filteredItems = computed(() => (store.state.teamActivity.value ?? []).filt
   const actor = actorFilter.value.trim().toLowerCase()
   const actorMatches = !actor || item.actor.type.toLowerCase().includes(actor)
     || item.actor.principalId?.toLowerCase().includes(actor)
+    || (item.actor.principalId
+      ? principalDisplayName(principalNames.value, item.actor.principalId, item.actor.type).toLowerCase().includes(actor)
+      : false)
   return categoryMatches && actorMatches
 }))
 const categories = computed(() => [...new Set((store.state.teamActivity.value ?? []).map(item => item.category))].sort())
@@ -47,7 +52,7 @@ watch(
       return
     }
     store.activateScope(scope.value)
-    await store.loadTeamActivity({}, false, true)
+    await Promise.all([store.loadTeamActivity({}, false, true), scopeStore.loadMembers()])
     if (!scope.value || store.state.teamActivity.error?.kind === 'forbidden') return
     realtime.start(scope.value, store.state.teamActivity.resumeCursor)
     if (selectedEventId.value) await store.loadActivityDetail(selectedEventId.value)
@@ -83,6 +88,9 @@ function updateCategory(event: Event): void {
 }
 function queryValue(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null }
 function displayTime(value: string): string { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
+function actorName(principalId: string | null, type: string): string {
+  return principalId ? principalDisplayName(principalNames.value, principalId, type) : type === 'SYSTEM' ? '系统' : type
+}
 </script>
 
 <template>
@@ -110,6 +118,7 @@ function displayTime(value: string): string { return new Intl.DateTimeFormat('zh
           :phase="store.state.teamActivity.phase" :items="filteredItems" :next-cursor="store.state.teamActivity.nextCursor"
           :loading-more="store.state.teamActivity.loadingMore" :error="store.state.teamActivity.error ?? realtime.state.error"
           :realtime-phase="realtime.state.phase" :online="online"
+          :principal-names="principalNames"
           @retry="realtime.state.phase === 'cursor-expired' ? recoverCursor() : reload()"
           @load-more="store.loadTeamActivity({}, true)" @select="select"
         />
@@ -119,7 +128,7 @@ function displayTime(value: string): string { return new Intl.DateTimeFormat('zh
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">
-            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ selectedDetail.value.category }}</dd></div><div><dt>Actor</dt><dd class="mono">{{ selectedDetail.value.actor.principalId ?? selectedDetail.value.actor.type }}</dd></div><div><dt>Subject</dt><dd class="mono">{{ selectedDetail.value.subject.type }} · {{ selectedDetail.value.subject.id }}</dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
+            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ selectedDetail.value.category }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd class="mono">{{ selectedDetail.value.subject.type }} · {{ selectedDetail.value.subject.id }}</dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
             <section><h3>公开摘要</h3><p v-if="Object.keys(selectedDetail.value.payload.values).length === 0">此事件没有公开摘要字段。</p><dl v-else><div v-for="(value, key) in selectedDetail.value.payload.values" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl></section>
           </template>
         </aside>

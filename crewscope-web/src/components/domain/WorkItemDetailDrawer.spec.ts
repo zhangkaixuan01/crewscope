@@ -65,6 +65,17 @@ describe('WorkItemDetailDrawer', () => {
     wrapper.unmount()
   })
 
+  it('uses current member and Agent directory names for authorship facts', () => {
+    const details = structuredClone(fixtureWorkItemDetails)
+    details.workItem.createdByPrincipalId = '00000000-0000-0000-0000-000000000201'
+    details.comments[0]!.authorPrincipalId = '00000000-0000-0000-0000-000000000101'
+    const wrapper = mount(WorkItemDetailDrawer, { props: props({ details }) })
+
+    expect(wrapper.get('.facts-section').text()).toContain('Coding Agent')
+    expect(wrapper.get('.comments-section').text()).toContain('张凯旋')
+    wrapper.unmount()
+  })
+
   it('embeds the WorkItem Activity projection after its business timeline', () => {
     const wrapper = mount(WorkItemDetailDrawer, {
       props: props(),

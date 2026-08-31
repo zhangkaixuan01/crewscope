@@ -12,6 +12,7 @@ import io.crewscope.application.conversation.ConversationDetails;
 import io.crewscope.application.conversation.ConversationListCursor;
 import io.crewscope.application.conversation.ConversationMessageCursor;
 import io.crewscope.application.conversation.ConversationPage;
+import io.crewscope.application.conversation.ConversationParticipantView;
 import io.crewscope.application.conversation.MessagePage;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.conversation.ConversationId;
@@ -128,7 +129,13 @@ class ConversationControllerTest {
         .thenReturn(
             new ConversationDetails(
                 conversation.conversation(),
-                List.of(conversation.ownerParticipant(), conversation.agentParticipant())));
+                List.of(
+                    new ConversationParticipantView(
+                        conversation.ownerParticipant(), owner, Optional.empty()),
+                    new ConversationParticipantView(
+                        conversation.agentParticipant(),
+                        initialization.ownerPersonalAgent().agentPrincipal(),
+                        Optional.of(owner)))));
 
     client
         .get()
@@ -155,6 +162,18 @@ class ConversationControllerTest {
         .expectBody()
         .jsonPath("$.participants.length()")
         .isEqualTo(2)
+        .jsonPath("$.participants[0].displayName")
+        .isEqualTo("Owner")
+        .jsonPath("$.participants[0].principalType")
+        .isEqualTo("USER")
+        .jsonPath("$.participants[1].displayName")
+        .isEqualTo("Owner · Personal Agent")
+        .jsonPath("$.participants[1].principalType")
+        .isEqualTo("PERSONAL_AGENT")
+        .jsonPath("$.participants[1].ownerPrincipalId")
+        .isEqualTo(owner.id().toString())
+        .jsonPath("$.participants[1].ownerDisplayName")
+        .isEqualTo("Owner")
         .jsonPath("$.conversation.personalAgentPrincipalId")
         .isEqualTo(initialization.ownerPersonalAgent().agentPrincipal().id().toString());
   }

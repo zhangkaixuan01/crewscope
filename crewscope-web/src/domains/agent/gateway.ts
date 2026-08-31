@@ -234,7 +234,7 @@ function mapTemplate(value: AgentTemplateSummary): AgentTemplateSummary {
   return {
     ...pick(value, [
       'publisherType', 'publisherId', 'key', 'version', 'runtimeRole', 'contentHash', 'status',
-      'lifecycleVersion',
+      'lifecycleVersion', 'creatable', 'platformManaged',
     ]),
     allowedOwnershipTypes: [...value.allowedOwnershipTypes],
     allowedExecutionScopes: [...value.allowedExecutionScopes],

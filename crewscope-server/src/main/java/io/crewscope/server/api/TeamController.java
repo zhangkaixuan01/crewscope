@@ -7,6 +7,7 @@ import io.crewscope.application.team.CreateTeamCommand;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.application.team.TeamMemberView;
 import io.crewscope.application.team.TeamView;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -287,15 +288,18 @@ public final class TeamController {
   public record TeamMemberResponse(
       String id,
       String userPrincipalId,
+      String displayName,
       String status,
       String joinMethod,
       String joinedAt,
       long version) {
 
-    static TeamMemberResponse from(TeamMember member) {
+    static TeamMemberResponse from(TeamMemberView view) {
+      TeamMember member = view.member();
       return new TeamMemberResponse(
           member.id().toString(),
           member.userPrincipalId().toString(),
+          view.displayName(),
           member.status().name(),
           member.joinMethod().name(),
           member.joinedAt().map(Object::toString).orElse(null),

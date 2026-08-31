@@ -10,6 +10,7 @@ import {
   type AuditOutcome,
 } from '../../domains/teamops/types'
 import type { TeamOpsErrorState } from '../../domains/teamops/errors'
+import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
@@ -42,6 +43,7 @@ const props = defineProps<{
   canExport: boolean
   exportPhase: TeamOpsPhase
   exportError: TeamOpsErrorState | null
+  principalNames?: PrincipalNameDirectory
 }>()
 
 const emit = defineEmits<{
@@ -77,6 +79,11 @@ const exportDisabledReason = computed(() => {
   if (!rangeWithinLimit.value) return '导出时间范围不能超过 31 天'
   return ''
 })
+
+function actorName(actorId: string | null, actorType: string): string {
+  if (!actorId) return actorType === 'SYSTEM' ? '系统' : actorType
+  return principalDisplayName(props.principalNames ?? {}, actorId, actorType)
+}
 
 watch(() => props.initialFilter, value => Object.assign(form, value), { deep: true })
 watch(() => props.selectedEvent, async value => {
@@ -178,7 +185,7 @@ function categoryLabel(value: AuditEventCategory): string { return value.replace
             <tbody><tr v-for="item in items" :key="item.eventId" :class="{ selected: selectedEvent?.eventId === item.eventId }">
               <td data-label="Category / Outcome"><strong>{{ categoryLabel(item.category) }}</strong><StatusBadge :tone="outcomeTone(item.outcome)">{{ item.outcome }}</StatusBadge></td>
               <td data-label="事件"><span>{{ item.eventType }}</span><small class="mono">{{ shortId(item.eventId) }}</small></td>
-              <td data-label="Actor"><span>{{ item.identity.actorType }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
+              <td data-label="Actor"><span>{{ actorName(item.identity.actorId, item.identity.actorType) }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
               <td data-label="Subject"><span>{{ item.subject.type }}</span><small class="mono">{{ shortId(item.subject.id) }}</small></td>
               <td data-label="发生时间"><time :datetime="item.occurredAt">{{ displayTime(item.occurredAt) }}</time></td>
               <td data-label="操作"><button type="button" @click="emit('select', item.eventId)">查看详情</button></td>
@@ -193,8 +200,8 @@ function categoryLabel(value: AuditEventCategory): string { return value.replace
         <section class="audit-detail__hero"><StatusBadge :tone="outcomeTone(selectedEvent.outcome)">{{ selectedEvent.outcome }}</StatusBadge><StatusBadge tone="neutral">{{ selectedEvent.retentionLevel }}</StatusBadge><h3>{{ selectedEvent.eventType }}</h3><span>{{ selectedEvent.category }} · Schema v{{ selectedEvent.sourceSchemaVersion }}</span></section>
         <dl>
           <div><dt>Event ID</dt><dd class="mono">{{ selectedEvent.eventId }}</dd></div>
-          <div><dt>Initiator</dt><dd class="mono">{{ selectedEvent.identity.initiatorId ?? '—' }}</dd></div>
-          <div><dt>Actor</dt><dd>{{ selectedEvent.identity.actorType }}<small class="mono">{{ selectedEvent.identity.actorId ?? '—' }}</small></dd></div>
+          <div><dt>Initiator</dt><dd>{{ selectedEvent.identity.initiatorId ? actorName(selectedEvent.identity.initiatorId, 'INITIATOR') : '—' }}<small v-if="selectedEvent.identity.initiatorId" class="mono">{{ selectedEvent.identity.initiatorId }}</small></dd></div>
+          <div><dt>Actor</dt><dd>{{ actorName(selectedEvent.identity.actorId, selectedEvent.identity.actorType) }}<small class="mono">{{ selectedEvent.identity.actorId ?? '—' }}</small></dd></div>
           <div><dt>Agent Principal</dt><dd class="mono">{{ selectedEvent.identity.agentPrincipalId ?? '—' }}</dd></div>
           <div><dt>Subject</dt><dd>{{ selectedEvent.subject.type }}<small class="mono">{{ selectedEvent.subject.id }}</small></dd></div>
           <div><dt>发生时间</dt><dd>{{ displayTime(selectedEvent.occurredAt) }}</dd></div>

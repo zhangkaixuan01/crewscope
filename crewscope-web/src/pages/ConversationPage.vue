@@ -40,6 +40,7 @@ import type {
   TaskIntentRevisionInput,
 } from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
+import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
 import type { TeamObserverScope } from '../domains/teamobserver/types'
@@ -80,6 +81,7 @@ const selected = computed(() => conversationStore.state.details?.conversation ??
 const activeParticipants = computed(
   () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
 )
+const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const focus = computed(() => queryValue(route.query.focus))
 const pageTitle = computed(() => {
   if (observerMode.value) return 'Team Observer'
@@ -205,6 +207,7 @@ watch(
     }
     const version = ++synchronizationVersion
     const scope = { organizationId: principal.organizationId, teamId }
+    void scopeStore.loadMembers()
     const conversationId = queryValue(conversation)
     await conversationStore.synchronize(scope, conversationId)
     if (version !== synchronizationVersion) return
@@ -584,13 +587,37 @@ function currentMessageScope(): ConversationMessageScope | null {
 }
 
 function participantName(participant: ConversationParticipant): string {
-  if (participant.principalId === principal?.id) return principal.displayName
-  if (participant.role === 'AGENT') return 'Personal Agent'
-  return `成员 ${participant.principalId.slice(0, 8)}`
+  return participant.displayName?.trim()
+    || principalDisplayName(
+      principalNames.value,
+      participant.principalId,
+      participant.role === 'AGENT' ? 'Agent' : '成员',
+    )
 }
 
 function participantRole(participant: ConversationParticipant): string {
-  return ({ OWNER: 'Owner', MEMBER: '参与者', AGENT: 'Personal Agent' })[participant.role]
+  if (participant.role === 'OWNER') return '对话创建者 · OWNER'
+  if (participant.role === 'MEMBER') return '团队参与者 · MEMBER'
+  if (participant.principalType === 'PERSONAL_AGENT') {
+    const ownerName = participant.ownerDisplayName?.trim()
+      || (participant.ownerPrincipalId
+        ? principalDisplayName(principalNames.value, participant.ownerPrincipalId)
+        : null)
+    return ownerName ? `${ownerName}的 Personal Agent · AGENT` : 'Personal Agent · AGENT'
+  }
+  if (participant.principalType === 'TEAM_AGENT') return '团队 Agent · AGENT'
+  return '执行 Agent · AGENT'
+}
+
+function participantKind(participant: ConversationParticipant): string {
+  if (participant.role !== 'AGENT') return '团队成员'
+  return ({
+    PERSONAL_AGENT: '个人 Agent',
+    TEAM_AGENT: '团队 Agent',
+    SPECIALIST_AGENT: '专项 Agent',
+    USER: '执行主体',
+    SERVICE: '服务主体',
+  })[participant.principalType]
 }
 
 function messageAuthor(message: ConversationMessage): string {
@@ -598,7 +625,11 @@ function messageAuthor(message: ConversationMessage): string {
   if (message.authorPrincipalId === principal?.id) return '你'
   if (message.authorPrincipalId === selected.value?.personalAgentPrincipalId) return 'Personal Agent'
   const participant = activeParticipants.value.find(item => item.principalId === message.authorPrincipalId)
-  return participant ? participantName(participant) : `成员 ${message.authorPrincipalId?.slice(0, 8) ?? '未知'}`
+  return participant
+    ? participantName(participant)
+    : message.authorPrincipalId
+      ? principalDisplayName(principalNames.value, message.authorPrincipalId)
+      : '未知成员'
 }
 
 function isOwnMessage(message: ConversationMessage): boolean {
@@ -812,6 +843,7 @@ function queryValue(value: unknown): string | null {
                 :pending="taskIntentStore.state.commandPending"
                 :error-message="taskIntentStore.state.commandErrorMessage"
                 :version-conflict="taskIntentStore.state.versionConflict"
+                :principal-names="principalNames"
                 @revise="reviseTaskIntent"
                 @reject="rejectTaskIntent"
                 @confirm="confirmTaskIntent"
@@ -832,6 +864,7 @@ function queryValue(value: unknown): string | null {
                 :live-tasks="taskStore.state.liveTasks"
                 :error-message="taskAssociationResource?.errorMessage ?? null"
                 :current-principal-id="principal?.id ?? ''"
+                :principal-names="principalNames"
                 @open-task="openAssociatedTask"
                 @open-work-item="openTaskWorkItem"
                 @retry="retryTasks"
@@ -956,7 +989,9 @@ function queryValue(value: unknown): string | null {
               <template v-else>{{ participantName(participant).slice(0, 1) }}</template>
             </span>
             <div><strong>{{ participantName(participant) }}</strong><small>{{ participantRole(participant) }}</small></div>
-            <StatusBadge :tone="participant.role === 'AGENT' ? 'agent' : 'neutral'">在线范围</StatusBadge>
+            <StatusBadge :tone="participant.role === 'AGENT' ? 'agent' : 'neutral'">
+              {{ participantKind(participant) }}
+            </StatusBadge>
           </li>
         </ul>
         <div v-else class="participant-placeholder">

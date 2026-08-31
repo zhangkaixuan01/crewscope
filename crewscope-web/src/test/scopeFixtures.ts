@@ -143,6 +143,7 @@ function member(id: string, principalId: string, joinMethod: string): TeamMember
   return {
     id,
     userPrincipalId: principalId,
+    displayName: principalId === fixtureIds.principal ? 'Zhang Kaixuan' : 'Lin Chen',
     status: 'ACTIVE',
     joinMethod,
     joinedAt: '2026-08-08T01:00:00Z',

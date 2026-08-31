@@ -12,7 +12,7 @@ const base = {
   phase: 'ready' as const, error: null, connections: [connection], selectedConnection: connection,
   health: { status: 'HEALTHY' as const, retryable: false, retryAfterSeconds: null, evidenceCode: 'LARK_PROVIDER_HEALTHY', checkedAt: '2026-08-27T02:00:00Z' },
   mappings: [mapping], mappingPhase: 'ready' as const, mappingError: null, mappingNextCursor: null, mappingLoadingMore: false,
-  members: [{ id: uuid(5), userPrincipalId: uuid(10), status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-27T01:00:00Z', version: 0 }], currentMemberId: uuid(5),
+  members: [{ id: uuid(5), userPrincipalId: uuid(10), displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-27T01:00:00Z', version: 0 }], currentMemberId: uuid(5),
   templates: [{ ref: { templateId: uuid(7), version: 1 }, serverTemplateKey: 'review-requested', status: 'PUBLISHED' as const, variables: [{ name: 'title', type: 'TEXT' as const, maximumLength: 120 }] }],
   preference: { memberId: uuid(5), enabled: true, enabledItemTypes: ['REVIEW' as const, 'CONFIRMATION' as const], mutedUntil: null, version: 1 },
   deliveries: [delivery], deliveryPhase: 'ready' as const, deliveryError: null, deliveryNextCursor: null, deliveryLoadingMore: false,

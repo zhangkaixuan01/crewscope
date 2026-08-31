@@ -10,6 +10,7 @@ import AuditExplorer from '../components/domain/AuditExplorer.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
+import { principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import { auditEventCategories, auditOutcomes, type AuditEventCategory, type AuditFilter, type AuditOutcome, type TeamOpsScope } from '../domains/teamops/types'
 
@@ -34,6 +35,7 @@ const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const online = useNetworkStatus()
 const canExport = computed(() => Boolean(principal && can(principal, permissions.governanceExport)))
+const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
@@ -59,7 +61,7 @@ watch(
   async ([phase]) => {
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
-    await store.loadAudit(activeFilter.value, false, true)
+    await Promise.all([store.loadAudit(activeFilter.value, false, true), scopeStore.loadMembers()])
     if (chainId.value) await store.loadCorrelation(chainId.value, false, true)
   },
   { immediate: true },
@@ -167,6 +169,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
       :selected-event="selectedEvent" :correlation="correlation" :initial-filter="filterForm"
       :correlation-id="chainId"
       :online="online" :can-export="canExport" :export-phase="store.state.auditExport.phase" :export-error="store.state.auditExport.error"
+      :principal-names="principalNames"
       @apply-filter="applyFilter" @retry="store.loadAudit(activeFilter, false, true)" @load-more="store.loadAudit(activeFilter, true)"
       @select="selectEvent" @close-detail="closeDetail" @open-correlation="openCorrelation" @close-correlation="closeCorrelation"
       @retry-correlation="id => store.loadCorrelation(id, false, true)" @load-more-correlation="id => store.loadCorrelation(id, true)"

@@ -43,11 +43,6 @@ function shortId(value: string): string {
   return `${value.slice(0, 8)}…${value.slice(-4)}`
 }
 
-function memberLabel(memberId: string, userPrincipalId: string): string {
-  if (userPrincipalId === principal?.id) return principal.displayName
-  if (memberId === team.value?.ownerMemberId) return 'Team Owner'
-  return `成员 ${userPrincipalId.slice(0, 6)}`
-}
 </script>
 
 <template>
@@ -76,14 +71,14 @@ function memberLabel(memberId: string, userPrincipalId: string): string {
       </form>
 
       <section class="panel member-directory">
-        <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>展示成员状态和加入事实；Principal 详细资料将在身份目录 API 进入后补全。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
+        <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>展示身份目录中的显示名，以及成员状态和加入事实。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
         <StatePanel v-if="store.state.membersLoading" state="loading" />
         <StatePanel v-else-if="store.state.membersErrorMessage" state="error" :description="store.state.membersErrorMessage" @retry="store.loadMembers(true)" />
         <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实" />
         <div v-else class="member-table" role="table" aria-label="团队成员列表">
           <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span><span role="columnheader">版本</span></div>
           <div v-for="member in store.state.members" :key="member.id" class="member-row" role="row">
-            <div class="member-identity" role="cell"><i>{{ memberLabel(member.id, member.userPrincipalId).slice(0, 1) }}</i><span><strong>{{ memberLabel(member.id, member.userPrincipalId) }} <em v-if="member.userPrincipalId === principal?.id">你</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }}</small></span></div>
+            <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }}</small></span></div>
             <span role="cell"><StatusBadge :tone="member.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ member.status }}</StatusBadge></span>
             <span class="join-method" role="cell">{{ member.joinMethod }}</span>
             <span class="joined-at" role="cell">{{ member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('zh-CN') : '—' }}</span>

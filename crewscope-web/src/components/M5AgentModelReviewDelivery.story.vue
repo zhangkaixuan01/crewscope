@@ -60,7 +60,8 @@ const template = {
   runtimeRole: 'CODING', allowedOwnershipTypes: ['USER', 'TEAM'], allowedExecutionScopes: ['PERSONAL', 'TEAM'],
   declaredCapabilities: ['coding', 'test'], requiredModelCapabilities: ['TOOLS'],
   approvedSkillKeys: ['coding-baseline'], memberConfigurableSlots: ['MODEL_BINDING'],
-  administratorConfigurableSlots: [], contentHash: '1'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+  administratorConfigurableSlots: [], creatable: true, platformManaged: false,
+  contentHash: '1'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
 }
 const reviewCommand: ReviewCommandState = {
   phase: 'idle', operation: null, reviewRequestId: null, receiptCorrelationId: null, execution: null,

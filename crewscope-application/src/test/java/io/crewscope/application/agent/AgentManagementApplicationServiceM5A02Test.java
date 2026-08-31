@@ -231,7 +231,7 @@ class AgentManagementApplicationServiceM5A02Test {
     }
 
     @Test
-    void hidesBuiltInTeamObserverAndRejectsGenericCreationByTemplateVersion() {
+    void exposesBuiltInTeamObserverMetadataButRejectsGenericCreationByTemplateVersion() {
         AgentTemplateDefinition observer =
                 TeamObserverTemplate.create(organizationId, actor.id(), NOW);
         when(templates.findLatestActivePage(
@@ -257,7 +257,7 @@ class AgentManagementApplicationServiceM5A02Test {
                 observer.templateVersion(),
                 "Duplicate Team Observer");
 
-        assertEquals(List.of(coding), catalog);
+        assertEquals(List.of(coding, observer), catalog);
         assertThrows(
                 DomainValidationException.class,
                 () -> service.create(

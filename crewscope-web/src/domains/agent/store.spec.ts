@@ -200,6 +200,7 @@ function template(scope: SettingsScope): AgentTemplateSummary {
     runtimeRole: 'SPECIALIST', allowedOwnershipTypes: ['USER'], allowedExecutionScopes: ['PERSONAL', 'TEAM'],
     declaredCapabilities: ['coding'], requiredModelCapabilities: ['TOOLS'], approvedSkillKeys: ['coding-baseline'],
     memberConfigurableSlots: ['SUPPLEMENTAL_INSTRUCTIONS'], administratorConfigurableSlots: [],
+    creatable: true, platformManaged: false,
     contentHash: 'a'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
   }
 }

@@ -22,6 +22,7 @@ import AppShell from '../components/layout/AppShell.vue'
 import { useCodingStore } from '../domains/coding/store'
 import type { CodingScope, RepositoryBinding, RepositoryBindingInput } from '../domains/coding/types'
 import { useScopeStore } from '../domains/scope/store'
+import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 
 const route = useRoute()
@@ -64,6 +65,7 @@ const forbidden = computed(() => store.state.repositories.errorStatus === 403
   || store.state.repositoryCatalog.errorStatus === 403)
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
+const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 
 watch(
   () => [scope.value?.teamId, scope.value?.projectId, route.fullPath] as const,
@@ -74,6 +76,7 @@ watch(
     await Promise.all([
       store.loadRepositories(scope.value, true),
       store.loadRepositoryCatalog(scope.value, true),
+      scopeStore.loadMembers(),
     ])
     chooseFirstRepository()
   },
@@ -164,8 +167,7 @@ function preflightFor(bindingId: string) {
 
 function actor(value: string | null): string {
   if (!value) return '系统'
-  if (value === principal?.id) return principal.displayName
-  return `${value.slice(0, 8)}…${value.slice(-4)}`
+  return principalDisplayName(principalNames.value, value)
 }
 
 function updatedAt(value: string): string {

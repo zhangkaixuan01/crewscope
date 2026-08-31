@@ -106,6 +106,13 @@ const canTransition = computed(() => props.canParticipate && item.value?.source 
 const canCollaborate = computed(() => props.canParticipate && item.value?.status !== 'ARCHIVED')
 const canManageResponsibility = computed(() => props.canManageResponsibility && item.value?.status !== 'ARCHIVED')
 
+function humanName(principalId: string | null): string {
+  if (!principalId) return '系统'
+  return props.responsibilityCandidates.find(candidate => candidate.principalId === principalId)?.displayName
+    ?? props.responsibilityAgentCandidates.find(candidate => candidate.principalId === principalId)?.displayName
+    ?? `${principalId.slice(0, 8)}…`
+}
+
 watch(
   () => [item.value?.id, item.value?.status] as const,
   () => { transitionTarget.value = transitions.value[0] ?? '' },
@@ -245,7 +252,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 
         <section class="detail-section facts-section">
           <div class="section-heading"><div><p>Facts</p><h3>工作项信息</h3></div></div>
-          <dl><div><dt>来源</dt><dd>{{ item.source }}</dd></div><div><dt>更新时间</dt><dd>{{ displayDate(item.updatedAt) }}</dd></div><div><dt>到期时间</dt><dd><CalendarClock :size="12" />{{ item.dueAt ? displayDate(item.dueAt) : '未设置' }}</dd></div><div><dt>创建者</dt><dd class="mono">{{ item.createdByPrincipalId?.slice(0, 8) ?? 'system' }}</dd></div></dl>
+          <dl><div><dt>来源</dt><dd>{{ item.source }}</dd></div><div><dt>更新时间</dt><dd>{{ displayDate(item.updatedAt) }}</dd></div><div><dt>到期时间</dt><dd><CalendarClock :size="12" />{{ item.dueAt ? displayDate(item.dueAt) : '未设置' }}</dd></div><div><dt>创建者</dt><dd>{{ humanName(item.createdByPrincipalId) }}</dd></div></dl>
         </section>
 
         <ConversationWorkItemLinks
@@ -286,7 +293,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
         <section class="detail-section comments-section">
           <div class="section-heading"><div><p>Discussion</p><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>
           <div v-if="details.comments.length" class="comment-list">
-            <article v-for="entry in details.comments" :key="entry.id"><i>{{ entry.authorPrincipalId.slice(0, 1).toUpperCase() }}</i><div><header><strong class="mono">{{ entry.authorPrincipalId.slice(0, 8) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><p>{{ entry.content }}</p></div></article>
+            <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><p>{{ entry.content }}</p></div></article>
           </div>
           <p v-else class="section-note">还没有评论。</p>
           <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项" :aria-invalid="commentSubmitted && !comment.trim()" /><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="13" />发送评论</BaseButton></form>

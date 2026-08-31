@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.model.PlatformModelCatalogInitializer;
 import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -66,7 +67,7 @@ class TeamCreationServiceTest {
   }
 
   @Test
-  void initializesTheBuiltInObserverInsideTheTeamCreationTransaction() {
+  void initializesTheBuiltInCatalogsAndObserverInsideTheTeamCreationTransaction() {
     RecordingTransactionExecutor transaction = new RecordingTransactionExecutor();
     RecordingRepositories repositories = new RecordingRepositories(transaction);
     List<String> initialized = new ArrayList<>();
@@ -77,6 +78,10 @@ class TeamCreationServiceTest {
     AgentTemplateCatalogInitializer templates = (organizationId, actor, occurredAt) -> {
       assertTrue(transaction.inTransaction);
       initialized.add("templates");
+    };
+    PlatformModelCatalogInitializer models = (actor, occurredAt) -> {
+      assertTrue(transaction.inTransaction);
+      initialized.add("models");
     };
     TeamObserverInitializer observer = (team, workspace, ownerMember, ownerUser) -> {
       assertTrue(transaction.inTransaction);
@@ -97,12 +102,13 @@ class TeamCreationServiceTest {
             providers,
             transaction,
             timeProvider,
+            models,
             templates,
             observer);
 
     service.create(activeUser(), new CreateTeamCommand("Platform Crew"));
 
-    assertEquals(List.of("providers", "templates", "observer"), initialized);
+    assertEquals(List.of("providers", "models", "templates", "observer"), initialized);
     assertEquals(1, transaction.requiredCalls);
   }
 
@@ -179,8 +185,12 @@ class TeamCreationServiceTest {
         repositories,
         repositories,
         repositories,
+        (team, workspace, actor) -> {},
         transactionExecutor,
-        timeProvider);
+        timeProvider,
+        (actor, occurredAt) -> {},
+        (organizationId, actor, occurredAt) -> {},
+        (team, workspace, ownerMember, ownerUser) -> {});
   }
 
   private static Principal activeUser() {

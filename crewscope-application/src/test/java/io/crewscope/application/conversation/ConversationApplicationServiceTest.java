@@ -26,6 +26,7 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.conversation.Conversation;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.ConversationParticipant;
+import io.crewscope.domain.conversation.ConversationParticipantRole;
 import io.crewscope.domain.conversation.ConversationParticipantStatus;
 import io.crewscope.domain.conversation.Message;
 import io.crewscope.domain.conversation.MessageType;
@@ -58,7 +59,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -276,6 +279,16 @@ class ConversationApplicationServiceTest {
     assertEquals(
         io.crewscope.domain.conversation.ConversationStatus.ARCHIVED,
         details.conversation().status());
+    ConversationParticipantView agentView =
+        details.participants().stream()
+            .filter(view -> view.participant().role() == ConversationParticipantRole.AGENT)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        fixture.initialization.ownerPersonalAgent().agentPrincipal().displayName(),
+        agentView.principal().displayName());
+    assertEquals(fixture.owner.id(), agentView.owner().orElseThrow().id());
+    assertEquals("Owner", agentView.owner().orElseThrow().displayName());
     assertThrows(
         DomainValidationException.class,
         () ->
@@ -284,6 +297,28 @@ class ConversationApplicationServiceTest {
                 fixture.initialization.team().id(),
                 archived.id(),
                 new AddConversationParticipantCommand(fixture.owner.id())));
+  }
+
+  @Test
+  void participantViewRejectsPrincipalTypesThatDoNotMatchTheParticipationRole() {
+    Fixture fixture = new Fixture();
+    PersonalConversationInitialization base = fixture.conversation(ConversationVisibility.PRIVATE);
+    Principal serviceWithOwnerParticipantId =
+        Principal.create(
+            base.conversation().ownerPrincipalId(),
+            PrincipalScope.organization(fixture.organizationId),
+            PrincipalType.SERVICE,
+            Optional.empty(),
+            "Runtime service",
+            Optional.empty(),
+            PrincipalVisibility.ORGANIZATION,
+            NOW);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new ConversationParticipantView(
+                base.ownerParticipant(), serviceWithOwnerParticipantId, Optional.empty()));
   }
 
   @Test
@@ -549,7 +584,19 @@ class ConversationApplicationServiceTest {
                   (method, args) -> List.copyOf(store.members)),
               proxy(
                   PrincipalRepository.class,
-                  (method, args) -> Optional.ofNullable(store.principals.get(args[1]))),
+                  (method, args) ->
+                      switch (method) {
+                        case "findById" -> Optional.ofNullable(store.principals.get(args[1]));
+                        case "findByIds" -> {
+                          @SuppressWarnings("unchecked")
+                          Set<PrincipalId> ids = (Set<PrincipalId>) args[1];
+                          yield ids.stream()
+                              .map(store.principals::get)
+                              .filter(Objects::nonNull)
+                              .toList();
+                        }
+                        default -> null;
+                      }),
               proxy(
                   AgentProfileRepository.class,
                   (method, args) ->

@@ -200,7 +200,7 @@ function mountAdmin(overrides: Record<string, unknown> = {}, attachToDocument = 
     phase: 'ready', error: null, connections: [connection], selectedConnection: connection,
     health: { status: 'HEALTHY', retryable: false, retryAfterSeconds: null, evidenceCode: 'LARK_PROVIDER_HEALTHY', checkedAt: '2026-08-27T02:00:00Z' },
     mappings: [], mappingPhase: 'ready', mappingError: null, mappingNextCursor: null, mappingLoadingMore: false,
-    members: [{ id: uuid(6), userPrincipalId: uuid(10), status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-27T01:00:00Z', version: 0 }], currentMemberId: uuid(6),
+    members: [{ id: uuid(6), userPrincipalId: uuid(10), displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-27T01:00:00Z', version: 0 }], currentMemberId: uuid(6),
     templates: [], preference: { memberId: uuid(6), enabled: true, enabledItemTypes: ['REVIEW'], mutedUntil: null, version: 1 },
     deliveries: [], deliveryPhase: 'ready', deliveryError: null, deliveryNextCursor: null, deliveryLoadingMore: false,
     selectedDelivery: null, command: command('idle'), online: true, selectedTab: 'connection', mappingStatus: null,
