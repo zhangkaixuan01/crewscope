@@ -141,6 +141,8 @@ crewscope:
       allowed-owner-logins: ${CREWSCOPE_GITHUB_ALLOWED_OWNER_LOGINS:}
       allow-private-repositories: ${CREWSCOPE_GITHUB_ALLOW_PRIVATE_REPOSITORIES:true}
       allow-internal-repositories: ${CREWSCOPE_GITHUB_ALLOW_INTERNAL_REPOSITORIES:true}
+      # USER OAuth connections require the GitHub `repo` scope. Broad access is an explicit
+      # deployment decision and remains disabled unless the environment opts in.
       allow-broad-user-oauth: ${CREWSCOPE_GITHUB_ALLOW_BROAD_USER_OAUTH:false}
   action:
     worker:

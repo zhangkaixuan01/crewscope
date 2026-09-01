@@ -2766,6 +2766,10 @@ RepositoryBinding 管理 API 位于 `/api/v1/organizations/{organizationId}/team
 
 Repository Catalog API 位于同一 WorkProject Scope 的 `/repository-catalog`，只允许内置 Team Owner、Team Admin 和平台管理员读取。Catalog 在 Worker/All Profile 从受管根目录枚举直接 `.git` 候选，并复用 ManagedRepositoryResolver 形成 AVAILABLE/UNAVAILABLE 分类；响应只包含 Repository Key、Availability 与可选建议默认分支，按 Key 稳定排序并禁用缓存。Pure Server 返回稳定可重试 `503 repository_catalog_unavailable`。实现与验证见 [M4-F02 RepositoryBinding 管理页](testing/M4-F02-RepositoryBinding管理页.md)。
 
+GitHub Connection 的 Repository Catalog 是另一条远程授权目录，位于 GitHub Connection API 下，仅用于远程仓库授权、Remote Preflight、Push 和 Draft PR。它使用 GitHub 的 `externalRepositoryId/fullName`，不转换为 WorkProject 的 `RepositoryKey`，也不会直接进入 `/repository-catalog` 或 RepositoryBinding 创建候选。当前 Coding 执行要求 Worker 先持有受管本地裸仓库；需要使用 GitHub 仓库时，先通过受信部署/同步流程将仓库放入 Managed Root，再在 WorkProject 仓库设置中绑定对应 Repository Key。后续如开放“从 GitHub 导入受管仓库”，必须以独立的导入作业、权限复验和状态机实现，不能在浏览器端拼接远程 URL 或绕过本地受管边界。
+
+产品化阶段补齐 GitHub Repository Import。Team 管理员从已验证的 TEAM GitHub Connection 和 DELIVERABLE Catalog 选择远程仓库、目标 WorkProject、稳定 Repository Key 与默认分支；服务端在创建导入作业前复验 Connection Version、ProviderBinding、Repository Allowlist、健康状态、目标 Team 和 Repository Key 唯一性。`RepositoryImportJob` 使用 `REQUESTED/PREFLIGHTING/IMPORTING/READY/FAILED/CANCELLED` 状态、幂等键、重试代次和审计坐标，Worker 通过短生命周期凭证在受管目录创建或更新 bare mirror，完成 canonical containment、Worker Owner、bare 格式和基线 Ref 校验。导入成功后由应用层调用既有 `RepositoryBinding` 创建流程，仍保存 `LOCAL_MANAGED` 和稳定 `RepositoryKey`，不新增远程 RepositoryBinding 类型。导入失败、撤权、目标 Key 冲突或远程分支漂移均失败关闭并保留安全原因码；凭证、Remote URL、Git 原始输出和宿主路径不进入浏览器、事件或持久化公开 DTO。导入完成后 WorkProject Repository Catalog 可见该 Key，成员可以继续执行 CodingTarget Preflight。
+
 CodingTargetSnapshot 是 Task 的可选不可变 Coding 目标事实。首版在 Task 执行开始前固化 TaskBrief Hash、验收标准、RepositoryBinding ID/Version/Kind/Key、用户选择的短 Ref、Preflight 解析出的 40 位完整 Commit、AllowedPaths、版本化 BuildProfile 引用、创建 Principal 和 canonical SHA-256。Ref 后续移动、Binding 默认分支变化或 Binding 停用都不改变历史快照。AllowedPaths 使用仓库相对 canonical 路径，拒绝绝对路径、反斜杠、空段、`.`/`..` 组件、NUL 和控制字符，并折叠重复及父子冗余根。
 
 非 Coding Task 不创建 CodingTargetSnapshot，既有 Task 生命周期保持不变。Retry 默认沿用原快照的 ID、Revision 和 Hash；显式换目标时创建线性后继 Revision，记录 Parent Snapshot 和变更原因，并重新验证当前 RepositoryBinding。后继 AllowedPaths 只能保持或收紧，不能扩大父 Revision 的路径授权；TaskBrief 与验收标准不能借 Retry 改写。应用层按 Organization、Team、WorkProject 和 Task 查询快照，数据库以 Task + Revision 唯一约束原子拒绝重复版本。
@@ -5130,6 +5134,8 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 
 M8 不增加新的业务领域，而是把 M0–M7 已完成的对话、任务、Coding、Review、GitHub、飞书、团队观测和开放用户能力收口为可发现、可发行、可运维和可持续演进的产品版本。
 
+M8 的首要产品化出口有三个，优先级为 P0：Setup Center、GitHub 仓库导入闭环、Worker 执行隔离。三个出口共同决定平台是否能够从新用户配置顺利进入真实 Coding 工作，并保证 Coding 执行不会把宿主机控制面暴露给生成代码。三个出口全部完成前，M8 保持进行中。
+
 ### 24.1 Team Setup Readiness
 
 新 Team 的配置状态由服务端从既有权威事实派生。Readiness Query 读取当前 Organization、Team、Member 权限以及 ModelConnection、AgentTemplate、AgentConfiguration、WorkProject、RepositoryBinding、Provider Connection 和 Runtime Health，返回版本化公开快照，不建立可与领域事实漂移的第二套状态。
@@ -5150,7 +5156,13 @@ Web 提供 `/setup`，Today 展示当前 Team 的精简就绪摘要，首次 Tea
 
 Setup Center 不接收长期 Secret，不复制配置表单，不通过一键命令绕过现有权限、强版本、幂等、CredentialStore 或 Provider Preflight。每个动作继续由对应业务 API 完成，Setup Center 只负责解释前置关系和导航。
 
-### 24.3 工程职责与依赖
+### 24.3 GitHub 仓库导入闭环与 Worker 执行隔离
+
+已验证的 TEAM GitHub Connection Catalog 与 Worker Managed Root 保持两个安全边界。Team 管理员从 Catalog 选择远程仓库、WorkProject、稳定 Repository Key 和默认分支后，服务端创建有界 `RepositoryImportJob`，由 Worker 使用短生命周期凭证执行 bare mirror 导入，完成 canonical containment、Owner、bare 格式和基线 Ref 校验。导入成功后调用既有 `LOCAL_MANAGED RepositoryBinding` 创建流程，仓库进入 WorkProject 受管 Catalog 并可创建 CodingTarget；浏览器不接收 Remote URL、Token 或宿主路径。导入过程支持幂等、进度、失败重试、取消、断点恢复、远程分支漂移检测和审计。
+
+Coding Worker 与 Sandbox 的 Docker 控制面必须隔离。生产部署优先使用独立 Docker Daemon、受限 Socket Proxy、rootless Docker 或等价的专用执行节点；普通 Coding 执行不能获得宿主机 Docker Socket 的无限管理权限。隔离方案需要通过 Sandbox 逃逸、宿主目录挂载、特权容器和 Worker 被攻破等攻击用例验证，并在部署文档中明确残余风险。
+
+### 24.4 工程职责与依赖
 
 M8 优先收口变更冲突和认知成本最高的职责边界：WorkPage/Task Store、Notification Intent Projection、Review Persistence、Operations API 和 AgentScope Task Runtime。重构先使用 Characterization/Contract Test 固定公开行为，再拆出编排、查询、状态、映射、SQL、DTO 和控制职责。API、事件 Schema、数据库事实、幂等、权限和恢复语义保持兼容。
 
@@ -5158,7 +5170,7 @@ Repository Port 的必需能力通过最小接口、抽象方法或生产 Adapte
 
 默认 Backend 构建只携带当前单机 Docker Sandbox 所需依赖。未使用的 Kubernetes/Fabric8 扩展移出默认运行类路径，后续 Kubernetes 执行器通过独立模块或 Profile 恢复。各模块直接声明实际导入的依赖；Spring Configuration Metadata、环境变量、Config Tree Secret、Compose 和文档由自动化合同保持一致。
 
-### 24.4 发行与运维
+### 24.5 发行与运维
 
 受保护 Git Tag 触发正式发行，Backend 与 Web 使用同一 Git Revision，发布 GHCR 不可变镜像、Digest Manifest、SBOM、Provenance 和签名。安装与升级只消费固定 Digest；缺少签名、扫描或 Revision/Schema 一致性证据时拒绝形成 Release。
 
@@ -5166,7 +5178,7 @@ Team Beta 开启 Trace 时必须输出到可查询 Backend；没有 Trace Backen
 
 Daily/Weekly 备份、Retention 和备份年龄检查使用可重复安装的调度合同。公网 TLS 模板提供 HSTS、经过浏览器门禁的 CSP 和安全 Header；本地开发 Compose 只把 PostgreSQL/Redis 绑定到 Loopback。正式公网仍只开放 80/443。
 
-### 24.5 质量与范围
+### 24.6 质量与范围
 
 前端 Coverage 默认纳入全部生产业务代码，Conversation、Task、Coding、Review、Delivery、TeamOps 和 TeamObserver 不再位于分母之外。格式、Lint、模块架构、直接依赖、配置和文档检查以低噪音规则进入 CI。
 

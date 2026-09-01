@@ -5,7 +5,10 @@ import static org.mockito.Mockito.mock;
 
 import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentExecutionConfigurationService;
+import io.crewscope.application.agent.AgentModelGovernance;
 import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -43,6 +46,7 @@ import io.crewscope.application.identity.LocalPasswordAuthentication;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.model.PlatformModelCatalogInitializer;
+import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.team.OnboardingApplicationService;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
@@ -99,6 +103,7 @@ import io.crewscope.agentscope.PlatformRuntimeContextMiddleware;
 import io.crewscope.agentscope.PersonalAgentFactory;
 import io.crewscope.agentscope.ProviderBindingSecurityMiddleware;
 import io.crewscope.agentscope.agui.ControlledAguiBridge;
+import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.integration.provider.workitem.NativeWorkItemProvider;
 import io.crewscope.server.observability.AgentCallObservabilityMetrics;
@@ -166,6 +171,15 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               AgentConfigurationRepository.class,
               () -> mock(AgentConfigurationRepository.class))
+          .withBean(AgentTemplateRepository.class, () -> mock(AgentTemplateRepository.class))
+          .withBean(
+              AgentExecutionConfigurationService.class,
+              () -> mock(AgentExecutionConfigurationService.class))
+          .withBean(AgentModelGovernance.class, () -> mock(AgentModelGovernance.class))
+          .withBean(ModelConnectionRepository.class, () -> mock(ModelConnectionRepository.class))
+          .withBean(
+              AgentTemplateRuntimeAssembler.class,
+              () -> mock(AgentTemplateRuntimeAssembler.class))
           .withBean(ConversationRepository.class, () -> mock(ConversationRepository.class))
           .withBean(
               ConversationParticipantRepository.class,

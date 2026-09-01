@@ -152,7 +152,7 @@ deploy/team-beta/.runtime/secrets/bootstrap_password
 ./deploy/team-beta/demo.sh down
 ```
 
-`down` 会保留本地数据与 Secret，便于下次继续体验。真实模型、GitHub 和飞书连接需要进入对应管理页面单独配置。
+`down` 会保留本地数据与 Secret，便于下次继续体验。真实模型、GitHub 和飞书连接需要进入对应管理页面单独配置；GitHub 授权连接在“GitHub 集成”页面创建，远程 Repository Catalog 用于 Push/Draft PR。Coding Agent 的 RepositoryBinding 仍在 WorkProject 的“仓库设置”中从 Worker 受管本地 Catalog 单独配置，GitHub 远程仓库不会直接出现在该下拉框中。GitHub 仓库自动导入到 Worker Managed Root 属于 M8-A02，当前版本需要由受信部署流程预置本地 bare mirror。
 
 需要切换注册策略时执行：
 
@@ -326,6 +326,8 @@ cp .env.example .env
 # Generate a local Credential encryption key, then write it to
 # CREWSCOPE_CREDENTIAL_KEYS as v1=<generated-value> without committing .env.
 openssl rand -base64 32
+# The API-only source profile keeps login admission defense disabled. If you enable it in .env,
+# generate a separate key and set CREWSCOPE_LOGIN_DEFENSE_HMAC_KEY before starting the server.
 docker compose up -d postgres redis
 
 set -a
@@ -336,7 +338,7 @@ set +a
 java -jar crewscope-server/target/crewscope-server-0.1.0-SNAPSHOT.jar
 ```
 
-根目录 `.env.example` 面向安全的 API-only 源码调试，默认使用 `server + bootstrap`，启动前必须填入本地 Credential 加密 Key。切换为 `all` 或 `worker` 前，还要填写指向同一 Organization 内既有 ACTIVE 记录的 Runtime Organization、Actor Principal 和稳定 Worker Key。需要验证完整账号、Session、Onboarding、邀请和 Agent 执行流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
+根目录 `.env.example` 面向安全的 API-only 源码调试，默认使用 `server + bootstrap`，启动前必须填入本地 Credential 加密 Key；Login Defense 默认关闭，只有在同时配置稳定的 HMAC Key 后才启用。切换为 `all` 或 `worker` 前，还要填写指向同一 Organization 内既有 ACTIVE 记录的 Runtime Organization、Actor Principal 和稳定 Worker Key。需要验证完整账号、Session、Onboarding、邀请和 Agent 执行流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
 
 ### 启动前端
 
