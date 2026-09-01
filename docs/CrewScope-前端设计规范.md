@@ -121,7 +121,9 @@ M4-F02 固化 WorkProject Repository 设置路由：
 /settings/repositories?team=<teamId>&project=<projectId>
 ```
 
-路由要求 Repository 管理权限。页面从服务端受管 Repository Catalog 选择稳定 Key，并从创建候选中排除当前 WorkProject 已存在的 RepositoryBinding，提供 Draft/Existing Preflight、创建、启用和停用。概览中的“可绑定”数量使用 AVAILABLE Catalog 与当前 Binding Key 的差集；Catalog 未进入 Ready 或刷新失败时关闭新建、Draft Preflight 和提交。桌面使用事实行，窄屏沿 Repository、状态、版本、审计、Preflight 和操作顺序阅读；创建入口同时存在于 ContextHeader 与页面内容区。命令失败保留原 Idempotency Key 供安全重试，409/412 丢弃陈旧命令并回读 Binding 列表与详情。页面只展示 Repository Key、Branch、Commit 截断值、状态、版本和成员安全审计摘要。
+路由要求 Repository 管理权限。页面从服务端受管 Repository Catalog 选择稳定 Key，并从创建候选中排除当前 WorkProject 已存在的 RepositoryBinding，提供 Draft/Existing Preflight、创建、启用和停用。这里的 Catalog 仅枚举 Worker Managed Root 中的本地裸仓库；GitHub Connection 的远程 Repository Catalog 不混入此列表，远程仓库由 GitHub Delivery 页面单独选择。概览中的“可绑定”数量使用 AVAILABLE Catalog 与当前 Binding Key 的差集；Catalog 未进入 Ready 或刷新失败时关闭新建、Draft Preflight 和提交。桌面使用事实行，窄屏沿 Repository、状态、版本、审计、Preflight 和操作顺序阅读；创建入口同时存在于 ContextHeader 与页面内容区。命令失败保留原 Idempotency Key 供安全重试，409/412 丢弃陈旧命令并回读 Binding 列表与详情。页面只展示 Repository Key、Branch、Commit 截断值、状态、版本和成员安全审计摘要。
+
+产品化阶段增加“从 GitHub 导入到受管仓库”入口。管理员先选择已验证的 TEAM Connection、远程 Catalog 项和目标 WorkProject，再填写稳定 Repository Key 与默认分支；页面只提交外部 Repository ID 和稳定业务字段，不提交 Remote URL、Token 或 owner/repo 拼接值。导入以独立 Job 卡展示排队、导入、失败重试、取消和完成状态；完成后回读本地 Repository Catalog，并引导用户继续 RepositoryBinding Preflight。导入中的仓库不能提前出现在 CodingTarget 候选中，撤权或 Scope 切换会取消轮询并清理本地 Job 状态。
 
 M4-F03 在 WorkItem 委托和 TaskIntent 确认结果中复用统一 CodingTarget 表单。表单默认选择第一个 ACTIVE RepositoryBinding、其默认分支、`.` AllowedPaths 与第一个服务端 BuildProfile，提交前必须完成显式 Ref Preflight；Repository、Ref、AllowedPaths 或 Profile 任一变化都会立即失效旧 Preflight。成员可以关闭 Coding 开关创建兼容的通用 Agent Task。草稿仅保存稳定 ID、短 Ref、仓库相对路径与公开 Profile 坐标，并以 Organization、Team、WorkProject、WorkItem 分区保存在 SessionStorage；成功后清除，损坏、跨 Scope 或失效选项按当前服务端默认值恢复。可重试创建锁定表单并沿用 Task Store 保存的原命令和 Idempotency Key。
 

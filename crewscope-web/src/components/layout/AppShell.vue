@@ -63,6 +63,7 @@ const navigation = [
   { label: 'Agent 中心', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
   { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
   { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
+  { label: 'GitHub 集成', icon: GitFork, name: 'github-settings', section: 'github', permission: permissions.providerManage },
   { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
 ]
 

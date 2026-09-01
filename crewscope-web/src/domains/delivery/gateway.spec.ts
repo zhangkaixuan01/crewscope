@@ -45,6 +45,53 @@ describe('HttpDeliveryGateway', () => {
     expect(call[1]?.body).toBe(JSON.stringify({ bundleDigest: 'a'.repeat(64) }))
   })
 
+  it('creates a Team GitHub Connection with one-shot credentials and idempotency metadata', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(commandReceipt(), 202))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.createConnection(scope, {
+      authenticationType: 'APP_INSTALLATION',
+      teamId: scope.teamId,
+      credentialSubjectType: 'TEAM',
+      externalAccountId: '123456',
+      repositoryAllowlist: ['crewscope/crewscope-java'],
+      oneShotCredential: 'one-shot-token',
+      expiresAt: null,
+    }, 'github-create-key')
+
+    const call = fetcher.mock.calls[0]!
+    expect(call[0]).toContain(`/organizations/${scope.organizationId}/github-connections`)
+    expect(new Headers(call[1]?.headers).get('Idempotency-Key')).toBe('github-create-key')
+    expect(JSON.parse(String(call[1]?.body))).toEqual(expect.objectContaining({
+      authenticationType: 'APP_INSTALLATION', credentialSubjectType: 'TEAM',
+      teamId: scope.teamId, externalAccountId: '123456', accessToken: 'one-shot-token',
+    }))
+  })
+
+  it('verifies a Connection with its persisted version', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ...githubConnection(), verifiedAt: '2026-09-01T12:00:00Z' }))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.verifyConnection(scope, githubConnection({ version: 4 }),)
+
+    const call = fetcher.mock.calls[0]!
+    expect(call[0]).toContain(`/github-connections/${deliveryIds.connection}/verify`)
+    expect(new Headers(call[1]?.headers).get('If-Match')).toBe('"4"')
+  })
+
+  it('revokes a Connection as an idempotent logical delete', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(commandReceipt(), 202))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.revokeConnection(scope, githubConnection({ version: 5 }), 'OWNER_REQUESTED', 'github-revoke-key')
+
+    const call = fetcher.mock.calls[0]!
+    expect(call[0]).toContain(`/github-connections/${deliveryIds.connection}/revoke`)
+    expect(new Headers(call[1]?.headers).get('If-Match')).toBe('"5"')
+    expect(new Headers(call[1]?.headers).get('Idempotency-Key')).toBe('github-revoke-key')
+    expect(call[1]?.body).toBe(JSON.stringify({ reason: 'OWNER_REQUESTED' }))
+  })
+
   it('uses stable Catalog IDs and pinned Connection version for Remote Preflight', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       connectionVersion: 3, externalRepositoryId: '101', fullName: 'crewscope/crewscope-java',

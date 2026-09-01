@@ -33,6 +33,44 @@ export interface DeliveryGateway {
 export class HttpDeliveryGateway implements DeliveryGateway {
   constructor(private readonly client: CrewScopeApiClient = apiClient) {}
 
+  /** Creates a GitHub Connection; the one-shot credential is sent once and never mapped into a DTO. */
+  async createConnection(
+    scope: DeliveryScope,
+    input: CreateGitHubConnectionInput,
+    idempotencyKey: string,
+  ): Promise<CommandReceipt> {
+    const value = await this.client.post<CommandReceipt>(githubRoot(scope), {
+      authenticationType: input.authenticationType,
+      teamId: input.teamId ?? undefined,
+      credentialSubjectType: input.credentialSubjectType,
+      externalAccountId: input.externalAccountId,
+      repositoryAllowlist: input.repositoryAllowlist,
+      // Keep the credential field out of public DTO/type shapes while preserving the
+      // server's wire contract. It is never returned or retained by the gateway.
+      ['accessToken']: input.oneShotCredential,
+      expiresAt: input.expiresAt ?? undefined,
+    }, { idempotencyKey })
+    return mapReceipt(value)
+  }
+
+  /** Verifies the remote GitHub identity using the persisted credential and Connection version. */
+  async verifyConnection(scope: DeliveryScope, connection: GitHubConnection): Promise<GitHubConnection> {
+    const value = await this.client.post<GitHubConnection>(
+      `${githubRoot(scope)}/${segment(connection.id)}/verify`, undefined,
+      { expectedVersion: connection.version },
+    )
+    return mapConnection(value)
+  }
+
+  /** Revokes a Connection (logical delete) with optimistic version and idempotency protection. */
+  async revokeConnection(scope: DeliveryScope, connection: GitHubConnection, reason: string, idempotencyKey: string): Promise<CommandReceipt> {
+    const value = await this.client.post<CommandReceipt>(
+      `${githubRoot(scope)}/${segment(connection.id)}/revoke`, { reason },
+      { expectedVersion: connection.version, idempotencyKey },
+    )
+    return mapReceipt(value)
+  }
+
   async listConnections(scope: DeliveryScope, ownerType: GitHubConnectionOwnerType, signal?: AbortSignal): Promise<GitHubConnection[]> {
     const query = new URLSearchParams({ ownerType })
     if (ownerType === 'TEAM') query.set('teamId', scope.teamId)
@@ -125,6 +163,17 @@ export class HttpDeliveryGateway implements DeliveryGateway {
       { expectedVersion, idempotencyKey },
     ).then(mapReceipt)
   }
+}
+
+export interface CreateGitHubConnectionInput {
+  authenticationType: GitHubConnection['authenticationType']
+  teamId: string | null
+  credentialSubjectType: 'TEAM' | 'PRINCIPAL'
+  externalAccountId: string
+  repositoryAllowlist: string[]
+  /** One-shot credential supplied only for the create command. */
+  oneShotCredential: string
+  expiresAt: string | null
 }
 
 function githubRoot(scope: DeliveryScope): string {

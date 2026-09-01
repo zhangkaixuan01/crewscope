@@ -126,6 +126,12 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'lark', requiredPermission: permissions.providerManage },
       },
       {
+        path: '/settings/integrations/github',
+        name: 'github-settings',
+        component: () => import('../pages/GitHubSettingsPage.vue'),
+        meta: { mode: 'control', section: 'github', requiredPermission: permissions.providerManage },
+      },
+      {
         path: '/control',
         redirect: to => ({ name: 'today', query: to.query }),
       },
