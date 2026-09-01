@@ -74,6 +74,19 @@ try {
   assert.equal(model.services.web.ports.length, 1)
   assert.equal(model.networks.backend.internal, true)
   assert.equal(model.networks.observability.internal, true)
+  assert.equal(model.networks['provider-egress'].internal ?? false, false)
+  for (const name of ['api', 'worker']) {
+    assert.ok(
+      Object.hasOwn(model.services[name].networks, 'provider-egress'),
+      `${name} requires the dedicated Provider egress network`,
+    )
+  }
+  for (const name of expectedServices.filter(name => !['api', 'worker'].includes(name))) {
+    assert.ok(
+      !Object.hasOwn(model.services[name].networks, 'provider-egress'),
+      `${name} must not join the Provider egress network`,
+    )
+  }
 
   for (const name of ['api', 'worker', 'web']) {
     const service = model.services[name]

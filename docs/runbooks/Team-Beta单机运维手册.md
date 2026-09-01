@@ -38,6 +38,8 @@ Operator 环境文件可以包含受控坐标，不应包含数据库密码、Re
 可从 `deploy/team-beta/nginx-host-tls.conf.example` 开始配置，并替换示例中的全部域名坐标与证书路径。生产环境使用自有域名和受信任证书，
 并只对公网开放 80/443；API、Worker、PostgreSQL、Redis、Prometheus 和 OTel 端口保持不公开。
 
+`backend` 与 `observability` 网络保持 `internal: true`。API 和 Worker 额外加入不发布宿主端口的 `provider-egress` 网络，用于模型 Provider、GitHub 和飞书的 DNS/HTTPS 出站。安全组与宿主机防火墙需要允许容器转发后的 DNS 和 443 出站；仅验证宿主机能访问 Provider 不足以证明应用容器可达。
+
 ## 3. 日常启动与检查
 
 ```bash
@@ -57,6 +59,8 @@ docker compose \
 正常状态包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务。Web 是唯一宿主入口。API/Worker Readiness、Projection、Outbox、Action、Notification 和 Provider 指标用于日常诊断。
 
 首次干净启动时，API 会在 Runtime Service Principal 建立后幂等初始化非秘密模型目录。进入“模型与凭证”页面应至少看到 `DeepSeek / deepseek-v4-flash`，随后由成员创建 USER、TEAM 或 ORGANIZATION ModelConnection 并单向录入 API Key。启动初始化不会生成测试 Key、共享 Key 或默认 Connection。
+
+创建连接前后都应从 API、Worker 容器验证 Provider 域名能够解析，并可通过 HTTPS 建立连接。未携带 Key 请求 DeepSeek `/models` 返回 `401` 可以证明网络链路可达；`Network unreachable`、解析失败或连接超时表示 `provider-egress`、宿主机转发或出站规则仍未闭合。不要通过发布 API/Worker 端口解决出站问题。
 
 若页面显示“没有可用 Provider”，先检查 API 当前启动周期日志，再只读核对 `model_provider_definition`、`model_catalog_entry` 和 `model_price_revision`。三者均为空表示部署镜像未包含平台目录初始化；不要手写 Content Hash 或直接插入临时价格，应升级到包含 `PlatformModelCatalogInitializer` 的不可变后端镜像并重启 API。Provider 已存在但按钮仍禁用时，继续检查当前 Team 上下文和 Provider 状态。
 

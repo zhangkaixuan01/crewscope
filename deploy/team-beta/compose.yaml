@@ -165,6 +165,9 @@ services:
 
   api:
     <<: *backend-common
+    # Provider health probes and model calls require outbound HTTPS, while database and
+    # observability traffic remain on isolated internal networks. No host port is published.
+    networks: [backend, observability, provider-egress]
     environment:
       <<: *backend-environment
       CREWSCOPE_EXECUTION_PROFILE: server
@@ -223,6 +226,8 @@ services:
 
   worker:
     <<: *backend-common
+    # Worker-side model, GitHub and collaboration calls share the dedicated outbound network.
+    networks: [backend, observability, provider-egress]
     environment:
       <<: *backend-environment
       CREWSCOPE_EXECUTION_PROFILE: worker
@@ -310,6 +315,8 @@ services:
 
 networks:
   edge: {}
+  provider-egress:
+    driver: bridge
   backend:
     internal: true
     ipam:

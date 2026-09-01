@@ -249,6 +249,8 @@ docker compose \
 
 七个服务都应进入 `healthy`。使用 [宿主机 Nginx TLS 示例](deploy/team-beta/nginx-host-tls.conf.example) 将域名的 80/443 转发至 `127.0.0.1:8080`，替换示例域名和证书路径后再开放公网。正式 Profile 强制 Secure Cookie，必须通过受信任域名和 HTTPS 访问；仅使用公网 IP 或 HTTP 会导致浏览器无法建立正式 Session。
 
+Compose 保持 `backend` 与 `observability` 为内部网络，并只让 API、Worker 加入不发布端口的 `provider-egress` 网络。该网络提供访问模型 Provider、GitHub 和飞书所需的出站 HTTPS；它不增加公网入站面。生产防火墙应允许容器转发后的 DNS 与 HTTPS 出站，否则模型连接健康验证会稳定显示 `ENDPOINT_UNREACHABLE`。
+
 推荐用以下入口完成验收：
 
 ```text
@@ -302,6 +304,7 @@ docker compose \
 | 登录、注册或 Session 恢复失败 | `api`、`redis` 是否 Healthy；是否通过 HTTPS 域名访问；宿主机 Nginx 是否覆盖正确的 `Host` 和 `X-Forwarded-*` |
 | 页面提示 Template 元数据不可用 | Backend/Web 是否来自同一 Git Revision；API 是否已完成 Flyway；不要只升级 Web |
 | “没有可用 Provider” | API 启动日志与平台模型目录是否完成初始化；目录存在后仍需在页面创建模型连接并录入 Key |
+| 模型健康验证显示“Provider 不可达” | 从 API/Worker 容器检查 Provider 域名解析与 HTTPS 出站；确认服务已接入 `provider-egress`，不要只在宿主机执行连通性测试 |
 | Agent 一直等待或 Worker 不健康 | Worker 日志、Docker Socket GID、数据目录 Owner、磁盘空间和 Sandbox 镜像拉取能力 |
 | GitHub/飞书动作失败 | Connection 健康状态、最小权限、Team/Project Binding、Action/Notification Worker 与 Inbox 回执 |
 
@@ -353,7 +356,7 @@ GET http://localhost:8080/actuator/health
 GET http://localhost:8080/api/v1/system/info
 ```
 
-服务可以在未配置模型时以 API-only 方式启动。执行 Agent 任务前，在“模型与凭证”页面配置模型厂商、模型和个人或团队连接；OpenAI-compatible Adapter 可接入 DeepSeek 等兼容服务。
+服务可以在未配置模型时以 API-only 方式启动。执行 Agent 任务前，在“模型与凭证”页面配置模型厂商、模型和个人或团队连接；OpenAI-compatible Adapter 可接入 DeepSeek 等兼容服务。Personal Agent 执行时会读取会话锁定的 AgentConfigurationVersion，经过 Provider、Connection、Catalog、价格和授权预检后，从 CredentialStore 动态装配对应连接的 AgentScope Model；不依赖全局 `OPENAI_API_KEY`，也不会把个人密钥复制到环境变量。
 
 ## 质量与发布证据
 
