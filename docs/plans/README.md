@@ -101,7 +101,7 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M7：开放用户体系与登录体验](M7-开放用户体系与登录体验.md)
 - [M8：产品化与工程收口](M8-产品化与工程收口.md)
 
-M0 至 M7 已完成，M8 已定义并等待开始。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
+M0 至 M7 已完成，M8 已定义并已完成 `M8-S01` 产品化合同冻结，下一任务为 `M8-A01`。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
 
 M5 的 48 个任务和 [M5-Q04 Release Gate](../testing/M5-Q04-Release-Gate.md) 已全部关闭。当前已交付模型/Agent 配置与动态 AgentScope Model、个人/团队/Specialist Factory、Reviewer 证据和持久化闭环，以及 GitHub App/OAuth 身份验证、Repository Catalog/Preflight、受管 Mirror、AskPass/Lease Push、Draft PR 查询幂等、Webhook 去重、Action Worker、UNKNOWN/过期 Lease Fenced 对账、人工队列与终结、Fencing/Receipt 原子事务、V26 Claim 恢复和条件 Spring 装配。前端已闭合 Agent 与模型管理、Task 委托和配置预检、Review Workbench、GitHub Delivery Workbench，并完成全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段 CI 门禁。最终门禁为 Maven 1862 / 1862、Vitest 311 / 311、Playwright/视觉/Axe 150 / 150；M5-Q01 固定攻击 84 / 84 被阻断，M5-Q02 固定故障 48 / 48 收敛，M5-Q03 Reviewer 质量门禁通过。
 

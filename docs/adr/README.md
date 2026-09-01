@@ -40,6 +40,7 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md) | Team Beta 单机拓扑、低基数观测、固定负载、备份恢复与发布门禁 | ACCEPTED |
 | [ADR-024](ADR-024-Account与Principal身份边界.md) | UserAccount、LoginIdentity、Organization Binding、Principal 与 TeamMember 分层 | PROPOSED |
 | [ADR-025](ADR-025-本地密码与登录防护参数.md) | Argon2id、密码预算、登录限流、临时锁定与账号枚举防护 | PROPOSED |
+| [ADR-026](ADR-026-M8产品化与工程收口合同.md) | M8 Readiness、受信动作、导入隔离、发行与质量门禁 | PROPOSED |
 
 ## ADR 内容要求
 

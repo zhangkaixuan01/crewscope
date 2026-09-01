@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.73`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M7 全部完成；M8 产品化与工程收口已定义，等待开始
+> 当前进度：M0 至 M7 全部完成；M8 产品化与工程收口进行中，M8-S01 已完成，下一任务为 M8-A01
 
 ## 1. 实施目标
 
