@@ -39,6 +39,10 @@ import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.team.WorkspaceRepository;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentExecutionConfigurationService;
+import io.crewscope.application.agent.AgentModelGovernance;
+import io.crewscope.application.agent.AgentTemplateRepository;
+import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.conversation.ConversationVisibilityPolicy;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -134,16 +138,29 @@ public class AgentScopeApplicationConfiguration {
 
   @Bean
   PersonalAgentConfigurationSource personalAgentConfigurationSource(
-      PersonalAgentRuntimeProperties properties) {
-    return (profileId, version) ->
-        new AgentScopePersonalAgentConfiguration(
-            profileId,
-            version,
-            properties.getModelId(),
-            properties.fallbackModelId(),
-            properties.getSystemPrompt(),
-            properties.getMaxIterations(),
-            properties.getMaxRetries());
+      AgentProfileRepository profiles,
+      AgentTemplateRepository templates,
+      AgentConfigurationRepository configurations,
+      AgentExecutionConfigurationService executionConfigurations,
+      AgentModelGovernance governance,
+      ModelConnectionRepository connections,
+      PrincipalRepository principals,
+      TeamRepository teams,
+      io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler assembler,
+      PersonalAgentRuntimeProperties properties,
+      TimeProvider timeProvider) {
+    return new DatabasePersonalAgentConfigurationSource(
+        profiles,
+        templates,
+        configurations,
+        executionConfigurations,
+        governance,
+        connections,
+        principals,
+        teams,
+        assembler,
+        properties,
+        timeProvider);
   }
 
   @Bean

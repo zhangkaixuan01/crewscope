@@ -130,7 +130,8 @@ public final class AgentScopeNativeRuntime implements ExecutionRuntime, AutoClos
             throw new IllegalStateException("invocationId has already been registered");
         }
         try {
-            HarnessAgent agent = agentFactory.getOrCreate(required.runtimeSession());
+            HarnessAgent agent = agentFactory.getOrCreate(
+                    required.runtimeSession(), required.platformContext());
             RuntimeContext context = runtimeContext(
                     required.runtimeSession(), required.platformContext());
             state.bind(agent, context);

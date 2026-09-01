@@ -6,6 +6,7 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeConfigurationPin;
+import io.crewscope.application.execution.PlatformExecutionContext;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -81,6 +82,12 @@ public final class PersonalAgentFactory implements AutoCloseable {
     }
 
     public HarnessAgent getOrCreate(AgentRuntimeSession runtimeSession) {
+        return getOrCreate(runtimeSession, null);
+    }
+
+    /** Resolves the model from the invocation's trusted database-backed execution context. */
+    public HarnessAgent getOrCreate(
+            AgentRuntimeSession runtimeSession, PlatformExecutionContext platformContext) {
         AgentRuntimeSession required = Objects.requireNonNull(runtimeSession, "runtimeSession");
         if (closed.get()) {
             throw new IllegalStateException("PersonalAgentFactory is closed");
@@ -89,16 +96,21 @@ public final class PersonalAgentFactory implements AutoCloseable {
                 required.agentProfileId(),
                 required.agentProfileVersion(),
                 required.configurationPin());
-        return agents.computeIfAbsent(key, this::createAgent);
+        return agents.computeIfAbsent(key, ignored -> createAgent(key, required, platformContext));
     }
 
     int cachedAgentCount() {
         return agents.size();
     }
 
-    private HarnessAgent createAgent(RuntimeConfigurationKey key) {
+    private HarnessAgent createAgent(
+            RuntimeConfigurationKey key,
+            AgentRuntimeSession runtimeSession,
+            PlatformExecutionContext platformContext) {
         AgentScopePersonalAgentConfiguration configuration = Objects.requireNonNull(
-                configurationSource.load(key.agentProfileId(), key.version()),
+                platformContext == null
+                        ? configurationSource.load(key.agentProfileId(), key.version())
+                        : configurationSource.load(runtimeSession, platformContext),
                 "configurationSource result");
         if (!configuration.agentProfileId().equals(key.agentProfileId())
                 || configuration.agentProfileVersion() != key.version()) {
@@ -106,8 +118,9 @@ public final class PersonalAgentFactory implements AutoCloseable {
                     "Personal Agent configuration must match the pinned AgentProfile version");
         }
 
-        Model primaryModel = observedModel(
-                configuration.modelId(), AgentModelRole.PRIMARY, "resolved primary model");
+        Model primaryModel = configuration.primaryModel()
+                .orElseGet(() -> observedModel(
+                        configuration.modelId(), AgentModelRole.PRIMARY, "resolved primary model"));
         Toolkit toolkit = Objects.requireNonNull(toolkitFactory.get(), "toolkitFactory result");
         Path workspace = createWorkspace(key);
         String stableName = "crewscope-personal-"
@@ -141,8 +154,12 @@ public final class PersonalAgentFactory implements AutoCloseable {
                 // summary policy and disclosure contract are introduced with workspace memory.
                 .disableCompaction()
                 .enableAgentTracingLog(false);
-        configuration.fallbackModelId().ifPresent(modelId -> builder.fallbackModel(observedModel(
-                modelId, AgentModelRole.FALLBACK, "resolved fallback model")));
+        if (configuration.fallbackModel().isPresent()) {
+            builder.fallbackModel(configuration.fallbackModel().orElseThrow());
+        } else {
+            configuration.fallbackModelId().ifPresent(modelId -> builder.fallbackModel(observedModel(
+                    modelId, AgentModelRole.FALLBACK, "resolved fallback model")));
+        }
         // Registration order is significant because AgentScope applies Middleware as an onion.
         middlewares.forEach(builder::middleware);
         return builder.build();
