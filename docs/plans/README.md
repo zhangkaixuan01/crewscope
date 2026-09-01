@@ -44,7 +44,8 @@ M{里程碑}-{工作流}{序号}
 
 - 单个 `TASK` 目标工期为 0.5–2 个工作日；
 - 单个 `SPIKE` 目标工期为 1–3 个工作日；
-- 超过 3 个工作日的任务在开始前继续拆分；
+- 业务建设里程碑中，超过 3 个工作日且存在独立产品出口或风险边界的任务在开始前继续拆分；
+- 产品化、重构和发布收口里程碑可以使用 3–10 个工作日的完整工作包，内部通过 Checklist 和小提交推进，不为单个类、页面、脚本或测试重复编号；
 - 一个任务只设置一个主要交付结果和一个责任人；
 - 任务关闭时必须提交代码、测试和运行证据。
 
@@ -98,11 +99,14 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 - [M5：Agent 模型、个人执行 Agent、Review 与 GitHub Draft PR](M5-Agent模型与Review交付.md)
 - [M6：团队观测、飞书通知与 MVP 发布](M6-团队观测与MVP发布.md)
 - [M7：开放用户体系与登录体验](M7-开放用户体系与登录体验.md)
+- [M8：产品化与工程收口](M8-产品化与工程收口.md)
 
-M0 至 M6 已完成。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
+M0 至 M7 已完成，M8 已定义并等待开始。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
 
 M5 的 48 个任务和 [M5-Q04 Release Gate](../testing/M5-Q04-Release-Gate.md) 已全部关闭。当前已交付模型/Agent 配置与动态 AgentScope Model、个人/团队/Specialist Factory、Reviewer 证据和持久化闭环，以及 GitHub App/OAuth 身份验证、Repository Catalog/Preflight、受管 Mirror、AskPass/Lease Push、Draft PR 查询幂等、Webhook 去重、Action Worker、UNKNOWN/过期 Lease Fenced 对账、人工队列与终结、Fencing/Receipt 原子事务、V26 Claim 恢复和条件 Spring 装配。前端已闭合 Agent 与模型管理、Task 委托和配置预检、Review Workbench、GitHub Delivery Workbench，并完成全状态、响应式、键盘焦点、ARIA、Histoire、双视口视觉、Axe 与敏感字段 CI 门禁。最终门禁为 Maven 1862 / 1862、Vitest 311 / 311、Playwright/视觉/Axe 150 / 150；M5-Q01 固定攻击 84 / 84 被阻断，M5-Q02 固定故障 48 / 48 收敛，M5-Q03 Reviewer 质量门禁通过。
 
 M6 的 50 个任务已全部完成，覆盖 Activity、Inbox、Audit、影子投影重建、三流 Cursor、固定模板 Lark 通知、只读 Team Observer、OTel/Prometheus、部署、备份恢复、故障、负载和 MVP Release Gate。[M6-Q04 MVP Release Gate](../testing/M6-Q04-MVP-Release-Gate.md) 已关闭，CrewScope Team Beta MVP Release 决定为 `PASS`。
 
 M7 的 39 个任务已全部完成：4 个 Spike、8 个领域/迁移任务、8 个基础设施任务、7 个应用/API 任务、8 个前端任务和 4 个质量任务。范围包括单 Organization 自托管本地账号、可配置开放注册、Spring Session Redis、正式登录/注册页、首次 Team Onboarding、默认 Personal Agent、一次性邀请链接、Operator/监控凭证分离、认证固定攻击集和 V30→V32 升级门禁。当前已交付注册、登录、Session 投影、当前账号管理、Onboarding、邀请、安全路由、正式 `/login`、`/register`、`/onboarding`、`/account` 与 `/invite`，以及真实 AuthStore、启动 Session 恢复、Router Guard、401 统一恢复、跨标签退出、跨账号 Store 隔离、账号强 ETag/密码 Step-up/会话撤销、邀请创建/列表/撤销、Fragment 内存证明、已有账号登录接受、新账号原子注册入 Team、闭合 DTO/Gateway/错误/Audit/Spring 装配合同，以及扩展 Coverage、Histoire、双视口 Playwright/Axe、视觉、README/Demo 和敏感字段 CI 收口。Q01 已通过 128/128 固定认证攻击、Java 194/194 与 Web 61/61；Q02 已通过 72/72 固定并发故障样本与 Java 140/140；Q03 已使用真实 PostgreSQL/Redis、生产 Web 和两个独立 BrowserContext 完成双用户邀请、双 Personal Agent、Conversation、重启、Audit、Session 过期与恢复，Desktop/Narrow `2 / 2 passed`；Q04 已通过 Maven 3056/3056、Vitest 652/652、三 Profile 真实 E2E、部署恢复、文档与生产依赖门禁，M7 Release Gate 本地结论为 `PASS`。
+
+M8 使用 9 个较大的完整工作包推进产品化与工程收口，不再复用 M0–M7 的细粒度拆分。范围包括 Team Setup Readiness 与 Setup Center、核心职责和 Port 收口、依赖与配置治理、GHCR 正式发行、Trace/告警/自动备份/TLS 运维加固、全生产代码 Coverage、分层 CI 和最终 M8 Release Gate。M8 不新增业务领域，也不包含 Kubernetes 高可用、企业身份、插件市场或 Autopilot。

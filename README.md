@@ -320,6 +320,9 @@ docker compose \
 
 ```bash
 cp .env.example .env
+# Generate a local Credential encryption key, then write it to
+# CREWSCOPE_CREDENTIAL_KEYS as v1=<generated-value> without committing .env.
+openssl rand -base64 32
 docker compose up -d postgres redis
 
 set -a
@@ -330,7 +333,7 @@ set +a
 java -jar crewscope-server/target/crewscope-server-0.1.0-SNAPSHOT.jar
 ```
 
-根目录 `.env.example` 面向 API 与 Worker 源码调试，默认不建立可供浏览器使用的占位身份。需要验证完整账号、Session、Onboarding 和邀请流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
+根目录 `.env.example` 面向安全的 API-only 源码调试，默认使用 `server + bootstrap`，启动前必须填入本地 Credential 加密 Key。切换为 `all` 或 `worker` 前，还要填写指向同一 Organization 内既有 ACTIVE 记录的 Runtime Organization、Actor Principal 和稳定 Worker Key。需要验证完整账号、Session、Onboarding、邀请和 Agent 执行流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
 
 ### 启动前端
 
@@ -393,7 +396,7 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机七服务部署、HTTPS、外部 Secret、备份与空目标恢复合同。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
+当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机七服务部署、HTTPS、外部 Secret、备份与空目标恢复合同。下一阶段按 [M8 产品化与工程收口](docs/plans/M8-产品化与工程收口.md) 完成 Setup Center、正式发行、运维可观测和工程质量收口。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
 
 ## 参与贡献
 

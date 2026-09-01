@@ -1,6 +1,6 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
-> 文档版本：v5.72<br>
+> 文档版本：v5.73<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
 > AgentScope Java：`2.0.0 GA`（Git Tag：`v2.0.0`，Commit：`44c304ec84d5fbd8588c1af8bc71b1edb9663380`）  
@@ -5126,7 +5126,55 @@ REQUEST_HELP、INVITE_COLLABORATOR、Contribution、Handoff 和 Takeover 属于 
 
 “团队对话到同级 Review 再到 Draft PR”用例的平台重复 Assignment、Review、Action Dispatch、WorkItem 更新、InboxItem 和通知投递数量为 0。外部结果最终进入成功、失败、UNKNOWN 对账或人工处理；每个 PlannedAction 保存唯一逻辑 ActionReceipt，多次执行、查询、Webhook 和人工证据作为 Observation/Audit 追加。
 
-## 24. 首个里程碑
+## 24. M8：产品化与工程收口
+
+M8 不增加新的业务领域，而是把 M0–M7 已完成的对话、任务、Coding、Review、GitHub、飞书、团队观测和开放用户能力收口为可发现、可发行、可运维和可持续演进的产品版本。
+
+### 24.1 Team Setup Readiness
+
+新 Team 的配置状态由服务端从既有权威事实派生。Readiness Query 读取当前 Organization、Team、Member 权限以及 ModelConnection、AgentTemplate、AgentConfiguration、WorkProject、RepositoryBinding、Provider Connection 和 Runtime Health，返回版本化公开快照，不建立可与领域事实漂移的第二套状态。
+
+单项状态使用 `READY / ACTION_REQUIRED / BLOCKED / UNAVAILABLE` 闭合集合，并包含：
+
+- 是否为当前能力的必需项；
+- 不包含内部异常的稳定原因码和安全说明；
+- 当前成员是否具备处理权限；
+- 由 Web 注册表解析的受信任站内 `actionKey`；
+- 用于拒绝旧响应覆盖新 Team 状态的快照版本或等价一致性坐标。
+
+Readiness 按能力而不是总百分比表达。Personal Conversation、普通团队任务、Coding/Review、GitHub Draft PR、飞书通知和 Team Observer 分别计算。GitHub 与飞书属于条件能力，其缺失不能阻断基础对话、WorkItem、Activity 或 Inbox。
+
+### 24.2 Setup Center
+
+Web 提供 `/setup`，Today 展示当前 Team 的精简就绪摘要，首次 Team Onboarding 完成后提供明确的后续入口。Setup Center 将模型与凭证、Agent 配置、WorkProject、Repository、GitHub、飞书和 Runtime 状态放在同一任务路径中；有权限的成员进入既有管理命令，无权限成员看到应由哪类 Team 角色处理。
+
+Setup Center 不接收长期 Secret，不复制配置表单，不通过一键命令绕过现有权限、强版本、幂等、CredentialStore 或 Provider Preflight。每个动作继续由对应业务 API 完成，Setup Center 只负责解释前置关系和导航。
+
+### 24.3 工程职责与依赖
+
+M8 优先收口变更冲突和认知成本最高的职责边界：WorkPage/Task Store、Notification Intent Projection、Review Persistence、Operations API 和 AgentScope Task Runtime。重构先使用 Characterization/Contract Test 固定公开行为，再拆出编排、查询、状态、映射、SQL、DTO 和控制职责。API、事件 Schema、数据库事实、幂等、权限和恢复语义保持兼容。
+
+Repository Port 的必需能力通过最小接口、抽象方法或生产 Adapter Contract Test 在编译/测试阶段暴露，避免新增 Adapter 因默认 `UnsupportedOperationException` 延迟到运行期失败。
+
+默认 Backend 构建只携带当前单机 Docker Sandbox 所需依赖。未使用的 Kubernetes/Fabric8 扩展移出默认运行类路径，后续 Kubernetes 执行器通过独立模块或 Profile 恢复。各模块直接声明实际导入的依赖；Spring Configuration Metadata、环境变量、Config Tree Secret、Compose 和文档由自动化合同保持一致。
+
+### 24.4 发行与运维
+
+受保护 Git Tag 触发正式发行，Backend 与 Web 使用同一 Git Revision，发布 GHCR 不可变镜像、Digest Manifest、SBOM、Provenance 和签名。安装与升级只消费固定 Digest；缺少签名、扫描或 Revision/Schema 一致性证据时拒绝形成 Release。
+
+Team Beta 开启 Trace 时必须输出到可查询 Backend；没有 Trace Backend 时显式关闭，不能把 `nop` Exporter 表达为已保存 Trace。Prometheus 提供 API/Worker 可用性、Outbox、Dead Letter、Task Lease、Agent/Provider/Notification 失败、数据库/Redis 和备份年龄告警，并连接受控通知出口。
+
+Daily/Weekly 备份、Retention 和备份年龄检查使用可重复安装的调度合同。公网 TLS 模板提供 HSTS、经过浏览器门禁的 CSP 和安全 Header；本地开发 Compose 只把 PostgreSQL/Redis 绑定到 Loopback。正式公网仍只开放 80/443。
+
+### 24.5 质量与范围
+
+前端 Coverage 默认纳入全部生产业务代码，Conversation、Task、Coding、Review、Delivery、TeamOps 和 TeamObserver 不再位于分母之外。格式、Lint、模块架构、直接依赖、配置和文档检查以低噪音规则进入 CI。
+
+CI 分为 PR、Main 和 Release 三层：PR 按路径提供快速反馈并取消同分支旧运行；Main 执行完整回归与安全扫描；Release 在正式镜像上追加安装、签名、Setup、任务闭环、告警、备份恢复和 Linux amd64 验证。路径过滤不能绕过与变更相关的必需门禁。
+
+M8 使用 9 个较大的完整工作包推进，详细范围、依赖与 Release Gate 见 [M8 产品化与工程收口执行清单](plans/M8-产品化与工程收口.md)。Kubernetes 高可用、多 Organization SaaS、企业身份、Vault/KMS 高可用、Plugin 市场、Autopilot、PR 自动合并、生产发布、Desktop 和 Mobile 不进入 M8。
+
+## 25. 首个完整业务里程碑
 
 > Team Lead 创建研发 Team、邀请张三和李四，并启用内置 GitHub 与飞书集成。张三在团队对话中提出研发目标，Personal Agent 生成 TaskIntent，并建议创建 WorkItem `CRW-1024`、由张三担任 Owner/Executor、李四担任 Gate Reviewer。张三确认后，AgentScopeNativeRuntime 通过 Claim、ExecutionLease 和 Task Token 领取任务。ExecutionWorkspace Manager 创建专用分支、Git Worktree 和 Sandbox。Task Orchestrator 生成计划，Coding Specialist 分析仓库、修改代码、运行 Maven 测试并生成实时 DiffManifest 与 TestEvidence，完成时固化最终 DiffArtifact。平台创建绑定精确版本的 ReviewRequest。李四通过自己的 Personal Agent 查看 ContextPackage，Reviewer Specialist 提交 Advisory Finding，李四提交 Gate ReviewDecision。Coding Specialist 根据意见完成修改。张三确认源码写操作后，SourceCodeProvider 创建 Draft PR，NativeWorkItemProvider 更新状态，CollaborationProvider 通知团队。Team Lead 在工作台查看责任、Runtime、Worktree、Review、成本、风险、Artifact、Inbox 和完整审计链。
 
