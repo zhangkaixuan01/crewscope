@@ -34,6 +34,7 @@ const ids = {
   agentReviewer: '00000000-0000-0000-0000-000000001703',
   agentTeam: '00000000-0000-0000-0000-000000001704',
   agentCreated: '00000000-0000-0000-0000-000000001705',
+  agentObserver: '00000000-0000-0000-0000-000000001706',
   repositoryBinding: '00000000-0000-0000-0000-000000001801',
   codingWorkspace: '00000000-0000-0000-0000-000000001901',
   previousCodingWorkspace: '00000000-0000-0000-0000-000000001902',
@@ -1000,15 +1001,27 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }) => {
+test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }, testInfo) => {
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
   await expect(page.getByText('请保留团队协作与最小权限原则。', { exact: true })).toBeVisible()
   await expect(page.getByText('Connection', { exact: true })).toBeVisible()
   const participants = page.getByLabel('对话参与者')
-  await expect(participants.getByText('张凯旋 · Personal Agent', { exact: true })).toBeVisible()
-  await expect(participants.getByText('张凯旋的 Personal Agent · AGENT', { exact: true })).toBeVisible()
-  await expect(participants.getByText('个人 Agent', { exact: true })).toBeVisible()
+  const personalAgentName = participants.getByText('张凯旋 · Personal Agent', { exact: true })
+  const personalAgentOwnership = participants.getByText('张凯旋的 Personal Agent · AGENT', { exact: true })
+  const personalAgentKind = participants.getByText('个人 Agent', { exact: true })
+  await expect(personalAgentName).toHaveCount(1)
+  await expect(personalAgentOwnership).toHaveCount(1)
+  await expect(personalAgentKind).toHaveCount(1)
+  // The participant rail is intentionally collapsed below the tablet breakpoint; preserve the
+  // identity facts in DOM without making a hidden desktop rail block narrow-screen navigation.
+  if (testInfo.project.name === 'desktop-chromium') {
+    await expect(personalAgentName).toBeVisible()
+    await expect(personalAgentOwnership).toBeVisible()
+    await expect(personalAgentKind).toBeVisible()
+  } else {
+    await expect(participants).toBeHidden()
+  }
 
   await page.reload()
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
@@ -1660,8 +1673,8 @@ test('Agent Center restores a deep link and remains keyboard-operable at desktop
   const selected = page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)
   await expect(selected).toHaveAttribute('aria-current', 'page')
   await expect(selected).toContainText('deepseek-v4-flash')
-  await expect(page.getByText('已禁用', { exact: true })).toBeVisible()
-  await expect(page.getByText('已归档', { exact: true })).toBeVisible()
+  await expect(page.locator(`.agent-card[href*="agent=${ids.agentReviewer}"]`)).toContainText('已禁用')
+  await expect(page.locator(`.agent-card[href*="agent=${ids.agentTeam}"]`)).toContainText('已归档')
 
   await selected.focus()
   await expect(selected).toBeFocused()
@@ -2728,6 +2741,8 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
 test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
   await page.goto(`/settings/agents?team=${ids.team}`)
   await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '平台托管 Agent' })).toBeVisible()
+  await expect(page.locator(`.agent-card[href*="agent=${ids.agentObserver}"]`)).toContainText('Team Observer')
   await expect(page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`)).toContainText('deepseek-v4-flash')
   await expect(page).toHaveScreenshot(`agent-settings-${testInfo.project.name}.png`, { fullPage: true })
 
@@ -2911,6 +2926,7 @@ function agentDirectory() {
     agentProfile(ids.agentCoding, 'CrewScope Coding Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3),
     agentProfile(ids.agentReviewer, 'Architecture Reviewer', 'USER', 'REVIEWER', 'reviewer-specialist', false, 'DISABLED', 2),
     agentProfile(ids.agentTeam, 'Team Delivery Agent', 'TEAM', 'ORCHESTRATOR', 'team-orchestrator', false, 'ARCHIVED'),
+    agentProfile(ids.agentObserver, 'Team Observer', 'TEAM', 'TEAM_COORDINATOR', 'team-observer', false, 'DISABLED'),
   ]
 }
 
@@ -2935,11 +2951,12 @@ function agentConfiguration(profileId: string, revision = 2) {
     primary: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-v4-flash', catalogRevision: 4 },
     fallback: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-chat', catalogRevision: 3 },
   })
+  const teamOwned = profileId === ids.agentTeam || profileId === ids.agentObserver
   return {
     revision, previousRevision: revision > 1 ? revision - 1 : null,
     templateKey: profile?.templateKey ?? 'coding-specialist', templateVersion: profile?.templateVersion ?? 1,
     templateContentHash: 'b'.repeat(64),
-    personalBinding: profileId === ids.agentTeam ? null : binding('PERSONAL'),
+    personalBinding: teamOwned ? null : binding('PERSONAL'),
     teamBinding: profileId === ids.agentProfile ? null : binding('TEAM'),
     supplementalInstructions: null, approvedSkillKeys: [], memoryPolicy: null, budgetPolicy: null,
     generateOptions: { temperature: null, topP: null, maximumOutputTokens: 120000, reasoningMode: 'DEFAULT', cacheEnabled: true, parallelToolCalls: true, seed: null, maximumAttempts: 2 },
@@ -2954,19 +2971,25 @@ function agentTemplates(ownershipType: 'USER' | 'TEAM') {
     runtimeRole: string,
     allowedExecutionScopes: string[],
     approvedSkillKeys: string[] = [],
+    platformManaged = false,
   ) => ({
     publisherType: 'ORGANIZATION', publisherId: ids.organization, key, version, runtimeRole,
     allowedOwnershipTypes: [ownershipType], allowedExecutionScopes,
     declaredCapabilities: runtimeRole === 'CODING' ? ['coding', 'repository'] : ['collaboration'],
     requiredModelCapabilities: ['TOOLS'], approvedSkillKeys,
     memberConfigurableSlots: ['MODEL_BINDING', 'SUPPLEMENTAL_INSTRUCTIONS', 'APPROVED_SKILLS', 'OUTPUT_PREFERENCE'],
-    administratorConfigurableSlots: ['BUDGET'], contentHash: 'd'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+    administratorConfigurableSlots: ['BUDGET'], creatable: !platformManaged,
+    platformManaged,
+    contentHash: 'd'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
   })
-  if (ownershipType === 'TEAM') return [definition('team-orchestrator', 1, 'ORCHESTRATOR', ['TEAM'])]
+  if (ownershipType === 'TEAM') return [
+    definition('team-orchestrator', 1, 'ORCHESTRATOR', ['TEAM']),
+    definition('team-observer', 1, 'TEAM_COORDINATOR', ['TEAM'], [], true),
+  ]
   return [
     definition('coding-specialist', 3, 'CODING', ['PERSONAL', 'TEAM'], ['coding-baseline']),
     definition('reviewer-specialist', 2, 'REVIEWER', ['PERSONAL'], ['review-baseline']),
-    definition('personal-assistant', 1, 'PERSONAL_ASSISTANT', ['PERSONAL', 'TEAM']),
+    definition('personal-assistant', 1, 'PERSONAL_ASSISTANT', ['PERSONAL', 'TEAM'], [], true),
   ]
 }
 
