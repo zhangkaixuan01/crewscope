@@ -13,7 +13,11 @@ load_operator_environment "${1:-}"
 
 # Create every bind source before Compose starts. Docker-created missing directories are owned by
 # root and would make the read-only API/Worker containers fail before model invocation or Git I/O.
-for runtime_directory in artifacts github-mirrors repositories worktrees worktree-locks runtime; do
+# Keep the four AgentScope runtime roots explicit: a fresh host may not have any of these
+# subdirectories yet, and Compose would otherwise create them as root after this script returns.
+for runtime_directory in \
+    artifacts github-mirrors repositories worktrees worktree-locks \
+    runtime/personal-agent runtime/template-agent runtime/task-agent runtime/coding-agent; do
   mkdir -p "$CREWSCOPE_DATA_ROOT/$runtime_directory"
   chown -R 10001:10001 "$CREWSCOPE_DATA_ROOT/$runtime_directory"
 done
