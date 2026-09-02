@@ -20,7 +20,6 @@ import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.model.ChatUsage;
-import io.agentscope.core.model.transport.HttpTransportException;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -55,11 +54,8 @@ import io.crewscope.domain.runtime.RuntimeCapabilities;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.AgentRunId;
 import io.crewscope.domain.task.AgentRunSegmentKind;
-import io.crewscope.domain.task.PlanStep;
 import io.crewscope.domain.task.PlanVersionId;
 import io.crewscope.domain.task.PolicyBudget;
-import io.crewscope.domain.task.TaskExecutionId;
-import io.crewscope.domain.task.TaskTokenAccessRequest;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -79,11 +75,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Flow;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.adapter.JdkFlowAdapter;
 import reactor.core.Disposable;
 import reactor.core.publisher.BaseSubscriber;
@@ -94,7 +87,6 @@ import reactor.core.publisher.Sinks;
 public final class AgentScopeTaskRuntime
         implements TaskExecutionRuntime, TaskAgentStateRuntime, AutoCloseable {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(AgentScopeTaskRuntime.class);
     private static final int EVENT_BUFFER_LIMIT = 10_000;
     private static final Set<String> ALLOWED_RUNTIME_TOOLS;
 
@@ -112,7 +104,7 @@ public final class AgentScopeTaskRuntime
     private final TaskPlanPublisher taskPlanPublisher;
     private final TaskAgentStateSnapshotService stateSnapshotService;
     private final Clock clock;
-    private final ConcurrentMap<ExecutionKey, ExecutionState> executions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<AgentScopeExecutionKey, AgentScopeTaskExecutionState> executions = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     public AgentScopeTaskRuntime(
@@ -156,7 +148,7 @@ public final class AgentScopeTaskRuntime
         ensureOpen();
         TaskExecutionRuntimeFacts required = Objects.requireNonNull(facts, "facts");
         TaskAgentStateSafePoint point = Objects.requireNonNull(safePoint, "safePoint");
-        ExecutionState execution = executions.get(ExecutionKey.from(required));
+        AgentScopeTaskExecutionState execution = executions.get(AgentScopeExecutionKey.from(required));
         if (execution != null) {
             execution.requireSafeCheckpoint(point);
         }
@@ -182,7 +174,7 @@ public final class AgentScopeTaskRuntime
             TaskExecutionRuntimeFacts facts, int candidateLimit) {
         ensureOpen();
         TaskExecutionRuntimeFacts required = Objects.requireNonNull(facts, "facts");
-        ExecutionState execution = executions.get(ExecutionKey.from(required));
+        AgentScopeTaskExecutionState execution = executions.get(AgentScopeExecutionKey.from(required));
         if (execution != null) {
             execution.requireRecoverySafe();
         }
@@ -263,12 +255,12 @@ public final class AgentScopeTaskRuntime
         ensureOpen();
         TaskExecutionRequest required = Objects.requireNonNull(request, "request");
         TaskExecutionRuntimeFacts facts = required.facts();
-        ExecutionKey key = ExecutionKey.from(facts);
+        AgentScopeExecutionKey key = AgentScopeExecutionKey.from(facts);
         HarnessAgent agent = agentFactory.getOrCreate(facts);
         RuntimeContext context = runtimeContext(facts);
-        ExecutionState state = executions.compute(key, (ignored, current) -> {
+        AgentScopeTaskExecutionState state = executions.compute(key, (ignored, current) -> {
             if (current == null) {
-                return new ExecutionState(key, facts, agent, context);
+                return new AgentScopeTaskExecutionState(key, facts, agent, context, clock);
             }
             current.rebind(facts, agent, context);
             return current;
@@ -302,7 +294,7 @@ public final class AgentScopeTaskRuntime
                     .takeUntil(TaskExecutionEvent::terminal)
                     .onErrorResume(failure -> Flux.concat(
                             Flux.fromIterable(state.drainModelTransitions()),
-                            Flux.just(state.sourceFailed(classify(failure)))))
+                            Flux.just(state.sourceFailed(AgentScopeFailureClassifier.classify(failure)))))
                     .doFinally(ignored -> state.detachSegment());
             return new TaskExecutionHandle(required, startOwnedStream(source));
         } catch (RuntimeException exception) {
@@ -317,15 +309,16 @@ public final class AgentScopeTaskRuntime
     public CompletionStage<TaskExecutionControlResult> controlTask(
             TaskExecutionControlRequest request) {
         TaskExecutionControlRequest required = Objects.requireNonNull(request, "request");
-        ExecutionKey key = ExecutionKey.from(required.facts());
-        ExecutionState state = executions.get(key);
+        AgentScopeExecutionKey key = AgentScopeExecutionKey.from(required.facts());
+        AgentScopeTaskExecutionState state = executions.get(key);
         if (state == null && required.action() == TaskExecutionControlAction.RESUME) {
             // A restarted Worker has no in-memory segment state. The durable AgentStateStore still
             // owns the pending Plan permission, so recreate only the exact fenced execution slot.
             HarnessAgent agent = agentFactory.getOrCreate(required.facts());
             RuntimeContext context = runtimeContext(required.facts());
             state = executions.computeIfAbsent(
-                    key, ignored -> new ExecutionState(key, required.facts(), agent, context));
+                    key, ignored -> new AgentScopeTaskExecutionState(
+                            key, required.facts(), agent, context, clock));
         } else if (state != null && required.action() == TaskExecutionControlAction.RESUME
                 && !state.sameOwner(required.facts())) {
             // A WAITING/PAUSED segment releases its Lease. A later Resume can therefore arrive on
@@ -343,7 +336,7 @@ public final class AgentScopeTaskRuntime
         return CompletableFuture.completedFuture(state.control(required));
     }
 
-    private List<TaskExecutionEvent> mapEvent(ExecutionState state, AgentEvent event) {
+    private List<TaskExecutionEvent> mapEvent(AgentScopeTaskExecutionState state, AgentEvent event) {
         if (state.segmentTerminal()) {
             return List.of();
         }
@@ -351,7 +344,7 @@ public final class AgentScopeTaskRuntime
         if (event instanceof ModelCallStartEvent) {
             if (state.incrementModelCalls() > budget.maxModelCalls()) {
                 state.interrupt();
-                return List.of(state.failureEvent(budgetFailure(
+                return List.of(state.failureEvent(AgentScopeFailureClassifier.budget(
                         "MODEL_CALL_BUDGET_EXCEEDED", "The model-call budget was exhausted.")));
             }
             return List.of();
@@ -366,7 +359,7 @@ public final class AgentScopeTaskRuntime
                 state.interrupt();
                 return List.of(
                         usageEvent,
-                        state.failureEvent(budgetFailure(
+                        state.failureEvent(AgentScopeFailureClassifier.budget(
                                 "TOKEN_BUDGET_EXCEEDED", "The token budget was exhausted.")));
             }
             return List.of(usageEvent);
@@ -375,18 +368,20 @@ public final class AgentScopeTaskRuntime
             return textEvents(state, text.getDelta());
         }
         if (event instanceof ToolCallStartEvent tool) {
-            String name = requireAllowedTool(tool.getToolCallName());
-            requireCurrentToolAuthorization(state.facts(), name);
+            String name = AgentScopeTaskToolPolicy.requireAllowed(
+                    ALLOWED_RUNTIME_TOOLS, tool.getToolCallName());
+            AgentScopeTaskToolPolicy.requireAuthorized(state.facts(), name);
             if (state.incrementToolCalls() > budget.maxToolCalls()) {
                 state.interrupt();
-                return List.of(state.failureEvent(budgetFailure(
+                return List.of(state.failureEvent(AgentScopeFailureClassifier.budget(
                         "TOOL_CALL_BUDGET_EXCEEDED", "The Tool-call budget was exhausted.")));
             }
             return List.of(state.event(new TaskExecutionEventPayload.ToolStarted(
                     requireText(tool.getToolCallId(), "toolCallId", 200), name)));
         }
         if (event instanceof ToolResultEndEvent tool) {
-            String name = requireAllowedTool(tool.getToolCallName());
+            String name = AgentScopeTaskToolPolicy.requireAllowed(
+                    ALLOWED_RUNTIME_TOOLS, tool.getToolCallName());
             boolean success = tool.getState() == ToolResultState.SUCCESS;
             Optional<ExecutionFailure> failure = success
                     ? Optional.empty()
@@ -415,7 +410,7 @@ public final class AgentScopeTaskRuntime
         }
         if (event instanceof ExceedMaxItersEvent) {
             state.interrupt();
-            return List.of(state.failureEvent(budgetFailure(
+            return List.of(state.failureEvent(AgentScopeFailureClassifier.budget(
                     "MAX_ITERATIONS", "The Task Agent reached its iteration limit.")));
         }
         if (event instanceof AgentResultEvent result) {
@@ -425,14 +420,14 @@ public final class AgentScopeTaskRuntime
     }
 
     private List<TaskExecutionEvent> mapObservedEvent(
-            ExecutionState state, AgentEvent event) {
+            AgentScopeTaskExecutionState state, AgentEvent event) {
         List<TaskExecutionEvent> mapped = new ArrayList<>(state.drainModelTransitions());
         mapped.addAll(mapEvent(state, event));
         return mapped;
     }
 
     private List<TaskExecutionEvent> confirmationEvents(
-            ExecutionState state, RequireUserConfirmEvent event) {
+            AgentScopeTaskExecutionState state, RequireUserConfirmEvent event) {
         List<ToolUseBlock> calls = List.copyOf(event.getToolCalls());
         if (calls.size() != 1 || !"plan_exit".equals(calls.get(0).getName())) {
             state.interrupt();
@@ -458,7 +453,7 @@ public final class AgentScopeTaskRuntime
         }
     }
 
-    private PlanVersionId publishCurrentPlan(ExecutionState state) {
+    private PlanVersionId publishCurrentPlan(AgentScopeTaskExecutionState state) {
         AgentState agentState = state.agent().getDelegate().getAgentState(state.context());
         String path = agentState.getPlanModeContext().getCurrentPlanFile();
         String markdown = path == null
@@ -473,7 +468,7 @@ public final class AgentScopeTaskRuntime
         return taskPlanPublisher.publish(state.facts(), candidate);
     }
 
-    private static List<TaskExecutionEvent> textEvents(ExecutionState state, String value) {
+    private static List<TaskExecutionEvent> textEvents(AgentScopeTaskExecutionState state, String value) {
         if (value == null || value.isEmpty()) {
             return List.of();
         }
@@ -486,7 +481,7 @@ public final class AgentScopeTaskRuntime
     }
 
     private static List<Msg> inputMessages(
-            TaskExecutionRequest request, ExecutionState state) {
+            TaskExecutionRequest request, AgentScopeTaskExecutionState state) {
         AgentRunSegmentKind kind = request.facts().agentRun().currentSegment().kind();
         if (kind == AgentRunSegmentKind.RESUME && state.consumeResumeAuthorization()) {
             List<ToolUseBlock> pending = state.pendingTools();
@@ -509,7 +504,7 @@ public final class AgentScopeTaskRuntime
         return List.of(UserMessage.builder()
                 .id(request.correlationId().toString())
                 .name("crewscope-task-orchestrator")
-                .textContent(prompt(request.facts(), kind))
+                .textContent(AgentScopeTaskPromptFactory.prompt(request.facts(), kind))
                 .build());
     }
 
@@ -522,45 +517,6 @@ public final class AgentScopeTaskRuntime
                 .metadata(pending.getMetadata())
                 .state(pending.getState())
                 .build();
-    }
-
-    private static String prompt(TaskExecutionRuntimeFacts facts, AgentRunSegmentKind kind) {
-        if (facts.stepExecution().isPresent()) {
-            String key = facts.stepExecution().orElseThrow().planStepKey();
-            PlanStep step = facts.planVersion().orElseThrow().steps().stream()
-                    .filter(candidate -> candidate.key().equals(key))
-                    .findFirst()
-                    .orElseThrow();
-            return "Execute only controlled Step '" + step.key() + "' (" + step.title()
-                    + "). Use only its declared fixture Tool, update Todo cognition, and report the result."
-                    + " Todo never changes CrewScope domain Step state.";
-        }
-        if (facts.planVersion().isEmpty()) {
-            boolean codingTask = facts.policySnapshot().capabilities().containsAll(
-                    Set.of(io.crewscope.domain.task.ExecutionCapability.WORKTREE,
-                            io.crewscope.domain.task.ExecutionCapability.SANDBOX));
-            String exactPlan = codingTask
-                    ? """
-                      # Controlled Task Plan
-                      - `implement` | IMPLEMENTATION | Implement the requested code change | deps=- | capabilities=WORKTREE,SANDBOX | tools=fixture_execute | critical=true
-                      - `validate` | VALIDATION | Run the required validation | deps=implement | capabilities=PLAN | tools=fixture_validate | critical=true
-                      """
-                    : """
-                      # Controlled Task Plan
-                      - `inspect` | ANALYSIS | Inspect the task input | deps=- | capabilities=PLAN | tools=fixture_inspect | critical=true
-                      - `execute` | IMPLEMENTATION | Execute the requested work | deps=inspect | capabilities=PLAN | tools=fixture_execute | critical=true
-                      - `validate` | VALIDATION | Validate the result | deps=execute | capabilities=STRUCTURED_OUTPUT | tools=fixture_validate | critical=true
-                      """;
-            return TaskPromptBoundary.taskBrief(facts)
-                    + "\n\nPublish the exact controlled plan below without changing it. Make exactly "
-                    + "these calls in order: plan_enter once, todo_write once, "
-                    + "validate_task_plan once, plan_write once with the same complete Markdown, "
-                    + "then plan_exit once. Do not call fixture tools while planning and do not "
-                    + "repeat validation after it returns VALID.\n\n" + exactPlan.strip();
-        }
-        return "Continue the published controlled Task plan in " + kind
-                + " mode. Use only declared fixture Tools and maintain Todo cognition."
-                + " Todo does not change CrewScope domain facts.";
     }
 
     private static RuntimeContext runtimeContext(TaskExecutionRuntimeFacts facts) {
@@ -588,33 +544,6 @@ public final class AgentScopeTaskRuntime
         return remaining.isNegative() || remaining.isZero() ? Duration.ZERO : remaining;
     }
 
-    private static String requireAllowedTool(String name) {
-        String required = requireText(name, "toolName", 128);
-        if (!ALLOWED_RUNTIME_TOOLS.contains(required)) {
-            throw new IllegalArgumentException("AgentScope emitted a forbidden Task Tool");
-        }
-        return required;
-    }
-
-    private static void requireCurrentToolAuthorization(
-            TaskExecutionRuntimeFacts facts, String toolName) {
-        if (!toolName.startsWith("fixture_")) {
-            return;
-        }
-        facts.authorization().scope().requireAllowed(TaskTokenAccessRequest.tool(toolName));
-        facts.stepExecution().ifPresent(step -> {
-            PlanStep planStep = facts.planVersion().orElseThrow().steps().stream()
-                    .filter(candidate -> candidate.key().equals(step.planStepKey()))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Current Step is absent from the selected PlanVersion"));
-            if (!planStep.requiredTools().contains(toolName)) {
-                throw new IllegalArgumentException(
-                        "Fixture Tool is outside the current Plan Step authorization");
-            }
-        });
-    }
-
     private static String requireText(String value, String field, int maximumLength) {
         String required = Objects.requireNonNull(value, field).strip();
         if (required.isEmpty() || required.length() > maximumLength
@@ -622,67 +551,6 @@ public final class AgentScopeTaskRuntime
             throw new IllegalArgumentException(field + " contains invalid text");
         }
         return required;
-    }
-
-    private static ExecutionFailure budgetFailure(String code, String message) {
-        return new ExecutionFailure(
-                ExecutionFailureCategory.VALIDATION,
-                false,
-                message,
-                Optional.of(code));
-    }
-
-    private static ExecutionFailure classify(Throwable failure) {
-        Throwable required = Objects.requireNonNull(failure, "failure");
-        if (required instanceof TimeoutException
-                || required instanceof TaskDurationBudgetException) {
-            return new ExecutionFailure(
-                    ExecutionFailureCategory.TIMEOUT,
-                    true,
-                    "The Task runtime exceeded its duration budget.",
-                    Optional.of("DURATION_BUDGET_EXCEEDED"));
-        }
-        if (required instanceof IllegalArgumentException) {
-            return new ExecutionFailure(
-                    ExecutionFailureCategory.AUTHORIZATION,
-                    false,
-                    "The Task runtime rejected an unsafe AgentScope event.",
-                    Optional.of("TASK_RUNTIME_EVENT_REJECTED"));
-        }
-        // Keep provider payloads, prompts and repository facts out of logs. Exception type names
-        // and an HTTP status are sufficient to distinguish transport, schema and model failures.
-        LOGGER.warn("Task Agent model call failed with cause types {} and HTTP status {}",
-                failureTypes(required), httpStatus(required).map(String::valueOf).orElse("none"));
-        return new ExecutionFailure(
-                ExecutionFailureCategory.MODEL_UNAVAILABLE,
-                true,
-                "The Task Agent model is temporarily unavailable.",
-                Optional.of("TASK_MODEL_FAILED"));
-    }
-
-    private static String failureTypes(Throwable failure) {
-        StringBuilder types = new StringBuilder();
-        Throwable current = failure;
-        for (int depth = 0; current != null && depth < 8; depth++) {
-            if (depth > 0) {
-                types.append(" <- ");
-            }
-            types.append(current.getClass().getSimpleName());
-            current = current.getCause();
-        }
-        return types.toString();
-    }
-
-    private static Optional<Integer> httpStatus(Throwable failure) {
-        Throwable current = failure;
-        for (int depth = 0; current != null && depth < 8; depth++) {
-            if (current instanceof HttpTransportException transport
-                    && transport.getStatusCode() != null) {
-                return Optional.of(transport.getStatusCode());
-            }
-            current = current.getCause();
-        }
-        return Optional.empty();
     }
 
     private static Flow.Publisher<TaskExecutionEvent> startOwnedStream(
@@ -733,7 +601,6 @@ public final class AgentScopeTaskRuntime
         }
     }
 
-    private static final class TaskDurationBudgetException extends RuntimeException {}
 
     private void ensureOpen() {
         if (closed.get()) {
@@ -746,398 +613,9 @@ public final class AgentScopeTaskRuntime
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        executions.values().forEach(ExecutionState::shutdown);
+        executions.values().forEach(AgentScopeTaskExecutionState::shutdown);
         executions.clear();
         agentFactory.close();
-    }
-
-    private record ExecutionKey(
-            TaskExecutionId executionId, String userId, String sessionId) {
-
-        private ExecutionKey {
-            executionId = Objects.requireNonNull(executionId, "executionId");
-            userId = requireText(userId, "userId", 500);
-            sessionId = requireText(sessionId, "sessionId", 500);
-        }
-
-        private static ExecutionKey from(TaskExecutionRuntimeFacts facts) {
-            AgentScopeSessionKey key = facts.runtimeSession().agentScopeKey();
-            return new ExecutionKey(facts.execution().id(), key.userId(), key.sessionId());
-        }
-    }
-
-    private final class ExecutionState {
-
-        private final ExecutionKey key;
-        private final Set<UUID> appliedControls = new HashSet<>();
-        private final AtomicLong nextSequence = new AtomicLong(1);
-        private TaskExecutionRuntimeFacts facts;
-        private HarnessAgent agent;
-        private RuntimeContext context;
-        private AgentRunId runId;
-        private long segmentSequence;
-        private int modelCalls;
-        private int toolCalls;
-        private long inputTokens;
-        private long outputTokens;
-        private long cachedTokens;
-        private boolean segmentRunning;
-        private boolean segmentTerminal;
-        private boolean logicalTerminal;
-        private boolean resumeAuthorized;
-        private UUID pauseControlRequestId;
-        private String pauseReason;
-        private String cancelReason;
-        private String pendingReplyId;
-        private List<ToolUseBlock> pendingTools = List.of();
-        private io.crewscope.domain.task.TaskFactHash publishedContentHash;
-        private final ConcurrentLinkedQueue<TaskExecutionEventPayload.ModelTransition>
-                modelTransitions = new ConcurrentLinkedQueue<>();
-
-        private ExecutionState(
-                ExecutionKey key,
-                TaskExecutionRuntimeFacts facts,
-                HarnessAgent agent,
-                RuntimeContext context) {
-            this.key = key;
-            rebind(facts, agent, context);
-        }
-
-        private synchronized void rebind(
-                TaskExecutionRuntimeFacts replacement,
-                HarnessAgent replacementAgent,
-                RuntimeContext replacementContext) {
-            TaskExecutionRuntimeFacts required = Objects.requireNonNull(replacement, "facts");
-            if (!key.equals(ExecutionKey.from(required))) {
-                throw new IllegalArgumentException("Task execution state owner changed");
-            }
-            if (facts != null && (!facts.lease().id().equals(required.lease().id())
-                    || !facts.lease().fencingToken().equals(required.lease().fencingToken()))) {
-                throw new IllegalArgumentException("Task execution ownership epoch changed");
-            }
-            this.facts = required;
-            this.agent = Objects.requireNonNull(replacementAgent, "agent");
-            this.context = Objects.requireNonNull(replacementContext, "context");
-        }
-
-        private synchronized void beginSegment(TaskExecutionRequest request) {
-            if (logicalTerminal || segmentRunning) {
-                throw new IllegalStateException("Task execution cannot start another active segment");
-            }
-            AgentRunSegmentKind kind = facts.agentRun().currentSegment().kind();
-            if (kind == AgentRunSegmentKind.RESUME && !resumeAuthorized) {
-                throw new IllegalStateException("Task RESUME segment has not been authorized");
-            }
-            runId = facts.agentRun().id();
-            segmentSequence = facts.agentRun().currentSegment().sequence();
-            nextSequence.set(1);
-            segmentTerminal = false;
-            segmentRunning = true;
-            pauseReason = null;
-            pauseControlRequestId = null;
-            cancelReason = null;
-        }
-
-        private synchronized TaskExecutionControlResult control(TaskExecutionControlRequest request) {
-            if (!sameOwner(request.facts())) {
-                return TaskExecutionControlResult.STALE_OWNER;
-            }
-            if (!appliedControls.add(request.controlRequestId())) {
-                return TaskExecutionControlResult.ALREADY_APPLIED;
-            }
-            if (logicalTerminal) {
-                return TaskExecutionControlResult.ALREADY_TERMINAL;
-            }
-            if (request.action() == TaskExecutionControlAction.RESUME) {
-                resumeAuthorized = true;
-                return TaskExecutionControlResult.ACCEPTED;
-            }
-            if (request.action() == TaskExecutionControlAction.PAUSE) {
-                pauseControlRequestId = request.controlRequestId();
-                pauseReason = request.reason();
-            } else {
-                cancelReason = request.reason();
-                logicalTerminal = true;
-            }
-            if (segmentRunning) {
-                interrupt();
-            }
-            return TaskExecutionControlResult.ACCEPTED;
-        }
-
-        private synchronized boolean sameOwner(TaskExecutionRuntimeFacts candidate) {
-            return key.equals(ExecutionKey.from(candidate))
-                    && facts.lease().id().equals(candidate.lease().id())
-                    && facts.lease().fencingToken().equals(candidate.lease().fencingToken());
-        }
-
-        private synchronized boolean advanceOwnershipForResume(
-                TaskExecutionRuntimeFacts replacement,
-                HarnessAgent replacementAgent,
-                RuntimeContext replacementContext) {
-            TaskExecutionRuntimeFacts required = Objects.requireNonNull(replacement, "facts");
-            if (sameOwner(required)) {
-                this.facts = required;
-                this.agent = Objects.requireNonNull(replacementAgent, "agent");
-                this.context = Objects.requireNonNull(replacementContext, "context");
-                return true;
-            }
-            boolean newerOwner = key.equals(ExecutionKey.from(required))
-                    && segmentTerminal
-                    && !logicalTerminal
-                    && facts.execution().attempt() == required.execution().attempt()
-                    && facts.agentRun().id().equals(required.agentRun().id())
-                    && required.agentRun().currentSegment().kind() == AgentRunSegmentKind.RESUME
-                    && required.agentRun().currentSegment().sequence() > segmentSequence
-                    && !facts.lease().id().equals(required.lease().id())
-                    && required.lease().fencingToken().compareTo(facts.lease().fencingToken()) > 0;
-            if (!newerOwner) {
-                return false;
-            }
-            this.facts = required;
-            this.agent = Objects.requireNonNull(replacementAgent, "agent");
-            this.context = Objects.requireNonNull(replacementContext, "context");
-            return true;
-        }
-
-        private synchronized TaskExecutionEvent terminalEvent(AgentResultEvent event) {
-            GenerateReason reason = Objects.requireNonNull(event.getResult(), "Agent result")
-                    .getGenerateReason();
-            TaskExecutionEventPayload payload;
-            if (cancelReason != null) {
-                payload = new TaskExecutionEventPayload.Canceled(cancelReason);
-                logicalTerminal = true;
-            } else if (pauseReason != null) {
-                payload = paused(pauseReason);
-            } else if (reason == GenerateReason.INTERRUPTED) {
-                payload = paused("Task Agent interrupted at a safe point");
-            } else if (reason == GenerateReason.MAX_ITERATIONS) {
-                payload = new TaskExecutionEventPayload.Failed(budgetFailure(
-                        "MAX_ITERATIONS", "The Task Agent reached its iteration limit."));
-                logicalTerminal = true;
-            } else if (reason == GenerateReason.ALL_TOOLS_DENIED) {
-                payload = new TaskExecutionEventPayload.Failed(new ExecutionFailure(
-                        ExecutionFailureCategory.AUTHORIZATION,
-                        false,
-                        "The requested Task Tools were not authorized.",
-                        Optional.of("ALL_TOOLS_DENIED")));
-                logicalTerminal = true;
-            } else if (reason == GenerateReason.PERMISSION_ASKING
-                    || reason == GenerateReason.TOOL_SUSPENDED
-                    || reason == GenerateReason.MIDDLEWARE_STOP_REQUESTED
-                    || reason == GenerateReason.REASONING_STOP_REQUESTED
-                    || reason == GenerateReason.ACTING_STOP_REQUESTED) {
-                if (pendingTools.isEmpty()) {
-                    pending(null, event.getResult().getContentBlocks(ToolUseBlock.class).stream()
-                            .filter(tool -> tool.getState() == ToolCallState.ASKING
-                                    || tool.getState() == ToolCallState.PENDING)
-                            .toList());
-                }
-                payload = approvalPayload();
-            } else {
-                payload = new TaskExecutionEventPayload.Completed(Optional.empty());
-                logicalTerminal = true;
-            }
-            return terminal(payload);
-        }
-
-        private synchronized TaskExecutionEvent approvalEvent() {
-            return terminal(approvalPayload());
-        }
-
-        private TaskExecutionEventPayload approvalPayload() {
-            return new TaskExecutionEventPayload.ApprovalRequired(
-                    TaskApprovalInterruptTokens.from(
-                            facts.execution().id(),
-                            facts.agentRun().id(),
-                            facts.agentRun().currentSegment().sequence()),
-                    ExecutionInterruptKind.TOOL_APPROVAL,
-                    "Approve the validated controlled Task plan to continue.");
-        }
-
-        private synchronized TaskExecutionEvent failureEvent(ExecutionFailure failure) {
-            logicalTerminal = true;
-            return terminal(new TaskExecutionEventPayload.Failed(failure));
-        }
-
-        private synchronized TaskExecutionEvent sourceFailed(ExecutionFailure failure) {
-            if (cancelReason != null) {
-                logicalTerminal = true;
-                return terminal(new TaskExecutionEventPayload.Canceled(cancelReason));
-            }
-            if (pauseReason != null) {
-                return terminal(paused(pauseReason));
-            }
-            return failureEvent(failure);
-        }
-
-        private synchronized TaskExecutionEvent sourceCompletedWithoutResult() {
-            return sourceFailed(new ExecutionFailure(
-                    ExecutionFailureCategory.INTERNAL,
-                    false,
-                    "The Task Agent stream ended without a terminal result.",
-                    Optional.of("TASK_RUNTIME_TERMINAL_MISSING")));
-        }
-
-        private TaskExecutionEventPayload.Paused paused(String reason) {
-            UUID controlRequestId = Objects.requireNonNull(
-                    pauseControlRequestId, "pauseControlRequestId");
-            return new TaskExecutionEventPayload.Paused(
-                    new ExecutionInterruptToken(controlRequestId.toString()), reason);
-        }
-
-        private TaskExecutionEvent terminal(TaskExecutionEventPayload payload) {
-            if (segmentTerminal) {
-                throw new IllegalStateException("Task segment already has a terminal event");
-            }
-            segmentTerminal = true;
-            return event(payload);
-        }
-
-        private synchronized TaskExecutionEvent usageEvent(ChatUsage usage) {
-            if (usage.getInputTokens() < 0
-                    || usage.getOutputTokens() < 0
-                    || usage.getCachedTokens() < 0
-                    || usage.getCachedTokens() > usage.getInputTokens()) {
-                throw new IllegalArgumentException("AgentScope reported invalid token usage");
-            }
-            inputTokens = Math.addExact(inputTokens, usage.getInputTokens());
-            outputTokens = Math.addExact(outputTokens, usage.getOutputTokens());
-            cachedTokens = Math.addExact(cachedTokens, usage.getCachedTokens());
-            return event(new TaskExecutionEventPayload.UsageReported(
-                    inputTokens, outputTokens, cachedTokens, Math.addExact(inputTokens, outputTokens)));
-        }
-
-        private void observeModelTransition(TaskExecutionEventPayload.ModelTransition transition) {
-            modelTransitions.add(Objects.requireNonNull(transition, "transition"));
-        }
-
-        private synchronized List<TaskExecutionEvent> drainModelTransitions() {
-            List<TaskExecutionEvent> events = new ArrayList<>();
-            TaskExecutionEventPayload.ModelTransition transition;
-            while ((transition = modelTransitions.poll()) != null) {
-                events.add(event(transition));
-            }
-            return events;
-        }
-
-        private synchronized TaskExecutionEvent event(TaskExecutionEventPayload payload) {
-            return new TaskExecutionEvent(
-                    facts.execution().id(),
-                    facts.execution().attempt(),
-                    runId != null ? runId : facts.agentRun().id(),
-                    segmentSequence > 0
-                            ? segmentSequence
-                            : facts.agentRun().currentSegment().sequence(),
-                    nextSequence.getAndIncrement(),
-                    UtcTimestamp.from(clock.instant()),
-                    payload);
-        }
-
-        private synchronized int incrementModelCalls() {
-            return ++modelCalls;
-        }
-
-        private synchronized int incrementToolCalls() {
-            return ++toolCalls;
-        }
-
-        private synchronized long totalTokens() {
-            return inputTokens + outputTokens;
-        }
-
-        private synchronized void pending(String replyId, List<ToolUseBlock> tools) {
-            pendingReplyId = replyId;
-            pendingTools = List.copyOf(tools);
-        }
-
-        private synchronized List<ToolUseBlock> pendingTools() {
-            if (!pendingTools.isEmpty()) {
-                return pendingTools;
-            }
-            AgentState state = agent.getDelegate().getAgentState(context);
-            for (int index = state.getContext().size() - 1; index >= 0; index--) {
-                List<ToolUseBlock> found = state.getContext().get(index)
-                        .getContentBlocks(ToolUseBlock.class)
-                        .stream()
-                        .filter(tool -> tool.getState() == ToolCallState.ASKING
-                                || tool.getState() == ToolCallState.PENDING)
-                        .toList();
-                if (!found.isEmpty()) {
-                    pendingTools = found;
-                    return found;
-                }
-            }
-            return List.of();
-        }
-
-        private synchronized boolean consumeResumeAuthorization() {
-            if (!resumeAuthorized) {
-                return false;
-            }
-            resumeAuthorized = false;
-            return true;
-        }
-
-        private synchronized void publishedContentHash(
-                io.crewscope.domain.task.TaskFactHash contentHash) {
-            publishedContentHash = Objects.requireNonNull(contentHash, "contentHash");
-        }
-
-        private synchronized io.crewscope.domain.task.TaskFactHash publishedContentHash() {
-            return Objects.requireNonNull(publishedContentHash, "publishedContentHash");
-        }
-
-        private synchronized void detachSegment() {
-            segmentRunning = false;
-        }
-
-        private synchronized boolean segmentTerminal() {
-            return segmentTerminal;
-        }
-
-        private synchronized TaskExecutionRuntimeFacts facts() {
-            return facts;
-        }
-
-        private ExecutionKey key() {
-            return key;
-        }
-
-        private synchronized HarnessAgent agent() {
-            return agent;
-        }
-
-        private synchronized RuntimeContext context() {
-            return context;
-        }
-
-        private void interrupt() {
-            agent.getDelegate().interrupt(context);
-        }
-
-        private synchronized void shutdown() {
-            cancelReason = "Task runtime shutdown";
-            logicalTerminal = true;
-            if (segmentRunning) {
-                interrupt();
-            }
-        }
-
-        private synchronized void requireSafeCheckpoint(TaskAgentStateSafePoint safePoint) {
-            Objects.requireNonNull(safePoint, "safePoint");
-            if (segmentRunning && !segmentTerminal) {
-                throw new IllegalStateException(
-                        "Task AgentState may be checkpointed only after a finite safe boundary");
-            }
-        }
-
-        private synchronized void requireRecoverySafe() {
-            if (segmentRunning) {
-                throw new IllegalStateException(
-                        "Task AgentState cannot be replaced while a Segment is running");
-            }
-        }
     }
 
     /** Keeps M3-I06 fixtures source-compatible while production wiring supplies durable storage. */

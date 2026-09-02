@@ -102,7 +102,7 @@ public class JdbcReviewRepositoryAdapter implements
         ReviewModificationRoundRepository {
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper;
+    private final ReviewPersistenceJsonCodec jsonCodec;
     private final ReviewContextAuthorityJsonCodec contextCodec;
     private final JdbcReviewQueryRepositoryAdapter projections;
 
@@ -112,7 +112,7 @@ public class JdbcReviewRepositoryAdapter implements
             ReviewContextAuthorityJsonCodec contextCodec,
             JdbcReviewQueryRepositoryAdapter projections) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
-        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.jsonCodec = new ReviewPersistenceJsonCodec(objectMapper);
         this.contextCodec = Objects.requireNonNull(contextCodec, "contextCodec");
         this.projections = Objects.requireNonNull(projections, "projections");
     }
@@ -157,7 +157,7 @@ public class JdbcReviewRepositoryAdapter implements
                 diff.deliveryCommit().value(), diff.generation().value(), diff.manifestHash().value(),
                 diff.patchArtifact().artifactId().value(), diff.patchArtifact().sizeBytes(),
                 diff.patchArtifact().patchSha256().value(),
-                json(diff.changedPaths().stream().map(DiffPath::value).toList()),
+                jsonCodec.serialize(diff.changedPaths().stream().map(DiffPath::value).toList()),
                 value.subjectHash().value(), time(value.audit().createdAt()), creator(value.audit()));
         ReviewSubject committed = findById(scope.organizationId(), value.id()).orElseThrow();
         if (!committed.subjectHash().equals(value.subjectHash())) {
@@ -486,7 +486,7 @@ public class JdbcReviewRepositoryAdapter implements
                 value.reviewerMode().name(), value.reviewerPrincipalId().value(),
                 value.reviewerMemberId().value(), databaseMode,
                 reason.length() <= 128 ? reason : reason.substring(0, 128),
-                json(eligibility.conflictingRoles().stream().map(Enum::name).sorted().toList()),
+                jsonCodec.serialize(eligibility.conflictingRoles().stream().map(Enum::name).sorted().toList()),
                 eligibility.policyPack().map(reference -> reference.id().value()).orElse(null),
                 eligibility.policyPack().map(PolicyPackReference::version).orElse(null),
                 eligibility.overrideReason().orElse(null), value.type().name(), value.rationale(),
@@ -859,7 +859,7 @@ public class JdbcReviewRepositoryAdapter implements
                     """,
                     value.id().value(), ++ordinal, value.testEvidence().id().value(),
                     acceptance.criterionIndex(), acceptance.status().name(),
-                    acceptance.summary().value(), json(coordinates));
+                    acceptance.summary().value(), jsonCodec.serialize(coordinates));
         }
     }
 
@@ -969,27 +969,12 @@ public class JdbcReviewRepositoryAdapter implements
                 (row, ignored) -> row.getObject("test_evidence_id", UUID.class) + ":"
                         + row.getInt("criterion_index") + ":" + row.getString("status") + ":"
                         + row.getString("summary") + ":"
-                        + readEvidenceCoordinates(row.getString("evidence_coordinates")),
+                        + jsonCodec.evidenceCoordinates(row.getString("evidence_coordinates")),
                 value.id().value());
         if (!expectedCommands.equals(storedCommands)
                 || !expectedAcceptance.equals(storedAcceptance)) {
             throw new IllegalStateException("ContextPackage evidence projection drifted");
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<String> readEvidenceCoordinates(String value) {
-        Object decoded = objectMapper.readValue(value, List.class);
-        if (!(decoded instanceof List<?> list)) {
-            throw new IllegalStateException("Expected Review evidence coordinates array");
-        }
-        return list.stream().map(item -> {
-            if (!(item instanceof Map<?, ?> coordinate)) {
-                throw new IllegalStateException("Review evidence coordinate must be an object");
-            }
-            return coordinate.get("id") + ":" + coordinate.get("sequence") + ":"
-                    + coordinate.get("evidenceHash");
-        }).toList();
     }
 
     private ReviewRequestReference requestReference(ResultSet row, String prefix) throws SQLException {
@@ -1112,17 +1097,8 @@ public class JdbcReviewRepositoryAdapter implements
                 """ + predicate;
     }
 
-    private String json(Object value) {
-        return objectMapper.writeValueAsString(value);
-    }
-
-    @SuppressWarnings("unchecked")
     private List<String> readStringList(String value) {
-        Object decoded = objectMapper.readValue(value, List.class);
-        if (!(decoded instanceof List<?> list)) {
-            throw new IllegalStateException("Expected a JSON array");
-        }
-        return list.stream().map(String::valueOf).toList();
+        return jsonCodec.strings(value);
     }
 
     private static WorkItemScope scope(ResultSet row) throws SQLException {

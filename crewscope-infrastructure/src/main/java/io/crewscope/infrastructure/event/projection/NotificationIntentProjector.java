@@ -30,7 +30,6 @@ import io.crewscope.domain.notification.NotificationTemplateStatus;
 import io.crewscope.domain.notification.NotificationTemplateVersion;
 import io.crewscope.domain.notification.NotificationVariableSpec;
 import io.crewscope.domain.notification.TeamNotificationPolicyId;
-import io.crewscope.domain.notification.TrustedNotificationOrigin;
 import io.crewscope.domain.projection.ProjectionGenerationLease;
 import io.crewscope.domain.provider.ConnectionGrantId;
 import io.crewscope.domain.provider.ConnectionId;
@@ -48,7 +47,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +58,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -71,14 +68,8 @@ import tools.jackson.databind.ObjectMapper;
 public class NotificationIntentProjector
         implements NotificationAuthorizationFactsResolver, NotificationTemplateCatalog {
 
-    private static final String FIXED_TEMPLATE_CAPABILITY =
-            "collaboration.notification.send-fixed-template";
-    private static final Set<String> SAFE_VARIABLES = Set.of(
-            "itemType", "sourceType", "sourceId", "sourceRevision", "priority", "deadline",
-            "workItemTitle", "inboxUrl", "reviewUrl", "confirmationUrl", "taskUrl", "sourceUrl");
-
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper;
+    private final NotificationProjectionJsonCodec jsonCodec;
     private final NotificationIntentPolicyRegistry policies;
     private final URI publicBaseUri;
     private final TimeProvider timeProvider;
@@ -91,7 +82,7 @@ public class NotificationIntentProjector
             TimeProvider timeProvider,
             @Value("${crewscope.notification.public-base-uri:https://localhost}") String publicBaseUri) {
         this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
-        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.jsonCodec = new NotificationProjectionJsonCodec(objectMapper);
         this.policies = Objects.requireNonNull(policies, "policies");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.publicBaseUri = requirePublicBaseUri(publicBaseUri);
@@ -171,7 +162,7 @@ public class NotificationIntentProjector
                 .filter(value -> value.serverTemplateKey().equals(template.serverTemplateKey()))
                 .orElseThrow(() -> new IllegalStateException(
                         "Notification Intent is outside the current fixed policy registry"));
-        Map<String, String> values = variableValues(row.variablesJson());
+        Map<String, String> values = jsonCodec.variableValues(row.variablesJson());
         var validatedVariables = template.validateVariables(values);
         if (!validatedVariables.hash().toString().equals(row.variableHash())) {
             throw new IllegalStateException("Notification Intent variable hash is invalid");
@@ -366,7 +357,7 @@ public class NotificationIntentProjector
                 intent.sourceKey().itemType().name(), intent.sourceKey().sourceType().name(),
                 intent.sourceKey().sourceId(), intent.sourceKey().sourceRevision().value(),
                 intent.template().templateId().value(), intent.template().version().value(),
-                json(intent.variables().values()), intent.variables().hash().toString(),
+                jsonCodec.serialize(intent.variables().values()), intent.variables().hash().toString(),
                 intent.createdAt().toOffsetDateTime()) == 1;
     }
 
@@ -517,7 +508,7 @@ public class NotificationIntentProjector
                 WHERE binding.organization_id = ? AND binding.team_id = ? AND binding.id = ?
                 """,
                 (row, ignored) -> authorization(row),
-                capabilityJson(), capabilityJson(), mapping.externalTenantId(),
+                jsonCodec.capabilityJson(), jsonCodec.capabilityJson(), mapping.externalTenantId(),
                 intent.organizationId().value(), intent.teamId().value(),
                 mapping.providerBindingId()));
         if (currentResult.isEmpty()) {
@@ -640,14 +631,14 @@ public class NotificationIntentProjector
                 row.id(), row.version());
         try {
             for (VariableRow variable : variables) {
-                if (!SAFE_VARIABLES.contains(variable.name())) {
+                if (!jsonCodec.isSafeVariable(variable.name())) {
                     return Optional.empty();
                 }
                 NotificationVariableSpec spec = variable.type().equals("TEXT")
                         ? NotificationVariableSpec.text(variable.name(), variable.maximumLength())
                         : NotificationVariableSpec.trustedLink(
                                 variable.name(), variable.maximumLength(),
-                                trustedOrigins(variable.trustedOrigins()));
+                                jsonCodec.trustedOrigins(variable.trustedOrigins()));
                 schema.put(variable.name(), spec);
             }
             return Optional.of(new NotificationTemplate(
@@ -745,7 +736,7 @@ public class NotificationIntentProjector
                 """,
                 (row, ignored) -> new NotificationPreference(
                         item.memberId(), row.getBoolean("enabled"),
-                        itemTypes(row.getString("enabled_item_types")),
+                        jsonCodec.itemTypes(row.getString("enabled_item_types")),
                         Optional.ofNullable(row.getObject("muted_until", OffsetDateTime.class))
                                 .map(UtcTimestamp::from),
                         row.getLong("version")),
@@ -1083,85 +1074,6 @@ public class NotificationIntentProjector
                 row.getString("action_digest"), row.getString("deduplication_key"),
                 row.getObject("delivery_id", UUID.class), status,
                 Set.of("SUCCEEDED", "FAILED_FINAL", "INVALIDATED", "CANCELLED").contains(status));
-    }
-
-    private Set<TrustedNotificationOrigin> trustedOrigins(String json) {
-        try {
-            JsonNode root = objectMapper.readTree(json);
-            if (root == null || !root.isArray() || root.isEmpty()) {
-                throw new IllegalArgumentException("Trusted origins must be a non-empty array");
-            }
-            Set<TrustedNotificationOrigin> origins = new java.util.LinkedHashSet<>();
-            for (JsonNode value : root) {
-                if (value.isString()) {
-                    URI uri = URI.create(value.stringValue());
-                    origins.add(new TrustedNotificationOrigin(
-                            uri.getScheme(), uri.getHost(), uri.getPort()));
-                } else if (value.isObject()) {
-                    origins.add(new TrustedNotificationOrigin(
-                            value.path("scheme").stringValue(), value.path("host").stringValue(),
-                            value.path("port").isMissingNode() ? -1 : value.path("port").intValue()));
-                } else {
-                    throw new IllegalArgumentException("Trusted origin shape is invalid");
-                }
-            }
-            return Set.copyOf(origins);
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Trusted origins are invalid", exception);
-        }
-    }
-
-    private Set<InboxItemType> itemTypes(String json) {
-        try {
-            JsonNode root = objectMapper.readTree(json);
-            if (root == null || !root.isArray()) {
-                throw new IllegalArgumentException("Enabled Inbox item types must be an array");
-            }
-            EnumSet<InboxItemType> values = EnumSet.noneOf(InboxItemType.class);
-            for (JsonNode value : root) {
-                if (!value.isString()) {
-                    throw new IllegalArgumentException("Enabled Inbox item type must be a string");
-                }
-                values.add(InboxItemType.valueOf(value.stringValue()));
-            }
-            return Set.copyOf(values);
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Enabled Inbox item types are invalid", exception);
-        }
-    }
-
-    private Map<String, String> variableValues(String json) {
-        try {
-            JsonNode root = objectMapper.readTree(json);
-            if (root == null || !root.isObject() || root.size() > SAFE_VARIABLES.size()) {
-                throw new IllegalArgumentException(
-                        "Notification variables must be a bounded object");
-            }
-            Map<String, String> values = new LinkedHashMap<>();
-            root.properties().forEach(entry -> {
-                if (!SAFE_VARIABLES.contains(entry.getKey())
-                        || !entry.getValue().isString()
-                        || values.put(entry.getKey(), entry.getValue().stringValue()) != null) {
-                    throw new IllegalArgumentException(
-                            "Notification variables contain an unsupported entry");
-                }
-            });
-            return Map.copyOf(values);
-        } catch (RuntimeException exception) {
-            throw new IllegalStateException("Notification variables are invalid", exception);
-        }
-    }
-
-    private String json(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (RuntimeException exception) {
-            throw new IllegalStateException("Notification variables cannot be serialized", exception);
-        }
-    }
-
-    private String capabilityJson() {
-        return json(List.of(FIXED_TEMPLATE_CAPABILITY));
     }
 
     private String publicUrl(String path) {

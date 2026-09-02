@@ -3,7 +3,6 @@ package io.crewscope.server.api;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.operations.NotificationDeliveryRecoveryTarget;
 import io.crewscope.application.operations.OperationsAdministratorDiagnostics;
 import io.crewscope.application.operations.OperationsComponentSummary;
@@ -38,7 +37,6 @@ import io.crewscope.domain.projection.ProjectionName;
 import io.crewscope.domain.projection.ProjectionRebuildJobId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -123,7 +121,7 @@ public final class OperationsController {
         OrganizationId organization = organizationId(organizationId);
         OperationsRecoveryTarget target = requireBody(body, "body").target().toDomain();
         OperationsRecoveryCommandId commandId = new OperationsRecoveryCommandId(
-                commandUuid("operations-recovery", organization, key));
+                OperationsCommandIdentity.recovery(organization, key));
         if (!OperationsRecoveryStrongConfirmation.expectedPhrase(target)
                 .equals(body.confirmation())) {
             throw invalid("confirmation");
@@ -411,16 +409,7 @@ public final class OperationsController {
 
     private static ProjectionAdministrationCommandId projectionCommandId(
             OrganizationId organizationId, String key) {
-        return new ProjectionAdministrationCommandId(
-                commandUuid("projection-administration", organizationId, key));
-    }
-
-    private static UUID commandUuid(
-            String namespace, OrganizationId organizationId, String key) {
-        IdempotencyKey idempotencyKey = ApiHeaders.requireIdempotencyKey(key);
-        String canonical = "io.crewscope/" + namespace + "/v1/"
-                + organizationId + "/" + idempotencyKey.value();
-        return UUID.nameUUIDFromBytes(canonical.getBytes(StandardCharsets.UTF_8));
+        return OperationsCommandIdentity.projection(organizationId, key);
     }
 
     private static ProjectionStrongConfirmation confirmation(
@@ -453,86 +442,43 @@ public final class OperationsController {
     }
 
     private static ProjectionName projectionName(String value) {
-        try {
-            return new ProjectionName(value);
-        } catch (RuntimeException failure) {
-            throw invalid("projectionName");
-        }
+        return OperationsRequestParser.projectionName(value);
     }
 
     private static ProjectionGeneration generation(String value) {
-        try {
-            return new ProjectionGeneration(Long.parseLong(value));
-        } catch (RuntimeException failure) {
-            throw invalid("generation");
-        }
+        return OperationsRequestParser.generation(value, "generation");
     }
 
     private static ProjectionGeneration generation(Long value) {
-        if (value == null) {
-            throw invalid("previousActiveGeneration");
-        }
-        try {
-            return new ProjectionGeneration(value);
-        } catch (RuntimeException failure) {
-            throw invalid("previousActiveGeneration");
-        }
+        return OperationsRequestParser.generation(value, "previousActiveGeneration");
     }
 
     private static ProjectionDefinitionVersion definitionVersion(Long value) {
-        if (value == null) {
-            throw invalid("expectedDefinitionVersion");
-        }
-        try {
-            return new ProjectionDefinitionVersion(value);
-        } catch (RuntimeException failure) {
-            throw invalid("expectedDefinitionVersion");
-        }
+        return OperationsRequestParser.definitionVersion(value);
     }
 
     private static ProjectionRebuildJobId rebuildJobId(String value) {
-        try {
-            return new ProjectionRebuildJobId(UUID.fromString(value));
-        } catch (RuntimeException failure) {
-            throw invalid("rebuildJobId");
-        }
+        return OperationsRequestParser.rebuildJobId(value);
     }
 
     private static ProjectionFailureCode failureCode(String value) {
-        try {
-            return new ProjectionFailureCode(value);
-        } catch (RuntimeException failure) {
-            throw invalid("failureCode");
-        }
+        return OperationsRequestParser.failureCode(value);
     }
 
     private static long version(Long value, String field) {
-        if (value == null || value < 0) {
-            throw invalid(field);
-        }
-        return value;
+        return OperationsRequestParser.version(value, field);
     }
 
     private static long nextVersion(long value) {
-        try {
-            return Math.incrementExact(value);
-        } catch (ArithmeticException failure) {
-            throw new IllegalStateException("Projection version is exhausted", failure);
-        }
+        return OperationsRequestParser.nextVersion(value);
     }
 
     private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw invalid(field);
-        }
-        return value.strip();
+        return OperationsRequestParser.requireText(value, field);
     }
 
     private static <T> T requireBody(T value, String field) {
-        if (value == null) {
-            throw invalid(field);
-        }
-        return value;
+        return OperationsRequestParser.requireBody(value, field);
     }
 
     private static ApiRequestException invalid(String field) {
