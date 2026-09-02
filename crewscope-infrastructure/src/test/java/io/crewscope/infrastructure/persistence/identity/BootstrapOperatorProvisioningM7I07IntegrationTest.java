@@ -123,7 +123,7 @@ class BootstrapOperatorProvisioningM7I07IntegrationTest
     void upgradesV30PrincipalWithoutChangingMembershipOrAuditIdsAndIsIdempotent() {
         BootstrapOperatorProvisioning command = command(V30_ORGANIZATION_ID, INITIAL_SECRET);
 
-        assertEquals("33", jdbc.queryForObject(
+        assertEquals("36", jdbc.queryForObject(
                 "SELECT version FROM crewscope.flyway_schema_history "
                         + "WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class));

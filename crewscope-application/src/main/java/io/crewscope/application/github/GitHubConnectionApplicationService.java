@@ -955,6 +955,8 @@ public final class GitHubConnectionApplicationService {
                 binding.target().workspaceId(),
                 binding.connectionId().orElseThrow().toString(),
                 binding.connectionVersion().orElseThrow(),
+                binding.connectionGrantId().map(Object::toString).orElse(null),
+                binding.connectionGrantVersion().orElse(0L),
                 binding.executionIdentity().orElseThrow(),
                 repositoryAllowlist(binding.effectiveAccess().resources()).stream().sorted().toList(),
                 binding.status(),

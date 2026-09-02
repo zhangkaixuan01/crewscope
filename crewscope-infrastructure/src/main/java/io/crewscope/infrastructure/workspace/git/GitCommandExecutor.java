@@ -620,6 +620,17 @@ public final class GitCommandExecutor {
                 Optional.empty());
     }
 
+    /** Sets one validated baseline branch in a managed bare repository. */
+    public void updateBranchRef(
+            Path repository, RepositoryBranchName branch, RepositoryCommitId commit) {
+        Path location = absolutePath(repository, "repository");
+        RepositoryBranchName safeBranch = Objects.requireNonNull(branch, "branch");
+        RepositoryCommitId safeCommit = Objects.requireNonNull(commit, "commit");
+        run(List.of(
+                "-C", location.toString(), "update-ref",
+                "refs/heads/" + safeBranch.value(), safeCommit.value()), Optional.empty());
+    }
+
     /** Imports an exact immutable commit from a trusted managed local repository. */
     public void fetchLocalCommit(
             Path mirror, Path sourceRepository, RepositoryCommitId commit) {

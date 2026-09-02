@@ -27,7 +27,7 @@ public class ManagedRepositoryProperties {
         this.requiredOwner = requiredOwner;
     }
 
-    Path managedRootPath() {
+    public Path managedRootPath() {
         if (managedRoot == null || managedRoot.isBlank()) {
             throw new IllegalArgumentException("Managed repository root must be non-blank");
         }

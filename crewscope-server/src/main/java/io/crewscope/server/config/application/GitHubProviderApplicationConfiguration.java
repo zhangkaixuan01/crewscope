@@ -86,14 +86,7 @@ public class GitHubProviderApplicationConfiguration {
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
             TimeProvider timeProvider,
-            GitHubProviderProperties properties,
-            ObjectProvider<GitHubWebhookSecretResolver> webhookSecretResolver) {
-        GitHubConnectionPolicySettings settings = new GitHubConnectionPolicySettings(
-                properties.getAllowedOwnerLogins(),
-                properties.isAllowPrivateRepositories(),
-                properties.isAllowInternalRepositories(),
-                properties.isAllowBroadUserOauth(),
-                webhookSecretResolver.getIfAvailable() != null);
+            GitHubConnectionPolicySettings settings) {
         var descriptor = sourceCodeProvider.descriptor();
         BuiltInProviderRegistration registration = new BuiltInProviderRegistration(
                 GitHubConnectionApplicationService.CONNECTOR_KEY,
@@ -125,6 +118,16 @@ public class GitHubProviderApplicationConfiguration {
                 transactions,
                 timeProvider,
                 settings);
+    }
+
+    @Bean
+    GitHubConnectionPolicySettings gitHubConnectionPolicySettings(
+            GitHubProviderProperties properties,
+            ObjectProvider<GitHubWebhookSecretResolver> webhookSecretResolver) {
+        return new GitHubConnectionPolicySettings(
+                properties.getAllowedOwnerLogins(), properties.isAllowPrivateRepositories(),
+                properties.isAllowInternalRepositories(), properties.isAllowBroadUserOauth(),
+                webhookSecretResolver.getIfAvailable() != null);
     }
 
     @Bean

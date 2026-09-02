@@ -14,6 +14,8 @@ public record GitHubProviderBindingView(
         WorkspaceId workspaceId,
         String connectionId,
         long connectionVersion,
+        String grantId,
+        long grantVersion,
         ProviderExecutionIdentity executionIdentity,
         List<String> repositoryAllowlist,
         ProviderRegistrationStatus status,
@@ -25,7 +27,7 @@ public record GitHubProviderBindingView(
         Objects.requireNonNull(teamId, "teamId");
         Objects.requireNonNull(workspaceId, "workspaceId");
         connectionId = Objects.requireNonNull(connectionId, "connectionId");
-        if (connectionVersion < 0 || version < 0) {
+        if (connectionVersion < 0 || grantVersion < 0 || version < 0) {
             throw new IllegalArgumentException("binding versions must not be negative");
         }
         Objects.requireNonNull(executionIdentity, "executionIdentity");
