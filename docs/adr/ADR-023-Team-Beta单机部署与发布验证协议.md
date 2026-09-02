@@ -15,7 +15,8 @@ Team Beta 面向单团队试用，采用一台专用 Linux 主机。该阶段验
 
 ### 单机部署拓扑
 
-Team Beta 固定且只包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务：
+Team Beta 固定包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`alertmanager`、
+`backup-metrics`、`docker-socket-proxy`、`api`、`worker` 和 `web` 十个服务：
 
 ```text
 Internet
@@ -33,21 +34,23 @@ Worker
   -> Redis
   -> Artifact Volume
   -> Repository / Worktree Volume
-  -> Docker Socket（受信任执行边界）
+  -> Docker Socket Proxy -> Docker Socket（受信任执行边界）
   -> OTel Collector
 
 Prometheus
   -> API / Worker 内部 Actuator
+  -> Backup Metrics
+  -> Alertmanager
 ```
 
 - Web、API 和 Worker 使用独立运行角色与独立进程；
-- Web 是唯一公开端口，API、Worker、Actuator、PostgreSQL、Redis、OTel Collector 和 Prometheus 只在内部网络访问；
+- Web 是唯一公开端口，API、Worker、Actuator、PostgreSQL、Redis、观测组件和 Docker Socket Proxy 只在内部网络访问；
 - API 负责 Flyway 迁移。Worker 关闭 Flyway，并在数据库迁移完成且 API Ready 后启动 Claim；
 - API 与 Worker 共享同一 Redis AgentState Keyspace，执行所有权按 `server` 和 `worker` Scope 使用独立租约，每个角色仍只允许单个活动执行实例；
 - Web、API 和 Worker 使用非 Root 用户、只读根文件系统、受控 `tmpfs` 和最小 Linux Capability；
 - 所有应用、基础设施和 Sandbox 镜像使用不可变 SHA-256 Digest；
 - Secret 通过受控 `secret-ref:` 外部文件或环境引用注入，Compose 文件不提供真实默认值、明文和可用测试凭证；
-- 只有 Worker 可以访问 Docker Socket。该能力等同宿主机高权限，Team Beta 必须运行在专用主机，Worker 只接受平台校验过的 Sandbox 请求；
+- Docker Socket Proxy 是唯一挂载宿主 Docker Socket 的服务；Worker 仅通过内部网络调用受限 API。该能力仍属于宿主机高权限边界，Team Beta 必须运行在专用主机，Worker 只接受平台校验过的 Sandbox 请求；
 - PostgreSQL、Redis、Artifact、Repository、Worktree 和 Prometheus 使用分离的持久卷与最小读写权限；
 - 每个服务提供健康检查，API/Worker 使用 Spring Boot Readiness Group，Prometheus 使用 `/-/ready`；启动依赖使用就绪状态，不使用聚合业务健康或固定等待时间推断进程可用性。
 
@@ -199,6 +202,18 @@ M6-S05 test-only Harness 覆盖 6 个场景：
 6. PR、Nightly、受保护 Release Candidate 分层，Required Step 缺失或跳过时拒绝发布。
 
 验证证据见 [M6-S05 Team Beta 部署与发布验证记录](../spikes/M6-S05-Team-Beta部署与发布验证记录.md)、[M6-I09 生产镜像与 Team Beta 部署](../testing/M6-I09-生产镜像与Team-Beta部署.md)和 [M6-I10 Team Beta 备份恢复与 Runbook](../testing/M6-I10-Team-Beta备份恢复与Runbook.md)。M6-I09 在本机真实 Compose 中验证七服务同时 Healthy、V1→V30、空库幂等引导、API/Worker 重启恢复、只读 RootFS、UID/GID 与 Docker Socket 隔离；M6-I10 实际验证 V30→V30、V26→V30、Artifact 重定位、坏包和非空目标失败关闭，RTO 为 63/64 秒。该 macOS/arm64 记录是开发证据，不替代 Canonical Linux amd64 Release Evidence。
+
+## M8-I03 修订
+
+M8-I03 对本 ADR 的执行边界做了收口修订：Team Beta 当前生产拓扑在原七服务基础上增加
+`docker-socket-proxy`、`alertmanager` 和只读 `backup-metrics`，形成十服务。Worker 通过内部
+`DOCKER_HOST=tcp://docker-socket-proxy:2375` 调用受限 Docker API，不再直接挂载宿主 Socket；
+Proxy 是唯一 Socket 挂载者，并关闭 Build、Volume、System、Swarm、Secret 管理接口。原文中
+“Socket 只属于 Worker”的描述仅保留为 M6 历史验证事实，生产验收以 M8-I03 合同为准。
+
+生产默认关闭 OTLP Trace；Prometheus 告警规则经内部 Alertmanager 转发，默认 receiver 为
+no-op，真实通知由私有 Overlay 配置。备份通过 systemd Daily/Weekly/Health timer 自动调度，
+备份年龄指标由 `backup-health.sh` 提供。完整验证见 [M8-I03 运维可观测、备份与执行隔离](../testing/M8-I03-运维可观测备份与执行隔离.md)。
 
 ## 重新评估条件
 

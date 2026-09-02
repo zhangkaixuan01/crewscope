@@ -110,9 +110,11 @@ flowchart TB
 | 源码开发 | 后端或前端单独调试 | API `localhost:8080`，Vite `localhost:5173`，基础设施由 Docker Compose 提供 |
 | Team Beta 单机部署 | 内部团队试用、受控的单机生产环境 | 使用不可变镜像、外部 Secret、HTTPS、Secure Cookie，公网只开放 80/443 |
 
-正式 Compose 固定运行 PostgreSQL、Redis、API、Worker、Web、OpenTelemetry Collector 和 Prometheus 七个服务。Web 是唯一宿主入口并只绑定 `127.0.0.1`；API、Worker、数据库、Redis、Prometheus 和 OTel 都不发布宿主端口。
+正式 Compose 固定运行 PostgreSQL、Redis、API、Worker、Web、OpenTelemetry Collector、
+Prometheus、Alertmanager、Backup Metrics 和 Docker Socket Proxy 十个服务。Web 是唯一宿主入口并只绑定
+`127.0.0.1`；API、Worker、数据库、Redis、观测组件和 Socket Proxy 都不发布宿主端口。
 
-> GitHub Actions 会验证并扫描 Backend/Web 镜像，但当前不会替部署方发布镜像。正式部署前需要把两个镜像推送到自己的 Registry，并在 Operator 环境文件中填写不可变的 `@sha256:` Digest。
+> 受保护的 `v*.*.*` Tag 会触发正式 Release Workflow：Backend/Web 使用同一 Git Revision 构建为 `linux/amd64` 镜像，发布到 GHCR，并生成 SBOM、SLSA Provenance、Cosign keyless 签名和 Release Manifest。部署方仍可以把镜像复制到自己的 Registry，但 Operator 环境文件必须填写不可变的 `@sha256:` Digest。
 
 ## 本地 Demo
 
@@ -152,7 +154,7 @@ deploy/team-beta/.runtime/secrets/bootstrap_password
 ./deploy/team-beta/demo.sh down
 ```
 
-`down` 会保留本地数据与 Secret，便于下次继续体验。真实模型、GitHub 和飞书连接需要进入对应管理页面单独配置；GitHub 授权连接在“GitHub 集成”页面创建，远程 Repository Catalog 用于 Push/Draft PR。Coding Agent 的 RepositoryBinding 仍在 WorkProject 的“仓库设置”中从 Worker 受管本地 Catalog 单独配置，GitHub 远程仓库不会直接出现在该下拉框中。GitHub 仓库自动导入到 Worker Managed Root 属于 M8-A02，当前版本需要由受信部署流程预置本地 bare mirror。
+`down` 会保留本地数据与 Secret，便于下次继续体验。真实模型、GitHub 和飞书连接需要进入对应管理页面单独配置；GitHub 授权连接在“GitHub 集成”页面创建，远程 Repository Catalog 用于 Push/Draft PR。Coding Agent 的 RepositoryBinding 仍在 WorkProject 的“仓库设置”中从 Worker 受管本地 Catalog 单独配置，GitHub 远程仓库不会直接出现在该下拉框中。M8-A02 已提供从已验证 GitHub Connection 导入到 Worker Managed Root 的闭环，导入完成后仓库会进入受管 Catalog。
 
 需要切换注册策略时执行：
 
@@ -168,7 +170,7 @@ deploy/team-beta/.runtime/secrets/bootstrap_password
 
 ### 1. 宿主机与网络
 
-发布证据使用 Linux amd64、8 vCPU、16 GB 内存和至少 100 GiB 磁盘，推荐 200 GiB。宿主机需要 Docker Engine、Docker Compose v2、Git、OpenSSL、Node.js 24、pnpm 11、JDK 17、`jq`、`tar` 和 `gzip`。Worker 会挂载 Docker Socket，因此应部署在专用主机，不与不受信任的工作负载混用。
+发布证据使用 Linux amd64、8 vCPU、16 GB 内存和至少 100 GiB 磁盘，推荐 200 GiB。宿主机需要 Docker Engine、Docker Compose v2、Git、OpenSSL、Node.js 24、pnpm 11、JDK 17、`jq`、`tar` 和 `gzip`。Worker 通过受限 Docker Socket Proxy 管理 Sandbox，宿主 Docker Socket 只挂载到 Proxy；执行主机仍应专用，不与不受信任的工作负载混用。
 
 云安全组或宿主机防火墙的入站规则建议为：
 
@@ -206,16 +208,49 @@ docker buildx imagetools inspect "${crewscope_registry}/web:${crewscope_revision
 
 将示例 Registry 替换为实际地址。构建应从干净、已审阅的 Git Revision 执行，Backend 与 Web 使用同一个 Revision 发布；不要把本地 `.env`、Secret 或运行目录加入构建上下文。
 
+### 正式发行
+
+维护者在已经通过 Main CI 的提交上创建并推送受保护 Tag（例如 `v0.1.0-beta.1`）：
+
+```bash
+git tag -a v0.1.0-beta.1 -m "CrewScope v0.1.0-beta.1"
+git push origin v0.1.0-beta.1
+```
+
+`.github/workflows/release.yml` 会重新执行 Backend/Web 回归，使用同一 Tag Revision 构建
+`linux/amd64` 镜像并推送到：
+
+```text
+ghcr.io/zhangkaixuan01/crewscope/backend:v0.1.0-beta.1
+ghcr.io/zhangkaixuan01/crewscope/web:v0.1.0-beta.1
+```
+
+每个镜像同时生成 SBOM 和 Provenance，并使用 GitHub OIDC 的 Cosign keyless 签名。Release
+附件中的 `release-manifest.json` 固定 Tag、Git Revision、平台和两个 Digest。部署前验证签名：
+
+```bash
+cosign verify ghcr.io/zhangkaixuan01/crewscope/backend@sha256:<digest> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify ghcr.io/zhangkaixuan01/crewscope/web@sha256:<digest> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+验证通过后，将 Manifest 中的两个 `repository@digest` 写入 Operator 环境文件；不要使用仅含
+Tag 的镜像坐标。
+
 ```dotenv
 CREWSCOPE_BACKEND_IMAGE=registry.example.com/crewscope/backend@sha256:<64-hex-digest>
 CREWSCOPE_WEB_IMAGE=registry.example.com/crewscope/web@sha256:<64-hex-digest>
+CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+CREWSCOPE_ALERTMANAGER_IMAGE=prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
+CREWSCOPE_NODE_EXPORTER_IMAGE=prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
 ```
 
-私有 Registry 需要先在宿主机执行相应的 `docker login`。部署前可运行 `docker pull <image@digest>`，确认宿主机能够解析并拉取两个摘要。
+私有 Registry 需要先在宿主机执行相应的 `docker login`。部署前可运行 `docker pull <image@digest>`，确认宿主机能够解析并拉取五个摘要。
 
 ### 3. Operator 配置与 Secret
 
-从 [Team Beta 环境变量模板](deploy/team-beta/.env.example) 创建权限为 `0600` 的绝对路径配置文件，例如 `/etc/crewscope/team-beta.env`。至少替换镜像摘要、数据/备份目录、Organization UUID、Runtime Principal UUID、Docker Socket GID、Git Revision 和恢复 Schema 坐标。
+从 [Team Beta 环境变量模板](deploy/team-beta/.env.example) 创建权限为 `0600` 的绝对路径配置文件，例如 `/etc/crewscope/team-beta.env`。至少替换后端、Web、Docker Socket Proxy、Alertmanager 和 Node Exporter 镜像摘要、数据/备份目录、Organization UUID、Runtime Principal UUID、Git Revision 和恢复 Schema 坐标。
 
 按照 [Secret 文件说明](deploy/team-beta/secrets.example/README.md) 在 `CREWSCOPE_SECRETS_ROOT` 创建全部 Secret。模型 API Key、GitHub Token 和飞书 Secret 不写入 Operator 环境文件或 Compose 文件，而是在应用管理页面中单向录入。Secret 准备完成后，在仓库根目录执行：
 
@@ -247,9 +282,13 @@ docker compose \
   ps
 ```
 
-七个服务都应进入 `healthy`。使用 [宿主机 Nginx TLS 示例](deploy/team-beta/nginx-host-tls.conf.example) 将域名的 80/443 转发至 `127.0.0.1:8080`，替换示例域名和证书路径后再开放公网。正式 Profile 强制 Secure Cookie，必须通过受信任域名和 HTTPS 访问；仅使用公网 IP 或 HTTP 会导致浏览器无法建立正式 Session。
+十个服务都应进入 `healthy`。使用 [宿主机 Nginx TLS 示例](deploy/team-beta/nginx-host-tls.conf.example) 将域名的 80/443 转发至 `127.0.0.1:8080`，替换示例域名和证书路径后再开放公网。正式 Profile 强制 Secure Cookie，必须通过可信 CA 的 HTTPS 访问；普通 HTTP 或不受信任证书会使正式 Session 失败关闭。生产优先使用域名证书；使用 Let's Encrypt 短期 IP 证书时必须配置每日续期检查并验证重启恢复。
 
 Compose 保持 `backend` 与 `observability` 为内部网络，并只让 API、Worker 加入不发布端口的 `provider-egress` 网络。该网络提供访问模型 Provider、GitHub 和飞书所需的出站 HTTPS；它不增加公网入站面。生产防火墙应允许容器转发后的 DNS 与 HTTPS 出站，否则模型连接健康验证会稳定显示 `ENDPOINT_UNREACHABLE`。
+
+同机空目标恢复必须为恢复 Project 设置不同的 `CREWSCOPE_BACKEND_SUBNET` 与
+`CREWSCOPE_WEB_INTERNAL_IP`，避免与默认 `172.30.0.0/24`、`172.30.0.10` 冲突；正常单实例
+部署保留模板默认值即可。
 
 推荐用以下入口完成验收：
 
@@ -351,6 +390,18 @@ pnpm dev
 
 访问 `http://localhost:5173`。Vite 会将 `/api` 与 `/actuator` 代理到 `http://localhost:8080`。
 
+提交前运行依赖与配置合同检查：
+
+```bash
+node scripts/check-config-contract.mjs
+node scripts/check-dependency-contract.mjs
+./mvnw -q -DskipTests compile
+```
+
+Backend CI 还会运行 `dependency:analyze`，并用
+[`config/maven-dependency-analyze.allowlist`](config/maven-dependency-analyze.allowlist)
+阻断未审阅的新依赖诊断。
+
 后端健康与系统信息：
 
 ```text
@@ -382,6 +433,8 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 完整发布证据见 [M7-Q04 Release Gate](docs/testing/M7-Q04-Release-Gate.md)，前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
 
+README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release Gate 文档记录的 Git Revision、Artifact 和 CI Run；它们不会随当前工作区自动更新。当前前端全生产代码 Coverage 基线、Q01 分层门禁和验证命令见 [M8-Q01 质量反馈与分层门禁](docs/testing/M8-Q01-质量反馈与分层门禁.md)。
+
 本地执行完整 Release Gate：
 
 ```bash
@@ -401,7 +454,7 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机七服务部署、HTTPS、外部 Secret、备份与空目标恢复合同。下一阶段按 [M8 产品化与工程收口](docs/plans/M8-产品化与工程收口.md) 完成 Setup Center、正式发行、运维可观测和工程质量收口。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
+当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机十服务部署、HTTPS、外部 Secret、受限 Sandbox 执行、告警、备份与空目标恢复合同。M8 已完成 Setup Center、职责重构、依赖治理和 Tag/GHCR 正式发行基础，下一阶段继续完成运维可观测与执行隔离收口。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
 
 ## 参与贡献
 

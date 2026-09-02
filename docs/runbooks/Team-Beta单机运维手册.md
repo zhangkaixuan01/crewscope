@@ -1,7 +1,7 @@
 # CrewScope Team Beta 单机运维手册
 
-> 适用范围：CrewScope Team Beta 单机七服务部署
-> 恢复边界：备份 Schema V26–V33，当前应用目标 Schema V33
+> 适用范围：CrewScope Team Beta 单机十服务部署
+> 恢复边界：备份 Schema V26–V36，当前应用目标 Schema V36
 > 恢复目标：RPO 24 小时，RTO 4 小时
 
 ## 1. 权威数据与职责
@@ -25,6 +25,7 @@ pnpm 11.9.0、jq、OpenSSL、tar 与 gzip。备份 Environment Fingerprint 会�
 - 后端和 Web 不可变镜像 Digest；
 - 数据、Secret 与备份根目录；
 - Compose Project；
+- 内部 Backend 子网与 Web 固定代理 IP；同机恢复 Project 必须使用不重叠的坐标；
 - 8C16G 主机的密码 Hash Permit，当前冻结值为 4；
 - 应用版本、Git Revision、Dataset Version 与 Seed；
 - 备份口令文件；
@@ -56,7 +57,32 @@ docker compose \
   ps
 ```
 
-正常状态包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务。Web 是唯一宿主入口。API/Worker Readiness、Projection、Outbox、Action、Notification 和 Provider 指标用于日常诊断。
+正常状态包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`alertmanager`、`backup-metrics`、`docker-socket-proxy`、`api`、`worker` 和 `web` 十个服务。Web 是唯一宿主入口。API/Worker Readiness、Projection、Outbox、Action、Notification、Provider 和备份新鲜度指标用于日常诊断。
+
+API 和 Worker 都以只读根文件系统运行。API 只挂载可写的 `runtime/personal-agent` 与
+`runtime/template-agent`，Worker 只挂载可写的 `runtime/task-agent` 与
+`runtime/coding-agent`；四个目录在容器内保持与宿主相同的绝对路径。Personal Conversation
+和 Team Observer 在 API 内同步创建 AgentScope Harness 工作区；对应挂载缺失时，业务配置
+即使已就绪，运行时仍会在模型调用前失败。发布后应分别验证四个 Runtime Root 可创建子目录，
+并保持宿主目录归属 `10001:10001`。API 与 Worker 不共享对方的 Runtime 工作区。
+
+Worker 不再挂载宿主 Docker Socket，也不加入宿主 Socket 用户组。唯一接触宿主 Socket 的是
+`docker-socket-proxy`，它只在 `backend` 内部网络监听，并通过 `CONTAINERS/IMAGES/POST/EXEC`
+等白名单提供 Sandbox 所需的 Docker API；`BUILD`、`VOLUMES`、`SYSTEM`、`SWARM` 和 Secret
+管理接口关闭。生产环境必须把 `CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE` 固定为已扫描的
+Digest。该代理降低 Worker 直接获得宿主控制面的风险，但代理进程和 Docker Engine 仍属于
+同一台执行主机的信任边界，需用专用主机和逃逸演练验证残余风险。
+
+生产默认显式关闭 OTLP Trace（`CREWSCOPE_OTLP_TRACING_ENABLED=false`），因为公开模板不
+捆绑可查询 Trace Backend；OTel Collector 不会把“已开启但由 nop 丢弃”的状态伪装成可查询
+Trace。需要 Trace 时，应在受控 Compose Overlay 中接入 Tempo/Jaeger 等固定 Digest Backend，
+并将 API/Worker 的开关和 Endpoint 一起变更、验证后再上线。
+
+Prometheus 加载 `prometheus-alerts.yaml`，并把告警发送到内部 `alertmanager`。默认 receiver
+是 no-op，部署者应在私有 Overlay 中替换 `alertmanager.yaml` 的 receiver（Webhook、邮件或
+企业通知），并显式让 Alertmanager 加入具备通知目标路由的受控出站网络；默认 `internal`
+观测网络不会隐式放通宿主机或公网。不得把 Webhook Secret 提交到仓库。告警规则只使用低基数标签，覆盖 API/Worker
+不可用、Runtime 健康、Provider 错误、遥测丢弃和备份过期。
 
 首次干净启动时，API 会在 Runtime Service Principal 建立后幂等初始化非秘密模型目录。进入“模型与凭证”页面应至少看到 `DeepSeek / deepseek-v4-flash`，随后由成员创建 USER、TEAM 或 ORGANIZATION ModelConnection 并单向录入 API Key。启动初始化不会生成测试 Key、共享 Key 或默认 Connection。
 
@@ -93,7 +119,11 @@ docker compose \
 
 成功输出 `backupId`、Bundle、Envelope、Schema Version 和 Environment Fingerprint。Bundle 与 Envelope 必须成对复制到受控异机介质；只复制其中一个不构成可恢复备份。脚本使用互斥锁拒绝并发备份。
 
-备份普通失败或收到可捕获信号时，脚本会清理本次未完整发布的 Bundle/Envelope，并尝试恢复备份前运行的 API、Worker 和 Web。强制中断可能留下孤立 Envelope，但 Bundle 作为最后的提交标记，Retention 不会将其识别为备份。操作员必须检查七服务状态和告警，不能把失败产生的临时文件认定为备份。
+Environment Fingerprint 只把宿主 Java、Maven 和 pnpm 作为可选诊断坐标；缺失时记录
+`unavailable`。备份不得调用 Maven Wrapper、下载构建工具或依赖 Maven Central 可用性。
+Docker、Compose、Node、磁盘和发行坐标仍为必需事实，缺失时失败关闭。
+
+备份普通失败或收到可捕获信号时，脚本会清理本次未完整发布的 Bundle/Envelope，并尝试恢复备份前运行的 API、Worker 和 Web。强制中断可能留下孤立 Envelope，但 Bundle 作为最后的提交标记，Retention 不会将其识别为备份。操作员必须检查十服务状态和告警，不能把失败产生的临时文件认定为备份。
 
 ## 5. 保留策略
 
@@ -104,6 +134,20 @@ docker compose \
 ./deploy/team-beta/operations/retain-backups.sh /absolute/path/team-beta.env --apply
 ```
 
+Linux 生产机可使用仓库提供的幂等 systemd 调度脚本，重复执行不会改变备份语义：
+
+```bash
+sudo deploy/team-beta/operations/manage-backup-schedule.sh install
+systemctl list-timers 'crewscope-backup-*'
+```
+
+安装脚本会把当前仓库绝对路径写入 systemd Unit，不要求固定部署在 `/opt/crewscope`；Unit
+通过 `/etc/crewscope/team-beta.env` 读取 Operator 坐标。
+
+`crewscope-backup-health.sh` 每 15 分钟检查最新 Daily Bundle，并写入 `$CREWSCOPE_DATA_ROOT/metrics/crewscope_backup.prom`。`backup-metrics` 只启用 node_exporter textfile collector 并以只读方式采集该目录；Prometheus 规则在年龄超过 26 小时时触发
+`CrewScopeBackupStale`，systemd 失败状态和脚本退出码仍可作为独立故障信号接入
+主机监控。卸载时执行 `sudo deploy/team-beta/operations/manage-backup-schedule.sh uninstall`。
+
 先审阅 `would-delete` 列表，再使用 `--apply`。脚本只删除超出数量的成对 Bundle/Envelope；任一 Envelope 缺失时失败关闭。删除属于不可恢复操作，执行前应确认异机副本和 Release 保留要求。
 
 ## 6. 空目标恢复
@@ -112,15 +156,27 @@ docker compose \
 
 恢复使用新的 Compose Project、新的 PostgreSQL/Redis Volume 和空 Artifact 根。API、Worker 和 Web 必须停止。目标 Secret Root 必须具备 Manifest 声明的 Credential、Activity Cursor 与 Task Token Key ID，并保存与源环境一致的有效 Key Material。
 
+同一主机并行保留源环境进行空目标演练时，恢复环境文件必须同时设置不同的内部网络坐标，
+且 Web IP 必须属于所选子网，例如：
+
+```text
+CREWSCOPE_COMPOSE_PROJECT=crewscope-team-beta-restore
+CREWSCOPE_BACKEND_SUBNET=172.31.0.0/24
+CREWSCOPE_WEB_INTERNAL_IP=172.31.0.10
+```
+
+默认生产坐标仍为 `172.30.0.0/24` 和 `172.30.0.10`。Docker 拒绝重叠网段时不得复用源
+Project 网络或覆盖源 Volume。
+
 恢复应用镜像必须声明：
 
 ```text
 CREWSCOPE_RESTORE_MIN_SCHEMA=26
-CREWSCOPE_RESTORE_MAX_SCHEMA=33
-CREWSCOPE_RESTORE_TARGET_SCHEMA=33
+CREWSCOPE_RESTORE_MAX_SCHEMA=36
+CREWSCOPE_RESTORE_TARGET_SCHEMA=36
 ```
 
-应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V33 备份由当前镜像迁移到 V33；它不允许把 V33 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。
+应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V36 备份由当前镜像迁移到 V36；它不允许把 V36 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。V34 时生成的旧格式备份仍可恢复，但其源 Schema 不得超过 Manifest 声明的 V34 上限。
 
 ### 6.2 执行恢复
 
@@ -151,7 +207,7 @@ CREWSCOPE_RESTORE_TARGET_SCHEMA=33
   -> 恢复 PostgreSQL
   -> 恢复 Artifact，将 Reference storageUri 重定位到目标 Data Root 并复验全部 Object
   -> 恢复 Redis RDB
-  -> 仅启动 API，将 V26–V33 迁移到 V33
+  -> 仅启动 API，将 V26–V36 迁移到 V36
   -> Readiness、System Info 与零活动 Smoke
   -> 生成实际 RPO/RTO Evidence
   -> 可选启动 Worker/Web
@@ -161,7 +217,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 
 ### 6.3 失败处理
 
-密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V34、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
+密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V37、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
 
 重试步骤：
 
@@ -178,7 +234,7 @@ Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。�
 每个 Release Candidate 至少完成一次空目标恢复演练。演练检查：
 
 - Manifest 与三组件 Hash；
-- V26–V33 迁移边界和不兼容 Schema 拒绝；
+- V26–V36 迁移边界和不兼容 Schema 拒绝；
 - Organization、Runtime Principal、Artifact、Redis 与 API Readiness；
 - 坏包、过期/未来包和非空目标失败关闭；
 - 实际 RPO `<= 86400s`、RTO `<= 14400s`；

@@ -1,10 +1,10 @@
 # CrewScope 实施计划
 
-> 文档版本：v2.17<br>
+> 文档版本：v2.18<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.73`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M7 全部完成；M8 产品化与工程收口进行中，M8-S01、M8-A01 已完成，下一任务为 M8-A02
+> 当前进度：M0 至 M7 全部完成；M8 九个工作包已完成本地实现，M8-Q02 已达到 `LINUX_RUNTIME_RECOVERY_PASS`，最终状态为 `FINAL_RELEASE_PENDING_SIGNED_TAG`
 
 ## 1. 实施目标
 
@@ -667,7 +667,7 @@ Payload、Authorization、Provider 外部身份或 Projection 内部坐标。Tas
 
 M6-I08 已建立强类型 `OperationalTelemetry` 边界，覆盖 Outbox、Projection、SSE、Inbox、Notification、Lark 和 Team Observer；内部 Baggage 只允许 Correlation、Operation 和 Worker Role，外部 Provider 不传播。`crewscope.m6.*` 指标通过预声明注册表锁定标签与枚举值，理论 Series 总上限为 688；全局结构化日志在启动期装配 Secret/PII 脱敏器，观测后端故障仅记录聚合丢弃计数，不影响业务结果。验证见 [M6-I08 OTel、Prometheus 与日志安全](testing/M6-I08-OTel-Prometheus与日志安全.md)。
 
-M6-I09 已交付 API/Worker 与 Web 多阶段不可变镜像、PostgreSQL/Redis/OTel Collector/Prometheus/API/Worker/Web 七服务 Compose、内部网络、持久数据、外部 Config Tree Secret 和一键 Demo。API 独占 Flyway 并承担入口，Worker 承担后台 Claim 与 Docker Sandbox；两者共享 AgentState，执行所有权按 `server/worker` Scope 隔离。三个应用容器非 Root、只读 RootFS、全 Capability Drop，Docker Socket 只属于 Worker。Demo 只输出 Bootstrap Secret 文件坐标，不回显密码。正式镜像实际验证七服务 Healthy、V1→V30、空库引导、Readiness 与 API/Worker 重启恢复，证据见 [M6-I09 生产镜像与 Team Beta 部署](testing/M6-I09-生产镜像与Team-Beta部署.md)。
+M6-I09 已交付 API/Worker 与 Web 多阶段不可变镜像、PostgreSQL/Redis/OTel Collector/Prometheus/API/Worker/Web 七服务 Compose、内部网络、持久数据、外部 Config Tree Secret 和一键 Demo。M8-I03 在此基础上增加受限 Docker Socket Proxy、Alertmanager 与只读 Backup Metrics Collector，形成十服务生产拓扑；Worker 通过内部 TCP Docker API 管理 Sandbox，不再直接挂载宿主 Socket。API 独占 Flyway 并承担入口，Worker 承担后台 Claim 与 Docker Sandbox；两者共享 AgentState，执行所有权按 `server/worker` Scope 隔离。三个应用容器非 Root、只读 RootFS、全 Capability Drop。Demo 只输出 Bootstrap Secret 文件坐标，不回显密码。七服务历史验证证据见 [M6-I09 生产镜像与 Team Beta 部署](testing/M6-I09-生产镜像与Team-Beta部署.md)，M8-I03 的隔离、告警和自动备份见 [M8-I03 运维可观测、备份与执行隔离](testing/M8-I03-运维可观测备份与执行隔离.md)。
 
 M6-I10 已交付 Maintenance/Quiescence 三组件加密备份、Manifest/Envelope、Environment Fingerprint、Credential Key ID 门禁、Daily 7/Weekly 4 Retention、空目标恢复、Artifact URI 重定位、V26–V30 兼容边界、RPO/RTO Evidence 和单机 Runbook。Bundle/Envelope 在临时目录生成完整后，先发布 Envelope、再以 Bundle 作为可发现提交标记；普通失败清理部分文件，强制中断不会留下可被 Retention 误认的孤立 Bundle。Artifact 根与内部存储目录拒绝符号链接。真实开发机演练完成 V30→V30 与 V26→V30，RPO 为 77/38 秒、RTO 为 63/64 秒，坏包和非空目标均失败关闭，证据见 [M6-I10 Team Beta 备份恢复与 Runbook](testing/M6-I10-Team-Beta备份恢复与Runbook.md)。
 
@@ -1032,6 +1032,10 @@ Team Observer 本地运行修复将 Personal Conversation 中间件与 Observer 
 DeepSeek 真实调用暴露点号 Tool Function Name 不符合 OpenAI-compatible 协议。修复保留数据库和权限中的稳定点号 Tool Key，在 AgentScope 运行时使用确定性 snake_case 别名；全平台 `ModelToolNamePolicy` 对当前和未来 Template、Coding、Task、Reviewer、Observer、插件与 MCP Tool 执行 Provider 前名称、长度、唯一性和别名碰撞门禁。AgentScope 2.0 以 `tools=null` 表达无 Tool 的 Compaction、Consolidation 和内部摘要调用，门禁保留该原生契约并只校验实际存在的 Tool Schema。本修复不修改 Template/Configuration Hash，不需要数据迁移。
 
 本地邀请、Activity SSE 与 Outbox 运行修复补齐独立 Invitation HMAC、启用 Team Activity Realtime，并校正两类投影兼容问题。模型连接生命周期中的 `connectionId` 只验证其与 `MODEL_CONNECTION` Subject 一致，不伪造 ProviderBinding 引用；Agent Configuration 的一基 Revision 在 DomainEvent 边界转换为零基 Aggregate Version。V33 只恢复这两类已知 `TRANSPORT_FAILURE` 死信，仍由既有分区顺序、Consumer Receipt 和幂等协议完成重投。Spring Session 的受限 Jackson 白名单显式允许 Redis Indexed Session 生命周期消息所需的 `Long lastAccessedTime`，继续拒绝领域聚合与未受信类型；macOS 构建按本机 Profile 打包 Netty 原生 DNS Resolver，Linux 发布构建保持平台无关依赖集。
+
+M8 已完成 Team Setup Readiness、Setup Center、GitHub Repository Import、Worker Docker API 隔离、核心职责拆分、依赖与配置治理、Tag/GHCR 发行工作流、告警/备份/TLS 运维加固和分层质量门禁的本地收口。GitHub Import 由 API 在事务中持久化入队，Worker 通过 Lease、Fencing 和幂等终态执行，不再由 Web 请求线程直接完成长时 Git 操作。V34/V35 分别建立 Import Job 与 Worker Lease 持久化，V36 将 Repository Key 收口为部署级物理仓库唯一标识；生产恢复边界已同步为 `V26..V36 -> V36`，旧 Manifest 继续可恢复且不得越过自身声明的 Schema 上限。
+
+M8-Q02 本机顺序验证结果为 Java `3099 / 3099`、Vitest `688 / 688`、Playwright/视觉/Axe `248 / 248`、21 Story/154 Variant、前端生产构建通过且生产依赖无已知漏洞。Docker Desktop 以 `linux/amd64` 构建 Backend/Web，隔离 Compose Project 中 Docker Socket Proxy、PostgreSQL、Redis、OTel Collector、Prometheus、Alertmanager、Backup Metrics、API、Worker 和 Web 十服务全部 Healthy；Worker 无宿主 Socket Mount，Container API 可用而 Volume API 失败关闭。本机结论为 `LOCAL_PRECHECK_PASS`。全新 Ubuntu 24.04 amd64 主机已完成公网 HTTPS/Secure Cookie、双用户与 Team、实际 Alertmanager firing/resolved、systemd 自动备份、V35 独立空目标恢复、短期 IP 证书续期和主机重启恢复；V36 前滚与当前十服务合同随最新版生产部署复验。当前仍需从干净受保护 Tag 完成 GHCR Digest、OIDC/Cosign、SBOM/Provenance，并在授权的真实 GitHub 凭证下完成 Coding/Review/Draft PR，因此最终状态为 `FINAL_RELEASE_PENDING_SIGNED_TAG`。
 
 ## 21. 项目管理与进度跟踪
 

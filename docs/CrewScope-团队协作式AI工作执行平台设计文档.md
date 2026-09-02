@@ -2768,7 +2768,7 @@ Repository Catalog API 位于同一 WorkProject Scope 的 `/repository-catalog`�
 
 GitHub Connection 的 Repository Catalog 是另一条远程授权目录，位于 GitHub Connection API 下，仅用于远程仓库授权、Remote Preflight、Push 和 Draft PR。它使用 GitHub 的 `externalRepositoryId/fullName`，不转换为 WorkProject 的 `RepositoryKey`，也不会直接进入 `/repository-catalog` 或 RepositoryBinding 创建候选。当前 Coding 执行要求 Worker 先持有受管本地裸仓库；需要使用 GitHub 仓库时，先通过受信部署/同步流程将仓库放入 Managed Root，再在 WorkProject 仓库设置中绑定对应 Repository Key。后续如开放“从 GitHub 导入受管仓库”，必须以独立的导入作业、权限复验和状态机实现，不能在浏览器端拼接远程 URL 或绕过本地受管边界。
 
-产品化阶段补齐 GitHub Repository Import。Team 管理员从已验证的 TEAM GitHub Connection 和 DELIVERABLE Catalog 选择远程仓库、目标 WorkProject、稳定 Repository Key 与默认分支；服务端在创建导入作业前复验 Connection Version、ProviderBinding、Repository Allowlist、健康状态、目标 Team 和 Repository Key 唯一性。`RepositoryImportJob` 使用 `REQUESTED/PREFLIGHTING/IMPORTING/READY/FAILED/CANCELLED` 状态、幂等键、重试代次和审计坐标，Worker 通过短生命周期凭证在受管目录创建或更新 bare mirror，完成 canonical containment、Worker Owner、bare 格式和基线 Ref 校验。导入成功后由应用层调用既有 `RepositoryBinding` 创建流程，仍保存 `LOCAL_MANAGED` 和稳定 `RepositoryKey`，不新增远程 RepositoryBinding 类型。导入失败、撤权、目标 Key 冲突或远程分支漂移均失败关闭并保留安全原因码；凭证、Remote URL、Git 原始输出和宿主路径不进入浏览器、事件或持久化公开 DTO。导入完成后 WorkProject Repository Catalog 可见该 Key，成员可以继续执行 CodingTarget Preflight。
+产品化阶段补齐 GitHub Repository Import。Team 管理员从已验证的 TEAM GitHub Connection 和 DELIVERABLE Catalog 选择远程仓库、目标 WorkProject、稳定 Repository Key 与默认分支；服务端在创建导入作业前复验 Connection Version、ProviderBinding、Repository Allowlist、健康状态、目标 Team 和 Repository Key 唯一性。Repository Key 是部署级物理受管仓库身份，同一 Key 只允许一个 GitHub 导入作业；其他 WorkProject 通过受管 Catalog 复用该 Key 并建立独立 RepositoryBinding。`RepositoryImportJob` 使用 `REQUESTED/PREFLIGHTING/IMPORTING/READY/FAILED/CANCELLED` 状态、幂等键、重试代次和审计坐标，Worker 通过短生命周期凭证在受管目录创建或更新 bare mirror，完成 canonical containment、Worker Owner、bare 格式和基线 Ref 校验。取消只在 `REQUESTED/PREFLIGHTING` 通过数据库条件更新接受，进入 `IMPORTING` 后返回稳定冲突，确保状态不会掩盖已发生的 Git I/O。导入成功后由应用层调用既有 `RepositoryBinding` 创建流程，仍保存 `LOCAL_MANAGED` 和稳定 `RepositoryKey`，不新增远程 RepositoryBinding 类型。导入失败、撤权、目标 Key 冲突或远程分支漂移均失败关闭并保留安全原因码；凭证、Remote URL、Git 原始输出和宿主路径不进入浏览器、事件或持久化公开 DTO。导入完成后 WorkProject Repository Catalog 可见该 Key，成员可以继续执行 CodingTarget Preflight。
 
 CodingTargetSnapshot 是 Task 的可选不可变 Coding 目标事实。首版在 Task 执行开始前固化 TaskBrief Hash、验收标准、RepositoryBinding ID/Version/Kind/Key、用户选择的短 Ref、Preflight 解析出的 40 位完整 Commit、AllowedPaths、版本化 BuildProfile 引用、创建 Principal 和 canonical SHA-256。Ref 后续移动、Binding 默认分支变化或 Binding 停用都不改变历史快照。AllowedPaths 使用仓库相对 canonical 路径，拒绝绝对路径、反斜杠、空段、`.`/`..` 组件、NUL 和控制字符，并折叠重复及父子冗余根。
 
@@ -3472,7 +3472,7 @@ M7-A07 将 Auth、Account、Onboarding 与 Invitation 的 8 个写请求 DTO 固
 
 Spring Context 中五个 M7 Controller 与对应 Application Service 各只有一份；Invitation Application Service 缺失时不暴露 Controller。Spring Boot Web 使用独立 Jackson 3 Mapper，AgentScope 2.0 与 Coding Adapter 使用独立 Jackson 2 Mapper。完整路由、DTO、响应、Header、错误和 Audit 合同见 [M7 开放用户 API 契约](api/M7-开放用户API契约.md)，实现证据见 [M7-A07 开放用户 API 与装配合同](testing/M7-A07-开放用户API与装配合同.md)。
 
-认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。当前备份恢复兼容边界为 `V26..V33 -> V33`；M7 历史验证中的真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。M7 实现证据见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)，当前恢复操作以 [Team Beta 单机运维手册](runbooks/Team-Beta单机运维手册.md) 为准。
+认证防护指标使用独立 64 Series 理论预算，只接受 `flow / operation / outcome` 三个枚举坐标；未知指标、值或身份标签被拒绝。结构化日志统一脱敏用户名、登录标识、网络地址、Session ID、密码 Hash 和所有 Token 字段。当前备份恢复兼容边界为 `V26..V36 -> V36`；M7 历史验证中的真实 V30 fixture 经 V31/V32 后保留既有协作身份并建立 Account/Identity/Binding/Invitation 表。M7 实现证据见 [M7-I08 Team Beta 认证部署安全边界](testing/M7-I08-Team-Beta认证部署安全边界.md)，当前恢复操作以 [Team Beta 单机运维手册](runbooks/Team-Beta单机运维手册.md) 为准。
 
 M7 本地认证安全基线使用 128 个稳定编号攻击样本冻结密码预算、标识/网络/账号暴力尝试、账号枚举、Session Principal 与序列化白名单、CSRF 双提交、Origin 规范化、生产 Cookie、登录安全返回目标以及日志/响应披露边界。固定分母减少、重复或语义漂移都会失败；Docker 是门禁强制前置条件，真实 PostgreSQL、Redis 和 HTTP 回归必须零跳过地证明登录前后 Session ID 轮换、窃取登录前 Session 无法获得认证态、续期/过期/并发上限、当前/全部设备退出和合法登录继续可用。实现与验证见 [M7-Q01 本地认证安全硬化与固定攻击集](testing/M7-Q01-本地认证安全硬化与固定攻击集.md)。
 
@@ -4529,9 +4529,19 @@ server  REST、AG-UI、Webhook 与实时事件入口
 worker  Step 调度、Provider Action、Connector 调用、Sandbox 和对账
 ```
 
-Team Beta 在一台专用 Linux 主机上固定运行 `postgres`、`redis`、`otel-collector`、`prometheus`、`api`、`worker` 和 `web` 七个服务，并使用同一不可变应用镜像分别启动 `server` 与 `worker`。Web/TLS Reverse Proxy 是唯一公开入口；API、Worker、PostgreSQL、Redis、OTel Collector、Prometheus 和 Actuator 位于内部网络。API 是 Flyway 单一迁移角色，Worker 在迁移完成和 API Ready 后开始 Claim。Web、API 和 Worker 使用非 Root、只读根文件系统与受控 `secret-ref:` 外部 Secret；所有应用、基础设施和 Sandbox 镜像使用 SHA-256 Digest。
+Team Beta 在一台专用 Linux 主机上固定运行 `postgres`、`redis`、`otel-collector`、
+`prometheus`、`alertmanager`、`backup-metrics`、`docker-socket-proxy`、`api`、`worker` 和 `web` 十个服务，
+并使用同一不可变应用镜像分别启动 `server` 与 `worker`。Web/TLS Reverse Proxy 是唯一公开
+入口；API、Worker、PostgreSQL、Redis、观测组件、Socket Proxy 和 Actuator 位于内部网络。
+API 是 Flyway 单一迁移角色，Worker 在迁移完成和 API Ready 后开始 Claim。Web、API 和
+Worker 使用非 Root、只读根文件系统与受控 `secret-ref:` 外部 Secret；所有应用、基础设施和
+Sandbox 镜像使用 SHA-256 Digest。
 
-Execution Worker、Worktree 根目录、Repository Mirror、Docker Daemon 和 Diff Watcher 位于同一执行主机。只有 Worker 可以访问 Docker Socket，该权限按宿主机高权限边界治理。进入 Kubernetes 前先实现专用 Worker 节点调度与共享/节点存储 ADR。
+Execution Worker、Worktree 根目录、Repository Mirror、Docker Daemon 和 Diff Watcher 位于
+同一执行主机。只有受限 Docker Socket Proxy 挂载宿主 Socket；Worker 通过内部 TCP 调用
+Container/Exec 等白名单 API，Build、Volume、System、Swarm 和 Secret 管理接口失败关闭。
+该代理与 Docker Engine 仍属于专用执行主机的高权限边界。进入 Kubernetes 前先实现专用
+Worker 节点调度与共享/节点存储 ADR。
 
 Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact 和 Redis Snapshot。备份前进入 Maintenance Mode，停止新命令与 Claim，并等待 TaskExecution、Action Dispatch 和 Notification Dispatch 归零。Manifest 保存组件 SHA-256、应用与 Schema 版本、加密标记和 Credential Key ID；Key Material 由进程外 Secret/KMS 独立保管。恢复目标必须为空，按“校验 Manifest → PostgreSQL → Artifact → Redis/二级重建 → 引用校验 → 投影重建 → Maintenance Smoke → 开放流量”执行。目标为 RPO 24 小时、RTO 4 小时，恢复开始时间与 Manifest 创建时间之差必须位于 0 至 24 小时。
 
@@ -4715,7 +4725,7 @@ Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact �
 
 Spring Boot `4.0.6` 与 AgentScope Java `2.0.0` 源码依赖基线保持一致。AgentScope BOM 统一锁定全部 AgentScope 依赖版本。本地单模型部署可选择 OpenAI、DashScope、Gemini、Anthropic 或 Ollama Starter；企业多模型部署引入对应 Model Extension，由受信 AgentScopeModelFactory 按 ResolvedModelSelection 显式构建 Model。JPA/JDBC 调用统一进入 `crewscope-db` 有界 Scheduler。
 
-MVP 的 Docker Sandbox 由 `agentscope-harness` 内置 `DockerFilesystemSpec` 提供，不需要 Kubernetes Sandbox 扩展。仓库中现有 `agentscope-extensions-sandbox-kubernetes` 依赖保持未启用状态，完成 Kubernetes 执行拓扑 ADR 后再进入运行配置。
+MVP 的 Docker Sandbox 由 `agentscope-harness` 内置 `DockerFilesystemSpec` 提供，不需要 Kubernetes Sandbox 扩展。默认 `crewscope-agentscope` 模块不声明 Kubernetes Sandbox 依赖；完成 Kubernetes 执行拓扑 ADR 后，再通过独立执行器模块或显式 Profile 引入。
 
 ### 20.3 Maven 模块依赖归属
 
