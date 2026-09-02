@@ -24,6 +24,7 @@ import io.crewscope.domain.agent.AgentDirectModelBinding;
 import io.crewscope.domain.agent.AgentExecutionModelBinding;
 import io.crewscope.domain.agent.AgentExecutionScope;
 import io.crewscope.domain.agent.AgentModelDefault;
+import io.crewscope.domain.agent.AgentModelDefaultRevision;
 import io.crewscope.domain.agent.AgentModelDefaultScope;
 import io.crewscope.domain.agent.AgentModelSelection;
 import io.crewscope.domain.agent.AgentOwnership;
@@ -214,9 +215,9 @@ class M5I01ModelAgentPersistenceIntegrationTest
 
         assertFalse(connections.findById(OrganizationId.generate(), graph.connection().id()).isPresent());
         assertFalse(configurations.findCurrent(OrganizationId.generate(), graph.profile().id()).isPresent());
-        assertThrows(DomainValidationException.class, () -> defaults.findCurrent(
+        assertTrue(defaults.findCurrent(
                 AgentModelDefaultScope.organization(OrganizationId.generate()),
-                graph.template().templateVersion(), AgentExecutionScope.TEAM));
+                graph.template().templateVersion(), AgentExecutionScope.TEAM).isEmpty());
     }
 
     @Test
@@ -375,6 +376,24 @@ class M5I01ModelAgentPersistenceIntegrationTest
 
         assertEquals(teamTemplate.contentHash(), loaded.templateContentHash());
         assertEquals(teamDefault.contentHash(), loaded.contentHash());
+    }
+
+    @Test
+    void returnsEmptyWhenTheScopedModelDefaultHasNotBeenPublished() {
+        Fixture fixture = seedFixture("default-absent");
+        AgentTemplateDefinition template = templates.append(template(fixture));
+        AgentModelDefaultScope scope = AgentModelDefaultScope.team(
+                fixture.organizationId(), fixture.teamId());
+
+        assertTrue(defaults.findCurrentCandidates(
+                scope, template.templateVersion(), AgentExecutionScope.TEAM).isEmpty());
+        assertTrue(defaults.findCurrent(
+                scope, template.templateVersion(), AgentExecutionScope.TEAM).isEmpty());
+        assertTrue(defaults.findByRevision(
+                scope,
+                template.templateVersion(),
+                AgentExecutionScope.TEAM,
+                new AgentModelDefaultRevision(1)).isEmpty());
     }
 
     @Test

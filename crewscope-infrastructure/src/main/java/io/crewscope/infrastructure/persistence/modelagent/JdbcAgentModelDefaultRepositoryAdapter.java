@@ -146,6 +146,9 @@ public class JdbcAgentModelDefaultRepositoryAdapter
             AgentTemplateVersion templateVersion,
             AgentExecutionScope executionScope) {
         MapSqlParameterSource values = keyParameters(scope, templateVersion, executionScope);
+        if (!defaultExists(values, Optional.empty())) {
+            return List.of();
+        }
         AgentTemplateDefinition template = findTemplate(
                 scope, templateVersion, executionScope, Optional.empty());
         return jdbc.query(
@@ -177,6 +180,11 @@ public class JdbcAgentModelDefaultRepositoryAdapter
             AgentTemplateVersion templateVersion,
             AgentExecutionScope executionScope,
             AgentModelDefaultRevision revision) {
+        MapSqlParameterSource values = keyParameters(scope, templateVersion, executionScope)
+                .addValue("defaultRevision", Objects.requireNonNull(revision).value());
+        if (!defaultExists(values, Optional.of(revision))) {
+            return Optional.empty();
+        }
         AgentTemplateDefinition template = findTemplate(
                 scope, templateVersion, executionScope, Optional.of(revision));
         return jdbc.query(
@@ -189,10 +197,37 @@ public class JdbcAgentModelDefaultRepositoryAdapter
                            AND value.execution_scope = :executionScope
                            AND value.default_revision = :defaultRevision
                         """,
-                        keyParameters(scope, templateVersion, executionScope)
-                                .addValue("defaultRevision", Objects.requireNonNull(revision).value()),
+                        values,
                         (row, ignored) -> mapper.modelDefault(row, template))
                 .stream().findFirst();
+    }
+
+    /**
+     * Distinguishes an absent optional default from a persisted default whose immutable Template
+     * coordinate can no longer be resolved. The latter must still fail closed in {@link
+     * #findTemplate(AgentModelDefaultScope, AgentTemplateVersion, AgentExecutionScope, Optional)}.
+     */
+    private boolean defaultExists(
+            MapSqlParameterSource values, Optional<AgentModelDefaultRevision> revision) {
+        String revisionPredicate = revision.isPresent()
+                ? "AND default_revision = :defaultRevision"
+                : "";
+        return !jdbc.query(
+                        """
+                        SELECT 1
+                          FROM crewscope.agent_model_default
+                         WHERE organization_id = :organizationId
+                           AND default_scope_type = :defaultScopeType
+                           AND default_scope_id = :defaultScopeId
+                           AND template_key = :templateKey
+                           AND template_version = :templateVersion
+                           AND execution_scope = :executionScope
+                        """ + revisionPredicate + """
+                         LIMIT 1
+                        """,
+                        values,
+                        (row, ignored) -> 1)
+                .isEmpty();
     }
 
     private AgentTemplateDefinition findTemplate(
