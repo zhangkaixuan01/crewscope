@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CrewScope Team Beta daily backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=crewscope-backup-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -16,10 +16,16 @@ const backendDockerfile = join(root, 'deploy/team-beta/backend.Dockerfile')
 const webDockerfile = join(root, 'deploy/team-beta/web.Dockerfile')
 const nginxConfig = join(root, 'deploy/team-beta/nginx.conf')
 const prometheusConfig = join(root, 'deploy/team-beta/prometheus.yaml')
+const prometheusAlertsConfig = join(root, 'deploy/team-beta/prometheus-alerts.yaml')
+const backupHealthScript = join(root, 'deploy/team-beta/operations/backup-health.sh')
+const backupScheduleScript = join(root, 'deploy/team-beta/operations/manage-backup-schedule.sh')
 const ciWorkflow = join(root, '.github/workflows/ci.yml')
 const gitIgnoreFile = join(root, '.gitignore')
 const expectedServices = [
+  'alertmanager',
   'api',
+  'backup-metrics',
+  'docker-socket-proxy',
   'otel-collector',
   'postgres',
   'prometheus',
@@ -56,7 +62,9 @@ try {
     CREWSCOPE_WEB_IMAGE: `registry.example/crewscope/web@${digest}`,
     CREWSCOPE_DATA_ROOT: data,
     CREWSCOPE_SECRETS_ROOT: secrets,
-    CREWSCOPE_DOCKER_GID: '998',
+    CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE: `registry.example/crewscope/docker-socket-proxy@${digest}`,
+    CREWSCOPE_ALERTMANAGER_IMAGE: `registry.example/crewscope/alertmanager@${digest}`,
+    CREWSCOPE_NODE_EXPORTER_IMAGE: `registry.example/crewscope/node-exporter@${digest}`,
     CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID: '0198a475-0831-7000-8000-000000000001',
     CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID: '0198a475-0831-7000-8000-000000000002',
     CREWSCOPE_BOOTSTRAP_ORGANIZATION_NAME: 'CrewScope Team Beta',
@@ -100,10 +108,51 @@ try {
   }
 
   const socket = '/var/run/docker.sock'
-  assert.ok(volumeTargets(model.services.worker).includes(socket))
-  for (const name of expectedServices.filter(name => name !== 'worker')) {
+  assert.ok(volumeTargets(model.services['docker-socket-proxy']).includes(socket))
+  assert.ok(!volumeTargets(model.services.worker).includes(socket), 'worker must not own Docker socket')
+  for (const name of expectedServices.filter(name => name !== 'docker-socket-proxy')) {
     assert.ok(!volumeTargets(model.services[name]).includes(socket), `${name} owns Docker socket`)
   }
+  assert.equal(model.services.worker.environment.DOCKER_HOST, 'tcp://docker-socket-proxy:2375')
+  const runtimeRoots = {
+    api: ['personal-agent', 'template-agent'],
+    worker: ['task-agent', 'coding-agent'],
+  }
+  for (const [name, ownedRoots] of Object.entries(runtimeRoots)) {
+    const mounts = model.services[name].volumes ?? []
+    for (const ownedRoot of ownedRoots) {
+      const runtimeRoot = join(data, 'runtime', ownedRoot)
+      const runtimeMount = mounts.find(volume => volume.target === runtimeRoot)
+      assert.ok(runtimeMount, `${name} must mount its ${ownedRoot} runtime root`)
+      assert.equal(runtimeMount.source, runtimeRoot)
+      assert.notEqual(runtimeMount.read_only, true, `${name} ${ownedRoot} runtime root must be writable`)
+    }
+    const otherRoots = Object.entries(runtimeRoots)
+      .filter(([owner]) => owner !== name)
+      .flatMap(([, roots]) => roots)
+    for (const otherRoot of otherRoots) {
+      assert.ok(
+        !mounts.some(volume => volume.target === join(data, 'runtime', otherRoot)),
+        `${name} must not mount the ${otherRoot} runtime root`,
+      )
+    }
+  }
+  assert.equal(model.services['docker-socket-proxy'].environment.BUILD, '0')
+  assert.equal(model.services['docker-socket-proxy'].environment.VOLUMES, '0')
+  assert.equal(model.services.web.networks.backend.ipv4_address, '172.30.0.10')
+  assert.equal(model.networks.backend.ipam.config[0].subnet, '172.30.0.0/24')
+  assert.equal(model.services.api.environment.CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES, '172.30.0.10/32')
+  const restoreNetworkModel = composeConfig(['-f', composeFile], {
+    ...env,
+    CREWSCOPE_BACKEND_SUBNET: '172.31.0.0/24',
+    CREWSCOPE_WEB_INTERNAL_IP: '172.31.0.10',
+  })
+  assert.equal(restoreNetworkModel.networks.backend.ipam.config[0].subnet, '172.31.0.0/24')
+  assert.equal(restoreNetworkModel.services.web.networks.backend.ipv4_address, '172.31.0.10')
+  assert.equal(
+    restoreNetworkModel.services.api.environment.CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES,
+    '172.31.0.10/32',
+  )
   assert.equal(dependency(model.services.worker, 'api'), 'service_healthy')
   assert.equal(dependency(model.services.web, 'api'), 'service_healthy')
   assert.equal(dependency(model.services.api, 'postgres'), 'service_healthy')
@@ -164,10 +213,38 @@ try {
   assert.match(nginx, /map \$http_host \$crewscope_forwarded_host/)
   assert.match(nginx, /proxy_set_header Host \$crewscope_forwarded_host/)
   assert.match(nginx, /proxy_set_header X-Forwarded-Host \$crewscope_forwarded_host/)
+  const tlsExample = readFileSync(join(root, 'deploy/team-beta/nginx-host-tls.conf.example'), 'utf8')
+  for (const header of [
+    'Strict-Transport-Security',
+    'Content-Security-Policy',
+    'X-Content-Type-Options',
+    'Referrer-Policy',
+    'Permissions-Policy',
+  ]) {
+    assert.match(tlsExample, new RegExp(`add_header ${header}`), `TLS example is missing ${header}`)
+  }
   const prometheus = readFileSync(prometheusConfig, 'utf8')
   assert.match(prometheus, /username: crewscope-prometheus/)
   assert.match(prometheus, /password_file: \/run\/secrets\/monitoring_password/)
+  assert.match(prometheus, /rule_files:/)
+  assert.match(prometheus, /alertmanager:9093/)
+  assert.match(prometheus, /backup-metrics:9100/)
   assert.doesNotMatch(prometheus, /bootstrap_password/)
+  const alerts = readFileSync(prometheusAlertsConfig, 'utf8')
+  for (const alert of ['CrewScopeApiUnavailable', 'CrewScopeWorkerUnavailable', 'CrewScopeBackupStale']) {
+    assert.match(alerts, new RegExp(alert), `Prometheus alerts are missing ${alert}`)
+  }
+  const backupHealth = readFileSync(backupHealthScript, 'utf8')
+  assert.match(backupHealth, /crewscope_backup_age_seconds/)
+  assert.match(backupHealth, /CREWSCOPE_BACKUP_ROOT/)
+  const schedule = readFileSync(backupScheduleScript, 'utf8')
+  assert.match(schedule, /install\|uninstall/)
+  assert.match(schedule, /crewscope-backup-health.timer/)
+  assert.match(
+    schedule,
+    /REPOSITORY_ROOT=.*SCRIPT_DIR\/\.\.\/\.\.\/\.\./,
+    'backup schedule must resolve the repository root above deploy/team-beta/operations',
+  )
 
   const ci = readFileSync(ciWorkflow, 'utf8')
   assert.match(ci, /image_security:/)
@@ -218,10 +295,13 @@ try {
   assert.match(secretPreparation, /chmod 0440 "\$secret_file"/)
   assert.match(secretPreparation, /chmod 0600 "\$redis_acl"/)
   assert.match(secretPreparation, /chmod 0600 "\$CREWSCOPE_BACKUP_PASSPHRASE_FILE"/)
+  assert.match(secretPreparation, /runtime_directory in .* runtime/)
+  assert.match(secretPreparation, /CREWSCOPE_DATA_ROOT\/metrics/)
   assert.doesNotMatch(secretPreparation, /(?:cat|head|tail) "?\$secret_file/)
 
   assertMissingConfigurationFails()
-  console.log('Team Beta deployment contract passed: 7 services, M7 authentication role isolation, immutable production images and external Secrets.')
+  assertBackupHealthContract()
+  console.log('Team Beta deployment contract passed: 10 services, Worker Docker API isolation, backup metrics, M7 authentication role isolation, immutable production images and external Secrets.')
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }
@@ -300,4 +380,24 @@ function assertMissingConfigurationFails() {
       stdio: 'ignore',
     },
   ))
+}
+
+function assertBackupHealthContract() {
+  const backupRoot = join(temporary, 'backup-health')
+  const dailyRoot = join(backupRoot, 'daily')
+  const environmentFile = join(temporary, 'backup-health.env')
+  const metricsFile = join(temporary, 'backup-health.prom')
+  mkdirSync(dailyRoot, { recursive: true })
+  writeFileSync(join(dailyRoot, 'fixture.bundle.enc'), 'contract fixture\n')
+  writeFileSync(environmentFile, `CREWSCOPE_BACKUP_ROOT=${backupRoot}\n`, { mode: 0o600 })
+
+  const output = execFileSync(
+    'sh',
+    [backupHealthScript, environmentFile, '--prometheus', metricsFile],
+    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+  assert.match(output.trim(), /^latestDailyBackupEpoch=\d+\nageSeconds=\d+$/)
+  const metrics = readFileSync(metricsFile, 'utf8')
+  assert.match(metrics, /^crewscope_backup_age_seconds \d+$/m)
+  assert.match(metrics, /^crewscope_backup_last_success_timestamp_seconds \d+$/m)
 }

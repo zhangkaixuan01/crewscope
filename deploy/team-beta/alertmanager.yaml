@@ -1,0 +1,13 @@
+global:
+  resolve_timeout: 5m
+
+# The default receiver is deliberately a no-op. Operators must provide a private overlay with a
+# webhook/email receiver; no notification Secret is embedded in the public deployment template.
+route:
+  receiver: crewscope-default
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: crewscope-default

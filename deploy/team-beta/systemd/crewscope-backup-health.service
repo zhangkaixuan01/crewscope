@@ -1,0 +1,7 @@
+[Unit]
+Description=Publish CrewScope Team Beta backup age metrics
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/crewscope/deploy/team-beta/operations/backup-health.sh /etc/crewscope/team-beta.env --prometheus-default

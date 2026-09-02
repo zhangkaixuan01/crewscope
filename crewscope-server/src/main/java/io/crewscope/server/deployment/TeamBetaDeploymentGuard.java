@@ -86,7 +86,7 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
             throw invalid("crewscope.runtime.redis.url must be an authenticated external Redis URL");
         }
         requireBoolean(environment, "crewscope.security.task-token.enabled", true);
-        requireBoolean(environment, "management.tracing.export.otlp.enabled", true);
+        requireExplicitBoolean(environment, "management.tracing.export.otlp.enabled");
         required(environment, "management.opentelemetry.tracing.export.otlp.endpoint");
         requireExact(environment, "logging.structured.format.console", "logstash");
         requireExact(environment, "management.endpoint.health.show-details", "never");
@@ -103,6 +103,7 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
         requireBoolean(environment, "crewscope.notification.worker.enabled", worker);
         requireBoolean(environment, "crewscope.notification.worker.reconciliation-enabled", worker);
         requireBoolean(environment, "crewscope.notification.worker.redelivery-enabled", worker);
+        requireBoolean(environment, "crewscope.github-import.worker.enabled", worker);
         requireBoolean(environment, "crewscope.projection.supervisor.enabled", worker);
         requireBoolean(environment, "crewscope.team-activity-realtime.enabled", !worker);
         requireBoolean(environment, "crewscope.security.session.enabled", !worker);
@@ -134,6 +135,14 @@ public final class TeamBetaDeploymentGuard implements SmartInitializingSingleton
             required(environment, "crewscope.runtime.registry.worker.stable-key");
             required(environment, "crewscope.outbox.worker-id");
             required(environment, "crewscope.projection.supervisor.instance-id");
+            required(environment, "crewscope.github-import.worker.worker-id");
+        }
+    }
+
+    private static void requireExplicitBoolean(Environment environment, String name) {
+        String value = required(environment, name);
+        if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+            throw invalid(name + " must be explicitly true or false");
         }
     }
 

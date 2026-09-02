@@ -1,4 +1,10 @@
 services:
+  docker-socket-proxy:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2}
+    # Demo keeps the same trust boundary as production; only the image coordinate is allowed to
+    # be mutable because this profile is never used for a release deployment.
+
   postgres:
     profiles: [demo]
     image: ${CREWSCOPE_DEMO_POSTGRES_IMAGE:-postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73}
@@ -11,6 +17,12 @@ services:
   prometheus:
     profiles: [demo]
     image: ${CREWSCOPE_DEMO_PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996}
+  alertmanager:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_ALERTMANAGER_IMAGE:-prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba}
+  backup-metrics:
+    profiles: [demo]
+    image: ${CREWSCOPE_DEMO_NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a}
   api:
     profiles: [demo]
     platform: linux/amd64

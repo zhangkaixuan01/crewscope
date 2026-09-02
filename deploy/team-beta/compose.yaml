@@ -30,7 +30,7 @@ x-backend-common: &backend-common
     CREWSCOPE_PASSWORD_HASH_PERMITS: ${CREWSCOPE_PASSWORD_HASH_PERMITS:-4}
     CREWSCOPE_SESSION_COOKIE_SECURE: "true"
     CREWSCOPE_LOGIN_DEFENSE_ENVIRONMENT: team-beta
-    CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES: 172.30.0.10/32
+    CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES: ${CREWSCOPE_WEB_INTERNAL_IP:-172.30.0.10}/32
     CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID: v1
     CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID: v1
     CREWSCOPE_TASK_TOKEN_ENABLED: "true"
@@ -41,7 +41,9 @@ x-backend-common: &backend-common
     CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
     CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_NAME: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_NAME:?set the Team Beta Organization name}
     CREWSCOPE_DEPLOYMENT_BOOTSTRAP_RUNTIME_PRINCIPAL_ID: ${CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID:?set the Runtime Service Principal UUID}
-    CREWSCOPE_OTLP_TRACING_ENABLED: "true"
+    # Tracing is explicitly disabled until a queryable backend is provisioned. The collector is
+    # retained as an opt-in compatibility endpoint and never silently drops enabled production data.
+    CREWSCOPE_OTLP_TRACING_ENABLED: "false"
     CREWSCOPE_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     CREWSCOPE_LOG_FORMAT: logstash
     CREWSCOPE_ARTIFACT_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
@@ -78,6 +80,51 @@ x-backend-common: &backend-common
   networks: [backend, observability]
 
 services:
+  docker-socket-proxy:
+    image: ${CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE:?set an immutable Docker Socket Proxy image ending in @sha256:<digest>}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # The upstream entrypoint renders haproxy.cfg next to its read-only template. Render the same
+    # config in an isolated tmpfs so the root filesystem can remain immutable at runtime.
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - >-
+        sed -e 's/$${BIND_CONFIG}/:2375/g'
+        -e 's#/run/haproxy.pid#/tmp/haproxy.pid#g'
+        /usr/local/etc/haproxy/haproxy.cfg.template > /tmp/haproxy.cfg;
+        exec haproxy -W -db -f /tmp/haproxy.cfg
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1m,mode=0700
+    # The proxy is the only service that can see the host Docker socket. Worker talks to the
+    # allow-listed API over the internal backend network and never receives the host socket.
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      POST: "1"
+      EXEC: "1"
+      NETWORKS: "1"
+      INFO: "1"
+      PING: "1"
+      VERSION: "1"
+      EVENTS: "1"
+      VOLUMES: "0"
+      BUILD: "0"
+      AUTH: "0"
+      SWARM: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SYSTEM: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: [CMD, /usr/bin/wget, -q, --spider, http://127.0.0.1:2375/_ping]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [backend]
+
   postgres:
     image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     restart: unless-stopped
@@ -152,12 +199,58 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
     secrets: [monitoring_password]
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - prometheus-data:/prometheus
     healthcheck:
       test: [CMD, /bin/wget, -q, --spider, http://127.0.0.1:9090/-/ready]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [observability]
+
+  alertmanager:
+    image: ${CREWSCOPE_ALERTMANAGER_IMAGE:?set an immutable Alertmanager image ending in @sha256:<digest>}
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /alertmanager:rw,nosuid,nodev,noexec,size=64m,uid=65534,gid=65534,mode=0700
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: [CMD, /bin/amtool, check-config, /etc/alertmanager/alertmanager.yml]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [observability]
+
+  backup-metrics:
+    image: ${CREWSCOPE_NODE_EXPORTER_IMAGE:?set an immutable Node Exporter image ending in @sha256:<digest>}
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+      - --web.listen-address=:9100
+    volumes:
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/metrics
+        target: /var/lib/node_exporter/textfile_collector
+        read_only: true
+    healthcheck:
+      test: [CMD, /bin/wget, -q, --spider, http://127.0.0.1:9100/]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -185,6 +278,7 @@ services:
       CREWSCOPE_NOTIFICATION_WORKER_ENABLED: "false"
       CREWSCOPE_NOTIFICATION_RECONCILIATION_ENABLED: "false"
       CREWSCOPE_NOTIFICATION_REDELIVERY_ENABLED: "false"
+      CREWSCOPE_GITHUB_IMPORT_WORKER_ENABLED: "false"
       CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "false"
       CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "true"
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api-1
@@ -196,6 +290,12 @@ services:
       - type: bind
         source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
         target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
     secrets:
       - source: database_password
         target: spring.datasource.password
@@ -251,20 +351,21 @@ services:
       CREWSCOPE_NOTIFICATION_WORKER_ID: team-beta-notification-1
       CREWSCOPE_NOTIFICATION_RECONCILIATION_WORKER_ID: team-beta-notification-reconciler-1
       CREWSCOPE_NOTIFICATION_REDELIVERY_WORKER_ID: team-beta-notification-redelivery-1
+      CREWSCOPE_GITHUB_IMPORT_WORKER_ENABLED: "true"
+      CREWSCOPE_GITHUB_IMPORT_WORKER_ID: team-beta-github-import-1
       CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "true"
       CREWSCOPE_PROJECTION_SUPERVISOR_INSTANCE_ID: team-beta-projection-1
       CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "false"
       CREWSCOPE_RUNTIME_WORKER_STABLE_KEY: team-beta-worker-1
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-worker-1
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: worker
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
     depends_on:
       api: {condition: service_healthy}
+      docker-socket-proxy: {condition: service_healthy}
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-    group_add:
-      - ${CREWSCOPE_DOCKER_GID:?set the host Docker socket group ID}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - type: bind
         source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
         target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
@@ -281,8 +382,11 @@ services:
         source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
         target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
       - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
+      - type: bind
+        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
+        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
     healthcheck:
       test: [CMD, wget, -q, --spider, http://127.0.0.1:8081/actuator/health/readiness]
       interval: 10s
@@ -311,7 +415,7 @@ services:
     networks:
       edge: {}
       backend:
-        ipv4_address: 172.30.0.10
+        ipv4_address: ${CREWSCOPE_WEB_INTERNAL_IP:-172.30.0.10}
 
 networks:
   edge: {}
@@ -321,7 +425,7 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: ${CREWSCOPE_BACKEND_SUBNET:-172.30.0.0/24}
   observability:
     internal: true
 

@@ -1,0 +1,52 @@
+groups:
+  - name: crewscope-team-beta
+    interval: 30s
+    rules:
+      - alert: CrewScopeApiUnavailable
+        expr: up{job="crewscope-api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: CrewScope API scrape is unavailable
+          description: The API has not exposed metrics for five minutes.
+      - alert: CrewScopeWorkerUnavailable
+        expr: up{job="crewscope-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: CrewScope Worker scrape is unavailable
+          description: The Worker has not exposed metrics for five minutes.
+      - alert: CrewScopeRuntimeUnhealthy
+        expr: sum by (job) (crewscope_m6_operations_health{status=~"down|out_of_service"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: CrewScope runtime component is unhealthy
+          description: A bounded operational health component is down or out of service.
+      - alert: CrewScopeProviderErrors
+        expr: sum(rate(crewscope_m6_provider_errors_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Provider calls are failing
+          description: Provider failures have been observed for ten minutes; inspect the safe error code in server logs.
+      - alert: CrewScopeTelemetryDropped
+        expr: sum(rate(crewscope_m6_telemetry_dropped_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: CrewScope telemetry is being dropped
+          description: Observability delivery is degraded; inspect collector and exporter health.
+      - alert: CrewScopeBackupStale
+        expr: crewscope_backup_age_seconds > 93600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: CrewScope backup is older than 26 hours
+          description: The backup health probe has not observed a fresh daily backup.

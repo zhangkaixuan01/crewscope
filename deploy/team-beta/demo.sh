@@ -30,14 +30,6 @@ validate_isolation() {
   esac
 }
 
-socket_group() {
-  if stat -c '%g' /var/run/docker.sock >/dev/null 2>&1; then
-    stat -c '%g' /var/run/docker.sock
-  else
-    stat -f '%g' /var/run/docker.sock
-  fi
-}
-
 write_secret() {
   target="$1"
   value="$2"
@@ -54,7 +46,7 @@ prepare_runtime() {
   mkdir -p "$SECRETS_ROOT" \
     "$DATA_ROOT/artifacts" "$DATA_ROOT/github-mirrors" \
     "$DATA_ROOT/repositories" "$DATA_ROOT/worktrees" \
-    "$DATA_ROOT/worktree-locks" "$DATA_ROOT/runtime"
+    "$DATA_ROOT/worktree-locks" "$DATA_ROOT/runtime" "$DATA_ROOT/metrics"
   chmod 700 "$SECRETS_ROOT"
 
   database_password=$(openssl rand -hex 24)
@@ -109,7 +101,9 @@ export_deployment_environment() {
   export CREWSCOPE_WEB_IMAGE=crewscope-web:demo
   export CREWSCOPE_DATA_ROOT="$DATA_ROOT"
   export CREWSCOPE_SECRETS_ROOT="$SECRETS_ROOT"
-  export CREWSCOPE_DOCKER_GID="$(socket_group)"
+  export CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE="${CREWSCOPE_DEMO_DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2}"
+  export CREWSCOPE_ALERTMANAGER_IMAGE="${CREWSCOPE_DEMO_ALERTMANAGER_IMAGE:-prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba}"
+  export CREWSCOPE_NODE_EXPORTER_IMAGE="${CREWSCOPE_DEMO_NODE_EXPORTER_IMAGE:-prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a}"
   export CREWSCOPE_WEB_PORT="${CREWSCOPE_WEB_PORT:-8080}"
   export CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID=0198a475-0831-7000-8000-000000000001
   export CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID=0198a475-0831-7000-8000-000000000002

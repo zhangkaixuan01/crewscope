@@ -24,6 +24,9 @@ const COMPONENTS = Object.freeze({
   artifacts: Object.freeze({ file: 'artifacts.tar.gz', format: 'tar-gzip' }),
   redis: Object.freeze({ file: 'redis.rdb', format: 'redis-rdb' }),
 })
+const MINIMUM_SCHEMA_VERSION = 26
+const CURRENT_MAXIMUM_SCHEMA_VERSION = 36
+const ACCEPTED_MANIFEST_MAXIMUM_SCHEMA_VERSIONS = new Set([34, CURRENT_MAXIMUM_SCHEMA_VERSION])
 const MODULE_DIRECTORY = resolve(fileURLToPath(new URL('.', import.meta.url)))
 
 const command = process.argv[2]
@@ -122,7 +125,10 @@ function createManifest(payloadInput, metadataInput) {
     credentialKeyIds: [...metadata.credentialKeyIds].sort(),
     environmentFingerprint: metadata.environmentFingerprint,
     maintenance: metadata.maintenance,
-    compatibility: { minimumSchemaVersion: 26, maximumSchemaVersion: 33 },
+    compatibility: {
+      minimumSchemaVersion: MINIMUM_SCHEMA_VERSION,
+      maximumSchemaVersion: CURRENT_MAXIMUM_SCHEMA_VERSION,
+    },
     components,
   }
   const output = safeChild(payload, 'manifest.json')
@@ -205,8 +211,10 @@ function verifyPayload(payloadInput, envelopeInput, minimumSchema, maximumSchema
   if (manifest.pbkdf2Iterations !== 200000) {
     throw new Error('Backup manifest has an unsupported PBKDF2 iteration count')
   }
-  if (manifest.compatibility?.minimumSchemaVersion !== 26
-      || manifest.compatibility?.maximumSchemaVersion !== 33) {
+  if (manifest.compatibility?.minimumSchemaVersion !== MINIMUM_SCHEMA_VERSION
+      || !ACCEPTED_MANIFEST_MAXIMUM_SCHEMA_VERSIONS.has(
+        manifest.compatibility?.maximumSchemaVersion,
+      )) {
     throw new Error('Backup manifest has an unsupported compatibility declaration')
   }
   requireIsoInstant(manifest.createdAt, 'manifest.createdAt')
@@ -215,6 +223,9 @@ function verifyPayload(payloadInput, envelopeInput, minimumSchema, maximumSchema
     throw new Error('Backup age is outside the Team Beta 24-hour RPO window')
   }
   requireInteger(manifest.schemaVersion, 'manifest.schemaVersion')
+  if (manifest.schemaVersion > manifest.compatibility.maximumSchemaVersion) {
+    throw new Error('Backup schema exceeds its declared compatibility boundary')
+  }
   if (manifest.schemaVersion < minimumSchema || manifest.schemaVersion > maximumSchema) {
     throw new Error(`Backup schema V${manifest.schemaVersion} is outside V${minimumSchema}..V${maximumSchema}`)
   }
@@ -346,10 +357,13 @@ function createFingerprint(metadataInput, outputInput) {
     memoryMiB: Math.floor(totalmem() / 1024 / 1024),
     freeMemoryMiB: Math.floor(freemem() / 1024 / 1024),
     disk: diskCoordinates(dataRoot),
-    java: firstLine(commandOutput('java', ['-version'], true)),
-    maven: firstLine(commandOutput('./mvnw', ['--version'], true)),
+    // Build tools are useful evidence when the host has them, but production backup must never
+    // bootstrap Maven from the network or fail because Java/pnpm are absent from a container-only
+    // deployment host.
+    java: firstLine(optionalCommandOutput('java', ['-version'], true)),
+    maven: firstLine(optionalCommandOutput('mvn', ['--version'], true)),
     node: process.version,
-    pnpm: commandOutput('pnpm', ['--version'], true).trim(),
+    pnpm: optionalCommandOutput('pnpm', ['--version'], true).trim(),
     docker: commandOutput('docker', ['version', '--format', '{{.Server.Version}}'], true).trim(),
     dockerCompose: commandOutput('docker', ['compose', 'version', '--short'], true).trim(),
     gitRevision: requireText(metadata.gitRevision, 'gitRevision'),
@@ -495,9 +509,21 @@ function requiredInteger(index) {
 }
 
 function commandOutput(file, args, includeStderr = false) {
-  const result = spawnSync(file, args, { cwd: resolve(MODULE_DIRECTORY, '..'), encoding: 'utf8' })
+  const result = spawnSync(file, args, {
+    cwd: resolve(MODULE_DIRECTORY, '..'),
+    encoding: 'utf8',
+    timeout: 10_000,
+  })
   if (result.status !== 0) throw new Error(`${file} failed while collecting the environment fingerprint`)
   return `${result.stdout ?? ''}${includeStderr ? result.stderr ?? '' : ''}`
+}
+
+function optionalCommandOutput(file, args, includeStderr = false) {
+  try {
+    return commandOutput(file, args, includeStderr)
+  } catch {
+    return 'unavailable'
+  }
 }
 
 function diskCoordinates(dataRoot) {

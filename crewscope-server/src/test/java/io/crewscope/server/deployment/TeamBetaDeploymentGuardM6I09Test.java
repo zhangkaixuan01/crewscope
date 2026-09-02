@@ -16,6 +16,10 @@ class TeamBetaDeploymentGuardM6I09Test {
     void acceptsExactApiAndWorkerRoles() {
         assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(false)));
         assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(true)));
+        assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(false)
+                .withProperty("management.tracing.export.otlp.enabled", "false")));
+        assertDoesNotThrow(() -> TeamBetaDeploymentGuard.validate(environment(true)
+                .withProperty("management.tracing.export.otlp.enabled", "false")));
 
         MockEnvironment localDemo = environment(false)
                 .withProperty("crewscope.deployment.transport", "local")
@@ -194,6 +198,7 @@ class TeamBetaDeploymentGuardM6I09Test {
         properties.put(
                 "crewscope.notification.worker.redelivery-enabled",
                 Boolean.toString(worker));
+        properties.put("crewscope.github-import.worker.enabled", Boolean.toString(worker));
         properties.put("crewscope.projection.supervisor.enabled", Boolean.toString(worker));
         properties.put(
                 "crewscope.team-activity-realtime.enabled", Boolean.toString(!worker));
@@ -213,6 +218,7 @@ class TeamBetaDeploymentGuardM6I09Test {
             properties.put("crewscope.runtime.registry.worker.stable-key", "worker-1");
             properties.put("crewscope.outbox.worker-id", "outbox-1");
             properties.put("crewscope.projection.supervisor.instance-id", "projection-1");
+            properties.put("crewscope.github-import.worker.worker-id", "github-import-1");
         }
         MockEnvironment environment = new MockEnvironment();
         properties.forEach(environment::withProperty);

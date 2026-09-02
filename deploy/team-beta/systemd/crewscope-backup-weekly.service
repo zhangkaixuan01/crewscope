@@ -1,0 +1,9 @@
+[Unit]
+Description=CrewScope Team Beta weekly encrypted backup
+Wants=crewscope-backup-weekly.timer
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/crewscope/deploy/team-beta/operations/backup.sh /etc/crewscope/team-beta.env weekly
+ExecStartPost=/opt/crewscope/deploy/team-beta/operations/retain-backups.sh /etc/crewscope/team-beta.env --apply

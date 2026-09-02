@@ -64,7 +64,7 @@ try {
   assertRecoveryFails('verify-payload', expired.payload, expired.envelope, '26', '32')
   const future = createFixture('future', { createdAt: instantFromNow(60) })
   assertRecoveryFails('verify-payload', future.payload, future.envelope, '26', '32')
-  for (const schemaVersion of [25, 33]) {
+  for (const schemaVersion of [25, 37]) {
     const incompatible = createFixture(`schema-${schemaVersion}`, { schemaVersion })
     assertRecoveryFails(
       'verify-payload',
@@ -74,6 +74,27 @@ try {
       '32',
     )
   }
+
+  const legacyV34 = createFixture('legacy-v34', { schemaVersion: 34 })
+  setManifestMaximumSchema(legacyV34, 34)
+  const verifiedLegacyV34 = JSON.parse(runRecovery(
+    'verify-payload',
+    legacyV34.payload,
+    legacyV34.envelope,
+    '26',
+    '36',
+  ))
+  assert.equal(verifiedLegacyV34.schemaVersion, 34)
+
+  const invalidLegacyV34 = createFixture('legacy-v34-invalid-source', { schemaVersion: 35 })
+  setManifestMaximumSchema(invalidLegacyV34, 34)
+  assertRecoveryFails(
+    'verify-payload',
+    invalidLegacyV34.payload,
+    invalidLegacyV34.envelope,
+    '26',
+    '36',
+  )
 
   const artifactRoot = createArtifactRoot('artifact-valid')
   const artifactSummary = JSON.parse(runRecovery('verify-artifacts', artifactRoot.root))
@@ -114,7 +135,7 @@ try {
   assertStaticContracts()
   console.log(
     'Team Beta recovery contract passed: encrypted package integrity, Artifact verification, '
-      + 'V26..V33 boundary, safe archives, retention and Runbook.',
+      + 'V26..V36 boundary, safe archives, retention and Runbook.',
   )
 } finally {
   rmSync(temporary, { recursive: true, force: true })
@@ -153,6 +174,14 @@ function createFixture(name, overrides = {}) {
   runRecovery('create-envelope', ciphertext, join(payload, 'manifest.json'), envelope)
   runRecovery('verify-ciphertext', ciphertext, envelope)
   return { ciphertext, directory, envelope, payload }
+}
+
+function setManifestMaximumSchema(fixture, maximumSchemaVersion) {
+  const manifestPath = join(fixture.payload, 'manifest.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  manifest.compatibility.maximumSchemaVersion = maximumSchemaVersion
+  writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`)
+  runRecovery('create-envelope', fixture.ciphertext, manifestPath, fixture.envelope)
 }
 
 function createArtifactRoot(name) {
@@ -260,6 +289,9 @@ function assertFingerprintContract() {
   assert.match(fingerprint, /^[0-9a-f]{64}$/)
   const document = JSON.parse(readFileSync(output, 'utf8'))
   assert.equal(document.fingerprint, fingerprint)
+  assert.equal(typeof document.maven, 'string')
+  assert.equal(typeof document.java, 'string')
+  assert.equal(typeof document.pnpm, 'string')
   assert.deepEqual(Object.keys(document.disk).sort(), [
     'availableKiB',
     'capacity',
@@ -277,6 +309,7 @@ function backupCount(rootDirectory, backupClass) {
 function assertStaticContracts() {
   const restore = readFileSync(restoreScript, 'utf8')
   const backup = readFileSync(backupScript, 'utf8')
+  const recovery = readFileSync(recoveryTool, 'utf8')
   assert.match(restore, /restore target is not empty/)
   assert.match(restore, /CREWSCOPE_RESTORE_TARGET_SCHEMA/)
   assert.match(restore, /actual RTO exceeds four hours/)
@@ -284,6 +317,7 @@ function assertStaticContracts() {
   assert.match(backup, /assert_zero_activity/)
   assert.match(backup, /PUBLISH_STARTED=true/)
   assert.match(backup, /PUBLISHED=true/)
+  assert.doesNotMatch(recovery, /commandOutput\('\.\/mvnw'/)
   assert.ok(
     backup.indexOf('mv "$STAGED_ENVELOPE" "$FINAL_ENVELOPE"')
       < backup.indexOf('mv "$STAGED_BUNDLE" "$FINAL_BUNDLE"'),

@@ -11,6 +11,16 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 load_operator_environment "${1:-}"
 [ "$(id -u)" -eq 0 ] || fail "Secret permission preparation must run as root"
 
+# Create every bind source before Compose starts. Docker-created missing directories are owned by
+# root and would make the read-only API/Worker containers fail before model invocation or Git I/O.
+for runtime_directory in artifacts github-mirrors repositories worktrees worktree-locks runtime; do
+  mkdir -p "$CREWSCOPE_DATA_ROOT/$runtime_directory"
+  chown -R 10001:10001 "$CREWSCOPE_DATA_ROOT/$runtime_directory"
+done
+mkdir -p "$CREWSCOPE_DATA_ROOT/metrics"
+chown root:root "$CREWSCOPE_DATA_ROOT/metrics"
+chmod 0755 "$CREWSCOPE_DATA_ROOT/metrics"
+
 chown 0:0 "$CREWSCOPE_SECRETS_ROOT"
 chmod 0700 "$CREWSCOPE_SECRETS_ROOT"
 
