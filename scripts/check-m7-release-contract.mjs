@@ -53,8 +53,9 @@ assert.doesNotMatch(authenticationController, /BrowserPermissionProjection\.acco
 assert.match(authStore, /new Set\(\[\.\.\.session\.permissions, \.\.\.\(selected\?\.permissions \?\? \[\]\)\]\)/)
 
 const recovery = readFileSync(join(root, 'scripts/team-beta-recovery.mjs'), 'utf8')
-assert.match(recovery, /minimumSchemaVersion: 26, maximumSchemaVersion: 33/)
-assert.doesNotMatch(recovery, /minimumSchemaVersion: 26, maximumSchemaVersion: 30/)
+assert.match(recovery, /MINIMUM_SCHEMA_VERSION = 26/)
+assert.match(recovery, /CURRENT_MAXIMUM_SCHEMA_VERSION = 36/)
+assert.doesNotMatch(recovery, /CURRENT_MAXIMUM_SCHEMA_VERSION = (?:34|35)/)
 
 const workflow = readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8')
 for (const dependency of [
@@ -100,7 +101,7 @@ for (const testRoot of testRoots) {
 }
 assert.deepEqual(violations, [], `M7 release tests must have zero skips/focus:\n${violations.join('\n')}`)
 
-console.log('M7 release contract passed: scoped Team permissions, three registration Profiles, V26..V33 recovery, CI dependencies and zero skipped/focused tests.')
+console.log('M7 release contract passed: scoped Team permissions, three registration Profiles, V26..V36 recovery, CI dependencies and zero skipped/focused tests.')
 
 function collect(path) {
   if (!existsSync(path)) return []

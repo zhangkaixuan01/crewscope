@@ -12,6 +12,12 @@
     <name>CrewScope :: Integration</name>
 
     <dependencies>
+        <!-- Integration adapters map external payloads to domain contracts directly. -->
+        <dependency>
+            <groupId>io.crewscope</groupId>
+            <artifactId>crewscope-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.crewscope</groupId>
             <artifactId>crewscope-application</artifactId>

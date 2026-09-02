@@ -13,6 +13,17 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <!-- Infrastructure repositories and codecs reference domain aggregates directly. -->
+            <groupId>io.crewscope</groupId>
+            <artifactId>crewscope-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.crewscope</groupId>
             <artifactId>crewscope-application</artifactId>
             <version>${project.version}</version>

@@ -11,6 +11,14 @@ COPY crewscope-web ./
 RUN pnpm build
 
 FROM ${WEB_IMAGE} AS runtime
+ARG CREWSCOPE_REVISION=unknown
+ARG CREWSCOPE_VERSION=unknown
+
+LABEL org.opencontainers.image.title="CrewScope Web" \
+      org.opencontainers.image.version="${CREWSCOPE_VERSION}" \
+      org.opencontainers.image.revision="${CREWSCOPE_REVISION}" \
+      org.opencontainers.image.source="https://github.com/zhangkaixuan01/crewscope"
+
 COPY deploy/team-beta/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build --chown=101:101 /workspace/crewscope-web/dist /usr/share/nginx/html
 USER 101:101

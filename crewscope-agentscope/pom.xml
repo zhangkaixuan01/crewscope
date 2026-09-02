@@ -12,6 +12,12 @@
     <name>CrewScope :: AgentScope Adapter</name>
 
     <dependencies>
+        <!-- This module uses domain value objects directly; keep the dependency explicit. -->
+        <dependency>
+            <groupId>io.crewscope</groupId>
+            <artifactId>crewscope-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.crewscope</groupId>
             <artifactId>crewscope-application</artifactId>
@@ -28,10 +34,6 @@
         <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-openai-spring-boot-starter</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.agentscope</groupId>
-            <artifactId>agentscope-extensions-sandbox-kubernetes</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

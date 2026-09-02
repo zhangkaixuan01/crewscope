@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: crewscope-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}/crewscope
+
+jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release tag and source revision
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git diff --check HEAD^ HEAD
+          echo "Release tag: $RELEASE_TAG"
+          echo "Source revision: $RELEASE_SHA"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: crewscope-web/pnpm-lock.yaml
+      - name: Install Web dependencies
+        working-directory: crewscope-web
+        run: pnpm install --frozen-lockfile
+      - name: Verify Backend
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+      - name: Verify Spring configuration metadata
+        run: |
+          test -s crewscope-infrastructure/target/classes/META-INF/spring-configuration-metadata.json
+          test -s crewscope-server/target/classes/META-INF/spring-configuration-metadata.json
+      - name: Verify Web quality and build
+        working-directory: crewscope-web
+        run: |
+          pnpm test:coverage
+          pnpm check:quality
+          pnpm build
+          pnpm story:build
+      - name: Verify repository contracts
+        run: |
+          node scripts/check-config-contract.mjs
+          node scripts/check-dependency-contract.mjs
+          node scripts/check-module-boundaries.mjs
+          node scripts/check-release-contract.mjs
+
+  build:
+    name: Build and publish immutable images
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      backend_digest: ${{ steps.backend.outputs.digest }}
+      web_digest: ${{ steps.web.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/team-beta/backend.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/backend:${{ github.ref_name }}
+            ${{ env.IMAGE_NAMESPACE }}/backend:sha-${{ github.sha }}
+          build-args: |
+            CREWSCOPE_REVISION=${{ github.sha }}
+            CREWSCOPE_VERSION=${{ github.ref_name }}
+          provenance: mode=max
+          sbom: true
+      - name: Build and push Web
+        id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/team-beta/web.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/web:${{ github.ref_name }}
+            ${{ env.IMAGE_NAMESPACE }}/web:sha-${{ github.sha }}
+          build-args: |
+            CREWSCOPE_REVISION=${{ github.sha }}
+            CREWSCOPE_VERSION=${{ github.ref_name }}
+          provenance: mode=max
+          sbom: true
+
+  sign-and-release:
+    name: Sign images and publish release evidence
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3.7.0
+      - name: Sign and verify image digests
+        env:
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BACKEND_DIGEST"
+          test -n "$WEB_DIGEST"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
+          for image_digest in \
+            "${IMAGE_NAMESPACE}/backend@${BACKEND_DIGEST}" \
+            "${IMAGE_NAMESPACE}/web@${WEB_DIGEST}"; do
+            cosign sign --yes "$image_digest"
+            cosign verify "$image_digest" \
+              --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              >"$(echo "$image_digest" | tr '/:@' '___').signature.json"
+          done
+          schema_version="$(find crewscope-infrastructure/src/main/resources/db/migration -maxdepth 1 -name 'V*__*.sql' -print \
+            | sed -E 's#^.*/V([0-9]+)__.*#\1#' | sort -n | tail -1)"
+          test -n "$schema_version"
+          jq -n \
+            --arg schemaVersion '1' \
+            --arg tag "$RELEASE_TAG" \
+            --arg revision "$RELEASE_SHA" \
+            --arg releasedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --arg applicationVersion "$RELEASE_TAG" \
+            --argjson databaseSchemaVersion "$schema_version" \
+            --arg backend "${IMAGE_NAMESPACE}/backend" \
+            --arg backendDigest "$BACKEND_DIGEST" \
+            --arg web "${IMAGE_NAMESPACE}/web" \
+            --arg webDigest "$WEB_DIGEST" \
+            '{schemaVersion:($schemaVersion|tonumber),applicationVersion:$applicationVersion,databaseSchemaVersion:$databaseSchemaVersion,tag:$tag,revision:$revision,releasedAt:$releasedAt,platform:"linux/amd64",images:{backend:{repository:$backend,digest:$backendDigest,reference:($backend+"@"+$backendDigest)},web:{repository:$web,digest:$webDigest,reference:($web+"@"+$webDigest)}}}' \
+            > release-manifest.json
+          test "$(jq -r '.revision' release-manifest.json)" = "$RELEASE_SHA"
+          test "$(jq -r '.images.backend.digest' release-manifest.json)" = "$BACKEND_DIGEST"
+          test "$(jq -r '.images.web.digest' release-manifest.json)" = "$WEB_DIGEST"
+      - name: Upload release manifest and signature evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: crewscope-${{ github.ref_name }}-release-evidence
+          path: |
+            release-manifest.json
+            *.signature.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CrewScope ${{ github.ref_name }}" \
+            --generate-notes \
+            release-manifest.json *.signature.json

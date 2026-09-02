@@ -26,6 +26,13 @@ RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG CREWSCOPE_UID=10001
 ARG CREWSCOPE_GID=10001
+ARG CREWSCOPE_REVISION=unknown
+ARG CREWSCOPE_VERSION=unknown
+
+LABEL org.opencontainers.image.title="CrewScope Backend" \
+      org.opencontainers.image.version="${CREWSCOPE_VERSION}" \
+      org.opencontainers.image.revision="${CREWSCOPE_REVISION}" \
+      org.opencontainers.image.source="https://github.com/zhangkaixuan01/crewscope"
 
 # The Worker invokes only the platform-owned Git and Docker CLI adapters. Package installation stays
 # in the immutable image build; the runtime root filesystem is read-only.
