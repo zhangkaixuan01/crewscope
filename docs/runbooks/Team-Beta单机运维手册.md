@@ -64,7 +64,9 @@ API 和 Worker 都以只读根文件系统运行。API 只挂载可写的 `runti
 `runtime/coding-agent`；四个目录在容器内保持与宿主相同的绝对路径。Personal Conversation
 和 Team Observer 在 API 内同步创建 AgentScope Harness 工作区；对应挂载缺失时，业务配置
 即使已就绪，运行时仍会在模型调用前失败。发布后应分别验证四个 Runtime Root 可创建子目录，
-并保持宿主目录归属 `10001:10001`。API 与 Worker 不共享对方的 Runtime 工作区。
+并保持宿主目录归属 `10001:10001`。`prepare-secret-permissions.sh` 会在 Compose 启动前显式
+预创建这四个目录，避免首次启动时 Docker 以 root 创建目录。API 与 Worker 不共享对方的
+Runtime 工作区。
 
 Worker 不再挂载宿主 Docker Socket，也不加入宿主 Socket 用户组。唯一接触宿主 Socket 的是
 `docker-socket-proxy`，它只在 `backend` 内部网络监听，并通过 `CONTAINERS/IMAGES/POST/EXEC`
