@@ -39,15 +39,16 @@ describe('AgentConfigurationPanel', () => {
     expect(JSON.stringify(input)).not.toMatch(/apiKey|credential|systemPrompt|toolPayload/)
   })
 
-  it('supports TEAM default inheritance without exposing USER connection facts', async () => {
+  it('supports explicitly selected TEAM default inheritance without exposing USER connection facts', async () => {
     const { store, appendConfiguration } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: template('TEAM'), canConfigure: true, selectedRevision: null },
       global: { provide: { [AGENT_STORE as symbol]: store } },
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('继承 Team/Organization 默认')
+    expect(wrapper.text()).toContain('继承已发布的 Team/Organization 默认')
     expect(wrapper.text()).not.toContain('USER secret connection')
+    await wrapper.get('.binding-mode select').setValue('INHERIT_TEAM_DEFAULT')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
@@ -114,13 +115,19 @@ describe('AgentConfigurationPanel', () => {
     expect(wrapper.text()).toContain('平台托管 Team Observer')
     expect(wrapper.text()).not.toContain('Template 元数据不可用')
     expect(wrapper.find('form').exists()).toBe(true)
-    expect(wrapper.text()).toContain('继承 Team/Organization 默认')
+    expect(wrapper.text()).toContain('继承已发布的 Team/Organization 默认')
+    const modelSelects = wrapper.findAll('.binding-editor select')
+    await modelSelects[1]!.setValue(modelKey(model('primary-model', 'connection-primary', 'catalog-primary')))
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(appendConfiguration).toHaveBeenCalledOnce()
     expect(appendConfiguration.mock.calls[0]?.[1]).toMatchObject({
       personalModelBinding: null,
-      teamModelBinding: { kind: 'INHERIT_TEAM_DEFAULT', primary: null, fallback: null },
+      teamModelBinding: {
+        kind: 'DIRECT',
+        primary: { connectionId: 'connection-primary', catalogEntryId: 'catalog-primary', catalogRevision: 1 },
+        fallback: null,
+      },
     })
     expect(wrapper.text()).toContain('不支持重复创建或通用归档')
     expect(wrapper.text()).not.toContain('确认归档')

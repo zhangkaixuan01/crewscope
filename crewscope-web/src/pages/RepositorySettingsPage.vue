@@ -217,8 +217,8 @@ function updatedAt(value: string): string {
         <div class="source-note__icon"><GitBranch :size="18" /></div>
         <div>
           <h3 id="repository-source-title">仓库来源说明</h3>
-          <p><strong>受管本地仓库</strong>用于 Coding Agent 的 Worktree、代码修改和测试；<strong>GitHub Connection Repository Catalog</strong>用于远程授权、Push 和 Draft PR。两者是独立的安全边界，GitHub 仓库不会直接出现在这里的绑定候选中。</p>
-          <p class="source-note__hint">要使用 GitHub 仓库，请先将它部署到 Worker 的受管仓库目录，再回到本页刷新 Catalog；GitHub 连接和远程仓库授权在 GitHub 集成页管理。</p>
+          <p><strong>受管本地仓库</strong>用于 Coding Agent 的 Worktree、代码修改和测试；<strong>GitHub Connection Repository Catalog</strong>用于远程授权、Push 和 Draft PR。导入完成后，仓库会以 `LOCAL_MANAGED` 形式进入本 WorkProject。</p>
+          <p class="source-note__hint">请先在 GitHub 集成页验证 Connection 并选择远程仓库，再导入到当前 WorkProject；页面只提交稳定标识，Remote URL 和凭证由 Worker 管理。</p>
         </div>
         <BaseButton variant="secondary" size="small" @click="router.push({ name: 'github-settings', query: route.query })">管理 GitHub Connection</BaseButton>
       </section>

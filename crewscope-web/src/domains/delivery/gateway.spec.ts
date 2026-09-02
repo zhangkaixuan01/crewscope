@@ -106,6 +106,29 @@ describe('HttpDeliveryGateway', () => {
     expect(JSON.stringify(result)).not.toContain('remoteUrl')
   })
 
+  it('uses idempotent scoped commands to cancel and retry repository imports', async () => {
+    const imported = {
+      id: crypto.randomUUID(), organizationId: scope.organizationId, teamId: scope.teamId,
+      projectId: crypto.randomUUID(), connectionId: deliveryIds.connection, connectionVersion: 3,
+      externalRepositoryId: '101', repositoryFullName: 'crewscope/crewscope-java',
+      repositoryKey: 'crewscope-java', defaultBranch: 'main', status: 'CANCELLED',
+      progressPercent: 10, attempt: 1, failureCode: 'CANCELLED_BY_USER', bindingId: null,
+      createdAt: '2026-09-03T00:00:00Z', updatedAt: '2026-09-03T00:01:00Z',
+    } as const
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(imported))
+      .mockResolvedValueOnce(jsonResponse({ ...imported, status: 'REQUESTED' }))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.cancelRepositoryImport(scope, imported.projectId, imported.id, 'cancel-import')
+    await gateway.retryRepositoryImport(scope, imported.projectId, imported.id, 'retry-import')
+
+    expect(fetcher.mock.calls[0]?.[0]).toContain(`/github-imports/${imported.id}/cancel`)
+    expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get('Idempotency-Key')).toBe('cancel-import')
+    expect(fetcher.mock.calls[1]?.[0]).toContain(`/github-imports/${imported.id}/retry`)
+    expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('Idempotency-Key')).toBe('retry-import')
+  })
+
   it('admits only credential-free HTTPS external links', () => {
     expect(safeExternalHref('https://github.com/crewscope/crewscope-java/pull/42')).toBe('https://github.com/crewscope/crewscope-java/pull/42')
     expect(safeExternalHref('http://github.com/crewscope/crewscope-java/pull/42')).toBeNull()

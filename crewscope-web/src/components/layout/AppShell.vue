@@ -18,6 +18,7 @@ import {
   KeyRound,
   Send,
   Gauge,
+  Settings2,
 } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -53,6 +54,7 @@ const signOutError = ref<string | null>(null)
 
 const navigation = [
   { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
+  { label: 'Setup Center', icon: Settings2, name: 'setup', section: 'setup', permission: permissions.scopeRead },
   { label: 'Work', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
   { label: 'Activity', icon: Activity, name: 'activity', section: 'activity', permission: permissions.scopeRead },
   { label: '我的 Inbox', icon: Inbox, name: 'inbox', section: 'inbox', permission: permissions.scopeRead },

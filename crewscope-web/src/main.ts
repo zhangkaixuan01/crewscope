@@ -35,6 +35,8 @@ import { installTeamOpsStore } from './domains/teamops/store'
 import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
 import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
 import { installTeamObserverStore } from './domains/teamobserver/store'
+import { HttpSetupGateway } from './domains/setup/gateway'
+import { installSetupStore } from './domains/setup/store'
 import { HttpIdentityGateway, installIdentityGateway } from './domains/identity/gateway'
 import { createAuthStore, installAuthStore } from './domains/identity/store'
 import { HttpOnboardingGateway } from './domains/onboarding/gateway'
@@ -74,6 +76,7 @@ const teamOpsGateway = new HttpTeamOpsGateway()
 const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
 const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
 const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
+const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
 authStore.subscribe((phase, reason) => {
   if (phase !== 'anonymous' || reason === 'restored') return
@@ -97,6 +100,7 @@ authStore.subscribe((phase, reason) => {
   deliveryStore.reset()
   teamOpsStore.reset()
   teamObserverStore.reset()
+  setupStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)
 apiClient.onAuthenticationRequired(() => authStore.authenticationRequired())

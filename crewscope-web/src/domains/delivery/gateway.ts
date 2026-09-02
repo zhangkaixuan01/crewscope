@@ -10,6 +10,7 @@ import type {
   GitHubConnectionOwnerType,
   GitHubProviderBinding,
   GitHubRemotePreflight,
+  GitHubRepositoryImportJob,
   GitHubRepository,
   PlanActionBundleInput,
 } from './types'
@@ -21,6 +22,10 @@ export interface DeliveryGateway {
   synchronizeRepositories(scope: DeliveryScope, connection: GitHubConnection): Promise<GitHubRepository[]>
   preflight(scope: DeliveryScope, connection: GitHubConnection, bindingId: string, repositoryId: string): Promise<GitHubRemotePreflight>
   health(scope: DeliveryScope, connectionId: string, signal?: AbortSignal): Promise<GitHubAuthorizationHealth>
+  createRepositoryImport?(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
+  getRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, signal?: AbortSignal): Promise<GitHubRepositoryImportJob>
+  cancelRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
+  retryRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
   listBundles(scope: DeliveryScope, coordinates: DeliveryCoordinates, signal?: AbortSignal): Promise<ActionBundle[]>
   getBundle(scope: DeliveryScope, coordinates: DeliveryCoordinates, bundleId: string, signal?: AbortSignal): Promise<EtaggedActionBundle>
   plan(scope: DeliveryScope, coordinates: DeliveryCoordinates, input: PlanActionBundleInput, idempotencyKey: string): Promise<CommandReceipt>
@@ -115,6 +120,22 @@ export class HttpDeliveryGateway implements DeliveryGateway {
     ).then(mapHealth)
   }
 
+  createRepositoryImport(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob> {
+    return this.client.post<GitHubRepositoryImportJob>(importRoot(scope, projectId), input, { idempotencyKey }).then(mapImport)
+  }
+
+  getRepositoryImport(scope: DeliveryScope, projectId: string, jobId: string, signal?: AbortSignal): Promise<GitHubRepositoryImportJob> {
+    return this.client.get<GitHubRepositoryImportJob>(`${importRoot(scope, projectId)}/${segment(jobId)}`, { signal }).then(mapImport)
+  }
+
+  cancelRepositoryImport(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob> {
+    return this.client.post<GitHubRepositoryImportJob>(`${importRoot(scope, projectId)}/${segment(jobId)}/cancel`, undefined, { idempotencyKey }).then(mapImport)
+  }
+
+  retryRepositoryImport(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob> {
+    return this.client.post<GitHubRepositoryImportJob>(`${importRoot(scope, projectId)}/${segment(jobId)}/retry`, undefined, { idempotencyKey }).then(mapImport)
+  }
+
   async listBundles(scope: DeliveryScope, coordinates: DeliveryCoordinates, signal?: AbortSignal): Promise<ActionBundle[]> {
     const value = await this.client.get<{ items: ActionBundle[] }>(`${actionRoot(scope, coordinates)}/bundles`, { signal })
     return value.items.map(mapBundle)
@@ -187,6 +208,10 @@ function actionRoot(scope: DeliveryScope, coordinates: DeliveryCoordinates): str
 
 function segment(value: string): string { return encodeURIComponent(value) }
 
+function importRoot(scope: DeliveryScope, projectId: string): string {
+  return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/work-projects/${segment(projectId)}/github-imports`
+}
+
 function mapConnection(value: GitHubConnection): GitHubConnection {
   return { ...pick(value, [
     'id', 'ownerType', 'teamId', 'authenticationType', 'executionIdentity', 'externalAccountLogin',
@@ -196,7 +221,7 @@ function mapConnection(value: GitHubConnection): GitHubConnection {
 
 function mapBinding(value: GitHubProviderBinding): GitHubProviderBinding {
   return { ...pick(value, [
-    'id', 'teamId', 'workspaceId', 'connectionId', 'connectionVersion', 'executionIdentity',
+    'id', 'teamId', 'workspaceId', 'connectionId', 'connectionVersion', 'grantId', 'grantVersion', 'executionIdentity',
     'status', 'defaultUsage', 'version',
   ]), repositoryAllowlist: [...value.repositoryAllowlist] }
 }
@@ -217,6 +242,12 @@ function mapHealth(value: GitHubAuthorizationHealth): GitHubAuthorizationHealth 
     ]),
     rateLimit: value.rateLimit ? { ...pick(value.rateLimit, ['resource', 'limit', 'remaining', 'resetsAt', 'observedAt']) } : null,
   }
+}
+
+function mapImport(value: GitHubRepositoryImportJob): GitHubRepositoryImportJob {
+  const status = value.status
+  if (!['REQUESTED', 'PREFLIGHTING', 'IMPORTING', 'READY', 'FAILED', 'CANCELLED'].includes(status)) throw new TypeError('Invalid GitHub import status')
+  return { ...pick(value, ['id', 'organizationId', 'teamId', 'projectId', 'connectionId', 'connectionVersion', 'externalRepositoryId', 'repositoryFullName', 'repositoryKey', 'defaultBranch', 'status', 'progressPercent', 'attempt', 'failureCode', 'bindingId', 'createdAt', 'updatedAt']) }
 }
 
 function mapBundle(value: ActionBundle): ActionBundle {

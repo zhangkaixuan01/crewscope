@@ -50,7 +50,7 @@ const lifecycleKey = ref('')
 const localNotice = ref<string | null>(null)
 const bindings = reactive<Record<AgentExecutionScope, BindingForm>>({
   PERSONAL: { kind: 'DIRECT', primary: '', fallback: '' },
-  TEAM: { kind: 'INHERIT_TEAM_DEFAULT', primary: '', fallback: '' },
+  TEAM: { kind: 'DIRECT', primary: '', fallback: '' },
 })
 const preferences = reactive({
   supplementalInstructions: '',
@@ -177,8 +177,9 @@ function initializeForm(configuration: CurrentAgentConfiguration | null): void {
 }
 
 function initializeBinding(scope: AgentExecutionScope, binding: CurrentAgentConfiguration['personalBinding']): void {
-  // A first TEAM revision inherits the governed default unless the member explicitly chooses a direct binding.
-  bindings[scope].kind = binding?.kind === 'INHERIT_TEAM_DEFAULT' || (!binding && scope === 'TEAM')
+  // Preserve an existing inherited revision, but keep a first revision directly configurable.
+  // Deployments without an administrator-published default must never submit a phantom default.
+  bindings[scope].kind = binding?.kind === 'INHERIT_TEAM_DEFAULT'
     ? 'INHERIT_TEAM_DEFAULT'
     : 'DIRECT'
   bindings[scope].primary = binding?.primary ? modelKey(binding.primary) : ''
@@ -430,7 +431,7 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
                 <StatePanel v-if="modelResourcePhase(scope) === 'loading' || modelResourcePhase(scope) === 'idle'" state="loading" compact title="正在计算可选模型" />
                 <StatePanel v-else-if="modelResourcePhase(scope) === 'error'" state="error" compact :description="modelResourceError(scope) ?? undefined" @retry="store.loadSelectableModels(agent.id, scope, true)" />
                 <div v-else class="binding-fields">
-                  <label v-if="scope === 'TEAM'" class="binding-mode"><span>绑定方式</span><select v-model="bindings[scope].kind"><option value="INHERIT_TEAM_DEFAULT">继承 Team/Organization 默认</option><option value="DIRECT">直接选择受管模型</option></select></label>
+                  <label v-if="scope === 'TEAM'" class="binding-mode"><span>绑定方式</span><select v-model="bindings[scope].kind"><option value="DIRECT">直接选择受管模型</option><option value="INHERIT_TEAM_DEFAULT">继承已发布的 Team/Organization 默认</option></select></label>
                   <template v-if="bindings[scope].kind === 'DIRECT'">
                     <StatePanel v-if="models(scope).length === 0" state="empty" compact title="没有符合条件的模型" description="连接健康、Template 能力、区域或团队策略没有形成可选交集。API Key 请在“模型与凭证”页面单向录入，本页不会保存 Key。" />
                     <template v-else>

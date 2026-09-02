@@ -21,6 +21,7 @@ describe('TodayPage', () => {
         { path: '/work', name: 'work', component: { template: '<div />' } },
         { path: '/conversation', name: 'conversation', component: { template: '<div />' } },
         { path: '/team/members', name: 'team-members', component: { template: '<div />' } },
+        { path: '/setup', name: 'setup', component: { template: '<div />' } },
       ],
     })
     await router.push(`/today?team=${fixtureIds.teamPlatform}`)

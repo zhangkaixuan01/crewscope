@@ -168,7 +168,8 @@ async function submitRegistration(): Promise<void> {
       props.registrationTimeoutMs,
     )
     if (disposed) return
-    if (!await authStore.refresh()) throw new Error('Registered Session could not be restored')
+    const refreshed = await authStore.refresh()
+    if (!refreshed) throw new Error('Registered Session could not be restored')
     if (disposed) return
     retryIdempotencyKey = null
     password.value = ''

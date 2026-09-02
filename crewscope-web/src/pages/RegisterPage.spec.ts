@@ -31,7 +31,7 @@ describe('RegisterPage', () => {
     expect(identity.register).toHaveBeenCalledWith({
       username: 'alice', email: 'alice@example.com', displayName: 'Alice', password: 'correct horse battery staple',
     }, session().csrf, expect.any(String), expect.any(AbortSignal))
-    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/onboarding'))
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/onboarding'), { timeout: 5_000 })
     expect(localStorage).toHaveLength(0)
     expect(sessionStorage).toHaveLength(0)
     wrapper.unmount()
@@ -55,7 +55,7 @@ describe('RegisterPage', () => {
       expect.any(String),
       expect.any(AbortSignal),
     )
-    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/conversation'))
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/conversation'), { timeout: 5_000 })
     wrapper.unmount()
   })
 

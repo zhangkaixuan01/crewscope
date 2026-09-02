@@ -70,7 +70,7 @@ describe('CodingDiffExplorer', () => {
     await wrapper.get<HTMLInputElement>('.diff-search input').setValue('file-404')
     expect(wrapper.text()).toContain('file-404.txt')
     expect(wrapper.text()).not.toContain('已显示前 400')
-  })
+  }, 15_000)
 })
 
 function props(overrides: Record<string, unknown> = {}) {

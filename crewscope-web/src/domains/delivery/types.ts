@@ -37,6 +37,8 @@ export interface GitHubProviderBinding {
   workspaceId: string
   connectionId: string
   connectionVersion: number
+  grantId?: string | null
+  grantVersion?: number
   executionIdentity: 'TEAM' | 'USER'
   repositoryAllowlist: string[]
   status: string
@@ -59,6 +61,27 @@ export interface GitHubRemotePreflight {
   fullName: string
   defaultBranch: string
   permissionsHash: string
+}
+
+/** Durable GitHub Catalog import projection; no remote URL or Worker path is exposed. */
+export interface GitHubRepositoryImportJob {
+  id: string
+  organizationId: string
+  teamId: string
+  projectId: string
+  connectionId: string
+  connectionVersion: number
+  externalRepositoryId: string
+  repositoryFullName: string
+  repositoryKey: string
+  defaultBranch: string
+  status: 'REQUESTED' | 'PREFLIGHTING' | 'IMPORTING' | 'READY' | 'FAILED' | 'CANCELLED'
+  progressPercent: number
+  attempt: number
+  failureCode: string | null
+  bindingId: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface GitHubAuthorizationHealth {

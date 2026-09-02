@@ -162,6 +162,10 @@ test.beforeEach(async ({ page }) => {
       await fulfillJson(route, { items: [project(ids.secondProject, ids.secondTeam, ids.secondWorkspace, 'SEC', 'Runtime Security')], nextCursor: null })
       return
     }
+    if (request.method() === 'GET' && path.endsWith(`/${ids.team}/setup-readiness`)) {
+      await fulfillJson(route, setupReadiness())
+      return
+    }
     if (request.method() === 'GET' && path.endsWith('/members')) {
       await fulfillJson(route, [
         { id: ids.member, userPrincipalId: ids.principal, displayName: 'Zhang Kaixuan', status: 'ACTIVE', joinMethod: 'CREATED_WITH_TEAM', joinedAt: '2026-08-08T01:00:00Z', version: 0 },
@@ -999,6 +1003,28 @@ test.beforeEach(async ({ page }) => {
     }
     await route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' })
   })
+})
+
+test('Setup Center exposes capability readiness, safe actions and accessible responsive states', async ({ page }, testInfo) => {
+  await page.goto(`/setup?team=${ids.team}&project=${ids.project}`)
+
+  await expect(page.getByRole('heading', { name: 'Platform Engineering 的配置中心' })).toBeVisible()
+  await expect(page.getByLabel('必需能力就绪进度')).toContainText('1/3')
+  const checklist = page.getByRole('region', { name: '能力与前置条件' })
+  await expect(checklist.getByRole('heading', { name: 'Personal Conversation' })).toBeVisible()
+  await expect(checklist.getByText('已就绪', { exact: true })).toBeVisible()
+  await expect(checklist.getByText('请联系 Team Owner')).toBeVisible()
+  await expect(checklist.getByText('恢复服务后重试')).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(/api[_-]?key|credential|provider raw|\/var\/crewscope/i)
+
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(accessibility.violations, formatAxeViolations(accessibility.violations)).toEqual([])
+  await expect(page).toHaveScreenshot(`setup-center-${testInfo.project.name}.png`, { fullPage: true })
+
+  await checklist.getByRole('listitem').filter({ hasText: 'Coding & Review' }).getByRole('button', { name: '创建 WorkProject' }).click()
+  await expect(page).toHaveURL(/\/today\?/)
 })
 
 test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }, testInfo) => {
@@ -2728,6 +2754,9 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
   const personalBinding = configuration.locator('.binding-editor').filter({ hasText: 'PERSONAL' })
   await personalBinding.getByLabel('主模型').selectOption({ index: 1 })
   await personalBinding.getByLabel('Fallback').selectOption({ index: 1 })
+  const teamBinding = configuration.locator('.binding-editor').filter({ hasText: 'TEAM' })
+  await teamBinding.getByLabel('主模型').selectOption({ index: 1 })
+  await teamBinding.getByLabel('Fallback').selectOption({ index: 1 })
   await configuration.getByLabel(/补充指令/).fill('遵循团队代码规范并保留验证证据。')
   await configuration.getByText('coding-baseline', { exact: true }).click()
   await configuration.getByRole('button', { name: '保存并预检' }).click()
@@ -2756,12 +2785,13 @@ test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`agent-configuration-${testInfo.project.name}.png`, { fullPage: true })
 })
 
-test('M1 through M5 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
+test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   // This gate intentionally visits every primary page and several dialogs in one browser context.
-  test.setTimeout(60_000)
+  test.setTimeout(90_000)
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
+    { path: `/setup?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'Platform Engineering 的配置中心' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`, ready: () => page.getByRole('dialog', { name: 'CRW-18 工作项详情' }) },
@@ -3528,6 +3558,33 @@ function workItemActivity(eventId: string, workItemId: string) {
     ],
     occurredAt: '2026-08-08T03:42:00Z',
     payload: { schemaName: 'task-execution-completed', schemaVersion: 1, values: { outcome: 'COMPLETED' } },
+  }
+}
+
+function setupReadiness() {
+  const capability = (
+    value: string,
+    required: boolean,
+    status: string,
+    reasonCode: string,
+    canConfigure: boolean,
+    responsibleParty: string,
+    actionKey: string | null,
+  ) => ({ capability: value, required, status, reasonCode, canConfigure, responsibleParty, actionKey })
+  return {
+    organizationId: ids.organization,
+    teamId: ids.team,
+    snapshotVersion: 'setup-12',
+    observedAt: '2026-08-08T04:00:00Z',
+    requiredReady: false,
+    capabilities: [
+      capability('PERSONAL_CONVERSATION', true, 'READY', 'READY', false, 'Current member', null),
+      capability('TEAM_TASK', true, 'ACTION_REQUIRED', 'TEAM_AGENT_CONFIGURATION_REQUIRED', true, 'Team Owner', 'OPEN_AGENT_SETTINGS'),
+      capability('CODING_REVIEW', true, 'ACTION_REQUIRED', 'WORKPROJECT_REQUIRED', true, 'Team Owner', 'OPEN_WORKPROJECT_SETTINGS'),
+      capability('GITHUB_DRAFT_PR', false, 'ACTION_REQUIRED', 'GITHUB_REPOSITORY_IMPORT_REQUIRED', true, 'Team Owner', 'START_GITHUB_IMPORT'),
+      capability('LARK_NOTIFICATIONS', false, 'BLOCKED', 'LARK_CONNECTION_REQUIRED', false, 'Team Owner', null),
+      capability('TEAM_OBSERVER', false, 'UNAVAILABLE', 'RUNTIME_UNAVAILABLE', false, 'Platform Operator', null),
+    ],
   }
 }
 

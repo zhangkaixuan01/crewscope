@@ -23,19 +23,23 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: [
-        'src/api/**/*.ts',
-        'src/app/**/*.ts',
-        'src/components/**/*.vue',
-        'src/domains/{identity,account,onboarding,invitation}/**/*.ts',
-        'src/pages/{Login,Register,Onboarding,Account,Invite}Page.vue',
+      // Keep every production TS/Vue module in the denominator. Tests and Histoire/spike fixtures
+      // are development assets and must not make an otherwise untested business path look covered.
+      include: ['src/**/*.{ts,vue}'],
+      exclude: [
+        'src/**/*.spec.ts',
+        'src/**/*.test.ts',
+        'src/test/**',
+        'src/**/*.story.vue',
+        'src/spikes/**',
       ],
-      exclude: ['src/**/*.story.vue'],
       thresholds: {
-        statements: 80,
-        branches: 70,
-        functions: 75,
-        lines: 80,
+        // Q01 baseline: all production modules are measured. Raise these ratchets
+        // as page-level characterization tests are added; never lower them silently.
+        statements: 65,
+        branches: 60,
+        functions: 65,
+        lines: 70,
       },
     },
   },

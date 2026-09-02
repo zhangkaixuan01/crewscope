@@ -60,6 +60,12 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'today', requiredPermission: permissions.scopeRead },
       },
       {
+        path: '/setup',
+        name: 'setup',
+        component: () => import('../pages/SetupPage.vue'),
+        meta: { mode: 'control', section: 'setup', requiredPermission: permissions.scopeRead },
+      },
+      {
         path: '/work',
         name: 'work',
         component: () => import('../pages/WorkPage.vue'),

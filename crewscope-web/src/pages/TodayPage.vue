@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, BriefcaseBusiness, CalendarDays, Layers3, MessageSquare, Plus, UsersRound } from '@lucide/vue'
+import { ArrowRight, BriefcaseBusiness, CalendarDays, Layers3, MessageSquare, Plus, Settings2, UsersRound } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
@@ -10,6 +10,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
+import { SETUP_STORE } from '../domains/setup/store'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,8 +21,18 @@ const project = store.selectedProject
 const canViewMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersRead)))
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const projectCreation = createWorkProjectCreationFlow(store, router, route)
+const setupStore = inject(SETUP_STORE, null)
+const setupReadiness = computed(() => setupStore?.state.readiness ?? null)
+const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required && item.status === 'READY').length ?? 0)
+const setupRequiredCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required).length ?? 0)
 
-watch(() => store.state.selectedTeamId, () => store.loadMembers(), { immediate: true })
+watch(() => [store.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
+  await store.loadMembers()
+  if (setupStore && teamId && organizationId) {
+    setupStore.activateScope({ organizationId, teamId })
+    await setupStore.load()
+  }
+}, { immediate: true })
 
 const todayLabel = new Intl.DateTimeFormat('zh-CN', {
   month: 'long',
@@ -64,6 +75,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         <article><i><Layers3 :size="18" /></i><div><small>可用 WorkProject</small><strong>{{ store.state.projects.length }}</strong><p>ScopeSwitcher 中可直接切换</p></div></article>
         <article><i class="members"><UsersRound :size="18" /></i><div><small>Active TeamMember</small><strong>{{ store.state.members.filter(member => member.status === 'ACTIVE').length }}</strong><p>{{ store.state.membersLoading ? '正在同步成员事实' : '来自 Team Membership' }}</p></div></article>
         <article><i class="project"><BriefcaseBusiness :size="18" /></i><div><small>当前 WorkProject</small><strong class="project-key">{{ project?.key ?? '—' }}</strong><p>{{ project?.status === 'ACTIVE' ? 'Active · 可进入 Work' : '等待项目范围' }}</p></div></article>
+        <article><i class="setup"><Settings2 :size="18" /></i><div><small>Setup Center</small><strong>{{ setupReadiness ? `${setupReadyCount}/${setupRequiredCount}` : '—' }}</strong><p>{{ setupReadiness?.requiredReady ? 'Required ready' : '查看配置进度与下一步' }}</p></div></article>
       </section>
 
       <div class="today-grid">
@@ -80,6 +92,9 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         </section>
 
         <aside class="quick-actions">
+          <RouterLink class="quick-card" :to="{ name: 'setup', query: route.query }">
+            <i><Settings2 :size="18" /></i><div><strong>Setup Center</strong><span>查看 Team 就绪状态与下一步</span></div><ArrowRight :size="15" />
+          </RouterLink>
           <RouterLink class="quick-card" :to="{ name: 'work', query: route.query }">
             <i><BriefcaseBusiness :size="18" /></i><div><strong>Work</strong><span>进入当前项目的工作管理视图</span></div><ArrowRight :size="15" />
           </RouterLink>
