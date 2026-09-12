@@ -196,6 +196,20 @@ public final class RuntimeRegistryCoordinator {
                     now);
             RuntimeWorker committed = workerRepository.update(reconciled);
             next = committed.activate(committed.version(), spec.actor(), now);
+        } else if (worker.status() == RuntimeWorkerStatus.DRAINING) {
+            // A process that restarts with the same stable key is a new live owner of
+            // the Worker identity. Reconcile its heartbeat first, then make it claimable
+            // again; otherwise a graceful shutdown would leave the durable Worker stuck
+            // in DRAINING across every subsequent deployment.
+            RuntimeWorker reconciled = worker.heartbeat(
+                    runtime,
+                    worker.version(),
+                    spec.workerCapabilities(),
+                    currentCapacity(),
+                    spec.actor(),
+                    now);
+            RuntimeWorker committed = workerRepository.update(reconciled);
+            next = committed.activate(committed.version(), spec.actor(), now);
         } else {
             next = worker.heartbeat(
                     runtime,

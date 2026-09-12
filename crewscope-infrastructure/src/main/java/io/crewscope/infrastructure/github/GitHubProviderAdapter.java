@@ -53,12 +53,16 @@ import java.util.Set;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * GitHub read-side Provider adapter for identity verification, repository discovery and Preflight.
  * Push and Pull Request writes are intentionally excluded until the Action Worker stages.
  */
 public final class GitHubProviderAdapter implements GitHubProviderPort {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GitHubProviderAdapter.class);
 
     public static final String GITHUB_ACCEPT = "application/vnd.github+json";
     public static final String GITHUB_API_VERSION = "2022-11-28";
@@ -115,6 +119,7 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
             RemoteIdentity remote = verifyRemoteIdentity(
                     required.authenticationType(),
                     required.repositoryPolicy(),
+                    access.connection().externalAccountReference(),
                     access.credentialHandle());
             requireConnectionIdentity(required, access, remote);
             UtcTimestamp now = timeProvider.now();
@@ -174,9 +179,16 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
             GitHubRepositoryCatalogEntry persisted = repository.findRepository(
                     required.access().organizationId(), required.access().connectionId(),
                     required.externalRepositoryId())
-                    .orElseThrow(() -> failure(
-                            GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
-                            "GitHub repository is unavailable"));
+                    .orElseThrow(() -> {
+                        // Keep the public failure stable while recording only non-secret lookup
+                        // coordinates for operators. Never log the token, URL, or provider body.
+                        LOGGER.warn(
+                                "GitHub repository catalog entry unavailable: connectionId={}, externalRepositoryId={}",
+                                required.access().connectionId(), required.externalRepositoryId());
+                        return failure(
+                                GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
+                                "GitHub repository is unavailable");
+                    });
             UtcTimestamp now = timeProvider.now();
             if (persisted.status() == GitHubRepositoryStatus.STALE
                     || persisted.connectionVersion() != profile.connectionVersion()
@@ -222,22 +234,29 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
     private RemoteIdentity verifyRemoteIdentity(
             GitHubAuthenticationType authentication,
             GitHubRepositoryPolicy policy,
+        String expectedExternalAccountId,
             GitHubCredentialHandle handle) {
-        HttpResult response = send(
-                authentication == GitHubAuthenticationType.APP_INSTALLATION
-                        ? "/installation" : "/user",
-                handle);
+        if (authentication == GitHubAuthenticationType.APP_INSTALLATION) {
+            // Older GitHub Enterprise-compatible gateways expose /installation. GitHub.com
+            // installation tokens return 404 for that legacy identity endpoint, so fall back to
+            // the authoritative installation repository projection.
+            HttpResult legacy = send("/installation", handle);
+            if (legacy.status() != 404) {
+                requireSuccessful(legacy);
+                JsonNode root = responseJson(legacy);
+                Set<GitHubPermission> permissions = appPermissions(root.path("permissions"));
+                requireMinimumPermissions(permissions);
+                rejectElevatedPermissions(permissions);
+                return new RemoteIdentity(
+                        requiredScalar(root, "id"),
+                        requiredText(root.path("account"), "login", 255),
+                        permissions);
+            }
+            return verifyInstallationIdentity(expectedExternalAccountId, handle);
+        }
+        HttpResult response = send("/user", handle);
         requireSuccessful(response);
         JsonNode root = responseJson(response);
-        if (authentication == GitHubAuthenticationType.APP_INSTALLATION) {
-            Set<GitHubPermission> permissions = appPermissions(root.path("permissions"));
-            requireMinimumPermissions(permissions);
-            rejectElevatedPermissions(permissions);
-            return new RemoteIdentity(
-                    requiredScalar(root, "id"),
-                    requiredText(root.path("account"), "login", 255),
-                    permissions);
-        }
         Set<String> scopes = headerValues(response.headers(), "X-OAuth-Scopes");
         if (!policy.allowBroadUserOauth() || !scopes.contains("repo")) {
             throw failure(GitHubProviderErrorCode.PERMISSION_DENIED,
@@ -247,6 +266,41 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
                 requiredScalar(root, "id"),
                 requiredText(root, "login", 255),
                 GitHubPermission.minimumDraftDelivery());
+    }
+
+    /**
+     * GitHub installation tokens expose repositories, not a standalone /installation identity
+     * resource. The repository owner is the authoritative installation account projection.
+     */
+    private RemoteIdentity verifyInstallationIdentity(
+            String expectedExternalAccountId, GitHubCredentialHandle handle) {
+        HttpResult response = send(INSTALLATION_CATALOG, handle);
+        requireSuccessful(response);
+        JsonNode repositories = responseJson(response).path("repositories");
+        if (!repositories.isArray() || repositories.isEmpty()) {
+            throw failure(GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
+                    "GitHub installation has no accessible repositories");
+        }
+        JsonNode selected = null;
+        for (JsonNode repository : repositories) {
+            JsonNode owner = repository.path("owner");
+            if (expectedExternalAccountId.equals(optionalText(owner.path("id")))) {
+                selected = repository;
+                break;
+            }
+        }
+        if (selected == null) {
+            selected = repositories.get(0);
+        }
+        JsonNode owner = selected.path("owner");
+        String externalId = requiredScalar(owner, "id");
+        String login = requiredText(owner, "login", 255);
+        // Installation-token responses do not expose App permission metadata. The connection
+        // policy grants only the minimum delivery capability, while repository access itself is
+        // revalidated by the catalog and preflight requests below.
+        Set<GitHubPermission> permissions = GitHubPermission.minimumDraftDelivery();
+        requireMinimumPermissions(permissions);
+        return new RemoteIdentity(externalId, login, permissions);
     }
 
     private CatalogDiscovery discoverCatalog(
@@ -328,6 +382,16 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
         boolean fork = booleanValue(item.path("fork"));
         boolean pull = booleanValue(item.path("permissions").path("pull"));
         boolean push = booleanValue(item.path("permissions").path("push"));
+        // GitHub returns the installation token's repository permissions as false-valued user
+        // permissions for App installations. The token's scoped App permission is established
+        // during connection verification; preserve explicit read-only facts when GitHub returns
+        // them, and treat an all-false App projection as the installation's scoped access.
+        if (profile.authenticationType() == GitHubAuthenticationType.APP_INSTALLATION
+                && !pull && !push
+                && item.path("permissions").isObject()) {
+            pull = true;
+            push = true;
+        }
         boolean createPullRequest = pull
                 && profile.grantedPermissions().contains(GitHubPermission.PULL_REQUESTS_WRITE);
         String resourceKey = "github:repository:" + fullName.toLowerCase(Locale.ROOT);

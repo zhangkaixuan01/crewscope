@@ -151,6 +151,22 @@ class RuntimeRegistryM3I01IntegrationTest
     }
 
     @Test
+    void restartReactivatesWorkerThatWasDrainingBeforeShutdown() {
+        RuntimeRegistryCoordinator initial = coordinator("worker-restart", "2.0.0", fullCapabilities());
+        RuntimeWorkerIdentity identity = initial.register();
+
+        now.set(UtcTimestamp.parse("2026-08-14T12:00:05Z"));
+        initial.beginDrain();
+        assertEquals(RuntimeWorkerStatus.DRAINING, initial.health().status());
+
+        now.set(UtcTimestamp.parse("2026-08-14T12:00:10Z"));
+        RuntimeRegistryCoordinator restarted = coordinator("worker-restart", "2.0.0", fullCapabilities());
+        assertEquals(identity, restarted.register());
+        assertEquals(RuntimeWorkerStatus.ACTIVE, restarted.health().status());
+        assertTrue(restarted.health().claimable());
+    }
+
+    @Test
     void concurrentFirstRegistrationConvergesOnOneStableIdentity() throws Exception {
         RuntimeRegistryCoordinator left = coordinator(
                 "worker-race", "2.0.0", fullCapabilities());

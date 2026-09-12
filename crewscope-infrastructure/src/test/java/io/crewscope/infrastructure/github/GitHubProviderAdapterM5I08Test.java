@@ -124,6 +124,24 @@ class GitHubProviderAdapterM5I08Test {
     }
 
     @Test
+    void resolvesModernGitHubInstallationIdentityFromRepositoryProjection() throws Exception {
+        try (GitHubStub stub = GitHubStub.start()) {
+            stub.installationStatus = 404;
+            Fixture fixture = Fixture.team(stub.baseUri());
+
+            GitHubConnectionProfile profile = fixture.adapter.verifyConnection(
+                    new VerifyGitHubConnectionRequest(
+                            fixture.access(), GitHubAuthenticationType.APP_INSTALLATION,
+                            fixture.policy(true)));
+
+            assertEquals("4815", profile.externalAccountId());
+            assertEquals("crewscope", profile.externalAccountLogin());
+            assertTrue(stub.paths.contains(
+                    "/installation/repositories?per_page=100&page=1"));
+        }
+    }
+
+    @Test
     void requiresExplicitBroadOauthPolicyAndRejectsCredentialSubjectSubstitution() throws Exception {
         try (GitHubStub stub = GitHubStub.start()) {
             Fixture oauth = Fixture.user(stub.baseUri(), true);
@@ -573,7 +591,8 @@ class GitHubProviderAdapterM5I08Test {
             return "{\"id\":" + id + ",\"full_name\":\"" + fullName
                     + "\",\"name\":\"" + fullName.substring(separator + 1)
                     + "\",\"owner\":{\"login\":\"" + fullName.substring(0, separator)
-                    + "\"},\"default_branch\":\"" + defaultBranch
+                    + "\",\"id\":" + (fullName.startsWith("crewscope/") ? "4815" : "9001")
+                    + "},\"default_branch\":\"" + defaultBranch
                     + "\",\"visibility\":\"public\",\"archived\":" + archived
                     + ",\"fork\":" + fork
                     + ",\"permissions\":{\"pull\":true,\"push\":" + push + "}}";

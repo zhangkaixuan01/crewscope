@@ -131,6 +131,12 @@ public final class GitHubRepositoryImportWorker {
                     leaseDuration);
         } catch (GitHubProviderException failure) {
             fail(current, failure.code().name());
+        } catch (GitHubPushException failure) {
+            // The infrastructure adapter already reduced Git/GitHub failures to a stable,
+            // secret-free delivery code. Preserve that code for the durable job projection so
+            // operators can distinguish a mirror failure from an authorization failure without
+            // exposing provider output, URLs, paths, or credentials through the API.
+            fail(current, failure.code().name());
         } catch (RuntimeException failure) {
             fail(current, "IMPORT_FAILED");
         }

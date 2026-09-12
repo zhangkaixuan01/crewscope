@@ -142,4 +142,89 @@ class GitHubRepositoryImportWorkerM8Q02Test {
                 .anyMatch(value -> value.status() == GitHubRepositoryImportStatus.READY
                         && value.bindingId().orElseThrow().equals(binding.id())));
     }
+
+    @Test
+    void preservesSafeMirrorFailureCodeOnDurableImportJob() {
+        OrganizationId organizationId = OrganizationId.generate();
+        TeamId teamId = TeamId.generate();
+        WorkProjectId projectId = WorkProjectId.generate();
+        Principal actor = Principal.create(
+                PrincipalId.generate(),
+                PrincipalScope.organization(organizationId),
+                PrincipalType.USER,
+                Optional.empty(),
+                "Repository administrator",
+                Optional.empty(),
+                PrincipalVisibility.ORGANIZATION,
+                NOW);
+        GitHubRepositoryImportJob claimed = GitHubRepositoryImportJob.requested(
+                        organizationId,
+                        teamId,
+                        projectId,
+                        ConnectionId.generate(),
+                        1,
+                        ConnectionGrantId.generate(),
+                        1,
+                        "4815162342",
+                        "crewscope/crewscope",
+                        new RepositoryKey("crewscope-m8-test"),
+                        new RepositoryBranchName("main"),
+                        actor.id(),
+                        true,
+                        NOW)
+                .progress(
+                        GitHubRepositoryImportStatus.IMPORTING,
+                        35,
+                        Optional.empty(),
+                        Optional.empty(),
+                        1,
+                        NOW);
+        GitHubRepositoryImportJobRepository jobs = mock(GitHubRepositoryImportJobRepository.class);
+        when(jobs.claimNext(eq("worker-1"), any(), any())).thenReturn(Optional.of(
+                new GitHubRepositoryImportLease(
+                        claimed, "worker-1", UtcTimestamp.parse("2026-09-02T08:30:00Z"))));
+        when(jobs.updateClaimed(any(), eq("worker-1"), any(), any()))
+                .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+        GitHubRepositoryImportAuthorizationService authorization = mock(
+                GitHubRepositoryImportAuthorizationService.class);
+        GitHubRepositoryImportAuthorization authorized = mock(GitHubRepositoryImportAuthorization.class);
+        GitHubRepositoryCatalogEntry catalog = mock(GitHubRepositoryCatalogEntry.class);
+        when(catalog.fullName()).thenReturn("crewscope/crewscope");
+        when(authorized.catalog()).thenReturn(catalog);
+        when(authorized.access()).thenReturn(mock(GitHubAccessRequest.class));
+        when(authorized.policy()).thenReturn(mock(GitHubRepositoryPolicy.class));
+        when(authorization.authorize(any(), any(), any(), any(), any(), any(), anyLong(), any(), anyLong(), any()))
+                .thenReturn(authorized);
+        GitHubProviderPort provider = mock(GitHubProviderPort.class);
+        GitHubRepositoryImportPort importer = mock(GitHubRepositoryImportPort.class);
+        when(importer.importRepository(any()))
+                .thenThrow(new GitHubPushException(
+                        GitHubPushErrorCode.MIRROR_UNAVAILABLE,
+                        "GitHub repository import failed: remote mirror unavailable"));
+        RepositoryBindingApplicationService bindingService = mock(RepositoryBindingApplicationService.class);
+        RepositoryBindingRepository bindingRepository = mock(RepositoryBindingRepository.class);
+        PrincipalRepository principals = mock(PrincipalRepository.class);
+        when(principals.findById(organizationId, actor.id())).thenReturn(Optional.of(actor));
+        GitHubRepositoryImportWorker worker = new GitHubRepositoryImportWorker(
+                jobs,
+                authorization,
+                provider,
+                importer,
+                bindingService,
+                bindingRepository,
+                principals,
+                () -> NOW,
+                "worker-1",
+                Duration.ofMinutes(30));
+
+        assertTrue(worker.runOnce());
+
+        ArgumentCaptor<GitHubRepositoryImportJob> progress =
+                ArgumentCaptor.forClass(GitHubRepositoryImportJob.class);
+        verify(jobs, times(2)).updateClaimed(
+                progress.capture(), eq("worker-1"), any(), eq(Duration.ofMinutes(30)));
+        GitHubRepositoryImportJob failed = progress.getAllValues().get(1);
+        assertTrue(failed.status() == GitHubRepositoryImportStatus.FAILED);
+        assertTrue(failed.failureCode().orElseThrow().equals("MIRROR_UNAVAILABLE"));
+    }
 }
