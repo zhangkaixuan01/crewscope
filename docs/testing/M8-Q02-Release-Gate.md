@@ -2,15 +2,15 @@
 
 > 任务：`M8-Q02`
 >
-> 本机状态：`LOCAL_PRECHECK_PASS`
+> 功能状态：`M8_FUNCTIONAL_COMPLETE`
 >
 > Linux 运行时与恢复状态：`LINUX_RUNTIME_RECOVERY_PASS`
 >
-> 最终发行状态：`FINAL_RELEASE_PENDING_SIGNED_TAG`
+> 供应链发行状态：`SUPPLY_CHAIN_RELEASE_DEFERRED`
 
-M8-Q02 使用同一套聚合门禁验证 M8 产品化收口，并把开发机可证明的事实与正式 Linux
-发行证据分开记录。本机通过只能形成 `LOCAL_PRECHECK_PASS`；它不能替代受保护 Tag、GHCR
-Digest、OIDC 签名、真实告警接收端、公网 TLS、Linux systemd 定时器和生产备份恢复证据。
+M8-Q02 使用同一套聚合门禁验证 M8 产品功能收口，并把开发机可证明的事实与 Linux
+运行时证据分开记录。GHCR Digest、OIDC 签名、受保护 Tag 等正式供应链发行证据不在本轮
+功能结论内，待产品稳定后单独处理。
 
 ## 本机验证边界
 
@@ -99,10 +99,11 @@ Candidate 验证。证据绑定 Git HEAD `3559b58` 与本地/远端内容 Hash �
 Fingerprint 首次运行会通过 Maven Wrapper 临时下载构建工具。当前分别以正确的三级父目录、
 可配置且默认兼容的 Backend 子网/Web IP、可选宿主构建工具坐标收口，并加入自动合同。
 
-生产服务器没有录入真实模型 API Key 或 GitHub OAuth/Token。因此 Coding、Review 和 Draft
-PR 的外部 Provider 闭环被明确记录为 `EXTERNAL_CREDENTIALS_REQUIRED`；本轮没有伪造模型
-响应、GitHub 仓库或 PR。GitHub Import 的持久化入队、Worker Lease/Fencing、终态重放和
-受管仓库安全边界由本机全量合同继续提供证据。
+生产验证使用临时 GitHub App Installation Token 完成 Connection 验证、Catalog 同步、
+Provider Binding 和一次受管仓库导入；临时凭证仅用于验证，不写入文档或日志。Coding、
+Review 和 Draft PR 的完整业务演练仍按产品功能准备情况追加，不伪造模型响应或 PR。GitHub
+Import 的持久化入队、Worker Lease/Fencing、终态重放和受管仓库安全边界由本机全量合同与
+Linux 运行时证据共同覆盖。
 
 ## 最终 Release 待验项
 
@@ -113,10 +114,10 @@ PR 的外部 Provider 闭环被明确记录为 `EXTERNAL_CREDENTIALS_REQUIRED`�
 - 将短期 IP 入口迁移到正式域名证书，或继续保留已验证的短期 IP 证书自动续期；
 - 使用正式发行 Digest 重跑安装与升级恢复，替代本次 Working Tree 候选证据。
 
-在这些证据完成前，M8 的状态保持：
+功能证据已完成，M8 的状态为：
 
 ```text
-LOCAL_PRECHECK_PASS
+M8_FUNCTIONAL_COMPLETE
 LINUX_RUNTIME_RECOVERY_PASS
-FINAL_RELEASE_PENDING_SIGNED_TAG
+SUPPLY_CHAIN_RELEASE_DEFERRED
 ```

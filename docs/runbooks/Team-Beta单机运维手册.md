@@ -30,6 +30,9 @@ pnpm 11.9.0、jq、OpenSSL、tar 与 gzip。备份 Environment Fingerprint 会�
 - 应用版本、Git Revision、Dataset Version 与 Seed；
 - 备份口令文件；
 - 恢复 Schema 边界。
+- GitHub 外部账号登录名（`CREWSCOPE_GITHUB_REQUIRED_OWNER`）；它必须与 Team GitHub
+  Connection 的 Installation/OAuth 账号一致，与 Linux 受管目录的 `crewscope` 文件所有者
+  无关。
 
 备份口令文件至少 32 字节，独立于备份介质保存。Credential Encryption、Activity Cursor 和 Task Token 的 Key Material 继续由外部 Secret 生命周期管理；备份 Manifest 只记录恢复必需 Key ID，不复制密钥。
 
@@ -67,6 +70,11 @@ API 和 Worker 都以只读根文件系统运行。API 只挂载可写的 `runti
 并保持宿主目录归属 `10001:10001`。`prepare-secret-permissions.sh` 会在 Compose 启动前显式
 预创建这四个目录，避免首次启动时 Docker 以 root 创建目录。API 与 Worker 不共享对方的
 Runtime 工作区。
+
+Worker 的 GitHub AskPass 凭证窗口位于独立的内存 `tmpfs` `/var/crewscope/github-credentials`，
+仅 Worker 使用、权限为 `0700`，任务结束后会清理。该目录必须显式使用 `exec` 以执行一次性
+AskPass helper；通用 `/var/crewscope/ephemeral` 继续使用 `noexec`。不要把凭证目录改成宿主机
+bind mount。
 
 Worker 不再挂载宿主 Docker Socket，也不加入宿主 Socket 用户组。唯一接触宿主 Socket 的是
 `docker-socket-proxy`，它只在 `backend` 内部网络监听，并通过 `CONTAINERS/IMAGES/POST/EXEC`
