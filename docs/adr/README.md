@@ -41,6 +41,9 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-024](ADR-024-Account与Principal身份边界.md) | UserAccount、LoginIdentity、Organization Binding、Principal 与 TeamMember 分层 | PROPOSED |
 | [ADR-025](ADR-025-本地密码与登录防护参数.md) | Argon2id、密码预算、登录限流、临时锁定与账号枚举防护 | PROPOSED |
 | [ADR-026](ADR-026-M8产品化与工程收口合同.md) | M8 Readiness、受信动作、导入隔离、发行与质量门禁 | PROPOSED |
+| [ADR-027](ADR-027-设计系统与交互内核.md) | Design System v2、反馈组件、ActionRegistry、状态动作与撤销窗口 | ACCEPTED |
+| [ADR-028](ADR-028-个人工作台与统一搜索.md) | 个人工作摘要、统一搜索、OpenAPI 与状态机生成边界 | ACCEPTED |
+| [ADR-029](ADR-029-行级Review与配置体验合同.md) | Diff 高亮、行级评论锚点、配置脏态/版本/健康合同 | ACCEPTED |
 
 ## ADR 内容要求
 
