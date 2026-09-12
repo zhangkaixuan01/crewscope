@@ -10,6 +10,9 @@ x-backend-common: &backend-common
   tmpfs:
     - /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
     - /var/crewscope/ephemeral:rw,nosuid,nodev,noexec,size=64m,uid=10001,gid=10001,mode=0700
+    # Git AskPass is a short-lived owner-only executable helper in a dedicated in-memory boundary;
+    # it has no host bind mount. The general ephemeral scratch area above stays noexec.
+    - /var/crewscope/github-credentials:rw,exec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700
   environment: &backend-environment
     SPRING_PROFILES_ACTIVE: team-beta
     SPRING_CONFIG_IMPORT: configtree:/run/secrets/
@@ -48,14 +51,16 @@ x-backend-common: &backend-common
     CREWSCOPE_LOG_FORMAT: logstash
     CREWSCOPE_ARTIFACT_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
     CREWSCOPE_GITHUB_MIRROR_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
-    CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/ephemeral/github-credentials
+    CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/github-credentials
     CREWSCOPE_CODING_GIT_COMMAND_HOME: /var/crewscope/ephemeral/git-home
     CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
     CREWSCOPE_CODING_WORKTREE_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
     CREWSCOPE_CODING_WORKTREE_LOCK_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
     CREWSCOPE_CODING_REPOSITORY_REQUIRED_OWNER: crewscope
     CREWSCOPE_CODING_WORKTREE_REQUIRED_OWNER: crewscope
-    CREWSCOPE_GITHUB_REQUIRED_OWNER: crewscope
+    # GitHub owner/login is an external account fact and is independent from the Linux
+    # owner used for the managed repository and worktree roots.
+    CREWSCOPE_GITHUB_REQUIRED_OWNER: ${CREWSCOPE_GITHUB_REQUIRED_OWNER:?set the GitHub owner/login}
     CREWSCOPE_TASK_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
     CREWSCOPE_CODING_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
     CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
@@ -86,17 +91,10 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    # The upstream entrypoint renders haproxy.cfg next to its read-only template. Render the same
-    # config in an isolated tmpfs so the root filesystem can remain immutable at runtime.
-    entrypoint: [/bin/sh, -ec]
-    command:
-      - >-
-        sed -e 's/$${BIND_CONFIG}/:2375/g'
-        -e 's#/run/haproxy.pid#/tmp/haproxy.pid#g'
-        /usr/local/etc/haproxy/haproxy.cfg.template > /tmp/haproxy.cfg;
-        exec haproxy -W -db -f /tmp/haproxy.cfg
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=1m,mode=0700
+      - /run:rw,nosuid,nodev,size=1m,mode=0755
+      - /var/lib/haproxy:rw,nosuid,nodev,size=1m,mode=0755
     # The proxy is the only service that can see the host Docker socket. Worker talks to the
     # allow-listed API over the internal backend network and never receives the host socket.
     environment:

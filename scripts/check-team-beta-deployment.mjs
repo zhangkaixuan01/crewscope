@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const composeFile = join(root, 'deploy/team-beta/compose.yaml')
+const compose = readFileSync(composeFile, 'utf8')
 const demoFile = join(root, 'deploy/team-beta/compose.demo.yaml')
 const demoScriptFile = join(root, 'deploy/team-beta/demo.sh')
 const secretPreparationFile = join(
@@ -68,6 +69,7 @@ try {
     CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID: '0198a475-0831-7000-8000-000000000001',
     CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID: '0198a475-0831-7000-8000-000000000002',
     CREWSCOPE_BOOTSTRAP_ORGANIZATION_NAME: 'CrewScope Team Beta',
+    CREWSCOPE_GITHUB_REQUIRED_OWNER: 'crewscope-test-owner',
   }
   const model = composeConfig(['-f', composeFile], env)
   assert.deepEqual(Object.keys(model.services).sort(), expectedServices)
@@ -114,6 +116,12 @@ try {
     assert.ok(!volumeTargets(model.services[name]).includes(socket), `${name} owns Docker socket`)
   }
   assert.equal(model.services.worker.environment.DOCKER_HOST, 'tcp://docker-socket-proxy:2375')
+  const proxyTmpfs = model.services['docker-socket-proxy'].tmpfs ?? []
+  assert.ok(proxyTmpfs.some(value => String(value).startsWith('/run:')), 'socket proxy needs writable /run')
+  assert.ok(
+    proxyTmpfs.some(value => String(value).startsWith('/var/lib/haproxy:')),
+    'socket proxy needs writable HAProxy state directory',
+  )
   const runtimeRoots = {
     api: ['personal-agent', 'template-agent'],
     worker: ['task-agent', 'coding-agent'],
@@ -205,6 +213,26 @@ try {
 
   assertDockerfile(backendDockerfile, ['USER 10001:10001', ' AS build', ' AS runtime'])
   assertDockerfile(webDockerfile, ['USER 101:101', ' AS build', ' AS runtime'])
+  assert.match(
+    compose,
+    /\/var\/crewscope\/ephemeral:rw,nosuid,nodev,noexec/,
+    'backend ephemeral scratch must remain noexec',
+  )
+  assert.match(
+    compose,
+    /\/var\/crewscope\/github-credentials:rw,exec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700/,
+    'GitHub AskPass must use a dedicated owner-only executable tmpfs',
+  )
+  assert.match(
+    compose,
+    /CREWSCOPE_GITHUB_ASK_PASS_ROOT: \/var\/crewscope\/github-credentials/,
+    'GitHub AskPass root must point to the dedicated tmpfs',
+  )
+  assert.doesNotMatch(
+    compose,
+    /CREWSCOPE_GITHUB_ASK_PASS_ROOT: \/var\/crewscope\/ephemeral\//,
+    'GitHub AskPass must not be placed below the noexec ephemeral tmpfs',
+  )
   const nginx = readFileSync(nginxConfig, 'utf8')
   assert.match(nginx, /location \/api\//)
   assert.doesNotMatch(nginx, /location \/actuator/)
