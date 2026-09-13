@@ -14,7 +14,7 @@
 - `scripts/generate-state-machine.mjs` 从 domain 聚合的 `ALLOWED_TRANSITIONS`/`TRANSITIONS` 生成：
   `crewscope-web/src/api/generated/state-machines.ts`。当前覆盖 16 个聚合；WorkItem 包含 8 个状态和 17 条合法边。
 - `domains/workitem/types.ts` 的状态流转集合改为引用生成物。生成物仅用于动作发现，服务端命令仍重新执行权限、版本、责任链、Gate 和幂等校验。
-- `scripts/check-openapi-drift.mjs` 同时执行两个生成器的 `--check`，并验证 OpenAPI 3.1、212 个端点、16 个聚合及 WorkItem 状态基线。CI `quality` Job 已接入该门禁。M9-A03、M9-A05、M9-A06 与 M9-A07 新增的查询端点也由 Controller 路径目录自动纳入。
+- `scripts/check-openapi-drift.mjs` 同时执行两个生成器的 `--check`，并验证 OpenAPI 3.1、213 个端点、16 个聚合及 WorkItem 状态基线。CI `quality` Job 已接入该门禁。M9-A02、M9-A03、M9-A05、M9-A06 与 M9-A07 新增的查询端点也由 Controller 路径目录自动纳入。
 
 ## 2. 本地验证
 
@@ -42,4 +42,4 @@ curl -fsS http://localhost:8080/v3/api-docs | jq '.openapi, (.paths | length)'
 
 ## 4. 基线与变更规则
 
-当前基线为 212 个 Controller 操作、16 个状态机聚合、WorkItem 8 状态/17 条边。由于 OpenAPI 的 `paths` 对同一路径和 HTTP 方法只能保留一个操作，带不同响应媒体类型的重载端点会在 `openApiDocument.paths` 中合并；完整的 212 条操作仍保留在 `openApiOperations`，并由 CI 计数校验。新增端点或状态机边时，必须在同一变更中重新生成并更新基线断言与契约文档；删除或收紧状态边会让 CI 先失败，需完成对应前端动作消费和安全评审后再合并。
+当前基线为 213 个 Controller 操作、16 个状态机聚合、WorkItem 8 状态/17 条边。由于 OpenAPI 的 `paths` 对同一路径和 HTTP 方法只能保留一个操作，带不同响应媒体类型的重载端点会在 `openApiDocument.paths` 中合并；完整的 213 条操作仍保留在 `openApiOperations`，并由 CI 计数校验。新增端点或状态机边时，必须在同一变更中重新生成并更新基线断言与契约文档；删除或收紧状态边会让 CI 先失败，需完成对应前端动作消费和安全评审后再合并。
