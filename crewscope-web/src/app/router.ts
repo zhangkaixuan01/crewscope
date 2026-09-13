@@ -54,6 +54,12 @@ export function createCrewScopeRouter(
         meta: { mode: 'conversation', section: 'conversation', requiredPermission: permissions.conversationUse },
       },
       {
+        path: '/search',
+        name: 'search',
+        component: () => import('../pages/SearchPage.vue'),
+        meta: { mode: 'control', section: 'search', title: '统一搜索', requiredPermission: permissions.scopeRead },
+      },
+      {
         path: '/today',
         name: 'today',
         component: () => import('../pages/TodayPage.vue'),
@@ -173,6 +179,10 @@ export function createCrewScopeRouter(
       return { name: 'access-denied', query: { from: to.fullPath } }
     }
     return true
+  })
+
+  router.afterEach(to => {
+    if (typeof document !== 'undefined' && typeof to.meta.title === 'string') document.title = `${to.meta.title} | CrewScope`
   })
 
   authStore.subscribe((phase, reason) => {

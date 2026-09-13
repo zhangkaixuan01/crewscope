@@ -13,7 +13,7 @@ const labels: Record<string, string> = {
   today: '今日', conversation: '对话', work: '工作', activity: '动态', inbox: 'Inbox',
   'team-observer': '团队观测', operations: '运行与发布', audit: '审计中心', members: '团队成员',
   agents: 'Agent 中心', models: '模型与凭证', lark: '飞书与通知', github: 'GitHub 集成', repositories: '仓库设置',
-  setup: '配置中心', account: '账号',
+  setup: '配置中心', account: '账号', search: '统一搜索',
 }
 const items = computed<BreadcrumbItem[]>(() => {
   if (props.items) return props.items
@@ -44,4 +44,3 @@ const items = computed<BreadcrumbItem[]>(() => {
 .app-breadcrumb [aria-current='page'] { color: var(--cs-text-secondary); font-weight: var(--cs-weight-semibold); }
 .separator { color: var(--cs-border-strong); }
 </style>
-
