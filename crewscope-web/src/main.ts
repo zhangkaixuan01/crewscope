@@ -45,6 +45,8 @@ import { HttpAccountGateway } from './domains/account/gateway'
 import { createAccountStore, installAccountStore } from './domains/account/store'
 import { HttpInvitationGateway } from './domains/invitation/gateway'
 import { createInvitationStore, installInvitationStore } from './domains/invitation/store'
+import { HttpWorkDeskGateway } from './domains/workdesk/gateway'
+import { installWorkDeskStore } from './domains/workdesk/store'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -59,6 +61,7 @@ const onboardingStore = createOnboardingStore(new HttpOnboardingGateway())
 installOnboardingStore(app, onboardingStore)
 const accountStore = installAccountStore(app, createAccountStore(new HttpAccountGateway()))
 const invitationStore = installInvitationStore(app, createInvitationStore(new HttpInvitationGateway()))
+const workDeskStore = installWorkDeskStore(app, new HttpWorkDeskGateway())
 const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
 const conversationStore = installConversationStore(app, new HttpConversationGateway())
 const conversationMessageStore = installConversationMessageStore(app, new HttpConversationMessageGateway())
@@ -101,6 +104,7 @@ authStore.subscribe((phase, reason) => {
   teamOpsStore.reset()
   teamObserverStore.reset()
   setupStore.reset()
+  workDeskStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)
 apiClient.onAuthenticationRequired(() => authStore.authenticationRequired())
