@@ -45,6 +45,14 @@ spring:
         repository-type: indexed
         save-mode: on-set-attribute
 
+springdoc:
+  # M9-I01 exposes the authenticated OpenAPI document for contract generation.
+  api-docs:
+    path: /v3/api-docs
+    version: OPENAPI_3_1
+  packages-to-scan: io.crewscope.server.api
+  model-and-view-allowed: false
+
 # AgentScope provider starters create the Spring Model used by CrewScope's stable
 # `crewscope-primary` slot. Keep the provider empty for API-only development.
 agentscope:

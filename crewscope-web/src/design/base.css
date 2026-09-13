@@ -9,7 +9,7 @@ html {
   background: var(--cs-canvas);
   color: var(--cs-text);
   font-family: var(--cs-font-sans);
-  font-size: 14px;
+  font-size: var(--cs-text-base);
   line-height: 1.5;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

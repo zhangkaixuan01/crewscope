@@ -150,6 +150,25 @@ public final class WorkItemAccessPolicy {
     return requireWorkItem(organizationId, project, workItemId);
   }
 
+  /** Checks the same project-scoped permission used by WorkItem commands without mutating state. */
+  public boolean hasPermission(
+      TeamAccessContext context,
+      OrganizationId organizationId,
+      TeamId teamId,
+      WorkProjectId projectId,
+      TeamPermission permission,
+      UtcTimestamp occurredAt) {
+    TeamAccessContext trusted = Objects.requireNonNull(context, "context");
+    Principal actor = requireAccess(trusted, organizationId);
+    Team team = requireTeam(organizationId, teamId);
+    if (trusted.platformAdministrator()) {
+      return true;
+    }
+    TeamMember member = requireActiveMember(actor, team);
+    requireProject(organizationId, teamId, projectId);
+    return permissionGranted(member, permission, projectId, occurredAt);
+  }
+
   private Team requireTeam(OrganizationId organizationId, TeamId teamId) {
     if (teamRepository.findUninitializedById(organizationId, teamId).isPresent()) {
       throw new DomainValidationException("team.initializationStatus", "must be READY");
@@ -191,6 +210,16 @@ public final class WorkItemAccessPolicy {
       WorkProjectId projectId,
       UtcTimestamp occurredAt,
       String action) {
+    if (!permissionGranted(member, permission, projectId, occurredAt)) {
+      throw new PolicyDeniedException(action);
+    }
+  }
+
+  private boolean permissionGranted(
+      TeamMember member,
+      TeamPermission permission,
+      WorkProjectId projectId,
+      UtcTimestamp occurredAt) {
     Map<TeamRoleId, TeamRole> roles =
         teamRoleRepository
             .findByTeam(member.scope().organizationId(), member.scope().teamId())
@@ -209,9 +238,7 @@ public final class WorkItemAccessPolicy {
             .filter(Objects::nonNull)
             .filter(TeamRole::isGrantable)
             .anyMatch(role -> role.permissions().contains(permission));
-    if (!allowed) {
-      throw new PolicyDeniedException(action);
-    }
+    return allowed;
   }
 
   private void requireTeamPermission(

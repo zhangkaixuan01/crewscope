@@ -265,6 +265,11 @@ public final class WorkItem {
                 audit.modifiedBy(actor, occurredAt));
     }
 
+    /** Returns the immutable state-machine edges available from the supplied status. */
+    public static Set<WorkItemStatus> allowedTransitionsFrom(WorkItemStatus status) {
+        return Set.copyOf(ALLOWED_TRANSITIONS.get(Objects.requireNonNull(status, "status")));
+    }
+
     /** Applies the same state machine after validating the active Principal scope. */
     public WorkItem transitionTo(
             WorkItemStatus target, Principal actor, UtcTimestamp occurredAt) {

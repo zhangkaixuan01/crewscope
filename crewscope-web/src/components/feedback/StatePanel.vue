@@ -48,15 +48,15 @@ const assertive = computed(() => props.state === 'error')
 </template>
 
 <style scoped>
-.state-panel { display: grid; min-height: 180px; place-content: center; justify-items: center; gap: 12px; padding: 32px; color: var(--cs-text-muted); text-align: center; }
-.state-panel h3 { margin-bottom: 4px; color: var(--cs-text); font-size: 15px; }
-.state-panel p { max-width: 390px; margin-bottom: 0; }
-.state-panel.compact { min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; place-content: initial; align-items: center; justify-items: start; gap: 9px; padding: 10px 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); text-align: left; }
-.state-panel.compact h3 { margin: 0 0 2px; font-size: 10px; }
-.state-panel.compact p { margin: 0; font-size: 8px; line-height: 1.45; }
-.state-panel.compact > svg { width: 16px; height: 16px; }
+.state-panel { display: grid; min-height: 180px; place-content: center; justify-items: center; gap: var(--cs-space-3); padding: var(--cs-space-7); color: var(--cs-text-muted); text-align: center; }
+.state-panel h3 { margin-bottom: var(--cs-space-1); color: var(--cs-text); font-size: var(--cs-text-lg); }
+.state-panel p { max-width: 390px; margin-bottom: 0; font-size: var(--cs-text-base); }
+.state-panel.compact { min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; place-content: initial; align-items: center; justify-items: start; gap: var(--cs-space-2); padding: var(--cs-space-2) var(--cs-space-3); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); text-align: left; }
+.state-panel.compact h3 { margin: 0 0 var(--cs-space-1); font-size: var(--cs-text-xs); }
+.state-panel.compact p { margin: 0; font-size: var(--cs-text-2xs); line-height: var(--cs-leading-2xs); }
+.state-panel.compact > svg { width: var(--cs-space-4); height: var(--cs-space-4); }
 .spinning { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
-@media (max-width: 480px) { .state-panel.compact { grid-template-columns: auto minmax(0, 1fr); }.state-panel.compact > :last-child:not(div, svg) { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .state-panel.compact { grid-template-columns: auto minmax(0, 1fr); }.state-panel.compact > :last-child:not(div, svg) { grid-column: 1 / -1; } }
 </style>

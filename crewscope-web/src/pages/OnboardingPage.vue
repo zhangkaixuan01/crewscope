@@ -57,7 +57,7 @@ async function initialize(): Promise<void> {
   localProblem.value = null
   const complete = await onboardingStore.load()
   if (disposed) return
-  if (complete) await router.replace('/conversation')
+  if (complete) await enterConversation()
 }
 
 async function submit(): Promise<void> {
@@ -148,7 +148,12 @@ async function hydrateWorkspace(): Promise<void> {
 }
 
 async function enterConversation(): Promise<void> {
-  const query = createdTeamId.value ? { team: createdTeamId.value } : undefined
+  // Resolve the Team before navigating so the destination is immediately scope-aware.
+  // AppShell still canonicalizes the query, but it no longer has to race the route assertion.
+  const teamId = createdTeamId.value
+    ?? authStore.state.activeTeamId
+    ?? authStore.state.session?.teams[0]?.teamId
+  const query = teamId ? { team: teamId } : undefined
   await router.replace({ name: 'conversation', query })
 }
 

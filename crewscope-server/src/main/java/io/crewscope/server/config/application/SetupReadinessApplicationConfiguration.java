@@ -1,6 +1,7 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.agent.AgentModelDefaultRepository;
 import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.github.GitHubProviderRepository;
@@ -10,6 +11,13 @@ import io.crewscope.application.model.ModelProviderDefinitionRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.runtime.RuntimeObservationService;
 import io.crewscope.application.setup.TeamSetupReadinessApplicationService;
+import io.crewscope.application.setup.ConfigurationHealthApplicationService;
+import io.crewscope.application.setup.ConfigurationSearchApplicationService;
+import io.crewscope.application.principal.PrincipalDirectoryAccessPolicy;
+import io.crewscope.application.principal.PrincipalDirectoryQueryService;
+import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -57,5 +65,51 @@ public class SetupReadinessApplicationConfiguration {
                 runtimeObservation,
                 transactions,
                 timeProvider);
+    }
+
+    @Bean
+    ConfigurationHealthApplicationService configurationHealthApplicationService(
+            WorkItemAccessPolicy accessPolicy,
+            TeamMembershipQuery memberships,
+            AgentProfileRepository profiles,
+            AgentConfigurationRepository configurations,
+            ModelConnectionRepository modelConnections,
+            ConnectionRepository connections,
+            CredentialStore credentials,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider) {
+        return new ConfigurationHealthApplicationService(
+                accessPolicy, memberships, profiles, configurations, modelConnections,
+                connections, credentials, transactions, timeProvider);
+    }
+
+    @Bean
+    ConfigurationSearchApplicationService configurationSearchApplicationService(
+            WorkItemAccessPolicy accessPolicy,
+            TeamMembershipQuery memberships,
+            AgentProfileRepository profiles,
+            AgentConfigurationRepository configurations,
+            TransactionExecutor transactions) {
+        return new ConfigurationSearchApplicationService(
+                accessPolicy, memberships, profiles, configurations, transactions);
+    }
+
+    @Bean
+    PrincipalDirectoryAccessPolicy principalDirectoryAccessPolicy(WorkItemAccessPolicy accessPolicy) {
+        return new PrincipalDirectoryAccessPolicy(accessPolicy);
+    }
+
+    @Bean
+    PrincipalDirectoryQueryService principalDirectoryQueryService(
+            PrincipalDirectoryAccessPolicy accessPolicy,
+            TeamMembershipQuery memberships,
+            PrincipalRepository principals,
+            AgentProfileRepository profiles,
+            MemberRoleRepository memberRoles,
+            TeamRoleRepository teamRoles,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider) {
+        return new PrincipalDirectoryQueryService(accessPolicy, memberships, principals, profiles,
+                memberRoles, teamRoles, transactions, timeProvider);
     }
 }

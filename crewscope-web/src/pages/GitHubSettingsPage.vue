@@ -12,6 +12,7 @@ import AppShell from '../components/layout/AppShell.vue'
 import { HttpDeliveryGateway, type CreateGitHubConnectionInput } from '../domains/delivery/gateway'
 import type { DeliveryScope, GitHubAuthorizationHealth, GitHubConnection, GitHubProviderBinding, GitHubRepository, GitHubRepositoryImportJob } from '../domains/delivery/types'
 import { useScopeStore } from '../domains/scope/store'
+import { useConfirm } from '../composables/useConfirm'
 
 const principal = inject(AUTH_PRINCIPAL)
 const route = useRoute()
@@ -45,6 +46,7 @@ const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const formError = ref<string | null>(null)
+const { confirm } = useConfirm()
 
 const authenticationType = ref<CreateGitHubConnectionInput['authenticationType']>('OAUTH_USER')
 const externalAccountId = ref('')
@@ -243,7 +245,14 @@ async function verifyConnection(): Promise<void> {
 async function revokeConnection(): Promise<void> {
   if (!scope.value || !selectedConnection.value || revoking.value || !online.value) return
   const connection = selectedConnection.value
-  if (!window.confirm(`确定撤销 GitHub Connection「${connection.externalAccountLogin || connection.id.slice(0, 8)}」吗？撤销后需要重新创建连接。`)) return
+  const confirmed = await confirm({
+    title: '撤销 GitHub Connection？',
+    description: `「${connection.externalAccountLogin || connection.id.slice(0, 8)}」撤销后需要重新创建连接。`,
+    confirmLabel: '确认撤销',
+    cancelLabel: '返回',
+    danger: true,
+  })
+  if (!confirmed) return
   revoking.value = true
   errorMessage.value = null
   try {

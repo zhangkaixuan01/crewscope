@@ -1,6 +1,6 @@
 # CrewScope 前端设计规范
 
-> 文档版本：v1.22<br>
+> 文档版本：v2.0<br>
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.69`<br>
 > 适用工程：`crewscope-web`  
 > 技术基线：Vue 3、TypeScript、Vite
@@ -330,29 +330,37 @@ M7-F08 统一收口正式身份入口。Coverage 必须包含 Identity、Account
 
 语义状态从上述基色派生文字、背景和边框三档。风险、责任和审批状态同时提供图标与文字。
 
-### 4.2 字体
+### 4.2 字体与比例尺（Design System v2）
 
 - UI 与正文：`Inter, ui-sans-serif, system-ui, sans-serif`；
 - 品牌标题与关键空状态：`Georgia, ui-serif, serif`；
 - ID、代码、Commit、日志和数值：`ui-monospace, SFMono-Regular, monospace`；
-- 工作页面正文默认 14px，辅助信息 12px，标题依次为 18/24/32px；
+- 工作页面正文默认 14px，辅助信息 12px；标题使用 16/20/24px，避免信息密集工作台被超大标题挤压；
+- 字号只使用七档 Token：`--cs-text-2xs`（11px，仅 Badge/角标）、`--cs-text-xs`（12px）、`--cs-text-sm`（13px）、`--cs-text-base`（14px）、`--cs-text-lg`（16px）、`--cs-text-xl`（20px）、`--cs-text-2xl`（24px）；生产代码禁止 ≤10px；
+- 行高与字号一一对应：1.45/1.5/1.55/1.6/1.5/1.4/1.3；字重使用 400/560/650/700 四档；
 - 数字指标启用 tabular numbers，日志和 Diff 保留等宽对齐。
 
 Serif 只用于低频识别元素，表格、表单、导航和执行信息使用 Sans Serif。
 
 ### 4.3 空间、形状与层级
 
-- 间距基数为 4px，常用间距为 4/8/12/16/24/32；
-- 控件高度为 32/36/40px，触摸目标不低于 44px；
+- 间距基数为 4px，统一使用 `--cs-space-1..10`（4/8/12/16/20/24/32/40/48/64px）；
+- 控件高度由密度 Token 控制：comfortable 为 38px，compact 为 32px；触摸目标不低于 44px；
 - 圆角为 8/12/16px，Badge 可使用全圆角；
 - 工作区主要依靠边框和 Surface 层级，阴影只用于浮层、拖拽和焦点对象；
 - 内容区最大宽度由页面模板决定，执行画布和数据表不设置文章式窄宽度。
+- 层级统一使用 `--cs-z-base/sticky/popover/drawer/modal/toast`，组件不得自定义 z-index 数值。
+
+主题通过 `[data-theme="dark"]` 覆盖语义 Token，组件只消费 `--cs-surface`、`--cs-text`、`--cs-border` 等语义变量；密度通过 `[data-density="comfortable|compact"]` 覆盖间距与控件高度，不改变字号。主题跟随系统，用户覆盖值保存在本地偏好中。
+
+响应式断点统一为 `--cs-bp-sm`（640px）、`--cs-bp-md`（768px）、`--cs-bp-lg`（1100px）、`--cs-bp-xl`（1400px）。内容阅读宽度（例如 720px）属于布局约束，不得冒充断点。
 
 ### 4.4 动效
 
 - Hover 与 Focus：120ms；
-- 抽屉、Popover 和面板切换：160–200ms；
-- 执行状态迁移：200–240ms；
+- 抽屉、Popover 和面板切换：`--cs-motion-base`（180ms）；
+- 抽屉、Dialog 和分栏变化：`--cs-motion-slow`（260ms）；
+- 曲线只使用 `--cs-ease-out` 与 `--cs-ease-in-out`；
 - 流式内容使用低干扰增量反馈，避免持续闪烁和大面积骨架动画；
 - `prefers-reduced-motion` 下关闭位移、缩放和非必要循环动画。
 - 全局在 Reduced Motion 下取消平滑滚动，并将必要 Transition 与动画压缩至近即时。

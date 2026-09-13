@@ -30,6 +30,9 @@
   --cs-danger-soft: #fff0f0;
   --cs-success: #43845e;
   --cs-success-soft: #edf8f1;
+  --cs-action-primary: var(--cs-brand-950);
+  --cs-action-primary-hover: var(--cs-brand-700);
+  --cs-focus: var(--cs-brand-600);
   --cs-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cs-font-display: Georgia, "Times New Roman", ui-serif, serif;
   --cs-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -41,11 +44,100 @@
   --cs-focus-ring: 0 0 0 3px rgb(142 213 167 / 42%);
   --cs-transition-fast: 120ms ease;
   --cs-transition-panel: 180ms ease;
+
+  /* Design System v2: the only supported type and spacing scales. */
+  --cs-text-2xs: 11px;
+  --cs-text-xs: 12px;
+  --cs-text-sm: 13px;
+  --cs-text-base: 14px;
+  --cs-text-lg: 16px;
+  --cs-text-xl: 20px;
+  --cs-text-2xl: 24px;
+  --cs-leading-2xs: 1.45;
+  --cs-leading-xs: 1.5;
+  --cs-leading-sm: 1.55;
+  --cs-leading-base: 1.6;
+  --cs-leading-lg: 1.5;
+  --cs-leading-xl: 1.4;
+  --cs-leading-2xl: 1.3;
+  --cs-weight-regular: 400;
+  --cs-weight-medium: 560;
+  --cs-weight-semibold: 650;
+  --cs-weight-bold: 700;
+  --cs-space-1: 4px;
+  --cs-space-2: 8px;
+  --cs-space-3: 12px;
+  --cs-space-4: 16px;
+  --cs-space-5: 20px;
+  --cs-space-6: 24px;
+  --cs-space-7: 32px;
+  --cs-space-8: 40px;
+  --cs-space-9: 48px;
+  --cs-space-10: 64px;
+  --cs-z-base: 0;
+  --cs-z-sticky: 10;
+  --cs-z-popover: 30;
+  --cs-z-drawer: 40;
+  --cs-z-modal: 50;
+  --cs-z-toast: 60;
+  --cs-motion-fast: 120ms;
+  --cs-motion-base: 180ms;
+  --cs-motion-slow: 260ms;
+  --cs-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --cs-ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --cs-bp-sm: 640px;
+  --cs-bp-md: 768px;
+  --cs-bp-lg: 1100px;
+  --cs-bp-xl: 1400px;
+  --cs-density-control-height: 38px;
+  --cs-density-panel-gap: var(--cs-space-4);
+}
+
+/* Dark mode is a semantic overlay; components never branch on theme. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --cs-canvas: #111814;
+  --cs-surface: #18231d;
+  --cs-surface-subtle: #1e2b24;
+  --cs-surface-raised: #24342b;
+  --cs-border: #34473b;
+  --cs-border-strong: #496052;
+  --cs-text: #edf5ef;
+  --cs-text-secondary: #c4d1c7;
+  --cs-text-muted: #9caf9f;
+  --cs-text-on-dark: #f3f7f4;
+  --cs-info: #86b9e6;
+  --cs-info-soft: #1a3348;
+  --cs-agent: #c2a9f2;
+  --cs-agent-soft: #32264d;
+  --cs-warning: #f0bd78;
+  --cs-warning-soft: #48321d;
+  --cs-danger: #f19a9a;
+  --cs-danger-soft: #472628;
+  --cs-success: #8ed5a7;
+  --cs-success-soft: #1c3b29;
+  --cs-action-primary: var(--cs-brand-300);
+  --cs-action-primary-hover: var(--cs-brand-200);
+  --cs-focus: var(--cs-brand-300);
+  --cs-density-panel-gap: var(--cs-space-3);
+}
+
+[data-density="compact"] {
+  --cs-density-control-height: 32px;
+  --cs-density-panel-gap: var(--cs-space-3);
+}
+
+[data-density="comfortable"] {
+  --cs-density-control-height: 38px;
+  --cs-density-panel-gap: var(--cs-space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --cs-transition-fast: 0ms;
     --cs-transition-panel: 0ms;
+    --cs-motion-fast: 0ms;
+    --cs-motion-base: 0ms;
+    --cs-motion-slow: 0ms;
   }
 }

@@ -206,6 +206,8 @@ jobs:
         run: git diff --check "$BASE_SHA" "$HEAD_SHA"
       - name: Check documentation links
         run: node scripts/check-doc-links.mjs
+      - name: Check OpenAPI and state-machine contracts
+        run: node scripts/check-openapi-drift.mjs
       - name: Validate Team Beta deployment contract
         run: node scripts/check-team-beta-deployment.mjs
       - name: Validate environment and Secret configuration contract
@@ -214,6 +216,8 @@ jobs:
         run: node scripts/check-team-beta-recovery.mjs
       - name: Check Web public projections for sensitive fields
         run: node scripts/check-web-sensitive-fields.mjs
+      - name: Check Design System v2 tokens
+        run: node scripts/check-design-tokens.mjs
       - name: Validate M7 release contract
         run: node scripts/check-m7-release-contract.mjs
       - name: Validate frozen M4 coding evaluation suite

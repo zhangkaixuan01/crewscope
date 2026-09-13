@@ -1,6 +1,11 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.setup.TeamSetupCapability;
+import io.crewscope.application.setup.ConfigurationHealthApplicationService;
+import io.crewscope.application.setup.ConfigurationHealthItem;
+import io.crewscope.application.setup.ConfigurationHealthView;
+import io.crewscope.application.setup.ConfigurationSearchApplicationService;
+import io.crewscope.application.setup.ConfigurationSearchResult;
 import io.crewscope.application.setup.TeamSetupReadinessApplicationService;
 import io.crewscope.application.setup.TeamSetupReadinessItem;
 import io.crewscope.application.setup.TeamSetupReadinessStatus;
@@ -18,6 +23,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,14 +42,71 @@ public final class TeamSetupReadinessController {
     private final TeamSetupReadinessApplicationService service;
     private final TeamRequestIdentityResolver identityResolver;
     private final RuntimeObservationProperties runtimeProperties;
+    private final ConfigurationHealthApplicationService configurationHealth;
+    private final ConfigurationSearchApplicationService configurationSearch;
 
+    @Autowired
+    public TeamSetupReadinessController(
+            TeamSetupReadinessApplicationService service,
+            TeamRequestIdentityResolver identityResolver,
+            RuntimeObservationProperties runtimeProperties,
+            ConfigurationHealthApplicationService configurationHealth,
+            ConfigurationSearchApplicationService configurationSearch) {
+        this.service = service;
+        this.identityResolver = identityResolver;
+        this.runtimeProperties = runtimeProperties;
+        this.configurationHealth = configurationHealth;
+        this.configurationSearch = configurationSearch;
+    }
+
+    /** Compatibility constructor for focused readiness controller tests and embedders. */
     public TeamSetupReadinessController(
             TeamSetupReadinessApplicationService service,
             TeamRequestIdentityResolver identityResolver,
             RuntimeObservationProperties runtimeProperties) {
-        this.service = service;
-        this.identityResolver = identityResolver;
-        this.runtimeProperties = runtimeProperties;
+        this(service, identityResolver, runtimeProperties, null, null);
+    }
+
+    /** Returns the derived configuration health projection used by the Settings and Setup views. */
+    @GetMapping("/configuration-health")
+    public Mono<ResponseEntity<ConfigurationHealthResponse>> configurationHealth(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @RequestParam(required = false) String environment,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        Route route = route(organizationId, teamId);
+        if (configurationHealth == null) {
+            throw new IllegalStateException("configuration health is not configured");
+        }
+        RuntimeEnvironment selected = environment(environment);
+        UUID correlationId = ApiCorrelationIds.resolve(exchange);
+        return identityResolver.resolve(authentication, route.organizationId(), correlationId)
+                .flatMap(access -> blocking(() -> configurationHealth.get(
+                        access, route.organizationId(), route.teamId(), selected)))
+                .map(value -> ResponseEntity.ok()
+                        .cacheControl(CacheControl.noStore())
+                        .body(ConfigurationHealthResponse.from(value)));
+    }
+
+    /** Searches visible configuration metadata without returning user-entered values. */
+    @GetMapping("/configuration-search")
+    public Mono<ResponseEntity<ConfigurationSearchResponse>> configurationSearch(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @RequestParam String q,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        if (configurationSearch == null) {
+            throw new IllegalStateException("configuration search is not configured");
+        }
+        Route route = route(organizationId, teamId);
+        UUID correlationId = ApiCorrelationIds.resolve(exchange);
+        return identityResolver.resolve(authentication, route.organizationId(), correlationId)
+                .flatMap(access -> blocking(() -> configurationSearch.search(
+                        access, route.organizationId(), route.teamId(), q)))
+                .map(value -> ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                        .body(ConfigurationSearchResponse.from(value)));
     }
 
     @GetMapping("/setup-readiness")
@@ -135,6 +198,47 @@ public final class TeamSetupReadinessController {
                     value.canConfigure(),
                     value.responsibleParty(),
                     value.actionKey());
+        }
+    }
+
+    public record ConfigurationHealthResponse(
+            String organizationId,
+            String teamId,
+            String observedAt,
+            String overallStatus,
+            List<ConfigurationHealthItemResponse> items) {
+        static ConfigurationHealthResponse from(ConfigurationHealthView value) {
+            return new ConfigurationHealthResponse(
+                    value.organizationId().toString(), value.teamId().toString(),
+                    value.observedAt().toString(), value.overallStatus().name(),
+                    value.items().stream().map(ConfigurationHealthItemResponse::from).toList());
+        }
+    }
+
+    public record ConfigurationHealthItemResponse(
+            String component,
+            String status,
+            String reasonCode,
+            String responsibleParty,
+            Optional<String> actionKey) {
+        static ConfigurationHealthItemResponse from(ConfigurationHealthItem value) {
+            return new ConfigurationHealthItemResponse(value.component(), value.status().name(),
+                    value.reasonCode(), value.responsibleParty(), value.actionKey());
+        }
+    }
+
+    public record ConfigurationSearchResponse(List<ConfigurationSearchResultResponse> items) {
+        static ConfigurationSearchResponse from(List<ConfigurationSearchResult> values) {
+            return new ConfigurationSearchResponse(values.stream()
+                    .map(ConfigurationSearchResultResponse::from).toList());
+        }
+    }
+
+    public record ConfigurationSearchResultResponse(
+            String profileId, long revision, String field, String label, String route) {
+        static ConfigurationSearchResultResponse from(ConfigurationSearchResult value) {
+            return new ConfigurationSearchResultResponse(value.profileId(), value.revision(),
+                    value.field(), value.label(), value.route());
         }
     }
 }

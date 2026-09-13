@@ -292,6 +292,7 @@ public final class TeamController {
       String status,
       String joinMethod,
       String joinedAt,
+      List<String> roles,
       long version) {
 
     static TeamMemberResponse from(TeamMemberView view) {
@@ -303,6 +304,7 @@ public final class TeamController {
           member.status().name(),
           member.joinMethod().name(),
           member.joinedAt().map(Object::toString).orElse(null),
+          view.roles(),
           member.version());
     }
   }

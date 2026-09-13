@@ -154,6 +154,22 @@ public final class AgentConfigurationApplicationService {
         });
     }
 
+    /** Returns one immutable historical revision after applying the same management boundary. */
+    public AgentConfigurationVersion revision(
+            TeamAccessContext context,
+            OrganizationId organizationId,
+            TeamId teamId,
+            AgentProfileId profileId,
+            AgentConfigurationRevision revision) {
+        return transactions.required(() -> {
+            requireManagement(context, organizationId, teamId, profileId, timeProvider.now());
+            return configurations.findByRevision(organizationId, profileId,
+                            Objects.requireNonNull(revision, "revision"))
+                    .orElseThrow(() -> new AggregateNotFoundException(
+                            "AgentConfigurationRevision", profileId));
+        });
+    }
+
     /** Computes the exact selectable intersection for a configuration editor. */
     public List<SelectableModelOption> selectable(
             TeamAccessContext context,

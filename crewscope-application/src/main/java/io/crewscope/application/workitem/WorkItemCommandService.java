@@ -80,6 +80,7 @@ public final class WorkItemCommandService {
   private final CommandReceiptStore receiptStore;
   private final TransactionExecutor transactionExecutor;
   private final TimeProvider timeProvider;
+  private final WorkItemAccessPolicy transitionAccessPolicy;
 
   public WorkItemCommandService(
       WorkItemRepository workItemRepository,
@@ -94,6 +95,27 @@ public final class WorkItemCommandService {
       CommandReceiptStore receiptStore,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
+    this(
+        workItemRepository, projectRepository, teamRepository, membershipQuery,
+        teamRoleRepository, memberRoleRepository, assignmentRepository, domainEventStore,
+        outboxRepository, receiptStore, transactionExecutor, timeProvider, null);
+  }
+
+  /** Constructor used by the server so transition discoverability and execution share policy code. */
+  public WorkItemCommandService(
+      WorkItemRepository workItemRepository,
+      WorkProjectRepository projectRepository,
+      TeamRepository teamRepository,
+      TeamMembershipQuery membershipQuery,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      ResponsibilityAssignmentRepository assignmentRepository,
+      DomainEventStore domainEventStore,
+      OutboxRepository outboxRepository,
+      CommandReceiptStore receiptStore,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider,
+      WorkItemAccessPolicy transitionAccessPolicy) {
     this.workItemRepository = Objects.requireNonNull(workItemRepository, "workItemRepository");
     this.projectRepository = Objects.requireNonNull(projectRepository, "projectRepository");
     this.teamRepository = Objects.requireNonNull(teamRepository, "teamRepository");
@@ -107,6 +129,7 @@ public final class WorkItemCommandService {
     this.receiptStore = Objects.requireNonNull(receiptStore, "receiptStore");
     this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
     this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+    this.transitionAccessPolicy = transitionAccessPolicy;
   }
 
   /** Creates a fully described CrewScope-native WorkItem in an active WorkProject. */
@@ -235,12 +258,20 @@ public final class WorkItemCommandService {
     WorkProject project = requireProject(organizationId, teamId, projectId);
     UtcTimestamp occurredAt = timeProvider.now();
     TeamMember member = requireActiveMember(actor, team);
-    requirePermission(
-        member,
-        TeamPermission.WORK_PARTICIPATE,
-        project.id(),
-        occurredAt,
-        "transition WorkItems in this WorkProject");
+    if (transitionAccessPolicy != null) {
+      if (!transitionAccessPolicy.hasPermission(
+          context.access(), organizationId, teamId, project.id(),
+          TeamPermission.WORK_PARTICIPATE, occurredAt)) {
+        throw new PolicyDeniedException("transition WorkItems in this WorkProject");
+      }
+    } else {
+      requirePermission(
+          member,
+          TeamPermission.WORK_PARTICIPATE,
+          project.id(),
+          occurredAt,
+          "transition WorkItems in this WorkProject");
+    }
     WorkItem current = requireWorkItem(organizationId, project, workItemId);
     if (!current.source().isNative()) {
       throw new PolicyDeniedException("transition an externally managed WorkItem");

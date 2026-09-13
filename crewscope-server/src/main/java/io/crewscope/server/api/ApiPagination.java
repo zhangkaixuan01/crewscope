@@ -10,6 +10,8 @@ public final class ApiPagination {
     public static final int MAX_LIMIT = 100;
     public static final int DELIVERY_CARDS_DEFAULT_LIMIT = 20;
     public static final int DELIVERY_CARDS_MAX_LIMIT = 50;
+    public static final int DIRECTORY_DEFAULT_LIMIT = 50;
+    public static final int DIRECTORY_MAX_LIMIT = 200;
 
     private ApiPagination() {}
 
@@ -21,6 +23,11 @@ public final class ApiPagination {
     public static int deliveryCardsLimit(Integer requestedLimit) {
         return boundedLimit(
                 requestedLimit, DELIVERY_CARDS_DEFAULT_LIMIT, DELIVERY_CARDS_MAX_LIMIT);
+    }
+
+    /** Uses the larger bounded page allowed by the subject directory contract. */
+    public static int directoryLimit(Integer requestedLimit) {
+        return boundedLimit(requestedLimit, DIRECTORY_DEFAULT_LIMIT, DIRECTORY_MAX_LIMIT);
     }
 
     private static int boundedLimit(Integer requestedLimit, int defaultLimit, int maxLimit) {

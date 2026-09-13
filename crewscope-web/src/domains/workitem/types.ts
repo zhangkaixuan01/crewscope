@@ -1,4 +1,5 @@
 import type { CommandReceipt } from '../scope/types'
+import { workItemStateMachine } from '../../api/generated/state-machines'
 
 export const workItemStatuses = [
   'BACKLOG',
@@ -173,16 +174,8 @@ export interface WorkItemVersionConflict {
   currentVersion: number | null
 }
 
-/** Mirrors the native WorkItem aggregate state machine for action discovery only. */
-export const allowedWorkItemTransitions: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> = {
-  BACKLOG: ['READY', 'CANCELLED'],
-  READY: ['IN_PROGRESS', 'CANCELLED'],
-  IN_PROGRESS: ['IN_REVIEW', 'BLOCKED', 'CANCELLED'],
-  IN_REVIEW: ['IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'],
-  BLOCKED: ['READY', 'IN_PROGRESS', 'IN_REVIEW', 'CANCELLED'],
-  DONE: ['ARCHIVED'],
-  CANCELLED: ['ARCHIVED'],
-  ARCHIVED: [],
-}
+/** Generated from the domain aggregate; retained as a typed view for existing consumers. */
+export const allowedWorkItemTransitions: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> =
+  workItemStateMachine.transitions as Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>>
 
 export type WorkItemCommandReceipt = CommandReceipt

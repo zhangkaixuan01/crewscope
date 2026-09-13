@@ -11,6 +11,7 @@ import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.agent.AgentBudgetPolicyReference;
 import io.crewscope.domain.agent.AgentConfigurationVersion;
+import io.crewscope.domain.agent.AgentConfigurationRevision;
 import io.crewscope.domain.agent.AgentExecutionScope;
 import io.crewscope.domain.agent.AgentMemoryPolicyReference;
 import io.crewscope.domain.agent.AgentModelBindingKind;
@@ -89,6 +90,30 @@ public final class AgentConfigurationController {
                         .cacheControl(CacheControl.noStore())
                         .eTag(Long.toString(value.revision().value()))
                         .body(CurrentConfigurationResponse.from(value)));
+    }
+
+    /** Reads the complete public payload of one immutable configuration revision. */
+    @GetMapping("/configurations/{revision}")
+    public Mono<ResponseEntity<ConfigurationRevisionDetailResponse>> revision(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String profileId,
+            @PathVariable long revision,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        if (revision < 1) {
+            throw invalidField("revision");
+        }
+        OrganizationId organization = organizationId(organizationId);
+        TeamId team = teamId(teamId);
+        AgentProfileId profile = profileId(profileId);
+        return query(authentication, organization, exchange,
+                        access -> service.revision(access, organization, team, profile,
+                                new AgentConfigurationRevision(revision)))
+                .map(value -> ResponseEntity.ok()
+                        .cacheControl(CacheControl.noStore())
+                        .eTag(value.configurationHash().toString())
+                        .body(ConfigurationRevisionDetailResponse.from(value)));
     }
 
     @GetMapping("/model-catalog")
@@ -360,6 +385,51 @@ public final class AgentConfigurationController {
                     value.policyPack().version(),
                     value.configurationHash().toString(),
                     value.audit().createdAt().toString());
+        }
+    }
+
+    /** Public, non-secret full revision payload used by read-only comparison views. */
+    public record ConfigurationRevisionDetailResponse(
+            long revision,
+            Long previousRevision,
+            String templateKey,
+            long templateVersion,
+            String templateContentHash,
+            AgentManagementController.BindingResponse personalBinding,
+            AgentManagementController.BindingResponse teamBinding,
+            String supplementalInstructions,
+            List<String> enabledToolKeys,
+            String structuredOutputSchemaHash,
+            List<String> approvedSkillKeys,
+            PolicyReferenceResponse memoryPolicy,
+            PolicyReferenceResponse budgetPolicy,
+            GenerateOptionsResponse generateOptions,
+            String policyPackId,
+            long policyPackVersion,
+            String configurationHash,
+            String createdAt,
+            String createdBy) {
+        static ConfigurationRevisionDetailResponse from(AgentConfigurationVersion value) {
+            return new ConfigurationRevisionDetailResponse(
+                    value.revision().value(),
+                    value.previousRevision().map(AgentConfigurationRevision::value).orElse(null),
+                    value.templateVersion().key().toString(),
+                    value.templateVersion().version(),
+                    value.templateContentHash().toString(),
+                    value.personalModelBinding().map(AgentManagementController.BindingResponse::from).orElse(null),
+                    value.teamModelBinding().map(AgentManagementController.BindingResponse::from).orElse(null),
+                    value.templateConfiguration().supplementalInstructions().orElse(null),
+                    value.templateConfiguration().enabledTools().stream().map(Object::toString).sorted().toList(),
+                    value.templateConfiguration().structuredOutputSchemaHash().map(Object::toString).orElse(null),
+                    value.approvedSkillKeys().stream().sorted().toList(),
+                    value.memoryPolicy().map(PolicyReferenceResponse::from).orElse(null),
+                    value.budgetPolicy().map(PolicyReferenceResponse::from).orElse(null),
+                    GenerateOptionsResponse.from(value.generateOptions()),
+                    value.policyPack().id().toString(),
+                    value.policyPack().version(),
+                    value.configurationHash().toString(),
+                    value.audit().createdAt().toString(),
+                    value.audit().createdBy().orElseThrow().toString());
         }
     }
 

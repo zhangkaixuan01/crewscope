@@ -26,6 +26,7 @@ import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
 import io.crewscope.application.workitem.WorkItemTimelineService;
+import io.crewscope.application.workitem.WorkItemTransitionAvailabilityQueryService;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectRepository;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -142,6 +143,12 @@ public class WorkItemApplicationConfiguration {
   }
 
   @Bean
+  WorkItemTransitionAvailabilityQueryService workItemTransitionAvailabilityQueryService(
+      WorkItemAccessPolicy workItemAccessPolicy, TimeProvider timeProvider) {
+    return new WorkItemTransitionAvailabilityQueryService(workItemAccessPolicy, timeProvider);
+  }
+
+  @Bean
   WorkItemTimelineService workItemTimelineService(
       WorkItemTimelineRepository workItemTimelineRepository,
       WorkItemAccessPolicy workItemAccessPolicy,
@@ -184,7 +191,8 @@ public class WorkItemApplicationConfiguration {
       OutboxRepository outboxRepository,
       CommandReceiptStore commandReceiptStore,
       TransactionExecutor transactionExecutor,
-      TimeProvider timeProvider) {
+      TimeProvider timeProvider,
+      WorkItemAccessPolicy workItemAccessPolicy) {
     return new WorkItemCommandService(
         workItemRepository,
         workProjectRepository,
@@ -197,7 +205,8 @@ public class WorkItemApplicationConfiguration {
         outboxRepository,
         commandReceiptStore,
         transactionExecutor,
-        timeProvider);
+        timeProvider,
+        workItemAccessPolicy);
   }
 
   @Bean

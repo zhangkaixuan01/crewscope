@@ -92,6 +92,26 @@ class AgentConfigurationControllerM5A03Test {
     }
 
     @Test
+    void returnsReadOnlyFullHistoricalRevisionWithHashEtag() {
+        AgentConfigurationVersion configuration = configuration();
+        when(service.revision(any(), any(), any(), any(), any())).thenReturn(configuration);
+
+        client.get()
+                .uri(base() + "/configurations/2")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(ApiHeaders.ETAG, "\"" + "a".repeat(64) + "\"")
+                .expectHeader().valueEquals("Cache-Control", "no-store")
+                .expectBody()
+                .jsonPath("$.revision").isEqualTo(2)
+                .jsonPath("$.approvedSkillKeys").isArray()
+                .jsonPath("$.configurationHash").isEqualTo("a".repeat(64))
+                .jsonPath("$.endpoint").doesNotExist()
+                .jsonPath("$.credential").doesNotExist()
+                .jsonPath("$.systemPrompt").doesNotExist();
+    }
+
+    @Test
     void appendsOnlyStableIdsAndControlledPreferencesThroughAReceipt() {
         CommandReceipt receipt = new CommandReceipt(
                 UUID.randomUUID(), UUID.randomUUID(), 3, UUID.randomUUID());

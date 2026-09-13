@@ -46,6 +46,7 @@ export interface TeamMemberSummary {
   status: string
   joinMethod: string
   joinedAt: string | null
+  roles?: string[]
   version: number
 }
 

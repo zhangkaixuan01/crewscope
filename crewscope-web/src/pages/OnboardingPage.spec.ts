@@ -39,6 +39,7 @@ describe('OnboardingPage', () => {
     const fixture = await mountPage({ initiallyComplete: true })
 
     await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('conversation'))
+    expect(fixture.router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
     expect(fixture.wrapper.find('form').exists()).toBe(false)
     expect(fixture.onboarding.createFirstTeam).not.toHaveBeenCalled()
     fixture.wrapper.unmount()

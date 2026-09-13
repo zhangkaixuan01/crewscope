@@ -38,6 +38,7 @@ import io.crewscope.domain.team.TeamInitialization;
 import io.crewscope.domain.team.TeamJoinMethod;
 import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamMemberId;
+import io.crewscope.domain.team.TeamMemberStatus;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
@@ -235,6 +236,10 @@ public final class TeamApplicationService {
     Team team = requireTeam(organizationId, teamId);
     requireActiveMember(trusted.actor(), team);
     List<TeamMember> members = membershipQuery.findByTeam(organizationId, teamId);
+    Map<TeamRoleId, TeamRole> rolesById = teamRoleRepository.findByTeam(
+            organizationId, teamId).stream()
+        .collect(Collectors.toMap(TeamRole::id, Function.identity()));
+    UtcTimestamp now = timeProvider.now();
     Set<PrincipalId> principalIds =
         members.stream().map(TeamMember::userPrincipalId).collect(Collectors.toSet());
     Map<PrincipalId, Principal> principals =
@@ -250,7 +255,19 @@ public final class TeamApplicationService {
                               new AggregateNotFoundException(
                                   "Principal", member.userPrincipalId()));
               requireUserDirectoryEntry(principal, organizationId, member);
-              return new TeamMemberView(member, principal.displayName());
+              List<String> roleKeys = member.status() == TeamMemberStatus.ACTIVE
+                  ? memberRoleRepository.findByMember(organizationId, member.id()).stream()
+                      .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
+                      .filter(grant -> grant.isEffectiveAt(now))
+                      .map(grant -> rolesById.get(grant.teamRoleId()))
+                      .filter(Objects::nonNull)
+                      .filter(TeamRole::isGrantable)
+                      .map(role -> role.key().value())
+                      .distinct()
+                      .sorted()
+                      .toList()
+                  : List.of();
+              return new TeamMemberView(member, principal.displayName(), roleKeys);
             })
         .toList();
   }
