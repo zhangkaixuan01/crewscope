@@ -26,6 +26,7 @@ import io.crewscope.application.review.ReviewFindingRepository;
 import io.crewscope.application.review.ReviewGateApplicationService;
 import io.crewscope.application.review.ReviewModificationRoundRepository;
 import io.crewscope.application.review.ReviewQueryRepository;
+import io.crewscope.application.review.ReviewLineCommentRepository;
 import io.crewscope.application.review.ReviewRequestApplicationService;
 import io.crewscope.application.review.ReviewRequestRepository;
 import io.crewscope.application.review.ReviewSubjectRepository;
@@ -72,6 +73,7 @@ class ReviewApplicationCompositionTest {
                 .withBean(ReviewModificationRoundRepository.class,
                         () -> mock(ReviewModificationRoundRepository.class))
                 .withBean(ReviewQueryRepository.class, () -> mock(ReviewQueryRepository.class))
+                .withBean(ReviewLineCommentRepository.class, () -> mock(ReviewLineCommentRepository.class))
                 .withBean(TaskAgentRuntimeSessionRepository.class,
                         () -> mock(TaskAgentRuntimeSessionRepository.class))
                 .withBean(CodingArtifactContentPort.class, () -> mock(CodingArtifactContentPort.class))
