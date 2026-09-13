@@ -9,6 +9,8 @@ import { principalDisplayName, type PrincipalNameDirectory } from '../../domains
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
+import { formatAbsoluteTime, formatRelativeTime } from '../../composables/useRelativeTime'
+import BaseTooltip from '../base/BaseTooltip.vue'
 
 const props = withDefaults(defineProps<{
   phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -77,11 +79,6 @@ function referenceLabel(type: string): string {
   return ({ WORK_ITEM: 'WorkItem', CONVERSATION: 'Conversation', TASK: 'Task', REVIEW_REQUEST: 'Review', PLANNED_ACTION: 'Action', ARTIFACT: 'Evidence' } as Record<string, string>)[type] ?? type
 }
 
-function displayTime(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(new Date(value))
-}
 </script>
 
 <template>
@@ -115,7 +112,7 @@ function displayTime(value: string): string {
           <article>
             <header>
               <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ item.eventType }}</strong><StatusBadge :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
-              <time :datetime="item.occurredAt"><Clock3 :size="11" aria-hidden="true" />{{ displayTime(item.occurredAt) }}</time>
+              <BaseTooltip :text="formatAbsoluteTime(item.occurredAt)"><time :datetime="item.occurredAt"><Clock3 :size="11" aria-hidden="true" />{{ formatRelativeTime(item.occurredAt) }}</time></BaseTooltip>
             </header>
             <dl>
               <div><dt><UserRound :size="11" aria-hidden="true" />Actor</dt><dd>{{ actor(item) }}</dd></div>

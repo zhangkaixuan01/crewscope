@@ -176,6 +176,17 @@ function loadMore(): void {
   void store.loadInbox(filter.value, true)
 }
 
+async function batchDisposition(itemIds: string[], status: Exclude<InboxDispositionStatus, 'UNREAD'>): Promise<void> {
+  if (!online.value || itemIds.length === 0) return
+  // Each item keeps its own idempotency key; one conflict cannot silently
+  // replay or overwrite a neighbouring item's disposition. TeamOps intentionally
+  // serializes commands, so execute the batch in order instead of racing them.
+  for (const itemId of itemIds) {
+    await store.changeInboxDisposition(itemId, status, crypto.randomUUID())
+  }
+  await Promise.all([store.loadInbox(filter.value, false, true), store.loadInboxCounts(true)])
+}
+
 function normalizeQuery(query: Record<string, unknown>, key: string, value: string, defaultValue: string): boolean {
   const current = queryValue(query[key])
   const expected = value === defaultValue ? null : value
@@ -235,6 +246,7 @@ function queryValue(value: unknown): string | null {
       @load-more="loadMore"
       @open-target="openTarget"
       @change-disposition="changeDisposition"
+      @batch-disposition="batchDisposition"
     />
   </AppShell>
 </template>

@@ -14,6 +14,7 @@ import { principalDisplayName, principalNameDirectory } from '../domains/scope/m
 import { useActivityRealtimeStore } from '../domains/teamops/activityRealtimeStore'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ActivityItem, TeamOpsScope } from '../domains/teamops/types'
+import { useListSort } from '../composables/useListSort'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +23,8 @@ const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const realtime = useActivityRealtimeStore()
 const online = useNetworkStatus()
+const activitySort = useListSort({ defaultKey: 'occurredAt' as const, defaultDirection: 'desc', allowedKeys: ['occurredAt'] as const })
+const activitySortLabel = computed(() => activitySort.direction.value === 'asc' ? '最早优先' : '最新优先')
 const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const actorFilter = ref('')
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
@@ -41,6 +44,9 @@ const filteredItems = computed(() => (store.state.teamActivity.value ?? []).filt
       ? principalDisplayName(principalNames.value, item.actor.principalId, item.actor.type).toLowerCase().includes(actor)
       : false)
   return categoryMatches && actorMatches
+}).sort((left, right) => {
+  const delta = new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime()
+  return activitySort.direction.value === 'asc' ? delta : -delta
 }))
 const categories = computed(() => [...new Set((store.state.teamActivity.value ?? []).map(item => item.category))].sort())
 
@@ -62,6 +68,15 @@ watch(
 
 watch(online, value => realtime.setOnline(value), { immediate: true })
 watch(selectedEventId, eventId => { if (eventId && scope.value) void store.loadActivityDetail(eventId) })
+watch(() => route.query.sortDirection, value => {
+  if (value === 'asc' || value === 'desc') activitySort.setSort('occurredAt', value)
+}, { immediate: true })
+watch(() => activitySort.direction.value, direction => {
+  const query = { ...route.query }
+  if (direction === 'desc') delete query.sortDirection
+  else query.sortDirection = direction
+  if (query.sortDirection !== route.query.sortDirection) void router.replace({ query })
+})
 onUnmounted(() => realtime.stop())
 
 async function reload(): Promise<void> {
@@ -111,6 +126,7 @@ function actorName(principalId: string | null, type: string): string {
         <label>Category<select :value="selectedCategory" @change="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ category }}</option></select></label>
         <label>Actor<input v-model="actorFilter" type="search" placeholder="类型或 Principal ID" autocomplete="off"></label>
         <span>{{ filteredItems.length }} / {{ store.state.teamActivity.value?.length ?? 0 }}</span>
+        <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="activitySort.toggleSort('occurredAt')">{{ activitySortLabel }}</BaseButton>
       </section>
 
       <div class="activity-workspace" :class="{ 'has-detail': selectedEventId }">
@@ -139,7 +155,7 @@ function actorName(principalId: string | null, type: string): string {
 
 <style scoped>
 .activity-page { display: grid; gap: 14px; max-width: 1240px; margin: 0 auto; }.activity-summary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px 18px; }.activity-summary > i { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.activity-summary h2 { margin: 2px 0 3px; font-size: 17px; }.activity-summary p { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.activity-toolbar { display: grid; grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 12px 14px; }.activity-toolbar label { display: grid; gap: 5px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; }.activity-toolbar select, .activity-toolbar input { min-height: 36px; padding: 0 10px; border: 1px solid var(--cs-border); border-radius: 8px; background: #fff; font-size: 11px; }.activity-toolbar > span { padding-bottom: 9px; color: var(--cs-text-muted); font: 9px var(--cs-font-mono); }
+.activity-toolbar { display: grid; grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) auto auto; align-items: end; gap: 12px; padding: 12px 14px; }.activity-toolbar label { display: grid; gap: 5px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; }.activity-toolbar select, .activity-toolbar input { min-height: 36px; padding: 0 10px; border: 1px solid var(--cs-border); border-radius: 8px; background: #fff; font-size: 11px; }.activity-toolbar > span { padding-bottom: 9px; color: var(--cs-text-muted); font: 9px var(--cs-font-mono); }
 .activity-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }.activity-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 330px; }.activity-detail { position: sticky; top: 12px; overflow: hidden; }.activity-detail > header { display: flex; align-items: center; justify-content: space-between; padding: 14px 15px; border-bottom: 1px solid var(--cs-border); }.activity-detail h2 { margin: 2px 0 0; font-size: 15px; }.activity-detail header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.activity-detail > dl, .activity-detail > section { margin: 0; padding: 14px 15px; }.activity-detail > section { border-top: 1px solid var(--cs-border); }.activity-detail h3 { margin: 0 0 9px; font-size: 11px; }.activity-detail section > p { color: var(--cs-text-muted); font-size: 9px; }.activity-detail dl { display: grid; gap: 8px; }.activity-detail dt { color: var(--cs-text-muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }.activity-detail dd { overflow-wrap: anywhere; margin: 2px 0 0; font-size: 9px; }
 @media (max-width: 820px) { .activity-workspace.has-detail { grid-template-columns: 1fr; }.activity-detail { position: static; grid-row: 1; }.activity-toolbar { grid-template-columns: 1fr 1fr; }.activity-toolbar > span { grid-column: 1 / -1; padding: 0; } } @media (max-width: 520px) { .activity-page { gap: 10px; }.activity-summary { grid-template-columns: 36px 1fr; padding: 13px; }.activity-summary > i { width: 36px; height: 36px; }.activity-summary > :last-child { grid-column: 1 / -1; justify-self: start; }.activity-toolbar { grid-template-columns: 1fr; }.activity-toolbar > span { grid-column: auto; }.activity-toolbar select, .activity-toolbar input { min-height: 42px; } }
 </style>

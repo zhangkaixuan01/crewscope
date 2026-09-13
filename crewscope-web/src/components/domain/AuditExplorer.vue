@@ -14,6 +14,8 @@ import { principalDisplayName, type PrincipalNameDirectory } from '../../domains
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
+import { useSelection } from '../../composables/useSelection'
+import { formatAbsoluteTime, formatRelativeTime } from '../../composables/useRelativeTime'
 
 interface AuditFilterForm {
   from: string
@@ -70,6 +72,7 @@ const forbidden = computed(() => props.error?.kind === 'forbidden')
 const offline = computed(() => !props.online || props.error?.kind === 'offline')
 const cursorExpired = computed(() => props.error?.kind === 'cursor-expired')
 const hardError = computed(() => props.phase === 'error' && !forbidden.value && !offline.value && !cursorExpired.value)
+const selection = useSelection<AuditEvent>({ items: computed(() => props.items), getId: item => item.eventId, maxSelected: 1000 })
 const hasExplicitRange = computed(() => Boolean(form.from && form.to && new Date(form.from) < new Date(form.to)))
 const rangeWithinLimit = computed(() => hasExplicitRange.value && new Date(form.to).getTime() - new Date(form.from).getTime() <= 31 * 24 * 60 * 60 * 1000)
 const exportDisabledReason = computed(() => {
@@ -181,13 +184,14 @@ function categoryLabel(value: AuditEventCategory): string { return value.replace
           <StatePanel v-else-if="cursorExpired" compact state="error" title="审计续页 Cursor 已过期" description="已加载事实保持可读，刷新首屏后可继续。" @retry="emit('retry')" />
           <StatePanel v-else-if="hardError" compact state="error" :description="error?.message" @retry="emit('retry')" />
           <table>
-            <thead><tr><th>Category / Outcome</th><th>事件</th><th>Actor</th><th>Subject</th><th>发生时间</th><th><span class="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th><span class="sr-only">选择</span></th><th>Category / Outcome</th><th>事件</th><th>Actor</th><th>Subject</th><th>发生时间</th><th><span class="sr-only">操作</span></th></tr></thead>
             <tbody><tr v-for="item in items" :key="item.eventId" :class="{ selected: selectedEvent?.eventId === item.eventId }">
+              <td data-label="选择"><input type="checkbox" :checked="selection.isSelected(item.eventId)" :aria-label="`选择审计事件 ${shortId(item.eventId)}`" @change="selection.toggle(item.eventId)"></td>
               <td data-label="Category / Outcome"><strong>{{ categoryLabel(item.category) }}</strong><StatusBadge :tone="outcomeTone(item.outcome)">{{ item.outcome }}</StatusBadge></td>
               <td data-label="事件"><span>{{ item.eventType }}</span><small class="mono">{{ shortId(item.eventId) }}</small></td>
               <td data-label="Actor"><span>{{ actorName(item.identity.actorId, item.identity.actorType) }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
               <td data-label="Subject"><span>{{ item.subject.type }}</span><small class="mono">{{ shortId(item.subject.id) }}</small></td>
-              <td data-label="发生时间"><time :datetime="item.occurredAt">{{ displayTime(item.occurredAt) }}</time></td>
+              <td data-label="发生时间"><BaseTooltip :text="formatAbsoluteTime(item.occurredAt)"><time :datetime="item.occurredAt">{{ formatRelativeTime(item.occurredAt) }}</time></BaseTooltip></td>
               <td data-label="操作"><button type="button" @click="emit('select', item.eventId)">查看详情</button></td>
             </tr></tbody>
           </table>
