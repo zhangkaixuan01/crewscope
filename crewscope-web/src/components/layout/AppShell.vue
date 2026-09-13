@@ -11,7 +11,6 @@ import {
   Search,
   ShieldCheck,
   UsersRound,
-  Workflow,
   GitFork,
   Inbox,
   ScanSearch,
@@ -19,6 +18,10 @@ import {
   Send,
   Gauge,
   Settings2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun,
+  Moon,
 } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -30,7 +33,9 @@ import { AUTH_STORE } from '../../domains/identity/store'
 import { CrewScopeApiError } from '../../api/client'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
+import AppBreadcrumb from './AppBreadcrumb.vue'
 import UserAccountMenu from './UserAccountMenu.vue'
+import { usePreference } from '../../app/preference'
 
 defineProps<{
   title: string
@@ -51,31 +56,47 @@ const isOnline = useNetworkStatus()
 let scopeSynchronizationVersion = 0
 const signingOut = ref(false)
 const signOutError = ref<string | null>(null)
+const railCollapsed = usePreference('cs.pref.device.rail-collapsed.v1', false, { version: 1 })
+const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1 })
+const railCollapsedValue = computed(() => railCollapsed.value.value)
+const darkTheme = ref(typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark')
+const isDarkTheme = computed(() => darkTheme.value)
 
-const navigation = [
-  { label: 'Today', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
-  { label: 'Setup Center', icon: Settings2, name: 'setup', section: 'setup', permission: permissions.scopeRead },
-  { label: 'Work', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
-  { label: 'Activity', icon: Activity, name: 'activity', section: 'activity', permission: permissions.scopeRead },
-  { label: '我的 Inbox', icon: Inbox, name: 'inbox', section: 'inbox', permission: permissions.scopeRead },
-  { label: 'Team Observer', icon: ScanSearch, name: 'team-observer', section: 'team-observer', permission: permissions.scopeRead },
-  { label: '运行与发布', icon: Gauge, name: 'operations', section: 'operations', permission: permissions.scopeRead },
-  { label: '审计中心', icon: ShieldCheck, name: 'audit', section: 'audit', permission: permissions.auditRead },
-  { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
-  { label: 'Agent 中心', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
-  { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
-  { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
-  { label: 'GitHub 集成', icon: GitFork, name: 'github-settings', section: 'github', permission: permissions.providerManage },
-  { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
+const navigationGroups = [
+  { label: '工作', items: [
+    { label: '今日', icon: CalendarDays, name: 'today', section: 'today', permission: permissions.scopeRead },
+    { label: '对话', icon: MessageSquare, name: 'conversation', section: 'conversation', permission: permissions.conversationUse },
+    { label: '工作项', icon: BriefcaseBusiness, name: 'work', section: 'work', permission: permissions.workRead },
+    { label: '动态', icon: Activity, name: 'activity', section: 'activity', permission: permissions.scopeRead },
+    { label: '我的 Inbox', icon: Inbox, name: 'inbox', section: 'inbox', permission: permissions.scopeRead },
+    { label: '运行与发布', icon: Gauge, name: 'operations', section: 'operations', permission: permissions.scopeRead },
+  ] },
+  { label: '团队', items: [
+    { label: '团队观测', icon: ScanSearch, name: 'team-observer', section: 'team-observer', permission: permissions.scopeRead },
+    { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
+    { label: '审计中心', icon: ShieldCheck, name: 'audit', section: 'audit', permission: permissions.auditRead },
+  ] },
+  { label: '配置', items: [
+    { label: '配置中心', icon: Settings2, name: 'setup', section: 'setup', permission: permissions.scopeRead },
+    { label: 'Agent 中心', icon: Bot, name: 'agent-settings', section: 'agents', permission: permissions.scopeRead },
+    { label: '模型与凭证', icon: KeyRound, name: 'model-settings', section: 'models', permission: permissions.scopeRead },
+    { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
+    { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
+    { label: 'GitHub 集成', icon: GitFork, name: 'github-settings', section: 'github', permission: permissions.providerManage },
+  ] },
 ]
-
-const futureNavigation = [
-  { label: 'WorkGraph', icon: Workflow },
-  { label: '治理与设置', icon: ShieldCheck },
-]
-
-const visibleNavigation = computed(() => navigation.filter(item => principal && can(principal, item.permission)))
+const visibleNavigationGroups = computed(() => navigationGroups.map(group => ({
+  ...group,
+  items: group.items.filter(item => principal && can(principal, item.permission)),
+})).filter(group => group.items.length > 0))
 const navigationTarget = (name: string): RouteLocationRaw => ({ name, query: route.query })
+
+function toggleTheme(): void {
+  const next = isDarkTheme.value ? 'light' : 'dark'
+  themePreference.value.value = next
+  document.documentElement.dataset.theme = next
+  darkTheme.value = next === 'dark'
+}
 
 watch(
   () => [route.query.team, route.query.project] as const,
@@ -164,37 +185,27 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--collapsed': railCollapsedValue }">
     <a class="skip-link" href="#main-workspace">跳到主要内容</a>
     <aside class="app-shell__rail" aria-label="主导航">
       <RouterLink class="brand" :to="modeTarget('conversation')" aria-label="CrewScope 首页">
         <img :src="crewScopeMark" alt="" width="34" height="34">
         <span>CrewScope<small>Team execution</small></span>
       </RouterLink>
+      <button class="rail-collapse" type="button" :aria-label="railCollapsedValue ? '展开侧栏' : '折叠侧栏'" @click="railCollapsed.value.value = !railCollapsedValue">
+        <PanelLeftOpen v-if="railCollapsedValue" :size="16" aria-hidden="true" /><PanelLeftClose v-else :size="16" aria-hidden="true" />
+      </button>
 
       <ScopeSwitcher v-if="scopeStore && canReadScope" />
 
       <nav class="rail-navigation">
-        <p>Workspace</p>
-        <RouterLink
-          v-for="item in visibleNavigation"
-          :key="item.label"
-          :class="{ active: activeSection === item.section }"
-          :to="navigationTarget(item.name)"
-        >
-          <component :is="item.icon" :size="17" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </RouterLink>
-        <p>Operate</p>
-        <button v-for="item in futureNavigation.slice(0, 1)" :key="item.label" type="button" disabled>
-          <component :is="item.icon" :size="17" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </button>
-        <p>System</p>
-        <button v-for="item in futureNavigation.slice(1)" :key="item.label" type="button" disabled>
-          <component :is="item.icon" :size="17" aria-hidden="true" />
-          <span>{{ item.label }}</span>
-        </button>
+        <template v-for="group in visibleNavigationGroups" :key="group.label">
+          <p>{{ group.label }}</p>
+          <RouterLink v-for="item in group.items" :key="item.label" :class="{ active: activeSection === item.section }" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined">
+            <component :is="item.icon" :size="17" aria-hidden="true" />
+            <span>{{ item.label }}</span>
+          </RouterLink>
+        </template>
       </nav>
 
       <UserAccountMenu
@@ -213,18 +224,19 @@ async function signOut(): Promise<void> {
       </div>
       <div class="topbar" role="region" aria-label="全局工具栏">
         <div class="mode-switcher" aria-label="工作模式">
-          <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')">
+          <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
             <MessageSquare :size="16" aria-hidden="true" />对话
           </RouterLink>
-          <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')">
+          <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')" :aria-current="activeMode === 'control' ? 'page' : undefined">
             <LayoutDashboard :size="16" aria-hidden="true" />工作台
           </RouterLink>
         </div>
         <ScopeSwitcher v-if="scopeStore && canReadScope" class="topbar-scope" />
-        <button class="command-search" type="button">
+        <button class="command-search" type="button" aria-label="搜索工作、成员或 Agent" @click="router.push({ name: 'work', query: route.query })">
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
-        <button class="icon-button" type="button" aria-label="通知"><Bell :size="18" /></button>
+        <button class="icon-button" type="button" :aria-label="isDarkTheme ? '切换浅色主题' : '切换深色主题'" @click="toggleTheme"><Sun v-if="isDarkTheme" :size="18" /><Moon v-else :size="18" /></button>
+        <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
         <UserAccountMenu
           class="mobile-profile"
           compact
@@ -238,6 +250,7 @@ async function signOut(): Promise<void> {
 
       <header class="context-header">
         <div>
+          <AppBreadcrumb />
           <p>{{ eyebrow }}</p>
           <h1>{{ title }}</h1>
         </div>
@@ -259,6 +272,7 @@ async function signOut(): Promise<void> {
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; padding: 9px 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-950); color: var(--cs-text-on-dark); font-size: 11px; transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
 .network-banner { position: relative; z-index: 40; display: flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid #d9a8a2; background: #fff4f2; color: #8f332b; font-size: 10px; font-weight: 700; text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid #d8e4db; background: #f5faf6; color: var(--cs-text); }
+.rail-collapse { display: grid; width: 32px; height: 30px; align-items: center; justify-content: center; align-self: flex-end; margin: 0 0 6px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
 .brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; padding: 0 5px; font-family: var(--cs-font-display); font-size: 18px; }
 .brand img { border: 1px solid rgb(184 239 202 / 24%); border-radius: 11px; }
 .brand span, .brand small { display: block; }
@@ -272,6 +286,11 @@ async function signOut(): Promise<void> {
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
 .rail-profile { z-index: 1; flex: 0 0 auto; margin-top: 8px; background: #f5faf6; }
 .app-shell__body { min-height: 100vh; margin-left: 244px; }
+.app-shell--collapsed .app-shell__rail { width: 76px; align-items: center; }
+.app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span { display: none; }
+.app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
+.app-shell--collapsed .app-shell__body { margin-left: 76px; }
+.app-shell--collapsed .rail-collapse { align-self: center; }
 .topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 88%); backdrop-filter: blur(12px); }
 .mode-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }
 .mode-switcher a { display: flex; min-height: 31px; align-items: center; gap: 6px; padding: 0 10px; border-radius: 7px; color: var(--cs-text-muted); font-size: 11px; font-weight: 700; }

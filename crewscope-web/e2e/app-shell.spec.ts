@@ -1555,7 +1555,7 @@ test('desktop rail pins the account area while navigation scrolls independently'
 
   const profileBeforeScroll = await profile.boundingBox()
   await navigation.evaluate(element => { element.scrollTop = element.scrollHeight })
-  await expect(navigation.getByText('System', { exact: true })).toBeVisible()
+  await expect(navigation.getByText('配置', { exact: true })).toBeVisible()
   const profileAfterScroll = await profile.boundingBox()
   const railBox = await rail.boundingBox()
 
