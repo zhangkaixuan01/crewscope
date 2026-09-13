@@ -36,6 +36,29 @@ export interface ReviewFindingEvidence {
   acceptanceCriterionIndex: number
 }
 
+export type ReviewCommentSide = 'OLD' | 'NEW'
+export type ReviewCommentAnchorState = 'ACTIVE' | 'OUTDATED'
+
+/** Member-safe line comment projection used by the Diff reader. */
+export interface ReviewLineComment {
+  id: string
+  reviewRequestId: string
+  taskExecutionId: string
+  filePath: string
+  side: ReviewCommentSide
+  lineNumber: number
+  hunkHeader: string
+  lineContentHash: string
+  diffGeneration: number
+  content: string
+  authorPrincipalId: string
+  anchorState: ReviewCommentAnchorState
+  deleted: boolean
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
 /** Agent-authored advisory. Its relationship never grants Gate authority. */
 export interface ReviewFinding {
   id: string

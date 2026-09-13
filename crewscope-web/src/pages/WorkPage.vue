@@ -184,6 +184,13 @@ const selectedReviewDetailResource = computed(() => {
     ? reviewStore.state.details[reviewDetailKey(coordinates, reviewRequestId)] ?? null
     : null
 })
+const selectedReviewCommentsResource = computed(() => {
+  const coordinates = selectedReviewCoordinates.value
+  const reviewRequestId = reviewStore.state.selectedReviewRequestId
+  return coordinates && reviewRequestId
+    ? reviewStore.state.comments[reviewDetailKey(coordinates, reviewRequestId)] ?? null
+    : null
+})
 const selectedDeliveryListResource = computed(() => {
   const coordinates = selectedReviewCoordinates.value
   return coordinates ? deliveryStore.state.bundles[deliveryAttemptKey(coordinates)] ?? null : null
@@ -850,6 +857,10 @@ function retryReviewDetail(): void {
   if (coordinates && id) void reviewStore.select(coordinates, id, true)
 }
 
+function addReviewComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }) {
+  return reviewStore.addComment(input)
+}
+
 function executeReviewer(): Promise<boolean> {
   return reviewStore.execute()
 }
@@ -1307,6 +1318,8 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :review="selectedReviewDetailResource?.value ?? null"
       :review-list-error-message="selectedReviewListResource?.errorMessage ?? null"
       :review-detail-error-message="selectedReviewDetailResource?.errorMessage ?? null"
+      :review-comments="selectedReviewCommentsResource?.value ?? []"
+      :on-add-review-comment="addReviewComment"
       :review-command="reviewStore.state.command"
       :can-gate-review="canGateReview"
       :can-confirm-delivery="canConfirmDelivery"

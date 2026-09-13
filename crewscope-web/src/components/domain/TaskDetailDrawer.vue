@@ -23,7 +23,7 @@ import type { ArtifactTextDocument, CodingAttemptSummary, CodingPatchDocument, C
 import type { SemanticTone } from '../base/types'
 import type { TaskLiveState, TaskPhase } from '../../domains/task/store'
 import type { ReviewCommandState, ReviewPhase } from '../../domains/review/store'
-import type { EtaggedReview, ReviewDecisionInput, ReviewFindingEvidence, ReviewSummary } from '../../domains/review/types'
+import type { EtaggedReview, ReviewDecisionInput, ReviewFindingEvidence, ReviewLineComment, ReviewSummary } from '../../domains/review/types'
 import type {
   MemberTaskCommandOperation,
   PlanVersion,
@@ -87,6 +87,8 @@ const props = defineProps<{
   review: EtaggedReview | null
   reviewListErrorMessage: string | null
   reviewDetailErrorMessage: string | null
+  reviewComments?: ReviewLineComment[]
+  onAddReviewComment?: (input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }) => Promise<ReviewLineComment | null>
   reviewCommand: ReviewCommandState
   canGateReview: boolean
   canConfirmDelivery: boolean
@@ -299,6 +301,8 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
           :patch="codingPatch"
           :patch-error-message="codingPatchErrorMessage"
           :review-location="reviewLocation"
+          :review-comments="reviewComments"
+          :on-add-comment="onAddReviewComment"
           :on-load-patch="onLoadCodingPatch"
           :on-reconcile="onRetryCoding"
         />

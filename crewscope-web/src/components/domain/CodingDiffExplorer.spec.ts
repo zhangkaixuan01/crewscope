@@ -71,6 +71,28 @@ describe('CodingDiffExplorer', () => {
     expect(wrapper.text()).toContain('file-404.txt')
     expect(wrapper.text()).not.toContain('已显示前 400')
   }, 15_000)
+
+  it('supports persisted view controls, line comments and safe markdown rendering', async () => {
+    const onAddComment = vi.fn().mockResolvedValue({
+      id: 'comment-1', reviewRequestId: 'review-1', taskExecutionId: executionId, filePath: 'src/Main.java',
+      side: 'NEW', lineNumber: 2, hunkHeader: '@@ -1 +1 @@', lineContentHash: 'a'.repeat(64), diffGeneration: 2,
+      content: '**safe** <script>alert(1)</script>', authorPrincipalId: 'member-1', anchorState: 'ACTIVE', deleted: false,
+      version: 1, createdAt: '2026-08-20T01:00:00Z', updatedAt: '2026-08-20T01:00:00Z',
+    })
+    const wrapper = mount(CodingDiffExplorer, { props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
+    await wrapper.findAll<HTMLButtonElement>('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+    expect(wrapper.text()).toContain('Java')
+    await wrapper.get('.patch-action').trigger('click')
+    expect(wrapper.text()).toContain('Unified')
+    await wrapper.get('[aria-label="评论第 1 行"]').trigger('click')
+    await wrapper.get('[data-testid="review-comment-input"]').setValue('Please fix this')
+    await wrapper.get('.review-comment-form').trigger('submit')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(onAddComment).toHaveBeenCalledOnce()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('safe')
+    expect(wrapper.html()).not.toContain('<script>')
+  })
 })
 
 function props(overrides: Record<string, unknown> = {}) {

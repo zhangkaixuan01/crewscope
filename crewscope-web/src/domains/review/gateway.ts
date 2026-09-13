@@ -11,6 +11,8 @@ import type {
   ReviewModificationRound,
   ReviewScope,
   ReviewSummary,
+  ReviewCommentSide,
+  ReviewLineComment,
 } from './types'
 
 export interface ReviewGateway {
@@ -19,6 +21,10 @@ export interface ReviewGateway {
   execute(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, expectedVersion: number, idempotencyKey: string): Promise<ReviewerExecutionResult>
   decide(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, expectedVersion: number, input: ReviewDecisionInput, idempotencyKey: string): Promise<CommandReceipt>
   requestChanges(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, expectedVersion: number, rationale: string, idempotencyKey: string): Promise<CommandReceipt>
+  listComments?(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, signal?: AbortSignal): Promise<ReviewLineComment[]>
+  addComment?(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, input: {
+    filePath: string; side: ReviewCommentSide; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string
+  }, idempotencyKey: string): Promise<ReviewLineComment>
 }
 
 /** M5-A05 adapter that admits only the member-safe Review projection. */
@@ -95,6 +101,21 @@ export class HttpReviewGateway implements ReviewGateway {
       { expectedVersion, idempotencyKey },
     ).then(mapReceipt)
   }
+
+  async listComments(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, signal?: AbortSignal): Promise<ReviewLineComment[]> {
+    const value = await this.client.get<{ items: ReviewLineComment[] }>(`${root(scope, coordinates)}/${segment(reviewRequestId)}/comments`, { signal })
+    return value.items.map(mapComment)
+  }
+
+  async addComment(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, input: {
+    filePath: string; side: ReviewCommentSide; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string
+  }, idempotencyKey: string): Promise<ReviewLineComment> {
+    const value = await this.client.post<ReviewLineComment>(`${root(scope, coordinates)}/${segment(reviewRequestId)}/comments`, {
+      anchor: { filePath: input.filePath, side: input.side, lineNumber: input.lineNumber, hunkHeader: input.hunkHeader, lineContentHash: input.lineContentHash, diffGeneration: input.diffGeneration },
+      content: input.content,
+    }, { idempotencyKey })
+    return mapComment(value)
+  }
 }
 
 function root(scope: ReviewScope, coordinates: ReviewCoordinates): string {
@@ -145,6 +166,14 @@ function mapEvidence(value: ReviewFindingEvidence): ReviewFindingEvidence {
 function mapRound(value: ReviewModificationRound): ReviewModificationRound {
   return { ...pick(value, [
     'id', 'roundNumber', 'sourceReviewRequestId', 'triggerDecisionId', 'createdAt',
+  ]) }
+}
+
+function mapComment(value: ReviewLineComment): ReviewLineComment {
+  return { ...pick(value, [
+    'id', 'reviewRequestId', 'taskExecutionId', 'filePath', 'side', 'lineNumber', 'hunkHeader',
+    'lineContentHash', 'diffGeneration', 'content', 'authorPrincipalId', 'anchorState', 'deleted',
+    'version', 'createdAt', 'updatedAt',
   ]) }
 }
 

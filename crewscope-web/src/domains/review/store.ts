@@ -5,6 +5,7 @@ import type {
   EtaggedReview,
   ReviewCoordinates,
   ReviewDecisionInput,
+  ReviewLineComment,
   ReviewerExecutionResult,
   ReviewScope,
   ReviewSummary,
@@ -37,6 +38,7 @@ export interface ReviewCommandState {
 export interface ReviewStoreState {
   lists: Record<string, ReviewResource<ReviewSummary[]>>
   details: Record<string, ReviewResource<EtaggedReview>>
+  comments: Record<string, ReviewResource<ReviewLineComment[]>>
   selectedTaskId: string | null
   selectedExecutionId: string | null
   selectedReviewRequestId: string | null
@@ -52,6 +54,8 @@ export interface ReviewStore {
   execute(): Promise<boolean>
   decide(input: ReviewDecisionInput): Promise<boolean>
   requestChanges(rationale: string): Promise<boolean>
+  loadComments(coordinates: ReviewCoordinates, reviewRequestId: string, force?: boolean): Promise<void>
+  addComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }): Promise<ReviewLineComment | null>
   retryCommand(): Promise<boolean>
   clearCommand(): void
   invalidateAttempt(coordinates: ReviewCoordinates): void
@@ -166,11 +170,39 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
       if (value.value.id !== reviewRequestId) throw new Error('Review response identity mismatch')
       resource.value = value
       resource.phase = 'ready'
+      await loadComments(coordinates, reviewRequestId)
     } catch (error) {
       if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载 Review 详情')
     } finally {
       finishRequest(`detail:${key}`, request)
     }
+  }
+
+  async function loadComments(coordinates: ReviewCoordinates, reviewRequestId: string, force = false): Promise<void> {
+    const scope = requireScope()
+    const key = detailKey(coordinates, reviewRequestId)
+    state.comments[key] ??= idleResource<ReviewLineComment[]>()
+    const resource = state.comments[key]!
+    if (!force && ['loading', 'ready', 'empty'].includes(resource.phase)) return
+    const request = beginRequest(`comments:${key}`)
+    resource.phase = 'loading'; resource.errorMessage = null
+    try {
+      const values = await gateway.listComments?.(scope, coordinates, reviewRequestId, request.controller.signal) ?? []
+      if (!isCurrent(request)) return
+      resource.value = values; resource.phase = values.length ? 'ready' : 'empty'
+    } catch (error) { if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载行级评论') }
+    finally { finishRequest(`comments:${key}`, request) }
+  }
+
+  async function addComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }): Promise<ReviewLineComment | null> {
+    const scope = requireScope(); const coordinates = selectedCoordinates(); const reviewRequestId = state.selectedReviewRequestId
+    if (!coordinates || !reviewRequestId || !gateway.addComment) return null
+    const value = await gateway.addComment(scope, coordinates, reviewRequestId, input, crypto.randomUUID())
+    const key = detailKey(coordinates, reviewRequestId)
+    state.comments[key] ??= idleResource<ReviewLineComment[]>()
+    state.comments[key]!.value = [...(state.comments[key]!.value ?? []), value]
+    state.comments[key]!.phase = 'ready'
+    return value
   }
 
   async function execute(): Promise<boolean> {
@@ -281,6 +313,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     for (const key of Object.keys(state.details)) {
       if (key.startsWith(prefix)) delete state.details[key]
     }
+    for (const key of Object.keys(state.comments)) {
+      if (key.startsWith(prefix)) delete state.comments[key]
+    }
   }
 
   function clearCommand(): void {
@@ -368,7 +403,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
 
   return {
     state: readonly(state) as Readonly<ReviewStoreState>, activateScope, synchronize, load, select, execute, decide,
-    requestChanges, retryCommand, clearCommand, invalidateAttempt, clearSelection, reset,
+    requestChanges, loadComments, addComment, retryCommand, clearCommand, invalidateAttempt, clearSelection, reset,
   }
 }
 
@@ -394,7 +429,7 @@ function scopeKey(scope: ReviewScope): string {
 
 function initialState(): ReviewStoreState {
   return {
-    lists: {}, details: {}, selectedTaskId: null, selectedExecutionId: null,
+    lists: {}, details: {}, comments: {}, selectedTaskId: null, selectedExecutionId: null,
     selectedReviewRequestId: null, command: idleCommand(),
   }
 }
