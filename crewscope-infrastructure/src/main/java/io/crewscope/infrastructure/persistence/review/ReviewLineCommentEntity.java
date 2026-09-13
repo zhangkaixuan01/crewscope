@@ -4,6 +4,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -24,6 +26,7 @@ public class ReviewLineCommentEntity {
     @Column(name = "side", nullable = false) private String side;
     @Column(name = "line_number", nullable = false) private int lineNumber;
     @Column(name = "hunk_header", nullable = false) private String hunkHeader;
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "line_content_hash", nullable = false, length = 64, columnDefinition = "char(64)") private String lineContentHash;
     @Column(name = "diff_generation", nullable = false) private long diffGeneration;
     @Column(nullable = false, columnDefinition = "text") private String content;
