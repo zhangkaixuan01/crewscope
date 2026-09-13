@@ -24,6 +24,9 @@ import io.crewscope.application.review.ReviewGateApplicationService;
 import io.crewscope.application.review.ReviewModificationRoundRepository;
 import io.crewscope.application.review.ReviewQueryRepository;
 import io.crewscope.application.review.ReviewRequestApplicationService;
+import io.crewscope.application.review.ReviewLineCommentCommandService;
+import io.crewscope.application.review.ReviewLineCommentQueryService;
+import io.crewscope.application.review.ReviewLineCommentRepository;
 import io.crewscope.application.review.ReviewRequestRepository;
 import io.crewscope.application.review.ReviewSubjectRepository;
 import io.crewscope.application.review.ReviewerExecutionApplicationService;
@@ -44,6 +47,25 @@ import org.springframework.context.annotation.Configuration;
 /** Explicit constructor composition for the M5 Review and human Gate application boundary. */
 @Configuration(proxyBeanMethods = false)
 public class ReviewApplicationConfiguration {
+
+    @Bean
+    ReviewLineCommentCommandService reviewLineCommentCommandService(
+            ReviewLineCommentRepository comments,
+            ReviewRequestRepository requests,
+            ContextPackageRepository contexts,
+            WorkItemAccessPolicy accessPolicy,
+            TimeProvider timeProvider) {
+        return new ReviewLineCommentCommandService(comments, requests, contexts, accessPolicy, timeProvider);
+    }
+
+    @Bean
+    ReviewLineCommentQueryService reviewLineCommentQueryService(
+            ReviewLineCommentRepository comments,
+            ReviewRequestRepository requests,
+            ContextPackageRepository contexts,
+            WorkItemAccessPolicy accessPolicy) {
+        return new ReviewLineCommentQueryService(comments, requests, contexts, accessPolicy);
+    }
 
     @Bean
     ContextPackageBuilder contextPackageBuilder(CodingArtifactContentPort artifacts) {

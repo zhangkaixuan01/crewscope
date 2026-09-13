@@ -44,8 +44,8 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-if (operationCount !== 213) {
-  console.error(`OpenAPI operation baseline changed: expected 213, found ${operationCount}`)
+if (operationCount !== 217) {
+  console.error(`OpenAPI operation baseline changed: expected 217, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

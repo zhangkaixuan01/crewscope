@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 02e34acd048b4eba19563a2a3041d7500e1f830674d605400b8de04da542dc6f
+// Controller source SHA-256: f910954f312da1b87a8da069490eba02b10e0df31b5fd9b57b74429df5857947
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1204,6 +1204,34 @@ export const openApiDocument = {
         "operationId": "ReviewController_get",
         "tags": [
           "ReviewController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments": {
+      "get": {
+        "operationId": "ReviewCommentController_list",
+        "tags": [
+          "ReviewCommentController"
+        ]
+      },
+      "post": {
+        "operationId": "ReviewCommentController_create",
+        "tags": [
+          "ReviewCommentController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments/{commentId}": {
+      "delete": {
+        "operationId": "ReviewCommentController_delete",
+        "tags": [
+          "ReviewCommentController"
+        ]
+      },
+      "patch": {
+        "operationId": "ReviewCommentController_edit",
+        "tags": [
+          "ReviewCommentController"
         ]
       }
     },
@@ -2590,6 +2618,30 @@ export const openApiOperations = [
     "controller": "ReviewController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments",
+    "operationId": "ReviewCommentController_list",
+    "controller": "ReviewCommentController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments",
+    "operationId": "ReviewCommentController_create",
+    "controller": "ReviewCommentController"
+  },
+  {
+    "method": "delete",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments/{commentId}",
+    "operationId": "ReviewCommentController_delete",
+    "controller": "ReviewCommentController"
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/comments/{commentId}",
+    "operationId": "ReviewCommentController_edit",
+    "controller": "ReviewCommentController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/reviews/{reviewRequestId}/decisions",
     "operationId": "ReviewController_decision",
@@ -2950,4 +3002,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 213 as const
+export const openApiOperationCount = 217 as const
