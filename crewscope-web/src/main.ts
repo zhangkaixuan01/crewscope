@@ -47,6 +47,11 @@ import { HttpInvitationGateway } from './domains/invitation/gateway'
 import { createInvitationStore, installInvitationStore } from './domains/invitation/store'
 import { HttpWorkDeskGateway } from './domains/workdesk/gateway'
 import { installWorkDeskStore } from './domains/workdesk/store'
+import { HttpSearchGateway } from './domains/search/gateway'
+import { installSearchStore } from './domains/search/store'
+import { createActionRegistry, installActionRegistry } from './app/actionRegistry'
+import { createShortcutManager, installShortcutManager } from './app/shortcuts'
+import { registerDefaultActions } from './app/defaultActions'
 import './design/tokens.css'
 import './design/base.css'
 import './design/layout.css'
@@ -62,6 +67,7 @@ installOnboardingStore(app, onboardingStore)
 const accountStore = installAccountStore(app, createAccountStore(new HttpAccountGateway()))
 const invitationStore = installInvitationStore(app, createInvitationStore(new HttpInvitationGateway()))
 const workDeskStore = installWorkDeskStore(app, new HttpWorkDeskGateway())
+const searchStore = installSearchStore(app, new HttpSearchGateway())
 const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
 const conversationStore = installConversationStore(app, new HttpConversationGateway())
 const conversationMessageStore = installConversationMessageStore(app, new HttpConversationMessageGateway())
@@ -105,9 +111,19 @@ authStore.subscribe((phase, reason) => {
   teamObserverStore.reset()
   setupStore.reset()
   workDeskStore.reset()
+  searchStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)
+const actionRegistry = createActionRegistry()
+installActionRegistry(app, actionRegistry)
+registerDefaultActions(actionRegistry, router, authStore.principal)
+const shortcutManager = createShortcutManager({
+  registry: actionRegistry,
+  getContext: () => ({ router, route: router.currentRoute.value, principal: authStore.principal }),
+})
+installShortcutManager(app, shortcutManager)
 apiClient.onAuthenticationRequired(() => authStore.authenticationRequired())
 authStore.start()
 app.use(router)
+shortcutManager.start()
 app.mount('#app')

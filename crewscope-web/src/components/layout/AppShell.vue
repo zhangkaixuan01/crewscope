@@ -36,6 +36,7 @@ import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
 import AppBreadcrumb from './AppBreadcrumb.vue'
 import UserAccountMenu from './UserAccountMenu.vue'
 import { usePreference } from '../../app/preference'
+import { requestCommandPalette } from '../../app/shortcuts'
 
 defineProps<{
   title: string
@@ -232,7 +233,7 @@ async function signOut(): Promise<void> {
           </RouterLink>
         </div>
         <ScopeSwitcher v-if="scopeStore && canReadScope" class="topbar-scope" />
-        <button class="command-search" type="button" aria-label="搜索工作、成员或 Agent" @click="router.push({ name: 'work', query: route.query })">
+        <button class="command-search" type="button" aria-label="打开命令面板，搜索工作、成员或 Agent" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" @click="requestCommandPalette()">
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
         <button class="icon-button" type="button" :aria-label="isDarkTheme ? '切换浅色主题' : '切换深色主题'" @click="toggleTheme"><Sun v-if="isDarkTheme" :size="18" /><Moon v-else :size="18" /></button>

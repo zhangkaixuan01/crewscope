@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import { watch } from 'vue'
+import { inject, watch } from 'vue'
 import GlobalErrorBanner from './components/feedback/GlobalErrorBanner.vue'
 import ToastHost from './components/feedback/ToastHost.vue'
 import ConfirmHost from './components/feedback/ConfirmHost.vue'
 import AuthSessionBoundary from './components/auth/AuthSessionBoundary.vue'
 import { useAuthStore } from './domains/identity/store'
 import { usePreference } from './app/preference'
+import { ACTION_REGISTRY } from './app/actionRegistry'
+import CommandPalette from './components/action/CommandPalette.vue'
 
 const authStore = useAuthStore()
+const actionRegistry = inject(ACTION_REGISTRY, null)
 const theme = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1 })
 const density = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1 })
 
@@ -32,6 +35,7 @@ if (typeof window !== 'undefined' && window.matchMedia) {
     <GlobalErrorBanner />
     <ToastHost />
     <ConfirmHost />
+    <CommandPalette v-if="actionRegistry" />
     <RouterView />
   </template>
 </template>
