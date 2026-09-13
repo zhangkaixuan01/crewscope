@@ -34,6 +34,7 @@ unused|org.springframework.boot:spring-boot-starter-session-data-redis
 unused|org.springframework.boot:spring-boot-starter-test
 unused|org.springframework.boot:spring-boot-starter-validation
 unused|org.springframework.boot:spring-boot-starter-webflux
+unused|org.springdoc:springdoc-openapi-starter-webflux-api
 used|ch.qos.logback:logback-classic
 used|ch.qos.logback:logback-core
 used|com.fasterxml.jackson.core:jackson-annotations
@@ -49,6 +50,7 @@ used|io.micrometer:context-propagation
 used|io.micrometer:micrometer-core
 used|io.micrometer:micrometer-tracing
 used|io.projectreactor:reactor-core
+used|io.swagger.core.v3:swagger-models-jakarta
 used|jakarta.persistence:jakarta.persistence-api
 used|jakarta.validation:jakarta.validation-api
 used|org.assertj:assertj-core
