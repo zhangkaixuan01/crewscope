@@ -1131,7 +1131,7 @@ test('Conversation Task SSE invalidates durable facts and stops after the termin
   await expect.poll(() => associationReads).toBe(2)
 })
 
-test('Conversation reloads current server facts when returning from Control Mode', async ({ page }) => {
+test('Conversation reloads current server facts when returning from Control Mode', async ({ page }, testInfo) => {
   let collectionReads = 0
   await page.route(/\/conversations(?:\?.*)?$/, async route => {
     collectionReads += 1
@@ -1155,8 +1155,12 @@ test('Conversation reloads current server facts when returning from Control Mode
   await expect(page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })).toBeVisible()
 
   await page.getByRole('link', { name: '工作台', exact: true }).click()
-  await page.getByRole('link', { name: '对话', exact: true }).click()
-
+  await expect(page).toHaveURL(/\/today\?/)
+  const conversationModeLink = testInfo.project.name === 'narrow-chromium'
+    ? page.getByRole('navigation', { name: '移动端工作模式' }).getByRole('link', { name: '对话', exact: true })
+    : page.getByRole('region', { name: '全局工具栏' }).getByRole('link', { name: '对话', exact: true })
+  await conversationModeLink.click()
+  await expect(page).toHaveURL(/\/conversation\?/)
   await expect(page.getByRole('button', { name: '打开对话 返回页面后读取的新对话' })).toBeVisible()
   expect(collectionReads).toBe(2)
 })
