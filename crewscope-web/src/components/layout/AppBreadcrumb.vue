@@ -39,7 +39,7 @@ const items = computed<BreadcrumbItem[]>(() => {
 .app-breadcrumb { margin-bottom: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .app-breadcrumb ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-2); margin: 0; padding: 0; list-style: none; }
 .app-breadcrumb li { display: inline-flex; align-items: center; gap: var(--cs-space-2); }
-.app-breadcrumb a { color: var(--cs-text-muted); text-decoration: none; }
+.app-breadcrumb a { display: inline-flex; min-height: 24px; align-items: center; margin-block: -3px; color: var(--cs-text-muted); text-decoration: none; }
 .app-breadcrumb a:hover, .app-breadcrumb a:focus-visible { color: var(--cs-action-primary); text-decoration: underline; }
 .app-breadcrumb [aria-current='page'] { color: var(--cs-text-secondary); font-weight: var(--cs-weight-semibold); }
 .separator { color: var(--cs-border-strong); }

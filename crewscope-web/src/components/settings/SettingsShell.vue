@@ -35,7 +35,7 @@ const filteredItems = computed(() => {
         <RouterLink v-for="item in filteredItems" :key="item.key" :to="item.route" :aria-current="route.path === item.route ? 'page' : undefined">{{ item.label }}</RouterLink>
         <span v-if="filteredItems.length === 0" class="settings-shell__empty">没有匹配配置</span>
       </nav>
-      <main class="settings-shell__content"><slot /></main>
+      <section class="settings-shell__content" aria-label="配置内容"><slot /></section>
     </div>
   </AppShell>
 </template>

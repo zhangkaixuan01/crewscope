@@ -174,7 +174,7 @@ function handleKeydown(event: KeyboardEvent): void {
           <label class="wide"><span>凭证过期时间（可选）</span><input v-model="expiration" type="datetime-local" :min="nowForDateTimeInput" :disabled="submitting" /><small v-if="submitted && !expirationValid" class="field-error">过期时间必须是有效的未来时间。</small></label>
         </div>
 
-        <AuthPasswordField v-model="apiKey" label="API Key" name="model-api-key" id="model-api-key" autocomplete="new-password" placeholder="仅在本次提交中使用" :disabled="submitting" :maxlength="1048576" :error="submitted && !apiKey.trim() ? '请输入 API Key。' : undefined" />
+        <AuthPasswordField v-model="apiKey" label="API Key" name="model-api-key" id="model-api-key" autocomplete="new-password" placeholder="仅在本次提交中使用" :disabled="submitting" :maxlength="1048576" :error="submitted && !apiKey.trim() ? '请输入 API Key。' : undefined" focus-on-mount />
         <p class="secret-hint">浏览器不会保存、回显或记录此 Key；关闭或成功后立即清空。失败后可保留在当前表单中显式重试。</p>
 
         <section class="secret-boundary" aria-label="凭证安全边界"><ShieldCheck :size="18" /><div><strong>服务端托管</strong><span>Endpoint、Credential ID、加密存储引用与 Provider 原始响应都不会进入浏览器。</span></div></section>

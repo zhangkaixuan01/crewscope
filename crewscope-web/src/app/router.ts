@@ -179,7 +179,7 @@ export function createCrewScopeRouter(
     }
     const requiredPermission = to.meta.requiredPermission
     if (typeof requiredPermission === 'string' && !can(authStore.principal, requiredPermission)) {
-      return { name: 'access-denied', query: { requiredPermission, from: to.name ? String(to.name) : 'requested-route' } }
+      return { name: 'access-denied', query: { requiredPermission, from: to.fullPath } }
     }
     return true
   })

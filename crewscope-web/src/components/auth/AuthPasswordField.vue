@@ -15,6 +15,7 @@ withDefaults(defineProps<{
   disabled?: boolean
   required?: boolean
   showGuidance?: boolean
+  focusOnMount?: boolean
   minlength?: number
   maxlength?: number
 }>(), {
@@ -26,6 +27,7 @@ withDefaults(defineProps<{
   disabled: false,
   required: false,
   showGuidance: false,
+  focusOnMount: false,
   minlength: undefined,
   maxlength: undefined,
 })
@@ -47,6 +49,7 @@ const visible = ref(false)
     :required="required"
     :minlength="minlength ?? (showGuidance ? 12 : undefined)"
     :maxlength="maxlength ?? (showGuidance ? 128 : undefined)"
+    :focus-on-mount="focusOnMount"
   >
     <template #leading><KeyRound :size="16" /></template>
     <template #trailing>

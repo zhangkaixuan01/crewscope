@@ -49,7 +49,7 @@ test('uses restored permissions and follows a cross-tab sign-out', async ({ page
   await installSessionApi(page, () => authenticated ? session : anonymousSession())
 
   await page.goto('/audit')
-  await expect(page).toHaveURL(/\/access-denied\?from=\/audit$/)
+  await expect(page).toHaveURL(/\/access-denied\?requiredPermission=audit(?::|%3A)read&from=\/audit$/)
   await expect(page.getByRole('heading', { name: '当前账号无法访问这个区域' })).toBeVisible()
 
   authenticated = false
@@ -59,7 +59,7 @@ test('uses restored permissions and follows a cross-tab sign-out', async ({ page
     channel.close()
   })
 
-  await expectLoginReturnTo(page, '/access-denied?from=/audit')
+  await expectLoginReturnTo(page, '/access-denied?requiredPermission=audit:read&from=/audit')
   await expect(page.getByRole('textbox', { name: '用户名或邮箱' })).toBeFocused()
 })
 

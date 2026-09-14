@@ -154,7 +154,7 @@ async function enterConversation(): Promise<void> {
     ?? authStore.state.activeTeamId
     ?? authStore.state.session?.teams[0]?.teamId
   const query = teamId ? { team: teamId } : undefined
-  await router.replace({ name: 'today', query })
+  await router.replace({ name: 'conversation', query })
 }
 
 function setLocalProblem(value: OnboardingProblem): void {

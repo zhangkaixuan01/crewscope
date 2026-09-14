@@ -1876,7 +1876,7 @@ test('WorkItem detail transitions, comments, links and continues in Conversation
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
   const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
 
-  await dialog.getByRole('button', { name: '提交流转' }).click()
+  await dialog.getByRole('button', { name: '提交评审' }).click()
   await expect(dialog.getByText('审查中', { exact: true }).first()).toBeVisible()
   await dialog.getByLabel('添加评论').fill('补充端到端验收结论')
   await dialog.getByRole('button', { name: '发送评论' }).click()
@@ -2516,8 +2516,7 @@ test('WorkItem detail refreshes after an optimistic version conflict', async ({ 
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
   const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
 
-  await dialog.getByLabel('目标状态').selectOption('BLOCKED')
-  await dialog.getByRole('button', { name: '提交流转' }).click()
+  await dialog.getByRole('button', { name: '标记阻塞' }).click()
 
   await expect(dialog.getByText('检测到并发更新')).toBeVisible()
   await expect(dialog.getByText(/服务端当前版本为 v2/)).toBeVisible()
@@ -2562,7 +2561,7 @@ test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer 
   await expect(gate).toBeHidden()
 
   await workbench.getByRole('button', { name: '提交成员结论' }).click()
-  await gate.getByLabel('结论').selectOption('CHANGES_REQUESTED')
+  await gate.getByRole('button', { name: '请求修改', exact: true }).click()
   await gate.getByLabel('理由').fill('补齐空值分支测试后重新交付。')
   await gate.getByRole('button', { name: '确认提交' }).click()
   await expect(workbench.getByText('CHANGES_REQUESTED', { exact: true }).first()).toBeVisible()
@@ -2599,7 +2598,7 @@ test('Review Gate fails closed when the server rejects Reviewer eligibility', as
 
   await workbench.getByRole('button', { name: '提交成员结论' }).click()
   const gate = page.getByRole('dialog', { name: '提交成员 Review 结论' })
-  await gate.getByLabel('结论').selectOption('APPROVED')
+  await gate.getByRole('button', { name: '通过', exact: true }).click()
   await gate.getByLabel('理由').fill('证据完整，可以进入交付 Gate。')
   await gate.getByRole('button', { name: '确认提交' }).click()
 

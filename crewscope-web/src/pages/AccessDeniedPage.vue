@@ -20,7 +20,8 @@ const requiredPermissionLabel = () => permissionLabels[String(route.query.requir
       <ShieldX :size="30" aria-hidden="true" />
       <div>
         <p class="eyebrow">权限边界</p>
-        <h2 id="access-title">需要“{{ requiredPermissionLabel() }}”权限</h2>
+        <h2 id="access-title">需要额外的团队权限</h2>
+        <p class="access-required">当前区域需要“{{ requiredPermissionLabel() }}”权限。</p>
         <p>界面守卫已阻止进入；服务端仍会对每个资源请求执行完整的 Team Scope 授权。</p>
         <small>请联系 Team Owner 或管理员授予所需权限。</small>
       </div>

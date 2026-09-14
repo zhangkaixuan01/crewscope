@@ -60,12 +60,12 @@ test('exports only an explicit bounded range and reports server authorization fa
   await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
 
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: '导出 JSON' }).click()
-  expect((await download).suggestedFilename()).toBe('crewscope-audit-export.json')
+  await page.getByRole('button', { name: '导出 CSV' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^crewscope-audit-all-.*\.csv$/)
   await expect(page.getByText('导出已生成并下载')).toBeVisible()
 
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00&scenario=export-forbidden`)
-  await page.getByRole('button', { name: '导出 JSON' }).click()
+  await page.getByRole('button', { name: '导出 CSV' }).click()
   await expect(page.getByText('服务端拒绝导出权限')).toBeVisible()
 })
 
@@ -78,7 +78,7 @@ test('keeps cached Audit facts readable offline and on expired continuation', as
 
   await context.setOffline(true)
   await expect(page.getByText('正在展示最近同步的审计事实')).toBeVisible()
-  await expect(page.getByRole('button', { name: '导出 JSON' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '导出 CSV' })).toBeDisabled()
   await context.setOffline(false)
 })
 
