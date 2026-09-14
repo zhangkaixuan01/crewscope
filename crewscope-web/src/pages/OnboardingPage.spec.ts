@@ -30,7 +30,7 @@ describe('OnboardingPage', () => {
     expect(fixture.onboarding.createFirstTeam).toHaveBeenCalledOnce()
     expect(fixture.agent.listAgents).toHaveBeenCalledOnce()
     await fixture.wrapper.get('button').trigger('click')
-    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('today'))
+    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('conversation'))
     expect(fixture.router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
     fixture.wrapper.unmount()
   })
@@ -38,7 +38,7 @@ describe('OnboardingPage', () => {
   it('skips onboarding when the current account already has an active Team', async () => {
     const fixture = await mountPage({ initiallyComplete: true })
 
-    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('today'))
+    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('conversation'))
     expect(fixture.router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
     expect(fixture.wrapper.find('form').exists()).toBe(false)
     expect(fixture.onboarding.createFirstTeam).not.toHaveBeenCalled()
