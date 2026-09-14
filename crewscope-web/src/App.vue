@@ -1,32 +1,41 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import { inject, watch } from 'vue'
+import { inject, onBeforeUnmount, watch } from 'vue'
 import GlobalErrorBanner from './components/feedback/GlobalErrorBanner.vue'
 import ToastHost from './components/feedback/ToastHost.vue'
 import ConfirmHost from './components/feedback/ConfirmHost.vue'
 import AuthSessionBoundary from './components/auth/AuthSessionBoundary.vue'
 import { useAuthStore } from './domains/identity/store'
-import { usePreference } from './app/preference'
+import { applyDevicePreferences, isDensityPreference, isThemePreference, usePreference } from './app/preference'
 import { ACTION_REGISTRY } from './app/actionRegistry'
 import CommandPalette from './components/action/CommandPalette.vue'
 
 const authStore = useAuthStore()
 const actionRegistry = inject(ACTION_REGISTRY, null)
-const theme = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1 })
-const density = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1 })
+const theme = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
+const density = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
 
 function applyPreferences(): void {
   if (typeof document === 'undefined') return
   const root = document.documentElement
-  const systemDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
-  const resolvedTheme = theme.value.value === 'system' ? (systemDark ? 'dark' : 'light') : theme.value.value
-  root.dataset.theme = resolvedTheme
-  root.dataset.density = density.value.value
+  const systemDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
+  applyDevicePreferences(root, theme.value.value, density.value.value, systemDark)
+  // Keep the browser chrome aligned with the resolved surface after a runtime switch.
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', root.dataset.theme === 'dark' ? '#111814' : '#f5faf6')
 }
 watch([theme.value, density.value], applyPreferences, { immediate: true })
+function onPreferenceChange(event: Event): void {
+  const detail = (event as CustomEvent<{ key?: string, value?: unknown }>).detail
+  if (detail?.key === 'cs.pref.device.theme.v1' && isThemePreference(detail.value)) theme.value.value = detail.value
+  if (detail?.key === 'cs.pref.device.density.v1' && isDensityPreference(detail.value)) density.value.value = detail.value
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('crewscope:preference-change', onPreferenceChange)
+}
 if (typeof window !== 'undefined' && window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyPreferences)
 }
+onBeforeUnmount(() => window.removeEventListener('crewscope:preference-change', onPreferenceChange))
 </script>
 
 <template>

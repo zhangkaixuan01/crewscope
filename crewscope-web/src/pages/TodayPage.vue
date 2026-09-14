@@ -94,7 +94,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 </script>
 
 <template>
-  <AppShell eyebrow="Today · Team workspace" :title="team?.name ?? '团队工作区'">
+  <AppShell eyebrow="今日 · 团队工作区" :title="team?.name ?? '团队工作区'">
     <template #actions>
       <BaseButton v-if="canManageProjects" variant="secondary" size="small" @click="projectCreation.show"><Plus :size="14" />新建项目</BaseButton>
       <RouterLink v-slot="{ navigate }" custom :to="{ name: 'conversation', query: route.query }">

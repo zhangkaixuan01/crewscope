@@ -31,6 +31,26 @@
   --cs-auth-stage-surface: #f6f5f1;
 }
 
+/* Authentication uses its own semantic surface tokens so the unauthenticated
+   entry points remain readable when the device preference is dark. */
+[data-theme="dark"] .cs-auth-theme {
+  color-scheme: dark;
+  --cs-auth-canvas: #111814;
+  --cs-auth-stage-surface: #111814;
+  --cs-auth-card-surface: rgb(24 35 29 / 96%);
+  --cs-auth-card-border: var(--cs-border);
+  --cs-auth-card-shadow: 0 24px 70px rgb(0 0 0 / 35%);
+  --cs-auth-input-surface: var(--cs-surface);
+  --cs-auth-error-surface: var(--cs-danger-soft);
+  --cs-auth-error-border: var(--cs-danger);
+  --cs-auth-error-text: var(--cs-danger);
+}
+
+[data-theme="dark"] .cs-auth-theme[data-auth-stage-tone="neutral"] {
+  --cs-auth-canvas: #111814;
+  --cs-auth-stage-surface: #111814;
+}
+
 /* Histoire can force the reduced-motion contract without changing OS settings. */
 .cs-auth-theme[data-auth-motion="reduced"] {
   --cs-auth-transition: 0ms;

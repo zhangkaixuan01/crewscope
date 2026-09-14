@@ -26,7 +26,8 @@ const online = useNetworkStatus()
 const activitySort = useListSort({ defaultKey: 'occurredAt' as const, defaultDirection: 'desc', allowedKeys: ['occurredAt'] as const })
 const activitySortLabel = computed(() => activitySort.direction.value === 'asc' ? '最早优先' : '最新优先')
 const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
-const actorFilter = ref('')
+const selectedActor = computed(() => queryValue(route.query.actor))
+const actorOptions = computed(() => scopeStore.state.members.filter(member => member.status === 'ACTIVE'))
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
@@ -35,32 +36,27 @@ const selectedEventId = computed(() => queryValue(route.query.event))
 const selectedDetail = computed(() => selectedEventId.value
   ? store.state.activityDetails[`team:${selectedEventId.value}`] ?? null
   : null)
-const filteredItems = computed(() => (store.state.teamActivity.value ?? []).filter(item => {
-  const categoryMatches = selectedCategory.value === 'ALL' || item.category === selectedCategory.value
-  const actor = actorFilter.value.trim().toLowerCase()
-  const actorMatches = !actor || item.actor.type.toLowerCase().includes(actor)
-    || item.actor.principalId?.toLowerCase().includes(actor)
-    || (item.actor.principalId
-      ? principalDisplayName(principalNames.value, item.actor.principalId, item.actor.type).toLowerCase().includes(actor)
-      : false)
-  return categoryMatches && actorMatches
-}).sort((left, right) => {
+const filteredItems = computed(() => [...(store.state.teamActivity.value ?? [])].sort((left, right) => {
   const delta = new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime()
   return activitySort.direction.value === 'asc' ? delta : -delta
+}))
+const activityFilter = computed(() => ({
+  categories: selectedCategory.value === 'ALL' ? undefined : [selectedCategory.value],
+  actorPrincipalIds: selectedActor.value ? [selectedActor.value] : undefined,
 }))
 const categories = computed(() => [...new Set((store.state.teamActivity.value ?? []).map(item => item.category))].sort())
 
 watch(
-  () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId] as const,
+  () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, JSON.stringify(activityFilter.value)] as const,
   async ([phase]) => {
     if (phase !== 'ready' || !scope.value) {
       realtime.stop()
       return
     }
     store.activateScope(scope.value)
-    await Promise.all([store.loadTeamActivity({}, false, true), scopeStore.loadMembers()])
+    await Promise.all([store.loadTeamActivity(activityFilter.value, false, true), scopeStore.loadMembers()])
     if (!scope.value || store.state.teamActivity.error?.kind === 'forbidden') return
-    realtime.start(scope.value, store.state.teamActivity.resumeCursor)
+    realtime.start(scope.value, store.state.teamActivity.resumeCursor, activityFilter.value)
     if (selectedEventId.value) await store.loadActivityDetail(selectedEventId.value)
   },
   { immediate: true },
@@ -82,13 +78,13 @@ onUnmounted(() => realtime.stop())
 async function reload(): Promise<void> {
   if (!scope.value) return
   realtime.stop()
-  await store.loadTeamActivity({}, false, true)
-  if (store.state.teamActivity.error?.kind !== 'forbidden') realtime.start(scope.value, store.state.teamActivity.resumeCursor)
+  await store.loadTeamActivity(activityFilter.value, false, true)
+  if (store.state.teamActivity.error?.kind !== 'forbidden') realtime.start(scope.value, store.state.teamActivity.resumeCursor, activityFilter.value)
 }
 
 async function recoverCursor(): Promise<void> {
   if (!scope.value) return
-  await store.loadTeamActivity({}, false, true)
+  await store.loadTeamActivity(activityFilter.value, false, true)
   realtime.retry(store.state.teamActivity.resumeCursor)
 }
 
@@ -101,6 +97,13 @@ function updateCategory(event: Event): void {
   else query.category = value
   void router.replace({ query })
 }
+function updateActor(event: Event): void {
+  const value = event.target instanceof HTMLSelectElement ? event.target.value : ''
+  const query = { ...route.query }
+  if (value) query.actor = value
+  else delete query.actor
+  void router.replace({ query })
+}
 function queryValue(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null }
 function displayTime(value: string): string { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function actorName(principalId: string | null, type: string): string {
@@ -109,7 +112,7 @@ function actorName(principalId: string | null, type: string): string {
 </script>
 
 <template>
-  <AppShell title="团队 Activity" eyebrow="Observe / Shared facts">
+  <AppShell title="团队 Activity" eyebrow="观测 · 共享事实">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="reload"><RefreshCw :size="14" aria-hidden="true" />刷新</BaseButton></template>
 
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
@@ -124,8 +127,8 @@ function actorName(principalId: string | null, type: string): string {
 
       <section class="activity-toolbar panel" aria-label="Activity 筛选">
         <label>Category<select :value="selectedCategory" @change="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ category }}</option></select></label>
-        <label>Actor<input v-model="actorFilter" type="search" placeholder="类型或 Principal ID" autocomplete="off"></label>
-        <span>{{ filteredItems.length }} / {{ store.state.teamActivity.value?.length ?? 0 }}</span>
+        <label>Actor<select :value="selectedActor" aria-label="按成员筛选" @change="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></select></label>
+        <span>{{ filteredItems.length }} 条当前结果</span>
         <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="activitySort.toggleSort('occurredAt')">{{ activitySortLabel }}</BaseButton>
       </section>
 
@@ -136,7 +139,7 @@ function actorName(principalId: string | null, type: string): string {
           :realtime-phase="realtime.state.phase" :online="online"
           :principal-names="principalNames"
           @retry="realtime.state.phase === 'cursor-expired' ? recoverCursor() : reload()"
-          @load-more="store.loadTeamActivity({}, true)" @select="select"
+          @load-more="store.loadTeamActivity(activityFilter, true)" @select="select"
         />
 
         <aside v-if="selectedEventId" class="activity-detail panel" aria-label="Activity 事件详情">

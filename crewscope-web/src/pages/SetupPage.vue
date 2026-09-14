@@ -7,7 +7,7 @@ import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useSetupStore } from '../domains/setup/store'
 import type { SetupCapability, SetupReadinessItem } from '../domains/setup/types'
@@ -77,7 +77,7 @@ async function goToday(): Promise<void> { await router.push({ name: 'today', que
 </script>
 
 <template>
-  <AppShell eyebrow="Setup Center · Team readiness" :title="team?.name ? `${team.name} 的配置中心` : 'Setup Center'">
+  <SettingsShell eyebrow="配置中心 · 团队就绪度" :title="team?.name ? `${team.name} 的配置中心` : '配置中心'">
     <template #actions>
       <BaseButton variant="secondary" size="small" @click="goToday">返回 Today</BaseButton>
       <BaseButton size="small" :disabled="setupStore.state.phase === 'loading' || !online" @click="setupStore.load(true)"><RefreshCw :size="14" />刷新事实</BaseButton>
@@ -115,7 +115,7 @@ async function goToday(): Promise<void> { await router.push({ name: 'today', que
       </section>
       <p class="snapshot-note">快照 {{ readiness.snapshotVersion }} · 观测于 {{ new Date(readiness.observedAt).toLocaleString('zh-CN') }}</p>
     </div>
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>

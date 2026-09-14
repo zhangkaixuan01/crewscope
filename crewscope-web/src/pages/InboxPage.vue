@@ -31,12 +31,13 @@ const commandAttempt = ref<{ itemId: string, status: Exclude<InboxDispositionSta
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
-const itemType = computed<InboxItemType>(() => oneOf(route.query.inboxType, inboxItemTypes, 'OWNERSHIP'))
+type InboxView = InboxItemType | 'ALL'
+const itemType = computed<InboxView>(() => oneOf(route.query.inboxType, ['ALL', ...inboxItemTypes] as const, 'ALL'))
 const sourceStatus = computed<InboxSourceStatus>(() => oneOf(route.query.sourceStatus, inboxSourceStatuses, 'OPEN'))
 const dispositionStatus = computed<InboxDispositionStatus | 'ALL'>(() => oneOf(route.query.disposition, ['ALL', ...inboxDispositionStatuses] as const, 'ALL'))
 const selectedItemId = computed(() => uuidQuery(route.query.inboxItem))
 const filter = computed<InboxFilter>(() => ({
-  itemTypes: [itemType.value],
+  itemTypes: itemType.value === 'ALL' ? undefined : [itemType.value],
   sourceStatuses: [sourceStatus.value],
   dispositionStatuses: dispositionStatus.value === 'ALL' ? undefined : [dispositionStatus.value],
 }))
@@ -71,7 +72,7 @@ watch(
     if (phase !== 'ready') return
     const query = { ...route.query }
     let changed = false
-    changed = normalizeQuery(query, 'inboxType', itemType.value, 'OWNERSHIP') || changed
+    changed = normalizeQuery(query, 'inboxType', itemType.value, 'ALL') || changed
     changed = normalizeQuery(query, 'sourceStatus', sourceStatus.value, 'OPEN') || changed
     changed = normalizeQuery(query, 'disposition', dispositionStatus.value, 'ALL') || changed
     if (route.query.inboxItem != null && !selectedItemId.value) {
@@ -103,8 +104,8 @@ function closeDetail(): void {
   void router.replace({ query })
 }
 
-function changeType(value: InboxItemType): void {
-  replaceFilter('inboxType', value, 'OWNERSHIP')
+function changeType(value: InboxView): void {
+  replaceFilter('inboxType', value, 'ALL')
 }
 
 function changeSourceStatus(value: InboxSourceStatus): void {
@@ -212,7 +213,7 @@ function queryValue(value: unknown): string | null {
 </script>
 
 <template>
-  <AppShell title="我的 Inbox" eyebrow="Collaborate / Member queue">
+  <AppShell title="我的 Inbox" eyebrow="协作 · 成员队列">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="reload"><RefreshCw :size="14" />刷新</BaseButton></template>
 
     <InboxWorkspace

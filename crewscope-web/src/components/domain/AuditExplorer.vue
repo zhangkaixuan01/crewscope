@@ -163,7 +163,7 @@ function categoryLabel(value: AuditEventCategory): string { return value.replace
       <footer>
         <div class="export-control">
           <label>导出上限<input v-model.number="maximumRows" type="number" min="1" max="10000" step="1"></label>
-          <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="13" />导出 JSON</BaseButton>
+          <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="13" />导出 CSV</BaseButton>
           <span v-if="exportDisabledReason">{{ exportDisabledReason }}</span>
           <span v-else-if="exportPhase === 'ready'" class="success" role="status">导出已生成并下载</span>
           <span v-else-if="exportPhase === 'error'" class="failure" role="alert">{{ exportError?.kind === 'forbidden' ? '服务端拒绝导出权限' : exportError?.message }}</span>

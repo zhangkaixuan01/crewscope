@@ -764,7 +764,7 @@ function prefersReducedMotion(): boolean {
 </script>
 
 <template>
-  <AppShell :eyebrow="`Conversation · ${teamName}`" :title="pageTitle">
+  <AppShell :eyebrow="`对话 · ${teamName}`" :title="pageTitle">
     <template #actions>
       <RouterLink v-if="observerMode" v-slot="{ navigate }" custom :to="{ name: 'conversation', query: { ...route.query, assistant: undefined } }">
         <BaseButton variant="secondary" size="small" @click="navigate"><Bot :size="14" />Personal Agent 对话</BaseButton>

@@ -72,6 +72,8 @@ export interface AgentConfigurationHistoryItem {
   configurationHash: string
   createdAt: string
   createdBy: string
+  /** Full public payload returned by the read-only revision endpoint (M9-A06). */
+  configuration?: Record<string, unknown> | null
 }
 
 export interface AgentPolicyReference {

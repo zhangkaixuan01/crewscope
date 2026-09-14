@@ -7,7 +7,7 @@ import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import LarkNotificationAdmin from '../components/domain/LarkNotificationAdmin.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import {
@@ -188,7 +188,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
 </script>
 
 <template>
-  <AppShell title="飞书与通知" eyebrow="Settings · Team integrations">
+  <SettingsShell title="飞书与通知" eyebrow="设置 · 团队集成">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="loadAll(true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
     <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
@@ -214,5 +214,5 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
       @load-more-deliveries="store.loadNotificationDeliveries(deliveryFilter, true)" @select-delivery="selectDelivery"
       @close-delivery="closeDelivery" @redeliver="redeliver" @clear-command="store.clearCommand"
     />
-  </AppShell>
+  </SettingsShell>
 </template>

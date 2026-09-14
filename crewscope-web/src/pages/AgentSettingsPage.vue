@@ -8,7 +8,7 @@ import StatusBadge from '../components/base/StatusBadge.vue'
 import AgentConfigurationPanel from '../components/domain/AgentConfigurationPanel.vue'
 import AgentCreateDialog from '../components/domain/AgentCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useAgentStore } from '../domains/agent/store'
 import type { AgentModelBindingSummary, AgentSummary, AgentTemplateSummary, CreateAgentInput } from '../domains/agent/types'
 import { useScopeStore } from '../domains/scope/store'
@@ -265,7 +265,7 @@ function bindingLabel(binding: BindingView): string {
 </script>
 
 <template>
-  <AppShell eyebrow="Capabilities · Agent directory" :title="`${team?.name ?? 'Team'} · Agent 中心`">
+  <SettingsShell eyebrow="能力 · Agent 目录" :title="`${team?.name ?? 'Team'} · Agent 中心`">
     <template #actions>
       <BaseButton size="small" :disabled="!scopeStore.state.selectedTeamId" @click="openCreate($event, 'USER')"><Plus :size="14" />创建个人 Agent</BaseButton>
       <BaseButton v-if="canManageTeamAgents" variant="secondary" size="small" :disabled="!scopeStore.state.selectedTeamId" @click="openCreate($event, 'TEAM')"><Building2 :size="14" />创建团队 Agent</BaseButton>
@@ -416,7 +416,7 @@ function bindingLabel(binding: BindingView): string {
         <div><strong>任务与成本等待 Agent 聚合投影</strong><span>当前 Task Delivery Summary 按 Task 或 Conversation 授权查询。页面不扫描 Task 来推导 Agent 统计，避免不完整、跨币种或越权的成本数字。</span></div>
       </section>
     </div>
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>

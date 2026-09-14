@@ -1,6 +1,6 @@
 import type { LocationQuery, Router } from 'vue-router'
 
-export const DEFAULT_LOGIN_DESTINATION = '/conversation'
+export const DEFAULT_LOGIN_DESTINATION = '/today'
 
 const restorableRouteNames = new Set([
   'conversation',

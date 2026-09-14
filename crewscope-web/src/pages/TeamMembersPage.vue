@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Check, Plus, ShieldCheck, UserRoundPlus, UsersRound, X } from '@lucide/vue'
+import { Check, Copy, Plus, ShieldCheck, UserRoundPlus, UsersRound, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import TeamInvitationManager from '../components/team/TeamInvitationManager.vue'
 import { useScopeStore } from '../domains/scope/store'
+import { enumLabel } from '../domains/settings/labels'
+import { useClipboard } from '../composables/useClipboard'
 
 const principal = inject(AUTH_PRINCIPAL)
 const store = useScopeStore()
@@ -16,7 +18,9 @@ const showAddMember = ref(false)
 const targetPrincipalId = ref('')
 const submitted = ref(false)
 const canManageMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersManage)))
+const clipboard = useClipboard()
 const activeMembers = computed(() => store.state.members.filter(member => member.status === 'ACTIVE'))
+const rejoinCandidates = computed(() => store.state.members.filter(member => member.status !== 'ACTIVE'))
 const principalIdValid = computed(() => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetPrincipalId.value.trim()))
 
 watch(() => store.state.selectedTeamId, () => {
@@ -43,10 +47,25 @@ function shortId(value: string): string {
   return `${value.slice(0, 8)}…${value.slice(-4)}`
 }
 
+function memberStatusLabel(value: string): string {
+  return enumLabel(value, { ACTIVE: '活跃', INACTIVE: '已停用', REMOVED: '已移除', PENDING: '待加入' })
+}
+
+function joinMethodLabel(value: string): string {
+  return enumLabel(value, { INVITED: '邀请加入', CREATED: '直接创建', IMPORTED: '目录导入', RESTORED: '重新加入' })
+}
+
+function roleLabels(roles?: string[]): string {
+  if (!roles?.length) return '成员'
+  return roles.map(role => enumLabel(role, { OWNER: 'Owner', TEAM_ADMIN: '团队管理员', TEAM_LEAD: '团队负责人', MEMBER: '成员', AUDITOR: '审计员' })).join('、')
+}
+
+function copyPrincipal(member: { userPrincipalId: string }): void { void clipboard.copy(member.userPrincipalId, member.userPrincipalId) }
+
 </script>
 
 <template>
-  <AppShell eyebrow="Team · Member management" :title="`${team?.name ?? 'Team'} 成员`">
+  <SettingsShell eyebrow="团队 · 成员管理" :title="`${team?.name ?? 'Team'} 成员`">
     <template #actions>
       <BaseButton v-if="canManageMembers" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton>
     </template>
@@ -64,9 +83,10 @@ function shortId(value: string): string {
 
       <form v-if="showAddMember && canManageMembers" class="add-member panel" @submit.prevent="addMember">
         <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>输入同一 Organization 下的 ACTIVE USER Principal ID。服务端会重新验证身份、Scope 与 MEMBER_MANAGE 权限。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
-        <label for="principal-id">User Principal ID</label>
-        <div class="principal-input"><input id="principal-id" v-model="targetPrincipalId" class="mono" autocomplete="off" placeholder="00000000-0000-0000-0000-000000000000" :aria-invalid="submitted && !principalIdValid"><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
-        <p v-if="submitted && !principalIdValid" class="field-error" role="alert">请输入有效的 UUID Principal ID。</p>
+        <label for="principal-id">选择身份</label>
+        <div class="principal-input"><select id="principal-id" v-model="targetPrincipalId" :aria-invalid="submitted && !principalIdValid"><option value="">请选择待重新加入的身份</option><option v-for="member in rejoinCandidates" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }} · {{ memberStatusLabel(member.status) }}</option></select><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
+        <p v-if="!rejoinCandidates.length" class="field-hint">当前没有可重新加入的身份；新成员请使用下方“创建邀请”。</p>
+        <p v-if="submitted && !principalIdValid" class="field-error" role="alert">请选择一个身份。</p>
         <p v-if="store.state.membersErrorMessage" class="field-error" role="alert">{{ store.state.membersErrorMessage }}</p>
       </form>
 
@@ -76,13 +96,13 @@ function shortId(value: string): string {
         <StatePanel v-else-if="store.state.membersErrorMessage" state="error" :description="store.state.membersErrorMessage" @retry="store.loadMembers(true)" />
         <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实" />
         <div v-else class="member-table" role="table" aria-label="团队成员列表">
-          <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span><span role="columnheader">版本</span></div>
+          <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">角色</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span></div>
           <div v-for="member in store.state.members" :key="member.id" class="member-row" role="row">
-            <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }}</small></span></div>
-            <span role="cell"><StatusBadge :tone="member.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ member.status }}</StatusBadge></span>
-            <span class="join-method" role="cell">{{ member.joinMethod }}</span>
+            <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }} <button type="button" class="copy-principal" :aria-label="`复制 ${member.displayName} 的 Principal ID`" @click="copyPrincipal(member)"><Check v-if="clipboard.copied.value === member.userPrincipalId" :size="11" /><Copy v-else :size="11" /></button></small></span></div>
+            <span class="member-roles" role="cell">{{ roleLabels(member.roles) }}</span>
+            <span role="cell"><StatusBadge :tone="member.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ memberStatusLabel(member.status) }}</StatusBadge></span>
+            <span class="join-method" role="cell">{{ joinMethodLabel(member.joinMethod) }}</span>
             <span class="joined-at" role="cell">{{ member.joinedAt ? new Date(member.joinedAt).toLocaleDateString('zh-CN') : '—' }}</span>
-            <span class="version mono" role="cell">v{{ member.version }} <Check v-if="member.id === team?.ownerMemberId" :size="12" aria-label="Team Owner" /></span>
           </div>
         </div>
       </section>
@@ -95,7 +115,7 @@ function shortId(value: string): string {
 
       <section class="permission-note"><ShieldCheck :size="17" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取和成员添加仍由服务端执行 ACTIVE Membership、Team Scope Role 与目标 Principal 校验。</span></div></section>
     </div>
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>
@@ -105,4 +125,6 @@ function shortId(value: string): string {
 .permission-note { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.permission-note > svg { flex: 0 0 auto; color: var(--cs-brand-600); }.permission-note strong, .permission-note span { display: block; }.permission-note strong { color: var(--cs-text-secondary); font-size: 10px; }.permission-note span { margin-top: 2px; font-size: 9px; }
 @media (max-width: 850px) { .member-table__head { display: none; }.member-row { grid-template-columns: 1fr auto; gap: 8px; padding-block: 12px; }.member-row > .join-method, .member-row > .joined-at { display: none; }.version { grid-column: 2; }.member-summary { grid-template-columns: 44px 1fr; }.member-summary > :last-child { grid-column: 1 / -1; justify-self: start; } }
 @media (max-width: 767px) { .member-summary { padding: 17px; }.summary-icon { width: 44px; height: 44px; }.add-member { padding: 16px; }.principal-input { grid-template-columns: 1fr; }.member-table__head, .member-row { padding-inline: 15px; }.member-row { grid-template-columns: 1fr auto; }.member-directory .panel-heading { align-items: flex-start; flex-direction: column; } }
+.copy-principal { display: inline-grid; width: 20px; height: 20px; place-items: center; border-radius: 5px; color: var(--cs-text-muted); vertical-align: middle; cursor: pointer; }
+.copy-principal:hover, .copy-principal:focus-visible { background: var(--cs-brand-100); color: var(--cs-brand-700); }
 </style>

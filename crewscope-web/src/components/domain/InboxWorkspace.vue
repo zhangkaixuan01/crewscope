@@ -51,7 +51,7 @@ const props = defineProps<{
   targetPhase: TeamOpsPhase
   targetError: TeamOpsErrorState | null
   command: TeamOpsCommandState
-  itemType: InboxItemType
+  itemType: InboxItemType | 'ALL'
   sourceStatus: InboxSourceStatus
   dispositionStatus: InboxDispositionStatus | 'ALL'
   online: boolean
@@ -60,7 +60,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [itemId: string]
   closeDetail: []
-  changeType: [value: InboxItemType]
+  changeType: [value: InboxItemType | 'ALL']
   changeSourceStatus: [value: InboxSourceStatus]
   changeDispositionStatus: [value: InboxDispositionStatus | 'ALL']
   retry: []
@@ -139,13 +139,15 @@ function actionLabel(status: Exclude<InboxDispositionStatus, 'UNREAD'>): string 
   return ({ READ: '标记已读', ACTED: '标记已处理', ARCHIVED: '归档' } as const)[status]
 }
 
-const typePresentation: Record<InboxItemType, { label: string, description: string }> = {
+const typePresentation: Record<InboxItemType | 'ALL', { label: string, description: string }> = {
+  ALL: { label: '全部', description: '汇总当前成员需要处理的全部事实' },
   OWNERSHIP: { label: '我的负责', description: '需要 Owner 推进或作出决策' },
   EXECUTION: { label: '我的执行', description: '分配给当前成员的执行责任' },
   REVIEW: { label: '待 Review', description: '等待成员完成 Gate Review' },
   CONFIRMATION: { label: '待确认', description: '等待精确外部动作确认' },
   EXCEPTION: { label: '异常', description: '需要成员关注的执行或投递异常' },
 }
+const inboxViews = ['ALL', ...inboxItemTypes] as const
 </script>
 
 <template>
@@ -167,7 +169,7 @@ const typePresentation: Record<InboxItemType, { label: string, description: stri
 
     <nav class="inbox-views" aria-label="Inbox 五类视图">
       <button
-        v-for="type in inboxItemTypes"
+        v-for="type in inboxViews"
         :key="type"
         type="button"
         :class="{ active: itemType === type }"
@@ -176,7 +178,7 @@ const typePresentation: Record<InboxItemType, { label: string, description: stri
       >
         <span>{{ typePresentation[type].label }}</span>
         <small>{{ typePresentation[type].description }}</small>
-        <i v-if="counts">{{ count(type).total }}<b v-if="count(type).unread">{{ count(type).unread }}</b></i>
+        <i v-if="counts">{{ type === 'ALL' ? counts.total : count(type).total }}<b v-if="(type === 'ALL' ? counts.unread : count(type).unread)">{{ type === 'ALL' ? counts.unread : count(type).unread }}</b></i>
         <i v-else aria-label="计数不可用">—</i>
       </button>
     </nav>

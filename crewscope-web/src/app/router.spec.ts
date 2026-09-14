@@ -161,12 +161,12 @@ describe('application routing', () => {
     expect(router.currentRoute.value.name).toBe('account')
   })
 
-  it('redirects the root route to Conversation mode', async () => {
+  it('redirects the root route to the personal workbench', async () => {
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
     await router.push('/')
     await router.isReady()
 
-    expect(router.currentRoute.value.name).toBe('conversation')
+    expect(router.currentRoute.value.name).toBe('today')
   })
 
   it('preserves the focused object across Conversation and Control modes', async () => {
@@ -272,7 +272,7 @@ describe('application routing', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('access-denied')
-    expect(router.currentRoute.value.query.from).toBe(`/team/members?team=${fixtureIds.teamPlatform}`)
+    expect(router.currentRoute.value.query.requiredPermission).toBe(permissions.teamMembersRead)
   })
 
   it('redirects a principal without Conversation permission before the page loads', async () => {
@@ -284,7 +284,7 @@ describe('application routing', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('access-denied')
-    expect(router.currentRoute.value.query.from).toBe(destination)
+    expect(router.currentRoute.value.query.requiredPermission).toBe(permissions.conversationUse)
   })
 
   it('keeps the legacy Control URL as a query-preserving Today redirect', async () => {
@@ -306,7 +306,7 @@ describe('application routing', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('access-denied')
-    expect(router.currentRoute.value.query.from).toBe(destination)
+    expect(router.currentRoute.value.query.requiredPermission).toBe(permissions.repositoriesManage)
   })
 
   it('guards the Audit Explorer with Audit read permission', async () => {
@@ -318,7 +318,7 @@ describe('application routing', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('access-denied')
-    expect(router.currentRoute.value.query.from).toBe(destination)
+    expect(router.currentRoute.value.query.requiredPermission).toBe(permissions.auditRead)
   })
 
   it('allows a Team member to enter Operations health without administrator permission', async () => {

@@ -52,7 +52,7 @@ describe('AuditExplorer', () => {
   it('enforces explicit 31-day export bounds and governance permission', async () => {
     const wrapper = mount(AuditExplorer, { props: props({ canExport: false }) })
     expect(wrapper.text()).toContain('当前身份没有治理导出权限')
-    const exportButton = wrapper.findAll('button').find(item => item.text().includes('导出 JSON'))!
+    const exportButton = wrapper.findAll('button').find(item => item.text().includes('导出 CSV'))!
     expect(exportButton.attributes('disabled')).toBeDefined()
 
     await wrapper.setProps({ canExport: true, initialFilter: { ...filter(), from: '2026-08-01T08:00', to: '2026-08-20T08:00' } })

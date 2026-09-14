@@ -18,7 +18,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useCodingStore } from '../domains/coding/store'
 import type { CodingScope, RepositoryBinding, RepositoryBindingInput } from '../domains/coding/types'
 import { useScopeStore } from '../domains/scope/store'
@@ -176,7 +176,7 @@ function updatedAt(value: string): string {
 </script>
 
 <template>
-  <AppShell eyebrow="WorkProject · Settings" :title="`${project?.name ?? 'WorkProject'} 仓库设置`">
+  <SettingsShell eyebrow="WorkProject · 仓库设置" :title="`${project?.name ?? 'WorkProject'} 仓库设置`">
     <template #actions>
       <BaseButton v-if="!scope && canManageProjects" size="small" @click="projectCreation.show">
         <Plus :size="14" />新建项目
@@ -328,7 +328,7 @@ function updatedAt(value: string): string {
       @input-changed="scopeStore.clearProjectCommand"
       @submit="projectCreation.submit"
     />
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>

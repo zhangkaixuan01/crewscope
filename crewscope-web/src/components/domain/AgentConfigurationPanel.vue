@@ -19,6 +19,11 @@ import type {
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
+import RevisionDiffView from '../settings/RevisionDiffView.vue'
+import ModelOptionPicker from '../settings/ModelOptionPicker.vue'
+import { useClipboard } from '../../composables/useClipboard'
+import { useDirtyForm } from '../../composables/useDirtyForm'
+import { agentStatusLabels, enumLabel } from '../../domains/settings/labels'
 
 const props = defineProps<{
   agent: AgentSummary
@@ -65,16 +70,34 @@ const preferences = reactive({
   maximumAttempts: '1',
 })
 
+const formSnapshot = computed(() => ({
+  bindings: { PERSONAL: { ...bindings.PERSONAL }, TEAM: { ...bindings.TEAM } },
+  preferences: { ...preferences, approvedSkillKeys: [...preferences.approvedSkillKeys] },
+}))
+const dirtyForm = useDirtyForm(formSnapshot, { draftKey: `crewscope:agent-configuration:${props.agent.id}` })
+const clipboard = useClipboard()
+const copiedHash = computed(() => clipboard.copied.value)
+const draftAvailable = ref(Boolean(dirtyForm.restoreDraft()))
+
 const currentResource = computed(() => store.state.currentConfigurations[props.agent.id])
 const platformManaged = computed(() => props.template?.platformManaged
   ?? props.agent.templateKey === 'team-observer')
 const current = computed(() => currentResource.value?.value?.value ?? null)
 const historyResource = computed(() => store.state.configurationHistory[props.agent.id])
 const history = computed(() => historyResource.value?.value ?? [])
+const compareRevision = ref<number | null>(null)
 const selectedHistory = computed(() => {
   const revision = props.selectedRevision ?? props.agent.currentConfigurationRevision
   return revision ? history.value.find(item => item.revision === revision) ?? null : null
 })
+const selectedHistoryConfiguration = computed(() => selectedHistory.value?.configuration ?? null)
+const selectedPreviousConfiguration = computed(() => {
+  const revision = compareRevision.value ?? selectedHistory.value?.previousRevision
+  return revision ? history.value.find(item => item.revision === revision)?.configuration ?? null : null
+})
+const compareRevisionLabel = computed(() => compareRevision.value ? `Revision ${compareRevision.value}` : '初始版本')
+const selectedRevisionLabel = computed(() => selectedHistory.value ? `Revision ${selectedHistory.value.revision}` : '当前版本')
+const compareCandidates = computed(() => history.value.filter(item => item.revision !== selectedHistory.value?.revision))
 const viewingCurrent = computed(() => props.selectedRevision === null || props.selectedRevision === props.agent.currentConfigurationRevision)
 const commandForAgent = computed(() => store.state.command.resourceId === props.agent.id ? store.state.command : null)
 const saving = computed(() => commandForAgent.value?.phase === 'pending' && commandForAgent.value.operation === 'configure')
@@ -114,6 +137,7 @@ watch(() => props.agent.id, () => {
   submitted.value = false
   localNotice.value = null
   lifecycleConfirmation.value = null
+  compareRevision.value = null
   void loadFacts(true)
 }, { immediate: true })
 
@@ -130,8 +154,14 @@ watch([current, () => props.template], ([configuration]) => {
   const revision = configuration?.revision ?? 'none'
   if (initializedRevision.value === revision) return
   initializeForm(configuration)
+  dirtyForm.markClean()
+  draftAvailable.value = Boolean(dirtyForm.restoreDraft())
   initializedRevision.value = revision
 }, { immediate: true })
+
+watch(selectedHistory, value => { compareRevision.value = value?.previousRevision ?? null })
+
+watch(formSnapshot, value => dirtyForm.sync(value), { deep: true })
 
 onMounted(() => void nextTick(() => heading.value?.focus()))
 
@@ -200,14 +230,6 @@ function modelResourceError(scope: AgentExecutionScope): string | null {
 
 function modelKey(model: SelectableAgentModel | AgentModelSelectionSummary): string {
   return `${model.connectionId}:${model.catalogEntryId}:${model.catalogRevision}`
-}
-
-function optionLabel(model: SelectableAgentModel): string {
-  return `${model.providerDisplayName} · ${model.modelDisplayName} · ${model.connectionOwnerType} · ${model.region}`
-}
-
-function optionPrice(model: SelectableAgentModel): string {
-  return `${model.price.inputPerMillionTokens}/${model.price.outputPerMillionTokens} ${model.price.currencyCode} / 1M tokens`
 }
 
 function currentSelectionMissing(scope: AgentExecutionScope, role: 'primary' | 'fallback'): boolean {
@@ -316,7 +338,36 @@ async function save(): Promise<void> {
   initializedRevision.value = null
   submitted.value = false
   localNotice.value = `Configuration Revision ${store.state.command.receipt?.committedVersion ?? ''} 已提交并通过服务端 Preflight。`
+  dirtyForm.markClean()
+  dirtyForm.clearDraft()
   emit('refreshed')
+}
+
+async function requestClose(): Promise<void> {
+  await dirtyForm.closeWithGuard(() => emit('close'))
+}
+
+function validationError(value: string, kind: 'temperature' | 'topP' | 'tokens' | 'attempts' | 'seed'): string | null {
+  if (!submitted.value) return null
+  const valid = kind === 'temperature' ? optionalDecimal(value, 0, 2, true)
+    : kind === 'topP' ? optionalDecimal(value, 0, 1, false)
+      : kind === 'tokens' ? optionalInteger(value, 1, 10_000_000)
+        : kind === 'attempts' ? optionalInteger(value, 1, 10)
+          : optionalInteger(value, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)
+  return valid ? null : '请输入有效范围内的值。'
+}
+
+function restoreDraft(): void {
+  const draft = dirtyForm.restoreDraft()
+  if (!draft || typeof draft !== 'object') return
+  const candidate = draft as { bindings?: Record<string, BindingForm>; preferences?: Partial<typeof preferences> }
+  for (const scope of ['PERSONAL', 'TEAM'] as AgentExecutionScope[]) {
+    const binding = candidate.bindings?.[scope]
+    if (binding?.kind === 'DIRECT' || binding?.kind === 'INHERIT_TEAM_DEFAULT') bindings[scope] = { kind: binding.kind, primary: binding.primary ?? '', fallback: binding.fallback ?? '' }
+  }
+  if (candidate.preferences) Object.assign(preferences, candidate.preferences, { approvedSkillKeys: [...(candidate.preferences.approvedSkillKeys ?? preferences.approvedSkillKeys)] })
+  draftAvailable.value = false
+  dirtyForm.markDirty()
 }
 
 async function transition(transition: AgentLifecycleTransition): Promise<void> {
@@ -335,6 +386,7 @@ async function transition(transition: AgentLifecycleTransition): Promise<void> {
 function transitionLabel(transition: AgentLifecycleTransition): string {
   return transition === 'activate' ? '启用' : transition === 'disable' ? '禁用' : '归档'
 }
+function agentStatusLabel(value: string): string { return enumLabel(value, agentStatusLabels) }
 
 function historyBinding(item: AgentConfigurationHistoryItem, scope: AgentExecutionScope): string {
   const binding = scope === 'PERSONAL' ? item.personalBinding : item.teamBinding
@@ -378,8 +430,8 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
     <header class="configuration-header">
       <span class="configuration-icon"><Bot :size="21" aria-hidden="true" /></span>
       <div><p class="eyebrow">Agent profile · {{ agent.ownershipType }}</p><h2 id="agent-configuration-title" ref="heading" tabindex="-1">{{ agent.displayName }}</h2><span class="mono">{{ agent.templateKey }}@{{ agent.templateVersion }} · Profile v{{ agent.version }}</span></div>
-      <StatusBadge :tone="agent.status === 'ACTIVE' ? 'success' : agent.status === 'DISABLED' ? 'warning' : 'neutral'" dot>{{ agent.status }}</StatusBadge>
-      <button type="button" aria-label="关闭 Agent 设置" @click="emit('close')"><X :size="18" /></button>
+      <StatusBadge :tone="agent.status === 'ACTIVE' ? 'success' : agent.status === 'DISABLED' ? 'warning' : 'neutral'" dot>{{ agentStatusLabel(agent.status) }}</StatusBadge>
+      <button type="button" aria-label="关闭 Agent 设置" @click="requestClose"><X :size="18" /></button>
     </header>
 
     <div class="configuration-layout">
@@ -411,19 +463,28 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
         <StatePanel v-if="historicalRevisionMissing" state="error" compact title="配置版本不存在" description="该 Revision 不在当前可见历史中。" @retry="loadFacts(true)" />
         <section v-else-if="!viewingCurrent && selectedHistory" class="historical-view" aria-label="历史 Configuration">
           <div><p class="eyebrow">Immutable history</p><h3>Revision {{ selectedHistory.revision }}</h3><p>历史版本不可编辑。它继续服务于已经固定该 Revision 的 Conversation、Task 和 Retry。</p></div>
-          <dl><div><dt>PERSONAL</dt><dd>{{ historyBinding(selectedHistory, 'PERSONAL') }}</dd></div><div><dt>TEAM</dt><dd>{{ historyBinding(selectedHistory, 'TEAM') }}</dd></div><div><dt>Configuration Hash</dt><dd class="mono">{{ selectedHistory.configurationHash.slice(0, 16) }}…</dd></div></dl>
+          <dl><div><dt>PERSONAL</dt><dd>{{ historyBinding(selectedHistory, 'PERSONAL') }}</dd></div><div><dt>TEAM</dt><dd>{{ historyBinding(selectedHistory, 'TEAM') }}</dd></div><div><dt>Configuration Hash</dt><dd class="mono hash-value">{{ selectedHistory.configurationHash }} <button type="button" class="copy-button" :aria-label="`复制 Revision ${selectedHistory.revision} 配置 Hash`" @click="clipboard.copy(selectedHistory.configurationHash, `revision-${selectedHistory.revision}`)">{{ copiedHash === `revision-${selectedHistory.revision}` ? '已复制' : '复制' }}</button></dd></div></dl>
+          <RevisionDiffView
+            v-if="selectedHistoryConfiguration"
+            :before="selectedPreviousConfiguration"
+            :after="selectedHistoryConfiguration"
+            :before-label="compareRevisionLabel"
+            :after-label="selectedRevisionLabel"
+          />
+          <label v-if="history.length > 1" class="compare-picker"><span>对比另一个 Revision</span><select v-model="compareRevision"><option :value="null">初始版本</option><option v-for="item in compareCandidates" :key="item.revision" :value="item.revision">Revision {{ item.revision }}</option></select></label>
           <BaseButton variant="secondary" size="small" @click="emit('selectRevision', agent.currentConfigurationRevision ?? selectedHistory.revision)">返回当前版本</BaseButton>
         </section>
 
         <template v-else>
           <section class="effect-note">
-            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>{{ platformManaged ? '平台托管 Team Observer' : '版本生效范围' }}</strong><span>{{ platformManaged ? '平台负责创建唯一 Observer 并固定只读能力边界；管理员在此配置 TEAM 模型并完成 Preflight，Team Observer 运行时会在首次安全调用时完成就绪激活。' : '保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。' }}</span></div>
+            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>{{ platformManaged ? '平台托管 Team Observer' : '版本生效范围' }}</strong><span>{{ platformManaged ? '平台负责创建唯一 Observer 并固定只读能力边界；管理员在此配置 TEAM 模型并完成 Preflight，Team Observer 运行时会在首次安全调用时完成就绪激活。' : '保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。' }}</span><small v-if="current?.configurationHash" class="current-hash mono">当前 Hash：{{ current.configurationHash }} <button type="button" class="copy-button" aria-label="复制当前配置 Hash" @click="clipboard.copy(current.configurationHash, 'current-configuration')">{{ copiedHash === 'current-configuration' ? '已复制' : '复制' }}</button></small></div>
           </section>
 
           <StatePanel v-if="!canConfigure" state="forbidden" compact title="只读 Agent" description="你可以发现这个团队 Agent，但配置和生命周期操作需要 Agent 管理权限。" />
           <StatePanel v-else-if="!template" state="error" compact title="Template 元数据不可用" description="无法安全判断允许配置的槽位，设置已失败关闭。" @retry="loadFacts(true)" />
 
           <form v-else class="configuration-form" @submit.prevent="save">
+            <section v-if="draftAvailable" class="draft-recovery" role="status"><div><strong>发现未保存的本地草稿</strong><span>上次切换 Team 时已安全保留当前浏览器中的配置修改。</span></div><div><BaseButton type="button" variant="secondary" size="small" @click="restoreDraft">恢复草稿</BaseButton><BaseButton type="button" variant="ghost" size="small" @click="dirtyForm.clearDraft(); draftAvailable = false">丢弃</BaseButton></div></section>
             <section class="form-section">
               <header><div><p class="eyebrow">Model binding</p><h3>执行模型</h3><span>候选项是服务端按 Ownership、健康、能力、区域和策略计算的实时交集。</span></div></header>
               <article v-for="scope in allowedScopes" :key="scope" class="binding-editor">
@@ -435,9 +496,9 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
                   <template v-if="bindings[scope].kind === 'DIRECT'">
                     <StatePanel v-if="models(scope).length === 0" state="empty" compact title="没有符合条件的模型" description="连接健康、Template 能力、区域或团队策略没有形成可选交集。API Key 请在“模型与凭证”页面单向录入，本页不会保存 Key。" />
                     <template v-else>
-                      <label><span>主模型</span><select v-model="bindings[scope].primary" :aria-invalid="submitted && !bindings[scope].primary"><option value="">请选择主模型</option><option v-for="model in models(scope)" :key="modelKey(model)" :value="modelKey(model)">{{ optionLabel(model) }} · {{ optionPrice(model) }}</option></select></label>
+                      <label><span>主模型</span><ModelOptionPicker v-model="bindings[scope].primary" :models="models(scope)" placeholder="搜索并选择主模型" /><select class="model-picker__native-fallback" v-model="bindings[scope].primary" aria-hidden="true" tabindex="-1"><option value="">请选择主模型</option><option v-for="model in models(scope)" :key="modelKey(model)" :value="modelKey(model)">{{ model.modelDisplayName }}</option></select><p v-if="submitted && !bindings[scope].primary" class="field-error">请选择主模型。</p></label>
                       <p v-if="currentSelectionMissing(scope, 'primary')" class="field-warning" role="status">当前主模型已不在可选交集中，请选择新的健康模型后再保存。</p>
-                      <label><span>Fallback</span><select v-model="bindings[scope].fallback"><option value="">不配置 Fallback</option><option v-for="model in fallbackModels(scope)" :key="modelKey(model)" :value="modelKey(model)">{{ optionLabel(model) }} · {{ optionPrice(model) }}</option></select></label>
+                      <label><span>Fallback</span><ModelOptionPicker v-model="bindings[scope].fallback" :models="fallbackModels(scope)" placeholder="不配置 Fallback（可选）" /><select class="model-picker__native-fallback" v-model="bindings[scope].fallback" aria-hidden="true" tabindex="-1"><option value="">不配置 Fallback</option><option v-for="model in fallbackModels(scope)" :key="modelKey(model)" :value="modelKey(model)">{{ model.modelDisplayName }}</option></select></label>
                       <p v-if="currentSelectionMissing(scope, 'fallback')" class="field-warning" role="status">当前 Fallback 已不可选；清空或选择新的候选项。</p>
                     </template>
                   </template>
@@ -453,11 +514,11 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
                 <fieldset v-if="slotAvailable('APPROVED_SKILLS')" class="wide skill-picker"><legend>批准 Skill</legend><label v-for="key in template?.approvedSkillKeys ?? []" :key="key"><input type="checkbox" :checked="preferences.approvedSkillKeys.includes(key)" @change="toggleSkill(key)" /><span class="mono">{{ key }}</span></label><p v-if="template?.approvedSkillKeys.length === 0">Template 没有公开可启用的 Skill。</p></fieldset>
                 <template v-if="slotAvailable('OUTPUT_PREFERENCE')">
                   <label><span>Reasoning</span><select v-model="preferences.reasoningMode"><option value="DEFAULT">遵循模型默认</option><option value="ENABLED">启用</option><option value="DISABLED">关闭</option></select></label>
-                  <label><span>Maximum output tokens</span><input v-model="preferences.maximumOutputTokens" inputmode="numeric" placeholder="模型默认" :aria-invalid="submitted && !optionalInteger(preferences.maximumOutputTokens, 1, 10000000)" /></label>
-                  <label><span>Temperature</span><input v-model="preferences.temperature" inputmode="decimal" placeholder="模型默认" :aria-invalid="submitted && !optionalDecimal(preferences.temperature, 0, 2, true)" /></label>
-                  <label><span>Top P</span><input v-model="preferences.topP" inputmode="decimal" placeholder="模型默认" :aria-invalid="submitted && !optionalDecimal(preferences.topP, 0, 1, false)" /></label>
-                  <label><span>Maximum attempts</span><input v-model="preferences.maximumAttempts" inputmode="numeric" :aria-invalid="submitted && !optionalInteger(preferences.maximumAttempts, 1, 10)" /></label>
-                  <label><span>Seed</span><input v-model="preferences.seed" inputmode="numeric" placeholder="不固定" :aria-invalid="submitted && !optionalInteger(preferences.seed, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)" /></label>
+                  <label><span>Maximum output tokens <small>1–10,000,000</small></span><input v-model="preferences.maximumOutputTokens" type="number" min="1" max="10000000" step="1" inputmode="numeric" placeholder="模型默认" :aria-invalid="submitted && !optionalInteger(preferences.maximumOutputTokens, 1, 10000000)" /><p v-if="validationError(preferences.maximumOutputTokens, 'tokens')" class="field-error">{{ validationError(preferences.maximumOutputTokens, 'tokens') }}</p></label>
+                  <label><span>Temperature <small>0–2</small></span><input v-model="preferences.temperature" type="number" min="0" max="2" step="0.01" inputmode="decimal" placeholder="模型默认" :aria-invalid="submitted && !optionalDecimal(preferences.temperature, 0, 2, true)" /><p v-if="validationError(preferences.temperature, 'temperature')" class="field-error">{{ validationError(preferences.temperature, 'temperature') }}</p></label>
+                  <label><span>Top P <small>大于 0 且不超过 1</small></span><input v-model="preferences.topP" type="number" min="0.01" max="1" step="0.01" inputmode="decimal" placeholder="模型默认" :aria-invalid="submitted && !optionalDecimal(preferences.topP, 0, 1, false)" /><p v-if="validationError(preferences.topP, 'topP')" class="field-error">{{ validationError(preferences.topP, 'topP') }}</p></label>
+                  <label><span>Maximum attempts <small>1–10</small></span><input v-model="preferences.maximumAttempts" type="number" min="1" max="10" step="1" inputmode="numeric" :aria-invalid="submitted && !optionalInteger(preferences.maximumAttempts, 1, 10)" /><p v-if="validationError(preferences.maximumAttempts, 'attempts')" class="field-error">{{ validationError(preferences.maximumAttempts, 'attempts') }}</p></label>
+                  <label><span>Seed <small>安全整数范围</small></span><input v-model="preferences.seed" type="number" :min="Number.MIN_SAFE_INTEGER" :max="Number.MAX_SAFE_INTEGER" step="1" inputmode="numeric" placeholder="不固定" :aria-invalid="submitted && !optionalInteger(preferences.seed, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)" /><p v-if="validationError(preferences.seed, 'seed')" class="field-error">{{ validationError(preferences.seed, 'seed') }}</p></label>
                   <label class="toggle"><input v-model="preferences.cacheEnabled" type="checkbox" /><span>允许模型缓存</span></label>
                   <label class="toggle"><input v-model="preferences.parallelToolCalls" type="checkbox" /><span>允许并行 Tool Call</span></label>
                 </template>
@@ -494,7 +555,18 @@ function optionalInteger(value: string, minimum: number, maximum: number): boole
 </template>
 
 <style scoped>
-.agent-configuration { overflow: hidden; scroll-margin-top: 18px; }.configuration-header { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto 32px; align-items: center; gap: 11px; padding: 18px 20px; border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface), var(--cs-brand-50)); }.configuration-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.configuration-header h2 { margin: 0 0 2px; font-size: 17px; }.configuration-header h2:focus-visible { outline: 3px solid var(--cs-brand-200); outline-offset: 3px; }.configuration-header div > span { color: var(--cs-text-muted); font-size: 9px; }.configuration-header > button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: rgb(255 255 255 / 75%); cursor: pointer; }.configuration-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 400px; }.revision-rail { padding: 15px 10px; border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.revision-rail h3 { padding: 0 8px 8px; font-size: 11px; }.revision-rail > button { display: grid; width: 100%; grid-template-columns: 16px 1fr 14px; align-items: center; gap: 6px; padding: 9px 7px; border-radius: 8px; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.revision-rail > button.active { background: var(--cs-brand-100); color: var(--cs-brand-800); }.revision-rail strong, .revision-rail small { display: block; }.revision-rail strong { font-size: 9px; }.revision-rail small { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.revision-empty { padding: 8px; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.configuration-main { display: grid; align-content: start; gap: 14px; min-width: 0; padding: 18px; }.effect-note { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-700); }.effect-note svg { flex: 0 0 auto; }.effect-note strong, .effect-note span { display: block; }.effect-note strong { font-size: 10px; }.effect-note span { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.historical-view { display: grid; gap: 14px; }.historical-view h3 { margin-bottom: 4px; }.historical-view p { margin: 0; color: var(--cs-text-muted); font-size: 10px; }.historical-view dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }.historical-view dl div { padding: 11px; border-radius: 9px; background: var(--cs-surface-subtle); }.historical-view dt { color: var(--cs-text-muted); font-size: 8px; }.historical-view dd { margin-top: 4px; font-size: 10px; font-weight: 700; }.historical-view .base-button { justify-self: start; }.configuration-form { display: grid; gap: 14px; }.form-section { overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.form-section > header { padding: 14px 16px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.form-section h3 { margin-bottom: 3px; font-size: 13px; }.form-section header span { color: var(--cs-text-muted); font-size: 9px; }.binding-editor { padding: 14px 16px; border-bottom: 1px solid var(--cs-border); }.binding-editor:last-child { border-bottom: 0; }.binding-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }.binding-heading strong, .binding-heading span { display: block; }.binding-heading strong { font-size: 11px; }.binding-heading div span { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.binding-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }.binding-fields label, .preference-fields > label { display: grid; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.binding-fields select, .preference-fields select, .preference-fields input, .preference-fields textarea { width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: 10px var(--cs-font-sans); }.binding-mode { grid-column: 1 / -1; }.binding-fields [aria-invalid='true'], .preference-fields [aria-invalid='true'] { border-color: var(--cs-danger); }.field-warning { grid-column: 1 / -1; margin: -4px 0 0; color: #8c5a1d; font-size: 8px; }.inherit-note { grid-column: 1 / -1; margin: 0; padding: 10px; border-radius: 8px; background: var(--cs-brand-50); color: var(--cs-text-muted); font-size: 9px; }.preference-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; padding: 14px 16px; }.preference-fields .wide { grid-column: 1 / -1; }.preference-fields textarea { resize: vertical; }.preference-fields label > span { display: flex; justify-content: space-between; }.preference-fields label small { color: var(--cs-text-muted); font-weight: 500; }.preference-fields .toggle { display: flex; min-height: 36px; grid-template-columns: auto 1fr; flex-direction: row; align-items: center; gap: 7px; padding: 8px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); }.preference-fields .toggle input { width: auto; min-height: 0; }.skill-picker { display: flex; flex-wrap: wrap; gap: 7px; padding: 0; border: 0; }.skill-picker legend { width: 100%; margin-bottom: 3px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.skill-picker label { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-pill); font-size: 9px; }.skill-picker p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }.policy-preservation { display: flex; align-items: flex-start; gap: 9px; padding: 11px; border-radius: 8px; background: var(--cs-warning-soft); color: #7b531f; }.policy-preservation svg { flex: 0 0 auto; }.policy-preservation strong, .policy-preservation span { display: block; }.policy-preservation strong { font-size: 9px; }.policy-preservation span { margin-top: 2px; font-size: 8px; line-height: 1.5; }.preflight-results { display: grid; gap: 7px; }.preflight-results article { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid #c4e3d0; border-radius: 8px; background: var(--cs-success-soft); color: var(--cs-success); }.preflight-results strong, .preflight-results span { display: block; }.preflight-results strong { font-size: 9px; }.preflight-results span { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.command-notice { margin: 0; color: var(--cs-success); font-size: 10px; }.command-error { margin: 0; color: var(--cs-danger); font-size: 10px; }.conflict-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px; border-radius: 8px; background: var(--cs-warning-soft); color: #7b531f; font-size: 9px; }.save-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }.save-actions > span { max-width: 560px; color: var(--cs-text-muted); font-size: 8px; }.lifecycle-section { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 16px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.lifecycle-section h3 { margin-bottom: 3px; font-size: 12px; }.lifecycle-section div > span { color: var(--cs-text-muted); font-size: 8px; }.lifecycle-actions { display: flex; gap: 7px; flex: 0 0 auto; }
+.agent-configuration { overflow: hidden; scroll-margin-top: 18px; }
+/* F10 readable configuration baseline: desktop and narrow layouts share the same minimum size. */
+.configuration-main input, .configuration-main select, .configuration-main textarea { font-size: var(--cs-text-base); }
+.configuration-main label, .configuration-main legend, .configuration-main .binding-heading strong { font-size: var(--cs-text-sm); }
+.configuration-main .field-warning, .configuration-main .field-error, .configuration-main .save-actions > span { font-size: var(--cs-text-xs); }
+.field-error { margin: 0; color: var(--cs-danger); font-weight: 500; }
+.hash-value { display: flex; align-items: center; gap: var(--cs-space-2); flex-wrap: wrap; }
+.copy-button { min-height: 28px; padding: 0 var(--cs-space-2); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-brand-700); cursor: pointer; font-size: var(--cs-text-xs); }
+.model-picker__native-fallback { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }
+.draft-recovery { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-3); padding: var(--cs-space-3); border: 1px solid var(--cs-warning); border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); }.draft-recovery strong, .draft-recovery span { display: block; }.draft-recovery strong { color: var(--cs-text); font-size: var(--cs-text-sm); }.draft-recovery span { margin-top: var(--cs-space-1); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.draft-recovery > div:last-child { display: flex; gap: var(--cs-space-2); flex: 0 0 auto; }
+.compare-picker { display: grid; max-width: 320px; gap: var(--cs-space-2); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: 700; }.compare-picker select { min-height: 36px; padding: 0 var(--cs-space-2); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
+.current-hash { display: flex; align-items: center; gap: var(--cs-space-2); flex-wrap: wrap; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 900px) { .configuration-layout { grid-template-columns: 1fr; }.revision-rail { display: flex; overflow-x: auto; align-items: center; gap: 5px; border-right: 0; border-bottom: 1px solid var(--cs-border); }.revision-rail h3 { flex: 0 0 auto; padding: 0 6px; }.revision-rail > button { min-width: 150px; }.revision-empty { margin: 0; }.historical-view dl { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .configuration-header { grid-template-columns: 38px minmax(0, 1fr) 30px; padding: 14px; }.configuration-icon { width: 38px; height: 38px; }.configuration-header > .status-badge { grid-column: 2; justify-self: start; }.configuration-header > button { grid-column: 3; grid-row: 1; }.configuration-main { padding: 12px; }.binding-fields, .preference-fields { grid-template-columns: 1fr; }.binding-mode, .preference-fields .wide { grid-column: 1; }.binding-fields select, .preference-fields select, .preference-fields input, .preference-fields textarea { font-size: 16px; }.save-actions, .lifecycle-section { align-items: stretch; flex-direction: column; }.save-actions .base-button { width: 100%; }.lifecycle-actions { display: grid; }.historical-view dl { grid-template-columns: 1fr; } }
 </style>

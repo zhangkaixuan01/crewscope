@@ -107,7 +107,7 @@ describe('LoginPage', () => {
 
     // 全量套件会并行加载多个 Vue 测试环境，给异步路由守卫保留稳定的调度窗口。
     await vi.waitFor(
-      () => expect(router.currentRoute.value.fullPath).toBe('/conversation'),
+      () => expect(router.currentRoute.value.fullPath).toBe('/today'),
       { timeout: 5_000 },
     )
     expect(wrapper.find('form').exists()).toBe(false)

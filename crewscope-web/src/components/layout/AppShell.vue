@@ -23,7 +23,7 @@ import {
   Sun,
   Moon,
 } from '@lucide/vue'
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useNetworkStatus } from '../../app/network'
@@ -35,8 +35,9 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
 import AppBreadcrumb from './AppBreadcrumb.vue'
 import UserAccountMenu from './UserAccountMenu.vue'
-import { usePreference } from '../../app/preference'
+import { isDensityPreference, isThemePreference, resolveThemePreference, usePreference } from '../../app/preference'
 import { requestCommandPalette } from '../../app/shortcuts'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 defineProps<{
   title: string
@@ -58,10 +59,23 @@ let scopeSynchronizationVersion = 0
 const signingOut = ref(false)
 const signOutError = ref<string | null>(null)
 const railCollapsed = usePreference('cs.pref.device.rail-collapsed.v1', false, { version: 1 })
-const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1 })
+const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
+const densityPreference = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
 const railCollapsedValue = computed(() => railCollapsed.value.value)
 const darkTheme = ref(typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark')
 const isDarkTheme = computed(() => darkTheme.value)
+const mobileNavOpen = ref(false)
+const mobileNav = useTemplateRef<HTMLElement>('mobileNav')
+const mobileNavToggle = useTemplateRef<HTMLButtonElement>('mobileNavToggle')
+const mobileTouchStartX = ref<number | null>(null)
+useFocusTrap(mobileNav, mobileNavOpen)
+
+function onPreferenceChange(event: Event): void {
+  const detail = (event as CustomEvent<{ key?: string, value?: unknown }>).detail
+  if (detail?.key === 'cs.pref.device.theme.v1' && isThemePreference(detail.value)) themePreference.value.value = detail.value
+  if (detail?.key === 'cs.pref.device.density.v1' && isDensityPreference(detail.value)) densityPreference.value.value = detail.value
+}
+if (typeof window !== 'undefined') window.addEventListener('crewscope:preference-change', onPreferenceChange)
 
 const navigationGroups = [
   { label: '工作', items: [
@@ -93,11 +107,16 @@ const visibleNavigationGroups = computed(() => navigationGroups.map(group => ({
 const navigationTarget = (name: string): RouteLocationRaw => ({ name, query: route.query })
 
 function toggleTheme(): void {
-  const next = isDarkTheme.value ? 'light' : 'dark'
+  const next = themePreference.value.value === 'system' ? 'light' : themePreference.value.value === 'light' ? 'dark' : 'system'
   themePreference.value.value = next
-  document.documentElement.dataset.theme = next
-  darkTheme.value = next === 'dark'
+  const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+  const resolved = resolveThemePreference(next, systemDark)
+  document.documentElement.dataset.theme = resolved
+  darkTheme.value = resolved === 'dark'
 }
+
+function toggleDensity(): void { densityPreference.value.value = densityPreference.value.value === 'comfortable' ? 'compact' : 'comfortable' }
+function themeLabel(): string { return themePreference.value.value === 'system' ? '跟随系统' : themePreference.value.value === 'dark' ? '深色' : '浅色' }
 
 watch(
   () => [route.query.team, route.query.project] as const,
@@ -155,6 +174,31 @@ watch(
   },
   { immediate: true },
 )
+
+function closeMobileNav(): void {
+  mobileNavOpen.value = false
+  void nextTick(() => mobileNavToggle.value?.focus())
+}
+function onMobileTouchStart(event: TouchEvent): void { mobileTouchStartX.value = event.changedTouches[0]?.clientX ?? null }
+function onMobileTouchEnd(event: TouchEvent): void {
+  const start = mobileTouchStartX.value
+  mobileTouchStartX.value = null
+  const end = event.changedTouches[0]?.clientX ?? start
+  if (start !== null && end !== undefined && start - end > 56) closeMobileNav()
+}
+function onGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && mobileNavOpen.value) { event.preventDefault(); closeMobileNav() }
+}
+if (typeof window !== 'undefined') window.addEventListener('keydown', onGlobalKeydown)
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('crewscope:preference-change', onPreferenceChange)
+})
+watch(mobileNavOpen, async open => { if (open) await nextTick(() => mobileNav.value?.focus()) })
+watch(themePreference.value, value => {
+  const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+  darkTheme.value = resolveThemePreference(value, systemDark) === 'dark'
+})
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -224,6 +268,7 @@ async function signOut(): Promise<void> {
         <span aria-hidden="true">●</span>当前离线：已加载事实和草稿已保留，联网后可继续提交。
       </div>
       <div class="topbar" role="region" aria-label="全局工具栏">
+        <button ref="mobileNavToggle" class="mobile-menu-toggle" type="button" aria-label="打开主导航" :aria-expanded="mobileNavOpen" aria-controls="mobile-navigation" @click="mobileNavOpen = true"><PanelLeftOpen :size="18" aria-hidden="true" /></button>
         <div class="mode-switcher" aria-label="工作模式">
           <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
             <MessageSquare :size="16" aria-hidden="true" />对话
@@ -236,7 +281,8 @@ async function signOut(): Promise<void> {
         <button class="command-search" type="button" aria-label="打开命令面板，搜索工作、成员或 Agent" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" @click="requestCommandPalette()">
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
-        <button class="icon-button" type="button" :aria-label="isDarkTheme ? '切换浅色主题' : '切换深色主题'" @click="toggleTheme"><Sun v-if="isDarkTheme" :size="18" /><Moon v-else :size="18" /></button>
+        <button class="icon-button" type="button" :aria-label="`主题：${themeLabel()}，点击切换`" @click="toggleTheme"><Sun v-if="isDarkTheme" :size="18" /><Moon v-else :size="18" /></button>
+        <button class="density-button" type="button" :aria-label="`密度：${densityPreference.value.value === 'comfortable' ? '舒适' : '紧凑'}，点击切换`" @click="toggleDensity">{{ densityPreference.value.value === 'comfortable' ? '舒适' : '紧凑' }}</button>
         <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
         <UserAccountMenu
           class="mobile-profile"
@@ -261,9 +307,21 @@ async function signOut(): Promise<void> {
       <main id="main-workspace" class="app-shell__workspace" tabindex="-1"><slot /></main>
     </div>
 
+    <div v-if="mobileNavOpen" class="mobile-navigation-backdrop" @click.self="closeMobileNav">
+      <aside id="mobile-navigation" ref="mobileNav" class="mobile-navigation" aria-label="移动端主导航" role="dialog" aria-modal="true" tabindex="-1" @touchstart.passive="onMobileTouchStart" @touchend.passive="onMobileTouchEnd">
+        <header><strong>导航</strong><button type="button" aria-label="关闭主导航" @click="closeMobileNav"><PanelLeftClose :size="18" /></button></header>
+        <nav class="mobile-navigation__links">
+          <template v-for="group in visibleNavigationGroups" :key="group.label">
+            <p>{{ group.label }}</p>
+            <RouterLink v-for="item in group.items" :key="item.label" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined" @click="closeMobileNav"><component :is="item.icon" :size="17" aria-hidden="true" /><span>{{ item.label }}</span></RouterLink>
+          </template>
+        </nav>
+      </aside>
+    </div>
+
     <nav class="mobile-mode" aria-label="移动端工作模式">
-      <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')"><MessageSquare :size="18" />对话</RouterLink>
-      <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')"><LayoutDashboard :size="18" />工作台</RouterLink>
+      <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined"><MessageSquare :size="18" />对话</RouterLink>
+      <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')" :aria-current="activeMode === 'control' ? 'page' : undefined"><LayoutDashboard :size="18" />工作台</RouterLink>
     </nav>
   </div>
 </template>
@@ -271,34 +329,35 @@ async function signOut(): Promise<void> {
 <style scoped>
 .app-shell { min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: 200; padding: 9px 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-950); color: var(--cs-text-on-dark); font-size: 11px; transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
-.network-banner { position: relative; z-index: 40; display: flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid #d9a8a2; background: #fff4f2; color: #8f332b; font-size: 10px; font-weight: 700; text-align: center; }.network-banner span { color: var(--cs-danger); }
-.app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid #d8e4db; background: #f5faf6; color: var(--cs-text); }
+.network-banner { position: relative; z-index: 40; display: flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 7px 16px; border-bottom: 1px solid var(--cs-danger); background: var(--cs-danger-soft); color: var(--cs-danger); font-size: 10px; font-weight: 700; text-align: center; }.network-banner span { color: var(--cs-danger); }
+.app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: 10; display: flex; width: 244px; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: 18px 14px 14px; border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
 .rail-collapse { display: grid; width: 32px; height: 30px; align-items: center; justify-content: center; align-self: flex-end; margin: 0 0 6px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
 .brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; padding: 0 5px; font-family: var(--cs-font-display); font-size: 18px; }
 .brand img { border: 1px solid rgb(184 239 202 / 24%); border-radius: 11px; }
 .brand span, .brand small { display: block; }
 .brand small { color: var(--cs-text-muted); font-family: var(--cs-font-sans); font-size: 9px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
 .app-shell__rail > :deep(.scope-switcher-root) { flex: 0 0 auto; }
-.rail-navigation { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #b7c9bc transparent; scrollbar-width: thin; }
-.rail-navigation::-webkit-scrollbar { width: 6px; }.rail-navigation::-webkit-scrollbar-track { background: transparent; }.rail-navigation::-webkit-scrollbar-thumb { border-radius: 999px; background: #b7c9bc; }
-.rail-navigation p { margin: 15px 10px 6px; color: #50665a; font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
-.rail-navigation a, .rail-navigation button { display: grid; grid-template-columns: 19px 1fr auto; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 0 10px; border-radius: var(--cs-radius-sm); background: transparent; color: #4d6256; font-size: 12px; text-align: left; cursor: pointer; }
-.rail-navigation a:hover, .rail-navigation a.active { background: var(--cs-brand-100); color: var(--cs-brand-800); }.rail-navigation a.active { font-weight: 750; }
+.rail-navigation { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--cs-border-strong) transparent; scrollbar-width: thin; }
+.rail-navigation::-webkit-scrollbar { width: 6px; }.rail-navigation::-webkit-scrollbar-track { background: transparent; }.rail-navigation::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--cs-border-strong); }
+.rail-navigation p { margin: 15px 10px 6px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.rail-navigation a, .rail-navigation button { display: grid; grid-template-columns: 19px 1fr auto; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 0 10px; border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text-secondary); font-size: 12px; text-align: left; cursor: pointer; }
+.rail-navigation a:hover, .rail-navigation a.active { background: var(--cs-surface-selected); color: var(--cs-nav-active-text); }.rail-navigation a.active { font-weight: 750; }
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
-.rail-profile { z-index: 1; flex: 0 0 auto; margin-top: 8px; background: #f5faf6; }
+.rail-profile { z-index: 1; flex: 0 0 auto; margin-top: 8px; background: var(--cs-surface); }
 .app-shell__body { min-height: 100vh; margin-left: 244px; }
 .app-shell--collapsed .app-shell__rail { width: 76px; align-items: center; }
 .app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span { display: none; }
 .app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
 .app-shell--collapsed .app-shell__body { margin-left: 76px; }
 .app-shell--collapsed .rail-collapse { align-self: center; }
-.topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 88%); backdrop-filter: blur(12px); }
+.topbar { position: relative; z-index: 30; display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); backdrop-filter: blur(12px); }
 .mode-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }
 .mode-switcher a { display: flex; min-height: 31px; align-items: center; gap: 6px; padding: 0 10px; border-radius: 7px; color: var(--cs-text-muted); font-size: 11px; font-weight: 700; }
 .mode-switcher a.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-text); }
 .command-search { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 10px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 11px; text-align: left; cursor: pointer; }
 .command-search kbd { display: flex; align-items: center; gap: 2px; padding: 2px 5px; border: 1px solid var(--cs-border); border-radius: 5px; background: var(--cs-surface); font: 9px var(--cs-font-sans); }
 .icon-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+.density-button { min-height: 30px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); font-size: 10px; cursor: pointer; }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }
 .context-header { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 28px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
@@ -307,6 +366,7 @@ async function signOut(): Promise<void> {
 .context-header__actions { display: flex; align-items: center; gap: 8px; }
 .app-shell__workspace { padding: 18px; }
 .mobile-mode { display: none; }
+.mobile-menu-toggle { display: none; }
 @media (max-width: 1100px) {
   .app-shell__rail { width: 76px; align-items: center; }
   .brand > span, .rail-navigation p, .rail-navigation a span, .rail-navigation button span { display: none; }
@@ -318,17 +378,26 @@ async function signOut(): Promise<void> {
 }
 @media (max-width: 767px) {
   .app-shell__rail, .mode-switcher, .command-search { display: none; }
+  .mobile-menu-toggle { display: grid !important; }
   .app-shell__body { margin-left: 0; padding-bottom: 64px; }
   .topbar { height: 52px; grid-template-columns: minmax(0, 1fr) auto auto; justify-items: end; padding: 0 12px; }
   .topbar-scope { display: block; justify-self: start; max-width: calc(100vw - 70px); }
   .mobile-profile { display: block; }
+  .density-button { display: none; }
   .context-header { min-height: 72px; align-items: flex-start; padding: 13px 16px; }
   .context-header h1 { font-size: 17px; }
-  .context-header__actions { display: none; }
+  .context-header { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .context-header__actions { display: flex; flex-wrap: wrap; width: 100%; }
+  .context-header__actions :deep(.base-button) { flex: 1 1 auto; }
   .app-shell__workspace { padding: 12px; }
-  .mobile-mode { position: fixed; inset: auto 0 0; z-index: 20; display: grid; height: 60px; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--cs-border); background: rgb(255 255 255 / 96%); }
+  .mobile-mode { position: fixed; inset: auto 0 0; z-index: 20; display: grid; height: 60px; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--cs-text-muted); font-size: 11px; font-weight: 700; }
   .mobile-mode a.active { color: var(--cs-brand-700); }
   .network-banner { min-height: 40px; padding-inline: 12px; font-size: 9px; }
 }
+.mobile-menu-toggle { display: none; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+.mobile-navigation-backdrop { position: fixed; inset: 0; z-index: 100; background: rgb(21 35 29 / 32%); }
+.mobile-navigation { width: min(300px, 86vw); height: 100%; padding: var(--cs-space-4); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); overflow-y: auto; }
+.mobile-navigation header { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--cs-space-3); border-bottom: 1px solid var(--cs-border); font-size: var(--cs-text-lg); }.mobile-navigation header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); cursor: pointer; }
+.mobile-navigation__links { display: grid; gap: var(--cs-space-1); padding-top: var(--cs-space-3); }.mobile-navigation__links p { margin: var(--cs-space-3) var(--cs-space-2) var(--cs-space-1); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: 700; }.mobile-navigation__links a { display: flex; min-height: 42px; align-items: center; gap: var(--cs-space-2); padding: 0 var(--cs-space-3); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-base); text-decoration: none; }.mobile-navigation__links a:hover, .mobile-navigation__links a[aria-current='page'] { background: var(--cs-brand-50); color: var(--cs-brand-800); font-weight: 700; }
 </style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Building2, KeyRound, RotateCw, ShieldCheck, UserRound, X } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { isTopmostModal } from '../../app/dialog'
 import type {
   CreateModelConnectionInput,
@@ -9,6 +9,8 @@ import type {
   ModelProviderSummary,
 } from '../../domains/model/types'
 import BaseButton from '../base/BaseButton.vue'
+import AuthPasswordField from '../auth/AuthPasswordField.vue'
+import { useDirtyForm } from '../../composables/useDirtyForm'
 
 const props = defineProps<{
   mode: 'create' | 'rotate'
@@ -29,7 +31,6 @@ const emit = defineEmits<{
 }>()
 
 const dialog = useTemplateRef<HTMLElement>('dialog')
-const apiKeyInput = useTemplateRef<HTMLInputElement>('apiKeyInput')
 const ownerType = ref<ModelConnectionOwnerType>('USER')
 const providerKey = ref(props.providers.find(provider => provider.status === 'ACTIVE')?.key ?? '')
 const region = ref('')
@@ -37,11 +38,20 @@ const expiration = ref('')
 const apiKey = ref('')
 const submitted = ref(false)
 let attemptKey = ''
+const nowForDateTimeInput = computed(() => {
+  const date = new Date(); date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
+  return date.toISOString().slice(0, 16)
+})
+const dirtyForm = useDirtyForm(computed(() => ({ ownerType: ownerType.value, providerKey: providerKey.value, region: region.value, expiration: expiration.value, apiKey: apiKey.value })))
 
 const activeProviders = computed(() => props.providers.filter(provider => provider.status === 'ACTIVE'))
 const selectedProvider = computed(() => props.providers.find(provider => provider.key === providerKey.value) ?? null)
 const availableRegions = computed(() => selectedProvider.value?.availableRegions ?? [])
-const expirationValid = computed(() => !expiration.value || !Number.isNaN(new Date(expiration.value).valueOf()))
+const expirationValid = computed(() => {
+  if (!expiration.value) return true
+  const timestamp = new Date(expiration.value).valueOf()
+  return !Number.isNaN(timestamp) && timestamp > Date.now()
+})
 const valid = computed(() => props.mode === 'rotate'
   ? Boolean(props.connection && apiKey.value.trim() && apiKey.value.length <= 1_048_576)
   : Boolean(selectedProvider.value
@@ -63,6 +73,7 @@ watch([ownerType, providerKey, region, expiration, apiKey], () => {
   // Editing any command input creates a new logical request; an unchanged retry reuses its key.
   attemptKey = ''
   submitted.value = false
+  dirtyForm.markDirty()
 })
 
 watch(() => [props.connection?.id, props.connection?.version, props.connection?.credentialVersion], () => {
@@ -70,7 +81,6 @@ watch(() => [props.connection?.id, props.connection?.version, props.connection?.
   attemptKey = ''
 })
 
-onMounted(() => void nextTick(() => apiKeyInput.value?.focus()))
 onBeforeUnmount(clearSecret)
 
 function canCreateOwner(value: ModelConnectionOwnerType): boolean {
@@ -79,15 +89,17 @@ function canCreateOwner(value: ModelConnectionOwnerType): boolean {
   return props.canManageOrganization
 }
 
-function requestClose(): void {
+async function requestClose(): Promise<void> {
   if (props.submitting) return
-  clearSecret()
-  emit('close')
+  await dirtyForm.closeWithGuard(() => { clearSecret(); emit('close') })
 }
 
 function submit(): void {
   submitted.value = true
+  // Trim only at the boundary; the untrimmed secret never leaves this form.
+  apiKey.value = apiKey.value.trim()
   if (!valid.value) return
+  dirtyForm.markClean()
   if (!attemptKey) attemptKey = crypto.randomUUID()
   if (props.mode === 'rotate') {
     const connection = props.connection
@@ -159,14 +171,11 @@ function handleKeydown(event: KeyboardEvent): void {
         <div v-if="mode === 'create'" class="field-grid">
           <label><span>Provider</span><select v-model="providerKey" aria-label="Provider" :disabled="submitting || activeProviders.length === 0"><option v-if="activeProviders.length === 0" value="" disabled>暂无可用 Provider</option><option v-for="provider in activeProviders" :key="provider.key" :value="provider.key">{{ provider.displayName }}</option></select></label>
           <label><span>Region</span><select v-model="region" aria-label="Region" :disabled="submitting || availableRegions.length === 0"><option v-if="availableRegions.length === 0" value="" disabled>暂无可用 Region</option><option v-for="value in availableRegions" :key="value" :value="value">{{ value }}</option></select></label>
-          <label class="wide"><span>凭证过期时间（可选）</span><input v-model="expiration" type="datetime-local" :disabled="submitting" /></label>
+          <label class="wide"><span>凭证过期时间（可选）</span><input v-model="expiration" type="datetime-local" :min="nowForDateTimeInput" :disabled="submitting" /><small v-if="submitted && !expirationValid" class="field-error">过期时间必须是有效的未来时间。</small></label>
         </div>
 
-        <label class="secret-field">
-          <span>API Key</span>
-          <input ref="apiKeyInput" v-model="apiKey" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="1048576" placeholder="仅在本次提交中使用" :disabled="submitting" :aria-invalid="submitted && !apiKey.trim()" />
-          <small>浏览器不会保存、回显或记录此 Key；关闭或成功后立即清空。失败后可保留在当前表单中显式重试。</small>
-        </label>
+        <AuthPasswordField v-model="apiKey" label="API Key" name="model-api-key" id="model-api-key" autocomplete="new-password" placeholder="仅在本次提交中使用" :disabled="submitting" :maxlength="1048576" :error="submitted && !apiKey.trim() ? '请输入 API Key。' : undefined" />
+        <p class="secret-hint">浏览器不会保存、回显或记录此 Key；关闭或成功后立即清空。失败后可保留在当前表单中显式重试。</p>
 
         <section class="secret-boundary" aria-label="凭证安全边界"><ShieldCheck :size="18" /><div><strong>服务端托管</strong><span>Endpoint、Credential ID、加密存储引用与 Provider 原始响应都不会进入浏览器。</span></div></section>
         <p v-if="errorMessage" class="command-error" role="alert">{{ errorMessage }}</p>
@@ -183,4 +192,6 @@ function handleKeydown(event: KeyboardEvent): void {
 <style scoped>
 .credential-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(21 35 29 / 38%); backdrop-filter: blur(3px); }.credential-dialog { width: min(680px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; box-shadow: var(--cs-shadow-float); }.credential-dialog > header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: start; gap: 11px; padding: 20px; border-bottom: 1px solid var(--cs-border); }.dialog-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.credential-dialog h2 { margin: 0 0 3px; font-size: 18px; }.credential-dialog header div > span { color: var(--cs-text-muted); font-size: 10px; }.credential-dialog header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.credential-content { display: grid; gap: 16px; padding: 18px 20px 4px; }.owner-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0; border: 0; }.owner-picker legend { grid-column: 1 / -1; color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; }.owner-picker button { display: grid; grid-template-columns: 20px 1fr; gap: 9px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; }.owner-picker button.active { border-color: var(--cs-brand-300); background: var(--cs-brand-50); box-shadow: 0 0 0 2px rgb(83 173 107 / 8%); }.owner-picker button:disabled { cursor: not-allowed; opacity: .52; }.owner-picker strong, .owner-picker small { display: block; }.owner-picker strong { font-size: 11px; }.owner-picker small { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; line-height: 1.45; }.field-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }.field-grid label, .secret-field { display: grid; gap: 6px; }.field-grid label.wide { grid-column: 1 / -1; }.field-grid label > span, .secret-field > span { color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; }.field-grid select, .field-grid input, .secret-field input { width: 100%; min-height: 40px; padding: 0 10px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); }.secret-field input[aria-invalid='true'] { border-color: var(--cs-danger); }.secret-field small { color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.secret-boundary { display: flex; gap: 9px; padding: 11px 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-brand-700); }.secret-boundary svg { flex: 0 0 auto; }.secret-boundary strong, .secret-boundary span { display: block; }.secret-boundary strong { font-size: 10px; }.secret-boundary span { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.command-error { margin: 0; color: var(--cs-danger); font-size: 10px; }.credential-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 17px 20px 20px; }
 @media (max-width: 767px) { .credential-backdrop { align-items: end; padding: 0; }.credential-dialog { width: 100%; max-height: calc(100dvh - 12px); border-radius: 18px 18px 0 0; }.credential-dialog > header { padding: 17px 16px; }.credential-content { padding-inline: 16px; }.owner-picker, .field-grid { grid-template-columns: 1fr; }.owner-picker legend, .field-grid label.wide { grid-column: 1; }.field-grid input, .field-grid select, .secret-field input { font-size: 16px; }.credential-dialog > footer { display: grid; padding-inline: 16px; }.credential-dialog > footer > * { width: 100%; } }
+.secret-hint, .field-error { margin: 0; font-size: var(--cs-text-xs); line-height: 1.45; }.secret-hint { color: var(--cs-text-muted); }.field-error { color: var(--cs-danger); }
+.field-grid label > span, .owner-picker legend, .secret-field > span { font-size: var(--cs-text-sm); }.field-grid input, .field-grid select { font-size: var(--cs-text-base); }
 </style>

@@ -8,11 +8,12 @@ import StatusBadge from '../components/base/StatusBadge.vue'
 import ModelConnectionDetail from '../components/domain/ModelConnectionDetail.vue'
 import ModelCredentialDialog from '../components/domain/ModelCredentialDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useModelStore } from '../domains/model/store'
 import type { CreateModelConnectionInput, ModelConnectionOwnerType, ModelConnectionSummary, ModelProviderSummary } from '../domains/model/types'
 import { useScopeStore } from '../domains/scope/store'
 import { modelSettingsSelection, withModelSettingsRoute } from '../domains/settings/route'
+import { connectionStatusLabels, enumLabel, healthStatusLabels, ownerTypeLabels, retentionLabels, trainingPolicyLabels } from '../domains/settings/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,11 +211,7 @@ function canManageConnection(connection: ModelConnectionSummary | null): boolean
   return canManageOrganization.value
 }
 
-function ownerLabel(owner: ModelConnectionOwnerType): string {
-  if (owner === 'USER') return '我的连接'
-  if (owner === 'TEAM') return '团队连接'
-  return '组织连接'
-}
+function ownerLabel(owner: ModelConnectionOwnerType): string { return `${enumLabel(owner, ownerTypeLabels)}连接` }
 
 function providerTone(status: string): 'success' | 'warning' {
   return status === 'ACTIVE' ? 'success' : 'warning'
@@ -235,10 +232,14 @@ function healthTone(status: string): 'success' | 'danger' | 'neutral' {
 function formatPrice(value: string, currency: string): string {
   return `${currency} ${value}`
 }
+function connectionStatusLabel(value: string): string { return enumLabel(value, connectionStatusLabels) }
+function healthStatusLabel(value: string): string { return enumLabel(value, healthStatusLabels) }
+function retentionLabel(value: string): string { return enumLabel(value, retentionLabels) }
+function trainingPolicyLabel(value: string): string { return enumLabel(value, trainingPolicyLabels) }
 </script>
 
 <template>
-  <AppShell eyebrow="Settings · Model governance" :title="`${team?.name ?? 'Team'} · 模型与凭证`">
+  <SettingsShell eyebrow="设置 · 模型治理" :title="`${team?.name ?? 'Team'} · 模型与凭证`">
     <template #actions><BaseButton size="small" :disabled="!canOpenCreate" @click="openCreate"><Plus :size="14" />创建连接</BaseButton></template>
 
     <ModelCredentialDialog
@@ -272,19 +273,19 @@ function formatPrice(value: string, currency: string): string {
         <StatePanel v-else-if="modelStore.state.providers.phase === 'empty'" state="empty" compact title="没有可用 Provider" />
         <div v-else class="catalog-layout">
           <nav class="provider-list" aria-label="模型 Provider">
-            <button v-for="provider in providers" :key="provider.key" type="button" :class="{ active: selectedProvider?.key === provider.key }" @click="selectProvider(provider)">
-              <span><strong>{{ provider.displayName }}</strong><small class="mono">{{ provider.key }}</small></span><StatusBadge :tone="providerTone(provider.status)" dot>{{ provider.status }}</StatusBadge>
+              <button v-for="provider in providers" :key="provider.key" type="button" :class="{ active: selectedProvider?.key === provider.key }" @click="selectProvider(provider)">
+              <span><strong>{{ provider.displayName }}</strong><small class="mono">{{ provider.key }}</small></span><StatusBadge :tone="providerTone(provider.status)" dot>{{ connectionStatusLabel(provider.status) }}</StatusBadge>
               <small>{{ provider.availableRegions.join(' · ') }}</small>
             </button>
           </nav>
           <div class="catalog-content">
-            <div v-if="selectedProvider" class="provider-policy"><span>Retention <strong>{{ selectedProvider.retentionMode }}</strong></span><span>Max retention <strong>{{ selectedProvider.maximumRetentionSeconds ?? 'None' }}</strong></span><span>Training <strong>{{ selectedProvider.trainingUsagePolicy }}</strong></span><span>Revision <strong>{{ selectedProvider.version }}</strong></span></div>
+            <div v-if="selectedProvider" class="provider-policy"><span>留存 <strong>{{ retentionLabel(selectedProvider.retentionMode) }}</strong></span><span>最长留存 <strong>{{ selectedProvider.maximumRetentionSeconds ?? '无' }}</strong></span><span>训练策略 <strong>{{ trainingPolicyLabel(selectedProvider.trainingUsagePolicy) }}</strong></span><span>目录修订 <strong>{{ selectedProvider.version }}</strong></span></div>
             <StatePanel v-if="selectedProvider && (!selectedCatalog || selectedCatalog.phase === 'loading' || selectedCatalog.phase === 'idle')" state="loading" compact title="正在加载模型目录" />
             <StatePanel v-else-if="selectedCatalog?.phase === 'error'" state="error" compact :description="selectedCatalog.errorMessage ?? undefined" @retry="selectedProvider && modelStore.loadCatalog(selectedProvider.key, false, true)" />
             <StatePanel v-else-if="selectedCatalog?.phase === 'empty'" state="empty" compact title="这个 Provider 暂无可选模型" />
             <ul v-else class="model-grid" role="list">
               <li v-for="model in selectedCatalog?.value ?? []" :key="`${model.id}:${model.catalogRevision}`">
-                <header><div><h3>{{ model.displayName }}</h3><p class="mono">{{ model.modelId }}</p></div><StatusBadge :tone="model.status === 'ACTIVE' ? 'success' : 'warning'">{{ model.status }}</StatusBadge></header>
+                <header><div><h3>{{ model.displayName }}</h3><p class="mono">{{ model.modelId }}</p></div><StatusBadge :tone="model.status === 'ACTIVE' ? 'success' : 'warning'">{{ connectionStatusLabel(model.status) }}</StatusBadge></header>
                 <dl><div><dt>Catalog</dt><dd>r{{ model.catalogRevision }}</dd></div><div><dt>Context</dt><dd>{{ model.contextWindowTokens.toLocaleString() }}</dd></div><div><dt>Output</dt><dd>{{ model.maximumOutputTokens.toLocaleString() }}</dd></div></dl>
                 <p class="capabilities">{{ model.capabilities.join(' · ') || '基础文本能力' }}</p>
                 <footer v-if="model.effectivePrice"><Coins :size="14" /><span>Input {{ formatPrice(model.effectivePrice.inputPerMillionTokens, model.effectivePrice.currencyCode) }} · Output {{ formatPrice(model.effectivePrice.outputPerMillionTokens, model.effectivePrice.currencyCode) }} / 1M tokens</span></footer>
@@ -320,7 +321,7 @@ function formatPrice(value: string, currency: string): string {
           <li v-for="connection in connections" :key="connection.id">
             <button type="button" :data-connection-id="connection.id" :class="{ selected: selection.connectionId === connection.id }" @click="selectConnection(connection)">
               <span class="connection-provider"><KeyRound :size="17" /><span><strong>{{ connection.providerKey }}</strong><small>{{ connection.region }} · Credential v{{ connection.credentialVersion }}</small></span></span>
-              <span class="connection-badges"><StatusBadge :tone="connectionTone(connection.status)" dot>{{ connection.status }}</StatusBadge><StatusBadge :tone="healthTone(connection.healthStatus)" dot>{{ connection.healthStatus }}</StatusBadge></span>
+              <span class="connection-badges"><StatusBadge :tone="connectionTone(connection.status)" dot>{{ connectionStatusLabel(connection.status) }}</StatusBadge><StatusBadge :tone="healthTone(connection.healthStatus)" dot>{{ healthStatusLabel(connection.healthStatus) }}</StatusBadge></span>
               <span class="connection-meta"><small>Billing {{ connection.billingSubjectType }}</small><small>Failures {{ connection.consecutiveFailures }}</small><small>Version {{ connection.version }}</small></span>
             </button>
           </li>
@@ -328,13 +329,13 @@ function formatPrice(value: string, currency: string): string {
       </section>
 
       <section class="governance-panel panel" aria-labelledby="governance-title">
-        <header class="panel-heading"><div><p class="eyebrow">Governance delivery</p><h2 id="governance-title">默认、允许列表与预算</h2><p>以下能力等待公开管理 API；页面保持服务端事实边界，不创建仅在本地生效的配置。</p></div></header>
-        <div class="governance-grid"><article><ShieldCheck :size="18" /><div><h3>Team 模型默认</h3><p>领域已定义 AgentModelDefault，管理 API 尚未交付。</p></div><StatusBadge tone="neutral">API 待交付</StatusBadge></article><article><Layers3 :size="18" /><div><h3>Provider / Catalog 允许列表</h3><p>Agent Preflight 会执行治理求交集，策略编辑 API 尚未交付。</p></div><StatusBadge tone="neutral">只读边界</StatusBadge></article><article><Coins :size="18" /><div><h3>预算与配额</h3><p>当前没有公开 Budget Policy 目录与编辑契约。</p></div><StatusBadge tone="neutral">API 待交付</StatusBadge></article></div>
+        <header class="panel-heading"><div><p class="eyebrow">Governance facts</p><h2 id="governance-title">默认、允许列表与预算</h2><p>治理策略由服务端目录和 Agent Preflight 统一计算；本页只展示当前生效事实。</p></div></header>
+        <div class="governance-grid"><article><ShieldCheck :size="18" /><div><h3>Team 模型默认</h3><p>Agent Preflight 会按 Team 与 Organization 的默认策略解析模型来源。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article><article><Layers3 :size="18" /><div><h3>Provider / Catalog 允许列表</h3><p>候选模型由健康度、能力、区域和治理策略求交集。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article><article><Coins :size="18" /><div><h3>预算与配额</h3><p>配置 Revision 会保留预算策略引用并在运行时执行。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article></div>
       </section>
 
       <section class="security-note" aria-label="模型凭证安全说明"><ShieldCheck :size="18" /><div><strong>凭证不进入浏览器状态</strong><span>API Key 不进入 Store、URL、Toast、Telemetry、错误详情或可重放闭包；Connection DTO 只展示稳定、安全的公开字段。</span></div></section>
     </div>
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>

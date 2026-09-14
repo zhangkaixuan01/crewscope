@@ -8,7 +8,7 @@ import { CrewScopeApiError } from '../api/client'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
-import AppShell from '../components/layout/AppShell.vue'
+import SettingsShell from '../components/settings/SettingsShell.vue'
 import { HttpDeliveryGateway, type CreateGitHubConnectionInput } from '../domains/delivery/gateway'
 import type { DeliveryScope, GitHubAuthorizationHealth, GitHubConnection, GitHubProviderBinding, GitHubRepository, GitHubRepositoryImportJob } from '../domains/delivery/types'
 import { useScopeStore } from '../domains/scope/store'
@@ -314,7 +314,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
 </script>
 
 <template>
-  <AppShell title="GitHub 集成" eyebrow="Settings · Provider connections">
+  <SettingsShell title="GitHub 集成" eyebrow="设置 · Provider 连接">
     <template #actions>
       <BaseButton variant="secondary" size="small" :disabled="!scope || loading || !online" @click="loadConnections"><RefreshCw :size="14" />刷新</BaseButton>
       <BaseButton v-if="canManage" size="small" :disabled="!scope || !online" @click="formOpen ? closeForm() : formOpen = true"><Plus :size="14" />创建 Connection</BaseButton>
@@ -386,7 +386,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
         </section>
       </section>
     </div>
-  </AppShell>
+  </SettingsShell>
 </template>
 
 <style scoped>

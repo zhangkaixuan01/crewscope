@@ -266,6 +266,32 @@ function mapConfigurationHistory(value: AgentConfigurationHistoryItem): AgentCon
     ]),
     personalBinding: value.personalBinding ? mapBinding(value.personalBinding) : null,
     teamBinding: value.teamBinding ? mapBinding(value.teamBinding) : null,
+    configuration: value.configuration ? mapPublicConfiguration(value.configuration) : null,
+  }
+}
+
+function mapPublicConfiguration(value: Record<string, unknown>): Record<string, unknown> {
+  // Revision comparison is intentionally limited to the public, non-secret payload.
+  const result: Record<string, unknown> = {}
+  if (value.personalBinding && typeof value.personalBinding === 'object') result.personalBinding = safePublicBinding(value.personalBinding as Record<string, unknown>)
+  if (value.teamBinding && typeof value.teamBinding === 'object') result.teamBinding = safePublicBinding(value.teamBinding as Record<string, unknown>)
+  if (typeof value.supplementalInstructions === 'string') result.supplementalInstructions = value.supplementalInstructions
+  if (Array.isArray(value.approvedSkillKeys)) result.approvedSkillKeys = value.approvedSkillKeys.filter(item => typeof item === 'string')
+  for (const key of ['memoryPolicy', 'budgetPolicy']) {
+    const policy = value[key]
+    if (policy && typeof policy === 'object') result[key] = pick(policy as Record<string, unknown>, ['id', 'version'])
+  }
+  if (value.generateOptions && typeof value.generateOptions === 'object') result.generateOptions = pick(value.generateOptions as Record<string, unknown>, [
+    'temperature', 'topP', 'maximumOutputTokens', 'reasoningMode', 'cacheEnabled', 'parallelToolCalls', 'seed', 'maximumAttempts',
+  ])
+  if (typeof value.policyPackId === 'string') result.policyPackId = value.policyPackId
+  if (typeof value.policyPackVersion === 'number') result.policyPackVersion = value.policyPackVersion
+  return result
+}
+
+function safePublicBinding(value: Record<string, unknown>): Record<string, unknown> {
+  try { return mapBinding(value as unknown as AgentModelBindingSummary) as unknown as Record<string, unknown> } catch {
+    return pick(value, ['executionScope', 'kind', 'primary', 'fallback'])
   }
 }
 

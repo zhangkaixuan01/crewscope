@@ -12,7 +12,7 @@ import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTeamOpsStore } from '../domains/teamops/store'
-import { auditEventCategories, auditOutcomes, type AuditEventCategory, type AuditFilter, type AuditOutcome, type TeamOpsScope } from '../domains/teamops/types'
+import { auditEventCategories, auditOutcomes, type AuditEvent, type AuditEventCategory, type AuditFilter, type AuditOutcome, type TeamOpsScope } from '../domains/teamops/types'
 
 interface AuditFilterForm {
   from: string
@@ -112,18 +112,32 @@ async function exportAudit(maximumRows: number): Promise<void> {
   await store.exportAudit(activeFilter.value, maximumRows)
   const value = store.state.auditExport.value
   if (!value || store.state.auditExport.phase !== 'ready') return
-  downloadJson(value)
+  downloadCsv(value)
   // Export generation is itself auditable; refresh so the new fact becomes visible.
   await store.loadAudit(activeFilter.value, false, true)
 }
 
-function downloadJson(value: unknown): void {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/vnd.crewscope.audit-export+json' }))
+function downloadCsv(value: { generatedAt: string, events: AuditEvent[] }): void {
+  const columns = ['eventId', 'eventType', 'category', 'outcome', 'occurredAt', 'actorType', 'actorId', 'subjectType', 'subjectId', 'correlationId']
+  const rows = value.events.map(event => [
+    event.eventId, event.eventType, event.category, event.outcome, event.occurredAt,
+    event.identity.actorType, event.identity.actorId ?? '', event.subject.type, event.subject.id,
+    event.correlation.correlationId,
+  ])
+  const csv = [columns, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')
+  // UTF-8 BOM keeps Chinese labels readable in spreadsheet applications.
+  const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = 'crewscope-audit-export.json'
+  const stamp = value.generatedAt.replace(/[:.]/g, '-')
+  const summary = [filterForm.value.category, filterForm.value.outcome].filter(Boolean).join('-') || 'all'
+  anchor.download = 'crewscope-audit-' + summary + '-' + stamp + '.csv'
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+function csvCell(value: string): string {
+  return /[",\r\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value
 }
 
 function toAuditFilter(value: AuditFilterForm): AuditFilter {
@@ -158,7 +172,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
 </script>
 
 <template>
-  <AppShell title="审计中心" eyebrow="Govern / Audit explorer">
+  <AppShell title="审计中心" eyebrow="治理 · 审计查询">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="store.loadAudit(activeFilter, false, true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
     <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="审计事实始终属于明确的 Organization 与 Team。" />

@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
 import { usePreference } from './usePreference'
+import { applyDevicePreferences, resolveThemePreference } from '../app/preference'
 
 describe('usePreference', () => {
   beforeEach(() => localStorage.clear())
@@ -17,5 +18,30 @@ describe('usePreference', () => {
     preference.reset()
     expect(preference.value.value).toEqual({ view: 'list' })
   })
-})
 
+  it('falls back when a version-matched value fails its runtime guard', () => {
+    localStorage.setItem('theme', JSON.stringify({ version: 1, value: 'ultraviolet' }))
+    const preference = usePreference<'system' | 'light' | 'dark'>('theme', 'system', {
+      version: 1,
+      validate: (value): value is 'system' | 'light' | 'dark' => value === 'system' || value === 'light' || value === 'dark',
+    })
+    expect(preference.value.value).toBe('system')
+
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'theme',
+      newValue: JSON.stringify({ version: 1, value: { unexpected: true } }),
+    }))
+    expect(preference.value.value).toBe('system')
+  })
+
+  it('resolves system theme and applies density without mutating the preference value', () => {
+    expect(resolveThemePreference('system', true)).toBe('dark')
+    expect(resolveThemePreference('system', false)).toBe('light')
+    expect(resolveThemePreference('dark', false)).toBe('dark')
+
+    const root = document.documentElement
+    applyDevicePreferences(root, 'dark', 'compact', false)
+    expect(root.dataset.theme).toBe('dark')
+    expect(root.dataset.density).toBe('compact')
+  })
+})
