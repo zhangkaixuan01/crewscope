@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Columns3, Filter, List, MessageSquare, Plus, ShieldCheck, X } from '@lucide/vue'
-import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { Columns3, Filter, List, MessageSquare, Plus, ShieldCheck } from '@lucide/vue'
+import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
@@ -14,6 +14,7 @@ import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vu
 import TaskListPanel from '../components/domain/TaskListPanel.vue'
 import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
+import WorkItemCreateDialog from '../components/domain/WorkItemCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
@@ -130,9 +131,7 @@ const codingScope = computed<CodingScope | null>(() => principal && team.value &
   : null)
 const showCreate = ref(false)
 const showDelegate = ref(false)
-const submitted = ref(false)
-const titleInput = ref<HTMLInputElement | null>(null)
-const form = reactive({ key: '', type: 'TASK' as WorkItemType, title: '', description: '', priority: 'MEDIUM' as WorkItemPriority, labels: '', dueAt: '' })
+const createInitialKey = ref('')
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
@@ -284,12 +283,6 @@ const boardStatuses = computed<WorkItemStatus[]>(() => {
   return workflow
 })
 
-const formValid = computed(() => (
-  /^[A-Z][A-Z0-9]{1,9}-[1-9][0-9]*$/.test(form.key.trim())
-  && form.key.startsWith(`${project.value?.key ?? ''}-`)
-  && form.title.trim().length > 0
-  && form.title.trim().length <= 240
-))
 const canDelegate = computed(() => Boolean(
   canParticipate.value
   && principal
@@ -590,28 +583,14 @@ function openCreate(): void {
     const match = item.key.startsWith(prefix) ? Number(item.key.slice(prefix.length)) : 0
     return Number.isInteger(match) ? Math.max(highest, match) : highest
   }, 0)
-  Object.assign(form, { key: `${prefix}${lastNumber + 1}`, type: 'TASK', title: '', description: '', priority: 'MEDIUM', labels: '', dueAt: '' })
-  submitted.value = false
+  createInitialKey.value = `${prefix}${lastNumber + 1}`
   showCreate.value = true
-  void nextTick(() => titleInput.value?.focus())
 }
 
-async function createWorkItem(): Promise<void> {
-  submitted.value = true
-  if (!formValid.value) return
-  const input: CreateWorkItemInput = {
-    key: form.key.trim(),
-    type: form.type,
-    title: form.title.trim(),
-    description: form.description.trim() || null,
-    priority: form.priority,
-    labels: [...new Set(form.labels.split(',').map(value => value.trim()).filter(Boolean))],
-    dueAt: form.dueAt ? new Date(form.dueAt).toISOString() : null,
-  }
+async function createWorkItem(input: CreateWorkItemInput): Promise<void> {
   try {
     await workStore.create(input)
     showCreate.value = false
-    submitted.value = false
   } catch {
     // The Store publishes a sanitized command error; global handling owns unexpected details.
   }
@@ -1157,7 +1136,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 </script>
 
 <template>
-  <AppShell eyebrow="Work · Project scope" :title="project?.name ?? '项目工作区'">
+  <AppShell eyebrow="工作 · 项目范围" :title="project?.name ?? '项目工作区'">
     <template #actions>
       <BaseButton v-if="!project && canManageProjects" size="small" @click="projectCreation.show"><Plus :size="14" />新建项目</BaseButton>
       <RouterLink v-slot="{ navigate }" custom :to="{ name: 'conversation', query: route.query }">
@@ -1251,23 +1230,15 @@ const statusLabels: Record<WorkItemStatus, string> = {
       @submit="projectCreation.submit"
     />
 
-    <div v-if="showCreate" class="dialog-backdrop" @click.self="showCreate = false">
-      <form class="create-dialog panel" role="dialog" aria-modal="true" aria-labelledby="create-work-item-title" @submit.prevent="createWorkItem" @keydown.esc="showCreate = false">
-        <header><div><p class="eyebrow">{{ project?.key }} · Native WorkItem</p><h2 id="create-work-item-title">新建工作项</h2><span>创建者将成为初始 Owner，服务端原子提交工作项与责任事实。</span></div><button type="button" aria-label="关闭新建工作项" @click="showCreate = false"><X :size="18" /></button></header>
-        <div class="form-grid">
-          <label class="field-key"><span>工作项 Key</span><input v-model="form.key" class="mono" autocomplete="off" :aria-invalid="submitted && !/^[A-Z][A-Z0-9]{1,9}-[1-9][0-9]*$/.test(form.key.trim())"></label>
-          <label class="field-title"><span>标题</span><input ref="titleInput" v-model="form.title" maxlength="240" autocomplete="off" placeholder="描述团队需要完成的结果" :aria-invalid="submitted && !form.title.trim()"></label>
-          <label><span>类型</span><select v-model="form.type"><option v-for="itemType in workItemTypes" :key="itemType" :value="itemType">{{ itemType }}</option></select></label>
-          <label><span>优先级</span><select v-model="form.priority"><option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ priority }}</option></select></label>
-          <label><span>到期时间</span><input v-model="form.dueAt" type="datetime-local"></label>
-          <label><span>标签</span><input v-model="form.labels" placeholder="frontend, collaboration"></label>
-          <label class="field-wide"><span>描述</span><textarea v-model="form.description" rows="4" placeholder="补充背景、范围和验收结果" /></label>
-        </div>
-        <p v-if="submitted && !formValid" class="form-error" role="alert">请填写有效标题，并使用当前项目的 Key 格式（例如 {{ project?.key }}-1）。</p>
-        <p v-if="workStore.state.commandErrorMessage" class="form-error" role="alert">{{ workStore.state.commandErrorMessage }}</p>
-        <footer><BaseButton type="button" variant="ghost" @click="showCreate = false">取消</BaseButton><BaseButton type="submit" :loading="workStore.state.commandPending">创建工作项</BaseButton></footer>
-      </form>
-    </div>
+    <WorkItemCreateDialog
+      v-if="showCreate && project"
+      :project-key="project.key"
+      :initial-key="createInitialKey"
+      :submitting="workStore.state.commandPending"
+      :error-message="workStore.state.commandErrorMessage"
+      @close="showCreate = false"
+      @submit="createWorkItem"
+    />
 
     <DelegateToAgentDialog
       v-if="showDelegate && workStore.state.detail && codingScope"
@@ -1435,10 +1406,9 @@ const statusLabels: Record<WorkItemStatus, string> = {
 </template>
 
 <style scoped>
-.work-toolbar { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(430px, 1.5fr) auto; align-items: end; gap: 18px; padding: 16px 18px; }.work-toolbar__scope { position: relative; padding-right: 104px; }.work-toolbar__scope h2 { margin: 0; font-size: 17px; }.work-toolbar__scope > span { color: var(--cs-text-muted); font-size: 9px; }.create-work-item { position: absolute; right: 0; bottom: 0; }.filters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; }.filters label, .form-grid label { display: grid; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.filters select, .form-grid input, .form-grid select, .form-grid textarea { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.form-grid textarea { padding-block: 9px; resize: vertical; }.view-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }.view-switcher button { display: flex; min-height: 30px; align-items: center; gap: 5px; padding: 0 9px; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 10px; cursor: pointer; }.view-switcher button.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-brand-700); font-weight: 750; }
+.work-toolbar { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(430px, 1.5fr) auto; align-items: end; gap: 18px; padding: 16px 18px; }.work-toolbar__scope { position: relative; padding-right: 104px; }.work-toolbar__scope h2 { margin: 0; font-size: 17px; }.work-toolbar__scope > span { color: var(--cs-text-muted); font-size: 9px; }.create-work-item { position: absolute; right: 0; bottom: 0; }.filters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; }.filters label { display: grid; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.filters select { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.view-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }.view-switcher button { display: flex; min-height: 30px; align-items: center; gap: 5px; padding: 0 9px; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 10px; cursor: pointer; }.view-switcher button.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-brand-700); font-weight: 750; }
 .work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: 7px; }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: #f7f9f7; scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: 10px; font-weight: 800; }.board-column__items { display: grid; align-content: start; gap: 8px; padding: 8px; }.board-column__items > p { padding: 24px 8px; color: var(--cs-text-muted); font-size: 9px; text-align: center; }.load-more { display: grid; justify-items: center; gap: 7px; padding: 16px; }.load-more p { margin: 0; color: var(--cs-danger); font-size: 10px; }.scope-rule { display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; }.scope-rule svg { flex: 0 0 auto; color: var(--cs-brand-600); }
 .board-column.drop-target { border-color: var(--cs-brand-500); background: var(--cs-brand-50); box-shadow: inset 0 0 0 2px var(--cs-brand-100); }.board-column.drop-rejected { opacity: .62; }
-.dialog-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgb(21 35 29 / 34%); backdrop-filter: blur(3px); }.create-dialog { width: min(720px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 3px; font-size: 18px; }.create-dialog header span { color: var(--cs-text-muted); font-size: 10px; }.create-dialog header button { display: grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 20px 22px 8px; }.field-title, .field-wide { grid-column: 1 / -1; }.form-grid input[aria-invalid="true"] { border-color: var(--cs-danger); }.form-error { margin: 8px 22px 0; color: var(--cs-danger); font-size: 10px; }.create-dialog > footer { display: flex; justify-content: flex-end; gap: 7px; padding: 17px 22px 20px; }
 @media (max-width: 1050px) { .work-toolbar { grid-template-columns: 1fr auto; }.filters { grid-column: 1 / -1; grid-row: 2; }.view-switcher { grid-column: 2; grid-row: 1; } }
-@media (max-width: 767px) { .work-toolbar { grid-template-columns: 1fr; align-items: stretch; gap: 12px; padding: 14px; }.work-toolbar__scope { padding-right: 112px; }.filters { grid-column: 1; grid-template-columns: 1fr 1fr; }.filters label:first-child { grid-column: 1 / -1; }.view-switcher { grid-column: 1; grid-row: auto; }.view-switcher button { flex: 1; justify-content: center; }.work-board { grid-auto-columns: minmax(272px, 84vw); }.dialog-backdrop { align-items: end; padding: 0; }.create-dialog { width: 100%; max-height: 92vh; border-radius: 18px 18px 0 0; }.create-dialog > header, .form-grid, .create-dialog > footer { padding-inline: 16px; }.form-grid { grid-template-columns: 1fr; }.field-title, .field-wide { grid-column: 1; }.form-error { margin-inline: 16px; } }
+@media (max-width: 767px) { .work-toolbar { grid-template-columns: 1fr; align-items: stretch; gap: 12px; padding: 14px; }.work-toolbar__scope { padding-right: 112px; }.filters { grid-column: 1; grid-template-columns: 1fr 1fr; }.filters label:first-child { grid-column: 1 / -1; }.view-switcher { grid-column: 1; grid-row: auto; }.view-switcher button { flex: 1; justify-content: center; }.work-board { grid-auto-columns: minmax(272px, 84vw); } }
 </style>
