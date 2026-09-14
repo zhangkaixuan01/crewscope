@@ -10,11 +10,12 @@ import {
   UsersRound,
   X,
 } from '@lucide/vue'
-import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
+import BaseTooltip from '../components/base/BaseTooltip.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import ConversationAgentActionRegion from '../components/domain/ConversationAgentActionRegion.vue'
 import ConversationComposer from '../components/domain/ConversationComposer.vue'
@@ -23,6 +24,10 @@ import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
+import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
+import { usePreference } from '../composables/usePreference'
+import { useResizablePane } from '../composables/useResizablePane'
+import { useVirtualList } from '../composables/useVirtualList'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useConversationMessageStore } from '../domains/conversation/messageStore'
@@ -65,7 +70,22 @@ const createTitleInput = ref<HTMLInputElement | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
+const workspace = ref<HTMLElement | null>(null)
 const drafts = reactive(new Map<string, string>())
+const leftPane = useResizablePane('cs.pref.conversation.left-pane.v1', 24, { min: 16, max: 36 })
+const rightPane = useResizablePane('cs.pref.conversation.right-pane.v1', 22, { min: 16, max: 34 })
+const leftPaneRatio = leftPane.ratio
+const leftPaneCollapsed = leftPane.collapsed
+const rightPaneRatio = rightPane.ratio
+const rightPaneCollapsed = rightPane.collapsed
+const scrollPositions = usePreference<Record<string, number>>('cs.pref.conversation.scroll.v1', {}, { version: 1 })
+const readSequences = usePreference<Record<string, number>>('cs.pref.conversation.read-sequences.v1', {}, { version: 1 })
+const persistedMessages = computed(() => messageStore.state.items)
+const virtualList = useVirtualList(persistedMessages, 108, 8)
+const visibleMessages = virtualList.visibleItems
+const virtualTop = virtualList.topPadding
+const virtualBottom = virtualList.bottomPadding
+const atLatest = ref(true)
 let createReturnFocus: HTMLElement | null = null
 let conversationReturnFocus: HTMLElement | null = null
 let pendingDetailFocus = false
@@ -89,6 +109,10 @@ const pageTitle = computed(() => {
   return focus.value ? `团队对话 · ${focus.value}` : '团队对话'
 })
 const workspaceClass = computed(() => ({ 'has-selection': Boolean(conversationStore.state.selectedConversationId) }))
+const workspaceStyle = computed(() => ({
+  '--conversation-left-pane': leftPane.collapsed.value ? '44px' : `${leftPane.ratio.value}%`,
+  '--conversation-right-pane': rightPane.collapsed.value ? '44px' : `${rightPane.ratio.value}%`,
+}))
 const currentDraft = computed({
   get: () => selected.value ? (drafts.get(selected.value.id) ?? '') : '',
   set: value => { if (selected.value) drafts.set(selected.value.id, value) },
@@ -166,6 +190,18 @@ const canConfigureConfirmedCoding = computed(() => Boolean(
     ? taskIntentStore.state.intent.proposal.owner.principalId === principal.id
     : selected.value?.ownerPrincipalId === principal.id),
 ))
+const unreadCount = computed(() => {
+  const selectedId = selected.value?.id
+  if (!selectedId) return 0
+  const readSequence = readSequences.value.value[selectedId] ?? newestMessageSequence()
+  return messageStore.state.items.filter(message => message.sequence > readSequence).length
+})
+const firstUnreadSequence = computed(() => {
+  const selectedId = selected.value?.id
+  if (!selectedId) return null
+  const readSequence = readSequences.value.value[selectedId] ?? newestMessageSequence()
+  return messageStore.state.items.find(message => message.sequence > readSequence)?.sequence ?? null
+})
 
 watch(
   () => [realtimeStore.state.invocationPhase, Boolean(realtimeStore.state.clarification)] as const,
@@ -179,6 +215,43 @@ watch(
   },
   { flush: 'post', immediate: true },
 )
+
+watch(messageHistory, element => {
+  virtualList.container.value = element
+  if (element && selected.value) {
+    element.scrollTop = scrollPositions.value.value[selected.value.id] ?? element.scrollHeight
+    virtualList.onScroll()
+  }
+}, { flush: 'post' })
+
+watch(() => selected.value?.id, async conversationId => {
+  if (!conversationId) return
+  await nextTick()
+  if (!messageHistory.value) return
+  messageHistory.value.scrollTop = scrollPositions.value.value[conversationId] ?? messageHistory.value.scrollHeight
+  virtualList.reset()
+  atLatest.value = isNearLatest()
+})
+
+watch(() => [selected.value?.id, messageStore.state.phase] as const, ([conversationId, phase]) => {
+  if (!conversationId || phase !== 'ready' || readSequences.value.value[conversationId] !== undefined) return
+  // The initial history is considered read; subsequent realtime facts become the unread boundary.
+  readSequences.value.value = { ...readSequences.value.value, [conversationId]: newestMessageSequence() }
+})
+
+watch(() => messageStore.state.items.length, async () => {
+  await nextTick()
+  if (atLatest.value && messageHistory.value) jumpToLatest()
+})
+
+watch(() => realtimeStore.state.streamedContent.length, async () => {
+  await nextTick()
+  if (atLatest.value && messageHistory.value) jumpToLatest()
+})
+
+onMounted(() => {
+  virtualList.container.value = messageHistory.value
+})
 
 watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation, route.query.assistant] as const,
@@ -640,10 +713,6 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value))
 }
 
-function formatTime(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value))
-}
-
 function isForbidden(): boolean {
   return conversationStore.state.errorStatus === 403
     || conversationStore.state.detailErrorStatus === 403
@@ -662,6 +731,35 @@ async function redirectIfForbidden(): Promise<void> {
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function handleHistoryScroll(): void {
+  virtualList.onScroll()
+  const history = messageHistory.value
+  if (!history || !selected.value) return
+  scrollPositions.value.value = { ...scrollPositions.value.value, [selected.value.id]: history.scrollTop }
+  atLatest.value = isNearLatest()
+  if (atLatest.value) {
+    readSequences.value.value = { ...readSequences.value.value, [selected.value.id]: newestMessageSequence() }
+  }
+}
+
+function isNearLatest(): boolean {
+  const history = messageHistory.value
+  return !history || history.scrollHeight - history.scrollTop - history.clientHeight < 48
+}
+
+function jumpToLatest(): void {
+  const history = messageHistory.value
+  if (!history) return
+  if (typeof history.scrollTo === 'function') history.scrollTo({ top: history.scrollHeight, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  else history.scrollTop = history.scrollHeight
+  atLatest.value = true
+  if (selected.value) readSequences.value.value = { ...readSequences.value.value, [selected.value.id]: newestMessageSequence() }
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 </script>
 
@@ -686,15 +784,18 @@ function queryValue(value: unknown): string | null {
     </template>
 
     <TeamObserverWorkspace v-if="observerMode && observerScope" :scope="observerScope" :team-name="teamName" :online="isOnline" variant="conversation" />
-    <div v-else class="conversation-workspace" :class="workspaceClass">
-      <section class="panel conversation-list-panel" aria-label="对话列表">
+    <div v-else ref="workspace" class="conversation-workspace" :class="workspaceClass" :style="workspaceStyle">
+      <section class="panel conversation-list-panel" :class="{ collapsed: leftPaneCollapsed }" aria-label="对话列表">
         <header class="conversation-list-header">
           <div>
             <p class="eyebrow">Collaborate</p>
             <h2>{{ teamName }}</h2>
             <span>选择一个对话继续协作</span>
           </div>
-          <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
+          <div class="conversation-list-header__actions">
+            <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
+            <button class="pane-collapse" type="button" aria-label="折叠对话列表" @click="leftPane.toggle">{{ leftPaneCollapsed ? '展开' : '折叠' }}</button>
+          </div>
         </header>
 
         <StatePanel
@@ -750,7 +851,7 @@ function queryValue(value: unknown): string | null {
                   <template v-if="conversation.lastMessageSequence !== null"> · {{ conversation.lastMessageSequence }} 条消息</template>
                 </small>
               </span>
-              <time :datetime="conversation.updatedAt">{{ formatDate(conversation.updatedAt) }}</time>
+              <BaseTooltip :text="formatAbsoluteTime(conversation.updatedAt)"><time :datetime="conversation.updatedAt">{{ formatRelativeTime(conversation.updatedAt) }}</time></BaseTooltip>
               <ChevronRight :size="15" aria-hidden="true" />
             </button>
           </li>
@@ -765,6 +866,18 @@ function queryValue(value: unknown): string | null {
           </li>
         </ul>
       </section>
+
+      <button
+        class="pane-resizer pane-resizer--left"
+        type="button"
+        role="separator"
+        aria-label="调整对话列表宽度，使用左右方向键"
+        :aria-valuenow="leftPaneRatio"
+        aria-valuemin="16"
+        aria-valuemax="36"
+        @pointerdown="workspace && leftPane.startResize($event, workspace)"
+        @keydown="leftPane.handleKeydown"
+      />
 
       <section class="panel conversation-detail" aria-label="对话详情">
         <button v-if="conversationStore.state.selectedConversationId" class="mobile-back" type="button" @click="clearConversation">
@@ -794,7 +907,10 @@ function queryValue(value: unknown): string | null {
               <h2 ref="detailHeading" tabindex="-1">{{ selected.title }}</h2>
               <p>创建于 {{ formatDate(selected.createdAt) }} · 当前事实版本 v{{ selected.version }}</p>
             </div>
-            <StatusBadge tone="success">活跃</StatusBadge>
+            <div class="detail-header-actions">
+              <StatusBadge tone="success">活跃</StatusBadge>
+              <button class="pane-collapse" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
+            </div>
           </header>
           <div
             class="message-stage"
@@ -813,7 +929,11 @@ function queryValue(value: unknown): string | null {
               :description="messageStore.state.errorMessage ?? undefined"
               @retry="retryMessages"
             />
-            <div v-else ref="messageHistory" class="message-history">
+            <div v-else ref="messageHistory" class="message-history" tabindex="0" @scroll="handleHistoryScroll">
+              <div v-if="!atLatest || unreadCount" class="latest-jump" role="status">
+                <span v-if="unreadCount">{{ unreadCount }} 条新消息</span>
+                <button type="button" @click="jumpToLatest">跳到最新</button>
+              </div>
               <div v-if="messageStore.state.nextCursor" class="older-messages">
                 <BaseButton
                   variant="ghost"
@@ -836,39 +956,47 @@ function queryValue(value: unknown): string | null {
                 :description="taskIntentStore.state.errorMessage ?? undefined"
                 @retry="currentMessageScope() && taskIntentStore.state.taskIntentId && taskIntentStore.load(currentMessageScope()!, taskIntentStore.state.taskIntentId, true)"
               />
-              <TaskIntentCard
-                v-else-if="taskIntentStore.state.intent && principal"
-                :intent="taskIntentStore.state.intent"
-                :current-principal-id="principal.id"
-                :pending="taskIntentStore.state.commandPending"
-                :error-message="taskIntentStore.state.commandErrorMessage"
-                :version-conflict="taskIntentStore.state.versionConflict"
-                :principal-names="principalNames"
-                @revise="reviseTaskIntent"
-                @reject="rejectTaskIntent"
-                @confirm="confirmTaskIntent"
-              />
-              <ConversationWorkItemLinks
-                :phase="linkStore.state.phase"
-                :associations="linkStore.state.associations"
-                :error-message="linkStore.state.errorMessage"
-                :can-delegate="canConfigureConfirmedCoding"
-                direction="conversation"
-                @open="openLinkedWorkItem"
-                @delegate="openCodingDelegation"
-                @retry="retryLinks"
-              />
-              <ConversationTaskCards
-                :phase="taskAssociationResource?.phase ?? 'idle'"
-                :associations="taskAssociations"
-                :live-tasks="taskStore.state.liveTasks"
-                :error-message="taskAssociationResource?.errorMessage ?? null"
-                :current-principal-id="principal?.id ?? ''"
-                :principal-names="principalNames"
-                @open-task="openAssociatedTask"
-                @open-work-item="openTaskWorkItem"
-                @retry="retryTasks"
-              />
+              <details v-if="taskIntentStore.state.intent && principal" class="conversation-structure" open>
+                <summary>任务意图 <span>可折叠</span></summary>
+                <TaskIntentCard
+                  :intent="taskIntentStore.state.intent"
+                  :current-principal-id="principal.id"
+                  :pending="taskIntentStore.state.commandPending"
+                  :error-message="taskIntentStore.state.commandErrorMessage"
+                  :version-conflict="taskIntentStore.state.versionConflict"
+                  :principal-names="principalNames"
+                  @revise="reviseTaskIntent"
+                  @reject="rejectTaskIntent"
+                  @confirm="confirmTaskIntent"
+                />
+              </details>
+              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="Boolean(linkStore.state.associations.length)">
+                <summary>关联 WorkItem <span>{{ linkStore.state.associations.length }} 项</span></summary>
+                <ConversationWorkItemLinks
+                  :phase="linkStore.state.phase"
+                  :associations="linkStore.state.associations"
+                  :error-message="linkStore.state.errorMessage"
+                  :can-delegate="canConfigureConfirmedCoding"
+                  direction="conversation"
+                  @open="openLinkedWorkItem"
+                  @delegate="openCodingDelegation"
+                  @retry="retryLinks"
+                />
+              </details>
+              <details v-if="taskAssociations.length || (taskAssociationResource?.phase ?? 'idle') !== 'idle'" class="conversation-structure" :open="Boolean(taskAssociations.length)">
+                <summary>关联任务 <span>{{ taskAssociations.length }} 项</span></summary>
+                <ConversationTaskCards
+                  :phase="taskAssociationResource?.phase ?? 'idle'"
+                  :associations="taskAssociations"
+                  :live-tasks="taskStore.state.liveTasks"
+                  :error-message="taskAssociationResource?.errorMessage ?? null"
+                  :current-principal-id="principal?.id ?? ''"
+                  :principal-names="principalNames"
+                  @open-task="openAssociatedTask"
+                  @open-work-item="openTaskWorkItem"
+                  @retry="retryTasks"
+                />
+              </details>
               <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
               <div
                 v-if="messageStore.state.phase === 'empty' && messageStore.state.pending.length === 0 && !visibleInvocationMessage && !visibleStreamedReply && !agentBusy"
@@ -879,21 +1007,24 @@ function queryValue(value: unknown): string | null {
                 <p>发送第一条消息，向 Personal Agent 描述目标或补充团队上下文。</p>
               </div>
               <ol v-else class="message-list" aria-label="消息历史">
-                <li
-                  v-for="message in messageStore.state.items"
-                  :key="message.id"
-                  class="message-row"
-                  :class="{ own: isOwnMessage(message), agent: message.type === 'AGENT_MESSAGE', system: message.type === 'SYSTEM_NOTICE' }"
-                >
-                  <div v-if="message.type !== 'SYSTEM_NOTICE'" class="message-avatar">
-                    <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="15" aria-hidden="true" />
-                    <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
-                  </div>
-                  <article>
-                    <header><strong>{{ messageAuthor(message) }}</strong><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time><span>#{{ message.sequence }}</span></header>
-                    <SafeMarkdown :content="message.content" />
-                  </article>
-                </li>
+                <li v-if="virtualTop" class="virtual-spacer" :style="{ height: `${virtualTop}px` }" aria-hidden="true" />
+                <template v-for="message in visibleMessages" :key="message.id">
+                  <li v-if="firstUnreadSequence === message.sequence" class="unread-divider" role="separator">以下是未读消息</li>
+                  <li
+                    class="message-row"
+                    :class="{ own: isOwnMessage(message), agent: message.type === 'AGENT_MESSAGE', system: message.type === 'SYSTEM_NOTICE' }"
+                  >
+                    <div v-if="message.type !== 'SYSTEM_NOTICE'" class="message-avatar">
+                      <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="15" aria-hidden="true" />
+                      <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
+                    </div>
+                    <article>
+                      <header><strong>{{ messageAuthor(message) }}</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>#{{ message.sequence }}</span></header>
+                      <SafeMarkdown :content="message.content" />
+                    </article>
+                  </li>
+                </template>
+                <li v-if="virtualBottom" class="virtual-spacer" :style="{ height: `${virtualBottom}px` }" aria-hidden="true" />
                 <li
                   v-for="message in messageStore.state.pending"
                   :key="message.clientId"
@@ -902,7 +1033,7 @@ function queryValue(value: unknown): string | null {
                 >
                   <div class="message-avatar">你</div>
                   <article>
-                    <header><strong>你</strong><time :datetime="message.createdAt">{{ formatTime(message.createdAt) }}</time><span>{{ message.status === 'sending' ? '发送中' : '发送失败' }}</span></header>
+                    <header><strong>你</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>{{ message.status === 'sending' ? '发送中' : '发送失败' }}</span></header>
                     <SafeMarkdown :content="message.content" />
                     <footer v-if="message.status === 'failed'">
                       <span role="alert">{{ message.errorMessage }}</span>
@@ -915,7 +1046,7 @@ function queryValue(value: unknown): string | null {
                   <article>
                     <header>
                       <strong>你</strong>
-                      <time v-if="realtimeStore.state.submittedAt" :datetime="realtimeStore.state.submittedAt">{{ formatTime(realtimeStore.state.submittedAt) }}</time>
+                      <BaseTooltip v-if="realtimeStore.state.submittedAt" :text="formatAbsoluteTime(realtimeStore.state.submittedAt)"><time :datetime="realtimeStore.state.submittedAt">{{ formatRelativeTime(realtimeStore.state.submittedAt) }}</time></BaseTooltip>
                       <span>{{ realtimeStore.state.invocationPhase === 'connecting' ? '提交中' : '已提交 · 等待事实同步' }}</span>
                     </header>
                     <SafeMarkdown :content="visibleInvocationMessage" />
@@ -976,11 +1107,24 @@ function queryValue(value: unknown): string | null {
         </div>
       </section>
 
-      <aside class="panel participant-panel" aria-label="对话参与者">
+      <button
+        class="pane-resizer pane-resizer--right"
+        type="button"
+        role="separator"
+        aria-label="调整参与者面板宽度，使用左右方向键"
+        :aria-valuenow="rightPaneRatio"
+        aria-valuemin="16"
+        aria-valuemax="34"
+        @pointerdown="workspace && rightPane.startResize($event, workspace)"
+        @keydown="rightPane.handleKeydown"
+      />
+
+      <aside class="panel participant-panel" :class="{ collapsed: rightPaneCollapsed }" aria-label="对话参与者">
         <header>
           <p class="eyebrow">Current facts</p>
           <h2>参与者</h2>
           <span>{{ selected ? `${activeParticipants.length} 个当前主体` : '选择对话后查看' }}</span>
+          <button class="pane-collapse" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开' : '折叠' }}</button>
         </header>
         <ul v-if="selected">
           <li v-for="participant in activeParticipants" :key="participant.id">
@@ -1039,6 +1183,7 @@ function queryValue(value: unknown): string | null {
 .conversation-list-panel, .conversation-detail, .participant-panel { min-height: 640px; overflow: hidden; }.conversation-list-panel { display: flex; height: calc(100vh - 176px); flex-direction: column; }
 .conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px; border-bottom: 1px solid var(--cs-border); }
 .conversation-list-header h2, .participant-panel h2 { margin-bottom: 3px; font-size: 15px; }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: 10px; }
+.conversation-list-header__actions { display: flex; align-items: center; gap: 6px; }
 .conversation-list-header button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-700); cursor: pointer; }
 .conversation-list { display: grid; overflow-y: auto; align-content: start; padding: 7px; margin: 0; list-style: none; }
 .conversation-item { display: grid; width: 100%; min-height: 67px; grid-template-columns: 34px 1fr auto 15px; align-items: center; gap: 9px; padding: 9px; border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
@@ -1049,11 +1194,35 @@ function queryValue(value: unknown): string | null {
 .conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 15px; border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: 6px 0 4px; border-radius: 4px; font-size: 18px; }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-brand-200); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
 .conversation-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-brand-700); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, #fbfdfb 0%, #f7fbf8 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: 16px 20px 24px; }.older-messages { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 32px; margin-bottom: 8px; }.older-messages > span { color: var(--cs-danger); font-size: 9px; }.message-list { display: grid; gap: 14px; max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: #b9ddc5; background: var(--cs-brand-100); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-weight: 750; }.message-row.own .message-avatar { background: var(--cs-brand-600); color: white; }.message-row article { min-width: 0; padding: 9px 11px; border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: white; font-size: 11px; box-shadow: 0 3px 10px rgb(21 35 29 / 4%); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--cs-text-muted); font-size: 8px; }.message-row article > header strong { color: var(--cs-text-secondary); font-size: 9px; }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: 6px 10px; border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: 9px; }.message-row.system article > header { justify-content: center; margin-bottom: 2px; }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: #ecc7c2; background: #fff6f5; opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--cs-danger); font-size: 8px; }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: 9px; font-weight: 750; cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: 7px; margin: 70px auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid #ddd3ef; border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: 14px; }.message-empty p { color: var(--cs-text-muted); font-size: 10px; line-height: 1.55; }
-.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
+.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; transition: opacity 180ms var(--cs-ease-out), transform 180ms var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: 60px 24px; text-align: center; }.conversation-welcome > span { margin-bottom: 18px; }.conversation-welcome h2 { margin-bottom: 9px; font: 22px var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: 20px; color: var(--cs-text-secondary); font-size: 12px; line-height: 1.65; }
 .participant-panel header { padding: 18px; border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: 8px; margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 10px; border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: 10px; }.participant-panel li small { color: var(--cs-text-muted); font-size: 8px; }.participant-placeholder { display: grid; place-items: center; gap: 10px; padding: 54px 28px; color: var(--cs-text-muted); font-size: 10px; line-height: 1.6; text-align: center; }
 .mobile-back { display: none; }.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(21 35 29 / 38%); backdrop-filter: blur(3px); }.create-dialog { width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 15px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 0; font-size: 18px; }.create-dialog header button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--cs-radius-sm); background: transparent; cursor: pointer; }.create-dialog form { display: grid; gap: 18px; padding: 20px 22px 22px; }.create-dialog form > label > span, .create-dialog legend { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 750; }.create-dialog input[type='text'], .create-dialog form > label > input { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.create-dialog fieldset { display: grid; gap: 8px; padding: 0; border: 0; }.create-dialog fieldset label { display: grid; grid-template-columns: 16px 18px 1fr; align-items: start; gap: 9px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); cursor: pointer; }.create-dialog fieldset label.active { border-color: var(--cs-brand-300); background: var(--cs-brand-50); }.create-dialog fieldset strong, .create-dialog fieldset small { display: block; }.create-dialog fieldset strong { font-size: 11px; }.create-dialog fieldset small { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.create-dialog form footer { display: flex; justify-content: flex-end; gap: 8px; }.form-error { margin: -6px 0 0; color: var(--cs-danger); font-size: 10px; }
 @media (max-width: 1280px) { .conversation-workspace { grid-template-columns: 290px minmax(420px, 1fr); }.participant-panel { grid-column: 1 / -1; min-height: auto; }.participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: 270px 1fr; }.participant-panel { display: none; } }
 @media (max-width: 767px) { .conversation-workspace { display: block; min-height: calc(100dvh - 208px); }.conversation-list-panel, .conversation-detail { min-height: calc(100dvh - 208px); }.conversation-list-panel { height: calc(100dvh - 208px); }.conversation-detail { display: none; height: calc(100dvh - 208px); }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 42px; padding: 0 14px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 10px; cursor: pointer; }.conversation-detail__header { padding: 14px 16px; }.message-history { padding: 12px 10px 18px; }.message-row { max-width: 90%; }.dialog-backdrop { align-items: end; padding: 0; }.create-dialog { max-height: calc(100dvh - 12px); padding-bottom: env(safe-area-inset-bottom); border-radius: var(--cs-radius-lg) var(--cs-radius-lg) 0 0; }.create-dialog input[type='text'], .create-dialog form > label > input { font-size: 16px; } }
+
+/* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded. */
+.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 24%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 22%); }
+.conversation-list-panel.collapsed > :not(header), .participant-panel.collapsed > :not(header) { display: none; }
+.conversation-list-panel.collapsed .conversation-list-header, .participant-panel.collapsed > header { padding-inline: 8px; }
+.conversation-list-panel.collapsed .conversation-list-header > div:first-child, .participant-panel.collapsed > header > :not(.pane-collapse) { display: none; }
+.pane-resizer { position: relative; z-index: 2; width: 8px; min-height: 100%; padding: 0; border: 0; background: transparent; cursor: col-resize; }
+.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-border); opacity: .65; transition: opacity 120ms var(--cs-ease-out); }
+.pane-resizer:hover::after, .pane-resizer:focus-visible::after { background: var(--cs-brand-400); opacity: 1; }
+.pane-resizer:focus-visible { outline: 2px solid var(--cs-brand-400); outline-offset: -2px; }
+.detail-header-actions { display: flex; align-items: center; gap: 8px; }
+.pane-collapse { min-height: 28px; padding: 0 7px; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 9px; cursor: pointer; }
+.latest-jump { position: sticky; z-index: 3; top: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; width: fit-content; margin: 0 auto 6px; padding: 4px 8px; border: 1px solid var(--cs-brand-200); border-radius: 999px; background: var(--cs-surface); color: var(--cs-brand-700); font-size: 9px; box-shadow: var(--cs-shadow-soft); }
+.latest-jump button { border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: 750; cursor: pointer; }
+.unread-divider { grid-column: 1 / -1; padding: 4px 0; border-top: 1px solid var(--cs-brand-200); color: var(--cs-brand-700); font-size: 8px; text-align: center; }
+.virtual-spacer { pointer-events: none; }
+.conversation-structure { max-width: 740px; margin: 0 auto 10px; border: 1px solid var(--cs-border); border-radius: 9px; background: rgb(255 255 255 / 70%); }
+.conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; cursor: pointer; }
+.conversation-structure summary span { color: var(--cs-text-muted); font-size: 8px; font-weight: 500; }
+.conversation-structure > :deep(*) { margin-inline: 8px; }
+@media (max-width: 1280px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr) 0 minmax(0, 280px); }.participant-panel { grid-column: auto; }.pane-resizer--right { display: none; } }
+@media (max-width: 900px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); }.participant-panel, .pane-resizer--right { display: none; } }
+@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; } }
+@media (prefers-reduced-motion: reduce) { .message-row.streaming article, .pane-resizer::after { transition: none; } }
 </style>
