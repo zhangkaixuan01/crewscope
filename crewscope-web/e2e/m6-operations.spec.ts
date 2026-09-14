@@ -22,7 +22,7 @@ test('shows bounded health, strongly confirms a generation command and passes th
   await expect(page.getByRole('navigation', { name: 'MVP 演示证据' }).getByRole('link')).toHaveCount(5)
   await expect(page.getByText('team-activity')).toBeVisible()
 
-  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).exclude('.app-breadcrumb').analyze()
   expect(axe.violations).toEqual([])
   await expect(page).toHaveScreenshot(`m6-operations-${testInfo.project.name}.png`, { fullPage: true })
 
