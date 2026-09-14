@@ -218,6 +218,8 @@ jobs:
         run: node scripts/check-web-sensitive-fields.mjs
       - name: Check Design System v2 tokens
         run: node scripts/check-design-tokens.mjs
+      - name: Check M9-Q01 experience regression baseline
+        run: node scripts/check-m9-q01.mjs
       - name: Validate M7 release contract
         run: node scripts/check-m7-release-contract.mjs
       - name: Validate frozen M4 coding evaluation suite
