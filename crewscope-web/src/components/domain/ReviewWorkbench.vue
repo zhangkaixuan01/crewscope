@@ -59,10 +59,10 @@ const emit = defineEmits<{
 
 const decisionDialog = ref(false)
 const decisionType = ref<ReviewDecisionType>('COMMENTED')
+const confirmRejected = ref(false)
 const rationale = ref('')
 const submitted = ref(false)
 const decisionContainer = useTemplateRef<HTMLElement>('decisionContainer')
-const decisionSelect = useTemplateRef<HTMLSelectElement>('decisionSelect')
 const decisionTrigger = ref<HTMLElement | null>(null)
 
 const detail = computed(() => props.review?.value ?? null)
@@ -117,10 +117,11 @@ function openDecision(event?: MouseEvent): void {
   if (event?.currentTarget instanceof HTMLElement) decisionTrigger.value = event.currentTarget
   props.onClearCommand()
   decisionType.value = 'COMMENTED'
+  confirmRejected.value = false
   rationale.value = ''
   submitted.value = false
   decisionDialog.value = true
-  void nextTick(() => decisionSelect.value?.focus())
+  void nextTick(() => decisionContainer.value?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus())
 }
 
 function closeDecision(): void {
@@ -134,11 +135,24 @@ function closeDecision(): void {
 async function submitDecision(): Promise<void> {
   submitted.value = true
   if (!rationaleValid.value || !canSubmitGate.value) return
+  if (decisionType.value === 'REJECTED' && !confirmRejected.value) {
+    confirmRejected.value = true
+    return
+  }
   const text = rationale.value.trim()
   const succeeded = decisionType.value === 'CHANGES_REQUESTED'
     ? await props.onRequestChanges(text)
     : await props.onDecide({ type: decisionType.value, rationale: text })
   if (succeeded) closeDecision()
+}
+
+function chooseDecision(type: ReviewDecisionType): void {
+  decisionType.value = type
+  confirmRejected.value = false
+}
+
+function decisionLabel(type: ReviewDecisionType): string {
+  return ({ COMMENTED: '留言', APPROVED: '通过', CHANGES_REQUESTED: '请求修改', REJECTED: '拒绝' })[type]
 }
 
 function handleDecisionKeydown(event: KeyboardEvent): void {
@@ -297,7 +311,7 @@ function handleDecisionKeydown(event: KeyboardEvent): void {
             <BaseButton v-if="detail.status === 'COMPLETED' && !terminalDecision" size="small" variant="secondary" :disabled="!canSubmitGate" @click="openDecision"><ShieldCheck :size="13" />提交成员结论</BaseButton>
           </div>
           <ol v-if="detail.decisions.length" class="decision-history">
-            <li v-for="decision in detail.decisions" :key="decision.id"><History :size="12" /><div><strong>{{ decision.type }} · r{{ decision.revision }}</strong><span>{{ decision.rationale }}</span><small>{{ decision.eligibilityMode }} · {{ displayDate(decision.decidedAt) }}</small></div></li>
+            <li v-for="decision in detail.decisions" :key="decision.id"><History :size="12" /><div><strong>{{ decisionLabel(decision.type) }} · r{{ decision.revision }}</strong><span>{{ decision.rationale }}</span><small>{{ decision.eligibilityMode }} · {{ displayDate(decision.decidedAt) }}</small></div></li>
           </ol>
           <div v-if="detail.modificationRounds.length" class="modification-rounds"><strong>修改轮次</strong><span v-for="round in detail.modificationRounds" :key="round.id">Round {{ round.roundNumber }} · {{ displayDate(round.createdAt) }}</span></div>
         </section>
@@ -315,7 +329,12 @@ function handleDecisionKeydown(event: KeyboardEvent): void {
         <form @submit.prevent="submitDecision">
           <div class="gate-dialog-header"><div><p>Human Gate · Review r{{ detail?.revision }}</p><h4 id="gate-dialog-title">提交成员 Review 结论</h4></div><button type="button" aria-label="关闭 Gate Decision" :disabled="command.phase === 'pending'" @click="closeDecision"><X :size="16" /></button></div>
           <p class="gate-impact">结论绑定当前 ReviewRequest ETag 与精确 Context。Agent Finding 只作为建议；服务端会重新校验当前成员、Reviewer Assignment 和职责分离。</p>
-          <label><span>结论</span><select ref="decisionSelect" v-model="decisionType" :disabled="command.phase === 'pending'"><option value="COMMENTED">COMMENTED · 留言</option><option value="APPROVED">APPROVED · 通过</option><option value="CHANGES_REQUESTED">CHANGES_REQUESTED · 请求修改</option><option value="REJECTED">REJECTED · 拒绝</option></select></label>
+          <fieldset class="decision-options" :disabled="command.phase === 'pending'">
+            <legend>结论</legend>
+            <div role="radiogroup" aria-label="Review 结论">
+              <button v-for="type in (['COMMENTED', 'APPROVED', 'CHANGES_REQUESTED', 'REJECTED'] as ReviewDecisionType[])" :key="type" type="button" :class="[{ selected: decisionType === type }, `decision-option--${type.toLowerCase()}`]" :aria-pressed="decisionType === type" @click="chooseDecision(type)">{{ confirmRejected && type === 'REJECTED' ? '再次点击确认拒绝' : decisionLabel(type) }}</button>
+            </div>
+          </fieldset>
           <label><span>理由</span><textarea v-model="rationale" rows="5" maxlength="4000" :disabled="command.phase === 'pending'" :aria-invalid="submitted && !rationaleValid" placeholder="记录团队可审计的判断依据" /></label>
           <p v-if="submitted && !rationaleValid" class="gate-validation" role="alert">请输入 1–4000 个字符的理由。</p>
           <footer><BaseButton type="button" variant="ghost" :disabled="command.phase === 'pending'" @click="closeDecision">返回</BaseButton><BaseButton type="submit" :variant="decisionType === 'REJECTED' ? 'danger' : 'primary'" :loading="command.phase === 'pending'">确认提交</BaseButton></footer>
@@ -327,4 +346,11 @@ function handleDecisionKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 .review-workbench{padding:0;overflow:hidden}.review-heading{display:flex;min-height:60px;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--cs-border);background:linear-gradient(115deg,var(--cs-brand-50),#fff 65%)}.review-heading p,.review-heading h3{margin:0}.review-heading p{color:var(--cs-brand-600);font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.review-heading h3{margin-top:2px;font-size:13px}.review-heading>span{display:flex;align-items:center;gap:5px;color:var(--cs-brand-700);font-size:8px}.review-workbench>:deep(.state-panel){border:0;border-radius:0}.review-revisions{display:flex;gap:5px;overflow:auto;padding:8px 10px;border-bottom:1px solid var(--cs-border);background:var(--cs-surface-subtle)}.review-revisions>button{display:grid;min-width:145px;grid-template-columns:1fr auto;gap:2px 8px;padding:7px 8px;border:1px solid var(--cs-border);border-radius:8px;background:var(--cs-surface);text-align:left;cursor:pointer}.review-revisions>button.selected{border-color:var(--cs-brand-300);background:var(--cs-brand-50);box-shadow:0 0 0 1px var(--cs-brand-100)}.review-revisions span{font-size:9px;font-weight:800}.review-revisions small{grid-column:1/-1;color:var(--cs-text-muted);font-size:7px}.review-body{display:grid;gap:10px;padding:10px}.review-invalidated,.self-review-note{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border-radius:8px;font-size:8px}.review-invalidated{background:var(--cs-warning-soft);color:#7c4a12}.self-review-note{background:var(--cs-agent-soft);color:var(--cs-agent)}.review-invalidated strong,.review-invalidated span,.self-review-note strong,.self-review-note span{display:block}.review-invalidated span,.self-review-note span{margin-top:2px;line-height:1.5}.review-context,.review-diff,.review-tests,.review-findings,.review-gate{min-width:0;border:1px solid var(--cs-border);border-radius:9px;background:var(--cs-surface)}.section-title{display:flex;min-height:42px;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--cs-border)}.section-title p,.section-title h4{margin:0}.section-title p{color:var(--cs-text-muted);font-size:7px;font-weight:750;text-transform:uppercase}.section-title h4{margin-top:2px;font-size:10px}.section-title h4 span{color:var(--cs-text-muted);font-weight:500}.section-title>svg{color:var(--cs-brand-600)}.review-context dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0;background:var(--cs-border)}.review-context dl>div{min-width:0;padding:8px;background:var(--cs-surface)}.review-context dt{color:var(--cs-text-muted);font-size:7px}.review-context dd{margin:3px 0 0;overflow:hidden;color:var(--cs-text-secondary);font-size:8px;text-overflow:ellipsis;white-space:nowrap}.mono{font-family:var(--cs-font-mono)}.review-evidence-grid{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:10px}.diff-totals,.test-totals{display:flex;gap:8px;padding:8px 10px;color:var(--cs-text-muted);font:8px var(--cs-font-mono)}.diff-totals b,.test-totals .passed b{color:#237a50}.diff-totals i,.test-totals .failed b{color:#b34e56;font-style:normal}.changed-paths{display:grid;gap:3px;max-height:160px;overflow:auto;padding:0 7px 8px}.changed-paths button{display:flex;min-width:0;align-items:center;gap:5px;padding:6px;border-radius:6px;color:var(--cs-brand-700);font:8px var(--cs-font-mono);text-align:left;cursor:pointer}.changed-paths button:hover{background:var(--cs-brand-50)}.changed-paths button span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.changed-paths button svg{margin-left:auto}.changed-paths p,.evidence-unavailable{margin:8px;color:var(--cs-text-muted);font-size:8px;line-height:1.5}.review-acceptance{display:grid;gap:4px;margin:0;padding:0 8px 8px;list-style:none}.review-acceptance li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:5px;padding:6px;border-radius:6px;background:var(--cs-surface-subtle)}.review-acceptance li>svg{color:var(--cs-brand-600)}.review-acceptance strong,.review-acceptance span{display:block;font-size:8px}.review-acceptance span{margin-top:2px;color:var(--cs-text-muted)}.finding-list{display:grid;gap:7px;padding:8px}.finding-list article{padding:9px;border:1px solid var(--cs-border);border-radius:8px;background:var(--cs-surface-subtle)}.finding-header{display:flex;align-items:center;justify-content:space-between;gap:8px}.finding-header>div{display:flex;align-items:center;gap:5px}.finding-header span,.finding-header em,.finding-header small{color:var(--cs-text-muted);font-size:7px;font-style:normal}.finding-header em{padding:2px 5px;border-radius:99px;background:var(--cs-agent-soft);color:var(--cs-agent);font-weight:800}.finding-list h5{margin:7px 0 3px;font-size:10px}.finding-list article>p{margin:0;color:var(--cs-text-secondary);font-size:8px;line-height:1.55}.finding-fix{display:grid;gap:2px;margin-top:7px;padding:6px 7px;border-left:2px solid var(--cs-brand-300);background:var(--cs-brand-50);font-size:8px}.finding-fix span{color:var(--cs-text-secondary)}.finding-locations{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}.finding-locations button{display:flex;min-width:0;align-items:center;gap:4px;padding:5px 6px;border:1px solid var(--cs-border);border-radius:6px;background:var(--cs-surface);color:var(--cs-brand-700);font-size:7px;cursor:pointer}.finding-locations button span{max-width:240px;overflow:hidden;font-family:var(--cs-font-mono);text-overflow:ellipsis;white-space:nowrap}.finding-locations button b{font-family:var(--cs-font-mono)}.finding-locations button small{color:var(--cs-text-muted)}.review-clean{display:flex;align-items:flex-start;gap:8px;padding:12px;color:#237a50}.review-clean strong,.review-clean span{display:block;font-size:8px}.review-clean span{margin-top:2px;color:var(--cs-text-muted)}.gate-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px}.gate-actions>div{min-width:0}.gate-actions p{margin:5px 0 0;color:var(--cs-text-muted);font-size:8px;line-height:1.45}.decision-history{display:grid;gap:4px;margin:0;padding:0 9px 9px;list-style:none}.decision-history li{display:flex;align-items:flex-start;gap:6px;padding:7px;border-radius:7px;background:var(--cs-surface-subtle)}.decision-history li>svg{color:var(--cs-brand-600)}.decision-history strong,.decision-history span,.decision-history small{display:block;font-size:8px}.decision-history span{margin-top:2px;color:var(--cs-text-secondary)}.decision-history small{margin-top:3px;color:var(--cs-text-muted)}.modification-rounds{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:0 9px 9px;font-size:8px}.modification-rounds span{padding:3px 6px;border-radius:99px;background:var(--cs-warning-soft);color:#7c4a12}.review-command-error{display:flex;align-items:center;gap:7px;padding:8px;border-radius:8px;background:var(--cs-danger-soft);color:var(--cs-danger);font-size:8px}.review-command-error span{flex:1}.gate-dialog-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:rgb(21 35 29/35%);backdrop-filter:blur(3px)}.gate-dialog{width:min(520px,100%);overflow:hidden;border:1px solid var(--cs-border);border-radius:14px;background:var(--cs-surface);box-shadow:var(--cs-shadow-float)}.gate-dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:15px 17px;border-bottom:1px solid var(--cs-border)}.gate-dialog-header p,.gate-dialog-header h4{margin:0}.gate-dialog-header p{color:var(--cs-text-muted);font:8px var(--cs-font-mono)}.gate-dialog-header h4{margin-top:3px;font-size:14px}.gate-dialog-header button{display:grid;width:30px;height:30px;place-items:center;border-radius:7px;background:var(--cs-surface-subtle);cursor:pointer}.gate-impact{margin:0;padding:12px 17px 7px;color:var(--cs-text-secondary);font-size:9px;line-height:1.55}.gate-dialog label{display:grid;gap:5px;padding:5px 17px;color:var(--cs-text-secondary);font-size:9px;font-weight:750}.gate-dialog select,.gate-dialog textarea{width:100%;padding:8px 9px;border:1px solid var(--cs-border-strong);border-radius:8px;background:var(--cs-surface-subtle);color:var(--cs-text);font:9px var(--cs-font-sans)}.gate-dialog textarea{resize:vertical}.gate-dialog [aria-invalid=true]{border-color:var(--cs-danger)}.gate-validation{margin:2px 17px;color:var(--cs-danger);font-size:8px}.gate-dialog footer{display:flex;justify-content:flex-end;gap:6px;padding:13px 17px 16px}@media(max-width:720px){.review-heading{align-items:flex-start;flex-direction:column}.review-context dl{grid-template-columns:repeat(2,minmax(0,1fr))}.review-evidence-grid{grid-template-columns:1fr}.gate-actions{align-items:stretch;flex-direction:column}.gate-actions :deep(.base-button){width:100%}.gate-dialog-backdrop{align-items:end;padding:0}.gate-dialog{border-radius:16px 16px 0 0}.gate-dialog footer{display:grid;grid-template-columns:1fr 1fr}}
+.decision-options { display: grid; gap: 6px; padding: 5px 17px; border: 0; }
+.decision-options legend { padding: 0; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }
+.decision-options > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.decision-options button { min-height: 32px; padding: 0 10px; border: 1px solid var(--cs-border-strong); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; cursor: pointer; }
+.decision-options button.selected { border-color: var(--cs-brand-400); background: var(--cs-brand-100); color: var(--cs-brand-800); }
+.decision-options button.decision-option--rejected { border-color: #e7bbb6; color: var(--cs-danger); }
+.decision-options button:disabled { cursor: not-allowed; opacity: .55; }
 </style>

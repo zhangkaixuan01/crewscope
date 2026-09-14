@@ -26,7 +26,7 @@ describe('ReviewWorkbench', () => {
     const wrapper = mount(ReviewWorkbench, { attachTo: document.body, props: props({ onRequestChanges, onDecide }) })
 
     await wrapper.get('.gate-actions button').trigger('click')
-    await wrapper.get<HTMLSelectElement>('.gate-dialog select').setValue('CHANGES_REQUESTED')
+    await wrapper.get('.gate-dialog button.decision-option--changes_requested').trigger('click')
     await wrapper.get<HTMLTextAreaElement>('.gate-dialog textarea').setValue('补充配置为空时的回归测试')
     await wrapper.get('.gate-dialog form').trigger('submit')
 
@@ -40,7 +40,7 @@ describe('ReviewWorkbench', () => {
     const opener = wrapper.get('.gate-actions button')
     await opener.trigger('click')
 
-    expect(document.activeElement).toBe(wrapper.get<HTMLSelectElement>('.gate-dialog select').element)
+    expect(document.activeElement).toBe(wrapper.get('.gate-dialog button[aria-pressed="true"]').element)
     const close = wrapper.get<HTMLButtonElement>('[aria-label="关闭 Gate Decision"]')
     close.element.focus()
     await close.trigger('keydown', { key: 'Tab', shiftKey: true })

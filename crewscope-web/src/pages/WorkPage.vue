@@ -4,6 +4,7 @@ import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'v
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
+import { useToast } from '../composables/useToast'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import WorkItemCard from '../components/domain/WorkItemCard.vue'
@@ -50,6 +51,7 @@ import {
   workItemPriorities,
   workItemStatuses,
   workItemTypes,
+  allowedWorkItemTransitions,
   type CreateWorkItemInput,
   type WorkItemPriority,
   type WorkItemStatus,
@@ -73,6 +75,7 @@ const reviewStore = useReviewStore()
 const deliveryStore = useDeliveryStore()
 const teamOpsStore = useTeamOpsStore()
 const isOnline = useNetworkStatus()
+const toast = useToast()
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
@@ -133,6 +136,9 @@ const form = reactive({ key: '', type: 'TASK' as WorkItemType, title: '', descri
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
+const draggedWorkItem = ref<WorkItemSummary | null>(null)
+const dragOverStatus = ref<WorkItemStatus | null>(null)
+const boardAnnouncement = ref('')
 const selectedWorkItemActivityRoute = computed<WorkItemActivityRoute | null>(() => {
   const projectId = scopeStore.state.selectedProjectId
   const workItemId = workStore.state.detail?.workItem.id
@@ -614,6 +620,72 @@ async function createWorkItem(): Promise<void> {
 function selectItem(item: WorkItemSummary): void {
   detailTriggerId = item.id
   void router.replace({ query: { ...route.query, workItem: item.id, focus: item.key } })
+}
+
+function startWorkItemDrag(item: WorkItemSummary): void { draggedWorkItem.value = item }
+function endWorkItemDrag(): void { draggedWorkItem.value = null; dragOverStatus.value = null }
+function allowDrop(status: WorkItemStatus): boolean {
+  const item = draggedWorkItem.value
+  return Boolean(item && item.status !== status && allowedWorkItemTransitions[item.status]?.includes(status))
+}
+function markDragOver(status: WorkItemStatus): void { dragOverStatus.value = allowDrop(status) ? status : null }
+function handleBoardKeydown(event: KeyboardEvent): void {
+  const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-work-item-id]') : null
+  const item = target ? workStore.state.items.find(candidate => candidate.id === target.dataset.workItemId) : null
+  if (!item || ![' ', 'Enter', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  if (event.key === ' ') {
+    event.preventDefault()
+    if (draggedWorkItem.value?.id === item.id) {
+      endWorkItemDrag()
+      boardAnnouncement.value = `${item.key} 已放下，状态保持为${statusLabels[item.status]}`
+    } else {
+      startWorkItemDrag(item)
+      boardAnnouncement.value = `已拾起 ${item.key}，使用左右方向键选择列，Enter 放下`
+    }
+    return
+  }
+  if (draggedWorkItem.value?.id !== item.id) return
+  event.preventDefault()
+  if (event.key === 'Enter') {
+    void dropWorkItem(dragOverStatus.value ?? item.status)
+    boardAnnouncement.value = `${item.key} 正在更新状态`
+    return
+  }
+  const index = boardStatuses.value.indexOf(dragOverStatus.value ?? item.status)
+  const nextIndex = Math.min(boardStatuses.value.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))
+  const next = boardStatuses.value[nextIndex]
+  if (next) { markDragOver(next); boardAnnouncement.value = `目标列：${statusLabels[next]}` }
+}
+async function dropWorkItem(status: WorkItemStatus): Promise<void> {
+  const item = draggedWorkItem.value
+  if (!item || !allowDrop(status) || !principal || !team.value || !project.value || !isOnline.value || !canParticipate.value) {
+    endWorkItemDrag()
+    return
+  }
+  const scope = { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }
+  try {
+    await workStore.loadDetails(scope, item.id, true)
+    if (workStore.state.detail?.workItem.status === item.status) {
+      await workStore.transition(status)
+      if (allowedWorkItemTransitions[status]?.includes(item.status)) {
+        toast.show(`${item.key} 已移至${statusLabels[status]}`, {
+          tone: 'success',
+          duration: 10_000,
+          action: {
+            label: '撤销',
+            onClick: async () => {
+              await workStore.loadDetails(scope, item.id, true)
+              await workStore.transition(item.status)
+            },
+          },
+        })
+      }
+    }
+  } catch {
+    // Store state contains the sanitized conflict or permission feedback.
+  } finally {
+    endWorkItemDrag()
+  }
 }
 
 async function closeDetails(): Promise<void> {
@@ -1129,15 +1201,16 @@ const statusLabels: Record<WorkItemStatus, string> = {
           <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" @select="selectItem" />
         </div>
 
-        <div v-else class="work-board" aria-label="工作项看板">
-          <section v-for="status in boardStatuses" :key="status" class="board-column" :aria-label="statusLabels[status]">
+        <div v-else class="work-board" aria-label="工作项看板" @keydown="handleBoardKeydown">
+          <section v-for="status in boardStatuses" :key="status" class="board-column" :class="{ 'drop-target': dragOverStatus === status, 'drop-rejected': draggedWorkItem && !allowDrop(status) }" :aria-label="statusLabels[status]" @dragover.prevent="markDragOver(status)" @dragleave="dragOverStatus = null" @drop.prevent="dropWorkItem(status)">
             <header><span>{{ statusLabels[status] }}</span><StatusBadge>{{ itemsFor(status).length }}</StatusBadge></header>
             <div class="board-column__items">
-              <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" @select="selectItem" />
+              <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" @select="selectItem" @drag-start="startWorkItemDrag" @drag-end="endWorkItemDrag" />
               <p v-if="itemsFor(status).length === 0">暂无工作项</p>
             </div>
           </section>
         </div>
+        <p class="sr-only" role="status" aria-live="polite">{{ boardAnnouncement }}</p>
 
         <div v-if="workStore.state.nextCursor" class="load-more">
           <BaseButton variant="secondary" :loading="workStore.state.loadingMore" @click="workStore.loadMore">加载更多工作项</BaseButton>
@@ -1364,6 +1437,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 <style scoped>
 .work-toolbar { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(430px, 1.5fr) auto; align-items: end; gap: 18px; padding: 16px 18px; }.work-toolbar__scope { position: relative; padding-right: 104px; }.work-toolbar__scope h2 { margin: 0; font-size: 17px; }.work-toolbar__scope > span { color: var(--cs-text-muted); font-size: 9px; }.create-work-item { position: absolute; right: 0; bottom: 0; }.filters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; }.filters label, .form-grid label { display: grid; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.filters select, .form-grid input, .form-grid select, .form-grid textarea { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.form-grid textarea { padding-block: 9px; resize: vertical; }.view-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }.view-switcher button { display: flex; min-height: 30px; align-items: center; gap: 5px; padding: 0 9px; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 10px; cursor: pointer; }.view-switcher button.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-brand-700); font-weight: 750; }
 .work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: 7px; }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: #f7f9f7; scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: 10px; font-weight: 800; }.board-column__items { display: grid; align-content: start; gap: 8px; padding: 8px; }.board-column__items > p { padding: 24px 8px; color: var(--cs-text-muted); font-size: 9px; text-align: center; }.load-more { display: grid; justify-items: center; gap: 7px; padding: 16px; }.load-more p { margin: 0; color: var(--cs-danger); font-size: 10px; }.scope-rule { display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; }.scope-rule svg { flex: 0 0 auto; color: var(--cs-brand-600); }
+.board-column.drop-target { border-color: var(--cs-brand-500); background: var(--cs-brand-50); box-shadow: inset 0 0 0 2px var(--cs-brand-100); }.board-column.drop-rejected { opacity: .62; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgb(21 35 29 / 34%); backdrop-filter: blur(3px); }.create-dialog { width: min(720px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 3px; font-size: 18px; }.create-dialog header span { color: var(--cs-text-muted); font-size: 10px; }.create-dialog header button { display: grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 20px 22px 8px; }.field-title, .field-wide { grid-column: 1 / -1; }.form-grid input[aria-invalid="true"] { border-color: var(--cs-danger); }.form-error { margin: 8px 22px 0; color: var(--cs-danger); font-size: 10px; }.create-dialog > footer { display: flex; justify-content: flex-end; gap: 7px; padding: 17px 22px 20px; }
 @media (max-width: 1050px) { .work-toolbar { grid-template-columns: 1fr auto; }.filters { grid-column: 1 / -1; grid-row: 2; }.view-switcher { grid-column: 2; grid-row: 1; } }
 @media (max-width: 767px) { .work-toolbar { grid-template-columns: 1fr; align-items: stretch; gap: 12px; padding: 14px; }.work-toolbar__scope { padding-right: 112px; }.filters { grid-column: 1; grid-template-columns: 1fr 1fr; }.filters label:first-child { grid-column: 1 / -1; }.view-switcher { grid-column: 1; grid-row: auto; }.view-switcher button { flex: 1; justify-content: center; }.work-board { grid-auto-columns: minmax(272px, 84vw); }.dialog-backdrop { align-items: end; padding: 0; }.create-dialog { width: 100%; max-height: 92vh; border-radius: 18px 18px 0 0; }.create-dialog > header, .form-grid, .create-dialog > footer { padding-inline: 16px; }.form-grid { grid-template-columns: 1fr; }.field-title, .field-wide { grid-column: 1; }.form-error { margin-inline: 16px; } }

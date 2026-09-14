@@ -12,7 +12,11 @@ const props = withDefaults(defineProps<{
   layout: 'list',
 })
 
-defineEmits<{ select: [item: WorkItemSummary] }>()
+const emit = defineEmits<{
+  select: [item: WorkItemSummary]
+  'drag-start': [item: WorkItemSummary]
+  'drag-end': []
+}>()
 
 const statusTones: Partial<Record<WorkItemSummary['status'], SemanticTone>> = {
   BLOCKED: 'danger',
@@ -39,7 +43,7 @@ function displayDueAt(value: string): string {
 </script>
 
 <template>
-  <article class="work-item-card" :class="`work-item-card--${layout}`">
+  <article class="work-item-card" :class="`work-item-card--${layout}`" :draggable="layout === 'board'" @dragstart="layout === 'board' && emit('drag-start', item)" @dragend="layout === 'board' && emit('drag-end')">
     <button type="button" :data-work-item-id="item.id" :aria-label="`打开 ${item.key} ${item.title}`" @click="$emit('select', item)">
       <div class="work-item-card__identity">
         <span class="mono">{{ item.key }}</span>
@@ -60,6 +64,7 @@ function displayDueAt(value: string): string {
 
 <style scoped>
 .work-item-card { min-width: 0; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); transition: border-color var(--cs-transition-fast), box-shadow var(--cs-transition-fast), transform var(--cs-transition-fast); }
+.work-item-card--board { cursor: grab; }.work-item-card--board:active { cursor: grabbing; }
 .work-item-card:hover { border-color: var(--cs-brand-300); box-shadow: 0 8px 22px rgb(21 35 29 / 7%); transform: translateY(-1px); }
 .work-item-card button { width: 100%; padding: 14px; background: transparent; text-align: left; cursor: pointer; }
 .work-item-card__identity { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

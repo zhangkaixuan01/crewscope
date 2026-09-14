@@ -91,7 +91,7 @@ const emit = defineEmits<{
 }>()
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const drawer = useTemplateRef<HTMLElement>('drawer')
-const transitionTarget = ref<WorkItemStatus | ''>('')
+const confirmingTransition = ref<WorkItemStatus | null>(null)
 const comment = ref('')
 const resourceType = ref<WorkItemResourceType>('EXTERNAL_URL')
 const resourceReference = ref('')
@@ -112,12 +112,6 @@ function humanName(principalId: string | null): string {
     ?? props.responsibilityAgentCandidates.find(candidate => candidate.principalId === principalId)?.displayName
     ?? `${principalId.slice(0, 8)}…`
 }
-
-watch(
-  () => [item.value?.id, item.value?.status] as const,
-  () => { transitionTarget.value = transitions.value[0] ?? '' },
-  { immediate: true },
-)
 
 onMounted(() => {
   document.addEventListener('keydown', closeOnEscape)
@@ -152,10 +146,16 @@ function closeOnEscape(event: KeyboardEvent): void {
   }
 }
 
-async function submitTransition(): Promise<void> {
-  if (!transitionTarget.value) return
+async function submitTransition(target: WorkItemStatus): Promise<void> {
+  if (target === 'CANCELLED' || target === 'ARCHIVED') {
+    if (confirmingTransition.value !== target) {
+      confirmingTransition.value = target
+      return
+    }
+  }
+  confirmingTransition.value = null
   try {
-    await props.onTransition(transitionTarget.value)
+    await props.onTransition(target)
   } catch {
     // The Store exposes a sanitized error and preserves the refreshed server version on conflict.
   }
@@ -217,6 +217,9 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
 const statusLabels: Record<WorkItemStatus, string> = {
   BACKLOG: '待规划', READY: '待执行', IN_PROGRESS: '进行中', IN_REVIEW: '审查中', BLOCKED: '已阻塞', DONE: '已完成', CANCELLED: '已取消', ARCHIVED: '已归档',
 }
+const actionLabels: Record<WorkItemStatus, string> = {
+  BACKLOG: '退回待规划', READY: '标记待执行', IN_PROGRESS: '开始执行', IN_REVIEW: '提交评审', BLOCKED: '标记阻塞', DONE: '标记完成', CANCELLED: '取消工作项', ARCHIVED: '归档工作项',
+}
 </script>
 
 <template>
@@ -246,7 +249,20 @@ const statusLabels: Record<WorkItemStatus, string> = {
 
         <section class="detail-section transition-section">
           <div class="section-heading"><div><p>Workflow</p><h3>状态流转</h3></div><ShieldCheck :size="17" /></div>
-          <div v-if="canTransition" class="transition-control"><select v-model="transitionTarget" aria-label="目标状态"><option v-for="status in transitions" :key="status" :value="status">{{ statusLabels[status] }}</option></select><BaseButton size="small" :loading="commandPending === 'transition'" @click="submitTransition">提交流转<ArrowRight :size="13" /></BaseButton></div>
+          <div v-if="canTransition" class="transition-control" role="group" aria-label="可执行工作项动作">
+            <p id="transition-help" class="transition-help">选择下一步动作；服务端会再次校验当前版本与权限。</p>
+            <div class="transition-actions">
+              <BaseButton
+                v-for="target in transitions"
+                :key="target"
+                size="small"
+                :variant="target === 'CANCELLED' || target === 'ARCHIVED' ? 'danger' : target === transitions[0] ? 'primary' : 'secondary'"
+                :loading="commandPending === 'transition'"
+                :aria-describedby="'transition-help'"
+                @click="submitTransition(target)"
+              >{{ confirmingTransition === target ? `再次点击确认${actionLabels[target]}` : actionLabels[target] }}<ArrowRight :size="13" /></BaseButton>
+            </div>
+          </div>
           <p v-else class="section-note">{{ item.source !== 'CREWSCOPE' ? '外部 Provider 工作项由来源系统管理状态。' : item.status === 'ARCHIVED' ? '已归档工作项没有后续状态。' : '当前账号没有参与工作项的界面权限。' }}</p>
         </section>
 
@@ -336,4 +352,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 .detail-backdrop { position: fixed; inset: 0; z-index: 60; background: rgb(21 35 29 / 22%); backdrop-filter: blur(2px); }.detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(560px, 92vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: -20px 0 55px rgb(21 35 29 / 13%); }.detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 16px 11px 20px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.detail-header p, .detail-header strong { display: block; margin: 0; }.detail-header p { color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.detail-header strong { margin-top: 2px; color: var(--cs-brand-700); font: 12px var(--cs-font-mono); }.detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.detail-content { overflow-y: auto; padding: 12px; }.detail-hero, .detail-section, .conflict-panel { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.detail-hero { padding: 19px; }.detail-hero__status { display: flex; align-items: center; justify-content: space-between; }.detail-hero__status > .mono { color: var(--cs-text-muted); font-size: 9px; }.detail-hero h2 { margin: 13px 0 7px; font-size: 19px; line-height: 1.3; }.detail-hero > p { margin: 0; color: var(--cs-text-muted); font-size: 11px; line-height: 1.6; white-space: pre-wrap; }.detail-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }.detail-tags > span { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 6px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; }.detail-section { margin-top: 10px; padding: 16px; }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.section-heading p { margin: 0 0 2px; color: var(--cs-brand-600); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: 12px; }.section-heading h3 span { color: var(--cs-text-muted); font-weight: 500; }.section-heading > svg { color: var(--cs-text-muted); }.transition-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }.transition-control select, .comment-form textarea, .resource-form input, .resource-form select { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.facts-section dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0; }.facts-section dl div { padding: 8px 0; border-bottom: 1px solid var(--cs-border); }.facts-section dl div:nth-last-child(-n+2) { border-bottom: 0; }.facts-section dt { color: var(--cs-text-muted); font-size: 8px; }.facts-section dd { display: flex; align-items: center; gap: 5px; margin: 3px 0 0; font-size: 9px; font-weight: 650; }.section-note { margin: 0; color: var(--cs-text-muted); font-size: 9px; }.comment-list, .resource-list { display: grid; gap: 8px; }.comment-list article { display: grid; grid-template-columns: 28px 1fr; gap: 8px; }.comment-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 9px; font-style: normal; font-weight: 800; }.comment-list header { display: flex; justify-content: space-between; gap: 8px; }.comment-list header strong, .comment-list header time { color: var(--cs-text-muted); font-size: 8px; }.comment-list p { margin: 3px 0 0; color: var(--cs-text-secondary); font-size: 10px; line-height: 1.5; white-space: pre-wrap; }.comment-form { display: grid; justify-items: end; gap: 7px; margin-top: 13px; }.comment-form label { justify-self: start; color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; }.comment-form textarea { min-height: 68px; padding-block: 8px; resize: vertical; }.comment-form textarea[aria-invalid="true"], .resource-form input[aria-invalid="true"] { border-color: var(--cs-danger); }.resource-list article { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; background: var(--cs-surface-subtle); }.resource-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); }.resource-list strong, .resource-list a, .resource-list article div > span { display: flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-list strong { font-size: 10px; }.resource-list a, .resource-list article div > span { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.resource-form { display: grid; grid-template-columns: 120px 1fr; gap: 8px; margin-top: 13px; }.resource-form label { display: grid; gap: 4px; color: var(--cs-text-secondary); font-size: 8px; font-weight: 700; }.resource-form label:nth-child(3) { grid-column: 1 / -1; }.resource-form > button { justify-self: end; grid-column: 1 / -1; }.conflict-panel { display: flex; align-items: flex-start; gap: 9px; margin-top: 10px; padding: 12px; border-color: #f0d5ad; background: var(--cs-warning-soft); color: var(--cs-warning); }.conflict-panel strong, .conflict-panel span { display: block; }.conflict-panel strong { font-size: 10px; }.conflict-panel span { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.command-error { margin: 9px 2px 0; color: var(--cs-danger); font-size: 9px; }.command-error button { color: inherit; text-decoration: underline; cursor: pointer; }.detail-footer { display: flex; justify-content: flex-end; padding: 11px 14px; border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
 .detail-footer { display: grid; justify-items: end; gap: 7px; }.detail-footer > p { margin: 0; color: var(--cs-text-muted); font-size: 8px; }.detail-footer > div { display: flex; gap: 7px; }
 @media (max-width: 767px) { .detail-drawer { width: 100%; }.detail-content { padding: 9px; }.detail-hero { padding: 16px; }.detail-hero h2 { font-size: 17px; }.detail-section { padding: 14px; }.resource-form { grid-template-columns: 1fr; }.resource-form label:nth-child(3), .resource-form > button { grid-column: 1; }.resource-form > button { justify-self: stretch; }.detail-footer { justify-items: stretch; }.detail-footer > div { display: grid; }.detail-footer > div > * { width: 100%; } }
+.transition-control { display: grid; gap: 8px; }
+.transition-help { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
+.transition-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 </style>

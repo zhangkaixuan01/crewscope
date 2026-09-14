@@ -13,7 +13,7 @@ describe('WorkItemDetailDrawer', () => {
     await flushPromises()
 
     expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭工作项详情')
-    expect(wrapper.get<HTMLSelectElement>('select[aria-label="目标状态"]').element.value).toBe('IN_REVIEW')
+    expect(wrapper.get('.transition-control').text()).toContain('提交评审')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toBeTruthy()
     expect(document.body.style.overflow).toBe('hidden')
