@@ -205,15 +205,15 @@ M10-F01,M10-F02,M10-F03,M10-E01 -> M10-Q01 -> M10-Q02
 
 ### 10.4 数据库迁移清单与编号
 
-M9 用到 `V37`（行级评论）与可选的 `V38`（搜索索引）。**M10 编号从合并时的实际最大值 +1 顺延；按 M9 用满 V38 计，M10 从 `V39` 起。** 文件名的主题部分不随编号变化，评审时以主题为准：
+M9 用到 `V37`（行级评论）、`V38`（搜索索引）与 `V39`（评论命令键槽位分离，见 M9 计划 §10.9 第 16 条）。**M10 编号从合并时的实际最大值 +1 顺延：按 M9 用到 `V39` 计，M10 从 `V40` 起。** 文件名的主题部分不随编号变化，评审时以主题为准：
 
 | 文件 | 工作包 | 内容 |
 |---|---|---|
-| `V39__enable_vector_extension.sql` | D01 | 仅 `CREATE EXTENSION IF NOT EXISTS vector;`（见 10.2 第 2 条） |
-| `V40__knowledge_entry.sql` | D01 | `KnowledgeEntry` 及其版本、生效范围（Team / WorkProject / Repository 三级）、责任人、废弃状态 |
-| `V41__repository_index_snapshot.sql` | D01/I01 | `RepositoryIndexSnapshot`、分片表、嵌入向量列与索引 |
-| `V42__agent_memory.sql` | D01/I02 | Conversation 短期记忆与 Agent 长期记忆的持久化 |
-| `V43__skill_draft.sql` | D01/A03 | Skill 草稿、审核状态、版本、适用范围、工具序列 |
+| `V40__enable_vector_extension.sql` | D01 | 仅 `CREATE EXTENSION IF NOT EXISTS vector;`（见 10.2 第 2 条） |
+| `V41__knowledge_entry.sql` | D01 | `KnowledgeEntry` 及其版本、生效范围（Team / WorkProject / Repository 三级）、责任人、废弃状态 |
+| `V42__repository_index_snapshot.sql` | D01/I01 | `RepositoryIndexSnapshot`、分片表、嵌入向量列与索引 |
+| `V43__agent_memory.sql` | D01/I02 | Conversation 短期记忆与 Agent 长期记忆的持久化 |
+| `V44__skill_draft.sql` | D01/A03 | Skill 草稿、审核状态、版本、适用范围、工具序列 |
 
 三条约束：
 
@@ -254,7 +254,7 @@ server 侧新增 Controller（DTO 一律平铺在 `server/api/`，不建 `api/dt
 | `src/components/knowledge/RetrievalCitation.vue` | F01/F02 | **检索片段的溯源呈现**（§4.2 要求可溯源、可拒绝）——执行详情里每个被注入的片段都要能点回知识条目或代码位置 |
 | `src/components/skill/SkillDraftDiff.vue` | F02 | 草稿 diff，复用 M9 的 `CodeViewer` |
 
-四个新页面必须同步进入：`src/app/router.ts` 的 `meta.title` / `navGroup` / `requiredPermission`、M9 的一级导航分组、抽屉导航、`scripts/check-web-route-meta.mjs` 的路由清单、以及 390px 可达性 E2E 的菜单列表（列表长度从 14 增至 18）。**这一条是 M10 最容易漏的收口**——新页面加进来但不进 M9 建立的那几份清单，等于把刚清偿完的欠账重新开一个口子。
+四个新页面必须同步进入：`src/app/router.ts` 的 `meta.title` / `navGroup` / `requiredPermission`、M9 的一级导航分组、抽屉导航、`scripts/check-route-metadata.mjs` 的路由清单、以及 390px 可达性 E2E 的菜单列表（列表长度从 14 增至 18）。**这一条是 M10 最容易漏的收口**——新页面加进来但不进 M9 建立的那几份清单，等于把刚清偿完的欠账重新开一个口子。
 
 ### 10.7 特性开关：默认关闭，且关闭时行为必须完整
 

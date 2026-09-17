@@ -62,7 +62,7 @@ Diff 是 Agent 交付价值被验收的主要界面。当前 Diff 没有行号�
 
 ## 结果与验证
 
-- 3000 行 Diff 的渲染基线、语法包懒加载、明暗主题和纯文本降级在 M9-F08 记录。
+- 3000 行 Diff 的渲染基线、语法包懒加载、明暗主题和纯文本降级在 M9-F08 记录；Chromium 渲染预算由 `e2e/m9-performance.spec.ts` 验证并纳入 M9-Q01。
 - 行级评论可创建、读取、失效和只读保留；失效映射与 `ReviewPatchHunkParser` 共用并有回归测试。
 - 配置页面通过字号、脏态、参数边界、Revision 差异、配置搜索、枚举映射和健康派生测试。
 - 新增端点进入敏感字段白名单扫描，禁止 Credential、Endpoint、Prompt、宿主路径和外链泄露。

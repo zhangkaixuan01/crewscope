@@ -20,8 +20,9 @@ Java 21 和 Docker 29。生产 Backend/Web 镜像按 `linux/amd64` 构建并通�
 性能、内核、文件所有权、systemd 或公网网络边界。
 
 工作区包含尚未提交的 M8 实现，因此本轮证据绑定当前 Git HEAD 和完整 Working Tree，
-不把 HEAD 单独描述为最终候选 Revision。正式 Release Candidate 必须从干净受保护 Tag
-重新生成全部证据。
+不把 HEAD 单独描述为最终候选 Revision。本轮不打版本 Tag、不发布正式发行：GHCR、
+Cosign、SBOM、Provenance 与受保护 Tag 统一标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`，
+待供应链专项启动时再从其时的干净 Revision 重新生成发行证据。
 
 ## 一键门禁
 
@@ -78,7 +79,7 @@ Java 21 和 Docker 29。生产 Backend/Web 镜像按 `linux/amd64` 构建并通�
 
 2026-09-02 在全新 Ubuntu 24.04、Linux amd64、4C8G 主机完成 Working Tree Release
 Candidate 验证。证据绑定 Git HEAD `3559b58` 与本地/远端内容 Hash 一致的 126 项 M8
-未提交改动，不把该 HEAD 冒充受保护 Tag。
+未提交改动，该 HEAD 只是本次演练的候选 Revision，不是正式发行 Revision。
 
 | 验证面 | 结果 |
 |---|---|
@@ -105,14 +106,15 @@ Review 和 Draft PR 的完整业务演练仍按产品功能准备情况追加，
 Import 的持久化入队、Worker Lease/Fencing、终态重放和受管仓库安全边界由本机全量合同与
 Linux 运行时证据共同覆盖。
 
-## 最终 Release 待验项
+## 后续专项待验项（不影响本轮功能结论）
 
-以下正式发行与外部集成证据仍需补齐：
+以下外部集成证据仍需补齐；正式供应链发行不在其中——它已标记为
+`SUPPLY_CHAIN_RELEASE_DEFERRED`，本轮不打版本 Tag：
 
-- 从干净受保护 Tag 重建镜像，完成 GHCR、SBOM、Provenance、Cosign OIDC 和 GitHub Release；
 - 在用户提供授权的测试模型与 GitHub 凭证后完成真实 Coding、Review 和 Draft PR；
 - 将短期 IP 入口迁移到正式域名证书，或继续保留已验证的短期 IP 证书自动续期；
-- 使用正式发行 Digest 重跑安装与升级恢复，替代本次 Working Tree 候选证据。
+- 供应链专项启动时，从其时的干净 Revision 构建镜像并重跑安装与升级恢复，替代本次
+  Working Tree 候选证据。
 
 功能证据已完成，M8 的状态为：
 

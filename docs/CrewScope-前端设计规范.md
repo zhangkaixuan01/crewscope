@@ -335,21 +335,38 @@ M7-F08 统一收口正式身份入口。Coverage 必须包含 Identity、Account
 - UI 与正文：`Inter, ui-sans-serif, system-ui, sans-serif`；
 - 品牌标题与关键空状态：`Georgia, ui-serif, serif`；
 - ID、代码、Commit、日志和数值：`ui-monospace, SFMono-Regular, monospace`；
-- 工作页面正文默认 14px，辅助信息 12px；标题使用 16/20/24px，避免信息密集工作台被超大标题挤压；
-- 字号只使用七档 Token：`--cs-text-2xs`（11px，仅 Badge/角标）、`--cs-text-xs`（12px）、`--cs-text-sm`（13px）、`--cs-text-base`（14px）、`--cs-text-lg`（16px）、`--cs-text-xl`（20px）、`--cs-text-2xl`（24px）；生产代码禁止 ≤10px；
-- 行高与字号一一对应：1.45/1.5/1.55/1.6/1.5/1.4/1.3；字重使用 400/560/650/700 四档；
+- 字号只使用七档 Token，**12px 是硬下限**，没有 11px 档：
+
+| Token | 值 | 承载什么 |
+| --- | --- | --- |
+| `--cs-text-xs` | 12px | 微型标签：Badge、角标、eyebrow、计数、时间戳 |
+| `--cs-text-sm` | 13px | 密集工作区的主力字号：表格单元、列表元信息、说明文字 |
+| `--cs-text-base` | 14px | 面板正文，同时是**所有可输入控件的下限** |
+| `--cs-text-md` | 16px | 卡片与区块标题 |
+| `--cs-text-lg` | 18px | 页面标题 |
+| `--cs-text-xl` | 24px | 展示型标题 |
+| `--cs-text-2xl` | 32px | 未登录态品牌标题 |
+
+- 行高只有三档，按**阅读距离**而不是按字号选择：`--cs-leading-tight`（1.3，标题与单行标签）、`--cs-leading-normal`（1.5，绝大多数界面文本）、`--cs-leading-relaxed`（1.7，需要连续阅读的正文与 Markdown）；
+- 字重只有三档：`--cs-weight-regular`（400）、`--cs-weight-medium`（500）、`--cs-weight-semibold`（600）。**不提供 700 及以上**——这套界面此前的视觉噪声来自字太小而不是字太轻，下限抬到 12px 之后 600 已经够用；
+- 密集区的层级由字重、颜色和留白表达，不再由「把字缩小一档」表达；
+- 七档之外的例外必须逐条登记在 `docs/quality/M9-字号白名单.json`（目前仅未登录态两处流体标题），`scripts/check-design-tokens.mjs` 会把失效条目当作失败；
 - 数字指标启用 tabular numbers，日志和 Diff 保留等宽对齐。
 
 Serif 只用于低频识别元素，表格、表单、导航和执行信息使用 Sans Serif。
 
 ### 4.3 空间、形状与层级
 
-- 间距基数为 4px，统一使用 `--cs-space-1..10`（4/8/12/16/20/24/32/40/48/64px）；
-- 控件高度由密度 Token 控制：comfortable 为 38px，compact 为 32px；触摸目标不低于 44px；
+- 间距基数为 4px，十一档 Token **按取值命名**而不是按序号命名：`--cs-space-2/4/8/12/16/20/24/32/40/48/64`，即 `--cs-space-8` 就是 8px。按序号命名会让 `padding: 2px` 被「迁移」成 `--cs-space-2` 并悄悄变成 8px；`--cs-space-2`（2px）是唯一的半档，且只用于图标与其说明文字之间的间隙；
+- **负向偏移同样必须是档位**，写成 `calc(var(--cs-space-4) * -1)`。负号不改变「这是一次节奏决策」这个事实：四个表单里「校验提示贴住它所属字段」的距离一度是 -4/-5/-6/-8px 四个值，成员在四个地方看到的紧密程度不一样；
+- **布局尺寸不进间距刻度。** 档位表达的是「元素之间该隔多远」，而导航栏宽度表达的是「这根栏多宽」——后者用独立的自定义属性（如 `--cs-rail-width`）并且只写一次，由收起态与断点改写它，让依赖它的偏移自动跟随；把它塞进 `--cs-space-*` 会让刻度失去含义，抄成裸值则必然出现「改了栏宽忘了改偏移」的错位；
+- **不要用 padding 给绝对定位的元素手工让位。** 量出来的让位空间会在文案变长、字体变化或加图标时把相邻内容压住；该用的是一列 flex/grid。
+- 控件高度只有一档，由密度 Token 控制：`--cs-density-control-height` 在 comfortable 下为 38px、compact 下为 32px。**不提供 sm/md/lg 三档固定尺寸**——固定尺寸与密度开关是两套互相打架的机制，「紧凑模式压不压 lg」会变成每个组件各自的答案；
+- 触摸目标不低于 `--cs-touch-min`（44px），它是**命中区**而不是视觉尺寸：`≤767px` 下任何可点元素的可点区域不得小于 44×44，允许用 padding 或伪元素撑开而不改变外观。它**不随密度缩小**——密度压缩的是视觉尺寸，不是手指；
 - 圆角为 8/12/16px，Badge 可使用全圆角；
 - 工作区主要依靠边框和 Surface 层级，阴影只用于浮层、拖拽和焦点对象；
 - 内容区最大宽度由页面模板决定，执行画布和数据表不设置文章式窄宽度。
-- 层级统一使用 `--cs-z-base/sticky/popover/drawer/modal/toast`，组件不得自定义 z-index 数值。
+- 层级统一使用十档语义 Token `--cs-z-base/raised/sticky/banner/drawer/overlay/dialog/popover/toast/tooltip`（`0/300/400/450/500/600/700/800/900/1000`），组件不得自定义全局 z-index 数值；只有组件自己子树内部的局部层叠（例如连接线之上的时间线圆点）允许写 0–9 的裸值。两条相对顺序是硬约束：Toast 必须能盖住 Dialog，Tooltip 必须能盖住 Toast。
 
 主题通过 `[data-theme="dark"]` 覆盖语义 Token，组件只消费 `--cs-surface`、`--cs-text`、`--cs-border` 等语义变量；密度通过 `[data-density="comfortable|compact"]` 覆盖间距与控件高度，不改变字号。主题跟随系统，用户覆盖值保存在本地偏好中。
 

@@ -4,7 +4,7 @@
 > 对应设计：`CrewScope 团队协作式 AI 工作执行平台设计文档 v5.73`<br>
 > 技术基线：Java 17、Spring Boot 4.0.6、AgentScope Java 2.0.0、Vue 3、PostgreSQL、Redis<br>
 > 首个目标：团队对话到同级 Review 再到 GitHub Draft PR<br>
-> 当前进度：M0 至 M7 全部完成；M8 九个工作包已完成本地实现，M8-Q02 已达到 `LINUX_RUNTIME_RECOVERY_PASS`，最终状态为 `FINAL_RELEASE_PENDING_SIGNED_TAG`
+> 当前进度：M0 至 M7 全部完成；M8 九个工作包已完成本地实现，M8-Q02 已达到 `M8_FUNCTIONAL_COMPLETE` / `LINUX_RUNTIME_RECOVERY_PASS`；供应链发行（GHCR、Cosign、SBOM、Provenance 与版本 Tag）标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`，产品仍在开发中，**本轮不打 Tag、不发布正式发行**
 
 ## 1. 实施目标
 
@@ -982,7 +982,7 @@ M4 建立 AgentScopeNativeRuntime 基线。MVP 后的 External Coding Runtime �
 | Setup Center 暴露内部配置或提供越权捷径 | 公开字段白名单、受信 `actionKey`、既有业务 API 和服务端持续授权；不返回 Secret、Endpoint、原始错误或任意 URL | M8-F01 出口 |
 | 大文件重构改变运行和恢复语义 | 先建立 Characterization/Contract Test，再按稳定职责移动；API、事件、数据库、幂等和恢复证据前后对比 | M8-E01 出口 |
 | CI 路径过滤漏掉必要门禁 | 变更分类合同测试、Main 完整回归和不使用路径过滤的 Release Gate 三层兜底 | M8-Q01 与 Q02 出口 |
-| 发行产物与源码 Revision 不一致 | 受保护 Tag、最小权限、同 Revision 双镜像、Digest Manifest、SBOM、Provenance、签名和安装验证 | M8-I02 与 Q02 出口 |
+| 发行产物与源码 Revision 不一致 | 最小权限、同 Revision 双镜像、Digest Manifest、SBOM、Provenance、签名和安装验证 | M8-I02 出口（供应链专项，本轮延后） |
 | 领域范围过大 | 按纵向闭环实现，MVP 仅保留必要状态与角色 | 每个里程碑评审 |
 
 ## 20. 首批开发任务
@@ -1047,7 +1047,7 @@ DeepSeek 真实调用暴露点号 Tool Function Name 不符合 OpenAI-compatible
 
 M8 已完成 Team Setup Readiness、Setup Center、GitHub Repository Import、Worker Docker API 隔离、核心职责拆分、依赖与配置治理、Tag/GHCR 发行工作流、告警/备份/TLS 运维加固和分层质量门禁的本地收口。GitHub Import 由 API 在事务中持久化入队，Worker 通过 Lease、Fencing 和幂等终态执行，不再由 Web 请求线程直接完成长时 Git 操作。V34/V35 分别建立 Import Job 与 Worker Lease 持久化，V36 将 Repository Key 收口为部署级物理仓库唯一标识；生产恢复边界已同步为 `V26..V36 -> V36`，旧 Manifest 继续可恢复且不得越过自身声明的 Schema 上限。
 
-M8-Q02 本机顺序验证结果为 Java `3099 / 3099`、Vitest `688 / 688`、Playwright/视觉/Axe `248 / 248`、21 Story/154 Variant、前端生产构建通过且生产依赖无已知漏洞。Docker Desktop 以 `linux/amd64` 构建 Backend/Web，隔离 Compose Project 中 Docker Socket Proxy、PostgreSQL、Redis、OTel Collector、Prometheus、Alertmanager、Backup Metrics、API、Worker 和 Web 十服务全部 Healthy；Worker 无宿主 Socket Mount，Container API 可用而 Volume API 失败关闭。本机结论为 `LOCAL_PRECHECK_PASS`。全新 Ubuntu 24.04 amd64 主机已完成公网 HTTPS/Secure Cookie、双用户与 Team、实际 Alertmanager firing/resolved、systemd 自动备份、V35 独立空目标恢复、短期 IP 证书续期和主机重启恢复；V36 前滚与当前十服务合同随最新版生产部署复验。当前仍需从干净受保护 Tag 完成 GHCR Digest、OIDC/Cosign、SBOM/Provenance，并在授权的真实 GitHub 凭证下完成 Coding/Review/Draft PR，因此最终状态为 `FINAL_RELEASE_PENDING_SIGNED_TAG`。
+M8-Q02 本机顺序验证结果为 Java `3099 / 3099`、Vitest `688 / 688`、Playwright/视觉/Axe `248 / 248`、21 Story/154 Variant、前端生产构建通过且生产依赖无已知漏洞。Docker Desktop 以 `linux/amd64` 构建 Backend/Web，隔离 Compose Project 中 Docker Socket Proxy、PostgreSQL、Redis、OTel Collector、Prometheus、Alertmanager、Backup Metrics、API、Worker 和 Web 十服务全部 Healthy；Worker 无宿主 Socket Mount，Container API 可用而 Volume API 失败关闭。本机结论为 `LOCAL_PRECHECK_PASS`。全新 Ubuntu 24.04 amd64 主机已完成公网 HTTPS/Secure Cookie、双用户与 Team、实际 Alertmanager firing/resolved、systemd 自动备份、V35 独立空目标恢复、短期 IP 证书续期和主机重启恢复；V36 前滚与当前十服务合同随最新版生产部署复验。GHCR Digest、OIDC/Cosign、SBOM/Provenance 属于供应链专项，标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`——产品仍在开发中，本轮不打版本 Tag、不发布正式发行；Coding/Review/Draft PR 仍需在授权的真实 GitHub 凭证下完成。因此 M8 的状态为 `M8_FUNCTIONAL_COMPLETE` / `LINUX_RUNTIME_RECOVERY_PASS` / `SUPPLY_CHAIN_RELEASE_DEFERRED`。
 
 ## 21. 项目管理与进度跟踪
 

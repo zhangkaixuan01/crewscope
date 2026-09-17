@@ -107,7 +107,7 @@ evidence    Test、PR、Artifact、ADR 和演示链接
 
 M9–M12 由 [M8 后全面架构与产品体验 Review](../reviews/M8后-全面架构与产品体验Review.md) 导出。M9、M10 为可执行粒度，M11 为 Feature 级基线（进入前需按 `M11-S01` 结论细化），M12 只冻结方向与边界、不作为可领取清单使用。
 
-M8 功能状态为 `M8_FUNCTIONAL_COMPLETE`：`M8-S01`、`M8-A01`、`M8-A02`、`M8-F01`、`M8-E01`、`M8-I01`、`M8-I03`、`M8-Q01`、`M8-Q02` 已完成实现与验证。`M8-I02` 的 GHCR、Cosign、SBOM、Provenance 和受保护 Tag 属于 `SUPPLY_CHAIN_RELEASE_DEFERRED`，不阻断当前产品功能开发。详见 [M8-Q02 Release Gate](../testing/M8-Q02-Release-Gate.md)、[M8-I03 运维可观测、备份与执行隔离](../testing/M8-I03-运维可观测备份与执行隔离.md)、[M8-I02 正式发行与镜像供应链](../testing/M8-I02-正式发行与镜像供应链.md)、[M8-I01 依赖与配置治理](../testing/M8-I01-依赖与配置治理.md) 和 [M8-Q01 质量反馈与分层门禁](../testing/M8-Q01-质量反馈与分层门禁.md)。
+M8 功能状态为 `M8_FUNCTIONAL_COMPLETE`：`M8-S01`、`M8-A01`、`M8-A02`、`M8-F01`、`M8-E01`、`M8-I01`、`M8-I03`、`M8-Q01`、`M8-Q02` 已完成实现与验证。`M8-I02` 的 GHCR、Cosign、SBOM、Provenance 与版本 Tag 属于 `SUPPLY_CHAIN_RELEASE_DEFERRED`——产品开发期间不打 Tag、不发布正式发行，不阻断任何功能工作包的推进，也不构成 `M9-Q02` 等后续发布门禁的前置。详见 [M8-Q02 Release Gate](../testing/M8-Q02-Release-Gate.md)、[M8-I03 运维可观测、备份与执行隔离](../testing/M8-I03-运维可观测备份与执行隔离.md)、[M8-I02 正式发行与镜像供应链](../testing/M8-I02-正式发行与镜像供应链.md)、[M8-I01 依赖与配置治理](../testing/M8-I01-依赖与配置治理.md) 和 [M8-Q01 质量反馈与分层门禁](../testing/M8-Q01-质量反馈与分层门禁.md)。
 
 M0 至 M7 已完成，M8 的九个工作包已全部完成本地实现，`M8-Q02` 本机发布预检通过，下一阶段是真实 Linux amd64 发行候选验证。M4 的 44 个任务和 [M4-Q04 Release Gate](../testing/M4-Q04-Release-Gate.md) 已全部关闭；最终 DeepSeek 真实模型固定矩阵为 29 / 36、端到端成功率 80.56%，CrewScope 自修改闭环与质量门禁通过。M4 全量门禁为 Maven 1517 / 1517、Vitest 237 / 237、Playwright/视觉/Axe 126 / 126。
 
