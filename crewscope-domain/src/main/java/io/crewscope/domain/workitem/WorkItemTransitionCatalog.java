@@ -3,6 +3,7 @@ package io.crewscope.domain.workitem;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Static action metadata for the existing WorkItem state machine. */
 public final class WorkItemTransitionCatalog {
@@ -40,8 +41,34 @@ public final class WorkItemTransitionCatalog {
     WorkItemStatus source = Objects.requireNonNull(status, "status");
     return WorkItem.allowedTransitionsFrom(source).stream()
         .sorted()
-        .map(target -> new Edge(source, target, METADATA.get(source).get(target)))
+        .map(target -> new Edge(source, target, reversibilityAwareMetadata(source, target)))
         .toList();
+  }
+
+  /**
+   * Undo is a normal execution of the reverse edge, never a new mechanism, so an edge may only
+   * advertise itself as reversible when the declared intent and the authoritative state machine
+   * agree. Trusting the declaration alone would offer an undo entry that {@link WorkItem} then
+   * rejects — for example {@code BACKLOG -> READY} is cheap to reverse in intent but the state
+   * machine has no {@code READY -> BACKLOG} edge to execute.
+   */
+  private static EdgeMetadata reversibilityAwareMetadata(WorkItemStatus from, WorkItemStatus to) {
+    EdgeMetadata declared = METADATA.get(from).get(to);
+    boolean reversible =
+        declared.reversible() && WorkItem.allowedTransitionsFrom(to).contains(from);
+    return reversible == declared.reversible()
+        ? declared
+        : new EdgeMetadata(declared.actionId(), declared.label(), declared.strength(), false);
+  }
+
+  /** Resolves the reverse edge that an undo of {@code from -> to} would execute. */
+  public static Optional<Edge> reverseOf(WorkItemStatus from, WorkItemStatus to) {
+    WorkItemStatus origin = Objects.requireNonNull(from, "from");
+    WorkItemStatus destination = Objects.requireNonNull(to, "to");
+    if (!reversibilityAwareMetadata(origin, destination).reversible()) {
+      return Optional.empty();
+    }
+    return from(destination).stream().filter(edge -> edge.to() == origin).findFirst();
   }
 
   private static EdgeMetadata edge(String actionId, String label, Strength strength, boolean reversible) {

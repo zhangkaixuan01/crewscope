@@ -6,15 +6,23 @@ import io.crewscope.domain.workitem.WorkItemResourceLink;
 import java.util.List;
 import java.util.Objects;
 
-/** Consistent WorkItem detail snapshot with its immutable collaboration children. */
+/**
+ * Consistent WorkItem detail snapshot with its immutable collaboration children.
+ *
+ * <p>{@code availableActions} is the same full edge list the per-object availability endpoint returns,
+ * decided by the same {@link WorkItemTransitionAvailabilityProjector} in the same request, so the
+ * detail panel no longer needs a second round trip that could observe a different verdict.
+ */
 public record WorkItemDetails(
     WorkItem workItem,
     List<WorkItemComment> comments,
-    List<WorkItemResourceLink> resourceLinks) {
+    List<WorkItemResourceLink> resourceLinks,
+    List<WorkItemAvailableTransition> availableActions) {
 
   public WorkItemDetails {
     workItem = Objects.requireNonNull(workItem, "workItem");
     comments = List.copyOf(Objects.requireNonNull(comments, "comments"));
     resourceLinks = List.copyOf(Objects.requireNonNull(resourceLinks, "resourceLinks"));
+    availableActions = List.copyOf(Objects.requireNonNull(availableActions, "availableActions"));
   }
 }

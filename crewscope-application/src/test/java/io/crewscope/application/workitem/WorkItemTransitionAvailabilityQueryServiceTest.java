@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.crewscope.application.availability.TransitionBlockReason;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -15,6 +16,7 @@ import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemSource;
 import io.crewscope.domain.workitem.WorkItemStatus;
+import io.crewscope.domain.workitem.WorkItemTransitionCatalog;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -41,7 +43,7 @@ class WorkItemTransitionAvailabilityQueryServiceTest {
 
     assertTrue(result.stream().allMatch(value -> !value.enabled()));
     assertTrue(result.stream().allMatch(value ->
-        value.reason().orElseThrow() == WorkItemTransitionBlockReason.EXTERNAL_PROVIDER_MANAGED));
+        value.reason().orElseThrow() == TransitionBlockReason.EXTERNAL_PROVIDER_MANAGED));
   }
 
   @Test
@@ -52,7 +54,20 @@ class WorkItemTransitionAvailabilityQueryServiceTest {
 
     assertEquals(2, result.size());
     assertTrue(result.stream().allMatch(value ->
-        value.reason().orElseThrow() == WorkItemTransitionBlockReason.PERMISSION_DENIED));
+        value.reason().orElseThrow() == TransitionBlockReason.PERMISSION_DENIED));
+  }
+
+  @Test
+  void projectsNothingAtAllForAnArchivedItemSoTheArchivedReasonIsUnreachable() {
+    Fixture fixture = new Fixture(WorkItemSource.CREWSCOPE, true, WorkItemStatus.ARCHIVED);
+
+    List<WorkItemAvailableTransition> result = fixture.service.list(fixture.query);
+
+    // ARCHIVED is a terminal state with no outgoing edge, so the catalog is empty before any
+    // verdict is reached. The projector still checks archival first, because an archived item that
+    // later gained an edge must not be offered as executable.
+    assertTrue(result.isEmpty(), "an archived item has no edge to disable");
+    assertTrue(WorkItemTransitionCatalog.from(WorkItemStatus.ARCHIVED).isEmpty());
   }
 
   private static final class Fixture {
@@ -68,13 +83,19 @@ class WorkItemTransitionAvailabilityQueryServiceTest {
     private final WorkItemTransitionAvailabilityQueryService service;
 
     private Fixture(WorkItemSource source, boolean permission) {
-      when(item.status()).thenReturn(WorkItemStatus.BACKLOG);
+      this(source, permission, WorkItemStatus.BACKLOG);
+    }
+
+    private Fixture(WorkItemSource source, boolean permission, WorkItemStatus status) {
+      when(item.status()).thenReturn(status);
       when(item.source()).thenReturn(source);
       when(accessPolicy.requireVisibleWorkItem(context, organizationId, teamId, projectId, workItemId))
           .thenReturn(item);
       when(accessPolicy.hasPermission(any(), any(), any(), any(), any(), any())).thenReturn(permission);
       service = new WorkItemTransitionAvailabilityQueryService(
-          accessPolicy, () -> UtcTimestamp.parse("2026-09-13T00:00:00Z"));
+          accessPolicy,
+          new WorkItemTransitionAvailabilityProjector(),
+          () -> UtcTimestamp.parse("2026-09-13T00:00:00Z"));
     }
   }
 }

@@ -5,7 +5,13 @@ import io.crewscope.application.workdesk.WorkDeskQuery;
 import io.crewscope.application.workdesk.WorkDeskRepository;
 import io.crewscope.application.workdesk.WorkDeskSection;
 import io.crewscope.application.workdesk.WorkDeskSummary;
+import io.crewscope.application.workitem.WorkItemTransitionSubject;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
+import io.crewscope.domain.workitem.WorkItemSource;
+import io.crewscope.domain.workitem.WorkItemStatus;
+import io.crewscope.domain.workitem.WorkProjectId;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -63,7 +69,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
   private List<WorkDeskItem> workItems(WorkDeskQuery query) {
     StringBuilder sql = new StringBuilder("""
         SELECT wi.id, wi.project_id, wi.title, wi.status, wi.priority, wi.updated_at,
-               assignment.role
+               wi.source_provider, assignment.role
         FROM crewscope.work_item wi
         JOIN crewscope.responsibility_assignment assignment
           ON assignment.organization_id = wi.organization_id
@@ -84,6 +90,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
       return item("WORK_ITEM", row.getObject("id").toString(), row.getObject("project_id").toString(),
           row.getString("title"), status, row.getTimestamp("updated_at"), role,
           needsAction(role, status), urgency(row.getString("priority")), progress(status),
+          transitionSubject(row),
           "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&workItem=" + row.getObject("id"));
     }, args.toArray());
   }
@@ -94,7 +101,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
     }
     StringBuilder sql = new StringBuilder("""
         SELECT execution.id, execution.project_id, execution.status, execution.updated_at,
-               task.objective, task.work_item_id
+               task.id AS task_id, task.objective, task.work_item_id
         FROM crewscope.task_execution execution
         JOIN crewscope.task task
           ON task.organization_id = execution.organization_id
@@ -114,9 +121,18 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
       String id = row.getObject("id").toString();
       return item("TASK_EXECUTION", id, row.getObject("project_id").toString(),
           row.getString("objective"), status, row.getTimestamp("updated_at"), null,
-          needsAction(null, status), urgency("NORMAL"), Optional.empty(),
-          "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&taskExecution=" + id);
+          needsAction(null, status), urgency("NORMAL"), Optional.empty(), null,
+          taskExecutionRoute(query, row.getObject("project_id"), row.getObject("task_id"), id));
     }, args.toArray());
+  }
+
+  /**
+   * The Task coordinate belongs to this contract: the board opens the Task detail from `task=`, so
+   * an execution link without it lands on a board with nothing selected.
+   */
+  static String taskExecutionRoute(WorkDeskQuery query, Object projectId, Object taskId, String executionId) {
+    return "/work?team=" + query.teamId() + "&project=" + projectId
+        + "&task=" + taskId + "&taskExecution=" + executionId;
   }
 
   private List<WorkDeskItem> reviews(WorkDeskQuery query) {
@@ -159,7 +175,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
       String objectType = gate ? "HUMAN_GATE" : "REVIEW_REQUEST";
       return item(objectType, id, row.getObject("project_id").toString(), row.getString("objective"),
           row.getString("request_status"), row.getTimestamp("projected_at"), "REVIEWER", true,
-          "HIGH", Optional.empty(), "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&review=" + id);
+          "HIGH", Optional.empty(), null, "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&review=" + id);
     }, args.toArray());
   }
 
@@ -170,7 +186,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
     // A blocked-by relation is not a separate domain fact yet; return only explicit blocked
     // WorkItems where the member is the active Reviewer, preserving the existing authority model.
     StringBuilder sql = new StringBuilder("""
-        SELECT wi.id, wi.project_id, wi.title, wi.status, wi.updated_at
+        SELECT wi.id, wi.project_id, wi.title, wi.status, wi.updated_at, wi.source_provider
         FROM crewscope.work_item wi
         JOIN crewscope.responsibility_assignment assignment
           ON assignment.organization_id = wi.organization_id AND assignment.team_id = wi.team_id
@@ -183,7 +199,7 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
     query.projectId().ifPresent(project -> { sql.append(" AND wi.project_id = ?"); args.add(project.value()); });
     sql.append(" ORDER BY wi.updated_at DESC, wi.id DESC LIMIT ").append(MAX_ITEMS + 1);
     if (query.onlyNeedsAction()) return List.of();
-    return jdbc.query(sql.toString(), (row, ignored) -> item("WORK_ITEM", row.getObject("id").toString(), row.getObject("project_id").toString(), row.getString("title"), "BLOCKED", row.getTimestamp("updated_at"), "REVIEWER", false, "HIGH", Optional.of(0), "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&workItem=" + row.getObject("id")), args.toArray());
+    return jdbc.query(sql.toString(), (row, ignored) -> item("WORK_ITEM", row.getObject("id").toString(), row.getObject("project_id").toString(), row.getString("title"), "BLOCKED", row.getTimestamp("updated_at"), "REVIEWER", false, "HIGH", Optional.of(0), transitionSubject(row), "/work?team=" + query.teamId() + "&project=" + row.getObject("project_id") + "&workItem=" + row.getObject("id")), args.toArray());
   }
 
   private long unreadInbox(WorkDeskQuery query) {
@@ -202,7 +218,8 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
 
   private static WorkDeskSection inboxSection(WorkDeskQuery query, long unread, Instant generatedAt) {
     WorkDeskItem item = item("INBOX", query.memberId().toString(), query.projectId().map(Object::toString).orElse(null),
-        "未读 Inbox", "OPEN", generatedAt, null, unread > 0, unread > 0 ? "HIGH" : "NORMAL", Optional.empty(), "/inbox?team=" + query.teamId());
+        "未读 Inbox", "OPEN", generatedAt, null, unread > 0, unread > 0 ? "HIGH" : "NORMAL", Optional.empty(), null,
+        "/inbox?team=" + query.teamId());
     int total = (int) Math.min(unread, Integer.MAX_VALUE);
     return new WorkDeskSection("INBOX", "未读 Inbox", 6, total, false, unread > 0 ? List.of(item) : List.of());
   }
@@ -216,14 +233,29 @@ public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
   }
 
   private static WorkDeskItem item(String type, String id, String projectId, String title, String status,
-      Timestamp updatedAt, String role, boolean action, String urgency, Optional<Integer> progress, String route) {
-    return item(type, id, projectId, title, status, updatedAt.toInstant(), role, action, urgency, progress, route);
+      Timestamp updatedAt, String role, boolean action, String urgency, Optional<Integer> progress,
+      WorkItemTransitionSubject transitionSubject, String route) {
+    return item(type, id, projectId, title, status, updatedAt.toInstant(), role, action, urgency, progress,
+        transitionSubject, route);
   }
 
   private static WorkDeskItem item(String type, String id, String projectId, String title, String status,
-      Instant updatedAt, String role, boolean action, String urgency, Optional<Integer> progress, String route) {
+      Instant updatedAt, String role, boolean action, String urgency, Optional<Integer> progress,
+      WorkItemTransitionSubject transitionSubject, String route) {
     return new WorkDeskItem(type, id, Optional.ofNullable(projectId), Optional.ofNullable(title), status,
-        updatedAt, Optional.ofNullable(role), action, urgency, progress, List.of(), route);
+        updatedAt, Optional.ofNullable(role), action, urgency, progress, List.of(),
+        Optional.ofNullable(transitionSubject), route);
+  }
+
+  /**
+   * Reports the facts a transition projection needs, or nothing at all when the row is not a
+   * WorkItem. Availability itself is decided in the application layer, never here.
+   */
+  private static WorkItemTransitionSubject transitionSubject(ResultSet row) throws SQLException {
+    return new WorkItemTransitionSubject(
+        WorkProjectId.from(row.getObject("project_id").toString()),
+        WorkItemStatus.valueOf(row.getString("status")),
+        WorkItemSource.valueOf(row.getString("source_provider")).isNative());
   }
 
   private static void appendScopeFilters(StringBuilder sql, List<Object> args, WorkDeskQuery query) {

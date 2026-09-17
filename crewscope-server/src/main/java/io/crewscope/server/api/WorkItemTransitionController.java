@@ -75,31 +75,29 @@ public final class WorkItemTransitionController {
   }
 
   public record WorkItemTransitionAvailabilityResponse(
-      List<WorkItemAvailableTransitionResponse> transitions) {
+      List<AvailableActionResponse> transitions) {
     static WorkItemTransitionAvailabilityResponse from(List<WorkItemAvailableTransition> value) {
       return new WorkItemTransitionAvailabilityResponse(
-          value.stream().map(WorkItemAvailableTransitionResponse::from).toList());
+          value.stream().map(WorkItemTransitionController::response).toList());
     }
   }
 
-  public record WorkItemAvailableTransitionResponse(
-      String actionId,
-      String targetStatus,
-      String label,
-      String strength,
-      boolean reversible,
-      boolean enabled,
-      String reason,
-      String reasonMessage,
-      String remedyLabel,
-      String remedyRoute) {
-    static WorkItemAvailableTransitionResponse from(WorkItemAvailableTransition value) {
-      return new WorkItemAvailableTransitionResponse(
-          value.actionId(), value.targetStatus().name(), value.label(), value.strength().name(),
-          value.reversible(), value.enabled(), value.reason().map(Enum::name).orElse(null),
-          value.reason().map(reason -> reason.message()).orElse(null),
-          value.remedy().map(remedy -> remedy.label()).orElse(null),
-          value.remedy().map(remedy -> remedy.route()).orElse(null));
-    }
+  /**
+   * Maps one adjudicated edge onto the shared wire shape.
+   *
+   * <p>Public because every surface that carries WorkItem edges — this endpoint, a WorkItem list row
+   * and the personal WorkDesk — must produce the identical object, and a per-surface mapping would be
+   * the place where they start to differ.
+   */
+  public static AvailableActionResponse response(WorkItemAvailableTransition value) {
+    return AvailableActionResponse.of(
+        value.actionId(),
+        value.targetStatus().name(),
+        value.label(),
+        value.strength().name(),
+        value.reversible(),
+        value.enabled(),
+        value.reason().orElse(null),
+        value.remedy().orElse(null));
   }
 }

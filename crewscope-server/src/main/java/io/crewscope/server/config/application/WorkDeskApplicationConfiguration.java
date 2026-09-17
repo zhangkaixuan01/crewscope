@@ -4,6 +4,8 @@ import io.crewscope.application.workdesk.WorkDeskAccessPolicy;
 import io.crewscope.application.workdesk.WorkDeskQueryService;
 import io.crewscope.application.workdesk.WorkDeskRepository;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
+import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
+import io.crewscope.domain.shared.time.TimeProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,7 +19,12 @@ public class WorkDeskApplicationConfiguration {
 
   @Bean
   WorkDeskQueryService workDeskQueryService(
-      WorkDeskRepository repository, WorkDeskAccessPolicy accessPolicy) {
-    return new WorkDeskQueryService(repository, accessPolicy);
+      WorkDeskRepository repository,
+      WorkDeskAccessPolicy accessPolicy,
+      WorkItemAccessPolicy workItemAccessPolicy,
+      WorkItemTransitionAvailabilityProjector transitions,
+      TimeProvider timeProvider) {
+    return new WorkDeskQueryService(
+        repository, accessPolicy, workItemAccessPolicy, transitions, timeProvider);
   }
 }

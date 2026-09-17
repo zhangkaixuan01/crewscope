@@ -4,20 +4,21 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.workitem.WorkItem;
-import io.crewscope.domain.workitem.WorkItemStatus;
-import io.crewscope.domain.workitem.WorkItemTransitionCatalog;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /** Computes discoverability from the same WorkItem state machine and permission policy as commands. */
 public final class WorkItemTransitionAvailabilityQueryService {
   private final WorkItemAccessPolicy accessPolicy;
+  private final WorkItemTransitionAvailabilityProjector projector;
   private final TimeProvider timeProvider;
 
   public WorkItemTransitionAvailabilityQueryService(
-      WorkItemAccessPolicy accessPolicy, TimeProvider timeProvider) {
+      WorkItemAccessPolicy accessPolicy,
+      WorkItemTransitionAvailabilityProjector projector,
+      TimeProvider timeProvider) {
     this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
+    this.projector = Objects.requireNonNull(projector, "projector");
     this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
   }
 
@@ -29,25 +30,6 @@ public final class WorkItemTransitionAvailabilityQueryService {
     boolean permission = accessPolicy.hasPermission(
         value.context(), value.organizationId(), value.teamId(), value.projectId(),
         TeamPermission.WORK_PARTICIPATE, now);
-    return WorkItemTransitionCatalog.from(item.status()).stream()
-        .map(edge -> evaluate(item, edge, permission))
-        .toList();
-  }
-
-  private static WorkItemAvailableTransition evaluate(
-      WorkItem item, WorkItemTransitionCatalog.Edge edge, boolean permission) {
-    if (item.status() == WorkItemStatus.ARCHIVED) {
-      return WorkItemAvailableTransition.disabled(
-          edge, WorkItemTransitionBlockReason.ARCHIVED, Optional.empty());
-    }
-    if (!item.source().isNative()) {
-      return WorkItemAvailableTransition.disabled(
-          edge, WorkItemTransitionBlockReason.EXTERNAL_PROVIDER_MANAGED, Optional.empty());
-    }
-    if (!permission) {
-      return WorkItemAvailableTransition.disabled(
-          edge, WorkItemTransitionBlockReason.PERMISSION_DENIED, Optional.empty());
-    }
-    return WorkItemAvailableTransition.enabled(edge);
+    return projector.all(item.status(), item.source().isNative(), permission);
   }
 }

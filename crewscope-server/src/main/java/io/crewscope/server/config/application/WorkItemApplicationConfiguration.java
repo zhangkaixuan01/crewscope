@@ -26,6 +26,7 @@ import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
 import io.crewscope.application.workitem.WorkItemTimelineService;
+import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
 import io.crewscope.application.workitem.WorkItemTransitionAvailabilityQueryService;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectRepository;
@@ -133,19 +134,31 @@ public class WorkItemApplicationConfiguration {
       WorkItemCommentRepository workItemCommentRepository,
       WorkItemResourceLinkRepository workItemResourceLinkRepository,
       WorkItemAccessPolicy workItemAccessPolicy,
-      TransactionExecutor transactionExecutor) {
+      WorkItemTransitionAvailabilityProjector workItemTransitionAvailabilityProjector,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
     return new WorkItemQueryService(
         workItemRepository,
         workItemCommentRepository,
         workItemResourceLinkRepository,
         workItemAccessPolicy,
-        transactionExecutor);
+        workItemTransitionAvailabilityProjector,
+        transactionExecutor,
+        timeProvider);
+  }
+
+  @Bean
+  WorkItemTransitionAvailabilityProjector workItemTransitionAvailabilityProjector() {
+    return new WorkItemTransitionAvailabilityProjector();
   }
 
   @Bean
   WorkItemTransitionAvailabilityQueryService workItemTransitionAvailabilityQueryService(
-      WorkItemAccessPolicy workItemAccessPolicy, TimeProvider timeProvider) {
-    return new WorkItemTransitionAvailabilityQueryService(workItemAccessPolicy, timeProvider);
+      WorkItemAccessPolicy workItemAccessPolicy,
+      WorkItemTransitionAvailabilityProjector workItemTransitionAvailabilityProjector,
+      TimeProvider timeProvider) {
+    return new WorkItemTransitionAvailabilityQueryService(
+        workItemAccessPolicy, workItemTransitionAvailabilityProjector, timeProvider);
   }
 
   @Bean

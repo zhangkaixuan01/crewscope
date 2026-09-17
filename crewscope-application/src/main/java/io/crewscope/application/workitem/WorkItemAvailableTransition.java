@@ -1,5 +1,7 @@
 package io.crewscope.application.workitem;
 
+import io.crewscope.application.availability.TransitionBlockReason;
+import io.crewscope.application.availability.TransitionRemedy;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.domain.workitem.WorkItemTransitionCatalog;
 import java.util.Objects;
@@ -13,8 +15,8 @@ public record WorkItemAvailableTransition(
     WorkItemTransitionCatalog.Strength strength,
     boolean reversible,
     boolean enabled,
-    Optional<WorkItemTransitionBlockReason> reason,
-    Optional<WorkItemTransitionRemedy> remedy) {
+    Optional<TransitionBlockReason> reason,
+    Optional<TransitionRemedy> remedy) {
 
   public WorkItemAvailableTransition {
     if (actionId == null || actionId.isBlank() || label == null || label.isBlank()) {
@@ -44,16 +46,16 @@ public record WorkItemAvailableTransition(
 
   public static WorkItemAvailableTransition disabled(
       WorkItemTransitionCatalog.Edge edge,
-      WorkItemTransitionBlockReason reason,
-      Optional<WorkItemTransitionRemedy> remedy) {
+      TransitionBlockReason reason,
+      Optional<TransitionRemedy> remedy) {
     return from(edge, false, Optional.of(reason), remedy);
   }
 
   private static WorkItemAvailableTransition from(
       WorkItemTransitionCatalog.Edge edge,
       boolean enabled,
-      Optional<WorkItemTransitionBlockReason> reason,
-      Optional<WorkItemTransitionRemedy> remedy) {
+      Optional<TransitionBlockReason> reason,
+      Optional<TransitionRemedy> remedy) {
     WorkItemTransitionCatalog.EdgeMetadata metadata = edge.metadata();
     return new WorkItemAvailableTransition(
         metadata.actionId(), edge.to(), metadata.label(), metadata.strength(),

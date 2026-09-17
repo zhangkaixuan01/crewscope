@@ -10,9 +10,12 @@ import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.workitem.WorkItemCollaborationService;
 import io.crewscope.application.workitem.WorkItemCursor;
+import io.crewscope.application.workitem.WorkItemAvailableTransition;
 import io.crewscope.application.workitem.WorkItemDetails;
-import io.crewscope.application.workitem.WorkItemPage;
+import io.crewscope.application.workitem.WorkItemListPage;
+import io.crewscope.application.workitem.WorkItemListRow;
 import io.crewscope.application.workitem.WorkItemQueryService;
+import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -126,7 +129,10 @@ class WorkItemQueryControllerTest {
             eq(Optional.of(WorkItemStatus.BACKLOG)),
             eq(Optional.of(cursor)),
             eq(20)))
-        .thenReturn(new WorkItemPage(List.of(item), Optional.of(cursor)));
+        .thenReturn(
+            new WorkItemListPage(
+                List.of(new WorkItemListRow(item, actions(WorkItemStatus.BACKLOG, false))),
+                Optional.of(cursor)));
 
     client
         .get()
@@ -139,6 +145,14 @@ class WorkItemQueryControllerTest {
         .expectBody()
         .jsonPath("$.items[0].key")
         .isEqualTo("CRW-1")
+        .jsonPath("$.items[0].availableActions[0].actionId")
+        .isEqualTo("submit-ready")
+        .jsonPath("$.items[0].availableActions[0].enabled")
+        .isEqualTo(false)
+        .jsonPath("$.items[0].availableActions[0].reason")
+        .isEqualTo("EXTERNAL_PROVIDER_MANAGED")
+        .jsonPath("$.items[0].availableActions[0].reasonMessage")
+        .isNotEmpty()
         .jsonPath("$.nextCursor")
         .isEqualTo(encoded);
   }
@@ -146,7 +160,12 @@ class WorkItemQueryControllerTest {
   @Test
   void returnsCompleteDetailsAndDedicatedChildCollections() {
     when(queryService.get(any(), any(), any(), any(), any()))
-        .thenReturn(new WorkItemDetails(item, List.of(comment), List.of(link)));
+        .thenReturn(
+            new WorkItemDetails(
+                item,
+                List.of(comment),
+                List.of(link),
+                actions(WorkItemStatus.BACKLOG, true)));
 
     client
         .get()
@@ -162,7 +181,11 @@ class WorkItemQueryControllerTest {
         .jsonPath("$.comments[0].content")
         .isEqualTo("Review complete")
         .jsonPath("$.resourceLinks[0].resourceReference")
-        .isEqualTo("https://example.com/spec");
+        .isEqualTo("https://example.com/spec")
+        .jsonPath("$.workItem.availableActions[0].targetStatus")
+        .isEqualTo("READY")
+        .jsonPath("$.workItem.availableActions[0].label")
+        .isEqualTo("准备工作项");
 
     client
         .get()
@@ -276,5 +299,14 @@ class WorkItemQueryControllerTest {
         + "/work-projects/"
         + project.id()
         + "/work-items";
+  }
+
+  /**
+   * The real adjudication, not a hand-built stub: the HTTP test then proves the response carries the
+   * same object shape the availability endpoint serializes, verdicts included.
+   */
+  private static List<WorkItemAvailableTransition> actions(
+      WorkItemStatus status, boolean nativeSource) {
+    return new WorkItemTransitionAvailabilityProjector().all(status, nativeSource, true);
   }
 }

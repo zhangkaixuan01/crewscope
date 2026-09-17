@@ -8,8 +8,10 @@ import io.crewscope.application.workitem.AddWorkItemCommentCommand;
 import io.crewscope.application.workitem.LinkWorkItemResourceCommand;
 import io.crewscope.application.workitem.WorkItemCollaborationService;
 import io.crewscope.application.workitem.WorkItemCursor;
+import io.crewscope.application.workitem.WorkItemAvailableTransition;
 import io.crewscope.application.workitem.WorkItemDetails;
-import io.crewscope.application.workitem.WorkItemPage;
+import io.crewscope.application.workitem.WorkItemListPage;
+import io.crewscope.application.workitem.WorkItemListRow;
 import io.crewscope.application.workitem.WorkItemQueryService;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -323,9 +325,11 @@ public final class WorkItemQueryController {
 
   public record WorkItemPageResponse(List<WorkItemResponse> items, String nextCursor) {
 
-    static WorkItemPageResponse from(WorkItemPage page, WorkItemCursorCodec cursorCodec) {
+    static WorkItemPageResponse from(WorkItemListPage page, WorkItemCursorCodec cursorCodec) {
       return new WorkItemPageResponse(
-          page.items().stream().map(WorkItemResponse::from).toList(),
+          page.items().stream()
+              .map(row -> WorkItemResponse.from(row.workItem(), row.availableActions()))
+              .toList(),
           page.nextCursor().map(cursorCodec::encode).orElse(null));
     }
   }
@@ -337,7 +341,7 @@ public final class WorkItemQueryController {
 
     static WorkItemDetailsResponse from(WorkItemDetails details) {
       return new WorkItemDetailsResponse(
-          WorkItemResponse.from(details.workItem()),
+          WorkItemResponse.from(details.workItem(), details.availableActions()),
           details.comments().stream().map(WorkItemCommentResponse::from).toList(),
           details.resourceLinks().stream().map(WorkItemResourceLinkResponse::from).toList());
     }
@@ -363,9 +367,15 @@ public final class WorkItemQueryController {
       String createdAt,
       String createdByPrincipalId,
       String updatedAt,
-      String updatedByPrincipalId) {
+      String updatedByPrincipalId,
+      List<AvailableActionResponse> availableActions) {
 
-    static WorkItemResponse from(WorkItem item) {
+    /**
+     * Availability is decided by the application layer and travels with the row it belongs to, so a
+     * list row, a board card and the detail panel all read the same verdict. The element type is the
+     * one the availability endpoint serializes, deliberately shared, so the two surfaces cannot drift.
+     */
+    static WorkItemResponse from(WorkItem item, List<WorkItemAvailableTransition> availableActions) {
       return new WorkItemResponse(
           item.id().toString(),
           item.scope().organizationId().toString(),
@@ -389,7 +399,10 @@ public final class WorkItemQueryController {
           item.audit().createdAt().toString(),
           item.audit().createdBy().map(Object::toString).orElse(null),
           item.audit().updatedAt().toString(),
-          item.audit().updatedBy().map(Object::toString).orElse(null));
+          item.audit().updatedBy().map(Object::toString).orElse(null),
+          availableActions.stream()
+              .map(WorkItemTransitionController::response)
+              .toList());
     }
   }
 

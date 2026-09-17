@@ -78,12 +78,19 @@ public final class WorkDeskController {
   public record WorkDeskItemResponse(
       String objectType, String objectId, String projectId, String title, String status,
       String updatedAt, String responsibilityRole, boolean needsAction, String urgency,
-      Integer progress, List<String> availableActions, String route) {
+      Integer progress, List<AvailableActionResponse> availableActions,
+      String route) {
     static WorkDeskItemResponse from(WorkDeskItem value) {
       return new WorkDeskItemResponse(value.objectType(), value.objectId(), value.projectId().orElse(null),
           value.title().orElse(null), value.status(), value.updatedAt().toString(),
           value.responsibilityRole().orElse(null), value.needsAction(), value.urgency(),
-          value.progress().orElse(null), value.availableActions(), value.route());
+          value.progress().orElse(null),
+          // The transition DTO is reused, not re-declared, so the WorkDesk and the per-object
+          // availability endpoint cannot serialize the same action differently.
+          value.availableActions().stream()
+              .map(WorkItemTransitionController::response)
+              .toList(),
+          value.route());
     }
   }
 }

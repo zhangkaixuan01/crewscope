@@ -63,6 +63,7 @@ import io.crewscope.application.workitem.WorkItemCollaborationService;
 import io.crewscope.application.workitem.WorkItemCommandService;
 import io.crewscope.application.workitem.WorkItemDetails;
 import io.crewscope.application.workitem.WorkItemQueryService;
+import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectPage;
 import io.crewscope.application.workitem.WorkProjectQuery;
@@ -2078,7 +2079,9 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
         commentRepository,
         resourceLinkRepository,
         workItemAccessPolicy(),
-        transactionExecutor);
+        new WorkItemTransitionAvailabilityProjector(),
+        transactionExecutor,
+        () -> NOW);
   }
 
   private WorkItemTimelineService workItemTimelineService() {
