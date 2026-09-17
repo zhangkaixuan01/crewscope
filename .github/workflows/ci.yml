@@ -152,6 +152,8 @@ jobs:
         run: pnpm test:coverage
       - name: Build application
         run: pnpm build
+      - name: Check M9-Q01 bundle budget
+        run: node ../scripts/check-web-bundle-budget.mjs
       - name: Build component workbench
         run: pnpm story:build
       - name: Install Playwright Chromium
@@ -220,6 +222,20 @@ jobs:
         run: node scripts/check-design-tokens.mjs
       - name: Check M9-Q01 experience regression baseline
         run: node scripts/check-m9-q01.mjs
+      - name: Check M9-Q01 empty-state actions
+        run: node scripts/check-empty-states.mjs
+      - name: Check M9-Q01 route metadata
+        run: node scripts/check-route-metadata.mjs
+      - name: Check M9-Q01 disabled-control explanations
+        run: node scripts/check-disabled-reasons.mjs
+      - name: Check M9-Q01 cursor-pagination filtering
+        run: node scripts/check-web-pagination.mjs
+      - name: Check M9-Q01 dialog focus contracts
+        run: node scripts/check-dialog-focus.mjs
+      - name: Check M9-Q01 configuration form text tokens
+        run: node scripts/check-config-form-tokens.mjs
+      - name: Check Web enum labels are localised
+        run: node scripts/check-web-enum-labels.mjs
       - name: Validate M7 release contract
         run: node scripts/check-m7-release-contract.mjs
       - name: Validate frozen M4 coding evaluation suite

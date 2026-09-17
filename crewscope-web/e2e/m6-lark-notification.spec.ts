@@ -93,7 +93,7 @@ test('manages exact mapping, one-way credential rotation, DND and failed deliver
   await page.getByRole('button', { name: '通知中心' }).click()
   await page.getByLabel('DND 至').fill('2026-08-28T09:00')
   await page.getByRole('button', { name: '保存偏好' }).click()
-  await page.getByRole('button', { name: /REVIEW/ }).click()
+  await page.getByRole('button', { name: /评审/ }).click()
   await expect(page.getByRole('complementary', { name: '通知投递详情' })).toBeVisible()
   await page.getByRole('button', { name: /再次投递/ }).click()
   await expect(page.getByText('命令已受理')).toBeVisible()

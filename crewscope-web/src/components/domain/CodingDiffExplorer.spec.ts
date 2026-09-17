@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import type { CodingAttemptSummary, CodingPatchDocument } from '../../domains/coding/types'
 import type { TaskEventItem, TaskEventPage } from '../../domains/task/types'
 import CodingDiffExplorer from './CodingDiffExplorer.vue'
@@ -7,6 +7,12 @@ const executionId = '00000000-0000-0000-0000-000000004301'
 const workspaceId = '00000000-0000-0000-0000-000000004401'
 
 describe('CodingDiffExplorer', () => {
+  beforeEach(() => {
+    // Each case owns its initial view; the production preference remains persisted across mounts.
+    localStorage.removeItem('cs.pref.diff.view-mode.v1')
+    localStorage.removeItem('cs.pref.diff.viewed-files.v1')
+  })
+
   it('shows the live file tree, accumulated statistics and single-file Patch', async () => {
     const onLoadPatch = vi.fn()
     const wrapper = mount(CodingDiffExplorer, { props: props({ onLoadPatch }) })
@@ -87,13 +93,109 @@ describe('CodingDiffExplorer', () => {
     await wrapper.get('[aria-label="评论第 1 行"]').trigger('click')
     await wrapper.get('[data-testid="review-comment-input"]').setValue('Please fix this')
     await wrapper.get('.review-comment-form').trigger('submit')
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(onAddComment).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(onAddComment).toHaveBeenCalledOnce())
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('safe')
     expect(wrapper.html()).not.toContain('<script>')
   })
+
+  it('walks the changed lines from the keyboard', async () => {
+    // 重写行渲染就动到了这条路径的落点：焦点是靠行 id 找的，而行 id 又是行内分片的键。
+    const wrapper = mount(CodingDiffExplorer, {
+      props: propsFor('src/Main.java', '@@ -1,2 +1,2 @@\n-old first\n+new first\n context\n-old second\n+new second\n'),
+    })
+    await flushPromises()
+
+    const region = wrapper.get('.patch-code')
+    const focused = () => wrapper.get('.patch-line.focused').text()
+
+    await region.trigger('keydown', { key: 'n' })
+    expect(focused()).toContain('old first')
+    await region.trigger('keydown', { key: 'n' })
+    expect(focused()).toContain('new first')
+    // 未改动的上下文行不是停靠点。
+    await region.trigger('keydown', { key: 'n' })
+    expect(focused()).toContain('old second')
+    await region.trigger('keydown', { key: 'p' })
+    expect(focused()).toContain('new first')
+    // 往回走过第一处会绕到最后一行，而不是卡住。
+    await region.trigger('keydown', { key: 'p' })
+    await region.trigger('keydown', { key: 'p' })
+    expect(focused()).toContain('new second')
+    expect(wrapper.findAll('.patch-line.focused')).toHaveLength(1)
+  })
+
+  it('highlights the patch with the grammar for the file it is reading', async () => {
+    const wrapper = mount(CodingDiffExplorer, {
+      props: propsFor('src/Main.java', '@@ -1 +1 @@\n-old\n+public class Main {}\n'),
+    })
+
+    // 语法包是异步来的，所以等到强调色真的出现在 DOM 里才算数——这正是「包加载成功了」的证据。
+    await vi.waitFor(() => expect(wrapper.findAll('.patch-code .syntax-keyword').length).toBeGreaterThan(0))
+
+    expect(wrapper.findAll('.patch-code .syntax-keyword').map(span => span.text())).toContain('public')
+    expect(wrapper.findAll('.patch-code .syntax-type').map(span => span.text()).join(' ')).toContain('Main')
+    // 高亮只分片、不改字：渲染出来的行与 Patch 原文逐字符一致。
+    expect(wrapper.get('.patch-code').text()).toContain('+public class Main {}')
+  })
+
+  it('renders a file type it has no grammar for as plain text rather than refusing it', async () => {
+    const wrapper = mount(CodingDiffExplorer, {
+      props: propsFor('design/logo.svg', ['<svg width="1">', '-  <rect />', '+  <circle r="1" />', '</svg>'].join('\n')),
+    })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('纯文本')
+    const spans = wrapper.findAll('.patch-code .patch-line > b > span')
+    expect(spans.length).toBeGreaterThan(0)
+    expect(spans.every(span => span.classes().includes('syntax-plain'))).toBe(true)
+    // 没有语法也要能读：整行文字照旧渲染，不是空白。
+    expect(wrapper.get('.patch-code').text()).toContain('+  <circle r="1" />')
+  })
+
+  it('leaves a patch it only holds part of as plain text', async () => {
+    // 与上面同一种语言、同一份文件，唯一的差别是这份 Patch 没有人完整拿着：渲染上限之外的
+    // 行根本画不出来。两条用例的对比才是这条规则在起作用，而不是断言了一句恒真的话。
+    const overflowing = Array.from({ length: 2_100 }, (_, index) => `+    private final int counters${index} = ${index};`).join('\n')
+    const wrapper = mount(CodingDiffExplorer, {
+      props: propsFor('src/Main.java', `@@ -1 +1,2101 @@\n-public class Main {}\n${overflowing}`),
+    })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.patch-code').text()).toContain('-public class Main {}')
+    const spans = wrapper.findAll('.patch-code .patch-line > b > span')
+    expect(spans.length).toBeGreaterThan(0)
+    expect(spans.every(span => span.classes().includes('syntax-plain'))).toBe(true)
+  })
 })
+
+/**
+ * A world with exactly one file, so a case can choose the language it is testing.
+ *
+ * The file list comes from the event stream unless the authoritative manifest is *newer* than it, so
+ * the reset event below carries the manifest's own generation and hash — generation 2, hash-2. That
+ * keeps the projection authoritative over the snapshot instead of letting the default three-file
+ * manifest quietly decide which file is selected.
+ */
+function propsFor(path: string, content: string, changeKind = 'MODIFIED') {
+  return props({
+    eventPage: {
+      items: [diffEvent('WORKSPACE_DIFF_RESET', 1, 2, [rawFile(path, null, changeKind, 1, 1)], [])],
+      hasMore: false, taskTerminal: false, nextCursor: null,
+    },
+    patchPhase: 'ready' as const,
+    patch: {
+      sizeBytes: content.length, etag: '"patch"',
+      content: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${content}`,
+    } satisfies CodingPatchDocument,
+  })
+}
+
+function javaPatch(): string {
+  return '@@ -1 +1 @@\n-old\n+public class Main {}\n'
+}
 
 function props(overrides: Record<string, unknown> = {}) {
   return {

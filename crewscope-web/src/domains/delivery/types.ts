@@ -13,13 +13,117 @@ export interface DeliveryCoordinates {
 
 export type GitHubConnectionOwnerType = 'USER' | 'TEAM'
 
+/**
+ * Enum constants as the delivery endpoints serialise them.
+ *
+ * The interfaces below keep most of these fields typed `string` because the delivery gateway is a
+ * pass-through adapter over the public projection; the unions live here so `delivery/labels.ts` can
+ * be typed against them and an unmapped value becomes a compile error.
+ */
+export const actionKinds = ['PUSH_BRANCH', 'CREATE_DRAFT_PR', 'NOTIFY_COLLABORATION'] as const
+export const actionRiskLevels = ['READ_ONLY', 'LOW_RISK_WRITE', 'HIGH_RISK_WRITE', 'DESTRUCTIVE'] as const
+export const actionDispatchStatuses = [
+  'READY',
+  'RUNNING',
+  'UNKNOWN',
+  'RECONCILING',
+  'MANUAL_REVIEW',
+  'SUCCEEDED',
+  'FAILED',
+  'MANUALLY_SUCCEEDED',
+  'MANUALLY_FAILED',
+  'CANCELLED',
+] as const
+export const actionReceiptResults = ['SUCCEEDED', 'FAILED', 'MANUALLY_SUCCEEDED', 'MANUALLY_FAILED', 'CANCELLED'] as const
+export const actionResultSources = ['WRITE_RESPONSE', 'ACTIVE_QUERY', 'WEBHOOK', 'MANUAL', 'CONTROL'] as const
+/** `ExternalResultSource` is a strict subset of {@link actionResultSources}: no manual observation. */
+export const externalResultSources = ['WRITE_RESPONSE', 'WEBHOOK', 'ACTIVE_QUERY'] as const
+export const actionCancellationReasons = [
+  'CONFIRMATION_CANCELLED',
+  'MEMBER_CANCELLED',
+  'DEPENDENCY_FAILED',
+  'BUNDLE_EXPIRED',
+  'AUTHORITY_INVALIDATED',
+] as const
+export const actionInvalidationReasons = [
+  'EXPIRED',
+  'REVIEW_CHANGED',
+  'RESPONSIBILITY_CHANGED',
+  'PROVIDER_AUTHORIZATION_CHANGED',
+  'POLICY_CHANGED',
+  'SAFETY_OVERLAY_CHANGED',
+  'TARGET_PRECONDITION_CHANGED',
+  'AUTHORITY_UNAVAILABLE',
+] as const
+export const compensationDispositions = ['NOT_REQUIRED', 'MANUAL_REVIEW_REQUIRED'] as const
+export const confirmationStatuses = ['ACTIVE', 'CANCELLED'] as const
+export const externalObjectTypes = ['BRANCH', 'PULL_REQUEST'] as const
+export const externalObjectStatuses = ['PRESENT', 'MISSING', 'OPEN', 'CLOSED', 'MERGED'] as const
+/** Derived by the bundle projection from `validUntil` and the invalidation check, not a domain enum. */
+export const actionBundleValidities = ['CURRENT', 'STALE'] as const
+export const githubAuthenticationTypes = ['APP_INSTALLATION', 'OAUTH_USER'] as const
+/**
+ * The GitHub connection projection narrows `ProviderExecutionIdentity` to the two identities a team
+ * can actually deliver under, so it is its own union rather than the full provider-side enum.
+ */
+export const githubExecutionIdentities = ['TEAM', 'USER'] as const
+/** `ConnectionStatus`, shared by the GitHub connection and its provider binding. */
+export const providerConnectionStatuses = ['ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED'] as const
+/**
+ * `CredentialStatus`, shared by every provider credential the platform stores. A connection whose
+ * credential is `ROTATING` is still authorized — the rotation has simply not been confirmed yet.
+ */
+export const providerCredentialStatuses = ['ACTIVE', 'ROTATING', 'REVOKED'] as const
+export type ProviderCredentialStatus = typeof providerCredentialStatuses[number]
+
+/**
+ * A repository import job reports `failureCode` as a plain string because the worker forwards
+ * whichever stable code the boundary produced: `GitHubProviderErrorCode` for authorization and
+ * catalog failures, `GitHubPushErrorCode` for mirror failures, or `IMPORT_FAILED` when the job
+ * itself broke. Keeping all three in one union is what lets the member be told which of the three
+ * it was instead of reading a bare constant.
+ */
+export const githubImportFailureCodes = [
+  'AUTHENTICATION_REQUIRED', 'PERMISSION_DENIED', 'RATE_LIMITED', 'RESOURCE_UNAVAILABLE',
+  'CONFLICT', 'VALIDATION_FAILED', 'PROVIDER_UNAVAILABLE', 'CONNECTION_UNAVAILABLE',
+  'GRANT_UNAVAILABLE', 'CREDENTIAL_UNAVAILABLE', 'IDENTITY_MISMATCH', 'REPOSITORY_BLOCKED',
+  'REPOSITORY_STALE', 'DEFAULT_BRANCH_MISMATCH',
+  'AUTHORITY_STALE', 'MIRROR_UNAVAILABLE', 'BASELINE_MISMATCH', 'DELIVERY_HEAD_MISMATCH',
+  'REMOTE_HEAD_CONFLICT', 'NON_FAST_FORWARD', 'PROTECTED_BRANCH', 'PUSH_REJECTED', 'UNKNOWN',
+  'IMPORT_FAILED',
+] as const
+export type GitHubImportFailureCode = typeof githubImportFailureCodes[number]
+
+export const githubImportJobStatuses = ['REQUESTED', 'PREFLIGHTING', 'IMPORTING', 'READY', 'FAILED', 'CANCELLED'] as const
+/** GitHub's own repository visibility, reported verbatim by the catalog; not a CrewScope enum. */
+export const repositoryVisibilities = ['PUBLIC', 'PRIVATE', 'INTERNAL'] as const
+
+export type ActionKind = typeof actionKinds[number]
+export type ActionRiskLevel = typeof actionRiskLevels[number]
+export type ActionDispatchStatus = typeof actionDispatchStatuses[number]
+export type ActionReceiptResult = typeof actionReceiptResults[number]
+export type ActionResultSource = typeof actionResultSources[number]
+export type ExternalResultSource = typeof externalResultSources[number]
+export type ActionCancellationReason = typeof actionCancellationReasons[number]
+export type ActionInvalidationReason = typeof actionInvalidationReasons[number]
+export type CompensationDisposition = typeof compensationDispositions[number]
+export type ConfirmationStatus = typeof confirmationStatuses[number]
+export type ExternalObjectType = typeof externalObjectTypes[number]
+export type ExternalObjectStatus = typeof externalObjectStatuses[number]
+export type ActionBundleValidity = typeof actionBundleValidities[number]
+export type GitHubAuthenticationType = typeof githubAuthenticationTypes[number]
+export type GitHubExecutionIdentity = typeof githubExecutionIdentities[number]
+export type ProviderConnectionStatus = typeof providerConnectionStatuses[number]
+export type GitHubImportJobStatus = typeof githubImportJobStatuses[number]
+export type RepositoryVisibility = typeof repositoryVisibilities[number]
+
 /** Secret-free GitHub authorization projection. */
 export interface GitHubConnection {
   id: string
   ownerType: GitHubConnectionOwnerType
   teamId: string | null
-  authenticationType: 'APP_INSTALLATION' | 'OAUTH_USER'
-  executionIdentity: 'TEAM' | 'USER' | null
+  authenticationType: GitHubAuthenticationType
+  executionIdentity: GitHubExecutionIdentity | null
   externalAccountLogin: string | null
   status: string
   version: number
@@ -39,7 +143,7 @@ export interface GitHubProviderBinding {
   connectionVersion: number
   grantId?: string | null
   grantVersion?: number
-  executionIdentity: 'TEAM' | 'USER'
+  executionIdentity: GitHubExecutionIdentity
   repositoryAllowlist: string[]
   status: string
   defaultUsage: boolean
@@ -75,7 +179,7 @@ export interface GitHubRepositoryImportJob {
   repositoryFullName: string
   repositoryKey: string
   defaultBranch: string
-  status: 'REQUESTED' | 'PREFLIGHTING' | 'IMPORTING' | 'READY' | 'FAILED' | 'CANCELLED'
+  status: GitHubImportJobStatus
   progressPercent: number
   attempt: number
   failureCode: string | null
@@ -151,7 +255,7 @@ export interface ExternalResult {
 export interface PlannedAction {
   id: string
   sequence: number
-  kind: 'PUSH_BRANCH' | 'CREATE_DRAFT_PR'
+  kind: ActionKind
   risk: string
   digest: string
   validUntil: string
@@ -177,7 +281,7 @@ export interface ActionBundle {
   id: string
   version: number
   digest: string
-  validity: 'CURRENT' | 'STALE'
+  validity: ActionBundleValidity
   staleReason: string | null
   taskId: string
   taskExecutionId: string

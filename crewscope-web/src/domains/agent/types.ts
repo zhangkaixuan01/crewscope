@@ -4,6 +4,22 @@ export type AgentOwnershipType = 'USER' | 'TEAM' | 'ORGANIZATION'
 export type AgentExecutionScope = 'PERSONAL' | 'TEAM'
 export type AgentLifecycleTransition = 'activate' | 'disable' | 'archive'
 
+/** `AgentProfileStatus` / `AgentTemplateStatus` as the server serialises them. */
+export const agentStatuses = ['ACTIVE', 'DISABLED', 'ARCHIVED'] as const
+export type AgentStatus = typeof agentStatuses[number]
+
+/**
+ * `AgentRuntimeRole`. The interfaces below keep `runtimeRole` typed `string` because a template can
+ * declare a role this build does not know yet; the union exists so `agent/labels.ts` is exhaustive
+ * over the roles that do exist and reads anything else through `enumLabel`.
+ */
+export const agentRuntimeRoles = ['PERSONAL_ASSISTANT', 'TEAM_COORDINATOR', 'SPECIALIST'] as const
+export type AgentRuntimeRole = typeof agentRuntimeRoles[number]
+
+/** Which configuration layer a Preflight resolved the Agent's model binding from. */
+export const agentBindingSources = ['DIRECT', 'TEAM_DEFAULT', 'ORGANIZATION_DEFAULT'] as const
+export type AgentBindingSource = typeof agentBindingSources[number]
+
 export interface AgentTemplateSummary {
   publisherType: string
   publisherId: string

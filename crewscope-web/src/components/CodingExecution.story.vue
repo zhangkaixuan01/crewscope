@@ -126,5 +126,5 @@ function artifact(kind: string) {
 </template>
 
 <style scoped>
-.studio-story { min-height: 760px; padding: 24px; background: var(--cs-canvas); font-family: var(--cs-font-sans); }
+.studio-story { min-height: 760px; padding: var(--cs-space-24); background: var(--cs-canvas); font-family: var(--cs-font-sans); }
 </style>

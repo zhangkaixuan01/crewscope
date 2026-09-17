@@ -21,9 +21,12 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useCodingStore } from '../domains/coding/store'
 import type { CodingScope, RepositoryBinding, RepositoryBindingInput } from '../domains/coding/types'
+import { repositoryBindingStatusLabels } from '../domains/coding/labels'
+import { enumLabel } from '../domains/shared/labels'
 import { useScopeStore } from '../domains/scope/store'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
+import { useRouteFocus } from '../composables/useRouteFocus'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,6 +50,9 @@ const scope = computed<CodingScope | null>(() => {
 })
 const project = scopeStore.selectedProject
 const repositories = computed(() => store.state.repositories.value ?? [])
+// Configuration search deep-links a binding here with `?binding=`; the parameter is read-only.
+const { locatedId: locatedBindingId, bindRow: bindBindingRow, clear: clearLocatedBinding } = useRouteFocus('binding')
+const locatedBinding = computed(() => repositories.value.find(binding => binding.id === locatedBindingId.value) ?? null)
 const catalog = computed(() => store.state.repositoryCatalog.value ?? [])
 const boundRepositoryKeys = computed(() => new Set(repositories.value.map(item => item.repositoryKey)))
 const availableCatalog = computed(() => catalog.value.filter(item => (
@@ -58,6 +64,19 @@ const selectedCatalog = computed(() => catalog.value.find(item => item.repositor
 const draftKey = computed(() => `draft:${repositoryKey.value}:${defaultBranch.value}`)
 const draftPreflight = computed(() => store.state.repositoryPreflights[draftKey.value])
 const inputValid = computed(() => repositoryKey.value.length > 0 && defaultBranch.value.trim().length > 0)
+
+/** 绑定入口的禁用成因：Catalog 读取失败、Catalog 为空，或还没跑过 Preflight——三种都能讲清楚。 */
+const catalogReason = computed(() => {
+  if (store.state.repositoryCatalog.phase === 'error') return 'Repository Catalog 读取失败，请先在 GitHub 设置中同步 Catalog。'
+  if (catalogReady.value && availableCatalog.value.length === 0) return 'Catalog 里还没有可绑定的仓库，请先在 GitHub 设置中同步 Catalog。'
+  return ''
+})
+const draftPreflightReason = computed(() => {
+  const phase = draftPreflight.value?.phase
+  if (phase === 'ready') return ''
+  if (phase === 'error') return 'Preflight 未通过，请按上方错误信息修正后重试。'
+  return '需要先运行 Preflight，确认基线 Commit 与仓库状态。'
+})
 const command = computed(() => store.state.repositoryCommand)
 const initialLoading = computed(() => ['idle', 'loading'].includes(store.state.repositories.phase)
   || ['idle', 'loading'].includes(store.state.repositoryCatalog.phase))
@@ -181,16 +200,18 @@ function updatedAt(value: string): string {
       <BaseButton v-if="!scope && canManageProjects" size="small" @click="projectCreation.show">
         <Plus :size="14" />新建项目
       </BaseButton>
-      <BaseButton v-else-if="scope" data-repository-create-trigger="header" size="small" :disabled="!canCreateRepository" @click="openCreate">
+      <BaseButton v-else-if="scope" data-repository-create-trigger="header" size="small" :disabled="!canCreateRepository" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="openCreate">
         <Plus :size="14" />绑定仓库
       </BaseButton>
     </template>
+
+    <p id="repository-catalog-reason" class="sr-only">{{ catalogReason }}</p>
 
     <StatePanel v-if="!scope" state="empty" title="这个 Team 还没有 WorkProject" description="先创建 WorkProject，再为它绑定受管代码仓库。">
       <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
     </StatePanel>
     <StatePanel v-else-if="initialLoading" state="loading" />
-    <StatePanel v-else-if="forbidden" state="forbidden" title="需要 Team 管理员权限" description="Team Owner、Team Admin 或平台管理员可以管理 RepositoryBinding。" />
+    <StatePanel v-else-if="forbidden" state="forbidden" title="需要 Team 管理员权限" description="Team Owner、Team Admin 或平台管理员可以管理 RepositoryBinding。"><template #action><BaseButton variant="secondary" size="small" @click="router.push({ name: 'access-denied', query: { requiredPermission: permissions.repositoriesManage } })">查看权限说明</BaseButton></template></StatePanel>
     <StatePanel
       v-else-if="store.state.repositories.phase === 'error'"
       state="error"
@@ -250,13 +271,14 @@ function updatedAt(value: string): string {
             <input v-model="defaultBranch" maxlength="255" autocomplete="off" placeholder="main" :aria-invalid="submitted && !defaultBranch.trim()">
           </label>
           <div class="form-actions">
-            <BaseButton type="button" variant="secondary" :loading="draftPreflight?.phase === 'loading'" :disabled="!catalogReady || !inputValid || !online" @click="preflightDraft">
+            <BaseButton type="button" variant="secondary" :loading="draftPreflight?.phase === 'loading'" :disabled="!catalogReady || !inputValid || !online" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="preflightDraft">
               <ShieldCheck :size="15" />运行 Preflight
             </BaseButton>
-            <BaseButton type="submit" :loading="command.phase === 'pending' && command.operation === 'create'" :disabled="!catalogReady || draftPreflight?.phase !== 'ready' || !online">
+            <BaseButton type="submit" :loading="command.phase === 'pending' && command.operation === 'create'" :disabled="!catalogReady || draftPreflight?.phase !== 'ready' || !online" :aria-describedby="catalogReason || draftPreflightReason ? 'repository-preflight-reason' : undefined">
               <Plus :size="15" />确认绑定
             </BaseButton>
           </div>
+          <p id="repository-preflight-reason" class="sr-only">{{ catalogReason || draftPreflightReason }}</p>
           <p v-if="submitted && !inputValid" class="field-message error" role="alert">请选择 Repository Key 并填写默认 Branch。</p>
           <p v-else-if="draftPreflight?.phase === 'ready'" class="field-message success" role="status"><CheckCircle2 :size="14" />Preflight 已通过，基线 Commit {{ draftPreflight.value?.baselineCommit.slice(0, 10) }}</p>
           <p v-else-if="draftPreflight?.phase === 'error'" class="field-message error" role="alert"><TriangleAlert :size="14" />{{ draftPreflight.errorMessage }}</p>
@@ -275,23 +297,36 @@ function updatedAt(value: string): string {
         <div class="panel-heading">
           <div><p class="eyebrow">Project bindings</p><h2>已绑定仓库</h2><p>启用状态决定仓库能否用于新的 CodingTarget；历史执行事实保持可审计。</p></div>
           <div class="directory-actions">
-            <BaseButton data-repository-create-trigger="directory" size="small" :disabled="!canCreateRepository" @click="openCreate"><Plus :size="14" />绑定仓库</BaseButton>
+            <BaseButton data-repository-create-trigger="directory" size="small" :disabled="!canCreateRepository" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="openCreate"><Plus :size="14" />绑定仓库</BaseButton>
             <BaseButton variant="secondary" size="small" :disabled="!online" @click="reload"><RefreshCw :size="14" />刷新</BaseButton>
           </div>
         </div>
 
+        <p v-if="locatedBindingId" class="locate-note" role="status">
+          <span v-if="locatedBinding">已定位到 {{ locatedBinding.repositoryKey }}。</span>
+          <span v-else>当前 WorkProject 的 RepositoryBinding 列表里没有这条记录：它可能属于另一个 WorkProject，或已不再列为绑定。</span>
+          <BaseButton variant="ghost" size="small" @click="clearLocatedBinding()">清除定位</BaseButton>
+        </p>
+
         <StatePanel v-if="repositories.length === 0" state="empty" title="还没有 RepositoryBinding" description="从服务端 Repository Catalog 选择一个可用仓库并完成 Preflight。">
-          <template v-if="availableCatalog.length > 0" #action><BaseButton data-repository-create-trigger="empty" size="small" :disabled="!canCreateRepository" @click="openCreate"><Plus :size="14" />绑定第一个仓库</BaseButton></template>
+          <template v-if="availableCatalog.length > 0" #action><BaseButton data-repository-create-trigger="empty" size="small" :disabled="!canCreateRepository" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="openCreate"><Plus :size="14" />绑定第一个仓库</BaseButton></template>
         </StatePanel>
 
         <div v-else class="binding-list" role="list" aria-label="RepositoryBinding 列表">
-          <article v-for="binding in repositories" :key="binding.id" class="binding-card" role="listitem">
+          <article
+            v-for="binding in repositories"
+            :key="binding.id"
+            :ref="element => bindBindingRow(element, binding.id)"
+            class="binding-card"
+            :class="{ 'binding-card--located': binding.id === locatedBindingId }"
+            role="listitem"
+          >
             <div class="binding-identity">
               <i><GitBranch :size="18" /></i>
               <div><strong class="mono">{{ binding.repositoryKey }}</strong><span class="mono">{{ binding.defaultBranch }}</span></div>
             </div>
             <div class="binding-facts">
-              <span><small>状态</small><StatusBadge :tone="binding.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ binding.status }}</StatusBadge></span>
+              <span><small>状态</small><StatusBadge :tone="binding.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ enumLabel(binding.status, repositoryBindingStatusLabels) }}</StatusBadge></span>
               <span><small>版本</small><strong class="mono">v{{ binding.version }}</strong></span>
               <span><small>最近更新</small><strong>{{ updatedAt(binding.updatedAt) }}</strong></span>
               <span><small>操作人</small><strong>{{ actor(binding.updatedByPrincipalId) }}</strong></span>
@@ -332,12 +367,16 @@ function updatedAt(value: string): string {
 </template>
 
 <style scoped>
-.repository-overview { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: 15px; padding: 21px 23px; background: linear-gradient(135deg, var(--cs-surface), var(--cs-brand-50)); }.repository-overview > i { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.repository-overview h2 { margin-bottom: 5px; font-size: 18px; }.repository-overview p:last-child { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.source-note { display: flex; align-items: flex-start; gap: 12px; }.source-note__icon { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: var(--cs-brand-50); color: var(--cs-brand-700); }.source-note h3 { margin: 0 0 5px; font-size: 12px; }.source-note p { margin: 0; color: var(--cs-text-muted); font-size: 10px; line-height: 1.55; }.source-note__hint { margin-top: 5px !important; }.source-note > :last-child { margin-left: auto; flex: 0 0 auto; }
-.create-binding { overflow: hidden; }.panel-heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.binding-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: 14px; padding: 18px 20px; }.binding-form label { display: grid; gap: 6px; color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; }.binding-form select, .binding-form input { min-width: 0; min-height: 38px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: 11px; }.binding-form [aria-invalid="true"] { border-color: var(--cs-danger); }.form-actions { display: flex; gap: 8px; }.field-message { display: flex; grid-column: 1 / -1; align-items: center; gap: 6px; margin: 0; font-size: 10px; }.success { color: var(--cs-success); }.error { color: var(--cs-danger); }
-.binding-directory { overflow: hidden; }.binding-list { display: grid; }.binding-card { display: grid; grid-template-columns: minmax(210px, .8fr) minmax(460px, 2fr) auto; align-items: center; gap: 18px; min-height: 92px; padding: 15px 20px; border-bottom: 1px solid var(--cs-border); }.binding-card:last-child { border-bottom: 0; }.binding-identity { display: flex; align-items: center; gap: 11px; min-width: 0; }.binding-identity > i { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--cs-brand-50); color: var(--cs-brand-700); }.binding-identity strong, .binding-identity span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.binding-identity strong { font-size: 11px; }.binding-identity span { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; }.binding-facts { display: grid; grid-template-columns: 100px 60px minmax(130px, 1fr) minmax(110px, 1fr); gap: 12px; }.binding-facts > span { min-width: 0; }.binding-facts small, .binding-facts strong { display: block; }.binding-facts small { margin-bottom: 5px; color: var(--cs-text-muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }.binding-facts strong { overflow: hidden; color: var(--cs-text-secondary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }.binding-actions { display: flex; justify-content: flex-end; gap: 6px; }.preflight-result { display: flex; grid-column: 2 / -1; align-items: center; gap: 5px; margin: -8px 0 0; font-size: 9px; }
-.directory-actions { display: flex; gap: 7px; }
-.security-note { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.security-note > svg { flex: 0 0 auto; color: var(--cs-brand-600); }.security-note strong, .security-note span { display: block; }.security-note strong { color: var(--cs-text-secondary); font-size: 10px; }.security-note span { margin-top: 2px; font-size: 9px; }
+.repository-overview { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24); background: linear-gradient(135deg, var(--cs-surface), var(--cs-surface-accent)); }.repository-overview > i { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.repository-overview h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-lg); }.repository-overview p:last-child { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.source-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); }.source-note__icon { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: var(--cs-surface-accent); color: var(--cs-text-brand); }.source-note h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-base); }.source-note p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.source-note__hint { margin-top: var(--cs-space-4) !important; }.source-note > :last-child { margin-left: auto; flex: 0 0 auto; }
+.create-binding { overflow: hidden; }.panel-heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.binding-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); }.binding-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.binding-form select, .binding-form input { min-width: 0; min-height: 38px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.binding-form [aria-invalid="true"] { border-color: var(--cs-danger); }.form-actions { display: flex; gap: var(--cs-space-8); }.field-message { display: flex; grid-column: 1 / -1; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-sm); }.success { color: var(--cs-success); }.error { color: var(--cs-danger); }
+.binding-directory { overflow: hidden; }.binding-list { display: grid; }.binding-card { display: grid; grid-template-columns: minmax(210px, .8fr) minmax(460px, 2fr) auto; align-items: center; gap: var(--cs-space-20); min-height: 92px; padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.binding-card:last-child { border-bottom: 0; }.binding-identity { display: flex; align-items: center; gap: var(--cs-space-12); min-width: 0; }.binding-identity > i { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--cs-surface-accent); color: var(--cs-text-brand); }.binding-identity strong, .binding-identity span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.binding-identity strong { font-size: var(--cs-text-sm); }.binding-identity span { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.binding-facts { display: grid; grid-template-columns: 100px 60px minmax(130px, 1fr) minmax(110px, 1fr); gap: var(--cs-space-12); }.binding-facts > span { min-width: 0; }.binding-facts small, .binding-facts strong { display: block; }.binding-facts small { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.binding-facts strong { overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.binding-actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.preflight-result { display: flex; grid-column: 2 / -1; align-items: center; gap: var(--cs-space-4); margin: calc(var(--cs-space-4) * -1) 0 0; font-size: var(--cs-text-xs); }
+.directory-actions { display: flex; gap: var(--cs-space-8); }
+/* 配置搜索的 `?binding=` 深链：只在参数存在时渲染，参数不存在时不产生任何节点。 */
+.locate-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cs-space-4) var(--cs-space-12); min-height: var(--cs-density-control-height); margin: var(--cs-space-12) var(--cs-space-20) 0; padding: var(--cs-space-4) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-sm); }
+.locate-note > span { min-width: 0; }
+.binding-card--located { background: var(--cs-surface-accent); box-shadow: inset 3px 0 0 var(--cs-text-brand); }
+.security-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.security-note > svg { flex: 0 0 auto; color: var(--cs-text-brand); }.security-note strong, .security-note span { display: block; }.security-note strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.security-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }
 @media (max-width: 1050px) { .binding-card { grid-template-columns: minmax(200px, .8fr) 1fr; }.binding-facts { grid-column: 1 / -1; order: 3; }.binding-actions { grid-column: 2; grid-row: 1; }.preflight-result { grid-column: 1 / -1; order: 4; } }
-@media (max-width: 767px) { .repository-overview { grid-template-columns: 44px 1fr; padding: 17px; }.repository-overview > i { width: 44px; height: 44px; }.repository-overview > :last-child { grid-column: 1 / -1; justify-self: start; }.source-note { flex-wrap: wrap; }.source-note > div:nth-child(2) { min-width: 0; flex: 1 1 calc(100% - 44px); }.source-note > :last-child { width: calc(100% - 44px); margin-left: 44px; box-sizing: border-box; }.binding-form { grid-template-columns: 1fr; padding: 16px; }.form-actions { display: grid; grid-template-columns: 1fr 1fr; }.field-message { grid-column: 1; }.binding-card { grid-template-columns: 1fr; gap: 13px; padding: 16px; }.binding-actions { grid-column: 1; grid-row: auto; justify-content: stretch; }.binding-actions > * { flex: 1; }.binding-facts { grid-column: 1; grid-template-columns: 1fr 1fr; }.preflight-result { grid-column: 1; margin: 0; }.panel-heading { flex-wrap: wrap; }.directory-actions { width: 100%; }.directory-actions > * { flex: 1; } }
+@media (max-width: 767px) { .repository-overview { grid-template-columns: 44px 1fr; padding: var(--cs-space-16); }.repository-overview > i { width: 44px; height: 44px; }.repository-overview > :last-child { grid-column: 1 / -1; justify-self: start; }.source-note { flex-wrap: wrap; }.source-note > div:nth-child(2) { min-width: 0; flex: 1 1 calc(100% - 44px); }.source-note > :last-child { width: calc(100% - 44px); margin-left: var(--cs-space-48); box-sizing: border-box; }.binding-form { grid-template-columns: 1fr; padding: var(--cs-space-16); }.form-actions { display: grid; grid-template-columns: 1fr 1fr; }.field-message { grid-column: 1; }.binding-card { grid-template-columns: 1fr; gap: var(--cs-space-12); padding: var(--cs-space-16); }.binding-actions { grid-column: 1; grid-row: auto; justify-content: stretch; }.binding-actions > * { flex: 1; }.binding-facts { grid-column: 1; grid-template-columns: 1fr 1fr; }.preflight-result { grid-column: 1; margin: 0; }.panel-heading { flex-wrap: wrap; }.directory-actions { width: 100%; }.directory-actions > * { flex: 1; } .locate-note { margin-inline: var(--cs-space-16); } }
 </style>

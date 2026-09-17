@@ -40,6 +40,6 @@ const authStore = useAuthStore()
 </template>
 
 <style scoped>
-.auth-session-boundary__status { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
+.auth-session-boundary__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .auth-session-boundary__retry { width: 100%; min-height: var(--cs-auth-control-height); }
 </style>

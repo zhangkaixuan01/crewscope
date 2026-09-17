@@ -9,6 +9,7 @@ mode="${1:-contracts-only}"
 cd "$repo_root"
 node scripts/check-doc-links.mjs
 node scripts/check-m9-q01.mjs
+node scripts/check-web-enum-labels.mjs
 node scripts/check-openapi-drift.mjs
 node scripts/check-config-contract.mjs
 

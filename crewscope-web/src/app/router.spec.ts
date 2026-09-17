@@ -18,6 +18,11 @@ import { FixtureConversationRealtimeGateway } from '../test/conversationRealtime
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
 import { createTaskStore, TASK_STORE } from '../domains/task/store'
 import { FixtureTaskGateway } from '../test/taskFixtures'
+import { createWorkItemStore, WORK_ITEM_STORE } from '../domains/workitem/store'
+import { FixtureWorkItemGateway } from '../test/workItemFixtures'
+import { createWorkDeskStore, WORKDESK_STORE } from '../domains/workdesk/store'
+import type { WorkDeskScope } from '../domains/workdesk/types'
+import type { WorkDeskGateway } from '../domains/workdesk/gateway'
 import { createTeamObserverStore, TEAM_OBSERVER_STORE } from '../domains/teamobserver/store'
 import type { TeamObserverGateway } from '../domains/teamobserver/gateway'
 import type { ConversationMessagePage } from '../domains/conversation/types'
@@ -34,6 +39,20 @@ const principal: AuthenticatedPrincipal = {
   organizationId: fixtureIds.organization,
   organization: 'Test Organization',
   permissions: new Set(Object.values(permissions)),
+}
+
+/** The workbench renders whatever the projection returns, so an all-empty desk is a valid one. */
+const emptyWorkDeskGateway: WorkDeskGateway = {
+  async get(scope: WorkDeskScope) {
+    return {
+      organizationId: scope.organizationId,
+      teamId: scope.teamId,
+      projectId: null,
+      generatedAt: '2026-09-17T10:00:00Z',
+      sections: ['HUMAN_GATE', 'REVIEW', 'BLOCKED', 'WORK_ITEM', 'TASK_EXECUTION', 'INBOX']
+        .map((key, index) => ({ key, title: key, priority: index + 1, total: 0, truncated: false, items: [] })),
+    }
+  },
 }
 
 describe('application routing', () => {
@@ -194,6 +213,10 @@ describe('application routing', () => {
           [TASK_INTENT_STORE as symbol]: taskIntentStore,
           [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: linkStore,
           [TASK_STORE as symbol]: taskStore,
+          // The workbench executes actions, so it needs the same Store the work board uses; without
+          // it the page cannot be mounted at all rather than quietly rendering read-only cards.
+          [WORK_ITEM_STORE as symbol]: createWorkItemStore(new FixtureWorkItemGateway()),
+          [WORKDESK_STORE as symbol]: createWorkDeskStore(emptyWorkDeskGateway),
         },
       },
     })

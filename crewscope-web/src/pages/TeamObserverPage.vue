@@ -32,13 +32,13 @@ const scope = computed<TeamObserverScope | null>(() => principal && scopeStore.s
       <template #action><RouterLink :to="{ name: 'today' }"><BaseButton size="small">前往 Today</BaseButton></RouterLink></template>
     </StatePanel>
     <template v-else>
-      <section class="observer-note panel"><strong>只读团队观测</strong><span>这里展示团队运行摘要；需要修改配置或推进工作项时，请前往对应工作台。</span><RouterLink :to="{ name: 'work', query: { team: scope.teamId } }">前往工作项</RouterLink></section>
+      <section class="observer-note panel"><strong>只读团队观测</strong><span>这里展示团队运行摘要；需要修改配置或推进工作项时，请前往对应工作台。</span><RouterLink class="touch-target" :to="{ name: 'work', query: { team: scope.teamId } }">前往工作项</RouterLink></section>
       <TeamObserverWorkspace :scope="scope" :team-name="scopeStore.selectedTeam.value?.name ?? '当前团队'" :online="online" variant="summary" />
     </template>
   </AppShell>
 </template>
 
 <style scoped>
-.observer-note { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 12px 14px; }.observer-note strong { font-size: 13px; }.observer-note span { flex: 1; color: var(--cs-text-muted); font-size: 12px; }.observer-note a { color: var(--cs-brand-700); font-size: 12px; font-weight: 700; }
+.observer-note { display: flex; align-items: center; gap: var(--cs-space-12); margin-bottom: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16); }.observer-note strong { font-size: var(--cs-text-base); }.observer-note span { flex: 1; color: var(--cs-text-muted); font-size: var(--cs-text-base); }.observer-note a { color: var(--cs-text-brand); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 @media (max-width: 640px) { .observer-note { align-items: flex-start; flex-wrap: wrap; }.observer-note span { flex-basis: 100%; }.observer-note a { margin-left: auto; } }
 </style>

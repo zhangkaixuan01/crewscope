@@ -87,6 +87,6 @@ function commandCsrf() {
 </template>
 
 <style scoped>
-.preference-control { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.preference-control select { min-height: 32px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-sm); }
+.preference-control { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.preference-control select { min-height: 32px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 </style>

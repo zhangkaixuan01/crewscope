@@ -1,0 +1,17 @@
+{
+  "$comment": "M9-Q01 前端覆盖率棘轮。vite.config.ts 的 Vitest thresholds 是 CI 强制阈值，只允许提升，不允许回退。",
+  "thresholds": {
+    "statements": 65,
+    "branches": 60,
+    "functions": 65,
+    "lines": 70
+  },
+  "observed": {
+    "statements": 68.68,
+    "branches": 61.98,
+    "functions": 69.22,
+    "lines": 73.15
+  },
+  "testFiles": 160,
+  "tests": 924
+}

@@ -13,6 +13,6 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 </template>
 
 <style scoped>
-.not-found { display: grid; min-height: 100vh; place-content: center; justify-items: center; padding: 24px; background: radial-gradient(circle at center, var(--cs-brand-50), var(--cs-canvas) 56%); text-align: center; }.not-found p { margin-bottom: 8px; color: var(--cs-brand-600); font-size: 12px; font-weight: 750; }.not-found h1 { margin-bottom: 8px; font: 28px var(--cs-font-display); }.not-found span { margin-bottom: 22px; color: var(--cs-text-muted); }
-.not-found__actions { display: flex; gap: 8px; }
+.not-found { display: grid; min-height: 100vh; place-content: center; justify-items: center; padding: var(--cs-space-24); background: radial-gradient(circle at center, var(--cs-surface-accent), var(--cs-canvas) 56%); text-align: center; }.not-found p { margin-bottom: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }.not-found h1 { margin-bottom: var(--cs-space-8); font: var(--cs-text-2xl) var(--cs-font-display); }.not-found span { margin-bottom: var(--cs-space-24); color: var(--cs-text-muted); }
+.not-found__actions { display: flex; gap: var(--cs-space-8); }
 </style>

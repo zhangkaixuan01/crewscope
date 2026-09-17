@@ -26,7 +26,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 </template>
 
 <style scoped>
-.base-input { width: 100%; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-3); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); transition: border-color var(--cs-motion-fast) var(--cs-ease-out), box-shadow var(--cs-motion-fast) var(--cs-ease-out); }
+.base-input { width: 100%; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); transition: border-color var(--cs-motion-fast) var(--cs-ease-out), box-shadow var(--cs-motion-fast) var(--cs-ease-out); }
 .base-input::placeholder { color: var(--cs-text-muted); }
 .base-input:focus { border-color: var(--cs-focus); box-shadow: var(--cs-focus-ring); outline: none; }
 .base-input--invalid { border-color: var(--cs-danger); }

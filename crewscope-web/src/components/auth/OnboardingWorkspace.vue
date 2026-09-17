@@ -166,9 +166,9 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 .onboarding__steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: var(--cs-space-8);
   padding: 0;
-  margin: 0 0 22px;
+  margin: 0 0 var(--cs-space-24);
   list-style: none;
 }
 .onboarding__steps li {
@@ -176,57 +176,57 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
   min-height: 28px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: var(--cs-space-4);
   border-radius: 999px;
-  background: var(--cs-surface-muted);
+  background: var(--cs-surface-subtle);
   color: var(--cs-text-muted);
-  font-size: 9px;
-  font-weight: 740;
+  font-size: var(--cs-text-xs);
+  font-weight: var(--cs-weight-semibold);
 }
-.onboarding__steps li[aria-current="step"] { background: var(--cs-brand-100); color: var(--cs-brand-800); }
-.onboarding__steps li.done { background: var(--cs-success-soft); color: #34634d; }
-.onboarding__form { display: grid; gap: 16px; }
+.onboarding__steps li[aria-current="step"] { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand-strong); }
+.onboarding__steps li.done { background: var(--cs-success-soft); color: var(--cs-success); }
+.onboarding__form { display: grid; gap: var(--cs-space-16); }
 .onboarding__creation {
-  padding: 14px;
+  padding: var(--cs-space-16);
   border: 1px solid var(--cs-border);
   border-radius: 12px;
-  background: var(--cs-surface-muted);
+  background: var(--cs-surface-subtle);
 }
-.onboarding__creation h3 { margin: 0 0 10px; font-size: 10px; }
-.onboarding__creation ul { display: grid; gap: 9px; padding: 0; margin: 0; list-style: none; }
-.onboarding__creation li { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.onboarding__creation span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 680; }
-.onboarding__creation small { color: var(--cs-text-muted); font-size: 9px; text-align: right; }
+.onboarding__creation h3 { margin: 0 0 var(--cs-space-12); font-size: var(--cs-text-sm); }
+.onboarding__creation ul { display: grid; gap: var(--cs-space-8); padding: 0; margin: 0; list-style: none; }
+.onboarding__creation li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); }
+.onboarding__creation span { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.onboarding__creation small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: right; }
 .onboarding__primary { width: 100%; }
-.onboarding__status { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.onboarding__progress { display: grid; gap: 14px; }
-.onboarding__progress > p { margin: 0; color: var(--cs-text-secondary); font-size: 11px; }
-.onboarding__progress ul { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
-.onboarding__progress li { display: flex; align-items: center; gap: 9px; color: var(--cs-text-muted); font-size: 10px; }
+.onboarding__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.onboarding__progress { display: grid; gap: var(--cs-space-16); }
+.onboarding__progress > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.onboarding__progress ul { display: grid; gap: var(--cs-space-12); padding: 0; margin: 0; list-style: none; }
+.onboarding__progress li { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .onboarding__progress li > span { width: 8px; height: 8px; border-radius: 50%; background: var(--cs-border-strong); }
-.onboarding__progress li.active { color: var(--cs-brand-800); font-weight: 680; }
-.onboarding__progress li.active > span { background: var(--cs-brand-400); box-shadow: 0 0 0 4px var(--cs-brand-100); }
+.onboarding__progress li.active { color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
+.onboarding__progress li.active > span { background: var(--cs-brand-400); box-shadow: 0 0 0 4px var(--cs-ring-brand); }
 .onboarding__progress li.done > span { background: var(--cs-success); }
 .onboarding__ready {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  margin-bottom: 16px;
-  border: 1px solid var(--cs-brand-200);
+  gap: var(--cs-space-12);
+  padding: var(--cs-space-16);
+  margin-bottom: var(--cs-space-16);
+  border: 1px solid var(--cs-border-accent);
   border-radius: 12px;
   background: var(--cs-success-soft);
 }
-.onboarding__ready-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: white; color: var(--cs-brand-800); }
-.onboarding__ready div { display: grid; gap: 2px; }
-.onboarding__ready strong { font-size: 11px; }
-.onboarding__ready small { color: var(--cs-text-muted); font-size: 9px; }
-.onboarding__ready > span:last-child { color: #34634d; font-size: 9px; font-weight: 760; }
+.onboarding__ready-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--cs-surface); color: var(--cs-text-brand-strong); }
+.onboarding__ready div { display: grid; gap: var(--cs-space-2); }
+.onboarding__ready strong { font-size: var(--cs-text-sm); }
+.onboarding__ready small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.onboarding__ready > span:last-child { color: var(--cs-success); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 
 @media (max-width: 680px) {
-  .onboarding__creation li { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .onboarding__creation small { padding-left: 22px; text-align: left; }
+  .onboarding__creation li { align-items: flex-start; flex-direction: column; gap: var(--cs-space-2); }
+  .onboarding__creation small { padding-left: var(--cs-space-24); text-align: left; }
   .onboarding__ready { grid-template-columns: auto minmax(0, 1fr); }
   .onboarding__ready > span:last-child { grid-column: 2; }
 }

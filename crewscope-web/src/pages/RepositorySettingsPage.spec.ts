@@ -122,18 +122,52 @@ describe('RepositorySettingsPage', () => {
     expect(document.body.querySelector('.project-create-dialog')).toBeNull()
     wrapper.unmount()
   })
+
+  it('locates the RepositoryBinding a configuration search deep-linked to', async () => {
+    const wrapper = await mountPage(repositoryFetcher(), false, false, `&binding=${binding().id}`)
+
+    expect(wrapper.text()).toContain('已定位到 crewscope-java')
+    expect(wrapper.get('.binding-card').classes()).toContain('binding-card--located')
+
+    await wrapper.findAll('button').find(button => button.text().trim() === '清除定位')!.trigger('click')
+    await flushPromises()
+
+    // Dismissing the hint removes the parameter, which is what drops the note and the highlight.
+    expect(wrapper.find('.locate-note').exists()).toBe(false)
+    expect(wrapper.get('.binding-card').classes()).not.toContain('binding-card--located')
+    wrapper.unmount()
+  })
+
+  it('admits that a deep-linked RepositoryBinding is not in this WorkProject', async () => {
+    // The field search only returns bindings that are still ACTIVE; the page lists every one the
+    // WorkProject has, so a miss must be stated rather than dressed up as a located row.
+    const wrapper = await mountPage(repositoryFetcher(), false, false, `&binding=${fixtureIds.projectRuntime}`)
+
+    expect(wrapper.text()).toContain('RepositoryBinding 列表里没有这条记录')
+    expect(wrapper.text()).not.toContain('已定位到')
+    expect(wrapper.get('.binding-card').classes()).not.toContain('binding-card--located')
+    wrapper.unmount()
+  })
+
+  it('adds no locating markup while the URL asks for no binding', async () => {
+    const wrapper = await mountPage(repositoryFetcher())
+
+    expect(wrapper.find('.locate-note').exists()).toBe(false)
+    expect(wrapper.get('.binding-card').classes()).not.toContain('binding-card--located')
+    wrapper.unmount()
+  })
 })
 
-async function mountPage(fetcher: typeof fetch, attachToDocument = false, withoutProject = false) {
+async function mountPage(fetcher: typeof fetch, attachToDocument = false, withoutProject = false, extraQuery = '') {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const scopeGateway = new FixtureScopeGateway()
   if (withoutProject) scopeGateway.projects[fixtureIds.teamPlatform] = []
   const scopeStore = createScopeStore(scopeGateway, principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, withoutProject ? null : fixtureIds.projectCrewScope)
   const codingStore = createCodingStore(new HttpCodingGateway(new CrewScopeApiClient('/api/v1', fetcher)))
-  await router.push(withoutProject
+  await router.push((withoutProject
     ? `/settings/repositories?team=${fixtureIds.teamPlatform}`
-    : `/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`)
+    : `/settings/repositories?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`) + extraQuery)
   await router.isReady()
   const wrapper = mount(RepositorySettingsPage, {
     attachTo: attachToDocument ? document.body : undefined,

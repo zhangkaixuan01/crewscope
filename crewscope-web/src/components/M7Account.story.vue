@@ -19,4 +19,4 @@ const profile = {
   </Story>
 </template>
 
-<style scoped>.story-stage { min-height: 100vh; padding: 24px; background: var(--cs-canvas); }</style>
+<style scoped>.story-stage { min-height: 100vh; padding: var(--cs-space-24); background: var(--cs-canvas); }</style>

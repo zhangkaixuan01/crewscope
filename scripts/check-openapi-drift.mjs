@@ -1,37 +1,31 @@
 #!/usr/bin/env node
 
-/** Contract gate for OpenAPI and domain state-machine generated artefacts. */
+/** Contract gate for the OpenAPI, state-machine and GenerateOptions-limits generated artefacts. */
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 
 const root = resolve(new URL('..', import.meta.url).pathname)
-const generator = resolve(root, 'scripts/generate-state-machine.mjs')
-const openApiGenerator = resolve(root, 'scripts/generate-openapi-types.mjs')
 
-const result = await new Promise(resolveResult => {
-  const child = spawn(process.execPath, [generator, '--check'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', chunk => { stdout += chunk })
-  child.stderr.on('data', chunk => { stderr += chunk })
-  child.on('close', code => resolveResult({ code: code ?? 1, stdout, stderr }))
-})
-if (result.stdout) process.stdout.write(result.stdout)
-if (result.stderr) process.stderr.write(result.stderr)
-if (result.code !== 0) process.exit(result.code)
+/** Runs one generator in --check mode; its own output and exit code are the report. */
+async function checkGenerated(generator) {
+  const result = await new Promise(resolveResult => {
+    const child = spawn(process.execPath, [generator, '--check'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.on('close', code => resolveResult({ code: code ?? 1, stdout, stderr }))
+  })
+  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.stderr) process.stderr.write(result.stderr)
+  return result.code
+}
 
-const openApiResult = await new Promise(resolveResult => {
-  const child = spawn(process.execPath, [openApiGenerator, '--check'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', chunk => { stdout += chunk })
-  child.stderr.on('data', chunk => { stderr += chunk })
-  child.on('close', code => resolveResult({ code: code ?? 1, stdout, stderr }))
-})
-if (openApiResult.stdout) process.stdout.write(openApiResult.stdout)
-if (openApiResult.stderr) process.stderr.write(openApiResult.stderr)
-if (openApiResult.code !== 0) process.exit(openApiResult.code)
+for (const name of ['generate-state-machine.mjs', 'generate-openapi-types.mjs', 'generate-agent-limits.mjs']) {
+  const code = await checkGenerated(resolve(root, 'scripts', name))
+  if (code !== 0) process.exit(code)
+}
 
 const openApiPath = resolve(root, 'crewscope-web/src/api/generated/openapi.ts')
 const openApi = await readFile(openApiPath, 'utf8').catch(() => '')
@@ -78,5 +72,23 @@ if (workItemEdgeCount !== 17) {
   console.error(`WorkItem transition baseline changed: expected 17 edges, found ${workItemEdgeCount}`)
   process.exit(1)
 }
+const agentLimitsPath = resolve(root, 'crewscope-web/src/api/generated/agent-limits.ts')
+const agentLimits = await readFile(agentLimitsPath, 'utf8').catch(() => '')
+const limitFields = [...agentLimits.matchAll(/^  "([A-Za-z]+)": \{$/gm)].map(match => match[1])
+if (limitFields.join(',') !== 'temperature,topP,maximumOutputTokens,maximumAttempts') {
+  console.error(`GenerateOptions limit baseline changed: found ${limitFields.join(',') || 'nothing'}`)
+  process.exit(1)
+}
+// The form's labelled ranges are built from these bounds, so a bound that goes missing or becomes
+// non-numeric would render as an empty promise rather than failing loudly.
+const boundsMissing = ['temperature', 'topP', 'maximumOutputTokens', 'maximumAttempts']
+  .filter(field => !new RegExp(`"${field}": \\{[^}]*"minimum": "-?\\d+(\\.\\d+)?"`, 's').test(agentLimits)
+    || !new RegExp(`"${field}": \\{[^}]*"step": "\\d+(\\.\\d+)?"`, 's').test(agentLimits))
+if (boundsMissing.length) {
+  console.error(`GenerateOptions limit bounds are missing or unparseable: ${boundsMissing.join(', ')}`)
+  process.exit(1)
+}
+
 console.log('OpenAPI generated artefact is present and declares OpenAPI 3.1.0.')
 console.log('State-machine generated artefact covers 16 aggregates and the 8-state/17-edge WorkItem machine.')
+console.log('GenerateOptions limit artefact covers 4 bounded fields with numeric bounds and whole steps.')

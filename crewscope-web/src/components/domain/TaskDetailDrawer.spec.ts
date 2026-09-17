@@ -21,9 +21,10 @@ describe('TaskDetailDrawer', () => {
     expect(text).toContain('Owner')
     expect(text).toContain('Revision 2')
     expect(text).toContain('步骤进度 1/2')
-    expect(text).toContain('WAITING_RUNTIME')
+    expect(text).toContain('等待外部执行')
     expect(text).toContain('1 个 Worker 失联')
-    expect(text).toContain('WORKER_LOST')
+    expect(text).toContain('Redis 运行态已丢失')
+    expect(text).not.toContain('REDIS_STATE_LOST')
     expect(text).toContain('State Snapshot')
     expect(text).not.toContain('must-not-render')
     expect(text).not.toContain('secret-token-value')
@@ -55,8 +56,9 @@ describe('TaskDetailDrawer', () => {
     for (let index = 1; index < ordered.length; index += 1) {
       expect(ordered[index - 1]!.compareDocumentPosition(ordered[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
-    expect(wrapper.get('.fleet-card').text()).toContain('DEGRADED')
-    expect(wrapper.get('.fleet-card').text()).toContain('CAPACITY · 1')
+    expect(wrapper.get('.fleet-card').text()).toContain('已降级')
+    expect(wrapper.get('.fleet-card').text()).toContain('并发容量已满 · 1')
+    expect(wrapper.get('.fleet-card').text()).not.toContain('DEGRADED')
     wrapper.unmount()
   })
 
@@ -146,7 +148,7 @@ function props(overrides: Record<string, unknown> = {}) {
   const current = execution()
   current.attempt = 2
   current.status = 'WAITING'
-  current.waiting = { reason: 'WAITING_RUNTIME', waitingSince: '2026-08-15T12:00:00Z' }
+  current.waiting = { reason: 'RUNTIME', waitingSince: '2026-08-15T12:00:00Z' }
   const historical = previousExecution()
   taskDetails.currentExecutionId = current.id
   taskDetails.attempts = [current, historical]
@@ -260,6 +262,6 @@ function fleet(): RuntimeFleetSummary {
     environment: 'production', observedAt: '2026-08-15T12:01:00Z', health: 'DEGRADED',
     runtimeCount: 2, workerCount: 3, activeWorkerCount: 2, staleWorkerCount: 1,
     drainingWorkerCount: 0, capacity: { maximum: 6, active: 4, available: 2 },
-    waitingRuntimeExecutions: 1, waitingCauses: [{ cause: 'CAPACITY', count: 1 }],
+    waitingRuntimeExecutions: 1, waitingCauses: [{ cause: 'CAPACITY_EXHAUSTED', count: 1 }],
   }
 }

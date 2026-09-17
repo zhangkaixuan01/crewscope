@@ -2,8 +2,11 @@
 import { Bot, RefreshCw, ShieldAlert, UserPlus } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import type { ResponsibilityCommand, WorkItemPhase } from '../../domains/workitem/store'
+import { agentIdentityLabel } from '../../domains/agent/labels'
 import type { ResponsibilityAssignment } from '../../domains/workitem/types'
+import type { PrincipalScope } from '../../domains/principal/types'
 import BaseButton from '../base/BaseButton.vue'
+import PrincipalPicker from './PrincipalPicker.vue'
 import ResponsibilityChain from './ResponsibilityChain.vue'
 
 export interface ResponsibilityCandidate {
@@ -17,6 +20,8 @@ export interface ResponsibilityAgentCandidate extends ResponsibilityCandidate {
 }
 
 const props = defineProps<{
+  /** Directory scope for the Agent search; `null` while the active Team is still resolving. */
+  scope: PrincipalScope | null
   phase: WorkItemPhase
   members: ResponsibilityAssignment[]
   candidates: ResponsibilityCandidate[]
@@ -44,8 +49,8 @@ const executorPrincipalId = ref('')
 const gateReviewerPrincipalId = ref('')
 const directoryExecutorPrincipalId = ref('')
 const directoryAdvisoryPrincipalId = ref('')
-const executorAgentPrincipalId = ref('')
-const advisoryAgentPrincipalId = ref('')
+const executorAgentPrincipalId = ref<string | null>(null)
+const advisoryAgentPrincipalId = ref<string | null>(null)
 
 const currentOwner = computed(() => props.members.find(member => member.role === 'OWNER') ?? null)
 const humanExecutors = computed(() => props.members.filter(member => member.role === 'EXECUTOR' && member.actorType === 'USER'))
@@ -87,13 +92,7 @@ function candidateExcept(...excluded: Array<string | undefined>): string {
 }
 
 function agentLabel(candidate: ResponsibilityAgentCandidate): string {
-  const ownership = candidate.ownershipType === 'USER' ? '个人' : candidate.ownershipType === 'TEAM' ? '团队' : '组织'
-  const role = candidate.runtimeRole === 'PERSONAL_ASSISTANT'
-    ? 'Personal Agent'
-    : candidate.runtimeRole === 'TEAM_COORDINATOR'
-      ? 'Team Agent'
-      : 'Specialist'
-  return `${candidate.displayName} · ${ownership} ${role}`
+  return agentIdentityLabel(candidate)
 }
 
 async function submit(action: () => Promise<void>, clear?: () => void): Promise<void> {
@@ -160,17 +159,29 @@ async function submit(action: () => Promise<void>, clear?: () => void): Promise<
         <button v-if="!['idle', 'loading', 'error'].includes(agentPhase) && agentHasMore" type="button" class="agent-directory-more" :disabled="agentLoadingMore" @click="onLoadMoreAgents">{{ agentLoadingMore ? '正在加载…' : '加载更多 Agent' }}</button>
       </section>
 
-      <details class="agent-assignment">
-        <summary><Bot :size="13" />高级：手动使用 Agent Principal ID</summary>
-        <form @submit.prevent="submit(() => onAssignExecutor(executorAgentPrincipalId.trim()), () => { executorAgentPrincipalId = '' })">
-          <label><span>Agent Executor</span><input v-model="executorAgentPrincipalId" aria-label="Executor Agent Principal ID" placeholder="Team Agent Principal ID"></label>
-          <BaseButton type="submit" size="small" variant="secondary" :disabled="!executorAgentPrincipalId.trim()" :loading="commandPending === 'executor'">添加</BaseButton>
+      <details v-if="scope" class="agent-assignment">
+        <summary><Bot :size="13" />搜索目录页之外的 Agent</summary>
+        <form @submit.prevent="submit(() => onAssignExecutor(executorAgentPrincipalId!), () => { executorAgentPrincipalId = null })">
+          <PrincipalPicker
+            v-model="executorAgentPrincipalId"
+            :scope="scope"
+            label="Agent Executor"
+            kind="AGENT"
+            placeholder="按 Agent 名称搜索"
+          />
+          <BaseButton type="submit" size="small" variant="secondary" :disabled="!executorAgentPrincipalId" :loading="commandPending === 'executor'">添加</BaseButton>
         </form>
-        <form @submit.prevent="submit(() => onAssignAdvisoryReviewer(advisoryAgentPrincipalId.trim()), () => { advisoryAgentPrincipalId = '' })">
-          <label><span>Advisory Reviewer</span><input v-model="advisoryAgentPrincipalId" aria-label="Advisory Agent Principal ID" placeholder="Specialist Agent Principal ID"></label>
-          <BaseButton type="submit" size="small" variant="secondary" :disabled="!advisoryAgentPrincipalId.trim()" :loading="commandPending === 'advisory-reviewer'">添加</BaseButton>
+        <form @submit.prevent="submit(() => onAssignAdvisoryReviewer(advisoryAgentPrincipalId!), () => { advisoryAgentPrincipalId = null })">
+          <PrincipalPicker
+            v-model="advisoryAgentPrincipalId"
+            :scope="scope"
+            label="Advisory Reviewer"
+            kind="AGENT"
+            placeholder="按 Specialist 名称搜索"
+          />
+          <BaseButton type="submit" size="small" variant="secondary" :disabled="!advisoryAgentPrincipalId" :loading="commandPending === 'advisory-reviewer'">添加</BaseButton>
         </form>
-        <p>仅在目标 Agent 未出现在当前目录页时使用。服务端仍校验 Principal 类型、Team Scope、Workspace 和 Agent 状态。</p>
+        <p>用于目标 Agent 未出现在当前目录页时按名称检索整个 Team 目录。服务端仍校验 Principal 类型、Team Scope、Workspace 和 Agent 状态。</p>
       </details>
     </div>
 
@@ -179,6 +190,6 @@ async function submit(action: () => Promise<void>, clear?: () => void): Promise<
 </template>
 
 <style scoped>
-.responsibility-panel { display: grid; gap: 12px; }.responsibility-state { margin: 0; padding: 10px; border-radius: 8px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; }.responsibility-state.error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--cs-danger); }.responsibility-state button { display: inline-flex; align-items: center; gap: 3px; color: inherit; cursor: pointer; }.responsibility-error { margin: 0; color: var(--cs-danger); font-size: 9px; }.responsibility-actions { display: grid; gap: 8px; padding-top: 11px; border-top: 1px solid var(--cs-border); }.responsibility-actions > form, .agent-directory form, .agent-assignment form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }.responsibility-actions label, .agent-directory label, .agent-assignment label { display: grid; gap: 4px; color: var(--cs-text-secondary); font-size: 8px; font-weight: 700; }.responsibility-actions select, .agent-directory select, .agent-assignment input { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.policy-warning { display: flex; grid-column: 1 / -1; align-items: flex-start; gap: 5px; margin: 0; padding: 7px 8px; border-radius: 7px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: 8px; line-height: 1.45; }.policy-warning svg { flex: 0 0 auto; }.agent-directory { display: grid; gap: 8px; padding: 9px; border: 1px solid color-mix(in srgb, var(--cs-agent) 30%, var(--cs-border)); border-radius: 9px; background: color-mix(in srgb, var(--cs-agent) 4%, var(--cs-surface-subtle)); }.agent-directory header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.agent-directory header > div { display: flex; align-items: center; gap: 5px; color: var(--cs-agent); }.agent-directory header span, .agent-directory-state { color: var(--cs-text-muted); font-size: 8px; }.agent-directory-state { padding: 7px; border-radius: 7px; background: var(--cs-surface); }.agent-directory-state.error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--cs-danger); }.agent-directory-state button, .agent-directory-more { display: inline-flex; align-items: center; gap: 4px; color: inherit; font-size: 8px; cursor: pointer; }.agent-directory-more { justify-self: start; color: var(--cs-agent); }.agent-assignment { padding: 9px; border: 1px dashed var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); }.agent-assignment summary { display: flex; align-items: center; gap: 5px; color: var(--cs-agent); font-size: 9px; font-weight: 750; cursor: pointer; }.agent-assignment[open] summary { margin-bottom: 9px; }.agent-assignment form + form { margin-top: 7px; }.agent-assignment > p { margin: 8px 0 0; color: var(--cs-text-muted); font-size: 8px; line-height: 1.45; }.responsibility-policy { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--cs-text-muted); font-size: 9px; }
+.responsibility-panel { display: grid; gap: var(--cs-space-12); }.responsibility-state { margin: 0; padding: var(--cs-space-12); border-radius: 8px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.responsibility-state.error { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); color: var(--cs-danger); }.responsibility-state button { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: inherit; cursor: pointer; }.responsibility-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.responsibility-actions { display: grid; gap: var(--cs-space-8); padding-top: var(--cs-space-12); border-top: 1px solid var(--cs-border); }.responsibility-actions > form, .agent-directory form, .agent-assignment form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--cs-space-8); }.responsibility-actions label, .agent-directory label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.responsibility-actions select, .agent-directory select { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.policy-warning { display: flex; grid-column: 1 / -1; align-items: flex-start; gap: var(--cs-space-4); margin: 0; padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.policy-warning svg { flex: 0 0 auto; }.agent-directory { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid color-mix(in srgb, var(--cs-agent) 30%, var(--cs-border)); border-radius: 9px; background: color-mix(in srgb, var(--cs-agent) 4%, var(--cs-surface-subtle)); }.agent-directory header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }.agent-directory header > div { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-agent); }.agent-directory header span, .agent-directory-state { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.agent-directory-state { padding: var(--cs-space-8); border-radius: 7px; background: var(--cs-surface); }.agent-directory-state.error { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); color: var(--cs-danger); }.agent-directory-state button, .agent-directory-more { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: inherit; font-size: var(--cs-text-xs); cursor: pointer; }.agent-directory-more { justify-self: start; color: var(--cs-agent); }.agent-assignment { padding: var(--cs-space-8); border: 1px dashed var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); }.agent-assignment summary { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.agent-assignment[open] summary { margin-bottom: var(--cs-space-8); }.agent-assignment form { align-items: start; }.agent-assignment form > button { margin-top: var(--cs-space-20); }.agent-assignment form + form { margin-top: var(--cs-space-8); }.agent-assignment > p { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.responsibility-policy { display: flex; align-items: center; gap: var(--cs-space-4); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 480px) { .responsibility-actions > form, .agent-directory form, .agent-assignment form { grid-template-columns: 1fr; }.responsibility-actions button, .agent-directory button, .agent-assignment button { width: 100%; }.agent-directory header { align-items: flex-start; flex-direction: column; }.policy-warning { grid-column: 1; } }
 </style>

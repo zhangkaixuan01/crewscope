@@ -20,8 +20,14 @@ function applyPreferences(): void {
   const root = document.documentElement
   const systemDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
   applyDevicePreferences(root, theme.value.value, density.value.value, systemDark)
-  // Keep the browser chrome aligned with the resolved surface after a runtime switch.
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', root.dataset.theme === 'dark' ? '#111814' : '#f5faf6')
+  /*
+   * 浏览器地址栏底色跟着画布走，而且是**读出来**的而不是再写一遍。
+   * 原先这里硬写两个十六进制值，浅色那个是 #f5faf6 —— 而 --cs-canvas 是 #f3f5f2，
+   * 也就是地址栏和它下面的页面本来就不是同一个颜色。两处真值必然漂移，改成读 Token 之后
+   * 这件事只有一个来源。
+   */
+  const canvas = getComputedStyle(root).getPropertyValue('--cs-canvas').trim()
+  if (canvas) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', canvas)
 }
 watch([theme.value, density.value], applyPreferences, { immediate: true })
 function onPreferenceChange(event: Event): void {

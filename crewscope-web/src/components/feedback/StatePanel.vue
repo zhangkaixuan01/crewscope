@@ -48,14 +48,14 @@ const assertive = computed(() => props.state === 'error')
 </template>
 
 <style scoped>
-.state-panel { display: grid; min-height: 180px; place-content: center; justify-items: center; gap: var(--cs-space-3); padding: var(--cs-space-7); color: var(--cs-text-muted); text-align: center; }
-.state-panel h3 { margin-bottom: var(--cs-space-1); color: var(--cs-text); font-size: var(--cs-text-lg); }
+.state-panel { display: grid; min-height: 180px; place-content: center; justify-items: center; gap: var(--cs-space-12); padding: var(--cs-space-32); color: var(--cs-text-muted); text-align: center; }
+.state-panel h3 { margin-bottom: var(--cs-space-4); color: var(--cs-text); font-size: var(--cs-text-md); }
 .state-panel p { max-width: 390px; margin-bottom: 0; font-size: var(--cs-text-base); }
-.state-panel.compact { min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; place-content: initial; align-items: center; justify-items: start; gap: var(--cs-space-2); padding: var(--cs-space-2) var(--cs-space-3); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); text-align: left; }
-.state-panel.compact h3 { margin: 0 0 var(--cs-space-1); font-size: var(--cs-text-xs); }
-.state-panel.compact p { margin: 0; font-size: var(--cs-text-2xs); line-height: var(--cs-leading-2xs); }
-.state-panel.compact > svg { width: var(--cs-space-4); height: var(--cs-space-4); }
-.spinning { animation: spin .9s linear infinite; }
+.state-panel.compact { min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; place-content: initial; align-items: center; justify-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); text-align: left; }
+.state-panel.compact h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-xs); }
+.state-panel.compact p { margin: 0; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
+.state-panel.compact > svg { width: var(--cs-space-16); height: var(--cs-space-16); }
+.spinning { animation: spin var(--cs-motion-spin) linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 @media (max-width: 640px) { .state-panel.compact { grid-template-columns: auto minmax(0, 1fr); }.state-panel.compact > :last-child:not(div, svg) { grid-column: 1 / -1; } }

@@ -80,6 +80,6 @@ const visible = ref(false)
   color: var(--cs-text-muted);
   cursor: pointer;
 }
-.auth-password-field__toggle:hover:not(:disabled) { background: var(--cs-brand-50); color: var(--cs-brand-700); }
+.auth-password-field__toggle:hover:not(:disabled) { background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 .auth-password-field__toggle:disabled { cursor: not-allowed; }
 </style>

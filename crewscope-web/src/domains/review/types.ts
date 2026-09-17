@@ -36,6 +36,24 @@ export interface ReviewFindingEvidence {
   acceptanceCriterionIndex: number
 }
 
+/**
+ * Review enums the detail projection currently types as `string`. Naming them here lets
+ * `review/labels.ts` be typed against the exact Java constants.
+ */
+export const reviewerEligibilityModes = ['STRICT_SEPARATION', 'SINGLE_MEMBER_OVERRIDE'] as const
+export const reviewInvalidationReasons = [
+  'SUBJECT_CHANGED', 'DIFF_CHANGED', 'TEST_EVIDENCE_CHANGED', 'REVIEWER_CONFIGURATION_CHANGED',
+  'POLICY_CHANGED', 'CONTEXT_CHANGED',
+] as const
+export const reviewFindingSeverities = ['BLOCKER', 'HIGH', 'MEDIUM', 'LOW'] as const
+export const reviewFindingCategories = [
+  'CORRECTNESS', 'SECURITY', 'RELIABILITY', 'MAINTAINABILITY', 'TESTING', 'ACCEPTANCE',
+] as const
+export type ReviewerEligibilityMode = typeof reviewerEligibilityModes[number]
+export type ReviewInvalidationReason = typeof reviewInvalidationReasons[number]
+export type ReviewFindingSeverity = typeof reviewFindingSeverities[number]
+export type ReviewFindingCategory = typeof reviewFindingCategories[number]
+
 export type ReviewCommentSide = 'OLD' | 'NEW'
 export type ReviewCommentAnchorState = 'ACTIVE' | 'OUTDATED'
 
@@ -62,8 +80,8 @@ export interface ReviewLineComment {
 /** Agent-authored advisory. Its relationship never grants Gate authority. */
 export interface ReviewFinding {
   id: string
-  severity: 'BLOCKER' | 'HIGH' | 'MEDIUM' | 'LOW'
-  category: 'CORRECTNESS' | 'SECURITY' | 'RELIABILITY' | 'MAINTAINABILITY' | 'TESTING' | 'ACCEPTANCE'
+  severity: ReviewFindingSeverity
+  category: ReviewFindingCategory
   title: string
   claim: string
   suggestedFix: string

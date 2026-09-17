@@ -24,6 +24,9 @@ const projectLabel = computed(() => store.selectedProject.value
 
 async function chooseTeam(teamId: string): Promise<void> {
   open.value = false
+  // Same-route Team changes do not run Vue Router's leave guards. Notify dirty-form consumers before
+  // the scope store clears the current view so they can persist a recoverable local draft.
+  window.dispatchEvent(new Event('crewscope:scope-switching'))
   await router.push({
     query: { ...route.query, team: teamId, project: undefined, workItem: undefined, focus: undefined },
   })
@@ -138,27 +141,27 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.scope-switcher-root { position: relative; width: 100%; margin: 22px 0 18px; }
-.scope-switcher { display: grid; width: 100%; min-width: 0; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: 8px; padding: 9px; border: 1px solid #d4e2d7; border-radius: var(--cs-radius-md); background: rgb(255 255 255 / 88%); text-align: left; cursor: pointer; }
-.scope-switcher__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-brand-200); color: var(--cs-brand-950); font-size: 12px; font-weight: 800; }
+.scope-switcher-root { position: relative; width: 100%; margin: var(--cs-space-24) 0 var(--cs-space-20); }
+.scope-switcher { display: grid; width: 100%; min-width: 0; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-glass-strong); text-align: left; cursor: pointer; }
+.scope-switcher__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-brand-200); color: var(--cs-brand-950); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .scope-switcher__copy, .scope-switcher__copy strong, .scope-switcher__copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scope-switcher__copy strong { font-size: 12px; }.scope-switcher__copy small { color: var(--cs-text-muted); font-size: 9px; font-weight: 500; }
-.scope-switcher > svg { transition: transform var(--cs-transition-fast); }.scope-switcher > svg.rotated { transform: rotate(180deg); }
-.scope-menu { position: absolute; z-index: 50; top: calc(100% + 8px); left: 0; width: 330px; max-height: min(620px, calc(100vh - 120px)); overflow: auto; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }
-.scope-menu header { position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 14px 15px; border-bottom: 1px solid var(--cs-border); background: rgb(255 255 255 / 96%); }
-.scope-menu header span, .scope-menu header strong { display: block; }.scope-menu header span { color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.scope-menu header strong { font-size: 12px; }.scope-menu header button { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); cursor: pointer; }
-.scope-menu__group { padding: 9px; border-bottom: 1px solid var(--cs-border); }.scope-menu__group p { display: flex; align-items: center; gap: 6px; margin: 4px 6px 6px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.scope-menu__group-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.scope-menu__group-heading > button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 6px; background: var(--cs-brand-50); color: var(--cs-brand-700); font-size: 9px; font-weight: 750; cursor: pointer; }
-.scope-menu__group > button { display: grid; width: 100%; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 9px; border-radius: var(--cs-radius-sm); background: transparent; text-align: left; cursor: pointer; }.scope-menu__group > button:hover { background: var(--cs-brand-50); }.scope-menu__group > button.selected { background: var(--cs-brand-100); color: var(--cs-brand-800); }.scope-menu__group button span, .scope-menu__group button small { display: block; }.scope-menu__group button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }.scope-menu__group button small { color: var(--cs-text-muted); font-size: 9px; font-weight: 500; }
-.scope-menu__projects > button { grid-template-columns: 28px 1fr auto; }.scope-menu__projects button i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-style: normal; font-weight: 800; }
-.scope-menu__state { padding: 14px; color: var(--cs-text-muted); font-size: 10px; text-align: center; }.scope-menu__state--error { color: var(--cs-danger); }
-.scope-menu footer { display: flex; align-items: center; gap: 6px; padding: 10px 14px; color: var(--cs-text-muted); font-size: 9px; }
+.scope-switcher__copy strong { font-size: var(--cs-text-base); }.scope-switcher__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
+.scope-switcher > svg { transition: transform var(--cs-motion-fast) var(--cs-ease-out); }.scope-switcher > svg.rotated { transform: rotate(180deg); }
+.scope-menu { position: absolute; z-index: var(--cs-z-popover); top: calc(100% + 8px); left: 0; width: 330px; max-height: min(620px, calc(100vh - 120px)); overflow: auto; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }
+.scope-menu header { position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-16) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-glass-strong); }
+.scope-menu header span, .scope-menu header strong { display: block; }.scope-menu header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.scope-menu header strong { font-size: var(--cs-text-base); }.scope-menu header button { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); cursor: pointer; }
+.scope-menu__group { padding: var(--cs-space-8); border-bottom: 1px solid var(--cs-border); }.scope-menu__group p { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-4) var(--cs-space-8) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
+.scope-menu__group-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }.scope-menu__group-heading > button { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.scope-menu__group > button { display: grid; width: 100%; grid-template-columns: 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: var(--cs-radius-sm); background: transparent; text-align: left; cursor: pointer; }.scope-menu__group > button:hover { background: var(--cs-surface-accent); }.scope-menu__group > button.selected { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand-strong); }.scope-menu__group button span, .scope-menu__group button small { display: block; }.scope-menu__group button span { overflow: hidden; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.scope-menu__group button small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
+.scope-menu__projects > button { grid-template-columns: 28px 1fr auto; }.scope-menu__projects button i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); }
+.scope-menu__state { padding: var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.scope-menu__state--error { color: var(--cs-danger); }
+.scope-menu footer { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 1100px) {
-  .scope-switcher-root { width: auto; }.scope-switcher { grid-template-columns: 30px; width: auto; padding: 8px; }.scope-switcher__copy, .scope-switcher > svg { display: none; }.scope-menu { position: fixed; top: 72px; left: 68px; }
+  .scope-switcher-root { width: auto; }.scope-switcher { grid-template-columns: 30px; width: auto; padding: var(--cs-space-8); }.scope-switcher__copy, .scope-switcher > svg { display: none; }.scope-menu { position: fixed; top: 72px; left: 68px; }
 }
 @media (max-width: 767px) {
   .scope-switcher-root { width: min(250px, calc(100vw - 70px)); margin: 0; }
-  .scope-switcher { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 14px; padding: 5px 8px; border-color: transparent; background: transparent; }
+  .scope-switcher { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 14px; padding: var(--cs-space-4) var(--cs-space-8); border-color: transparent; background: transparent; }
   .scope-switcher__avatar { width: 28px; height: 28px; }.scope-switcher__copy, .scope-switcher > svg { display: block; }
   .scope-menu { position: fixed; top: 50px; left: 8px; width: min(350px, calc(100vw - 16px)); max-height: calc(100vh - 122px); }
 }

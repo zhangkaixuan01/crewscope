@@ -143,5 +143,5 @@ function receipt(): CommandReceipt {
 </template>
 
 <style scoped>
-.m5-story { min-height: 520px; padding: 22px; background: var(--cs-canvas); font-family: var(--cs-font-sans); }
+.m5-story { min-height: 520px; padding: var(--cs-space-24); background: var(--cs-canvas); font-family: var(--cs-font-sans); }
 </style>

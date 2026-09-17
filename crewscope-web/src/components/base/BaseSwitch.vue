@@ -6,8 +6,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 <template><label class="base-switch"><button type="button" role="switch" :aria-checked="modelValue" :disabled="disabled" @click="emit('update:modelValue', !modelValue)"><span aria-hidden="true" /></button><span v-if="label"><slot>{{ label }}</slot></span></label></template>
 
 <style scoped>
-.base-switch { display: inline-flex; align-items: center; gap: var(--cs-space-2); color: var(--cs-text-secondary); font-size: var(--cs-text-base); }
-.base-switch button { position: relative; width: 36px; height: 20px; padding: var(--cs-space-1); border-radius: var(--cs-radius-pill); background: var(--cs-border-strong); cursor: pointer; transition: background var(--cs-motion-fast) var(--cs-ease-out); }
+.base-switch { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-base); }
+.base-switch button { position: relative; width: 36px; height: 20px; padding: var(--cs-space-4); border-radius: var(--cs-radius-pill); background: var(--cs-border-strong); cursor: pointer; transition: background var(--cs-motion-fast) var(--cs-ease-out); }
 .base-switch button span { display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--cs-surface); transition: transform var(--cs-motion-fast) var(--cs-ease-out); }
 .base-switch button[aria-checked="true"] { background: var(--cs-action-primary); }
 .base-switch button[aria-checked="true"] span { transform: translateX(16px); }

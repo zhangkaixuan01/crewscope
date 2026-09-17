@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplate
 import { isTopmostModal } from '../../app/dialog'
 import type { CreateWorkItemInput, WorkItemPriority, WorkItemType } from '../../domains/workitem/types'
 import { workItemPriorities, workItemTypes } from '../../domains/workitem/types'
+import { workItemPriorityLabels, workItemTypeLabels } from '../../domains/workitem/labels'
 import BaseButton from '../base/BaseButton.vue'
 
 const props = defineProps<{
@@ -133,13 +134,13 @@ function handleKeydown(event: KeyboardEvent): void {
           <label>
             <span>类型</span>
             <select v-model="form.type" :disabled="submitting">
-              <option v-for="itemType in workItemTypes" :key="itemType" :value="itemType">{{ itemType }}</option>
+              <option v-for="itemType in workItemTypes" :key="itemType" :value="itemType">{{ workItemTypeLabels[itemType] }}</option>
             </select>
           </label>
           <label>
             <span>优先级</span>
             <select v-model="form.priority" :disabled="submitting">
-              <option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ priority }}</option>
+              <option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ workItemPriorityLabels[priority] }}</option>
             </select>
           </label>
           <label>
@@ -170,11 +171,11 @@ function handleKeydown(event: KeyboardEvent): void {
 .work-item-create-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: var(--cs-z-dialog);
   display: grid;
   place-items: center;
-  padding: 18px;
-  background: rgb(21 35 29 / 34%);
+  padding: var(--cs-space-20);
+  background: var(--cs-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -189,13 +190,13 @@ function handleKeydown(event: KeyboardEvent): void {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 20px 22px;
+  gap: var(--cs-space-16);
+  padding: var(--cs-space-20) var(--cs-space-24);
   border-bottom: 1px solid var(--cs-border);
 }
 
-.work-item-create-dialog h2 { margin-bottom: 3px; font-size: 18px; }
-.work-item-create-dialog header span { color: var(--cs-text-muted); font-size: 10px; }
+.work-item-create-dialog h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-lg); }
+.work-item-create-dialog header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 
 .work-item-create-dialog header button {
   display: grid;
@@ -211,16 +212,16 @@ function handleKeydown(event: KeyboardEvent): void {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  padding: 20px 22px 8px;
+  gap: var(--cs-space-16);
+  padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-8);
 }
 
 .form-grid label {
   display: grid;
-  gap: 5px;
+  gap: var(--cs-space-4);
   color: var(--cs-text-secondary);
-  font-size: 9px;
-  font-weight: 750;
+  font-size: var(--cs-text-xs);
+  font-weight: var(--cs-weight-semibold);
 }
 
 .form-grid input,
@@ -228,29 +229,29 @@ function handleKeydown(event: KeyboardEvent): void {
 .form-grid textarea {
   width: 100%;
   min-height: 34px;
-  padding: 0 9px;
+  padding: 0 var(--cs-space-8);
   border: 1px solid var(--cs-border-strong);
   border-radius: var(--cs-radius-sm);
   background: var(--cs-surface-subtle);
   color: var(--cs-text);
-  font: 10px var(--cs-font-sans);
+  font: var(--cs-text-base) var(--cs-font-sans);
 }
 
 .form-grid textarea {
-  padding-block: 9px;
+  padding-block: var(--cs-space-8);
   resize: vertical;
 }
 
 .field-title,
 .field-wide { grid-column: 1 / -1; }
 .form-grid input[aria-invalid='true'] { border-color: var(--cs-danger); }
-.form-error { margin: 8px 22px 0; color: var(--cs-danger); font-size: 10px; }
+.form-error { margin: var(--cs-space-8) var(--cs-space-24) 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 
 .work-item-create-dialog > footer {
   display: flex;
   justify-content: flex-end;
-  gap: 7px;
-  padding: 17px 22px 20px;
+  gap: var(--cs-space-8);
+  padding: var(--cs-space-16) var(--cs-space-24) var(--cs-space-20);
 }
 
 @media (max-width: 767px) {
@@ -262,10 +263,10 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   .work-item-create-dialog > header,
   .form-grid,
-  .work-item-create-dialog > footer { padding-inline: 16px; }
+  .work-item-create-dialog > footer { padding-inline: var(--cs-space-16); }
   .form-grid { grid-template-columns: 1fr; }
   .field-title,
   .field-wide { grid-column: 1; }
-  .form-error { margin-inline: 16px; }
+  .form-error { margin-inline: var(--cs-space-16); }
 }
 </style>

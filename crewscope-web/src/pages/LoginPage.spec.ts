@@ -46,7 +46,10 @@ describe('LoginPage', () => {
       session().csrf,
       expect.any(AbortSignal),
     )
-    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/today?team=team-1'))
+    // The post-login target is a lazy route. Under the full parallel suite the module can take
+    // longer than Vitest's default 1s polling window, so keep the assertion bounded like the
+    // authenticated-session redirect case below.
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/today?team=team-1'), { timeout: 5_000 })
     expect((wrapper.get<HTMLInputElement>('input[name="password"]').element).value).toBe('')
     expect(localStorage).toHaveLength(0)
     expect(sessionStorage).toHaveLength(0)

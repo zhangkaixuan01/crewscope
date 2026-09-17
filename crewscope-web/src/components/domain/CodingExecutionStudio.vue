@@ -25,6 +25,19 @@ import type {
 import type { TaskPhase } from '../../domains/task/store'
 import type { MemberTaskCommandOperation, TaskCommandVersionConflict, TaskExecution, TaskRuntimeFacts } from '../../domains/task/types'
 import type { SemanticTone } from '../base/types'
+import { enumLabel } from '../../domains/shared/labels'
+import {
+  commandKindLabels,
+  executionWorkspaceCompletionReasonLabels,
+  executionWorkspaceStatusLabels,
+  sandboxNetworkModeLabels,
+} from '../../domains/coding/labels'
+import {
+  agentRunStatusLabels,
+  planChangeReasonLabels,
+  stepExecutionStatusLabels,
+  taskExecutionStatusLabels,
+} from '../../domains/task/labels'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import CodingProgressControl from './CodingProgressControl.vue'
@@ -55,6 +68,20 @@ const props = defineProps<{
 
 const details = computed(() => props.attempt?.details ?? null)
 const workspace = computed(() => details.value?.workspace ?? null)
+
+/**
+ * A terminal Attempt is described by whichever fact is authoritative: the Workspace's own completion
+ * reason if it completed, its stable failure code if it failed, and the execution status otherwise.
+ * The failure code is a bounded free-form string rather than an enum, so it is presented as a code.
+ */
+const terminalOutcome = computed(() => {
+  const current = workspace.value
+  if (current?.completionReason) {
+    return enumLabel(current.completionReason, executionWorkspaceCompletionReasonLabels)
+  }
+  if (current?.failureCode) return `失败码 ${current.failureCode}`
+  return enumLabel(props.attempt?.executionStatus, taskExecutionStatusLabels)
+})
 const sandbox = computed(() => details.value?.sandbox ?? null)
 const latestCommand = computed(() => [...(props.commands?.items ?? [])]
   .sort((left, right) => right.sequence - left.sequence)[0] ?? null)
@@ -112,6 +139,11 @@ function bytes(value: number): string {
   return `${Math.round(value / 1024 / 1024)} MiB`
 }
 
+/** Runtime enums arrive as `{Enum}.name()` strings, so each is read through its own label map. */
+function label(value: string | null | undefined, labels: Record<string, string>): string {
+  return enumLabel(value, labels)
+}
+
 function statusTone(status: string): SemanticTone {
   if (['COMPLETED', 'PASSED', 'ACTIVE', 'EXITED', 'VALID'].includes(status)) return 'success'
   if (['RECOVERING', 'RUNNING', 'PREPARING', 'CLAIMED'].includes(status)) return 'info'
@@ -135,7 +167,7 @@ function progress(value: { used: number, maximum: number }): number {
         <h3 id="execution-studio-title">Execution Studio</h3>
       </div>
       <StatusBadge v-if="attempt" :tone="statusTone(attempt.executionStatus)" dot>
-        Attempt {{ attempt.attempt }} · {{ attempt.executionStatus }}
+        Attempt {{ attempt.attempt }} · {{ enumLabel(attempt.executionStatus, taskExecutionStatusLabels) }}
       </StatusBadge>
     </header>
 
@@ -174,7 +206,7 @@ function progress(value: { used: number, maximum: number }): number {
         <CheckCircle2 v-else-if="attempt.executionStatus === 'COMPLETED'" :size="16" aria-hidden="true" />
         <TriangleAlert v-else :size="16" aria-hidden="true" />
         <span v-if="recovering"><strong>Workspace 正在恢复</strong>恢复代次 {{ workspace?.recoveryGeneration }}，事实对账完成后继续执行。</span>
-        <span v-else><strong>Attempt 已进入终态</strong>{{ workspace?.completionReason ?? workspace?.failureCode ?? attempt.executionStatus }}，Workspace 证据按保留期继续可读。</span>
+        <span v-else><strong>Attempt 已进入终态</strong>{{ terminalOutcome }}，Workspace 证据按保留期继续可读。</span>
       </div>
 
       <div class="studio-grid">
@@ -187,7 +219,7 @@ function progress(value: { used: number, maximum: number }): number {
 
         <article class="studio-card studio-card--workspace">
           <div class="studio-card__title"><Box :size="15" aria-hidden="true" /><span>Workspace / Sandbox</span></div>
-          <div class="studio-status"><StatusBadge :tone="statusTone(workspace?.status ?? '')" dot>{{ workspace?.status }}</StatusBadge><span>恢复代次 {{ workspace?.recoveryGeneration }}</span></div>
+          <div class="studio-status"><StatusBadge :tone="statusTone(workspace?.status ?? '')" dot>{{ label(workspace?.status, executionWorkspaceStatusLabels) }}</StatusBadge><span>恢复代次 {{ workspace?.recoveryGeneration }}</span></div>
           <strong class="mono">{{ shortId(workspace?.id ?? '') }}</strong>
           <small>更新于 {{ displayDate(workspace?.updatedAt ?? '') }}</small>
         </article>
@@ -195,7 +227,7 @@ function progress(value: { used: number, maximum: number }): number {
         <article class="studio-card studio-card--agent">
           <div class="studio-card__title"><Bot :size="15" aria-hidden="true" /><span>Coding Agent</span></div>
           <template v-if="latestRun">
-            <div class="studio-status"><StatusBadge :tone="statusTone(latestRun.status)" dot>{{ latestRun.status }}</StatusBadge><span>Run {{ latestRun.runSequence }}</span></div>
+            <div class="studio-status"><StatusBadge :tone="statusTone(latestRun.status)" dot>{{ label(latestRun.status, agentRunStatusLabels) }}</StatusBadge><span>Run {{ latestRun.runSequence }}</span></div>
             <strong>Profile v{{ latestRun.agentProfileVersion }}</strong>
             <small>Session {{ shortId(latestRun.runtimeSessionId) }}</small>
           </template>
@@ -208,8 +240,8 @@ function progress(value: { used: number, maximum: number }): number {
           <template v-if="currentPlan">
             <div class="studio-status"><StatusBadge tone="info">Revision {{ currentPlan.revision }}</StatusBadge><span>{{ currentPlan.steps.length }} steps</span></div>
             <strong>{{ currentStepTitle ?? '计划已发布' }}</strong>
-            <small v-if="currentStep">{{ currentStep.status }} · Run {{ currentStep.runAttempt }}/{{ currentStep.maxRunAttempts }}</small>
-            <small v-else>{{ currentPlan.changeReason }}</small>
+            <small v-if="currentStep">{{ label(currentStep.status, stepExecutionStatusLabels) }} · Run {{ currentStep.runAttempt }}/{{ currentStep.maxRunAttempts }}</small>
+            <small v-else>{{ label(currentPlan.changeReason, planChangeReasonLabels) }}</small>
           </template>
           <p v-else-if="runtimePhase === 'error'">{{ runtimeErrorMessage ?? 'Runtime 事实暂时不可用' }}</p>
           <p v-else>当前 attempt 尚未发布计划。</p>
@@ -218,7 +250,7 @@ function progress(value: { used: number, maximum: number }): number {
         <article class="studio-card studio-card--command">
           <div class="studio-card__title"><SquareTerminal :size="15" aria-hidden="true" /><span>当前命令</span></div>
           <template v-if="latestCommand">
-            <div class="studio-status"><StatusBadge :tone="statusTone(latestCommand.termination)">{{ latestCommand.commandKind }}</StatusBadge><span>#{{ latestCommand.sequence }}</span></div>
+            <div class="studio-status"><StatusBadge :tone="statusTone(latestCommand.termination)">{{ enumLabel(latestCommand.commandKind, commandKindLabels) }}</StatusBadge><span>#{{ latestCommand.sequence }}</span></div>
             <strong>{{ latestCommand.toolKey }}</strong>
             <small>{{ latestCommand.summary }} · Exit {{ latestCommand.exitCode ?? '—' }}</small>
           </template>
@@ -231,7 +263,7 @@ function progress(value: { used: number, maximum: number }): number {
           <div class="studio-card__title"><ShieldCheck :size="15" aria-hidden="true" /><span>Sandbox 边界</span></div>
           <template v-if="sandbox">
             <div class="sandbox-facts">
-              <span><Network :size="12" />网络 {{ sandbox.networkMode }}</span>
+              <span><Network :size="12" />网络 {{ enumLabel(sandbox.networkMode, sandboxNetworkModeLabels) }}</span>
               <span><Cpu :size="12" />{{ sandbox.cpuCount }} CPU · {{ sandbox.memoryMiB }} MiB</span>
               <span><ShieldCheck :size="12" />只读根层 {{ sandbox.readOnlyRootFilesystem ? '开启' : '关闭' }}</span>
             </div>
@@ -283,7 +315,7 @@ function progress(value: { used: number, maximum: number }): number {
 </template>
 
 <style scoped>
-.execution-studio { padding: 0; overflow: hidden; border-color: var(--cs-brand-200); background: rgb(255 255 255 / 96%); box-shadow: 0 8px 26px rgb(21 35 29 / 5%); }.studio-heading { display: grid; min-height: 64px; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px 15px; border-bottom: 1px solid var(--cs-border); background: linear-gradient(110deg, var(--cs-brand-50), var(--cs-surface) 62%); }.studio-heading__icon { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--cs-brand-200); border-radius: 10px; background: var(--cs-surface); color: var(--cs-brand-700); }.studio-heading p, .studio-heading h3 { margin: 0; }.studio-heading p { color: var(--cs-brand-600); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.studio-heading h3 { margin-top: 2px; font-size: 14px; }.execution-studio > :deep(.state-panel) { min-height: 126px; border: 0; border-radius: 0; }.studio-state { display: flex; align-items: flex-start; gap: 8px; margin: 10px 12px 0; padding: 9px 10px; border: 1px solid var(--cs-border); border-radius: 9px; color: var(--cs-text-muted); font-size: 9px; line-height: 1.45; }.studio-state svg { flex: 0 0 auto; }.studio-state span, .studio-state strong { display: block; }.studio-state strong { color: var(--cs-text); font-size: 10px; }.studio-state--recovering { border-color: var(--cs-brand-200); background: var(--cs-brand-50); color: var(--cs-brand-700); }.studio-state--terminal { background: var(--cs-surface-subtle); }.studio-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; }.studio-card { min-width: 0; min-height: 120px; padding: 11px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }.studio-card__title { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--cs-text-muted); font-size: 8px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }.studio-card__title svg { color: var(--cs-brand-600); }.studio-card > strong, .studio-card > code, .studio-card > small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.studio-card > strong { color: var(--cs-text); font-size: 11px; }.studio-card > code { margin-top: 5px; color: var(--cs-brand-700); font: 9px var(--cs-font-mono); }.studio-card > small { margin-top: 6px; color: var(--cs-text-muted); font: 8px var(--cs-font-mono); }.studio-card > p { margin: 0; color: var(--cs-text-muted); font-size: 9px; line-height: 1.5; }.studio-status { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-bottom: 8px; }.studio-status > span { color: var(--cs-text-muted); font-size: 8px; }.studio-card--budget { grid-column: span 2; }.sandbox-facts { display: grid; gap: 6px; }.sandbox-facts span { display: flex; align-items: center; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; }.sandbox-facts svg { color: var(--cs-brand-600); }.budget-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }.budget-grid > div { display: grid; align-content: start; gap: 3px; }.budget-grid span, .budget-grid small { color: var(--cs-text-muted); font-size: 8px; }.budget-grid strong { font-size: 11px; }.budget-grid i { display: block; height: 3px; margin-top: 3px; overflow: hidden; border-radius: 999px; background: var(--cs-brand-100); }.budget-grid b { display: block; height: 100%; border-radius: inherit; background: var(--cs-brand-400); }.studio-security, .studio-warning { display: flex; align-items: flex-start; gap: 6px; margin: 0 12px 12px; padding: 8px 9px; border-radius: 8px; font-size: 8px; line-height: 1.45; }.studio-security { background: var(--cs-brand-50); color: var(--cs-brand-700); }.studio-security svg, .studio-warning svg { flex: 0 0 auto; }.studio-warning { align-items: center; background: var(--cs-warning-soft); color: #7c4a12; }.studio-warning button { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: inherit; font-size: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
+.execution-studio { padding: 0; overflow: hidden; border-color: var(--cs-border-accent); background: var(--cs-surface-glass-strong); box-shadow: var(--cs-shadow-raised); }.studio-heading { display: grid; min-height: 64px; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: linear-gradient(110deg, var(--cs-surface-accent), var(--cs-surface) 62%); }.studio-heading__icon { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--cs-border-accent); border-radius: 10px; background: var(--cs-surface); color: var(--cs-text-brand); }.studio-heading p, .studio-heading h3 { margin: 0; }.studio-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.studio-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.execution-studio > :deep(.state-panel) { min-height: 126px; border: 0; border-radius: 0; }.studio-state { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: var(--cs-space-12) var(--cs-space-12) 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.studio-state svg { flex: 0 0 auto; }.studio-state span, .studio-state strong { display: block; }.studio-state strong { color: var(--cs-text); font-size: var(--cs-text-sm); }.studio-state--recovering { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand); }.studio-state--terminal { background: var(--cs-surface-subtle); }.studio-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--cs-space-8); padding: var(--cs-space-12); }.studio-card { min-width: 0; min-height: 120px; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }.studio-card__title { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .04em; text-transform: uppercase; }.studio-card__title svg { color: var(--cs-text-brand); }.studio-card > strong, .studio-card > code, .studio-card > small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.studio-card > strong { color: var(--cs-text); font-size: var(--cs-text-sm); }.studio-card > code { margin-top: var(--cs-space-4); color: var(--cs-text-brand); font: var(--cs-text-xs) var(--cs-font-mono); }.studio-card > small { margin-top: var(--cs-space-8); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.studio-card > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.studio-status { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); margin-bottom: var(--cs-space-8); }.studio-status > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.studio-card--budget { grid-column: span 2; }.sandbox-facts { display: grid; gap: var(--cs-space-8); }.sandbox-facts span { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.sandbox-facts svg { color: var(--cs-text-brand); }.budget-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--cs-space-8); }.budget-grid > div { display: grid; align-content: start; gap: var(--cs-space-4); }.budget-grid span, .budget-grid small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.budget-grid strong { font-size: var(--cs-text-sm); }.budget-grid i { display: block; height: 3px; margin-top: var(--cs-space-4); overflow: hidden; border-radius: 999px; background: var(--cs-surface-accent-strong); }.budget-grid b { display: block; height: 100%; border-radius: inherit; background: var(--cs-brand-400); }.studio-security, .studio-warning { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: 0 var(--cs-space-12) var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-8); border-radius: 8px; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.studio-security { background: var(--cs-surface-accent); color: var(--cs-text-brand); }.studio-security svg, .studio-warning svg { flex: 0 0 auto; }.studio-warning { align-items: center; background: var(--cs-warning-soft); color: var(--cs-warning); }.studio-warning button { display: inline-flex; align-items: center; gap: var(--cs-space-4); margin-left: auto; color: inherit; font-size: inherit; font-weight: var(--cs-weight-semibold); text-decoration: underline; cursor: pointer; }
 @media (max-width: 820px) { .studio-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.studio-card--budget { grid-column: span 2; } }
-@media (max-width: 560px) { .studio-heading { grid-template-columns: 34px minmax(0, 1fr); padding: 11px 12px; }.studio-heading > :deep(.status-badge) { grid-column: 1 / -1; width: fit-content; }.studio-grid { grid-template-columns: 1fr; padding: 9px; }.studio-card, .studio-card--budget { grid-column: 1; min-height: 0; }.budget-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.studio-security, .studio-warning { margin-inline: 9px; }.studio-warning { align-items: flex-start; flex-wrap: wrap; }.studio-warning button { margin-left: 0; } }
+@media (max-width: 560px) { .studio-heading { grid-template-columns: 34px minmax(0, 1fr); padding: var(--cs-space-12) var(--cs-space-12); }.studio-heading > :deep(.status-badge) { grid-column: 1 / -1; width: fit-content; }.studio-grid { grid-template-columns: 1fr; padding: var(--cs-space-8); }.studio-card, .studio-card--budget { grid-column: 1; min-height: 0; }.budget-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.studio-security, .studio-warning { margin-inline: var(--cs-space-8); }.studio-warning { align-items: flex-start; flex-wrap: wrap; }.studio-warning button { margin-left: 0; } }
 </style>

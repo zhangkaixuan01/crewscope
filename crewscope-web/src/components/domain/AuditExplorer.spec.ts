@@ -1,11 +1,14 @@
 import { mount } from '@vue/test-utils'
 import type { TeamOpsCorrelationResource } from '../../domains/teamops/store'
+
+// 权限不足状态的动作是跳转到权限说明页；这些用例只断言文案，因此用轻量 stub 代替路由实例。
+const routerLinkStub = { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } }
 import type { AuditEvent, CorrelationGraph } from '../../domains/teamops/types'
 import AuditExplorer from './AuditExplorer.vue'
 
 describe('AuditExplorer', () => {
   it('renders the public Audit table and emits combination filters', async () => {
-    const wrapper = mount(AuditExplorer, { props: props() })
+    const wrapper = mount(AuditExplorer, { props: props(), global: { stubs: routerLinkStub } })
 
     expect(wrapper.get('table').text()).toContain('TEAM_ACCESS_DENIED')
     expect(wrapper.text()).toContain('SECURITY')
@@ -20,7 +23,7 @@ describe('AuditExplorer', () => {
   })
 
   it('requires paired Subject filters and valid UUID identifiers', async () => {
-    const wrapper = mount(AuditExplorer, { props: props() })
+    const wrapper = mount(AuditExplorer, { props: props(), global: { stubs: routerLinkStub } })
     await wrapper.get('.advanced-toggle').trigger('click')
     const subjectType = wrapper.findAll<HTMLInputElement>('.audit-filter__advanced input')[3]!
     await subjectType.setValue('WORK_ITEM')
@@ -32,7 +35,7 @@ describe('AuditExplorer', () => {
 
   it('shows only safe detail fields and opens the Correlation chain', async () => {
     const value = audit()
-    const wrapper = mount(AuditExplorer, { props: props({ selectedEvent: value }) })
+    const wrapper = mount(AuditExplorer, { props: props({ selectedEvent: value }), global: { stubs: routerLinkStub } })
 
     expect(wrapper.get('[aria-label="审计事件详情"]').text()).toContain('Provider 安全引用')
     expect(wrapper.text()).toContain('permission_denied')
@@ -42,7 +45,7 @@ describe('AuditExplorer', () => {
 
   it('renders Correlation nodes and emits only the Gateway-approved object href', async () => {
     const graph = correlationGraph()
-    const wrapper = mount(AuditExplorer, { props: props({ correlation: correlationResource(graph), correlationId: graph.correlationId }) })
+    const wrapper = mount(AuditExplorer, { props: props({ correlation: correlationResource(graph), correlationId: graph.correlationId }), global: { stubs: routerLinkStub } })
 
     expect(wrapper.get('[aria-label="Correlation 关联链"]').text()).toContain('TEAM_ACCESS_DENIED')
     await wrapper.get('.correlation-objects button').trigger('click')
@@ -50,7 +53,7 @@ describe('AuditExplorer', () => {
   })
 
   it('enforces explicit 31-day export bounds and governance permission', async () => {
-    const wrapper = mount(AuditExplorer, { props: props({ canExport: false }) })
+    const wrapper = mount(AuditExplorer, { props: props({ canExport: false }), global: { stubs: routerLinkStub } })
     expect(wrapper.text()).toContain('当前身份没有治理导出权限')
     const exportButton = wrapper.findAll('button').find(item => item.text().includes('导出 CSV'))!
     expect(exportButton.attributes('disabled')).toBeDefined()
@@ -72,7 +75,7 @@ describe('AuditExplorer', () => {
     ['cursor-expired cached', { phase: 'error', error: error('cursor-expired') }, '审计续页 Cursor 已过期'],
     ['error', { phase: 'error', items: [], error: error('unknown') }, 'unknown'],
   ] as const)('renders the %s state', (_name, overrides, expected) => {
-    const wrapper = mount(AuditExplorer, { props: props(overrides) })
+    const wrapper = mount(AuditExplorer, { props: props(overrides), global: { stubs: routerLinkStub } })
     expect(wrapper.text()).toContain(expected)
   })
 })

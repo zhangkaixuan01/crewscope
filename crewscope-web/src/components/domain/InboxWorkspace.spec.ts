@@ -1,10 +1,30 @@
 import { mount } from '@vue/test-utils'
 import type { Etagged, InboxCounts, InboxItem } from '../../domains/teamops/types'
+
+// 权限不足状态的动作是跳转到权限说明页；这些用例只断言文案，因此用轻量 stub 代替路由实例。
+const routerLinkStub = { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } }
 import InboxWorkspace from './InboxWorkspace.vue'
 
 describe('InboxWorkspace', () => {
+  /**
+   * The batch bar exists only while something is selected.
+   *
+   * `useSelection` returns refs held on an object, and only top-level template bindings are
+   * unwrapped — reading `selection.selectedCount` straight from the template yields the ref object,
+   * which is always truthy. The bar would then be on screen with 「已选 0 项」 and a live batch button
+   * over an empty selection, which is what this pins down.
+   */
+  it('hides the batch bar and its count until a row is selected', async () => {
+    const wrapper = mount(InboxWorkspace, { props: props(), global: { stubs: routerLinkStub } })
+    expect(wrapper.find('[aria-label="批量处置"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('已选')
+
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.get('[aria-label="批量处置"]').text()).toContain('已选 1 项（跨页保留）')
+  })
+
   it('renders five member views, server counts, priority, deadline and filter events', async () => {
-    const wrapper = mount(InboxWorkspace, { props: props() })
+    const wrapper = mount(InboxWorkspace, { props: props(), global: { stubs: routerLinkStub } })
 
     expect(wrapper.get('[aria-label="Inbox 五类视图"]').text()).toContain('我的负责')
     expect(wrapper.get('[aria-label="Inbox 五类视图"]').text()).toContain('我的执行')
@@ -12,7 +32,7 @@ describe('InboxWorkspace', () => {
     expect(wrapper.get('[aria-label="Inbox 五类视图"]').text()).toContain('待确认')
     expect(wrapper.get('[aria-label="Inbox 五类视图"]').text()).toContain('异常')
     expect(wrapper.text()).toContain('2 项待处理事实')
-    expect(wrapper.text()).toContain('URGENT')
+    expect(wrapper.text()).toContain('紧急')
     expect(wrapper.text()).toContain('无截止时间')
 
     await wrapper.get('button[aria-label="查看 我的负责 详情"]').trigger('click')
@@ -27,6 +47,7 @@ describe('InboxWorkspace', () => {
     const selected = item({ dispositionStatus: 'UNREAD', dispositionVersion: 0, etag: '"0"' })
     const wrapper = mount(InboxWorkspace, {
       props: props({ selectedItemId: selected.inboxItemId, detailPhase: 'ready', detail: { value: selected, etag: '"0"' } }),
+      global: { stubs: routerLinkStub },
     })
 
     expect(wrapper.text()).toContain('强 ETag · 单调状态')
@@ -51,6 +72,7 @@ describe('InboxWorkspace', () => {
         command: { phase: 'conflict', operation: 'inbox-disposition', targetId: selected.inboxItemId, receipt: null, error: error('conflict') },
         targetError: error('unknown'),
       }),
+      global: { stubs: routerLinkStub },
     })
 
     expect(wrapper.text()).toContain('处置版本已更新')
@@ -61,6 +83,7 @@ describe('InboxWorkspace', () => {
   it('never presents a failed server count as an authoritative zero', () => {
     const wrapper = mount(InboxWorkspace, {
       props: props({ countsPhase: 'error', counts: null, countsError: error('unknown') }),
+      global: { stubs: routerLinkStub },
     })
 
     expect(wrapper.text()).toContain('计数暂不可用')
@@ -71,10 +94,11 @@ describe('InboxWorkspace', () => {
   it('keeps cached facts visible when a continuation Cursor expires', () => {
     const wrapper = mount(InboxWorkspace, {
       props: props({ phase: 'error', error: error('cursor-expired') }),
+      global: { stubs: routerLinkStub },
     })
 
     expect(wrapper.text()).toContain('续页 Cursor 已过期')
-    expect(wrapper.text()).toContain('RESPONSIBILITY_ASSIGNMENT')
+    expect(wrapper.text()).toContain('责任分配')
   })
 
   it.each([
@@ -85,7 +109,7 @@ describe('InboxWorkspace', () => {
     ['cursor-expired', { phase: 'error', items: [], error: error('cursor-expired') }, 'Inbox Cursor 已过期'],
     ['error', { phase: 'error', items: [], error: error('unknown') }, 'unknown'],
   ] as const)('renders the %s list state', (_name, overrides, expected) => {
-    const wrapper = mount(InboxWorkspace, { props: props(overrides) })
+    const wrapper = mount(InboxWorkspace, { props: props(overrides), global: { stubs: routerLinkStub } })
     expect(wrapper.text()).toContain(expected)
   })
 })

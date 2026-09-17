@@ -22,6 +22,10 @@ import type { CodingAttemptSummary, CodingPatchDocument, DiffFileSummary } from 
 import type { TaskLiveState } from '../../domains/task/store'
 import type { TaskEventPage } from '../../domains/task/types'
 import type { ReviewCommentSide, ReviewFindingEvidence, ReviewLineComment } from '../../domains/review/types'
+import { enumLabel, enumLabelOr } from '../../domains/shared/labels'
+import { sha256Digest } from '../../domains/shared/sha256'
+import { diffFileKindAbbreviations, diffFileKindLabels } from '../../domains/coding/labels'
+import { hasSyntax, loadSyntax, plainTokenLine, syntaxLanguageLabel, syntaxTokenLines, type SyntaxToken } from '../../domains/coding/syntax'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import SafeMarkdown from './SafeMarkdown.vue'
@@ -89,7 +93,7 @@ const largeFile = computed(() => Boolean(selectedFile.value && (selectedFile.val
 const comments = computed(() => [...(props.reviewComments ?? []), ...localComments.value]
   .filter(comment => comment.filePath === selectedFile.value?.path)
   .sort((left, right) => left.lineNumber - right.lineNumber))
-const selectedLanguage = computed(() => languageFor(selectedFile.value?.path ?? ''))
+const selectedLanguage = computed(() => syntaxLanguageLabel(selectedFile.value?.path ?? ''))
 const streamLabel = computed(() => {
   if (projection.value.status === 'reconciled') return '已按权威快照对账'
   if (projection.value.status === 'gap') return '实时序列存在缺口'
@@ -193,17 +197,9 @@ function draftComment(draft: { line: ParsedPatchLine, side: ReviewCommentSide },
 }
 
 async function sha256(value: string): Promise<string> {
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
-  }
-  return draftHash(value)
-}
-
-function draftHash(value: string): string {
-  let hash = 0
-  for (let index = 0; index < value.length; index += 1) hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
-  return Math.abs(hash).toString(16).padStart(64, '0').slice(0, 64)
+  // The anchor hash is verified against the server's line hash, so there is no placeholder path:
+  // without WebCrypto the pure implementation still produces the same digest.
+  return sha256Digest(new TextEncoder().encode(value))
 }
 
 function handlePatchKeydown(event: KeyboardEvent): void {
@@ -228,8 +224,14 @@ watch(
   },
 )
 
+// The list has room for one letter, so the badge carries the abbreviation and the full wording is
+// attached as its accessible name rather than dropped.
 function changeLabel(kind: string): string {
-  return ({ ADDED: 'A', MODIFIED: 'M', DELETED: 'D', RENAMED: 'R', COPIED: 'C' } as Record<string, string>)[kind] ?? kind.slice(0, 1)
+  return enumLabelOr(kind, diffFileKindAbbreviations, '?')
+}
+
+function changeName(kind: string): string {
+  return enumLabel(kind, diffFileKindLabels)
 }
 
 function changeTone(kind: string): 'success' | 'warning' | 'danger' | 'info' | 'neutral' {
@@ -333,28 +335,71 @@ function visiblePatchLines(lines: ParsedPatchLine[], collapsed: Set<string>): Pa
   return output.slice(0, 2000)
 }
 
-function languageFor(path: string): string {
-  const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
-  return ({ ts: 'TypeScript', tsx: 'TSX', js: 'JavaScript', jsx: 'JSX', java: 'Java', kt: 'Kotlin', py: 'Python', go: 'Go', rs: 'Rust', md: 'Markdown', css: 'CSS', json: 'JSON', yml: 'YAML', yaml: 'YAML' } as Record<string, string>)[extension] ?? '纯文本'
-}
+/**
+ * Tokenized lines for the whole patch, indexed by the patch's own line number.
+ *
+ * Null until this file type's grammar has arrived, and null for good if it never does: both cases
+ * render every line as a single plain token, which is what the view showed before it had colour.
+ */
+const syntaxLines = ref<SyntaxToken[][] | null>(null)
 
-interface SyntaxSegment { text: string; kind: 'plain' | 'keyword' | 'string' | 'comment' }
+let syntaxRequest = 0
 
-/** Lightweight, dependency-free highlighting; unsupported languages intentionally stay plain text. */
-function syntaxSegments(value: string, language: string): SyntaxSegment[] {
-  if (language === '纯文本' || language === 'Markdown') return [{ text: value, kind: 'plain' }]
-  const pattern = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/.*$|#.*$|\b(?:class|interface|public|private|protected|return|if|else|for|while|const|let|function|import|export|new|extends|async|await|def|from|package|fn|struct)\b)/g
-  const result: SyntaxSegment[] = []
-  let cursor = 0
-  for (const match of value.matchAll(pattern)) {
-    const index = match.index ?? 0
-    if (index > cursor) result.push({ text: value.slice(cursor, index), kind: 'plain' })
-    const token = match[0]
-    const kind = token.startsWith('//') || token.startsWith('#') ? 'comment' : token.startsWith('"') || token.startsWith("'") ? 'string' : 'keyword'
-    result.push({ text: token, kind }); cursor = index + token.length
+/**
+ * Highlights files whose patch we hold in full, and nothing else.
+ *
+ * The conditions are the renderer's own boundaries rather than a size of my own choosing. Prism cost
+ * here is linear — measured at roughly 40ms per 200KB — so the question is not whether it would
+ * finish but whether the work lands on screen, and 「我们只有片段」 and 「只画前 2000 行」 both mean
+ * it does not:
+ *
+ * - A patch we hold only part of has no full context to tokenize. Colouring a fragment reads as fact:
+ *   an unterminated block comment at the cut paints the rest of the visible file as a comment.
+ * - Past the render limit, most of what would be tokenized is never drawn.
+ *
+ * Together these bound the work to what the viewer is willing to render — at most the 2000 lines —
+ * with no separate budget to keep in sync with this one.
+ */
+watch(
+  [() => selectedFile.value?.path ?? '', selectedPatch],
+  async ([path, patch]) => {
+    const request = ++syntaxRequest
+    syntaxLines.value = null
+    const text = patch ?? ''
+    if (!text || !hasSyntax(path)) return
+    if (generatedFile.value || largeFile.value || patchRenderTruncated.value || selectedFile.value?.patchTruncated) return
+    if (!await loadSyntax(path)) return
+    // 慢一步的语言包不能覆盖成员已经切过去的那份文件。
+    if (request !== syntaxRequest) return
+    syntaxLines.value = syntaxTokenLines(text, path)
+  },
+  { immediate: true },
+)
+
+/**
+ * The token line for each parsed row, keyed by the row it was parsed from.
+ *
+ * Row ids are `${document line index}:${kind}:${old}:${new}`, and `syntaxTokenLines` returns its lines
+ * in that same document order — so the two line numberings line up without re-parsing anything. The
+ * synthesised rows — the 「上下文已折叠」 toggle — have no document line and are left out, which is
+ * right: their text is ours, not the member's code.
+ */
+const tokensByLineId = computed(() => {
+  const lines = syntaxLines.value
+  if (!lines) return null
+  const byId = new Map<string, SyntaxToken[]>()
+  for (const line of parsedLines.value) {
+    const index = Number.parseInt(line.id, 10)
+    const tokens = Number.isInteger(index) ? lines[index] : undefined
+    if (tokens) byId.set(line.id, tokens)
   }
-  if (cursor < value.length) result.push({ text: value.slice(cursor), kind: 'plain' })
-  return result.length ? result : [{ text: value, kind: 'plain' }]
+  return byId
+})
+
+function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
+  const tokens = tokensByLineId.value?.get(line.id)
+  // An empty token list would leave the cell bare where the plain view showed a space.
+  return tokens?.length ? tokens : plainTokenLine(line.text || ' ')
 }
 </script>
 
@@ -425,7 +470,7 @@ function syntaxSegments(value: string, language: string): SyntaxSegment[] {
                 <Binary v-if="row.file?.binary" :size="12" aria-hidden="true" />
                 <FileCode2 v-else :size="12" aria-hidden="true" />
                 <span>{{ row.name }}</span>
-                <StatusBadge :tone="changeTone(row.file?.changeKind ?? '')">{{ changeLabel(row.file?.changeKind ?? '') }}</StatusBadge>
+                <StatusBadge :tone="changeTone(row.file?.changeKind ?? '')" :aria-label="changeName(row.file?.changeKind ?? '')">{{ changeLabel(row.file?.changeKind ?? '') }}</StatusBadge>
                 <Check v-if="viewedFiles.value.value.includes(row.path)" :size="11" aria-label="已查看" />
               </button>
             </template>
@@ -480,7 +525,7 @@ function syntaxSegments(value: string, language: string): SyntaxSegment[] {
                 <span v-if="line.text.startsWith('···')" class="patch-context-toggle" @click="toggleBlock(line.id.slice(9))"><ChevronDown :size="11" />{{ line.text }}</span>
                 <span v-else class="patch-line" :class="[`patch-line--${line.kind}`, { focused: focusedLine === line.id, 'patch-line--split': viewMode.value.value === 'split' }]" @click="openComment(line)">
                   <button type="button" class="line-comment-button" :aria-label="`评论第 ${line.newLine ?? line.oldLine ?? 0} 行`" @click.stop="openComment(line)">＋</button>
-                  <i v-if="viewMode.value.value === 'split'">{{ line.oldLine ?? '' }}</i><i>{{ viewMode.value.value === 'split' ? line.newLine ?? '' : line.newLine ?? line.oldLine ?? '' }}</i><b><span v-for="(segment, segmentIndex) in syntaxSegments(line.text || ' ', selectedLanguage)" :key="`${line.id}:${segmentIndex}`" :class="`syntax-${segment.kind}`">{{ segment.text }}</span></b>
+                  <i v-if="viewMode.value.value === 'split'">{{ line.oldLine ?? '' }}</i><i>{{ viewMode.value.value === 'split' ? line.newLine ?? '' : line.newLine ?? line.oldLine ?? '' }}</i><b><span v-for="(token, tokenIndex) in tokensFor(line)" :key="`${line.id}:${tokenIndex}`" :class="`syntax-${token.kind}`">{{ token.text }}</span></b>
                 </span>
               </template>
             </code>
@@ -506,10 +551,11 @@ function syntaxSegments(value: string, language: string): SyntaxSegment[] {
 </template>
 
 <style scoped>
-.diff-explorer { padding: 0; overflow: hidden; }.diff-heading { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--cs-border); }.diff-heading p, .diff-heading h3 { margin: 0; }.diff-heading p { color: var(--cs-brand-600); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.diff-heading h3 { margin-top: 2px; font-size: 13px; }.diff-heading__status { display: flex; align-items: center; gap: 5px; color: var(--cs-text-muted); font-size: 8px; }.diff-heading__status svg { color: var(--cs-brand-600); }.diff-explorer > :deep(.state-panel) { min-height: 112px; border: 0; border-radius: 0; }.diff-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-stats > div { display: grid; min-width: 0; grid-template-columns: auto 1fr; align-items: center; gap: 2px 6px; padding: 9px 12px; border-right: 1px solid var(--cs-border); }.diff-stats > div:last-child { border-right: 0; }.diff-stats svg { grid-row: 1 / 3; color: var(--cs-text-muted); }.diff-stats span { color: var(--cs-text-muted); font-size: 7px; text-transform: uppercase; }.diff-stats strong { font: 11px var(--cs-font-mono); }.diff-stats__addition strong { color: #237a50; }.diff-stats__deletion strong { color: #b34e56; }.diff-gap { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #efd4aa; background: var(--cs-warning-soft); color: #7c4a12; font-size: 8px; }.diff-gap button, .patch-message button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 7px; border-radius: 6px; background: rgb(255 255 255 / 70%); color: inherit; font-size: 8px; font-weight: 800; cursor: pointer; }.diff-workspace { display: grid; min-height: 350px; grid-template-columns: minmax(220px, var(--tree-width)) 5px minmax(0, 1fr); }.diff-tree { min-width: 0; border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-resize-handle { width: 5px; padding: 0; border: 0; background: var(--cs-border); cursor: col-resize; }.diff-resize-handle:hover { background: var(--cs-brand-300); }.diff-search { display: flex; align-items: center; gap: 6px; margin: 9px; padding: 0 8px; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-muted); }.diff-search input { width: 100%; min-width: 0; height: 31px; background: transparent; font-size: 9px; outline: 0; }.diff-tree__list { max-height: 430px; overflow: auto; padding: 0 6px 8px; }.diff-tree__folder, .diff-tree__file { --indent: calc(var(--depth) * 12px); padding-left: calc(7px + var(--indent)); }.diff-tree__folder { display: flex; align-items: center; gap: 5px; min-height: 25px; color: var(--cs-text-muted); font-size: 8px; font-weight: 750; }.diff-tree__file { display: grid; width: 100%; min-height: 29px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; padding-right: 6px; border: 1px solid transparent; border-radius: 7px; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.diff-tree__file > span { overflow: hidden; font: 8px var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }.diff-tree__file.selected { border-color: var(--cs-brand-200); background: var(--cs-brand-50); color: var(--cs-brand-800); }.diff-tree__file :deep(.status-badge) { min-width: 19px; justify-content: center; padding-inline: 4px; }.diff-tree__limit { margin: 0; padding: 8px 10px; border-top: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: 8px; line-height: 1.45; }.patch-view { min-width: 0; background: #fbfcfb; }.patch-view > header { display: flex; min-height: 49px; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.patch-view header strong, .patch-view header small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.patch-view header strong { font: 9px var(--cs-font-mono); }.patch-view header small { margin-top: 3px; color: var(--cs-text-muted); font: 7px var(--cs-font-mono); }.patch-view header > span { display: flex; gap: 7px; font: 8px var(--cs-font-mono); }.patch-view header b { color: #237a50; }.patch-view header i { color: #b34e56; font-style: normal; }.patch-view > :deep(.state-panel) { min-height: 250px; border: 0; }.patch-message { display: grid; min-height: 250px; place-content: center; justify-items: center; gap: 6px; padding: 24px; color: var(--cs-text-muted); text-align: center; }.patch-message svg { color: var(--cs-brand-500); }.patch-message strong { color: var(--cs-text-secondary); font-size: 10px; }.patch-message span { max-width: 320px; font-size: 8px; line-height: 1.5; }.patch-message button { margin-top: 4px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.patch-code { max-height: 430px; overflow: auto; outline: none; }.patch-code:focus-visible { box-shadow: inset 0 0 0 2px var(--cs-focus); }.patch-code code { display: table; min-width: 100%; padding: 6px 0; font: 8px/1.55 var(--cs-font-mono); }.patch-line { display: table-row; }.patch-line > i { display: table-cell; width: 1%; padding: 0 9px; color: #9aa29e; font-style: normal; text-align: right; user-select: none; }.patch-line > b { display: table-cell; padding-right: 12px; font-weight: 450; white-space: pre; }.patch-line--addition { background: #eef8f1; color: #286645; }.patch-line--deletion { background: #fdf0f1; color: #96434b; }.patch-line--hunk { background: #eef4fa; color: #496c89; }.patch-line--meta { color: var(--cs-text-muted); }.patch-code > p { margin: 0; padding: 8px 11px; background: var(--cs-warning-soft); color: #7c4a12; font-size: 8px; }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-.review-location-note{margin:0;padding:7px 10px;border-bottom:1px solid var(--cs-brand-200);background:var(--cs-brand-50);color:var(--cs-brand-700);font-size:8px;line-height:1.5}
-.patch-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.patch-action{display:inline-flex;align-items:center;gap:3px;padding:4px 6px;border:1px solid var(--cs-border);border-radius:5px;background:var(--cs-surface-subtle);color:var(--cs-text-secondary);font-size:8px;cursor:pointer}.patch-action:hover{border-color:var(--cs-brand-300);color:var(--cs-brand-700)}.patch-language{padding:3px 5px;border-radius:4px;background:var(--cs-surface-subtle);color:var(--cs-text-muted);font-size:8px}.patch-line{position:relative;cursor:pointer}.patch-line.focused{outline:2px solid var(--cs-focus);outline-offset:-2px}.patch-line--split>i{min-width:32px}.line-comment-button{display:table-cell;width:18px;padding:0;border:0;background:transparent;color:var(--cs-brand-600);font-size:10px;opacity:0;cursor:pointer}.patch-line:hover .line-comment-button,.line-comment-button:focus{opacity:1}.patch-context-toggle{display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--cs-surface-subtle);color:var(--cs-brand-700);font-size:8px;cursor:pointer}.review-comments{display:grid;gap:7px;padding:10px;border-top:1px solid var(--cs-border);background:var(--cs-surface)}.review-comment-form,.review-comment{padding:8px;border:1px solid var(--cs-border);border-radius:7px;background:var(--cs-surface-subtle)}.review-comment-form{display:grid;gap:6px}.review-comment-form strong,.review-comment header strong{font-size:8px}.review-comment-form textarea{width:100%;padding:6px;border:1px solid var(--cs-border-strong);border-radius:5px;background:var(--cs-surface);font:9px var(--cs-font-sans);resize:vertical}.review-comment-form>div{display:flex;justify-content:flex-end;gap:5px}.review-comment-form button{padding:4px 7px;border:1px solid var(--cs-border);border-radius:5px;background:var(--cs-surface);font-size:8px;cursor:pointer}.review-comment-form button[type=submit]{background:var(--cs-brand-600);color:white}.comment-error{margin:0;color:var(--cs-danger);font-size:8px}.review-comment header{display:flex;justify-content:space-between;gap:6px}.review-comment header small{color:var(--cs-success);font-size:7px}.review-comment.outdated{opacity:.7}.review-comment.outdated header small{color:var(--cs-warning-700)}.review-comment :deep(.safe-markdown){margin-top:5px;font-size:9px}
-.syntax-keyword{color:#7b4db1}.syntax-string{color:#9c5d25}.syntax-comment{color:#73827a;font-style:italic}
+.diff-explorer { padding: 0; overflow: hidden; }.diff-heading { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.diff-heading p, .diff-heading h3 { margin: 0; }.diff-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.diff-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.diff-heading__status { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.diff-heading__status svg { color: var(--cs-text-brand); }.diff-explorer > :deep(.state-panel) { min-height: 112px; border: 0; border-radius: 0; }.diff-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-stats > div { display: grid; min-width: 0; grid-template-columns: auto 1fr; align-items: center; gap: var(--cs-space-2) var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border-right: 1px solid var(--cs-border); }.diff-stats > div:last-child { border-right: 0; }.diff-stats svg { grid-row: 1 / 3; color: var(--cs-text-muted); }.diff-stats span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }.diff-stats strong { font: var(--cs-text-sm) var(--cs-font-mono); }.diff-stats__addition strong { color: var(--cs-success); }.diff-stats__deletion strong { color: var(--cs-danger); }.diff-gap { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-warning-border); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.diff-gap button, .patch-message button { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-glass); color: inherit; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.diff-workspace { display: grid; min-height: 350px; grid-template-columns: minmax(220px, var(--tree-width)) 5px minmax(0, 1fr); }.diff-tree { min-width: 0; border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-resize-handle { width: 5px; padding: 0; border: 0; background: var(--cs-border); cursor: col-resize; }.diff-resize-handle:hover { background: var(--cs-brand-300); }.diff-search { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-8); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-muted); }.diff-search input { width: 100%; min-width: 0; height: 31px; background: transparent; font-size: var(--cs-text-base); outline: 0; }.diff-tree__list { max-height: 430px; overflow: auto; padding: 0 var(--cs-space-8) var(--cs-space-8); }.diff-tree__folder, .diff-tree__file { --indent: calc(var(--depth) * 12px); padding-left: calc(var(--cs-space-8) + var(--indent)); }.diff-tree__folder { display: flex; align-items: center; gap: var(--cs-space-4); min-height: 25px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.diff-tree__file { display: grid; width: 100%; min-height: 29px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-4); padding-right: var(--cs-space-8); border: 1px solid transparent; border-radius: 7px; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.diff-tree__file > span { overflow: hidden; font: var(--cs-text-xs) var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }.diff-tree__file.selected { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }.diff-tree__file :deep(.status-badge) { min-width: 19px; justify-content: center; padding-inline: var(--cs-space-4); }.diff-tree__limit { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-top: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.patch-view { min-width: 0; background: var(--cs-surface-subtle); }.patch-view > header { display: flex; min-height: 49px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.patch-view header strong, .patch-view header small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.patch-view header strong { font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header > span { display: flex; gap: var(--cs-space-8); font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header b { color: var(--cs-success); }.patch-view header i { color: var(--cs-danger); font-style: normal; }.patch-view > :deep(.state-panel) { min-height: 250px; border: 0; }.patch-message { display: grid; min-height: 250px; place-content: center; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-24); color: var(--cs-text-muted); text-align: center; }.patch-message svg { color: var(--cs-text-brand); }.patch-message strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.patch-message span { max-width: 320px; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.patch-message button { margin-top: var(--cs-space-4); background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.patch-code { max-height: 430px; overflow: auto; outline: none; }.patch-code:focus-visible { box-shadow: inset 0 0 0 2px var(--cs-focus); }.patch-code code { display: table; min-width: 100%; padding: var(--cs-space-8) 0; font: var(--cs-text-xs)/var(--cs-leading-normal) var(--cs-font-mono); }.patch-line { display: table-row; }.patch-line > i { display: table-cell; width: 1%; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-style: normal; text-align: right; user-select: none; }.patch-line > b { display: table-cell; padding-right: var(--cs-space-12); font-weight: var(--cs-weight-regular); white-space: pre; }.patch-line--addition { background: var(--cs-diff-addition-bg); color: var(--cs-diff-addition-text); }.patch-line--deletion { background: var(--cs-diff-deletion-bg); color: var(--cs-diff-deletion-text); }.patch-line--hunk { background: var(--cs-diff-hunk-bg); color: var(--cs-diff-hunk-text); }.patch-line--meta { color: var(--cs-text-muted); }.patch-code > p { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.review-location-note{margin:0;padding:var(--cs-space-8) var(--cs-space-12);border-bottom: 1px solid var(--cs-border-accent);background: var(--cs-surface-accent);color: var(--cs-text-brand);font-size:var(--cs-text-xs);line-height:var(--cs-leading-normal)}
+.patch-actions{display:flex;align-items:center;gap:var(--cs-space-8);flex-wrap:wrap}.patch-action{display:inline-flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface-subtle);color: var(--cs-text-secondary);font-size:var(--cs-text-xs);cursor:pointer}.patch-action:hover{border-color: var(--cs-border-accent-strong);color: var(--cs-text-brand)}.patch-language{padding:var(--cs-space-4) var(--cs-space-4);border-radius:4px;background: var(--cs-surface-subtle);color: var(--cs-text-muted);font-size:var(--cs-text-xs)}.patch-line{position:relative;cursor:pointer}.patch-line.focused{outline: 2px solid var(--cs-focus);outline-offset:-2px}.patch-line--split>i{min-width:32px}.line-comment-button{display:table-cell;width:18px;padding:0;border: 0;background: transparent;color: var(--cs-text-brand);font-size:var(--cs-text-sm);opacity:0;cursor:pointer}.patch-line:hover .line-comment-button,.line-comment-button:focus{opacity:1}.patch-context-toggle{display:flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-12);background: var(--cs-surface-subtle);color: var(--cs-text-brand);font-size:var(--cs-text-xs);cursor:pointer}.review-comments{display:grid;gap:var(--cs-space-8);padding:var(--cs-space-12);border-top: 1px solid var(--cs-border);background: var(--cs-surface)}.review-comment-form,.review-comment{padding:var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:7px;background: var(--cs-surface-subtle)}.review-comment-form{display:grid;gap:var(--cs-space-8)}.review-comment-form strong,.review-comment header strong{font-size:var(--cs-text-xs)}.review-comment-form textarea{width:100%;padding:var(--cs-space-8);border: 1px solid var(--cs-border-strong);border-radius:5px;background: var(--cs-surface);font:var(--cs-text-base) var(--cs-font-sans);resize:vertical}.review-comment-form>div{display:flex;justify-content:flex-end;gap:var(--cs-space-4)}.review-comment-form button{padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface);font-size:var(--cs-text-xs);cursor:pointer}.review-comment-form button[type=submit]{background: var(--cs-brand-600);color: var(--cs-text-on-dark)}.comment-error{margin:0;color: var(--cs-danger);font-size:var(--cs-text-xs)}.review-comment header{display:flex;justify-content:space-between;gap:var(--cs-space-8)}.review-comment header small{color: var(--cs-success);font-size:var(--cs-text-xs)}.review-comment.outdated{opacity:.7}.review-comment.outdated header small{color: var(--cs-warning)}.review-comment :deep(.safe-markdown){margin-top:var(--cs-space-4);font-size:var(--cs-text-xs)}
+.syntax-keyword{color: var(--cs-code-keyword)}.syntax-string{color: var(--cs-code-string)}.syntax-comment{color: var(--cs-code-comment);font-style:italic}
+.syntax-function{color: var(--cs-code-function)}.syntax-number{color: var(--cs-code-number)}.syntax-type{color: var(--cs-code-type)}
 @media (max-width: 720px) { .diff-heading { align-items: flex-start; flex-direction: column; }.diff-stats { grid-template-columns: repeat(2, 1fr); }.diff-stats > div:nth-child(2) { border-right: 0; }.diff-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--cs-border); }.diff-workspace { grid-template-columns: 1fr; }.diff-tree { border-right: 0; border-bottom: 1px solid var(--cs-border); }.diff-resize-handle { display: none; }.diff-tree__list { max-height: 250px; }.patch-code { max-height: 460px; } }
 
 /* Semantic overrides keep code and Diff surfaces legible in both themes. */
@@ -524,4 +570,7 @@ function syntaxSegments(value: string, language: string): SyntaxSegment[] {
 .syntax-keyword { color: var(--cs-code-keyword); }
 .syntax-string { color: var(--cs-code-string); }
 .syntax-comment { color: var(--cs-code-comment); }
+.syntax-function { color: var(--cs-code-function); }
+.syntax-number { color: var(--cs-code-number); }
+.syntax-type { color: var(--cs-code-type); }
 </style>

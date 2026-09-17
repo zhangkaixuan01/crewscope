@@ -45,20 +45,20 @@ const status = computed(() => {
 </template>
 
 <style scoped>
-.auth-password-guidance { margin-top: 7px; }
-.auth-password-guidance > p { margin: 0 0 6px; color: var(--cs-text-muted); font-size: 9px; }
+.auth-password-guidance { margin-top: var(--cs-space-8); }
+.auth-password-guidance > p { margin: 0 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .auth-password-guidance ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px 14px;
+  gap: var(--cs-space-8) var(--cs-space-16);
   padding: 0;
   margin: 0;
   color: var(--cs-text-muted);
-  font-size: 9px;
+  font-size: var(--cs-text-xs);
   list-style: none;
 }
-.auth-password-guidance li { display: inline-flex; align-items: center; gap: 4px; }
+.auth-password-guidance li { display: inline-flex; align-items: center; gap: var(--cs-space-4); }
 .auth-password-guidance .passed,
-.auth-password-guidance .neutral { color: var(--cs-brand-700); }
+.auth-password-guidance .neutral { color: var(--cs-text-brand); }
 .auth-password-guidance .failed { color: var(--cs-danger); }
 </style>

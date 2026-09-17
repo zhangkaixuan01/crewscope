@@ -16,6 +16,94 @@ export type TaskExecutionStatus =
   | 'PAUSE_REQUESTED' | 'PAUSED' | 'RECOVERING' | 'CANCEL_REQUESTED'
   | 'MANUAL_TAKEOVER' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 
+/**
+ * Task-runtime enums exactly as the server serialises them (`{Enum}.name()`).
+ *
+ * The runtime-facts interfaces below keep these fields typed as `string` because the Task gateway
+ * is a pass-through adapter over the public projection. The unions live here so `task/labels.ts`
+ * can be typed against them: an incomplete or invented mapping then fails typechecking instead of
+ * printing a raw Java constant in the Task drawer.
+ */
+export const taskExecutionWaitReasons = [
+  'RUNTIME', 'COLLABORATION', 'REVIEW', 'CONFIRMATION', 'USER_INPUT', 'EXTERNAL_EXECUTION',
+  'EVENT', 'MANUAL',
+] as const
+export const taskExecutionControlRequestTypes = ['PAUSE', 'CANCEL'] as const
+export const taskExecutionFailureClasses = [
+  'TRANSIENT', 'RATE_LIMITED', 'TIMEOUT', 'RUNTIME_UNAVAILABLE', 'MODEL_UNAVAILABLE',
+  'TOOL_UNAVAILABLE', 'RESOURCE_EXHAUSTED', 'RECOVERY_INTERRUPTED', 'VALIDATION',
+  'AUTHENTICATION', 'AUTHORIZATION', 'POLICY_VIOLATION', 'CAPABILITY_UNSUPPORTED', 'NOT_FOUND',
+  'CONFLICT', 'INTERNAL',
+] as const
+export const taskSourceTypes = ['WORK_ITEM', 'CONVERSATION'] as const
+export const planStepTypes = ['ANALYSIS', 'IMPLEMENTATION', 'VALIDATION', 'REVIEW', 'DELIVERY'] as const
+export const planChangeReasons = [
+  'INITIAL_PLAN', 'REQUIREMENTS_CHANGED', 'POLICY_CHANGED', 'RECOVERY_REPLAN', 'REVIEW_FEEDBACK',
+  'MANUAL_REVISION',
+] as const
+export const todoStatuses = ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const
+export const stepWaitReasons = [
+  'AGENT_INTERRUPT', 'COLLABORATION', 'REVIEW', 'HANDOFF', 'TAKEOVER', 'CONFIRMATION',
+  'EXTERNAL_EXECUTION', 'EVENT', 'USER_INPUT', 'MANUAL',
+] as const
+export const stepExecutionStatuses = [
+  'PENDING', 'READY', 'RUNNING', 'WAITING', 'SUCCEEDED', 'FAILED_RETRYABLE', 'FAILED_FINAL',
+  'SKIPPED', 'CANCELLED',
+] as const
+export const agentSessionPurposes = ['TASK', 'STEP', 'SPECIALIST'] as const
+export const agentRuntimeSessionStatuses = ['ACTIVE', 'DISABLED', 'ARCHIVED'] as const
+export const agentRunStatuses = ['RUNNING', 'INTERRUPTED', 'COMPLETED', 'FAILED', 'CANCELLED'] as const
+export const agentRunSegmentKinds = ['INVOKE', 'RESUME', 'RECOVERY'] as const
+export const agentRunSegmentStatuses = ['ACTIVE', 'INTERRUPTED', 'COMPLETED', 'FAILED', 'CANCELLED'] as const
+export const agentInterruptKinds = ['CLARIFICATION', 'PERMISSION', 'APPROVAL', 'PAUSE'] as const
+export const agentInterruptStatuses = ['PENDING', 'RESOLVED', 'CANCELLED', 'EXPIRED'] as const
+export const agentRunContinuityGapReasons = [
+  'SNAPSHOT_MISSING',
+  'SNAPSHOT_CORRUPT',
+  'SNAPSHOT_IDENTITY_MISMATCH',
+  'REDIS_STATE_LOST',
+  'UNSAFE_CHECKPOINT',
+] as const
+export const agentStateSnapshotStatuses = ['CURRENT', 'SUPERSEDED', 'INVALID'] as const
+export const executionLeasePhases = ['PREPARE', 'RUN'] as const
+/** Derived by `ExecutionLeaseResponse` from release presence, not a domain enum. */
+export const executionLeaseStatuses = ['ACTIVE', 'RELEASED'] as const
+export const executionLeaseReleaseReasons = [
+  'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED', 'WAITING', 'EXPIRED', 'MANUAL_TAKEOVER',
+  'WORKER_SHUTDOWN',
+] as const
+
+export type TaskExecutionWaitReason = typeof taskExecutionWaitReasons[number]
+export type TaskExecutionControlRequestType = typeof taskExecutionControlRequestTypes[number]
+export type TaskExecutionFailureClass = typeof taskExecutionFailureClasses[number]
+export type TaskSourceType = typeof taskSourceTypes[number]
+export type PlanStepType = typeof planStepTypes[number]
+export type PlanChangeReason = typeof planChangeReasons[number]
+export type TodoStatus = typeof todoStatuses[number]
+export type StepExecutionStatus = typeof stepExecutionStatuses[number]
+export type StepWaitReason = typeof stepWaitReasons[number]
+export type AgentSessionPurpose = typeof agentSessionPurposes[number]
+export type AgentRuntimeSessionStatus = typeof agentRuntimeSessionStatuses[number]
+export type AgentRunStatus = typeof agentRunStatuses[number]
+export type AgentRunSegmentKind = typeof agentRunSegmentKinds[number]
+export type AgentRunSegmentStatus = typeof agentRunSegmentStatuses[number]
+export type AgentInterruptKind = typeof agentInterruptKinds[number]
+export type AgentInterruptStatus = typeof agentInterruptStatuses[number]
+export type AgentRunContinuityGapReason = typeof agentRunContinuityGapReasons[number]
+export type AgentStateSnapshotStatus = typeof agentStateSnapshotStatuses[number]
+export type ExecutionLeasePhase = typeof executionLeasePhases[number]
+export type ExecutionLeaseStatus = typeof executionLeaseStatuses[number]
+export type ExecutionLeaseReleaseReason = typeof executionLeaseReleaseReasons[number]
+
+/** `RuntimeFleetHealth` / `RuntimeWaitCause` in the application layer. */
+export const runtimeFleetHealths = ['HEALTHY', 'DEGRADED', 'UNAVAILABLE'] as const
+export const runtimeWaitCauses = [
+  'CAPABILITY_UNAVAILABLE', 'NO_ACTIVE_WORKER', 'HEARTBEAT_STALE', 'DRAINING',
+  'CAPACITY_EXHAUSTED', 'REQUEUE_PENDING',
+] as const
+export type RuntimeFleetHealth = typeof runtimeFleetHealths[number]
+export type RuntimeWaitCause = typeof runtimeWaitCauses[number]
+
 export interface TaskListQuery extends TaskScope {
   projectId?: string
   status?: TaskStatus
@@ -35,7 +123,15 @@ export interface TaskSummary {
   currentExecutionId: string | null
   currentAttempt: number | null
   currentExecutionStatus: TaskExecutionStatus | null
-  currentWaitingReason: string | null
+  /*
+   * 收窄成枚举，和同一条记录里的 status / currentExecutionStatus 一致。
+   * 留成 `string` 的后果是看得见的：E2E 与两份组件测试各自编了 `CAPACITY`、`WAITING_APPROVAL`
+   * 这样并不存在的等待原因（真值只有 RUNTIME / COLLABORATION / REVIEW / CONFIRMATION /
+   * USER_INPUT / EXTERNAL_EXECUTION / EVENT / MANUAL 八个），而 enumLabel 查不到就原样回显，
+   * 于是「等待原因 · CAPACITY」这样的裸枚举一路渲染到了截图基线里——M9 要消灭的正是这个。
+   * 收窄之后，编错一个等待原因会在 typecheck 阶段失败，而不是在界面上。
+   */
+  currentWaitingReason: TaskExecutionWaitReason | null
   ownerPrincipalId: string | null
   version: number
   createdAt: string
@@ -146,7 +242,7 @@ export interface TaskResponsibilitySnapshot {
 }
 
 export interface TaskExecutionWaiting {
-  reason: string
+  reason: TaskExecutionWaitReason
   waitingSince: string
 }
 
@@ -365,8 +461,9 @@ export interface RuntimeFleetSummary {
     available: number
   }
   waitingRuntimeExecutions: number
+  /* 同上：`cause` 也收窄成枚举，存量替身里写的 `CAPACITY` 其实是 `CAPACITY_EXHAUSTED`。 */
   waitingCauses: Array<{
-    cause: string
+    cause: RuntimeWaitCause
     count: number
   }>
 }

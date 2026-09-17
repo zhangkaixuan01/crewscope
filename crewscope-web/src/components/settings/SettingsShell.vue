@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppShell from '../layout/AppShell.vue'
+import SettingsFieldSearch from './SettingsFieldSearch.vue'
 
 export interface SettingsNavItem { key: string; label: string; route: string; description?: string }
 const props = withDefaults(defineProps<{ title: string; eyebrow?: string; items?: SettingsNavItem[] }>(), {
@@ -31,7 +32,7 @@ const filteredItems = computed(() => {
     <template #actions><slot name="actions" /></template>
     <div class="settings-shell">
       <nav class="settings-shell__nav" aria-label="Settings 二级导航">
-        <input v-model="search" type="search" aria-label="搜索配置项" placeholder="搜索配置" />
+        <input v-model="search" type="search" aria-label="搜索配置项" placeholder="搜索配置" /><SettingsFieldSearch :query="search" />
         <RouterLink v-for="item in filteredItems" :key="item.key" :to="item.route" :aria-current="route.path === item.route ? 'page' : undefined">{{ item.label }}</RouterLink>
         <span v-if="filteredItems.length === 0" class="settings-shell__empty">没有匹配配置</span>
       </nav>
@@ -41,11 +42,11 @@ const filteredItems = computed(() => {
 </template>
 
 <style scoped>
-.settings-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--cs-space-5); min-width: 0; }
-.settings-shell__nav { display: grid; align-content: start; gap: var(--cs-space-1); position: sticky; top: var(--cs-space-4); height: fit-content; padding: var(--cs-space-2); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
-.settings-shell__nav a { min-height: 36px; display: flex; align-items: center; padding: 0 var(--cs-space-3); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-decoration: none; }
-.settings-shell__nav input { min-height: 36px; padding: 0 var(--cs-space-2); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); font-size: var(--cs-text-base); }.settings-shell__empty { padding: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.settings-shell__nav a:hover, .settings-shell__nav a[aria-current='page'] { background: var(--cs-brand-50); color: var(--cs-brand-800); font-weight: 700; }
+.settings-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--cs-space-20); min-width: 0; }
+.settings-shell__nav { display: grid; align-content: start; gap: var(--cs-space-4); position: sticky; top: var(--cs-space-16); height: fit-content; padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
+.settings-shell__nav a { min-height: var(--cs-density-control-height); display: flex; align-items: center; padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-decoration: none; }
+.settings-shell__nav input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); font-size: var(--cs-text-base); }.settings-shell__empty { padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.settings-shell__nav a:hover, .settings-shell__nav a[aria-current='page'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
 .settings-shell__content { min-width: 0; }
-@media (max-width: 767px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-3); } .settings-shell__nav { position: static; display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
+@media (max-width: 767px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-12); } .settings-shell__nav { position: static; display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
 </style>

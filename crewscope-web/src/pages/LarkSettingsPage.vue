@@ -189,9 +189,9 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
 
 <template>
   <SettingsShell title="飞书与通知" eyebrow="设置 · 团队集成">
-    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="loadAll(true)"><RefreshCw :size="14" />刷新</BaseButton></template>
+    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'lark-settings-scope-reason'" @click="loadAll(true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
     <LarkNotificationAdmin
       v-else
       :key="scope.teamId"

@@ -85,10 +85,10 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
     <template #actions>
       <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
       <span v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 {{ formatRelativeTime(lastRefreshedAt) }}</span>
-      <BaseButton size="small" variant="secondary" :disabled="!scope" @click="refresh(true)"><RefreshCw :size="14" />刷新</BaseButton>
+      <BaseButton size="small" variant="secondary" :disabled="!scope" :aria-describedby="scope ? undefined : 'operations-scope-reason'" @click="refresh(true)"><RefreshCw :size="14" />刷新</BaseButton>
     </template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="运行健康属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="operations-scope-reason" state="empty" title="请选择 Team" description="运行健康属于明确的 Organization 与 Team。" />
     <OperationsWorkspace
       v-else :key="scope.teamId" :phase="store.state.operationsHealth.phase" :error="store.state.operationsHealth.error"
       :health="store.state.operationsHealth.value" :diagnostics-phase="store.state.diagnostics.phase"
@@ -101,7 +101,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
 </template>
 
 <style scoped>
-.auto-refresh { display: flex; align-items: center; gap: 6px; color: var(--cs-text-muted); font-size: 9px; font-weight: 700; }
-.auto-refresh input { accent-color: var(--cs-brand-600); }
-.last-refreshed { color: var(--cs-text-muted); font-size: 9px; }
+.auto-refresh { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+.auto-refresh input { accent-color: var(--cs-focus); }
+.last-refreshed { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

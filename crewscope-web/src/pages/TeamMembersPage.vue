@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Copy, Plus, ShieldCheck, UserRoundPlus, UsersRound, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
@@ -8,12 +9,17 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import TeamInvitationManager from '../components/team/TeamInvitationManager.vue'
 import { useScopeStore } from '../domains/scope/store'
-import { enumLabel } from '../domains/settings/labels'
+import { enumLabel } from '../domains/shared/labels'
+import { teamJoinMethodLabels, teamMemberStatusLabels, teamRoleLabels } from '../domains/scope/labels'
 import { useClipboard } from '../composables/useClipboard'
+import { useRouteFocus } from '../composables/useRouteFocus'
 
 const principal = inject(AUTH_PRINCIPAL)
 const store = useScopeStore()
 const team = store.selectedTeam
+// Configuration search deep-links a member into this list with `?member=`; the parameter is read-only.
+const { locatedId, bindRow, clear: clearLocated } = useRouteFocus('member')
+const locatedMember = computed(() => store.state.members.find(member => member.id === locatedId.value) ?? null)
 const showAddMember = ref(false)
 const targetPrincipalId = ref('')
 const submitted = ref(false)
@@ -48,16 +54,16 @@ function shortId(value: string): string {
 }
 
 function memberStatusLabel(value: string): string {
-  return enumLabel(value, { ACTIVE: '活跃', INACTIVE: '已停用', REMOVED: '已移除', PENDING: '待加入' })
+  return enumLabel(value, teamMemberStatusLabels)
 }
 
 function joinMethodLabel(value: string): string {
-  return enumLabel(value, { INVITED: '邀请加入', CREATED: '直接创建', IMPORTED: '目录导入', RESTORED: '重新加入' })
+  return enumLabel(value, teamJoinMethodLabels)
 }
 
 function roleLabels(roles?: string[]): string {
   if (!roles?.length) return '成员'
-  return roles.map(role => enumLabel(role, { OWNER: 'Owner', TEAM_ADMIN: '团队管理员', TEAM_LEAD: '团队负责人', MEMBER: '成员', AUDITOR: '审计员' })).join('、')
+  return roles.map(role => enumLabel(role, teamRoleLabels)).join('、')
 }
 
 function copyPrincipal(member: { userPrincipalId: string }): void { void clipboard.copy(member.userPrincipalId, member.userPrincipalId) }
@@ -72,7 +78,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 
     <StatePanel v-if="store.state.phase === 'loading' || store.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="store.state.phase === 'error'" state="error" :description="store.state.errorMessage ?? undefined" @retry="store.reload" />
-    <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" />
+    <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="还没有可访问的 Team"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
 
     <div v-else class="members-page page-shell">
       <section class="member-summary panel">
@@ -92,12 +98,25 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 
       <section class="panel member-directory">
         <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>展示身份目录中的显示名，以及成员状态和加入事实。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
+        <p v-if="locatedId" class="locate-note" role="status">
+          <span v-if="locatedMember">已定位到 {{ locatedMember.displayName }}。</span>
+          <span v-else-if="store.state.membersLoading">正在加载成员名单，加载完成后显示定位结果。</span>
+          <span v-else>当前 Team 的成员列表里没有这个成员：该成员可能已退出或被移除。</span>
+          <BaseButton variant="ghost" size="small" @click="clearLocated()">清除定位</BaseButton>
+        </p>
         <StatePanel v-if="store.state.membersLoading" state="loading" />
         <StatePanel v-else-if="store.state.membersErrorMessage" state="error" :description="store.state.membersErrorMessage" @retry="store.loadMembers(true)" />
-        <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实" />
+        <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实"><template v-if="canManageMembers" #action><BaseButton size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></template></StatePanel>
         <div v-else class="member-table" role="table" aria-label="团队成员列表">
           <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">角色</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span></div>
-          <div v-for="member in store.state.members" :key="member.id" class="member-row" role="row">
+          <div
+            v-for="member in store.state.members"
+            :key="member.id"
+            :ref="element => bindRow(element, member.id)"
+            class="member-row"
+            :class="{ 'member-row--located': member.id === locatedId }"
+            role="row"
+          >
             <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }} <button type="button" class="copy-principal" :aria-label="`复制 ${member.displayName} 的 Principal ID`" @click="copyPrincipal(member)"><Check v-if="clipboard.copied.value === member.userPrincipalId" :size="11" /><Copy v-else :size="11" /></button></small></span></div>
             <span class="member-roles" role="cell">{{ roleLabels(member.roles) }}</span>
             <span role="cell"><StatusBadge :tone="member.status === 'ACTIVE' ? 'success' : 'neutral'" dot>{{ memberStatusLabel(member.status) }}</StatusBadge></span>
@@ -119,12 +138,16 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 </template>
 
 <style scoped>
-.member-summary { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: 15px; padding: 21px 23px; background: linear-gradient(135deg, var(--cs-surface), var(--cs-info-soft)); }.summary-icon { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; background: var(--cs-info-soft); color: var(--cs-info); }.member-summary h2 { margin-bottom: 5px; font-size: 18px; }.member-summary p:last-child { max-width: 720px; margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.add-member { padding: 20px; }.add-member__heading { display: grid; grid-template-columns: 40px 1fr 30px; gap: 12px; margin-bottom: 17px; }.add-member__heading > i { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.add-member__heading h2 { margin-bottom: 3px; font-size: 14px; }.add-member__heading p { margin: 0; color: var(--cs-text-muted); font-size: 10px; }.add-member__heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.add-member > label { display: block; margin-bottom: 5px; color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; }.principal-input { display: grid; max-width: 700px; grid-template-columns: 1fr auto; gap: 8px; }.principal-input input { min-width: 0; min-height: 36px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: 11px; }.principal-input input[aria-invalid="true"] { border-color: var(--cs-danger); }.field-error { margin: 7px 0 0; color: var(--cs-danger); font-size: 10px; }
-.member-directory { overflow: hidden; }.member-table__head, .member-row { display: grid; grid-template-columns: minmax(250px, 1.5fr) 110px 120px 120px 70px; align-items: center; gap: 10px; padding-inline: 20px; }.member-table__head { min-height: 38px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }.member-row { min-height: 72px; border-bottom: 1px solid var(--cs-border); }.member-row:last-child { border-bottom: 0; }.member-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }.member-identity > i { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 11px; font-style: normal; font-weight: 800; }.member-identity strong, .member-identity small { display: flex; align-items: center; gap: 5px; }.member-identity strong { font-size: 11px; }.member-identity strong em { padding: 1px 5px; border-radius: var(--cs-radius-pill); background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 8px; font-style: normal; }.member-identity small { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.join-method, .joined-at, .version { color: var(--cs-text-secondary); font-size: 10px; }.version { display: flex; align-items: center; gap: 5px; }.version svg { color: var(--cs-success); }
-.permission-note { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.permission-note > svg { flex: 0 0 auto; color: var(--cs-brand-600); }.permission-note strong, .permission-note span { display: block; }.permission-note strong { color: var(--cs-text-secondary); font-size: 10px; }.permission-note span { margin-top: 2px; font-size: 9px; }
-@media (max-width: 850px) { .member-table__head { display: none; }.member-row { grid-template-columns: 1fr auto; gap: 8px; padding-block: 12px; }.member-row > .join-method, .member-row > .joined-at { display: none; }.version { grid-column: 2; }.member-summary { grid-template-columns: 44px 1fr; }.member-summary > :last-child { grid-column: 1 / -1; justify-self: start; } }
-@media (max-width: 767px) { .member-summary { padding: 17px; }.summary-icon { width: 44px; height: 44px; }.add-member { padding: 16px; }.principal-input { grid-template-columns: 1fr; }.member-table__head, .member-row { padding-inline: 15px; }.member-row { grid-template-columns: 1fr auto; }.member-directory .panel-heading { align-items: flex-start; flex-direction: column; } }
+.member-summary { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24); background: linear-gradient(135deg, var(--cs-surface), var(--cs-info-soft)); }.summary-icon { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; background: var(--cs-info-soft); color: var(--cs-info); }.member-summary h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-lg); }.member-summary p:last-child { max-width: 720px; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.add-member { padding: var(--cs-space-20); }.add-member__heading { display: grid; grid-template-columns: 40px 1fr 30px; gap: var(--cs-space-12); margin-bottom: var(--cs-space-16); }.add-member__heading > i { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.add-member__heading h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-base); }.add-member__heading p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.add-member__heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.add-member > label { display: block; margin-bottom: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.principal-input { display: grid; max-width: 700px; grid-template-columns: 1fr auto; gap: var(--cs-space-8); }.principal-input input { min-width: 0; min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }.principal-input input[aria-invalid="true"] { border-color: var(--cs-danger); }.field-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
+.member-directory { overflow: hidden; }.member-table__head, .member-row { display: grid; grid-template-columns: minmax(250px, 1.5fr) 110px 120px 120px 70px; align-items: center; gap: var(--cs-space-12); padding-inline: var(--cs-space-20); }.member-table__head { min-height: 38px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }.member-row { min-height: 72px; border-bottom: 1px solid var(--cs-border); }.member-row:last-child { border-bottom: 0; }.member-identity { display: flex; align-items: center; gap: var(--cs-space-12); min-width: 0; }.member-identity > i { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-style: normal; font-weight: var(--cs-weight-semibold); }.member-identity strong, .member-identity small { display: flex; align-items: center; gap: var(--cs-space-4); }.member-identity strong { font-size: var(--cs-text-sm); }.member-identity strong em { padding: var(--cs-space-2) var(--cs-space-4); border-radius: var(--cs-radius-pill); background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-style: normal; }.member-identity small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.join-method, .joined-at, .version { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.version { display: flex; align-items: center; gap: var(--cs-space-4); }.version svg { color: var(--cs-success); }
+.permission-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.permission-note > svg { flex: 0 0 auto; color: var(--cs-text-brand); }.permission-note strong, .permission-note span { display: block; }.permission-note strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.permission-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }
+@media (max-width: 850px) { .member-table__head { display: none; }.member-row { grid-template-columns: 1fr auto; gap: var(--cs-space-8); padding-block: var(--cs-space-12); }.member-row > .join-method, .member-row > .joined-at { display: none; }.version { grid-column: 2; }.member-summary { grid-template-columns: 44px 1fr; }.member-summary > :last-child { grid-column: 1 / -1; justify-self: start; } }
+@media (max-width: 767px) { .member-summary { padding: var(--cs-space-16); }.summary-icon { width: 44px; height: 44px; }.add-member { padding: var(--cs-space-16); }.principal-input { grid-template-columns: 1fr; }.member-table__head, .member-row { padding-inline: var(--cs-space-16); }.locate-note { margin-inline: var(--cs-space-16); }.member-row { grid-template-columns: 1fr auto; }.member-directory .panel-heading { align-items: flex-start; flex-direction: column; } }
 .copy-principal { display: inline-grid; width: 20px; height: 20px; place-items: center; border-radius: 5px; color: var(--cs-text-muted); vertical-align: middle; cursor: pointer; }
-.copy-principal:hover, .copy-principal:focus-visible { background: var(--cs-brand-100); color: var(--cs-brand-700); }
+.copy-principal:hover, .copy-principal:focus-visible { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
+/* 配置搜索的 `?member=` 深链：只在参数存在时渲染，参数不存在时不产生任何节点。 */
+.locate-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cs-space-4) var(--cs-space-12); min-height: var(--cs-density-control-height); margin: var(--cs-space-12) var(--cs-space-20) 0; padding: var(--cs-space-4) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-sm); }
+.locate-note > span { min-width: 0; }
+.member-row--located { background: var(--cs-surface-accent); box-shadow: inset 3px 0 0 var(--cs-text-brand); }
 </style>

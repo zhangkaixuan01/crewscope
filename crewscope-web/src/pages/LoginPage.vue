@@ -251,11 +251,11 @@ function isAbort(error: unknown): boolean {
 </template>
 
 <style scoped>
-.login-page__form { display: grid; gap: 16px; }
+.login-page__form { display: grid; gap: var(--cs-space-16); }
 .login-page__primary { width: 100%; min-height: var(--cs-auth-control-height); }
 .login-page__status,
-.login-page__registration { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.login-page__registration { display: grid; justify-items: center; gap: 6px; margin-top: 20px; text-align: center; }
+.login-page__registration { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.login-page__registration { display: grid; justify-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-20); text-align: center; }
 .login-page__registration p { margin: 0; }
-.login-page__registration a { color: var(--cs-brand-700); font-weight: 720; }
+.login-page__registration a { color: var(--cs-text-brand); font-weight: var(--cs-weight-semibold); }
 </style>

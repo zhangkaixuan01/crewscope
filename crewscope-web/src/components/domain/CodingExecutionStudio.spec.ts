@@ -16,7 +16,7 @@ describe('CodingExecutionStudio', () => {
     expect(wrapper.text()).toContain('coding.maven.test')
     expect(wrapper.text()).toContain('2 / 20')
     expect(wrapper.text()).toContain('3 / 100')
-    expect(wrapper.text()).toContain('网络 NONE')
+    expect(wrapper.text()).toContain('网络 完全禁网')
     expect(wrapper.text()).not.toContain('/private/worktree')
     expect(wrapper.text()).not.toContain('container-secret')
     expect(wrapper.text()).not.toContain('task-token')

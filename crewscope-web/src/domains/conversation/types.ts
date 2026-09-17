@@ -1,7 +1,11 @@
 import type { CommandReceipt } from '../scope/types'
+import type { PrincipalType } from '../principal/types'
 
 export type ConversationVisibility = 'PRIVATE' | 'TEAM'
 export type ConversationStatus = 'ACTIVE' | 'ARCHIVED'
+/** `ConversationParticipantRole` / `ConversationParticipantStatus` as the server serialises them. */
+export type ConversationParticipantRole = 'OWNER' | 'MEMBER' | 'AGENT'
+export type ConversationParticipantStatus = 'ACTIVE' | 'LEFT'
 
 export interface ConversationScope {
   organizationId: string
@@ -29,11 +33,11 @@ export interface ConversationParticipant {
   principalId: string
   teamMemberId: string | null
   displayName: string
-  principalType: 'USER' | 'PERSONAL_AGENT' | 'TEAM_AGENT' | 'SPECIALIST_AGENT' | 'SERVICE'
+  principalType: PrincipalType
   ownerPrincipalId: string | null
   ownerDisplayName: string | null
-  role: 'OWNER' | 'MEMBER' | 'AGENT'
-  status: 'ACTIVE' | 'LEFT'
+  role: ConversationParticipantRole
+  status: ConversationParticipantStatus
   joinedByPrincipalId: string
   joinedAt: string
   leftAt: string | null

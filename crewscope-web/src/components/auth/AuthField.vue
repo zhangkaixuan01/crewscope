@@ -85,25 +85,25 @@ defineExpose({ focus, input })
 <style scoped>
 .auth-field > label {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: var(--cs-space-8);
   color: var(--cs-text-secondary);
-  font-size: 10px;
-  font-weight: 740;
+  font-size: var(--cs-text-sm);
+  font-weight: var(--cs-weight-semibold);
 }
 .auth-field__frame {
   display: grid;
   min-height: var(--cs-auth-control-height);
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: var(--cs-space-8);
+  padding: 0 var(--cs-space-12);
   border: 1px solid var(--cs-border-strong);
   border-radius: 10px;
   background: var(--cs-auth-input-surface);
   color: var(--cs-text-muted);
   transition: border-color var(--cs-auth-transition), box-shadow var(--cs-auth-transition);
 }
-.auth-field__frame:focus-within { border-color: var(--cs-brand-400); box-shadow: var(--cs-focus-ring); }
+.auth-field__frame:focus-within { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }
 .auth-field--invalid .auth-field__frame { border-color: var(--cs-danger); }
 .auth-field--disabled { opacity: .6; }
 .auth-field__frame input {
@@ -112,13 +112,13 @@ defineExpose({ focus, input })
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--cs-text-base);
 }
-.auth-field__frame input::placeholder { color: #89968e; }
+.auth-field__frame input::placeholder { color: var(--cs-text-muted); }
 .auth-field__adornment,
 .auth-field__action { display: grid; place-items: center; }
 .auth-field__hint,
-.auth-field__error { margin: 5px 0 0; font-size: 9px; }
+.auth-field__error { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-xs); }
 .auth-field__hint { color: var(--cs-text-muted); }
 .auth-field__error { color: var(--cs-danger); }
 </style>

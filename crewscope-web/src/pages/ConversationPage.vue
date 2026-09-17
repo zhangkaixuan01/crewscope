@@ -7,8 +7,6 @@ import {
   LockKeyhole,
   MessageSquarePlus,
   Plus,
-  UsersRound,
-  X,
 } from '@lucide/vue'
 import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -19,11 +17,13 @@ import BaseTooltip from '../components/base/BaseTooltip.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import ConversationAgentActionRegion from '../components/domain/ConversationAgentActionRegion.vue'
 import ConversationComposer from '../components/domain/ConversationComposer.vue'
+import ConversationCreateDialog from '../components/domain/ConversationCreateDialog.vue'
 import SafeMarkdown from '../components/domain/SafeMarkdown.vue'
 import TaskIntentCard from '../components/domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from '../components/domain/ConversationWorkItemLinks.vue'
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
+import ConversationParticipantsPanel from '../components/domain/ConversationParticipantsPanel.vue'
 import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
 import { usePreference } from '../composables/usePreference'
 import { useResizablePane } from '../composables/useResizablePane'
@@ -49,6 +49,7 @@ import { principalDisplayName, principalNameDirectory } from '../domains/scope/m
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
 import type { TeamObserverScope } from '../domains/teamobserver/types'
+import type { PrincipalScope } from '../domains/principal/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,11 +63,7 @@ const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
 const isOnline = useNetworkStatus()
 const createOpen = ref(false)
-const createTitle = ref('')
-const createVisibility = ref<ConversationVisibility>('PRIVATE')
 const createError = ref<string | null>(null)
-const createDialog = ref<HTMLElement | null>(null)
-const createTitleInput = ref<HTMLInputElement | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
@@ -102,6 +99,10 @@ const activeParticipants = computed(
   () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
 )
 const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
+// Subject pickers search the Team directory, so they need the Team scope without the conversation.
+const principalScope = computed<PrincipalScope | null>(() => principal && scopeStore.state.selectedTeamId
+  ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
+  : null)
 const focus = computed(() => queryValue(route.query.focus))
 const pageTitle = computed(() => {
   if (observerMode.value) return 'Team Observer'
@@ -401,11 +402,8 @@ async function clearConversation(): Promise<void> {
 
 function openCreate(): void {
   createReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  createTitle.value = ''
-  createVisibility.value = 'PRIVATE'
   createError.value = null
   createOpen.value = true
-  void nextTick(() => createTitleInput.value?.focus())
 }
 
 function closeCreate(restoreFocus = true): void {
@@ -419,30 +417,8 @@ function closeCreate(restoreFocus = true): void {
   void nextTick(() => returnTarget?.focus())
 }
 
-function handleCreateDialogKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeCreate()
-    return
-  }
-  if (event.key !== 'Tab' || !createDialog.value) return
-  const focusable = [...createDialog.value.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-  )].filter(element => !element.hasAttribute('hidden'))
-  if (focusable.length === 0) return
-  const first = focusable[0]
-  const last = focusable.at(-1)
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last?.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first?.focus()
-  }
-}
-
-async function submitCreate(): Promise<void> {
-  const title = createTitle.value.trim()
+async function submitCreate(payload: { title: string, visibility: ConversationVisibility }): Promise<void> {
+  const title = payload.title.trim()
   if (!title) {
     createError.value = '请输入对话标题'
     return
@@ -453,7 +429,7 @@ async function submitCreate(): Promise<void> {
   try {
     const conversationId = await conversationStore.create(scope, {
       title,
-      visibility: createVisibility.value,
+      visibility: payload.visibility,
     })
     closeCreate(false)
     if (conversationId) {
@@ -794,7 +770,7 @@ function prefersReducedMotion(): boolean {
           </div>
           <div class="conversation-list-header__actions">
             <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
-            <button class="pane-collapse" type="button" aria-label="折叠对话列表" @click="leftPane.toggle">{{ leftPaneCollapsed ? '展开' : '折叠' }}</button>
+            <button class="pane-collapse touch-target" type="button" aria-label="折叠对话列表" @click="leftPane.toggle">{{ leftPaneCollapsed ? '展开' : '折叠' }}</button>
           </div>
         </header>
 
@@ -909,7 +885,7 @@ function prefersReducedMotion(): boolean {
             </div>
             <div class="detail-header-actions">
               <StatusBadge tone="success">活跃</StatusBadge>
-              <button class="pane-collapse" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
+              <button class="pane-collapse touch-target" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
             </div>
           </header>
           <div
@@ -965,6 +941,9 @@ function prefersReducedMotion(): boolean {
                   :error-message="taskIntentStore.state.commandErrorMessage"
                   :version-conflict="taskIntentStore.state.versionConflict"
                   :principal-names="principalNames"
+                  :members="scopeStore.state.members"
+                  :projects="scopeStore.state.projects"
+                  :scope="principalScope"
                   @revise="reviseTaskIntent"
                   @reject="rejectTaskIntent"
                   @confirm="confirmTaskIntent"
@@ -1119,108 +1098,70 @@ function prefersReducedMotion(): boolean {
         @keydown="rightPane.handleKeydown"
       />
 
-      <aside class="panel participant-panel" :class="{ collapsed: rightPaneCollapsed }" aria-label="对话参与者">
-        <header>
-          <p class="eyebrow">Current facts</p>
-          <h2>参与者</h2>
-          <span>{{ selected ? `${activeParticipants.length} 个当前主体` : '选择对话后查看' }}</span>
-          <button class="pane-collapse" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开' : '折叠' }}</button>
-        </header>
-        <ul v-if="selected">
-          <li v-for="participant in activeParticipants" :key="participant.id">
-            <span :class="{ agent: participant.role === 'AGENT' }">
-              <Bot v-if="participant.role === 'AGENT'" :size="15" />
-              <template v-else>{{ participantName(participant).slice(0, 1) }}</template>
-            </span>
-            <div><strong>{{ participantName(participant) }}</strong><small>{{ participantRole(participant) }}</small></div>
-            <StatusBadge :tone="participant.role === 'AGENT' ? 'agent' : 'neutral'">
-              {{ participantKind(participant) }}
-            </StatusBadge>
-          </li>
-        </ul>
-        <div v-else class="participant-placeholder">
-          <UsersRound :size="22" aria-hidden="true" />
-          <span>Owner、Personal Agent 和显式参与者将在这里展示。</span>
-        </div>
-      </aside>
+      <ConversationParticipantsPanel
+        :selected="Boolean(selected)"
+        :collapsed="rightPaneCollapsed"
+        :participants="activeParticipants"
+        :participant-name="participantName"
+        :participant-role="participantRole"
+        :participant-kind="participantKind"
+        @toggle="rightPane.toggle"
+      />
     </div>
 
-    <div v-if="createOpen && !observerMode" class="dialog-backdrop" @keydown="handleCreateDialogKeydown">
-      <section ref="createDialog" class="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-conversation-title">
-        <header>
-          <div><p class="eyebrow">New conversation</p><h2 id="create-conversation-title">新建对话</h2></div>
-          <button type="button" aria-label="关闭新建对话" @click="closeCreate()"><X :size="18" /></button>
-        </header>
-        <form @submit.prevent="submitCreate">
-          <label>
-            <span>标题</span>
-            <input ref="createTitleInput" v-model="createTitle" maxlength="200" autocomplete="off" placeholder="例如：规划 GitHub Provider 接入" />
-          </label>
-          <fieldset>
-            <legend>可见范围</legend>
-            <label :class="{ active: createVisibility === 'PRIVATE' }">
-              <input v-model="createVisibility" type="radio" value="PRIVATE" />
-              <LockKeyhole :size="17" /><span><strong>私有对话</strong><small>仅 Owner、Personal Agent 与显式参与者可见</small></span>
-            </label>
-            <label :class="{ active: createVisibility === 'TEAM' }">
-              <input v-model="createVisibility" type="radio" value="TEAM" />
-              <UsersRound :size="17" /><span><strong>团队对话</strong><small>当前 Team 成员可发现，写入仍需 Participant 资格</small></span>
-            </label>
-          </fieldset>
-          <p v-if="createError" class="form-error" role="alert">{{ createError }}</p>
-          <footer>
-            <BaseButton variant="secondary" @click="closeCreate()">取消</BaseButton>
-            <BaseButton type="submit" :loading="conversationStore.state.commandPending">创建对话</BaseButton>
-          </footer>
-        </form>
-      </section>
-    </div>
+    <ConversationCreateDialog
+      v-if="createOpen && !observerMode"
+      :pending="conversationStore.state.commandPending"
+      :error="createError"
+      @close="closeCreate()"
+      @submit="submitCreate"
+    />
   </AppShell>
 </template>
 
 <style scoped>
-.conversation-workspace { display: grid; min-height: calc(100vh - 176px); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: 14px; }
+.conversation-workspace { display: grid; min-height: calc(100vh - 176px); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: var(--cs-space-16); }
 .conversation-list-panel, .conversation-detail, .participant-panel { min-height: 640px; overflow: hidden; }.conversation-list-panel { display: flex; height: calc(100vh - 176px); flex-direction: column; }
-.conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px; border-bottom: 1px solid var(--cs-border); }
-.conversation-list-header h2, .participant-panel h2 { margin-bottom: 3px; font-size: 15px; }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: 10px; }
-.conversation-list-header__actions { display: flex; align-items: center; gap: 6px; }
-.conversation-list-header button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-700); cursor: pointer; }
-.conversation-list { display: grid; overflow-y: auto; align-content: start; padding: 7px; margin: 0; list-style: none; }
-.conversation-item { display: grid; width: 100%; min-height: 67px; grid-template-columns: 34px 1fr auto 15px; align-items: center; gap: 9px; padding: 9px; border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
-.conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-brand-200); background: var(--cs-brand-50); }
-.conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-brand-100); color: var(--cs-brand-700); }
-.conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: 12px; }.conversation-list__copy small { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; }
-.conversation-list time { color: var(--cs-text-muted); font-size: 9px; }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: 8px; }
-.conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 15px; border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: 6px 0 4px; border-radius: 4px; font-size: 18px; }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-brand-200); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: 9px; }
-.conversation-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-brand-700); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
-.message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, #fbfdfb 0%, #f7fbf8 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: 16px 20px 24px; }.older-messages { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 32px; margin-bottom: 8px; }.older-messages > span { color: var(--cs-danger); font-size: 9px; }.message-list { display: grid; gap: 14px; max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 8px; justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: #b9ddc5; background: var(--cs-brand-100); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 9px; font-weight: 750; }.message-row.own .message-avatar { background: var(--cs-brand-600); color: white; }.message-row article { min-width: 0; padding: 9px 11px; border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: white; font-size: 11px; box-shadow: 0 3px 10px rgb(21 35 29 / 4%); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--cs-text-muted); font-size: 8px; }.message-row article > header strong { color: var(--cs-text-secondary); font-size: 9px; }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: 6px 10px; border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: 9px; }.message-row.system article > header { justify-content: center; margin-bottom: 2px; }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: #ecc7c2; background: #fff6f5; opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--cs-danger); font-size: 8px; }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: 9px; font-weight: 750; cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: 7px; margin: 70px auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid #ddd3ef; border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: 14px; }.message-empty p { color: var(--cs-text-muted); font-size: 10px; line-height: 1.55; }
-.message-row.streaming article { border-color: #d9cfeb; background: #fbf8ff; transition: opacity 180ms var(--cs-ease-out), transform 180ms var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: 60px 24px; text-align: center; }.conversation-welcome > span { margin-bottom: 18px; }.conversation-welcome h2 { margin-bottom: 9px; font: 22px var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: 20px; color: var(--cs-text-secondary); font-size: 12px; line-height: 1.65; }
-.participant-panel header { padding: 18px; border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: 8px; margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 10px; border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-100); color: var(--cs-brand-700); font-size: 10px; font-weight: 750; }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: 10px; }.participant-panel li small { color: var(--cs-text-muted); font-size: 8px; }.participant-placeholder { display: grid; place-items: center; gap: 10px; padding: 54px 28px; color: var(--cs-text-muted); font-size: 10px; line-height: 1.6; text-align: center; }
-.mobile-back { display: none; }.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(21 35 29 / 38%); backdrop-filter: blur(3px); }.create-dialog { width: min(520px, 100%); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 22px 15px; border-bottom: 1px solid var(--cs-border); }.create-dialog h2 { margin-bottom: 0; font-size: 18px; }.create-dialog header button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--cs-radius-sm); background: transparent; cursor: pointer; }.create-dialog form { display: grid; gap: 18px; padding: 20px 22px 22px; }.create-dialog form > label > span, .create-dialog legend { display: block; margin-bottom: 7px; font-size: 10px; font-weight: 750; }.create-dialog input[type='text'], .create-dialog form > label > input { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.create-dialog fieldset { display: grid; gap: 8px; padding: 0; border: 0; }.create-dialog fieldset label { display: grid; grid-template-columns: 16px 18px 1fr; align-items: start; gap: 9px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); cursor: pointer; }.create-dialog fieldset label.active { border-color: var(--cs-brand-300); background: var(--cs-brand-50); }.create-dialog fieldset strong, .create-dialog fieldset small { display: block; }.create-dialog fieldset strong { font-size: 11px; }.create-dialog fieldset small { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.create-dialog form footer { display: flex; justify-content: flex-end; gap: 8px; }.form-error { margin: -6px 0 0; color: var(--cs-danger); font-size: 10px; }
+.conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }
+.conversation-list-header h2, .participant-panel h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.conversation-list-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
+.conversation-list-header button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); cursor: pointer; }
+.conversation-list { display: grid; overflow-y: auto; align-content: start; padding: var(--cs-space-8); margin: 0; list-style: none; }
+.conversation-item { display: grid; width: 100%; min-height: 67px; grid-template-columns: 34px 1fr auto 15px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
+.conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }
+.conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
+.conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: var(--cs-text-base); }.conversation-list__copy small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.conversation-list time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: var(--cs-space-8); }
+.conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.conversation-kind { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
+.message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.message-row.streaming article { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); transition: opacity var(--cs-motion-base) var(--cs-ease-out), transform var(--cs-motion-base) var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
+.participant-panel header { padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: var(--cs-space-8); margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: var(--cs-text-sm); }.participant-panel li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.participant-placeholder { display: grid; place-items: center; gap: var(--cs-space-12); padding: var(--cs-space-48) var(--cs-space-32); color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); text-align: center; }
+.mobile-back { display: none; }
 @media (max-width: 1280px) { .conversation-workspace { grid-template-columns: 290px minmax(420px, 1fr); }.participant-panel { grid-column: 1 / -1; min-height: auto; }.participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: 270px 1fr; }.participant-panel { display: none; } }
-@media (max-width: 767px) { .conversation-workspace { display: block; min-height: calc(100dvh - 208px); }.conversation-list-panel, .conversation-detail { min-height: calc(100dvh - 208px); }.conversation-list-panel { height: calc(100dvh - 208px); }.conversation-detail { display: none; height: calc(100dvh - 208px); }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 42px; padding: 0 14px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 10px; cursor: pointer; }.conversation-detail__header { padding: 14px 16px; }.message-history { padding: 12px 10px 18px; }.message-row { max-width: 90%; }.dialog-backdrop { align-items: end; padding: 0; }.create-dialog { max-height: calc(100dvh - 12px); padding-bottom: env(safe-area-inset-bottom); border-radius: var(--cs-radius-lg) var(--cs-radius-lg) 0 0; }.create-dialog input[type='text'], .create-dialog form > label > input { font-size: 16px; } }
+@media (max-width: 767px) { .conversation-workspace { display: block; min-height: calc(100dvh - 208px); }.conversation-list-panel, .conversation-detail { min-height: calc(100dvh - 208px); }.conversation-list-panel { height: calc(100dvh - 208px); }.conversation-detail { display: none; height: calc(100dvh - 208px); }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
 /* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded. */
 .conversation-workspace { grid-template-columns: var(--conversation-left-pane, 24%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 22%); }
 .conversation-list-panel.collapsed > :not(header), .participant-panel.collapsed > :not(header) { display: none; }
-.conversation-list-panel.collapsed .conversation-list-header, .participant-panel.collapsed > header { padding-inline: 8px; }
+.conversation-list-panel.collapsed .conversation-list-header, .participant-panel.collapsed > header { padding-inline: var(--cs-space-8); }
 .conversation-list-panel.collapsed .conversation-list-header > div:first-child, .participant-panel.collapsed > header > :not(.pane-collapse) { display: none; }
 .pane-resizer { position: relative; z-index: 2; width: 8px; min-height: 100%; padding: 0; border: 0; background: transparent; cursor: col-resize; }
-.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-border); opacity: .65; transition: opacity 120ms var(--cs-ease-out); }
+.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-border); opacity: .65; transition: opacity var(--cs-motion-fast) var(--cs-ease-out); }
 .pane-resizer:hover::after, .pane-resizer:focus-visible::after { background: var(--cs-brand-400); opacity: 1; }
-.pane-resizer:focus-visible { outline: 2px solid var(--cs-brand-400); outline-offset: -2px; }
-.detail-header-actions { display: flex; align-items: center; gap: 8px; }
-.pane-collapse { min-height: 28px; padding: 0 7px; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 9px; cursor: pointer; }
-.latest-jump { position: sticky; z-index: 3; top: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; width: fit-content; margin: 0 auto 6px; padding: 4px 8px; border: 1px solid var(--cs-brand-200); border-radius: 999px; background: var(--cs-surface); color: var(--cs-brand-700); font-size: 9px; box-shadow: var(--cs-shadow-soft); }
-.latest-jump button { border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: 750; cursor: pointer; }
-.unread-divider { grid-column: 1 / -1; padding: 4px 0; border-top: 1px solid var(--cs-brand-200); color: var(--cs-brand-700); font-size: 8px; text-align: center; }
+.pane-resizer:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: -2px; }
+.detail-header-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
+.pane-collapse { min-height: 28px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); cursor: pointer; }
+.latest-jump { position: sticky; z-index: 3; top: 4px; display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); width: fit-content; margin: 0 auto var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-brand); font-size: var(--cs-text-xs); box-shadow: var(--cs-shadow-raised); }
+.latest-jump button { border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.unread-divider { grid-column: 1 / -1; padding: var(--cs-space-4) 0; border-top: 1px solid var(--cs-border-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); text-align: center; }
 .virtual-spacer { pointer-events: none; }
-.conversation-structure { max-width: 740px; margin: 0 auto 10px; border: 1px solid var(--cs-border); border-radius: 9px; background: rgb(255 255 255 / 70%); }
-.conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; color: var(--cs-text-secondary); font-size: 10px; font-weight: 750; cursor: pointer; }
-.conversation-structure summary span { color: var(--cs-text-muted); font-size: 8px; font-weight: 500; }
-.conversation-structure > :deep(*) { margin-inline: 8px; }
+.conversation-structure { max-width: 740px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
+.conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.conversation-structure summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
+.conversation-structure > :deep(*) { margin-inline: var(--cs-space-8); }
 @media (max-width: 1280px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr) 0 minmax(0, 280px); }.participant-panel { grid-column: auto; }.pane-resizer--right { display: none; } }
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); }.participant-panel, .pane-resizer--right { display: none; } }
 @media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; } }

@@ -2,9 +2,17 @@
 import { Activity, ArrowRight, CircleDot, Clock3, Link2, Radio, RefreshCw, UserRound } from '@lucide/vue'
 import { computed } from 'vue'
 import { RouterLink, useRoute, type RouteLocationRaw } from 'vue-router'
+import { permissions } from '../../app/auth'
 import type { ActivityRealtimePhase } from '../../domains/teamops/activityRealtimeStore'
 import type { TeamOpsErrorState } from '../../domains/teamops/errors'
 import type { ActivityItem } from '../../domains/teamops/types'
+import { enumLabel } from '../../domains/shared/labels'
+import {
+  activityRealtimePhaseLabels,
+  activityReferenceTypeLabels,
+  activitySubjectTypeLabels,
+  auditActorTypeLabels,
+} from '../../domains/teamops/labels'
 import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
@@ -45,13 +53,17 @@ const realtimeLabel = computed(() => ({
   offline: '离线', forbidden: '无权限', 'cursor-expired': '游标过期', error: '实时异常',
 })[props.realtimePhase])
 
+function actorTypeLabel(item: ActivityItem): string {
+  return enumLabel(item.actor.type, auditActorTypeLabels)
+}
+
 function actor(item: ActivityItem): string {
-  if (!item.actor.principalId) return item.actor.type === 'SYSTEM' ? '系统' : item.actor.type
-  return principalDisplayName(props.principalNames, item.actor.principalId, item.actor.type)
+  if (!item.actor.principalId) return actorTypeLabel(item)
+  return principalDisplayName(props.principalNames, item.actor.principalId, actorTypeLabel(item))
 }
 
 function subject(item: ActivityItem): string {
-  return `${item.subject.type} · ${item.subject.id.slice(0, 8)}`
+  return `${enumLabel(item.subject.type, activitySubjectTypeLabels)} · ${item.subject.id.slice(0, 8)}`
 }
 
 function outcome(item: ActivityItem): string {
@@ -76,7 +88,7 @@ function referenceTarget(reference: ActivityItem['references'][number], eventId:
 }
 
 function referenceLabel(type: string): string {
-  return ({ WORK_ITEM: 'WorkItem', CONVERSATION: 'Conversation', TASK: 'Task', REVIEW_REQUEST: 'Review', PLANNED_ACTION: 'Action', ARTIFACT: 'Evidence' } as Record<string, string>)[type] ?? type
+  return enumLabel(type, activityReferenceTypeLabels)
 }
 
 </script>
@@ -95,7 +107,7 @@ function referenceLabel(type: string): string {
     </header>
 
     <StatePanel v-if="initialLoading" state="loading" :compact="compact" title="正在同步 Activity" description="正在读取权威快照和实时恢复坐标。" />
-    <StatePanel v-else-if="forbidden" state="forbidden" :compact="compact" title="无权查看团队活动" description="服务端未授予当前成员这个 Team 的 Activity 读取权限。" />
+    <StatePanel v-else-if="forbidden" state="forbidden" :compact="compact" title="无权查看团队活动" description="服务端未授予当前成员这个 Team 的 Activity 读取权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.scopeRead } }"><BaseButton variant="secondary" size="small">查看权限说明</BaseButton></RouterLink></template></StatePanel>
     <StatePanel v-else-if="cursorExpired" state="error" :compact="compact" title="Activity Cursor 已过期" description="刷新权威快照后将从新的耐久坐标继续补发。" @retry="emit('retry')" />
     <StatePanel v-else-if="offline && items.length === 0" state="offline" :compact="compact" title="离线时没有可用 Activity" description="联网后将读取快照并从耐久 Cursor 恢复。" />
     <StatePanel v-else-if="hardError && items.length === 0" state="error" :compact="compact" :description="error?.message" @retry="emit('retry')" />
@@ -139,43 +151,43 @@ function referenceLabel(type: string): string {
 </template>
 
 <style scoped>
-.activity-stream { overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-sm); }
-.activity-stream__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 20px 22px 17px; border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, #f7fbf8, #fff); }
-.activity-stream__header p { margin: 0; color: var(--cs-brand-700); font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
-.activity-stream__header h2 { margin: 3px 0 4px; font: 21px/1.2 var(--cs-font-display); }
-.activity-stream__header span { color: var(--cs-text-muted); font-size: 10px; }
+.activity-stream { overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
+.activity-stream__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface)); }
+.activity-stream__header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .11em; text-transform: uppercase; }
+.activity-stream__header h2 { margin: var(--cs-space-4) 0 var(--cs-space-4); font: var(--cs-text-xl)/var(--cs-leading-tight) var(--cs-font-display); }
+.activity-stream__header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .activity-stream__header :deep(.status-badge) { flex: none; }
-.activity-list { margin: 0; padding: 8px 20px 15px; list-style: none; }
-.activity-list > li { position: relative; display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: 9px; padding-top: 13px; }
-.activity-list > li:not(:last-child)::before { position: absolute; top: 29px; bottom: -13px; left: 12px; width: 1px; background: #d8e6dc; content: ''; }
-.activity-marker { position: relative; z-index: 1; display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid #c8ddce; border-radius: 50%; background: #eff8f1; color: var(--cs-brand-700); }
-.activity-list article { min-width: 0; padding: 13px 14px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: #fff; }
-.activity-list article > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.activity-kind { display: flex; min-width: 0; align-items: center; gap: 7px; }
-.activity-kind > svg { flex: none; color: var(--cs-brand-600); }
-.activity-kind strong { overflow: hidden; font: 700 11px var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.activity-list time { display: inline-flex; flex: none; align-items: center; gap: 4px; color: var(--cs-text-muted); font: 9px var(--cs-font-mono); }
-.activity-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 11px 0 0; }
-.activity-list dl > div { min-width: 0; padding: 7px 8px; border-radius: 7px; background: var(--cs-surface-subtle); }
-.activity-list dt { display: flex; align-items: center; gap: 4px; color: var(--cs-text-muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }
-.activity-list dd { overflow: hidden; margin: 3px 0 0; font: 9px var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.activity-evidence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
-.activity-evidence > span { display: inline-flex; align-items: center; gap: 4px; color: var(--cs-text-muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }
-.activity-evidence a, .activity-evidence button { min-height: 27px; padding: 5px 8px; border: 1px solid #d4e4d8; border-radius: 7px; background: #f7fbf8; color: var(--cs-brand-700); font: 8px var(--cs-font-mono); cursor: pointer; }
-.activity-evidence a:hover, .activity-evidence a:focus-visible, .activity-evidence button:hover, .activity-evidence button:focus-visible { border-color: var(--cs-brand-600); outline: 2px solid rgb(49 128 78 / 14%); outline-offset: 1px; }
-.activity-stream__footer { display: flex; justify-content: center; padding: 12px 20px 18px; border-top: 1px solid var(--cs-border); }
+.activity-list { margin: 0; padding: var(--cs-space-8) var(--cs-space-20) var(--cs-space-16); list-style: none; }
+.activity-list > li { position: relative; display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: var(--cs-space-8); padding-top: var(--cs-space-12); }
+.activity-list > li:not(:last-child)::before { position: absolute; top: 29px; bottom: -13px; left: 12px; width: 1px; background: var(--cs-border); content: ''; }
+.activity-marker { position: relative; z-index: 1; display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--cs-border-accent); border-radius: 50%; background: var(--cs-surface-accent); color: var(--cs-text-brand); }
+.activity-list article { min-width: 0; padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
+.activity-list article > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }
+.activity-kind { display: flex; min-width: 0; align-items: center; gap: var(--cs-space-8); }
+.activity-kind > svg { flex: none; color: var(--cs-text-brand); }
+.activity-kind strong { overflow: hidden; font: var(--cs-weight-semibold) var(--cs-text-sm) var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.activity-list time { display: inline-flex; flex: none; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
+.activity-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; }
+.activity-list dl > div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface-subtle); }
+.activity-list dt { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }
+.activity-list dd { overflow: hidden; margin: var(--cs-space-4) 0 0; font: var(--cs-text-xs) var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.activity-evidence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
+.activity-evidence > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }
+.activity-evidence a, .activity-evidence button { min-height: 27px; padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-accent); color: var(--cs-text-brand); font: var(--cs-text-xs) var(--cs-font-mono); cursor: pointer; }
+.activity-evidence a:hover, .activity-evidence a:focus-visible, .activity-evidence button:hover, .activity-evidence button:focus-visible { border-color: var(--cs-border-accent-strong); outline: 2px solid var(--cs-ring-brand); outline-offset: 1px; }
+.activity-stream__footer { display: flex; justify-content: center; padding: var(--cs-space-12) var(--cs-space-20) var(--cs-space-20); border-top: 1px solid var(--cs-border); }
 .activity-stream.compact { border: 0; border-radius: 0; box-shadow: none; }
-.activity-stream.compact .activity-stream__header { padding: 0 0 12px; background: transparent; }
-.activity-stream.compact .activity-stream__header h2 { font: 700 13px var(--cs-font-sans); }
-.activity-stream.compact .activity-list { padding: 5px 0 0; }
-.activity-stream.compact .activity-list article { padding: 10px; }
+.activity-stream.compact .activity-stream__header { padding: 0 0 var(--cs-space-12); background: transparent; }
+.activity-stream.compact .activity-stream__header h2 { font: var(--cs-weight-semibold) var(--cs-text-base) var(--cs-font-sans); }
+.activity-stream.compact .activity-list { padding: var(--cs-space-4) 0 0; }
+.activity-stream.compact .activity-list article { padding: var(--cs-space-12); }
 .activity-stream.compact .activity-list dl { grid-template-columns: 1fr; }
 @media (max-width: 640px) {
-  .activity-stream__header { padding: 16px; }
-  .activity-stream__header h2 { font-size: 18px; }
+  .activity-stream__header { padding: var(--cs-space-16); }
+  .activity-stream__header h2 { font-size: var(--cs-text-lg); }
   .activity-stream__header span { display: block; max-width: 230px; }
-  .activity-list { padding: 5px 10px 13px; }
-  .activity-list > li { grid-template-columns: 20px minmax(0, 1fr); gap: 6px; }
+  .activity-list { padding: var(--cs-space-4) var(--cs-space-12) var(--cs-space-12); }
+  .activity-list > li { grid-template-columns: 20px minmax(0, 1fr); gap: var(--cs-space-8); }
   .activity-marker { width: 20px; height: 20px; }
   .activity-list > li:not(:last-child)::before { top: 23px; left: 9px; }
   .activity-list article > header { align-items: flex-start; }

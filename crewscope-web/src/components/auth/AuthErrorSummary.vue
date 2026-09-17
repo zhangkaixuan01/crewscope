@@ -50,22 +50,22 @@ watch(() => props.focusKey, focusSummary)
 .auth-error-summary {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  margin-bottom: 18px;
+  gap: var(--cs-space-12);
+  padding: var(--cs-space-12);
+  margin-bottom: var(--cs-space-20);
   border: 1px solid var(--cs-auth-error-border);
   border-radius: 10px;
   background: var(--cs-auth-error-surface);
   color: var(--cs-auth-error-text);
 }
 .auth-error-summary--warning {
-  border-color: #e6c898;
+  border-color: var(--cs-warning-border);
   background: var(--cs-warning-soft);
-  color: #85551d;
+  color: var(--cs-warning);
 }
-.auth-error-summary div { display: grid; gap: 3px; }
-.auth-error-summary strong { font-size: 10px; }
+.auth-error-summary div { display: grid; gap: var(--cs-space-4); }
+.auth-error-summary strong { font-size: var(--cs-text-sm); }
 .auth-error-summary p,
-.auth-error-summary ul { padding: 0; margin: 0; font-size: 9px; }
-.auth-error-summary ul { padding-left: 16px; }
+.auth-error-summary ul { padding: 0; margin: 0; font-size: var(--cs-text-xs); }
+.auth-error-summary ul { padding-left: var(--cs-space-16); }
 </style>

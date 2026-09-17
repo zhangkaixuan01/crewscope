@@ -5,9 +5,18 @@ import TaskIntentCard from './domain/TaskIntentCard.vue'
 import ConversationWorkItemLinks from './domain/ConversationWorkItemLinks.vue'
 import { fixtureConversationWorkItemAssociation } from '../test/conversationWorkItemFixtures'
 import { fixtureIds } from '../test/scopeFixtures'
-import { fixtureTaskIntent } from '../test/taskIntentFixtures'
+import { fixtureTaskIntent, taskIntentIds } from '../test/taskIntentFixtures'
+import type { TeamMemberSummary, WorkProjectSummary } from '../domains/scope/types'
 
 const lastAction = ref('等待操作')
+// The revision form only offers named choices, so the story has to supply the directories it reads.
+const storyMembers: TeamMemberSummary[] = [
+  { id: taskIntentIds.ownerMember, userPrincipalId: fixtureIds.principal, displayName: '林悦（Owner）', status: 'ACTIVE', joinMethod: 'FOUNDER', joinedAt: '2026-07-01T00:00:00Z', version: 3 },
+  { id: '7c1f9a1e-2c4d-4f1a-9a11-6b2c0a5d4e31', userPrincipalId: fixtureIds.secondPrincipal, displayName: '赵禾（评审）', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-07-14T00:00:00Z', version: 1 },
+]
+const storyProjects: WorkProjectSummary[] = [
+  { id: taskIntentIds.project, organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform, workspaceId: fixtureIds.workspacePlatform, key: 'CRW', name: 'CrewScope 主线', status: 'ACTIVE', version: 4, createdAt: '2026-07-01T00:00:00Z', createdByPrincipalId: fixtureIds.principal, updatedAt: '2026-08-01T00:00:00Z', updatedByPrincipalId: fixtureIds.principal },
+]
 const clarification = {
   schemaVersion: '1' as const,
   summary: '需要确定仓库和目标分支后继续规划。',
@@ -49,6 +58,8 @@ const clarification = {
       <TaskIntentCard
         :intent="fixtureTaskIntent()"
         :current-principal-id="fixtureIds.principal"
+        :members="storyMembers"
+        :projects="storyProjects"
         @confirm="lastAction = '确认预检'"
         @reject="reason => lastAction = reason"
         @revise="input => lastAction = input.objective"
@@ -67,5 +78,5 @@ const clarification = {
 </template>
 
 <style scoped>
-.story-result { max-width: 740px; margin: 8px auto; color: var(--cs-text-muted); font-size: 10px; }
+.story-result { max-width: 740px; margin: var(--cs-space-8) auto; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 </style>

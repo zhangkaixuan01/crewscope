@@ -14,6 +14,14 @@ import type {
   AdministratorDiagnostics, OperationsHealthLevel, OperationsHealthSummary,
   ProjectionCommand, ProjectionDiagnostic, RecoveryCandidate,
 } from '../../domains/teamops/types'
+import { enumLabel } from '../../domains/shared/labels'
+import {
+  operationsHealthComponentLabels,
+  operationsHealthLevelLabels,
+  operationsRecoveryActionLabels,
+  projectionGenerationStatusLabels,
+  recoveryCandidateTypeLabels,
+} from '../../domains/teamops/labels'
 
 const props = defineProps<{
   phase: TeamOpsPhase
@@ -50,6 +58,19 @@ let opener: HTMLElement | null = null
 const summary = computed(() => props.health ?? props.diagnostics?.summary ?? null)
 const isInitialFailure = computed(() => props.phase === 'error' && !summary.value)
 const commandPending = computed(() => props.command.phase === 'pending')
+
+/** 管理命令的可用性同时受诊断新鲜度与单个 Projection 的代际状态约束，两种成因要能分别讲清楚。 */
+const diagnosticsBlockedReason = computed(() => (props.diagnosticsPhase === 'error'
+  ? '管理员诊断刷新失败，管理命令已禁用，请先重新加载诊断。'
+  : ''))
+
+function projectionCommandReason(projection: ProjectionDiagnostic): string {
+  if (diagnosticsBlockedReason.value) return diagnosticsBlockedReason.value
+  if (projection.shadowGeneration != null) {
+    return `Generation G${projection.shadowGeneration} 的影子重建尚未结束，需要先完成、切换或取消后才能再次发起。`
+  }
+  return ''
+}
 const confirmationMatches = computed(() => pending.value !== null && confirmationInput.value === pending.value.confirmation)
 const failureCodeValid = computed(() => /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/.test(failureCode.value) && failureCode.value.length <= 80)
 const canSubmit = computed(() => props.online
@@ -57,12 +78,8 @@ const canSubmit = computed(() => props.online
   && confirmationMatches.value
   && (pending.value?.kind !== 'projection' || pending.value.operation !== 'fail' || failureCodeValid.value))
 
-const componentLabels: Record<string, string> = {
-  PROJECTION: 'Projection', OUTBOX: 'Outbox', DEAD_LETTER: 'Dead Letter', CURSOR: 'Cursor', NOTIFICATION: 'Notification',
-}
-const actionLabels: Record<string, string> = {
-  REPLAY_OUTBOX_DEAD_LETTER: '回放 Outbox', REPLAY_PROJECTION_DEAD_LETTER: '回放 Projection', RETRY_NOTIFICATION_DELIVERY: '重试通知',
-}
+const componentLabels = operationsHealthComponentLabels
+const actionLabels = operationsRecoveryActionLabels
 
 watch(() => props.command.phase, phase => {
   if (phase === 'success') closeDialog(true)
@@ -194,7 +211,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
           <p>只展示固定组件与有界计数，不暴露事件载荷、成员身份或错误原文。</p>
         </div>
         <div class="health-hero__status">
-          <StatusBadge :tone="tone(summary.health)">{{ summary.health }}</StatusBadge>
+          <StatusBadge :tone="tone(summary.health)">{{ enumLabel(summary.health, operationsHealthLevelLabels) }}</StatusBadge>
           <span>观测于 {{ displayTime(summary.observedAt) }}</span>
         </div>
       </section>
@@ -204,7 +221,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 
       <section class="health-grid" aria-label="运行组件健康摘要">
         <article v-for="component in summary.components" :key="component.component" class="health-card">
-          <header><strong>{{ componentLabels[component.component] }}</strong><StatusBadge :tone="tone(component.health)">{{ component.health }}</StatusBadge></header>
+          <header><strong>{{ componentLabels[component.component] }}</strong><StatusBadge :tone="tone(component.health)">{{ enumLabel(component.health, operationsHealthLevelLabels) }}</StatusBadge></header>
           <dl>
             <div><dt>Backlog</dt><dd>{{ component.backlog }}</dd></div>
             <div><dt>In flight</dt><dd>{{ component.inFlight }}</dd></div>
@@ -239,15 +256,16 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
           <div class="generation-flow">
             <div><span>ACTIVE</span><strong>G{{ projection.activeGeneration }}</strong><small>v{{ projection.activeGenerationVersion }}</small></div>
             <span aria-hidden="true">→</span>
-            <div :class="{ muted: projection.shadowGeneration == null }"><span>SHADOW</span><strong>{{ projection.shadowGeneration == null ? '—' : `G${projection.shadowGeneration}` }}</strong><small>{{ projection.shadowStatus ?? '未创建' }}<template v-if="projection.shadowGenerationVersion != null"> · v{{ projection.shadowGenerationVersion }}</template></small></div>
+            <div :class="{ muted: projection.shadowGeneration == null }"><span>SHADOW</span><strong>{{ projection.shadowGeneration == null ? '—' : `G${projection.shadowGeneration}` }}</strong><small>{{ projection.shadowStatus ? enumLabel(projection.shadowStatus, projectionGenerationStatusLabels) : '未创建' }}<template v-if="projection.shadowGenerationVersion != null"> · v{{ projection.shadowGenerationVersion }}</template></small></div>
           </div>
           <dl class="projection-metrics"><div><dt>Gap</dt><dd>{{ projection.gapCount }}</dd></div><div><dt>Dead Letter</dt><dd>{{ projection.deadLetterCount }}</dd></div><div><dt>Failure</dt><dd>{{ projection.latestFailureCode ?? '—' }}</dd></div><div><dt>Job</dt><dd>{{ projection.rebuildJobId ? short(projection.rebuildJobId) : '—' }}</dd></div></dl>
           <div class="projection-actions">
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" @click="openProjection(projection, 'start', $event)"><RotateCcw :size="13" />影子重建</BaseButton>
-            <BaseButton v-if="projection.validateConfirmation" size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" @click="openProjection(projection, 'validate', $event)">验证</BaseButton>
-            <BaseButton v-if="projection.switchConfirmation" size="small" :disabled="!online || commandPending || diagnosticsPhase === 'error'" @click="openProjection(projection, 'switch', $event)">切换</BaseButton>
-            <BaseButton v-if="projection.cancelConfirmation" size="small" variant="ghost" :disabled="!online || commandPending || diagnosticsPhase === 'error'" @click="openProjection(projection, 'cancel', $event)">取消</BaseButton>
-            <BaseButton v-if="projection.failConfirmation" size="small" variant="danger" :disabled="!online || commandPending || diagnosticsPhase === 'error'" @click="openProjection(projection, 'fail', $event)">标记失败</BaseButton>
+            <p :id="`projection-reason-${projection.projectionName}`" class="sr-only">{{ projectionCommandReason(projection) }}</p>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'start', $event)"><RotateCcw :size="13" />影子重建</BaseButton>
+            <BaseButton v-if="projection.validateConfirmation" size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'validate', $event)">验证</BaseButton>
+            <BaseButton v-if="projection.switchConfirmation" size="small" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'switch', $event)">切换</BaseButton>
+            <BaseButton v-if="projection.cancelConfirmation" size="small" variant="ghost" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'cancel', $event)">取消</BaseButton>
+            <BaseButton v-if="projection.failConfirmation" size="small" variant="danger" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'fail', $event)">标记失败</BaseButton>
           </div>
         </article>
         <StatePanel v-if="diagnostics.projections.length === 0" state="empty" title="暂无 Projection 定义" />
@@ -257,8 +275,9 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
         <header><div><Siren :size="17" /><strong>Dead Letter 与恢复候选</strong></div><span>{{ diagnostics.recoveryCandidates.length }} 个</span></header>
         <ul v-if="diagnostics.recoveryCandidates.length">
           <li v-for="candidate in diagnostics.recoveryCandidates" :key="candidate.referenceHash">
-            <div><strong>{{ actionLabels[candidate.action] }}</strong><small>{{ candidate.type }} · {{ short(candidate.referenceHash) }}</small></div>
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" @click="openRecovery(candidate, $event)"><History :size="13" />执行恢复</BaseButton>
+            <div><strong>{{ actionLabels[candidate.action] }}</strong><small>{{ enumLabel(candidate.type, recoveryCandidateTypeLabels) }} · {{ short(candidate.referenceHash) }}</small></div>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`recovery-reason-${candidate.referenceHash}`" @click="openRecovery(candidate, $event)"><History :size="13" />执行恢复</BaseButton>
+            <p :id="`recovery-reason-${candidate.referenceHash}`" class="sr-only">{{ diagnosticsBlockedReason }}</p>
           </li>
         </ul>
         <p v-else class="empty-line"><CheckCircle2 :size="16" />当前没有可恢复的失败项。</p>
@@ -287,33 +306,33 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 </template>
 
 <style scoped>
-.operations-workspace { display: grid; gap: 16px; max-width: 1420px; margin: 0 auto; color: var(--cs-text); }
-.eyebrow { margin: 0 0 3px; color: var(--cs-brand-700); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.health-hero, .evidence-panel, .admin-panel { border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: 0 8px 26px rgb(28 58 43 / 5%); }
-.health-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 19px 21px; background: linear-gradient(120deg, #f6fcf8, #fff); }
-.health-hero h2, .evidence-panel h2, .admin-panel h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
-.health-hero p:last-child { margin: 6px 0 0; color: var(--cs-text-muted); font-size: 11px; }
-.health-hero__status { display: grid; justify-items: end; gap: 6px; color: var(--cs-text-muted); font-size: 9px; }
-.health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-.health-card { padding: 13px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-surface); }
-.health-card header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.health-card strong { font-size: 11px; }
-.health-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 14px 0; }
-.health-card dl div, .projection-metrics div { display: grid; gap: 2px; }
-.health-card dt, .projection-metrics dt { color: var(--cs-text-muted); font-size: 8px; text-transform: uppercase; }
-.health-card dd, .projection-metrics dd { margin: 0; font: 700 15px var(--cs-font-display); }
-.health-card footer { display: flex; justify-content: space-between; color: var(--cs-text-muted); font-size: 8px; }.stale { color: var(--cs-danger); font-weight: 800; }
-.inline-warning { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid #efd9a7; border-radius: 9px; background: #fffaf0; color: #77531c; font-size: 10px; }
-.evidence-panel, .admin-panel { padding: 18px; }.evidence-panel > header, .admin-panel > header, .recovery-section > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.evidence-panel > header > span, .recovery-section > header > span { color: var(--cs-text-muted); font-size: 9px; }
-.evidence-links { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; margin-top: 14px; }
-.evidence-links a { display: flex; min-height: 58px; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text); }
-.evidence-links a:hover { border-color: var(--cs-brand-300); background: var(--cs-brand-50); }.evidence-links span, .evidence-links small { display: block; }.evidence-links span { font-size: 10px; font-weight: 750; }.evidence-links small { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; font-weight: 500; }
-.projection-list { display: grid; gap: 10px; margin-top: 15px; }.projection-card { padding: 14px; border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface-subtle); }.projection-card > header { display: flex; align-items: center; justify-content: space-between; }.projection-card > header strong, .projection-card > header small { display: block; }.projection-card > header strong { font-size: 12px; }.projection-card > header small { margin-top: 3px; color: var(--cs-text-muted); font-size: 8px; }
-.generation-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; margin: 12px 0; }.generation-flow > div { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 8px; padding: 9px 11px; border: 1px solid #d9e9dd; border-radius: 9px; background: #f7fcf8; }.generation-flow span { color: var(--cs-text-muted); font-size: 8px; font-weight: 800; }.generation-flow strong { font-size: 14px; }.generation-flow small { color: var(--cs-text-muted); font-size: 9px; }.generation-flow .muted { background: #f6f7f6; opacity: .7; }
-.projection-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; }.projection-metrics div { padding: 7px 9px; border-radius: 7px; background: white; }.projection-metrics dd { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.projection-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-.recovery-section { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--cs-border); }.recovery-section > header > div { display: flex; align-items: center; gap: 7px; font-size: 11px; }.recovery-section ul { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }.recovery-section li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--cs-border); border-radius: 9px; }.recovery-section li strong, .recovery-section li small { display: block; }.recovery-section li strong { font-size: 10px; }.recovery-section li small { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }.empty-line { display: flex; align-items: center; gap: 7px; color: var(--cs-text-muted); font-size: 10px; }
-.command-result { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 11px 13px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface); }.command-result > div { display: flex; align-items: center; gap: 7px; font-size: 10px; }.command-result p { grid-column: 1; margin: 0; color: var(--cs-text-muted); font-size: 9px; }.command-result.success { border-color: #b8ddc2; }.command-result.conflict, .command-result.error { border-color: #ebc2bb; }
-.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 18px; background: rgb(18 28 23 / 42%); backdrop-filter: blur(3px); }.confirmation-dialog { width: min(520px, 100%); padding: 19px; border: 1px solid var(--cs-border); border-radius: 15px; background: white; box-shadow: 0 24px 70px rgb(10 30 19 / 24%); }.confirmation-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; }.confirmation-dialog h2 { margin: 0; font-size: 16px; }.confirmation-dialog > header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 7px; background: var(--cs-surface-subtle); cursor: pointer; }.confirmation-dialog > p { color: var(--cs-text-secondary); font-size: 10px; line-height: 1.6; }.confirmation-dialog code { display: block; overflow-wrap: anywhere; padding: 10px; border: 1px solid #d8e8dc; border-radius: 8px; background: #f6fbf7; color: #245c38; font-size: 10px; }.confirmation-dialog label { display: grid; gap: 6px; margin-top: 12px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 700; }.confirmation-dialog input { min-height: 37px; padding: 0 10px; border: 1px solid var(--cs-border-strong); border-radius: 8px; font: 11px var(--cs-font-sans); }.confirmation-dialog label small { color: var(--cs-text-muted); font-weight: 500; }.confirmation-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; }.dialog-error { margin-top: 12px; padding: 8px; border-radius: 7px; background: #fff1ef; color: #94382f; font-size: 9px; }.spin { animation: spin 1s linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
+.operations-workspace { display: grid; gap: var(--cs-space-16); max-width: 1420px; margin: 0 auto; color: var(--cs-text); }
+.eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }
+.health-hero, .evidence-panel, .admin-panel { border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
+.health-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); background: linear-gradient(120deg, var(--cs-surface-accent), var(--cs-surface)); }
+.health-hero h2, .evidence-panel h2, .admin-panel h2 { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-md); }
+.health-hero p:last-child { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.health-hero__status { display: grid; justify-items: end; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.health-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--cs-space-12); }
+.health-card { padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-surface); }
+.health-card header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }
+.health-card strong { font-size: var(--cs-text-sm); }
+.health-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-8); margin: var(--cs-space-16) 0; }
+.health-card dl div, .projection-metrics div { display: grid; gap: var(--cs-space-2); }
+.health-card dt, .projection-metrics dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }
+.health-card dd, .projection-metrics dd { margin: 0; font: var(--cs-weight-semibold) var(--cs-text-md) var(--cs-font-display); }
+.health-card footer { display: flex; justify-content: space-between; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.stale { color: var(--cs-danger); font-weight: var(--cs-weight-semibold); }
+.inline-warning { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
+.evidence-panel, .admin-panel { padding: var(--cs-space-20); }.evidence-panel > header, .admin-panel > header, .recovery-section > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.evidence-panel > header > span, .recovery-section > header > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.evidence-links { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--cs-space-8); margin-top: var(--cs-space-16); }
+.evidence-links a { display: flex; min-height: 58px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text); }
+.evidence-links a:hover { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); }.evidence-links span, .evidence-links small { display: block; }.evidence-links span { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.evidence-links small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
+.projection-list { display: grid; gap: var(--cs-space-12); margin-top: var(--cs-space-16); }.projection-card { padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface-subtle); }.projection-card > header { display: flex; align-items: center; justify-content: space-between; }.projection-card > header strong, .projection-card > header small { display: block; }.projection-card > header strong { font-size: var(--cs-text-base); }.projection-card > header small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.generation-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--cs-space-12); margin: var(--cs-space-12) 0; }.generation-flow > div { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-accent); }.generation-flow span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.generation-flow strong { font-size: var(--cs-text-base); }.generation-flow small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.generation-flow .muted { background: var(--cs-surface-subtle); opacity: .7; }
+.projection-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--cs-space-8); margin: 0; }.projection-metrics div { padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface); }.projection-metrics dd { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.projection-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
+.recovery-section { margin-top: var(--cs-space-20); padding-top: var(--cs-space-16); border-top: 1px solid var(--cs-border); }.recovery-section > header > div { display: flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); }.recovery-section ul { display: grid; gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; padding: 0; list-style: none; }.recovery-section li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; }.recovery-section li strong, .recovery-section li small { display: block; }.recovery-section li strong { font-size: var(--cs-text-sm); }.recovery-section li small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.empty-line { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.command-result { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-4) var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface); }.command-result > div { display: flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); }.command-result p { grid-column: 1; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-result.success { border-color: var(--cs-border-accent); }.command-result.conflict, .command-result.error { border-color: var(--cs-danger-border); }
+.dialog-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.confirmation-dialog { width: min(520px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: 15px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }.confirmation-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; }.confirmation-dialog h2 { margin: 0; font-size: var(--cs-text-md); }.confirmation-dialog > header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 7px; background: var(--cs-surface-subtle); cursor: pointer; }.confirmation-dialog > p { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.confirmation-dialog code { display: block; overflow-wrap: anywhere; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-accent); color: var(--cs-success); font-size: var(--cs-text-sm); }.confirmation-dialog label { display: grid; gap: var(--cs-space-8); margin-top: var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.confirmation-dialog input { min-height: 37px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 8px; font: var(--cs-text-base) var(--cs-font-sans); }.confirmation-dialog label small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.confirmation-dialog footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }.dialog-error { margin-top: var(--cs-space-12); padding: var(--cs-space-8); border-radius: 7px; background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-xs); }.spin { animation: spin var(--cs-motion-spin) linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(3, 1fr); }.evidence-links { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 767px) { .health-hero { align-items: flex-start; }.health-hero__status { justify-items: start; }.health-grid { grid-template-columns: 1fr 1fr; }.evidence-links { grid-template-columns: 1fr 1fr; }.projection-metrics { grid-template-columns: 1fr 1fr; }.generation-flow { grid-template-columns: 1fr; }.generation-flow > span { display: none; }.recovery-section li { align-items: flex-start; flex-direction: column; }.confirmation-dialog { max-height: calc(100vh - 28px); overflow: auto; } }
 @media (max-width: 430px) { .health-hero { flex-direction: column; }.health-grid, .evidence-links { grid-template-columns: 1fr; } }

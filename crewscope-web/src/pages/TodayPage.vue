@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ArrowRight, BriefcaseBusiness, CalendarDays, CircleAlert, Inbox, Layers3, MessageSquare, Plus, Settings2, UsersRound } from '@lucide/vue'
-import { computed, inject, watch } from 'vue'
+import { ArrowRight, Inbox, Plus, Settings2, TriangleAlert } from '@lucide/vue'
+import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
+import { useNetworkStatus } from '../app/network'
+import { useToast } from '../composables/useToast'
+import { useBoardDrag } from '../composables/useBoardDrag'
+import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
 import BaseButton from '../components/base/BaseButton.vue'
+import BaseSkeleton from '../components/base/BaseSkeleton.vue'
 import BaseTooltip from '../components/base/BaseTooltip.vue'
-import StatusBadge from '../components/base/StatusBadge.vue'
+import WorkDeskBoardCard from '../components/domain/WorkDeskBoardCard.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
@@ -13,18 +18,45 @@ import { useScopeStore } from '../domains/scope/store'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import { SETUP_STORE } from '../domains/setup/store'
 import { WORKDESK_STORE, type WorkDeskStore } from '../domains/workdesk/store'
-import { workDeskResponsibilityRoles, type WorkDeskItem, type WorkDeskResponsibilityRole } from '../domains/workdesk/types'
-import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
+import { useWorkItemStore } from '../domains/workitem/store'
+import { useUndoOffer } from '../domains/workitem/useUndoOffer'
+import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
+import { allowedWorkItemTransitions, workItemStatuses, type WorkItemStatus } from '../domains/workitem/types'
+import { workItemStatusLabels } from '../domains/workitem/labels'
+import {
+  workDeskObjectTypeLabels,
+  workDeskResponsibilityRoleLabels,
+  workDeskStatusLabel,
+  workDeskUrgencyLabels,
+} from '../domains/workdesk/labels'
+import {
+  workDeskResponsibilityRoles,
+  type WorkDeskItem,
+  type WorkDeskResponsibilityRole,
+} from '../domains/workdesk/types'
+import { enumLabel, enumLabelOr } from '../domains/shared/labels'
+import type { SemanticTone } from '../components/base/types'
 
+/**
+ * The personal WorkDesk: what today asks of this member, across every WorkProject.
+ *
+ * The page is a projection reader, not a second source of truth. It renders the six sections the
+ * `GET /work-desk` projection returns — action required, my work, my running executions, unread
+ * Inbox — and it executes an action only where the projection itself offered one. Nothing here
+ * derives an action label, guesses which section a row belongs in, or moves a row locally: after a
+ * command it re-reads the projection, so the section a row lands in is the server's answer.
+ */
 const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
-const store = useScopeStore()
-const team = store.selectedTeam
-const project = store.selectedProject
-const canViewMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersRead)))
+const scopeStore = useScopeStore()
+const team = scopeStore.selectedTeam
+const project = scopeStore.selectedProject
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
-const projectCreation = createWorkProjectCreationFlow(store, router, route)
+const canParticipate = computed(() => Boolean(principal && can(principal, permissions.workParticipate)))
+const isOnline = useNetworkStatus()
+const toast = useToast()
+const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 const setupStore = inject(SETUP_STORE, null)
 const setupReadiness = computed(() => setupStore?.state.readiness ?? null)
 const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required && item.status === 'READY').length ?? 0)
@@ -36,22 +68,162 @@ const workDeskStore = inject(WORKDESK_STORE, null) ?? ({
   load: async () => undefined,
   reset: () => undefined,
 } as WorkDeskStore)
+const workItemStore = useWorkItemStore()
+const { offerUndo } = useUndoOffer(workItemStore)
+const { confirmingTarget, confirmingSubject, submit: submitTransition, reset: resetTransition } =
+  useTransitionConfirm(() => workItemStore.state.detailCommandPending === 'transition')
+
 const deskProject = computed(() => queryValue(route.query.deskProject) ?? 'all')
 const deskRole = computed<WorkDeskResponsibilityRole | 'all'>(() => {
   const value = queryValue(route.query.deskRole)
   return value && workDeskResponsibilityRoles.includes(value as WorkDeskResponsibilityRole) ? value as WorkDeskResponsibilityRole : 'all'
 })
 const deskOnlyAction = computed(() => queryValue(route.query.deskAction) === 'true')
+/** The axis the board's columns stand for. It is a URL fact so a shared link shows the same board. */
+const deskGrouping = computed<'role' | 'status'>(() => queryValue(route.query.deskGroup) === 'role' ? 'role' : 'status')
 const workDeskFilter = computed(() => ({
   projectId: deskProject.value === 'all' ? null : deskProject.value,
   responsibilityRole: deskRole.value === 'all' ? null : deskRole.value,
   onlyNeedsAction: deskOnlyAction.value,
 }))
+
 const workDeskSections = computed(() => workDeskStore.state.summary?.sections ?? [])
-const needsActionItems = computed(() => workDeskSections.value.filter(section => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].includes(section.key)).flatMap(section => section.items))
-const personalItems = computed(() => workDeskSections.value.find(section => section.key === 'WORK_ITEM')?.items ?? [])
-const executionItems = computed(() => workDeskSections.value.find(section => section.key === 'TASK_EXECUTION')?.items ?? [])
-const inboxItems = computed(() => workDeskSections.value.find(section => section.key === 'INBOX')?.items ?? [])
+const sectionItems = (key: string): WorkDeskItem[] => workDeskSections.value.find(section => section.key === key)?.items ?? []
+const actionRequiredRows = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].flatMap(sectionItems))
+const myWorkRows = computed(() => sectionItems('WORK_ITEM'))
+const executionRows = computed(() => sectionItems('TASK_EXECUTION'))
+const inboxRows = computed(() => sectionItems('INBOX'))
+const inboxTotal = computed(() => workDeskSections.value.find(section => section.key === 'INBOX')?.total ?? 0)
+const inboxSample = computed(() => inboxRows.value[0] ?? null)
+
+/**
+ * The day's activity, derived from the projection rather than from an event log.
+ *
+ * The WorkDesk carries one time per row — when the underlying fact last moved — so this is a list of
+ * what changed today, not a stream of events. The heading says as much, and the empty case says the
+ * truth instead of showing yesterday's rows as if they were today's.
+ */
+const todayStart = computed(() => { const start = new Date(); start.setHours(0, 0, 0, 0); return start.getTime() })
+const todayRows = computed(() => {
+  const seen = new Set<string>()
+  return [...actionRequiredRows.value, ...myWorkRows.value, ...executionRows.value]
+    .filter(row => {
+      // A blocked work item appears both under 被阻塞 and under 我的工作项; the same fact must not be
+      // reported as two pieces of news.
+      const key = `${row.objectType}:${row.objectId}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return new Date(row.updatedAt).getTime() >= todayStart.value
+    })
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .slice(0, 5)
+})
+const latestUpdate = computed(() => {
+  const times = [...myWorkRows.value, ...executionRows.value, ...actionRequiredRows.value]
+    .map(row => new Date(row.updatedAt).getTime())
+  return times.length ? Math.max(...times) : null
+})
+
+/** Only the first load gets a skeleton; a refresh keeps the rows and says it is refreshing. */
+const firstLoad = computed(() => workDeskStore.state.summary === null
+  && (workDeskStore.state.phase === 'idle' || workDeskStore.state.phase === 'loading'))
+const refreshing = computed(() => workDeskStore.state.summary !== null && workDeskStore.state.phase === 'loading')
+const failurePhase = computed<'error' | 'offline' | null>(() => {
+  const phase = workDeskStore.state.phase
+  return phase === 'error' || phase === 'offline' ? phase : null
+})
+/** Nothing to render and a reason why: the panel is the whole section rather than a strip over it. */
+const failedFirstLoad = computed(() => failurePhase.value !== null && workDeskStore.state.summary === null)
+
+const UNKNOWN_STATUS_COLUMN = 'OTHER_STATUS'
+const NO_ROLE_COLUMN = 'NO_ROLE'
+/** The workflow reading of a personal board: the six columns a member's work actually moves between. */
+const workflowStatuses: WorkItemStatus[] = ['BACKLOG', 'READY', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE']
+
+interface DeskColumn {
+  key: string
+  label: string
+  /** The transition target this column stands for; null for a column that is not a status. */
+  status: WorkItemStatus | null
+}
+
+const statusColumns = computed<DeskColumn[]>(() => {
+  const keys = [...workflowStatuses]
+  // A terminal state is a column only when something is actually in it, exactly as the work board
+  // does it; otherwise every personal board would open with two empty columns.
+  for (const terminal of ['CANCELLED', 'ARCHIVED'] as const) {
+    if (myWorkRows.value.some(row => row.status === terminal)) keys.push(terminal)
+  }
+  const columns: DeskColumn[] = keys.map(status => ({ key: status as string, label: workItemStatusLabels[status], status }))
+  // The projection is additive on the server side, so a status this build does not know about still
+  // gets a column: dropping the row would hide a member's work rather than admit the build is behind.
+  if (myWorkRows.value.some(row => !workItemStatuses.includes(row.status as WorkItemStatus))) {
+    columns.push({ key: UNKNOWN_STATUS_COLUMN, label: '其他状态', status: null })
+  }
+  return columns
+})
+const roleColumns = computed<DeskColumn[]>(() => [
+  ...workDeskResponsibilityRoles.map(role => ({ key: role as string, label: workDeskResponsibilityRoleLabels[role], status: null })),
+  { key: NO_ROLE_COLUMN, label: '未关联责任', status: null },
+])
+const boardColumns = computed(() => deskGrouping.value === 'status' ? statusColumns.value : roleColumns.value)
+
+function columnKeyOf(row: WorkDeskItem): string {
+  if (deskGrouping.value === 'role') {
+    return workDeskResponsibilityRoles.includes(row.responsibilityRole as WorkDeskResponsibilityRole)
+      ? row.responsibilityRole as string
+      : NO_ROLE_COLUMN
+  }
+  return workItemStatuses.includes(row.status as WorkItemStatus) ? row.status : UNKNOWN_STATUS_COLUMN
+}
+const columnLabel = (key: string): string => boardColumns.value.find(column => column.key === key)?.label ?? key
+const rowsFor = (key: string): WorkDeskItem[] => myWorkRows.value.filter(row => columnKeyOf(row) === key)
+
+/**
+ * Dragging is only offered while the columns are the row's own status.
+ *
+ * In the role grouping a drop onto a column would mean "reassign this" — a different command against
+ * a different aggregate, which the projection does not offer any transition for. A drag that looks
+ * available and does nothing is worse than one that is not offered, so the board locks instead and
+ * says why.
+ */
+const canDrag = computed(() => deskGrouping.value === 'status' && isOnline.value && canParticipate.value)
+const boardDrag = useBoardDrag<WorkDeskItem, string>({
+  columns: () => boardColumns.value.map(column => column.key),
+  columnLabel,
+  columnOf: columnKeyOf,
+  allowEdge: (row, key) => {
+    const target = boardColumns.value.find(column => column.key === key)?.status
+    if (!target || !canDrag.value) return false
+    return allowedWorkItemTransitions[row.status as WorkItemStatus]?.includes(target) ?? false
+  },
+  findRow: objectId => myWorkRows.value.find(row => row.objectId === objectId) ?? null,
+  keyOf: row => row.objectId,
+  nameOf: row => deskTitle(row),
+  locked: () => !canDrag.value,
+  // The Store's row path re-reads the authoritative version and refuses with the server's own
+  // wording, so a rejected drop explains itself here instead of failing silently.
+  drop: async (row, key) => { await runDeskAction(row, key) },
+})
+// Destructured so the template unwraps the refs: a ref reached through an object property is not
+// unwrapped, and `boardDrag.dragged.value` in a template is a bug waiting to be copy-pasted.
+const {
+  dragged: draggedRow,
+  overColumn,
+  announcement: boardAnnouncement,
+  allowDrop: allowDropOnColumn,
+  start: startRowDrag,
+  end: endRowDrag,
+  over: markBoardColumn,
+  leave: leaveBoardColumn,
+  pointerDrop: dropOnColumn,
+  onKeydown: onBoardKeydown,
+} = boardDrag
+
+function handleBoardKeydown(event: KeyboardEvent): void {
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-desk-item-id]') : null
+  onBoardKeydown(event, target?.dataset.deskItemId)
+}
 
 function queryValue(value: unknown): string | null {
   if (typeof value === 'string') return value
@@ -66,14 +238,64 @@ async function updateDeskQuery(key: string, value: string): Promise<void> {
   await router.replace({ query })
 }
 
-function itemTitle(item: WorkDeskItem): string { return item.title?.trim() || `${item.objectType} · ${item.objectId.slice(0, 8)}` }
-function roleLabel(role: string | null): string { return role === 'OWNER' ? '负责人' : role === 'EXECUTOR' ? '执行人' : role === 'REVIEWER' ? 'Reviewer' : '关联任务' }
-function urgencyTone(urgency: string): 'danger' | 'warning' | 'neutral' { return urgency === 'HIGH' || urgency === 'URGENT' ? 'danger' : urgency === 'NORMAL' ? 'warning' : 'neutral' }
-function actionLabel(action: string): string { return ({ REVIEW: '去 Review', APPROVE: '去确认', RESPOND: '去处理', OPEN: '打开', RESUME: '继续执行' } as Record<string, string>)[action] ?? '打开' }
-function goToItem(item: WorkDeskItem): void { void router.push(item.route) }
+// A row without a title still has to be nameable, so it falls back to a translated object type.
+function deskTitle(item: WorkDeskItem): string { return item.title?.trim() || `${enumLabel(item.objectType, workDeskObjectTypeLabels)} · ${item.objectId.slice(0, 8)}` }
+function roleLabel(role: string | null): string { return enumLabelOr(role, workDeskResponsibilityRoleLabels, '关联任务') }
+function urgencyLabel(urgency: string): string { return enumLabel(urgency, workDeskUrgencyLabels) }
+function urgencyTone(urgency: string): SemanticTone { return urgency === 'HIGH' || urgency === 'URGENT' ? 'danger' : urgency === 'NORMAL' ? 'warning' : 'neutral' }
+function projectLabel(projectId: string | null): string | null {
+  if (!projectId) return null
+  const match = scopeStore.state.projects.find(candidate => candidate.id === projectId)
+  return match ? `${match.key} · ${match.name}` : null
+}
+/** A gate, review or execution row is read-only here; only a WorkItem has a status machine. */
+function canExecute(item: WorkDeskItem): boolean {
+  return item.objectType === 'WORK_ITEM' && item.availableActions.length > 0
+}
+/** An execution that is not simply running is the one worth looking at. */
+const unhealthyExecutions = ['FAILED', 'WAITING', 'MANUAL_TAKEOVER', 'PAUSE_REQUESTED', 'CANCEL_REQUESTED', 'RECOVERING']
+function executionTone(status: string): SemanticTone {
+  if (status === 'FAILED' || status === 'CANCELLED') return 'danger'
+  if (unhealthyExecutions.includes(status)) return 'warning'
+  return 'info'
+}
 
-watch(() => [store.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
-  await store.loadMembers()
+/**
+ * Runs one action the projection offered for a WorkItem row.
+ *
+ * The Store owns the command, the authoritative re-read and the verdict; this only decides how the
+ * verdict is shown and, on success, re-reads the projection so the row's section comes from the
+ * server. Both the board drop and the card's status menu funnel through here, which is what keeps a
+ * single undo window and one wording per refusal across the home page and the work board.
+ */
+async function runDeskAction(item: WorkDeskItem, target: string | WorkItemStatus): Promise<void> {
+  const organizationId = team.value?.organizationId
+  const teamId = team.value?.id
+  if (!organizationId || !teamId || !item.projectId) return
+  const result = await workItemStore.transitionFromRow(
+    { organizationId, teamId, projectId: item.projectId },
+    // A WorkDesk row has no key. Its title names it better than a UUID would, and the refusal only
+    // falls back to that name when the server sent no reason of its own.
+    { id: item.objectId, key: deskTitle(item), availableActions: item.availableActions },
+    target as WorkItemStatus,
+  )
+  if (result.status === 'executed') {
+    offerUndo(deskTitle(item))
+    await workDeskStore.load(workDeskFilter.value, true)
+    return
+  }
+  // A refusal and a failure are different news: the first says the row is not in a state that allows
+  // the action, the second says we do not know whether the command landed.
+  toast.show(result.message, { tone: result.status === 'refused' ? 'warning' : 'danger' })
+}
+
+function runCardAction(item: WorkDeskItem, action: WorkDeskItem['availableActions'][number]): void {
+  void submitTransition(item.objectId, action, async transition => runDeskAction(item, transition.targetStatus))
+}
+function openItem(item: WorkDeskItem): void { void router.push(item.route) }
+
+watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
+  await scopeStore.loadMembers()
   if (setupStore && teamId && organizationId) {
     setupStore.activateScope({ organizationId, teamId })
     await setupStore.load()
@@ -85,6 +307,9 @@ watch(() => [store.state.selectedTeamId, team.value?.organizationId] as const, a
 }, { immediate: true })
 
 watch(workDeskFilter, value => { if (team.value) void workDeskStore.load(value) })
+// A filter or grouping change re-arms nothing: an action half-confirmed on a row that is no longer
+// on screen must not still be waiting for its second click.
+watch(() => [myWorkRows.value, deskGrouping.value, workDeskStore.state.summary] as const, resetTransition)
 
 const todayLabel = new Intl.DateTimeFormat('zh-CN', {
   month: 'long',
@@ -94,131 +319,302 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 </script>
 
 <template>
-  <AppShell eyebrow="今日 · 团队工作区" :title="team?.name ?? '团队工作区'">
+  <AppShell eyebrow="今日" title="我的工作台">
     <template #actions>
       <BaseButton v-if="canManageProjects" variant="secondary" size="small" @click="projectCreation.show"><Plus :size="14" />新建项目</BaseButton>
-      <RouterLink v-slot="{ navigate }" custom :to="{ name: 'conversation', query: route.query }">
-        <BaseButton variant="secondary" size="small" @click="navigate"><MessageSquare :size="14" />进入对话</BaseButton>
-      </RouterLink>
       <RouterLink v-slot="{ navigate }" custom :to="{ name: 'work', query: route.query }">
         <BaseButton size="small" @click="navigate">打开 Work <ArrowRight :size="14" /></BaseButton>
       </RouterLink>
     </template>
 
-    <StatePanel v-if="store.state.phase === 'loading' || store.state.phase === 'idle'" state="loading" />
-    <StatePanel v-else-if="store.state.phase === 'error'" state="error" :description="store.state.errorMessage ?? undefined" @retry="store.reload" />
-    <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建或加入 Team 后，Today 会汇总团队范围内需要关注的工作。" />
+    <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
+    <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
+    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建或加入 Team 后，Today 会汇总团队范围内需要关注的工作。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
 
     <div v-else class="today-page page-shell">
-      <section class="today-hero">
+      <!--
+        The Setup banner is a strip rather than a page: a member whose Team still needs configuring
+        can see today's work and the one thing blocking it in the same viewport.
+      -->
+      <RouterLink v-if="setupReadiness && !setupReadiness.requiredReady" class="setup-strip touch-target" :to="{ name: 'setup', query: route.query }">
+        <Settings2 :size="16" aria-hidden="true" />
+        <span><strong>配置尚未就绪</strong>Required 能力 {{ setupReadyCount }}/{{ setupRequiredCount }} 项已就绪，其余需要先完成配置。</span>
+        <ArrowRight :size="14" aria-hidden="true" />
+      </RouterLink>
+
+      <header class="today-head">
         <div>
-          <p class="eyebrow"><CalendarDays :size="13" />{{ todayLabel }}</p>
-          <h2>先确认范围，再推进今天的团队工作。</h2>
-          <p>Today 聚合当前 Team 与 WorkProject 的责任、决策和执行入口；工作事实仍由各业务 API 提供。</p>
-        </div>
-        <div class="scope-fact">
-          <span>当前范围</span>
-          <strong>{{ team?.name }}</strong>
-          <small>{{ project ? `${project.key} · ${project.name}` : '尚未创建 WorkProject' }}</small>
-        </div>
-      </section>
-
-      <section class="scope-metrics" aria-label="当前范围摘要">
-        <article><i><Layers3 :size="18" /></i><div><small>可用 WorkProject</small><strong>{{ store.state.projects.length }}</strong><p>ScopeSwitcher 中可直接切换</p></div></article>
-        <article><i class="members"><UsersRound :size="18" /></i><div><small>Active TeamMember</small><strong>{{ store.state.members.filter(member => member.status === 'ACTIVE').length }}</strong><p>{{ store.state.membersLoading ? '正在同步成员事实' : '来自 Team Membership' }}</p></div></article>
-        <article><i class="project"><BriefcaseBusiness :size="18" /></i><div><small>当前 WorkProject</small><strong class="project-key">{{ project?.key ?? '—' }}</strong><p>{{ project?.status === 'ACTIVE' ? 'Active · 可进入 Work' : '等待项目范围' }}</p></div></article>
-        <article><i class="setup"><Settings2 :size="18" /></i><div><small>Setup Center</small><strong>{{ setupReadiness ? `${setupReadyCount}/${setupRequiredCount}` : '—' }}</strong><p>{{ setupReadiness?.requiredReady ? 'Required ready' : '查看配置进度与下一步' }}</p></div></article>
-      </section>
-
-      <section class="work-desk panel" aria-labelledby="work-desk-title">
-        <div class="panel-heading work-desk__heading">
-          <div><p class="eyebrow">个人工作台</p><h2 id="work-desk-title">我的工作台</h2><p>跨 WorkProject 汇总需要你关注、推进和确认的工作事实。</p></div>
-          <BaseTooltip v-if="workDeskStore.state.summary" :text="formatAbsoluteTime(workDeskStore.state.summary.generatedAt)"><small class="desk-updated">更新于 {{ formatRelativeTime(workDeskStore.state.summary.generatedAt) }}</small></BaseTooltip>
+          <!-- The page title is AppShell's `<h1>`; repeating it here would give the page two headings
+               with the same accessible name, so a reader that asks for "我的工作台" is handed a
+               choice between two identical answers. -->
+          <p class="eyebrow">{{ todayLabel }}</p>
+          <p v-if="workDeskStore.state.summary" class="today-head__summary">
+            <span v-if="actionRequiredRows.length">需要你行动 {{ actionRequiredRows.length }} 项</span>
+            <span v-else>今天没有需要你行动的事项</span>
+            <span aria-hidden="true">·</span>
+            <span>推进中 {{ myWorkRows.length }} 项</span>
+            <template v-if="executionRows.length"><span aria-hidden="true">·</span><span>执行中 {{ executionRows.length }} 项</span></template>
+          </p>
         </div>
         <div class="desk-filters" aria-label="工作台筛选">
-          <label>项目<select :value="deskProject" @change="updateDeskQuery('deskProject', ($event.target as HTMLSelectElement).value)"><option value="all">全部项目</option><option v-for="item in store.state.projects" :key="item.id" :value="item.id">{{ item.key }} · {{ item.name }}</option></select></label>
-          <label>责任角色<select :value="deskRole" @change="updateDeskQuery('deskRole', ($event.target as HTMLSelectElement).value)"><option value="all">全部角色</option><option value="OWNER">负责人</option><option value="EXECUTOR">执行人</option><option value="REVIEWER">Reviewer</option></select></label>
+          <label>项目<select :value="deskProject" @change="updateDeskQuery('deskProject', ($event.target as HTMLSelectElement).value)"><option value="all">全部项目</option><option v-for="item in scopeStore.state.projects" :key="item.id" :value="item.id">{{ item.key }} · {{ item.name }}</option></select></label>
+          <label>责任角色<select :value="deskRole" @change="updateDeskQuery('deskRole', ($event.target as HTMLSelectElement).value)"><option value="all">全部角色</option><option v-for="role in workDeskResponsibilityRoles" :key="role" :value="role">{{ workDeskResponsibilityRoleLabels[role] }}</option></select></label>
           <label class="desk-check"><input type="checkbox" :checked="deskOnlyAction" @change="updateDeskQuery('deskAction', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"> 仅看需要我行动</label>
+          <BaseTooltip v-if="workDeskStore.state.summary" :text="formatAbsoluteTime(new Date(workDeskStore.state.summary.generatedAt))">
+            <small class="desk-updated" :aria-busy="refreshing">{{ refreshing ? '正在刷新' : `更新于 ${formatRelativeTime(new Date(workDeskStore.state.summary.generatedAt))}` }}</small>
+          </BaseTooltip>
         </div>
-        <StatePanel v-if="workDeskStore.state.phase === 'loading' || workDeskStore.state.phase === 'idle'" state="loading" compact />
-        <StatePanel v-else-if="workDeskStore.state.phase === 'offline'" state="offline" compact :description="workDeskStore.state.errorMessage ?? undefined" />
-        <StatePanel v-else-if="workDeskStore.state.phase === 'error'" state="error" compact :description="workDeskStore.state.errorMessage ?? undefined" @retry="workDeskStore.load(workDeskFilter, true)" />
-        <StatePanel v-else-if="workDeskStore.state.phase === 'empty'" state="empty" compact title="今天没有待处理事项" description="你可以进入 Work 创建工作项，或打开 Conversation 发起新的任务。">
-          <template #action><RouterLink class="desk-empty-link" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
-        </StatePanel>
-        <template v-else>
-          <div class="desk-action-block" aria-labelledby="desk-action-title">
-            <div class="desk-section-title"><div><h3 id="desk-action-title">需要我行动</h3><span>{{ needsActionItems.length }} 项</span></div><StatusBadge v-if="needsActionItems.length" tone="warning" dot>优先处理</StatusBadge></div>
-            <div v-if="needsActionItems.length" class="desk-list">
-              <button v-for="item in needsActionItems" :key="`${item.objectType}:${item.objectId}`" type="button" class="desk-item" @click="goToItem(item)">
-                <span class="desk-item__icon" :class="`desk-item__icon--${item.objectType.toLowerCase()}`"><CircleAlert :size="16" /></span>
-                <span class="desk-item__main"><strong>{{ itemTitle(item) }}</strong><small>{{ roleLabel(item.responsibilityRole) }} · {{ formatRelativeTime(item.updatedAt) }}</small></span>
-                <StatusBadge :tone="urgencyTone(item.urgency)" dot>{{ item.urgency === 'URGENT' ? '紧急' : item.urgency === 'HIGH' ? '高优先级' : '待处理' }}</StatusBadge>
-                <span class="desk-item__action">{{ actionLabel(item.availableActions[0] ?? 'OPEN') }} <ArrowRight :size="13" /></span>
-              </button>
-            </div>
-            <p v-else class="desk-inline-empty">当前筛选下没有需要你行动的事项。</p>
-          </div>
-          <div class="desk-columns">
-            <section><div class="desk-section-title"><div><h3>我的工作</h3><span>{{ personalItems.length }} 项</span></div></div><div v-if="personalItems.length" class="desk-list desk-list--compact"><button v-for="item in personalItems" :key="`${item.objectType}:${item.objectId}`" type="button" class="desk-item" @click="goToItem(item)"><span class="desk-item__main"><strong>{{ itemTitle(item) }}</strong><small>{{ roleLabel(item.responsibilityRole) }} · {{ formatRelativeTime(item.updatedAt) }}</small></span><span v-if="item.progress !== null" class="desk-progress"><i :style="{ width: `${item.progress}%` }" /><small>{{ item.progress }}%</small></span><ArrowRight :size="13" /></button></div><p v-else class="desk-inline-empty">暂无分配给你的工作项。</p></section>
-            <section><div class="desk-section-title"><div><h3>正在执行</h3><span>{{ executionItems.length }} 项</span></div></div><div v-if="executionItems.length" class="desk-list desk-list--compact"><button v-for="item in executionItems" :key="`${item.objectType}:${item.objectId}`" type="button" class="desk-item" @click="goToItem(item)"><span class="desk-item__main"><strong>{{ itemTitle(item) }}</strong><small>{{ item.status }} · {{ formatRelativeTime(item.updatedAt) }}</small></span><StatusBadge tone="agent" dot>Agent</StatusBadge><ArrowRight :size="13" /></button></div><p v-else class="desk-inline-empty">暂无进行中的执行。</p></section>
-          </div>
-          <div v-if="inboxItems.length" class="desk-inbox"><Inbox :size="16" /><span><strong>Inbox</strong> 有 {{ inboxItems[0]?.title ?? '新的待办消息' }}</span><RouterLink :to="{ name: 'inbox', query: route.query }">查看全部 <ArrowRight :size="13" /></RouterLink></div>
-        </template>
-      </section>
+      </header>
 
-      <div class="today-grid">
-        <section class="panel project-focus">
-          <div class="panel-heading"><div><p class="eyebrow">Project focus</p><h2>当前项目范围</h2><p>选择 WorkProject 后，Work、Conversation 和后续详情页共享同一个 URL 上下文。</p></div><StatusBadge :tone="project ? 'success' : 'neutral'" dot>{{ project ? '已锁定范围' : '等待项目' }}</StatusBadge></div>
-          <div v-if="project" class="project-focus__body">
-            <span class="project-monogram">{{ project.key.slice(0, 2) }}</span>
-            <div><small class="mono">{{ project.key }}</small><h3>{{ project.name }}</h3><p>Workspace <span class="mono">{{ project.workspaceId.slice(0, 8) }}…</span></p></div>
-            <RouterLink :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="14" /></RouterLink>
+      <StatePanel v-if="firstLoad" state="loading" compact title="正在汇总你的工作" description="正在从各个 WorkProject 读取责任、决策与执行事实。" />
+      <StatePanel
+        v-else-if="failedFirstLoad"
+        :state="failurePhase ?? 'error'"
+        :description="workDeskStore.state.errorMessage ?? undefined"
+        @retry="workDeskStore.load(workDeskFilter, true)"
+      />
+
+      <template v-else>
+        <!-- A first WorkProject is the one thing the projection cannot help with, and creating it is
+             the only next step an empty Team has. -->
+        <StatePanel
+          v-if="!scopeStore.state.projects.length"
+          state="empty"
+          title="这个 Team 还没有 WorkProject"
+          description="创建第一个 WorkProject 后，即可进入 Work 管理并绑定代码仓库。"
+        >
+          <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+        </StatePanel>
+
+        <!-- A refresh that failed keeps the last known rows and says so, rather than blanking a page
+             the member was reading. -->
+        <p v-if="failurePhase" class="desk-stale-notice" role="alert">
+          <TriangleAlert :size="14" aria-hidden="true" />
+          {{ failurePhase === 'offline' ? '当前离线，下面是最近一次读取到的内容。' : `刷新失败：${workDeskStore.state.errorMessage ?? '个人工作台暂时不可用'}` }}
+          <button type="button" @click="workDeskStore.load(workDeskFilter, true)">重试</button>
+        </p>
+
+        <section class="action-required panel" aria-labelledby="action-required-title">
+          <div class="panel-heading">
+            <div><h2 id="action-required-title">需要我行动</h2><p>等我决策、待我 Review 与被我阻塞的工作，来自全部 WorkProject。</p></div>
+            <span v-if="actionRequiredRows.length" class="count-chip">{{ actionRequiredRows.length }} 项</span>
           </div>
-          <StatePanel v-else state="empty" title="这个 Team 还没有 WorkProject" description="创建第一个 WorkProject 后，即可进入 Work 管理并绑定代码仓库。">
-            <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+          <StatePanel
+            v-if="!actionRequiredRows.length"
+            state="empty"
+            compact
+            title="没有需要你行动的事项"
+            description="等我决策、待我 Review 与被我阻塞的队列都是空的。你可以查看正在推进的工作，或进入 Work 取一个新任务。"
+          >
+            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
           </StatePanel>
+          <div v-else class="action-required__grid">
+            <button
+              v-for="item in actionRequiredRows"
+              :key="`${item.objectType}:${item.objectId}`"
+              type="button"
+              class="desk-row touch-target"
+              @click="openItem(item)"
+            >
+              <span class="desk-row__main">
+                <strong>{{ deskTitle(item) }}</strong>
+                <small>{{ enumLabel(item.objectType, workDeskObjectTypeLabels) }} · {{ roleLabel(item.responsibilityRole) }} · {{ formatRelativeTime(new Date(item.updatedAt)) }}</small>
+              </span>
+              <span class="desk-row__badges">
+                <span class="desk-row__status">{{ workDeskStatusLabel(item) }}</span>
+                <span class="desk-row__urgency" :class="`desk-row__urgency--${urgencyTone(item.urgency)}`">{{ urgencyLabel(item.urgency) }}</span>
+              </span>
+              <ArrowRight :size="14" aria-hidden="true" />
+            </button>
+          </div>
+          <!-- A row here can be a WorkItem the member must move; that is what the board below is
+               for, and saying so avoids the reader hunting for an action that lives one screen down. -->
+          <p v-if="actionRequiredRows.some(canExecute)" class="desk-hint">阻塞的工作项可以直接在下面的看板上推进；决策类事项需要进入对应页面处理。</p>
         </section>
 
-        <aside class="quick-actions">
-          <RouterLink class="quick-card" :to="{ name: 'setup', query: route.query }">
-            <i><Settings2 :size="18" /></i><div><strong>Setup Center</strong><span>查看 Team 就绪状态与下一步</span></div><ArrowRight :size="15" />
-          </RouterLink>
-          <RouterLink class="quick-card" :to="{ name: 'work', query: route.query }">
-            <i><BriefcaseBusiness :size="18" /></i><div><strong>Work</strong><span>进入当前项目的工作管理视图</span></div><ArrowRight :size="15" />
-          </RouterLink>
-          <RouterLink v-if="canViewMembers" class="quick-card" :to="{ name: 'team-members', query: route.query }">
-            <i><UsersRound :size="18" /></i><div><strong>团队成员</strong><span>查看 Membership 与加入来源</span></div><ArrowRight :size="15" />
-          </RouterLink>
-          <RouterLink class="quick-card" :to="{ name: 'conversation', query: route.query }">
-            <i class="conversation"><MessageSquare :size="18" /></i><div><strong>Conversation</strong><span>带着当前 Team 与项目范围讨论</span></div><ArrowRight :size="15" />
-          </RouterLink>
-        </aside>
-      </div>
+        <section class="my-work panel" aria-labelledby="my-work-title">
+          <div class="panel-heading my-work__heading">
+            <div><h2 id="my-work-title">我的工作</h2><p>跨 WorkProject 汇总你承担责任的 {{ myWorkRows.length }} 项工作。</p></div>
+            <div class="grouping-switcher" role="group" aria-label="我的工作分组方式">
+              <button type="button" :class="{ active: deskGrouping === 'status' }" :aria-pressed="deskGrouping === 'status'" @click="updateDeskQuery('deskGroup', 'status')">按状态</button>
+              <button type="button" :class="{ active: deskGrouping === 'role' }" :aria-pressed="deskGrouping === 'role'" @click="updateDeskQuery('deskGroup', 'role')">按责任角色</button>
+            </div>
+          </div>
+
+          <StatePanel
+            v-if="!myWorkRows.length"
+            state="empty"
+            title="没有分配到你的工作项"
+            description="当前筛选下，这个 Team 的 WorkProject 里没有需要你承担的工作项。换一个项目或角色筛选，或到 Work 里取一项工作。"
+          >
+            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
+          </StatePanel>
+
+          <div v-else class="desk-board" :class="{ 'desk-board--locked': !canDrag }" aria-label="我的工作看板" @keydown="handleBoardKeydown">
+            <section
+              v-for="column in boardColumns"
+              :key="column.key"
+              class="desk-column"
+              :class="{ 'drop-target': overColumn === column.key, 'drop-rejected': draggedRow && !allowDropOnColumn(column.key) }"
+              :aria-label="column.label"
+              @dragover.prevent="markBoardColumn(column.key)"
+              @dragleave="leaveBoardColumn"
+              @drop.prevent="dropOnColumn(column.key)"
+            >
+              <header><span>{{ column.label }}</span><span class="desk-column__count">{{ rowsFor(column.key).length }}</span></header>
+              <div class="desk-column__items">
+                <WorkDeskBoardCard
+                  v-for="item in rowsFor(column.key)"
+                  :key="item.objectId"
+                  :item="item"
+                  :title="deskTitle(item)"
+                  :project-label="projectLabel(item.projectId)"
+                  :role-label="roleLabel(item.responsibilityRole)"
+                  :show-role="deskGrouping === 'status'"
+                  :draggable="canDrag"
+                  :confirming-target="confirmingSubject === item.objectId ? confirmingTarget : null"
+                  :busy="workItemStore.state.rowActionItemId === item.objectId"
+                  @open="openItem(item)"
+                  @action="runCardAction(item, $event)"
+                  @drag-start="startRowDrag(item)"
+                  @drag-end="endRowDrag"
+                />
+                <p v-if="!rowsFor(column.key).length" class="desk-column__empty">暂无工作项</p>
+              </div>
+            </section>
+          </div>
+          <p class="desk-hint" :class="{ 'desk-hint--warn': !canDrag }">
+            <template v-if="deskGrouping === 'role'">按责任角色分组时不能拖动：把卡片放到某个角色列意味着改派责任，这是另一条命令，本站不在这块看板上发起。切回「按状态」即可拖动改状态。</template>
+            <template v-else-if="!isOnline">当前离线，拖动已停用；联网后可以继续改状态。</template>
+            <template v-else-if="!canParticipate">当前身份没有推进工作项的权限，卡片上的动作由服务端判定后可能仍不可用。</template>
+            <template v-else>拖动卡片，或聚焦卡片后按空格拾起、方向键选列、Enter 放下，都可以改状态。</template>
+          </p>
+        </section>
+
+        <div class="today-columns">
+          <section class="panel executions" aria-labelledby="executions-title">
+            <div class="panel-heading">
+              <div><h2 id="executions-title">正在执行</h2><p>Agent 执行进入 Execution Studio 查看阶段与产物。</p></div>
+              <span v-if="executionRows.length" class="count-chip">{{ executionRows.length }} 项</span>
+            </div>
+            <div v-if="executionRows.length" class="desk-list">
+              <button v-for="item in executionRows" :key="item.objectId" type="button" class="desk-row" @click="openItem(item)">
+                <span class="desk-row__main"><strong>{{ deskTitle(item) }}</strong><small>{{ formatRelativeTime(new Date(item.updatedAt)) }}更新</small></span>
+                <span class="desk-row__status" :class="`desk-row__status--${executionTone(item.status)}`">{{ workDeskStatusLabel(item) }}</span>
+                <ArrowRight :size="14" aria-hidden="true" />
+              </button>
+            </div>
+            <p v-else class="desk-inline-empty">当前没有进行中的执行。</p>
+          </section>
+
+          <section class="panel activity" aria-labelledby="today-activity-title">
+            <div class="panel-heading">
+              <div><h2 id="today-activity-title">今日动态</h2><p>今天有更新的工作项与执行，按最近更新排序。</p></div>
+            </div>
+            <ul v-if="todayRows.length" class="today-activity">
+              <li v-for="item in todayRows" :key="`${item.objectType}:${item.objectId}`">
+                <button type="button" class="today-activity__link" @click="openItem(item)">
+                  <span class="today-activity__title">{{ deskTitle(item) }}</span>
+                  <small>{{ workDeskStatusLabel(item) }} · {{ formatRelativeTime(new Date(item.updatedAt)) }}</small>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="desk-inline-empty">
+              今天还没有新的更新。<template v-if="latestUpdate">最近一次更新在 {{ formatRelativeTime(new Date(latestUpdate)) }}。</template>
+            </p>
+          </section>
+        </div>
+
+        <div v-if="inboxSample" class="desk-inbox panel">
+          <Inbox :size="16" aria-hidden="true" />
+          <span><strong>Inbox</strong> 有 {{ inboxTotal }} 条未读</span>
+          <RouterLink :to="{ name: 'inbox', query: route.query }">查看全部 <ArrowRight :size="13" /></RouterLink>
+        </div>
+      </template>
+
+      <p class="board-announcement sr-only" aria-live="polite">{{ boardAnnouncement }}</p>
     </div>
 
     <WorkProjectCreateDialog
       v-if="projectCreation.open.value && team"
       :team-name="team.name"
-      :submitting="store.state.projectCommandPending"
-      :retryable="store.state.projectCommandRetryable"
-      :error-message="store.state.projectCommandErrorMessage"
-      :check-key="store.checkWorkProjectKey"
+      :submitting="scopeStore.state.projectCommandPending"
+      :retryable="scopeStore.state.projectCommandRetryable"
+      :error-message="scopeStore.state.projectCommandErrorMessage"
+      :check-key="scopeStore.checkWorkProjectKey"
       @close="projectCreation.close"
-      @input-changed="store.clearProjectCommand"
+      @input-changed="scopeStore.clearProjectCommand"
       @submit="projectCreation.submit"
     />
   </AppShell>
 </template>
 
 <style scoped>
-.today-hero { display: flex; min-height: 174px; align-items: flex-end; justify-content: space-between; gap: 28px; padding: 28px; overflow: hidden; border: 1px solid #cfe2d3; border-radius: var(--cs-radius-lg); background: radial-gradient(circle at 88% 4%, rgb(142 213 167 / 28%), transparent 34%), linear-gradient(135deg, #f6fbf7, #e8f4eb); }
-.today-hero .eyebrow { display: flex; align-items: center; gap: 6px; }.today-hero h2 { max-width: 650px; margin-bottom: 10px; font: 27px/1.18 var(--cs-font-display); }.today-hero > div:first-child > p:last-child { max-width: 700px; margin: 0; color: var(--cs-text-muted); font-size: 12px; }
-.scope-fact { display: grid; min-width: 260px; gap: 3px; padding: 15px 17px; border: 1px solid rgb(255 255 255 / 68%); border-radius: var(--cs-radius-md); background: rgb(255 255 255 / 72%); box-shadow: 0 8px 24px rgb(21 35 29 / 7%); }.scope-fact span { color: var(--cs-text-muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.scope-fact strong { font-size: 14px; }.scope-fact small { color: var(--cs-text-secondary); font-size: 10px; }
-.scope-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }.scope-metrics article { display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 16px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.scope-metrics i { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.scope-metrics i.members { background: var(--cs-info-soft); color: var(--cs-info); }.scope-metrics i.project { background: var(--cs-agent-soft); color: var(--cs-agent); }.scope-metrics small, .scope-metrics strong, .scope-metrics p { display: block; }.scope-metrics small { color: var(--cs-text-muted); font-size: 9px; font-weight: 700; }.scope-metrics strong { font-size: 22px; }.scope-metrics strong.project-key { font-family: var(--cs-font-mono); font-size: 18px; }.scope-metrics p { margin: 1px 0 0; color: var(--cs-text-muted); font-size: 9px; }
-.today-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; }.project-focus { overflow: hidden; }.project-focus__body { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 14px; min-height: 150px; padding: 24px; }.project-monogram { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: 13px; font-weight: 850; }.project-focus__body small { color: var(--cs-brand-600); font-size: 10px; }.project-focus__body h3 { margin: 2px 0 5px; font-size: 17px; }.project-focus__body p { margin: 0; color: var(--cs-text-muted); font-size: 10px; }.project-focus__body > a { display: flex; min-height: 36px; align-items: center; gap: 6px; padding: 0 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-800); color: white; font-size: 10px; font-weight: 700; }
-.work-desk { display: grid; gap: 14px; }.work-desk__heading { align-items: flex-start; }.work-desk__heading h2 { margin: 2px 0 3px; font-size: 20px; }.desk-updated { color: var(--cs-text-muted); font-size: 10px; }.desk-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }.desk-filters label { display: grid; gap: 4px; color: var(--cs-text-muted); font-size: 10px; font-weight: 700; }.desk-filters select { min-width: 160px; height: 32px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: 11px; }.desk-check { display: flex !important; min-height: 32px; align-items: center; grid-template-columns: auto 1fr; font-weight: 600 !important; }.desk-check input { accent-color: var(--cs-brand-600); }.desk-action-block { display: grid; gap: 9px; }.desk-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.desk-section-title h3 { display: inline; margin: 0; font-size: 14px; }.desk-section-title span { margin-left: 7px; color: var(--cs-text-muted); font-size: 10px; }.desk-list { display: grid; gap: 7px; }.desk-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; transition: border-color var(--cs-transition-fast), transform var(--cs-transition-fast); }.desk-item:hover { border-color: var(--cs-brand-300); transform: translateY(-1px); }.desk-item__icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.desk-item__icon--human_gate { background: var(--cs-danger-soft); color: var(--cs-danger); }.desk-item__main { min-width: 0; }.desk-item__main strong, .desk-item__main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.desk-item__main strong { font-size: 11px; }.desk-item__main small { margin-top: 3px; color: var(--cs-text-muted); font-size: 9px; }.desk-item__action { display: flex; align-items: center; gap: 3px; color: var(--cs-brand-700); font-size: 10px; font-weight: 700; white-space: nowrap; }.desk-inline-empty { margin: 0; padding: 14px; border: 1px dashed var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text-muted); font-size: 10px; }.desk-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }.desk-columns section { display: grid; align-content: start; gap: 9px; }.desk-list--compact .desk-item { grid-template-columns: minmax(0, 1fr) auto; }.desk-progress { display: flex; min-width: 78px; align-items: center; gap: 6px; }.desk-progress i { display: block; width: 42px; height: 5px; overflow: hidden; border-radius: 99px; background: var(--cs-brand-100); }.desk-progress i::after { display: block; width: 100%; height: 100%; background: var(--cs-brand-500); content: ''; }.desk-progress small { color: var(--cs-text-muted); font-size: 9px; }.desk-inbox { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: 10px; }.desk-inbox span { flex: 1; }.desk-inbox strong { color: var(--cs-text); }.desk-inbox a, .desk-empty-link { display: inline-flex; align-items: center; gap: 4px; color: var(--cs-brand-700); font-weight: 700; }.desk-empty-link { font-size: 10px; }
-.quick-actions { display: grid; align-content: start; gap: 10px; }.quick-card { display: grid; min-height: 76px; grid-template-columns: 38px 1fr 16px; align-items: center; gap: 11px; padding: 13px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); transition: border-color var(--cs-transition-fast), transform var(--cs-transition-fast); }.quick-card:hover { border-color: var(--cs-brand-300); transform: translateY(-1px); }.quick-card i { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.quick-card i.conversation { background: var(--cs-agent-soft); color: var(--cs-agent); }.quick-card strong, .quick-card span { display: block; }.quick-card strong { font-size: 12px; }.quick-card span { margin-top: 2px; color: var(--cs-text-muted); font-size: 9px; }.quick-card > svg { color: var(--cs-text-muted); }
-@media (max-width: 1000px) { .today-grid { grid-template-columns: 1fr; }.quick-actions { grid-template-columns: repeat(3, 1fr); }.quick-card { grid-template-columns: 34px 1fr; }.quick-card > svg { display: none; } }
-@media (max-width: 767px) { .today-hero { min-height: 210px; align-items: flex-start; flex-direction: column; gap: 18px; padding: 20px; }.today-hero h2 { font-size: 23px; }.scope-fact { width: 100%; min-width: 0; }.scope-metrics { grid-template-columns: 1fr; gap: 8px; }.scope-metrics article { padding: 13px; }.today-grid { gap: 10px; }.project-focus__body { grid-template-columns: 44px 1fr; padding: 18px; }.project-monogram { width: 44px; height: 44px; }.project-focus__body > a { grid-column: 1 / -1; justify-content: center; }.quick-actions { grid-template-columns: 1fr; }.desk-columns { grid-template-columns: 1fr; }.desk-filters { align-items: stretch; flex-direction: column; }.desk-filters select { width: 100%; }.desk-item { grid-template-columns: 30px minmax(0, 1fr) auto; }.desk-item__action { grid-column: 2 / -1; }.desk-item > .status-badge { grid-column: 3; grid-row: 1; } }
+.setup-strip { display: flex; min-height: 44px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 1px solid var(--cs-warning); border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); color: var(--cs-text); font-size: var(--cs-text-sm); }
+.setup-strip span { flex: 1; }.setup-strip strong { margin-right: var(--cs-space-4); }
+/* The date and the summary sit at the top of the row rather than on the filter panel's baseline:
+   with `flex-end` a two-line block hung off the bottom edge of a 90px panel and left a hole above it. */
+.today-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding-top: var(--cs-space-8); }
+.today-head__summary { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin: var(--cs-space-4) 0 0; color: var(--cs-text); font-size: var(--cs-text-base); }
+.desk-filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }
+.desk-filters label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.desk-filters select { min-width: 160px; height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
+.desk-check { display: flex !important; min-height: var(--cs-density-control-height); align-items: center; font-weight: var(--cs-weight-semibold) !important; }
+.desk-check input { accent-color: var(--cs-focus); }
+.desk-updated { align-self: center; color: var(--cs-text-muted); font-size: var(--cs-text-sm); white-space: nowrap; }
+.desk-stale-notice { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-warning); border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); font-size: var(--cs-text-sm); }
+.desk-stale-notice button { margin-left: auto; border: 0; background: transparent; color: var(--cs-text-brand); cursor: pointer; font-weight: var(--cs-weight-semibold); }
+.count-chip { padding: var(--cs-space-2) var(--cs-space-8); border-radius: 99px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+.action-required { display: grid; gap: var(--cs-space-12); }
+.action-required__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--cs-space-8); }
+.desk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--cs-space-12); width: 100%; min-height: var(--cs-density-control-height); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; transition: border-color var(--cs-motion-fast) var(--cs-ease-out); }
+.desk-row:hover { border-color: var(--cs-border-accent-strong); }
+.desk-row__main { min-width: 0; }
+.desk-row__main strong, .desk-row__main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-row__main strong { font-size: var(--cs-text-sm); }
+.desk-row__main small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.desk-row__badges { display: flex; align-items: center; gap: var(--cs-space-8); }
+.desk-row__status { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); white-space: nowrap; }
+.desk-row__status--danger { color: var(--cs-danger); }.desk-row__status--warning { color: var(--cs-warning); }.desk-row__status--info { color: var(--cs-info); }
+.desk-row__urgency { font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+.desk-row__urgency--danger { color: var(--cs-danger); }.desk-row__urgency--warning { color: var(--cs-warning); }.desk-row__urgency--neutral { color: var(--cs-text-muted); }
+.my-work { display: grid; gap: var(--cs-space-12); }
+.my-work__heading { align-items: flex-start; }
+.grouping-switcher { display: flex; flex: 0 0 auto; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }
+.grouping-switcher button { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: var(--cs-text-sm); cursor: pointer; }
+.grouping-switcher button.active { background: var(--cs-surface); box-shadow: var(--cs-shadow-hairline); color: var(--cs-text-brand); font-weight: var(--cs-weight-semibold); }
+.desk-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }
+.desk-column { min-width: 0; min-height: 240px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }
+.desk-column > header { display: flex; min-height: 40px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.desk-column__count { color: var(--cs-text-muted); }
+.desk-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }
+.desk-column__empty { padding: var(--cs-space-16) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }
+.desk-column.drop-target { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 2px var(--cs-ring-brand); }
+/* A column that would refuse the row dims, so the highlight is the only bright target. */
+.desk-board--locked .desk-column.drop-rejected, .desk-column.drop-rejected { opacity: .62; }
+.desk-hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.desk-hint--warn { color: var(--cs-warning); }
+.today-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-16); }
+.executions, .activity { display: grid; align-content: start; gap: var(--cs-space-12); }
+.desk-list { display: grid; gap: var(--cs-space-8); }
+.today-activity { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }
+.today-activity__link { display: grid; width: 100%; gap: var(--cs-space-2); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; }
+.today-activity__link:hover { border-color: var(--cs-border-accent-strong); }
+.today-activity__title { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.today-activity__link small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.desk-inline-empty { margin: 0; padding: var(--cs-space-16); border: 1px dashed var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.desk-inbox { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.desk-inbox span { flex: 1; }.desk-inbox strong { color: var(--cs-text); }
+.desk-inbox a, .desk-empty-link { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-brand); font-weight: var(--cs-weight-semibold); }
+.desk-empty-link { font-size: var(--cs-text-sm); }
+@media (max-width: 1000px) { .today-columns { grid-template-columns: 1fr; } }
+@media (max-width: 767px) {
+  .today-head { align-items: stretch; flex-direction: column; }
+  .desk-filters { align-items: stretch; flex-direction: column; }
+  .desk-filters select { width: 100%; }
+  .desk-board { grid-auto-columns: minmax(272px, 84vw); }
+  .action-required__grid { grid-template-columns: 1fr; }
+  .my-work__heading { align-items: stretch; flex-direction: column; }
+  .grouping-switcher button { flex: 1; }
+}
 </style>

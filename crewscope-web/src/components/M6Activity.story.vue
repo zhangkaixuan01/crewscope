@@ -37,4 +37,4 @@ function activity(eventId: string, eventType: string, category: string, outcome:
   </Story>
 </template>
 
-<style scoped>.drawer-fixture { width: 520px; padding: 18px; background: var(--cs-surface); }</style>
+<style scoped>.drawer-fixture { width: 520px; padding: var(--cs-space-20); background: var(--cs-surface); }</style>

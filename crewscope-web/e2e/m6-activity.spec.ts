@@ -23,7 +23,10 @@ test('renders, resumes, de-duplicates and passes Axe in both viewports', async (
   expect(results.violations).toEqual([])
   await expect(page).toHaveScreenshot(`m6-activity-${testInfo.project.name}.png`, { fullPage: true })
 
-  const evidence = page.getByRole('link', { name: /WorkItem/ }).first()
+  // 用活动列表限定范围：全局导航栏里也有一个字面文本为「工作项」的常驻链接（桌面视口才可见，
+  // 且在 DOM 顺序上出现在 <main> 之前），不限定容器的话 `.first()` 在桌面视口会命中那个导航
+  // 链接而不是这条证据链接——窄视口因为侧边栏收起而侥幸通过，桌面视口必然失败。
+  const evidence = page.getByRole('list', { name: '团队活动列表' }).getByRole('link', { name: /工作项/ }).first()
   await evidence.focus()
   await expect(evidence).toBeFocused()
   await page.keyboard.press('Enter')

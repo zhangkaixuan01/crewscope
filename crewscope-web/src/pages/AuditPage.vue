@@ -173,9 +173,9 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
 
 <template>
   <AppShell title="审计中心" eyebrow="治理 · 审计查询">
-    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="store.loadAudit(activeFilter, false, true)"><RefreshCw :size="14" />刷新</BaseButton></template>
+    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'audit-scope-reason'" @click="store.loadAudit(activeFilter, false, true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="审计事实始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="audit-scope-reason" state="empty" title="请选择 Team" description="审计事实始终属于明确的 Organization 与 Team。" />
     <AuditExplorer
       v-else
       :phase="store.state.audit.phase" :items="store.state.audit.value ?? []" :error="store.state.audit.error"

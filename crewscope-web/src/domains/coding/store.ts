@@ -19,6 +19,18 @@ import type {
   RepositoryPreflight,
   TestEvidenceSummary,
 } from './types'
+import {
+  artifactKey,
+  attemptKey,
+  deleteByPrefix,
+  isAbort,
+  isEmpty,
+  mergeEvidencePages,
+  presentError,
+  scopeKey,
+  sha256,
+  statusOf,
+} from './storeUtils'
 
 export type CodingPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -919,59 +931,4 @@ function idleRepositoryCommand(): RepositoryCommandState {
     phase: 'idle', operation: null, bindingId: null,
     errorMessage: null, errorStatus: null, receipt: null, retryable: false,
   }
-}
-
-function scopeKey(scope: CodingScope): string {
-  return `${scope.organizationId}:${scope.teamId}:${scope.projectId}`
-}
-
-function attemptKey(taskId: string, executionId: string): string {
-  return `${taskId}:${executionId}`
-}
-
-function artifactKey(taskId: string, executionId: string, evidenceId: string): string {
-  return `${attemptKey(taskId, executionId)}:${evidenceId}`
-}
-
-function mergeEvidencePages<T extends { id: string }>(
-  current: EvidencePage<T>,
-  incoming: EvidencePage<T>,
-): EvidencePage<T> {
-  const known = new Set(current.items.map(item => item.id))
-  return {
-    items: [...current.items, ...incoming.items.filter(item => !known.has(item.id))],
-    nextCursor: incoming.nextCursor,
-  }
-}
-
-function deleteByPrefix<T>(cache: Record<string, T>, prefix: string): void {
-  for (const key of Object.keys(cache)) if (key.startsWith(prefix)) delete cache[key]
-}
-
-function isEmpty(value: unknown): boolean {
-  if (Array.isArray(value)) return value.length === 0
-  if (value && typeof value === 'object' && 'items' in value) {
-    return Array.isArray((value as { items: unknown }).items)
-      && (value as { items: unknown[] }).items.length === 0
-  }
-  return false
-}
-
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
-
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', copy.buffer))
-  return [...digest].map(value => value.toString(16).padStart(2, '0')).join('')
-}
-
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
 }

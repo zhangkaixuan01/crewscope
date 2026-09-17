@@ -38,20 +38,40 @@ describe('WorkItemResponsibilityPanel', () => {
     await wrapper.findAll('.agent-directory form')[0]!.trigger('submit')
     await wrapper.get('[aria-label="Advisory Reviewer Agent"]').setValue(agentCandidates[0]!.principalId)
     await wrapper.findAll('.agent-directory form')[1]!.trigger('submit')
-    await wrapper.get('details summary').trigger('click')
-    await wrapper.get('[aria-label="Executor Agent Principal ID"]').setValue('00000000-0000-0000-0000-000000000201')
-    await wrapper.findAll('.agent-assignment form')[0]!.trigger('submit')
-    await wrapper.get('[aria-label="Advisory Agent Principal ID"]').setValue('00000000-0000-0000-0000-000000000202')
-    await wrapper.findAll('.agent-assignment form')[1]!.trigger('submit')
     await flushPromises()
 
     expect(onReplaceOwner).toHaveBeenCalledWith(candidates[2]!.principalId)
     expect(onAssignExecutor).toHaveBeenCalledWith(agentCandidates[1]!.principalId)
     expect(onAssignAdvisoryReviewer).toHaveBeenCalledWith(agentCandidates[0]!.principalId)
+    expect(wrapper.text()).toContain('来自当前 Team 与 Workspace 的 ACTIVE Agent')
+  })
+
+  it('reaches Agents outside the loaded directory page by name, never by identifier', async () => {
+    const onAssignExecutor = vi.fn().mockResolvedValue(undefined)
+    const onAssignAdvisoryReviewer = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorkItemResponsibilityPanel, {
+      props: props({ onAssignExecutor, onAssignAdvisoryReviewer }),
+      global: { stubs: { PrincipalPicker: principalPickerStub } },
+    })
+
+    await wrapper.get('details summary').trigger('click')
+    const pickers = wrapper.findAll('.picker-stub')
+    expect(pickers).toHaveLength(2)
+    // Both escape hatches search the subject directory for Agents inside the panel's own scope.
+    expect(pickers.map(picker => picker.attributes('data-kind'))).toEqual(['AGENT', 'AGENT'])
+    expect(pickers[0]!.attributes('data-scope')).toBe('00000000-0000-0000-0000-000000000201')
+    expect(wrapper.find('[aria-label="Executor Agent Principal ID"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Advisory Agent Principal ID"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('手动使用 Agent Principal ID')
+
+    await pickers[0]!.setValue('00000000-0000-0000-0000-000000000201')
+    await wrapper.findAll('.agent-assignment form')[0]!.trigger('submit')
+    await pickers[1]!.setValue('00000000-0000-0000-0000-000000000202')
+    await wrapper.findAll('.agent-assignment form')[1]!.trigger('submit')
+    await flushPromises()
+
     expect(onAssignExecutor).toHaveBeenCalledWith('00000000-0000-0000-0000-000000000201')
     expect(onAssignAdvisoryReviewer).toHaveBeenCalledWith('00000000-0000-0000-0000-000000000202')
-    expect(wrapper.text()).toContain('来自当前 Team 与 Workspace 的 ACTIVE Agent')
-    expect(wrapper.text()).toContain('手动使用 Agent Principal ID')
   })
 
   it('fails closed when the Agent directory is unavailable and exposes an explicit retry', async () => {
@@ -121,8 +141,16 @@ describe('WorkItemResponsibilityPanel', () => {
   })
 })
 
+/** Stands in for the subject directory so the escape hatch can be driven without the network. */
+const principalPickerStub = {
+  props: ['scope', 'modelValue', 'label', 'kind'],
+  emits: ['update:modelValue'],
+  template: '<input class="picker-stub" :data-kind="kind" :data-scope="scope?.teamId" :aria-label="label" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)">',
+}
+
 function props(overrides: Record<string, unknown> = {}) {
   return {
+    scope: { organizationId: '00000000-0000-0000-0000-000000000001', teamId: '00000000-0000-0000-0000-000000000201' },
     phase: 'ready' as const,
     members: structuredClone(fixtureResponsibilities),
     candidates,

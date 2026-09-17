@@ -3,11 +3,19 @@ import '../design/tokens.css'
 import '../design/base.css'
 import WorkItemCard from './domain/WorkItemCard.vue'
 import WorkItemDetailDrawer from './domain/WorkItemDetailDrawer.vue'
-import type { WorkItemDetails, WorkItemSummary } from '../domains/workitem/types'
+import type { WorkItemAvailableTransition, WorkItemDetails, WorkItemSummary } from '../domains/workitem/types'
 import { demoResponsibilities } from '../domains/demo/fixtures'
+
+/** One live reversible action, one blocked action with its reason and remedy. */
+const availableTransitions: WorkItemAvailableTransition[] = [
+  { actionId: 'request-review', targetStatus: 'IN_REVIEW', label: '提交评审', strength: 'PRIMARY', reversible: true, enabled: true, reason: null, reasonMessage: null, remedyLabel: null, remedyRoute: null },
+  { actionId: 'block', targetStatus: 'BLOCKED', label: '标记阻塞', strength: 'SECONDARY', reversible: true, enabled: true, reason: null, reasonMessage: null, remedyLabel: null, remedyRoute: null },
+  { actionId: 'complete', targetStatus: 'DONE', label: '标记完成', strength: 'PRIMARY', reversible: false, enabled: false, reason: 'REVIEWER_REQUIRED', reasonMessage: '需要先指派 Reviewer', remedyLabel: '指派 Reviewer', remedyRoute: '/work' },
+]
 
 const item: WorkItemSummary = {
   id: '00000000-0000-0000-0000-000000000601',
+
   organizationId: '00000000-0000-0000-0000-000000000001',
   teamId: '00000000-0000-0000-0000-000000000201',
   workspaceId: '00000000-0000-0000-0000-000000000501',
@@ -27,6 +35,7 @@ const item: WorkItemSummary = {
   createdByPrincipalId: '00000000-0000-0000-0000-000000000101',
   updatedAt: '2026-08-08T02:00:00Z',
   updatedByPrincipalId: '00000000-0000-0000-0000-000000000101',
+  availableActions: availableTransitions,
 }
 
 const details: WorkItemDetails = {
@@ -43,10 +52,10 @@ const timeline = [{ eventId: 'event-1', domainEventId: 'event-1', source: 'DOMAI
   <Story title="Domain/WorkItem card">
     <Variant title="List"><div class="story-list"><WorkItemCard :item="item" layout="list" /></div></Variant>
     <Variant title="Board"><div class="story-board"><WorkItemCard :item="item" layout="board" /></div></Variant>
-    <Variant title="Detail drawer"><WorkItemDetailDrawer phase="ready" :details="details" :error-message="null" :command-pending="null" :command-error-message="null" :version-conflict="null" can-participate can-delegate can-manage-responsibility responsibility-phase="ready" :responsibilities="demoResponsibilities" :responsibility-candidates="[{ principalId: item.createdByPrincipalId!, displayName: '张凯旋' }]" :responsibility-agent-candidates="[{ principalId: '00000000-0000-0000-0000-000000000201', displayName: 'Coding Agent', ownershipType: 'USER', runtimeRole: 'SPECIALIST' }]" responsibility-agent-phase="ready" :responsibility-agent-error-message="null" :responsibility-agent-loading-more="false" :responsibility-agent-has-more="false" :responsibility-error-message="null" :responsibility-command-pending="null" :responsibility-command-error-message="null" timeline-phase="ready" :timeline="timeline" :timeline-next-cursor="null" :timeline-loading-more="false" :timeline-error-message="null" association-phase="empty" :associations="[]" :association-error-message="null" :on-retry="() => {}" :on-transition="resolved" :on-add-comment="resolved" :on-link-resource="resolved" :on-replace-owner="resolved" :on-assign-executor="resolved" :on-assign-gate-reviewer="resolved" :on-assign-advisory-reviewer="resolved" :on-release-responsibility="resolved" :on-retry-responsibility-agents="() => {}" :on-load-more-responsibility-agents="() => {}" :on-load-timeline-more="resolved" :on-retry-associations="() => {}" /></Variant>
+    <Variant title="Detail drawer"><WorkItemDetailDrawer :scope="{ organizationId: item.organizationId, teamId: item.teamId }" phase="ready" :details="details" :error-message="null" :command-pending="null" :command-error-message="null" :version-conflict="null" availability-phase="ready" :available-transitions="availableTransitions" :availability-error-message="null" can-participate can-delegate can-manage-responsibility responsibility-phase="ready" :responsibilities="demoResponsibilities" :responsibility-candidates="[{ principalId: item.createdByPrincipalId!, displayName: '张凯旋' }]" :responsibility-agent-candidates="[{ principalId: '00000000-0000-0000-0000-000000000201', displayName: 'Coding Agent', ownershipType: 'USER', runtimeRole: 'SPECIALIST' }]" responsibility-agent-phase="ready" :responsibility-agent-error-message="null" :responsibility-agent-loading-more="false" :responsibility-agent-has-more="false" :responsibility-error-message="null" :responsibility-command-pending="null" :responsibility-command-error-message="null" timeline-phase="ready" :timeline="timeline" :timeline-next-cursor="null" :timeline-loading-more="false" :timeline-error-message="null" association-phase="empty" :associations="[]" :association-error-message="null" :on-retry="() => {}" :on-retry-availability="() => {}" :on-transition="resolved" :on-add-comment="resolved" :on-link-resource="resolved" :on-replace-owner="resolved" :on-assign-executor="resolved" :on-assign-gate-reviewer="resolved" :on-assign-advisory-reviewer="resolved" :on-release-responsibility="resolved" :on-retry-responsibility-agents="() => {}" :on-load-more-responsibility-agents="() => {}" :on-load-timeline-more="resolved" :on-retry-associations="() => {}" /></Variant>
   </Story>
 </template>
 
 <style scoped>
-.story-list, .story-board { min-height: 320px; padding: 28px; background: var(--cs-canvas); font-family: var(--cs-font-sans); }.story-board > * { width: 290px; }
+.story-list, .story-board { min-height: 320px; padding: var(--cs-space-32); background: var(--cs-canvas); font-family: var(--cs-font-sans); }.story-board > * { width: 290px; }
 </style>

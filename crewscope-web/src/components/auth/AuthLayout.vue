@@ -42,13 +42,13 @@ withDefaults(defineProps<{
 }
 .auth-layout__skip {
   position: fixed;
-  z-index: 100;
+  z-index: var(--cs-z-toast);
   top: 10px;
   left: 10px;
-  padding: 9px 12px;
+  padding: var(--cs-space-8) var(--cs-space-12);
   border-radius: 8px;
   background: var(--cs-brand-950);
-  color: white;
+  color: var(--cs-text-on-dark);
   transform: translateY(-160%);
   transition: transform var(--cs-auth-transition);
 }
@@ -58,12 +58,12 @@ withDefaults(defineProps<{
   min-width: 0;
   min-height: 100vh;
   place-items: center;
-  padding: 68px clamp(24px, 5vw, 84px);
+  padding: var(--cs-space-64) clamp(var(--cs-space-24), 5vw, var(--cs-space-64));
   background: var(--cs-auth-stage-surface);
 }
 
 @media (max-width: 680px) {
   .auth-layout { grid-template-columns: 1fr; }
-  .auth-layout__stage { min-height: calc(100vh - 190px); align-content: start; padding: 50px 14px 34px; }
+  .auth-layout__stage { min-height: calc(100vh - 190px); align-content: start; padding: var(--cs-space-48) var(--cs-space-16) var(--cs-space-32); }
 }
 </style>

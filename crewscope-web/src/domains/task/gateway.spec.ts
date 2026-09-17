@@ -168,7 +168,7 @@ describe('HttpTaskGateway', () => {
       environment: 'production', observedAt: '2026-08-15T12:01:00Z', health: 'DEGRADED',
       runtimeCount: 2, workerCount: 3, activeWorkerCount: 2, staleWorkerCount: 1,
       drainingWorkerCount: 0, capacity: { maximum: 6, active: 4, available: 2, claimableWorkerIds: ['private'] },
-      waitingRuntimeExecutions: 1, waitingCauses: [{ cause: 'CAPACITY', count: 1, executionIds: ['private'] }],
+      waitingRuntimeExecutions: 1, waitingCauses: [{ cause: 'CAPACITY_EXHAUSTED', count: 1, executionIds: ['private'] }],
       workers: [{ stableKey: 'operations-only', lastHeartbeatAt: 'private' }],
       runtimeIds: ['private'],
     }

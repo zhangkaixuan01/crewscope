@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { Columns3, Filter, List, MessageSquare, Plus, ShieldCheck } from '@lucide/vue'
+import { MessageSquare, Plus, ShieldCheck } from '@lucide/vue'
 import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
+import { useBoardDrag } from '../composables/useBoardDrag'
+import { useListSort } from '../composables/useListSort'
+import { useSelection } from '../composables/useSelection'
 import BaseButton from '../components/base/BaseButton.vue'
-import StatusBadge from '../components/base/StatusBadge.vue'
-import WorkItemCard from '../components/domain/WorkItemCard.vue'
 import WorkItemDetailDrawer from '../components/domain/WorkItemDetailDrawer.vue'
 import ActivityStream from '../components/domain/ActivityStream.vue'
 import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vue'
@@ -15,6 +16,9 @@ import TaskListPanel from '../components/domain/TaskListPanel.vue'
 import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import WorkItemCreateDialog from '../components/domain/WorkItemCreateDialog.vue'
+import WorkItemsWorkspace from '../components/domain/WorkItemsWorkspace.vue'
+import WorkItemsToolbar from '../components/domain/WorkItemsToolbar.vue'
+import WorkItemsBulkBar from '../components/domain/WorkItemsBulkBar.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
@@ -24,8 +28,22 @@ import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreat
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
+import { useUndoOffer } from '../domains/workitem/useUndoOffer'
+import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
+import { workItemPriorityLabels, workItemResponsibilityRoleLabels, workItemStatusLabels as statusLabels, workItemTypeLabels } from '../domains/workitem/labels'
+import { bulkSummaryMessage, summarizeBulkResults, type WorkItemBulkAssignmentRole, type WorkItemBulkRowResult } from '../domains/workitem/bulk'
+import {
+  bulkTransitionTargets,
+  defaultSortDirection,
+  readWorkItemSortDirection,
+  readWorkItemSortKey,
+  sortWorkItems,
+  workItemSortKeys,
+  type WorkItemSortKey,
+} from '../domains/workitem/list'
 import { useTaskStore } from '../domains/task/store'
 import { clearTaskDelegationDraft } from '../domains/task/delegationDraft'
+import { resolveTaskExecution, taskRouteSelection } from '../domains/task/route'
 import { clearCodingTargetDraft } from '../domains/coding/draft'
 import {
   codingRouteMatchesScope,
@@ -41,6 +59,7 @@ import { deliveryAttemptKey, deliveryBundleKey, useDeliveryStore } from '../doma
 import { useTeamOpsStore, workItemActivityCacheKey } from '../domains/teamops/store'
 import type { WorkItemActivityRoute } from '../domains/teamops/types'
 import type { CodingScope } from '../domains/coding/types'
+import type { PrincipalScope } from '../domains/principal/types'
 import {
   taskStatuses,
   type CreateTaskInput,
@@ -54,7 +73,9 @@ import {
   workItemTypes,
   allowedWorkItemTransitions,
   type CreateWorkItemInput,
+  type WorkItemAvailableTransition,
   type WorkItemPriority,
+  type WorkItemScope,
   type WorkItemStatus,
   type WorkItemSummary,
   type WorkItemType,
@@ -63,12 +84,31 @@ import {
 type WorkView = 'list' | 'board'
 type FilterValue<T extends string> = T | 'all'
 
+/**
+ * How many rows one batch may cover.
+ *
+ * Every selected row costs its own command and its own idempotency key, and a batch nobody would
+ * read the summary of is not a batch — it is a bulk edit nobody reviewed. The cap is stated when it
+ * is reached rather than silently enforced.
+ */
+const MAX_SELECTED_WORK_ITEMS = 100
+
 const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
 const workStore = useWorkItemStore()
+const { offerUndo, undoTransition } = useUndoOffer(workStore)
+// The command in flight is the Store's own flag, not a page-local one: the drawer and the card run
+// the same command, so a card that tracked its own pending state would let a member fire the same
+// transition twice from two surfaces.
+const {
+  confirmingTarget,
+  confirmingSubject,
+  submit: submitTransition,
+  reset: resetTransition,
+} = useTransitionConfirm(() => workStore.state.detailCommandPending === 'transition')
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
 const codingStore = useCodingStore()
@@ -77,12 +117,28 @@ const deliveryStore = useDeliveryStore()
 const teamOpsStore = useTeamOpsStore()
 const isOnline = useNetworkStatus()
 const toast = useToast()
+const listSort = useListSort<WorkItemSortKey>({
+  defaultKey: 'updatedAt',
+  defaultDirection: 'desc',
+  allowedKeys: workItemSortKeys,
+})
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const canParticipate = computed(() => Boolean(principal && can(principal, permissions.workParticipate)))
 const canManageResponsibility = computed(() => Boolean(principal && can(principal, permissions.responsibilityManage)))
+/** The scope every command and read on this page is issued against, or null before it resolves. */
+const workScope = computed<WorkItemScope | null>(() => (principal && team.value && project.value
+  ? { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }
+  : null))
+/**
+ * Selection is offered only when the member has something to do with it.
+ *
+ * A checkbox that leads to a bar with no buttons on it is worse than no checkbox: it invites work
+ * that cannot be finished. A member who may only read this project gets the list, unadorned.
+ */
+const selectionEnabled = computed(() => canParticipate.value || canManageResponsibility.value)
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 const responsibilityCandidates = computed(() => scopeStore.state.members
@@ -129,15 +185,16 @@ const taskConversationSource = computed(() => {
 const codingScope = computed<CodingScope | null>(() => principal && team.value && project.value
   ? { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }
   : null)
+// Subject pickers search the Team directory, so they need the Team scope without the project.
+const principalScope = computed<PrincipalScope | null>(() => principal && team.value
+  ? { organizationId: principal.organizationId, teamId: team.value.id }
+  : null)
 const showCreate = ref(false)
 const showDelegate = ref(false)
 const createInitialKey = ref('')
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
-const draggedWorkItem = ref<WorkItemSummary | null>(null)
-const dragOverStatus = ref<WorkItemStatus | null>(null)
-const boardAnnouncement = ref('')
 const selectedWorkItemActivityRoute = computed<WorkItemActivityRoute | null>(() => {
   const projectId = scopeStore.state.selectedProjectId
   const workItemId = workStore.state.detail?.workItem.id
@@ -269,10 +326,45 @@ const taskForbidden = computed(() => [
 ].some(status => status === 403))
 let liveFactRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
-const filteredItems = computed(() => workStore.state.items.filter(item =>
-  (typeFilter.value === 'all' || item.type === typeFilter.value)
-  && (priorityFilter.value === 'all' || item.priority === priorityFilter.value),
+/**
+ * The rows in hand, narrowed by the filters and ordered by the member's choice.
+ *
+ * Both steps act on the loaded page rather than on the collection: the server lists one WorkProject
+ * by its updated-time keyset and takes neither a type nor a sort parameter. What makes that honest
+ * is that every surface says which set it is describing — the toolbar counts the loaded rows and
+ * the sort control names them.
+ */
+const filteredItems = computed(() => sortWorkItems(
+  workStore.state.items.filter(item =>
+    (typeFilter.value === 'all' || item.type === typeFilter.value)
+    && (priorityFilter.value === 'all' || item.priority === priorityFilter.value),
+  ),
+  listSort.key.value,
+  listSort.direction.value,
 ))
+
+/**
+ * Selection lives above the board and the list both, so switching view does not lose it. The cap is
+ * a batch cost: every selected row costs its own command, and a four-figure batch is not a batch
+ * anybody reviews before it runs.
+ */
+const selection = useSelection<WorkItemSummary>({
+  items: computed(() => filteredItems.value),
+  getId: item => item.id,
+  maxSelected: MAX_SELECTED_WORK_ITEMS,
+})
+/** What a batch would act on: selected rows that are also loaded and visible right now. */
+const actionableSelectedItems = computed(() => selection.selectedItems.value)
+/**
+ * The selection's own count, lifted to the top level of the setup bindings.
+ *
+ * The composable returns refs on an object, and only top-level bindings are unwrapped in a template:
+ * `selection.selectedCount` there would be a ref object, which is always truthy and never equal to a
+ * number. Reading it here keeps the template comparing counts.
+ */
+const selectedCount = selection.selectedCount
+const bulkTargets = computed(() => bulkTransitionTargets(actionableSelectedItems.value))
+const bulkResults = ref<readonly WorkItemBulkRowResult[] | null>(null)
 
 const boardStatuses = computed<WorkItemStatus[]>(() => {
   if (statusFilter.value !== 'all') return [statusFilter.value]
@@ -319,7 +411,7 @@ const canConfirmDelivery = computed(() => Boolean(
 ))
 
 watch(
-  () => [scopeStore.state.phase, route.query.view, route.query.status, route.query.type, route.query.priority],
+  () => [scopeStore.state.phase, route.query.view, route.query.status, route.query.type, route.query.priority, route.query.sort, route.query.direction],
   () => {
     // Avoid changing the route while AppShell is still restoring a Team/Project deep link.
     if (scopeStore.state.phase !== 'ready') return
@@ -329,13 +421,32 @@ watch(
       status: statusFilter.value,
       type: typeFilter.value,
       priority: priorityFilter.value,
+      sort: listSort.key.value,
+      direction: listSort.direction.value,
     }
     if (
       route.query.view !== canonical.view
       || route.query.status !== canonical.status
       || route.query.type !== canonical.type
       || route.query.priority !== canonical.priority
+      || route.query.sort !== canonical.sort
+      || route.query.direction !== canonical.direction
     ) void router.replace({ query: canonical })
+  },
+  { immediate: true },
+)
+
+/**
+ * The URL owns the ordering, so a link pasted into a message reopens the same list.
+ *
+ * Reading the query back into the sort state is what keeps the composable from being a second
+ * source of truth: the member's click writes the URL, and the URL is what the list is built from.
+ */
+watch(
+  () => [route.query.sort, route.query.direction] as const,
+  ([key, direction]) => {
+    const sortKey = readWorkItemSortKey(key)
+    listSort.setSort(sortKey, readWorkItemSortDirection(direction, defaultSortDirection(sortKey)))
   },
   { immediate: true },
 )
@@ -383,16 +494,22 @@ watch(
 )
 
 watch(
-  () => [taskStore.state.details?.id, taskStore.state.details?.currentExecutionId, taskStore.state.attempts.map(item => item.id).join(',')] as const,
+  () => [
+    taskStore.state.details?.id,
+    taskStore.state.details?.currentExecutionId,
+    taskStore.state.attempts.map(item => item.id).join(','),
+    route.query.taskExecution,
+  ] as const,
   ([taskId, currentExecutionId]) => {
     if (!taskId) {
       selectedTaskExecutionId.value = null
       return
     }
-    const selectedStillExists = taskStore.state.attempts.some(item => item.id === selectedTaskExecutionId.value)
-    selectedTaskExecutionId.value = selectedStillExists
-      ? selectedTaskExecutionId.value
-      : currentExecutionId ?? taskStore.state.attempts[0]?.id ?? null
+    selectedTaskExecutionId.value = resolveTaskExecution(
+      taskRouteSelection(route.query),
+      taskStore.state.attempts,
+      { selectedId: selectedTaskExecutionId.value, currentExecutionId: currentExecutionId ?? null },
+    )
     if (selectedTaskExecutionId.value) {
       void taskStore.loadRuntimeFacts(taskId, selectedTaskExecutionId.value)
     }
@@ -558,6 +675,14 @@ watch(
   { immediate: true },
 )
 
+// A pending confirmation belongs to a card the member is looking at. When the set of cards or the
+// selected item changes, the armed card may no longer be on screen, and a confirmation that
+// outlives its card is a click that executes an irreversible action nobody was warned about.
+watch(
+  () => [workStore.state.items, statusFilter.value, view.value, workStore.state.selectedWorkItemId] as const,
+  resetTransition,
+)
+
 // The association Store is shared with Conversation Mode. Do not retain a WorkItem-scoped
 // response after this route leaves the tree; the next entry must read current server facts.
 onUnmounted(() => {
@@ -570,6 +695,64 @@ onUnmounted(() => {
 
 function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: string): void {
   void router.replace({ query: { ...route.query, [name]: value } })
+}
+
+/**
+ * Sorts by the key the member pressed, toggling when it is already the active one.
+ *
+ * A key that is being switched to opens in the direction that key is worth reading first — newest,
+ * most urgent, soonest due — rather than always ascending, which would show the least urgent rows
+ * at the top of a list sorted by priority.
+ */
+function sortBy(key: WorkItemSortKey): void {
+  if (key === listSort.key.value) listSort.toggleSort(key)
+  else listSort.setSort(key, defaultSortDirection(key))
+  void router.replace({
+    query: { ...route.query, sort: listSort.key.value, direction: listSort.direction.value },
+  })
+}
+
+/**
+ * Runs one action across the selection.
+ *
+ * Same verdicts as a single card, in a different shape: the batch goes through the Store's row path,
+ * which posts the same command to the same endpoint with a fresh idempotency key per row, and the
+ * member is told what happened to every row — including the ones nothing happened to and why.
+ */
+async function runBulkTransition(targetStatus: WorkItemStatus): Promise<void> {
+  const scope = workScope.value
+  const rows = actionableSelectedItems.value
+  if (!scope || !rows.length) return
+  const label = bulkTargets.value.find(target => target.targetStatus === targetStatus)?.label
+    ?? statusLabels[targetStatus]
+  reportBulk(await workStore.transitionRows(scope, rows, targetStatus), label)
+}
+
+/** Assigns one responsibility across the selection, through the existing assignment commands. */
+async function runBulkAssign(payload: { role: WorkItemBulkAssignmentRole; actorPrincipalId: string }): Promise<void> {
+  const scope = workScope.value
+  const rows = actionableSelectedItems.value
+  if (!scope || !rows.length) return
+  const member = responsibilityCandidates.value
+    .find(candidate => candidate.principalId === payload.actorPrincipalId)?.displayName
+  const label = `${workItemResponsibilityRoleLabels[payload.role]}指派给${member ?? '所选成员'}`
+  reportBulk(await workStore.assignRows(scope, rows, payload.role, payload.actorPrincipalId), label)
+}
+
+/**
+ * Publishes a batch's outcome: the sentence in the toast, the per-row detail in the bar.
+ *
+ * A fully executed batch clears the selection because it is finished — leaving it selected invites
+ * running the same command twice. A partial one keeps it, because the member now has rows to
+ * reconsider and clearing their selection would make them hunt for the same rows again.
+ */
+function reportBulk(results: readonly WorkItemBulkRowResult[], actionLabel: string): void {
+  bulkResults.value = results
+  const summary = summarizeBulkResults(results)
+  toast.show(bulkSummaryMessage(summary, actionLabel), {
+    tone: summary.failed > 0 ? 'danger' : summary.partial ? 'warning' : 'success',
+  })
+  if (!summary.partial) selection.clear()
 }
 
 function clearLocalFilters(): void {
@@ -596,75 +779,102 @@ async function createWorkItem(input: CreateWorkItemInput): Promise<void> {
   }
 }
 
+/**
+ * Selects every row the current result shows, up to the cap.
+ *
+ * The composable stops at the cap rather than throwing, so the count it returns is how many rows
+ * actually joined; saying so is the difference between "all selected" and "selected as far as the
+ * limit allowed".
+ */
+function selectVisiblePage(): void {
+  const wanted = filteredItems.value.filter(item => !selection.isSelected(item.id)).length
+  const added = selection.selectPage(filteredItems.value)
+  if (added < wanted) {
+    toast.show(`一次最多选择 ${MAX_SELECTED_WORK_ITEMS} 项，已选满`, { tone: 'warning' })
+  }
+}
+
+/** Toggles one row's membership in the batch selection. Overflow is refused by the composable. */
+function toggleSelect(item: WorkItemSummary): void {
+  const accepted = selection.toggle(item.id)
+  if (!accepted) {
+    toast.show(`一次最多选择 ${MAX_SELECTED_WORK_ITEMS} 项，请先清除部分选择`, { tone: 'warning' })
+  }
+}
+
 function selectItem(item: WorkItemSummary): void {
   detailTriggerId = item.id
   void router.replace({ query: { ...route.query, workItem: item.id, focus: item.key } })
 }
 
-function startWorkItemDrag(item: WorkItemSummary): void { draggedWorkItem.value = item }
-function endWorkItemDrag(): void { draggedWorkItem.value = null; dragOverStatus.value = null }
-function allowDrop(status: WorkItemStatus): boolean {
-  const item = draggedWorkItem.value
-  return Boolean(item && item.status !== status && allowedWorkItemTransitions[item.status]?.includes(status))
-}
-function markDragOver(status: WorkItemStatus): void { dragOverStatus.value = allowDrop(status) ? status : null }
+const boardDrag = useBoardDrag<WorkItemSummary, WorkItemStatus>({
+  columns: () => boardStatuses.value,
+  columnLabel: status => statusLabels[status],
+  columnOf: item => item.status,
+  // The board's columns are the six workflow statuses; the irreversible edges lead to CANCELLED and
+  // ARCHIVED, which have no column. So every target reachable by dragging is reversible and the undo
+  // window covers it, which is why a drop needs no second click.
+  allowEdge: (item, status) => Boolean(allowedWorkItemTransitions[item.status]?.includes(status)),
+  findRow: workItemId => workStore.state.items.find(candidate => candidate.id === workItemId) ?? null,
+  keyOf: item => item.id,
+  nameOf: item => item.key,
+  locked: () => !isOnline.value || !canParticipate.value,
+  // `allowEdge` only knows which edges exist; the Store's row path knows which of them the server
+  // offers this member right now, and refuses the rest with the server's own wording. A drop onto a
+  // blocked column therefore says why here rather than posting a command that comes back rejected
+  // with the reason buried in a drawer nobody has open.
+  drop: async (item, status) => { await runRowAction(item, status) },
+})
+const draggedWorkItem = boardDrag.dragged
+const dragOverStatus = boardDrag.overColumn
+const boardAnnouncement = boardDrag.announcement
+
+function startWorkItemDrag(item: WorkItemSummary): void { boardDrag.start(item) }
+function endWorkItemDrag(): void { boardDrag.end() }
+function markDragOver(status: WorkItemStatus): void { boardDrag.over(status) }
+function allowDrop(status: WorkItemStatus): boolean { return boardDrag.allowDrop(status) }
 function handleBoardKeydown(event: KeyboardEvent): void {
   const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-work-item-id]') : null
-  const item = target ? workStore.state.items.find(candidate => candidate.id === target.dataset.workItemId) : null
-  if (!item || ![' ', 'Enter', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
-  if (event.key === ' ') {
-    event.preventDefault()
-    if (draggedWorkItem.value?.id === item.id) {
-      endWorkItemDrag()
-      boardAnnouncement.value = `${item.key} 已放下，状态保持为${statusLabels[item.status]}`
-    } else {
-      startWorkItemDrag(item)
-      boardAnnouncement.value = `已拾起 ${item.key}，使用左右方向键选择列，Enter 放下`
-    }
-    return
-  }
-  if (draggedWorkItem.value?.id !== item.id) return
-  event.preventDefault()
-  if (event.key === 'Enter') {
-    void dropWorkItem(dragOverStatus.value ?? item.status)
-    boardAnnouncement.value = `${item.key} 正在更新状态`
-    return
-  }
-  const index = boardStatuses.value.indexOf(dragOverStatus.value ?? item.status)
-  const nextIndex = Math.min(boardStatuses.value.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))
-  const next = boardStatuses.value[nextIndex]
-  if (next) { markDragOver(next); boardAnnouncement.value = `目标列：${statusLabels[next]}` }
+  boardDrag.onKeydown(event, target?.dataset.workItemId)
 }
-async function dropWorkItem(status: WorkItemStatus): Promise<void> {
-  const item = draggedWorkItem.value
-  if (!item || !allowDrop(status) || !principal || !team.value || !project.value || !isOnline.value || !canParticipate.value) {
-    endWorkItemDrag()
+
+/**
+ * Runs one action offered by a list row, a board card or the home page.
+ *
+ * The Store owns the command and the verdict; this only decides how the verdict is shown, so every
+ * surface reports the same refusal in the same words and offers the same undo afterwards.
+ */
+async function runRowAction(item: WorkItemSummary, target: WorkItemStatus): Promise<void> {
+  if (!principal || !team.value || !project.value) return
+  const result = await workStore.transitionFromRow(
+    { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id },
+    item,
+    target,
+  )
+  if (result.status === 'executed') {
+    offerUndo(item.key)
     return
   }
-  const scope = { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }
-  try {
-    await workStore.loadDetails(scope, item.id, true)
-    if (workStore.state.detail?.workItem.status === item.status) {
-      await workStore.transition(status)
-      if (allowedWorkItemTransitions[status]?.includes(item.status)) {
-        toast.show(`${item.key} 已移至${statusLabels[status]}`, {
-          tone: 'success',
-          duration: 10_000,
-          action: {
-            label: '撤销',
-            onClick: async () => {
-              await workStore.loadDetails(scope, item.id, true)
-              await workStore.transition(item.status)
-            },
-          },
-        })
-      }
-    }
-  } catch {
-    // Store state contains the sanitized conflict or permission feedback.
-  } finally {
-    endWorkItemDrag()
-  }
+  // A refusal and a failure are different news: the first says the work item is not in a state that
+  // allows the action, the second says we do not know whether the command landed. Reporting both as
+  // a warning would let a member read a lost command as a rule they can work around.
+  toast.show(result.message, { tone: result.status === 'refused' ? 'warning' : 'danger' })
+}
+
+/**
+ * Runs an action chosen from a list row's or a board card's status menu.
+ *
+ * The menu is where the irreversible ones get their second click, so this is the only row path that
+ * confirms; the drag path above does not need to, for the reason recorded there.
+ */
+async function runCardAction(item: WorkItemSummary, action: WorkItemAvailableTransition): Promise<void> {
+  await submitTransition(item.id, action, async transition => runRowAction(item, transition.targetStatus))
+}
+
+/** Runs a drawer-initiated transition and offers the same undo every other surface offers. */
+async function transitionWorkItem(target: WorkItemStatus): Promise<void> {
+  await workStore.transition(target)
+  offerUndo()
 }
 
 async function closeDetails(): Promise<void> {
@@ -736,6 +946,9 @@ function selectTask(task: TaskSummary): void {
     ...withoutCodingRoute(route.query),
     task: task.id,
     workItem: task.workItemId,
+    // The WorkDesk hint belongs to the Task it was written for; a different Task starts from its own
+    // current execution.
+    taskExecution: undefined,
   }
   delete query.review
   void router.replace({ query })
@@ -757,12 +970,19 @@ function selectTaskAttempt(executionId: string): void {
     workspaceId: cached?.coding ? cached.details?.workspace.id : null,
   })
   delete query.review
+  // `attempt` now names the selected execution; keeping the consumed hint would let a reload
+  // override the member's own choice.
+  delete query.taskExecution
   void router.replace({ query })
 }
 
 async function closeTaskDetails(): Promise<void> {
   taskStore.stopLiveTasks()
-  const query: LocationQueryRaw = { ...withoutCodingRoute(route.query), task: undefined }
+  const query: LocationQueryRaw = {
+    ...withoutCodingRoute(route.query),
+    task: undefined,
+    taskExecution: undefined,
+  }
   delete query.review
   await router.replace({ query })
   taskStore.clearSelection()
@@ -1130,9 +1350,6 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
   return typeof value === 'string' && (options as readonly string[]).includes(value) ? value as T[number] : fallback
 }
 
-const statusLabels: Record<WorkItemStatus, string> = {
-  BACKLOG: '待规划', READY: '待执行', IN_PROGRESS: '进行中', IN_REVIEW: '审查中', BLOCKED: '已阻塞', DONE: '已完成', CANCELLED: '已取消', ARCHIVED: '已归档',
-}
 </script>
 
 <template>
@@ -1146,56 +1363,89 @@ const statusLabels: Record<WorkItemStatus, string> = {
 
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
-    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" />
+    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
     <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject" description="创建 WorkProject 后即可管理团队工作项。">
       <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
     </StatePanel>
 
     <div v-else class="work-page page-shell">
-      <section class="work-toolbar panel">
-        <div class="work-toolbar__scope">
-          <p class="eyebrow">{{ team?.name }} · {{ project.key }}</p>
-          <h2>团队工作项</h2>
-          <span>{{ filteredItems.length }} 项当前结果</span>
-          <BaseButton v-if="canCreate" class="create-work-item" size="small" @click="openCreate"><Plus :size="14" />新建工作项</BaseButton>
-        </div>
-        <div class="filters" aria-label="工作项筛选">
-          <label><span>状态</span><select :value="statusFilter" @change="updateQuery('status', ($event.target as HTMLSelectElement).value)"><option value="all">全部状态</option><option v-for="status in workItemStatuses" :key="status" :value="status">{{ statusLabels[status] }}</option></select></label>
-          <label><span>类型</span><select :value="typeFilter" @change="updateQuery('type', ($event.target as HTMLSelectElement).value)"><option value="all">全部类型</option><option v-for="itemType in workItemTypes" :key="itemType" :value="itemType">{{ itemType }}</option></select></label>
-          <label><span>优先级</span><select :value="priorityFilter" @change="updateQuery('priority', ($event.target as HTMLSelectElement).value)"><option value="all">全部优先级</option><option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ priority }}</option></select></label>
-        </div>
-        <div class="view-switcher" aria-label="工作项视图">
-          <button type="button" :class="{ active: view === 'list' }" aria-label="列表视图" @click="updateQuery('view', 'list')"><List :size="15" />List</button>
-          <button type="button" :class="{ active: view === 'board' }" aria-label="看板视图" @click="updateQuery('view', 'board')"><Columns3 :size="15" />Board</button>
-        </div>
-      </section>
+      <WorkItemsToolbar
+        :team-name="team?.name"
+        :project-key="project.key"
+        :result-count="filteredItems.length"
+        :view="view"
+        :status="statusFilter"
+        :type="typeFilter"
+        :priority="priorityFilter"
+        :statuses="workItemStatuses"
+        :types="workItemTypes"
+        :priorities="workItemPriorities"
+        :status-labels="statusLabels"
+        :type-labels="workItemTypeLabels"
+        :priority-labels="workItemPriorityLabels"
+        :can-create="canCreate"
+        :sort-key="listSort.key.value"
+        :sort-direction="listSort.direction.value"
+        :loaded-count="filteredItems.length"
+        :has-more="Boolean(workStore.state.nextCursor)"
+        @update-query="updateQuery"
+        @sort="sortBy"
+        @create="openCreate"
+      />
 
-      <section class="work-content" :class="`work-content--${view}`">
-        <StatePanel v-if="workStore.state.phase === 'loading'" state="loading" />
-        <StatePanel v-else-if="workStore.state.phase === 'error'" state="error" :description="workStore.state.errorMessage ?? undefined" @retry="retry" />
-        <StatePanel v-else-if="workStore.state.phase === 'empty'" state="empty" title="当前范围还没有工作项" description="创建第一个 WorkItem，让团队目标进入可追踪的执行流。"><template #action><BaseButton v-if="canCreate" @click="openCreate"><Plus :size="15" />新建工作项</BaseButton></template></StatePanel>
-        <StatePanel v-else-if="filteredItems.length === 0" state="empty" title="没有符合筛选条件的工作项" description="调整类型或优先级筛选即可恢复结果。"><template #action><BaseButton variant="secondary" @click="clearLocalFilters"><Filter :size="15" />清除本地筛选</BaseButton></template></StatePanel>
+      <WorkItemsBulkBar
+        v-if="selectionEnabled && (selectedCount > 0 || bulkResults)"
+        :selected-count="selectedCount"
+        :actionable-count="actionableSelectedItems.length"
+        :visible-count="filteredItems.length"
+        :targets="bulkTargets"
+        :members="responsibilityCandidates"
+        :progress="workStore.state.bulkPending"
+        :results="bulkResults"
+        :can-transition="canParticipate"
+        :can-assign="canManageResponsibility"
+        :online="isOnline"
+        @transition="runBulkTransition"
+        @assign="runBulkAssign"
+        @select-page="selectVisiblePage"
+        @clear-selection="selection.clear"
+        @dismiss-results="bulkResults = null"
+      />
 
-        <div v-else-if="view === 'list'" class="work-list" aria-label="工作项列表">
-          <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" @select="selectItem" />
-        </div>
-
-        <div v-else class="work-board" aria-label="工作项看板" @keydown="handleBoardKeydown">
-          <section v-for="status in boardStatuses" :key="status" class="board-column" :class="{ 'drop-target': dragOverStatus === status, 'drop-rejected': draggedWorkItem && !allowDrop(status) }" :aria-label="statusLabels[status]" @dragover.prevent="markDragOver(status)" @dragleave="dragOverStatus = null" @drop.prevent="dropWorkItem(status)">
-            <header><span>{{ statusLabels[status] }}</span><StatusBadge>{{ itemsFor(status).length }}</StatusBadge></header>
-            <div class="board-column__items">
-              <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" @select="selectItem" @drag-start="startWorkItemDrag" @drag-end="endWorkItemDrag" />
-              <p v-if="itemsFor(status).length === 0">暂无工作项</p>
-            </div>
-          </section>
-        </div>
-        <p class="sr-only" role="status" aria-live="polite">{{ boardAnnouncement }}</p>
-
-        <div v-if="workStore.state.nextCursor" class="load-more">
-          <BaseButton variant="secondary" :loading="workStore.state.loadingMore" @click="workStore.loadMore">加载更多工作项</BaseButton>
-          <p v-if="workStore.state.errorMessage" role="alert">{{ workStore.state.errorMessage }}</p>
-        </div>
-      </section>
+      <WorkItemsWorkspace
+        :phase="workStore.state.phase"
+        :error-message="workStore.state.errorMessage"
+        :filtered-items="filteredItems"
+        :view="view"
+        :board-statuses="boardStatuses"
+        :status-labels="statusLabels"
+        :next-cursor="workStore.state.nextCursor"
+        :loading-more="workStore.state.loadingMore"
+        :can-create="canCreate"
+        :dragged-work-item="draggedWorkItem"
+        :drag-over-status="dragOverStatus"
+        :board-announcement="boardAnnouncement"
+        :pending-item-id="confirmingSubject"
+        :confirming-target="confirmingTarget"
+        :busy-item-id="workStore.state.rowActionItemId"
+        :allow-drop="allowDrop"
+        :items-for="itemsFor"
+        :selectable="selectionEnabled"
+        :is-selected="selection.isSelected"
+        :on-create="openCreate"
+        :on-retry="retry"
+        :on-clear-filters="clearLocalFilters"
+        :on-load-more="workStore.loadMore"
+        :on-select="selectItem"
+        :on-toggle-select="toggleSelect"
+        :on-action="runCardAction"
+        :on-drag-start="startWorkItemDrag"
+        :on-drag-end="endWorkItemDrag"
+        :on-drag-over="markDragOver"
+        :on-drag-leave="boardDrag.leave"
+        :on-drop="boardDrag.pointerDrop"
+        :on-board-keydown="handleBoardKeydown"
+      />
 
       <TaskListPanel
         :phase="taskStore.state.phase"
@@ -1256,12 +1506,16 @@ const statusLabels: Record<WorkItemStatus, string> = {
 
     <WorkItemDetailDrawer
       v-if="queryValue(route.query.workItem) && !queryValue(route.query.task)"
+      :scope="principalScope"
       :phase="workStore.state.detailPhase"
       :details="workStore.state.detail"
       :error-message="workStore.state.detailErrorMessage"
       :command-pending="workStore.state.detailCommandPending"
       :command-error-message="workStore.state.detailCommandErrorMessage"
       :version-conflict="workStore.state.versionConflict"
+      :availability-phase="workStore.state.availabilityPhase"
+      :available-transitions="workStore.state.availableTransitions"
+      :availability-error-message="workStore.state.availabilityErrorMessage"
       :can-participate="canParticipate"
       :can-delegate="canDelegate"
       :can-manage-responsibility="canManageResponsibility"
@@ -1285,7 +1539,8 @@ const statusLabels: Record<WorkItemStatus, string> = {
       :associations="linkStore.state.associations"
       :association-error-message="linkStore.state.errorMessage"
       :on-retry="retryDetails"
-      :on-transition="workStore.transition"
+      :on-retry-availability="retryDetails"
+      :on-transition="transitionWorkItem"
       :on-add-comment="workStore.addComment"
       :on-link-resource="workStore.linkResource"
       :on-replace-owner="workStore.replaceOwner"
@@ -1406,9 +1661,7 @@ const statusLabels: Record<WorkItemStatus, string> = {
 </template>
 
 <style scoped>
-.work-toolbar { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(430px, 1.5fr) auto; align-items: end; gap: 18px; padding: 16px 18px; }.work-toolbar__scope { position: relative; padding-right: 104px; }.work-toolbar__scope h2 { margin: 0; font-size: 17px; }.work-toolbar__scope > span { color: var(--cs-text-muted); font-size: 9px; }.create-work-item { position: absolute; right: 0; bottom: 0; }.filters { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 8px; }.filters label { display: grid; gap: 5px; color: var(--cs-text-secondary); font-size: 9px; font-weight: 750; }.filters select { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: 10px var(--cs-font-sans); }.view-switcher { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }.view-switcher button { display: flex; min-height: 30px; align-items: center; gap: 5px; padding: 0 9px; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: 10px; cursor: pointer; }.view-switcher button.active { background: var(--cs-surface); box-shadow: 0 1px 3px rgb(21 35 29 / 10%); color: var(--cs-brand-700); font-weight: 750; }
-.work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: 7px; }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: #f7f9f7; scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: 10px; font-weight: 800; }.board-column__items { display: grid; align-content: start; gap: 8px; padding: 8px; }.board-column__items > p { padding: 24px 8px; color: var(--cs-text-muted); font-size: 9px; text-align: center; }.load-more { display: grid; justify-items: center; gap: 7px; padding: 16px; }.load-more p { margin: 0; color: var(--cs-danger); font-size: 10px; }.scope-rule { display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; }.scope-rule svg { flex: 0 0 auto; color: var(--cs-brand-600); }
-.board-column.drop-target { border-color: var(--cs-brand-500); background: var(--cs-brand-50); box-shadow: inset 0 0 0 2px var(--cs-brand-100); }.board-column.drop-rejected { opacity: .62; }
-@media (max-width: 1050px) { .work-toolbar { grid-template-columns: 1fr auto; }.filters { grid-column: 1 / -1; grid-row: 2; }.view-switcher { grid-column: 2; grid-row: 1; } }
-@media (max-width: 767px) { .work-toolbar { grid-template-columns: 1fr; align-items: stretch; gap: 12px; padding: 14px; }.work-toolbar__scope { padding-right: 112px; }.filters { grid-column: 1; grid-template-columns: 1fr 1fr; }.filters label:first-child { grid-column: 1 / -1; }.view-switcher { grid-column: 1; grid-row: auto; }.view-switcher button { flex: 1; justify-content: center; }.work-board { grid-auto-columns: minmax(272px, 84vw); } }
+.work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: var(--cs-space-8); }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.board-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }.board-column__items > p { padding: var(--cs-space-24) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }.load-more { display: grid; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-16); }.load-more p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.scope-rule { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.scope-rule svg { flex: 0 0 auto; color: var(--cs-text-brand); }
+.board-column.drop-target { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 2px var(--cs-ring-brand); }.board-column.drop-rejected { opacity: .62; }
+@media (max-width: 767px) { .work-board { grid-auto-columns: minmax(272px, 84vw); } }
 </style>

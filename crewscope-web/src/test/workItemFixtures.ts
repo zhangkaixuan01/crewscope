@@ -1,4 +1,6 @@
 import type { WorkItemGateway } from '../domains/workitem/gateway'
+import { allowedWorkItemTransitions } from '../domains/workitem/types'
+import { workItemStatusLabels } from '../domains/workitem/labels'
 import type {
   AddWorkItemCommentInput,
   AssignResponsibilityInput,
@@ -6,6 +8,7 @@ import type {
   LinkWorkItemResourceInput,
   ReplaceOwnerInput,
   ResponsibilityAssignment,
+  WorkItemAvailableTransition,
   WorkItemCommandReceipt,
   WorkItemComment,
   WorkItemDetails,
@@ -67,6 +70,8 @@ export class FixtureWorkItemGateway implements WorkItemGateway {
   readonly queries: WorkItemListQuery[] = []
   readonly creations: CreateWorkItemInput[] = []
   readonly transitions: Array<{ workItemId: string; targetStatus: WorkItemStatus; expectedVersion: number }> = []
+  /** Kept beside `transitions` rather than inside it, so existing shape assertions stay readable. */
+  readonly transitionIdempotencyKeys: string[] = []
   readonly commentCreations: AddWorkItemCommentInput[] = []
   readonly resourceCreations: LinkWorkItemResourceInput[] = []
   readonly ownerReplacements: ReplaceOwnerInput[] = []
@@ -75,6 +80,9 @@ export class FixtureWorkItemGateway implements WorkItemGateway {
   readonly advisoryReviewerAssignments: AssignResponsibilityInput[] = []
   readonly releases: Array<{ assignmentId: string; expectedVersion: number }> = []
   readonly timelineQueries: Array<{ after?: string; limit?: number }> = []
+  readonly availabilityQueries: string[] = []
+  /** Lets a test force a specific server verdict, including disabled actions with reasons. */
+  availabilityOverride: WorkItemAvailableTransition[] | null = null
   items = structuredClone(fixtureWorkItems)
   comments: WorkItemComment[] = structuredClone(fixtureComments)
   resources: WorkItemResourceLink[] = structuredClone(fixtureResources)
@@ -110,13 +118,40 @@ export class FixtureWorkItemGateway implements WorkItemGateway {
     }
   }
 
+  /**
+   * Stands in for the A05 availability contract.
+   *
+   * It mirrors the one rule that matters to the Store: an edge may only advertise itself as
+   * reversible when the reverse edge also exists, so an undo offer is always executable.
+   */
+  async listAvailableTransitions(_scope: WorkItemScope, workItemId: string): Promise<WorkItemAvailableTransition[]> {
+    this.availabilityQueries.push(workItemId)
+    const item = this.items.find(candidate => candidate.id === workItemId)
+    if (!item) throw new Error('WorkItem not found')
+    if (this.availabilityOverride) return structuredClone(this.availabilityOverride)
+    return (allowedWorkItemTransitions[item.status] ?? []).map(target => ({
+      actionId: `${item.status}-to-${target}`.toLowerCase().replaceAll('_', '-'),
+      targetStatus: target,
+      label: `标记${workItemStatusLabels[target]}`,
+      strength: ['CANCELLED', 'ARCHIVED'].includes(target) ? 'DANGER' : 'PRIMARY',
+      reversible: (allowedWorkItemTransitions[target] ?? []).includes(item.status),
+      enabled: true,
+      reason: null,
+      reasonMessage: null,
+      remedyLabel: null,
+      remedyRoute: null,
+    }))
+  }
+
   async transitionWorkItem(
     _scope: WorkItemScope,
     workItemId: string,
     targetStatus: WorkItemStatus,
     expectedVersion: number,
+    idempotencyKey?: string,
   ): Promise<WorkItemCommandReceipt> {
     this.transitions.push({ workItemId, targetStatus, expectedVersion })
+    if (idempotencyKey) this.transitionIdempotencyKeys.push(idempotencyKey)
     const item = this.items.find(candidate => candidate.id === workItemId)
     if (!item) throw new Error('WorkItem not found')
     item.status = targetStatus
@@ -241,6 +276,9 @@ function workItem(
     createdByPrincipalId: fixtureIds.principal,
     updatedAt: '2026-08-08T02:00:00Z',
     updatedByPrincipalId: fixtureIds.principal,
+    // The list and detail responses inline the availability verdict, so the fixture carries it too:
+    // a summary without it would be a shape the server never sends.
+    availableActions: [],
   }
 }
 

@@ -7,8 +7,8 @@ describe('ActivityStream', () => {
   it('renders Actor, Subject, Outcome and keyboard-reachable evidence links', async () => {
     const wrapper = await mounted({ items: [activity()] })
 
-    expect(wrapper.text()).toContain('MEMBER · principa')
-    expect(wrapper.text()).toContain('TASK · task-1')
+    expect(wrapper.text()).toContain('成员 · principa')
+    expect(wrapper.text()).toContain('Task · task-1')
     expect(wrapper.text()).toContain('COMPLETED')
     const evidence = wrapper.get('a')
     expect(evidence.attributes('href')).toContain('/work?')
@@ -37,19 +37,19 @@ describe('ActivityStream', () => {
 
   it('renders every outcome family, system actors and approved reference destinations', async () => {
     const items = [
-      activity({ eventId: 'event-success', actor: { type: 'SYSTEM', principalId: null }, payload: { schemaName: 'x', schemaVersion: 1, values: { status: 'ACTIVE' } }, references: [{ type: 'CONVERSATION', id: 'conversation-1' }] }),
+      activity({ eventId: 'event-success', actor: { type: 'SERVICE', principalId: null }, payload: { schemaName: 'x', schemaVersion: 1, values: { status: 'ACTIVE' } }, references: [{ type: 'CONVERSATION', id: 'conversation-1' }] }),
       activity({ eventId: 'event-danger', payload: { schemaName: 'x', schemaVersion: 1, values: { result: 'FAILED' } }, references: [{ type: 'TASK', id: 'task-2' }] }),
-      activity({ eventId: 'event-warning', payload: { schemaName: 'x', schemaVersion: 1, values: { decision: 'PENDING' } }, references: [{ type: 'REVIEW_REQUEST', id: 'review-1' }] }),
-      activity({ eventId: 'event-info', payload: { schemaName: 'x', schemaVersion: 1, values: { outcome: 'RUNNING' } }, references: [{ type: 'PLANNED_ACTION', id: 'action-1' }] }),
+      activity({ eventId: 'event-warning', payload: { schemaName: 'x', schemaVersion: 1, values: { decision: 'PENDING' } }, references: [{ type: 'REVIEW', id: 'review-1' }] }),
+      activity({ eventId: 'event-info', payload: { schemaName: 'x', schemaVersion: 1, values: { outcome: 'RUNNING' } }, references: [{ type: 'ACTION', id: 'action-1' }] }),
       activity({ eventId: 'event-neutral', eventType: 'CUSTOM_FACT', payload: { schemaName: 'x', schemaVersion: 1, values: {} }, references: [{ type: 'ARTIFACT', id: 'artifact-1' }] }),
     ]
     const wrapper = await mounted({ items, nextCursor: 'older' })
-    expect(wrapper.text()).toContain('系统')
-    expect(wrapper.text()).toContain('Conversation · conversa')
+    expect(wrapper.text()).toContain('服务账号')
+    expect(wrapper.text()).toContain('会话 · conversa')
     expect(wrapper.text()).toContain('Task · task-2')
-    expect(wrapper.text()).toContain('Review · review-1')
-    expect(wrapper.text()).toContain('Action · action-1')
-    expect(wrapper.text()).toContain('Evidence · artifact')
+    expect(wrapper.text()).toContain('评审 · review-1')
+    expect(wrapper.text()).toContain('外部动作 · action-1')
+    expect(wrapper.text()).toContain('产物 · artifact')
     expect(wrapper.findAll('a')[0]!.attributes('href')).toContain('/conversation?')
     expect(wrapper.findAll('a')[1]!.attributes('href')).toContain('/activity?')
     await wrapper.findAll('button').at(-1)!.trigger('click')
@@ -75,6 +75,8 @@ async function mounted(overrides: Record<string, unknown>) {
       { path: '/activity', name: 'activity', component: { template: '<div />' } },
       { path: '/work', name: 'work', component: { template: '<div />' } },
       { path: '/conversation', name: 'conversation', component: { template: '<div />' } },
+      // 权限不足状态的动作是跳转到权限说明页，因此路由表里要有这个具名路由。
+      { path: '/access-denied', name: 'access-denied', component: { template: '<div />' } },
     ],
   })
   await router.push('/activity?team=team-1&project=project-1')
@@ -92,7 +94,7 @@ function activity(overrides: Partial<ActivityItem> = {}): ActivityItem {
   return {
     eventId: 'event-1', domainEventId: 'domain-1', teamSequence: 4, eventType: 'TASK_COMPLETED',
     category: 'EXECUTION', visibility: 'TEAM', subject: { type: 'TASK', id: 'task-1' },
-    actor: { type: 'MEMBER', principalId: 'principal-12345678' },
+    actor: { type: 'USER', principalId: 'principal-12345678' },
     references: [{ type: 'WORK_ITEM', id: 'work-item-1' }], occurredAt: '2026-08-27T08:00:00Z',
     payload: { schemaName: 'task-summary', schemaVersion: 1, values: { outcome: 'COMPLETED' } },
     ...overrides,

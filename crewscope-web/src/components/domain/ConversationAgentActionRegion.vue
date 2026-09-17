@@ -64,13 +64,13 @@ const canCancel = computed(() => Boolean(
 </template>
 
 <style scoped>
-.conversation-agent-action-region { display: grid; max-width: 740px; gap: 10px; margin: 14px auto 0; scroll-margin-block: 16px; }
-.agent-live-status { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--cs-brand-200); border-radius: var(--cs-radius-sm); background: var(--cs-brand-50); color: var(--cs-brand-800); font-size: 9px; }
-.agent-live-status > span { display: inline-flex; align-items: center; gap: 6px; }
-.agent-live-status button { border: 0; background: transparent; color: var(--cs-brand-800); font-size: 9px; font-weight: 750; cursor: pointer; }
+.conversation-agent-action-region { display: grid; max-width: 740px; gap: var(--cs-space-12); margin: var(--cs-space-16) auto 0; scroll-margin-block: var(--cs-space-16); }
+.agent-live-status { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }
+.agent-live-status > span { display: inline-flex; align-items: center; gap: var(--cs-space-8); }
+.agent-live-status button { border: 0; background: transparent; color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .agent-live-status button:disabled { cursor: wait; opacity: .55; }
-.agent-live-status.error { border-color: #ecc7c2; background: #fff6f5; color: var(--cs-danger); }
+.agent-live-status.error { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); color: var(--cs-danger); }
 .agent-live-status.error button { color: var(--cs-danger); }
-.agent-live-status.cancelled { border-color: #cbd9cf; background: #f3f7f4; color: var(--cs-text-secondary); }
+.agent-live-status.cancelled { border-color: var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); }
 .conversation-agent-action-region :deep(.clarification-card) { width: 100%; margin-bottom: 0; }
 </style>

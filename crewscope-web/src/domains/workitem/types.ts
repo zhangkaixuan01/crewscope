@@ -1,16 +1,8 @@
 import type { CommandReceipt } from '../scope/types'
 import { workItemStateMachine } from '../../api/generated/state-machines'
 
-export const workItemStatuses = [
-  'BACKLOG',
-  'READY',
-  'IN_PROGRESS',
-  'IN_REVIEW',
-  'BLOCKED',
-  'DONE',
-  'CANCELLED',
-  'ARCHIVED',
-] as const
+/** Status values come from the generated domain state machine; the client must not fork this list. */
+export const workItemStatuses = workItemStateMachine.states
 
 export const workItemTypes = ['TASK', 'BUG', 'FEATURE', 'INCIDENT'] as const
 export const workItemPriorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
@@ -25,7 +17,7 @@ export const workItemResourceTypes = [
   'EXTERNAL_URL',
 ] as const
 
-export type WorkItemStatus = typeof workItemStatuses[number]
+export type WorkItemStatus = typeof workItemStateMachine.states[number]
 export type WorkItemType = typeof workItemTypes[number]
 export type WorkItemPriority = typeof workItemPriorities[number]
 export type WorkItemResourceType = typeof workItemResourceTypes[number]
@@ -51,6 +43,16 @@ export interface WorkItemSummary {
   createdByPrincipalId: string | null
   updatedAt: string
   updatedByPrincipalId: string | null
+  /**
+   * The server's verdict on every edge leaving this status, disabled entries and their reasons
+   * included.
+   *
+   * The list and detail responses both inline it, so a list row or a card never has to ask a second
+   * endpoint per row to find out what it can do — which is also why a 500-item page costs one
+   * request rather than 501. The per-object availability endpoint still exists and returns the same
+   * entries; this field is not a second rule, it is the same rule delivered earlier.
+   */
+  availableActions: WorkItemAvailableTransition[]
 }
 
 export interface WorkItemPage {
@@ -177,5 +179,50 @@ export interface WorkItemVersionConflict {
 /** Generated from the domain aggregate; retained as a typed view for existing consumers. */
 export const allowedWorkItemTransitions: Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>> =
   workItemStateMachine.transitions as Readonly<Record<WorkItemStatus, readonly WorkItemStatus[]>>
+
+export const workItemTransitionStrengths = ['PRIMARY', 'SECONDARY', 'DANGER'] as const
+export const workItemTransitionBlockReasons = [
+  'STATUS_NOT_ALLOWED',
+  'PERMISSION_DENIED',
+  'REVIEWER_REQUIRED',
+  'DUTY_SEPARATION_CONFLICT',
+  'GATE_NOT_PASSED',
+  'BLOCKED_BY_DEPENDENCY',
+  'EXTERNAL_PROVIDER_MANAGED',
+  'ARCHIVED',
+] as const
+
+export type WorkItemTransitionStrength = typeof workItemTransitionStrengths[number]
+export type WorkItemTransitionBlockReason = typeof workItemTransitionBlockReasons[number]
+
+/**
+ * Runtime availability for one state-machine edge, decided by the server.
+ *
+ * The generated state machine says which edges *exist*; this says which of them the current member
+ * may execute right now and, when it may not, why and where to go next. The UI must never widen
+ * this set — an action the server did not return is an action that would be rejected.
+ */
+export interface WorkItemAvailableTransition {
+  actionId: string
+  targetStatus: WorkItemStatus
+  label: string
+  strength: WorkItemTransitionStrength
+  reversible: boolean
+  enabled: boolean
+  reason: WorkItemTransitionBlockReason | null
+  reasonMessage: string | null
+  remedyLabel: string | null
+  remedyRoute: string | null
+}
+
+/** A successful reversible transition, undoable until {@link expiresAt}. */
+export interface WorkItemUndoOffer {
+  workItemId: string
+  actionLabel: string
+  fromStatus: WorkItemStatus
+  toStatus: WorkItemStatus
+  expectedVersion: number
+  expiresAt: number
+}
 
 export type WorkItemCommandReceipt = CommandReceipt

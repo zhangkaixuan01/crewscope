@@ -13,7 +13,14 @@ import { useScopeStore } from '../domains/scope/store'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useActivityRealtimeStore } from '../domains/teamops/activityRealtimeStore'
 import { useTeamOpsStore } from '../domains/teamops/store'
-import type { ActivityItem, TeamOpsScope } from '../domains/teamops/types'
+import { activityCategories, type ActivityItem, type TeamOpsScope } from '../domains/teamops/types'
+import { enumLabel } from '../domains/shared/labels'
+import {
+  activityCategoryLabels,
+  activityRealtimePhaseLabels,
+  activitySubjectTypeLabels,
+  auditActorTypeLabels,
+} from '../domains/teamops/labels'
 import { useListSort } from '../composables/useListSort'
 
 const route = useRoute()
@@ -44,7 +51,7 @@ const activityFilter = computed(() => ({
   categories: selectedCategory.value === 'ALL' ? undefined : [selectedCategory.value],
   actorPrincipalIds: selectedActor.value ? [selectedActor.value] : undefined,
 }))
-const categories = computed(() => [...new Set((store.state.teamActivity.value ?? []).map(item => item.category))].sort())
+const categories = activityCategories
 
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, JSON.stringify(activityFilter.value)] as const,
@@ -107,26 +114,27 @@ function updateActor(event: Event): void {
 function queryValue(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null }
 function displayTime(value: string): string { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function actorName(principalId: string | null, type: string): string {
-  return principalId ? principalDisplayName(principalNames.value, principalId, type) : type === 'SYSTEM' ? '系统' : type
+  const typeLabel = enumLabel(type, auditActorTypeLabels)
+  return principalId ? principalDisplayName(principalNames.value, principalId, typeLabel) : typeLabel
 }
 </script>
 
 <template>
   <AppShell title="团队 Activity" eyebrow="观测 · 共享事实">
-    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="reload"><RefreshCw :size="14" aria-hidden="true" />刷新</BaseButton></template>
+    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'activity-scope-reason'" @click="reload"><RefreshCw :size="14" aria-hidden="true" />刷新</BaseButton></template>
 
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="Activity 始终属于一个明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="activity-scope-reason" state="empty" title="请选择 Team" description="Activity 始终属于一个明确的 Organization 与 Team。" />
 
     <div v-else class="activity-page page-shell">
       <section class="activity-summary panel">
         <i><Activity :size="22" aria-hidden="true" /></i>
         <div><p class="eyebrow">Team pulse</p><h2>{{ store.state.teamActivity.value?.length ?? 0 }} 条已加载事实</h2><p>实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读。</p></div>
-        <StatusBadge :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ realtime.state.phase }}</StatusBadge>
+        <StatusBadge :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ activityRealtimePhaseLabels[realtime.state.phase] }}</StatusBadge>
       </section>
 
       <section class="activity-toolbar panel" aria-label="Activity 筛选">
-        <label>Category<select :value="selectedCategory" @change="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ category }}</option></select></label>
+        <label>Category<select :value="selectedCategory" @change="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></select></label>
         <label>Actor<select :value="selectedActor" aria-label="按成员筛选" @change="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></select></label>
         <span>{{ filteredItems.length }} 条当前结果</span>
         <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="activitySort.toggleSort('occurredAt')">{{ activitySortLabel }}</BaseButton>
@@ -147,7 +155,7 @@ function actorName(principalId: string | null, type: string): string {
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">
-            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ selectedDetail.value.category }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd class="mono">{{ selectedDetail.value.subject.type }} · {{ selectedDetail.value.subject.id }}</dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
+            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ enumLabel(selectedDetail.value.category, activityCategoryLabels) }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd>{{ enumLabel(selectedDetail.value.subject.type, activitySubjectTypeLabels) }} <span class="mono">{{ selectedDetail.value.subject.id }}</span></dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
             <section><h3>公开摘要</h3><p v-if="Object.keys(selectedDetail.value.payload.values).length === 0">此事件没有公开摘要字段。</p><dl v-else><div v-for="(value, key) in selectedDetail.value.payload.values" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl></section>
           </template>
         </aside>
@@ -157,8 +165,8 @@ function actorName(principalId: string | null, type: string): string {
 </template>
 
 <style scoped>
-.activity-page { display: grid; gap: 14px; max-width: 1240px; margin: 0 auto; }.activity-summary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px 18px; }.activity-summary > i { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.activity-summary h2 { margin: 2px 0 3px; font-size: 17px; }.activity-summary p { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
-.activity-toolbar { display: grid; grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) auto auto; align-items: end; gap: 12px; padding: 12px 14px; }.activity-toolbar label { display: grid; gap: 5px; color: var(--cs-text-muted); font-size: 9px; font-weight: 750; }.activity-toolbar select, .activity-toolbar input { min-height: 36px; padding: 0 10px; border: 1px solid var(--cs-border); border-radius: 8px; background: #fff; font-size: 11px; }.activity-toolbar > span { padding-bottom: 9px; color: var(--cs-text-muted); font: 9px var(--cs-font-mono); }
-.activity-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }.activity-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 330px; }.activity-detail { position: sticky; top: 12px; overflow: hidden; }.activity-detail > header { display: flex; align-items: center; justify-content: space-between; padding: 14px 15px; border-bottom: 1px solid var(--cs-border); }.activity-detail h2 { margin: 2px 0 0; font-size: 15px; }.activity-detail header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.activity-detail > dl, .activity-detail > section { margin: 0; padding: 14px 15px; }.activity-detail > section { border-top: 1px solid var(--cs-border); }.activity-detail h3 { margin: 0 0 9px; font-size: 11px; }.activity-detail section > p { color: var(--cs-text-muted); font-size: 9px; }.activity-detail dl { display: grid; gap: 8px; }.activity-detail dt { color: var(--cs-text-muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }.activity-detail dd { overflow-wrap: anywhere; margin: 2px 0 0; font-size: 9px; }
-@media (max-width: 820px) { .activity-workspace.has-detail { grid-template-columns: 1fr; }.activity-detail { position: static; grid-row: 1; }.activity-toolbar { grid-template-columns: 1fr 1fr; }.activity-toolbar > span { grid-column: 1 / -1; padding: 0; } } @media (max-width: 520px) { .activity-page { gap: 10px; }.activity-summary { grid-template-columns: 36px 1fr; padding: 13px; }.activity-summary > i { width: 36px; height: 36px; }.activity-summary > :last-child { grid-column: 1 / -1; justify-self: start; }.activity-toolbar { grid-template-columns: 1fr; }.activity-toolbar > span { grid-column: auto; }.activity-toolbar select, .activity-toolbar input { min-height: 42px; } }
+.activity-page { display: grid; gap: var(--cs-space-16); max-width: 1240px; margin: 0 auto; }.activity-summary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20); }.activity-summary > i { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.activity-summary h2 { margin: var(--cs-space-2) 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.activity-summary p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.activity-toolbar { display: grid; grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) auto auto; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); }.activity-toolbar label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.activity-toolbar select, .activity-toolbar input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); font-size: var(--cs-text-base); }.activity-toolbar > span { padding-bottom: var(--cs-space-8); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
+.activity-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cs-space-16); align-items: start; }.activity-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 330px; }.activity-detail { position: sticky; top: 12px; overflow: hidden; }.activity-detail > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-16) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.activity-detail h2 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-md); }.activity-detail header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.activity-detail > dl, .activity-detail > section { margin: 0; padding: var(--cs-space-16) var(--cs-space-16); }.activity-detail > section { border-top: 1px solid var(--cs-border); }.activity-detail h3 { margin: 0 0 var(--cs-space-8); font-size: var(--cs-text-sm); }.activity-detail section > p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.activity-detail dl { display: grid; gap: var(--cs-space-8); }.activity-detail dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.activity-detail dd { overflow-wrap: anywhere; margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-xs); }
+@media (max-width: 820px) { .activity-workspace.has-detail { grid-template-columns: 1fr; }.activity-detail { position: static; grid-row: 1; }.activity-toolbar { grid-template-columns: 1fr 1fr; }.activity-toolbar > span { grid-column: 1 / -1; padding: 0; } } @media (max-width: 520px) { .activity-page { gap: var(--cs-space-12); }.activity-summary { grid-template-columns: 36px 1fr; padding: var(--cs-space-12); }.activity-summary > i { width: 36px; height: 36px; }.activity-summary > :last-child { grid-column: 1 / -1; justify-self: start; }.activity-toolbar { grid-template-columns: 1fr; }.activity-toolbar > span { grid-column: auto; } }
 </style>

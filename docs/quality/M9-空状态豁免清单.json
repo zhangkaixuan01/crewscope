@@ -1,0 +1,119 @@
+{
+  "$comment": "M9-Q01 空状态豁免清单。仅登记「确无成员可执行下一步」的 empty/forbidden 面板：面板陈述的是平台侧事实，或出口已在同一视口内（Team 切换器、同屏列表、同屏输入框）。每条理由必须是事实性陈述；失效条目会让门禁失败，清单只能变短。",
+  "waivers": [
+    {
+      "file": "components/domain/ActivityStream.vue",
+      "state": "empty",
+      "title": "还没有团队活动",
+      "reason": "活动流只读汇集其他页面产生的团队事实（责任、执行、Review、交付）。成员在流内没有可执行的下一步，产生活动的入口分布在 Today、工作项与对话页面，因此这里不放置跳转按钮。"
+    },
+    {
+      "file": "components/domain/AgentConfigurationModelBindingSection.vue",
+      "state": "empty",
+      "title": "没有符合条件的模型",
+      "reason": "候选交集由服务端按连接健康、Template 能力、区域与团队策略计算，成员在表单内无法改变交集。录入 API Key 的出口在「模型与凭证」页面，而本段处在未保存的 Agent 配置表单内，跳转会丢掉草稿，所以不提供出口按钮。"
+    },
+    {
+      "file": "components/domain/AuditExplorer.vue",
+      "state": "empty",
+      "title": "关联链暂无公开事实",
+      "reason": "关联链抽屉头部已经有「关闭 Correlation 链」按钮返回事件列表；该 Correlation 本身没有公开事实，面板内没有别的可执行动作。"
+    },
+    {
+      "file": "components/domain/CodingEvidencePanel.vue",
+      "state": "empty",
+      "title": "尚未产生命令证据",
+      "reason": "命令证据由工作项执行流程在服务端写入，本面板是只读观察面。成员能推进执行的入口不在这个面板里，面板内没有可执行的下一步。"
+    },
+    {
+      "file": "components/domain/CodingEvidencePanel.vue",
+      "state": "empty",
+      "title": "尚未产生测试证据",
+      "reason": "测试证据同样由执行流程写入，本面板是只读观察面，成员在面板内没有可执行的下一步。"
+    },
+    {
+      "file": "components/domain/LarkNotificationAdmin.vue",
+      "state": "empty",
+      "title": "选择一条 Connection",
+      "reason": "主从布局：Team Connection 列表就在同屏左列，点选列表项正是这个详情面板要求的下一步，不需要再放一个等效按钮。"
+    },
+    {
+      "file": "components/domain/LarkNotificationAdmin.vue",
+      "state": "empty",
+      "title": "当前 Principal 尚未匹配 Team Member",
+      "reason": "建立飞书身份映射需要 Provider 管理权限，入口是同屏 Tab 栏的「成员映射」。在此之前当前 Principal 自身没有可执行动作，因此面板内不放按钮。"
+    },
+    {
+      "file": "components/domain/OperationsWorkspace.vue",
+      "state": "empty",
+      "title": "暂无 Projection 定义",
+      "reason": "Projection 定义由平台侧部署时注册，成员在运维工作台内没有注册或修改定义的出口。"
+    },
+    {
+      "file": "pages/ModelSettingsPage.vue",
+      "state": "empty",
+      "title": "没有可用 Provider",
+      "reason": "Provider 是否启用由平台侧决定，成员没有启用出口，面板内也没有别的可执行动作。"
+    },
+    {
+      "file": "pages/ModelSettingsPage.vue",
+      "state": "empty",
+      "title": "这个 Provider 暂无可选模型",
+      "reason": "下一步是改选同屏连接列表中的另一个 Provider，出口已在同一视口内，详情面板内不需要重复按钮。"
+    },
+    {
+      "file": "pages/SearchPage.vue",
+      "state": "empty",
+      "title": "输入关键词开始搜索",
+      "reason": "搜索框就在同屏上方的表单里，输入关键词正是这个空状态要求的动作，不需要再放一个跳转按钮。"
+    },
+    {
+      "file": "pages/ActivityPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器（ScopeSwitcher）固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口；页面级没有别的可执行动作。"
+    },
+    {
+      "file": "pages/AuditPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/GitHubSettingsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/InboxPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/LarkSettingsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/OperationsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/AgentSettingsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器（ScopeSwitcher）固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/ModelSettingsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器（ScopeSwitcher）固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    }
+  ]
+}

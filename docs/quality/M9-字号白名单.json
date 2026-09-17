@@ -1,0 +1,37 @@
+{
+  "$comment": "Design System v2 阶梯之外的登记例外（字号、间距、brand 色阶）。§10.3.1/§10.3.2 只允许白名单式豁免，且必须逐条登记文件与选择器，不允许整目录豁免。每条都要说明为什么这个位置无法由阶梯表达。门禁按登记的声明原文比对：改了取值会失败，声明消失了也会失败——清单只能变短。",
+  "fluidDisplayType": [
+    {
+      "file": "src/components/auth/AuthBrandPanel.vue",
+      "selector": ".auth-brand-panel__story h1",
+      "declaration": "font-size: clamp(var(--cs-text-2xl), 4vw, 56px)",
+      "reason": "未登录态的品牌分屏是产品的第一印象，需要随视口连续放大；七档阶梯是离散的，无法表达流体排版。下界锚定在阶梯顶档（32px），上界 56px 仅作用于这一个选择器。"
+    },
+    {
+      "file": "src/components/auth/AuthCard.vue",
+      "selector": ".auth-card__heading h2",
+      "declaration": "font-size: clamp(var(--cs-text-xl), 3vw, 34px)",
+      "reason": "同上，登录卡标题与品牌分屏共同构成未登录态的排版层级。下界锚定在阶梯 24px 档。"
+    }
+  ],
+  "monospaceLineNumbers": {
+    "$comment": "§10.3.1 预留给等宽代码行号与 Diff 行号的 11px 豁免。迁移后 Diff 行号统一落在 --cs-text-xs（12px），实测无需动用该豁免，清单为空。",
+    "entries": []
+  },
+  "spacingExceptions": [
+    {
+      "file": "src/design/base.css",
+      "selector": ".sr-only",
+      "declaration": "margin: -1px",
+      "reason": "屏幕阅读器专用文本的标准配方：1px 的盒子配 -1px 的外边距，把它从视觉流里抽走又不让辅助技术当成 display:none。这里的 1px 与间距节奏无关，它就是「尽可能小但仍然存在」，任何档位化都会破坏配方。"
+    }
+  ],
+  "brandStepExceptions": [
+    {
+      "file": "src/components/domain/ScopeSwitcher.vue",
+      "selector": ".scope-switcher__avatar",
+      "declaration": "color: var(--cs-brand-950)",
+      "reason": "brand-* 色阶按 ADR-027 §1.3 刻意不跟主题，所以它只能当填色、不能当文字——唯一的例外是**前景与底色成对写在同一条规则里**：这里是 `background: var(--cs-brand-200); color: var(--cs-brand-950)`，一块薄荷底配深墨字，两个主题下都是 12.62:1。成对之后「不跟主题」不再是缺陷而是事实，因为底也不跟。全仓仅此一处。"
+    }
+  ]
+}

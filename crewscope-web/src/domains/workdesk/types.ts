@@ -1,3 +1,5 @@
+import type { WorkItemAvailableTransition } from '../workitem/types'
+
 /** Personal WorkDesk projection returned by the member-facing API. */
 export interface WorkDeskScope {
   organizationId: string
@@ -6,6 +8,18 @@ export interface WorkDeskScope {
 
 export const workDeskResponsibilityRoles = ['OWNER', 'EXECUTOR', 'REVIEWER'] as const
 export type WorkDeskResponsibilityRole = typeof workDeskResponsibilityRoles[number]
+
+/**
+ * The five row kinds `JdbcWorkDeskRepositoryAdapter` emits, plus the two closed value sets it
+ * derives itself. `WorkDeskItem.objectType` and `.status` stay `string` because the projection is
+ * additive on the server side; these unions exist so `labels.ts` can be typed against them.
+ */
+export const workDeskObjectTypes = ['WORK_ITEM', 'TASK_EXECUTION', 'HUMAN_GATE', 'REVIEW_REQUEST', 'INBOX'] as const
+export const workDeskUrgencies = ['URGENT', 'HIGH', 'NORMAL', 'LOW'] as const
+export const workDeskRequestStatuses = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'INVALIDATED'] as const
+export type WorkDeskObjectType = typeof workDeskObjectTypes[number]
+export type WorkDeskUrgency = typeof workDeskUrgencies[number]
+export type WorkDeskRequestStatus = typeof workDeskRequestStatuses[number]
 
 export interface WorkDeskFilter {
   projectId?: string | null
@@ -24,7 +38,12 @@ export interface WorkDeskItem {
   needsAction: boolean
   urgency: string
   progress: number | null
-  availableActions: string[]
+  /**
+   * Only the transitions the member may execute now, in the same shape the per-object availability
+   * endpoint returns. Disabled actions are deliberately absent: a list row cannot explain them, so
+   * the server does not offer them; the detail drawer fetches the full set with its reasons.
+   */
+  availableActions: WorkItemAvailableTransition[]
   route: string
 }
 

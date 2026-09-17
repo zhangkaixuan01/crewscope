@@ -2,6 +2,8 @@
 import { Bot, UserRound, X } from '@lucide/vue'
 import { computed } from 'vue'
 import type { ResponsibilityAssignment } from '../../domains/workitem/types'
+import { principalTypeLabels } from '../../domains/principal/labels'
+import { enumLabel } from '../../domains/shared/labels'
 
 const props = withDefaults(defineProps<{
   members: ResponsibilityAssignment[]
@@ -51,7 +53,7 @@ async function release(member: ResponsibilityAssignment): Promise<void> {
       <span class="responsibility-chain__copy">
         <small>{{ roleLabel(member) }}</small>
         <strong>{{ member.actorDisplayName }}</strong>
-        <span>{{ actorDetail(member) }} · {{ member.actorType }}</span>
+        <span>{{ actorDetail(member) }} · {{ enumLabel(member.actorType, principalTypeLabels) }}</span>
       </span>
       <button
         v-if="canManage && member.role !== 'OWNER' && onRelease"
@@ -68,14 +70,14 @@ async function release(member: ResponsibilityAssignment): Promise<void> {
 
 <style scoped>
 .responsibility-chain { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }
-.responsibility-chain li { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; min-height: 61px; }
-.responsibility-chain__avatar { z-index: 1; display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--cs-border-strong); border-radius: 50%; background: var(--cs-brand-50); color: var(--cs-brand-700); }
-.responsibility-chain__avatar.agent { border-color: #d9cdef; background: var(--cs-agent-soft); color: var(--cs-agent); }
+.responsibility-chain li { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: var(--cs-space-12); min-height: 61px; }
+.responsibility-chain__avatar { z-index: 1; display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--cs-border-strong); border-radius: 50%; background: var(--cs-surface-accent); color: var(--cs-text-brand); }
+.responsibility-chain__avatar.agent { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); color: var(--cs-agent); }
 .responsibility-chain__copy { display: grid; align-content: start; }
-.responsibility-chain__copy small { color: var(--cs-text-muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
-.responsibility-chain__copy strong { color: var(--cs-text); font-size: 13px; }
-.responsibility-chain__copy span { color: var(--cs-text-muted); font-size: 11px; }
-.responsibility-chain__release { align-self: start; display: inline-flex; min-height: 26px; align-items: center; gap: 3px; padding: 0 7px; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 9px; cursor: pointer; }
+.responsibility-chain__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
+.responsibility-chain__copy strong { color: var(--cs-text); font-size: var(--cs-text-base); }
+.responsibility-chain__copy span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.responsibility-chain__release { align-self: start; display: inline-flex; min-height: 26px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); cursor: pointer; }
 .responsibility-chain__release:hover:not(:disabled) { border-color: var(--cs-border-strong); color: var(--cs-danger); }
 .responsibility-chain__release:disabled { cursor: wait; opacity: .55; }
 .responsibility-chain__line { position: absolute; top: 32px; bottom: -1px; left: 15px; width: 1px; background: var(--cs-border); }

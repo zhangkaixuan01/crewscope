@@ -29,14 +29,14 @@ const inputId = props.id ?? `auth-checkbox-${generatedId}`
   display: inline-flex;
   min-height: var(--cs-auth-control-height);
   align-items: center;
-  gap: 9px;
+  gap: var(--cs-space-8);
   color: var(--cs-text-secondary);
   cursor: pointer;
 }
-.auth-checkbox input { width: 16px; height: 16px; margin: 0; accent-color: var(--cs-brand-600); }
+.auth-checkbox input { width: 16px; height: 16px; margin: 0; accent-color: var(--cs-focus); }
 .auth-checkbox span,
 .auth-checkbox small { display: block; }
-.auth-checkbox strong { font-size: 10px; }
-.auth-checkbox small { margin-top: 2px; color: var(--cs-text-muted); font-size: 8px; }
+.auth-checkbox strong { font-size: var(--cs-text-sm); }
+.auth-checkbox small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .auth-checkbox--disabled { cursor: not-allowed; opacity: .6; }
 </style>

@@ -1,0 +1,5 @@
+{
+  "$comment": "M9-Q01 空状态门禁基线。指标只允许下降：empty/forbidden 增加 action 插槽后同步减少对应数字。已归零；确无可执行出口的面板登记在 M9-空状态豁免清单.json，清单失效条目会让门禁失败。",
+  "emptyWithoutAction": 0,
+  "forbiddenWithoutAction": 0
+}

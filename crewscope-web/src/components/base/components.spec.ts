@@ -26,13 +26,11 @@ describe('foundation components', () => {
     expect(wrapper.classes()).toContain('status-badge--warning')
   })
 
-  it('exposes optional status actions while keeping the default badge unchanged', async () => {
-    const wrapper = mount(StatusBadge, {
-      props: { interactive: true, availableActions: [{ id: 'review', label: '提交评审' }] },
-      slots: { default: '待处理' },
-    })
-    await wrapper.get('[role="menuitem"]').trigger('click')
-    expect(wrapper.emitted('action')).toEqual([['review']])
+  it('renders the badge as text only, with no action surface of its own', () => {
+    const wrapper = mount(StatusBadge, { props: { tone: 'warning', dot: true }, slots: { default: '待 Review' } })
+
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
   })
 
   it('keeps form controls keyboard and model-value friendly', async () => {

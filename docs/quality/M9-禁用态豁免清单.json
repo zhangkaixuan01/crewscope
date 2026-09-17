@@ -1,0 +1,75 @@
+{
+  "$comment": "M9-Q01 禁用态解释门禁的评审豁免清单。每一条都必须是「这个禁用态的成因不属于门禁针对的权限守卫或业务前置条件」的事实性理由，而不是「还没做」。修好一处就必须从这里删掉一条——门禁会把不再匹配任何绑定的条目当作失败，清单只能变短。",
+  "waivers": [
+    {
+      "file": "components/domain/AgentCreateDialog.vue",
+      "expression": "!valid",
+      "reason": "创建 Agent 的提交按钮由模板选择与显示名称等必填项是否满足决定。表单内的字段已用 :aria-invalid 与内联错误承载原因，控件本身不表达任何权限或业务前置条件。"
+    },
+    {
+      "file": "components/domain/WorkProjectCreateDialog.vue",
+      "expression": "!valid",
+      "reason": "创建 WorkProject 的提交按钮由 Key 格式与名称是否合法决定，成因完全落在同一表单的字段校验上（:aria-invalid 已在字段上）。"
+    },
+    {
+      "file": "components/domain/ModelCredentialDialog.vue",
+      "expression": "!valid",
+      "reason": "创建/轮换模型凭证的提交按钮由 API Key 是否填写、可选过期时间是否合法决定；同表单的 AuthPasswordField 与过期时间字段已分别承载错误文案。"
+    },
+    {
+      "file": "pages/SearchPage.vue",
+      "expression": "!text.trim()",
+      "reason": "搜索按钮在关键词为空时禁用，成因就是输入框自身的取值——空关键词没有可执行的查询，输入框是该状态的唯一载体。"
+    },
+    {
+      "file": "components/domain/CodingTargetFormSection.vue",
+      "expression": "disabled || !form.baselineRef.trim() || !pathsValid",
+      "reason": "该段是共享的 CodingTarget 表单片段：disabled 由父级提交锁（submitting / retryable）透传，其余两项由基线 Ref 与 Allowed Paths 的必填与格式校验决定，两者都在字段上用 :aria-invalid 与错误文案表达。"
+    },
+    {
+      "file": "components/domain/DelegateToAgentDialog.vue",
+      "expression": "submitting || retryable || !selectedProfileId",
+      "reason": "Configuration Revision 下拉在未选执行 Agent 时没有可选项，禁用成因是外层「执行 Agent」下拉的取值，同一表单内可直达，不涉及权限或服务端前置条件。"
+    },
+    {
+      "file": "components/domain/TeamObserverWorkspace.vue",
+      "expression": "!online || !instruction.trim()",
+      "reason": "只读摘要的生成按钮由只读指令是否填写决定，指令输入框自身承载该状态；同表达式中的 !online 是与其它控件共用的瞬时离线锁。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!ownerPrincipalId || ownerPrincipalId === currentOwner?.actorPrincipalId",
+      "reason": "「替换 Owner」按钮的两种禁用成因都来自同一行的责任人选择框：还没选，或选中的已经是当前 Owner。原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!executorPrincipalId",
+      "reason": "「添加执行人」按钮的禁用成因就是同行的执行人选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!gateReviewerPrincipalId",
+      "reason": "「添加 Gate Reviewer」按钮的禁用成因就是同行的 Gate Reviewer 选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!directoryExecutorPrincipalId",
+      "reason": "目录搜索添加执行人的按钮，禁用成因就是同一行的成员选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!directoryAdvisoryPrincipalId",
+      "reason": "目录搜索添加 Advisory Reviewer 的按钮，禁用成因就是同一行的成员选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!executorAgentPrincipalId",
+      "reason": "从 Agent 目录添加执行人的按钮，禁用成因就是同一行的 Agent 选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/domain/WorkItemResponsibilityPanel.vue",
+      "expression": "!advisoryAgentPrincipalId",
+      "reason": "从 Agent 目录添加 Advisory Reviewer 的按钮，禁用成因就是同一行的 Agent 选择框为空，原因由该下拉框自身承载。"
+    }
+  ]
+}

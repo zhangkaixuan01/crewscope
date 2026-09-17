@@ -26,7 +26,7 @@ test('renders the five views, de-duplicates Cursor pages and passes Axe with sta
   await expect(page.getByRole('heading', { name: '我的 Inbox', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Inbox 五类视图' }).getByRole('button')).toHaveCount(6)
   await expect(page.getByText('4 项待处理事实')).toBeVisible()
-  await expect(page.getByText('RESPONSIBILITY_ASSIGNMENT · revision 3')).toBeVisible()
+  await expect(page.getByText('责任分配 · revision 3')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Inbox 详情' })).toBeVisible()
 
   const axe = await new AxeBuilder({ page }).analyze()
@@ -38,7 +38,7 @@ test('renders the five views, de-duplicates Cursor pages and passes Axe with sta
 
   await page.getByRole('button', { name: /^我的执行/ }).click()
   await expect(page).toHaveURL(/inboxType=EXECUTION/)
-  await expect(page.getByText('TASK_EXECUTION · revision 2')).toBeVisible()
+  await expect(page.getByText('Task 执行 · revision 2')).toBeVisible()
 })
 
 test('refreshes a strong-ETag conflict and preserves the member disposition after reload', async ({ page }) => {
@@ -61,7 +61,7 @@ test('refreshes a strong-ETag conflict and preserves the member disposition afte
 
 test('keeps cached Inbox facts readable offline and opens only the server-authorized source route', async ({ page, context }) => {
   await page.goto(`/inbox?team=${ids.team}&project=${ids.project}&inboxItem=${ids.ownership}`)
-  await expect(page.getByText('RESPONSIBILITY_ASSIGNMENT · revision 3')).toBeVisible()
+  await expect(page.getByText('责任分配 · revision 3')).toBeVisible()
 
   await context.setOffline(true)
   await expect(page.getByText('正在展示最近同步的 Inbox')).toBeVisible()

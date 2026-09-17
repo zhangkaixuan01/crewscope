@@ -22,16 +22,34 @@
   --cs-text-secondary: #445149;
   --cs-text-muted: #5f6f66;
   --cs-text-on-dark: #f3f7f4;
-  --cs-info: #3f78b5;
+  /*
+   * 语义色的对比度是算出来的，不是挑出来的。旧值是在纯白上挑的，实测对**它自己的 soft 底**：
+   * danger 4.54 / success 4.11 / warning 4.20 / info 4.18——全部低于 AA 的 4.5。而
+   * 「soft 底 + 语义前景 + 12px」正是状态徽章的组合，是整个控制台最高频的一种呈现。
+   * 旧 danger 在纯白上也只有 5.03，余量 0.14，任何带一点灰的底都会把它压到线下——线上就是
+   * 这么破的：axe 在 WorkItem 抽屉里报出「重试」链接 4.37:1（底色被算成 #efefef）。
+   *
+   * 新值按「对 canvas / surface / surface-subtle / 自家 soft 四种底都 ≥5.0」反解，只动明度，
+   * 色相与饱和度不动，所以肉眼几乎无差。合同是 4.5，取值按 5.0 选，那 0.5 就是留给混合底的。
+   * 旁证：StatusBadge 曾在组件里手写过五个更深的前景（#955d19、#347149、#326597……），
+   * 也就是有人已经在局部发现了这件事；反解出来的值与那些手调值几乎重合
+   * （warning 解出 #955c1c，手写是 #955d19），差别只在于现在它成了唯一来源。
+   */
+  --cs-info: #386ba2;
   --cs-info-soft: #edf5fd;
+  --cs-info-border: #c9dff3;
   --cs-agent: #7257b5;
   --cs-agent-soft: #f3effb;
-  --cs-warning: #a86820;
+  --cs-agent-border: #d9cdef;
+  --cs-warning: #955c1c;
   --cs-warning-soft: #fff6e9;
-  --cs-danger: #b84c4c;
+  --cs-warning-border: #f0d5ad;
+  --cs-danger: #af4545;
   --cs-danger-soft: #fff0f0;
-  --cs-success: #43845e;
+  --cs-danger-border: #efc7c7;
+  --cs-success: #3b7453;
   --cs-success-soft: #edf8f1;
+  --cs-success-border: #c4e3d0;
   --cs-diff-addition-bg: #eef8f1;
   --cs-diff-addition-text: #286645;
   --cs-diff-deletion-bg: #fdf0f1;
@@ -40,9 +58,68 @@
   --cs-diff-hunk-text: #496c89;
   --cs-code-keyword: #7b4db1;
   --cs-code-string: #9c5d25;
-  --cs-code-comment: #73827a;
+  --cs-code-comment: #5c6962;
+  /*
+   * 函数名、数字与类型名各自一档。旧的高亮只有关键字/字符串/注释三档，因为它是手写正则；
+   * 换成 Prism 之后 Token 流里这三类占了可见差异的大半，再压回三档就等于白换。
+   * 取值与上面三档同法反解：对 canvas / surface / surface-subtle / 自家软底 **以及两档 Diff 底色**
+   * 都 ≥5.0（最低 5.58），色相互不相同，因为「函数名和类型名同色」正是分不出来才要分开的东西。
+   */
+  --cs-code-function: #2f5d8a;
+  --cs-code-number: #0f6d63;
+  --cs-code-type: #8a3d6b;
   --cs-action-primary: var(--cs-brand-950);
   --cs-action-primary-hover: var(--cs-brand-700);
+  /*
+   * 主按钮的前景必须跟着主按钮的底走，不能借用 --cs-text-on-dark。暗色主题把
+   * --cs-action-primary 换成了 brand-300（浅绿），配 #f3f7f4 的近白字只有 **1.59:1**，
+   * hover 态 1.20——整个应用最重要的按钮在暗色下几乎看不见。
+   * 之所以能这样上线：暗色主题的唯一一条测试只断言了 data-theme 属性被写到 <html> 上
+   * （m9-theme-density.spec.ts），没有任何一处验证过它长什么样。
+   */
+  --cs-action-primary-text: var(--cs-text-on-dark);
+  /*
+   * 品牌着色的面板底。组件里那些 `linear-gradient(135deg, var(--cs-brand-50), #fff)`
+   * 在暗色下是双重失效：#fff 不跟主题，brand-* 色阶按设计也不跟主题（ADR-027 §1.3
+   * 「暗色只覆盖语义色」），于是暗色下会出现一块白底配近白字的面板。
+   * 渐变的另一个端点就是 --cs-surface 本身，所以只需要补这一个。
+   */
+  --cs-surface-accent: var(--cs-brand-50);
+  /*
+   * 「实心语义块」的前景：danger 按钮、未读徽章、Agent 图标。它和 --cs-action-primary-text
+   * 是同一个道理，而且缺陷更普遍——这三处此前都硬写 `color: white`，在暗色下语义色翻成浅色
+   * （#f19a9a / #f0bd78 / #c2a9f2），白字只有 **2.14 / 1.71 / 2.05:1**。
+   * 顺带一个性质：语义色按「对浅色底 ≥5.0」反解之后，近白前景压在它们身上必然也 ≥5.0
+   * （实测 5.08–5.18），所以这一档在浅色主题下不需要单独调。
+   */
+  --cs-text-on-semantic: var(--cs-text-on-dark);
+  /*
+   * 品牌着色面板的描边。不借用 --cs-success-border：那会让一块「被选中的卡片」在语义上
+   * 声称「成功」，而两者的取值几乎一样，借用之后就再也分不清哪些是状态哪些是品牌。
+   */
+  --cs-border-accent: #c6e3d1;
+  /*
+   * 「这一张被选中 / 正被悬停 / 是放置目标」的强调描边。存量在 brand-200 / 300 / 400 之间
+   * 写了 27 处表达同一个意思。这一档是全套 Token 里唯一一处**刻意不跟主题**的：brand-400
+   * 是中间调，对浅色表面 2.16–2.44、对暗色表面 5.09–7.38，两个方向上都看得见一条绿线。
+   * 也就是说 ADR-027 §1.3「brand-* 不跟主题」这条决定在这里是对的——只在这里是对的。
+   */
+  --cs-border-accent-strong: var(--cs-brand-400);
+  /*
+   * 品牌墨色文字，强弱两档。
+   *
+   * ADR-027 §1.3 说「暗色只覆盖语义色，brand-* 色阶刻意不跟主题」。那条决定对**填色块**
+   * 成立（深绿底配近白字在两个主题下都读得出），对**文字**却是致命的：实测 184 处把
+   * brand-600/700/800 直接当前景，暗色下就是深绿字压在 #18231d 的深底上——
+   * brand-700 2.03:1（68 处）、brand-600 2.89:1（32 处）、brand-800 压在 surface-accent 上
+   * **1.18:1**。逐菜单跑 axe 报出 86 条违规，全部是这一个根因。
+   *
+   * 两档而不是四档：浅色下 brand-600(#3f7257) 与 brand-700(#315944) 肉眼分不出，
+   * 合并不损失任何层次；而 800/950 那一档是真的更重（标题级强调），所以保留强弱之分。
+   * 两个主题里「strong」的方向一致——浅色更深、暗色更亮，都是对比度更高的那一端。
+   */
+  --cs-text-brand: var(--cs-brand-700);
+  --cs-text-brand-strong: var(--cs-brand-800);
   --cs-focus: var(--cs-brand-600);
   --cs-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cs-font-display: Georgia, "Times New Roman", ui-serif, serif;
@@ -51,49 +128,123 @@
   --cs-radius-md: 12px;
   --cs-radius-lg: 16px;
   --cs-radius-pill: 999px;
+  /*
+   * 阴影五档，按**抬起的高度**分，而不是按视觉大小随手调。存量是 28 处各写一遍：同一种
+   * 「卡片微微浮起」出现过 `0 5px 18px 4%`、`0 6px 18px 5%`、`0 6px 18px 6%`、`0 8px 22px 7%`、
+   * `0 8px 24px 7%`、`0 8px 26px 5%`、`0 3px 10px 4%` 七个版本，而同一种「模态浮层」出现过
+   * 20%、24%、25% 三个版本——没有任何一处差异是有意的。
+   * 更要紧的是暗色：阴影全是「深绿加低透明度」，压在 #111814 的画布上等于不存在，
+   * 于是暗色下所有层次感都靠边框，浮层与底层贴在一起。分档之后暗色只需要改这五行。
+   * drawer 一档带方向（-22px 0）：右侧抽屉的阴影必须往左投，这是它和 modal 的真实区别。
+   */
+  --cs-shadow-hairline: 0 1px 3px rgb(21 35 29 / 8%);
+  --cs-shadow-raised: 0 6px 18px rgb(21 35 29 / 6%);
   --cs-shadow-float: 0 18px 50px rgb(21 35 29 / 12%);
+  --cs-shadow-drawer: -22px 0 60px rgb(21 35 29 / 14%);
+  --cs-shadow-modal: 0 24px 72px rgb(21 35 29 / 22%);
+  /*
+   * 「被选中 / 悬停中」的品牌光圈色。只给颜色不给几何：四处调用点分别写成 2px 外描边、
+   * 1px 内描边和 2px outline，那是各自的形状，统一掉反而会改外观。
+   */
+  --cs-ring-brand: rgb(102 182 132 / 14%);
+  /*
+   * 遮罩只有一档。存量是 20 处模态/抽屉背板写了 9 个不同的透明度（22/24/32/34/35/38/40/42/48%），
+   * 且基色在 `rgb(21 35 29)`、`rgb(0 0 0)`、`rgb(15 24 19)`、`rgb(16 28 22)`、`rgb(17 28 22)`、
+   * `rgb(18 28 23)` 之间漂移——同一个意图六种基色九种浓度，没有一处差异对得上一个设计决定。
+   * 暗色必须更浓：底下本来就是深色画布，42% 的遮罩盖不住，浮层与背景分不开。
+   */
+  --cs-scrim: rgb(21 35 29 / 42%);
+  /*
+   * 玻璃底：压在渐变或内容之上、需要透出底色的面板。两档的区别是**能不能读字**——
+   * 弱档用于装饰性的内嵌块，强档用于 sticky 表头这种必须读得清的地方。
+   * 存量 14 处写了 64/70/72/75/82/88/92/96% 八个浓度，且全部硬写 `rgb(255 255 255 / N%)`，
+   * 暗色下会在深色面板上叠出一层白雾。
+   */
+  --cs-surface-glass: rgb(255 255 255 / 72%);
+  --cs-surface-glass-strong: rgb(255 255 255 / 94%);
+  /* 玻璃底上的一道内高光描边；它必须跟着玻璃走，在暗色下要反过来变成极淡的亮线。 */
+  --cs-border-translucent: rgb(255 255 255 / 68%);
+  /* 品牌着色面板的第二个渐变端点，与 --cs-surface-accent 成对使用。 */
+  --cs-surface-accent-strong: #e8f4eb;
+  /* Hero 区右上角那团品牌光晕。暗色下要减半，否则在深底上炸开成一块亮斑。 */
+  --cs-hero-glow: rgb(142 213 167 / 28%);
+  /*
+   * 代码块的底与字。它是整套设计里唯一一处**浅色主题下也用深底**的表面，所以不能借用
+   * --cs-surface-*：那些在浅色下是白的。行内代码另立一档，因为它要叠在任意底色上，
+   * 必须是半透明的墨色而不是一块固定底。
+   */
+  --cs-code-surface: #183028;
+  --cs-code-text: #e9f6ed;
+  --cs-code-inline-bg: rgb(21 35 29 / 8%);
   --cs-focus-ring: 0 0 0 3px rgb(142 213 167 / 42%);
-  --cs-transition-fast: 120ms ease;
-  --cs-transition-panel: 180ms ease;
 
-  /* Design System v2: the only supported type and spacing scales. */
-  --cs-text-2xs: 11px;
+  /*
+   * Design System v2 §10.3.1 — seven type steps, and 12px is the hard floor.
+   * There is deliberately no 11px step: 11px is allowed only for monospace code and
+   * Diff line numbers, registered file-by-file in docs/quality/M9-字号白名单.json.
+   */
   --cs-text-xs: 12px;
   --cs-text-sm: 13px;
   --cs-text-base: 14px;
-  --cs-text-lg: 16px;
-  --cs-text-xl: 20px;
-  --cs-text-2xl: 24px;
-  --cs-leading-2xs: 1.45;
-  --cs-leading-xs: 1.5;
-  --cs-leading-sm: 1.55;
-  --cs-leading-base: 1.6;
-  --cs-leading-lg: 1.5;
-  --cs-leading-xl: 1.4;
-  --cs-leading-2xl: 1.3;
+  --cs-text-md: 16px;
+  --cs-text-lg: 18px;
+  --cs-text-xl: 24px;
+  --cs-text-2xl: 32px;
+
+  /* Three line heights, chosen by reading distance rather than by font size. */
+  --cs-leading-tight: 1.3;
+  --cs-leading-normal: 1.5;
+  --cs-leading-relaxed: 1.7;
+
+  /*
+   * Three weights, no 700+. The visual noise this system had came from type being too
+   * small, not from type being too light; once the floor is 12px, 600 is emphasis enough.
+   */
   --cs-weight-regular: 400;
-  --cs-weight-medium: 560;
-  --cs-weight-semibold: 650;
-  --cs-weight-bold: 700;
-  --cs-space-1: 4px;
-  --cs-space-2: 8px;
-  --cs-space-3: 12px;
-  --cs-space-4: 16px;
-  --cs-space-5: 20px;
-  --cs-space-6: 24px;
-  --cs-space-7: 32px;
-  --cs-space-8: 40px;
-  --cs-space-9: 48px;
-  --cs-space-10: 64px;
+  --cs-weight-medium: 500;
+  --cs-weight-semibold: 600;
+
+  /*
+   * §10.3.2 — spacing tokens are named by value, not by ordinal, so that migrating the
+   * hardcoded declarations is a one-to-one substitution. With ordinals, `padding: var(--cs-space-2)`
+   * would be "migrated" to `--cs-space-2` and silently become 8px.
+   * `--cs-space-2` is the only half step and is only for the gap between an icon and the
+   * text it labels.
+   */
+  --cs-space-2: 2px;
+  --cs-space-4: 4px;
+  --cs-space-8: 8px;
+  --cs-space-12: 12px;
+  --cs-space-16: 16px;
+  --cs-space-20: 20px;
+  --cs-space-24: 24px;
+  --cs-space-32: 32px;
+  --cs-space-40: 40px;
+  --cs-space-48: 48px;
+  --cs-space-64: 64px;
+  /*
+   * §10.3.3 — 层级只有语义档，没有数值。除 base 外全部 ≥300：迁移期残留的裸值最大 200，
+   * 拉开这个身位才能逐文件迁移而不出现中间态遮挡错误。
+   * 两条相对顺序是硬约束：Toast 必须能盖住 Dialog（撤销 Toast 出现在确认框之后），
+   * Tooltip 必须能盖住 Toast（禁用原因要能在 Toast 之上解释）。
+   * `banner` 是合同的一处增补：离线提示与全局错误横幅要盖住 rail 与 topbar，
+   * 又必须留在抽屉与对话框之下，语义上既不是 sticky 也不是 drawer。
+   */
   --cs-z-base: 0;
-  --cs-z-sticky: 10;
-  --cs-z-popover: 30;
-  --cs-z-drawer: 40;
-  --cs-z-modal: 50;
-  --cs-z-toast: 60;
+  --cs-z-raised: 300;
+  --cs-z-sticky: 400;
+  --cs-z-banner: 450;
+  --cs-z-drawer: 500;
+  --cs-z-overlay: 600;
+  --cs-z-dialog: 700;
+  --cs-z-popover: 800;
+  --cs-z-toast: 900;
+  --cs-z-tooltip: 1000;
   --cs-motion-fast: 120ms;
   --cs-motion-base: 180ms;
   --cs-motion-slow: 260ms;
+  /* 循环动画（加载转圈）的唯一周期；不是过渡时长，所以单独一档。 */
+  --cs-motion-spin: 900ms;
   --cs-ease-out: cubic-bezier(.2, .8, .2, 1);
   --cs-ease-in-out: cubic-bezier(.4, 0, .2, 1);
   --cs-bp-sm: 640px;
@@ -101,7 +252,16 @@
   --cs-bp-lg: 1100px;
   --cs-bp-xl: 1400px;
   --cs-density-control-height: 38px;
-  --cs-density-panel-gap: var(--cs-space-4);
+  --cs-density-panel-gap: var(--cs-space-16);
+  --cs-density-workspace-padding: var(--cs-space-20);
+  /*
+   * §10.3.2 的控件高度只有这一档，由 data-density 改写——三档固定尺寸（sm/md/lg）与密度开关
+   * 是两套互相打架的机制，M9 既然交付了密度切换，控件高度就该只有一个来源。
+   * --cs-touch-min 是**命中区**而不是视觉尺寸：≤767px 下任何可点元素的可点区域不得小于
+   * 44×44，允许用 padding 或伪元素撑开而不改变外观。它和密度无关——密度压缩的是视觉尺寸，
+   * 不是手指。
+   */
+  --cs-touch-min: 44px;
 }
 
 /* Dark mode is a semantic overlay; components never branch on theme. */
@@ -121,14 +281,19 @@
   --cs-text-on-dark: #f3f7f4;
   --cs-info: #86b9e6;
   --cs-info-soft: #1a3348;
+  --cs-info-border: #2a5375;
   --cs-agent: #c2a9f2;
   --cs-agent-soft: #32264d;
+  --cs-agent-border: #544082;
   --cs-warning: #f0bd78;
   --cs-warning-soft: #48321d;
+  --cs-warning-border: #704e2d;
   --cs-danger: #f19a9a;
   --cs-danger-soft: #472628;
+  --cs-danger-border: #753f42;
   --cs-success: #8ed5a7;
   --cs-success-soft: #1c3b29;
+  --cs-success-border: #2c5d41;
   --cs-diff-addition-bg: #1c3b29;
   --cs-diff-addition-text: #b8efca;
   --cs-diff-deletion-bg: #472628;
@@ -138,26 +303,86 @@
   --cs-code-keyword: #d3b9ff;
   --cs-code-string: #f0bd78;
   --cs-code-comment: #9caf9f;
+  --cs-code-function: #9ec7f0;
+  --cs-code-number: #6fd0c0;
+  --cs-code-type: #e0a0c8;
+  --cs-shadow-hairline: 0 1px 3px rgb(0 0 0 / 40%);
+  --cs-shadow-raised: 0 6px 18px rgb(0 0 0 / 34%);
+  --cs-shadow-float: 0 18px 50px rgb(0 0 0 / 52%);
+  --cs-shadow-drawer: -22px 0 60px rgb(0 0 0 / 52%);
+  --cs-shadow-modal: 0 24px 72px rgb(0 0 0 / 62%);
+  --cs-ring-brand: rgb(142 213 167 / 20%);
+  --cs-scrim: rgb(0 0 0 / 62%);
+  --cs-surface-glass: rgb(36 52 43 / 78%);
+  --cs-surface-glass-strong: rgb(36 52 43 / 96%);
+  --cs-border-translucent: rgb(237 245 239 / 10%);
+  --cs-surface-accent-strong: #26382e;
+  --cs-hero-glow: rgb(142 213 167 / 12%);
+  --cs-code-surface: #0f1712;
+  --cs-code-text: #e9f6ed;
+  --cs-code-inline-bg: rgb(237 245 239 / 12%);
   --cs-action-primary: var(--cs-brand-300);
   --cs-action-primary-hover: var(--cs-brand-200);
+  /* 底变成浅绿，前景就得反过来：brand-950 压在 brand-300 上是 9.48:1，hover 态 12.59。 */
+  --cs-action-primary-text: var(--cs-brand-950);
+  /* 品牌着色面板在暗色下是「比 surface 略亮一点的绿灰」，而不是 brand-50 那块浅绿。 */
+  --cs-surface-accent: #1f2d26;
+  /* 底翻成浅色，前景就得翻成深色：brand-950 压在三种暗色语义底上是 7.62 / 9.50 / 7.95。 */
+  --cs-text-on-semantic: var(--cs-brand-950);
+  --cs-border-accent: #31503f;
+  /*
+   * text-brand 取 brand-300 而不是更亮的 brand-200：brand-300 已经是暗色主题里
+   * --cs-action-primary 与 --cs-focus 的取值，品牌前景在一个主题里只该有一个亮度。
+   * 实测 9.43:1（surface）/ 7.24（accent-strong），strong 档 12.52 / 10.95。
+   */
+  --cs-text-brand: var(--cs-brand-300);
+  --cs-text-brand-strong: var(--cs-brand-200);
   --cs-focus: var(--cs-brand-300);
-  --cs-density-panel-gap: var(--cs-space-3);
 }
 
 [data-density="compact"] {
   --cs-density-control-height: 32px;
-  --cs-density-panel-gap: var(--cs-space-3);
+  --cs-density-panel-gap: var(--cs-space-12);
+  --cs-density-workspace-padding: var(--cs-space-12);
 }
 
 [data-density="comfortable"] {
   --cs-density-control-height: 38px;
-  --cs-density-panel-gap: var(--cs-space-4);
+  --cs-density-panel-gap: var(--cs-space-16);
+  --cs-density-workspace-padding: var(--cs-space-20);
+}
+
+/*
+ * 命中区下限只在窄屏生效，并且直接改写**控件高度的唯一来源**。
+ * 不这么做的后果是实测出来的：紧凑模式把 --cs-density-control-height 压到 32px，于是手机上
+ * 每一个基础控件（按钮、输入框、下拉、Tab）都只有 32px 高——比 44px 的下限矮了四分之一，
+ * 而且这个缺陷会在每个新控件上重新出现。把下限加在密度 Token 上，它就只需要成立一次。
+ * 手指的尺寸不随密度变化：所以窄屏下两档密度的控件高度相同，密度在这里只剩下间距一个抓手。
+ * 767px 是 --cs-bp-md 的排他下侧——媒体查询无法求值 calc(var(--cs-bp-md) - 1px)，
+ * 「比 md 窄」只能写成 767px。
+ */
+@media (max-width: 767px) {
+  :root,
+  :root[data-density="compact"],
+  :root[data-density="comfortable"] {
+    /*
+     * 抬到 44+4 而不是 44：BaseButton 的 small 档是 `base − 4px` 派生出来的，
+     * 基础档只压到 44 的话最小档会落到 40，差 4px 的「只在一个方向上合规」。
+     * 下限要作用在**最小的派生档**上。
+     */
+    --cs-density-control-height: calc(var(--cs-touch-min) + var(--cs-space-4));
+    /*
+     * 窄屏一律用紧凑间距——390px 上 20px 的工作区内边距要吃掉 10% 的可用宽度。
+     * 写在 Token 上而不是在 `.page-shell` 与 `.app-shell__workspace` 各自改写：
+     * 那两处原先硬写 12px，等于绕过了密度这个唯一来源，新的消费方不会自动获得这个行为。
+     */
+    --cs-density-panel-gap: var(--cs-space-12);
+    --cs-density-workspace-padding: var(--cs-space-12);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --cs-transition-fast: 0ms;
-    --cs-transition-panel: 0ms;
     --cs-motion-fast: 0ms;
     --cs-motion-base: 0ms;
     --cs-motion-slow: 0ms;

@@ -177,7 +177,7 @@ export class FixtureTaskGateway implements TaskGateway {
       drainingWorkerCount: 0,
       capacity: { maximum: 6, active: 4, available: 2 },
       waitingRuntimeExecutions: 1,
-      waitingCauses: [{ cause: 'CAPACITY', count: 1 }],
+      waitingCauses: [{ cause: 'CAPACITY_EXHAUSTED', count: 1 }],
     }
   }
 
@@ -413,7 +413,7 @@ export function runtimeFacts(executionId: string = taskIds.execution): TaskRunti
       },
       {
         id: taskIds.stepWaiting, planVersionId: taskIds.plan, planStepKey: 'view', sequence: 2,
-        critical: true, runAttempt: 1, maxRunAttempts: 2, status: 'WAITING', waitReason: 'WAITING_RUNTIME',
+        critical: true, runAttempt: 1, maxRunAttempts: 2, status: 'WAITING', waitReason: 'EXTERNAL_EXECUTION',
         checkpoint: null, failureClass: null, failureCode: null, version: 1,
         audit: { createdByPrincipalId: fixtureIds.principal, createdAt: '2026-08-15T10:31:00Z', updatedByPrincipalId: fixtureIds.principal, updatedAt: '2026-08-15T12:00:00Z' },
       },
@@ -429,7 +429,7 @@ export function runtimeFacts(executionId: string = taskIds.execution): TaskRunti
       agentPrincipalId: fixtureIds.principal, agentProfileId: '00000000-0000-0000-0000-000000003261',
       agentProfileVersion: 2, runSequence: 2, status: 'INTERRUPTED',
       segments: [{ sequence: 1, kind: 'PRIMARY', resumedFromInterruptId: null, status: 'ENDED', startedAt: '2026-08-15T10:31:00Z', endedAt: '2026-08-15T11:58:00Z' }],
-      continuityGap: { previousRunId: 'run-previous', lastValidSnapshotId: null, firstMissingCheckpoint: 3, lastMissingCheckpoint: 4, reason: 'WORKER_LOST', detectedAt: '2026-08-15T11:59:00Z' },
+      continuityGap: { previousRunId: 'run-previous', lastValidSnapshotId: null, firstMissingCheckpoint: 3, lastMissingCheckpoint: 4, reason: 'REDIS_STATE_LOST', detectedAt: '2026-08-15T11:59:00Z' },
       terminal: null, version: 2,
       audit: { createdByPrincipalId: fixtureIds.principal, createdAt: '2026-08-15T10:31:00Z', updatedByPrincipalId: fixtureIds.principal, updatedAt: '2026-08-15T11:59:00Z' },
     }],
@@ -448,7 +448,7 @@ export function runtimeFacts(executionId: string = taskIds.execution): TaskRunti
       id: taskIds.lease, environment: 'production', runtimeId: 'runtime-safe-id', workerId: 'worker-safe-id',
       phase: 'EXECUTING', status: 'EXPIRED', acquiredAt: '2026-08-15T10:30:00Z',
       lastHeartbeatAt: '2026-08-15T11:58:00Z', expiresAt: '2026-08-15T11:59:00Z',
-      releaseReason: 'WORKER_LOST', releasedAt: '2026-08-15T11:59:00Z', version: 3,
+      releaseReason: 'WORKER_SHUTDOWN', releasedAt: '2026-08-15T11:59:00Z', version: 3,
     }],
   }
 }

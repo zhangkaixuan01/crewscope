@@ -16,6 +16,16 @@ export type TeamObserverEventType = typeof teamObserverEventTypes[number]
 export const teamSummarySections = ['progress', 'blockers', 'reviewBacklog', 'pendingConfirmations', 'anomalies'] as const
 export type TeamSummarySection = typeof teamSummarySections[number]
 
+/**
+ * `TeamSummaryDataScope`. Every observer summary line has to say which read scope produced it —
+ * that provenance is what makes a model-written sentence auditable — so it is shown, and therefore
+ * has to be readable rather than a constant.
+ */
+export const teamSummaryDataScopes = [
+  'TEAM_ACTIVITY', 'TEAM_INBOX_SUMMARY', 'WORK_ITEM_SUMMARY', 'TASK_SUMMARY', 'ARTIFACT_SUMMARY',
+] as const
+export type TeamSummaryDataScope = typeof teamSummaryDataScopes[number]
+
 export interface TeamSummaryEntry {
   section: string
   dataScope: string

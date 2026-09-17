@@ -13,8 +13,7 @@ import BaseSwitch from './base/BaseSwitch.vue'
 import BaseTabs from './base/BaseTabs.vue'
 import BaseSkeleton from './base/BaseSkeleton.vue'
 import ResponsibilityChain from './domain/ResponsibilityChain.vue'
-import AgentPresence from './domain/AgentPresence.vue'
-import { demoAgent, demoResponsibilities } from '../domains/demo/fixtures'
+import { demoResponsibilities } from '../domains/demo/fixtures'
 </script>
 
 <template>
@@ -31,12 +30,12 @@ import { demoAgent, demoResponsibilities } from '../domains/demo/fixtures'
         <BaseSkeleton height="20px" /><BaseSkeleton width="55%" height="14px" />
       </div>
     </Variant>
-    <Variant title="Responsibility and agent">
-      <div class="story-grid"><section><h3>Responsibility Chain</h3><ResponsibilityChain :members="demoResponsibilities" /></section><section><h3>Agent Presence</h3><AgentPresence :agent="demoAgent" /></section></div>
+    <Variant title="Responsibility chain">
+      <div class="story-grid"><section><h3>Responsibility Chain</h3><ResponsibilityChain :members="demoResponsibilities" /></section></div>
     </Variant>
   </Story>
 </template>
 
 <style scoped>
-.story-stack, .story-grid, .story-controls { min-height: 420px; padding: var(--cs-space-7); background: var(--cs-canvas); color: var(--cs-text); font-family: var(--cs-font-sans); }.story-stack > div { display: flex; flex-wrap: wrap; gap: var(--cs-space-3); margin-bottom: var(--cs-space-5); }.story-grid { display: grid; grid-template-columns: 300px 380px; gap: var(--cs-space-5); }.story-grid section { padding: var(--cs-space-5); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.story-grid h3 { margin-bottom: var(--cs-space-5); }.story-controls { display: grid; max-width: 720px; gap: var(--cs-space-4); }.story-controls__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-3); }.story-controls__row > .base-input, .story-controls__row > .base-select { flex: 1; min-width: 180px; }
+.story-stack, .story-grid, .story-controls { min-height: 420px; padding: var(--cs-space-32); background: var(--cs-canvas); color: var(--cs-text); font-family: var(--cs-font-sans); }.story-stack > div { display: flex; flex-wrap: wrap; gap: var(--cs-space-12); margin-bottom: var(--cs-space-20); }.story-grid { display: grid; grid-template-columns: 300px 380px; gap: var(--cs-space-20); }.story-grid section { padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.story-grid h3 { margin-bottom: var(--cs-space-20); }.story-controls { display: grid; max-width: 720px; gap: var(--cs-space-16); }.story-controls__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-12); }.story-controls__row > .base-input, .story-controls__row > .base-select { flex: 1; min-width: 180px; }
 </style>

@@ -99,7 +99,7 @@ describe('LarkNotificationAdmin', () => {
       command: { phase: 'conflict', operation: 'lark-mapping-revoke', targetId: uuid(9), receipt: null, error: { kind: 'conflict', message: 'Conflict', status: 409, retryable: false, currentVersion: 3 } },
     })
     expect(wrapper.text()).toContain('服务端当前版本 v3')
-    expect(wrapper.text()).toContain('ACTIVE')
+    expect(wrapper.text()).toContain('映射生效')
   })
 
   it('emits connection selection, health, preflight, rotation and revocation coordinates', async () => {
@@ -156,14 +156,16 @@ describe('LarkNotificationAdmin', () => {
       preference: { memberId: uuid(6), enabled: true, enabledItemTypes: ['REVIEW'], mutedUntil: '2026-08-28T08:00:00Z', version: 1 },
     })
     const itemTypes = wrapper.findAll('.preference fieldset input')
-    await itemTypes.find(input => (input.element as HTMLInputElement).parentElement?.textContent?.includes('OWNERSHIP'))!.setValue(true)
+    await itemTypes.find(input => (input.element as HTMLInputElement).parentElement?.textContent?.includes('责任归属'))!.setValue(true)
     await wrapper.get('.preference form').trigger('submit')
     expect(wrapper.emitted('savePreference')?.[0]?.[0]).toBe(uuid(6))
     expect(wrapper.emitted('savePreference')?.[0]?.[1]).toMatchObject({ enabled: true, enabledItemTypes: ['REVIEW', 'OWNERSHIP'] })
 
     await wrapper.get('select[aria-label="投递状态"]').setValue('FAILED_FINAL')
     await wrapper.get('select[aria-label="通知类型"]').setValue('REVIEW')
-    await wrapper.get('input[aria-label="Recipient Member UUID"]').setValue(`  ${uuid(6)}  `)
+    // The recipient filter names a member; it never asks an operator to recall a member id.
+    expect(wrapper.find('input[aria-label="Recipient Member UUID"]').exists()).toBe(false)
+    await wrapper.get('select[aria-label="收件成员"]').setValue(uuid(6))
     await wrapper.get('.delivery-filter').trigger('submit')
     expect(wrapper.emitted('deliveryFilter')?.[0]?.[0]).toEqual({ status: 'FAILED_FINAL', itemType: 'REVIEW', recipient: uuid(6) })
 

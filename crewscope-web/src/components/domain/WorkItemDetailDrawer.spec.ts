@@ -2,12 +2,16 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails } from '../../test/workItemFixtures'
 import { fixtureConversationWorkItemAssociation } from '../../test/conversationWorkItemFixtures'
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
+import type { WorkItemAvailableTransition } from '../../domains/workitem/types'
+
+const global = { stubs: { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } } }
 
 describe('WorkItemDetailDrawer', () => {
   it('focuses the close action, exposes valid transitions and closes with Escape', async () => {
     const onTransition = vi.fn().mockResolvedValue(undefined)
     const wrapper = mount(WorkItemDetailDrawer, {
       attachTo: document.body,
+      global,
       props: props({ onTransition }),
     })
     await flushPromises()
@@ -26,6 +30,7 @@ describe('WorkItemDetailDrawer', () => {
     const onAddComment = vi.fn().mockResolvedValue(undefined)
     const onLinkResource = vi.fn().mockResolvedValue(undefined)
     const wrapper = mount(WorkItemDetailDrawer, {
+      global,
       props: props({ onAddComment, onLinkResource }),
     })
 
@@ -45,7 +50,7 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('separates Personal Agent discussion from the durable Task delegation entry', async () => {
-    const wrapper = mount(WorkItemDetailDrawer, { props: props() })
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
 
     await wrapper.get('.detail-footer button:last-child').trigger('click')
     expect(wrapper.emitted('delegate')).toBeTruthy()
@@ -55,6 +60,7 @@ describe('WorkItemDetailDrawer', () => {
 
   it('shows visible source Conversations beside responsibility facts', async () => {
     const wrapper = mount(WorkItemDetailDrawer, {
+      global,
       props: props({ associationPhase: 'ready', associations: [fixtureConversationWorkItemAssociation] }),
     })
 
@@ -69,7 +75,7 @@ describe('WorkItemDetailDrawer', () => {
     const details = structuredClone(fixtureWorkItemDetails)
     details.workItem.createdByPrincipalId = '00000000-0000-0000-0000-000000000201'
     details.comments[0]!.authorPrincipalId = '00000000-0000-0000-0000-000000000101'
-    const wrapper = mount(WorkItemDetailDrawer, { props: props({ details }) })
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ details }) })
 
     expect(wrapper.get('.facts-section').text()).toContain('Coding Agent')
     expect(wrapper.get('.comments-section').text()).toContain('张凯旋')
@@ -78,6 +84,7 @@ describe('WorkItemDetailDrawer', () => {
 
   it('embeds the WorkItem Activity projection after its business timeline', () => {
     const wrapper = mount(WorkItemDetailDrawer, {
+      global,
       props: props(),
       slots: {
         activity: '<div data-testid="work-item-activity">WorkItem Activity projection</div>',
@@ -95,7 +102,7 @@ describe('WorkItemDetailDrawer', () => {
     const onTransition = vi.fn().mockRejectedValue(new Error('conflict'))
     const onAddComment = vi.fn().mockRejectedValue(new Error('comment failed'))
     const onLinkResource = vi.fn().mockRejectedValue(new Error('resource failed'))
-    const wrapper = mount(WorkItemDetailDrawer, { props: props({ onTransition, onAddComment, onLinkResource }) })
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ onTransition, onAddComment, onLinkResource }) })
 
     await wrapper.get('.transition-control button').trigger('click')
     await wrapper.get('.comment-form').trigger('submit')
@@ -116,12 +123,12 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('renders loading, error, conflict, terminal and external-source states', async () => {
-    const loading = mount(WorkItemDetailDrawer, { props: props({ phase: 'loading', details: null }) })
+    const loading = mount(WorkItemDetailDrawer, { global, props: props({ phase: 'loading', details: null }) })
     expect(loading.text()).toContain('正在加载')
     loading.unmount()
 
     const onRetry = vi.fn()
-    const failed = mount(WorkItemDetailDrawer, { props: props({ phase: 'error', details: null, errorMessage: '读取失败', onRetry }) })
+    const failed = mount(WorkItemDetailDrawer, { global, props: props({ phase: 'error', details: null, errorMessage: '读取失败', onRetry }) })
     expect(failed.text()).toContain('读取失败')
     await failed.get('button:not([aria-label="关闭工作项详情"])').trigger('click')
     expect(onRetry).toHaveBeenCalled()
@@ -132,8 +139,24 @@ describe('WorkItemDetailDrawer', () => {
     externalDetails.workItem.status = 'BLOCKED'
     externalDetails.resourceLinks.push({ id: 'safe', workItemId: externalDetails.workItem.id, resourceType: 'EXTERNAL_URL', resourceReference: 'https://example.com/path', label: null, createdAt: '2026-08-08T04:00:00Z', createdByPrincipalId: null })
     externalDetails.resourceLinks.push({ id: 'unsafe', workItemId: externalDetails.workItem.id, resourceType: 'EXTERNAL_URL', resourceReference: 'javascript:alert(1)', label: '危险引用', createdAt: '2026-08-08T04:00:00Z', createdByPrincipalId: null })
-    const external = mount(WorkItemDetailDrawer, { props: props({ details: externalDetails, versionConflict: { attemptedVersion: 1, currentVersion: null }, commandErrorMessage: '发生冲突' }) })
-    expect(external.text()).toContain('外部 Provider 工作项由来源系统管理状态')
+    const external = mount(WorkItemDetailDrawer, { global, props: props({
+      details: externalDetails,
+      availableTransitions: [transition({
+        actionId: 'resume-work',
+        targetStatus: 'IN_PROGRESS',
+        label: '继续执行',
+        enabled: false,
+        reason: 'EXTERNAL_PROVIDER_MANAGED',
+        reasonMessage: '此工作项由外部 Provider 管理',
+        remedyLabel: '查看集成设置',
+        remedyRoute: '/settings/integrations',
+      })],
+      versionConflict: { attemptedVersion: 1, currentVersion: null },
+      commandErrorMessage: '发生冲突',
+    }) })
+    expect(external.text()).toContain('此工作项由外部 Provider 管理')
+    expect(external.get('.transition-reason a').text()).toBe('查看集成设置')
+    expect(external.get('.transition-action button').attributes('disabled')).toBeDefined()
     expect(external.text()).toContain('当前版本为 未知')
     expect(external.findAll('a[href="https://example.com/path"]').length).toBe(1)
     expect(external.find('a[href^="javascript:"]').exists()).toBe(false)
@@ -143,21 +166,110 @@ describe('WorkItemDetailDrawer', () => {
     archivedDetails.workItem.status = 'ARCHIVED'
     archivedDetails.comments = []
     archivedDetails.resourceLinks = []
-    const archived = mount(WorkItemDetailDrawer, { props: props({ details: archivedDetails }) })
-    expect(archived.text()).toContain('已归档工作项没有后续状态')
+    const archived = mount(WorkItemDetailDrawer, { global, props: props({ details: archivedDetails, availableTransitions: [] }) })
+    expect(archived.text()).toContain('当前状态没有后续动作')
     expect(archived.find('.comment-form').exists()).toBe(false)
     archived.unmount()
   })
+  it('never widens the action list beyond the server verdict and never submits a blocked action', async () => {
+    const onTransition = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+      onTransition,
+      availableTransitions: [transition({
+        actionId: 'request-review', targetStatus: 'IN_REVIEW', label: '提交评审', reversible: true,
+      }), transition({
+        actionId: 'complete', targetStatus: 'DONE', label: '标记完成', enabled: false,
+        reason: 'REVIEWER_REQUIRED', reasonMessage: '需要先指派 Reviewer',
+        remedyLabel: '指派 Reviewer', remedyRoute: '/work?panel=responsibility',
+      })],
+    }) })
+
+    // The generated state machine also allows BLOCKED and CANCELLED from IN_PROGRESS; neither is
+    // offered here, because the server did not return them.
+    const actions = wrapper.findAll('.transition-action')
+    expect(actions.length).toBe(2)
+    expect(wrapper.text()).not.toContain('标记阻塞')
+
+    await actions[1]!.get('button').trigger('click')
+    await flushPromises()
+    expect(onTransition).not.toHaveBeenCalled()
+    expect(wrapper.get('.transition-reason').text()).toContain('需要先指派 Reviewer')
+
+    // Reversible actions commit on the first click, because an undo window follows.
+    await actions[0]!.get('button').trigger('click')
+    await flushPromises()
+    expect(onTransition).toHaveBeenCalledWith('IN_REVIEW')
+    wrapper.unmount()
+  })
+
+  it('asks twice before an irreversible action, which has no reverse edge to undo', async () => {
+    const onTransition = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+      onTransition,
+      availableTransitions: [transition({
+        actionId: 'cancel', targetStatus: 'CANCELLED', label: '取消工作项', strength: 'DANGER',
+      })],
+    }) })
+
+    await wrapper.get('.transition-action button').trigger('click')
+    await flushPromises()
+    expect(onTransition).not.toHaveBeenCalled()
+    expect(wrapper.get('.transition-action button').text()).toContain('再次点击确认取消工作项')
+
+    await wrapper.get('.transition-action button').trigger('click')
+    await flushPromises()
+    expect(onTransition).toHaveBeenCalledWith('CANCELLED')
+    wrapper.unmount()
+  })
+
+  it('offers a retry instead of a guessed action list when availability fails', async () => {
+    const onRetryAvailability = vi.fn()
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+      availabilityPhase: 'error',
+      availabilityErrorMessage: '暂时无法加载可执行动作',
+      availableTransitions: [],
+      onRetryAvailability,
+    }) })
+
+    expect(wrapper.find('.transition-control').exists()).toBe(false)
+    await wrapper.get('.transition-section button').trigger('click')
+    expect(onRetryAvailability).toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })
+
+function transition(overrides: Partial<WorkItemAvailableTransition>): WorkItemAvailableTransition {
+  return {
+    actionId: 'request-review',
+    targetStatus: 'IN_REVIEW',
+    label: '提交评审',
+    strength: 'PRIMARY',
+    reversible: false,
+    enabled: true,
+    reason: null,
+    reasonMessage: null,
+    remedyLabel: null,
+    remedyRoute: null,
+    ...overrides,
+  }
+}
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
+    scope: { organizationId: '00000000-0000-0000-0000-000000000001', teamId: '00000000-0000-0000-0000-000000000201' },
     phase: 'ready' as const,
     details: structuredClone(fixtureWorkItemDetails),
     errorMessage: null,
     commandPending: null,
     commandErrorMessage: null,
     versionConflict: null,
+    availabilityPhase: 'ready' as const,
+    availableTransitions: [
+      transition({ actionId: 'request-review', targetStatus: 'IN_REVIEW', label: '提交评审', reversible: true }),
+      transition({ actionId: 'block', targetStatus: 'BLOCKED', label: '标记阻塞', strength: 'SECONDARY', reversible: true }),
+      transition({ actionId: 'cancel', targetStatus: 'CANCELLED', label: '取消工作项', strength: 'DANGER' }),
+    ],
+    availabilityErrorMessage: null,
     canParticipate: true,
     canDelegate: true,
     canManageResponsibility: true,
@@ -187,6 +299,7 @@ function props(overrides: Record<string, unknown> = {}) {
     associations: [],
     associationErrorMessage: null,
     onRetry: vi.fn(),
+    onRetryAvailability: vi.fn(),
     onTransition: vi.fn().mockResolvedValue(undefined),
     onAddComment: vi.fn().mockResolvedValue(undefined),
     onLinkResource: vi.fn().mockResolvedValue(undefined),

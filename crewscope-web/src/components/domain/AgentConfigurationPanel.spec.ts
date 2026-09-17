@@ -1,15 +1,25 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { AGENT_STORE, type AgentStore, type AgentStoreState } from '../../domains/agent/store'
+import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { AgentConfigurationInput, AgentSummary, AgentTemplateSummary, SelectableAgentModel } from '../../domains/agent/types'
 import AgentConfigurationPanel from './AgentConfigurationPanel.vue'
 
+// 只读状态的动作是跳转到权限说明页，因此路由表里要有这个具名路由。
+const testRouter = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }, { path: '/access-denied', name: 'access-denied', component: { template: '<div />' } }] })
+
+beforeAll(async () => {
+  await testRouter.push('/')
+  await testRouter.isReady()
+})
+
 describe('AgentConfigurationPanel', () => {
   it('creates Revision 1 with If-Match zero and a whitelisted PERSONAL binding', async () => {
-    const { store, appendConfiguration } = fixtureStore('PERSONAL')
+    const { store, scopeStore, appendConfiguration } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
     const selects = wrapper.findAll('.binding-editor select')
@@ -40,10 +50,10 @@ describe('AgentConfigurationPanel', () => {
   })
 
   it('supports explicitly selected TEAM default inheritance without exposing USER connection facts', async () => {
-    const { store, appendConfiguration } = fixtureStore('TEAM')
+    const { store, scopeStore, appendConfiguration } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: template('TEAM'), canConfigure: true, selectedRevision: null },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('继承已发布的 Team/Organization 默认')
@@ -59,10 +69,10 @@ describe('AgentConfigurationPanel', () => {
   })
 
   it('keeps historical revisions immutable and explains pinned execution semantics', async () => {
-    const { store } = fixtureStore('PERSONAL', true)
+    const { store, scopeStore } = fixtureStore('PERSONAL', true)
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(2), template: template('PERSONAL'), canConfigure: true, selectedRevision: 1 },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('历史版本不可编辑')
@@ -71,10 +81,10 @@ describe('AgentConfigurationPanel', () => {
   })
 
   it('requires an explicit second activation before a lifecycle command', async () => {
-    const { store, transitionAgent } = fixtureStore('PERSONAL')
+    const { store, scopeStore, transitionAgent } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
     const disable = wrapper.findAll('button').find(button => button.text() === '禁用')!
@@ -87,7 +97,7 @@ describe('AgentConfigurationPanel', () => {
   })
 
   it('configures a platform-managed Team Observer without exposing generic lifecycle actions', async () => {
-    const { store, appendConfiguration, transitionAgent } = fixtureStore('TEAM')
+    const { store, scopeStore, appendConfiguration, transitionAgent } = fixtureStore('TEAM')
     const observer = {
       ...agent(null, 'TEAM'),
       displayName: 'Team Observer',
@@ -108,7 +118,7 @@ describe('AgentConfigurationPanel', () => {
         canConfigure: true,
         selectedRevision: null,
       },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
 
@@ -135,10 +145,10 @@ describe('AgentConfigurationPanel', () => {
   })
 
   it('shows a visible Team Agent as read-only before requiring manager-only template metadata', async () => {
-    const { store } = fixtureStore('TEAM')
+    const { store, scopeStore } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: null, canConfigure: false, selectedRevision: null },
-      global: { provide: { [AGENT_STORE as symbol]: store } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
     })
     await flushPromises()
 
@@ -190,7 +200,10 @@ function fixtureStore(scope: 'PERSONAL' | 'TEAM', withHistory = false) {
     transitionAgent, appendConfiguration, refreshConversationConfiguration: vi.fn(),
     invalidateAgent: vi.fn(), clearCommand: vi.fn(), reset: vi.fn(),
   } as unknown as AgentStore
-  return { store, appendConfiguration, transitionAgent }
+  const scopeStore = {
+    state: reactive({ selectedTeamId: 'team-1', selectedProjectId: null }),
+  } as unknown as ScopeStore
+  return { store, scopeStore, appendConfiguration, transitionAgent }
 }
 
 function agent(revision: number | null, ownershipType: AgentSummary['ownershipType'] = 'USER'): AgentSummary {

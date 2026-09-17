@@ -2,6 +2,7 @@ import { expect, test, type Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { createHash } from 'node:crypto'
 import { authenticatedSession } from './auth-session'
+import { workItemStateMachine } from '../src/api/generated/state-machines'
 
 const ids = {
   organization: '00000000-0000-0000-0000-000000000001',
@@ -56,6 +57,7 @@ const ids = {
   pushDispatch: '00000000-0000-0000-0000-000000002207',
   pullRequestDispatch: '00000000-0000-0000-0000-000000002208',
 }
+let codingPatchOverride: string | null = null
 
 test.beforeEach(async ({ page }) => {
   // Keep Today and date rendering deterministic so visual diffs represent UI changes instead of wall-clock drift.
@@ -75,7 +77,7 @@ test.beforeEach(async ({ page }) => {
     responsibility('00000000-0000-0000-0000-000000000904', 'EXECUTOR', ids.personalAgent, 'PERSONAL_AGENT', '张凯旋的 Personal Agent', ids.agentProfile),
     responsibility('00000000-0000-0000-0000-000000000903', 'REVIEWER', ids.specialistAgent, 'SPECIALIST_AGENT', 'Architecture Reviewer'),
   ]
-  const tasks = [task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2)]
+  const tasks = [task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'RUNTIME', 2)]
   const conversationTaskIds = new Set([ids.task])
   const acceptedTaskKeys = new Map<string, string>()
   const acceptedTaskCommandKeys = new Set<string>()
@@ -164,6 +166,16 @@ test.beforeEach(async ({ page }) => {
     }
     if (request.method() === 'GET' && path.endsWith(`/${ids.team}/setup-readiness`)) {
       await fulfillJson(route, setupReadiness())
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith(`/${ids.team}/configuration-health`)) {
+      await fulfillJson(route, configurationHealth())
+      return
+    }
+    // Without this the workbench projects as a failure screen, and a visual baseline of an error
+    // state would pass forever while saying nothing about the page it is supposed to freeze.
+    if (request.method() === 'GET' && path.endsWith('/work-desk')) {
+      await fulfillJson(route, workDesk())
       return
     }
     if (request.method() === 'GET' && path.endsWith('/members')) {
@@ -904,14 +916,21 @@ test.beforeEach(async ({ page }) => {
       const matching = status ? workItems.filter(item => item.status === status) : workItems
       const after = url.searchParams.get('after')
       await fulfillJson(route, after
-        ? { items: matching.slice(4), nextCursor: null }
-        : { items: status ? matching : matching.slice(0, 4), nextCursor: status ? null : 'work-page-2' })
+        ? { items: matching.slice(4).map(withAvailability), nextCursor: null }
+        : { items: (status ? matching : matching.slice(0, 4)).map(withAvailability), nextCursor: status ? null : 'work-page-2' })
       return
     }
     if (path.endsWith('/work-items') && request.method() === 'POST') {
       const input = request.postDataJSON() as ReturnType<typeof workItem>
       workItems.unshift({ ...workItem(crypto.randomUUID(), input.key, input.title, input.type, 'BACKLOG', input.priority), description: input.description, labels: input.labels, dueAt: input.dueAt })
       await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 0, correlationId: crypto.randomUUID() }) })
+      return
+    }
+    const availabilityMatch = path.match(/\/work-items\/([^/]+)\/transitions\/availability$/)
+    if (availabilityMatch && request.method() === 'GET') {
+      const item = workItems.find(candidate => candidate.id === availabilityMatch[1])
+      if (!item) return fulfillError(route, 404, 'work_item_not_found', 'WorkItem not found')
+      await fulfillJson(route, { transitions: availableTransitions(item.status) })
       return
     }
     const transitionMatch = path.match(/\/work-items\/([^/]+)\/transitions$/)
@@ -998,7 +1017,7 @@ test.beforeEach(async ({ page }) => {
     if (detailMatch && request.method() === 'GET') {
       const item = workItems.find(candidate => candidate.id === detailMatch[1])
       if (!item) return fulfillError(route, 404, 'work_item_not_found', 'WorkItem not found')
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${item.version}"` }, body: JSON.stringify({ workItem: item, comments: comments.filter(entry => entry.workItemId === item.id), resourceLinks: resources.filter(entry => entry.workItemId === item.id) }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${item.version}"` }, body: JSON.stringify({ workItem: withAvailability(item), comments: comments.filter(entry => entry.workItemId === item.id), resourceLinks: resources.filter(entry => entry.workItemId === item.id) }) })
       return
     }
     await route.fulfill({ status: 404, contentType: 'application/json', body: '{"code":"not_found"}' })
@@ -1060,14 +1079,17 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   expect(restoredQuery.get('team')).toBe(ids.team)
   expect(restoredQuery.get('project')).toBe(ids.project)
   expect(restoredQuery.get('conversation')).toBe(ids.conversation)
-  await expect(page.getByRole('heading', { name: 'Platform Engineering', exact: true })).toBeVisible()
+  // The workbench carries no title of its own beyond the shell's; the scope it is showing is named
+  // by the AppShell scope control, which is the one place the selected Team and WorkProject live.
+  await expect(page.getByRole('heading', { name: '我的工作台', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Platform Engineering/ })).toBeVisible()
 })
 
 test('Conversation restores multiple visible Tasks and preserves Conversation, WorkItem and Task navigation', async ({ page }, testInfo) => {
   const completed = task('00000000-0000-0000-0000-000000001502', ids.workItem, '验证 Conversation Task 恢复', 'COMPLETED', 'COMPLETED', null, 1)
   await page.route(new RegExp(`/conversations/${ids.conversation}/tasks(?:\\?.*)?$`), route => fulfillJson(route, {
     items: [
-      taskAssociation(task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2), 'CONVERSATION_SOURCE'),
+      taskAssociation(task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'RUNTIME', 2), 'CONVERSATION_SOURCE'),
       taskAssociation(completed, 'WORK_ITEM_ROOT'),
     ],
     nextCursor: null,
@@ -1729,7 +1751,7 @@ test('Model settings verifies and rotates a Team credential without retaining it
   await expect(page.getByRole('heading', { name: 'DeepSeek V4 Flash' })).toBeVisible()
   await expect(page.getByText('身份验证失败')).toBeVisible()
   await page.getByRole('button', { name: '验证健康' }).click()
-  await expect(page.locator('.connection-detail').getByText('HEALTHY', { exact: true })).toBeVisible()
+  await expect(page.locator('.connection-detail').getByText('健康', { exact: true })).toBeVisible()
   await expect(page.getByText(/Correlation/)).toBeVisible()
 
   await page.getByRole('button', { name: '轮换凭证' }).click()
@@ -1766,7 +1788,7 @@ test('Repository settings preflights and transitions a binding at desktop and na
   await expect(page.getByText(/Preflight 通过/)).toBeVisible()
 
   await page.getByRole('button', { name: '停用', exact: true }).click()
-  await expect(page.getByText('DISABLED', { exact: true })).toBeVisible()
+  await expect(page.getByText('已停用', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '启用', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '绑定仓库', exact: true }).last().click()
@@ -1804,7 +1826,7 @@ test('Work restores filters and groups matching items on the Board', async ({ pa
 
   await expect(page.getByLabel('工作项看板')).toBeVisible()
   await expect(page.getByLabel('进行中').getByRole('button', { name: '打开 CRW-18 共享范围与筛选状态' })).toBeVisible()
-  await expect(page.getByLabel('审查中').getByRole('button', { name: '打开 CRW-21 审核协作入口' })).toBeVisible()
+  await expect(page.getByLabel('评审中').getByRole('button', { name: '打开 CRW-21 审核协作入口' })).toBeVisible()
   await expect(page.getByText('修复工作项游标')).toHaveCount(0)
 
   await page.getByRole('button', { name: '列表视图' }).click()
@@ -1826,6 +1848,172 @@ test('Work clears local type and priority filters in one route update', async ({
   const query = new URL(page.url()).searchParams
   expect(query.get('type')).toBe('all')
   expect(query.get('priority')).toBe('all')
+})
+
+test('Work board supports the keyboard drag equivalent and the reversible undo window', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=all&priority=all`)
+
+  const card = page.getByRole('button', { name: '打开 CRW-18 共享范围与筛选状态' })
+  await card.focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('status')).toContainText('已拾起 CRW-18')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('status')).toContainText('目标列：评审中')
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByLabel('评审中').getByRole('button', { name: '打开 CRW-18 共享范围与筛选状态' })).toBeVisible()
+  const toast = page.getByRole('article').filter({ hasText: 'CRW-18 已提交评审' })
+  await expect(toast).toBeVisible()
+  await toast.getByRole('button', { name: '撤销' }).click()
+  await expect(page.getByLabel('进行中').getByRole('button', { name: '打开 CRW-18 共享范围与筛选状态' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'CRW-18 已提交评审' })).toHaveCount(0)
+})
+
+test('Work board expires the undo affordance after the ten-second window', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=all&priority=all`)
+
+  const card = page.getByRole('button', { name: '打开 CRW-18 共享范围与筛选状态' })
+  await card.focus()
+  await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+
+  const toast = page.getByRole('article').filter({ hasText: 'CRW-18 已提交评审' })
+  await expect(toast).toBeVisible()
+  await page.waitForTimeout(10_100)
+  await expect(toast).toHaveCount(0)
+})
+
+test('Work board runs an action from the card status badge, keyboard only', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=all&priority=all`)
+
+  const card = page.locator('.work-item-card').filter({ hasText: 'CRW-18' })
+  // The status badge is the action entry. Everything below is reachable without a pointer, which the
+  // previous implementation was not: it opened on hover and had no way to be dismissed.
+  const badge = card.getByRole('button', { name: '进行中' })
+  await expect(badge).toHaveAttribute('aria-haspopup', 'menu')
+  await expect(badge).toHaveAttribute('aria-expanded', 'false')
+
+  await badge.focus()
+  await page.keyboard.press('Enter')
+  await expect(badge).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('menuitem', { name: '标记阻塞' })).toBeFocused()
+
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByRole('menuitem', { name: '提交评审' })).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
+  await expect(card.getByRole('button', { name: '评审中' })).toBeVisible()
+  const toast = page.getByRole('article').filter({ hasText: 'CRW-18 已提交评审' })
+  await expect(toast).toBeVisible()
+  await toast.getByRole('button', { name: '撤销' }).click()
+  await expect(card.getByRole('button', { name: '进行中' })).toBeVisible()
+})
+
+test('Work list row runs the same action as the board card', async ({ page }) => {
+  // 列表行、看板卡片与抽屉走同一条 Store 漏斗；两处各写一遍就会有一处忘记刷新版本。
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&status=all&type=all&priority=all`)
+
+  const row = page.locator('.work-item-card').filter({ hasText: 'CRW-18' })
+  await row.getByRole('button', { name: '进行中' }).click()
+  await page.getByRole('menuitem', { name: '提交评审' }).click()
+
+  await expect(row.getByRole('button', { name: '评审中' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'CRW-18 已提交评审' })).toBeVisible()
+})
+
+test('An irreversible action asks twice and Escape returns focus to the badge', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&status=all&type=all&priority=all`)
+
+  const row = page.locator('.work-item-card').filter({ hasText: 'CRW-18' })
+  const badge = row.getByRole('button', { name: '进行中' })
+  await badge.click()
+
+  // Escape closes and puts focus back on the control that opened the menu; a menu that swallowed
+  // focus would drop a keyboard user at the top of the document.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
+  await expect(badge).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('ArrowDown')
+  const cancel = page.getByRole('menuitem', { name: '取消工作项' })
+  await cancel.click()
+  await expect(page.getByRole('menuitem', { name: '再次点击确认取消工作项' })).toBeVisible()
+  await expect(row).toBeVisible()
+
+  await page.getByRole('menuitem', { name: '再次点击确认取消工作项' }).click()
+  await expect(row.getByRole('button', { name: '已取消' })).toBeVisible()
+})
+
+test('A blocked action shows the server reason instead of vanishing', async ({ page }) => {
+  // 服务端说不可执行时必须说清原因；把动作藏起来会让成员以为这个状态什么都做不了。
+  const blocked = {
+    ...workItem('00000000-0000-0000-0000-000000000699', 'CRW-99', '等待评审人指派', 'TASK', 'IN_PROGRESS', 'HIGH'),
+    availableActions: [{
+      actionId: 'submit-review', targetStatus: 'IN_REVIEW', label: '提交评审', strength: 'PRIMARY',
+      reversible: true, enabled: false, reason: 'REVIEWER_REQUIRED', reasonMessage: '尚未指派 Reviewer',
+      remedyLabel: '指派 Reviewer', remedyRoute: `/work?team=${ids.team}&project=${ids.project}`,
+    }],
+  }
+  await page.route(/\/api\/v1\//, async route => {
+    const url = new URL(route.request().url())
+    if (route.request().method() === 'GET' && url.pathname.endsWith('/work-items')) {
+      await fulfillJson(route, { items: [blocked], nextCursor: null })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&status=all&type=all&priority=all`)
+  await page.locator('.work-item-card').filter({ hasText: 'CRW-99' }).getByRole('button', { name: '进行中' }).click()
+
+  const item = page.getByRole('menuitem', { name: '提交评审' })
+  await expect(item).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByText('尚未指派 Reviewer')).toBeVisible()
+  await expect(page.getByRole('menu').getByRole('link', { name: '指派 Reviewer' })).toBeVisible()
+
+  // 点了也不能发命令：禁用项必须真的不可执行，而不只是看起来发灰。
+  const commands: string[] = []
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().endsWith('/transitions')) commands.push(request.url())
+  })
+  // 浏览器自己就把它当作不可用（`aria-disabled` 参与 Playwright 的 enabled 判定），所以强制派发
+  // 一次点击，验证的是「确实不发命令」而不是「点不动」。
+  await item.dispatchEvent('click')
+  await expect(page.getByRole('menuitem', { name: '提交评审' })).toBeVisible()
+  expect(commands).toEqual([])
+})
+
+test('Agent configuration protects dirty navigation and keeps a Team-switch draft recoverable', async ({ page }) => {
+  await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}&configurationRevision=2`)
+  const configuration = page.locator('.agent-configuration')
+  await expect(configuration).toBeVisible()
+  await configuration.getByLabel(/补充指令/).fill('本地草稿：保留配置变更')
+
+  await page.locator('a[href^="/today"]:visible').first().click()
+  const confirm = page.getByRole('alertdialog', { name: '放弃未保存的修改？' })
+  await expect(confirm).toBeVisible()
+  await expect(confirm).toContainText('当前表单有未保存内容')
+  await confirm.getByRole('button', { name: '继续编辑' }).click()
+  await expect(page).toHaveURL(/\/settings\/agents/)
+  await expect(configuration.getByLabel(/补充指令/)).toHaveValue('本地草稿：保留配置变更')
+
+  await page.getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+  await expect(page).toHaveURL(/team=00000000-0000-0000-0000-000000000202/)
+  await expect.poll(() => page.evaluate(key => localStorage.getItem(key), `crewscope:agent-configuration:${ids.agentCoding}`)).toContain('本地草稿：保留配置变更')
+
+  // The second Team has no shared Agent fixture; return to the original Team and verify the
+  // persisted draft is offered when the selected Agent is opened again.
+  await page.getByRole('button', { name: /Security Engineering/ }).click()
+  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}&configurationRevision=2`)
+  await expect(page.getByText('发现未保存的本地草稿')).toBeVisible()
+  await page.getByRole('button', { name: '恢复草稿' }).click()
+  await expect(page.locator('.agent-configuration').getByLabel(/补充指令/)).toHaveValue('本地草稿：保留配置变更')
 })
 
 test('Work continues from the opaque Cursor', async ({ page }) => {
@@ -1877,7 +2065,7 @@ test('WorkItem detail transitions, comments, links and continues in Conversation
   const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
 
   await dialog.getByRole('button', { name: '提交评审' }).click()
-  await expect(dialog.getByText('审查中', { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByText('评审中', { exact: true }).first()).toBeVisible()
   await dialog.getByLabel('添加评论').fill('补充端到端验收结论')
   await dialog.getByRole('button', { name: '发送评论' }).click()
   await expect(dialog.getByText('补充端到端验收结论')).toBeVisible()
@@ -1942,7 +2130,7 @@ test('Task delegation preflight remains accessible and visually stable', async (
   const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
 
   await expect(delegate.getByText('PolicySnapshot Preflight 通过')).toBeVisible()
-  await expect(delegate.locator('.preflight-header').getByText('PERSONAL', { exact: true })).toBeVisible()
+  await expect(delegate.locator('.preflight-header').getByText('个人范围', { exact: true })).toBeVisible()
   await expect(delegate.getByText(/deepseek \/ deepseek-v4-flash/)).toBeVisible()
   await expect(delegate.getByText(/当前 Preflight API 不披露 Billing Subject/)).toBeVisible()
   expect((await new AxeBuilder({ page }).include('.delegate-dialog').analyze()).violations).toEqual([])
@@ -2015,7 +2203,7 @@ test('Control Mode Task list restores status, Owner and Task deep links on narro
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&taskStatus=WAITING&taskOwner=${ids.principal}`)
   const panel = page.getByRole('region', { name: 'Agent Tasks' })
 
-  await expect(panel.getByText('等待原因 · CAPACITY')).toBeVisible()
+  await expect(panel.getByText('等待原因 · 等待运行时资源')).toBeVisible()
   await expect(panel.getByText('Attempt 2 · WAITING')).toBeVisible()
   await expect(panel.getByLabel('Task 筛选').getByRole('combobox').first()).toHaveValue('WAITING')
   await expect(panel.getByLabel('Task 筛选').getByRole('combobox').last()).toHaveValue(ids.principal)
@@ -2087,7 +2275,7 @@ test('Execution Studio restores the Coding attempt and Workspace from both Task 
   expect(new URL(page.url()).searchParams.get('workspace')).toBe(ids.codingWorkspace)
 
   await dialog.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
-  await expect(studio.getByText('Attempt 1 · FAILED', { exact: true })).toBeVisible()
+  await expect(studio.getByText('Attempt 1 · 已失败', { exact: true })).toBeVisible()
   await expect(studio.locator('.studio-card--command').getByText('测试超时', { exact: false })).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('workspace')).toBe(ids.previousCodingWorkspace)
 })
@@ -2133,6 +2321,102 @@ test('Diff Explorer replays RESET and DELTA, reads a single-file Patch and keeps
     expect((await patch.boundingBox())!.y).toBeGreaterThan((await tree.boundingBox())!.y)
   } else {
     expect((await patch.boundingBox())!.x).toBeGreaterThan((await tree.boundingBox())!.x)
+  }
+})
+
+test('Diff Explorer renders a 3000-line Patch fixture within the reading budget', async ({ page }) => {
+  const largePatch = [
+    'diff --git a/src/NewFeature.java b/src/NewFeature.java',
+    '--- a/src/NewFeature.java',
+    '+++ b/src/NewFeature.java',
+    '@@ -0,0 +1,3000 @@',
+    ...Array.from({ length: 3_000 }, (_, index) => `+line ${index + 1}`),
+  ].join('\n')
+  codingPatchOverride = largePatch
+  try {
+    await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+    const explorer = page.getByTestId('coding-diff-explorer')
+    await expect(explorer.getByRole('heading', { name: 'Diff Explorer' })).toBeVisible()
+    await explorer.getByRole('button', { name: /NewFeature.java/ }).click()
+    const startedAt = Date.now()
+    await explorer.getByRole('button', { name: '读取单文件 Patch' }).click()
+    await expect(explorer.locator('.patch-code')).toBeVisible()
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+    // 这一档刻意不上色，与下一条形成对照：同一段代码、同一种语言，只有 Patch 是否完整不同。
+    await expect(explorer.locator('.patch-code .syntax-keyword')).toHaveCount(0)
+  } finally {
+    codingPatchOverride = null
+  }
+})
+
+/**
+ * 上一条量的是**超过渲染上限**的那一档，而那一档现在刻意不上色——所以它单独一条量不出高亮
+ * 本身的代价。这一条量的是真正会走语法包的那一档：整份 Patch 完整拿着、行数在渲染上限之内，
+ * 并且在同一个 2 秒阅读预算里断言上色真的发生了。两条合起来才是「性能没有劣化」。
+ */
+/** A whole Patch — nothing truncated — whose every line carries four of the six emphasis classes. */
+function highlightedJavaPatch(): string {
+  return [
+    'diff --git a/src/NewFeature.java b/src/NewFeature.java',
+    '--- a/src/NewFeature.java',
+    '+++ b/src/NewFeature.java',
+    '@@ -0,0 +1,1500 @@',
+    ...Array.from({ length: 1_500 }, (_, index) => `+  private final String value${index} = "填充"; // 第 ${index + 1} 行`),
+  ].join('\n')
+}
+
+test('Diff Explorer highlights a whole Patch inside the reading budget', async ({ page }, testInfo) => {
+  codingPatchOverride = highlightedJavaPatch()
+  try {
+    await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+    const explorer = page.getByTestId('coding-diff-explorer')
+    await expect(explorer.getByRole('heading', { name: 'Diff Explorer' })).toBeVisible()
+    await explorer.getByRole('button', { name: /NewFeature.java/ }).click()
+    const startedAt = Date.now()
+    await explorer.getByRole('button', { name: '读取单文件 Patch' }).click()
+    // 语法包是异步来的，等强调色真的落地才算渲染完成。
+    await expect(explorer.locator('.patch-code .syntax-keyword').first()).toBeVisible()
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+
+    const patch = explorer.locator('.patch-code')
+    await expect(patch.locator('.syntax-keyword').first()).toHaveText('private')
+    await expect(patch.locator('.syntax-string').first()).toHaveText('"填充"')
+    await expect(patch.locator('.syntax-comment').first()).toContainText('第 1 行')
+
+    // 六档高亮色是看得见的功能，所以钉在像素上，而不是只钉在类名上：类名相同而颜色错位
+    // 也是一种回归，只有基线能看出来。
+    await expect(explorer.locator('.patch-view')).toHaveScreenshot(
+      `diff-highlight-${testInfo.project.name}.png`, { animations: 'disabled' })
+  } finally {
+    codingPatchOverride = null
+  }
+})
+
+/**
+ * 同一段代码在暗色下的基线。
+ *
+ * 暗色的前车之鉴正是这一类缺口：开关上线了，而**没有任何一处验证过它长什么样**，于是对比度
+ * 只有 1.59:1 的按钮一路绿灯。高亮色是这次新添的六档前景，压在暗色画布与两档 Diff 底色上——
+ * 双主题对比度由 `check-design-tokens.mjs` 核算，像素由这条基线负责，两者互补。
+ */
+test('Diff Explorer highlights the same Patch under the dark theme', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('cs.pref.device.theme.v1', JSON.stringify({ version: 1, value: 'dark' }))
+  })
+  codingPatchOverride = highlightedJavaPatch()
+  try {
+    await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
+    const explorer = page.getByTestId('coding-diff-explorer')
+    await expect(explorer.getByRole('heading', { name: 'Diff Explorer' })).toBeVisible()
+    await expect.poll(() => page.locator('html').getAttribute('data-theme')).toBe('dark')
+    await explorer.getByRole('button', { name: /NewFeature.java/ }).click()
+    await explorer.getByRole('button', { name: '读取单文件 Patch' }).click()
+    await expect(explorer.locator('.patch-code .syntax-keyword').first()).toBeVisible()
+
+    await expect(explorer.locator('.patch-view')).toHaveScreenshot(
+      `diff-highlight-dark-${testInfo.project.name}.png`, { animations: 'disabled' })
+  } finally {
+    codingPatchOverride = null
   }
 })
 
@@ -2334,7 +2618,7 @@ test('Task Timeline closes its live stream after authoritative terminal converge
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&workItem=${ids.workItem}`)
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('执行已完成')).toBeVisible()
-  await expect(dialog.getByText('COMPLETED', { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByText('已完成', { exact: true }).first()).toBeVisible()
   // 有限 SSE 结束到权威投影收敛之间可以短暂重连；终态可见后调用数必须保持稳定。
   const callsAtTerminalConvergence = streamCalls
   expect(callsAtTerminalConvergence).toBeGreaterThanOrEqual(1)
@@ -2366,16 +2650,16 @@ test('Task Cancel keeps server facts stable while pending and restores confirmat
   await confirm.getByRole('button', { name: '确认取消' }).click()
   await expect.poll(() => commandRequests).toBe(1)
   await expect(confirm.getByRole('button', { name: '确认取消' })).toBeDisabled()
-  await expect(taskDialog.getByText('WAITING', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByText('等待中', { exact: true }).first()).toBeVisible()
 
   release()
   await expect(confirm).toBeHidden()
-  await expect(taskDialog.getByText('CANCELLED', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByText('已取消', { exact: true }).first()).toBeVisible()
   await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
 })
 
 test('Task command conflict refreshes a terminal race and removes stale controls', async ({ page }) => {
-  const serverTask = task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'CAPACITY', 2)
+  const serverTask = task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'RUNTIME', 2)
   let raced = false
   await page.route(/\/tasks\//, async route => {
     const request = route.request()
@@ -2409,7 +2693,7 @@ test('Task command conflict refreshes a terminal race and removes stale controls
 
   await expect(taskDialog.getByText('执行事实已变化')).toBeVisible()
   await expect(taskDialog.getByText(/服务端当前版本为 v1/)).toBeVisible()
-  await expect(taskDialog.getByText('CANCELLED', { exact: true }).first()).toBeVisible()
+  await expect(taskDialog.getByText('已取消', { exact: true }).first()).toBeVisible()
   await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
 })
 
@@ -2471,7 +2755,7 @@ test('Task Retry preserves the failed attempt and selects the server-created suc
   await expect(confirm).toBeHidden()
   await expect(taskDialog.getByText('当前 Attempt 3')).toBeVisible()
   await expect(taskDialog.locator('.attempt-list button').filter({ hasText: 'Attempt 3' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(taskDialog.locator('.attempt-list button').filter({ hasText: 'Attempt 2' })).toContainText('FAILED')
+  await expect(taskDialog.locator('.attempt-list button').filter({ hasText: 'Attempt 2' })).toContainText('已失败')
 })
 
 test('Task controls fail closed for offline and read-only members', async ({ page, context }) => {
@@ -2532,7 +2816,7 @@ test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer 
   await expect(workbench.getByRole('heading', { name: 'Review Workbench' })).toBeVisible()
   await expect(workbench.getByRole('heading', { name: 'ContextPackage 摘要' })).toBeVisible()
   await expect(workbench.getByText('SELF_REVIEW · Advisory only')).toBeVisible()
-  await expect(workbench.getByText('ADVISORY', { exact: true })).toBeVisible()
+  await expect(workbench.getByText('仅参考', { exact: true })).toBeVisible()
   await expect(workbench.getByText('207', { exact: true })).toBeVisible()
   await expect(workbench.getByText('关键测试通过', { exact: true })).toBeVisible()
   await expect(workbench.getByText('项目可编译', { exact: true })).toBeVisible()
@@ -2544,7 +2828,7 @@ test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer 
   await expect(explorer.getByRole('button', { name: /Main.java/ })).toHaveAttribute('aria-pressed', 'true')
 
   await workbench.getByRole('button', { name: '运行 Reviewer' }).click()
-  await expect(workbench.getByText('COMPLETED', { exact: true }).first()).toBeVisible()
+  await expect(workbench.getByText('已完成', { exact: true }).first()).toBeVisible()
   await workbench.getByRole('button', { name: '提交成员结论' }).click()
   const gate = page.getByRole('dialog', { name: '提交成员 Review 结论' })
   await expect(gate).toBeVisible()
@@ -2564,7 +2848,7 @@ test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer 
   await gate.getByRole('button', { name: '请求修改', exact: true }).click()
   await gate.getByLabel('理由').fill('补齐空值分支测试后重新交付。')
   await gate.getByRole('button', { name: '确认提交' }).click()
-  await expect(workbench.getByText('CHANGES_REQUESTED', { exact: true }).first()).toBeVisible()
+  await expect(workbench.getByText('请求修改', { exact: true }).first()).toBeVisible()
   await expect(workbench.getByText('Round 1', { exact: false }).last()).toBeVisible()
   await expect(workbench.getByText('补齐空值分支测试后重新交付。')).toBeVisible()
 })
@@ -2580,7 +2864,7 @@ test('Review Workbench keeps DIFF_CHANGED history read-only and explains missing
   await expect(workbench.getByText('当前成员不持有可用于 Gate 的 Active USER Reviewer 责任')).toBeVisible()
   await workbench.getByRole('button', { name: /Review r1/ }).click()
   await expect(workbench.getByText('旧 Review 已失效')).toBeVisible()
-  await expect(workbench.getByText(/DIFF_CHANGED/)).toBeVisible()
+  await expect(workbench.getByText(/代码变更已更新/)).toBeVisible()
   await expect(workbench.getByRole('button', { name: /运行 Reviewer|恢复 Reviewer|提交成员结论/ })).toHaveCount(0)
 })
 
@@ -2623,7 +2907,7 @@ test('M5 GitHub Delivery confirms an exact ActionBundle and reconciles partial d
   await expect(workbench.getByText(/权限 111111/)).toBeVisible()
   await workbench.getByRole('button', { name: '生成 ActionBundle' }).click()
 
-  await expect(workbench.getByText('HIGH_RISK_WRITE')).toBeVisible()
+  await expect(workbench.getByText('高风险写入')).toBeVisible()
   await expect(workbench.getByText('refs/heads/crewscope/tasks/crw-18/attempt-2', { exact: true })).toBeVisible()
   const confirmationOpener = workbench.getByRole('button', { name: '审查并确认' })
   await confirmationOpener.click()
@@ -2642,12 +2926,12 @@ test('M5 GitHub Delivery confirms an exact ActionBundle and reconciles partial d
   await confirm.getByRole('button', { name: '精确确认' }).click()
 
   const stages = workbench.locator('.action-stage')
-  await expect(stages.nth(0)).toContainText('SUCCEEDED')
-  await expect(stages.nth(1)).toContainText('FAILED')
+  await expect(stages.nth(0)).toContainText('已成功')
+  await expect(stages.nth(1)).toContainText('已失败')
   await workbench.getByRole('button', { name: '刷新结果' }).click()
-  await expect(stages.nth(1)).toContainText('OPEN')
-  await expect(stages.nth(1)).toContainText('WEBHOOK')
-  await expect(stages.nth(0)).toContainText('SUCCEEDED')
+  await expect(stages.nth(1)).toContainText('开启中')
+  await expect(stages.nth(1)).toContainText('Webhook 回调')
+  await expect(stages.nth(0)).toContainText('已成功')
 })
 
 test('M5 GitHub Delivery visual baseline', async ({ page }, testInfo) => {
@@ -2663,7 +2947,7 @@ test('M5 GitHub Delivery visual baseline', async ({ page }, testInfo) => {
   const workbench = page.getByTestId('action-delivery-workbench')
   await workbench.getByRole('button', { name: 'Remote Preflight' }).click()
   await workbench.getByRole('button', { name: '生成 ActionBundle' }).click()
-  await expect(workbench.getByText('HIGH_RISK_WRITE')).toBeVisible()
+  await expect(workbench.getByText('高风险写入')).toBeVisible()
   // Remove the fixed drawer clip so the baseline captures the complete responsive delivery graph.
   const viewport = page.viewportSize()!
   await page.setViewportSize({ width: viewport.width, height: 2600 })
@@ -2703,7 +2987,7 @@ test('AppShell visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`conversation-${testInfo.project.name}.png`, { fullPage: true })
 
   await page.goto(`/today?team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByText('先确认范围，再推进今天的团队工作。')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '我的工作台', exact: true })).toBeVisible()
   await expect(page).toHaveScreenshot(`control-${testInfo.project.name}.png`, { fullPage: true })
 })
 
@@ -2754,12 +3038,35 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
   await expect(page).toHaveURL(new RegExp(`agent=${ids.agentCreated}`))
   const configuration = page.locator('.agent-configuration')
   await expect(configuration.getByRole('heading', { name: '我的 Java Coding Agent' })).toBeVisible()
-  const personalBinding = configuration.locator('.binding-editor').filter({ hasText: 'PERSONAL' })
+  const personalBinding = configuration.locator('.binding-editor').filter({ hasText: '个人范围' })
   await personalBinding.getByLabel('主模型', { exact: true }).selectOption({ index: 1 })
   await personalBinding.getByLabel('Fallback', { exact: true }).selectOption({ index: 1 })
-  const teamBinding = configuration.locator('.binding-editor').filter({ hasText: 'TEAM' })
+  const teamBinding = configuration.locator('.binding-editor').filter({ hasText: '团队范围' })
   await teamBinding.getByLabel('主模型', { exact: true }).selectOption({ index: 1 })
   await teamBinding.getByLabel('Fallback', { exact: true }).selectOption({ index: 1 })
+
+  // M9-F10 ③ 的浏览器侧证据：四个数值字段的 min/max/step 就是服务端校验的区间（这三个数由领域表
+  // 生成、由 check-openapi-drift 守着），越界在输入时即可见，字段正文不小于 14px。
+  const temperature = configuration.getByLabel(/Temperature/)
+  await expect(temperature).toHaveAttribute('min', '0')
+  await expect(temperature).toHaveAttribute('max', '2')
+  await expect(temperature).toHaveAttribute('step', '0.01')
+  await expect(configuration.getByLabel(/Top P/)).toHaveAttribute('min', '0.01')
+  const tokens = configuration.getByLabel(/Maximum output tokens/)
+  await expect(tokens).toHaveAttribute('min', '1')
+  await expect(tokens).toHaveAttribute('max', '10000000')
+  await expect(tokens).toHaveAttribute('step', '1')
+  await expect(configuration.getByLabel(/Maximum attempts/)).toHaveAttribute('max', '10')
+  expect(await temperature.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize)))
+    .toBeGreaterThanOrEqual(14)
+
+  await temperature.fill('3')
+  await expect(temperature).toHaveAttribute('aria-invalid', 'true')
+  await expect(configuration.getByText('请输入 0–2 之间的值。')).toBeVisible()
+  await temperature.fill('1.2')
+  await expect(temperature).toHaveAttribute('aria-invalid', 'false')
+  await expect(configuration.getByText('请输入 0–2 之间的值。')).toBeHidden()
+
   await configuration.getByLabel(/补充指令/).fill('遵循团队代码规范并保留验证证据。')
   await configuration.getByText('coding-baseline', { exact: true }).click()
   await configuration.getByRole('button', { name: '保存并预检' }).click()
@@ -2793,7 +3100,7 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
   test.setTimeout(90_000)
   const routes = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
-    { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByText('先确认范围，再推进今天的团队工作。') },
+    { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: '我的工作台', exact: true }) },
     { path: `/setup?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'Platform Engineering 的配置中心' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
@@ -3075,6 +3382,148 @@ function workItem(id: string, key: string, title: string, type: string, status: 
   return { id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key, type, title, description: `${title}的协作说明`, status, priority, labels: ['team-work'], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-08-08T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-08-08T02:00:00Z', updatedByPrincipalId: ids.principal }
 }
 
+/**
+ * 状态流转可执行性的测试替身。
+ *
+ * 少了它的后果是实测出来的：M9-A05 把工作项抽屉的「下拉框 + 下一步」换成了由服务端逐条给出
+ * 可执行动作（`GET .../transitions/availability`），而这份 spec 只桩了 `POST .../transitions`。
+ * 于是「状态流转」卡片一路渲染成 `服务暂时无法完成请求 / 重试`，`提交评审`与`标记阻塞`
+ * 两个按钮从来没有出现过——失败的不是断言文案，是少了一个后端契约。
+ *
+ * 边的**存在性**从生成的状态机读，而不是在这里再列一遍：状态机是 Java 领域模型的投影，
+ * 真值只有一份，将来多一条边应该让这份替身跟着变、而不是静默地少桩一个按钮。
+ * 只有呈现元数据（actionId / 文案 / 强弱 / 可撤销）镜像 WorkItemTransitionCatalog——
+ * 它目前没有任何生成物可读。可撤销也按 Catalog 的同一条规则收敛：声明可撤销**且**反向边
+ * 在状态机里真的存在，所以 `BACKLOG -> READY` 意图上便宜、实际不可撤销。
+ */
+const TRANSITION_CATALOG: Record<string, Record<string, { actionId: string, label: string, strength: string, reversible: boolean }>> = {
+  BACKLOG: {
+    READY: { actionId: 'submit-ready', label: '准备工作项', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  READY: {
+    IN_PROGRESS: { actionId: 'start', label: '开始执行', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  IN_PROGRESS: {
+    IN_REVIEW: { actionId: 'submit-review', label: '提交评审', strength: 'PRIMARY', reversible: true },
+    BLOCKED: { actionId: 'block', label: '标记阻塞', strength: 'SECONDARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  IN_REVIEW: {
+    IN_PROGRESS: { actionId: 'resume-work', label: '继续执行', strength: 'SECONDARY', reversible: true },
+    BLOCKED: { actionId: 'block', label: '标记阻塞', strength: 'SECONDARY', reversible: true },
+    DONE: { actionId: 'complete', label: '完成工作项', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  BLOCKED: {
+    READY: { actionId: 'return-ready', label: '退回待开始', strength: 'SECONDARY', reversible: true },
+    IN_PROGRESS: { actionId: 'resume-work', label: '继续执行', strength: 'PRIMARY', reversible: true },
+    IN_REVIEW: { actionId: 'submit-review', label: '提交评审', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  DONE: { ARCHIVED: { actionId: 'archive', label: '归档工作项', strength: 'DANGER', reversible: false } },
+  CANCELLED: { ARCHIVED: { actionId: 'archive', label: '归档工作项', strength: 'DANGER', reversible: false } },
+  ARCHIVED: {},
+}
+
+/**
+ * 把可用性结论内联进列表行与详情，和真实服务端一致。
+ *
+ * `WorkItemQueryController` 的列表与详情响应都带 `availableActions`，前端据此让卡片直接执行动作
+ * 而不必逐行再打一次端点。这份替身此前只在 `/transitions/availability` 上桩了它，列表行因此
+ * 拿到空数组——前端于是「看不到任何动作」。桩的形状必须和契约一致，否则验的不是产品。
+ */
+function withAvailability<T extends { status: string }>(item: T) {
+  return { ...item, availableActions: availableTransitions(item.status) }
+}
+
+/**
+ * 个人工作台的投影替身，覆盖六个分区各自的一种行。
+ *
+ * 每一行的 `status` 都取**产生它的那个聚合**的枚举：工作项用 `WorkItemStatus`，执行用
+ * `TaskExecutionStatus`，人工决策/评审/Inbox 用 `ReviewRequestStatus`。三类状态写成一个样子，
+ * 页面的状态标签就会把工作项渲染成「待处理」——真值只有一份，替身不能自己发明一份。
+ */
+function workDesk() {
+  const workItem = (objectId: string, title: string, status: string, role: string | null, needsAction: boolean, progress: number | null) => ({
+    objectType: 'WORK_ITEM', objectId, projectId: ids.project, title, status, updatedAt: '2026-08-08T03:00:00Z',
+    responsibilityRole: role, needsAction, urgency: needsAction ? 'HIGH' : 'NORMAL', progress,
+    availableActions: availableTransitions(status),
+    route: `/work?team=${ids.team}&project=${ids.project}&workItem=${objectId}`,
+  })
+  return {
+    organizationId: ids.organization, teamId: ids.team, projectId: null, generatedAt: '2026-08-08T04:00:00Z',
+    sections: [
+      {
+        key: 'HUMAN_GATE', title: '等我决策', priority: 1, total: 1, truncated: false,
+        items: [{
+          objectType: 'HUMAN_GATE', objectId: ids.taskExecution, projectId: ids.project, title: '确认分支推送范围',
+          status: 'OPEN', updatedAt: '2026-08-08T03:40:00Z', responsibilityRole: 'REVIEWER', needsAction: true,
+          urgency: 'URGENT', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`,
+        }],
+      },
+      {
+        key: 'REVIEW', title: '待我 Review', priority: 2, total: 1, truncated: false,
+        items: [{
+          objectType: 'REVIEW_REQUEST', objectId: ids.secondProject, projectId: ids.project, title: 'Provider 回调实现评审',
+          status: 'IN_PROGRESS', updatedAt: '2026-08-08T03:20:00Z', responsibilityRole: 'REVIEWER', needsAction: true,
+          urgency: 'NORMAL', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`,
+        }],
+      },
+      {
+        key: 'BLOCKED', title: '被我阻塞', priority: 3, total: 1, truncated: false,
+        items: [workItem(ids.workItem, '修复登录提示', 'BLOCKED', 'OWNER', true, 40)],
+      },
+      {
+        key: 'WORK_ITEM', title: '我的工作项', priority: 4, total: 2, truncated: false,
+        items: [
+          workItem(ids.workItem, '修复登录提示', 'BLOCKED', 'OWNER', true, 40),
+          workItem('00000000-0000-0000-0000-000000000602', '整理发布说明', 'IN_PROGRESS', 'EXECUTOR', false, 65),
+        ],
+      },
+      {
+        key: 'TASK_EXECUTION', title: '进行中的执行', priority: 5, total: 1, truncated: false,
+        items: [{
+          objectType: 'TASK_EXECUTION', objectId: ids.taskExecution, projectId: ids.project, title: '接入 Provider 回调',
+          status: 'RUNNING', updatedAt: '2026-08-08T03:50:00Z', responsibilityRole: null, needsAction: false,
+          urgency: 'NORMAL', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&execution=${ids.taskExecution}`,
+        }],
+      },
+      {
+        key: 'INBOX', title: '未读 Inbox', priority: 6, total: 2, truncated: false,
+        items: [{
+          objectType: 'INBOX', objectId: ids.task, projectId: ids.project, title: '2 条未读 Inbox 消息',
+          status: 'OPEN', updatedAt: '2026-08-08T03:55:00Z', responsibilityRole: null, needsAction: false,
+          urgency: 'LOW', progress: null, availableActions: [],
+          route: `/inbox?team=${ids.team}&project=${ids.project}`,
+        }],
+      },
+    ],
+  }
+}
+
+function availableTransitions(status: string) {
+  const edges = workItemStateMachine.transitions as Record<string, readonly string[]>
+  return [...(edges[status] ?? [])].sort().map(target => {
+    const metadata = TRANSITION_CATALOG[status]?.[target]
+    if (!metadata) throw new Error(`状态机里有 ${status} -> ${target} 这条边，但替身目录没有它的呈现元数据`)
+    return {
+      ...metadata,
+      targetStatus: target,
+      reversible: metadata.reversible && (edges[target] ?? []).includes(status),
+      enabled: true,
+      reason: null,
+      reasonMessage: null,
+      remedyLabel: null,
+      remedyRoute: null,
+    }
+  })
+}
+
 function conversation(id: string, teamId: string, workspaceId: string, title: string, visibility: string, lastMessageSequence: number | null) {
   return { id, organizationId: ids.organization, teamId, workspaceId, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility, status: 'ACTIVE', lastMessageSequence, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
 }
@@ -3331,6 +3780,7 @@ function codingDiffTaskEvents() {
 }
 
 function codingPatch(): string {
+  if (codingPatchOverride) return codingPatchOverride
   return [
     'diff --git a/assets/logo.png b/assets/logo.png\nindex 111..222 100644\nBinary files a/assets/logo.png and b/assets/logo.png differ\n',
     'diff --git a/docs/README.md b/docs/Guide.md\nsimilarity index 90%\nrename from docs/README.md\nrename to docs/Guide.md\n',
@@ -3521,7 +3971,7 @@ function runtimeFleetSummary() {
     environment: 'production', observedAt: '2026-08-08T03:41:00Z', health: 'DEGRADED', runtimeCount: 2,
     workerCount: 3, activeWorkerCount: 2, staleWorkerCount: 1, drainingWorkerCount: 0,
     capacity: { maximum: 6, active: 5, available: 1 }, waitingRuntimeExecutions: 1,
-    waitingCauses: [{ cause: 'CAPACITY', count: 1 }], workers: [{ credential: 'secret-runtime-credential' }],
+    waitingCauses: [{ cause: 'CAPACITY_EXHAUSTED', count: 1 }], workers: [{ credential: 'secret-runtime-credential' }],
   }
 }
 
@@ -3587,6 +4037,24 @@ function setupReadiness() {
       capability('GITHUB_DRAFT_PR', false, 'ACTION_REQUIRED', 'GITHUB_REPOSITORY_IMPORT_REQUIRED', true, 'Team Owner', 'START_GITHUB_IMPORT'),
       capability('LARK_NOTIFICATIONS', false, 'BLOCKED', 'LARK_CONNECTION_REQUIRED', false, 'Team Owner', null),
       capability('TEAM_OBSERVER', false, 'UNAVAILABLE', 'RUNTIME_UNAVAILABLE', false, 'Platform Operator', null),
+    ],
+  }
+}
+
+/** A06 configuration health: the four components the Setup page must render in member language. */
+function configurationHealth() {
+  const item = (component: string, status: string, reasonCode: string, actionKey: string | null) =>
+    ({ component, status, reasonCode, responsibleParty: 'Team Owner', actionKey })
+  return {
+    organizationId: ids.organization,
+    teamId: ids.team,
+    observedAt: '2026-08-08T04:00:00Z',
+    overallStatus: 'ACTION_REQUIRED',
+    items: [
+      item('AGENT_CONFIGURATION', 'ACTION_REQUIRED', 'AGENT_CONFIGURATION_REQUIRED', 'OPEN_AGENT_SETTINGS'),
+      item('MODEL_CONNECTION', 'ACTION_REQUIRED', 'MODEL_CONNECTION_REQUIRED', 'OPEN_MODEL_SETTINGS'),
+      item('CREDENTIAL', 'READY', 'READY', null),
+      item('INTEGRATION', 'ACTION_REQUIRED', 'INTEGRATION_CONNECTION_REQUIRED', 'OPEN_LARK_SETTINGS'),
     ],
   }
 }

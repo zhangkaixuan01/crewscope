@@ -2,9 +2,10 @@
   min-height: 100vh;
 }
 
+/* 面板之间的间距是密度的主要抓手：舒适 16px、紧凑 12px。 */
 .page-shell {
   display: grid;
-  gap: 16px;
+  gap: var(--cs-density-panel-gap);
 }
 
 .panel {
@@ -17,28 +18,28 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
+  gap: var(--cs-space-16);
+  padding: var(--cs-space-20) var(--cs-space-20);
   border-bottom: 1px solid var(--cs-border);
 }
 
 .panel-heading h2,
 .panel-heading h3 {
-  margin-bottom: 3px;
-  font-size: 15px;
+  margin-bottom: var(--cs-space-4);
+  font-size: var(--cs-text-md);
 }
 
 .panel-heading p {
   margin-bottom: 0;
   color: var(--cs-text-muted);
-  font-size: 12px;
+  font-size: var(--cs-text-base);
 }
 
 .eyebrow {
-  margin-bottom: 6px;
-  color: var(--cs-brand-600);
-  font-size: 11px;
-  font-weight: 750;
+  margin-bottom: var(--cs-space-8);
+  color: var(--cs-text-brand);
+  font-size: var(--cs-text-sm);
+  font-weight: var(--cs-weight-semibold);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -46,22 +47,18 @@
 .demo-note {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--cs-space-8);
   margin: 0;
   color: var(--cs-text-muted);
-  font-size: 12px;
+  font-size: var(--cs-text-base);
 }
 
 @media (max-width: 767px) {
-  .page-shell {
-    gap: 12px;
-  }
-
   .panel {
     border-radius: var(--cs-radius-md);
   }
 
   .panel-heading {
-    padding: 16px;
+    padding: var(--cs-space-16);
   }
 }

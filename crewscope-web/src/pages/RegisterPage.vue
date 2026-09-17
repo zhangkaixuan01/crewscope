@@ -379,34 +379,34 @@ function isAbort(error: unknown): boolean {
 </template>
 
 <style scoped>
-.register-page__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.register-page__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-16); }
 .register-page__span { grid-column: 1 / -1; }
 .register-page__primary { width: 100%; min-height: var(--cs-auth-control-height); }
-.register-page__status { margin: 0; color: var(--cs-text-muted); font-size: 10px; }
+.register-page__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .register-page__invite {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 18px;
-  border: 1px solid var(--cs-brand-200);
+  gap: var(--cs-space-8);
+  padding: var(--cs-space-12) var(--cs-space-12);
+  margin-bottom: var(--cs-space-20);
+  border: 1px solid var(--cs-border-accent);
   border-radius: 10px;
-  background: var(--cs-brand-50);
-  color: var(--cs-brand-800);
-  font-size: 10px;
-  font-weight: 680;
+  background: var(--cs-surface-accent);
+  color: var(--cs-text-brand-strong);
+  font-size: var(--cs-text-sm);
+  font-weight: var(--cs-weight-semibold);
 }
 .register-page__back {
   display: flex;
   width: fit-content;
   align-items: center;
-  gap: 5px;
-  margin: 20px auto 0;
+  gap: var(--cs-space-4);
+  margin: var(--cs-space-20) auto 0;
   color: var(--cs-text-secondary);
-  font-size: 10px;
-  font-weight: 680;
+  font-size: var(--cs-text-sm);
+  font-weight: var(--cs-weight-semibold);
 }
-.register-page__back:hover { color: var(--cs-brand-700); }
+.register-page__back:hover { color: var(--cs-text-brand); }
 
 @media (max-width: 680px) {
   .register-page__form { grid-template-columns: 1fr; }

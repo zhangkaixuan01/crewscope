@@ -6,6 +6,7 @@ import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import InboxWorkspace from '../components/domain/InboxWorkspace.vue'
+import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
@@ -32,6 +33,8 @@ const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
 type InboxView = InboxItemType | 'ALL'
+/** Scope 恢复完成后仍没有选中 Team，才对「刷新」的禁用态给出原因，加载期间的短暂禁用不算。 */
+const scopeMissing = computed(() => scopeStore.state.phase === 'ready' && !scope.value)
 const itemType = computed<InboxView>(() => oneOf(route.query.inboxType, ['ALL', ...inboxItemTypes] as const, 'ALL'))
 const sourceStatus = computed<InboxSourceStatus>(() => oneOf(route.query.sourceStatus, inboxSourceStatuses, 'OPEN'))
 const dispositionStatus = computed<InboxDispositionStatus | 'ALL'>(() => oneOf(route.query.disposition, ['ALL', ...inboxDispositionStatuses] as const, 'ALL'))
@@ -214,7 +217,9 @@ function queryValue(value: unknown): string | null {
 
 <template>
   <AppShell title="我的 Inbox" eyebrow="协作 · 成员队列">
-    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" @click="reload"><RefreshCw :size="14" />刷新</BaseButton></template>
+    <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'inbox-scope-reason' : undefined" @click="reload"><RefreshCw :size="14" />刷新</BaseButton></template>
+
+    <StatePanel v-if="scopeMissing" id="inbox-scope-reason" state="empty" title="请选择 Team" description="Inbox 始终属于明确的 Organization 与 Team。" />
 
     <InboxWorkspace
       v-if="scopeStore.state.phase === 'ready' && scope"

@@ -81,6 +81,11 @@ export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOpti
     event.returnValue = ''
   }
 
+  function handleScopeSwitching(): void {
+    if (options.bypassScopeSwitch === false || !dirty.value) return
+    saveDraft()
+  }
+
   if (value) {
     // Consumers can call sync from a watcher after loading the authoritative value.
     sync(value.value)
@@ -92,9 +97,15 @@ export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOpti
     }
     return await confirmDiscard()
   })
-  if (typeof window !== 'undefined') window.addEventListener('beforeunload', handleBeforeUnload)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('crewscope:scope-switching', handleScopeSwitching)
+  }
   onBeforeUnmount(() => {
-    if (typeof window !== 'undefined') window.removeEventListener('beforeunload', handleBeforeUnload)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('crewscope:scope-switching', handleScopeSwitching)
+    }
   })
 
   return {

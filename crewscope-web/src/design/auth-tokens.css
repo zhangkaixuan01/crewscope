@@ -11,9 +11,21 @@
   --cs-auth-error-surface: #fff6f4;
   --cs-auth-error-border: #e7bbb6;
   --cs-auth-error-text: #873a34;
+  /*
+   * 品牌叙事面板的装饰几何：一圈 1px 的细环，外面套两层光晕。此前硬写在组件里，于是
+   * 暗色主题下会在 #111814 的画布上留下两团浅绿亮斑——它们是「浅底上的淡绿」，不是
+   * 「任何底上的淡绿」。光晕做成 Token 的另一个理由是它必须跟 tone 走：同一个面板在
+   * data-auth-brand-tone="dark" 下是深底，浅绿光晕在那里同样过亮。
+   */
+  --cs-auth-story-ring: rgb(63 114 87 / 13%);
+  --cs-auth-story-halo: rgb(223 246 231 / 32%);
+  --cs-auth-story-halo-outer: rgb(240 251 244 / 36%);
+  /* 节点底与 Agent 节点的前景此前只在 dark tone 下有 Token，浅色靠组件里的 fallback 兜。 */
+  --cs-auth-story-node-surface: var(--cs-surface-glass);
+  --cs-auth-story-agent: var(--cs-agent);
   --cs-auth-control-height: 44px;
   --cs-auth-card-radius: 22px;
-  --cs-auth-transition: var(--cs-transition-fast);
+  --cs-auth-transition: var(--cs-motion-fast) var(--cs-ease-out);
 }
 
 .cs-auth-theme[data-auth-brand-tone="dark"] {
@@ -24,6 +36,10 @@
   --cs-auth-story-kicker: var(--cs-brand-300);
   --cs-auth-story-node-surface: rgb(255 255 255 / 8%);
   --cs-auth-story-node-border: rgb(223 246 231 / 22%);
+  --cs-auth-story-ring: rgb(223 246 231 / 14%);
+  --cs-auth-story-halo: rgb(223 246 231 / 6%);
+  --cs-auth-story-halo-outer: rgb(240 251 244 / 4%);
+  --cs-auth-story-agent: #d7c9fb;
 }
 
 .cs-auth-theme[data-auth-stage-tone="neutral"] {
@@ -44,6 +60,9 @@
   --cs-auth-error-surface: var(--cs-danger-soft);
   --cs-auth-error-border: var(--cs-danger);
   --cs-auth-error-text: var(--cs-danger);
+  --cs-auth-story-ring: rgb(237 245 239 / 10%);
+  --cs-auth-story-halo: rgb(142 213 167 / 8%);
+  --cs-auth-story-halo-outer: rgb(142 213 167 / 5%);
 }
 
 [data-theme="dark"] .cs-auth-theme[data-auth-stage-tone="neutral"] {

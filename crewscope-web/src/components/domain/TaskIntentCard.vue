@@ -3,7 +3,10 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Check, ClipboardCheck, Pencil, X } from '@lucide/vue'
 import type { TaskIntent, TaskIntentRevisionInput } from '../../domains/conversation/types'
 import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
+import type { TeamMemberSummary, WorkProjectSummary } from '../../domains/scope/types'
+import type { PrincipalScope } from '../../domains/principal/types'
 import BaseButton from '../base/BaseButton.vue'
+import PrincipalPicker from './PrincipalPicker.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
 const props = defineProps<{
@@ -13,6 +16,17 @@ const props = defineProps<{
   errorMessage?: string | null
   versionConflict?: boolean
   principalNames?: PrincipalNameDirectory
+  /**
+   * Directories that turn the revision form into named choices.
+   *
+   * A full revision has to restate every subject of the proposal, and none of those subjects are
+   * things a reviewer can retype from memory. The card therefore never accepts a free-text
+   * identifier: members and projects come from the Team scope, and the executor — which may be an
+   * Agent — is resolved through the searchable subject directory.
+   */
+  members?: TeamMemberSummary[]
+  projects?: WorkProjectSummary[]
+  scope?: PrincipalScope | null
 }>()
 
 const emit = defineEmits<{
@@ -24,10 +38,38 @@ const emit = defineEmits<{
 const editing = ref(false)
 const rejecting = ref(false)
 const localError = ref<string | null>(null)
-const form = reactive({ objective: '', criteria: '', workProjectId: '', ownerMemberId: '', executorPrincipalId: '', gateReviewerMemberId: '' })
+const form = reactive({ objective: '', criteria: '', workProjectId: '', ownerMemberId: '', executorPrincipalId: '' as string | null, gateReviewerMemberId: '' })
 const rejectionReason = ref('')
 const reviewable = computed(() => props.intent.status === 'READY')
 const isOwner = computed(() => props.intent.proposal.owner.principalId === props.currentPrincipalId)
+/** 同一张提案卡上一次只允许一个命令：其它命令在提交时，「预检并确认」暂时不可用。 */
+const otherCommandPending = computed(() => Boolean(props.pending) && props.pending !== 'confirm')
+
+/**
+ * The proposal may already name a member or project that has since left the loaded directory.
+ * Dropping it silently would turn an edit into a deletion, so the current fact stays selectable.
+ */
+const memberOptions = computed(() => withCurrent(
+  (props.members ?? []).map(member => ({ value: member.id, label: member.displayName })),
+  [form.ownerMemberId, form.gateReviewerMemberId],
+  '目录外成员',
+))
+const projectOptions = computed(() => withCurrent(
+  (props.projects ?? []).map(project => ({ value: project.id, label: `${project.key} · ${project.name}` })),
+  [form.workProjectId],
+  '目录外 WorkProject',
+))
+
+function withCurrent(
+  options: { value: string, label: string }[],
+  current: string[],
+  fallbackLabel: string,
+): { value: string, label: string }[] {
+  const extras = current
+    .filter(value => value && !options.some(option => option.value === value))
+    .map(value => ({ value, label: `${fallbackLabel} · ${value.slice(0, 8)}` }))
+  return [...options, ...extras]
+}
 
 watch(() => props.intent, populate, { immediate: true })
 
@@ -36,7 +78,7 @@ function populate(intent: TaskIntent): void {
   form.criteria = intent.proposal.acceptanceCriteria.join('\n')
   form.workProjectId = intent.proposal.workProjectId
   form.ownerMemberId = intent.proposal.owner.teamMemberId ?? ''
-  form.executorPrincipalId = intent.proposal.executor?.principalId ?? ''
+  form.executorPrincipalId = intent.proposal.executor?.principalId ?? null
   form.gateReviewerMemberId = intent.proposal.gateReviewer?.teamMemberId ?? ''
   editing.value = false
   rejecting.value = false
@@ -61,7 +103,7 @@ function submitRevision(): void {
     acceptanceCriteria,
     workProjectId: form.workProjectId.trim(),
     ownerMemberId: form.ownerMemberId.trim(),
-    executorPrincipalId: form.executorPrincipalId.trim() || null,
+    executorPrincipalId: form.executorPrincipalId || null,
     gateReviewerMemberId: form.gateReviewerMemberId.trim() || null,
   })
 }
@@ -97,10 +139,36 @@ function principalName(principalId: string): string {
       <label><span>目标</span><textarea v-model="form.objective" maxlength="5000" rows="3" /></label>
       <label><span>验收标准 <small>每行一项</small></span><textarea v-model="form.criteria" maxlength="20000" rows="4" /></label>
       <div class="field-grid">
-        <label><span>WorkProject ID</span><input v-model="form.workProjectId" /></label>
-        <label><span>Owner Member ID</span><input v-model="form.ownerMemberId" /></label>
-        <label><span>Executor Principal ID <small>可选</small></span><input v-model="form.executorPrincipalId" /></label>
-        <label><span>Gate Reviewer Member ID <small>可选</small></span><input v-model="form.gateReviewerMemberId" /></label>
+        <label>
+          <span>WorkProject</span>
+          <select v-model="form.workProjectId">
+            <option value="">请选择 WorkProject</option>
+            <option v-for="option in projectOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+        <label>
+          <span>Owner</span>
+          <select v-model="form.ownerMemberId">
+            <option value="">请选择 Owner</option>
+            <option v-for="option in memberOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+        <PrincipalPicker
+          v-if="scope"
+          v-model="form.executorPrincipalId"
+          :scope="scope"
+          label="Executor（可选）"
+          placeholder="按姓名搜索成员或 Agent"
+          help-text="留空表示确认后再分配执行者。"
+        />
+        <label v-else><span>Executor <small>可选</small></span><select v-model="form.executorPrincipalId"><option :value="null">确认后分配</option></select></label>
+        <label>
+          <span>Gate Reviewer <small>可选</small></span>
+          <select v-model="form.gateReviewerMemberId">
+            <option value="">不设置 Gate Reviewer</option>
+            <option v-for="option in memberOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
       </div>
       <p v-if="localError" class="error" role="alert">{{ localError }}</p>
       <footer><BaseButton variant="ghost" size="small" @click="editing = false">取消</BaseButton><BaseButton type="submit" size="small" :loading="pending === 'revise'">提交完整修订</BaseButton></footer>
@@ -124,9 +192,10 @@ function principalName(principalId: string): string {
         <div><BaseButton variant="ghost" size="small" @click="rejecting = false">取消</BaseButton><BaseButton variant="danger" size="small" :loading="pending === 'reject'" @click="submitRejection">确认拒绝</BaseButton></div>
       </div>
       <footer v-if="reviewable && isOwner && !rejecting">
+        <p v-if="otherCommandPending" id="intent-confirm-reason" class="sr-only">正在提交上一次提案操作，完成前无法再次确认。</p>
         <BaseButton variant="ghost" size="small" :disabled="Boolean(pending)" @click="editing = true"><template #icon><Pencil :size="13" /></template>修订</BaseButton>
         <BaseButton variant="danger" size="small" :disabled="Boolean(pending)" @click="rejecting = true"><template #icon><X :size="13" /></template>拒绝</BaseButton>
-        <BaseButton size="small" :loading="pending === 'confirm'" :disabled="Boolean(pending) && pending !== 'confirm'" @click="emit('confirm')"><template #icon><Check :size="13" /></template>预检并确认</BaseButton>
+        <BaseButton size="small" :loading="pending === 'confirm'" :disabled="otherCommandPending" :aria-describedby="otherCommandPending ? 'intent-confirm-reason' : undefined" @click="emit('confirm')"><template #icon><Check :size="13" /></template>预检并确认</BaseButton>
       </footer>
       <p v-else-if="intent.decision" class="decision">{{ statusText(intent.status) }} · {{ intent.decision.decidedAt }}<template v-if="intent.decision.reason"> · {{ intent.decision.reason }}</template></p>
     </template>
@@ -134,6 +203,6 @@ function principalName(principalId: string): string {
 </template>
 
 <style scoped>
-.intent-card { max-width: 740px; padding: 14px; margin: 0 auto 14px; border: 1px solid #d5e6da; border-radius: var(--cs-radius-md); background: white; box-shadow: 0 6px 18px rgb(27 75 48 / 5%); }.intent-card > header { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; margin-bottom: 12px; }.intent-card > header > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--cs-brand-100); color: var(--cs-brand-700); }.intent-card header p { margin: 0 0 2px; color: var(--cs-brand-700); font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }.intent-card h3 { margin: 0; font-size: 12px; }.objective, .criteria { padding: 10px; border-top: 1px solid var(--cs-border); }.objective > span, .criteria > span, .revision-form label > span, .reject-form label > span { color: var(--cs-text-muted); font-size: 8px; font-weight: 750; text-transform: uppercase; }.objective p { margin: 5px 0 0; font-size: 11px; line-height: 1.55; }.criteria ol { display: grid; gap: 4px; padding-left: 18px; margin: 6px 0 0; color: var(--cs-text-secondary); font-size: 10px; }.intent-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0; background: var(--cs-border); }.intent-card dl div { min-width: 0; padding: 8px 10px; background: var(--cs-surface-subtle); }.intent-card dt { color: var(--cs-text-muted); font-size: 8px; }.intent-card dd { overflow: hidden; margin: 3px 0 0; color: var(--cs-text-secondary); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }.intent-card > footer, .revision-form footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }.notice { padding: 8px 10px; margin: 10px 0 0; border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: #79511e; font-size: 9px; }.notice.coding-continuation { background: var(--cs-brand-50); color: var(--cs-brand-700); }.notice.conflict { background: var(--cs-info-soft); color: #326597; }.error { margin: 9px 0 0; color: var(--cs-danger); font-size: 9px; }.revision-form { display: grid; gap: 10px; }.revision-form label, .reject-form label { display: grid; gap: 5px; }.revision-form small { color: var(--cs-text-muted); font-size: 7px; text-transform: none; }.revision-form textarea, .revision-form input, .reject-form textarea { width: 100%; padding: 8px 9px; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text); font: 9px/1.5 var(--cs-font-sans); }.revision-form textarea:focus, .revision-form input:focus, .reject-form textarea:focus { border-color: var(--cs-brand-400); outline: 3px solid var(--cs-brand-100); }.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.reject-form { display: grid; gap: 8px; padding: 10px; margin-top: 10px; border: 1px solid #ecc7c2; border-radius: var(--cs-radius-sm); background: #fff8f7; }.reject-form > div { display: flex; justify-content: flex-end; gap: 7px; }.decision { margin: 10px 0 0; color: var(--cs-text-muted); font-size: 8px; }
+.intent-card { max-width: 740px; padding: var(--cs-space-16); margin: 0 auto var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }.intent-card > header { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.intent-card > header > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.intent-card header p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .07em; text-transform: uppercase; }.intent-card h3 { margin: 0; font-size: var(--cs-text-base); }.objective, .criteria { padding: var(--cs-space-12); border-top: 1px solid var(--cs-border); }.objective > span, .criteria > span, .revision-form label > span, .reject-form label > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.objective p { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.criteria ol { display: grid; gap: var(--cs-space-4); padding-left: var(--cs-space-20); margin: var(--cs-space-8) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.intent-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-2); margin: 0; background: var(--cs-border); }.intent-card dl div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); background: var(--cs-surface-subtle); }.intent-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.intent-card dd { overflow: hidden; margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.intent-card > footer, .revision-form footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.notice { padding: var(--cs-space-8) var(--cs-space-12); margin: var(--cs-space-12) 0 0; border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.notice.coding-continuation { background: var(--cs-surface-accent); color: var(--cs-text-brand); }.notice.conflict { background: var(--cs-info-soft); color: var(--cs-info); }.error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.revision-form { display: grid; gap: var(--cs-space-12); }.revision-form label, .reject-form label { display: grid; gap: var(--cs-space-4); }.revision-form small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: none; }.revision-form textarea, .revision-form input, .revision-form select, .reject-form textarea { width: 100%; padding: var(--cs-space-8) var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }.revision-form textarea:focus, .revision-form input:focus, .revision-form select:focus, .reject-form textarea:focus { border-color: var(--cs-border-accent-strong); outline: 3px solid var(--cs-ring-brand); }.field-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--cs-space-8); }.reject-form { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); margin-top: var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-danger-soft); }.reject-form > div { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.decision { margin: var(--cs-space-12) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 600px) { .field-grid, .intent-card dl { grid-template-columns: 1fr; }.intent-card > footer { flex-wrap: wrap; } }
 </style>

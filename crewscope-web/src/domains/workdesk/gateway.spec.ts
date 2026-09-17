@@ -11,7 +11,8 @@ const summary = {
     { key: 'WORK_ITEM', title: '我的工作项', priority: 4, total: 1, truncated: false, items: [{
     objectType: 'WORK_ITEM', objectId: 'item-1', projectId: 'project-1', title: '准备发布', status: 'OPEN',
     updatedAt: '2026-09-13T09:00:00Z', responsibilityRole: 'OWNER', needsAction: true, urgency: 'HIGH', progress: 40,
-    availableActions: ['OPEN'], route: '/work?team=team-1&project=project-1&workItem=item-1',
+    availableActions: [{ actionId: 'submit-review', targetStatus: 'IN_REVIEW', label: '提交评审', strength: 'PRIMARY', reversible: true, enabled: true, reason: null, reasonMessage: null, remedyLabel: null, remedyRoute: null }],
+    route: '/work?team=team-1&project=project-1&workItem=item-1',
     }] },
     { key: 'TASK_EXECUTION', title: '进行中的执行', priority: 5, total: 0, truncated: false, items: [] },
     { key: 'INBOX', title: '未读 Inbox', priority: 6, total: 0, truncated: false, items: [] },

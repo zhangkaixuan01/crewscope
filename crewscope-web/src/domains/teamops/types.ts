@@ -21,6 +21,18 @@ export interface Etagged<T> {
   etag: string
 }
 
+export const activityCategories = ['TEAM', 'WORK_ITEM', 'TASK', 'REVIEW', 'ACTION', 'PROVIDER', 'SYSTEM'] as const
+export type ActivityCategory = typeof activityCategories[number]
+export const activityVisibilities = ['TEAM_MEMBERS', 'WORK_ITEM_PARTICIPANTS', 'TEAM_ADMINS'] as const
+export type ActivityVisibility = typeof activityVisibilities[number]
+export const activitySubjectTypes = [
+  'TEAM', 'WORK_ITEM', 'TASK', 'REVIEW', 'ACTION', 'PROVIDER_BINDING', 'ARTIFACT', 'CONVERSATION',
+] as const
+export type ActivitySubjectType = typeof activitySubjectTypes[number]
+/** `ActivityReferenceType` is {@link activitySubjectTypes} plus the external objects it can cite. */
+export const activityReferenceTypes = [...activitySubjectTypes, 'PULL_REQUEST'] as const
+export type ActivityReferenceType = typeof activityReferenceTypes[number]
+
 export interface ActivityFilter {
   workItemId?: string | null
   categories?: string[]
@@ -71,6 +83,19 @@ export const inboxDispositionStatuses = ['UNREAD', 'READ', 'ACTED', 'ARCHIVED'] 
 export type InboxDispositionStatus = typeof inboxDispositionStatuses[number]
 export const inboxSourceTypes = ['RESPONSIBILITY_ASSIGNMENT', 'REVIEW_REQUEST', 'ACTION_CONFIRMATION', 'TASK_EXECUTION', 'ACTION_DELIVERY', 'NOTIFICATION_DELIVERY'] as const
 export type InboxSourceType = typeof inboxSourceTypes[number]
+export const inboxCloseReasons = [
+  'RESPONSIBILITY_RELEASED',
+  'RESPONSIBILITY_REPLACED',
+  'REVIEW_COMPLETED',
+  'REVIEW_SUPERSEDED',
+  'CONFIRMATION_COMPLETED',
+  'CONFIRMATION_CANCELLED',
+  'CONFIRMATION_EXPIRED',
+  'EXCEPTION_RECOVERED',
+  'EXCEPTION_RESOLVED',
+  'MEMBER_NO_LONGER_ELIGIBLE',
+] as const
+export type InboxCloseReason = typeof inboxCloseReasons[number]
 export const inboxTargetKinds = ['WORK_ITEM', 'REVIEW', 'ACTION', 'TASK', 'NOTIFICATION'] as const
 export type InboxTargetKind = typeof inboxTargetKinds[number]
 
@@ -349,6 +374,12 @@ export interface ProjectionDiagnostic {
   cancelConfirmation: string | null
   failConfirmation: string | null
 }
+
+/** The three reliability backlogs an administrator can act on, in the order they are surfaced. */
+export const recoveryCandidateTypes = [
+  'OUTBOX_DEAD_LETTER', 'PROJECTION_DEAD_LETTER', 'NOTIFICATION_DELIVERY',
+] as const
+export type RecoveryCandidateType = typeof recoveryCandidateTypes[number]
 
 export type RecoveryCandidate =
   | { type: 'OUTBOX_DEAD_LETTER', action: 'REPLAY_OUTBOX_DEAD_LETTER', outboxEventId: string, domainEventId: string, expectedVersion: number, referenceHash: string, confirmation: string }

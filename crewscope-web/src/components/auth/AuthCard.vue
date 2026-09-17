@@ -45,33 +45,33 @@ onMounted(() => {
 <style scoped>
 .auth-card {
   width: min(100%, 430px);
-  padding: clamp(24px, 3.5vw, 38px);
+  padding: clamp(var(--cs-space-24), 3.5vw, var(--cs-space-40));
   border: 1px solid var(--cs-auth-card-border);
   border-radius: var(--cs-auth-card-radius);
   background: var(--cs-auth-card-surface);
   box-shadow: var(--cs-auth-card-shadow);
 }
 .auth-card--wide { width: min(100%, 560px); }
-.auth-card__heading { margin-bottom: 24px; }
+.auth-card__heading { margin-bottom: var(--cs-space-24); }
 .auth-card__kicker {
-  margin-bottom: 8px;
-  color: var(--cs-brand-700);
-  font-size: 10px;
-  font-weight: 800;
+  margin-bottom: var(--cs-space-8);
+  color: var(--cs-text-brand);
+  font-size: var(--cs-text-sm);
+  font-weight: var(--cs-weight-semibold);
   letter-spacing: .1em;
   text-transform: uppercase;
 }
 .auth-card__heading h2 {
-  margin-bottom: 8px;
+  margin-bottom: var(--cs-space-8);
   font-family: var(--cs-font-display);
-  font-size: clamp(26px, 3vw, 34px);
-  font-weight: 580;
+  font-size: clamp(var(--cs-text-xl), 3vw, 34px);
+  font-weight: var(--cs-weight-medium);
   letter-spacing: -.025em;
 }
-.auth-card__description { margin: 0; color: var(--cs-text-muted); font-size: 12px; }
+.auth-card__description { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-base); }
 
 @media (max-width: 680px) {
-  .auth-card { padding: 24px 20px; border-radius: 17px; }
-  .auth-card__heading h2 { font-size: 27px; }
+  .auth-card { padding: var(--cs-space-24) var(--cs-space-20); border-radius: 17px; }
+  .auth-card__heading h2 { font-size: var(--cs-text-xl); }
 }
 </style>

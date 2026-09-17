@@ -9,6 +9,7 @@ const route = useRoute()
 const permissionLabels: Record<string, string> = {
   [permissions.scopeRead]: '查看团队范围', [permissions.conversationUse]: '使用对话', [permissions.workRead]: '查看工作项',
   [permissions.teamMembersRead]: '查看团队成员', [permissions.repositoriesManage]: '管理受管仓库', [permissions.providerManage]: '管理集成与模型',
+  [permissions.agentManage]: '管理 Agent', [permissions.teamMembersManage]: '管理团队成员', [permissions.workProjectsManage]: '管理 WorkProject',
   [permissions.auditRead]: '查看审计', [permissions.operationsManage]: '管理运维',
 }
 const requiredPermissionLabel = () => permissionLabels[String(route.query.requiredPermission ?? '')] ?? '访问此区域'
@@ -35,10 +36,10 @@ const requiredPermissionLabel = () => permissionLabels[String(route.query.requir
 </template>
 
 <style scoped>
-.access-panel { display: flex; max-width: 760px; align-items: flex-start; gap: 16px; padding: 24px; }
-.access-panel > svg { flex: 0 0 auto; padding: 10px; border-radius: var(--cs-radius-md); box-sizing: content-box; background: var(--cs-danger-soft); color: var(--cs-danger); }
-.access-panel h2 { margin-bottom: 8px; font-size: 18px; }
-.access-panel p { max-width: 620px; margin-bottom: 10px; color: var(--cs-text-secondary); }
+.access-panel { display: flex; max-width: 760px; align-items: flex-start; gap: var(--cs-space-16); padding: var(--cs-space-24); }
+.access-panel > svg { flex: 0 0 auto; padding: var(--cs-space-12); border-radius: var(--cs-radius-md); box-sizing: content-box; background: var(--cs-danger-soft); color: var(--cs-danger); }
+.access-panel h2 { margin-bottom: var(--cs-space-8); font-size: var(--cs-text-lg); }
+.access-panel p { max-width: 620px; margin-bottom: var(--cs-space-12); color: var(--cs-text-secondary); }
 .access-panel small { color: var(--cs-text-muted); }
-.back-link { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; padding: 0 12px; border-radius: var(--cs-radius-sm); background: var(--cs-brand-800); color: white; font-size: 11px; font-weight: 700; }
+.back-link { display: inline-flex; min-height: 34px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-brand-800); color: var(--cs-text-on-dark); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 </style>

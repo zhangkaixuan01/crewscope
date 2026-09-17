@@ -45,13 +45,13 @@ function allowedHref(href: string): boolean {
 </template>
 
 <style scoped>
-.safe-markdown { overflow-wrap: anywhere; font-size: inherit; line-height: 1.65; }
-.safe-markdown :deep(p), .safe-markdown :deep(ul), .safe-markdown :deep(ol), .safe-markdown :deep(blockquote), .safe-markdown :deep(pre) { margin: 0 0 8px; }
+.safe-markdown { overflow-wrap: anywhere; font-size: inherit; line-height: var(--cs-leading-relaxed); }
+.safe-markdown :deep(p), .safe-markdown :deep(ul), .safe-markdown :deep(ol), .safe-markdown :deep(blockquote), .safe-markdown :deep(pre) { margin: 0 0 var(--cs-space-8); }
 .safe-markdown :deep(:last-child) { margin-bottom: 0; }
-.safe-markdown :deep(ul), .safe-markdown :deep(ol) { padding-left: 19px; }
-.safe-markdown :deep(blockquote) { padding-left: 10px; border-left: 3px solid currentcolor; opacity: .78; }
-.safe-markdown :deep(code) { padding: 1px 4px; border-radius: 4px; background: rgb(21 35 29 / 8%); font: .9em var(--cs-font-mono); }
-.safe-markdown :deep(pre) { overflow-x: auto; padding: 10px; border-radius: 8px; background: #183028; color: #e9f6ed; }
+.safe-markdown :deep(ul), .safe-markdown :deep(ol) { padding-left: var(--cs-space-20); }
+.safe-markdown :deep(blockquote) { padding-left: var(--cs-space-12); border-left: 3px solid currentcolor; opacity: .78; }
+.safe-markdown :deep(code) { padding: var(--cs-space-2) var(--cs-space-4); border-radius: 4px; background: var(--cs-code-inline-bg); font-family: var(--cs-font-mono); }
+.safe-markdown :deep(pre) { overflow-x: auto; padding: var(--cs-space-12); border-radius: 8px; background: var(--cs-code-surface); color: var(--cs-code-text); }
 .safe-markdown :deep(pre code) { padding: 0; background: transparent; color: inherit; }
-.safe-markdown :deep(a) { color: var(--cs-brand-700); text-decoration: underline; text-underline-offset: 2px; }
+.safe-markdown :deep(a) { color: var(--cs-text-brand); text-decoration: underline; text-underline-offset: 2px; }
 </style>

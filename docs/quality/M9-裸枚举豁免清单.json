@@ -1,0 +1,155 @@
+{
+  "$comment": "M9-Q01 裸枚举门禁的评审豁免清单。每一条都必须是「这个表达式不是服务端枚举」的事实性理由，而不是「还没做」。修好一处就必须从这里删掉一条——门禁会把失效条目当作失败，清单只能变短。",
+  "waivers": [
+    {
+      "file": "components/domain/ActivityStream.vue",
+      "expression": "item.eventType",
+      "reason": "领域事件名是开放词表（每个聚合自行新增），不是闭合枚举；Activity 的可读语义由 category / subject / outcome 三个已本地化的字段承担。"
+    },
+    {
+      "file": "components/domain/AuditExplorer.vue",
+      "expression": "item.eventType",
+      "reason": "同 ActivityStream：审计事件名是开放词表，审计的可读语义由 category 与 outcome 承担。"
+    },
+    {
+      "file": "components/domain/AuditExplorer.vue",
+      "expression": "selectedEvent.eventType",
+      "reason": "详情面板展示的同一开放词表事件名，审计导出需要它逐字可复制。"
+    },
+    {
+      "file": "components/domain/AuditExplorer.vue",
+      "expression": "exportDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句。"
+    },
+    {
+      "file": "components/auth/AuthPasswordGuidance.vue",
+      "expression": "status",
+      "reason": "本地 computed，返回的已经是中文口令强度提示。"
+    },
+    {
+      "file": "components/domain/CodingExecutionStudio.vue",
+      "expression": "terminalOutcome",
+      "reason": "本地 computed，内部已通过 enumLabel 把 completionReason / executionStatus 本地化，失败码单独标注为「失败码 X」。"
+    },
+    {
+      "file": "components/domain/CodingProgressControl.vue",
+      "expression": "todo.priority",
+      "reason": "TodoSummaryItem.priority 是 Agent 自行书写的自由文本（上限 20 字符），不是枚举，按原文展示才忠实。"
+    },
+    {
+      "file": "components/domain/LarkNotificationAdmin.vue",
+      "expression": "health.evidenceCode",
+      "reason": "健康证据码是有界自由文本（[A-Z][A-Z0-9_]{0,63}），由 Provider 边界产出，供运维逐字检索。"
+    },
+    {
+      "file": "components/domain/TaskAttemptHistoryPanel.vue",
+      "expression": "selectedAttempt.priority",
+      "reason": "TaskExecution.priority 是数字，不是枚举。"
+    },
+    {
+      "file": "components/domain/TaskIntentCard.vue",
+      "expression": "intent.decision.reason",
+      "reason": "成员在驳回/改写意图时手写的自由文本理由。"
+    },
+    {
+      "file": "components/settings/ModelOptionPicker.vue",
+      "expression": "model.price.currencyCode",
+      "reason": "ISO 4217 货币代码，本身就是对外展示形态（CNY / USD）。"
+    },
+    {
+      "file": "pages/ActivityPage.vue",
+      "expression": "selectedDetail.value.eventType",
+      "reason": "同 ActivityStream：开放词表的领域事件名。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "connectionMissingReason ?? busyReason",
+      "reason": "两个本地 computed 都返回中文说明句：前者是缺少连接的前置条件，后者是「命令在途/离线」的提交锁。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "bindingMissingReason ?? busyReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "repositoryMissingReason ?? busyReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "syncCatalogReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "preflightReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "planReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "confirmReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ActionDeliveryWorkbench.vue",
+      "expression": "reviewConfirmReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/LarkNotificationAdmin.vue",
+      "expression": "mutateReason",
+      "reason": "本地 computed，返回的已经是中文权限说明句，不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/ModelCredentialDialog.vue",
+      "expression": "providerCatalogReason",
+      "reason": "本地 computed，返回的已经是中文 Provider 目录状态说明。"
+    },
+    {
+      "file": "components/domain/ModelCredentialDialog.vue",
+      "expression": "regionCatalogReason",
+      "reason": "本地 computed，返回的已经是中文 Region 目录状态说明。"
+    },
+    {
+      "file": "components/domain/OperationsWorkspace.vue",
+      "expression": "diagnosticsBlockedReason",
+      "reason": "本地 computed，返回的已经是中文的诊断刷新与影子重建前置条件说明。"
+    },
+    {
+      "file": "components/domain/ReviewWorkbench.vue",
+      "expression": "busyGateReason",
+      "reason": "本地 computed，返回的已经是中文的「离线/命令在途」说明。"
+    },
+    {
+      "file": "pages/GitHubSettingsPage.vue",
+      "expression": "revokedReason",
+      "reason": "本地 computed，返回的已经是中文连接状态说明，不是服务端枚举。"
+    },
+    {
+      "file": "pages/GitHubSettingsPage.vue",
+      "expression": "bindingMissingReason",
+      "reason": "本地 computed，返回的已经是成员可读的中文前置条件说明，不是服务端枚举。"
+    },
+    {
+      "file": "pages/ModelSettingsPage.vue",
+      "expression": "createConnectionReason",
+      "reason": "本地 computed，把「未选 Team」与「Provider 目录未就绪」两条成因合成为中文说明。"
+    },
+    {
+      "file": "pages/RepositorySettingsPage.vue",
+      "expression": "catalogReason",
+      "reason": "本地 computed，返回的已经是中文 Catalog 状态说明。"
+    },
+    {
+      "file": "pages/RepositorySettingsPage.vue",
+      "expression": "catalogReason || draftPreflightReason",
+      "reason": "两个本地 computed 的兜底组合，两段都是中文说明。"
+    }
+  ]
+}

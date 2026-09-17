@@ -10,7 +10,8 @@ describe('ReviewWorkbench', () => {
 
     expect(wrapper.text()).toContain('SELF_REVIEW · Advisory only')
     expect(wrapper.text()).toContain('Agent Findings')
-    expect(wrapper.text()).toContain('ADVISORY')
+    expect(wrapper.text()).toContain('仅参考')
+    expect(wrapper.text()).not.toContain('ADVISORY')
     expect(wrapper.text()).toContain('Gate Decision')
     expect(wrapper.text()).not.toContain('Agent 已批准')
 
@@ -62,7 +63,8 @@ describe('ReviewWorkbench', () => {
     const wrapper = mount(ReviewWorkbench, { props: props({ review: invalidated, canGate: false }) })
 
     expect(wrapper.text()).toContain('旧 Review 已失效')
-    expect(wrapper.text()).toContain('DIFF_CHANGED')
+    expect(wrapper.text()).toContain('代码变更已更新')
+    expect(wrapper.text()).not.toContain('DIFF_CHANGED')
     expect(wrapper.text()).toContain('当前成员不持有')
     expect(wrapper.find('.gate-actions button').exists()).toBe(false)
   })

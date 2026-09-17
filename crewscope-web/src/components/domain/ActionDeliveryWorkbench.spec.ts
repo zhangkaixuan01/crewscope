@@ -28,10 +28,11 @@ describe('ActionDeliveryWorkbench', () => {
     gateway.bundle = { value, etag: '"0"' }
     const { wrapper } = await mountWorkbench(gateway, approvedReview())
 
-    expect(wrapper.text()).toContain('HIGH_RISK_WRITE')
+    expect(wrapper.text()).toContain('高风险写入')
     expect(wrapper.text()).toContain('refs/heads/crewscope/tasks/example/attempt-1')
     expect(wrapper.text()).toContain('Create Draft PR')
-    expect(wrapper.text()).toContain('FAILED')
+    expect(wrapper.text()).toContain('已失败')
+    expect(wrapper.text()).not.toContain('HIGH_RISK_WRITE')
     expect(gateway.confirm).not.toHaveBeenCalled()
   })
 
@@ -136,13 +137,13 @@ class ComponentDeliveryGateway implements DeliveryGateway {
 function dispatch(status: string) {
   return {
     id: crypto.randomUUID(), version: 2, status, claimAttempts: 1, reconciliationAttempts: 0,
-    nextAttemptAt: '2026-08-25T08:00:00Z', cancellationReason: null, compensationDisposition: 'NONE',
+    nextAttemptAt: '2026-08-25T08:00:00Z', cancellationReason: null, compensationDisposition: 'NOT_REQUIRED',
   }
 }
 
 function actionReceipt(result: string) {
   return {
-    id: crypto.randomUUID(), result, source: 'WORKER', externalObjectType: result === 'SUCCEEDED' ? 'BRANCH' : null,
+    id: crypto.randomUUID(), result, source: 'WRITE_RESPONSE', externalObjectType: result === 'SUCCEEDED' ? 'BRANCH' : null,
     externalIdentityHash: result === 'SUCCEEDED' ? '1'.repeat(64) : null, targetVersion: null,
     evidenceCode: result === 'SUCCEEDED' ? 'REMOTE_HEAD_MATCHED' : 'PROVIDER_UNAVAILABLE', manualReason: null,
     receivedAt: '2026-08-25T08:00:00Z',

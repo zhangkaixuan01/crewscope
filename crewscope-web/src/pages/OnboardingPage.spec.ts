@@ -30,7 +30,10 @@ describe('OnboardingPage', () => {
     expect(fixture.onboarding.createFirstTeam).toHaveBeenCalledOnce()
     expect(fixture.agent.listAgents).toHaveBeenCalledOnce()
     await fixture.wrapper.get('button').trigger('click')
-    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('conversation'))
+    // Conversation is a lazy route; under the full suite its module may resolve after Vitest's
+    // default 1s polling window. Keep the assertion bounded while allowing the real navigation
+    // promise to settle, matching the timeout used by the registration flow.
+    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('conversation'), { timeout: 5_000 })
     expect(fixture.router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
     fixture.wrapper.unmount()
   })

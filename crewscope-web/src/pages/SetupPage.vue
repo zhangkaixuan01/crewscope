@@ -10,7 +10,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useSetupStore } from '../domains/setup/store'
-import type { SetupCapability, SetupReadinessItem } from '../domains/setup/types'
+import type { ConfigurationComponent, SetupCapability, SetupReadinessItem } from '../domains/setup/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,10 +25,20 @@ const capabilities = computed(() => readiness.value?.capabilities ?? [])
 const requiredItems = computed(() => capabilities.value.filter(item => item.required))
 const readyRequiredCount = computed(() => requiredItems.value.filter(item => item.status === 'READY').length)
 const nextAction = computed(() => capabilities.value.find(item => item.status !== 'READY' && item.canConfigure && item.actionKey) ?? null)
+/* 配置健康与就绪度是同一 Scope 的两份投影：各自单飞，互不影响对方的加载状态。 */
+const health = computed(() => setupStore.state.health)
+const healthNotice = computed(() => {
+  if (setupStore.state.healthPhase === 'loading') return '正在读取配置健康…'
+  if (setupStore.state.healthPhase === 'offline') return '配置健康当前离线：恢复网络后可继续读取。'
+  if (setupStore.state.healthPhase === 'unavailable') return '当前部署没有提供配置健康投影。'
+  if (setupStore.state.healthPhase === 'error') return setupStore.state.healthErrorMessage ?? '配置健康暂时不可用，请稍后重试。'
+  return ''
+})
 
 watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
   if (!teamId || !organizationId) { setupStore.reset(); return }
   setupStore.activateScope({ organizationId, teamId })
+  void setupStore.loadHealth()
   await setupStore.load()
 }, { immediate: true })
 
@@ -62,16 +72,37 @@ function reasonLabel(value: string): string {
 function iconFor(value: SetupCapability) {
   return { PERSONAL_CONVERSATION: Bot, TEAM_TASK: UsersRound, CODING_REVIEW: Settings2, GITHUB_DRAFT_PR: GitFork, LARK_NOTIFICATIONS: ExternalLink, TEAM_OBSERVER: ShieldCheck }[value]
 }
-function actionLabel(action: string | null): string {
-  return ({ OPEN_AGENT_SETTINGS: '配置 Agent', OPEN_WORKPROJECT_SETTINGS: '创建 WorkProject', OPEN_GITHUB_SETTINGS: '配置 GitHub', START_GITHUB_IMPORT: '导入仓库', OPEN_LARK_SETTINGS: '配置飞书' } as Record<string, string>)[action ?? ''] ?? '继续配置'
+function healthComponentLabel(value: ConfigurationComponent): string {
+  return {
+    AGENT_CONFIGURATION: 'Agent 配置', MODEL_CONNECTION: '模型连接', CREDENTIAL: '凭证可用性', INTEGRATION: '集成连接',
+  }[value]
 }
-async function goAction(item: SetupReadinessItem): Promise<void> {
+/** 配置健康的 reasonCode 是另一套词表（A06），与能力就绪度的 reasonLabel 分开维护。 */
+function healthReasonLabel(value: string): string {
+  return {
+    READY: '该组件的配置已满足', AGENT_CONFIGURATION_REQUIRED: '还没有为这个 Team 配置 Agent', MODEL_CONNECTION_REQUIRED: 'Agent 还没有可用的模型连接',
+    MODEL_CONNECTION_UNHEALTHY: '模型连接存在，但健康检查未通过', CREDENTIAL_UNAVAILABLE: '模型凭证当前不可用', CREDENTIAL_EXPIRING: '模型凭证即将过期，请尽快轮换',
+    INTEGRATION_CONNECTION_REQUIRED: '还没有可用的集成连接',
+  }[value] ?? '该组件的配置前置条件还未满足'
+}
+function actionLabel(action: string | null): string {
+  return ({ OPEN_AGENT_SETTINGS: '配置 Agent', OPEN_WORKPROJECT_SETTINGS: '创建 WorkProject', OPEN_GITHUB_SETTINGS: '配置 GitHub', START_GITHUB_IMPORT: '导入仓库', OPEN_LARK_SETTINGS: '配置飞书', OPEN_MODEL_SETTINGS: '配置模型与凭证' } as Record<string, string>)[action ?? ''] ?? '继续配置'
+}
+/*
+ * 两套 actionKey 词表并存：就绪度用 OPEN_WORKPROJECT_SETTINGS / START_GITHUB_IMPORT，A06 配置健康用 OPEN_MODEL_SETTINGS。
+ * 这里按并集解析，服务端给出未知 actionKey 时按钮不跳转（保持现状，不回显枚举）。
+ */
+async function goAction(item: Pick<SetupReadinessItem, 'actionKey'>): Promise<void> {
   const query = { ...route.query, team: scopeStore.state.selectedTeamId ?? undefined }
   const target = ({
     OPEN_AGENT_SETTINGS: 'agent-settings', OPEN_WORKPROJECT_SETTINGS: 'today', OPEN_GITHUB_SETTINGS: 'github-settings',
-    START_GITHUB_IMPORT: 'repository-settings', OPEN_LARK_SETTINGS: 'lark-settings',
+    START_GITHUB_IMPORT: 'repository-settings', OPEN_LARK_SETTINGS: 'lark-settings', OPEN_MODEL_SETTINGS: 'model-settings',
   } as Record<string, string>)[item.actionKey ?? '']
   if (target) await router.push({ name: target, query })
+}
+async function refresh(): Promise<void> {
+  void setupStore.load(true)
+  void setupStore.loadHealth(true)
 }
 async function goToday(): Promise<void> { await router.push({ name: 'today', query: route.query }) }
 </script>
@@ -80,7 +111,7 @@ async function goToday(): Promise<void> { await router.push({ name: 'today', que
   <SettingsShell eyebrow="配置中心 · 团队就绪度" :title="team?.name ? `${team.name} 的配置中心` : '配置中心'">
     <template #actions>
       <BaseButton variant="secondary" size="small" @click="goToday">返回 Today</BaseButton>
-      <BaseButton size="small" :disabled="setupStore.state.phase === 'loading' || !online" @click="setupStore.load(true)"><RefreshCw :size="14" />刷新事实</BaseButton>
+      <BaseButton size="small" :disabled="setupStore.state.phase === 'loading' || !online" @click="refresh"><RefreshCw :size="14" />刷新事实</BaseButton>
     </template>
 
     <StatePanel v-if="setupStore.state.phase === 'idle' || setupStore.state.phase === 'loading'" state="loading" title="正在汇总 Team 配置" description="读取模型、Agent、WorkProject、Repository 与集成事实。" />
@@ -101,6 +132,22 @@ async function goToday(): Promise<void> { await router.push({ name: 'today', que
         <BaseButton size="small" :disabled="!online" @click="goAction(nextAction)">{{ actionLabel(nextAction.actionKey) }}<ArrowRight :size="14" /></BaseButton>
       </section>
 
+      <section v-if="health" class="health-panel panel" aria-labelledby="health-heading">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Configuration health</p><h2 id="health-heading">配置健康 · 四项组件</h2><p>按 Agent 配置、模型连接、凭证与集成四类汇总当前 Team 的配置事实；每项操作回到对应设置页，并由服务端再次校验权限。</p></div>
+          <StatusBadge :tone="statusTone(health.overallStatus)" dot>{{ statusLabel(health.overallStatus) }}</StatusBadge>
+        </div>
+        <div class="health-list" role="list">
+          <article v-for="item in health.items" :key="item.component" class="health-row" role="listitem">
+            <div class="health-row__body"><h3>{{ healthComponentLabel(item.component) }}</h3><small>{{ healthReasonLabel(item.reasonCode) }} · 责任方：{{ item.responsibleParty }}</small></div>
+            <StatusBadge :tone="statusTone(item.status)" dot>{{ statusLabel(item.status) }}</StatusBadge>
+            <BaseButton v-if="item.actionKey && item.status !== 'READY'" variant="secondary" size="small" :disabled="!online" @click="goAction(item)">{{ actionLabel(item.actionKey) }}<ArrowRight :size="13" /></BaseButton>
+          </article>
+        </div>
+        <p class="snapshot-note">配置健康观测于 {{ new Date(health.observedAt).toLocaleString('zh-CN') }}</p>
+      </section>
+      <p v-else-if="healthNotice" class="health-notice" role="status">{{ healthNotice }}</p>
+
       <section class="capability-panel panel" aria-labelledby="capability-heading">
         <div class="panel-heading"><div><p class="eyebrow">Capability checklist</p><h2 id="capability-heading">能力与前置条件</h2><p>可继续配置的成员看到明确入口；无权限时展示责任方，不暴露内部错误细节。</p></div><StatusBadge :tone="readiness.requiredReady ? 'success' : 'warning'" dot>{{ readiness.requiredReady ? 'Required ready' : '仍需配置' }}</StatusBadge></div>
         <div class="capability-list" role="list">
@@ -119,6 +166,6 @@ async function goToday(): Promise<void> { await router.push({ name: 'today', que
 </template>
 
 <style scoped>
-.setup-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:28px; min-height:180px; padding:28px; border:1px solid #cfe2d3; border-radius:var(--cs-radius-lg); background:radial-gradient(circle at 88% 4%,rgb(142 213 167 / 28%),transparent 34%),linear-gradient(135deg,#f6fbf7,#e8f4eb); }.setup-hero h2{max-width:680px;margin:8px 0 10px;font:27px/1.18 var(--cs-font-display)}.setup-hero p:last-child{max-width:700px;margin:0;color:var(--cs-text-muted);font-size:12px}.eyebrow{display:flex;align-items:center;gap:6px;color:var(--cs-text-muted);font-size:10px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.setup-progress{display:grid;min-width:190px;gap:4px;padding:15px 17px;border:1px solid rgb(255 255 255 / 68%);border-radius:var(--cs-radius-md);background:rgb(255 255 255 / 72%)}.setup-progress strong{font:28px var(--cs-font-display)}.setup-progress span{color:var(--cs-text-muted);font-size:10px}.setup-progress div{height:6px;margin-top:7px;overflow:hidden;border-radius:999px;background:#d7e7da}.setup-progress i{display:block;height:100%;border-radius:inherit;background:var(--cs-brand-600);transition:width .25s ease}.next-step{display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:13px;padding:15px 18px;border-color:#cde1d1;background:#f7fcf8}.next-step__icon,.capability-card__icon{display:grid;place-items:center;border-radius:11px;background:var(--cs-brand-100);color:var(--cs-brand-700)}.next-step__icon{width:40px;height:40px}.next-step h2{margin:1px 0 2px;font-size:15px}.next-step p:last-child{margin:0;color:var(--cs-text-muted);font-size:10px}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 20px 14px;border-bottom:1px solid var(--cs-border)}.panel-heading h2{margin:3px 0 4px;font-size:17px}.panel-heading p:last-child{margin:0;color:var(--cs-text-muted);font-size:10px}.capability-list{display:grid}.capability-card{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:13px;padding:15px 20px;border-bottom:1px solid var(--cs-border)}.capability-card:last-child{border-bottom:0}.capability-card__icon{width:38px;height:38px}.capability-card--ready .capability-card__icon{background:var(--cs-success-soft);color:var(--cs-success)}.capability-card--blocked .capability-card__icon{background:var(--cs-danger-soft);color:var(--cs-danger)}.capability-card__title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.capability-card h3{margin:0;font-size:13px}.capability-card p{margin:3px 0;color:var(--cs-text-secondary);font-size:10px}.capability-card small{color:var(--cs-text-muted);font-size:9px}.required-mark{padding:2px 5px;border-radius:4px;background:var(--cs-brand-100);color:var(--cs-brand-700);font-size:8px;font-weight:750}.responsibility{display:flex;align-items:center;gap:5px;color:var(--cs-text-muted);font-size:9px;white-space:nowrap}.snapshot-note{margin:10px 2px 0;color:var(--cs-text-muted);font:9px var(--cs-font-mono)}
-@media (max-width:767px){.setup-hero{min-height:220px;align-items:flex-start;flex-direction:column;gap:18px;padding:20px}.setup-hero h2{font-size:23px}.setup-progress{width:100%;min-width:0}.next-step{grid-template-columns:34px 1fr;padding:14px}.next-step>button{grid-column:1/-1;justify-content:center}.capability-card{grid-template-columns:34px minmax(0,1fr);padding:13px 14px}.capability-card__icon{width:34px;height:34px}.capability-card>:last-child:not(.capability-card__body){grid-column:2}.panel-heading{padding:16px 14px}.panel-heading>.status-badge{display:none}}
+.setup-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--cs-space-32); min-height:180px; padding:var(--cs-space-32); border: 1px solid var(--cs-border); border-radius:var(--cs-radius-lg); background: radial-gradient(circle at 88% 4%,var(--cs-hero-glow),transparent 34%),linear-gradient(135deg,var(--cs-surface-accent),var(--cs-surface-accent-strong)); }.setup-hero h2{max-width:680px;margin:var(--cs-space-8) 0 var(--cs-space-12);font:var(--cs-text-xl)/var(--cs-leading-tight) var(--cs-font-display)}.setup-hero p:last-child{max-width:700px;margin:0;color: var(--cs-text-muted);font-size:var(--cs-text-base)}.eyebrow{display:flex;align-items:center;gap:var(--cs-space-8);color: var(--cs-text-muted);font-size:var(--cs-text-sm);font-weight:var(--cs-weight-semibold);letter-spacing:.08em;text-transform:uppercase}.setup-progress{display:grid;min-width:190px;gap:var(--cs-space-4);padding:var(--cs-space-16) var(--cs-space-16);border: 1px solid var(--cs-border-translucent);border-radius:var(--cs-radius-md);background: var(--cs-surface-glass)}.setup-progress strong{font:var(--cs-text-2xl) var(--cs-font-display)}.setup-progress span{color: var(--cs-text-muted);font-size:var(--cs-text-sm)}.setup-progress div{height:6px;margin-top:var(--cs-space-8);overflow:hidden;border-radius:999px;background: var(--cs-border)}.setup-progress i{display:block;height:100%;border-radius:inherit;background: var(--cs-brand-600);transition:width var(--cs-motion-slow) var(--cs-ease-out)}.next-step{display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:var(--cs-space-12);padding:var(--cs-space-16) var(--cs-space-20);border-color: var(--cs-border);background: var(--cs-surface-accent)}.next-step__icon,.capability-card__icon{display:grid;place-items:center;border-radius:11px;background: var(--cs-surface-accent-strong);color: var(--cs-text-brand)}.next-step__icon{width:40px;height:40px}.next-step h2{margin:var(--cs-space-2) 0 var(--cs-space-2);font-size:var(--cs-text-md)}.next-step p:last-child{margin:0;color: var(--cs-text-muted);font-size:var(--cs-text-sm)}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--cs-space-16);padding:var(--cs-space-20) var(--cs-space-20) var(--cs-space-16);border-bottom: 1px solid var(--cs-border)}.panel-heading h2{margin:var(--cs-space-4) 0 var(--cs-space-4);font-size:var(--cs-text-lg)}.panel-heading p:last-child{margin:0;color: var(--cs-text-muted);font-size:var(--cs-text-sm)}.capability-list{display:grid}.capability-card{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:var(--cs-space-12);padding:var(--cs-space-16) var(--cs-space-20);border-bottom: 1px solid var(--cs-border)}.capability-card:last-child{border-bottom: 0}.capability-card__icon{width:38px;height:38px}.capability-card--ready .capability-card__icon{background: var(--cs-success-soft);color: var(--cs-success)}.capability-card--blocked .capability-card__icon{background: var(--cs-danger-soft);color: var(--cs-danger)}.capability-card__title{display:flex;align-items:center;gap:var(--cs-space-8);flex-wrap:wrap}.capability-card h3{margin:0;font-size:var(--cs-text-base)}.capability-card p{margin:var(--cs-space-4) 0;color: var(--cs-text-secondary);font-size:var(--cs-text-sm)}.capability-card small{color: var(--cs-text-muted);font-size:var(--cs-text-xs)}.required-mark{padding:var(--cs-space-2) var(--cs-space-4);border-radius:4px;background: var(--cs-surface-accent-strong);color: var(--cs-text-brand);font-size:var(--cs-text-xs);font-weight:var(--cs-weight-semibold)}.responsibility{display:flex;align-items:center;gap:var(--cs-space-4);color: var(--cs-text-muted);font-size:var(--cs-text-xs);white-space:nowrap}.snapshot-note{margin:var(--cs-space-12) var(--cs-space-2) 0;color: var(--cs-text-muted);font:var(--cs-text-xs) var(--cs-font-mono)}.health-panel{overflow:hidden}.health-list{display:grid}.health-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:var(--cs-space-12);min-height:var(--cs-density-control-height);padding:var(--cs-space-12) var(--cs-space-20);border-bottom: 1px solid var(--cs-border)}.health-row:last-child{border-bottom:0}.health-row h3{margin:0;font-size:var(--cs-text-base)}.health-row small{display:block;margin-top:var(--cs-space-4);color: var(--cs-text-muted);font-size:var(--cs-text-xs)}.health-notice{margin:0;padding:var(--cs-space-12) var(--cs-space-16);border: 1px solid var(--cs-border);border-radius:var(--cs-radius-md);background: var(--cs-surface-subtle);color: var(--cs-text-muted);font-size:var(--cs-text-sm)}
+@media (max-width:767px){.setup-hero{min-height:220px;align-items:flex-start;flex-direction:column;gap:var(--cs-space-20);padding:var(--cs-space-20)}.setup-hero h2{font-size:var(--cs-text-xl)}.setup-progress{width:100%;min-width:0}.next-step{grid-template-columns:34px 1fr;padding:var(--cs-space-16)}.next-step>button{grid-column:1/-1;justify-content:center}.capability-card{grid-template-columns:34px minmax(0,1fr);padding:var(--cs-space-12) var(--cs-space-16)}.capability-card__icon{width:34px;height:34px}.capability-card>:last-child:not(.capability-card__body){grid-column:2}.panel-heading{padding:var(--cs-space-16) var(--cs-space-16)}.panel-heading>.status-badge{display:none}.health-row{grid-template-columns:minmax(0,1fr);padding:var(--cs-space-12) var(--cs-space-16)}.health-row>:last-child{justify-self:start}}
 </style>

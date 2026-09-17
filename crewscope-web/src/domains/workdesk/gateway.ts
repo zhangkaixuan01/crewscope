@@ -1,4 +1,7 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { safeRoute } from '../shared/route'
+import { readAvailableTransition } from '../workitem/availability'
+import type { WorkItemAvailableTransition } from '../workitem/types'
 import { workDeskResponsibilityRoles, type WorkDeskFilter, type WorkDeskItem, type WorkDeskScope, type WorkDeskSection, type WorkDeskSummary } from './types'
 
 export interface WorkDeskGateway {
@@ -56,13 +59,26 @@ function mapItem(input: unknown): WorkDeskItem {
     objectType: string(value.objectType), objectId: string(value.objectId), projectId: nullableString(value.projectId),
     title: nullableString(value.title), status: string(value.status), updatedAt: string(value.updatedAt),
     responsibilityRole: role as WorkDeskItem['responsibilityRole'], needsAction: boolean(value.needsAction),
-    urgency: string(value.urgency), progress, availableActions: array(value.availableActions).map(string), route,
+    urgency: string(value.urgency), progress, availableActions: readActions(value.availableActions), route,
   }
 }
 
-export function safeRoute(value: string): boolean {
-  return value.startsWith('/') && !value.startsWith('//') && !value.includes('..') && !value.includes('\\') && !/[\s#%]/.test(value)
+/**
+ * Reads the executable actions of one row.
+ *
+ * A disabled entry here means the server sent something the WorkDesk contract does not allow — this
+ * surface offers only what can be executed, so an entry whose reason a list row cannot render must
+ * fail loudly instead of becoming a dead button. The per-object endpoint remains the place where
+ * disabled actions and their reasons arrive.
+ */
+function readActions(input: unknown): WorkItemAvailableTransition[] {
+  return array(input).map(entry => {
+    const action = readAvailableTransition(entry)
+    if (!action.enabled) throw new TypeError('WorkDesk action must be executable')
+    return action
+  })
 }
+
 function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid WorkDesk response'); return value as Record<string, unknown> }
 function array(value: unknown): unknown[] { if (!Array.isArray(value)) throw new TypeError('Invalid WorkDesk collection'); return value }
@@ -70,3 +86,5 @@ function string(value: unknown): string { if (typeof value !== 'string' || value
 function nullableString(value: unknown): string | null { return value == null ? null : string(value) }
 function boolean(value: unknown): boolean { if (typeof value !== 'boolean') throw new TypeError('Invalid WorkDesk boolean'); return value }
 function integer(value: unknown): number { if (!Number.isInteger(value) || Number(value) < 0) throw new TypeError('Invalid WorkDesk number'); return Number(value) }
+
+export { safeRoute }

@@ -22,7 +22,7 @@ describe('ConversationTaskCards', () => {
     expect(wrapper.findAll('.conversation-task-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('执行中')
     expect(wrapper.text()).toContain('等待中')
-    expect(wrapper.text()).toContain('等待原因 · WAITING_APPROVAL')
+    expect(wrapper.text()).toContain('等待原因 · 等待人工确认')
     expect(wrapper.text()).toContain('实时')
     expect(wrapper.text()).toContain('正在重连')
     expect(wrapper.text()).not.toMatch(/claimToken|taskToken|credential|reasoning/i)
@@ -69,7 +69,7 @@ function fixtures(): TaskAssociationSummary[] {
   const [first, second] = structuredClone(fixtureTasks[fixtureIds.teamPlatform]!)
   second!.status = 'WAITING'
   second!.currentExecutionStatus = 'WAITING'
-  second!.currentWaitingReason = 'WAITING_APPROVAL'
+  second!.currentWaitingReason = 'CONFIRMATION'
   return [first!, second!].map((task, index) => ({
     origin: index === 0 ? 'CONVERSATION_SOURCE' : 'WORK_ITEM_ROOT',
     associatedAt: task.createdAt,
