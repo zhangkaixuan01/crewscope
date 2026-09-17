@@ -20,7 +20,9 @@
 
 CrewScope 将技术团队的对话目标转化为可执行、可协作、可追踪的工作闭环。每位成员拥有代表自己的 Personal Agent；Team Agent 提供共享团队视野；Coding、Reviewer 等 Specialist Agent 承担专业执行；人始终负责目标、授权、Review 和最终决策。
 
-当前 **Team Beta MVP** 已完成 M0–M7 全部里程碑，[M6 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md) 已正式关闭，[M7 开放用户体系 Release Gate](docs/testing/M7-Q04-Release-Gate.md) 的本机与 Linux amd64 Server RC 结论均为 `PASS`。平台提供正式注册、登录、服务端 Session、首次 Team Onboarding、账号安全和团队邀请入口，并已通过 OPEN、INVITE_ONLY、DISABLED 三种注册 Profile 的真实生产链路验证。
+当前 **Team Beta MVP** 的 M0–M9 工作包均已交付（`M9-Q02` 的真实环境验收保持待执行）。[M6 MVP Release Gate](docs/testing/M6-Q04-MVP-Release-Gate.md) 已正式关闭，[M7 开放用户体系 Release Gate](docs/testing/M7-Q04-Release-Gate.md) 的本机与 Linux amd64 Server RC 结论均为 `PASS`，M8 交付 Setup Center、职责收口、依赖治理与运维可观测。平台提供正式注册、登录、服务端 Session、首次 Team Onboarding、账号安全和团队邀请入口，并已通过 OPEN、INVITE_ONLY、DISABLED 三种注册 Profile 的真实生产链路验证。
+
+M9 完成全站产品体验重构：设计系统 v2 令牌、个人工作台首页、**状态徽章即动作入口**的四呈现面动作模型、Diff 语法高亮与行级 Review 评论、配置体验重构与十二项体验门禁。收口证据见 [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)，本机发布预检与待执行项见 [M9-Q02 Release Gate](docs/testing/M9-Q02-Release-Gate.md)。
 
 ![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
@@ -46,6 +48,7 @@ flowchart LR
 |---|---|
 | 对话式工作执行 | 从 Conversation、澄清问题和 TaskIntent 进入 Native WorkItem 与持久化 TaskExecution |
 | 团队协作 | 明确 Owner、Executor、Gate Reviewer、Handoff、Takeover 与同级 Review，成员共享工作上下文 |
+| 可解释的动作 | 状态徽章即动作入口，列表行、看板卡片、详情抽屉与首页卡片共用同一动作模型与撤销窗口；服务端为每个动作给出 `enabled`、稳定 `reason` 与站内 `remedy` |
 | 原生 Agent Runtime | 基于 AgentScope Java `HarnessAgent`、Model、Toolkit、Skill、Middleware、State 和 AG-UI 构建 Personal、Team 与 Specialist Agent |
 | Coding 闭环 | Git 镜像与 Worktree、Docker Sandbox、计划版本、Checkpoint、DiffArtifact、TestEvidence 和 Draft PR |
 | Human-in-the-loop | 高风险外部副作用进入 PlannedAction、授权、Human Gate、Receipt 与 Reconcile 链路 |
@@ -99,7 +102,7 @@ flowchart TB
 - Java 17、Spring Boot 4.0.6、Maven
 - AgentScope Java 2.0.0
 - PostgreSQL 17、Redis 7.4、Flyway
-- Vue 3、TypeScript、Vite、pnpm、Vitest、Playwright、Histoire
+- Vue 3.5、TypeScript 5.9、Vite 7、pnpm 11、Vitest 4、Playwright、Histoire
 - Docker Compose、OpenTelemetry、Prometheus
 
 ## 运行与部署方式
@@ -433,7 +436,7 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 完整发布证据见 [M7-Q04 Release Gate](docs/testing/M7-Q04-Release-Gate.md)，前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
 
-README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release Gate 文档记录的 Git Revision、Artifact 和 CI Run；它们不会随当前工作区自动更新。当前前端全生产代码 Coverage 基线、Q01 分层门禁和验证命令见 [M8-Q01 质量反馈与分层门禁](docs/testing/M8-Q01-质量反馈与分层门禁.md)。
+README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release Gate 文档记录的 Git Revision、Artifact 和 CI Run；它们不会随当前工作区自动更新。当前前端全生产代码 Coverage 基线、分层门禁和验证命令见 [M8-Q01 质量反馈与分层门禁](docs/testing/M8-Q01-质量反馈与分层门禁.md)；M9 的十二项体验门禁、计数式基线与当前回归值见 [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)。
 
 本地执行完整 Release Gate：
 
@@ -449,12 +452,14 @@ README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release 
 - [实施计划](docs/CrewScope-实施计划.md)
 - [前端设计规范](docs/CrewScope-前端设计规范.md)
 - [里程碑执行清单](docs/plans/README.md)
+- [M9 产品体验重构与设计系统](docs/plans/M9-产品体验重构与设计系统.md)
+- [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)
 - [架构决策记录](docs/adr/README.md)
 - [Team Beta 运维手册](docs/runbooks/Team-Beta单机运维手册.md)
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机十服务部署、HTTPS、外部 Secret、受限 Sandbox 执行、告警、备份与空目标恢复合同。M8 已完成 Setup Center、职责重构、依赖治理和 Tag/GHCR 正式发行基础，下一阶段继续完成运维可观测与执行隔离收口。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
+当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机十服务部署、HTTPS、外部 Secret、受限 Sandbox 执行、告警、备份与空目标恢复合同。M8 已完成 Setup Center、职责收口、依赖治理、运维可观测与执行隔离收口；M9 已完成全站产品体验重构与十二项体验门禁，仅剩 `M9-Q02` 的真实环境验收与规模实测待执行。正式镜像发行（GHCR、Cosign、SBOM、Provenance 与受保护 Tag）标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`，待产品稳定后处理；下一阶段进入 M10 的 Agent 知识与记忆闭环。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
 
 ## 参与贡献
 
