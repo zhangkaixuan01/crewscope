@@ -16,26 +16,14 @@ public record SafeModelGenerateOptions(
         Optional<Long> seed,
         int maximumAttempts) {
 
-    public static final long MAXIMUM_OUTPUT_TOKEN_CEILING = 10_000_000;
-    public static final int MAXIMUM_ATTEMPTS_CEILING = 10;
-
     public SafeModelGenerateOptions {
-        temperature = normalizeDecimal(temperature, "temperature", BigDecimal.ZERO, new BigDecimal("2"), true);
-        topP = normalizeDecimal(topP, "topP", BigDecimal.ZERO, BigDecimal.ONE, false);
-        maximumOutputTokens = Objects.requireNonNull(maximumOutputTokens, "maximumOutputTokens");
-        maximumOutputTokens.ifPresent(value -> {
-            if (value < 1 || value > MAXIMUM_OUTPUT_TOKEN_CEILING) {
-                throw new DomainValidationException(
-                        "agentConfiguration.generateOptions.maximumOutputTokens",
-                        "must be between 1 and " + MAXIMUM_OUTPUT_TOKEN_CEILING);
-            }
-        });
+        temperature = normalizeDecimal(temperature, AgentGenerateOptionsLimits.TEMPERATURE);
+        topP = normalizeDecimal(topP, AgentGenerateOptionsLimits.TOP_P);
+        maximumOutputTokens = normalizeInteger(maximumOutputTokens, AgentGenerateOptionsLimits.MAXIMUM_OUTPUT_TOKENS);
         reasoningMode = Objects.requireNonNull(reasoningMode, "reasoningMode");
         seed = Objects.requireNonNull(seed, "seed");
-        if (maximumAttempts < 1 || maximumAttempts > MAXIMUM_ATTEMPTS_CEILING) {
-            throw new DomainValidationException(
-                    "agentConfiguration.generateOptions.maximumAttempts",
-                    "must be between 1 and " + MAXIMUM_ATTEMPTS_CEILING);
+        if (!AgentGenerateOptionsLimits.MAXIMUM_ATTEMPTS.accepts(maximumAttempts)) {
+            throw outsideRange(AgentGenerateOptionsLimits.MAXIMUM_ATTEMPTS);
         }
     }
 
@@ -68,24 +56,38 @@ public record SafeModelGenerateOptions(
 
     private static Optional<BigDecimal> normalizeDecimal(
             Optional<BigDecimal> value,
-            String field,
-            BigDecimal minimum,
-            BigDecimal maximum,
-            boolean includeMinimum) {
-        Optional<BigDecimal> required = Objects.requireNonNull(value, field);
+            AgentGenerateOptionsLimits.Limit limit) {
+        Optional<BigDecimal> required = Objects.requireNonNull(value, limit.field());
         if (required.isEmpty()) {
             return Optional.empty();
         }
-        BigDecimal normalized = Objects.requireNonNull(required.orElseThrow(), field)
+        BigDecimal normalized = Objects.requireNonNull(required.orElseThrow(), limit.field())
                 .stripTrailingZeros();
-        boolean belowMinimum = includeMinimum
-                ? normalized.compareTo(minimum) < 0
-                : normalized.compareTo(minimum) <= 0;
-        if (belowMinimum || normalized.compareTo(maximum) > 0) {
-            throw new DomainValidationException(
-                    "agentConfiguration.generateOptions." + field,
-                    "is outside the allowed provider-neutral range");
+        if (!limit.accepts(normalized)) {
+            throw outsideRange(limit);
         }
         return Optional.of(normalized);
+    }
+
+    private static Optional<Long> normalizeInteger(
+            Optional<Long> value,
+            AgentGenerateOptionsLimits.Limit limit) {
+        Optional<Long> required = Objects.requireNonNull(value, limit.field());
+        required.ifPresent(present -> {
+            if (!limit.accepts(present)) {
+                throw outsideRange(limit);
+            }
+        });
+        return required;
+    }
+
+    /**
+     * One rejection message for every bound, so the sentence a member reads in the form and the
+     * sentence the server answers a rejected command with come from the same numbers.
+     */
+    private static DomainValidationException outsideRange(AgentGenerateOptionsLimits.Limit limit) {
+        return new DomainValidationException(
+                "agentConfiguration.generateOptions." + limit.field(),
+                "must be between " + limit.minimum() + " and " + limit.maximum());
     }
 }
