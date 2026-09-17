@@ -55,7 +55,8 @@ public class JpaReviewLineCommentRepositoryAdapter implements ReviewLineCommentR
                        item.anchorState = :anchorState,
                        item.deleted = :deleted,
                        item.version = :version,
-                       item.idempotencyKey = :idempotencyKey,
+                       /* The create key is immutable: an update must not free it for reuse. */
+                       item.lastCommandIdempotencyKey = :lastCommandKey,
                        item.updatedAt = :updatedAt,
                        item.updatedBy = :updatedBy
                  WHERE item.organizationId = :organizationId
@@ -75,7 +76,7 @@ public class JpaReviewLineCommentRepositoryAdapter implements ReviewLineCommentR
                 .setParameter("anchorState", value.anchorState().name())
                 .setParameter("deleted", value.deleted())
                 .setParameter("version", value.version())
-                .setParameter("idempotencyKey", Objects.requireNonNull(idempotencyKey, "idempotencyKey"))
+                .setParameter("lastCommandKey", Objects.requireNonNull(idempotencyKey, "idempotencyKey"))
                 .setParameter("updatedAt", audit.updatedAt().value())
                 .setParameter("updatedBy", audit.updatedBy().orElse(value.authorPrincipalId()).value())
                 .setParameter("organizationId", scope.organizationId().value())
@@ -119,7 +120,13 @@ public class JpaReviewLineCommentRepositoryAdapter implements ReviewLineCommentR
 
     @Override @Transactional(readOnly = true)
     public Optional<ReviewLineComment> findByIdempotencyKey(OrganizationId organizationId, String key) {
-        return entityManager.createQuery("SELECT v FROM ReviewLineCommentEntity v WHERE v.organizationId = :org AND v.idempotencyKey = :key", ReviewLineCommentEntity.class)
+        /*
+         * Both slots: a create replay matches the immutable create key, an edit replay matches the
+         * newest update key. Reusing either key for the opposite command therefore also lands here,
+         * where the command service compares the stored comment against the request and refuses it.
+         */
+        return entityManager.createQuery("SELECT v FROM ReviewLineCommentEntity v WHERE v.organizationId = :org"
+                + " AND (v.idempotencyKey = :key OR v.lastCommandIdempotencyKey = :key)", ReviewLineCommentEntity.class)
                 .setParameter("org", organizationId.value()).setParameter("key", key).getResultStream().findFirst().map(this::toDomain);
     }
 
@@ -145,7 +152,7 @@ public class JpaReviewLineCommentRepositoryAdapter implements ReviewLineCommentR
                 v.reviewRequestId().value(), a.location().path().value(), a.side().name(),
                 a.location().startLine(), a.hunkHeader(), a.lineContentHash().value(),
                 a.diffGeneration().value(), v.content(), v.authorPrincipalId().value(),
-                v.anchorState().name(), v.deleted(), v.version(), key, audit.createdAt().value(),
+                v.anchorState().name(), v.deleted(), v.version(), key, null, audit.createdAt().value(),
                 audit.createdBy().orElse(v.authorPrincipalId()).value(), audit.updatedAt().value(),
                 audit.updatedBy().orElse(v.authorPrincipalId()).value());
     }
