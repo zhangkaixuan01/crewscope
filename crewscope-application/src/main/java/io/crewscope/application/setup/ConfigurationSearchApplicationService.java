@@ -79,13 +79,20 @@ public final class ConfigurationSearchApplicationService {
                 || configuration.templateVersion().key().value().toLowerCase(Locale.ROOT).contains(term)) {
             results.add(new ConfigurationSearchResult(profile.id().toString(),
                     configuration.revision().value(), field, label,
-                    "/settings/agents?agentId=" + profile.id()));
+                    "/settings/agents?agent=" + profile.id()));
         }
     }
 
+    /*
+     * The HTTP boundary validates the same range and reports `invalid_request`; this guard is the
+     * application-side precondition. It throws a domain error rather than a bare
+     * `IllegalArgumentException`, which the API error handler has no mapping for and would surface
+     * as an internal error.
+     */
     private static String requireQuery(String query) {
         if (query == null || query.strip().length() < 1 || query.strip().length() > 100) {
-            throw new IllegalArgumentException("query must contain between 1 and 100 characters");
+            throw new io.crewscope.domain.shared.error.DomainValidationException(
+                    "q", "must contain between 1 and 100 characters");
         }
         return query.strip().toLowerCase(Locale.ROOT);
     }

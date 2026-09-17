@@ -101,10 +101,11 @@ public final class TeamSetupReadinessController {
             throw new IllegalStateException("configuration search is not configured");
         }
         Route route = route(organizationId, teamId);
+        String term = query(q);
         UUID correlationId = ApiCorrelationIds.resolve(exchange);
         return identityResolver.resolve(authentication, route.organizationId(), correlationId)
                 .flatMap(access -> blocking(() -> configurationSearch.search(
-                        access, route.organizationId(), route.teamId(), q)))
+                        access, route.organizationId(), route.teamId(), term)))
                 .map(value -> ResponseEntity.ok().cacheControl(CacheControl.noStore())
                         .body(ConfigurationSearchResponse.from(value)));
     }
@@ -141,6 +142,23 @@ public final class TeamSetupReadinessController {
                     "Request contains an invalid runtime environment",
                     Map.of("field", "environment"));
         }
+    }
+
+    /**
+     * The A06 search contract bounds `q` to 1-100 characters. The application service carries the
+     * same precondition, but a bare precondition failure there has no API mapping; validating here
+     * keeps a padded or oversized query on the documented `invalid_request` path.
+     */
+    private static String query(String value) {
+        String term = value == null ? "" : value.strip();
+        if (term.isEmpty() || term.length() > 100) {
+            throw new ApiRequestException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "invalid_request",
+                    "Request contains an invalid configuration query",
+                    Map.of("field", "q"));
+        }
+        return term;
     }
 
     private static Route route(String organization, String team) {
