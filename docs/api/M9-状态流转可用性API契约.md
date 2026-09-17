@@ -281,4 +281,3 @@ Pause 停在 `PAUSE_REQUESTED`（Worker 还要走到安全点）、Cancel 停在
 
 - `resume` 与 `retry` 还需要**一个被中断的 AgentRun 及其匹配的待决 interrupt**，那是另外的聚合。投影在 execution 事实允许时报「可用」，命令仍可能因缺少该运行时事实而拒绝。这条缺口记录在 `TaskControlAvailabilityProjector` 的类注释里。
 - Task 面**不产出 `remedy`**：`TaskControlAction.disabled(...)` 没有携带 remedy 的重载，成员不能替自己解决控制权或状态问题，指向一个改变不了结果的页面比不给坐标更差（与 Review 面 `DUTY_SEPARATION_CONFLICT` 的处理同理）。`TransitionRemedy` 目前**唯一**的真实生产者仍是 Review 面的 `REVIEWER_REQUIRED`。
-

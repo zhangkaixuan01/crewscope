@@ -16,4 +16,3 @@ describe('useSelection', () => {
     expect(selection.selectedItems.value).toEqual([{ id: 'c' }])
   })
 })
-

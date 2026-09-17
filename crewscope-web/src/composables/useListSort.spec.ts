@@ -15,4 +15,3 @@ describe('useListSort', () => {
     expect(sort.state.value).toEqual({ key: 'updatedAt', direction: 'asc' })
   })
 })
-

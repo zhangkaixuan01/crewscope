@@ -290,5 +290,3 @@ function notFound(route: Route) {
     body: JSON.stringify({ code: 'not_found', message: 'Not found', correlationId: 'corr-404', retryable: false, currentVersion: null, details: {} }),
   })
 }
-
-

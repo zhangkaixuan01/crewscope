@@ -55,4 +55,3 @@ export function useListSort<Key extends string>(options: UseListSortOptions<Key>
 
   return { key, direction, state, setSort, toggleSort, reset, query }
 }
-

@@ -11,4 +11,3 @@ describe('formatRelativeTime', () => {
     expect(formatAbsoluteTime('invalid')).toBe('时间未知')
   })
 })
-
