@@ -21,6 +21,7 @@ import io.crewscope.application.review.ReviewFindingBatchRecorder;
 import io.crewscope.application.review.ReviewFindingObservationRepository;
 import io.crewscope.application.review.ReviewFindingRepository;
 import io.crewscope.application.review.ReviewGateApplicationService;
+import io.crewscope.application.review.ReviewGateAvailabilityProjector;
 import io.crewscope.application.review.ReviewModificationRoundRepository;
 import io.crewscope.application.review.ReviewQueryRepository;
 import io.crewscope.application.review.ReviewRequestApplicationService;
@@ -118,6 +119,8 @@ public class ReviewApplicationConfiguration {
             ReviewModificationRoundRepository rounds,
             ReviewQueryRepository queries,
             ContextPackageBuilder contextBuilder,
+            ReviewGateAvailabilityProjector gateAvailability,
+            GateReviewerPolicyProvider reviewerPolicies,
             ReviewEventPublisher reviewEvents,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
@@ -125,8 +128,13 @@ public class ReviewApplicationConfiguration {
         return new ReviewRequestApplicationService(
                 accessPolicy, tasks, executions, diffs, tests, commands, policies,
                 principals, profiles, memberships, assignments, subjects, contexts, requests,
-                findings, decisions, rounds, queries, contextBuilder, reviewEvents,
-                receipts, transactions, timeProvider);
+                findings, decisions, rounds, queries, contextBuilder, gateAvailability,
+                reviewerPolicies, reviewEvents, receipts, transactions, timeProvider);
+    }
+
+    @Bean
+    ReviewGateAvailabilityProjector reviewGateAvailabilityProjector() {
+        return new ReviewGateAvailabilityProjector();
     }
 
     @Bean

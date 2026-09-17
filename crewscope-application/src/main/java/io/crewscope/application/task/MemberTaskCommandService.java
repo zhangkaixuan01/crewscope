@@ -432,12 +432,9 @@ public final class MemberTaskCommandService {
             TeamCommandContext context,
             UtcTimestamp occurredAt) {
         boolean paused = state.execution().status() == TaskExecutionStatus.PAUSED;
-        boolean approvalWaiting = state.execution().status() == TaskExecutionStatus.WAITING
-                && state.execution().waiting()
-                        .map(io.crewscope.domain.task.TaskExecutionWaiting::reason)
-                        .filter(io.crewscope.domain.task.TaskExecutionWaitReason.CONFIRMATION::equals)
-                        .isPresent();
-        if (!paused && !approvalWaiting) {
+        // canResume() is the aggregate's own status half of this precondition, shared verbatim with
+        // the availability projection; only the runtime half below is decided here.
+        if (!state.execution().canResume()) {
             throw new InvalidStateTransitionException(
                     "TaskExecution",
                     state.execution().id(),
@@ -653,14 +650,9 @@ public final class MemberTaskCommandService {
 
     private static void requireControlAuthority(
             Principal actor, List<ResponsibilityAssignment> assignments) {
-        boolean authorized = assignments.stream()
-                .filter(ResponsibilityAssignment::isActive)
-                .filter(value -> value.role() == ResponsibilityRole.OWNER
-                        || value.role() == ResponsibilityRole.EXECUTOR)
-                .anyMatch(value -> value.actorPrincipalId().equals(actor.id()));
-        if (!authorized) {
-            throw new PolicyDeniedException("control this Task");
-        }
+        // The rule itself lives in TaskControlAuthority so the availability projection and this
+        // command cannot drift into disagreeing about who may control an attempt.
+        TaskControlAuthority.require(actor.id(), assignments);
     }
 
     private static MemberTaskCommandAccepted payload(MemberTaskCommandResult result) {

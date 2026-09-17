@@ -1,5 +1,7 @@
 package io.crewscope.server.api;
 
+import io.crewscope.application.task.TaskAttempt;
+import io.crewscope.application.task.TaskControlAction;
 import io.crewscope.application.task.TaskDetails;
 import io.crewscope.application.task.TaskListCursor;
 import io.crewscope.application.task.TaskListItem;
@@ -396,8 +398,32 @@ public final class TaskQueryController {
             UUID executorPrincipalId,
             UUID currentPlanVersionId,
             long version,
-            AuditResponse audit) {
-        static TaskExecutionResponse from(TaskExecution value) {
+            AuditResponse audit,
+            List<AvailableActionResponse> availableActions) {
+        /**
+         * One attempt, with the control actions the server adjudicated for the requesting member.
+         *
+         * <p>The list is always complete — a disabled command keeps its entry and its reason — because
+         * a control bar that renders only live buttons cannot explain the ones it hides. The element
+         * type is shared with every other action-bearing surface.
+         */
+        static TaskExecutionResponse from(TaskAttempt attempt) {
+            return from(attempt.execution(), attempt.availableActions());
+        }
+
+        /**
+         * The same attempt without an adjudication, for responses that do not ask for one.
+         *
+         * <p>Runtime facts is a diagnostic read of the runtime aggregates, not a control surface, and
+         * it does not resolve the member's responsibilities. {@code null} says so, rather than an
+         * empty list that would claim every command was refused.
+         */
+        static TaskExecutionResponse withoutAvailability(TaskExecution value) {
+            return from(value, null);
+        }
+
+        static TaskExecutionResponse from(
+                TaskExecution value, List<TaskControlAction> availableActions) {
             return new TaskExecutionResponse(
                     value.id().value(),
                     value.attempt(),
@@ -417,8 +443,26 @@ public final class TaskQueryController {
                             .map(id -> id.value())
                             .orElse(null),
                     value.version(),
-                    AuditResponse.from(value.audit()));
+                    AuditResponse.from(value.audit()),
+                    availableActions == null
+                            ? null
+                            : availableActions.stream()
+                                    .map(TaskQueryController::response)
+                                    .toList());
         }
+    }
+
+    /** Maps one adjudicated Task control command onto the shared wire shape. */
+    static AvailableActionResponse response(TaskControlAction value) {
+        return AvailableActionResponse.of(
+                value.actionId(),
+                value.targetStatus().name(),
+                value.label(),
+                value.strength().name(),
+                value.reversible(),
+                value.enabled(),
+                value.reason().orElse(null),
+                value.remedy().orElse(null));
     }
 
     public record WaitingResponse(String reason, Instant waitingSince) {
@@ -466,7 +510,7 @@ public final class TaskQueryController {
             List<ExecutionLeaseResponse> leases) {
         static TaskRuntimeFactsResponse from(TaskRuntimeFacts facts) {
             return new TaskRuntimeFactsResponse(
-                    TaskExecutionResponse.from(facts.execution()),
+                    TaskExecutionResponse.withoutAvailability(facts.execution()),
                     facts.planVersions().stream().map(PlanVersionResponse::from).toList(),
                     facts.steps().stream().map(StepExecutionResponse::from).toList(),
                     facts.sessions().stream().map(AgentSessionResponse::from).toList(),

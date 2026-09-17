@@ -8,6 +8,7 @@ import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
+import io.crewscope.domain.responsibility.ReviewerResponsibility;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.team.TeamCommandContext;
@@ -151,21 +152,14 @@ public final class ReviewGateApplicationService {
                             "TeamMember", trusted.access().actor().id()));
             var currentAssignments = assignments.findActiveByWorkItem(
                     organizationId, task.workItemId());
-            // Receipt replay never bypasses current Reviewer assignment or separation policy.
+            // Receipt replay never bypasses current Reviewer assignment or separation policy. Both
+            // guards read the shared rules, so the availability projection that offered this action
+            // can never have used a different one.
+            ReviewerResponsibility.requireGateReviewer(
+                    currentAssignments, trusted.access().actor().id(), reviewerMember.id());
             policies.resolve(item).evaluateGate(
                     item, trusted.access().actor(), reviewerMember,
                     teamMembers, currentAssignments);
-            boolean currentlyAssigned = currentAssignments.stream().anyMatch(value ->
-                    value.isActive()
-                            && value.role()
-                            == io.crewscope.domain.responsibility.ResponsibilityRole.REVIEWER
-                            && value.actorPrincipalId().equals(trusted.access().actor().id())
-                            && value.actorMemberId().filter(reviewerMember.id()::equals).isPresent());
-            if (!currentlyAssigned) {
-                throw new io.crewscope.domain.shared.error.DomainValidationException(
-                        "reviewDecision.reviewerMemberId",
-                        "must hold the current active USER Reviewer assignment");
-            }
             var replay = receipts.findCompleted(
                     organizationId, trusted.idempotencyKey(), RECORD_DECISION, hash);
             if (replay.isPresent()) {

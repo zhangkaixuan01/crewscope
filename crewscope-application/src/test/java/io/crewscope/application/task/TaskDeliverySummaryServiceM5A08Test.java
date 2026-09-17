@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import io.crewscope.application.action.ActionBundleView;
 import io.crewscope.application.action.ActionDeliveryApplicationService;
 import io.crewscope.application.review.ReviewRequestApplicationService;
+import io.crewscope.application.review.ReviewRequestAvailability;
 import io.crewscope.application.review.ReviewRequestProjection;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -95,7 +96,7 @@ class TaskDeliverySummaryServiceM5A08Test {
         ReviewRequestProjection projection = reviewProjection();
         ActionBundleView action = actionView();
         when(reviews.list(access, organizationId, teamId, taskId, executionId))
-                .thenReturn(List.of(projection));
+                .thenReturn(List.of(new ReviewRequestAvailability(projection, List.of())));
         when(actions.list(access, organizationId, teamId, taskId, executionId))
                 .thenReturn(List.of(action));
     }

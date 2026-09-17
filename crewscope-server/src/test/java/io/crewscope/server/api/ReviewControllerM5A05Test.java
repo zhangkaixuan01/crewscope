@@ -8,7 +8,11 @@ import static org.mockito.Mockito.when;
 
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.availability.TransitionRemedy;
 import io.crewscope.application.review.ReviewGateApplicationService;
+import io.crewscope.application.review.ReviewGateAvailabilityProjector;
+import io.crewscope.application.review.ReviewGateFacts;
+import io.crewscope.application.review.ReviewRequestAvailability;
 import io.crewscope.application.review.ReviewRequestApplicationService;
 import io.crewscope.application.review.ReviewRequestProjection;
 import io.crewscope.application.review.ReviewerExecutionApplicationService;
@@ -109,7 +113,8 @@ class ReviewControllerM5A05Test {
                 TaskFactHash.sha256("context"), 3, 1, 0, 2,
                 Optional.empty(), Optional.empty(), Optional.empty(), 1, NOW);
         when(requests.list(any(), any(), any(), any(), any()))
-                .thenReturn(List.of(projection));
+                .thenReturn(List.of(new ReviewRequestAvailability(
+                        projection, new ReviewGateAvailabilityProjector().all(gateFacts()))));
 
         client.get()
                 .uri(base())
@@ -121,6 +126,14 @@ class ReviewControllerM5A05Test {
                 .jsonPath("$.items[0].status").isEqualTo("COMPLETED")
                 .jsonPath("$.items[0].contextHash")
                 .isEqualTo(projection.contextHash().toString())
+                // A COMPLETED request with a separated, assigned Gate reviewer publishes one
+                // executable action per Gate conclusion, and no status the control cannot reach.
+                .jsonPath("$.items[0].availableActions[0].actionId").isEqualTo("execute")
+                .jsonPath("$.items[0].availableActions[0].enabled").isEqualTo(false)
+                .jsonPath("$.items[0].availableActions[0].reason").isEqualTo("STATUS_NOT_ALLOWED")
+                .jsonPath("$.items[0].availableActions[1].actionId").isEqualTo("decide")
+                .jsonPath("$.items[0].availableActions[1].enabled").isEqualTo(true)
+                .jsonPath("$.items[0].availableActions[1].targetStatus").isEqualTo("COMPLETED")
                 .jsonPath("$.items[0].patch").doesNotExist()
                 .jsonPath("$.items[0].prompt").doesNotExist()
                 .jsonPath("$.items[0].credential").doesNotExist();
@@ -183,6 +196,16 @@ class ReviewControllerM5A05Test {
     private CommandReceipt receipt(long version) {
         return new CommandReceipt(
                 UUID.randomUUID(), UUID.randomUUID(), version, UUID.randomUUID());
+    }
+
+    /** Gate facts a separated, assigned reviewer sees on a COMPLETED request. */
+    private static ReviewGateFacts gateFacts() {
+        return new ReviewGateFacts(
+                ReviewRequestStatus.COMPLETED,
+                true,
+                true,
+                true,
+                java.util.Optional.of(new TransitionRemedy("指派 Reviewer", "/work?workItem=x")));
     }
 
     private String base() {

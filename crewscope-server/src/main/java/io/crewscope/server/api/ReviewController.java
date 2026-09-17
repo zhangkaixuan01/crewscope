@@ -4,8 +4,10 @@ import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.review.CreateReviewRequestCommand;
 import io.crewscope.application.review.RecordReviewDecisionCommand;
+import io.crewscope.application.review.ReviewGateAction;
 import io.crewscope.application.review.ReviewGateApplicationService;
 import io.crewscope.application.review.ReviewRequestApplicationService;
+import io.crewscope.application.review.ReviewRequestAvailability;
 import io.crewscope.application.review.ReviewRequestProjection;
 import io.crewscope.application.review.ReviewWorkbenchView;
 import io.crewscope.application.review.ReviewerExecutionApplicationService;
@@ -312,7 +314,7 @@ public final class ReviewController {
             TaskExecutionId executionId) {}
 
     public record ReviewListResponse(List<ReviewSummaryResponse> items) {
-        static ReviewListResponse from(List<ReviewRequestProjection> values) {
+        static ReviewListResponse from(List<ReviewRequestAvailability> values) {
             return new ReviewListResponse(
                     values.stream().map(ReviewSummaryResponse::from).toList());
         }
@@ -329,15 +331,21 @@ public final class ReviewController {
             int blockerCount,
             int highCount,
             String latestDecisionType,
-            long modificationRound) {
-        static ReviewSummaryResponse from(ReviewRequestProjection value) {
+            long modificationRound,
+            List<AvailableActionResponse> availableActions) {
+        static ReviewSummaryResponse from(ReviewRequestAvailability value) {
+            ReviewRequestProjection projection = value.projection();
             return new ReviewSummaryResponse(
-                    value.reviewRequestId().toString(), value.requestRevision(),
-                    value.requestVersion(), value.status().name(),
-                    value.invalidationReason().map(Enum::name).orElse(null),
-                    value.contextHash().toString(), value.findingCount(), value.blockerCount(),
-                    value.highCount(), value.latestDecisionType().map(Enum::name).orElse(null),
-                    value.modificationRound());
+                    projection.reviewRequestId().toString(), projection.requestRevision(),
+                    projection.requestVersion(), projection.status().name(),
+                    projection.invalidationReason().map(Enum::name).orElse(null),
+                    projection.contextHash().toString(), projection.findingCount(),
+                    projection.blockerCount(), projection.highCount(),
+                    projection.latestDecisionType().map(Enum::name).orElse(null),
+                    projection.modificationRound(),
+                    value.availableActions().stream()
+                            .map(ReviewController::response)
+                            .toList());
         }
     }
 
@@ -361,7 +369,8 @@ public final class ReviewController {
             String testEvidenceHash,
             List<FindingResponse> findings,
             List<DecisionResponse> decisions,
-            List<ModificationRoundResponse> modificationRounds) {
+            List<ModificationRoundResponse> modificationRounds,
+            List<AvailableActionResponse> availableActions) {
         static ReviewResponse from(ReviewWorkbenchView view) {
             var value = view.request();
             return new ReviewResponse(
@@ -382,8 +391,25 @@ public final class ReviewController {
                     view.findings().stream().map(FindingResponse::from).toList(),
                     view.decisions().stream().map(DecisionResponse::from).toList(),
                     view.modificationRounds().stream()
-                            .map(ModificationRoundResponse::from).toList());
+                            .map(ModificationRoundResponse::from).toList(),
+                    view.availableActions().stream()
+                            .map(ReviewController::response)
+                            .toList());
         }
+    }
+
+    /**
+     * One Gate action on the shared wire shape.
+     *
+     * <p>The same record the WorkItem transitions and Task controls publish, so a member-facing
+     * control bar renders all three from one contract, and the reason and remedy vocabulary stays
+     * one vocabulary.
+     */
+    static AvailableActionResponse response(ReviewGateAction value) {
+        return AvailableActionResponse.of(
+                value.actionId(), value.targetStatus().name(), value.label(),
+                value.strength().name(), value.reversible(), value.enabled(),
+                value.reason().orElse(null), value.remedy().orElse(null));
     }
 
     public record FindingResponse(

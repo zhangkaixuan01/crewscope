@@ -1,5 +1,6 @@
 package io.crewscope.application.task;
 
+import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
@@ -30,6 +31,8 @@ public final class TaskQueryService {
     private final AgentInterruptRepository interruptRepository;
     private final AgentStateSnapshotRepository snapshotRepository;
     private final ExecutionLeaseRepository leaseRepository;
+    private final ResponsibilityAssignmentRepository assignmentRepository;
+    private final TaskControlAvailabilityProjector controlAvailability;
     private final TransactionExecutor transactionExecutor;
 
     public TaskQueryService(
@@ -43,6 +46,8 @@ public final class TaskQueryService {
             AgentInterruptRepository interruptRepository,
             AgentStateSnapshotRepository snapshotRepository,
             ExecutionLeaseRepository leaseRepository,
+            ResponsibilityAssignmentRepository assignmentRepository,
+            TaskControlAvailabilityProjector controlAvailability,
             TransactionExecutor transactionExecutor) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.taskRepository = Objects.requireNonNull(taskRepository, "taskRepository");
@@ -54,6 +59,10 @@ public final class TaskQueryService {
         this.interruptRepository = Objects.requireNonNull(interruptRepository, "interruptRepository");
         this.snapshotRepository = Objects.requireNonNull(snapshotRepository, "snapshotRepository");
         this.leaseRepository = Objects.requireNonNull(leaseRepository, "leaseRepository");
+        this.assignmentRepository =
+                Objects.requireNonNull(assignmentRepository, "assignmentRepository");
+        this.controlAvailability =
+                Objects.requireNonNull(controlAvailability, "controlAvailability");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
     }
 
@@ -91,17 +100,35 @@ public final class TaskQueryService {
         return transactionExecutor.required(() -> {
             accessPolicy.requireVisibleTeam(context, organizationId, teamId);
             Task task = requireTask(organizationId, teamId, taskId);
-            return new TaskDetails(
-                    task, executionRepository.findByTask(organizationId, task.id()));
+            return new TaskDetails(task, attemptRows(context, organizationId, task));
         });
     }
 
-    public List<TaskExecution> attempts(
+    public List<TaskAttempt> attempts(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,
             TaskId taskId) {
         return get(context, organizationId, teamId, taskId).attempts();
+    }
+
+    /**
+     * Adjudicates every attempt of one Task against the same responsibility read.
+     *
+     * <p>The control authority depends on the WorkItem's active responsibilities, not on the attempt,
+     * so it is resolved once and reused: a Task with many attempts must not translate into as many
+     * responsibility reads as it has rows.
+     */
+    private List<TaskAttempt> attemptRows(
+            TeamAccessContext context, OrganizationId organizationId, Task task) {
+        List<TaskExecution> executions = executionRepository.findByTask(organizationId, task.id());
+        boolean authorized = TaskControlAuthority.granted(
+                context.actor().id(),
+                assignmentRepository.findActiveByWorkItem(organizationId, task.workItemId()));
+        return executions.stream()
+                .map(execution -> new TaskAttempt(
+                        execution, controlAvailability.all(execution, authorized)))
+                .toList();
     }
 
     public TaskRuntimeFacts runtimeFacts(

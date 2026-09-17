@@ -4,6 +4,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.crewscope.application.task.TaskAttempt;
+import io.crewscope.application.task.TaskControlAction;
+import io.crewscope.application.task.TaskControlAvailabilityProjector;
 import io.crewscope.application.task.TaskDetails;
 import io.crewscope.application.task.TaskListCursor;
 import io.crewscope.application.task.TaskListItem;
@@ -114,10 +117,11 @@ class TaskQueryControllerTest {
     void returnsTaskDetailsAndOrderedAttemptSummariesWithStrongEtags() {
         Task task = task();
         TaskExecution execution = execution(task.id());
-        TaskDetails details = new TaskDetails(task, List.of(execution));
+        TaskAttempt attempt = new TaskAttempt(execution, actions(execution, true));
+        TaskDetails details = new TaskDetails(task, List.of(attempt));
         when(service.get(any(), any(), any(), any())).thenReturn(details);
         when(service.attempts(any(), any(), any(), any()))
-                .thenReturn(List.of(execution));
+                .thenReturn(List.of(attempt));
 
         client.get()
                 .uri(root() + "/" + task.id())
@@ -127,7 +131,15 @@ class TaskQueryControllerTest {
                 .expectBody()
                 .jsonPath("$.objective").isEqualTo("Inspect runtime history")
                 .jsonPath("$.source.type").isEqualTo("WORK_ITEM")
-                .jsonPath("$.attempts[0].status").isEqualTo("READY");
+                .jsonPath("$.attempts[0].status").isEqualTo("READY")
+                // A READY attempt may be cancelled; the control travels with the row it belongs to,
+                // disabled entries included, so a control bar never has to re-derive the verdict.
+                .jsonPath("$.attempts[0].availableActions[0].actionId").isEqualTo("pause")
+                .jsonPath("$.attempts[0].availableActions[0].enabled").isEqualTo(false)
+                .jsonPath("$.attempts[0].availableActions[0].reason").isEqualTo("STATUS_NOT_ALLOWED")
+                .jsonPath("$.attempts[0].availableActions[2].actionId").isEqualTo("cancel")
+                .jsonPath("$.attempts[0].availableActions[2].enabled").isEqualTo(true)
+                .jsonPath("$.attempts[0].availableActions[2].targetStatus").isEqualTo("CANCEL_REQUESTED");
 
         client.get()
                 .uri(root() + "/" + task.id() + "/attempts")
@@ -135,7 +147,8 @@ class TaskQueryControllerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$[0].attempt").isEqualTo(1)
-                .jsonPath("$[0].status").isEqualTo("READY");
+                .jsonPath("$[0].status").isEqualTo("READY")
+                .jsonPath("$[0].availableActions[0].reasonMessage").isNotEmpty();
     }
 
     @Test
@@ -232,7 +245,18 @@ class TaskQueryControllerTest {
         when(execution.planningContext()).thenReturn(Optional.empty());
         when(execution.version()).thenReturn(2L);
         when(execution.audit()).thenReturn(AuditMetadata.createdBy(actor.id(), NOW));
+        // A Mockito mock answers the domain predicates with defaults, so state them: a READY attempt
+        // may only be cancelled, which is the verdict the wire shape has to carry.
+        when(execution.canRequestPause()).thenReturn(false);
+        when(execution.canResume()).thenReturn(false);
+        when(execution.canRequestCancel()).thenReturn(true);
+        when(execution.canRetry()).thenReturn(false);
         return execution;
+    }
+
+    /** The real adjudication, so the fixture cannot hand the controller an invented verdict. */
+    private static List<TaskControlAction> actions(TaskExecution execution, boolean authorized) {
+        return new TaskControlAvailabilityProjector().all(execution, authorized);
     }
 
     private String root() {

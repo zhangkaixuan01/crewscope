@@ -1,11 +1,10 @@
 package io.crewscope.domain.review;
 
 import io.crewscope.domain.identity.Principal;
-import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
-import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.responsibility.ReviewerEligibilityDecision;
 import io.crewscope.domain.responsibility.ReviewerEligibilityPolicy;
+import io.crewscope.domain.responsibility.ReviewerResponsibility;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -277,6 +276,11 @@ public final class ReviewDecision {
         TeamMember requiredMember = Objects.requireNonNull(reviewerMember, "reviewerMember");
         List<ResponsibilityAssignment> requiredAssignments = List.copyOf(
                 Objects.requireNonNull(assignments, "assignments"));
+        // Qualification before separation: a member who holds no Reviewer responsibility needs an
+        // assignment, not a lesson in duty separation, and the availability projection reports the
+        // same reason for the same facts.
+        ReviewerResponsibility.requireGateReviewer(
+                requiredAssignments, requiredReviewer.id(), requiredMember.id());
         ReviewerEligibilityDecision eligibility = Objects.requireNonNull(
                         eligibilityPolicy, "eligibilityPolicy")
                 .evaluateGate(
@@ -285,17 +289,6 @@ public final class ReviewDecision {
                         requiredMember,
                         teamMembers,
                         requiredAssignments);
-        boolean assignedGateReviewer = requiredAssignments.stream().anyMatch(assignment ->
-                assignment.isActive()
-                        && assignment.role() == ResponsibilityRole.REVIEWER
-                        && assignment.actorType() == PrincipalType.USER
-                        && assignment.actorPrincipalId().equals(requiredReviewer.id())
-                        && assignment.actorMemberId().filter(requiredMember.id()::equals).isPresent());
-        if (!assignedGateReviewer) {
-            throw new DomainValidationException(
-                    "reviewDecision.reviewerMemberId",
-                    "must hold the current active USER Reviewer assignment");
-        }
         return new DecisionAuthority(
                 requiredRequest, requiredTask, requiredReviewer, requiredMember, eligibility);
     }

@@ -17,7 +17,7 @@ import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.identity.Principal;
-import io.crewscope.domain.responsibility.ResponsibilityRole;
+import io.crewscope.domain.responsibility.ReviewerResponsibility;
 import io.crewscope.domain.review.ContextPackage;
 import io.crewscope.domain.review.ReviewRequest;
 import io.crewscope.domain.review.ReviewRequestId;
@@ -287,10 +287,10 @@ public final class ReviewerExecutionApplicationService {
                 .filter(value -> value.agentPrincipalId().equals(reviewerAgent.id()))
                 .orElseThrow(() -> new AggregateNotFoundException(
                         "AgentProfile", request.reviewer().agentProfileId()));
-        boolean assigned = assignments.findActiveByWorkItem(
-                        task.scope().organizationId(), task.workItemId()).stream()
-                .anyMatch(value -> value.role() == ResponsibilityRole.REVIEWER
-                        && value.actorPrincipalId().equals(reviewerAgent.id()));
+        boolean assigned = ReviewerResponsibility.holdsReviewer(
+                assignments.findActiveByWorkItem(
+                        task.scope().organizationId(), task.workItemId()),
+                reviewerAgent.id());
         if (!assigned) {
             throw new DomainValidationException(
                     "reviewRequest.reviewerAgent", "Reviewer responsibility is no longer active");

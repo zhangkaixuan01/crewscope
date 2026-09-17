@@ -3,6 +3,7 @@ package io.crewscope.application.task;
 import io.crewscope.application.action.ActionBundleView;
 import io.crewscope.application.action.ActionDeliveryApplicationService;
 import io.crewscope.application.review.ReviewRequestApplicationService;
+import io.crewscope.application.review.ReviewRequestAvailability;
 import io.crewscope.application.review.ReviewRequestProjection;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -183,6 +184,9 @@ public final class TaskDeliverySummaryService {
             TaskId taskId,
             TaskExecution execution) {
         return reviews.list(context, organizationId, teamId, taskId, execution.id()).stream()
+                // The summary reads the review's facts, not its Gate controls: what a member may do
+                // next is answered on the Review surface, not folded into a delivery roll-up.
+                .map(ReviewRequestAvailability::projection)
                 .max(Comparator.comparingLong(ReviewRequestProjection::requestRevision))
                 .map(value -> new TaskDeliverySummary.ReviewSummary(
                         value.reviewRequestId().toString(),

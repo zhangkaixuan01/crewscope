@@ -14,7 +14,8 @@ public record ReviewWorkbenchView(
         ContextPackage contextPackage,
         List<ReviewFinding> findings,
         List<ReviewDecision> decisions,
-        List<ReviewModificationRound> modificationRounds) {
+        List<ReviewModificationRound> modificationRounds,
+        List<ReviewGateAction> availableActions) {
 
     public ReviewWorkbenchView {
         request = Objects.requireNonNull(request, "request");
@@ -23,6 +24,8 @@ public record ReviewWorkbenchView(
         decisions = List.copyOf(Objects.requireNonNull(decisions, "decisions"));
         modificationRounds = List.copyOf(Objects.requireNonNull(
                 modificationRounds, "modificationRounds"));
+        availableActions = List.copyOf(Objects.requireNonNull(
+                availableActions, "availableActions"));
         if (!request.contextPackage().equals(contextPackage.reference())) {
             throw new IllegalArgumentException(
                     "Review workbench ContextPackage must match the request authority");

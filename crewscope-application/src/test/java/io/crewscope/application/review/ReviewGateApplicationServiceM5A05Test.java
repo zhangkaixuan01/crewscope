@@ -169,6 +169,9 @@ class ReviewGateApplicationServiceM5A05Test {
                     .thenReturn(List.of(member));
             when(assignment.isActive()).thenReturn(assigned);
             when(assignment.role()).thenReturn(ResponsibilityRole.REVIEWER);
+            // The shared Gate rule identifies the reviewer as a USER Principal and as the member it
+            // was granted to, so the fixture has to state both halves of that identity.
+            when(assignment.actorType()).thenReturn(PrincipalType.USER);
             when(assignment.actorPrincipalId()).thenReturn(actor.id());
             when(assignment.actorMemberId()).thenReturn(Optional.of(memberId));
             when(assignments.findActiveByWorkItem(organizationId, workItemId))

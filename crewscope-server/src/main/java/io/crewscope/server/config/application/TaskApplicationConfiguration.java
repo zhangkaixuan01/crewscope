@@ -47,6 +47,7 @@ import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
 import io.crewscope.application.task.TaskAgentSelectionService;
 import io.crewscope.application.task.TaskAssociationRepository;
 import io.crewscope.application.task.TaskAssociationService;
+import io.crewscope.application.task.TaskControlAvailabilityProjector;
 import io.crewscope.application.task.TaskCreationPolicySpec;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskEventRepository;
@@ -263,6 +264,11 @@ public class TaskApplicationConfiguration {
     }
 
     @Bean
+    TaskControlAvailabilityProjector taskControlAvailabilityProjector() {
+        return new TaskControlAvailabilityProjector();
+    }
+
+    @Bean
     TaskQueryService taskQueryService(
             WorkItemAccessPolicy workItemAccessPolicy,
             TaskRepository taskRepository,
@@ -274,6 +280,8 @@ public class TaskApplicationConfiguration {
             AgentInterruptRepository agentInterruptRepository,
             AgentStateSnapshotRepository agentStateSnapshotRepository,
             ExecutionLeaseRepository executionLeaseRepository,
+            ResponsibilityAssignmentRepository responsibilityAssignmentRepository,
+            TaskControlAvailabilityProjector taskControlAvailabilityProjector,
             TransactionExecutor transactionExecutor) {
         return new TaskQueryService(
                 workItemAccessPolicy,
@@ -286,6 +294,8 @@ public class TaskApplicationConfiguration {
                 agentInterruptRepository,
                 agentStateSnapshotRepository,
                 executionLeaseRepository,
+                responsibilityAssignmentRepository,
+                taskControlAvailabilityProjector,
                 transactionExecutor);
     }
 

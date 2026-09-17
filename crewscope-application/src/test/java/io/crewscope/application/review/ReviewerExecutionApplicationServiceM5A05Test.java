@@ -209,6 +209,7 @@ class ReviewerExecutionApplicationServiceM5A05Test {
             when(profile.agentPrincipalId()).thenReturn(reviewerAgent.id());
             when(profiles.findById(organizationId, profileId)).thenReturn(Optional.of(profile));
             ResponsibilityAssignment reviewerAssignment = mock(ResponsibilityAssignment.class);
+            when(reviewerAssignment.isActive()).thenReturn(true);
             when(reviewerAssignment.role()).thenReturn(ResponsibilityRole.REVIEWER);
             when(reviewerAssignment.actorPrincipalId()).thenReturn(reviewerAgent.id());
             when(assignments.findActiveByWorkItem(organizationId, workItemId))

@@ -11,6 +11,7 @@ import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
@@ -28,6 +29,7 @@ import io.crewscope.domain.coding.TestEvidence;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
+import io.crewscope.domain.responsibility.ReviewerResponsibility;
 import io.crewscope.domain.review.ContextPackage;
 import io.crewscope.domain.review.ContextPackageId;
 import io.crewscope.domain.review.ReviewRequest;
@@ -49,6 +51,7 @@ import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
+import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workspace.AgentProfileStatus;
 import io.crewscope.domain.workitem.WorkItem;
@@ -84,6 +87,8 @@ public final class ReviewRequestApplicationService {
     private final ReviewModificationRoundRepository rounds;
     private final ReviewQueryRepository queries;
     private final ContextPackageBuilder contextBuilder;
+    private final ReviewGateAvailabilityProjector gateAvailability;
+    private final GateReviewerPolicyProvider reviewerPolicies;
     private final ReviewEventPublisher events;
     private final CommandReceiptStore receipts;
     private final TransactionExecutor transactions;
@@ -109,6 +114,8 @@ public final class ReviewRequestApplicationService {
             ReviewModificationRoundRepository rounds,
             ReviewQueryRepository queries,
             ContextPackageBuilder contextBuilder,
+            ReviewGateAvailabilityProjector gateAvailability,
+            GateReviewerPolicyProvider reviewerPolicies,
             ReviewEventPublisher events,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
@@ -132,6 +139,8 @@ public final class ReviewRequestApplicationService {
         this.rounds = Objects.requireNonNull(rounds, "rounds");
         this.queries = Objects.requireNonNull(queries, "queries");
         this.contextBuilder = Objects.requireNonNull(contextBuilder, "contextBuilder");
+        this.gateAvailability = Objects.requireNonNull(gateAvailability, "gateAvailability");
+        this.reviewerPolicies = Objects.requireNonNull(reviewerPolicies, "reviewerPolicies");
         this.events = Objects.requireNonNull(events, "events");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
@@ -254,17 +263,21 @@ public final class ReviewRequestApplicationService {
         });
     }
 
-    public List<ReviewRequestProjection> list(
+    public List<ReviewRequestAvailability> list(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,
             TaskId taskId,
             TaskExecutionId executionId) {
         return transactions.required(() -> {
-            Task task = requireTask(context, organizationId, teamId, taskId);
+            VisibleTask visible = requireTask(context, organizationId, teamId, taskId);
+            Task task = visible.task();
             TaskExecution execution = requireExecution(organizationId, task, executionId);
+            GateContext gates = gateContext(context, organizationId, task, visible.item());
             return queries.findByExecution(organizationId, executionId, execution.attempt()).stream()
                     .filter(value -> value.scope().equals(task.scope()))
+                    .map(value -> new ReviewRequestAvailability(
+                            value, actionsFor(gates, organizationId, value.reviewRequestId())))
                     .toList();
         });
     }
@@ -277,7 +290,8 @@ public final class ReviewRequestApplicationService {
             TaskExecutionId executionId,
             ReviewRequestId reviewRequestId) {
         return transactions.required(() -> {
-            Task task = requireTask(context, organizationId, teamId, taskId);
+            VisibleTask visible = requireTask(context, organizationId, teamId, taskId);
+            Task task = visible.task();
             TaskExecution execution = requireExecution(organizationId, task, executionId);
             ReviewRequest request = requests.findById(organizationId, reviewRequestId)
                     .filter(value -> belongsTo(value, task, execution))
@@ -287,13 +301,72 @@ public final class ReviewRequestApplicationService {
                             organizationId, request.contextPackage().id())
                     .orElseThrow(() -> new AggregateNotFoundException(
                             "ContextPackage", request.contextPackage().id()));
+            GateContext gates = gateContext(
+                    context, organizationId, task, visible.item());
             return new ReviewWorkbenchView(
                     request,
                     packageValue,
                     findings.findAllByRequest(organizationId, request.id()),
                     decisions.findDecisionsByRequest(organizationId, request.id()),
-                    rounds.findAllByTask(organizationId, task.id()));
+                    rounds.findAllByTask(organizationId, task.id()),
+                    gateAvailability.all(gateFacts(gates, organizationId, request)));
         });
+    }
+
+    /**
+     * The Gate facts for one row.
+     *
+     * <p>A list row is a projection, and a projection deliberately drops the Reviewer coordinates the
+     * adjudication reads, so the aggregate is loaded once per row. Rows are the reviews of a single
+     * execution attempt — one current request plus its invalidated lineage — so this stays a bounded
+     * primary-key read rather than a per-row scan.
+     */
+    private List<ReviewGateAction> actionsFor(
+            GateContext gates, OrganizationId organizationId, ReviewRequestId reviewRequestId) {
+        return requests.findById(organizationId, reviewRequestId)
+                .filter(value -> value.scope().equals(gates.task().scope()))
+                .map(request -> gateAvailability.all(
+                        gateFacts(gates, organizationId, request)))
+                .orElseGet(List::of);
+    }
+
+    private ReviewGateFacts gateFacts(
+            GateContext gates, OrganizationId organizationId, ReviewRequest request) {
+        return ReviewGateFacts.resolve(
+                request,
+                gates.actor(),
+                gates.actorMember(),
+                principals.findById(organizationId, request.reviewer().agentPrincipalId())
+                        .filter(Principal::canAct)
+                        .filter(value -> value.type().isAgent()),
+                gates.workItem(),
+                gates.teamMembers(),
+                gates.assignments(),
+                reviewerPolicies.resolve(gates.workItem()));
+    }
+
+    /**
+     * Reads once per query call what every Gate action on every row is adjudicated against: the
+     * acting member, the Team roster, the current responsibilities and the effective Reviewer policy.
+     */
+    private GateContext gateContext(
+            TeamAccessContext context,
+            OrganizationId organizationId,
+            Task task,
+            WorkItem item) {
+        Principal actor = context.actor();
+        List<TeamMember> teamMembers = memberships.findByTeam(organizationId, task.scope().teamId());
+        Optional<TeamMember> actorMember = teamMembers.stream()
+                .filter(TeamMember::canParticipate)
+                .filter(value -> value.userPrincipalId().equals(actor.id()))
+                .findFirst();
+        return new GateContext(
+                task,
+                item,
+                actor,
+                actorMember,
+                teamMembers,
+                assignments.findActiveByWorkItem(organizationId, task.workItemId()));
     }
 
     private CreationFacts creationFacts(
@@ -303,7 +376,7 @@ public final class ReviewRequestApplicationService {
             TaskExecutionId executionId,
             io.crewscope.domain.task.PolicySnapshotId policySnapshotId) {
         OrganizationId organizationId = context.actor().scope().organizationId();
-        Task task = requireTask(context, organizationId, teamId, taskId);
+        Task task = requireTask(context, organizationId, teamId, taskId).task();
         TaskExecution execution = requireExecution(organizationId, task, executionId);
         if (task.currentExecutionId().filter(executionId::equals).isEmpty()) {
             throw new DomainValidationException(
@@ -357,10 +430,8 @@ public final class ReviewRequestApplicationService {
         });
         List<ResponsibilityAssignment> currentAssignments = assignments.findActiveByWorkItem(
                 organizationId, task.workItemId());
-        boolean assignedReviewer = currentAssignments.stream().anyMatch(value ->
-                value.isActive()
-                        && value.role() == ResponsibilityRole.REVIEWER
-                        && value.actorPrincipalId().equals(reviewerAgent.id()));
+        boolean assignedReviewer =
+                ReviewerResponsibility.holdsReviewer(currentAssignments, reviewerAgent.id());
         if (!assignedReviewer) {
             throw new DomainValidationException(
                     "reviewRequest.reviewerAgent", "must hold the active advisory Reviewer responsibility");
@@ -403,7 +474,7 @@ public final class ReviewRequestApplicationService {
                 .toList();
     }
 
-    private Task requireTask(
+    private VisibleTask requireTask(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,
@@ -416,7 +487,7 @@ public final class ReviewRequestApplicationService {
         if (!item.scope().equals(task.scope())) {
             throw new AggregateNotFoundException("Task", taskId);
         }
-        return task;
+        return new VisibleTask(task, item);
     }
 
     private TaskExecution requireExecution(
@@ -447,6 +518,16 @@ public final class ReviewRequestApplicationService {
                     "reviewRequest", "re-review requires an invalidated predecessor");
         }
     }
+
+    private record VisibleTask(Task task, WorkItem item) {}
+
+    private record GateContext(
+            Task task,
+            WorkItem workItem,
+            Principal actor,
+            Optional<TeamMember> actorMember,
+            List<TeamMember> teamMembers,
+            List<ResponsibilityAssignment> assignments) {}
 
     private record CreationFacts(
             Task task,

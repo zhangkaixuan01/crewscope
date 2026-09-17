@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
@@ -53,6 +54,8 @@ class TaskQueryServiceM3A02Test {
     private final AgentInterruptRepository interrupts = mock(AgentInterruptRepository.class);
     private final AgentStateSnapshotRepository snapshots = mock(AgentStateSnapshotRepository.class);
     private final ExecutionLeaseRepository leases = mock(ExecutionLeaseRepository.class);
+    private final ResponsibilityAssignmentRepository assignments =
+            mock(ResponsibilityAssignmentRepository.class);
     private final TransactionExecutor transactions = new TransactionExecutor() {
         @Override
         public <T> T required(Supplier<T> operation) {
@@ -75,6 +78,8 @@ class TaskQueryServiceM3A02Test {
                 interrupts,
                 snapshots,
                 leases,
+                assignments,
+                new TaskControlAvailabilityProjector(),
                 transactions);
     }
 

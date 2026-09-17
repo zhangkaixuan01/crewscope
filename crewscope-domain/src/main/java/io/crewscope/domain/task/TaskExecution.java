@@ -610,7 +610,10 @@ public final class TaskExecution {
     public TaskExecution requestPause(
             String reason, long expectedVersion, Principal actor, UtcTimestamp occurredAt) {
         requireExpectedVersion(expectedVersion);
-        requireStatus(TaskExecutionStatus.RUNNING, TaskExecutionStatus.PAUSE_REQUESTED);
+        if (!canRequestPause()) {
+            throw new InvalidStateTransitionException(
+                    "TaskExecution", id, status, TaskExecutionStatus.PAUSE_REQUESTED);
+        }
         PrincipalId actorId = requireActor(actor);
         UtcTimestamp requiredTime = Objects.requireNonNull(occurredAt, "occurredAt");
         return transitionWithActor(
@@ -640,7 +643,7 @@ public final class TaskExecution {
     public TaskExecution requestCancel(
             String reason, long expectedVersion, Principal actor, UtcTimestamp occurredAt) {
         requireExpectedVersion(expectedVersion);
-        if (!TRANSITIONS.get(status).contains(TaskExecutionStatus.CANCEL_REQUESTED)) {
+        if (!canRequestCancel()) {
             throw new InvalidStateTransitionException(
                     "TaskExecution", id, status, TaskExecutionStatus.CANCEL_REQUESTED);
         }
@@ -730,6 +733,41 @@ public final class TaskExecution {
                 && terminal.flatMap(TaskExecutionTerminal::failure)
                         .map(TaskExecutionFailure::isRetryable)
                         .orElse(false);
+    }
+
+    /**
+     * Whether a safe-point Pause may be requested now.
+     *
+     * <p>Public because the availability projection and {@link #requestPause} must agree; a second
+     * copy of this test is exactly the drift that makes a control look live while the command refuses.
+     */
+    public boolean canRequestPause() {
+        return status == TaskExecutionStatus.RUNNING;
+    }
+
+    /**
+     * Whether cancellation may be requested now.
+     *
+     * <p>Shares the state machine table with {@link #requestCancel} rather than restating it, so a
+     * future edge change cannot leave the projection behind.
+     */
+    public boolean canRequestCancel() {
+        return TRANSITIONS.get(status).contains(TaskExecutionStatus.CANCEL_REQUESTED);
+    }
+
+    /**
+     * Whether the attempt may be requeued from a pause or a plan approval wait.
+     *
+     * <p>This is the status half of the resume precondition only. Resuming also requires an
+     * interrupted AgentRun with a matching pending interrupt, which {@code MemberTaskCommandService}
+     * resolves from separate aggregates and this aggregate cannot see.
+     */
+    public boolean canResume() {
+        return status == TaskExecutionStatus.PAUSED
+                || (status == TaskExecutionStatus.WAITING
+                        && waiting.map(TaskExecutionWaiting::reason)
+                                .filter(TaskExecutionWaitReason.CONFIRMATION::equals)
+                                .isPresent());
     }
 
     public TaskExecutionId id() {
