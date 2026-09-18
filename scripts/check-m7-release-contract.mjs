@@ -76,9 +76,19 @@ const defaultPlaywright = readFileSync(join(root, 'crewscope-web/playwright.conf
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-two-user-real\.spec\.ts/)
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-registration-profiles-real\.spec\.ts/)
 
+/*
+ * Zero skipped or focused tests, with one distinction the pattern has to make. The browser matrix runs
+ * every spec under both `desktop-chromium` and `narrow-chromium`, so a spec that belongs to a single
+ * project opts out of the other one with `test.skip(condition, reason)` at its top — that is not the
+ * disabled test this contract forbids, and matching the call alone reported it as one. What the
+ * contract forbids is a test that never runs anywhere: a focus marker, a todo, or a skip with no
+ * condition. So only those stay forbidden, and a conditional skip has to state why to be accepted at
+ * all — stricter than the call match it replaces.
+ */
 const forbidden = [
   { pattern: /@Disabled\b/, label: 'JUnit @Disabled' },
-  { pattern: /\b(?:test|it|describe)\.(?:skip|todo|only)\s*\(/, label: 'skipped or focused JS test' },
+  { pattern: /\b(?:fdescribe|fit|xdescribe|xit)\s*\(/, label: 'focused or disabled JS test' },
+  { pattern: /\b(?:test|it|describe)(?:\.describe)?\.(?:only|todo)\s*\(/, label: 'focused or todo JS test' },
 ]
 const testRoots = [
   'crewscope-domain/src/test',
@@ -97,11 +107,16 @@ for (const testRoot of testRoots) {
     for (const rule of forbidden) {
       if (rule.pattern.test(content)) violations.push(`${relative(root, file)}: ${rule.label}`)
     }
+    for (const skip of skipCalls(content)) {
+      const where = `${relative(root, file)}: ${skip.line}`
+      if (!skip.conditional) violations.push(`${where}: unconditional test.skip`)
+      else if (!skip.reason) violations.push(`${where}: conditional test.skip without a reason`)
+    }
   }
 }
-assert.deepEqual(violations, [], `M7 release tests must have zero skips/focus:\n${violations.join('\n')}`)
+assert.deepEqual(violations, [], `M7 release tests must have no focused, todo or unconditioned skips:\n${violations.join('\n')}`)
 
-console.log('M7 release contract passed: scoped Team permissions, three registration Profiles, V26..V36 recovery, CI dependencies and zero skipped/focused tests.')
+console.log('M7 release contract passed: scoped Team permissions, three registration Profiles, V26..V36 recovery, CI dependencies and no focused, todo or unconditioned skips.')
 
 function collect(path) {
   if (!existsSync(path)) return []
@@ -110,4 +125,61 @@ function collect(path) {
   }
   return readdirSync(path, { withFileTypes: true })
     .flatMap(entry => collect(join(path, entry.name)))
+}
+
+/** Every `.skip(...)` call in the file, with the two shapes this contract separates. */
+function skipCalls(content) {
+  const calls = []
+  for (const match of content.matchAll(/\b(?:test|it|describe)(?:\.describe)?\.skip\s*\(/g)) {
+    const args = argumentsOf(content, match.index + match[0].length - 1).map(argument => argument.trim())
+    calls.push({
+      // A skip is conditional when its first argument is an expression rather than a reason string.
+      conditional: args[0] !== undefined && args[0] !== '' && !/^['"`]/.test(args[0]),
+      reason: /^['"`][^'"`]+['"`]$/.test(args[args.length - 1] ?? ''),
+      line: content.slice(0, match.index).split('\n').length,
+    })
+  }
+  return calls
+}
+
+/**
+ * The arguments of the call whose opening parenthesis sits at `open`, split at the top level so that a
+ * comma inside the condition (an arrow function parameter list, a callback body) is not a separator.
+ */
+function argumentsOf(content, open) {
+  const args = []
+  let current = ''
+  let depth = 0
+  let quote = ''
+  for (let index = open; index < content.length; index += 1) {
+    const character = content[index]
+    if (quote) {
+      current += character
+      if (character === quote && content[index - 1] !== '\\') quote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      current += character
+      continue
+    }
+    if (character === '(') {
+      depth += 1
+      if (depth > 1) current += character
+      continue
+    }
+    if (character === ')') {
+      depth -= 1
+      if (depth === 0) return [...args, current]
+      current += character
+      continue
+    }
+    if (character === ',' && depth === 1) {
+      args.push(current)
+      current = ''
+      continue
+    }
+    current += character
+  }
+  return [...args, current]
 }
