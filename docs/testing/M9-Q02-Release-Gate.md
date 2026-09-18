@@ -11,7 +11,9 @@ M9-Q02 是 M9 的功能发布验收。门禁把可在开发机重复执行的合
 ./scripts/m9-q02-local-gate.sh local-precheck
 ```
 
-`contracts-only` 执行文档链接、M9-Q01 体验回归、OpenAPI、环境配置合同；`local-precheck` 在此基础上顺序执行 Maven、前端单元覆盖率、生产构建、质量门禁和浏览器 E2E。浏览器测试必须使用独占资源，避免并行容器争用污染结果。
+`contracts-only` 执行 CI `quality` 任务的全部**文件型**契约检查，共 19 个脚本（文档链接、OpenAPI 与状态机产物漂移、环境配置合同、Team Beta 部署与恢复合同、发行合同、M7 发行合同、Java 模块边界、依赖与配置合同、M9 八项静态门禁、Web 敏感字段），外加 CI patch 检查的本地对应物（`git diff --check HEAD` 与 `git diff --check origin/main...HEAD`）。全部只读文件、不依赖 Docker/构建/浏览器，本机 4 秒完成。`local-precheck` 在此基础上顺序执行 Maven、前端单元覆盖率、生产构建、包体积预算、质量门禁和浏览器 E2E。浏览器测试必须使用独占资源，避免并行容器争用污染结果。
+
+这一步是补出来的：此前 `contracts-only` 只有五项，M7 发行合同与其余八项静态门禁**不在其中**，于是 M9 收口那轮本地全绿、CI 却连续两轮失败（行尾空行、按视口条件跳过被判定为禁用测试）。现在这些检查与 CI 同源，且这两类缺陷都在本机被拦截——见下方 2026-09-18 的变异记录。
 
 ## 本机门禁执行记录（2026-09-17）
 
@@ -23,7 +25,7 @@ M9-Q02 是 M9 的功能发布验收。门禁把可在开发机重复执行的合
 | `./mvnw clean verify` | `BUILD SUCCESS`（3146 用例、0 失败 0 错误 0 跳过，13:25 min） |
 | `vitest run --coverage` | 151 文件 / 793 用例通过（Lines 72.53%、Statements 67.96%、Branches 61.36%、Functions 68.69%，地板 65/60/65/70） |
 | `vue-tsc --noEmit && vite build` | 生产构建通过 |
-| `check:quality` | eslint + stylelint + format:check + `check-web-quality.mjs`（含设计令牌、裸枚举、空状态、分页与禁用态解释门禁）全部通过 |
+| `check:quality` | `vue-tsc --noEmit` + eslint + stylelint + `check-web-quality.mjs`（尾随空格与 CRLF）全部通过。设计令牌、裸枚举、空状态、分页与禁用态解释是**独立脚本**，不在 `check:quality` 内（此处原文有误，2026-09-18 更正）；它们已进入 `contracts-only`，见下节 |
 | `playwright test` | 281 passed / 5 skipped / 0 failed（4.9 分钟） |
 
 本轮（F1/F3/F4/F6 修正与 F10 ⑤⑨ 接线）的复跑记录另记三点：
@@ -73,6 +75,40 @@ M9-Q02 是 M9 的功能发布验收。门禁把可在开发机重复执行的合
 真实环境验收仍未开始：本节的每一档都能在单台开发机上重复执行，因此它们**不**构成下面六行的任何一条证据。
 
 以上都是开发机结论，不替代下一节的真实环境验收。
+
+### 门禁扩档与 CI 两轮失败的修复（2026-09-18）
+
+M9 收口的推送在 CI 上连续失败两轮，两轮都不是产品回归，但都说明一件事：**本地门禁覆盖的面比 CI 小**。
+
+| 轮次 | CI 失败步骤 | 原因 | 本机为何没拦住 |
+|---|---|---|---|
+| 1 | `Check pushed patch integrity` | 3 个文件在末尾多一个空行（`git diff --check` 退出码 2） | `contracts-only` 不跑任何 `git diff --check` |
+| 2 | `Validate M7 release contract` | `check-m7-release-contract.mjs` 把按视口条件跳过（`test.skip(条件, 原因)`）判成「跳过的测试」 | 该脚本只在 CI 与 `m7-release-gate.sh` 里，**不在** `contracts-only` |
+
+第 1 轮的失败还挡住了第 2 轮：`quality` 任务在第一步就中止，后面的 24 步从未执行。修复分两部分。
+
+**一、`check-m7-release-contract.mjs` 的判定**（一处放宽、两处收紧，净变严）：浏览器矩阵把每个 spec 在 `desktop-chromium` 与 `narrow-chromium` 下各跑一遍，只属于某一个项目的 spec 必须在另一个项目里退出，这是 Playwright 的标准写法，不是该合同要禁止的「永不运行的测试」。现在禁止的是聚焦标记、`todo`、`fit`/`xit`/`fdescribe`/`xdescribe` 与**没有条件的**跳过；并新增要求——条件跳过必须写明原因。变异记录（注入后必须失败）：
+
+| 注入 | 旧判定 | 新判定 |
+|---|---|---|
+| `test.only` / `test.todo` | 抓住 | 抓住 |
+| `fit(` | 漏过 | 抓住 |
+| `test.skip('原因')` / `test.skip()` | 抓住 | 抓住 |
+| `test.skip(条件)`（无原因） | 漏过 | 抓住 |
+| `test.skip(条件, '原因')` | 误报 | 放过（仓库内的实际写法，全仓库共 2 处） |
+
+**二、`scripts/m9-q02-local-gate.sh` 扩档**：`contracts-only` 由五项扩到 CI `quality` 任务的全部 19 个文件型契约检查，并加上 CI patch 检查的本地对应物（`git diff --check HEAD`、`git diff --check origin/main...HEAD`）；`local-precheck` 补入 `check-web-bundle-budget.mjs`（此前 `pnpm build` 之后没有跑预算门禁）。
+
+扩档后的实测（2026-09-18，本机）：
+
+| 动作 | 结果 |
+|---|---|
+| `./scripts/m9-q02-local-gate.sh contracts-only` | **PASS**，22 条检查全过，**4 秒**（原五项约 2 秒） |
+| 变异：往已跟踪文件末尾追加一个空行 | **退出码 2**，报 `README.md:471: new blank line at EOF.`，无 PASS 行 |
+| 变异：注入 `test.only` | **退出码 1**，报 `focused or todo JS test`，无 PASS 行 |
+| 两处变异均已还原，复跑 | **PASS** |
+
+修复后的 main 推送（`326805a`）CI 结论为 **success**：`quality` 与 `release-gate` 通过。需如实说明的是，该轮 `frontend` 与 `backend` 被 affect-detection **跳过**——`326805a` 相对 `81fa901` 只改了这一个脚本，而 `81fa901` 那一轮的 `frontend` 为 success、`9510fd8` 那一轮的 `backend` 为 success，`9510fd8..326805a` 的 diff 中没有任何 `.java`。
 
 ## 真实环境验收记录
 
