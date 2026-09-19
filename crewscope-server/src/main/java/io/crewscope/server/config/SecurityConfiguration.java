@@ -133,7 +133,8 @@ public class SecurityConfiguration {
       ObjectProvider<TaskTokenWebFilter> taskTokenFilter,
       ObjectProvider<WebSessionServerSecurityContextRepository> browserSecurityContexts,
       @Value("${crewscope.security.mode:bootstrap}") String configuredMode,
-      @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId) {
+      @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId,
+      @Value("${crewscope.security.hsts.enabled:false}") boolean hstsEnabled) {
     SecurityMode mode = SecurityMode.from(configuredMode);
     ApiSecurityResponseWriter securityResponses = new ApiSecurityResponseWriter();
     http.authorizeExchange(
@@ -182,20 +183,26 @@ public class SecurityConfiguration {
                 securityResponses.authenticationRequired(exchange))
             .accessDeniedHandler((exchange, failure) ->
                 securityResponses.accessDenied(exchange)))
-        .headers(headers -> headers
-            .contentSecurityPolicy(csp -> csp.policyDirectives(
+        .headers(headers -> {
+          headers.contentSecurityPolicy(csp -> csp.policyDirectives(
                 "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; "
-                    + "form-action 'self'; object-src 'none'"))
-            .permissionsPolicy(policy ->
-                policy.policy("camera=(), microphone=(), geolocation=()"))
-            .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.SAME_ORIGIN))
-            .crossOriginOpenerPolicy(opener -> opener.policy(CrossOriginOpenerPolicy.SAME_ORIGIN))
-            .crossOriginResourcePolicy(resource ->
-                resource.policy(CrossOriginResourcePolicy.SAME_ORIGIN))
-            .hsts(hsts -> hsts
+                    + "form-action 'self'; object-src 'none'"));
+          headers.permissionsPolicy(policy ->
+              policy.policy("camera=(), microphone=(), geolocation=()"));
+          headers.referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.SAME_ORIGIN));
+          headers.crossOriginOpenerPolicy(opener ->
+              opener.policy(CrossOriginOpenerPolicy.SAME_ORIGIN));
+          headers.crossOriginResourcePolicy(resource ->
+              resource.policy(CrossOriginResourcePolicy.SAME_ORIGIN));
+          if (hstsEnabled) {
+            headers.hsts(hsts -> hsts
                 .maxAge(Duration.ofDays(365))
                 .includeSubdomains(true)
-                .preload(false)));
+                .preload(false));
+          } else {
+            headers.hsts(ServerHttpSecurity.HeaderSpec.HstsSpec::disable);
+          }
+        });
     http.addFilterBefore(
         new SameOriginWebFilter(securityResponses), SecurityWebFiltersOrder.CSRF);
     http.addFilterAfter(

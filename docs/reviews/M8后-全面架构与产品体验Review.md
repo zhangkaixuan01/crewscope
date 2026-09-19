@@ -1,5 +1,7 @@
 # CrewScope M8 后全面架构与产品体验 Review
 
+> 部署更新（2026-09-19）：当前默认采用四服务 HTTP Compose，API 内含 Worker，Coding 使用本机 Docker Socket；自动生成 env 密钥，从源码构建。本文旧七/十服务、外部 Secret、强制 TLS/Digest、Socket Proxy 与观测栈描述仅保留历史范围，不是当前启动条件。当前操作以 [单机运维手册](../runbooks/Team-Beta单机运维手册.md) 为准。
+
 > 评审基线：`ca8a90d`（M8 九个工作包本地实现完成，`M8-Q02` 为 `LINUX_RUNTIME_RECOVERY_PASS`）<br>
 > 状态注记（2026-09-17）：本节评审时记的「待签名 Tag」状态已废弃——供应链发行统一标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`，产品开发期间不打 Tag，下文凡把正式发行作为前置的表述同样不再生效<br>
 > 评审范围：`crewscope-domain` / `application` / `agentscope` / `integration` / `infrastructure` / `server` / `web` / `docs` / `deploy`<br>

@@ -1,6 +1,8 @@
 # ADR-023：Team Beta 单机部署与发布验证协议
 
-> 状态：ACCEPTED<br>
+> 历史决策说明：本文冻结的是 M6 生产化 Release Gate 拓扑，不是当前默认部署。当前使用四服务 HTTP Compose；TLS、外部 Secret、镜像 Digest、观测栈、备份调度和 Socket Proxy 均已改为按需扩展。日常部署以 [当前运维手册](../runbooks/Team-Beta单机运维手册.md) 为准。
+
+> 状态：PARTIALLY SUPERSEDED（默认部署部分由 2026-09-19 简化部署替代，历史发布证据保留）<br>
 > 日期：2026-08-25<br>
 > 关联决策：[ADR-002](ADR-002-ExecutionWorkspace与Sandbox.md)、[ADR-003](ADR-003-ArtifactStore与Snapshot.md)、[ADR-004](ADR-004-CredentialStore与动作凭证.md)、[ADR-008](ADR-008-可观测性与日志安全协议.md)、[ADR-020](ADR-020-投影代际重建与游标协议.md)<br>
 > 影响里程碑：M6

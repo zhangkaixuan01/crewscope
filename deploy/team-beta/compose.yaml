@@ -1,457 +1,125 @@
 name: crewscope-team-beta
 
-x-backend-common: &backend-common
-  image: ${CREWSCOPE_BACKEND_IMAGE:?set an immutable backend image ending in @sha256:<digest>}
-  restart: unless-stopped
-  user: "10001:10001"
-  read_only: true
-  cap_drop: [ALL]
-  security_opt: [no-new-privileges:true]
-  tmpfs:
-    - /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
-    - /var/crewscope/ephemeral:rw,nosuid,nodev,noexec,size=64m,uid=10001,gid=10001,mode=0700
-    # Git AskPass is a short-lived owner-only executable helper in a dedicated in-memory boundary;
-    # it has no host bind mount. The general ephemeral scratch area above stays noexec.
-    - /var/crewscope/github-credentials:rw,exec,nosuid,nodev,size=8m,uid=10001,gid=10001,mode=0700
-  environment: &backend-environment
-    SPRING_PROFILES_ACTIVE: team-beta
-    SPRING_CONFIG_IMPORT: configtree:/run/secrets/
-    CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE: external
-    CREWSCOPE_DEPLOYMENT_SECRET_SOURCE: external-file
-    CREWSCOPE_DEPLOYMENT_TRANSPORT: https
-    CREWSCOPE_ENVIRONMENT: team-beta
-    CREWSCOPE_DB_URL: jdbc:postgresql://postgres:5432/crewscope?currentSchema=crewscope,public
-    CREWSCOPE_DB_USERNAME: crewscope
-    CREWSCOPE_BOOTSTRAP_USERNAME: crewscope-monitor
-    CREWSCOPE_MONITORING_USERNAME: crewscope-prometheus
-    CREWSCOPE_OPERATOR_BOOTSTRAP_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
-    CREWSCOPE_OPERATOR_BOOTSTRAP_USERNAME: crewscope-monitor
-    CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL: crewscope-monitor@crewscope.local
-    CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME: CrewScope Operator
-    CREWSCOPE_REGISTRATION_MODE: ${CREWSCOPE_REGISTRATION_MODE:-INVITE_ONLY}
-    CREWSCOPE_REGISTRATION_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
-    CREWSCOPE_PASSWORD_HASH_PERMITS: ${CREWSCOPE_PASSWORD_HASH_PERMITS:-4}
-    CREWSCOPE_SESSION_COOKIE_SECURE: "true"
-    CREWSCOPE_LOGIN_DEFENSE_ENVIRONMENT: team-beta
-    CREWSCOPE_LOGIN_DEFENSE_TRUSTED_PROXIES: ${CREWSCOPE_WEB_INTERNAL_IP:-172.30.0.10}/32
-    CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID: v1
-    CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID: v1
-    CREWSCOPE_TASK_TOKEN_ENABLED: "true"
-    CREWSCOPE_TASK_TOKEN_CURRENT_KEY_ID: v1
-    CREWSCOPE_RUNTIME_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
-    CREWSCOPE_RUNTIME_ACTOR_PRINCIPAL_ID: ${CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID:?set the Runtime Service Principal UUID}
-    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ENABLED: "true"
-    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_ID:?set the Team Beta Organization UUID}
-    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_NAME: ${CREWSCOPE_BOOTSTRAP_ORGANIZATION_NAME:?set the Team Beta Organization name}
-    CREWSCOPE_DEPLOYMENT_BOOTSTRAP_RUNTIME_PRINCIPAL_ID: ${CREWSCOPE_BOOTSTRAP_RUNTIME_PRINCIPAL_ID:?set the Runtime Service Principal UUID}
-    # Tracing is explicitly disabled until a queryable backend is provisioned. The collector is
-    # retained as an opt-in compatibility endpoint and never silently drops enabled production data.
-    CREWSCOPE_OTLP_TRACING_ENABLED: "false"
-    CREWSCOPE_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-    CREWSCOPE_LOG_FORMAT: logstash
-    CREWSCOPE_ARTIFACT_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
-    CREWSCOPE_GITHUB_MIRROR_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
-    CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/github-credentials
-    CREWSCOPE_CODING_GIT_COMMAND_HOME: /var/crewscope/ephemeral/git-home
-    CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
-    CREWSCOPE_CODING_WORKTREE_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
-    CREWSCOPE_CODING_WORKTREE_LOCK_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
-    CREWSCOPE_CODING_REPOSITORY_REQUIRED_OWNER: crewscope
-    CREWSCOPE_CODING_WORKTREE_REQUIRED_OWNER: crewscope
-    # GitHub owner/login is an external account fact and is independent from the Linux
-    # owner used for the managed repository and worktree roots.
-    CREWSCOPE_GITHUB_REQUIRED_OWNER: ${CREWSCOPE_GITHUB_REQUIRED_OWNER:?set the GitHub owner/login}
-    CREWSCOPE_TASK_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
-    CREWSCOPE_CODING_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
-    CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
-    CREWSCOPE_TEMPLATE_AGENT_RUNTIME_ROOT: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
-  secrets: &backend-secrets
-    - source: database_password
-      target: spring.datasource.password
-    - source: bootstrap_password
-      target: crewscope.security.bootstrap.password
-    - source: monitoring_password
-      target: crewscope.security.monitoring.password
-    - source: credential_keys
-      target: crewscope.credential.encryption.keys
-    - source: activity_cursor_key
-      target: crewscope.team-activity-realtime.keys.v1
-    - source: diff_cursor_secret
-      target: crewscope.coding.diff.cursor-secret
-    - source: task_token_key
-      target: crewscope.security.task-token.keys.v1
-    - source: redis_url
-      target: crewscope.runtime.redis.url
-  networks: [backend, observability]
-
 services:
-  docker-socket-proxy:
-    image: ${CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE:?set an immutable Docker Socket Proxy image ending in @sha256:<digest>}
-    restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=1m,mode=0700
-      - /run:rw,nosuid,nodev,size=1m,mode=0755
-      - /var/lib/haproxy:rw,nosuid,nodev,size=1m,mode=0755
-    # The proxy is the only service that can see the host Docker socket. Worker talks to the
-    # allow-listed API over the internal backend network and never receives the host socket.
-    environment:
-      CONTAINERS: "1"
-      IMAGES: "1"
-      POST: "1"
-      EXEC: "1"
-      NETWORKS: "1"
-      INFO: "1"
-      PING: "1"
-      VERSION: "1"
-      EVENTS: "1"
-      VOLUMES: "0"
-      BUILD: "0"
-      AUTH: "0"
-      SWARM: "0"
-      SECRETS: "0"
-      SERVICES: "0"
-      SYSTEM: "0"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    healthcheck:
-      test: [CMD, /usr/bin/wget, -q, --spider, http://127.0.0.1:2375/_ping]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    networks: [backend]
-
   postgres:
-    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: crewscope
       POSTGRES_USER: crewscope
-      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
-    secrets: [database_password]
+      POSTGRES_PASSWORD: ${CREWSCOPE_DB_PASSWORD:?run ./deploy/team-beta/quickstart.sh up first}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U crewscope -d crewscope"]
+      test: [CMD-SHELL, pg_isready -U crewscope -d crewscope]
       interval: 5s
       timeout: 3s
       retries: 30
       start_period: 10s
-    networks: [backend]
 
   redis:
-    image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    image: redis:7.4-alpine
     restart: unless-stopped
-    # Compose mounts file-backed Secrets with their host ownership. Copy the owner-only ACL into
-    # the container tmpfs before the official entrypoint drops from root to the redis user.
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        cp /run/secrets/redis_acl /tmp/redis_acl
-        chown redis:redis /tmp/redis_acl
-        chmod 0400 /tmp/redis_acl
-        exec /usr/local/bin/docker-entrypoint.sh redis-server --appendonly yes --aclfile /tmp/redis_acl
-    read_only: true
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777
-    secrets: [redis_acl]
+    command: [redis-server, --appendonly, yes]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: [CMD, redis-cli, --user, health, ping]
+      test: [CMD, redis-cli, ping]
       interval: 5s
       timeout: 3s
       retries: 30
-      start_period: 5s
-    networks: [backend]
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea
-    restart: unless-stopped
-    command: [--config=/etc/otelcol-contrib/config.yaml]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    volumes:
-      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
-    healthcheck:
-      test: [CMD, /otelcol-contrib, components]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [observability]
-
-  prometheus:
-    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
-    restart: unless-stopped
-    user: "65534:65534"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    # Prometheus receives only its machine credential, never the human Operator Secret.
-    group_add: ["10001"]
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=15d
-      - --web.enable-lifecycle
-    secrets: [monitoring_password]
-    volumes:
-      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus-alerts.yaml:/etc/prometheus/alerts.yaml:ro
-      - prometheus-data:/prometheus
-    healthcheck:
-      test: [CMD, /bin/wget, -q, --spider, http://127.0.0.1:9090/-/ready]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [observability]
-
-  alertmanager:
-    image: ${CREWSCOPE_ALERTMANAGER_IMAGE:?set an immutable Alertmanager image ending in @sha256:<digest>}
-    restart: unless-stopped
-    user: "65534:65534"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    tmpfs:
-      - /alertmanager:rw,nosuid,nodev,noexec,size=64m,uid=65534,gid=65534,mode=0700
-    command:
-      - --config.file=/etc/alertmanager/alertmanager.yml
-      - --storage.path=/alertmanager
-    volumes:
-      - ./alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
-    healthcheck:
-      test: [CMD, /bin/amtool, check-config, /etc/alertmanager/alertmanager.yml]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [observability]
-
-  backup-metrics:
-    image: ${CREWSCOPE_NODE_EXPORTER_IMAGE:?set an immutable Node Exporter image ending in @sha256:<digest>}
-    restart: unless-stopped
-    user: "65534:65534"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    command:
-      - --collector.disable-defaults
-      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
-      - --web.listen-address=:9100
-    volumes:
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/metrics
-        target: /var/lib/node_exporter/textfile_collector
-        read_only: true
-    healthcheck:
-      test: [CMD, /bin/wget, -q, --spider, http://127.0.0.1:9100/]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [observability]
 
   api:
-    <<: *backend-common
-    # Provider health probes and model calls require outbound HTTPS, while database and
-    # observability traffic remain on isolated internal networks. No host port is published.
-    networks: [backend, observability, provider-egress]
+    image: crewscope-backend:local
+    pull_policy: never
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: deploy/team-beta/backend.Dockerfile
+      args:
+        MAVEN_IMAGE: ${CREWSCOPE_MAVEN_IMAGE:-maven:3.9.11-eclipse-temurin-17-alpine}
+        RUNTIME_IMAGE: ${CREWSCOPE_JRE_IMAGE:-eclipse-temurin:17-jre-alpine}
+    env_file:
+      - ${CREWSCOPE_ENV_FILE:-./.runtime/.env}
     environment:
-      <<: *backend-environment
-      CREWSCOPE_EXECUTION_PROFILE: server
-      CREWSCOPE_SECURITY_MODE: local
-      CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED: "true"
-      CREWSCOPE_BROWSER_SESSION_ENABLED: "true"
-      CREWSCOPE_LOGIN_DEFENSE_ENABLED: "true"
-      CREWSCOPE_INVITATION_TOKEN_ENABLED: "true"
-      CREWSCOPE_SERVER_PORT: "8080"
-      CREWSCOPE_FLYWAY_ENABLED: "true"
-      CREWSCOPE_OUTBOX_ENABLED: "false"
-      CREWSCOPE_ACTION_WORKER_ENABLED: "false"
-      CREWSCOPE_ACTION_RECONCILIATION_ENABLED: "false"
-      CREWSCOPE_ACTION_RECONCILIATION_STARTUP_ENABLED: "false"
-      CREWSCOPE_NOTIFICATION_WORKER_ENABLED: "false"
-      CREWSCOPE_NOTIFICATION_RECONCILIATION_ENABLED: "false"
-      CREWSCOPE_NOTIFICATION_REDELIVERY_ENABLED: "false"
-      CREWSCOPE_GITHUB_IMPORT_WORKER_ENABLED: "false"
-      CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "false"
+      SPRING_PROFILES_ACTIVE: team-beta
+      CREWSCOPE_SERVER_PORT: 8080
+      CREWSCOPE_ENVIRONMENT: ${CREWSCOPE_ENVIRONMENT:-team-beta}
+      CREWSCOPE_DB_URL: jdbc:postgresql://postgres:5432/crewscope?currentSchema=crewscope,public
+      CREWSCOPE_DB_USERNAME: crewscope
+      CREWSCOPE_REDIS_URL: redis://redis:6379
+      CREWSCOPE_BOOTSTRAP_USERNAME: crewscope-monitor
+      CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID: v1
+      CREWSCOPE_DEMO_ORGANIZATION_NAME: ${CREWSCOPE_DEMO_ORGANIZATION_NAME:-CrewScope Team Beta}
+      CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL: crewscope-monitor@crewscope.local
+      CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME: CrewScope Team Beta Operator
+      CREWSCOPE_REGISTRATION_MODE: ${CREWSCOPE_REGISTRATION_MODE:-OPEN}
+      CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
+      CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
+      CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"
       CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "true"
-      CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api-1
-      CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: server
+      CREWSCOPE_BROWSER_SESSION_ENABLED: "true"
+      CREWSCOPE_SESSION_COOKIE_SECURE: ${CREWSCOPE_SESSION_COOKIE_SECURE:-false}
+      CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED: "true"
+      CREWSCOPE_FLYWAY_ENABLED: "true"
+      CREWSCOPE_ARTIFACT_ROOT: /var/crewscope/artifacts
+      CREWSCOPE_PERSONAL_AGENT_RUNTIME_ROOT: /var/crewscope/agent-runtime
+      CREWSCOPE_TEMPLATE_AGENT_RUNTIME_ROOT: /var/crewscope/template-agent-runtime
+      CREWSCOPE_TASK_AGENT_RUNTIME_ROOT: /var/crewscope/task-agent-runtime
+      CREWSCOPE_CODING_AGENT_RUNTIME_ROOT: /var/crewscope/coding-agent-runtime
+      CREWSCOPE_CODING_REPOSITORY_MANAGED_ROOT: ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}/repositories
+      CREWSCOPE_CODING_WORKTREE_ROOT: ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}/worktrees
+      CREWSCOPE_CODING_WORKTREE_LOCK_ROOT: ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}/worktree-locks
+      CREWSCOPE_GITHUB_MIRROR_ROOT: ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}/github-mirrors
+      CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/github-credentials
+      CREWSCOPE_CODING_GIT_COMMAND_HOME: /var/crewscope/git-home
+      DOCKER_HOST: unix:///var/run/docker.sock
+    group_add:
+      - ${CREWSCOPE_DOCKER_GID:-0}
+    volumes:
+      - artifacts:/var/crewscope/artifacts
+      - agent-runtime:/var/crewscope/agent-runtime
+      - template-agent-runtime:/var/crewscope/template-agent-runtime
+      - task-agent-runtime:/var/crewscope/task-agent-runtime
+      - coding-agent-runtime:/var/crewscope/coding-agent-runtime
+      # Sandbox containers need the same absolute repository/worktree paths as the API.
+      - ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}:${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}
+      - ${CREWSCOPE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-    volumes:
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/personal-agent
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/template-agent
-    secrets:
-      - source: database_password
-        target: spring.datasource.password
-      - source: bootstrap_password
-        target: crewscope.security.bootstrap.password
-      - source: monitoring_password
-        target: crewscope.security.monitoring.password
-      - source: credential_keys
-        target: crewscope.credential.encryption.keys
-      - source: activity_cursor_key
-        target: crewscope.team-activity-realtime.keys.v1
-      - source: diff_cursor_secret
-        target: crewscope.coding.diff.cursor-secret
-      - source: task_token_key
-        target: crewscope.security.task-token.keys.v1
-      - source: redis_url
-        target: crewscope.runtime.redis.url
-      - source: login_defense_hmac_key
-        target: crewscope.security.login-defense.hmac-key
-      - source: invitation_token_hmac_key
-        target: crewscope.invitation.token.hmac-key
     healthcheck:
       test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/actuator/health/readiness]
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 90s
-
-  worker:
-    <<: *backend-common
-    # Worker-side model, GitHub and collaboration calls share the dedicated outbound network.
-    networks: [backend, observability, provider-egress]
-    environment:
-      <<: *backend-environment
-      CREWSCOPE_EXECUTION_PROFILE: worker
-      CREWSCOPE_SECURITY_MODE: bootstrap
-      CREWSCOPE_OPERATOR_BOOTSTRAP_ENABLED: "false"
-      CREWSCOPE_BROWSER_SESSION_ENABLED: "false"
-      CREWSCOPE_LOGIN_DEFENSE_ENABLED: "false"
-      CREWSCOPE_INVITATION_TOKEN_ENABLED: "false"
-      CREWSCOPE_SERVER_PORT: "8081"
-      CREWSCOPE_FLYWAY_ENABLED: "false"
-      CREWSCOPE_OUTBOX_ENABLED: "true"
-      CREWSCOPE_OUTBOX_WORKER_ID: team-beta-outbox-1
-      CREWSCOPE_ACTION_WORKER_ENABLED: "true"
-      CREWSCOPE_ACTION_WORKER_ID: team-beta-action-1
-      CREWSCOPE_ACTION_RECONCILIATION_ENABLED: "true"
-      CREWSCOPE_ACTION_RECONCILIATION_STARTUP_ENABLED: "true"
-      CREWSCOPE_ACTION_RECONCILIATION_WORKER_ID: team-beta-action-reconciler-1
-      CREWSCOPE_NOTIFICATION_WORKER_ENABLED: "true"
-      CREWSCOPE_NOTIFICATION_RECONCILIATION_ENABLED: "true"
-      CREWSCOPE_NOTIFICATION_REDELIVERY_ENABLED: "true"
-      CREWSCOPE_NOTIFICATION_WORKER_ID: team-beta-notification-1
-      CREWSCOPE_NOTIFICATION_RECONCILIATION_WORKER_ID: team-beta-notification-reconciler-1
-      CREWSCOPE_NOTIFICATION_REDELIVERY_WORKER_ID: team-beta-notification-redelivery-1
-      CREWSCOPE_GITHUB_IMPORT_WORKER_ENABLED: "true"
-      CREWSCOPE_GITHUB_IMPORT_WORKER_ID: team-beta-github-import-1
-      CREWSCOPE_PROJECTION_SUPERVISOR_ENABLED: "true"
-      CREWSCOPE_PROJECTION_SUPERVISOR_INSTANCE_ID: team-beta-projection-1
-      CREWSCOPE_TEAM_ACTIVITY_REALTIME_ENABLED: "false"
-      CREWSCOPE_RUNTIME_WORKER_STABLE_KEY: team-beta-worker-1
-      CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-worker-1
-      CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: worker
-      DOCKER_HOST: tcp://docker-socket-proxy:2375
-    depends_on:
-      api: {condition: service_healthy}
-      docker-socket-proxy: {condition: service_healthy}
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-    volumes:
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/artifacts
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/github-mirrors
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/repositories
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktrees
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/worktree-locks
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/task-agent
-      - type: bind
-        source: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
-        target: ${CREWSCOPE_DATA_ROOT:?set an absolute data root}/runtime/coding-agent
-    healthcheck:
-      test: [CMD, wget, -q, --spider, http://127.0.0.1:8081/actuator/health/readiness]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 90s
+      start_period: 60s
 
   web:
-    image: ${CREWSCOPE_WEB_IMAGE:?set an immutable Web image ending in @sha256:<digest>}
+    image: crewscope-web:local
+    pull_policy: never
     restart: unless-stopped
-    user: "101:101"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=101,gid=101,mode=1777
+    build:
+      context: ../..
+      dockerfile: deploy/team-beta/web.Dockerfile
+      args:
+        NODE_IMAGE: ${CREWSCOPE_NODE_IMAGE:-node:24-alpine}
+        WEB_IMAGE: ${CREWSCOPE_NGINX_IMAGE:-nginxinc/nginx-unprivileged:1.29-alpine}
     depends_on:
       api: {condition: service_healthy}
     ports:
-      - 127.0.0.1:${CREWSCOPE_WEB_PORT:-8080}:8080
+      - 0.0.0.0:${CREWSCOPE_WEB_PORT:-8080}:8080
     healthcheck:
       test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/healthz]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks:
-      edge: {}
-      backend:
-        ipv4_address: ${CREWSCOPE_WEB_INTERNAL_IP:-172.30.0.10}
-
-networks:
-  edge: {}
-  provider-egress:
-    driver: bridge
-  backend:
-    internal: true
-    ipam:
-      config:
-        - subnet: ${CREWSCOPE_BACKEND_SUBNET:-172.30.0.0/24}
-  observability:
-    internal: true
 
 volumes:
-  postgres-data: {}
-  redis-data: {}
-  prometheus-data: {}
-
-secrets:
-  database_password:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/database_password
-  bootstrap_password:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/bootstrap_password
-  monitoring_password:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/monitoring_password
-  credential_keys:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/credential_keys
-  activity_cursor_key:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/activity_cursor_key
-  diff_cursor_secret:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/diff_cursor_secret
-  task_token_key:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/task_token_key
-  redis_url:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_url
-  redis_acl:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/redis_acl
-  login_defense_hmac_key:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/login_defense_hmac_key
-  invitation_token_hmac_key:
-    file: ${CREWSCOPE_SECRETS_ROOT:?set an absolute Secret directory}/invitation_token_hmac_key
+  postgres-data:
+  redis-data:
+  artifacts:
+  agent-runtime:
+  template-agent-runtime:
+  task-agent-runtime:
+  coding-agent-runtime:

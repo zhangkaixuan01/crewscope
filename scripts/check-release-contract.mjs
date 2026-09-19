@@ -51,7 +51,9 @@ for (const [file, title] of [
 }
 
 const readme = readFileSync(join(root, 'README.md'), 'utf8')
-assert.match(readme, /GHCR|GitHub Release/)
-assert.doesNotMatch(readme, /当前不会替部署方发布镜像/)
+// Optional tag-driven publishing must not become a prerequisite for the source-built quickstart.
+assert.match(readme, /从源码构建/)
+assert.match(readme, /quickstart\.sh build/)
+assert.match(readme, /quickstart\.sh up/)
 
 console.log('Release contract passed: tag validation, same-revision amd64 images, SBOM/Provenance and keyless signature verification.')

@@ -37,7 +37,7 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-020](ADR-020-投影代际重建与游标协议.md) | Projection Generation、影子重建、原子切换、Fencing 与 Cursor 过期 | ACCEPTED |
 | [ADR-021](ADR-021-三流恢复与前端合并协议.md) | Team/Conversation/AG-UI 独立恢复、快照、Scope Epoch 与合并去重 | ACCEPTED |
 | [ADR-022](ADR-022-Inbox与固定模板通知授权协议.md) | Inbox 来源/处置分离、固定模板通知策略预授权、Lark 精确身份与幂等投递 | ACCEPTED |
-| [ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md) | Team Beta 单机拓扑、低基数观测、固定负载、备份恢复与发布门禁 | ACCEPTED |
+| [ADR-023](ADR-023-Team-Beta单机部署与发布验证协议.md) | Team Beta 旧部署与发布验证；当前默认四服务部署见运维手册 | PARTIALLY SUPERSEDED |
 | [ADR-024](ADR-024-Account与Principal身份边界.md) | UserAccount、LoginIdentity、Organization Binding、Principal 与 TeamMember 分层 | PROPOSED |
 | [ADR-025](ADR-025-本地密码与登录防护参数.md) | Argon2id、密码预算、登录限流、临时锁定与账号枚举防护 | PROPOSED |
 | [ADR-026](ADR-026-M8产品化与工程收口合同.md) | M8 Readiness、受信动作、导入隔离、发行与质量门禁 | PROPOSED |
@@ -46,5 +46,7 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-029](ADR-029-行级Review与配置体验合同.md) | Diff 高亮、行级评论锚点、配置脏态/版本/健康合同 | ACCEPTED |
 
 ## ADR 内容要求
+
+M10–M12 尚未创建的 ADR 保留编号与主题统一见 [计划索引](../plans/README.md#adr-规划编号的唯一映射)。保留编号不代表 PROPOSED/ACCEPTED，不在上表伪造已存在的决策记录。
 
 每份 ADR 包含背景、决策、实现约束、结果、验证和重新评估条件。ADR 只记录关键取舍，具体开发步骤由 `docs/plans` 承载。

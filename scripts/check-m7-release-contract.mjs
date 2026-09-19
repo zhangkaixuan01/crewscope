@@ -32,22 +32,18 @@ assert.equal(
 )
 
 const compose = readFileSync(join(root, 'deploy/team-beta/compose.yaml'), 'utf8')
-const demoCompose = readFileSync(join(root, 'deploy/team-beta/compose.demo.yaml'), 'utf8')
-const demoScript = readFileSync(join(root, 'deploy/team-beta/demo.sh'), 'utf8')
+const demoScript = readFileSync(join(root, 'deploy/team-beta/quickstart.sh'), 'utf8')
 const profileGate = readFileSync(join(root, 'scripts/m7-q04-registration-profile-gate.sh'), 'utf8')
 const authenticationController = readFileSync(
   join(root, 'crewscope-server/src/main/java/io/crewscope/server/api/AuthenticationController.java'),
   'utf8',
 )
 const authStore = readFileSync(join(root, 'crewscope-web/src/domains/identity/store.ts'), 'utf8')
-assert.match(compose, /CREWSCOPE_REGISTRATION_MODE: \$\{CREWSCOPE_REGISTRATION_MODE:-INVITE_ONLY\}/)
-assert.match(demoCompose, /CREWSCOPE_REGISTRATION_MODE: \$\{CREWSCOPE_REGISTRATION_MODE:-OPEN\}/)
+assert.match(compose, /CREWSCOPE_REGISTRATION_MODE: \$\{CREWSCOPE_REGISTRATION_MODE:-OPEN\}/)
 assert.match(demoScript, /OPEN\|INVITE_ONLY\|DISABLED/)
 assert.match(demoScript, /set-registration-mode/)
 assert.match(demoScript, /--force-recreate --wait api/)
-assert.match(demoScript, /CREWSCOPE_DEMO_BUILD/)
-assert.match(profileGate, /if \[ "\$CREWSCOPE_DEMO_BUILD" != true \]; then/)
-assert.match(profileGate, /CREWSCOPE_Q04_BUILD_IMAGES=true/)
+assert.match(demoScript, /compose\.yaml/)
 assert.match(authenticationController, /BrowserPermissionProjection\.account\(account\.platformRole\(\)\)/)
 assert.doesNotMatch(authenticationController, /BrowserPermissionProjection\.account\([^)]*,/)
 assert.match(authStore, /new Set\(\[\.\.\.session\.permissions, \.\.\.\(selected\?\.permissions \?\? \[\]\)\]\)/)
@@ -116,7 +112,7 @@ for (const testRoot of testRoots) {
 }
 assert.deepEqual(violations, [], `M7 release tests must have no focused, todo or unconditioned skips:\n${violations.join('\n')}`)
 
-console.log('M7 release contract passed: scoped Team permissions, three registration Profiles, V26..V36 recovery, CI dependencies and no focused, todo or unconditioned skips.')
+console.log('M7 release contract passed: scoped Team permissions, registration Profiles, V26..V36 recovery, CI dependencies and no focused, todo or unconditioned skips.')
 
 function collect(path) {
   if (!existsSync(path)) return []

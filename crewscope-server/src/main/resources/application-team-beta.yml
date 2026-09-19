@@ -1,44 +1,75 @@
 spring:
   datasource:
-    url: ${CREWSCOPE_DB_URL}
-    username: ${CREWSCOPE_DB_USERNAME}
+    url: ${CREWSCOPE_DB_URL:jdbc:postgresql://postgres:5432/crewscope?currentSchema=crewscope,public}
+    username: ${CREWSCOPE_DB_USERNAME:crewscope}
+    password: ${CREWSCOPE_DB_PASSWORD:crewscope}
   flyway:
-    # API sets true and is the only migration owner; Worker sets false and waits for API health.
-    enabled: ${CREWSCOPE_FLYWAY_ENABLED}
-  lifecycle:
-    timeout-per-shutdown-phase: 45s
+    enabled: ${CREWSCOPE_FLYWAY_ENABLED:true}
 
 server:
   forward-headers-strategy: framework
+  reactive:
+    session:
+      cookie:
+        secure: ${CREWSCOPE_SESSION_COOKIE_SECURE:false}
 
 management:
   tracing:
     export:
       otlp:
-        enabled: ${CREWSCOPE_OTLP_TRACING_ENABLED}
-  opentelemetry:
-    tracing:
-      export:
-        max-queue-size: 2048
-        max-batch-size: 512
-        timeout: 5s
-        otlp:
-          endpoint: ${CREWSCOPE_OTLP_TRACING_ENDPOINT}
-          connect-timeout: 2s
-          timeout: 5s
+        enabled: false
 
 crewscope:
-  registration:
-    organization-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID}
   deployment:
-    transport: ${CREWSCOPE_DEPLOYMENT_TRANSPORT}
-    config-source: ${CREWSCOPE_DEPLOYMENT_CONFIG_SOURCE}
-    secret-source: ${CREWSCOPE_DEPLOYMENT_SECRET_SOURCE}
+    transport: local
+    config-source: environment
+    secret-source: environment
     bootstrap:
-      enabled: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ENABLED}
-      organization-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_ID}
-      organization-name: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_ORGANIZATION_NAME}
-      runtime-principal-id: ${CREWSCOPE_DEPLOYMENT_BOOTSTRAP_RUNTIME_PRINCIPAL_ID}
+      enabled: true
+      organization-id: ${CREWSCOPE_DEMO_ORGANIZATION_ID:0198a475-0831-7000-8000-000000000001}
+      organization-name: ${CREWSCOPE_DEMO_ORGANIZATION_NAME:CrewScope Team Beta}
+      runtime-principal-id: ${CREWSCOPE_DEMO_RUNTIME_PRINCIPAL_ID:0198a475-0831-7000-8000-000000000002}
   security:
-    bootstrap:
-      username: ${CREWSCOPE_BOOTSTRAP_USERNAME}
+    mode: local
+    hsts:
+      enabled: ${CREWSCOPE_HSTS_ENABLED:false}
+    session:
+      enabled: true
+    login-defense:
+      enabled: true
+    operator-bootstrap:
+      enabled: true
+      organization-id: ${CREWSCOPE_DEMO_ORGANIZATION_ID:0198a475-0831-7000-8000-000000000001}
+      username: ${CREWSCOPE_BOOTSTRAP_USERNAME:crewscope-monitor}
+      email: ${CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL:crewscope-monitor@crewscope.local}
+      display-name: ${CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME:CrewScope Team Beta Operator}
+    task-token:
+      enabled: true
+  invitation:
+    token:
+      enabled: true
+  registration:
+    mode: ${CREWSCOPE_REGISTRATION_MODE:OPEN}
+    organization-id: ${CREWSCOPE_DEMO_ORGANIZATION_ID:0198a475-0831-7000-8000-000000000001}
+  runtime:
+    execution-profile: all
+    registry:
+      organization-id: ${CREWSCOPE_DEMO_ORGANIZATION_ID:0198a475-0831-7000-8000-000000000001}
+      actor-principal-id: ${CREWSCOPE_DEMO_RUNTIME_PRINCIPAL_ID:0198a475-0831-7000-8000-000000000002}
+      environment: ${CREWSCOPE_ENVIRONMENT:team-beta}
+      worker:
+        stable-key: ${CREWSCOPE_RUNTIME_WORKER_STABLE_KEY:team-beta}
+    observation:
+      environment: ${CREWSCOPE_ENVIRONMENT:team-beta}
+  team-activity-realtime:
+    enabled: true
+    current-key-id: v1
+    keys:
+      v1: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_KEY_V1:}
+  credential:
+    encryption:
+      current-key-id: ${CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID:v1}
+      keys: ${CREWSCOPE_CREDENTIAL_KEYS:}
+  artifact:
+    filesystem:
+      root: ${CREWSCOPE_ARTIFACT_ROOT:/var/crewscope/artifacts}

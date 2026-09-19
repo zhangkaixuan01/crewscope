@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.title="CrewScope Backend" \
       org.opencontainers.image.source="https://github.com/zhangkaixuan01/crewscope"
 
 # The Worker invokes only the platform-owned Git and Docker CLI adapters. Package installation stays
-# in the immutable image build; the runtime root filesystem is read-only.
+# in the image build; no host Java or Node installation is needed.
 RUN apk add --no-cache docker-cli git tini \
     && addgroup -S -g "${CREWSCOPE_GID}" crewscope \
     && adduser -S -D -H -u "${CREWSCOPE_UID}" -G crewscope crewscope \
@@ -43,7 +43,9 @@ RUN apk add --no-cache docker-cli git tini \
       /app /var/crewscope/artifacts /var/crewscope/github-mirrors \
       /var/crewscope/github-credentials /var/crewscope/git-home \
       /var/crewscope/repositories /var/crewscope/worktrees \
-      /var/crewscope/worktree-locks /var/crewscope/runtime
+      /var/crewscope/worktree-locks /var/crewscope/runtime \
+      /var/crewscope/agent-runtime /var/crewscope/template-agent-runtime \
+      /var/crewscope/task-agent-runtime /var/crewscope/coding-agent-runtime
 
 WORKDIR /app
 COPY --from=build --chown=10001:10001 \

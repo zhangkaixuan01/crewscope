@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL keyset search over existing authoritative tables; no secondary search index is stored. */
 @Repository
-public final class JdbcSearchQueryRepositoryAdapter implements SearchIndexPort {
+public class JdbcSearchQueryRepositoryAdapter implements SearchIndexPort {
   private final JdbcTemplate jdbc;
 
   public JdbcSearchQueryRepositoryAdapter(JdbcTemplate jdbc) { this.jdbc = Objects.requireNonNull(jdbc, "jdbc"); }

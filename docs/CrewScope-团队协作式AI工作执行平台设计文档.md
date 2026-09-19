@@ -1,5 +1,7 @@
 # CrewScope 团队协作式 AI 工作执行平台设计文档
 
+> 部署更新（2026-09-19）：当前默认采用四服务 HTTP Compose，API 内含 Worker，Coding 使用本机 Docker Socket；自动生成 env 密钥，从源码构建。本文旧七/十服务、外部 Secret、强制 TLS/Digest、Socket Proxy 与观测栈描述仅保留历史范围，不是当前启动条件。当前操作以 [单机运维手册](runbooks/Team-Beta单机运维手册.md) 为准。
+
 > 文档版本：v5.73<br>
 > 产品名称：`CrewScope`  
 > 工程仓库：`crewscope-java`  
@@ -4524,26 +4526,24 @@ crewscope-plugin-lark
 `crewscope-server` 生成一个可执行 Jar，通过 Spring Profile 支持三种运行方式：
 
 ```text
-all     API、Agent Runtime 与 Worker，只用于本地开发
+all     API、Agent Runtime 与 Worker，当前本机与 Team Beta 默认
 server  REST、AG-UI、Webhook 与实时事件入口
 worker  Step 调度、Provider Action、Connector 调用、Sandbox 和对账
 ```
 
-Team Beta 在一台专用 Linux 主机上固定运行 `postgres`、`redis`、`otel-collector`、
-`prometheus`、`alertmanager`、`backup-metrics`、`docker-socket-proxy`、`api`、`worker` 和 `web` 十个服务，
-并使用同一不可变应用镜像分别启动 `server` 与 `worker`。Web/TLS Reverse Proxy 是唯一公开
-入口；API、Worker、PostgreSQL、Redis、观测组件、Socket Proxy 和 Actuator 位于内部网络。
-API 是 Flyway 单一迁移角色，Worker 在迁移完成和 API Ready 后开始 Claim。Web、API 和
-Worker 使用非 Root、只读根文件系统与受控 `secret-ref:` 外部 Secret；所有应用、基础设施和
-Sandbox 镜像使用 SHA-256 Digest。
+Team Beta 与本机共用四服务 Compose：`postgres`、`redis`、`api`、`web`。
+API 使用 `all`，同时负责 Flyway、入口与后台 Worker。Web 是唯一公开入口，默认 HTTP 8080；
+API、PostgreSQL、Redis 和 Actuator 不发布宿主端口。Backend/Web 从源码构建，密钥由脚本
+自动写入受保护的 `.runtime/.env`；TLS、Digest、外部 Secret 和监控栈不再是启动条件。
 
 Execution Worker、Worktree 根目录、Repository Mirror、Docker Daemon 和 Diff Watcher 位于
-同一执行主机。只有受限 Docker Socket Proxy 挂载宿主 Socket；Worker 通过内部 TCP 调用
-Container/Exec 等白名单 API，Build、Volume、System、Swarm 和 Secret 管理接口失败关闭。
-该代理与 Docker Engine 仍属于专用执行主机的高权限边界。进入 Kubernetes 前先实现专用
-Worker 节点调度与共享/节点存储 ADR。
+同一执行主机。API 挂载本机 Docker Socket，并将执行目录按宿主绝对路径映射，以便创建
+Sandbox；Sandbox 自身不挂载 Socket。API 具备本机 Docker 管理权限，必须使用自有或专用
+执行主机。原受限 Socket Proxy 拓扑作为历史方案保留，不属于当前默认部署。
 
-Team Beta 备份覆盖 PostgreSQL 一致性 Dump、Content-addressed Artifact 和 Redis Snapshot。备份前进入 Maintenance Mode，停止新命令与 Claim，并等待 TaskExecution、Action Dispatch 和 Notification Dispatch 归零。Manifest 保存组件 SHA-256、应用与 Schema 版本、加密标记和 Credential Key ID；Key Material 由进程外 Secret/KMS 独立保管。恢复目标必须为空，按“校验 Manifest → PostgreSQL → Artifact → Redis/二级重建 → 引用校验 → 投影重建 → Maintenance Smoke → 开放流量”执行。目标为 RPO 24 小时、RTO 4 小时，恢复开始时间与 Manifest 创建时间之差必须位于 0 至 24 小时。
+当前使用 `snapshot.sh` 停机冷备份，覆盖七个持久卷、执行目录和 env 密钥，并保存 SHA-256 校验。
+恢复只接受同路径、同项目名的空目标以及兼容应用和 PostgreSQL 主版本；不套用旧版恢复脚本的
+V26–V36 限制。快照未加密，须由受保护存储保管。操作步骤见 [单机运维手册](runbooks/Team-Beta单机运维手册.md)。
 
 发布门禁分为无真实凭证的 Pull Request、无真实凭证的 Nightly 和受保护人工触发的 Release Candidate，依赖只按该顺序单向推进。真实 Lark Smoke 只发送固定模板到专用测试接收者。所有 Required Step 必须成功并归档证据，缺失或跳过均阻止发布。拓扑、备份和门禁细节见 [ADR-023](adr/ADR-023-Team-Beta单机部署与发布验证协议.md)。
 
@@ -5170,7 +5170,7 @@ Setup Center 不接收长期 Secret，不复制配置表单，不通过一键命
 
 已验证的 TEAM GitHub Connection Catalog 与 Worker Managed Root 保持两个安全边界。Team 管理员从 Catalog 选择远程仓库、WorkProject、稳定 Repository Key 和默认分支后，服务端创建有界 `RepositoryImportJob`，由 Worker 使用短生命周期凭证执行 bare mirror 导入，完成 canonical containment、Owner、bare 格式和基线 Ref 校验。导入成功后调用既有 `LOCAL_MANAGED RepositoryBinding` 创建流程，仓库进入 WorkProject 受管 Catalog 并可创建 CodingTarget；浏览器不接收 Remote URL、Token 或宿主路径。导入过程支持幂等、进度、失败重试、取消、断点恢复、远程分支漂移检测和审计。
 
-Coding Worker 与 Sandbox 的 Docker 控制面必须隔离。生产部署优先使用独立 Docker Daemon、受限 Socket Proxy、rootless Docker 或等价的专用执行节点；普通 Coding 执行不能获得宿主机 Docker Socket 的无限管理权限。隔离方案需要通过 Sandbox 逃逸、宿主目录挂载、特权容器和 Worker 被攻破等攻击用例验证，并在部署文档中明确残余风险。
+当前简单单机部署把 Worker 合并进 API，通过本机 Docker Socket 管理 Sandbox；Socket 不传入 Sandbox。后端具有宿主 Docker 管理权限，适用于自己的单机或团队专用主机。原 M8 的独立 Daemon/受限 Proxy 隔离验收保留为历史加固方案，不再作为默认启动要求。
 
 ### 24.4 工程职责与依赖
 
@@ -5178,15 +5178,15 @@ M8 优先收口变更冲突和认知成本最高的职责边界：WorkPage/Task 
 
 Repository Port 的必需能力通过最小接口、抽象方法或生产 Adapter Contract Test 在编译/测试阶段暴露，避免新增 Adapter 因默认 `UnsupportedOperationException` 延迟到运行期失败。
 
-默认 Backend 构建只携带当前单机 Docker Sandbox 所需依赖。未使用的 Kubernetes/Fabric8 扩展移出默认运行类路径，后续 Kubernetes 执行器通过独立模块或 Profile 恢复。各模块直接声明实际导入的依赖；Spring Configuration Metadata、环境变量、Config Tree Secret、Compose 和文档由自动化合同保持一致。
+默认 Backend 构建只携带当前单机 Docker Sandbox 所需依赖。未使用的 Kubernetes/Fabric8 扩展移出默认运行类路径，后续 Kubernetes 执行器通过独立模块或 Profile 恢复。各模块直接声明实际导入的依赖；Spring Configuration Metadata、自动生成的环境变量、Compose 和文档由合同与运行验证保持一致。
 
 ### 24.5 发行与运维
 
-受保护 Git Tag 触发正式发行，Backend 与 Web 使用同一 Git Revision，发布 GHCR 不可变镜像、Digest Manifest、SBOM、Provenance 和签名。安装与升级只消费固定 Digest；缺少签名、扫描或 Revision/Schema 一致性证据时拒绝形成 Release。
+默认安装和升级从当前源码构建 Backend/Web 本地镜像，不依赖镜像仓库、Digest 或签名。正式 Tag 发行、GHCR、SBOM、Provenance 和签名继续作为独立供应链流程，不能成为普通部署前置条件。
 
-Team Beta 开启 Trace 时必须输出到可查询 Backend；没有 Trace Backend 时显式关闭，不能把 `nop` Exporter 表达为已保存 Trace。Prometheus 提供 API/Worker 可用性、Outbox、Dead Letter、Task Lease、Agent/Provider/Notification 失败、数据库/Redis 和备份年龄告警，并连接受控通知出口。
+默认部署不启动 Trace、Prometheus 或告警服务。应用保留指标与日志能力，需要时再接入可查询 Trace Backend 和监控出口。
 
-Daily/Weekly 备份、Retention 和备份年龄检查使用可重复安装的调度合同。公网 TLS 模板提供 HSTS、经过浏览器门禁的 CSP 和安全 Header；本地开发 Compose 只把 PostgreSQL/Redis 绑定到 Loopback。正式公网仍只开放 80/443。
+四服务的备份与空目标恢复由 `deploy/team-beta/snapshot.sh` 提供，包含全部数据卷、执行目录和 env 密钥。HTTP 默认发布 Web 8080；TLS 和 HSTS 可按需配置，数据库与 Redis 不发布宿主端口。旧版 systemd 备份及公网 TLS 验收仅作为历史材料。
 
 ### 24.6 质量与范围
 

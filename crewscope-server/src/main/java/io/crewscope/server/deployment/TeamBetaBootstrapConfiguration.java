@@ -6,14 +6,15 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
-/** API-owned clean-host bootstrap that runs after all migrations and before Worker-facing beans. */
+/** API-owned clean-host bootstrap used by Team Beta and the local browser demo. */
 @Configuration(proxyBeanMethods = false)
-@Profile("team-beta")
+@Profile({"team-beta", "local-demo"})
 @ConditionalOnProperty(
         prefix = "crewscope.deployment.bootstrap",
         name = "enabled",
@@ -36,10 +37,7 @@ public class TeamBetaBootstrapConfiguration {
 
     /** Restores the non-secret model directory after the Runtime Principal has been seeded. */
     @Bean
-    @ConditionalOnProperty(
-            prefix = "crewscope.runtime",
-            name = "execution-profile",
-            havingValue = "server")
+    @ConditionalOnExpression("'${crewscope.runtime.execution-profile:all}' != 'worker'")
     ApplicationRunner teamBetaPlatformModelCatalogRunner(
             PlatformModelCatalogInitializer modelCatalog,
             TimeProvider timeProvider,

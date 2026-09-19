@@ -1,5 +1,7 @@
 # M6：团队观测、飞书通知与 MVP 发布执行清单
 
+> 当前部署说明（2026-09）：M6 文档中的生产化 Compose 仅代表当时的 Release Gate 验收合同。当前默认部署已简化为 PostgreSQL、Redis、API、Web 四服务 HTTP Compose，不再要求 TLS、外部 Secret、镜像 Digest、Prometheus、OTel 或 Docker Socket Proxy。请以 [README 服务器部署说明](../../README.md#部署本机与服务器通用) 为准。
+
 > 对应总计划：[CrewScope 实施计划](../CrewScope-实施计划.md) M6<br>
 > 前置条件：M5 Release Gate 通过，M0 Outbox/Projection/Audit、M1 Team/WorkItem、M2 Conversation、M3 Runtime、M4 Coding、M5 Review/Action/GitHub 契约稳定<br>
 > 目标周期：3–4 周，按纵向波次推进<br>

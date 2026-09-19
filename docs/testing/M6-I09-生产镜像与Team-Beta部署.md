@@ -1,5 +1,7 @@
 # M6-I09 生产镜像与 Team Beta 部署
 
+> 历史记录：本文记录 M6 Release Gate 使用的七/十服务生产化合同，已不再是当前默认部署要求。当前使用四服务 HTTP Compose；TLS、外部 Secret、镜像 Digest、观测栈和 Socket Proxy 均已移出启动路径。请以 [当前运维手册](../runbooks/Team-Beta单机运维手册.md) 为准。
+
 > 日期：2026-08-26
 > 对应任务：`M6-I09`
 > 对应决策：[ADR-023 Team Beta 单机部署与发布验证协议](../adr/ADR-023-Team-Beta单机部署与发布验证协议.md)

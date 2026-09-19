@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** PostgreSQL adapter for the derived personal WorkDesk projection. */
 @Repository
-public final class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
+public class JdbcWorkDeskRepositoryAdapter implements WorkDeskRepository {
   private static final int MAX_ITEMS = 500;
   private final JdbcTemplate jdbc;
 

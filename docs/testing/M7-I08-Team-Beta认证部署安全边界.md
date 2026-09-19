@@ -1,5 +1,7 @@
 # M7-I08 Team Beta 认证部署安全边界
 
+> 历史记录：本文保留 M7 认证生产化验收边界。当前简化部署默认使用 HTTP、OPEN 注册、自动生成环境密钥和非 Secure Cookie；旧 HTTPS/Secure Cookie/外部 Secret/部署 Guard 约束不再由应用强制执行。当前部署入口见 [README](../../README.md#部署本机与服务器通用)。
+
 ## 1. 完成范围
 
 M7-I08 将 M7 的账号、Session、登录防护、邀请与 Operator 升级能力纳入 Team Beta 正式部署：

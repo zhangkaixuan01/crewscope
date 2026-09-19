@@ -24,6 +24,8 @@ CrewScope 将技术团队的对话目标转化为可执行、可协作、可追�
 
 M9 完成全站产品体验重构：设计系统 v2 令牌、个人工作台首页、**状态徽章即动作入口**的四呈现面动作模型、Diff 语法高亮与行级 Review 评论、配置体验重构与十二项体验门禁。收口证据见 [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)，本机发布预检与待执行项见 [M9-Q02 Release Gate](docs/testing/M9-Q02-Release-Gate.md)。
 
+下一阶段为 [M9b：核心流程与使用体验收口](docs/plans/M9b-核心流程与使用体验收口.md)（未开始）。[最新 Review](docs/reviews/M9后-全流程使用体验与竞品对照Review.md) 累计记录 43 项待优化问题（17 + 15 + 7 + 4 项）；23 个页面及 15 个一级、9 个二级菜单纳入产品验收矩阵。[逐操作清单](docs/reviews/M9b-菜单逐操作产品Review.md) 覆盖填写、提交、反馈与恢复；[Multica 用户迁移 Review](docs/reviews/M9b-Multica用户迁移体验Review.md) 补充内容阅读、个人视图、发送意图、真实模型限制及固定迁移场景验证。采用自动化/代理浏览器证据，不设真人测评门槛。计划已建立，不代表已修复、实机验收或已优于竞品。
+
 ![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
 ## 核心工作流
@@ -105,252 +107,62 @@ flowchart TB
 - Vue 3.5、TypeScript 5.9、Vite 7、pnpm 11、Vitest 4、Playwright、Histoire
 - Docker Compose、OpenTelemetry、Prometheus
 
-## 运行与部署方式
+## 部署（本机与服务器通用）
 
-| 方式 | 适用场景 | 入口与安全边界 |
-|---|---|---|
-| Team Beta Demo | 本机体验、功能验证、开发联调 | 从源码构建，默认 `OPEN` 注册，通过 `http://127.0.0.1:8080` 访问，不用于公网 |
-| 源码开发 | 后端或前端单独调试 | API `localhost:8080`，Vite `localhost:5173`，基础设施由 Docker Compose 提供 |
-| Team Beta 单机部署 | 内部团队试用、受控的单机生产环境 | 使用不可变镜像、外部 Secret、HTTPS、Secure Cookie，公网只开放 80/443 |
+需要 Git、Docker Engine / Docker Compose v2 和 OpenSSL。后端与前端在 Docker 内从源码构建，无需宿主机安装 Java、Node 或 pnpm。
 
-正式 Compose 固定运行 PostgreSQL、Redis、API、Worker、Web、OpenTelemetry Collector、
-Prometheus、Alertmanager、Backup Metrics 和 Docker Socket Proxy 十个服务。Web 是唯一宿主入口并只绑定
-`127.0.0.1`；API、Worker、数据库、Redis、观测组件和 Socket Proxy 都不发布宿主端口。
-
-> 受保护的 `v*.*.*` Tag 会触发正式 Release Workflow：Backend/Web 使用同一 Git Revision 构建为 `linux/amd64` 镜像，发布到 GHCR，并生成 SBOM、SLSA Provenance、Cosign keyless 签名和 Release Manifest。部署方仍可以把镜像复制到自己的 Registry，但 Operator 环境文件必须填写不可变的 `@sha256:` Digest。
-
-## 本地 Demo
-
-本地 Demo 是首次体验 CrewScope 的推荐方式。需要可用的 Docker Engine、Docker Compose v2、OpenSSL，以及用于首次拉取基础镜像和依赖的网络连接。建议至少提供 4 核 CPU、8 GB 内存和 20 GB 可用磁盘；首次构建耗时取决于 Maven、pnpm 和镜像下载速度。
-
-准备 Docker 和 OpenSSL，在仓库根目录执行：
+在仓库根目录运行：
 
 ```bash
-./deploy/team-beta/demo.sh up
+./deploy/team-beta/quickstart.sh up
 ```
 
-脚本会生成本地随机 Secret，构建并启动 PostgreSQL、Redis、API、Worker、Web、OpenTelemetry Collector 和 Prometheus。启动完成后访问：
+首次启动自动生成配置和随机密钥、构建镜像并初始化数据库。打开 `http://<服务器地址>:8080`（本机用 `127.0.0.1`），注册账号后创建团队。Operator 用户名为 `crewscope-monitor`，初始密码保存在 `deploy/team-beta/.runtime/bootstrap_password`。
 
-```text
-http://127.0.0.1:8080
-```
+只有四个长期运行服务：**PostgreSQL、Redis、API、Web**。API 同时运行 Worker，保留个人对话、普通任务执行、仓库导入和 Coding/Review 运行能力。模型、GitHub、飞书需另外配置；当前构建方案仅内置 Maven/Java 17，尚无完整的自定义构建方案管理页面。远端 HTTP 的浏览器兼容及 GitHub 空环境导入断点已纳入 M9b、尚未修复，详见上方 Review；不能将“服务启动成功”视为全部业务路径已经验收。
 
-Demo 使用 `OPEN` 注册模式。普通用户可以直接打开：
+不需要证书、域名、外部 Secret 目录、镜像 Digest、监控栈或 Socket Proxy。默认 HTTP，Web 发布 8080；数据库与 Redis 不发布宿主端口。Coding 使用本机 Docker Socket 创建 Sandbox，脚本自动准备执行目录和 Socket 组权限；应用因此具备管理本机 Docker 的权限，适用于自己的单机或团队专用主机。
 
-```text
-http://127.0.0.1:8080/register
-```
-
-注册后会进入首次 Team Onboarding，并创建默认 Personal Agent。Demo 同时预置一个 Operator 账号；通过 `http://127.0.0.1:8080/login` 使用用户名 `crewscope-monitor` 登录，随机密码保存在：
-
-```text
-deploy/team-beta/.runtime/secrets/bootstrap_password
-```
-
-`crewscope-prometheus` 及 `monitoring_password` 只用于 Prometheus 机器抓取，不能登录 Web 或访问业务 API。邀请新成员时，由具备成员管理权限的用户在 Team 成员页创建一次性链接；链接会进入公开 `/invite` 页面，不在邀请列表或浏览器持久化中保存明文 Token。
-
-查看状态、日志或停止服务：
+### 常用操作
 
 ```bash
-./deploy/team-beta/demo.sh status
-./deploy/team-beta/demo.sh logs
-./deploy/team-beta/demo.sh down
+./deploy/team-beta/quickstart.sh status
+./deploy/team-beta/quickstart.sh logs
+./deploy/team-beta/quickstart.sh down
 ```
 
-`down` 会保留本地数据与 Secret，便于下次继续体验。真实模型、GitHub 和飞书连接需要进入对应管理页面单独配置；GitHub 授权连接在“GitHub 集成”页面创建，远程 Repository Catalog 用于 Push/Draft PR。Coding Agent 的 RepositoryBinding 仍在 WorkProject 的“仓库设置”中从 Worker 受管本地 Catalog 单独配置，GitHub 远程仓库不会直接出现在该下拉框中。M8-A02 已提供从已验证 GitHub Connection 导入到 Worker Managed Root 的闭环，导入完成后仓库会进入受管 Catalog。
-
-需要切换注册策略时执行：
+`down` 保留数据；再次 `up` 复用本地镜像。更新源码后显式构建并启动：
 
 ```bash
-./deploy/team-beta/demo.sh set-registration-mode OPEN
-./deploy/team-beta/demo.sh set-registration-mode INVITE_ONLY
-./deploy/team-beta/demo.sh set-registration-mode DISABLED
+git pull --ff-only
+./deploy/team-beta/quickstart.sh build
+./deploy/team-beta/quickstart.sh up
 ```
 
-`reset` 会删除该 Demo Compose Project 的数据库、Redis 和 Prometheus Volume，属于破坏性操作；运行目录中的外部 Secret 与绑定目录仍会保留，不等同于安全擦除整个运行目录。
+### 修改配置
 
-## Team Beta 单机部署
-
-### 1. 宿主机与网络
-
-发布证据使用 Linux amd64、8 vCPU、16 GB 内存和至少 100 GiB 磁盘，推荐 200 GiB。宿主机需要 Docker Engine、Docker Compose v2、Git、OpenSSL、Node.js 24、pnpm 11、JDK 17、`jq`、`tar` 和 `gzip`。Worker 通过受限 Docker Socket Proxy 管理 Sandbox，宿主 Docker Socket 只挂载到 Proxy；执行主机仍应专用，不与不受信任的工作负载混用。
-
-云安全组或宿主机防火墙的入站规则建议为：
-
-| 端口 | 来源 | 用途 |
-|---|---|---|
-| TCP 22 | 管理员固定 IP 或受控堡垒机 | SSH 运维；不建议向全网开放 |
-| TCP 80 | 需要访问的公网或企业网段 | HTTP 跳转 HTTPS，也可在证书签发后关闭 |
-| TCP 443 | 需要访问的公网或企业网段 | CrewScope HTTPS 入口 |
-
-不要开放 `5432`、`6379`、`8080`、`8081`、`9090`、`4317` 或 `4318`。正式 Web 容器只监听宿主机环回地址，因此直接访问 `公网IP:8080` 不会生效，也不应修改为对公网监听来绕过 TLS。
-
-### 2. 不可变镜像
-
-使用 [Backend Dockerfile](deploy/team-beta/backend.Dockerfile) 和 [Web Dockerfile](deploy/team-beta/web.Dockerfile) 为 `linux/amd64` 构建镜像，推送到部署方控制的 Registry。记录 Registry 返回的两个内容摘要，Operator 环境文件必须使用以下形式，不能只写可漂移的 Tag：
-
-```bash
-crewscope_revision="$(git rev-parse HEAD)"
-crewscope_registry="registry.example.com/crewscope"
-
-docker buildx build \
-  --platform linux/amd64 \
-  --file deploy/team-beta/backend.Dockerfile \
-  --tag "${crewscope_registry}/backend:${crewscope_revision}" \
-  --push .
-
-docker buildx build \
-  --platform linux/amd64 \
-  --file deploy/team-beta/web.Dockerfile \
-  --tag "${crewscope_registry}/web:${crewscope_revision}" \
-  --push .
-
-docker buildx imagetools inspect "${crewscope_registry}/backend:${crewscope_revision}"
-docker buildx imagetools inspect "${crewscope_registry}/web:${crewscope_revision}"
-```
-
-将示例 Registry 替换为实际地址。构建应从干净、已审阅的 Git Revision 执行，Backend 与 Web 使用同一个 Revision 发布；不要把本地 `.env`、Secret 或运行目录加入构建上下文。
-
-### 正式发行
-
-维护者在已经通过 Main CI 的提交上创建并推送受保护 Tag（例如 `v0.1.0-beta.1`）：
-
-```bash
-git tag -a v0.1.0-beta.1 -m "CrewScope v0.1.0-beta.1"
-git push origin v0.1.0-beta.1
-```
-
-`.github/workflows/release.yml` 会重新执行 Backend/Web 回归，使用同一 Tag Revision 构建
-`linux/amd64` 镜像并推送到：
-
-```text
-ghcr.io/zhangkaixuan01/crewscope/backend:v0.1.0-beta.1
-ghcr.io/zhangkaixuan01/crewscope/web:v0.1.0-beta.1
-```
-
-每个镜像同时生成 SBOM 和 Provenance，并使用 GitHub OIDC 的 Cosign keyless 签名。Release
-附件中的 `release-manifest.json` 固定 Tag、Git Revision、平台和两个 Digest。部署前验证签名：
-
-```bash
-cosign verify ghcr.io/zhangkaixuan01/crewscope/backend@sha256:<digest> \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-cosign verify ghcr.io/zhangkaixuan01/crewscope/web@sha256:<digest> \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-```
-
-验证通过后，将 Manifest 中的两个 `repository@digest` 写入 Operator 环境文件；不要使用仅含
-Tag 的镜像坐标。
+首次启动后编辑 `deploy/team-beta/.runtime/.env`；也可先执行 `quickstart.sh init` 只生成配置：
 
 ```dotenv
-CREWSCOPE_BACKEND_IMAGE=registry.example.com/crewscope/backend@sha256:<64-hex-digest>
-CREWSCOPE_WEB_IMAGE=registry.example.com/crewscope/web@sha256:<64-hex-digest>
-CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
-CREWSCOPE_ALERTMANAGER_IMAGE=prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
-CREWSCOPE_NODE_EXPORTER_IMAGE=prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
+CREWSCOPE_WEB_PORT=8080
+CREWSCOPE_REGISTRATION_MODE=OPEN
+CREWSCOPE_DEMO_ORGANIZATION_NAME=CrewScope Team Beta
 ```
 
-私有 Registry 需要先在宿主机执行相应的 `docker login`。部署前可运行 `docker pull <image@digest>`，确认宿主机能够解析并拉取五个摘要。
-
-### 3. Operator 配置与 Secret
-
-从 [Team Beta 环境变量模板](deploy/team-beta/.env.example) 创建权限为 `0600` 的绝对路径配置文件，例如 `/etc/crewscope/team-beta.env`。至少替换后端、Web、Docker Socket Proxy、Alertmanager 和 Node Exporter 镜像摘要、数据/备份目录、Organization UUID、Runtime Principal UUID、Git Revision 和恢复 Schema 坐标。
-
-按照 [Secret 文件说明](deploy/team-beta/secrets.example/README.md) 在 `CREWSCOPE_SECRETS_ROOT` 创建全部 Secret。模型 API Key、GitHub Token 和飞书 Secret 不写入 Operator 环境文件或 Compose 文件，而是在应用管理页面中单向录入。Secret 准备完成后，在仓库根目录执行：
+修改后执行 `quickstart.sh up`。切换注册策略也可以直接运行：
 
 ```bash
-sudo ./deploy/team-beta/operations/prepare-secret-permissions.sh /etc/crewscope/team-beta.env
-node scripts/check-team-beta-deployment.mjs
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  config --quiet
+./deploy/team-beta/quickstart.sh set-registration-mode INVITE_ONLY
+# 可选值：OPEN、INVITE_ONLY、DISABLED
 ```
 
-上述检查不会替代 Secret 备份。`credential_keys`、Cursor/Token Key 和备份口令必须由部署方独立保存；丢失密钥可能导致已保存凭据、游标、待执行任务或备份无法恢复。
+配置检查使用 `quickstart.sh config`；需要原生 Compose 子命令时使用 `quickstart.sh compose <参数>`，脚本会自动带上配置文件和项目名。
 
-### 4. 启动与 HTTPS
+备份、恢复、旧版本迁移、可选 HTTPS 和常见问题见 [单机运维手册](docs/runbooks/Team-Beta单机运维手册.md)。更新前请备份数据及 `.runtime/.env`，其中的加密密钥不能丢失。
 
-```bash
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  up --detach --wait
+`quickstart.sh reset` 会删除当前项目的数据库、Redis、Artifact 和 Agent 数据卷；配置及执行仓库目录保留。只在明确需要清空测试数据时使用。
 
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  ps
-```
-
-十个服务都应进入 `healthy`。使用 [宿主机 Nginx TLS 示例](deploy/team-beta/nginx-host-tls.conf.example) 将域名的 80/443 转发至 `127.0.0.1:8080`，替换示例域名和证书路径后再开放公网。正式 Profile 强制 Secure Cookie，必须通过可信 CA 的 HTTPS 访问；普通 HTTP 或不受信任证书会使正式 Session 失败关闭。生产优先使用域名证书；使用 Let's Encrypt 短期 IP 证书时必须配置每日续期检查并验证重启恢复。
-
-Compose 保持 `backend` 与 `observability` 为内部网络，并只让 API、Worker 加入不发布端口的 `provider-egress` 网络。该网络提供访问模型 Provider、GitHub 和飞书所需的出站 HTTPS；它不增加公网入站面。生产防火墙应允许容器转发后的 DNS 与 HTTPS 出站，否则模型连接健康验证会稳定显示 `ENDPOINT_UNREACHABLE`。
-
-同机空目标恢复必须为恢复 Project 设置不同的 `CREWSCOPE_BACKEND_SUBNET` 与
-`CREWSCOPE_WEB_INTERNAL_IP`，避免与默认 `172.30.0.0/24`、`172.30.0.10` 冲突；正常单实例
-部署保留模板默认值即可。
-
-推荐用以下入口完成验收：
-
-```text
-https://crewscope.example.com/healthz
-https://crewscope.example.com/login
-https://crewscope.example.com/register
-```
-
-默认注册策略是 `INVITE_ONLY`。首次启动会幂等创建部署 Organization、Runtime Principal、Operator 账号和非秘密模型目录，不会生成可用的模型连接或测试 API Key。Operator 用户名默认为 `crewscope-monitor`，密码来自外部 `bootstrap_password` Secret；登录后在“模型与凭证”页面创建 USER、TEAM 或 ORGANIZATION 连接。
-
-### 5. 升级、备份与排障
-
-升级前先创建 Release 备份，构建并扫描新镜像，再只修改 Operator 环境文件中的镜像 Digest 与 Git Revision：
-
-```bash
-./deploy/team-beta/operations/backup.sh /etc/crewscope/team-beta.env release
-
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  pull
-
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  up --detach --wait
-```
-
-API 启动时执行 Flyway 迁移。镜像回退不代表数据库自动降级；只有旧镜像明确支持当前 Schema 时才可以回退，否则使用已验证的空目标恢复流程。
-
-常用排障命令：
-
-```bash
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  ps
-
-docker compose \
-  --env-file /etc/crewscope/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  logs --tail 200 api worker web
-```
-
-| 现象 | 优先检查 |
-|---|---|
-| 登录、注册或 Session 恢复失败 | `api`、`redis` 是否 Healthy；是否通过 HTTPS 域名访问；宿主机 Nginx 是否覆盖正确的 `Host` 和 `X-Forwarded-*` |
-| 页面提示 Template 元数据不可用 | Backend/Web 是否来自同一 Git Revision；API 是否已完成 Flyway；不要只升级 Web |
-| “没有可用 Provider” | API 启动日志与平台模型目录是否完成初始化；目录存在后仍需在页面创建模型连接并录入 Key |
-| 模型健康验证显示“Provider 不可达” | 从 API/Worker 容器检查 Provider 域名解析与 HTTPS 出站；确认服务已接入 `provider-egress`，不要只在宿主机执行连通性测试 |
-| Agent 一直等待或 Worker 不健康 | Worker 日志、Docker Socket GID、数据目录 Owner、磁盘空间和 Sandbox 镜像拉取能力 |
-| GitHub/飞书动作失败 | Connection 健康状态、最小权限、Team/Project Binding、Action/Notification Worker 与 Inbox 回执 |
-
-日志对外发送前应移除密码、Token、Key Material、模型正文、成员信息和宿主路径。完整的备份、保留、空目标恢复、故障处理和发布演练步骤见 [Team Beta 单机运维手册](docs/runbooks/Team-Beta单机运维手册.md)。
+`deploy/team-beta/demo.sh` 与 `deploy/local-demo.sh` 默认转发至同一入口、同一项目和数据目录。旧版七/十服务部署仅作为 [M6 历史验收记录](docs/testing/M6-I09-生产镜像与Team-Beta部署.md) 保留，不适用于当前部署。
 
 ## 从源码开发
 
@@ -380,7 +192,7 @@ set +a
 java -jar crewscope-server/target/crewscope-server-0.1.0-SNAPSHOT.jar
 ```
 
-根目录 `.env.example` 面向安全的 API-only 源码调试，默认使用 `server + bootstrap`，启动前必须填入本地 Credential 加密 Key；Login Defense 默认关闭，只有在同时配置稳定的 HMAC Key 后才启用。切换为 `all` 或 `worker` 前，还要填写指向同一 Organization 内既有 ACTIVE 记录的 Runtime Organization、Actor Principal 和稳定 Worker Key。需要验证完整账号、Session、Onboarding、邀请和 Agent 执行流程时，使用上面的 Team Beta Demo 入口；不要把 Bootstrap 兼容凭证或 Prometheus 机器凭证作为业务登录方式。
+根目录 `.env.example` 用于 API-only 源码调试，默认 `server + bootstrap`，需要填写本地 Credential 加密 Key。完整浏览器、任务、仓库导入和 Coding 流程统一使用上面的 Team Beta Quickstart；它自动建立运行身份并在 API 进程内启动 Worker。监控机器凭证不能作为业务登录方式。
 
 ### 启动前端
 
@@ -412,7 +224,7 @@ GET http://localhost:8080/actuator/health
 GET http://localhost:8080/api/v1/system/info
 ```
 
-服务可以在未配置模型时以 API-only 方式启动。执行 Agent 任务前，在“模型与凭证”页面配置模型厂商、模型和个人或团队连接；OpenAI-compatible Adapter 可接入 DeepSeek 等兼容服务。Personal Agent 执行时会读取会话锁定的 AgentConfigurationVersion，经过 Provider、Connection、Catalog、价格和授权预检后，从 CredentialStore 动态装配对应连接的 AgentScope Model；不依赖全局 `OPENAI_API_KEY`，也不会把个人密钥复制到环境变量。
+服务可以在未配置模型时以 API-only 方式启动。执行 Agent 任务前，在“模型与凭证”页面选择平台已登记的厂商/模型并配置个人或团队连接；当前默认目录为 DeepSeek，虽然已有 OpenAI-compatible Adapter，但自定义 Endpoint/模型目录的完整页面管理仍待 M9b 交付。Personal Agent 执行时会读取会话锁定的 AgentConfigurationVersion，经过 Provider、Connection、Catalog、价格和授权预检后，从 CredentialStore 动态装配对应连接的 AgentScope Model；不依赖全局 `OPENAI_API_KEY`，也不会把个人密钥复制到环境变量。
 
 ## 质量与发布证据
 
@@ -453,13 +265,15 @@ README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release 
 - [前端设计规范](docs/CrewScope-前端设计规范.md)
 - [里程碑执行清单](docs/plans/README.md)
 - [M9 产品体验重构与设计系统](docs/plans/M9-产品体验重构与设计系统.md)
+- [M9b 核心流程与使用体验收口](docs/plans/M9b-核心流程与使用体验收口.md)
+- [M9 后全流程使用体验与竞品对照 Review](docs/reviews/M9后-全流程使用体验与竞品对照Review.md)
 - [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)
 - [架构决策记录](docs/adr/README.md)
 - [Team Beta 运维手册](docs/runbooks/Team-Beta单机运维手册.md)
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP，覆盖技术团队从对话、任务、Coding、Review、Human Gate 到 GitHub/飞书交付的完整闭环，并提供经过验证的 Linux amd64 单机十服务部署、HTTPS、外部 Secret、受限 Sandbox 执行、告警、备份与空目标恢复合同。M8 已完成 Setup Center、职责收口、依赖治理、运维可观测与执行隔离收口；M9 已完成全站产品体验重构与十二项体验门禁，仅剩 `M9-Q02` 的真实环境验收与规模实测待执行。正式镜像发行（GHCR、Cosign、SBOM、Provenance 与受保护 Tag）标记为 `SUPPLY_CHAIN_RELEASE_DEFERRED`，待产品稳定后处理；下一阶段进入 M10 的 Agent 知识与记忆闭环。高可用生产集群、Kubernetes、跨区域容灾、多组织 OIDC、MFA、插件市场和更多企业 Provider 属于后续演进范围。
+当前交付形态为可自部署的 Team Beta MVP。默认路径为从源码构建的四服务 HTTP Compose，API 内含 Worker，Coding Sandbox 使用本机 Docker。模型与协作凭据需要自行配置，监控、TLS 和高可用按需扩展。M9 已交付体验基础，下一步先完成 M9b 的核心路径与真实使用验收，再进入 M10 知识闭环；未执行的真实环境与外部 Provider 验收保持待执行。
 
 ## 参与贡献
 

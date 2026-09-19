@@ -1,5 +1,7 @@
 # M8-Q02 Release Gate
 
+> 历史记录：本文的 Linux 运行时证据仍按当时的十服务产品化合同保存，用于追溯 Release Gate，不代表当前启动方式。当前默认部署已切换为四服务 HTTP Compose；请使用 `scripts/check-team-beta-deployment.mjs` 和 [当前运维手册](../runbooks/Team-Beta单机运维手册.md) 验证日常部署。
+
 > 任务：`M8-Q02`
 >
 > 功能状态：`M8_FUNCTIONAL_COMPLETE`
@@ -32,11 +34,28 @@ Cosign、SBOM、Provenance 与受保护 Tag 统一标记为 `SUPPLY_CHAIN_RELEAS
 ```
 
 `contracts-only` 提供低成本合同预检。`local-precheck` 顺序执行 Maven 全量、M7 固定安全与
-事务收敛、前端 Coverage/Build/Histoire/Playwright/Audit、两个 linux/amd64 生产镜像和
-隔离十服务运行时。性能敏感的冻结负载与浏览器门禁不得并行运行，避免开发机资源争用
+事务收敛、前端 Coverage/Build/Histoire/Playwright/Audit、Backend/Web 源码镜像和
+隔离四服务运行时（API 内含 Worker）。运行门禁检查全部服务健康、应用 UID 目录写权限、
+Docker 连通性、Worker 注册和完整冷备份/空目标恢复。性能敏感的冻结负载与浏览器门禁不得并行运行，避免开发机资源争用
 污染 P95 和浏览器超时结果。
 
-## 本机证据
+## 当前四服务回归（2026-09-19）
+
+以下是本次简化部署的独立证据，不沿用旧十服务的通过结论。环境为 macOS arm64 / Docker Desktop；Backend 使用本机已有 amd64 基础镜像构建、仿真运行，不等同于原生 Linux 复验。
+
+| 检查 | 结果 |
+| --- | --- |
+| `m8-q02-local-gate.sh contracts-only`、`m9-q02-local-gate.sh contracts-only` | 通过 |
+| `check-team-beta-deployment.mjs` | 完整首次初始化、重复初始化密钥不变、旧 env 补充新密钥、残缺/空密钥拒绝、四服务与转发头合同通过 |
+| `m8-q02-local-runtime-gate.sh` | 源码构建、四服务健康、Agent 目录可写、Docker 连通、ALL Worker 注册通过 |
+| 同一运行门禁的冷备份/恢复 | 备份后停机；拒绝覆盖非空目标；同路径空目标恢复后，PostgreSQL 测试行、Redis 测试键、五类文件卷及执行仓库测试文件均保留，env 密钥一致 |
+| `m7-q04-registration-profile-gate.sh` | OPEN → INVITE_ONLY → DISABLED 真实浏览器链路 `1 / 1`，含邀请、API 重建后会话连续性及既有用户登录 |
+| 定向 Java 回归 | `25 / 25`：SecurityConfiguration、TeamBetaDeploymentGuard、TaskWorkerConfiguration、GitHubRepositoryImportApplicationConfiguration、LoginDefenseBoundary；零失败、错误、跳过 |
+| 文档与格式 | 全部 Markdown 链接、Shell 语法、`git diff --check` 通过 |
+
+本轮没有执行全量 Java/Web 套件、原生 Linux 新拓扑验收或真实模型/GitHub Coding→Draft PR 流程，也没有发布现成镜像。模型、Provider 授权及业务就绪检查仍保留。测试仅使用独立 Compose 项目与数据，结束后清理测试容器和数据卷。
+
+## 历史本机证据（旧十服务合同）
 
 | 验证面 | 命令或证据 | 结果 |
 |---|---|---|
@@ -59,10 +78,10 @@ Cosign、SBOM、Provenance 与受保护 Tag 统一标记为 `SUPPLY_CHAIN_RELEAS
 独占资源的顺序复验结果。`ApiObservabilityWebFilterTest` 也在撤销临时
 `LOGGING_LEVEL_ROOT=ERROR` 环境覆盖后 7 / 7 通过，证明先前 3 个错误是测试日志捕获环境造成，不是代码回归。
 
-当前恢复边界为 `V26..V36 -> V36`，新 Manifest 写入 V36 上限；旧 Manifest 仍可恢复，但它不得包含
+当时恢复边界为 `V26..V36 -> V36`，旧恢复工具 Manifest 写入 V36 上限；旧 Manifest 仍可恢复，但它不得包含
 超过声明上限的源 Schema。恢复、M7 Release Contract、Operator 环境模板和 Runbook 已统一到 V36。
 
-## 十服务验收
+## 历史十服务验收
 
 运行时门禁使用独立 Compose Project、独立临时 Data/Secret Root 和独立 Web 端口，不接触
 开发环境 PostgreSQL/Redis。门禁必须同时证明：

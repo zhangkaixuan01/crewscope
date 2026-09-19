@@ -1,0 +1,4 @@
+# Compatibility profile; Team Beta is the single source of deployment defaults.
+spring:
+  config:
+    import: classpath:application-team-beta.yml

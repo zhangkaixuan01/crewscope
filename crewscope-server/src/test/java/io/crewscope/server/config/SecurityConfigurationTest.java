@@ -23,6 +23,25 @@ import org.springframework.web.bind.annotation.RestController;
 class SecurityConfigurationTest {
 
   @Test
+  void hstsIsOptInEvenWhenAnHttpsProxyIsUsed() {
+    for (boolean enabled : List.of(false, true)) {
+      try (var context = context("bootstrap", false, true, enabled)) {
+        var chains = context.getBeansOfType(SecurityWebFilterChain.class).values();
+        var response = WebTestClient.bindToController(new ProtectedProbeController())
+            .webFilter(new WebFilterChainProxy(List.copyOf(chains)))
+            .build().get().uri("https://crewscope.example/protected-probe")
+            .exchange().expectStatus().isUnauthorized().expectBody().returnResult();
+        String hsts = response.getResponseHeaders().getFirst("Strict-Transport-Security");
+        if (enabled) {
+          assertThat(hsts).contains("max-age=31536000");
+        } else {
+          assertThat(hsts).isNull();
+        }
+      }
+    }
+  }
+
+  @Test
   void buildsTheBootstrapProfile() {
     try (var context = context("bootstrap", false)) {
       assertThat(context.getBeansOfType(SecurityWebFilterChain.class)).hasSize(2);
@@ -128,9 +147,15 @@ class SecurityConfigurationTest {
 
   private static AnnotationConfigApplicationContext context(
       String mode, boolean registerOidcClient, boolean bindOidcOrganization) {
+    return context(mode, registerOidcClient, bindOidcOrganization, false);
+  }
+
+  private static AnnotationConfigApplicationContext context(
+      String mode, boolean registerOidcClient, boolean bindOidcOrganization, boolean hstsEnabled) {
     AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
     TestPropertyValues.of(
             "crewscope.security.mode=" + mode,
+            "crewscope.security.hsts.enabled=" + hstsEnabled,
             "crewscope.security.bootstrap.username=crewscope",
             "crewscope.security.bootstrap.password=test-password",
             "crewscope.security.monitoring.username=crewscope-prometheus",

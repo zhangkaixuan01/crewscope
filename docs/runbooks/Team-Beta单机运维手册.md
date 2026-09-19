@@ -1,263 +1,105 @@
 # CrewScope Team Beta 单机运维手册
 
-> 适用范围：CrewScope Team Beta 单机十服务部署
-> 恢复边界：备份 Schema V26–V36，当前应用目标 Schema V36
-> 恢复目标：RPO 24 小时，RTO 4 小时
+当前部署从源码构建，长期运行 PostgreSQL、Redis、API、Web 四个服务；API 使用 `all` 模式，同时承担 Worker。旧七/十服务方案仅作为历史验收资料。
 
-## 1. 权威数据与职责
+## 启动与更新
 
-Team Beta 的权威恢复集合由三部分组成：
+宿主机需要 Git、Docker Engine / Compose v2、OpenSSL，以及下载基础镜像和构建依赖的网络。API 通过本机 Unix Docker Socket 管理 Coding Sandbox；启动脚本会自动准备执行目录、目录所有者和 Socket 组，无需手工配置 Worker 身份。
 
-1. PostgreSQL Custom Format Dump：业务事实、任务、动作、通知、投影与审计；
-2. Content-addressed Artifact：`references` 元数据和 `objects/sha256` Blob；
-3. Redis RDB：Agent、Session、Pending Tool 与执行恢复状态。
-
-Repository Mirror、Worktree、AskPass、临时 Sandbox 和 Prometheus 数据不进入业务恢复包。它们是可重建运行资源或观测数据。操作员负责 Compose 主机、镜像 Digest、外部 Secret、TLS 入口、备份介质和演练证据。
-
-## 2. 首次配置
-
-宿主机使用 Linux amd64，并准备 Docker Engine、Docker Compose、OpenJDK 17、Node.js 24、
-pnpm 11.9.0、jq、OpenSSL、tar 与 gzip。备份 Environment Fingerprint 会调用这些固定工具；
-缺失工具或版本不兼容时备份失败关闭，并由清理钩子恢复进入维护模式前正在运行的服务。
-
-从 `deploy/team-beta/.env.example` 创建权限为 `0600` 的绝对路径 Operator 环境文件。生产文件至少配置：
-
-- 后端和 Web 不可变镜像 Digest；
-- 数据、Secret 与备份根目录；
-- Compose Project；
-- 内部 Backend 子网与 Web 固定代理 IP；同机恢复 Project 必须使用不重叠的坐标；
-- 8C16G 主机的密码 Hash Permit，当前冻结值为 4；
-- 应用版本、Git Revision、Dataset Version 与 Seed；
-- 备份口令文件；
-- 恢复 Schema 边界。
-- GitHub 外部账号登录名（`CREWSCOPE_GITHUB_REQUIRED_OWNER`）；它必须与 Team GitHub
-  Connection 的 Installation/OAuth 账号一致，与 Linux 受管目录的 `crewscope` 文件所有者
-  无关。
-
-备份口令文件至少 32 字节，独立于备份介质保存。Credential Encryption、Activity Cursor 和 Task Token 的 Key Material 继续由外部 Secret 生命周期管理；备份 Manifest 只记录恢复必需 Key ID，不复制密钥。
-
-Operator 环境文件可以包含受控坐标，不应包含数据库密码、Redis 密码、模型 Key、GitHub Token、飞书 Secret 或 Credential Key Material。
-
-正式 Compose 将 Web 仅绑定到宿主机环回地址。公网入口使用宿主机 TLS 终止器转发到该端口，
-可从 `deploy/team-beta/nginx-host-tls.conf.example` 开始配置，并替换示例中的全部域名坐标与证书路径。生产环境使用自有域名和受信任证书，
-并只对公网开放 80/443；API、Worker、PostgreSQL、Redis、Prometheus 和 OTel 端口保持不公开。
-
-`backend` 与 `observability` 网络保持 `internal: true`。API 和 Worker 额外加入不发布宿主端口的 `provider-egress` 网络，用于模型 Provider、GitHub 和飞书的 DNS/HTTPS 出站。安全组与宿主机防火墙需要允许容器转发后的 DNS 和 443 出站；仅验证宿主机能访问 Provider 不足以证明应用容器可达。
-
-## 3. 日常启动与检查
+在仓库根目录执行：
 
 ```bash
-docker compose \
-  --env-file /absolute/path/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  up --detach --wait
-
-docker compose \
-  --env-file /absolute/path/team-beta.env \
-  -p crewscope-team-beta \
-  -f deploy/team-beta/compose.yaml \
-  ps
+./deploy/team-beta/quickstart.sh up
 ```
 
-正常状态包含 `postgres`、`redis`、`otel-collector`、`prometheus`、`alertmanager`、`backup-metrics`、`docker-socket-proxy`、`api`、`worker` 和 `web` 十个服务。Web 是唯一宿主入口。API/Worker Readiness、Projection、Outbox、Action、Notification、Provider 和备份新鲜度指标用于日常诊断。
+访问 `http://<服务器地址>:8080`。首次启动自动构建本地镜像，后续启动复用已有镜像。默认开放注册，Operator 用户名为 `crewscope-monitor`，初始密码位于 `deploy/team-beta/.runtime/bootstrap_password`。模型、GitHub 和飞书的真实凭据需自行配置；当前只内置 Maven/Java 17 构建方案，尚无完整的自定义构建方案管理页面。远端 HTTP 提交兼容、GitHub 首次导入及自定义模型目录等已知限制见 [README 当前说明](../../README.md#部署本机与服务器通用) 和 M9b 计划，服务就绪不代表这些业务路径已通过验收。
 
-API 和 Worker 都以只读根文件系统运行。API 只挂载可写的 `runtime/personal-agent` 与
-`runtime/template-agent`，Worker 只挂载可写的 `runtime/task-agent` 与
-`runtime/coding-agent`；四个目录在容器内保持与宿主相同的绝对路径。Personal Conversation
-和 Team Observer 在 API 内同步创建 AgentScope Harness 工作区；对应挂载缺失时，业务配置
-即使已就绪，运行时仍会在模型调用前失败。发布后应分别验证四个 Runtime Root 可创建子目录，
-并保持宿主目录归属 `10001:10001`。`prepare-secret-permissions.sh` 会在 Compose 启动前显式
-预创建这四个目录，避免首次启动时 Docker 以 root 创建目录。API 与 Worker 不共享对方的
-Runtime 工作区。
-
-Worker 的 GitHub AskPass 凭证窗口位于独立的内存 `tmpfs` `/var/crewscope/github-credentials`，
-仅 Worker 使用、权限为 `0700`，任务结束后会清理。该目录必须显式使用 `exec` 以执行一次性
-AskPass helper；通用 `/var/crewscope/ephemeral` 继续使用 `noexec`。不要把凭证目录改成宿主机
-bind mount。
-
-Worker 不再挂载宿主 Docker Socket，也不加入宿主 Socket 用户组。唯一接触宿主 Socket 的是
-`docker-socket-proxy`，它只在 `backend` 内部网络监听，并通过 `CONTAINERS/IMAGES/POST/EXEC`
-等白名单提供 Sandbox 所需的 Docker API；`BUILD`、`VOLUMES`、`SYSTEM`、`SWARM` 和 Secret
-管理接口关闭。生产环境必须把 `CREWSCOPE_DOCKER_SOCKET_PROXY_IMAGE` 固定为已扫描的
-Digest。该代理降低 Worker 直接获得宿主控制面的风险，但代理进程和 Docker Engine 仍属于
-同一台执行主机的信任边界，需用专用主机和逃逸演练验证残余风险。
-
-生产默认显式关闭 OTLP Trace（`CREWSCOPE_OTLP_TRACING_ENABLED=false`），因为公开模板不
-捆绑可查询 Trace Backend；OTel Collector 不会把“已开启但由 nop 丢弃”的状态伪装成可查询
-Trace。需要 Trace 时，应在受控 Compose Overlay 中接入 Tempo/Jaeger 等固定 Digest Backend，
-并将 API/Worker 的开关和 Endpoint 一起变更、验证后再上线。
-
-Prometheus 加载 `prometheus-alerts.yaml`，并把告警发送到内部 `alertmanager`。默认 receiver
-是 no-op，部署者应在私有 Overlay 中替换 `alertmanager.yaml` 的 receiver（Webhook、邮件或
-企业通知），并显式让 Alertmanager 加入具备通知目标路由的受控出站网络；默认 `internal`
-观测网络不会隐式放通宿主机或公网。不得把 Webhook Secret 提交到仓库。告警规则只使用低基数标签，覆盖 API/Worker
-不可用、Runtime 健康、Provider 错误、遥测丢弃和备份过期。
-
-首次干净启动时，API 会在 Runtime Service Principal 建立后幂等初始化非秘密模型目录。进入“模型与凭证”页面应至少看到 `DeepSeek / deepseek-v4-flash`，随后由成员创建 USER、TEAM 或 ORGANIZATION ModelConnection 并单向录入 API Key。启动初始化不会生成测试 Key、共享 Key 或默认 Connection。
-
-创建连接前后都应从 API、Worker 容器验证 Provider 域名能够解析，并可通过 HTTPS 建立连接。未携带 Key 请求 DeepSeek `/models` 返回 `401` 可以证明网络链路可达；`Network unreachable`、解析失败或连接超时表示 `provider-egress`、宿主机转发或出站规则仍未闭合。不要通过发布 API/Worker 端口解决出站问题。
-
-若页面显示“没有可用 Provider”，先检查 API 当前启动周期日志，再只读核对 `model_provider_definition`、`model_catalog_entry` 和 `model_price_revision`。三者均为空表示部署镜像未包含平台目录初始化；不要手写 Content Hash 或直接插入临时价格，应升级到包含 `PlatformModelCatalogInitializer` 的不可变后端镜像并重启 API。Provider 已存在但按钮仍禁用时，继续检查当前 Team 上下文和 Provider 状态。
-
-## 4. 创建备份
-
-每天执行 Daily 备份，每周执行 Weekly 备份，在 Release Candidate 前执行 Release 备份：
+更新时先完成下文备份，再执行：
 
 ```bash
-./deploy/team-beta/operations/backup.sh /absolute/path/team-beta.env daily
-./deploy/team-beta/operations/backup.sh /absolute/path/team-beta.env weekly
-./deploy/team-beta/operations/backup.sh /absolute/path/team-beta.env release
+git pull --ff-only
+./deploy/team-beta/quickstart.sh build
+./deploy/team-beta/quickstart.sh up
 ```
 
-脚本执行以下受控流程：
+`build` 成功后才执行 `up`。构建失败时原运行容器不受影响。数据库迁移由应用启动时执行；不要把新 Schema 直接交给不兼容的旧代码，回退需要同时恢复更新前的数据和配置。
 
-```text
-停止 Web 入口
-  -> 等待活动 TaskExecution、Action Dispatch、Notification Dispatch 归零
-  -> 停止 Worker 和 API
-  -> 再次确认零活动
-  -> PostgreSQL Custom Dump
-  -> Artifact 引用、长度与 SHA-256 校验并归档
-  -> Redis SAVE 与 RDB Snapshot
-  -> 生成 Environment Fingerprint 和 Manifest
-  -> AES-256-CBC + PBKDF2-SHA256 200000 次整体加密
-  -> 生成密文长度、密文 SHA-256 与 Manifest SHA-256 Envelope
-  -> 从私有 Staging 目录先发布 Envelope，最后以 Bundle 作为提交标记
-  -> 恢复备份前处于运行状态的服务
-```
+## 配置
 
-成功输出 `backupId`、Bundle、Envelope、Schema Version 和 Environment Fingerprint。Bundle 与 Envelope 必须成对复制到受控异机介质；只复制其中一个不构成可恢复备份。脚本使用互斥锁拒绝并发备份。
+`quickstart.sh init` 只生成配置，不启动服务。编辑 `deploy/team-beta/.runtime/.env` 后执行 `up` 应用变更，值按生成文件的格式直接填写，不需要 shell 引号。
 
-Environment Fingerprint 只把宿主 Java、Maven 和 pnpm 作为可选诊断坐标；缺失时记录
-`unavailable`。备份不得调用 Maven Wrapper、下载构建工具或依赖 Maven Central 可用性。
-Docker、Compose、Node、磁盘和发行坐标仍为必需事实，缺失时失败关闭。
+| 配置 | 默认值 / 用途 |
+| --- | --- |
+| `CREWSCOPE_WEB_PORT` | `8080`，宿主机 Web 端口 |
+| `CREWSCOPE_REGISTRATION_MODE` | `OPEN`；可选 `INVITE_ONLY`、`DISABLED` |
+| `CREWSCOPE_DEMO_ORGANIZATION_NAME` | 首次初始化的组织名称，已有组织请通过产品功能修改 |
+| `CREWSCOPE_EXECUTION_ROOT` | 自动生成的绝对路径，保存受管仓库和 Worktree，使用专用目录 |
+| `CREWSCOPE_DOCKER_SOCKET` | `/var/run/docker.sock`，可改为本机 Docker 的 Unix Socket |
+| `CREWSCOPE_SESSION_COOKIE_SECURE` | `false`；使用 HTTPS 时可选 `true` |
+| `CREWSCOPE_HSTS_ENABLED` | `false`；确认长期使用 HTTPS 后可选 `true` |
 
-备份普通失败或收到可捕获信号时，脚本会清理本次未完整发布的 Bundle/Envelope，并尝试恢复备份前运行的 API、Worker 和 Web。强制中断可能留下孤立 Envelope，但 Bundle 作为最后的提交标记，Retention 不会将其识别为备份。操作员必须检查十服务状态和告警，不能把失败产生的临时文件认定为备份。
+数据库密码、凭据加密、游标、邀请、Task Token 和登录防护 HMAC 密钥自动生成，重启不轮换。登录防护保持启用，不需要手动提供密钥。保管好 `.runtime/.env`：仅备份数据库而丢失加密密钥，不能恢复模型等已保存凭据。不要将运行目录提交 Git，也不要直接修改已有数据库密码来“重置密码”。
 
-## 5. 保留策略
-
-保留策略默认只预览，Daily 保留 7 份，Weekly 保留 4 份；Release 与 On-demand 不自动删除：
+切换注册模式：
 
 ```bash
-./deploy/team-beta/operations/retain-backups.sh /absolute/path/team-beta.env
-./deploy/team-beta/operations/retain-backups.sh /absolute/path/team-beta.env --apply
+./deploy/team-beta/quickstart.sh set-registration-mode INVITE_ONLY
 ```
 
-Linux 生产机可使用仓库提供的幂等 systemd 调度脚本，重复执行不会改变备份语义：
+默认 Web 监听所有网卡，数据库和 Redis 不发布宿主端口。不强制 TLS、域名、镜像 Digest、外部 Secret、Prometheus、OTel 或 Socket Proxy。需要 HTTPS 时，在前面配置 Nginx/Caddy，转发至 8080 并传递正确的 Host、X-Forwarded-Proto；应用不会校验部署证书来源。API 具有本机 Docker 管理权限，部署在自己的单机或团队专用执行主机。
+
+HTTP 下密码和会话不加密，公网使用仍建议 HTTPS。内置 Web 会覆盖来访者的 X-Forwarded-For，并清除标准 Forwarded 及端口/前缀等冲突转发头，防止伪造登录防护来源和请求地址；添加上游代理后，默认按代理地址限流。如需区分真实客户端，应由管理员限定可信代理后再配置 Nginx real_ip，不能直接信任公网提供的转发头。
+
+运行目录和执行目录须使用专用绝对路径，不含 `.`/`..` 或重复斜线；脚本按实际物理路径检查，不允许通过符号链接指向主目录、仓库根或系统目录，也不接受符号链接 env 文件。不要同时编辑配置或并发执行初始化/升级/备份；初始化发布不会覆盖另一进程已生成的密钥，发生并发提示后重新运行即可。
+
+## 状态、日志与停止
 
 ```bash
-sudo deploy/team-beta/operations/manage-backup-schedule.sh install
-systemctl list-timers 'crewscope-backup-*'
+./deploy/team-beta/quickstart.sh status
+./deploy/team-beta/quickstart.sh logs
+./deploy/team-beta/quickstart.sh config
+./deploy/team-beta/quickstart.sh compose logs --tail 100 api
+./deploy/team-beta/quickstart.sh down
 ```
 
-安装脚本会把当前仓库绝对路径写入 systemd Unit，不要求固定部署在 `/opt/crewscope`；Unit
-通过 `/etc/crewscope/team-beta.env` 读取 Operator 坐标。
+`config` 校验配置且不输出密钥。原生 Compose 命令统一通过 `quickstart.sh compose …` 执行，自动带入正确的 env 文件、项目名和 Compose 路径。`compose config` 的完整输出包含密钥，排查时优先使用 `config`。
 
-`crewscope-backup-health.sh` 每 15 分钟检查最新 Daily Bundle，并写入 `$CREWSCOPE_DATA_ROOT/metrics/crewscope_backup.prom`。`backup-metrics` 只启用 node_exporter textfile collector 并以只读方式采集该目录；Prometheus 规则在年龄超过 26 小时时触发
-`CrewScopeBackupStale`，systemd 失败状态和脚本退出码仍可作为独立故障信号接入
-主机监控。卸载时执行 `sudo deploy/team-beta/operations/manage-backup-schedule.sh uninstall`。
+`down` 保留所有数据。仅清空测试环境时使用 `reset`：它删除当前项目的 PostgreSQL、Redis、Artifact 和四类 Agent 数据卷，保留配置及执行仓库/Worktree。它不是完整的数据擦除命令。
 
-先审阅 `would-delete` 列表，再使用 `--apply`。脚本只删除超出数量的成对 Bundle/Envelope；任一 Envelope 缺失时失败关闭。删除属于不可恢复操作，执行前应确认异机副本和 Release 保留要求。
+## 备份与恢复
 
-## 6. 空目标恢复
+建议在无活动任务时做停机备份。完整恢复需要 **全部项目数据卷、执行目录和同一份 env 密钥**。旧版 `operations/` 和 systemd 脚本针对旧七/十服务合同，不能直接用于本版。
 
-### 6.1 恢复前检查
-
-恢复使用新的 Compose Project、新的 PostgreSQL/Redis Volume 和空 Artifact 根。API、Worker 和 Web 必须停止。目标 Secret Root 必须具备 Manifest 声明的 Credential、Activity Cursor 与 Task Token Key ID，并保存与源环境一致的有效 Key Material。
-
-同一主机并行保留源环境进行空目标演练时，恢复环境文件必须同时设置不同的内部网络坐标，
-且 Web IP 必须属于所选子网，例如：
-
-```text
-CREWSCOPE_COMPOSE_PROJECT=crewscope-team-beta-restore
-CREWSCOPE_BACKEND_SUBNET=172.31.0.0/24
-CREWSCOPE_WEB_INTERNAL_IP=172.31.0.10
-```
-
-默认生产坐标仍为 `172.30.0.0/24` 和 `172.30.0.10`。Docker 拒绝重叠网段时不得复用源
-Project 网络或覆盖源 Volume。
-
-恢复应用镜像必须声明：
-
-```text
-CREWSCOPE_RESTORE_MIN_SCHEMA=26
-CREWSCOPE_RESTORE_MAX_SCHEMA=36
-CREWSCOPE_RESTORE_TARGET_SCHEMA=36
-```
-
-应用回退只允许使用能够读取已恢复 Schema 的不可变镜像。当前合同允许 V26–V36 备份由当前镜像迁移到 V36；它不允许把 V36 数据库交给只支持更低 Schema 的旧镜像，也不执行数据库降级迁移。V34 时生成的旧格式备份仍可恢复，但其源 Schema 不得超过 Manifest 声明的 V34 上限。
-
-### 6.2 执行恢复
+以下命令在仓库根目录执行；备份目录应受保护，完成后复制到其他存储。先停止容器，再归档数据，避免 PostgreSQL、Redis 和文件状态不一致：
 
 ```bash
-./deploy/team-beta/operations/restore.sh \
-  /absolute/path/team-beta-restore.env \
-  /absolute/path/backups/daily/20260826T120000Z-id.bundle.enc
+./deploy/team-beta/snapshot.sh backup /absolute/path/to/new-backup
 ```
 
-默认恢复 PostgreSQL、Artifact 和 Redis，只启动 API 完成 Flyway 与 Smoke，保持 Worker 和 Web 关闭。确认 Evidence 后显式开放流量：
+恢复到同一主机、相同仓库路径的空项目：
 
 ```bash
-./deploy/team-beta/operations/restore.sh \
-  /absolute/path/team-beta-restore.env \
-  /absolute/path/backups/daily/20260826T120000Z-id.bundle.enc \
-  --enable-traffic
+./deploy/team-beta/snapshot.sh restore /absolute/path/to/new-backup
+./deploy/team-beta/quickstart.sh up
 ```
 
-`--enable-traffic` 只适用于一次性恢复流程。若第一次已完成默认恢复，应人工审阅 Evidence 后使用 Compose 启动 Worker/Web，不得在同一非空目标再次运行恢复。
+恢复脚本拒绝覆盖已有 env、执行数据或项目卷。不要直接换个目录恢复：跨路径迁移涉及 Artifact URI、Git Worktree 绝对路径，当前简单快照限定同路径恢复；应先保留原环境的独立完整备份，另行确认清空目标的操作，或在具有相同路径的空主机恢复。跨主机时还需保持 Docker 项目名、PostgreSQL 主版本及兼容应用版本。快照是未加密的冷备份，必须用受保护的存储保管。
 
-恢复严格按以下顺序执行：
+备份和恢复结束后均保持停机，不自动重启；失败时也保持当前停止状态并保留现场。只有已生成且校验通过的 `SHA256SUMS` 才表示快照完整。恢复中途失败会留下部分目标数据，脚本会拒绝直接覆盖重跑；保留快照后先核对并清理本次失败恢复创建的目标，再重试。校验和仅用于检测损坏，不验证备份来源，勿恢复不可信归档。修改配置时先将实际值持久化到 env，备份不收录临时 shell 覆盖值。
 
-```text
-校验 Envelope、密文长度和 SHA-256
-  -> 整包解密并拒绝路径穿越、链接和特殊文件
-  -> 校验 Manifest、三组件长度/SHA-256、24 小时 RPO、Schema 和 Key ID
-  -> 确认 Artifact、Redis、PostgreSQL 目标均为空
-  -> 恢复 PostgreSQL
-  -> 恢复 Artifact，将 Reference storageUri 重定位到目标 Data Root 并复验全部 Object
-  -> 恢复 Redis RDB
-  -> 仅启动 API，将 V26–V36 迁移到 V36
-  -> Readiness、System Info 与零活动 Smoke
-  -> 生成实际 RPO/RTO Evidence
-  -> 可选启动 Worker/Web
-```
+自定义项目时，通过 `CREWSCOPE_QUICKSTART_PROJECT_NAME` 和 `CREWSCOPE_QUICKSTART_RUNTIME_ROOT` 指定同一组值调用所有命令，避免误操作别的项目。
 
-Evidence 位于 `$CREWSCOPE_BACKUP_ROOT/restore-evidence`，权限为 `0600`。它保存 Backup ID、时间、实际 RPO/RTO、源与目标 Schema、Environment Fingerprint、Artifact 校验和 Smoke 摘要，不保存 Secret、正文或 Key Material。
+## 从上一版迁移
 
-### 6.3 失败处理
+- 上一版四服务部署：保留原 `.runtime/.env` 和数据卷；新版初始化补充 Task Token、登录防护 HMAC 和执行目录配置，原有加密密钥不会改变。启动时修复之前创建的 root-owned Agent 卷根目录。
+- 曾使用独立 `local-demo` 项目：显式设置 `CREWSCOPE_LOCAL_DEMO_PROJECT_NAME=crewscope-local-demo` 和原运行目录再调用 `deploy/local-demo.sh`；默认别名现在与 Team Beta 共用项目，切换别名不会自动迁移旧数据。
+- 旧七/十服务部署：先完整备份旧数据库、Redis、Artifact 和外部密钥。旧挂载路径与密钥格式不同，不能直接用新随机配置启动原数据库；应单独进行数据和密钥迁移，历史恢复材料见 [M6-I10](../testing/M6-I10-Team-Beta备份恢复与Runbook.md)。
+- 若第一次启动曾报 `monitoring_password: unbound variable`：旧脚本可能留下只有两个字段的 `.env`。新版会明确报缺失字段；无业务数据时将该文件移走后重新 `init`，已有数据时从备份恢复原密钥，不能随意重新生成。
 
-密文损坏、Manifest 不一致、组件损坏、备份过期、未来时间、V25/V37、Key ID 缺失或非空目标均失败关闭。恢复开始写入后发生错误时，脚本保留已经写入的目标用于受控诊断，不尝试回滚或覆盖。
+## 常见问题
 
-重试步骤：
-
-1. 保留失败日志和目标坐标，记录 Backup ID 与失败阶段；
-2. 停止该目标全部服务；
-3. 使用新的 Compose Project、空 Volume 和空 Artifact 根；
-4. 修复镜像、Secret、容量或备份介质问题；
-5. 从校验阶段重新执行恢复。
-
-不得在部分恢复目标上再次运行脚本，不得删除源环境或最后一份可用备份。
-
-## 7. 演练与发布证据
-
-每个 Release Candidate 至少完成一次空目标恢复演练。演练检查：
-
-- Manifest 与三组件 Hash；
-- V26–V36 迁移边界和不兼容 Schema 拒绝；
-- Organization、Runtime Principal、Artifact、Redis 与 API Readiness；
-- 坏包、过期/未来包和非空目标失败关闭；
-- 实际 RPO `<= 86400s`、RTO `<= 14400s`；
-- 源与目标容器结束后的受控状态。
-
-macOS/arm64 开发演练只作为诊断证据。发布结论使用 ADR-023 冻结的 Linux amd64 Canonical Release Environment，并把恢复 Evidence Hash 纳入 Release Manifest。
-
-## 8. 常用诊断
-
-```bash
-node scripts/check-team-beta-recovery.mjs
-node scripts/check-team-beta-deployment.mjs
-docker compose ls
-```
-
-发生故障时优先检查容器状态、Readiness、PostgreSQL Flyway Version、磁盘容量、备份介质权限、外部 Secret Key ID 和 Compose Project。任何诊断输出进入工单或证据前都应移除密码、Token、Key Material、模型正文、命令输出与成员 PII。
+- **端口占用**：修改 env 中的 `CREWSCOPE_WEB_PORT`，执行 `up`。
+- **无法连接 Docker**：确认本机 Docker 正常、Unix Socket 路径正确；不支持从远程 Docker Context 直接挂载本机执行目录。
+- **API 未就绪**：检查数据库/Redis 健康状态及 API 日志。Worker 与 API 同进程，工作目录和 Docker 连通性也会被检查。
+- **模型/仓库不可用**：在 Setup Center 检查模型凭据、项目仓库和构建配置；简化部署保留这些业务授权与就绪检查。
+- **配置检查通过但功能报错**：合同检查只验证配置。完整本机运行验证使用 `./scripts/m8-q02-local-runtime-gate.sh`，它用独立数据启动、验证并清理测试服务。

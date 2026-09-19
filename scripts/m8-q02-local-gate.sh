@@ -71,13 +71,7 @@ pnpm test:e2e
 pnpm audit --prod --audit-level=high --registry=https://registry.npmjs.org
 cd "$repository_root"
 
-docker build --platform linux/amd64 \
-  --file deploy/team-beta/backend.Dockerfile \
-  --tag crewscope-backend:demo .
-docker build --platform linux/amd64 \
-  --file deploy/team-beta/web.Dockerfile \
-  --tag crewscope-web:demo .
 ./scripts/m8-q02-local-runtime-gate.sh
 
 echo "M8-Q02 status: LOCAL_PRECHECK_PASS"
-echo "Final release remains pending Linux amd64, GHCR/OIDC signing, real alert receiver, public TLS and production restore evidence."
+echo "Source-built single-host runtime verified; signed image distribution is a separate optional release workflow."

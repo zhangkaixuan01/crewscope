@@ -8,8 +8,8 @@ mode="${1:-contracts-only}"
 
 cd "$repo_root"
 
-# The file-contract checks the CI quality job runs.  Each one reads the repository and asserts; none
-# needs Docker, a build or a browser, so the set costs seconds and belongs in front of a push.  The
+# The file-contract checks the CI quality job runs. Deployment checks need Docker Compose CLI and
+# OpenSSL, but only render configuration/use temporary fixtures; no service stack is started. The
 # two M9 defects that reached CI — a blank line at end of file, and a viewport-scoped skip read as a
 # disabled test — were both found by steps in this list, on a branch whose local gate had passed.
 node scripts/check-doc-links.mjs

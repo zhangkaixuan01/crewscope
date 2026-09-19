@@ -77,7 +77,7 @@ server:
         http-only: true
         path: /
         same-site: lax
-        # M7-I08 forces this to true for every HTTPS production deployment.
+        # HTTPS deployments may opt into Secure cookies explicitly; local/simple deployments stay HTTP.
         secure: ${CREWSCOPE_SESSION_COOKIE_SECURE:false}
 
 management:
@@ -377,7 +377,7 @@ crewscope:
       # ADR-025 selects 2 permits for 2C2G and 4 permits for 8C16G deployments.
       hash-permits: ${CREWSCOPE_PASSWORD_HASH_PERMITS:2}
     login-defense:
-      # Team Beta enables this only in the API after external HMAC and trusted proxies are installed.
+      # Team Beta enables this with an automatically generated HMAC key; no manual secret setup.
       enabled: ${CREWSCOPE_LOGIN_DEFENSE_ENABLED:false}
       environment: ${CREWSCOPE_LOGIN_DEFENSE_ENVIRONMENT:${CREWSCOPE_ENVIRONMENT:development}}
       hmac-key-id: ${CREWSCOPE_LOGIN_DEFENSE_HMAC_KEY_ID:v1}
