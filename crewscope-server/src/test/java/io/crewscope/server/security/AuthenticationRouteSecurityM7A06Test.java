@@ -6,6 +6,8 @@ import io.crewscope.server.api.ApiExceptionHandler;
 import io.crewscope.server.config.SecurityConfiguration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.io.buffer.DataBufferLimitException;
@@ -242,11 +244,12 @@ class AuthenticationRouteSecurityM7A06Test {
     }
   }
 
-  @Test
-  void applicationResponsesCarryTheFrozenBrowserSecurityHeaders() {
+  @ParameterizedTest
+  @ValueSource(strings = {"http", "https"})
+  void applicationResponsesKeepBrowserSecurityHeadersWithoutOptingIntoHsts(String scheme) {
     try (var context = context("bootstrap", false)) {
-      var result = client(context).get()
-          .uri("https://localhost/api/v1/system/info")
+      client(context).get()
+          .uri(scheme + "://localhost/api/v1/system/info")
           .exchange()
           .expectStatus().isOk()
           .expectHeader().valueEquals("X-Content-Type-Options", "nosniff")
@@ -260,12 +263,7 @@ class AuthenticationRouteSecurityM7A06Test {
               "Content-Security-Policy",
               "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; "
                   + "form-action 'self'; object-src 'none'")
-          .expectBody()
-          .returnResult();
-
-      assertThat(result.getResponseHeaders().getFirst("Strict-Transport-Security"))
-          .contains("max-age=31536000")
-          .contains("includeSubDomains");
+          .expectHeader().doesNotExist("Strict-Transport-Security");
     }
   }
 

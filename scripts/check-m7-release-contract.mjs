@@ -68,6 +68,24 @@ assert.match(workflow, /node scripts\/check-m7-release-contract\.mjs/)
 assert.match(workflow, /node scripts\/check-test-report-zero-skips\.mjs/)
 assert.match(workflow, /Enforce the M7 release gate/)
 
+// The root POM controls the packaged runtime dependencies, not just backend compilation.
+// Exercise the actual classifier pattern so a security upgrade cannot bypass image scanning.
+const imagePathPattern = workflow.match(/if has '([^']+)'; then images=true; fi/)
+assert.ok(imagePathPattern, 'CI image change classifier is missing')
+const imagePaths = new RegExp(imagePathPattern[1])
+for (const path of [
+  'pom.xml',
+  'crewscope-infrastructure/pom.xml',
+  'crewscope-server/src/main/resources/application.yml',
+  'crewscope-web/package.json',
+  'deploy/team-beta/backend.Dockerfile',
+]) {
+  assert.ok(imagePaths.test(path), `CI must build and scan images after changing ${path}`)
+}
+for (const path of ['docs/plans/README.md', 'README.md', 'pom.xml.notes']) {
+  assert.ok(!imagePaths.test(path), `CI must not build images for unrelated path ${path}`)
+}
+
 const defaultPlaywright = readFileSync(join(root, 'crewscope-web/playwright.config.ts'), 'utf8')
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-two-user-real\.spec\.ts/)
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-registration-profiles-real\.spec\.ts/)

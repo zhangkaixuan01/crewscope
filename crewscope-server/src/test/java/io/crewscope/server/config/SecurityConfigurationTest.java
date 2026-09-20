@@ -27,15 +27,18 @@ class SecurityConfigurationTest {
     for (boolean enabled : List.of(false, true)) {
       try (var context = context("bootstrap", false, true, enabled)) {
         var chains = context.getBeansOfType(SecurityWebFilterChain.class).values();
-        var response = WebTestClient.bindToController(new ProtectedProbeController())
+        var client = WebTestClient.bindToController(new ProtectedProbeController())
             .webFilter(new WebFilterChainProxy(List.copyOf(chains)))
-            .build().get().uri("https://crewscope.example/protected-probe")
-            .exchange().expectStatus().isUnauthorized().expectBody().returnResult();
-        String hsts = response.getResponseHeaders().getFirst("Strict-Transport-Security");
-        if (enabled) {
-          assertThat(hsts).contains("max-age=31536000");
-        } else {
-          assertThat(hsts).isNull();
+            .build();
+        for (String scheme : List.of("http", "https")) {
+          var response = client.get().uri(scheme + "://crewscope.example/protected-probe")
+              .exchange().expectStatus().isUnauthorized().expectBody().returnResult();
+          String hsts = response.getResponseHeaders().getFirst("Strict-Transport-Security");
+          if (enabled && "https".equals(scheme)) {
+            assertThat(hsts).contains("max-age=31536000").contains("includeSubDomains");
+          } else {
+            assertThat(hsts).isNull();
+          }
         }
       }
     }
