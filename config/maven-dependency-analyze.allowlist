@@ -5,6 +5,13 @@
 # "used-undeclared" even when the owning starter intentionally supplies them.
 # These entries are reviewed with each dependency change. A new coordinate must
 # be promoted to a direct dependency or explicitly documented here in the same PR.
+# TeamBetaSimpleDeploymentConfigurationTest directly exercises ProxyFactory/AopUtils and
+# JdbcTemplate. The server receives Spring AOP/JDBC through its runtime starters and
+# infrastructure module; their server-local test-only bytecode usage does not make them
+# test-scoped runtime dependencies (transaction proxies and JDBC still need both).
+non|org.springframework:spring-aop
+non|org.springframework:spring-jdbc
+used|org.springframework:spring-aop
 non|ch.qos.logback:logback-classic
 non|ch.qos.logback:logback-core
 non|com.fasterxml.jackson.core:jackson-core

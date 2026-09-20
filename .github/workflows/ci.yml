@@ -50,7 +50,7 @@ jobs:
           frontend=false
           dependencies=false
           images=false
-          if has '^(pom\.xml|crewscope-(domain|application|agentscope|infrastructure|integration|server)/|deploy/team-beta/backend\.Dockerfile)'; then backend=true; fi
+          if has '^(pom\.xml$|crewscope-(domain|application|agentscope|infrastructure|integration|server)/|deploy/team-beta/backend\.Dockerfile$|config/maven-dependency-analyze\.allowlist$|scripts/check-maven-dependency-report\.mjs$)'; then backend=true; fi
           if has '^crewscope-web/'; then frontend=true; fi
           if has '(^pom\.xml$|/pom\.xml$|(^|/)package\.json$|(^|/)pnpm-lock\.yaml$|deploy/team-beta/|\.github/workflows/)'; then dependencies=true; fi
           if has '^(pom\.xml$|crewscope-(domain|application|agentscope|infrastructure|integration|server)/|crewscope-web/|deploy/team-beta/)'; then images=true; fi

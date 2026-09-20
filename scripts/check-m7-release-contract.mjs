@@ -86,6 +86,19 @@ for (const path of ['docs/plans/README.md', 'README.md', 'pom.xml.notes']) {
   assert.ok(!imagePaths.test(path), `CI must not build images for unrelated path ${path}`)
 }
 
+const backendPathPattern = workflow.match(/if has '([^']+)'; then backend=true; fi/)
+assert.ok(backendPathPattern, 'CI backend change classifier is missing')
+const backendPaths = new RegExp(backendPathPattern[1])
+for (const path of [
+  'pom.xml',
+  'crewscope-server/pom.xml',
+  'config/maven-dependency-analyze.allowlist',
+  'scripts/check-maven-dependency-report.mjs',
+]) {
+  assert.ok(backendPaths.test(path), `CI must verify backend contracts after changing ${path}`)
+}
+assert.ok(!backendPaths.test('docs/plans/README.md'), 'Documentation alone must stay scoped')
+
 const defaultPlaywright = readFileSync(join(root, 'crewscope-web/playwright.config.ts'), 'utf8')
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-two-user-real\.spec\.ts/)
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-registration-profiles-real\.spec\.ts/)
