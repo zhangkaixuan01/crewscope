@@ -3,6 +3,8 @@ import { ArrowLeftRight, RefreshCw, X } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { handoverCounts } from '../../domains/scope/types'
+import { enumLabel } from '../../domains/shared/labels'
+import { handoverErrorCodeLabels, handoverJobStatusLabels } from '../../domains/scope/labels'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
@@ -79,7 +81,7 @@ function trap(event: KeyboardEvent): void {
 
 <template>
   <div v-if="open && source" class="dialog-backdrop" @mousedown.self="close()">
-    <section ref="dialog" class="handover-dialog" role="dialog" aria-modal="true" aria-labelledby="handover-dialog-title" @keydown="trap">
+    <section ref="dialog" class="handover-dialog" role="dialog" aria-modal="true" aria-labelledby="handover-dialog-title" tabindex="-1" @keydown="trap">
       <p class="eyebrow">Responsibility handover</p>
       <h3 id="handover-dialog-title">交接 {{ source.displayName }} 的责任</h3>
 
@@ -100,14 +102,14 @@ function trap(event: KeyboardEvent): void {
 
       <template v-else>
         <div class="handover-dialog__summary">
-          <StatusBadge tone="neutral" dot>{{ job.status }}</StatusBadge>
+          <StatusBadge tone="neutral" dot>{{ enumLabel(job.status, handoverJobStatusLabels) }}</StatusBadge>
           <span>{{ roleLabels[job.role] ?? job.role }} · {{ counts?.done ?? 0 }}/{{ job.items.length }} 项完成</span>
         </div>
         <ul v-if="job.items.length" class="handover-dialog__items">
           <li v-for="item in job.items" :key="item.id">
             <span class="mono" :title="item.workItemId">{{ item.workItemId.slice(0, 8) }}…</span>
             <strong>{{ itemStateLabels[item.state] ?? item.state }}</strong>
-            <small v-if="item.state === 'DENIED' && item.errorCode">{{ item.errorCode }}</small>
+            <small v-if="item.state === 'DENIED' && item.errorCode">{{ enumLabel(item.errorCode, handoverErrorCodeLabels) }}</small>
             <small v-else-if="item.state === 'CONFLICT'">分派版本已变化，需人工处理</small>
           </li>
         </ul>

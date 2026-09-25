@@ -114,6 +114,12 @@
       "state": "empty",
       "title": "请选择 Team",
       "reason": "Team 切换器（ScopeSwitcher）固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/TeamMembersPage.vue",
+      "state": "empty",
+      "title": "需要成员管理权限",
+      "reason": "创建与撤销加入邀请由 team:members:manage 权限在服务端校验，该权限由管理员授予，普通成员没有自助获得它的入口；同屏「成员目录」Tab 仍展示成员事实，页面内没有成员可执行的下一步。"
     }
   ]
 }

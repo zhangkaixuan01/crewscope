@@ -113,15 +113,8 @@ export function createCrewScopeRouter(
         path: '/team/members',
         name: 'team-members',
         component: () => import('../pages/TeamMembersPage.vue'),
-        meta: {
-          mode: 'control',
-          section: 'members',
-          title: '团队成员',
-          requiredPermission: permissions.teamMembersRead,
-          // `?member=` deep link and `?tab=members|invitations` are the only recognized parameters.
-          queryWhitelist: ['team', 'project', 'member', 'tab'],
-          tabValues: ['members', 'invitations'],
-        },
+        // `?member=` deep link and `?tab=members|invitations` are the only recognized parameters.
+        meta: { mode: 'control', section: 'members', title: '团队成员', requiredPermission: permissions.teamMembersRead, queryWhitelist: ['team', 'project', 'member', 'tab'], tabValues: ['members', 'invitations'] },
       },
       {
         path: '/settings/repositories',

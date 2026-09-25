@@ -127,7 +127,7 @@ function copy(member: TeamMemberSummary, action: MemberAction, roleKey?: string)
 
 <template>
   <div v-if="member && action" class="dialog-backdrop" @mousedown.self="cancel()">
-    <section ref="dialog" class="lifecycle-dialog" role="dialog" aria-modal="true" aria-labelledby="lifecycle-dialog-title" @keydown="trap">
+    <section ref="dialog" class="lifecycle-dialog" role="dialog" aria-modal="true" aria-labelledby="lifecycle-dialog-title" tabindex="-1" @keydown="trap">
       <p class="eyebrow">{{ copy(member, action, roleKey).eyebrow }}</p>
       <h3 id="lifecycle-dialog-title">{{ copy(member, action, roleKey).title }}</h3>
       <p>{{ copy(member, action, roleKey).body }}</p>

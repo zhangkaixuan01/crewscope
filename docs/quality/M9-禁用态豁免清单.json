@@ -28,8 +28,8 @@
     },
     {
       "file": "components/domain/DelegateToAgentDialog.vue",
-      "expression": "submitting || retryable || !selectedProfileId",
-      "reason": "Configuration Revision 下拉在未选执行 Agent 时没有可选项，禁用成因是外层「执行 Agent」下拉的取值，同一表单内可直达，不涉及权限或服务端前置条件。"
+      "expression": "submitting || retryable || !selectedProfileId || effectiveMode === 'assign-only'",
+      "reason": "Configuration Revision 下拉在未选执行 Agent 时没有可选项，禁用成因是外层「执行 Agent」下拉的取值，同一表单内可直达；「仅分配」模式不创建执行、没有可固定的 Revision，模式单选本身就在同一表单内说明该区别。不涉及权限或服务端前置条件。"
     },
     {
       "file": "components/domain/TeamObserverWorkspace.vue",
@@ -70,6 +70,26 @@
       "file": "components/domain/WorkItemResponsibilityPanel.vue",
       "expression": "!advisoryAgentPrincipalId",
       "reason": "从 Agent 目录添加 Advisory Reviewer 的按钮，禁用成因就是同一行的 Agent 选择框为空，原因由该下拉框自身承载。"
+    },
+    {
+      "file": "components/account/TeamNotificationPreferenceCard.vue",
+      "expression": "!draftEnabled",
+      "reason": "通知类别 fieldset 的可用性完全跟随同屏上方「接收这个 Team 的通知」总开关：总开关关闭时类别不适用，成因就是该开关的关闭状态本身，同屏可见，无需重复说明。"
+    },
+    {
+      "file": "components/account/TeamNotificationPreferenceCard.vue",
+      "expression": "!dirty",
+      "reason": "保存按钮只在草稿与已保存偏好不一致时可点；未修改时没有可保存的内容，成因由表单自身的勾选状态承载，不涉及权限或业务前置条件。"
+    },
+    {
+      "file": "components/team/MemberLifecycleDialog.vue",
+      "expression": "!online || (copy(member, action, roleKey).selectable && !selectedRole)",
+      "reason": "确认按钮的两种禁用成因都不表达权限或服务端前置条件：!online 是与全局网络指示一致的瞬时离线锁；角色型操作未选角色时无可提交的命令，同对话框的角色下拉为空即是原因。"
+    },
+    {
+      "file": "components/team/ResponsibilityHandoverDialog.vue",
+      "expression": "!target || !selectedRole",
+      "reason": "创建交接按钮的禁用成因就是同屏两个下拉（责任角色、接手成员）尚未选齐，无可创建的交接，原因由这两个下拉自身承载。"
     }
   ]
 }

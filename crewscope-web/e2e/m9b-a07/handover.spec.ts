@@ -61,7 +61,7 @@ test('cancels the remaining items without touching the queued assignments', asyn
   await expect(dialog).toContainText('0/2 项完成')
 
   await dialog.getByRole('button', { name: '取消剩余项' }).click()
-  await expect(dialog).toContainText('CANCELLED')
+  await expect(dialog).toContainText('已取消')
   await expect(dialog.getByRole('button', { name: '处理交接' })).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: '关闭' })).toBeVisible()
 

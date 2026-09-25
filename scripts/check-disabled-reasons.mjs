@@ -43,6 +43,7 @@ const QUALIFIER = String.raw`(?:[A-Za-z_$][\w$]*\s*\??\.\s*)*`
 const transientAtom = new RegExp('^(?:' + [
   '!?online', 'pending', 'submitting', 'busy', 'loading', 'commandPending', 'sendingMessage',
   'importing', 'commentSubmitting', 'agentLoadingMore', 'loadingMore', 'retryable', 'disabled',
+  'resyncing',
   String.raw`Boolean\((?:pending|commandPending)\)`,
   QUALIFIER + String.raw`phase\s*===\s*['"](?:loading|pending|accepting|cancelling)['"]`,
   QUALIFIER + 'loadingMore',

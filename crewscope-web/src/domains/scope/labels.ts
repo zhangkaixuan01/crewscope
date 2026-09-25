@@ -34,3 +34,25 @@ export const teamRoleLabels: Record<string, string> = {
   MEMBER: '成员',
   AUDITOR: '审计员',
 }
+
+/** `HandoverJobStatus.name()` on the wire: PENDING / RUNNING / COMPLETED / CANCELLED. */
+export const handoverJobStatusLabels: Record<string, string> = {
+  PENDING: '待处理',
+  RUNNING: '执行中',
+  COMPLETED: '已完成',
+  CANCELLED: '已取消',
+}
+
+/**
+ * The closed set of codes `ResponsibilityHandoverApplicationService` settles stopped items with.
+ * The map stays open-typed so an unknown future code renders as the constant instead of blank.
+ */
+export const handoverErrorCodeLabels: Record<string, string> = {
+  OWNER_EXPECTATION_STALE: 'Owner 视图已过期',
+  SOURCE_ASSIGNMENT_CHANGED: '原责任已变化',
+  ASSIGNMENT_VERSION_STALE: '分派版本已变化',
+  RESPONSIBILITY_SLOT_HELD: '责任槽位被占用',
+  RESPONSIBILITY_MANAGE_DENIED: '缺少责任管理权限',
+  TARGET_NOT_ELIGIBLE: '接手方不再满足条件',
+  WORK_ITEM_MISSING: '工作项已不存在',
+}

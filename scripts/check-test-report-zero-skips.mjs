@@ -6,6 +6,11 @@ import { join, relative, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
 const reactorModules = [...readFileSync(join(root, 'pom.xml'), 'utf8').matchAll(/<module>([^<]+)<\/module>/g)]
   .map(match => match[1].trim())
+// Opt-in browser gates are run outside the reactor by design (they boot Node-owned server JVMs
+// and a real browser via -Da01.browser=true), so their suites report exactly one skipped test
+// in a plain `mvn verify`. They are registered here by classname and their skips stay visible in
+// the output; every other skip still fails the gate.
+const SKIP_ALLOWED = new Set(['io.crewscope.server.a01.A01BrowserIntegrationTest'])
 // Runtime worktrees under var/ can contain intentionally failing coding-evaluation reports. Only
 // reports produced by the modules declared in the root Maven Reactor belong to this release gate.
 const reports = reactorModules.flatMap(module => collectModuleReports(join(root, module)))
@@ -15,24 +20,40 @@ let tests = 0
 let failures = 0
 let errors = 0
 let skipped = 0
+const skippedAllowed = []
 for (const report of reports) {
   const document = readFileSync(report, 'utf8')
   const suite = /<testsuite\b[^>]*>/.exec(document)?.[0]
   if (!suite) fail(`Invalid test report: ${relative(root, report)}`)
+  const suiteSkipped = attribute(suite, 'skipped')
+  if (SKIP_ALLOWED.has(suiteName(suite))) {
+    if (suiteSkipped > 0) skippedAllowed.push(`${suiteName(suite)} (${suiteSkipped})`)
+    tests += attribute(suite, 'tests')
+    failures += attribute(suite, 'failures')
+    errors += attribute(suite, 'errors')
+    continue
+  }
   tests += attribute(suite, 'tests')
   failures += attribute(suite, 'failures')
   errors += attribute(suite, 'errors')
-  skipped += attribute(suite, 'skipped')
+  skipped += suiteSkipped
 }
 if (tests === 0 || failures !== 0 || errors !== 0 || skipped !== 0) {
   fail(`Maven report gate failed: tests=${tests}, failures=${failures}, errors=${errors}, skipped=${skipped}`)
 }
-console.log(`Maven report gate passed: ${tests} tests, zero failures, errors and skips across ${reports.length} suites.`)
+console.log(`Maven report gate passed: ${tests} tests, zero failures, errors and unregistered skips across ${reports.length} suites.`)
+for (const entry of skippedAllowed) console.log(`Registered opt-in gate skipped outside the reactor: ${entry}`)
 
 function attribute(element, name) {
   const value = new RegExp(`\\b${name}="(\\d+)"`).exec(element)?.[1]
   if (value === undefined) fail(`testsuite is missing ${name}`)
   return Number(value)
+}
+
+function suiteName(element) {
+  const value = /\bname="([^"]+)"/.exec(element)?.[1]
+  if (value === undefined) fail('testsuite is missing name')
+  return value
 }
 
 function collectModuleReports(modulePath) {
