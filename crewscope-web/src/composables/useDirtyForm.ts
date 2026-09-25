@@ -1,26 +1,31 @@
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
 import { onBeforeRouteLeave, type RouteLocationNormalizedLoaded } from 'vue-router'
 import { useConfirm } from './useConfirm'
+import { readF05, removeF05, writeF05, type F05Kind, type F05Scope, type F05StorageResult } from '../app/f05Storage'
 
 export interface DirtyFormOptions {
   title?: string
   description?: string
   confirmLabel?: string
   cancelLabel?: string
-  draftKey?: string
+  draftScope?: F05Scope | Ref<F05Scope | undefined>
+  draftKind?: F05Kind
   /** Scope switches must save a local draft and continue without a confirmation dialog. */
   bypassScopeSwitch?: boolean
 }
 
 /**
  * Shared guard for configuration forms. It protects navigation and refresh while
- * deliberately allowing callers to persist a draft before changing Scope.
+ * deliberately allowing callers to persist a draft before changing Scope. Drafts
+ * only ever land in the scoped namespace; a write reports whether it really
+ * persisted so callers never claim a save that did not happen.
  */
 export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOptions = {}) {
   const confirm = useConfirm()
   const dirty = ref(false)
   const baseline = ref<string | null>(null)
-  const draftKey = options.draftKey
+  const draftScope = options.draftScope
+  const draftKind = options.draftKind ?? 'draft'
 
   function serialize(input: unknown): string {
     try { return JSON.stringify(input) } catch { return String(input) }
@@ -39,23 +44,23 @@ export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOpti
     dirty.value = serialized !== baseline.value
   }
 
-  function saveDraft(nextValue?: T): void {
-    if (!draftKey || typeof localStorage === 'undefined' || !value && nextValue === undefined) return
+  function saveDraft(nextValue?: T): F05StorageResult {
+    if (!value && nextValue === undefined) return { ok: false, reason: 'invalid' }
     const payload = nextValue === undefined ? value?.value : nextValue
-    try { localStorage.setItem(draftKey, serialize(payload)) } catch { /* storage is best effort */ }
+    const scope = draftScope && 'value' in draftScope ? draftScope.value : draftScope
+    if (!scope) return { ok: false, reason: 'invalid' }
+    return writeF05(draftKind, scope, payload)
   }
 
   function restoreDraft(): T | null {
-    if (!draftKey || typeof localStorage === 'undefined') return null
-    try {
-      const raw = localStorage.getItem(draftKey)
-      return raw ? JSON.parse(raw) as T : null
-    } catch { return null }
+    const scope = draftScope && 'value' in draftScope ? draftScope.value : draftScope
+    if (!scope) return null
+    return readF05<T>(draftKind, scope)?.value ?? null
   }
 
   function clearDraft(): void {
-    if (!draftKey || typeof localStorage === 'undefined') return
-    try { localStorage.removeItem(draftKey) } catch { /* storage is best effort */ }
+    const scope = draftScope && 'value' in draftScope ? draftScope.value : draftScope
+    if (scope) removeF05(draftKind, scope)
   }
 
   async function confirmDiscard(): Promise<boolean> {

@@ -64,6 +64,8 @@ import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.responsibility.ResponsibilityCommandService;
+import io.crewscope.application.responsibility.ResponsibilityHandoverApplicationService;
+import io.crewscope.application.responsibility.ResponsibilityHandoverRepository;
 import io.crewscope.application.responsibility.ResponsibilityQueryService;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -87,6 +89,7 @@ import io.crewscope.application.workitem.WorkItemCommandService;
 import io.crewscope.application.workitem.WorkItemCommentRepository;
 import io.crewscope.application.workitem.WorkItemQueryService;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.application.workitem.WorkItemSummaryRepository;
 import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
 import io.crewscope.application.workitem.WorkItemTimelineService;
@@ -204,6 +207,8 @@ class ApplicationCompositionConfigurationTest {
               WorkItemResourceLinkRepository.class,
               () -> mock(WorkItemResourceLinkRepository.class))
           .withBean(
+              WorkItemSummaryRepository.class, () -> mock(WorkItemSummaryRepository.class))
+          .withBean(
               WorkItemTimelineRepository.class, () -> mock(WorkItemTimelineRepository.class))
           .withBean(WorkProjectRepository.class, () -> mock(WorkProjectRepository.class))
           .withBean(TaskIntentRepository.class, () -> mock(TaskIntentRepository.class))
@@ -222,6 +227,9 @@ class ApplicationCompositionConfigurationTest {
           .withBean(
               ResponsibilityAssignmentRepository.class,
               () -> mock(ResponsibilityAssignmentRepository.class))
+          .withBean(
+              ResponsibilityHandoverRepository.class,
+              () -> mock(ResponsibilityHandoverRepository.class))
           .withBean(AgentStatePreflight.class, () -> mock(AgentStatePreflight.class))
           .withBean(AgentStateStore.class, () -> mock(AgentStateStore.class))
           .withBean(Validator.class, () -> mock(Validator.class))
@@ -290,6 +298,7 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(GateReviewerPolicyProvider.class);
           assertThat(context).hasSingleBean(ResponsibilityQueryService.class);
           assertThat(context).hasSingleBean(ResponsibilityCommandService.class);
+          assertThat(context).hasSingleBean(ResponsibilityHandoverApplicationService.class);
         });
   }
 }

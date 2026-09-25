@@ -21,7 +21,7 @@ const codingAgent: PrincipalEntry = {
   roles: [],
 }
 
-function gateway(page: PrincipalPage | Error = { items: [linYue, codingAgent], nextOffset: null }) {
+function gateway(page: PrincipalPage | Error = { items: [linYue, codingAgent], nextOffset: null, nextCursor: null }) {
   const search = vi.fn(async (..._args: unknown[]): Promise<PrincipalPage> => {
     if (page instanceof Error) throw page
     return structuredClone(page)

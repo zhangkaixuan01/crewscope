@@ -44,6 +44,7 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-027](ADR-027-设计系统与交互内核.md) | Design System v2、反馈组件、ActionRegistry、状态动作与撤销窗口 | ACCEPTED |
 | [ADR-028](ADR-028-个人工作台与统一搜索.md) | 个人工作摘要、统一搜索、OpenAPI 与状态机生成边界 | ACCEPTED |
 | [ADR-029](ADR-029-行级Review与配置体验合同.md) | Diff 高亮、行级评论锚点、配置脏态/版本/健康合同 | ACCEPTED |
+| [ADR-038](ADR-038-团队成员生命周期与责任转移.md) | M9b 成员撤权、最后 Owner、持续授权与耐久责任交接；M11 只增新通道 | ACCEPTED（设计，待 A07 实现） |
 
 ## ADR 内容要求
 

@@ -142,6 +142,21 @@ class GitHubProviderAdapterM5I08Test {
     }
 
     @Test
+    void verifiesAConnectionWithPendingIdentityFromTheRemoteInstallationOwner() throws Exception {
+        try (GitHubStub stub = GitHubStub.start()) {
+            Fixture fixture = Fixture.pendingTeam(stub.baseUri());
+
+            GitHubConnectionProfile profile = fixture.adapter.verifyConnection(
+                    new VerifyGitHubConnectionRequest(
+                            fixture.access(), GitHubAuthenticationType.APP_INSTALLATION,
+                            fixture.policy(true)));
+
+            assertEquals("4815", profile.externalAccountId());
+            assertEquals("crewscope", profile.externalAccountLogin());
+        }
+    }
+
+    @Test
     void requiresExplicitBroadOauthPolicyAndRejectsCredentialSubjectSubstitution() throws Exception {
         try (GitHubStub stub = GitHubStub.start()) {
             Fixture oauth = Fixture.user(stub.baseUri(), true);
@@ -344,6 +359,14 @@ class GitHubProviderAdapterM5I08Test {
         private long credentialVersionAtResolve;
 
         private Fixture(URI baseUri, boolean userOwner, boolean validUserSubject) {
+            this(baseUri, userOwner, validUserSubject, userOwner ? "2718" : "4815");
+        }
+
+        private Fixture(
+                URI baseUri,
+                boolean userOwner,
+                boolean validUserSubject,
+                String externalAccountReference) {
             UtcTimestamp now = UtcTimestamp.from(NOW);
             owner = userOwner
                     ? new ProviderOwner(
@@ -356,7 +379,7 @@ class GitHubProviderAdapterM5I08Test {
             connection = Connection.reconstitute(
                     new ConnectionId(UUID.randomUUID()), organizationId, owner,
                     GitHubConnectionGrantAuthorizer.CONNECTOR_KEY,
-                    userOwner ? "2718" : "4815", credentialId, ConnectionStatus.ACTIVE,
+                    externalAccountReference, credentialId, ConnectionStatus.ACTIVE,
                     Optional.empty(), Optional.empty(), 0, AuditMetadata.createdBy(actor, now));
             access = new ProviderAccessScope(
                     ProviderCapabilities.of(
@@ -405,6 +428,10 @@ class GitHubProviderAdapterM5I08Test {
 
         static Fixture user(URI baseUri, boolean validSubject) {
             return new Fixture(baseUri, true, validSubject);
+        }
+
+        static Fixture pendingTeam(URI baseUri) {
+            return new Fixture(baseUri, false, true, "pending:" + UUID.randomUUID());
         }
 
         GitHubAccessRequest access() {

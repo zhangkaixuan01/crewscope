@@ -13,6 +13,7 @@ import SetupPage from './SetupPage.vue'
 
 const principal: AuthenticatedPrincipal = {
   id: fixtureIds.principal,
+  accountId: '00000000-0000-0000-0000-000000000201',
   displayName: 'Zhang Kaixuan',
   role: 'Team Owner',
   organizationId: fixtureIds.organization,

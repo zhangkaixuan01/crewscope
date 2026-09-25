@@ -1,6 +1,7 @@
 package io.crewscope.server.api;
 
 import io.crewscope.application.inbox.InboxItemView;
+import io.crewscope.application.inbox.InboxSourceContext;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -18,7 +19,8 @@ public record InboxItemResponse(
         String dispositionStatus,
         long dispositionVersion,
         String etag,
-        SourceResponse source) {
+        SourceResponse source,
+        SourceContextResponse sourceContext) {
 
     public static InboxItemResponse from(InboxItemView view) {
         InboxItemView value = Objects.requireNonNull(view, "view");
@@ -38,7 +40,8 @@ public record InboxItemResponse(
                 value.dispositionVersion(),
                 ApiHeaders.versionEtag(value.dispositionVersion()),
                 new SourceResponse(
-                        key.sourceType().name(), key.sourceId(), key.sourceRevision().value()));
+                        key.sourceType().name(), key.sourceId(), key.sourceRevision().value()),
+                value.sourceContext().map(SourceContextResponse::from).orElse(null));
     }
 
     public record SourceResponse(String type, UUID id, long revision) {
@@ -48,6 +51,27 @@ public record InboxItemResponse(
             if (revision < 0) {
                 throw new IllegalArgumentException("revision must not be negative");
             }
+        }
+    }
+
+    /** The readable work facts the row points at, joined at read time; null carries no context. */
+    public record SourceContextResponse(
+            UUID projectId,
+            UUID workItemId,
+            String workItemTitle,
+            String taskObjective,
+            String waitingOnDisplayName,
+            String targetActionKind) {
+
+        static SourceContextResponse from(InboxSourceContext context) {
+            Objects.requireNonNull(context, "context");
+            return new SourceContextResponse(
+                    context.projectId().map(value -> value.value()).orElse(null),
+                    context.workItemId().map(value -> value.value()).orElse(null),
+                    context.workItemTitle().orElse(null),
+                    context.taskObjective().orElse(null),
+                    context.waitingOnDisplayName().orElse(null),
+                    context.targetActionKind());
         }
     }
 }

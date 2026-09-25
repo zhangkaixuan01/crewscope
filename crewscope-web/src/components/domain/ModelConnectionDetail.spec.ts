@@ -36,6 +36,23 @@ describe('ModelConnectionDetail', () => {
     expect(trigger.element).toBe(document.activeElement)
     wrapper.unmount()
   })
+
+  it('offers re-enable only for a suspended connection with healthy current credentials', async () => {
+    const healthy = mount(ModelConnectionDetail, {
+      props: { resource: ready({ status: 'SUSPENDED', healthStatus: 'HEALTHY' }), canManage: true, command: idleCommand() },
+    })
+    const activate = healthy.findAll('button').find(button => button.text() === '重新启用')!
+    expect(activate.attributes('disabled')).toBeUndefined()
+    expect(healthy.findAll('button').some(button => button.text() === '验证健康')).toBe(true)
+    await activate.trigger('click')
+    expect(healthy.emitted('activate')?.[0]).toEqual(['connection-1'])
+
+    const unknown = mount(ModelConnectionDetail, {
+      props: { resource: ready({ status: 'SUSPENDED', healthStatus: 'UNKNOWN' }), canManage: true, command: idleCommand() },
+    })
+    expect(unknown.findAll('button').some(button => button.text() === '验证健康')).toBe(true)
+    expect(unknown.findAll('button').find(button => button.text() === '重新启用')!.attributes('disabled')).toBeDefined()
+  })
 })
 
 function ready(overrides: Partial<ModelConnectionSummary> = {}): ModelResource<Etagged<ModelConnectionSummary>> {

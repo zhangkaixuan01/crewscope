@@ -8,6 +8,7 @@ import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.MessageRepository;
 import io.crewscope.application.conversation.PostConversationMessageCommand;
 import io.crewscope.application.conversation.TaskIntentApplicationService;
+import io.crewscope.application.team.MemberAuthorizationGuard;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.ConversationMessageAppend;
@@ -50,6 +51,7 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
     private final PersonalAgentExecutionContextResolver contextResolver;
     private final ExecutionRuntime runtime;
     private final ConversationExecutionEventMapper eventMapper;
+    private final MemberAuthorizationGuard memberGuard;
     private final TimeProvider timeProvider;
     private final int terminalRetention;
     private final ConcurrentMap<RuntimeInvocationId, InvocationState> invocations =
@@ -65,6 +67,7 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
             PersonalAgentExecutionContextResolver contextResolver,
             ExecutionRuntime runtime,
             ConversationExecutionEventMapper eventMapper,
+            MemberAuthorizationGuard memberGuard,
             TimeProvider timeProvider) {
         this(
                 conversationService,
@@ -73,6 +76,7 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
                 contextResolver,
                 runtime,
                 eventMapper,
+                memberGuard,
                 timeProvider,
                 DEFAULT_TERMINAL_RETENTION);
     }
@@ -84,6 +88,7 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
             PersonalAgentExecutionContextResolver contextResolver,
             ExecutionRuntime runtime,
             ConversationExecutionEventMapper eventMapper,
+            MemberAuthorizationGuard memberGuard,
             TimeProvider timeProvider,
             int terminalRetention) {
         this.conversationService = Objects.requireNonNull(
@@ -93,6 +98,7 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
         this.contextResolver = Objects.requireNonNull(contextResolver, "contextResolver");
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.eventMapper = Objects.requireNonNull(eventMapper, "eventMapper");
+        this.memberGuard = Objects.requireNonNull(memberGuard, "memberGuard");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         if (terminalRetention < 1) {
             throw new IllegalArgumentException("terminalRetention must be positive");
@@ -142,6 +148,10 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
             synchronized (state) {
                 state.requireRequest(organizationId, teamId, conversationId, trusted);
                 if (state.initialSegment != null) {
+                    // Replaying the cached projection still crosses a read boundary: the same
+                    // owner must currently participate, or the replayed segment stays sealed.
+                    memberGuard.requireParticipation(
+                            state.organizationId, state.teamId, state.ownerPrincipalId);
                     return state.initialSegment.replayed();
                 }
                 ResolvedPersonalAgentExecution resolved = contextResolver.resolve(
@@ -197,6 +207,8 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
                             replay.requestHash(),
                             requestHash);
                 }
+                memberGuard.requireParticipation(
+                        state.organizationId, state.teamId, state.ownerPrincipalId);
                 return replay.segment().replayed();
             }
             if (state.status != InvocationStatus.INTERRUPTED || state.interruptToken.isEmpty()) {
@@ -388,7 +400,11 @@ public final class PersonalAgentInvocationService implements ConversationConfigu
                         mappingContext.platformContext(),
                         mappingContext.causationDomainEventId()),
                 (status, token) -> terminal(state, mappingContext.platformContext().invocationId(), status, token),
-                timeProvider);
+                () -> memberGuard.requireParticipation(
+                        state.organizationId, state.teamId, state.ownerPrincipalId),
+                timeProvider,
+                ReplayableExecutionSegment.DEFAULT_EVENT_LIMIT,
+                ReplayableExecutionSegment.DEFAULT_SUBSCRIBER_LIMIT);
     }
 
     private void terminal(

@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { TaskIntentGateway } from './taskIntentGateway'
@@ -36,6 +38,8 @@ export interface TaskIntentStore {
 export const TASK_INTENT_STORE: InjectionKey<TaskIntentStore> = Symbol('crewscope-task-intent-store')
 
 export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentStore {
+  const commandIntents = createCommandGateway(gateway, { revise: 4, confirm: 3, reject: 4 })
+  gateway = commandIntents.gateway
   const state = reactive<TaskIntentState>({
     phase: 'idle',
     taskIntentId: null,
@@ -51,6 +55,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
   let activeScope: ConversationMessageScope | null = null
   let activeKey: string | null = null
   let requestVersion = 0
+  let commandOwner: object | null = null
 
   async function synchronize(scope: ConversationMessageScope, taskIntentId: string | null): Promise<void> {
     if (!taskIntentId) {
@@ -94,7 +99,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
   async function revise(input: TaskIntentRevisionInput): Promise<boolean> {
     return command('revise', async context => {
       await gateway.revise(
-        context.scope, context.intent.id, input, context.intent.version, crypto.randomUUID(),
+        context.scope, context.intent.id, input, context.intent.version, secureId(),
       )
     })
   }
@@ -107,7 +112,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
     }
     return command('reject', async context => {
       await gateway.reject(
-        context.scope, context.intent.id, normalized, context.intent.version, crypto.randomUUID(),
+        context.scope, context.intent.id, normalized, context.intent.version, secureId(),
       )
     })
   }
@@ -117,6 +122,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
       const preview = await gateway.previewConfirmation(
         context.scope, context.intent.id, context.intent.version,
       )
+      if (!context.isCurrent()) return
       if (!preview.value.confirmable
         || preview.value.taskIntentId !== context.intent.id
         || preview.value.version !== context.intent.version
@@ -126,7 +132,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
         throw new TaskIntentPreviewMismatchError()
       }
       await gateway.confirm(
-        context.scope, context.intent.id, context.intent.version, crypto.randomUUID(),
+        context.scope, context.intent.id, context.intent.version, secureId(),
       )
     })
   }
@@ -141,17 +147,22 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
       key: activeKey!,
       intent: state.intent,
       etag: state.etag,
+      isCurrent: () => requestVersion === started && activeKey === context.key,
     }
+    const started = requestVersion
+    const owner = {}
+    commandOwner = owner
     state.commandPending = name
     state.commandErrorMessage = null
     state.commandErrorStatus = null
     state.versionConflict = false
     try {
       await action(context)
-      if (activeKey === context.key) await load(context.scope, context.intent.id, true)
-      return activeKey === context.key && state.phase === 'ready'
+      if (!context.isCurrent()) return false
+      await load(context.scope, context.intent.id, true)
+      return activeKey === context.key && requestVersion === started + 1 && state.phase === 'ready'
     } catch (error) {
-      if (activeKey !== context.key) return false
+      if (!context.isCurrent()) return false
       const status = statusOf(error)
       state.commandErrorStatus = status
       if (error instanceof TaskIntentPreviewMismatchError || status === 409 || status === 412) {
@@ -163,11 +174,15 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
       }
       return false
     } finally {
-      if (activeKey === context.key) state.commandPending = null
+      if (commandOwner === owner) {
+        state.commandPending = null
+        commandOwner = null
+      }
     }
   }
 
   function reset(): void {
+    commandIntents.clear()
     requestVersion += 1
     activeScope = null
     activeKey = null
@@ -181,6 +196,7 @@ export function createTaskIntentStore(gateway: TaskIntentGateway): TaskIntentSto
   }
 
   function clearCommandState(): void {
+    commandOwner = null
     state.commandPending = null
     state.commandErrorMessage = null
     state.commandErrorStatus = null
@@ -203,6 +219,7 @@ export function useTaskIntentStore(): TaskIntentStore {
 }
 
 interface CommandContext {
+  isCurrent(): boolean
   scope: ConversationMessageScope
   key: string
   intent: TaskIntent

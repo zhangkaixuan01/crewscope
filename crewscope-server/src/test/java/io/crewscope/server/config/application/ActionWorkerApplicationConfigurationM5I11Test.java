@@ -134,6 +134,8 @@ class ActionWorkerApplicationConfigurationM5I11Test {
                         () -> mock(CodingTargetSnapshotRepository.class))
                 .withBean(RepositoryBindingRepository.class,
                         () -> mock(RepositoryBindingRepository.class))
+                .withBean(io.crewscope.application.team.MemberAuthorizationGuard.class,
+                        () -> mock(io.crewscope.application.team.MemberAuthorizationGuard.class))
                 .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
                 .withBean(TaskEventRepository.class, () -> mock(TaskEventRepository.class))
                 .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))

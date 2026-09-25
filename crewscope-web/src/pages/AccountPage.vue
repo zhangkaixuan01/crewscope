@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { inject } from 'vue'
 import AccountWorkspace from '../components/account/AccountWorkspace.vue'
+import TeamNotificationPreferenceCard from '../components/account/TeamNotificationPreferenceCard.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
+import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { offlineAccountProblem, type AccountProblem } from '../domains/account/presentation'
 import { useAccountStore } from '../domains/account/store'
 import type { AccountPasswordChangeInput, AccountProfileUpdateInput, AccountSessionRevocationInput } from '../domains/account/types'
 import { useAuthStore } from '../domains/identity/store'
 import { isDensityPreference, isThemePreference, usePreference } from '../app/preference'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
 
 const router = useRouter()
+const pageRequests = usePageRequestScope()
+const principal = inject(AUTH_PRINCIPAL)
 const authStore = useAuthStore()
 const accountStore = useAccountStore()
 const online = useNetworkStatus()
+const sessionTeams = computed(() => authStore.state.session?.teams ?? [])
 const localProblem = ref<AccountProblem | null>(null)
 const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
 const densityPreference = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
@@ -23,26 +30,34 @@ onMounted(() => accountStore.load())
 onBeforeUnmount(() => accountStore.reset())
 
 async function saveProfile(input: AccountProfileUpdateInput): Promise<void> {
+  const owner = pageRequests.captureIdentity()
   const csrf = commandCsrf()
   if (!csrf) return
   const success = await accountStore.updateProfile(input, csrf)
+  if (!owner.isCurrent()) return
   if (success) await authStore.refresh()
   else if (accountStore.state.commandProblem?.conflict) await accountStore.load(true)
 }
 
 async function changePassword(input: AccountPasswordChangeInput): Promise<void> {
+  const owner = pageRequests.captureIdentity()
   const csrf = commandCsrf()
   if (!csrf) return
-  if (await accountStore.changePassword(input, csrf)) {
+  const success = await accountStore.changePassword(input, csrf)
+  if (!owner.isCurrent()) return
+  if (success) {
     authStore.signOutLocally()
     await router.replace({ name: 'login' })
   } else if (accountStore.state.commandProblem?.conflict) await accountStore.load(true)
 }
 
 async function revokeSessions(input: AccountSessionRevocationInput): Promise<void> {
+  const owner = pageRequests.captureIdentity()
   const csrf = commandCsrf()
   if (!csrf) return
-  if (await accountStore.revokeAllSessions(input, csrf)) {
+  const success = await accountStore.revokeAllSessions(input, csrf)
+  if (!owner.isCurrent()) return
+  if (success) {
     authStore.signOutLocally()
     await router.replace({ name: 'login' })
   } else if (accountStore.state.commandProblem?.conflict) await accountStore.load(true)
@@ -71,18 +86,24 @@ function commandCsrf() {
     </template>
     <StatePanel v-if="accountStore.state.phase === 'idle' || accountStore.state.phase === 'loading'" state="loading" />
     <StatePanel v-else-if="accountStore.state.phase === 'error'" state="error" :message="accountStore.state.problem?.message" @retry="accountStore.load(true)" />
-    <AccountWorkspace
-      v-else-if="accountStore.state.profile"
-      :profile="accountStore.state.profile"
-      :command-phase="accountStore.state.commandPhase"
-      :operation="accountStore.state.operation"
-      :problem="localProblem ?? accountStore.state.commandProblem"
-      :command-generation="accountStore.state.commandGeneration"
-      :online="online"
-      @save-profile="saveProfile"
-      @change-password="changePassword"
-      @revoke-sessions="revokeSessions"
-    />
+    <template v-else-if="accountStore.state.profile">
+      <AccountWorkspace
+        :profile="accountStore.state.profile"
+        :command-phase="accountStore.state.commandPhase"
+        :operation="accountStore.state.operation"
+        :problem="localProblem ?? accountStore.state.commandProblem"
+        :command-generation="accountStore.state.commandGeneration"
+        :online="online"
+        @save-profile="saveProfile"
+        @change-password="changePassword"
+        @revoke-sessions="revokeSessions"
+      />
+      <TeamNotificationPreferenceCard
+        v-if="principal && sessionTeams.length"
+        :organization-id="principal.organizationId"
+        :teams="sessionTeams"
+      />
+    </template>
   </SettingsShell>
 </template>
 

@@ -26,6 +26,13 @@ describe('ModelCredentialDialog', () => {
     await secret.setValue('replacement-secret')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('create')?.[2]?.[1]).not.toBe(creates[0]?.[1])
+    await secret.setValue('one-way-secret')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('create')?.[3]?.[1]).toBe(creates[0]?.[1])
+    const read = wrapper.findAll('button').find(button => button.text() === '只读取原连接事实')!
+    await read.trigger('click')
+    expect(wrapper.emitted('readOriginal')?.[0]).toEqual([null, 'USER'])
+    expect(wrapper.emitted('create')).toHaveLength(4)
 
     await wrapper.get('button[aria-label="关闭创建模型连接"]').trigger('click')
     expect(secret.element.value).toBe('')

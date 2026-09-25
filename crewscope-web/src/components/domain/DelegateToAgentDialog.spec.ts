@@ -1,16 +1,29 @@
 import { flushPromises, mount, type MountingOptions } from '@vue/test-utils'
 import { defineComponent, onMounted } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import { AGENT_STORE, type AgentStore } from '../../domains/agent/store'
 import type { AgentSummary } from '../../domains/agent/types'
 import { delegationPreflightKey, TASK_STORE, type TaskStore } from '../../domains/task/store'
 import type { TaskDelegationPreflight, TaskDelegationSelection } from '../../domains/task/types'
-import { taskDelegationDraftKey } from '../../domains/task/delegationDraft'
+import { writeTaskDelegationDraft } from '../../domains/task/delegationDraft'
 import { fixtureResponsibilities, fixtureWorkItemDetails } from '../../test/workItemFixtures'
 import { fixtureIds } from '../../test/scopeFixtures'
 import DelegateToAgentDialog from './DelegateToAgentDialog.vue'
 
+const fixtureAccount = '00000000-0000-0000-0000-000000000901'
+const fixturePrincipal = {
+  id: fixtureIds.principal,
+  accountId: fixtureAccount,
+  displayName: '张凯旋',
+  role: 'Team Member',
+  organizationId: fixtureIds.organization,
+  organization: 'CrewScope',
+  permissions: new Set<string>(),
+}
+
 describe('DelegateToAgentDialog', () => {
-  beforeEach(() => sessionStorage.clear())
+  beforeEach(() => { sessionStorage.clear(); clearF05UserData(); localStorage.clear(); activateF05Identity(fixtureAccount) })
 
   it('previews responsibility and submits the selected server-authored AgentProfile identity', async () => {
     const responsibilities = structuredClone(fixtureResponsibilities)
@@ -82,16 +95,18 @@ describe('DelegateToAgentDialog', () => {
       actorDisplayName: '张凯旋的 Personal Agent',
       actorAgentProfileId: '00000000-0000-0000-0000-000000000301',
     }
-    sessionStorage.setItem(taskDelegationDraftKey(
+    writeTaskDelegationDraft(
       { organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform },
       fixtureIds.projectCrewScope,
       fixtureWorkItemDetails.workItem.id,
-    ), JSON.stringify({
-      objective: '恢复后的执行目标',
-      acceptanceCriteria: '恢复验收一\n恢复验收二',
-      executorAgentProfileId: '00000000-0000-0000-0000-000000000301',
-      agentConfigurationRevision: null,
-    }))
+      {
+        objective: '恢复后的执行目标',
+        acceptanceCriteria: '恢复验收一\n恢复验收二',
+        executorAgentProfileId: '00000000-0000-0000-0000-000000000301',
+        agentConfigurationRevision: null,
+      },
+      fixturePrincipal,
+    )
 
     const wrapper = mountDialog({ responsibilities })
     await flushPromises()
@@ -184,6 +199,7 @@ function mountDialog(
       provide: {
         [AGENT_STORE as symbol]: agentStore,
         [TASK_STORE as symbol]: taskStore,
+        [AUTH_PRINCIPAL as symbol]: fixturePrincipal,
       },
       stubs: {
         CodingTargetFormSection: defineComponent({

@@ -1,3 +1,4 @@
+import { principalIdentity, readF05, removeF05, writeF05, type F05Identity, type F05Scope } from '../../app/f05Storage'
 import type { TaskScope } from './types'
 
 export interface TaskDelegationDraft {
@@ -7,7 +8,7 @@ export interface TaskDelegationDraft {
   agentConfigurationRevision: number | null
 }
 
-/** Scope-partitioned session draft; credentials and resolved model payloads are never persisted. */
+/** Legacy pre-F05 session key, kept only so the one-time purge lists the exact prefix. */
 export function taskDelegationDraftKey(
   scope: TaskScope,
   projectId: string,
@@ -16,34 +17,29 @@ export function taskDelegationDraftKey(
   return `crewscope:task-delegation:v1:${scope.organizationId}:${scope.teamId}:${projectId}:${workItemId}`
 }
 
+function f05Scope(scope: TaskScope, projectId: string, workItemId: string, identity: F05Identity): F05Scope { return { accountId: identity.accountId, principalId: identity.principalId, organizationId: scope.organizationId, teamId: scope.teamId, projectId, objectId: workItemId } }
+
+function valid(value: unknown): value is TaskDelegationDraft {
+  return Boolean(value && typeof value === 'object'
+    && typeof (value as TaskDelegationDraft).objective === 'string'
+    && (value as TaskDelegationDraft).objective.length <= 2_000
+    && typeof (value as TaskDelegationDraft).acceptanceCriteria === 'string'
+    && (value as TaskDelegationDraft).acceptanceCriteria.length <= 8_000
+    && typeof (value as TaskDelegationDraft).executorAgentProfileId === 'string'
+    && ((value as TaskDelegationDraft).agentConfigurationRevision === null
+      || (Number.isInteger((value as TaskDelegationDraft).agentConfigurationRevision) && Number((value as TaskDelegationDraft).agentConfigurationRevision) >= 1)))
+}
+
 export function readTaskDelegationDraft(
   scope: TaskScope,
   projectId: string,
   workItemId: string,
+  principal?: { id: string, accountId: string } | null,
 ): TaskDelegationDraft | null {
-  try {
-    const raw = sessionStorage.getItem(taskDelegationDraftKey(scope, projectId, workItemId))
-    if (!raw) return null
-    const value = JSON.parse(raw) as Partial<TaskDelegationDraft>
-    if (typeof value.objective !== 'string'
-      || value.objective.length > 2_000
-      || typeof value.acceptanceCriteria !== 'string'
-      || value.acceptanceCriteria.length > 8_000
-      || typeof value.executorAgentProfileId !== 'string'
-      || (value.agentConfigurationRevision !== null
-        && (!Number.isInteger(value.agentConfigurationRevision) || Number(value.agentConfigurationRevision) < 1))) {
-      sessionStorage.removeItem(taskDelegationDraftKey(scope, projectId, workItemId))
-      return null
-    }
-    return {
-      objective: value.objective,
-      acceptanceCriteria: value.acceptanceCriteria,
-      executorAgentProfileId: value.executorAgentProfileId,
-      agentConfigurationRevision: value.agentConfigurationRevision ?? null,
-    }
-  } catch {
-    return null
-  }
+  const identity = principalIdentity(principal)
+  if (!identity) return null
+  const value = readF05<TaskDelegationDraft>('draft', f05Scope(scope, projectId, workItemId, identity))
+  return value && valid(value.value) ? value.value : null
 }
 
 export function writeTaskDelegationDraft(
@@ -51,22 +47,19 @@ export function writeTaskDelegationDraft(
   projectId: string,
   workItemId: string,
   draft: TaskDelegationDraft,
+  principal?: { id: string, accountId: string } | null,
 ): void {
-  try {
-    sessionStorage.setItem(taskDelegationDraftKey(scope, projectId, workItemId), JSON.stringify(draft))
-  } catch {
-    // Browser storage availability never weakens the server-side preflight and Task boundary.
-  }
+  const identity = principalIdentity(principal)
+  if (!identity) return
+  writeF05('draft', f05Scope(scope, projectId, workItemId, identity), draft)
 }
 
 export function clearTaskDelegationDraft(
   scope: TaskScope,
   projectId: string,
   workItemId: string,
+  principal?: { id: string, accountId: string } | null,
 ): void {
-  try {
-    sessionStorage.removeItem(taskDelegationDraftKey(scope, projectId, workItemId))
-  } catch {
-    // Draft cleanup is best effort; the key is already isolated to this WorkItem and session.
-  }
+  const identity = principalIdentity(principal)
+  if (identity) removeF05('draft', f05Scope(scope, projectId, workItemId, identity))
 }

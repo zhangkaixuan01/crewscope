@@ -44,6 +44,7 @@ final class BrowserPermissionProjection {
   private static Map<TeamPermission, List<String>> mappings() {
     EnumMap<TeamPermission, List<String>> mappings = new EnumMap<>(TeamPermission.class);
     mappings.put(TeamPermission.MEMBER_MANAGE, List.of("team:members:manage"));
+    mappings.put(TeamPermission.ROLE_MANAGE, List.of("team:roles:manage"));
     mappings.put(TeamPermission.WORKSPACE_MANAGE, List.of("repositories:manage"));
     mappings.put(TeamPermission.PROVIDER_MANAGE, List.of("provider:manage"));
     mappings.put(TeamPermission.AGENT_MANAGE, List.of("agent:manage"));

@@ -1,4 +1,5 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { secureId } from '../../api/secureId'
 import type { CommandReceipt } from '../scope/types'
 import type {
   ActionBundle,
@@ -17,12 +18,13 @@ import type {
 
 export interface DeliveryGateway {
   listConnections(scope: DeliveryScope, ownerType: GitHubConnectionOwnerType, signal?: AbortSignal): Promise<GitHubConnection[]>
+  bindConnection?(scope: DeliveryScope, connection: GitHubConnection, repositoryIds?: string[]): Promise<CommandReceipt>
   listBindings(scope: DeliveryScope, connectionId: string, signal?: AbortSignal): Promise<GitHubProviderBinding[]>
   listRepositories(scope: DeliveryScope, connectionId: string, signal?: AbortSignal): Promise<GitHubRepository[]>
   synchronizeRepositories(scope: DeliveryScope, connection: GitHubConnection): Promise<GitHubRepository[]>
   preflight(scope: DeliveryScope, connection: GitHubConnection, bindingId: string, repositoryId: string): Promise<GitHubRemotePreflight>
   health(scope: DeliveryScope, connectionId: string, signal?: AbortSignal): Promise<GitHubAuthorizationHealth>
-  createRepositoryImport?(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
+  createRepositoryImport?(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey?: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
   getRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, signal?: AbortSignal): Promise<GitHubRepositoryImportJob>
   cancelRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
   retryRepositoryImport?(scope: DeliveryScope, projectId: string, jobId: string, idempotencyKey: string): Promise<GitHubRepositoryImportJob>
@@ -48,14 +50,26 @@ export class HttpDeliveryGateway implements DeliveryGateway {
       authenticationType: input.authenticationType,
       teamId: input.teamId ?? undefined,
       credentialSubjectType: input.credentialSubjectType,
-      externalAccountId: input.externalAccountId,
-      repositoryAllowlist: input.repositoryAllowlist,
+      ...(input.externalAccountId ? { externalAccountId: input.externalAccountId } : {}),
+      ...(input.repositoryAllowlist?.length ? { repositoryAllowlist: input.repositoryAllowlist } : {}),
       // Keep the credential field out of public DTO/type shapes while preserving the
       // server's wire contract. It is never returned or retained by the gateway.
       ['accessToken']: input.oneShotCredential,
       expiresAt: input.expiresAt ?? undefined,
     }, { idempotencyKey })
     return mapReceipt(value)
+  }
+
+  bindConnection(
+    scope: DeliveryScope,
+    connection: GitHubConnection,
+    repositoryIds: string[] = [],
+  ): Promise<CommandReceipt> {
+    return this.client.post<CommandReceipt>(
+      `${githubRoot(scope)}/${segment(connection.id)}/bindings`,
+      { teamId: scope.teamId, defaultUsage: true, repositoryIds },
+      { expectedVersion: connection.version, idempotencyKey: secureId() },
+    ).then(mapReceipt)
   }
 
   /** Verifies the remote GitHub identity using the persisted credential and Connection version. */
@@ -120,7 +134,7 @@ export class HttpDeliveryGateway implements DeliveryGateway {
     ).then(mapHealth)
   }
 
-  createRepositoryImport(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob> {
+  createRepositoryImport(scope: DeliveryScope, projectId: string, input: { connectionId: string; connectionVersion: number; grantId: string; grantVersion: number; externalRepositoryId: string; repositoryKey?: string; defaultBranch: string }, idempotencyKey: string): Promise<GitHubRepositoryImportJob> {
     return this.client.post<GitHubRepositoryImportJob>(importRoot(scope, projectId), input, { idempotencyKey }).then(mapImport)
   }
 
@@ -190,8 +204,10 @@ export interface CreateGitHubConnectionInput {
   authenticationType: GitHubConnection['authenticationType']
   teamId: string | null
   credentialSubjectType: 'TEAM' | 'PRINCIPAL'
-  externalAccountId: string
-  repositoryAllowlist: string[]
+  /** Legacy compatibility only; identity is discovered from the credential. */
+  externalAccountId?: string
+  /** Legacy compatibility only; an empty list enters catalog discovery. */
+  repositoryAllowlist?: string[]
   /** One-shot credential supplied only for the create command. */
   oneShotCredential: string
   expiresAt: string | null

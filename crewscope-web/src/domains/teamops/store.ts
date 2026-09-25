@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { commandFailure, commandFailureMessage } from '../../api/commandIntent'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { isAbort, teamOpsError, type TeamOpsErrorState } from './errors'
 import type {
@@ -110,7 +112,7 @@ export interface TeamOpsStore {
   loadLarkPreflight(bindingId: string, bindingVersion: number, force?: boolean): Promise<void>
   loadLarkHealth(bindingId: string, force?: boolean): Promise<void>
   createLarkConnection(expectedVersion: number, input: CreateLarkConnectionInput, idempotencyKey: string): Promise<boolean>
-  rotateLarkConnection(connectionId: string, input: RotateLarkConnectionInput, idempotencyKey: string): Promise<boolean>
+  rotateLarkConnection(connectionId: string, input: RotateLarkConnectionInput, idempotencyKey: string, expectedVersion?: number): Promise<boolean>
   revokeLarkConnection(connectionId: string, reason: string, idempotencyKey: string): Promise<boolean>
   verifyLarkMember(bindingId: string, bindingVersion: number, openId: string, idempotencyKey: string): Promise<boolean>
   confirmLarkMapping(input: ConfirmLarkMappingInput, idempotencyKey: string): Promise<boolean>
@@ -143,10 +145,13 @@ interface ActiveRequest {
 
 /** Team collaboration data layer with abort plus generation guards against late Scope writes. */
 export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
+  const commandIntents = createCommandGateway(gateway, { changeInboxDisposition: 4, revokeLarkConnection: 4, confirmLarkMapping: 2, revokeLarkMapping: 4, updateNotificationPreference: 4, redeliverNotification: 3, recover: 3, projectionCommand: 2 })
+  gateway = commandIntents.gateway
   const state = reactive<TeamOpsStoreState>(initialState())
   let activeScope: TeamOpsScope | null = null
   let activeScopeKey: string | null = null
   let generation = 0
+  let commandEpoch = 0
   let teamActivityFilterKey = ''
   let inboxFilterKey = ''
   let auditFilterKey = ''
@@ -248,10 +253,14 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 
   async function changeInboxDisposition(itemId: string, status: string, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    const started = generation
+    const commandAt = commandEpoch
     if (state.inboxDetails[itemId]?.phase !== 'ready') await loadInboxDetail(itemId)
+    if (started !== generation || commandAt !== commandEpoch) return false
     const detail = state.inboxDetails[itemId]?.value
     if (!detail) return false
-    return runCommand('inbox-disposition', itemId, () => gateway.changeInboxDisposition(requireScope(), itemId, status, detail.etag, idempotencyKey), () => {
+    return runCommand('inbox-disposition', itemId, () => gateway.changeInboxDisposition(scope, itemId, status, detail.etag, idempotencyKey), () => {
       delete state.inboxDetails[itemId]
       state.inbox = cursorResource<InboxItem>()
       state.inboxCounts = resource<InboxCounts>()
@@ -327,18 +336,29 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
     return runCommand('lark-create', null, () => gateway.createLarkConnection(requireScope(), expectedVersion, input, idempotencyKey), invalidateLarkConnections)
   }
 
-  async function rotateLarkConnection(connectionId: string, input: RotateLarkConnectionInput, idempotencyKey: string): Promise<boolean> {
+  async function rotateLarkConnection(connectionId: string, input: RotateLarkConnectionInput, idempotencyKey: string, expectedVersion?: number): Promise<boolean> {
+    const scope = requireScope()
+    const started = generation
+    const commandAt = commandEpoch
+    const snapshot = { ...input }
     if (state.larkConnectionDetails[connectionId]?.phase !== 'ready') await loadLarkConnection(connectionId)
+    if (started !== generation || commandAt !== commandEpoch) return false
     const detail = state.larkConnectionDetails[connectionId]?.value
     if (!detail) return false
-    return runCommand('lark-rotate', connectionId, () => gateway.rotateLarkConnection(requireScope(), connectionId, detail.etag, input, idempotencyKey), invalidateLarkConnections)
+    // Preserve the dialog's observed version. The server rejects drift; never silently upgrade it.
+    const etag = expectedVersion === undefined ? detail.etag : `"${expectedVersion}"`
+    return runCommand('lark-rotate', connectionId, () => gateway.rotateLarkConnection(scope, connectionId, etag, snapshot, idempotencyKey), invalidateLarkConnections)
   }
 
   async function revokeLarkConnection(connectionId: string, reason: string, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    const started = generation
+    const commandAt = commandEpoch
     if (state.larkConnectionDetails[connectionId]?.phase !== 'ready') await loadLarkConnection(connectionId)
+    if (started !== generation || commandAt !== commandEpoch) return false
     const detail = state.larkConnectionDetails[connectionId]?.value
     if (!detail) return false
-    return runCommand('lark-revoke', connectionId, () => gateway.revokeLarkConnection(requireScope(), connectionId, detail.etag, reason, idempotencyKey), invalidateLarkConnections)
+    return runCommand('lark-revoke', connectionId, () => gateway.revokeLarkConnection(scope, connectionId, detail.etag, reason, idempotencyKey), invalidateLarkConnections)
   }
 
   function verifyLarkMember(bindingId: string, bindingVersion: number, openId: string, idempotencyKey: string): Promise<boolean> {
@@ -374,10 +394,15 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 
   async function updateNotificationPreference(memberId: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    const started = generation
+    const commandAt = commandEpoch
+    const snapshot = { ...input, enabledItemTypes: [...input.enabledItemTypes] }
     if (state.notificationPreferences[memberId]?.phase !== 'ready') await loadNotificationPreference(memberId)
+    if (started !== generation || commandAt !== commandEpoch) return false
     const detail = state.notificationPreferences[memberId]?.value
     if (!detail) return false
-    return runCommand('notification-preference', memberId, () => gateway.updateNotificationPreference(requireScope(), memberId, detail.etag, input, idempotencyKey), () => {
+    return runCommand('notification-preference', memberId, () => gateway.updateNotificationPreference(scope, memberId, detail.etag, snapshot, idempotencyKey), () => {
       delete state.notificationPreferences[memberId]
     })
   }
@@ -407,10 +432,14 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 
   async function redeliverNotification(deliveryId: string, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    const started = generation
+    const commandAt = commandEpoch
     if (state.notificationDeliveryDetails[deliveryId]?.phase !== 'ready') await loadNotificationDelivery(deliveryId)
+    if (started !== generation || commandAt !== commandEpoch) return false
     const detail = state.notificationDeliveryDetails[deliveryId]?.value
     if (!detail) return false
-    return runCommand('notification-redeliver', deliveryId, () => gateway.redeliverNotification(requireScope(), deliveryId, detail.etag, idempotencyKey), invalidateDeliveries)
+    return runCommand('notification-redeliver', deliveryId, () => gateway.redeliverNotification(scope, deliveryId, detail.etag, idempotencyKey), invalidateDeliveries)
   }
 
   async function loadOperationsHealth(force = false): Promise<void> {
@@ -495,18 +524,26 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   ): Promise<boolean> {
     // One shared receipt/error slot permits one in-flight command across all Team operations.
     if (state.command.phase === 'pending') return false
+    commandEpoch += 1
     const commandGeneration = generation
     state.command = { phase: 'pending', operation, targetId, receipt: null, error: null }
+    const pending = state.command
     try {
       const receipt = await execute()
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       const classified = teamOpsError(error, '团队协作命令执行失败')
+      if (commandFailure(error) === 'unknown') {
+        classified.message = operation === 'lark-member-verify'
+          ? '验证结果尚未确认，请重新验证原连接和外部身份；这不会自动建立成员映射。'
+          : commandFailureMessage(error, '')
+        classified.retryable = true
+      }
       state.command.phase = classified.kind === 'conflict' ? 'conflict' : 'error'
       state.command.error = classified
       return false
@@ -561,10 +598,12 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 
   function clearCommand(): void {
+    commandEpoch += 1
     state.command = commandState()
   }
 
   function reset(): void {
+    commandIntents.clear()
     generation += 1
     abortRequests()
     activeScope = null

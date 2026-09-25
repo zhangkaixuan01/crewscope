@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useCreationEntry } from '../composables/useCreationEntry'
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,6 +12,9 @@ import {
 import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
+import { subscribeF05Epoch } from '../app/f05Storage'
+import { clearConversationCreateDraft } from '../domains/conversation/createDraft'
+import { clearConversationMessageDraft, readConversationMessageDraft, writeConversationMessageDraft } from '../domains/conversation/messageDraft'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
 import BaseTooltip from '../components/base/BaseTooltip.vue'
@@ -25,7 +29,7 @@ import ConversationTaskCards from '../components/domain/ConversationTaskCards.vu
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
 import ConversationParticipantsPanel from '../components/domain/ConversationParticipantsPanel.vue'
 import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
-import { usePreference } from '../composables/usePreference'
+import { useScopedUserState } from '../composables/useScopedUserState'
 import { useResizablePane } from '../composables/useResizablePane'
 import { useVirtualList } from '../composables/useVirtualList'
 import StatePanel from '../components/feedback/StatePanel.vue'
@@ -50,6 +54,9 @@ import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
 import type { TeamObserverScope } from '../domains/teamobserver/types'
 import type { PrincipalScope } from '../domains/principal/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -63,20 +70,35 @@ const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
 const isOnline = useNetworkStatus()
 const createOpen = ref(false)
+useCreationEntry('conversation', () => scopeStore.state.phase === 'ready'
+  ? scopeStore.state.selectedTeamId : null, openCreate)
 const createError = ref<string | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
+const composer = ref<InstanceType<typeof ConversationComposer> | null>(null)
+let createdConversationFocusId: string | null = null
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
 const workspace = ref<HTMLElement | null>(null)
 const drafts = reactive(new Map<string, string>())
+// A sealed epoch (sign-out or account switch in any tab) empties the in-memory drafts too.
+const unsubscribeEpoch = subscribeF05Epoch(epoch => { if (epoch === null) drafts.clear() })
+onUnmounted(unsubscribeEpoch)
 const leftPane = useResizablePane('cs.pref.conversation.left-pane.v1', 24, { min: 16, max: 36 })
 const rightPane = useResizablePane('cs.pref.conversation.right-pane.v1', 22, { min: 16, max: 34 })
 const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
 const rightPaneRatio = rightPane.ratio
 const rightPaneCollapsed = rightPane.collapsed
-const scrollPositions = usePreference<Record<string, number>>('cs.pref.conversation.scroll.v1', {}, { version: 1 })
-const readSequences = usePreference<Record<string, number>>('cs.pref.conversation.read-sequences.v1', {}, { version: 1 })
+// Reading marks live under the scoped `reading` kind, never in device-level keys, so they
+// cannot cross accounts or Teams (M9b-F05).
+const readingScope = () => (principal && principal.accountId && scopeStore.state.selectedTeamId
+  ? {
+      accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId,
+      teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: null,
+    }
+  : null)
+const scrollPositions = useScopedUserState<Record<string, number>>({ scope: readingScope, name: 'conversation-scroll', fallback: {}, validate: isNumberRecord })
+const readSequences = useScopedUserState<Record<string, number>>({ scope: readingScope, name: 'conversation-read-sequences', fallback: {}, validate: isNumberRecord })
 const persistedMessages = computed(() => messageStore.state.items)
 const virtualList = useVirtualList(persistedMessages, 108, 8)
 const visibleMessages = virtualList.visibleItems
@@ -115,8 +137,26 @@ const workspaceStyle = computed(() => ({
   '--conversation-right-pane': rightPane.collapsed.value ? '44px' : `${rightPane.ratio.value}%`,
 }))
 const currentDraft = computed({
-  get: () => selected.value ? (drafts.get(selected.value.id) ?? '') : '',
-  set: value => { if (selected.value) drafts.set(selected.value.id, value) },
+  get: () => {
+    const conversation = selected.value
+    if (!conversation) return ''
+    // The in-memory map is the live copy; the scoped browser draft fills it lazily on first
+    // visit, so re-entering a conversation restores what this browser kept (M9b-F05).
+    if (!drafts.has(conversation.id)) {
+      const scope = currentScope()
+      drafts.set(conversation.id, scope ? readConversationMessageDraft(scope, conversation.id, principal)?.content ?? '' : '')
+    }
+    return drafts.get(conversation.id) ?? ''
+  },
+  set: value => {
+    const conversation = selected.value
+    if (!conversation) return
+    drafts.set(conversation.id, value)
+    const scope = currentScope()
+    if (!scope) return
+    if (value.trim()) writeConversationMessageDraft(scope, conversation.id, value, principal)
+    else clearConversationMessageDraft(scope, conversation.id, principal)
+  },
 })
 const canPostMessages = computed(() => Boolean(
   selected.value?.status === 'ACTIVE'
@@ -207,8 +247,10 @@ const firstUnreadSequence = computed(() => {
 watch(
   () => [realtimeStore.state.invocationPhase, Boolean(realtimeStore.state.clarification)] as const,
   async ([phase, hasClarification]) => {
+    const pageOwner = pageRequests.capture()
     if (phase !== 'error' && !(phase === 'interrupted' && hasClarification)) return
     await nextTick()
+    if (!pageOwner.isCurrent()) return
     const history = messageHistory.value
     if (!history || !agentActionRegion.value) return
     // 只滚动消息历史；scrollIntoView 会连带滚动页面并把窄屏表单放到固定底栏下面。
@@ -226,8 +268,10 @@ watch(messageHistory, element => {
 }, { flush: 'post' })
 
 watch(() => selected.value?.id, async conversationId => {
+  const pageOwner = pageRequests.capture()
   if (!conversationId) return
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (!messageHistory.value) return
   messageHistory.value.scrollTop = scrollPositions.value.value[conversationId] ?? messageHistory.value.scrollHeight
   virtualList.reset()
@@ -241,12 +285,16 @@ watch(() => [selected.value?.id, messageStore.state.phase] as const, ([conversat
 })
 
 watch(() => messageStore.state.items.length, async () => {
+  const pageOwner = pageRequests.capture()
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (atLatest.value && messageHistory.value) jumpToLatest()
 })
 
 watch(() => realtimeStore.state.streamedContent.length, async () => {
+  const pageOwner = pageRequests.capture()
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (atLatest.value && messageHistory.value) jumpToLatest()
 })
 
@@ -257,6 +305,7 @@ onMounted(() => {
 watch(
   () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, route.query.conversation, route.query.assistant] as const,
   async ([phase, teamId, conversation, assistant]) => {
+    const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !teamId || !principal) {
       if (phase === 'empty') {
         conversationStore.reset()
@@ -284,6 +333,7 @@ watch(
     void scopeStore.loadMembers()
     const conversationId = queryValue(conversation)
     await conversationStore.synchronize(scope, conversationId)
+    if (!pageOwner.isCurrent()) return
     if (version !== synchronizationVersion) return
     if (conversationId && conversationStore.state.detailPhase === 'ready') {
       const messageScope = { ...scope, conversationId }
@@ -292,9 +342,11 @@ watch(
         linkStore.loadByConversation(messageScope),
         synchronizeConversationTasks(scope, conversationId),
       ])
+      if (!pageOwner.isCurrent()) return
       if (version !== synchronizationVersion) return
       realtimeStore.synchronize(messageScope)
       await taskIntentStore.synchronize(messageScope, realtimeStore.state.latestTaskIntentId)
+      if (!pageOwner.isCurrent()) return
       realtimeStore.reconcile(messageStore.state.items)
     } else {
       messageStore.reset()
@@ -306,11 +358,15 @@ watch(
     if (version !== synchronizationVersion) return
     if (isForbidden()) {
       await router.replace({ name: 'access-denied', query: { from: route.fullPath } })
+      if (!pageOwner.isCurrent()) return
       return
     }
     if (pendingDetailFocus && selected.value?.id === conversationId) {
       await nextTick()
-      detailHeading.value?.focus()
+      if (!pageOwner.isCurrent()) return
+      if (createdConversationFocusId === conversationId && canPostMessages.value) composer.value?.focus()
+      else detailHeading.value?.focus()
+      createdConversationFocusId = null
       pendingDetailFocus = false
     }
   },
@@ -320,9 +376,12 @@ watch(
 watch(
   () => conversationStore.state.selectedConversationId,
   async conversationId => {
+    const pageOwner = pageRequests.capture()
     if (conversationId || !pendingListFocusConversationId) return
     await nextTick()
+    if (!pageOwner.isCurrent()) return
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    if (!pageOwner.isCurrent()) return
     const returnTarget = conversationReturnFocus?.isConnected
       ? conversationReturnFocus
       : document.querySelector<HTMLButtonElement>(`[data-conversation-id="${pendingListFocusConversationId}"]`)
@@ -345,59 +404,74 @@ onUnmounted(() => {
 watch(
   () => realtimeStore.state.messageRefreshVersion,
   async version => {
+    const pageOwner = pageRequests.capture()
     if (version === 0) return
     const scope = currentMessageScope()
     if (!scope) return
     try {
       await messageStore.refresh(scope)
+      if (!pageOwner.isCurrent()) return
       realtimeStore.reconcile(messageStore.state.items)
     } catch {
       // The stores retain the safe status; route-level authorization still needs immediate handling.
     }
     await redirectIfForbidden()
+    if (!pageOwner.isCurrent()) return
   },
 )
 
 watch(
   () => taskStore.state.liveRefreshVersion,
   async version => {
+    const pageOwner = pageRequests.capture()
     if (version === 0 || !selected.value) return
     await taskStore.loadByConversation(selected.value.id, false, true)
+    if (!pageOwner.isCurrent()) return
     synchronizeTaskStreams()
     await redirectIfForbidden()
+    if (!pageOwner.isCurrent()) return
   },
 )
 
 watch(
   () => [realtimeStore.state.taskIntentRefreshVersion, realtimeStore.state.latestTaskIntentId] as const,
   async ([, taskIntentId]) => {
+    const pageOwner = pageRequests.capture()
     const scope = currentMessageScope()
     if (!scope || !taskIntentId) return
     await taskIntentStore.load(scope, taskIntentId, true)
+    if (!pageOwner.isCurrent()) return
     if (taskIntentStore.state.intent?.status === 'CONFIRMED') {
       await linkStore.loadByConversation(scope, true)
+      if (!pageOwner.isCurrent()) return
     }
     await redirectIfForbidden()
+    if (!pageOwner.isCurrent()) return
   },
 )
 
 async function selectConversation(conversationId: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   conversationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   pendingDetailFocus = true
   await router.push({ query: { ...route.query, conversation: conversationId } })
+  if (!pageOwner.isCurrent()) return
   if (selected.value?.id === conversationId && conversationStore.state.detailPhase === 'ready') {
     await nextTick()
+    if (!pageOwner.isCurrent()) return
     detailHeading.value?.focus()
     pendingDetailFocus = false
   }
 }
 
 async function clearConversation(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const conversationId = conversationStore.state.selectedConversationId
   pendingListFocusConversationId = conversationId
   const query = { ...route.query }
   delete query.conversation
   await router.push({ query })
+  if (!pageOwner.isCurrent()) return
 }
 
 function openCreate(): void {
@@ -418,6 +492,7 @@ function closeCreate(restoreFocus = true): void {
 }
 
 async function submitCreate(payload: { title: string, visibility: ConversationVisibility }): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const title = payload.title.trim()
   if (!title) {
     createError.value = '请输入对话标题'
@@ -431,10 +506,15 @@ async function submitCreate(payload: { title: string, visibility: ConversationVi
       title,
       visibility: payload.visibility,
     })
+    if (!pageOwner.isCurrent()) return
+    // Only a successful create discards the browser draft; failures keep it for retry.
+    clearConversationCreateDraft(scope, principal)
     closeCreate(false)
     if (conversationId) {
+      createdConversationFocusId = conversationId
       pendingDetailFocus = true
       await router.replace({ query: { ...route.query, conversation: conversationId } })
+      if (!pageOwner.isCurrent()) return
     }
   } catch {
     createError.value = conversationStore.state.commandErrorMessage
@@ -453,13 +533,17 @@ async function retryDetails(): Promise<void> {
 }
 
 async function retryMessages(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = currentMessageScope()
   if (!scope) return
   await messageStore.load(scope, true)
+  if (!pageOwner.isCurrent()) return
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function submitMessage(content: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = currentMessageScope()
   if (!scope || !principal || !canPostMessages.value || !isOnline.value) return
   const conversationId = scope.conversationId
@@ -468,55 +552,77 @@ async function submitMessage(content: string): Promise<void> {
   const sent = invokesAgent
     ? await realtimeStore.invoke(scope, content, principal.id, newestMessageSequence())
     : await messageStore.send(scope, content, principal.id)
+  if (!pageOwner.isCurrent()) return
   // Keep the original draft available when either transport rejects the submission. In
   // particular, an Agent invocation can fail before a user-visible pending row is committed.
   if (!sent && selected.value?.id === conversationId && !currentDraft.value) currentDraft.value = content
   realtimeStore.reconcile(messageStore.state.items)
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function retryPendingMessage(clientId: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const scope = currentMessageScope()
   if (!scope) return
   await messageStore.retry(scope, clientId)
+  if (!pageOwner.isCurrent()) return
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function cancelAgentInvocation(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const scope = currentMessageScope()
   if (!scope) return
   await realtimeStore.cancel(scope)
+  if (!pageOwner.isCurrent()) return
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function retryAgentInvocation(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const scope = currentMessageScope()
   if (!scope) return
   await realtimeStore.retry(scope)
+  if (!pageOwner.isCurrent()) return
   realtimeStore.reconcile(messageStore.state.items)
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function submitClarification(answers: Record<string, string>): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = currentMessageScope()
   if (!scope || !principal) return
   await realtimeStore.resume(scope, answers, principal.id, newestMessageSequence())
+  if (!pageOwner.isCurrent()) return
   realtimeStore.reconcile(messageStore.state.items)
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function reviseTaskIntent(input: TaskIntentRevisionInput): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   await taskIntentStore.revise(input)
+  if (!pageOwner.isCurrent()) return
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function rejectTaskIntent(reason: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   await taskIntentStore.reject(reason)
+  if (!pageOwner.isCurrent()) return
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function confirmTaskIntent(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const confirmed = await taskIntentStore.confirm()
+  if (!pageOwner.isCurrent()) return
   const scope = currentMessageScope()
   // Confirmation returns a receipt; the association query is the source of the created WorkItem identity.
   if (confirmed && scope) {
@@ -524,30 +630,39 @@ async function confirmTaskIntent(): Promise<void> {
       linkStore.loadByConversation(scope, true),
       taskStore.loadByConversation(scope.conversationId, false, true),
     ])
+    if (!pageOwner.isCurrent()) return
     synchronizeTaskStreams()
   }
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function retryLinks(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = currentMessageScope()
   if (scope) await linkStore.loadByConversation(scope, true)
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function retryTasks(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = currentMessageScope()
   if (!scope) return
   taskStore.activateScope(scope)
   await taskStore.loadByConversation(scope.conversationId, false, true)
+  if (!pageOwner.isCurrent()) return
   synchronizeTaskStreams()
   await redirectIfForbidden()
+  if (!pageOwner.isCurrent()) return
 }
 
 async function synchronizeConversationTasks(scope: ConversationScope, conversationId: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   taskStore.activateScope(scope)
   taskStore.stopLiveTasks()
   await taskStore.loadByConversation(conversationId, false, true)
+  if (!pageOwner.isCurrent()) return
   synchronizeTaskStreams()
 }
 
@@ -707,6 +822,10 @@ async function redirectIfForbidden(): Promise<void> {
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return Boolean(value && typeof value === 'object' && Object.values(value).every(item => typeof item === 'number' && Number.isFinite(item)))
 }
 
 function handleHistoryScroll(): void {
@@ -1063,6 +1182,7 @@ function prefersReducedMotion(): boolean {
             </div>
           </div>
           <ConversationComposer
+            ref="composer"
             v-model="currentDraft"
             :disabled="!canPostMessages || sendingMessage || agentNeedsRecovery || agentAwaitingClarification || messageStore.state.phase === 'loading' || messageStore.state.phase === 'error'"
             :submit-disabled="!isOnline"
@@ -1111,6 +1231,7 @@ function prefersReducedMotion(): boolean {
 
     <ConversationCreateDialog
       v-if="createOpen && !observerMode"
+      :scope="currentScope()"
       :pending="conversationStore.state.commandPending"
       :error="createError"
       @close="closeCreate()"

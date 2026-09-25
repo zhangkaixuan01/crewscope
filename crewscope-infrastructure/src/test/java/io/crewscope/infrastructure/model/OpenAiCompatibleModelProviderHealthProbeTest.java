@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -84,6 +85,33 @@ class OpenAiCompatibleModelProviderHealthProbeTest {
                         .failureCode());
     }
 
+    @Test
+    void doesNotFollowRedirectsWithTheBearerCredential() throws Exception {
+        AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> redirectedAuthorization = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/models", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.getResponseHeaders().add("Location", "/redirected");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/redirected", exchange -> {
+            redirectedAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        Fixture fixture = fixture();
+
+        ModelProviderHealthProbe.ProbeResult result = probe().probe(
+                fixture.provider(), fixture.connection(), handle("redirect-secret"));
+
+        assertEquals(Optional.of(ModelConnectionHealthFailureCode.PROVIDER_REJECTED), result.failureCode());
+        assertEquals("Bearer redirect-secret", authorization.get());
+        assertNull(redirectedAuthorization.get());
+    }
+
     private void startServer(
             int status,
             AtomicReference<String> authorization,
@@ -100,7 +128,10 @@ class OpenAiCompatibleModelProviderHealthProbeTest {
 
     private OpenAiCompatibleModelProviderHealthProbe probe() {
         return new OpenAiCompatibleModelProviderHealthProbe(
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build(),
+                HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(1))
+                        .followRedirects(HttpClient.Redirect.NEVER)
+                        .build(),
                 Duration.ofSeconds(2));
     }
 

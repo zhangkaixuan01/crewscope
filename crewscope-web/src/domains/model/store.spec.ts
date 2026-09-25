@@ -18,6 +18,28 @@ const securityScope = { organizationId: fixtureIds.organization, teamId: fixture
 const connectionId = '00000000-0000-0000-0000-000000005101'
 
 describe('ModelStore', () => {
+  it('does not dispatch a credential write after its prefetch owner was cleared', async () => {
+    const gateway = new FixtureModelGateway()
+    const detail = deferred<Etagged<ModelConnectionSummary>>()
+    gateway.getConnection = vi.fn(() => detail.promise)
+    const write = vi.spyOn(gateway, 'rotateCredential')
+    const store = createModelStore(gateway)
+    store.activateScope(platformScope)
+    const old = store.rotateCredential(connectionId, 1, 'local-only', 'key', 4)
+    store.clearCommand()
+    detail.resolve({ value: connection(connectionId), etag: '"4"' })
+    expect(await old).toBe(false)
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('sends the version captured by the original rotation form, not a later read', async () => {
+    const gateway = new FixtureModelGateway()
+    const write = vi.spyOn(gateway, 'rotateCredential')
+    const store = createModelStore(gateway)
+    store.activateScope(platformScope)
+    await store.rotateCredential(connectionId, 1, 'local-only', 'key', 2)
+    expect(write.mock.calls[0]?.[2]).toBe('"2"')
+  })
   it('publishes dynamic Connection detail phases through the reactive proxy', async () => {
     const gateway = new FixtureModelGateway()
     const detail = deferred<Etagged<ModelConnectionSummary>>()
@@ -109,6 +131,15 @@ describe('ModelStore', () => {
     expect(JSON.stringify(store.state)).not.toContain('rotated-secret')
   })
 
+  it('activates a suspended connection with the loaded strong ETag', async () => {
+    const gateway = new FixtureModelGateway()
+    const store = createModelStore(gateway)
+    store.activateScope(platformScope)
+    await store.loadConnection(connectionId)
+    expect(await store.activateConnection(connectionId, 'activate-key')).toBe(true)
+    expect(gateway.seenEtag).toBe('"4"')
+  })
+
   it('fails a cross-Team Connection page closed before it enters browser cache', async () => {
     const gateway = new FixtureModelGateway()
     gateway.listConnections = vi.fn(async () => ({
@@ -183,6 +214,15 @@ class FixtureModelGateway implements ModelGateway {
   }
 
   async verifyConnection(
+    _organizationId: string,
+    _connection: ModelConnectionSummary,
+    etag: string,
+  ): Promise<ModelConnectionCommandReceipt> {
+    this.seenEtag = etag
+    return receipt()
+  }
+
+  async activateConnection(
     _organizationId: string,
     _connection: ModelConnectionSummary,
     etag: string,

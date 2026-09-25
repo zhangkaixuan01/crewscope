@@ -58,7 +58,8 @@ public class JpaTeamMemberRepositoryAdapter implements TeamMemberRepository, Tea
                                 SET value.status = :status, value.joinMethod = :joinMethod,
                                     value.invitedBy = :invitedBy, value.joinedAt = :joinedAt,
                                     value.lastActiveAt = :lastActiveAt, value.updatedAt = :updatedAt,
-                                    value.version = :version
+                                    value.version = :version,
+                                    value.authorizationVersion = :authorizationVersion
                                 WHERE value.organizationId = :organizationId AND value.teamId = :teamId
                                   AND value.id = :id AND value.version = :expected
                                 """)
@@ -74,6 +75,7 @@ public class JpaTeamMemberRepositoryAdapter implements TeamMemberRepository, Tea
                                 required.lastActiveAt().map(t -> t.value()).orElse(null))
                         .setParameter("updatedAt", required.lifecycle().updatedAt().value())
                         .setParameter("version", required.version())
+                        .setParameter("authorizationVersion", required.authorizationVersion())
                         .setParameter("organizationId", required.scope().organizationId().value())
                         .setParameter("teamId", required.scope().teamId().value())
                         .setParameter("id", required.id().value())

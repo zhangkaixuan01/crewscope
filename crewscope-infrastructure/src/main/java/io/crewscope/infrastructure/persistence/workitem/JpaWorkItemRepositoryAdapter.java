@@ -1,9 +1,12 @@
 package io.crewscope.infrastructure.persistence.workitem;
 
 import io.crewscope.application.workitem.WorkItemCursor;
+import io.crewscope.application.workitem.WorkItemCursorScope;
+import io.crewscope.application.workitem.WorkItemFilter;
 import io.crewscope.application.workitem.WorkItemPage;
 import io.crewscope.application.workitem.WorkItemQuery;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.application.workitem.WorkItemSort;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
@@ -22,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -204,27 +208,62 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
                 SELECT item FROM WorkItemEntity item
                 WHERE item.organizationId = :organizationId
                   AND item.teamId = :teamId
+                  AND item.projectId = :projectId
                 """);
-        required.projectId().ifPresent(ignored -> jpql.append(" AND item.projectId = :projectId"));
-        required.status().ifPresent(ignored -> jpql.append(" AND item.status = :status"));
-        required.cursor().ifPresent(ignored -> jpql.append(
+        WorkItemFilter filter = required.filter();
+        if (!filter.statuses().isEmpty()) {
+            jpql.append(" AND item.status IN :statuses");
+        }
+        if (!filter.types().isEmpty()) {
+            jpql.append(" AND item.itemType IN :types");
+        }
+        if (!filter.priorities().isEmpty()) {
+            jpql.append(" AND item.priority IN :priorities");
+        }
+        filter.responsibilityRole().ifPresent(role -> jpql.append(
                 """
-                 AND (item.updatedAt < :cursorTime
-                      OR (item.updatedAt = :cursorTime AND item.id < :cursorId))
+                 AND EXISTS (
+                      SELECT assignment FROM ResponsibilityAssignmentEntity assignment
+                      WHERE assignment.organizationId = item.organizationId
+                        AND assignment.teamId = item.teamId
+                        AND assignment.workspaceId = item.workspaceId
+                        AND assignment.projectId = item.projectId
+                        AND assignment.workItemId = item.id
+                        AND assignment.status = 'ACTIVE'
+                        AND assignment.role = :responsibilityRole)
                 """));
-        jpql.append(" ORDER BY item.updatedAt DESC, item.id DESC");
+        required.after().ifPresent(cursor -> jpql.append(
+                required.sort() == WorkItemSort.DUE_AT && cursor.primaryTime().isEmpty()
+                        ? nullSegmentPredicate()
+                        : keysetPredicate(required.sort())));
+        jpql.append(orderClause(required.sort()));
 
         var persistenceQuery = entityManager
                 .createQuery(jpql.toString(), WorkItemEntity.class)
                 .setParameter("organizationId", required.organizationId().value())
                 .setParameter("teamId", required.teamId().value())
+                .setParameter("projectId", required.projectId().value())
                 .setMaxResults(required.limit() + 1);
-        required.projectId()
-                .ifPresent(projectId -> persistenceQuery.setParameter("projectId", projectId.value()));
-        required.status()
-                .ifPresent(status -> persistenceQuery.setParameter("status", status.name()));
-        required.cursor().ifPresent(cursor -> {
-            persistenceQuery.setParameter("cursorTime", cursor.updatedAt().value());
+        if (!filter.statuses().isEmpty()) {
+            persistenceQuery.setParameter(
+                    "statuses", filter.statuses().stream().map(Enum::name).toList());
+        }
+        if (!filter.types().isEmpty()) {
+            persistenceQuery.setParameter(
+                    "types", filter.types().stream().map(Enum::name).toList());
+        }
+        if (!filter.priorities().isEmpty()) {
+            persistenceQuery.setParameter(
+                    "priorities", filter.priorities().stream().map(Enum::name).toList());
+        }
+        filter.responsibilityRole()
+                .ifPresent(role -> persistenceQuery.setParameter(
+                        "responsibilityRole", role.name()));
+        required.after().ifPresent(cursor -> {
+            cursor.primaryTime().ifPresent(time ->
+                    persistenceQuery.setParameter("cursorPrimaryTime", time.value()));
+            cursor.primaryRank().ifPresent(rank ->
+                    persistenceQuery.setParameter("cursorPrimaryRank", rank));
             persistenceQuery.setParameter("cursorId", cursor.id().value());
         });
 
@@ -235,10 +274,62 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
         }
         List<WorkItem> items = rows.stream().map(mapper::toDomain).toList();
         Optional<WorkItemCursor> nextCursor = hasNext
-                ? Optional.of(toCursor(rows.get(rows.size() - 1)))
+                ? Optional.of(toCursor(
+                        rows.get(rows.size() - 1), required.cursorScope(), required.sort()))
                 : Optional.empty();
         return new WorkItemPage(items, nextCursor);
     }
+
+    /**
+     * The keyset predicate that continues strictly after the cursor's position for one ordering.
+     *
+     * <p>Descending orderings compare with {@code <}; {@code DUE_AT} ascends with nulls last, so a
+     * cursor inside the dated segment also admits the whole null segment, and a cursor already inside
+     * the null segment continues by ID only. The ID tie-breaker always follows the primary direction,
+     * which is what makes the total order stable for equal primary values.
+     */
+    private static String keysetPredicate(WorkItemSort sort) {
+        return switch (sort) {
+            case UPDATED_AT -> """
+                 AND (item.updatedAt < :cursorPrimaryTime
+                      OR (item.updatedAt = :cursorPrimaryTime AND item.id < :cursorId))
+                """;
+            case CREATED_AT -> """
+                 AND (item.createdAt < :cursorPrimaryTime
+                      OR (item.createdAt = :cursorPrimaryTime AND item.id < :cursorId))
+                """;
+            case PRIORITY -> """
+                 AND (PRIORITY_RANK < :cursorPrimaryRank
+                      OR (PRIORITY_RANK = :cursorPrimaryRank AND item.id < :cursorId))
+                """.replace("PRIORITY_RANK", PRIORITY_RANK);
+            case DUE_AT -> """
+                 AND (item.dueAt IS NULL
+                      OR item.dueAt > :cursorPrimaryTime
+                      OR (item.dueAt = :cursorPrimaryTime AND item.id > :cursorId))
+                """;
+        };
+    }
+
+    private static String orderClause(WorkItemSort sort) {
+        return switch (sort) {
+            case UPDATED_AT -> " ORDER BY item.updatedAt DESC, item.id DESC";
+            case CREATED_AT -> " ORDER BY item.createdAt DESC, item.id DESC";
+            case PRIORITY -> " ORDER BY " + PRIORITY_RANK + " DESC, item.id DESC";
+            case DUE_AT -> " ORDER BY item.dueAt ASC NULLS LAST, item.id ASC";
+        };
+    }
+
+    /**
+     * The DUE_AT continuation used once the traversal has entered the trailing null-due-time
+     * segment; the generic predicate above would bind a time parameter this cursor no longer has.
+     */
+    private static String nullSegmentPredicate() {
+        return " AND item.dueAt IS NULL AND item.id > :cursorId";
+    }
+
+    private static final String PRIORITY_RANK =
+            "CASE item.priority WHEN 'URGENT' THEN 4 WHEN 'HIGH' THEN 3"
+                    + " WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END";
 
     private Optional<WorkItemEntity> findEntity(
             OrganizationId organizationId, WorkItemId id) {
@@ -276,8 +367,29 @@ public class JpaWorkItemRepositoryAdapter implements WorkItemRepository {
                 .findFirst();
     }
 
-    private static WorkItemCursor toCursor(WorkItemEntity entity) {
-        return new WorkItemCursor(
-                UtcTimestamp.from(entity.updatedAt()), new WorkItemId(entity.id()));
+    /** Builds the continuation cursor for one ordering from the last row of a full page. */
+    private static WorkItemCursor toCursor(
+            WorkItemEntity entity, WorkItemCursorScope scope, WorkItemSort sort) {
+        Optional<UtcTimestamp> primaryTime = Optional.empty();
+        OptionalInt primaryRank = OptionalInt.empty();
+        switch (sort) {
+            case UPDATED_AT -> primaryTime = Optional.of(UtcTimestamp.from(entity.updatedAt()));
+            case CREATED_AT -> primaryTime = Optional.of(UtcTimestamp.from(entity.createdAt()));
+            case PRIORITY -> primaryRank = OptionalInt.of(priorityRank(entity.priority()));
+            case DUE_AT -> primaryTime = entity.dueAt() == null
+                    ? Optional.empty()
+                    : Optional.of(UtcTimestamp.from(entity.dueAt()));
+        }
+        return new WorkItemCursor(scope, primaryTime, primaryRank, new WorkItemId(entity.id()));
+    }
+
+    private static int priorityRank(String priority) {
+        return switch (priority == null ? "" : priority) {
+            case "URGENT" -> 4;
+            case "HIGH" -> 3;
+            case "MEDIUM" -> 2;
+            case "LOW" -> 1;
+            default -> 0;
+        };
     }
 }

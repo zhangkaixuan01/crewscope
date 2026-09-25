@@ -121,6 +121,32 @@ class NotificationIntentProjectorM6E04IntegrationTest
     }
 
     @Test
+    void suspendedRecipientInvalidatesThePlannedActionBeforeDelivery() {
+        seedMapping(graph);
+        reconcile(lease(ProjectionGeneration.FIRST, 1));
+        assertEquals("READY", text("SELECT status FROM crewscope.notification_delivery"));
+
+        jdbc.update(
+                """
+                UPDATE crewscope.team_member
+                SET status = 'SUSPENDED', version = version + 1, updated_at = ?
+                WHERE id = ?
+                """,
+                NOW.plusSeconds(30).atOffset(ZoneOffset.UTC), memberId);
+
+        reconcile(lease(ProjectionGeneration.FIRST, 1));
+
+        // The pre-delivery authorization recheck resolves current member facts, so a
+        // suspended recipient never receives the already planned message.
+        assertEquals("INVALIDATED", text(
+                "SELECT status FROM crewscope.notification_planned_action"));
+        assertEquals("RECIPIENT_MAPPING", text(
+                "SELECT invalidation_reason FROM crewscope.notification_delivery"));
+        assertEquals("INVALIDATED", text(
+                "SELECT result FROM crewscope.notification_receipt"));
+    }
+
+    @Test
     void missingAndRevokedMappingProduceNoUnauthorizedWriteAndInvalidateExistingPlan() {
         reconcile(lease(ProjectionGeneration.FIRST, 1));
         assertEquals(1, count("notification_intent"));

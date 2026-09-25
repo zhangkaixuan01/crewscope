@@ -44,6 +44,7 @@ import type {
   InboxFilter,
   InboxItem,
   InboxTarget,
+  InboxSourceContext,
   LarkConnection,
   LarkHealth,
   LarkMapping,
@@ -93,6 +94,9 @@ export interface TeamOpsGateway {
   notificationTemplates(scope: TeamOpsScope, signal?: AbortSignal): Promise<NotificationTemplate[]>
   notificationPreference(scope: TeamOpsScope, memberId: string, signal?: AbortSignal): Promise<Etagged<NotificationPreference>>
   updateNotificationPreference(scope: TeamOpsScope, memberId: string, etag: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<CommandReceipt>
+  /** A07 self path: guarded by the caller's own active membership, not an administrator grant. */
+  selfNotificationPreference(scope: TeamOpsScope, signal?: AbortSignal): Promise<Etagged<NotificationPreference>>
+  updateSelfNotificationPreference(scope: TeamOpsScope, etag: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<Etagged<NotificationPreference>>
   notificationDeliveries(scope: TeamOpsScope, filter: NotificationDeliveryFilter, after?: string | null, limit?: number, signal?: AbortSignal): Promise<CursorPage<NotificationDelivery>>
   notificationDelivery(scope: TeamOpsScope, deliveryId: string, signal?: AbortSignal): Promise<Etagged<NotificationDelivery>>
   redeliverNotification(scope: TeamOpsScope, deliveryId: string, etag: string, idempotencyKey: string): Promise<CommandReceipt>
@@ -325,6 +329,20 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
     return this.command(`${teamRoot(scope)}/lark/notification-preferences/${segment(memberId)}`, input, etagVersion(etag), idempotencyKey, 'PUT')
   }
 
+  async selfNotificationPreference(scope: TeamOpsScope, signal?: AbortSignal): Promise<Etagged<NotificationPreference>> {
+    const response = await this.client.open(`${teamRoot(scope)}/members/me/notification-preference`, { method: 'GET', signal })
+    const value = mapPreference(await response.json())
+    return { value, etag: requireMatchingEtag(response, value.version) }
+  }
+
+  async updateSelfNotificationPreference(scope: TeamOpsScope, etag: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<Etagged<NotificationPreference>> {
+    const response = await this.client.open(`${teamRoot(scope)}/members/me/notification-preference`, {
+      method: 'PUT', body: input, expectedVersion: etagVersion(etag), idempotencyKey,
+    })
+    const value = mapPreference(await response.json())
+    return { value, etag: requireMatchingEtag(response, value.version) }
+  }
+
   async notificationDeliveries(scope: TeamOpsScope, filter: NotificationDeliveryFilter, after?: string | null, limit = 50, signal?: AbortSignal): Promise<CursorPage<NotificationDelivery>> {
     const search = new URLSearchParams({ limit: String(limit) })
     appendMany(search, 'status', filter.statuses)
@@ -489,6 +507,27 @@ function mapInboxItem(input: unknown): InboxItem {
     closeReason: nullableString(value.closeReason), closedAt: nullableString(value.closedAt),
     dispositionStatus: oneOf(value.dispositionStatus, inboxDispositionStatuses), dispositionVersion: nonNegativeInteger(value.dispositionVersion), etag: string(value.etag),
     source: { type: oneOf(source.type, inboxSourceTypes), id: string(source.id), revision: nonNegativeInteger(source.revision) },
+    sourceContext: mapInboxSourceContext(value.sourceContext),
+  }
+}
+
+/**
+ * The work facts an Inbox row points at, joined by the server at read time.
+ *
+ * `null` means the row carries none — a notification delivery or a source object that is gone; the
+ * row still renders without it. Present is parsed strictly: the title is what a list row prints and
+ * the kind drives routing, so a malformed block must fail loudly rather than render wrong text.
+ */
+function mapInboxSourceContext(input: unknown): InboxSourceContext | null {
+  if (input == null) return null
+  const value = asRecord(input)
+  return {
+    projectId: nullableString(value.projectId),
+    workItemId: nullableString(value.workItemId),
+    workItemTitle: nullableString(value.workItemTitle),
+    taskObjective: nullableString(value.taskObjective),
+    waitingOnDisplayName: nullableString(value.waitingOnDisplayName),
+    targetActionKind: oneOf(value.targetActionKind, inboxTargetKinds),
   }
 }
 

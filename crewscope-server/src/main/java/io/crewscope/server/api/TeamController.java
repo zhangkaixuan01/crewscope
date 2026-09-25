@@ -293,6 +293,8 @@ public final class TeamController {
       String joinMethod,
       String joinedAt,
       List<String> roles,
+      List<MemberGrantResponse> grants,
+      long authorizationVersion,
       long version) {
 
     static TeamMemberResponse from(TeamMemberView view) {
@@ -305,9 +307,15 @@ public final class TeamController {
           member.joinMethod().name(),
           member.joinedAt().map(Object::toString).orElse(null),
           view.roles(),
+          view.grants().stream()
+              .map(grant -> new MemberGrantResponse(grant.id(), grant.roleKey()))
+              .toList(),
+          member.authorizationVersion(),
           member.version());
     }
   }
+
+  public record MemberGrantResponse(String id, String roleKey) {}
 
   public record WorkspaceResponse(
       String id,

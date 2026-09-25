@@ -1,4 +1,5 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { createAndLocate } from '../../api/creationRecovery'
 import { readAvailableTransition } from './availability'
 import type {
   AddWorkItemCommentInput,
@@ -10,6 +11,7 @@ import type {
   WorkItemAvailableTransition,
   WorkItemCommandReceipt,
   WorkItemDetails,
+  WorkItemExecutionSummary,
   WorkItemListQuery,
   WorkItemPage,
   WorkItemScope,
@@ -102,6 +104,10 @@ export class HttpWorkItemGateway implements WorkItemGateway {
   async listWorkItems(query: WorkItemListQuery, signal?: AbortSignal): Promise<WorkItemPage> {
     const search = new URLSearchParams()
     if (query.status) search.set('status', query.status)
+    if (query.type?.length) search.set('type', query.type.join(','))
+    if (query.priority?.length) search.set('priority', query.priority.join(','))
+    if (query.responsibilityRole) search.set('responsibilityRole', query.responsibilityRole)
+    if (query.sort) search.set('sort', query.sort)
     if (query.after) search.set('after', query.after)
     search.set('limit', String(query.limit ?? 50))
     const response = await this.client.get<{ items?: unknown; nextCursor?: unknown }>(
@@ -119,7 +125,8 @@ export class HttpWorkItemGateway implements WorkItemGateway {
     input: CreateWorkItemInput,
     idempotencyKey: string,
   ): Promise<WorkItemCommandReceipt> {
-    return this.client.post(root(scope), input, { idempotencyKey })
+    return createAndLocate(this.client, scope, 'WORK_ITEM', idempotencyKey,
+      () => this.client.post(root(scope), input, { idempotencyKey }))
   }
 
   async getWorkItem(scope: WorkItemScope, workItemId: string, signal?: AbortSignal): Promise<WorkItemDetails> {
@@ -262,7 +269,8 @@ function responsibilityRoot(scope: WorkItemScope, workItemId: string): string {
 }
 
 /**
- * Reads one WorkItem row, attaching the availability the list and detail responses inline.
+ * Reads one WorkItem row, attaching the availability and the execution summary the list and detail
+ * responses inline.
  *
  * Every other field is passed through untouched: this gateway is not the place that validates the
  * WorkItem contract, and inventing a second parser here would let the two drift.
@@ -272,7 +280,34 @@ function readSummary(value: unknown): WorkItemSummary {
     throw new TypeError('Invalid WorkItem row')
   }
   const row = value as Record<string, unknown>
-  return { ...row, availableActions: readActions(row.availableActions) } as WorkItemSummary
+  return {
+    ...row,
+    availableActions: readActions(row.availableActions),
+    summary: readExecutionSummary(row.summary),
+  } as WorkItemSummary
+}
+
+/**
+ * Reads the M9b-A06 summary block.
+ *
+ * Like availability, a missing block is read as "the server published no facts" rather than as a
+ * malformed response, so a row without a summary still renders. A present block is parsed strictly:
+ * its blockedReasons array is the part the UI renders as a list, so it must be an array or the
+ * whole page fails loudly instead of rendering a silent, wrong count.
+ */
+function readExecutionSummary(value: unknown): WorkItemExecutionSummary | null {
+  if (value == null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Invalid WorkItem summary')
+  }
+  const summary = value as Record<string, unknown>
+  if (summary.blockedReasons != null && !Array.isArray(summary.blockedReasons)) {
+    throw new TypeError('Invalid WorkItem summary blockedReasons')
+  }
+  return {
+    ...summary,
+    blockedReasons: Array.isArray(summary.blockedReasons) ? summary.blockedReasons : [],
+  } as WorkItemExecutionSummary
 }
 
 /**

@@ -5,6 +5,7 @@ import { RouterLink, useRoute, useRouter, type LocationQueryRaw } from 'vue-rout
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
+import { useCreationEntry } from '../composables/useCreationEntry'
 import { useBoardDrag } from '../composables/useBoardDrag'
 import { useListSort } from '../composables/useListSort'
 import { useSelection } from '../composables/useSelection'
@@ -28,6 +29,7 @@ import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreat
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
+import { clearWorkItemCreateDraft } from '../domains/workitem/createDraft'
 import { useUndoOffer } from '../domains/workitem/useUndoOffer'
 import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
 import { workItemPriorityLabels, workItemResponsibilityRoleLabels, workItemStatusLabels as statusLabels, workItemTypeLabels } from '../domains/workitem/labels'
@@ -80,6 +82,9 @@ import {
   type WorkItemSummary,
   type WorkItemType,
 } from '../domains/workitem/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 type WorkView = 'list' | 'board'
 type FilterValue<T extends string> = T | 'all'
@@ -190,8 +195,15 @@ const principalScope = computed<PrincipalScope | null>(() => principal && team.v
   ? { organizationId: principal.organizationId, teamId: team.value.id }
   : null)
 const showCreate = ref(false)
+useCreationEntry('work', () => canCreate.value && scopeStore.state.phase === 'ready'
+  ? project.value?.id ?? null : null, openCreate)
 const showDelegate = ref(false)
-const createInitialKey = ref('')
+watch(() => [scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId], () => {
+  showCreate.value = false
+  showDelegate.value = false
+  resetTransition()
+}, { flush: 'sync' })
+watch(() => route.query.workItem, () => { showDelegate.value = false; resetTransition() }, { flush: 'sync' })
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
@@ -461,10 +473,12 @@ watch(
 watch(
   () => taskStore.state.selectedTaskId,
   async taskId => {
+    const pageOwner = pageRequests.capture()
     taskStore.stopLiveTasks()
     if (!taskId) return
     await taskStore.loadEvents(taskId)
-    if (taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
+    if (!pageOwner.isCurrent()) return
+    if (pageOwner.isCurrent() && taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
   },
 )
 
@@ -476,16 +490,27 @@ watch(
     if (liveFactRefreshTimer) clearTimeout(liveFactRefreshTimer)
     // Bursty Agent events update the Timeline immediately. Task and Runtime projections are
     // coalesced into one authoritative re-read so event timing can never roll status backwards.
+    // The authoritative re-read is page-scoped, not selection-scoped: the selection coordinate
+    // includes route.fullPath, and query canonicalization written right after a live event (for
+    // example the workspace coordinate) cancelled this coalesced refresh mid-flight, which then
+    // skipped the terminal stopLiveTasks and left the stream reconnecting forever. Task identity
+    // is guarded explicitly by the selectedTaskId checks below.
+    const pageOwner = pageRequests.capture()
     liveFactRefreshTimer = setTimeout(async () => {
+      if (!pageOwner.isCurrent()) return
       liveFactRefreshTimer = null
       if (taskStore.state.selectedTaskId !== taskId || !principal || !team.value) return
       await taskStore.select({ organizationId: principal.organizationId, teamId: team.value.id }, taskId, true)
-      if (taskStore.state.selectedTaskId !== taskId) return
+      if (!pageOwner.isCurrent() || taskStore.state.selectedTaskId !== taskId) return
       const executionId = selectedTaskExecutionId.value
       if (executionId) await taskStore.loadRuntimeFacts(taskId, executionId, true)
+      if (!pageOwner.isCurrent()) return
       if (codingScope.value) await synchronizeCodingStudio(true)
+      if (!pageOwner.isCurrent()) return
       await synchronizeReviewWorkbench(true)
+      if (!pageOwner.isCurrent()) return
       await synchronizeDeliveryWorkbench(true)
+      if (!pageOwner.isCurrent()) return
       if (taskStore.state.details && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(taskStore.state.details.status)) {
         taskStore.stopLiveTasks()
       }
@@ -597,9 +622,11 @@ watch(
 )
 
 async function loadResponsibilityAgents(force = false, more = false): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!principal || !team.value) return
   agentStore.activateScope({ organizationId: principal.organizationId, teamId: team.value.id })
   await agentStore.loadAgents(more, force)
+  if (!pageOwner.isCurrent()) return
 }
 
 watch(
@@ -686,6 +713,7 @@ watch(
 // The association Store is shared with Conversation Mode. Do not retain a WorkItem-scoped
 // response after this route leaves the tree; the next entry must read current server facts.
 onUnmounted(() => {
+  workStore.closeDetails()
   linkStore.reset()
   taskStore.stopLiveTasks()
   reviewStore.reset()
@@ -720,23 +748,29 @@ function sortBy(key: WorkItemSortKey): void {
  * member is told what happened to every row — including the ones nothing happened to and why.
  */
 async function runBulkTransition(targetStatus: WorkItemStatus): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = workScope.value
   const rows = actionableSelectedItems.value
   if (!scope || !rows.length) return
   const label = bulkTargets.value.find(target => target.targetStatus === targetStatus)?.label
     ?? statusLabels[targetStatus]
-  reportBulk(await workStore.transitionRows(scope, rows, targetStatus), label)
+  const results = await workStore.transitionRows(scope, rows, targetStatus, pageOwner.isCurrent)
+  if (!pageOwner.isCurrent()) return
+  reportBulk(results, label)
 }
 
 /** Assigns one responsibility across the selection, through the existing assignment commands. */
 async function runBulkAssign(payload: { role: WorkItemBulkAssignmentRole; actorPrincipalId: string }): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = workScope.value
   const rows = actionableSelectedItems.value
   if (!scope || !rows.length) return
   const member = responsibilityCandidates.value
     .find(candidate => candidate.principalId === payload.actorPrincipalId)?.displayName
   const label = `${workItemResponsibilityRoleLabels[payload.role]}指派给${member ?? '所选成员'}`
-  reportBulk(await workStore.assignRows(scope, rows, payload.role, payload.actorPrincipalId), label)
+  const results = await workStore.assignRows(scope, rows, payload.role, payload.actorPrincipalId, pageOwner.isCurrent)
+  if (!pageOwner.isCurrent()) return
+  reportBulk(results, label)
 }
 
 /**
@@ -761,19 +795,18 @@ function clearLocalFilters(): void {
 }
 
 function openCreate(): void {
-  const prefix = `${project.value?.key ?? 'WORK'}-`
-  const lastNumber = workStore.state.items.reduce((highest, item) => {
-    const match = item.key.startsWith(prefix) ? Number(item.key.slice(prefix.length)) : 0
-    return Number.isInteger(match) ? Math.max(highest, match) : highest
-  }, 0)
-  createInitialKey.value = `${prefix}${lastNumber + 1}`
   showCreate.value = true
 }
 
 async function createWorkItem(input: CreateWorkItemInput): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   try {
-    await workStore.create(input)
+    const createdId = await workStore.create(input)
+    if (!pageOwner.isCurrent()) return
+    // Only a successful create discards the browser draft; failures keep it for retry.
+    if (principalScope.value && project.value) clearWorkItemCreateDraft(principalScope.value, project.value.key, principal)
     showCreate.value = false
+    if (createdId) await router.replace({ query: { ...route.query, workItem: createdId } })
   } catch {
     // The Store publishes a sanitized command error; global handling owns unexpected details.
   }
@@ -845,12 +878,15 @@ function handleBoardKeydown(event: KeyboardEvent): void {
  * surface reports the same refusal in the same words and offers the same undo afterwards.
  */
 async function runRowAction(item: WorkItemSummary, target: WorkItemStatus): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!principal || !team.value || !project.value) return
   const result = await workStore.transitionFromRow(
     { organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id },
     item,
     target,
+    pageOwner.isCurrent,
   )
+  if (!pageOwner.isCurrent()) return
   if (result.status === 'executed') {
     offerUndo(item.key)
     return
@@ -868,20 +904,27 @@ async function runRowAction(item: WorkItemSummary, target: WorkItemStatus): Prom
  * confirms; the drag path above does not need to, for the reason recorded there.
  */
 async function runCardAction(item: WorkItemSummary, action: WorkItemAvailableTransition): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   await submitTransition(item.id, action, async transition => runRowAction(item, transition.targetStatus))
+  if (!pageOwner.isCurrent()) return
 }
 
 /** Runs a drawer-initiated transition and offers the same undo every other surface offers. */
 async function transitionWorkItem(target: WorkItemStatus): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   await workStore.transition(target)
+  if (!pageOwner.isCurrent()) return
   offerUndo()
 }
 
 async function closeDetails(): Promise<void> {
-  await router.replace({ query: { ...route.query, workItem: undefined } })
+  const pageOwner = pageRequests.capture()
+  const navigationFailure = await router.replace({ query: { ...route.query, workItem: undefined } })
+  if (navigationFailure || !pageOwner.isCurrent()) return
   workStore.closeDetails()
   linkStore.reset()
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (detailTriggerId) {
     const triggerId = detailTriggerId
     // Wait until the drawer has left the focus tree before restoring the live collection control.
@@ -977,6 +1020,7 @@ function selectTaskAttempt(executionId: string): void {
 }
 
 async function closeTaskDetails(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   taskStore.stopLiveTasks()
   const query: LocationQueryRaw = {
     ...withoutCodingRoute(route.query),
@@ -985,12 +1029,14 @@ async function closeTaskDetails(): Promise<void> {
   }
   delete query.review
   await router.replace({ query })
+  if (!pageOwner.isCurrent()) return
   taskStore.clearSelection()
   codingStore.clearSelection()
   reviewStore.clearSelection()
   deliveryStore.clearSelection()
   selectedTaskExecutionId.value = null
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   const remainingModals = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')
   const remainingModal = remainingModals.item(remainingModals.length - 1)
   if (remainingModal) {
@@ -1022,6 +1068,7 @@ function retryTaskRuntime(): void {
 }
 
 async function synchronizeCodingStudio(force = false): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = codingScope.value
   const taskId = taskStore.state.details?.id
   const selection = codingRouteSelection(route.query)
@@ -1039,6 +1086,7 @@ async function synchronizeCodingStudio(force = false): Promise<void> {
     executionId: selection.executionId,
     workspaceId: selection.workspaceId,
   })
+  if (!pageOwner.isCurrent()) return
   if (taskStore.state.details?.id !== taskId || codingStore.state.selectedTaskId !== taskId) return
   const executionId = codingStore.state.selectedExecutionId
   if (!executionId) return
@@ -1059,10 +1107,12 @@ async function synchronizeCodingStudio(force = false): Promise<void> {
       executionId,
       workspaceId,
     }) })
+    if (!pageOwner.isCurrent()) return
   }
 }
 
 async function synchronizeReviewWorkbench(force = false): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = codingScope.value
   const coordinates = selectedReviewCoordinates.value
   if (!scope || !coordinates) {
@@ -1079,19 +1129,23 @@ async function synchronizeReviewWorkbench(force = false): Promise<void> {
     coordinates,
     queryValue(route.query.review),
   )
+  if (!pageOwner.isCurrent()) return
   if (!selectedReviewCoordinates.value
     || reviewAttemptKey(selectedReviewCoordinates.value) !== reviewAttemptKey(coordinates)) return
   const selected = reviewStore.state.selectedReviewRequestId
   if (selected && route.query.review !== selected) {
     await router.replace({ query: { ...route.query, review: selected } })
+    if (!pageOwner.isCurrent()) return
   } else if (!selected && route.query.review) {
     const query = { ...route.query }
     delete query.review
     await router.replace({ query })
+    if (!pageOwner.isCurrent()) return
   }
 }
 
 async function synchronizeDeliveryWorkbench(force = false): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const scope = codingScope.value
   const coordinates = selectedReviewCoordinates.value
   if (!scope || !coordinates) {
@@ -1104,12 +1158,15 @@ async function synchronizeDeliveryWorkbench(force = false): Promise<void> {
     await deliveryStore.synchronize(
       { organizationId: scope.organizationId, teamId: scope.teamId }, coordinates,
     )
+    if (!pageOwner.isCurrent()) return
     await deliveryStore.refresh()
+    if (!pageOwner.isCurrent()) return
     return
   }
   await deliveryStore.synchronize(
     { organizationId: scope.organizationId, teamId: scope.teamId }, coordinates,
   )
+  if (!pageOwner.isCurrent()) return
 }
 
 function selectReview(reviewRequestId: string): void {
@@ -1209,6 +1266,7 @@ function loadTaskEventsMore(): void {
 }
 
 function retryTaskEvents(): void {
+  const pageOwner = pageRequests.captureSelection()
   const taskId = taskStore.state.selectedTaskId
   if (!taskId) return
   void taskStore.loadEvents(taskId).then(() => {
@@ -1221,6 +1279,7 @@ async function commandTask(
   reason?: string,
   agentConfigurationRevision?: number,
 ): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const details = taskStore.state.details
   const attempt = taskStore.state.attempts.find(item => item.id === details?.currentExecutionId)
   if (!principal || !team.value || !details || !attempt) return
@@ -1233,13 +1292,18 @@ async function commandTask(
     reason,
     agentConfigurationRevision,
   })
+  if (!pageOwner.isCurrent()) return
   await synchronizeCodingStudio(true)
+  if (!pageOwner.isCurrent()) return
   focusCurrentTaskAttempt()
 }
 
 async function retryTaskCommand(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   await taskStore.retryTaskCommand()
+  if (!pageOwner.isCurrent()) return
   await synchronizeCodingStudio(true)
+  if (!pageOwner.isCurrent()) return
   focusCurrentTaskAttempt()
 }
 
@@ -1289,6 +1353,7 @@ function openDelegate(): void {
 }
 
 async function delegateToAgent(input: CreateTaskInput): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!principal || !team.value || !project.value || !workStore.state.detail) return
   try {
     const taskId = await taskStore.createTask({
@@ -1298,32 +1363,40 @@ async function delegateToAgent(input: CreateTaskInput): Promise<void> {
       expectedVersion: workStore.state.detail.workItem.version,
       input,
     })
+    if (!pageOwner.isCurrent()) return
     await finishDelegation(taskId)
+    if (!pageOwner.isCurrent()) return
   } catch {
     // Store retains the exact command and idempotency key for an explicit retry.
   }
 }
 
 async function retryDelegation(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   try {
-    await finishDelegation(await taskStore.retryCreate())
+    const taskId = await taskStore.retryCreate()
+    if (!pageOwner.isCurrent()) return
+    await finishDelegation(taskId)
+    if (!pageOwner.isCurrent()) return
   } catch {
     // The same request remains available while the server marks it retryable.
   }
 }
 
 async function finishDelegation(taskId: string | null): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (taskStore.state.createPhase !== 'success') return
   showDelegate.value = false
   const workItemId = workStore.state.detail?.workItem.id
   if (workItemId && codingScope.value) {
-    clearCodingTargetDraft(codingScope.value, workItemId)
-    clearTaskDelegationDraft(codingScope.value, codingScope.value.projectId, workItemId)
+    clearCodingTargetDraft(codingScope.value, workItemId, principal)
+    clearTaskDelegationDraft(codingScope.value, codingScope.value.projectId, workItemId, principal)
     taskStore.clearDelegationPreflight(codingScope.value.projectId, workItemId)
   }
   taskStore.clearCreate()
   if (taskId && workItemId) {
     await router.replace({ query: { ...route.query, workItem: workItemId, task: taskId } })
+    if (!pageOwner.isCurrent()) return
   }
 }
 
@@ -1483,7 +1556,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
     <WorkItemCreateDialog
       v-if="showCreate && project"
       :project-key="project.key"
-      :initial-key="createInitialKey"
+      :scope="principalScope"
       :submitting="workStore.state.commandPending"
       :error-message="workStore.state.commandErrorMessage"
       @close="showCreate = false"
@@ -1506,6 +1579,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
 
     <WorkItemDetailDrawer
       v-if="queryValue(route.query.workItem) && !queryValue(route.query.task)"
+      :key="String(route.query.workItem ?? '')"
       :scope="principalScope"
       :phase="workStore.state.detailPhase"
       :details="workStore.state.detail"
@@ -1539,6 +1613,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :associations="linkStore.state.associations"
       :association-error-message="linkStore.state.errorMessage"
       :on-retry="retryDetails"
+      :on-content-saved="() => { retryDetails(); retry() }"
       :on-retry-availability="retryDetails"
       :on-transition="transitionWorkItem"
       :on-add-comment="workStore.addComment"

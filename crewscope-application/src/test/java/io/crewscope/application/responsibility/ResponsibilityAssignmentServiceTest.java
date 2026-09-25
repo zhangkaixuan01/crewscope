@@ -19,6 +19,7 @@ import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamInitialization;
 import io.crewscope.domain.team.TeamJoinMethod;
@@ -472,6 +473,18 @@ class ResponsibilityAssignmentServiceTest {
                     .filter(value -> value.workItemId().equals(workItemId))
                     .filter(value -> value.actorPrincipalId().equals(actorPrincipalId))
                     .findFirst();
+        }
+
+        @Override
+        public List<ResponsibilityAssignment> findActiveByActorMember(
+                OrganizationId organizationId, TeamId teamId, TeamMemberId memberId) {
+            return values.values().stream()
+                    .filter(ResponsibilityAssignment::isActive)
+                    .filter(value -> value.scope().organizationId().equals(organizationId))
+                    .filter(value -> value.scope().teamId().equals(teamId))
+                    .filter(value -> value.actorMemberId().isPresent())
+                    .filter(value -> value.actorMemberId().orElseThrow().equals(memberId))
+                    .toList();
         }
 
         private List<ResponsibilityAssignment> active(ResponsibilityRole role) {

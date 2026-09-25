@@ -1,5 +1,8 @@
 import { CrewScopeApiError } from '../../api/client'
+import { browserStorage, safeGet, safeRemove, safeSet } from '../../app/browserStorage'
 import type { TaskAssociationPage, TaskAssociations, TaskDelegationSelection, TaskEventItem, TaskEventPage, TaskScope, TaskStatus } from './types'
+
+export { browserStorage, safeGet, safeRemove, safeSet }
 
 /** Pure/cache helpers kept outside the orchestration store so they can be tested independently. */
 export function delegationPreflightKey(projectId: string, workItemId: string, selection: TaskDelegationSelection): string {
@@ -14,13 +17,7 @@ export function defaultReconnectDelay(attempt: number, signal: AbortSignal): Pro
   })
 }
 
-export function browserStorage(): Storage | null {
-  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage } catch { return null }
-}
 export function liveCursorKey(scope: TaskScope, taskId: string): string { return `crewscope:task-cursor:${scope.organizationId}:${scope.teamId}:${taskId}` }
-export function safeGet(storage: Storage | null, key: string): string | null { try { return storage?.getItem(key) ?? null } catch { return null } }
-export function safeSet(storage: Storage | null, key: string, value: string): void { try { storage?.setItem(key, value) } catch { /* Storage is an optimization. */ } }
-export function safeRemove(storage: Storage | null, key: string): void { try { storage?.removeItem(key) } catch { /* A 410 remains recoverable without storage. */ } }
 export function rememberBounded(value: string, seen: Set<string>, order: string[]): boolean {
   if (seen.has(value)) return false
   seen.add(value); order.push(value)

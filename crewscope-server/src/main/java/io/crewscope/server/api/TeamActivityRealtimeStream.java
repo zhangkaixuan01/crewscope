@@ -113,7 +113,7 @@ public final class TeamActivityRealtimeStream {
       ActivityCursorScope scope,
       ConnectionState state) {
     return drain(request, scope, Optional.ofNullable(state.position().get()), state)
-        .switchIfEmpty(Mono.defer(() -> state.heartbeatIfDue(properties)));
+        .switchIfEmpty(Mono.defer(() -> state.idleProbeOrHeartbeat(properties)));
   }
 
   private Flux<ServerSentEvent<TeamActivityStreamEvent>> drain(
@@ -216,6 +216,9 @@ public final class TeamActivityRealtimeStream {
 
     private final AtomicReference<TeamActivityCursor> position;
     private final AtomicLong lastEmissionNanos = new AtomicLong(System.nanoTime());
+    // The probe keeps its own clock: it must fire even while the heartbeat window is not yet
+    // due, and heartbeats never postpone an authorization revalidation.
+    private final AtomicLong lastProbeNanos = new AtomicLong(System.nanoTime());
 
     private ConnectionState(TeamActivityCursor position) {
       this.position = new AtomicReference<>(position);
@@ -232,6 +235,26 @@ public final class TeamActivityRealtimeStream {
                   ? cursor
                   : current);
       lastEmissionNanos.set(System.nanoTime());
+    }
+
+    /**
+     * Emits a null-data frame whenever the session has been idle past the probe interval. The
+     * HTTP adapter revalidates current membership for every null-data frame, so a revoked
+     * member loses an otherwise silent subscription within the configured bound.
+     */
+    Mono<ServerSentEvent<TeamActivityStreamEvent>> idleProbeOrHeartbeat(
+        TeamActivityRealtimeProperties properties) {
+      long sinceProbe = System.nanoTime() - lastProbeNanos.get();
+      if (sinceProbe >= properties.getIdleProbeInterval().toNanos()) {
+        lastProbeNanos.set(System.nanoTime());
+        lastEmissionNanos.set(System.nanoTime());
+        return Mono.just(
+            ServerSentEvent.<TeamActivityStreamEvent>builder()
+                .event("heartbeat")
+                .comment("idle probe")
+                .build());
+      }
+      return heartbeatIfDue(properties);
     }
 
     Mono<ServerSentEvent<TeamActivityStreamEvent>> heartbeatIfDue(

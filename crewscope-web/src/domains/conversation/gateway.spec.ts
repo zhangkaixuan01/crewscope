@@ -28,7 +28,12 @@ describe('HttpConversationGateway', () => {
   })
 
   it('creates a Conversation with an Idempotency-Key and no client-authored owner facts', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ commandId: 'command', domainEventId: 'event', committedVersion: 0, correlationId: 'correlation' }, 202))
+    const receipt = { commandId: 'command', domainEventId: 'event', committedVersion: 0, correlationId: 'correlation' }
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(receipt, 202))
+      .mockResolvedValueOnce(jsonResponse({ receipt, result: { ...scope, type: 'CONVERSATION', stage: 'COMMITTED',
+        projectId: null, resourceId: conversationIds.provider, committedVersion: 0 } }))
+      .mockResolvedValueOnce(jsonResponse({ conversation: fixtureConversations[fixtureIds.teamPlatform]![0], participants: [] }))
     const gateway = new HttpConversationGateway(new CrewScopeApiClient('/api/v1', fetcher))
 
     await gateway.createConversation(scope, { title: '建立团队对话', visibility: 'TEAM' }, 'conversation-command')

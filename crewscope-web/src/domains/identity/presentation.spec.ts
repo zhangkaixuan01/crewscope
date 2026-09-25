@@ -43,7 +43,7 @@ describe('identity presentation', () => {
 
   it('covers registration, Session and offline fallback states', () => {
     expectPublic(presentRegistrationProblem(new IdentityRequestTimeoutError()), 'request_timeout')
-    expectPublic(presentRegistrationProblem(new Error('private registration detail')), 'registration_unavailable')
+    expectPublic(presentRegistrationProblem(new Error('private registration detail')), 'registration_unknown')
     expectPublic(presentSessionProblem(new IdentityRequestTimeoutError()), 'session_timeout')
     expectPublic(presentSessionProblem(apiError('network_unavailable')), 'network_unavailable')
     expectPublic(presentSessionProblem(new Error('private Session detail')), 'session_unavailable')

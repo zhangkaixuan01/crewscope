@@ -113,10 +113,19 @@ public final class ConversationEventController {
                         .flatMap(
                             access ->
                                 page(
-                                    access,
-                                    route,
-                                    Optional.ofNullable(position.get()),
-                                    properties.getBatchSize())),
+                                        access,
+                                        route,
+                                        Optional.ofNullable(position.get()),
+                                        properties.getBatchSize())
+                                    // A revocation that lands between the bounded batch read
+                                    // and its first emitted row cuts the batch short. Empty
+                                    // batches carry no rows, and the next poll revalidates
+                                    // readability inside the page read itself.
+                                    .flatMap(
+                                        batch ->
+                                            batch.events().isEmpty()
+                                                ? Mono.just(batch)
+                                                : revalidated(access, route, batch))),
                 1)
             .concatMapIterable(ConversationEventPage::events)
             .doOnNext(event -> position.set(event.cursor()));
@@ -146,6 +155,19 @@ public final class ConversationEventController {
                 route.conversationId(),
                 cursor,
                 limit));
+  }
+
+  private Mono<ConversationEventPage> revalidated(
+      TeamAccessContext access, StreamRoute route, ConversationEventPage batch) {
+    return blocking(
+        () -> {
+          service.requireStillReadable(
+              access,
+              route.organizationId(),
+              route.teamId(),
+              route.conversationId());
+          return batch;
+        });
   }
 
   private Mono<TeamAccessContext> resolve(

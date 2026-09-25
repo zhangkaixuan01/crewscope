@@ -93,6 +93,14 @@ class ConversationApplicationServiceTest {
     assertEquals("CONVERSATION_CREATED", fixture.store.events.get(0).eventType().value());
     assertEquals(1, fixture.store.conversationEventCount);
     assertEquals(1, fixture.store.outboxCount);
+    var durable = fixture.store.results.get("conversation-create-1");
+    assertEquals(created.conversation().id().value(), durable.resourceId());
+    assertEquals(fixture.owner.id(), durable.actorId());
+    assertEquals(execution.receipt(), durable.receipt());
+    assertTrue(fixture.service.create(
+        fixture.commandContext("conversation-create-1"), fixture.initialization.team().id(),
+        new CreateConversationCommand("Incident review", ConversationVisibility.PRIVATE)).replayed());
+    assertEquals(1, fixture.store.results.size());
   }
 
   @Test
@@ -646,6 +654,10 @@ class ConversationApplicationServiceTest {
                       store.receipts.put(
                           ((IdempotencyKey) args[1]).value(), (CommandReceipt) args[2]);
                     }
+                    if ("saveResult".equals(method)) {
+                      var result = (io.crewscope.application.command.CommandResult) args[0];
+                      store.results.put(result.idempotencyKey().value(), result);
+                    }
                     return null;
                   }),
               new DirectTransactionExecutor(),
@@ -709,6 +721,7 @@ class ConversationApplicationServiceTest {
     private final Map<TeamMemberId, AgentProfile> profiles = new LinkedHashMap<>();
     private final Map<String, CommandReservationRequest> reservations = new LinkedHashMap<>();
     private final Map<String, CommandReceipt> receipts = new LinkedHashMap<>();
+    private final Map<String, io.crewscope.application.command.CommandResult> results = new LinkedHashMap<>();
     private int conversationEventCount;
     private ConversationEventQuery lastConversationEventQuery;
     private final List<TeamMember> members = new ArrayList<>();

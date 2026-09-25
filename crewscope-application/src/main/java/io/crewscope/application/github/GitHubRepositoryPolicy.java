@@ -25,7 +25,9 @@ public record GitHubRepositoryPolicy(
     public boolean permits(String fullName, String ownerLogin, GitHubRepositoryVisibility visibility) {
         String repository = normalizeOne(fullName);
         String owner = normalizeOne(ownerLogin);
-        if (!repositoryAllowlist.contains(repository)) {
+        // Empty is the deliberate discovery phase for existing credentials.
+        // Delivery is still pinned to concrete resources by ProviderBinding.
+        if (!repositoryAllowlist.isEmpty() && !repositoryAllowlist.contains(repository)) {
             return false;
         }
         if (!allowedOwnerLogins.isEmpty() && !allowedOwnerLogins.contains(owner)) {

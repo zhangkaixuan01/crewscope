@@ -36,6 +36,7 @@ import io.crewscope.domain.provider.event.ConnectionLifecycleChanged;
 import io.crewscope.domain.provider.event.ProviderBindingChanged;
 import io.crewscope.domain.responsibility.event.GateReviewerAssigned;
 import io.crewscope.domain.responsibility.event.ResponsibilityAssigned;
+import io.crewscope.domain.responsibility.event.ResponsibilityHandoverCreated;
 import io.crewscope.domain.responsibility.event.ResponsibilityReleased;
 import io.crewscope.domain.review.event.ReviewDecisionRecorded;
 import io.crewscope.domain.review.event.ReviewFindingDuplicateObserved;
@@ -55,12 +56,19 @@ import io.crewscope.domain.task.event.MemberTaskCommandAccepted;
 import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import io.crewscope.domain.task.event.TaskExecutionRecoveryStarted;
 import io.crewscope.domain.task.event.WorkerTaskCommandAccepted;
+import io.crewscope.domain.team.event.MemberRoleGranted;
+import io.crewscope.domain.team.event.MemberRoleRevoked;
 import io.crewscope.domain.team.event.TeamCreated;
 import io.crewscope.domain.team.event.TeamInitializationCompleted;
 import io.crewscope.domain.team.event.TeamInvitationAccepted;
 import io.crewscope.domain.team.event.TeamInvitationCreated;
 import io.crewscope.domain.team.event.TeamInvitationRevoked;
+import io.crewscope.domain.team.event.TeamMemberActivated;
 import io.crewscope.domain.team.event.TeamMemberJoined;
+import io.crewscope.domain.team.event.TeamMemberLeft;
+import io.crewscope.domain.team.event.TeamMemberRemoved;
+import io.crewscope.domain.team.event.TeamMemberSuspended;
+import io.crewscope.domain.team.event.TeamOwnershipTransferred;
 import io.crewscope.domain.workitem.event.WorkItemCommentAdded;
 import io.crewscope.domain.workitem.event.WorkItemCreated;
 import io.crewscope.domain.workitem.event.WorkItemResourceLinked;
@@ -229,6 +237,76 @@ public final class CrewScopeAuditEventTypes {
                 required("joinMethod"));
         register(
                 target,
+                List.of("TEAM_MEMBER_SUSPENDED"),
+                List.of(SchemaVersion.V1),
+                TeamMemberSuspended.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("userPrincipalId"));
+        register(
+                target,
+                List.of("TEAM_MEMBER_ACTIVATED"),
+                List.of(SchemaVersion.V1),
+                TeamMemberActivated.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("userPrincipalId"));
+        register(
+                target,
+                List.of("TEAM_MEMBER_REMOVED"),
+                List.of(SchemaVersion.V1),
+                TeamMemberRemoved.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("userPrincipalId"));
+        register(
+                target,
+                List.of("TEAM_MEMBER_LEFT"),
+                List.of(SchemaVersion.V1),
+                TeamMemberLeft.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("userPrincipalId"));
+        register(
+                target,
+                List.of("MEMBER_ROLE_GRANTED"),
+                List.of(SchemaVersion.V1),
+                MemberRoleGranted.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("roleKey"));
+        register(
+                target,
+                List.of("MEMBER_ROLE_REVOKED"),
+                List.of(SchemaVersion.V1),
+                MemberRoleRevoked.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("memberId"),
+                required("roleKey"));
+        register(
+                target,
+                List.of("TEAM_OWNERSHIP_TRANSFERRED"),
+                List.of(SchemaVersion.V1),
+                TeamOwnershipTransferred.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("fromMemberId"),
+                required("toMemberId"));
+        register(
+                target,
                 List.of("TEAM_INITIALIZATION_COMPLETED"),
                 List.of(SchemaVersion.V1),
                 TeamInitializationCompleted.class,
@@ -255,6 +333,15 @@ public final class CrewScopeAuditEventTypes {
                 AuditRetentionLevel.STANDARD,
                 required("itemKey"),
                 required("status"));
+        register(
+                target,
+                List.of("WORK_ITEM_CONTENT_UPDATED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.workitem.event.WorkItemContentUpdated.class,
+                AuditEventCategory.WORK,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("itemKey"));
         register(
                 target,
                 List.of("WORK_ITEM_STATUS_CHANGED"),
@@ -315,6 +402,16 @@ public final class CrewScopeAuditEventTypes {
                 AuditOutcome.SUCCEEDED,
                 AuditRetentionLevel.EXTENDED,
                 required("role"));
+        register(
+                target,
+                List.of("RESPONSIBILITY_HANDOVER_CREATED"),
+                List.of(SchemaVersion.V1),
+                ResponsibilityHandoverCreated.class,
+                AuditEventCategory.COLLABORATION,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("role"),
+                required("itemCount"));
         register(
                 target,
                 List.of("CONVERSATION_CREATED"),
@@ -608,6 +705,7 @@ public final class CrewScopeAuditEventTypes {
                         "MODEL_CONNECTION_CREDENTIAL_ROTATED",
                         "MODEL_CONNECTION_REVOKED",
                         "MODEL_CONNECTION_SUSPENDED",
+                        "MODEL_CONNECTION_ACTIVATED",
                         "MODEL_CONNECTION_VERIFIED",
                         "MODEL_CONNECTION_HANDLE_ISSUED"),
                 List.of(SchemaVersion.V1),

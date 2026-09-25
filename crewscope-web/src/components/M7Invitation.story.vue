@@ -15,10 +15,11 @@ const unavailable = { ...expired, state: 'UNAVAILABLE' as const }
 
 <template>
   <Story title="M7/Team invitations" :layout="{ type: 'single', iframe: true, width: 1280 }">
-    <Variant title="Available · anonymous"><AuthLayout><InvitationWorkspace phase="available" :preview="available" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online /></AuthLayout></Variant>
-    <Variant title="Available · authenticated"><AuthLayout><InvitationWorkspace phase="available" :preview="available" :problem="null" :problem-focus-key="0" authenticated registration-allowed online /></AuthLayout></Variant>
-    <Variant title="Expired"><AuthLayout><InvitationWorkspace phase="expired" :preview="expired" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online /></AuthLayout></Variant>
-    <Variant title="Unavailable"><AuthLayout><InvitationWorkspace phase="unavailable" :preview="unavailable" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online /></AuthLayout></Variant>
-    <Variant title="Service unavailable"><AuthLayout><InvitationWorkspace phase="error" :preview="null" :problem="{ code: 'invitation_unavailable', title: '邀请服务暂时不可用', message: '请稍后重新读取邀请状态。', tone: 'error' }" :problem-focus-key="1" :authenticated="false" registration-allowed online /></AuthLayout></Variant>
+    <Variant title="Available · anonymous"><AuthLayout><InvitationWorkspace phase="available" :preview="available" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online :session-pending="false" :resyncing="false" /></AuthLayout></Variant>
+    <Variant title="Available · authenticated"><AuthLayout><InvitationWorkspace phase="available" :preview="available" :problem="null" :problem-focus-key="0" authenticated registration-allowed online :session-pending="false" :resyncing="false" /></AuthLayout></Variant>
+    <Variant title="Expired"><AuthLayout><InvitationWorkspace phase="expired" :preview="expired" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online :session-pending="false" :resyncing="false" /></AuthLayout></Variant>
+    <Variant title="Unavailable"><AuthLayout><InvitationWorkspace phase="unavailable" :preview="unavailable" :problem="null" :problem-focus-key="0" :authenticated="false" registration-allowed online :session-pending="false" :resyncing="false" /></AuthLayout></Variant>
+    <Variant title="Accepted · session pending"><AuthLayout><InvitationWorkspace phase="accepted" :preview="available" :problem="null" :problem-focus-key="0" authenticated registration-allowed online :session-pending="true" :resyncing="false" /></AuthLayout></Variant>
+    <Variant title="Service unavailable"><AuthLayout><InvitationWorkspace phase="error" :preview="null" :problem="{ code: 'invitation_unavailable', title: '邀请服务暂时不可用', message: '请稍后重新读取邀请状态。', tone: 'error' }" :problem-focus-key="1" :authenticated="false" registration-allowed online :session-pending="false" :resyncing="false" /></AuthLayout></Variant>
   </Story>
 </template>

@@ -11,6 +11,9 @@ import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useSetupStore } from '../domains/setup/store'
 import type { ConfigurationComponent, SetupCapability, SetupReadinessItem } from '../domains/setup/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -36,10 +39,12 @@ const healthNotice = computed(() => {
 })
 
 watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
+  const pageOwner = pageRequests.capture()
   if (!teamId || !organizationId) { setupStore.reset(); return }
   setupStore.activateScope({ organizationId, teamId })
   void setupStore.loadHealth()
   await setupStore.load()
+  if (!pageOwner.isCurrent()) return
 }, { immediate: true })
 
 function statusLabel(status: SetupReadinessItem['status']): string {
@@ -104,7 +109,9 @@ async function refresh(): Promise<void> {
   void setupStore.load(true)
   void setupStore.loadHealth(true)
 }
-async function goToday(): Promise<void> { await router.push({ name: 'today', query: route.query }) }
+async function goToday(): Promise<void> {
+  await router.push({ name: 'today', query: route.query })
+}
 </script>
 
 <template>

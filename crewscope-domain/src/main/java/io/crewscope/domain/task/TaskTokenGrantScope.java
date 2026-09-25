@@ -6,6 +6,7 @@ import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.runtime.RuntimeWorkerId;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemScope;
 import java.util.Collection;
 import java.util.HashSet;
@@ -35,9 +36,35 @@ public record TaskTokenGrantScope(
         TaskFactHash policySnapshotHash,
         SafetyEnforcementOverlayReference safetyOverlay,
         Set<String> allowedTools,
-        Set<TaskProviderAuthorization> providerAuthorizations) {
+        Set<TaskProviderAuthorization> providerAuthorizations,
+        Optional<TeamMemberId> executionMemberId,
+        Optional<Long> executionMemberAuthorizationVersion) {
 
     private static final int MAX_PROVIDER_AUTHORIZATIONS = 200;
+
+    /** Legacy construction without the member authorization dimension; reads stay valid. */
+    public TaskTokenGrantScope(
+            WorkItemScope workItemScope,
+            TaskId taskId,
+            TaskExecutionId taskExecutionId,
+            int attempt,
+            ExecutionLeaseId executionLeaseId,
+            RuntimeEnvironment environment,
+            ExecutionRuntimeId runtimeId,
+            RuntimeWorkerId workerId,
+            ClaimTokenHash claimTokenHash,
+            FencingToken fencingToken,
+            ExecutionPrincipalSnapshot executionPrincipal,
+            PolicySnapshotId policySnapshotId,
+            TaskFactHash policySnapshotHash,
+            SafetyEnforcementOverlayReference safetyOverlay,
+            Set<String> allowedTools,
+            Set<TaskProviderAuthorization> providerAuthorizations) {
+        this(workItemScope, taskId, taskExecutionId, attempt, executionLeaseId, environment,
+                runtimeId, workerId, claimTokenHash, fencingToken, executionPrincipal,
+                policySnapshotId, policySnapshotHash, safetyOverlay, allowedTools,
+                providerAuthorizations, Optional.empty(), Optional.empty());
+    }
 
     public TaskTokenGrantScope {
         workItemScope = Objects.requireNonNull(workItemScope, "workItemScope");
@@ -73,6 +100,15 @@ public record TaskTokenGrantScope(
                     "taskToken.scope.providerAuthorizations",
                     "must contain at most one authorization per ProviderBinding");
         }
+        executionMemberId = Objects.requireNonNull(executionMemberId, "executionMemberId");
+        executionMemberAuthorizationVersion = Objects.requireNonNull(
+                executionMemberAuthorizationVersion, "executionMemberAuthorizationVersion");
+        if (executionMemberAuthorizationVersion.isPresent()
+                && executionMemberAuthorizationVersion.orElseThrow() < 1) {
+            throw new DomainValidationException(
+                    "taskToken.scope.executionMemberAuthorizationVersion",
+                    "must be positive when present");
+        }
     }
 
     static TaskTokenGrantScope issue(
@@ -83,6 +119,27 @@ public record TaskTokenGrantScope(
             Set<String> requestedTools,
             Collection<TaskProviderGrantRequest> providerRequests,
             UtcTimestamp issuedAt) {
+        return issue(execution, lease, policy, overlay, requestedTools, providerRequests,
+                issuedAt, Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * Issues a scope that additionally pins the executing member's authorization dimension.
+     *
+     * <p>Legacy scopes issued before M9b-A07 carry no member dimension; they keep reading
+     * history while every side-effect boundary reloads current member facts. The dimension
+     * deliberately stays out of the scope fingerprint so already-signed tokens remain valid.
+     */
+    static TaskTokenGrantScope issue(
+            TaskExecution execution,
+            ExecutionLease lease,
+            PolicySnapshot policy,
+            SafetyEnforcementOverlay overlay,
+            Set<String> requestedTools,
+            Collection<TaskProviderGrantRequest> providerRequests,
+            UtcTimestamp issuedAt,
+            Optional<TeamMemberId> executionMemberId,
+            Optional<Long> executionMemberAuthorizationVersion) {
         TaskExecution requiredExecution = Objects.requireNonNull(execution, "execution");
         ExecutionLease requiredLease = Objects.requireNonNull(lease, "lease");
         PolicySnapshot requiredPolicy = Objects.requireNonNull(policy, "policy");
@@ -128,7 +185,9 @@ public record TaskTokenGrantScope(
                 requiredPolicy.snapshotHash(),
                 requiredOverlay.reference(),
                 tools,
-                authorizations);
+                authorizations,
+                executionMemberId,
+                executionMemberAuthorizationVersion);
     }
 
     /** Verifies that the currently persisted Lease still owns every coordinate in this scope. */

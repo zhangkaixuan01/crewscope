@@ -5,6 +5,8 @@ import io.crewscope.domain.responsibility.ResponsibilityAssignmentId;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemId;
 import java.util.List;
 import java.util.Optional;
@@ -39,4 +41,12 @@ public interface ResponsibilityAssignmentRepository {
             WorkItemId workItemId,
             ResponsibilityRole role,
             PrincipalId actorPrincipalId);
+
+    /**
+     * Returns every active responsibility the member personally holds across the Team's
+     * WorkItems — the handover source set (ADR-038 §1). Agent-held facts have no member
+     * identity and are never part of a member handover.
+     */
+    List<ResponsibilityAssignment> findActiveByActorMember(
+            OrganizationId organizationId, TeamId teamId, TeamMemberId memberId);
 }

@@ -128,7 +128,9 @@ class TeamInvitationControllerM7A05Test {
         RegistrationProperties registration = new RegistrationProperties();
         registration.setOrganizationId(organizationId.toString());
         TeamInvitationController controller = new TeamInvitationController(
-                invitations, teamIdentities, accountResolver, registration);
+                invitations, teamIdentities, accountResolver,
+                mock(io.crewscope.application.command.CommandResultQueryService.class),
+                registration);
         anonymous = WebTestClient.bindToController(controller)
                 .controllerAdvice(new ApiExceptionHandler())
                 .build();
@@ -268,7 +270,9 @@ class TeamInvitationControllerM7A05Test {
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectBody()
-                .jsonPath("$.commandId").isEqualTo(receipt.commandId().toString());
+                .jsonPath("$.command.commandId").isEqualTo(receipt.commandId().toString())
+                .jsonPath("$.acceptance.teamId").isEqualTo(team.id().toString())
+                .jsonPath("$.acceptance.memberId").isEqualTo(membership.id().toString());
 
         anonymous.get()
                 .uri(managementPath() + "?after=not-a-cursor")

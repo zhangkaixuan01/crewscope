@@ -34,7 +34,11 @@ export function registerDefaultActions(registry: ActionRegistry, router: Router,
     return {
       id, label, description, group, shortcut, icon, requiredPermission,
       keywords: [label, description],
-      execute: async ({ router: currentRouter, route }) => { await currentRouter.push({ name: routeName, query: route.query }) },
+      execute: async ({ router: currentRouter, route }) => {
+        await currentRouter.push({ name: routeName, query: { team: route.query.team,
+          project: routeName === 'work' ? route.query.project : undefined,
+          create: id.startsWith('create.') ? '1' : undefined } })
+      },
       visible: context => context.principal?.id === principal.id,
     }
   }

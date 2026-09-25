@@ -10,6 +10,8 @@ import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemId;
 
 import jakarta.persistence.EntityManager;
@@ -213,6 +215,28 @@ public class JpaResponsibilityAssignmentRepositoryAdapter
                 .getResultStream()
                 .findFirst()
                 .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ResponsibilityAssignment> findActiveByActorMember(
+            OrganizationId organizationId, TeamId teamId, TeamMemberId memberId) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM ResponsibilityAssignmentEntity value
+                        WHERE value.organizationId = :organizationId AND value.teamId = :teamId
+                          AND value.actorMemberId = :memberId AND value.status = 'ACTIVE'
+                        ORDER BY value.role, value.workItemId, value.id
+                        """,
+                        ResponsibilityAssignmentEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("memberId", Objects.requireNonNull(memberId).value())
+                .getResultList()
+                .stream()
+                .map(mapper::toDomain)
+                .toList();
     }
 
     private void verifyUpdate(int affected, ResponsibilityAssignment value, long expected) {

@@ -10,6 +10,8 @@ import io.crewscope.application.coding.RepositoryBindingApplicationService;
 import io.crewscope.application.coding.RepositoryBindingPreflightError;
 import io.crewscope.application.coding.RepositoryBindingPreflightException;
 import io.crewscope.application.coding.RepositoryBindingRepository;
+import io.crewscope.application.coding.ProjectExecutionDefaultsRepository;
+import io.crewscope.application.coding.BuildProfileCatalog;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -70,6 +72,10 @@ class RepositoryApplicationConfigurationM4A01Test {
                 .withUserConfiguration(RepositoryApplicationConfiguration.class)
                 .withBean(WorkItemAccessPolicy.class, () -> mock(WorkItemAccessPolicy.class))
                 .withBean(WorkProjectRepository.class, () -> projects)
+                .withBean(
+                        ProjectExecutionDefaultsRepository.class,
+                        () -> mock(ProjectExecutionDefaultsRepository.class))
+                .withBean(BuildProfileCatalog.class, () -> mock(BuildProfileCatalog.class))
                 .withBean(TeamRoleRepository.class, () -> mock(TeamRoleRepository.class))
                 .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))
                 .withBean(

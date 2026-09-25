@@ -6,6 +6,8 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
+import io.crewscope.application.command.CommandResult;
+import io.crewscope.application.command.CommandResultStore;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -73,6 +75,7 @@ public final class TeamInvitationApplicationService {
     private final DomainEventStore events;
     private final OutboxRepository outbox;
     private final CommandReceiptStore receipts;
+    private final CommandResultStore results;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
 
@@ -90,6 +93,7 @@ public final class TeamInvitationApplicationService {
             DomainEventStore events,
             OutboxRepository outbox,
             CommandReceiptStore receipts,
+            CommandResultStore results,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
         this.issueService = Objects.requireNonNull(issueService, "issueService");
@@ -106,6 +110,7 @@ public final class TeamInvitationApplicationService {
         this.events = Objects.requireNonNull(events, "events");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
+        this.results = Objects.requireNonNull(results, "results");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
@@ -309,8 +314,9 @@ public final class TeamInvitationApplicationService {
             case ACTIVATED -> members.update(plan.membership());
             case REUSED -> plan.membership();
         };
-        boolean grantCreated = ensureRoleGrant(
+        GrantOutcome grant = ensureRoleGrant(
                 membership, targetRole, invitation.invitedByPrincipalId(), now);
+        membership = grant.membership();
         Workspace workspace = workspaces
                 .findById(team.organizationId(), team.defaultWorkspaceId())
                 .orElseThrow(TeamInvitationApplicationService::invalidInvitation);
@@ -318,8 +324,8 @@ public final class TeamInvitationApplicationService {
         TeamInvitation committed =
                 invitations.update(plan.invitation(), invitation.version());
         TeamInvitationAcceptanceResult result = new TeamInvitationAcceptanceResult(
-                committed, membership, plan.membershipDisposition(), grantCreated);
-        return completed(
+                committed, membership, plan.membershipDisposition(), grant.grantCreated());
+        CommandExecution<TeamInvitationAcceptanceResult> execution = completed(
                 context.access().actor(),
                 context.idempotencyKey(),
                 context.correlationId(),
@@ -334,9 +340,27 @@ public final class TeamInvitationApplicationService {
                         membership.id().value(),
                         committed.targetRole(),
                         plan.membershipDisposition().eventResult()));
+        // The acceptance's own member coordinate shares the receipt transaction: a later
+        // replay of this command returns exactly this row instead of a second membership.
+        results.saveResult(new CommandResult(
+                invitation.scope().organizationId(),
+                context.idempotencyKey(),
+                context.access().actor().id(),
+                ACCEPT_INVITATION,
+                invitation.scope().teamId(),
+                Optional.empty(),
+                CommandResult.ResourceType.TEAM_MEMBER,
+                membership.id().value(),
+                membership.version(),
+                execution.receipt(),
+                timeProvider.now()));
+        return execution;
     }
 
-    private boolean ensureRoleGrant(
+    /** Membership after the grant write, plus whether a new grant row was created. */
+    private record GrantOutcome(TeamMember membership, boolean grantCreated) {}
+
+    private GrantOutcome ensureRoleGrant(
             TeamMember membership,
             TeamRole role,
             io.crewscope.domain.shared.id.PrincipalId grantedBy,
@@ -350,7 +374,7 @@ public final class TeamInvitationApplicationService {
         if (matching.stream()
                 .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
                 .anyMatch(grant -> grant.isEffectiveAt(now))) {
-            return false;
+            return new GrantOutcome(membership, false);
         }
         matching.stream()
                 .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
@@ -367,7 +391,10 @@ public final class TeamInvitationApplicationService {
                 now,
                 now,
                 Optional.empty()));
-        return true;
+        // A new effective grant is an authorization fact: the member's authorization dimension
+        // advances in the same transaction (ADR-038 §2) so checkpoints re-read fresh facts.
+        return new GrantOutcome(
+                members.update(membership.markAuthorizationChanged(now)), true);
     }
 
     private TeamInvitationPreview preview(TeamInvitation invitation, UtcTimestamp now) {

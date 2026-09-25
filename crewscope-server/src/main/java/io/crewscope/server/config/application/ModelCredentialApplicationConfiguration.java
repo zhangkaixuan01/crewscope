@@ -28,6 +28,9 @@ public class ModelCredentialApplicationConfiguration {
     ModelProviderHealthProbe modelProviderHealthProbe(ModelCredentialProperties properties) {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(properties.validatedHealthConnectTimeout())
+                // A Provider endpoint is platform-controlled, but redirects must never be able
+                // to move a bearer credential to a different host or scheme.
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         return new OpenAiCompatibleModelProviderHealthProbe(
                 client, properties.validatedHealthRequestTimeout());

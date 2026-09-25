@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
   hint?: string
   error?: string
   disabled?: boolean
+  disabledReason?: string
   required?: boolean
   minlength?: number
   maxlength?: number
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
   hint: undefined,
   error: undefined,
   disabled: false,
+  disabledReason: undefined,
   required: false,
   minlength: undefined,
   maxlength: undefined,
@@ -38,7 +40,11 @@ const generatedId = useId()
 const inputId = computed(() => props.id ?? `auth-field-${generatedId}`)
 const hintId = computed(() => `${inputId.value}-hint`)
 const errorId = computed(() => `${inputId.value}-error`)
-const describedBy = computed(() => [props.hint ? hintId.value : null, props.error ? errorId.value : null].filter(Boolean).join(' ') || undefined)
+const disabledReasonId = computed(() => `${inputId.value}-disabled-reason`)
+// This prop is already localized explanatory prose, not a server reason enum.
+const disabledReasonText = computed(() => props.disabledReason)
+const describedBy = computed(() => [props.hint ? hintId.value : null, props.error ? errorId.value : null,
+  props.disabled && props.disabledReason ? disabledReasonId.value : null].filter(Boolean).join(' ') || undefined)
 const input = ref<HTMLInputElement | null>(null)
 
 function focus(): void {
@@ -78,6 +84,7 @@ defineExpose({ focus, input })
       <span v-if="$slots.trailing" class="auth-field__action"><slot name="trailing" /></span>
     </span>
     <p v-if="hint" :id="hintId" class="auth-field__hint">{{ hint }}</p>
+    <p v-if="disabled && disabledReasonText" :id="disabledReasonId" class="auth-field__hint">{{ disabledReasonText }}</p>
     <p v-if="error" :id="errorId" class="auth-field__error">{{ error }}</p>
   </div>
 </template>

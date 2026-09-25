@@ -36,7 +36,8 @@ describe('InvitationWorkspace', () => {
 function mountWorkspace(overrides: Record<string, unknown> = {}) {
   return mount(InvitationWorkspace, { props: {
     phase: 'available', preview: preview(), problem: null, problemFocusKey: 0,
-    authenticated: false, registrationAllowed: true, online: true, ...overrides,
+    authenticated: false, registrationAllowed: true, online: true,
+    sessionPending: false, resyncing: false, ...overrides,
   } })
 }
 

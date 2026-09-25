@@ -291,6 +291,10 @@ crewscope:
     current-key-id: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_CURRENT_KEY_ID:v1}
     keys:
       v1: ${CREWSCOPE_TEAM_ACTIVITY_CURSOR_KEY_V1:}
+  work-item-query:
+    # M9b-A06: WorkItem list cursors are bound to viewer, sort and filter, and expire so a stale
+    # continuation restarts the query instead of silently skipping moved rows.
+    cursor-maximum-age: ${CREWSCOPE_WORK_ITEM_CURSOR_MAXIMUM_AGE:30m}
   projection:
     supervisor:
       # Shared deployments set a stable, process-unique instance ID before enabling replay work.

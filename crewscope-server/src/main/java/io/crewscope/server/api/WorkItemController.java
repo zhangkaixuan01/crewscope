@@ -34,6 +34,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -72,11 +73,12 @@ public final class WorkItemController {
     CreateNativeWorkItemCommand command =
         new CreateNativeWorkItemCommand(
             request.key(),
-            request.type(),
+            request.type() == null ? WorkItemType.TASK : request.type(),
             request.title(),
             Optional.ofNullable(request.description()),
-            request.priority(),
-            request.labels().stream().map(WorkItemLabel::new).collect(Collectors.toSet()),
+            request.priority() == null ? WorkItemPriority.MEDIUM : request.priority(),
+            (request.labels() == null ? Set.<String>of() : request.labels()).stream()
+                .map(String::strip).filter(label -> !label.isEmpty()).map(WorkItemLabel::new).collect(Collectors.toSet()),
             Optional.ofNullable(request.dueAt()).map(UtcTimestamp::from));
     return command(
         authentication,
@@ -115,6 +117,24 @@ public final class WorkItemController {
                 project,
                 workItem,
                 new TransitionWorkItemCommand(request.targetStatus(), expectedVersion)));
+  }
+
+  @PatchMapping("/{projectId}/work-items/{workItemId}")
+  public Mono<ResponseEntity<CommandReceiptResponse>> updateContent(
+      @PathVariable String organizationId, @PathVariable String teamId, @PathVariable String projectId,
+      @PathVariable String workItemId,
+      @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+      @RequestHeader(name = ApiHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody WorkItemContentRequest request, Authentication authentication, ServerWebExchange exchange) {
+    var organization = organizationId(organizationId);
+    var team = teamId(teamId);
+    var project = projectId(projectId);
+    var item = workItemId(workItemId);
+    var idempotencyKey = ApiHeaders.requireSingleIdempotencyKey(
+        exchange.getRequest().getHeaders().get(ApiHeaders.IDEMPOTENCY_KEY));
+    var update = request.command(ApiHeaders.requireIfMatch(ifMatch));
+    return command(authentication, organization, idempotencyKey, exchange,
+        context -> service.updateContent(context, team, project, item, update));
   }
 
   private <T> Mono<ResponseEntity<CommandReceiptResponse>> command(
@@ -181,16 +201,15 @@ public final class WorkItemController {
   }
 
   public record CreateWorkItemRequest(
-      @NotBlank
-          @Size(max = WorkItemKey.MAX_LENGTH)
+      @Size(max = WorkItemKey.MAX_LENGTH)
           @Pattern(regexp = WorkItemKey.FORMAT_REGEX)
           String key,
-      @NotNull WorkItemType type,
-      @NotBlank @Size(max = WorkItem.MAX_TITLE_LENGTH) String title,
+      WorkItemType type,
+      @NotBlank @Size(max = 240) String title,
       @Size(max = WorkItem.MAX_DESCRIPTION_LENGTH) String description,
-      @NotNull WorkItemPriority priority,
-      @NotNull @Size(max = WorkItem.MAX_LABELS)
-          Set<@NotBlank @Size(max = WorkItemLabel.MAX_LENGTH) String> labels,
+      WorkItemPriority priority,
+      @Size(max = WorkItem.MAX_LABELS)
+          Set<@NotNull @Size(max = WorkItemLabel.MAX_LENGTH) String> labels,
       Instant dueAt) {}
 
   public record TransitionWorkItemRequest(@NotNull WorkItemStatus targetStatus) {}

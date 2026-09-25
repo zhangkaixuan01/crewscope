@@ -37,6 +37,46 @@ import reactor.core.publisher.Mono;
 /** Proves native WorkItem commands, If-Match handling and safe HTTP validation. */
 class WorkItemControllerTest {
 
+  @Test
+  void createsWithOnlyTitleAndServerDefaults() {
+    when(service.create(any(), any(), any(), any())).thenAnswer(invocation -> {
+      var command = invocation.getArgument(3, io.crewscope.application.workitem.CreateNativeWorkItemCommand.class);
+      org.junit.jupiter.api.Assertions.assertNull(command.key());
+      org.junit.jupiter.api.Assertions.assertEquals(WorkItemType.TASK, command.type());
+      org.junit.jupiter.api.Assertions.assertEquals(WorkItemPriority.MEDIUM, command.priority());
+      return CommandExecution.completed(item, new CommandReceipt(UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID()));
+    });
+    client.post().uri(root()).header("Idempotency-Key", "minimal-create")
+        .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"title\":\"New work\"}")
+        .exchange().expectStatus().isAccepted();
+  }
+
+  @Test
+  void patchesPresenceWithoutAcceptingKeyTypeOrStateChanges() {
+    when(service.updateContent(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+      var update = invocation.getArgument(4, io.crewscope.application.workitem.UpdateWorkItemContentCommand.class);
+      org.junit.jupiter.api.Assertions.assertFalse(update.title().present());
+      org.junit.jupiter.api.Assertions.assertTrue(update.description().present());
+      org.junit.jupiter.api.Assertions.assertNull(update.description().value());
+      org.junit.jupiter.api.Assertions.assertEquals(0, update.expectedVersion());
+      return CommandExecution.completed(item, new CommandReceipt(UUID.randomUUID(), UUID.randomUUID(), 1, UUID.randomUUID()));
+    });
+    client.patch().uri(root() + "/" + item.id()).header("Idempotency-Key", "edit-content")
+        .header("If-Match", "\"0\"").contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"description\":null}").exchange().expectStatus().isAccepted();
+    for (String body : java.util.List.of("{\"title\":null}", "{\"type\":\"BUG\"}", "{\"key\":\"CRW-99\"}",
+        "{\"status\":\"DONE\"}", "{\"priority\":null}", "{}")) {
+      client.patch().uri(root() + "/" + item.id()).header("Idempotency-Key", "invalid-edit")
+          .header("If-Match", "\"0\"").contentType(MediaType.APPLICATION_JSON)
+          .bodyValue(body).exchange().expectStatus().isEqualTo(
+              body.contains("\"title\"") || body.contains("\"priority\"") || body.equals("{}") ? 422 : 400);
+    }
+    client.patch().uri(root() + "/" + item.id()).header("Idempotency-Key", "edit-no-version")
+        .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"title\":\"Updated\"}")
+        .exchange().expectStatus().isEqualTo(428);
+  }
+
+
   private final OrganizationId organizationId = OrganizationId.generate();
   private final UtcTimestamp now = UtcTimestamp.parse("2026-08-08T08:00:00Z");
   private final Principal actor =

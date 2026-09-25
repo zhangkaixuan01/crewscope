@@ -1,5 +1,8 @@
+import { secureId } from '../../api/secureId'
+import { createCommandGateway } from '../../api/commandGateway'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
+import { browserStorage, safeGet, safeRemove, safeSet } from '../../app/browserStorage'
 import type { ConversationRealtimeGateway } from './realtimeGateway'
 import type {
   ClarificationRequest,
@@ -101,6 +104,8 @@ export function createConversationRealtimeStore(
   gateway: ConversationRealtimeGateway,
   options: RealtimeStoreOptions = {},
 ): ConversationRealtimeStore {
+  const commandIntents = createCommandGateway(gateway, { cancel: 3 })
+  gateway = commandIntents.gateway
   const state = reactive<ConversationRealtimeState>({
     invocationPhase: 'idle',
     eventStreamPhase: 'idle',
@@ -168,7 +173,7 @@ export function createConversationRealtimeStore(
       content,
       authorPrincipalId,
       baselineSequence,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: secureId(),
     }
     stageInvocation(content, authorPrincipalId, baselineSequence, 'connecting', recovery)
     writeRecovery(scopeKey(scope), recovery)
@@ -196,7 +201,7 @@ export function createConversationRealtimeStore(
       content: clarificationMarkdown(normalized),
       authorPrincipalId,
       baselineSequence,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: secureId(),
     }
     stageInvocation(recovery.content, authorPrincipalId, baselineSequence, 'connecting', recovery)
     writeRecovery(scopeKey(scope), recovery)
@@ -403,9 +408,14 @@ export function createConversationRealtimeStore(
 
   async function cancel(scope: ConversationMessageScope, reason = 'Owner requested cancellation'): Promise<boolean> {
     if (activeScopeKey !== scopeKey(scope) || !state.invocationId || !invocationUnavailable(state.invocationPhase)) return false
+    if (state.invocationPhase === 'cancelling') return false
+    const started = generation
+    const invocationId = state.invocationId
+    const phase = state.invocationPhase
     state.invocationPhase = 'cancelling'
     try {
-      const result = await gateway.cancel(scope, state.invocationId, reason, crypto.randomUUID())
+      const result = await gateway.cancel(scope, invocationId, reason, secureId())
+      if (started !== generation || state.invocationId !== invocationId) return false
       if (result.result === 'NOT_FOUND') {
         failInvocation('当前 Agent 调用不存在或已经不可用', 404, false)
         clearRecovery(scopeKey(scope))
@@ -413,8 +423,10 @@ export function createConversationRealtimeStore(
       }
       return true
     } catch (error) {
-      if (isAbort(error)) return false
-      failInvocation(presentError(error, '暂时无法取消 Agent 调用'), statusOf(error), retryable(error))
+      if (isAbort(error) || started !== generation || state.invocationId !== invocationId) return false
+      if (state.invocationPhase === 'cancelling') state.invocationPhase = phase
+      state.errorMessage = presentError(error, '取消结果尚未确认，请查看原调用状态。')
+      state.errorStatus = statusOf(error)
       return false
     }
   }
@@ -460,6 +472,7 @@ export function createConversationRealtimeStore(
   }
 
   function reset(): void {
+    commandIntents.clear()
     generation += 1
     invocationAbort?.abort()
     eventAbort?.abort()
@@ -793,38 +806,6 @@ function retryable(error: unknown): boolean {
 
 function presentError(error: unknown, fallback: string): string {
   return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
-
-function browserStorage(): Storage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage
-  } catch {
-    return null
-  }
-}
-
-function safeGet(storage: Storage | null, key: string): string | null {
-  try {
-    return storage?.getItem(key) ?? null
-  } catch {
-    return null
-  }
-}
-
-function safeSet(storage: Storage | null, key: string, value: string): void {
-  try {
-    storage?.setItem(key, value)
-  } catch {
-    // Recovery storage is best-effort; server idempotency remains authoritative.
-  }
-}
-
-function safeRemove(storage: Storage | null, key: string): void {
-  try {
-    storage?.removeItem(key)
-  } catch {
-    // Ignore unavailable browser storage.
-  }
 }
 
 function readJson<T>(storage: Storage | null, key: string): T | null {

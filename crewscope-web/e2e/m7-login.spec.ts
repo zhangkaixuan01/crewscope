@@ -32,7 +32,7 @@ test('submits the formal login once with Enter and restores a safe target', asyn
   expect(loginCalls).toBe(1)
   expect(submittedBody).toEqual({ identifier: 'alice@example.com', password: 'one-way-password' })
   expect(page.url()).not.toContain('one-way-password')
-  expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
+  await expectCleanBrowserStorage(page)
 })
 
 test('keeps invalid credentials non-enumerating and presents capacity limits separately', async ({ page }) => {
@@ -130,4 +130,18 @@ function errorPayload(code: string, message: string) {
 
 function json(body: unknown, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) }
+}
+
+/**
+ * Credentials must never reach browser storage. F05 allows exactly two client-generated keys:
+ * the per-account user-content epoch and the command-recovery registry, which stores idempotency
+ * coordinates only — no command bodies and no credential material.
+ */
+async function expectCleanBrowserStorage(page: Page): Promise<void> {
+  const persisted = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(Object.keys(persisted.local)
+    .filter(key => key !== 'cs.user.epoch.v1' && key !== 'crewscope.command-recovery.v1')).toEqual([])
+  expect(persisted.session).toEqual({})
+  expect(JSON.stringify(persisted)).not.toMatch(/password|credential|secret|authorization|bearer/i)
+  expect(JSON.stringify(persisted)).not.toContain('one-way-password')
 }

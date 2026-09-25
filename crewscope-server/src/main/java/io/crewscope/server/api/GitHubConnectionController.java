@@ -149,12 +149,13 @@ public final class GitHubConnectionController {
         IdempotencyKey idempotencyKey = ApiHeaders.requireIdempotencyKey(key);
         return command(authentication, organization, idempotencyKey, exchange,
                 context -> service.bind(
-                        context,
+                context,
                         organization,
                         connection,
                         version,
                         team,
-                        request.defaultUsage()));
+                        request.defaultUsage(),
+                        Optional.ofNullable(request.repositoryIds()).filter(value -> !value.isEmpty())));
     }
 
     @GetMapping("/{connectionId}/bindings")
@@ -379,15 +380,17 @@ public final class GitHubConnectionController {
             @NotBlank String authenticationType,
             String teamId,
             @NotBlank String credentialSubjectType,
-            @NotBlank @Size(max = 100) String externalAccountId,
-            @NotEmpty @Size(max = 500) Set<@NotBlank @Size(max = 511) String> repositoryAllowlist,
+            @Size(max = 100) String externalAccountId,
+            @Size(max = 500) Set<@NotBlank @Size(max = 511) String> repositoryAllowlist,
             @NotBlank @Size(max = 1_048_576) String accessToken,
             String expiresAt) {}
 
     public record RevokeConnectionRequest(@NotBlank @Size(max = 500) String reason) {}
 
     public record CreateBindingRequest(
-            @NotBlank String teamId, boolean defaultUsage) {}
+            @NotBlank String teamId,
+            boolean defaultUsage,
+            @Size(max = 100) Set<@NotBlank @Size(max = 100) String> repositoryIds) {}
 
     public record ConnectionListResponse(List<ConnectionResponse> items) {
         static ConnectionListResponse from(List<GitHubConnectionView> values) {

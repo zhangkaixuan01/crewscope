@@ -22,8 +22,81 @@ describe('HttpWorkItemGateway', () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ status: 'IN_PROGRESS', after: 'opaque+/cursor', limit: '25' })
   })
 
+  it('joins the A06 filter dimensions into the query string only when they are set', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }))
+    const gateway = new HttpWorkItemGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.listWorkItems({
+      organizationId: fixtureIds.organization,
+      teamId: fixtureIds.teamPlatform,
+      projectId: fixtureIds.projectCrewScope,
+      type: ['FEATURE', 'BUG'],
+      priority: ['HIGH', 'URGENT'],
+      responsibilityRole: 'REVIEWER',
+      sort: 'priority',
+      limit: 25,
+    })
+
+    const url = new URL(String(fetcher.mock.calls[0]?.[0]), 'http://crewscope.test')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      type: 'FEATURE,BUG',
+      priority: 'HIGH,URGENT',
+      responsibilityRole: 'REVIEWER',
+      sort: 'priority',
+      limit: '25',
+    })
+  })
+
+  it('reads the inlined execution summary leniently when absent and strictly when malformed', async () => {
+    const row = fixtureWorkItems[0]!
+    const blocked = {
+      workItemId: workItemIds.first,
+      workItemVersion: 3,
+      workStatus: 'IN_PROGRESS',
+      taskCount: 2,
+      activeTaskCount: 1,
+      pendingReviewCount: 1,
+      currentTaskId: null,
+      currentExecutionId: null,
+      executionStatus: null,
+      selectionRequired: true,
+      blockedReasons: [
+        { code: 'RUNTIME', taskId: null, executionId: 'execution-1', since: '2026-09-01T08:00:00Z', waitingOnPrincipalId: null },
+      ],
+      resultSummary: null,
+      resultSourceReference: null,
+      projectionVersion: 3,
+      observedAt: '2026-09-01T08:00:00Z',
+    }
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ ...row, summary: blocked }], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ items: [row], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ items: [{ ...row, summary: { ...blocked, blockedReasons: 'nope' } }], nextCursor: null }))
+    const gateway = new HttpWorkItemGateway(new CrewScopeApiClient('/api/v1', fetcher))
+    const query = {
+      organizationId: fixtureIds.organization,
+      teamId: fixtureIds.teamPlatform,
+      projectId: fixtureIds.projectCrewScope,
+    }
+
+    const strict = await gateway.listWorkItems(query)
+    expect(strict.items[0]?.summary).toMatchObject({ taskCount: 2, selectionRequired: true })
+    expect(strict.items[0]?.summary?.blockedReasons).toHaveLength(1)
+
+    const absent = await gateway.listWorkItems(query)
+    expect(absent.items[0]?.summary).toBeNull()
+
+    await expect(gateway.listWorkItems(query)).rejects.toThrow(TypeError)
+  })
+
   it('creates a native WorkItem with an Idempotency-Key and no client actor', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ commandId: 'command', domainEventId: 'event', committedVersion: 0, correlationId: 'correlation' }, 202))
+    const receipt = { commandId: 'command', domainEventId: 'event', committedVersion: 0, correlationId: 'correlation' }
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(receipt, 202))
+      .mockResolvedValueOnce(jsonResponse({ receipt, result: { type: 'WORK_ITEM', stage: 'COMMITTED',
+        organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform, projectId: fixtureIds.projectCrewScope,
+        resourceId: workItemIds.first, committedVersion: 0 } }))
+      .mockResolvedValueOnce(jsonResponse(fixtureWorkItemDetails))
     const gateway = new HttpWorkItemGateway(new CrewScopeApiClient('/api/v1', fetcher))
     const input = { key: 'CRW-21', type: 'TASK' as const, title: '准备发布', description: null, priority: 'MEDIUM' as const, labels: ['release'], dueAt: null }
 
@@ -34,6 +107,8 @@ describe('HttpWorkItemGateway', () => {
     expect(request?.body).toBe(JSON.stringify(input))
     expect(new Headers(request?.headers).get('Idempotency-Key')).toBe('work-command-1')
     expect(request?.body).not.toContain('principal')
+    expect(String(fetcher.mock.calls[1]?.[0])).not.toContain('work-command-1')
+    expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('Idempotency-Key')).toBe('work-command-1')
   })
 
   it('loads the consistent detail snapshot and sends a strong version precondition on transition', async () => {

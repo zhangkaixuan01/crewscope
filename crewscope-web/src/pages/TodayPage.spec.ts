@@ -30,6 +30,7 @@ function deskItem(overrides: Partial<WorkDeskItem> = {}): WorkDeskItem {
       reversible: true, enabled: true, reason: null, reasonMessage: null, remedyLabel: null, remedyRoute: null,
     }],
     route: `/work?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}&workItem=${workItemIds.first}`,
+    workItemId: null, workItemTitle: null, rowSummary: null, waitingOn: null,
     ...overrides,
   }
 }
@@ -38,6 +39,7 @@ class FixtureWorkDeskGateway implements WorkDeskGateway {
   readonly queries: WorkDeskFilter[] = []
   items: Record<string, WorkDeskItem[]> = { WORK_ITEM: [deskItem()] }
   failNext = false
+  getSection = vi.fn()
 
   async get(scope: WorkDeskScope, filter: WorkDeskFilter = {}): Promise<WorkDeskSummary> {
     this.queries.push(structuredClone(filter))
@@ -52,7 +54,7 @@ class FixtureWorkDeskGateway implements WorkDeskGateway {
       generatedAt: '2026-09-17T10:00:00Z',
       sections: workDeskSections.map((key, index) => {
         const items = this.items[key] ?? []
-        return { key, title: key, priority: index + 1, total: items.length, truncated: false, items: structuredClone(items) }
+        return { key, title: key, priority: index + 1, total: items.length, truncated: false, items: structuredClone(items), nextCursor: null }
       }),
     }
   }
@@ -118,10 +120,8 @@ describe('TodayPage', () => {
     expect(wrapper.text()).toContain('这个 Team 还没有 WorkProject')
     await wrapper.findAll('button').find(button => button.text().includes('创建 WorkProject'))!.trigger('click')
     const inputs = document.body.querySelectorAll<HTMLInputElement>('.project-create-dialog input')
-    inputs[0]!.value = 'crew'
+    inputs[0]!.value = 'CrewScope Platform'
     inputs[0]!.dispatchEvent(new Event('input', { bubbles: true }))
-    inputs[1]!.value = 'CrewScope Platform'
-    inputs[1]!.dispatchEvent(new Event('input', { bubbles: true }))
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
     document.body.querySelector<HTMLFormElement>('.project-create-dialog')!

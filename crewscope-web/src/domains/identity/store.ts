@@ -6,6 +6,7 @@ import {
   type InjectionKey,
 } from 'vue'
 import { AUTH_PRINCIPAL, type AuthenticatedPrincipal } from '../../app/auth'
+import { activateF05Identity, clearF05UserData, purgeF05LegacyKeys } from '../../app/f05Storage'
 import { CrewScopeApiError } from '../../api/client'
 import type { IdentityGateway } from './gateway'
 import type { AuthSession } from './types'
@@ -64,6 +65,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
   })
   const principal = reactive<AuthenticatedPrincipal>({
     id: '',
+    accountId: '',
     displayName: '',
     role: '',
     organizationId: '',
@@ -95,6 +97,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     started = false
     generation += 1
     pending = null
+    if (principal.id) clearF05UserData()
     channel?.removeEventListener('message', receiveBroadcast)
     channel?.close()
     channel = null
@@ -173,6 +176,10 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     state.errorCode = null
     state.errorMessage = null
     clearPrincipal()
+    // Scoped drafts, recents and cursors of the previous identity must be gone before any
+    // listener re-renders (M9b-F05 contract: clear first, then render). The epoch bump also
+    // seals the namespace for stale tabs listening only to the storage event.
+    clearF05UserData()
     if (broadcast) channel?.postMessage({ type: 'signed-out' })
     notify('anonymous', reason)
     // Logout rotates or removes the server Session, so every tab must obtain a fresh anonymous
@@ -192,10 +199,16 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
   function applyPrincipal(session: AuthSession): void {
     if (!session.account || !session.principal) throw new TypeError('Authenticated Session has no Principal')
     principal.id = session.principal.principalId
+    principal.accountId = session.account.accountId
     principal.displayName = session.account.displayName
     principal.role = session.account.platformRole === 'OPERATOR' ? 'Operator' : 'Team Member'
     principal.organizationId = session.principal.organizationId
     principal.organization = 'CrewScope Organization'
+    // One-time cleanup of pre-F05 keys that cannot prove identity ownership, then open the
+    // scoped namespace for this account (an account switch bumps the epoch and invalidates
+    // every record written by the previous identity).
+    purgeF05LegacyKeys()
+    activateF05Identity(session.account.accountId)
     applyTeamPermissions(session, state.activeTeamId)
   }
 
@@ -210,6 +223,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
 
   function clearPrincipal(): void {
     principal.id = ''
+    principal.accountId = ''
     principal.displayName = ''
     principal.role = ''
     principal.organizationId = ''

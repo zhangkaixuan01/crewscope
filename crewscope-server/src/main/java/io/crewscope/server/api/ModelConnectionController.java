@@ -189,6 +189,29 @@ public final class ModelConnectionController {
                         credentialVersion(request.credentialVersion())));
     }
 
+    @PostMapping("/{connectionId}/activate")
+    public Mono<ResponseEntity<CommandReceiptResponse>> activate(
+            @PathVariable String organizationId,
+            @PathVariable String connectionId,
+            @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+            @RequestHeader(name = ApiHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody CredentialVersionRequest request,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        return mutate(
+                organizationId,
+                connectionId,
+                key,
+                ifMatch,
+                authentication,
+                exchange,
+                context -> service.activate(
+                        context,
+                        connectionId(connectionId),
+                        ApiHeaders.requireIfMatch(ifMatch),
+                        credentialVersion(request.credentialVersion())));
+    }
+
     @PostMapping("/{connectionId}/revoke")
     public Mono<ResponseEntity<CommandReceiptResponse>> revoke(
             @PathVariable String organizationId,

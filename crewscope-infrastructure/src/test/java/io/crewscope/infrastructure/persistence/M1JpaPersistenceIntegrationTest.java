@@ -2074,12 +2074,14 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   }
 
   private WorkItemQueryService workItemQueryService() {
+    // The M1 snapshot proof does not exercise the M9b-A06 summary, so the port answers empty.
     return new WorkItemQueryService(
         workItemRepository,
         commentRepository,
         resourceLinkRepository,
         workItemAccessPolicy(),
         new WorkItemTransitionAvailabilityProjector(),
+        (organizationId, teamId, projectId, ids, observedAt) -> java.util.Map.of(),
         transactionExecutor,
         () -> NOW);
   }

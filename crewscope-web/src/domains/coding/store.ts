@@ -1,8 +1,12 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { CodingGateway } from './gateway'
 import type {
   BuildProfileSummary,
+  ExecutionDefaults,
+  ExecutionDefaultsInput,
   ArtifactBytePage,
   ArtifactSummary,
   ArtifactTextDocument,
@@ -60,6 +64,8 @@ interface CodingState {
   repositoryPreflights: Record<string, CodingResource<RepositoryPreflight>>
   repositoryCommand: RepositoryCommandState
   buildProfiles: Record<string, CodingResource<BuildProfileSummary[]>>
+  executionDefaults: CodingResource<ExecutionDefaults>
+  projectBuildProfiles: CodingResource<import('./types').BuildProfileOption[]>
   targetPreflights: Record<string, CodingResource<RepositoryPreflight>>
   currentAttempts: Record<string, CodingResource<CurrentCodingAttempt>>
   attemptHistories: Record<string, CodingResource<CodingAttemptSummary[]>>
@@ -94,6 +100,9 @@ export interface CodingStore {
   retryRepositoryCommand(): Promise<boolean>
   clearRepositoryCommand(): void
   loadBuildProfiles(workItemId: string, force?: boolean): Promise<void>
+  loadExecutionDefaults(scope: CodingScope, force?: boolean): Promise<void>
+  loadProjectBuildProfiles(scope: CodingScope, force?: boolean): Promise<void>
+  saveExecutionDefaults(input: ExecutionDefaultsInput): Promise<ExecutionDefaults | null>
   preflightTarget(workItemId: string, bindingId: string, baselineRef: string): Promise<RepositoryPreflight | null>
   loadCurrentAttempt(taskId: string, force?: boolean): Promise<void>
   loadAttemptHistory(taskId: string, force?: boolean): Promise<void>
@@ -114,6 +123,8 @@ export interface CodingStore {
 export const CODING_STORE: InjectionKey<CodingStore> = Symbol('crewscope-coding-store')
 
 export function createCodingStore(gateway: CodingGateway): CodingStore {
+  const commandIntents = createCommandGateway(gateway, { createRepositoryBinding: 2, transitionRepositoryBinding: 4 })
+  gateway = commandIntents.gateway
   const state = reactive<CodingState>({
     repositoryCatalog: idleResource<RepositoryCatalogItem[]>(),
     repositories: idleResource<RepositoryBinding[]>(),
@@ -121,6 +132,8 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
     repositoryPreflights: {},
     repositoryCommand: idleRepositoryCommand(),
     buildProfiles: {},
+    executionDefaults: idleResource<ExecutionDefaults>(),
+    projectBuildProfiles: idleResource(),
     targetPreflights: {},
     currentAttempts: {},
     attemptHistories: {},
@@ -289,7 +302,7 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
     const scope = requireScope()
     return runRepositoryCommand({
       scopeKey: requireScopeKey(),
-      key: crypto.randomUUID(),
+      key: secureId(),
       operation: 'create',
       bindingId: null,
       run: key => gateway.createRepositoryBinding(scope, input, key),
@@ -303,7 +316,7 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
     const scope = requireScope()
     return runRepositoryCommand({
       scopeKey: requireScopeKey(),
-      key: crypto.randomUUID(),
+      key: secureId(),
       operation: transition,
       bindingId: binding.id,
       run: key => gateway.transitionRepositoryBinding(scope, binding.id, transition, binding.version, key),
@@ -386,6 +399,52 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
       signal => gateway.listBuildProfiles(scope, workItemId, signal),
       '暂时无法加载 BuildProfile',
     )
+  }
+
+  async function loadExecutionDefaults(scope: CodingScope, force = false): Promise<void> {
+    activateScope(scope)
+    if (!gateway.getExecutionDefaults) {
+      state.executionDefaults = { phase: 'error', value: null, errorMessage: '当前客户端不支持项目默认构建配置', errorStatus: 501 }
+      return
+    }
+    await loadSingle(
+      'execution-defaults',
+      () => state.executionDefaults,
+      value => { state.executionDefaults = value },
+      force,
+      signal => gateway.getExecutionDefaults!(scope, signal),
+      '暂时无法加载项目默认构建配置',
+    )
+  }
+
+  async function loadProjectBuildProfiles(scope: CodingScope, force = false): Promise<void> {
+    activateScope(scope)
+    if (!gateway.listProjectBuildProfiles) {
+      state.projectBuildProfiles = { phase: 'error', value: null, errorMessage: '当前客户端不支持构建方案目录', errorStatus: 501 }
+      return
+    }
+    await loadSingle(
+      'project-build-profiles',
+      () => state.projectBuildProfiles,
+      value => { state.projectBuildProfiles = value },
+      force,
+      signal => gateway.listProjectBuildProfiles!(scope, signal),
+      '暂时无法加载受控构建方案',
+    )
+  }
+
+  async function saveExecutionDefaults(input: ExecutionDefaultsInput): Promise<ExecutionDefaults | null> {
+    const scope = requireScope()
+    const current = state.executionDefaults.value
+    if (!gateway.replaceExecutionDefaults || !current) return null
+    try {
+      const value = await gateway.replaceExecutionDefaults(scope, current.version, input, secureId())
+      if (scopeKey(scope) === activeScopeKey) state.executionDefaults = { phase: 'ready', value, errorMessage: null, errorStatus: null }
+      return value
+    } catch (error) {
+      state.executionDefaults = { phase: 'error', value: current, errorMessage: presentError(error, '项目默认构建配置保存失败'), errorStatus: statusOf(error) }
+      return null
+    }
   }
 
   async function preflightTarget(
@@ -784,6 +843,7 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
   }
 
   function reset(): void {
+    commandIntents.clear()
     cancelAll()
     activeScope = null
     activeScopeKey = null
@@ -798,6 +858,8 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
     state.repositoryCommand = idleRepositoryCommand()
     lastRepositoryCommand = null
     state.buildProfiles = {}
+    state.executionDefaults = idleResource()
+    state.projectBuildProfiles = idleResource()
     state.targetPreflights = {}
     state.currentAttempts = {}
     state.attemptHistories = {}
@@ -892,6 +954,9 @@ export function createCodingStore(gateway: CodingGateway): CodingStore {
     retryRepositoryCommand,
     clearRepositoryCommand,
     loadBuildProfiles,
+    loadExecutionDefaults,
+    loadProjectBuildProfiles,
+    saveExecutionDefaults,
     preflightTarget,
     loadCurrentAttempt,
     loadAttemptHistory,

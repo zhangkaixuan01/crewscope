@@ -139,6 +139,7 @@ public final class TeamPersistenceMapper {
         value.joinedAt().map(timestamp -> timestamp.value()).orElse(null),
         value.lastActiveAt().map(timestamp -> timestamp.value()).orElse(null),
         value.version(),
+        value.authorizationVersion(),
         value.lifecycle().createdAt().value(),
         value.lifecycle().updatedAt().value());
   }
@@ -156,6 +157,7 @@ public final class TeamPersistenceMapper {
         Optional.ofNullable(value.lastActiveAt())
             .map(io.crewscope.domain.shared.time.UtcTimestamp::from),
         value.version(),
+        value.authorizationVersion(),
         lifecycle(value.createdAt(), value.updatedAt()));
   }
 

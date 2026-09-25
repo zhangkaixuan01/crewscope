@@ -34,6 +34,7 @@ import type { AuthSession } from '../domains/identity/types'
 
 const principal: AuthenticatedPrincipal = {
   id: 'test-user',
+  accountId: 'account-test-user',
   displayName: '测试成员',
   role: 'Owner',
   organizationId: fixtureIds.organization,
@@ -50,8 +51,11 @@ const emptyWorkDeskGateway: WorkDeskGateway = {
       projectId: null,
       generatedAt: '2026-09-17T10:00:00Z',
       sections: ['HUMAN_GATE', 'REVIEW', 'BLOCKED', 'WORK_ITEM', 'TASK_EXECUTION', 'INBOX']
-        .map((key, index) => ({ key, title: key, priority: index + 1, total: 0, truncated: false, items: [] })),
+        .map((key, index) => ({ key, title: key, priority: index + 1, total: 0, truncated: false, items: [], nextCursor: null })),
     }
+  },
+  async getSection() {
+    throw new Error('the router tests never continue a section')
   },
 }
 

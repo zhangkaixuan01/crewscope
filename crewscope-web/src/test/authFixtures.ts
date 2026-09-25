@@ -4,6 +4,7 @@ import type { AuthPhase, AuthStore, AuthTransitionReason } from '../domains/iden
 /** Explicit authenticated identity for component and Store tests; never imported by production entrypoints. */
 export const bootstrapPrincipal: AuthenticatedPrincipal = {
   id: '00000000-0000-0000-0000-000000000101',
+  accountId: '00000000-0000-0000-0000-000000000201',
   displayName: '测试成员',
   role: 'Team Owner',
   organizationId: '00000000-0000-0000-0000-000000000001',

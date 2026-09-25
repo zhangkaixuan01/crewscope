@@ -13,6 +13,7 @@ withDefaults(defineProps<{
   placeholder?: string
   error?: string
   disabled?: boolean
+  disabledReason?: string
   required?: boolean
   showGuidance?: boolean
   focusOnMount?: boolean
@@ -25,6 +26,7 @@ withDefaults(defineProps<{
   placeholder: undefined,
   error: undefined,
   disabled: false,
+  disabledReason: undefined,
   required: false,
   showGuidance: false,
   focusOnMount: false,
@@ -46,6 +48,7 @@ const visible = ref(false)
     :placeholder="placeholder"
     :error="error"
     :disabled="disabled"
+    :disabled-reason="disabledReason"
     :required="required"
     :minlength="minlength ?? (showGuidance ? 12 : undefined)"
     :maxlength="maxlength ?? (showGuidance ? 128 : undefined)"

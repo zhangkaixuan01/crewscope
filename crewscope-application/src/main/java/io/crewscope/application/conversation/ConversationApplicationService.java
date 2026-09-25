@@ -2,6 +2,7 @@ package io.crewscope.application.conversation;
 
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.command.CommandResult;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
@@ -315,6 +316,23 @@ public final class ConversationApplicationService {
                   snapshot.decision().historyVisibleThrough(),
                   Objects.requireNonNull(cursor, "cursor"),
                   limit));
+        });
+  }
+
+  /**
+   * Revalidates readability against the current membership and visibility facts. Streaming
+   * adapters call this after reading one bounded batch and before emitting any of its rows, so a
+   * member revoked mid-batch loses the remainder of that batch instead of receiving it.
+   */
+  public void requireStillReadable(
+      TeamAccessContext context,
+      OrganizationId organizationId,
+      TeamId teamId,
+      ConversationId conversationId) {
+    transactionExecutor.required(
+        () -> {
+          requireReadable(context, organizationId, teamId, conversationId);
+          return null;
         });
   }
 
@@ -831,6 +849,13 @@ public final class ConversationApplicationService {
         context.idempotencyKey(),
         receipt,
         occurredAt);
+    if (result instanceof PersonalConversationInitialization initialization) {
+      Conversation conversation = initialization.conversation();
+      receiptStore.saveResult(new CommandResult(conversation.scope().organizationId(), context.idempotencyKey(),
+          context.access().actor().id(), CREATE_CONVERSATION, conversation.scope().teamId(), Optional.empty(),
+          CommandResult.ResourceType.CONVERSATION, conversation.id().value(), conversation.version(),
+          receipt, occurredAt));
+    }
     return CommandExecution.completed(result, receipt);
   }
 

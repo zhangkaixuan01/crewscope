@@ -247,6 +247,19 @@ class ModelConnectionTest {
                 FIRST_CHECK);
         ModelConnection suspended = healthy.suspend(1, ACTOR, SECOND_CHECK);
 
+        ModelConnection unhealthySuspended = healthy
+                .recordVerificationFailure(
+                        provider,
+                        1,
+                        new ModelCredentialVersion(0),
+                        ModelConnectionHealthFailureCode.AUTHENTICATION_FAILED,
+                        ACTOR,
+                        SECOND_CHECK)
+                .suspend(2, ACTOR, SECOND_CHECK);
+        assertThrows(
+                DomainValidationException.class,
+                () -> unhealthySuspended.activate(provider, 3, ACTOR, SECOND_CHECK));
+
         assertEquals(ModelConnectionStatus.SUSPENDED, suspended.status());
         assertThrows(
                 OptimisticLockConflictException.class,
@@ -272,6 +285,14 @@ class ModelConnectionTest {
                 () -> revoked.rotateCredential(
                         4,
                         new ModelCredentialVersion(1),
+                        ACTOR,
+                        UtcTimestamp.parse("2026-08-23T01:05:00Z")));
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> revoked.recordVerificationSuccess(
+                        provider,
+                        4,
+                        new ModelCredentialVersion(0),
                         ACTOR,
                         UtcTimestamp.parse("2026-08-23T01:05:00Z")));
     }

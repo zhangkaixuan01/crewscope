@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Bot, CheckCircle2, RefreshCw, ShieldCheck, TriangleAlert, X } from '@lucide/vue'
-import { computed, nextTick, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 import { isTopmostModal } from '../../app/dialog'
 import type { AgentSummary } from '../../domains/agent/types'
 import {
@@ -38,6 +39,7 @@ const emit = defineEmits<{ close: [] }>()
 const agentStore = useAgentStore()
 const taskStore = useTaskStore()
 const dialog = useTemplateRef<HTMLElement>('dialog')
+const principal = inject(AUTH_PRINCIPAL)
 const submitted = ref(false)
 const codingSelection = ref<CodingTargetSelection | null>(null)
 const codingValid = ref(false)
@@ -210,7 +212,7 @@ function plainCodingTarget(value: CodingTargetSelection): CodingTargetSelection 
 }
 
 function restoreDraft(): void {
-  const draft = readTaskDelegationDraft(props.codingScope, props.codingScope.projectId, props.workItem.id)
+  const draft = readTaskDelegationDraft(props.codingScope, props.codingScope.projectId, props.workItem.id, principal)
   if (!draft) {
     selectedProfileId.value = executorAssignments.value[0]?.actorAgentProfileId ?? ''
     return
@@ -230,7 +232,7 @@ function persistDraft(): void {
     acceptanceCriteria: form.acceptanceCriteria,
     executorAgentProfileId: selectedProfileId.value,
     agentConfigurationRevision: selectedRevision.value,
-  })
+  }, principal)
 }
 
 /**

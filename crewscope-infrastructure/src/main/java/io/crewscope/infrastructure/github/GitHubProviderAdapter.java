@@ -626,8 +626,11 @@ public final class GitHubProviderAdapter implements GitHubProviderPort {
         ProviderOwnerType expectedOwner = request.authenticationType()
                 == GitHubAuthenticationType.APP_INSTALLATION
                 ? ProviderOwnerType.TEAM : ProviderOwnerType.USER;
+        boolean pendingIdentity = access.connection().externalAccountReference()
+                .startsWith("pending:");
         if (access.connection().owner().type() != expectedOwner
-                || !access.connection().externalAccountReference().equals(remote.externalId())) {
+                || (!pendingIdentity
+                        && !access.connection().externalAccountReference().equals(remote.externalId()))) {
             throw failure(GitHubProviderErrorCode.IDENTITY_MISMATCH,
                     "GitHub remote identity does not match the Connection");
         }

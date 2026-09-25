@@ -213,6 +213,15 @@ class TeamInvitationApplicationServiceM7A05Test {
         assertEquals(eventsBefore + 1, fixture.repository.events.size());
         assertTrue(replay.replayed());
         assertEquals(invitation.id(), result.invitation().id());
+        // The acceptance stored its own TEAM_MEMBER coordinate beside the receipt (A07 R29).
+        io.crewscope.application.command.CommandResult stored = fixture.repository.results.get(
+                fixture.binding.organizationId().value()
+                        + ":" + "invite-accept-1");
+        assertEquals(
+                io.crewscope.application.command.CommandResult.ResourceType.TEAM_MEMBER,
+                stored.resourceType());
+        assertEquals(result.membership().id().value(), stored.resourceId());
+        assertEquals(fixture.team.id(), stored.teamId());
         assertThrows(
                 TeamInvitationApplicationException.class,
                 () -> fixture.service.accept(
@@ -354,6 +363,7 @@ class TeamInvitationApplicationServiceM7A05Test {
                     repository,
                     repository,
                     repository,
+                    repository,
                     time);
         }
 
@@ -405,6 +415,7 @@ class TeamInvitationApplicationServiceM7A05Test {
                     DomainEventStore,
                     OutboxRepository,
                     CommandReceiptStore,
+                    io.crewscope.application.command.CommandResultStore,
                     TransactionExecutor {
 
         private final Map<TeamInvitationId, TeamInvitation> invitations = new LinkedHashMap<>();
@@ -419,6 +430,20 @@ class TeamInvitationApplicationServiceM7A05Test {
         private final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
         private final List<PendingOutboxEvent> outbox = new ArrayList<>();
         private final Map<String, ReceiptEntry> receipts = new HashMap<>();
+        final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
+
+        @Override
+        public void saveResult(io.crewscope.application.command.CommandResult result) {
+            results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
+        }
+
+        @Override
+        public Optional<io.crewscope.application.command.CommandResult> findResult(
+                OrganizationId organizationId, IdempotencyKey key,
+                io.crewscope.domain.shared.id.PrincipalId actorId) {
+            return Optional.ofNullable(results.get(organizationId + ":" + key))
+                    .filter(result -> result.actorId().equals(actorId));
+        }
 
         @Override
         public Optional<TeamInvitation> findById(

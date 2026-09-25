@@ -256,6 +256,18 @@ public final class ModelConnectionCredentialService {
         return execution;
     }
 
+    /** Re-enables a suspended connection only after a healthy check for its current credential. */
+    public CommandExecution<ModelConnection> activate(
+            ModelConnectionCredentialCommand command,
+            ModelConnectionLifecycleCommandGate gate) {
+        ModelConnectionCredentialCommand required = Objects.requireNonNull(command, "command");
+        CommandExecution<ModelConnection> execution = gated(
+                Objects.requireNonNull(gate, "gate"), () -> activateInTransaction(required));
+        execution.result().ifPresent(connection ->
+                availabilityVerifier.invalidate(connection.organizationId(), connection.id()));
+        return execution;
+    }
+
     /** Issues a metadata-only capability; each use rechecks status and exact secret revision. */
     public ProviderCredentialHandle openHandle(OpenProviderCredentialHandleRequest request) {
         OpenProviderCredentialHandleRequest required = Objects.requireNonNull(request, "request");
@@ -353,11 +365,29 @@ public final class ModelConnectionCredentialService {
         return new LifecycleChange(updated, eventId);
     }
 
+    private LifecycleChange activateInTransaction(ModelConnectionCredentialCommand command) {
+        ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
+        requireExpectedVersions(
+                connection, command.expectedConnectionVersion(), command.expectedCredentialVersion());
+        ModelProviderDefinition provider = requireProvider(connection.providerKey());
+        CredentialDescriptor descriptor = requireDescriptor(
+                connection, access(connection, command.actor(), "model:connection:activate"));
+        if (!descriptor.isUsableAt(timeProvider.now())) {
+            throw unavailable("Provider credential is unavailable");
+        }
+        UtcTimestamp occurredAt = timeProvider.now();
+        ModelConnection updated = connectionRepository.update(connection.activate(
+                provider, command.expectedConnectionVersion(), command.actor(), occurredAt));
+        UUID eventId = appendEvent(
+                updated, "ACTIVATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
+        return new LifecycleChange(updated, eventId);
+    }
+
     private VerificationTarget prepareVerification(ModelConnectionCredentialCommand command) {
         ModelConnection connection = requireConnection(command.organizationId(), command.connectionId());
         requireExpectedVersions(connection, command.expectedConnectionVersion(), command.expectedCredentialVersion());
         ModelProviderDefinition provider = requireProvider(connection.providerKey());
-        requireUsableProviderConnection(connection, provider);
+        requireVerifiableProviderConnection(connection, provider);
         ProviderCredentialHandle handle = newHandle(
                 connection,
                 command.actor(),
@@ -455,7 +485,9 @@ public final class ModelConnectionCredentialService {
             CredentialAccessContext access) {
         ModelConnection current = requireConnection(organizationId, connectionId);
         ModelProviderDefinition provider = requireProvider(current.providerKey());
-        if (!isUsableProviderConnection(current, provider)
+        if ((!isUsableProviderConnection(current, provider)
+                        && !(current.status() == ModelConnectionStatus.SUSPENDED
+                                && "model:connection:verify".equals(access.purpose())))
                 || !current.credentialBinding().credentialVersion().equals(expectedCredentialVersion)) {
             throw unavailable("Provider credential handle is no longer valid");
         }
@@ -516,6 +548,17 @@ public final class ModelConnectionCredentialService {
     private static void requireUsableProviderConnection(
             ModelConnection connection, ModelProviderDefinition provider) {
         if (!isUsableProviderConnection(connection, provider)) {
+            throw unavailable("Model provider connection is unavailable");
+        }
+    }
+
+    private static void requireVerifiableProviderConnection(
+            ModelConnection connection, ModelProviderDefinition provider) {
+        if (connection.status() != ModelConnectionStatus.ACTIVE
+                && connection.status() != ModelConnectionStatus.SUSPENDED) {
+            throw unavailable("Model provider connection is unavailable");
+        }
+        if (provider.status() != ModelRegistryStatus.ACTIVE) {
             throw unavailable("Model provider connection is unavailable");
         }
     }

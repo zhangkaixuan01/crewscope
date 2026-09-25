@@ -84,7 +84,11 @@ function fixtureGateway(): InvitationGateway {
       state: 'AVAILABLE' as const, invitationId: 'invitation-1', teamName: 'Platform Engineering',
       targetRole: 'MEMBER' as const, expiresAt: '2026-09-01T00:00:00Z', targetRestricted: true,
     })),
-    accept: vi.fn(async () => ({ commandId: 'command-1', domainEventId: 'event-1', committedVersion: 1, correlationId: 'correlation-1' })),
+    accept: vi.fn(async () => ({
+      command: { commandId: 'command-1', domainEventId: 'event-1', committedVersion: 1, correlationId: 'correlation-1' },
+      acceptance: { teamId: 'team-new', memberId: 'member-new', invitationId: 'invitation-1', membershipDisposition: 'CREATED' as const, roleGrantCreated: true },
+      replayed: false,
+    })),
   }
 }
 
@@ -96,7 +100,7 @@ function fixtureAuthStore(authenticated: boolean): AuthStore {
   }
   return {
     state,
-    principal: { id: authenticated ? 'principal-1' : '', displayName: authenticated ? 'Alice' : '', role: authenticated ? 'Member' : '', organizationId: authenticated ? 'organization-1' : '', organization: 'CrewScope', permissions: new Set() },
+    principal: { id: authenticated ? 'principal-1' : '', accountId: authenticated ? 'account-1' : '', displayName: authenticated ? 'Alice' : '', role: authenticated ? 'Member' : '', organizationId: authenticated ? 'organization-1' : '', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {},
     refresh: vi.fn(async () => { state.session = session(true, true); return true }),
     async retry() {}, selectTeam() {}, authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
@@ -125,6 +129,19 @@ function fixtureScopeStore(): ScopeStore {
     reload: vi.fn(async () => ({ teamId: null, projectId: null })),
     loadMembers: vi.fn(),
     addMember: vi.fn(),
+    suspendMember: vi.fn(),
+    activateMember: vi.fn(),
+    removeMember: vi.fn(),
+    leaveTeam: vi.fn(),
+    grantRole: vi.fn(),
+    revokeRole: vi.fn(),
+    transferOwnership: vi.fn(),
+    previewResponsibilities: vi.fn(async () => []),
+    createHandover: vi.fn(),
+    processHandover: vi.fn(),
+    getHandover: vi.fn(),
+    cancelHandover: vi.fn(),
+    clearHandover: vi.fn(),
     checkWorkProjectKey: vi.fn(),
     createWorkProject: vi.fn(),
     clearProjectCommand: vi.fn(),

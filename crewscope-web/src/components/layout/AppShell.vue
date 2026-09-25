@@ -161,6 +161,7 @@ watch(
         delete nextQuery.deliveryType
         delete nextQuery.recipient
         delete nextQuery.tab
+        delete nextQuery.member
         delete nextQuery.event
         delete nextQuery.inboxItem
         delete nextQuery.assistant

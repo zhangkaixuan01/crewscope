@@ -1,5 +1,7 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
 import type {
+  InvitationAcceptance,
+  InvitationAcceptanceResult,
   InvitationCommandContext,
   InvitationCommandReceipt,
   InvitationCreationInput,
@@ -28,7 +30,7 @@ export interface InvitationGateway {
     signal?: AbortSignal,
   ): Promise<InvitationCommandReceipt>
   preview(token: string, signal?: AbortSignal): Promise<InvitationPreview>
-  accept(token: string, context: InvitationCommandContext, signal?: AbortSignal): Promise<InvitationCommandReceipt>
+  accept(token: string, context: InvitationCommandContext, signal?: AbortSignal): Promise<InvitationAcceptanceResult>
 }
 
 /** Closed adapter for Team invitation management and one-way invitation proofs. */
@@ -115,16 +117,24 @@ export class HttpInvitationGateway implements InvitationGateway {
     return preview
   }
 
+  /** The 202 body carries `{command, acceptance}`; only the committed coordinates locate the membership. */
   async accept(
     token: string,
     context: InvitationCommandContext,
     signal?: AbortSignal,
-  ): Promise<InvitationCommandReceipt> {
-    return command(await this.client.open('/invitations/accept', {
+  ): Promise<InvitationAcceptanceResult> {
+    const response = await this.client.open('/invitations/accept', {
       method: 'POST', signal, idempotencyKey: context.idempotencyKey,
       headers: { [context.csrf.headerName]: context.csrf.token },
       body: { token },
-    }))
+    })
+    if (response.status !== 202) throw new TypeError('Invitation command response is invalid')
+    const value = record(await response.json())
+    return {
+      command: mapReceipt(value.command),
+      acceptance: value.acceptance === null ? null : mapAcceptance(value.acceptance),
+      replayed: response.headers.get('Idempotency-Replayed') === 'true',
+    }
   }
 }
 
@@ -149,6 +159,19 @@ function mapInvitation(input: unknown): TeamInvitationSummary {
     version: nonNegativeInteger(value.version),
     createdAt: instant(value.createdAt),
     updatedAt: instant(value.updatedAt),
+  }
+}
+
+function mapAcceptance(input: unknown): InvitationAcceptance {
+  const value = record(input)
+  return {
+    teamId: nullableString(value.teamId),
+    memberId: nullableString(value.memberId),
+    invitationId: nullableString(value.invitationId),
+    membershipDisposition: value.membershipDisposition === null
+      ? null
+      : oneOf(value.membershipDisposition, ['CREATED', 'ACTIVATED', 'REUSED'] as const),
+    roleGrantCreated: value.roleGrantCreated === null ? null : boolean(value.roleGrantCreated),
   }
 }
 

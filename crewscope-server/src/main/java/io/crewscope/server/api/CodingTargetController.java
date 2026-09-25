@@ -136,8 +136,12 @@ public final class CodingTargetController {
             String key,
             long version,
             String profileHash,
+            int schemaVersion,
             String buildTool,
             int javaRelease,
+            String nodeVersion,
+            String packageManager,
+            String packageManagerVersion,
             List<String> commandKinds) {
 
         static BuildProfileResponse from(BuildProfile profile) {
@@ -149,8 +153,12 @@ public final class CodingTargetController {
                     profile.key(),
                     profile.version(),
                     profile.profileHash().value(),
+                    profile.schemaVersion(),
                     profile.buildTool().name(),
                     profile.javaRelease(),
+                    profile.nodeVersion().orElse(null),
+                    profile.packageManager().orElse(null),
+                    profile.packageManagerVersion().orElse(null),
                     commands);
         }
     }

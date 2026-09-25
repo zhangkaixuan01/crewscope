@@ -10,13 +10,19 @@ import { SCOPE_STORE } from '../../domains/scope/store'
 import { SEARCH_STORE, type SearchStore } from '../../domains/search/store'
 import type { SearchResultItem } from '../../domains/search/types'
 import { searchObjectTypeLabels } from '../../domains/search/labels'
+import { readF05Recent, subscribeF05Epoch, writeF05Recent, type F05RecentItem } from '../../app/f05Storage'
 
 interface RecentItem {
   kind: 'action' | 'object'
+  /** Stable object type of the visited target; actions use the literal `ACTION`. */
+  objectType?: string
   id: string
-  label: string
+  label?: string
+  subtitle?: string | null
   route?: string
+  accessedAt?: number
 }
+interface RecentDisplay extends RecentItem { label: string, action?: ActionEntry['action'] }
 
 const registry = inject<ActionRegistry | null>(ACTION_REGISTRY, null)
 const shortcutManager = inject<ShortcutManager | null>(SHORTCUT_MANAGER, null)
@@ -30,7 +36,7 @@ const helpOpen = ref(false)
 const query = ref('')
 const selectedIndex = ref(0)
 const surface = ref<HTMLElement | null>(null)
-const recent = ref<RecentItem[]>(readRecent())
+const recent = ref<RecentItem[]>([])
 useFocusTrap(surface, open)
 
 const context = computed<ActionContext>(() => ({ router, route, principal }))
@@ -49,15 +55,15 @@ const objectSearchLoading = computed(() => searchStore?.state.phase === 'loading
 const objectSearchOffline = computed(() => searchStore?.state.phase === 'offline')
 const objectSearchError = computed(() => searchStore?.state.phase === 'error')
 const hasResults = computed(() => availableEntries.value.length > 0 || objectItems.value.length > 0 || unavailableEntries.value.length > 0)
-const recentItems = computed(() => {
+const recentItems = computed<RecentDisplay[]>(() => {
   if (normalizedQuery.value) return []
   return recent.value.map(item => {
     if (item.kind === 'action') {
       const entry = entries.value.find(candidate => candidate.action.id === item.id)
-      return entry?.available ? { ...item, action: entry.action } : null
+      return entry?.available ? { ...item, label: entry.action.label, action: entry.action } : null
     }
-    return item
-  }).filter((item): item is RecentItem & { action?: ActionEntry['action'] } => item !== null)
+    return { ...item, label: item.label || '最近访问对象' }
+  }).filter((item): item is RecentDisplay => item !== null)
 })
 
 let searchTimer: number | null = null
@@ -103,9 +109,16 @@ async function executeAction(id: string): Promise<void> {
 }
 
 function openObject(item: SearchResultItem): void {
-  remember({ kind: 'object', id: `${item.objectType}:${item.objectId}`, label: item.title, route: item.route })
+  remember({ kind: 'object', objectType: item.objectType, id: item.objectId, label: item.title, subtitle: item.subtitle, route: item.route })
   close()
   void router.push(item.route)
+}
+
+/** Re-opens a stored recent object: refreshes the timestamp and navigates by its saved route. */
+function openRecent(item: RecentDisplay): void {
+  remember({ kind: 'object', objectType: item.objectType, id: item.id, label: item.label, subtitle: item.subtitle ?? null, route: item.route })
+  close()
+  if (item.route) void router.push(item.route)
 }
 
 function onQueryChanged(): void {
@@ -125,17 +138,27 @@ function onQueryChanged(): void {
 }
 
 function remember(item: RecentItem): void {
-  recent.value = [item, ...recent.value.filter(existing => !(existing.kind === item.kind && existing.id === item.id))].slice(0, 8)
-  try { localStorage.setItem('cs.pref.device.command-recent.v1', JSON.stringify(recent.value)) } catch { /* Storage can be unavailable in private browsing. */ }
+  const teamId = scopeStore?.state.selectedTeamId
+  if (!principal || !principal.accountId || !teamId) return
+  // Recents are a Team-level concept: pinning them to the selected WorkProject would key the
+  // write by whichever project happened to be resolved at click time, while the reload-time
+  // read below runs before project selection is restored — the entry would vanish (M9b-F05).
+  const scope = { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId, projectId: null }
+  const entry: F05RecentItem = { kind: item.kind, objectType: item.objectType ?? 'ACTION', id: item.id, label: item.label ?? '', subtitle: item.subtitle ?? null, route: item.route, accessedAt: Date.now() }
+  const next = [entry, ...readF05Recent(scope).filter(existing => !(existing.kind === entry.kind && existing.id === entry.id))]
+  recent.value = next
+  // Recents carry no user-facing save promise; a failed write degrades silently.
+  writeF05Recent(scope, next)
 }
 
-function readRecent(): RecentItem[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem('cs.pref.device.command-recent.v1') ?? '[]')
-    if (!Array.isArray(value)) return []
-    return value.filter((item): item is RecentItem => item && (item.kind === 'action' || item.kind === 'object') && typeof item.id === 'string' && typeof item.label === 'string').slice(0, 8)
-  } catch { return [] }
+function recentScope(teamId: string | null | undefined) {
+  if (!principal || !principal.accountId || !teamId) return null
+  return { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId, projectId: null }
 }
+
+watch(() => scopeStore?.state.selectedTeamId, teamId => { const scope = recentScope(teamId); recent.value = scope ? readF05Recent(scope) : [] }, { immediate: true })
+// Sign-out or an account switch seals the namespace; drop the in-memory copy too.
+subscribeF05Epoch(epoch => { if (epoch === null) recent.value = [] })
 
 watch(query, onQueryChanged)
 onMounted(() => {
@@ -170,7 +193,7 @@ onBeforeUnmount(() => {
             <label class="command-palette__search"><Search :size="18" aria-hidden="true" /><input v-model="query" type="search" autocomplete="off" placeholder="搜索动作或对象…" aria-label="搜索动作或对象"><kbd><Command :size="11" /> K</kbd></label>
             <div v-if="shortcutManager?.state.pending.length" class="command-palette__sequence" role="status">正在输入：{{ shortcutManager.state.pending.join(' ') }} …</div>
             <div class="command-palette__results" role="listbox" aria-label="命令面板结果">
-              <section v-if="recentItems.length" class="command-palette__group"><h3>最近访问</h3><ul><li v-for="item in recentItems" :key="`${item.kind}:${item.id}`"><button type="button" :aria-label="item.label" @click="item.kind === 'action' && item.action ? executeAction(item.id) : item.route && openObject({ objectType: 'WORK_ITEM', objectId: item.id, projectId: null, title: item.label, subtitle: null, status: '', updatedAt: '', route: item.route, snippet: null })"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
+              <section v-if="recentItems.length" class="command-palette__group"><h3>最近访问</h3><ul><li v-for="item in recentItems" :key="`${item.kind}:${item.id}`"><button type="button" :aria-label="item.label" @click="item.kind === 'action' && item.action ? executeAction(item.id) : openRecent(item)"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
               <template v-for="group in ['导航', '创建', '视图', '执行控制'] as const" :key="group">
                 <section v-if="availableEntries.some(entry => entry.action.group === group)" class="command-palette__group"><h3>{{ group }}</h3><ul><li v-for="entry in availableEntries.filter(candidate => candidate.action.group === group)" :key="entry.action.id"><button type="button" :aria-label="entry.action.label" :aria-selected="availableEntries.indexOf(entry) === selectedIndex" @click="executeAction(entry.action.id)"><component :is="entry.action.icon" v-if="entry.action.icon" :size="15" aria-hidden="true" /><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd v-if="entry.action.shortcut">{{ entry.action.shortcut }}</kbd></button></li></ul></section>
               </template>

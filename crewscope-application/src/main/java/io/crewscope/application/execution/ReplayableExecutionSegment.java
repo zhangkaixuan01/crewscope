@@ -31,6 +31,7 @@ final class ReplayableExecutionSegment
     private final Consumer<AgentMessageCandidate> messageCommitter;
     private final Consumer<TaskIntentOutputCandidate> taskIntentCommitter;
     private final SegmentTerminalListener terminalListener;
+    private final SegmentAuthorizationGuard authorizationGuard;
     private final TimeProvider timeProvider;
     private final int eventLimit;
     private final int subscriberLimit;
@@ -92,6 +93,26 @@ final class ReplayableExecutionSegment
             TimeProvider timeProvider,
             int eventLimit,
             int subscriberLimit) {
+        this(handle, mappingContext, eventMapper, messageCommitter, taskIntentCommitter,
+                terminalListener, () -> {}, timeProvider, eventLimit, subscriberLimit);
+    }
+
+    /**
+     * Full construction with an authorization guard revalidated before every accepted runtime
+     * event. A guard failure fails the segment closed: the runtime subscription is cancelled and
+     * no further business fact is committed or replayed.
+     */
+    ReplayableExecutionSegment(
+            ExecutionHandle handle,
+            ExecutionEventMappingContext mappingContext,
+            ConversationExecutionEventMapper eventMapper,
+            Consumer<AgentMessageCandidate> messageCommitter,
+            Consumer<TaskIntentOutputCandidate> taskIntentCommitter,
+            SegmentTerminalListener terminalListener,
+            SegmentAuthorizationGuard authorizationGuard,
+            TimeProvider timeProvider,
+            int eventLimit,
+            int subscriberLimit) {
         ExecutionHandle source = Objects.requireNonNull(handle, "handle");
         this.mappingContext = Objects.requireNonNull(mappingContext, "mappingContext");
         if (!source.invocationId().equals(mappingContext.platformContext().invocationId())) {
@@ -102,6 +123,8 @@ final class ReplayableExecutionSegment
         this.taskIntentCommitter =
                 Objects.requireNonNull(taskIntentCommitter, "taskIntentCommitter");
         this.terminalListener = Objects.requireNonNull(terminalListener, "terminalListener");
+        this.authorizationGuard = Objects.requireNonNull(
+                authorizationGuard, "authorizationGuard");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         if (eventLimit < 1) {
             throw new IllegalArgumentException("eventLimit must be positive");
@@ -154,6 +177,9 @@ final class ReplayableExecutionSegment
                 return;
             }
             try {
+                // ADR-038 §2: every runtime event crosses a side-effect boundary, so current
+                // membership is revalidated before any business fact is committed or replayed.
+                authorizationGuard.requireAuthorization();
                 ExecutionEventMappingResult mapped = mapper.accept(event);
                 // A completed reply becomes a durable business fact before RUN_FINISHED is visible.
                 mapped.messageCandidate().ifPresent(messageCommitter);
@@ -259,6 +285,12 @@ final class ReplayableExecutionSegment
     interface SegmentTerminalListener {
         void terminal(
                 ExecutionTerminalStatus status, Optional<ExecutionInterruptToken> interruptToken);
+    }
+
+    /** Fail-closed membership check invoked before each accepted runtime event. */
+    @FunctionalInterface
+    interface SegmentAuthorizationGuard {
+        void requireAuthorization();
     }
 
     private enum RejectedSubscription implements Flow.Subscription {

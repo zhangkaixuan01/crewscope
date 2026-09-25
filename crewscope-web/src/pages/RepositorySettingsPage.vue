@@ -19,7 +19,9 @@ import StatusBadge from '../components/base/StatusBadge.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
+import ProjectExecutionDefaultsPanel from '../components/domain/ProjectExecutionDefaultsPanel.vue'
 import { useCodingStore } from '../domains/coding/store'
+import { clearRepoBindingDraft, readRepoBindingDraft, writeRepoBindingDraft } from '../domains/coding/repoBindingDraft'
 import type { CodingScope, RepositoryBinding, RepositoryBindingInput } from '../domains/coding/types'
 import { repositoryBindingStatusLabels } from '../domains/coding/labels'
 import { enumLabel } from '../domains/shared/labels'
@@ -27,6 +29,9 @@ import { useScopeStore } from '../domains/scope/store'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import { useRouteFocus } from '../composables/useRouteFocus'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -89,6 +94,7 @@ const principalNames = computed(() => principalNameDirectory(scopeStore.state.me
 watch(
   () => [scope.value?.teamId, scope.value?.projectId, route.fullPath] as const,
   async ([teamId, projectId]) => {
+    const pageOwner = pageRequests.capture()
     resetDraft()
     createOpenerKey = null
     if (!teamId || !projectId || !scope.value) return
@@ -97,6 +103,7 @@ watch(
       store.loadRepositoryCatalog(scope.value, true),
       scopeStore.loadMembers(),
     ])
+    if (!pageOwner.isCurrent()) return
     chooseFirstRepository()
   },
   { immediate: true },
@@ -105,41 +112,76 @@ watch(
 watch([repositoryKey, defaultBranch], () => {
   submitted.value = false
   store.clearRepositoryCommand()
+  persistCreateDraft()
 })
+
+// The binding form persists as a browser draft while it holds a real choice, so a refresh or a
+// scope switch never eats it; only a successful bind or an emptied form clears it. Resets flip
+// `showCreate` first, so their field writes never reach this persistence path (M9b-F05).
+function persistCreateDraft(): void {
+  if (!showCreate.value || !scope.value) return
+  if (repositoryKey.value) writeRepoBindingDraft(scope.value, draftInput(), principal)
+  else clearRepoBindingDraft(scope.value, principal)
+}
+
+function restoreCreateDraft(): void {
+  if (!scope.value) return
+  const draft = readRepoBindingDraft(scope.value, principal)
+  if (!draft) return
+  if (availableCatalog.value.some(item => item.repositoryKey === draft.repositoryKey)) {
+    repositoryKey.value = draft.repositoryKey
+    defaultBranch.value = draft.defaultBranch
+  }
+}
 
 watch(selectedCatalog, item => {
   if (item?.suggestedDefaultBranch) defaultBranch.value = item.suggestedDefaultBranch
 })
 
 async function reload(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!scope.value) return
   await Promise.all([
     store.loadRepositories(scope.value, true),
     store.loadRepositoryCatalog(scope.value, true),
   ])
+  if (!pageOwner.isCurrent()) return
   chooseFirstRepository()
 }
 
 async function preflightDraft(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   submitted.value = true
   if (!inputValid.value) return
   await store.preflightRepositoryDraft(draftInput())
+  if (!pageOwner.isCurrent()) return
 }
 
 async function createBinding(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   submitted.value = true
   if (!catalogReady.value || !inputValid.value || draftPreflight.value?.phase !== 'ready') return
-  if (await store.createRepository(draftInput())) {
+  const bindingScope = scope.value
+  const success = await store.createRepository(draftInput())
+  if (!pageOwner.isCurrent()) return
+  if (success) {
+    // Only a successful bind discards the browser draft; failures keep it for retry.
+    if (bindingScope) clearRepoBindingDraft(bindingScope, principal)
     await closeCreate()
+    if (!pageOwner.isCurrent()) return
   }
 }
 
 async function preflightExisting(binding: RepositoryBinding): Promise<void> {
+  const pageOwner = pageRequests.capture()
   await store.preflightRepository(binding.id)
+  if (!pageOwner.isCurrent()) return
 }
 
 async function transition(binding: RepositoryBinding): Promise<void> {
+  const pageOwner = pageRequests.capture()
   await store.transitionRepository(binding, binding.status === 'ACTIVE' ? 'disable' : 'activate')
+  if (!pageOwner.isCurrent()) return
 }
 
 function draftInput(): RepositoryBindingInput {
@@ -152,20 +194,25 @@ function chooseFirstRepository(): void {
 }
 
 async function openCreate(event: Event): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!canCreateRepository.value) return
   createOpenerKey = event.currentTarget instanceof HTMLElement
     ? event.currentTarget.dataset.repositoryCreateTrigger ?? null
     : null
   showCreate.value = true
+  restoreCreateDraft()
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   createRepositorySelect.value?.focus()
 }
 
 async function closeCreate(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const openerKey = createOpenerKey
   resetDraft()
   createOpenerKey = null
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   // Catalog 加载可能重建工具栏按钮；按稳定标识查找当前节点，避免把焦点交还给已脱离 DOM 的旧节点。
   if (openerKey) {
     document.querySelector<HTMLElement>(`[data-repository-create-trigger="${openerKey}"]`)?.focus()
@@ -220,6 +267,7 @@ function updatedAt(value: string): string {
     />
 
     <div v-else class="repository-page page-shell">
+      <ProjectExecutionDefaultsPanel :scope="scope" />
       <StatePanel v-if="!online" compact state="offline" title="仓库写操作已暂停" description="已加载的 RepositoryBinding 保持可读，联网后可继续 Preflight、绑定和启停。" />
 
       <section class="repository-overview panel">

@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.crewscope.application.workitem.WorkItemFilter;
 import io.crewscope.application.workitem.WorkItemPage;
 import io.crewscope.application.workitem.WorkItemQuery;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.application.workitem.WorkItemSort;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.audit.AuditMetadata;
@@ -246,19 +248,23 @@ class JpaWorkItemRepositoryIntegrationTest
         repository.create(newWorkItem(
                 otherProject, "ALT-1", UtcTimestamp.parse("2026-08-06T12:05:00Z")));
 
-        WorkItemQuery firstQuery = new WorkItemQuery(
+        WorkItemQuery firstQuery = WorkItemQuery.create(
                 fixture.organizationId(),
                 fixture.teamId(),
-                Optional.of(fixture.projectId()),
-                Optional.of(WorkItemStatus.BACKLOG),
+                fixture.projectId(),
+                fixture.actorId(),
+                WorkItemFilter.ofStatus(WorkItemStatus.BACKLOG),
+                WorkItemSort.UPDATED_AT,
                 Optional.empty(),
                 1);
         WorkItemPage firstPage = repository.findPage(firstQuery);
-        WorkItemPage secondPage = repository.findPage(new WorkItemQuery(
+        WorkItemPage secondPage = repository.findPage(WorkItemQuery.create(
                 fixture.organizationId(),
                 fixture.teamId(),
-                Optional.of(fixture.projectId()),
-                Optional.of(WorkItemStatus.BACKLOG),
+                fixture.projectId(),
+                fixture.actorId(),
+                WorkItemFilter.ofStatus(WorkItemStatus.BACKLOG),
+                WorkItemSort.UPDATED_AT,
                 firstPage.nextCursor(),
                 1));
 

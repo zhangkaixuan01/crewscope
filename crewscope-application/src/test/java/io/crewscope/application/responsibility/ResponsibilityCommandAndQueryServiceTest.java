@@ -25,6 +25,7 @@ import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamJoinMethod;
 import io.crewscope.domain.team.TeamMember;
@@ -430,6 +431,18 @@ class ResponsibilityCommandAndQueryServiceTest {
           .filter(value -> value.role() == role)
           .filter(value -> value.actorPrincipalId().equals(actorPrincipalId))
           .findFirst();
+    }
+
+    @Override
+    public List<ResponsibilityAssignment> findActiveByActorMember(
+        OrganizationId organizationId, TeamId teamId, TeamMemberId memberId) {
+      return values.values().stream()
+          .filter(ResponsibilityAssignment::isActive)
+          .filter(value -> value.scope().organizationId().equals(organizationId))
+          .filter(value -> value.scope().teamId().equals(teamId))
+          .filter(value -> value.actorMemberId().isPresent())
+          .filter(value -> value.actorMemberId().orElseThrow().equals(memberId))
+          .toList();
     }
   }
 }

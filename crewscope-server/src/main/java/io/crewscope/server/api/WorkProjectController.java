@@ -224,7 +224,7 @@ public final class WorkProjectController {
   }
 
   public record CreateWorkProjectRequest(
-      @NotBlank @Pattern(regexp = WorkProjectKey.FORMAT_REGEX) String key,
+      @Pattern(regexp = WorkProjectKey.FORMAT_REGEX) String key,
       @NotBlank @Size(max = WorkProject.MAX_NAME_LENGTH) String name) {}
 
   public record WorkProjectPageResponse(

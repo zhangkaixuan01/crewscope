@@ -8,6 +8,70 @@ import { responsibilityIds } from '../../test/workItemFixtures'
 const scope = { organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform, projectId: fixtureIds.projectCrewScope }
 
 describe('WorkItem store', () => {
+  it('stops remaining rows when the owning page unmounts without a project change', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+    await store.load(scope)
+    let ownsPage = true
+    let resolve!: (value: Awaited<ReturnType<typeof gateway.assignExecutor>>) => void
+    const write = vi.spyOn(gateway, 'assignExecutor').mockImplementation(() => new Promise(yes => { resolve = yes }))
+    const batch = store.assignRows(scope, [bulkRow('a', workItemIds.first, []), bulkRow('b', workItemIds.second, [])], 'EXECUTOR', fixtureIds.principal, () => ownsPage)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    ownsPage = false
+    resolve({ commandId: 'command', domainEventId: 'event', committedVersion: 1, correlationId: 'correlation' })
+    await batch
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(store.state.bulkPending).toBeNull()
+  })
+  it('stops a batch after prefetch when the project changes away and back', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+    await store.load(scope)
+    const details = await gateway.getWorkItem(scope, workItemIds.first)
+    let resolve!: (value: typeof details) => void
+    gateway.getWorkItem = vi.fn(() => new Promise<typeof details>(yes => { resolve = yes }))
+    const command = vi.spyOn(gateway, 'transitionWorkItem')
+    const old = store.transitionRows(scope, [bulkRow('a', workItemIds.first, [offered('IN_REVIEW')]), bulkRow('b', workItemIds.second, [offered('IN_REVIEW')])], 'IN_REVIEW')
+    await store.load({ ...scope, projectId: fixtureIds.projectRuntime })
+    await store.load(scope)
+    resolve(details)
+    await old
+    expect(command).not.toHaveBeenCalled()
+    expect(store.state.bulkPending).toBeNull()
+  })
+
+  it('retains original version/key and skips confirmed rows on partial-batch retry', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const original = gateway.transitionWorkItem.bind(gateway)
+    const calls: Array<Parameters<typeof gateway.transitionWorkItem>> = []
+    gateway.transitionWorkItem = async (...args) => {
+      calls.push(args)
+      const result = await original(...args)
+      if (args[1] === workItemIds.second && calls.length === 2) throw new Error('response lost')
+      return result
+    }
+    const store = createWorkItemStore(gateway)
+    await store.load(scope)
+    const rows = [bulkRow('a', workItemIds.first, [offered('IN_REVIEW')]), bulkRow('b', workItemIds.second, [offered('IN_REVIEW')])]
+    await store.transitionRows(scope, rows, 'IN_REVIEW')
+    await store.transitionRows(scope, rows, 'IN_REVIEW')
+    expect(calls).toHaveLength(3)
+    expect(calls[2]).toEqual(calls[1])
+  })
+
+  it('does not publish an old detail command after selecting A → B → A', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+    await store.loadDetails(scope, workItemIds.first)
+    let reject!: (reason: Error) => void
+    gateway.addComment = vi.fn(() => new Promise<never>((_yes, no) => { reject = no }))
+    const old = store.addComment({ content: 'old comment' }).catch(() => {})
+    await store.loadDetails(scope, workItemIds.second)
+    await store.loadDetails(scope, workItemIds.first)
+    reject(new Error('late'))
+    await old
+    expect(store.state.detailCommandErrorMessage).toBeNull()
+  })
   it('loads a server status filter and continues from an opaque Cursor without duplicates', async () => {
     const gateway = new FixtureWorkItemGateway()
     const store = createWorkItemStore(gateway)
@@ -18,6 +82,34 @@ describe('WorkItem store', () => {
     expect(gateway.queries[1]?.after).toBe('next-page')
     expect(store.state.items.map(item => item.id)).toEqual([workItemIds.first, workItemIds.second, workItemIds.third])
     expect(store.state.nextCursor).toBeNull()
+  })
+
+  it('continues a filtered page with the whole filter and restarts when any dimension changes', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+
+    await store.load(scope, { type: ['FEATURE', 'BUG'], sort: 'priority' })
+    await store.loadMore()
+    expect(gateway.queries[1]).toMatchObject({ type: ['FEATURE', 'BUG'], sort: 'priority', after: 'next-page' })
+
+    await store.load(scope, { type: ['BUG', 'FEATURE'], sort: 'priority' })
+    expect(gateway.queries).toHaveLength(2)
+
+    await store.load(scope, { status: 'READY' })
+    expect(gateway.queries.at(-1)?.after).toBeUndefined()
+    expect(gateway.queries.at(-1)?.status).toBe('READY')
+    expect(store.state.items.map(item => item.id)).toEqual([workItemIds.second])
+    expect(store.state.nextCursor).toBeNull()
+  })
+
+  it('reads a bare status argument as the legacy single-dimension filter', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+
+    await store.load(scope, 'IN_PROGRESS')
+
+    expect(gateway.queries[0]).toMatchObject({ status: 'IN_PROGRESS' })
+    expect(store.state.items.map(item => item.id)).toEqual([workItemIds.first])
   })
 
   it('reloads the active query after an idempotent create command', async () => {
@@ -451,7 +543,7 @@ describe('WorkItem store', () => {
 
       // 结果未知 ≠ 失败：把丢失的命令读成「可以做点什么的工作项」会诱发重复提交。
       expect(result!.outcome).toBe('failed')
-      expect(result!.message).toBe('暂时无法更新该工作项状态，请稍后重试')
+      expect(result!.message).toContain('提交结果尚未确认')
     })
 
     it('re-reads a conflicting row and names its state instead of guessing', async () => {

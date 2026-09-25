@@ -1,3 +1,4 @@
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { ConversationMessageGateway } from './messageGateway'
@@ -137,9 +138,11 @@ export function createConversationMessageStore(gateway: ConversationMessageGatew
     const normalizedContent = content.trim()
     if (!normalizedContent) return false
     if (activeScopeKey !== scopeKey(scope)) changeScope(scope)
+    const previous = state.pending.find(item => item.authorPrincipalId === authorPrincipalId && item.content === normalizedContent)
+    if (previous) return previous.status === 'failed' ? retry(scope, previous.clientId) : false
     const pending: PendingConversationMessage = {
-      clientId: crypto.randomUUID(),
-      idempotencyKey: crypto.randomUUID(),
+      clientId: secureId(),
+      idempotencyKey: secureId(),
       authorPrincipalId,
       content: normalizedContent,
       createdAt: new Date().toISOString(),
@@ -171,9 +174,9 @@ export function createConversationMessageStore(gateway: ConversationMessageGatew
     state.commandErrorStatus = null
     try {
       await gateway.postMessage(scope, { content: pending.content }, pending.idempotencyKey, controller.signal)
-      if (activeScopeKey !== targetScopeKey || !state.pending.some(item => item.clientId === pending.clientId)) return false
+      if (controller.signal.aborted || activeScopeKey !== targetScopeKey || !state.pending.some(item => item.clientId === pending.clientId)) return false
       await refreshLatest(scope)
-      if (activeScopeKey !== targetScopeKey) return false
+      if (controller.signal.aborted || activeScopeKey !== targetScopeKey) return false
       const committed = state.items.some(message =>
         message.sequence > pending.baselineSequence
         && message.type === 'USER_MESSAGE'
@@ -187,7 +190,7 @@ export function createConversationMessageStore(gateway: ConversationMessageGatew
       state.pending = state.pending.filter(item => item.clientId !== pending.clientId)
       return true
     } catch (error) {
-      if (isAbort(error) || activeScopeKey !== targetScopeKey) return false
+      if (isAbort(error) || controller.signal.aborted || activeScopeKey !== targetScopeKey) return false
       markFailed(pending, presentError(error, '消息发送失败，请重试'))
       state.commandErrorStatus = statusOf(error)
       return false
@@ -213,7 +216,7 @@ export function createConversationMessageStore(gateway: ConversationMessageGatew
       state.errorMessage = null
       state.errorStatus = null
     } catch (error) {
-      if (isAbort(error) || activeScopeKey !== targetScopeKey) return
+      if (isAbort(error) || version !== historyVersion || activeScopeKey !== targetScopeKey) return
       state.errorStatus = statusOf(error)
       throw error
     } finally {

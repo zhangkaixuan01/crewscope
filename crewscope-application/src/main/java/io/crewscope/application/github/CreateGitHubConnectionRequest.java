@@ -21,15 +21,18 @@ public record CreateGitHubConnectionRequest(
         teamId = Objects.requireNonNull(teamId, "teamId");
         credentialSubjectType = Objects.requireNonNull(
                 credentialSubjectType, "credentialSubjectType");
-        if (externalAccountId == null || !externalAccountId.strip().matches("[0-9]{1,100}")) {
+        // The provider is authoritative for identity.  Keep the legacy field
+        // for old clients, but do not require users to paste a numeric ID.
+        if (externalAccountId != null && !externalAccountId.isBlank()
+                && !externalAccountId.strip().matches("[0-9]{1,100}")) {
             throw new IllegalArgumentException("externalAccountId must be a GitHub numeric identity");
         }
-        externalAccountId = externalAccountId.strip();
-        repositoryAllowlist = Set.copyOf(
-                Objects.requireNonNull(repositoryAllowlist, "repositoryAllowlist"));
-        if (repositoryAllowlist.isEmpty()) {
-            throw new IllegalArgumentException("repositoryAllowlist must not be empty");
-        }
+        externalAccountId = externalAccountId == null ? "" : externalAccountId.strip();
+        repositoryAllowlist = repositoryAllowlist == null
+                ? Set.of()
+                : Set.copyOf(repositoryAllowlist);
+        // Empty means discover first, then pin selected repositories on a
+        // ProviderBinding.  Non-empty legacy requests remain supported.
         expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
     }
 }

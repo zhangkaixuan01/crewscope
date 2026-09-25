@@ -18,9 +18,12 @@ import io.crewscope.application.identity.LoginDefenseUnavailableException;
 import io.crewscope.application.identity.PasswordHashCapacityException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
+import io.crewscope.application.principal.PrincipalDirectoryCursorExpiredException;
 import io.crewscope.application.team.FirstTeamAlreadyExistsException;
 import io.crewscope.application.team.TeamInvitationApplicationException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
+import io.crewscope.application.workdesk.WorkDeskCursorExpiredException;
+import io.crewscope.application.workitem.WorkItemCursorExpiredException;
 import io.crewscope.domain.shared.error.DomainError;
 import io.crewscope.domain.shared.error.DomainErrorCategory;
 import io.crewscope.infrastructure.workspace.repository.CodingArtifactException;
@@ -253,6 +256,39 @@ public class ApiExceptionHandler {
                     HttpStatus.GONE,
                     "cursor_expired",
                     "The Inbox page belongs to a projection generation that is no longer active",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof WorkItemCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The WorkItem list cursor has expired; restart the query from its first page",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof WorkDeskCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The WorkDesk section cursor has expired; restart the section from its first screen",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof PrincipalDirectoryCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The principal directory cursor has expired; restart the directory from its first page",
                     false,
                     null,
                     Map.of(),

@@ -2,6 +2,7 @@ package io.crewscope.application.workitem;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -31,6 +32,7 @@ import io.crewscope.domain.workitem.WorkItemType;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -40,10 +42,22 @@ import org.junit.jupiter.api.Test;
 class WorkItemQueryServiceTest {
 
   @Test
-  void passesProjectStatusCursorAndLimitToTheRepository() {
+  void passesProjectFilterSortCursorAndLimitToTheRepository() {
     WorkItemCollaborationTestFixture fixture = new WorkItemCollaborationTestFixture();
     WorkItemQueryService service = service(fixture);
-    WorkItemCursor cursor = new WorkItemCursor(fixture.item.audit().updatedAt(), fixture.item.id());
+    WorkItemFilter filter = WorkItemFilter.ofStatus(WorkItemStatus.BACKLOG);
+    WorkItemCursor cursor =
+        new WorkItemCursor(
+            WorkItemCursorScope.of(
+                fixture.organizationId,
+                fixture.initialization.team().id(),
+                fixture.project.id(),
+                fixture.actor.id(),
+                WorkItemSort.UPDATED_AT,
+                filter),
+            Optional.of(fixture.item.audit().updatedAt()),
+            OptionalInt.empty(),
+            fixture.item.id());
 
     WorkItemListPage page =
         service.list(
@@ -51,15 +65,20 @@ class WorkItemQueryServiceTest {
             fixture.organizationId,
             fixture.initialization.team().id(),
             fixture.project.id(),
-            Optional.of(WorkItemStatus.BACKLOG),
+            filter,
+            WorkItemSort.UPDATED_AT,
             Optional.of(cursor),
             25);
 
     assertEquals(1, page.items().size());
     assertEquals(fixture.item.id(), page.items().get(0).workItem().id());
-    assertEquals(Optional.of(fixture.project.id()), fixture.lastQuery.projectId());
-    assertEquals(Optional.of(WorkItemStatus.BACKLOG), fixture.lastQuery.status());
-    assertEquals(Optional.of(cursor), fixture.lastQuery.cursor());
+    assertEquals(fixture.organizationId, fixture.lastQuery.organizationId());
+    assertEquals(fixture.initialization.team().id(), fixture.lastQuery.teamId());
+    assertEquals(Optional.of(fixture.project.id()), Optional.of(fixture.lastQuery.projectId()));
+    assertEquals(Set.of(WorkItemStatus.BACKLOG), fixture.lastQuery.filter().statuses());
+    assertEquals(WorkItemSort.UPDATED_AT, fixture.lastQuery.sort());
+    assertEquals(fixture.actor.id(), fixture.lastQuery.viewerPrincipalId());
+    assertEquals(Optional.of(cursor), fixture.lastQuery.after());
     assertEquals(25, fixture.lastQuery.limit());
   }
 
@@ -74,7 +93,8 @@ class WorkItemQueryServiceTest {
                 fixture.organizationId,
                 fixture.initialization.team().id(),
                 fixture.project.id(),
-                Optional.empty(),
+                WorkItemFilter.ALL,
+                WorkItemSort.UPDATED_AT,
                 Optional.empty(),
                 25);
 
@@ -106,7 +126,8 @@ class WorkItemQueryServiceTest {
                 fixture.organizationId,
                 fixture.initialization.team().id(),
                 fixture.project.id(),
-                Optional.empty(),
+                WorkItemFilter.ALL,
+                WorkItemSort.UPDATED_AT,
                 Optional.empty(),
                 25);
 
@@ -144,7 +165,8 @@ class WorkItemQueryServiceTest {
             fixture.organizationId,
             fixture.initialization.team().id(),
             fixture.project.id(),
-            Optional.empty(),
+            WorkItemFilter.ALL,
+            WorkItemSort.UPDATED_AT,
             Optional.empty(),
             25);
 
@@ -155,6 +177,43 @@ class WorkItemQueryServiceTest {
     assertTrue(
         page.items().stream().allMatch(row -> row.availableActions().equals(first)),
         "one verdict for one project, reused by every row");
+  }
+
+  /**
+   * The summary follows the same budget rule as the permission verdict: one batch over the page's ID
+   * set, and each row carries exactly the fact that batch produced for it. One call per row would be
+   * the N+1 that a board of 500 items cannot afford.
+   */
+  @Test
+  void assemblesTheExecutionSummaryAsOneBatchPerPage() {
+    WorkItemCollaborationTestFixture fixture = new WorkItemCollaborationTestFixture();
+    fixture.create(secondItem(fixture, "CRW-2"));
+    WorkItemExecutionSummary seeded =
+        WorkItemExecutionSummary.none(
+            fixture.item.id(), fixture.item.version(), fixture.item.status(), fixture.NOW);
+    fixture.summaryRepository.facts.put(fixture.item.id(), seeded);
+
+    WorkItemListPage page =
+        service(fixture)
+            .list(
+                fixture.access(),
+                fixture.organizationId,
+                fixture.initialization.team().id(),
+                fixture.project.id(),
+                WorkItemFilter.ALL,
+                WorkItemSort.UPDATED_AT,
+                Optional.empty(),
+                25);
+
+    assertEquals(1, fixture.summaryRepository.calls, "one summary batch per page, never per row");
+    assertEquals(
+        Set.of(fixture.item.id(), page.items().get(1).workItem().id()),
+        Set.copyOf(fixture.summaryRepository.lastRequestedIds),
+        "the batch must ask for the whole page's ID set");
+    assertSame(seeded, page.items().get(0).summary().orElseThrow());
+    assertTrue(
+        page.items().get(1).summary().isEmpty(),
+        "an ID the batch did not answer stays summary-less, not guessed");
   }
 
   @Test
@@ -192,6 +251,14 @@ class WorkItemQueryServiceTest {
     // The panel no longer needs a second round trip that could observe a different verdict.
     assertFalse(details.availableActions().isEmpty());
     assertTrue(details.availableActions().stream().allMatch(WorkItemAvailableTransition::enabled));
+    // A task-less detail still carries the zero-task summary instead of an empty block.
+    WorkItemExecutionSummary summary = details.summary().orElseThrow();
+    assertEquals(fixture.item.id(), summary.workItemId());
+    assertEquals(0, summary.taskCount());
+    assertFalse(summary.selectionRequired());
+    assertTrue(summary.blockedReasons().isEmpty());
+    assertEquals(fixture.item.version(), summary.projectionVersion());
+    assertEquals(fixture.NOW, summary.observedAt());
   }
 
   @Test
@@ -259,6 +326,7 @@ class WorkItemQueryServiceTest {
         fixture.linkRepository,
         fixture.accessPolicy(),
         new WorkItemTransitionAvailabilityProjector(),
+        fixture.summaryRepository,
         fixture,
         () -> WorkItemCollaborationTestFixture.NOW);
   }
@@ -312,6 +380,7 @@ class WorkItemQueryServiceTest {
         fixture.linkRepository,
         countingPolicy,
         new WorkItemTransitionAvailabilityProjector(),
+        fixture.summaryRepository,
         fixture,
         () -> WorkItemCollaborationTestFixture.NOW);
   }

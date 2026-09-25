@@ -9,7 +9,8 @@ const route = useRoute()
 const permissionLabels: Record<string, string> = {
   [permissions.scopeRead]: '查看团队范围', [permissions.conversationUse]: '使用对话', [permissions.workRead]: '查看工作项',
   [permissions.teamMembersRead]: '查看团队成员', [permissions.repositoriesManage]: '管理受管仓库', [permissions.providerManage]: '管理集成与模型',
-  [permissions.agentManage]: '管理 Agent', [permissions.teamMembersManage]: '管理团队成员', [permissions.workProjectsManage]: '管理 WorkProject',
+  [permissions.agentManage]: '管理 Agent', [permissions.teamMembersManage]: '管理团队成员', [permissions.teamRolesManage]: '管理团队角色',
+  [permissions.workProjectsManage]: '管理 WorkProject',
   [permissions.auditRead]: '查看审计', [permissions.operationsManage]: '管理运维',
 }
 const requiredPermissionLabel = () => permissionLabels[String(route.query.requiredPermission ?? '')] ?? '访问此区域'

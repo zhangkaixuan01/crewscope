@@ -17,6 +17,7 @@ const eventLabels: Record<string, string> = {
   WORK_ITEM_CREATED: '创建工作项',
   WORK_ITEM_TRANSITIONED: '更新工作项状态',
   WORK_ITEM_STATUS_CHANGED: '更新工作项状态',
+  WORK_ITEM_CONTENT_UPDATED: '修改工作项内容',
   COMMENT_ADDED: '添加评论',
   RESOURCE_LINKED: '关联资源',
   RESPONSIBILITY_ASSIGNED: '分配责任',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { secureId } from '../api/secureId'
 import { Activity, Coins, KeyRound, Layers3, Plus, RefreshCw, ShieldCheck } from '@lucide/vue'
-import { computed, inject, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -15,6 +16,9 @@ import { useScopeStore } from '../domains/scope/store'
 import { modelSettingsSelection, withModelSettingsRoute } from '../domains/settings/route'
 import { connectionStatusLabels, healthStatusLabels, modelSubjectTypeLabels, ownerTypeLabels, retentionLabels, trainingPolicyLabels } from '../domains/settings/labels'
 import { enumLabel } from '../domains/shared/labels'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -53,10 +57,17 @@ const createTrigger = ref<HTMLElement | null>(null)
 const lifecycleAttemptSignature = ref('')
 const lifecycleAttemptKey = ref('')
 let activeTeamId: string | null = null
+watch(() => [scopeStore.state.selectedTeamId, selection.value.connectionId], () => {
+  createOpen.value = false
+  rotateConnection.value = null
+  modelStore.clearCommand()
+}, { flush: 'sync' })
+onBeforeUnmount(() => modelStore.clearCommand())
 
 watch(
   () => scopeStore.state.selectedTeamId,
   async teamId => {
+    const pageOwner = pageRequests.capture()
     if (!teamId || !team.value?.organizationId) return
     const changed = activeTeamId !== null && activeTeamId !== teamId
     activeTeamId = teamId
@@ -65,8 +76,13 @@ watch(
         name: 'model-settings',
         query: withModelSettingsRoute(route.query, { teamId, providerKey: null, connectionId: null, ownerType: 'USER' }),
       })
+      if (!pageOwner.isCurrent()) return
     }
     modelStore.activateScope({ organizationId: team.value.organizationId, teamId })
+    // Providers, connections and the restored selection are Team-scoped reads, and the store isolates
+    // them by its own scope generation: gating them on the page coordinate — which also covers the
+    // project the scope store picks a beat after the Team — cancelled the deep-link catalog read on
+    // every fresh boot and left the registry on "正在加载模型目录" forever.
     await Promise.all([loadProviders(), ...ownerTypes.value.map(owner => modelStore.loadConnections(owner))])
     await restoreSelection()
   },
@@ -99,6 +115,7 @@ async function restoreSelection(): Promise<void> {
 }
 
 async function selectProvider(provider: ModelProviderSummary): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
   await router.push({
@@ -107,20 +124,26 @@ async function selectProvider(provider: ModelProviderSummary): Promise<void> {
       teamId, providerKey: provider.key, connectionId: selection.value.connectionId, ownerType: activeOwnerType.value,
     }),
   })
+  if (!pageOwner.isCurrent()) return
   await modelStore.loadCatalog(provider.key)
+  if (!pageOwner.isCurrent()) return
 }
 
 async function switchOwner(ownerType: ModelConnectionOwnerType): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId || !ownerTypes.value.includes(ownerType)) return
   await router.push({
     name: 'model-settings',
     query: withModelSettingsRoute(route.query, { teamId, providerKey: selection.value.providerKey, connectionId: null, ownerType }),
   })
+  if (!pageOwner.isCurrent()) return
   await modelStore.loadConnections(ownerType)
+  if (!pageOwner.isCurrent()) return
 }
 
 async function selectConnection(connection: ModelConnectionSummary): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
   modelStore.clearCommand()
@@ -132,10 +155,13 @@ async function selectConnection(connection: ModelConnectionSummary): Promise<voi
       teamId, providerKey: connection.providerKey, connectionId: connection.id, ownerType: connection.ownerType,
     }),
   })
+  if (!pageOwner.isCurrent()) return
   await modelStore.loadConnection(connection.id)
+  if (!pageOwner.isCurrent()) return
 }
 
 async function closeDetail(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const id = selection.value.connectionId
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
@@ -143,7 +169,9 @@ async function closeDetail(): Promise<void> {
     name: 'model-settings',
     query: withModelSettingsRoute(route.query, { teamId, providerKey: selection.value.providerKey, connectionId: null, ownerType: activeOwnerType.value }),
   })
+  if (!pageOwner.isCurrent()) return
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (id) document.querySelector<HTMLElement>(`[data-connection-id="${id}"]`)?.focus()
 }
 
@@ -155,36 +183,55 @@ function openCreate(event?: MouseEvent): void {
 }
 
 async function closeCredentialDialog(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (modelStore.state.command.phase === 'pending') return
   createOpen.value = false
   rotateConnection.value = null
   await nextTick(() => createTrigger.value?.focus())
+  if (!pageOwner.isCurrent()) return
 }
 
 async function createConnection(input: CreateModelConnectionInput, idempotencyKey: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const before = new Set(modelStore.state.connections[input.ownerType]?.value?.map(item => item.id) ?? [])
   const success = await modelStore.createConnection(input, idempotencyKey)
+  if (!pageOwner.isCurrent()) return
   if (!success) return
   await modelStore.loadConnections(input.ownerType, false, true)
+  if (!pageOwner.isCurrent()) return
   const created = (modelStore.state.connections[input.ownerType]?.value ?? []).filter(item => !before.has(item.id))
   createOpen.value = false
   if (created.length === 1) await selectConnection(created[0]!)
 }
 
-async function rotateCredential(connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string): Promise<void> {
-  const success = await modelStore.rotateCredential(connectionId, credentialVersion, apiKey, idempotencyKey)
+async function rotateCredential(connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string, expectedVersion: number): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
+  if (rotateConnection.value?.id !== connectionId || rotateConnection.value.version !== expectedVersion) return
+  const success = await modelStore.rotateCredential(connectionId, credentialVersion, apiKey, idempotencyKey, expectedVersion)
+  if (!pageOwner.isCurrent()) return
   if (!success) {
     if (modelStore.state.command.phase === 'conflict') {
       await modelStore.loadConnection(connectionId, true)
+      if (!pageOwner.isCurrent()) return
       rotateConnection.value = modelStore.state.connectionDetails[connectionId]?.value?.value ?? null
     }
     return
   }
   rotateConnection.value = null
   await refreshConnection(connectionId)
+  if (!pageOwner.isCurrent()) return
 }
 
-async function runConnectionCommand(operation: 'verify' | 'suspend' | 'revoke', connectionId: string, reason?: string): Promise<void> {
+async function readOriginalConnection(id: string | null, owner: CreateModelConnectionInput['ownerType']): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
+  if (id) await modelStore.loadConnection(id, true)
+  else await modelStore.loadConnections(owner, false, true)
+  if (!pageOwner.isCurrent()) return
+  // A read is not a command receipt. Keep the unknown state and original form/key available.
+}
+
+async function runConnectionCommand(operation: 'verify' | 'suspend' | 'activate' | 'revoke', connectionId: string, reason?: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const detail = modelStore.state.connectionDetails[connectionId]?.value
   if (!detail) return
   const signature = JSON.stringify([
@@ -192,7 +239,7 @@ async function runConnectionCommand(operation: 'verify' | 'suspend' | 'revoke', 
   ])
   if (signature !== lifecycleAttemptSignature.value) {
     lifecycleAttemptSignature.value = signature
-    lifecycleAttemptKey.value = crypto.randomUUID()
+    lifecycleAttemptKey.value = secureId()
   }
   modelStore.clearCommand()
   const key = lifecycleAttemptKey.value
@@ -200,17 +247,22 @@ async function runConnectionCommand(operation: 'verify' | 'suspend' | 'revoke', 
     ? await modelStore.verifyConnection(connectionId, key)
     : operation === 'suspend'
       ? await modelStore.suspendConnection(connectionId, key)
-      : await modelStore.revokeConnection(connectionId, reason ?? 'OWNER_REQUESTED', key)
+      : operation === 'activate'
+        ? await modelStore.activateConnection(connectionId, key)
+        : await modelStore.revokeConnection(connectionId, reason ?? 'OWNER_REQUESTED', key)
+  if (!pageOwner.isCurrent()) return
   if (success) await refreshConnection(connectionId)
   else if (modelStore.state.command.phase === 'conflict') await modelStore.loadConnection(connectionId, true)
 }
 
 async function refreshConnection(connectionId = selection.value.connectionId): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!connectionId) return
   await Promise.all([
     modelStore.loadConnections(activeOwnerType.value, false, true),
     modelStore.loadConnection(connectionId, true),
   ])
+  if (!pageOwner.isCurrent()) return
 }
 
 function canManageConnection(connection: ModelConnectionSummary | null): boolean {
@@ -267,6 +319,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
       @close="closeCredentialDialog"
       @create="createConnection"
       @rotate="rotateCredential"
+      @read-original="readOriginalConnection"
     />
 
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
@@ -318,6 +371,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
         @verify="runConnectionCommand('verify', $event)"
         @rotate="rotateConnection = $event; modelStore.clearCommand()"
         @suspend="runConnectionCommand('suspend', $event)"
+        @activate="runConnectionCommand('activate', $event)"
         @revoke="(id, reason) => runConnectionCommand('revoke', id, reason)"
       />
 

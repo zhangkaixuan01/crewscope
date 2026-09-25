@@ -37,6 +37,7 @@ import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.team.TeamMember;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamScope;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkItemId;
@@ -128,6 +129,8 @@ final class TaskTokenRuntimeFixture {
 
     private TeamMember ownerMembership() {
         TeamMember value = mock(TeamMember.class);
+        when(value.id()).thenReturn(TeamMemberId.generate());
+        when(value.authorizationVersion()).thenReturn(1L);
         when(value.userPrincipalId()).thenReturn(owner.id());
         when(value.scope()).thenReturn(new TeamScope(organizationId, workScope.teamId()));
         when(value.canParticipate()).thenReturn(true);

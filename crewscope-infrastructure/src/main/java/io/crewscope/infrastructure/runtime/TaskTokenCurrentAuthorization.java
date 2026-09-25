@@ -10,9 +10,12 @@ import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.error.DomainValidationException;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.task.TaskCredentialGrant;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskTokenGrantScope;
+import io.crewscope.domain.team.TeamMember;
+import io.crewscope.domain.workitem.WorkItemScope;
 import java.util.Objects;
 
 /** Rebuilds every mutable execution, responsibility and membership fact for a Task Token. */
@@ -87,51 +90,78 @@ public final class TaskTokenCurrentAuthorization {
         requireCurrentMembership(scope, assignment, principal);
     }
 
-    private void requireCurrentMembership(
-            TaskTokenGrantScope scope,
-            ResponsibilityAssignment assignment,
-            Principal principal) {
+    /**
+     * Resolves the participating member behind an execution principal: the USER executor
+     * themselves, or the owning user of an AGENT executor. Fails closed when no active
+     * membership backs the principal. Token issuance pins this member's authorization
+     * dimension; every side-effect boundary reloads the same facts.
+     */
+    public TeamMember currentExecutionMember(
+            WorkItemScope scope, PrincipalId executionPrincipalId) {
+        WorkItemScope requiredScope = Objects.requireNonNull(scope, "scope");
+        PrincipalId requiredPrincipalId = Objects.requireNonNull(
+                executionPrincipalId, "executionPrincipalId");
+        Principal principal = principalRepository.findById(
+                        requiredScope.organizationId(), requiredPrincipalId)
+                .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
         if (principal.type() == PrincipalType.USER) {
-            var member = memberRepository.findById(
-                            scope.workItemScope().organizationId(),
-                            assignment.actorMemberId()
-                                    .orElseThrow(TaskTokenCurrentAuthorization::invalidToken))
-                    .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
-            if (!member.canParticipate()
-                    || !member.userPrincipalId().equals(principal.id())
-                    || !member.scope().organizationId().equals(
-                            scope.workItemScope().organizationId())
-                    || !member.scope().teamId().equals(scope.workItemScope().teamId())) {
+            if (!principal.canAct()
+                    || !principal.scope().organizationId().equals(
+                            requiredScope.organizationId())) {
                 throw invalidToken();
             }
-            return;
+            return memberRepository.findByTeamAndUserPrincipalId(
+                            requiredScope.organizationId(),
+                            requiredScope.teamId(),
+                            requiredPrincipalId)
+                    .filter(TeamMember::canParticipate)
+                    .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
         }
         if (principal.type().isAgent()) {
             var ownerId = principal.ownerPrincipalId()
                     .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
             Principal owner = principalRepository.findById(
-                            scope.workItemScope().organizationId(), ownerId)
-                    .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
-            var ownerMembership = memberRepository.findByTeamAndUserPrincipalId(
-                            scope.workItemScope().organizationId(),
-                            scope.workItemScope().teamId(),
-                            ownerId)
+                            requiredScope.organizationId(), ownerId)
                     .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
             if (owner.type() != PrincipalType.USER
                     || !owner.canAct()
                     || !owner.scope().organizationId().equals(
-                            scope.workItemScope().organizationId())
-                    || !ownerMembership.canParticipate()
-                    || !ownerMembership.userPrincipalId().equals(ownerId)
-                    || !ownerMembership.scope().organizationId().equals(
-                            scope.workItemScope().organizationId())
-                    || !ownerMembership.scope().teamId().equals(
-                            scope.workItemScope().teamId())) {
+                            requiredScope.organizationId())) {
                 throw invalidToken();
             }
-            return;
+            return memberRepository.findByTeamAndUserPrincipalId(
+                            requiredScope.organizationId(),
+                            requiredScope.teamId(),
+                            ownerId)
+                    .filter(TeamMember::canParticipate)
+                    .orElseThrow(TaskTokenCurrentAuthorization::invalidToken);
         }
         throw invalidToken();
+    }
+
+    private void requireCurrentMembership(
+            TaskTokenGrantScope scope,
+            ResponsibilityAssignment assignment,
+            Principal principal) {
+        TeamMember member = currentExecutionMember(
+                scope.workItemScope(), scope.executionPrincipal().principalId());
+        if (principal.type() == PrincipalType.USER
+                && !member.id().equals(
+                        assignment.actorMemberId()
+                                .orElseThrow(TaskTokenCurrentAuthorization::invalidToken))) {
+            throw invalidToken();
+        }
+        // ADR-038 §2: a scope that pins the member authorization dimension must still match
+        // the current fact. Legacy scopes without the dimension keep reading history.
+        if (scope.executionMemberId().isPresent()
+                && !scope.executionMemberId().orElseThrow().equals(member.id())) {
+            throw invalidToken();
+        }
+        if (scope.executionMemberAuthorizationVersion().isPresent()
+                && scope.executionMemberAuthorizationVersion().orElseThrow()
+                        != member.authorizationVersion()) {
+            throw invalidToken();
+        }
     }
 
     private static DomainValidationException invalidToken() {

@@ -27,6 +27,7 @@ const emit = defineEmits<{
   close: []
   refresh: []
   verify: [connectionId: string]
+  activate: [connectionId: string]
   rotate: [connection: ModelConnectionSummary]
   suspend: [connectionId: string]
   revoke: [connectionId: string, reason: string]
@@ -165,14 +166,16 @@ function formatTime(value: string | null): string {
       <section class="connection-actions" aria-labelledby="connection-actions-title">
         <div><p class="eyebrow">Lifecycle</p><h3 id="connection-actions-title">连接操作</h3><span v-if="!canManage">当前成员可查看 Team Connection，管理操作需要 Provider Manager 权限。</span></div>
         <div v-if="canManage && connection.status !== 'REVOKED'" class="action-buttons">
-          <BaseButton v-if="connection.status === 'ACTIVE'" size="small" variant="secondary" :loading="pending && command.operation === 'verify'" :disabled="pending" @click="emit('verify', connection.id)"><Activity :size="14" />验证健康</BaseButton>
+          <BaseButton v-if="connection.status === 'ACTIVE' || connection.status === 'SUSPENDED'" size="small" variant="secondary" :loading="pending && command.operation === 'verify'" :disabled="pending" @click="emit('verify', connection.id)"><Activity :size="14" />验证健康</BaseButton>
+          <BaseButton v-if="connection.status === 'SUSPENDED'" size="small" variant="secondary" :loading="pending && command.operation === 'activate'" :disabled="pending || connection.healthStatus !== 'HEALTHY'" aria-describedby="model-connection-activate-reason" @click="emit('activate', connection.id)"><Activity :size="14" />重新启用</BaseButton>
+          <p v-if="connection.status === 'SUSPENDED'" id="model-connection-activate-reason" class="sr-only">{{ connection.healthStatus === 'HEALTHY' ? '健康检查通过后可以重新启用连接。' : '连接必须先通过健康检查，才能重新启用。' }}</p>
           <BaseButton size="small" variant="secondary" :disabled="pending" @click="emit('rotate', connection)"><RotateCw :size="14" />轮换凭证</BaseButton>
           <BaseButton v-if="connection.status === 'ACTIVE'" size="small" variant="secondary" :loading="pending && command.operation === 'suspend'" :disabled="pending" @click="emit('suspend', connection.id)">停用连接</BaseButton>
           <BaseButton size="small" variant="danger" :disabled="pending" @click="openRevoke">永久撤销</BaseButton>
         </div>
         <p v-else-if="connection.status === 'REVOKED'" class="terminal-note">连接已永久撤销 · {{ label(connection.revocationReason, modelConnectionRevocationReasonLabels) }}</p>
         <p v-else class="read-only-note">服务端仍会在每次命令中重新校验权限。</p>
-        <p v-if="connection.status === 'SUSPENDED'" class="recovery-note">当前公开 API 尚未提供重新启用命令；可轮换或撤销凭证，恢复入口将在服务端契约交付后开放。</p>
+        <p v-if="connection.status === 'SUSPENDED'" class="recovery-note">停用连接不会删除凭证；只有当前凭证健康状态为“健康”时才能重新启用。凭证轮换后需先验证健康。</p>
       </section>
 
       <section class="audit-evidence" aria-labelledby="connection-audit-title">

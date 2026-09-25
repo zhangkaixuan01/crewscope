@@ -22,6 +22,7 @@ const ids = {
 
 const principal: AuthenticatedPrincipal = {
   id: fixtureIds.principal,
+  accountId: '00000000-0000-0000-0000-000000000201',
   displayName: '测试成员',
   role: 'Member',
   organizationId: fixtureIds.organization,

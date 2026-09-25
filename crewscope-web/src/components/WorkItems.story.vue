@@ -36,6 +36,7 @@ const item: WorkItemSummary = {
   updatedAt: '2026-08-08T02:00:00Z',
   updatedByPrincipalId: '00000000-0000-0000-0000-000000000101',
   availableActions: availableTransitions,
+  summary: null,
 }
 
 const details: WorkItemDetails = {

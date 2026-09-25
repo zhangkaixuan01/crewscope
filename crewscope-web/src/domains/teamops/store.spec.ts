@@ -140,6 +140,59 @@ describe('TeamOpsStore', () => {
     expect(store.state.inboxCounts.error).not.toBeNull()
   })
 
+  it('does not let a cleared old command overwrite another command receipt', async () => {
+    const old = deferred<CommandReceipt>()
+    const current = deferred<CommandReceipt>()
+    const gateway = fixtureGateway({ verifyLarkMember: vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise) })
+    const store = createTeamOpsStore(gateway)
+    store.activateScope(platform)
+    const first = store.verifyLarkMember('binding-1', 1, 'ou_old', 'old-key')
+    store.clearCommand()
+    const second = store.verifyLarkMember('binding-2', 2, 'ou_new', 'new-key')
+    old.resolve(receipt())
+    expect(await first).toBe(false)
+    expect(store.state.command.phase).toBe('pending')
+    expect(store.state.command.targetId).toBe('binding-2')
+    current.resolve({ ...receipt(), domainEventId: 'new-proof' })
+    expect(await second).toBe(true)
+    expect(store.state.command.receipt).toMatchObject({ domainEventId: 'new-proof' })
+  })
+
+  it('does not send rotation after its detail prefetch crosses a Team boundary', async () => {
+    const detail = deferred<Awaited<ReturnType<TeamOpsGateway['larkConnection']>>>()
+    const gateway = fixtureGateway({ larkConnection: vi.fn(() => detail.promise), rotateLarkConnection: vi.fn(async () => receipt()) })
+    const store = createTeamOpsStore(gateway)
+    store.activateScope(platform)
+    const pending = store.rotateLarkConnection('connection', { appId: 'app', appSecret: 'test-only' }, 'key', 4)
+    store.activateScope(security)
+    detail.resolve({ etag: '"4"', value: { connectionId: 'connection', version: 4 } } as never)
+    expect(await pending).toBe(false)
+    expect(gateway.rotateLarkConnection).not.toHaveBeenCalled()
+  })
+
+  it('sends the observed dialog version rather than upgrading to a newer fetched etag', async () => {
+    const gateway = fixtureGateway({
+      larkConnection: vi.fn(async () => ({ etag: '"5"', value: { connectionId: 'connection', version: 5 } } as never)),
+      rotateLarkConnection: vi.fn(async () => receipt()),
+    })
+    const store = createTeamOpsStore(gateway)
+    store.activateScope(platform)
+    await store.rotateLarkConnection('connection', { appId: 'app', appSecret: 'test-only' }, 'key', 4)
+    expect(gateway.rotateLarkConnection).toHaveBeenCalledWith(platform, 'connection', '"4"', { appId: 'app', appSecret: 'test-only' }, 'key')
+  })
+
+  it('does not dispatch rotation when its intent is cleared during same-Team prefetch', async () => {
+    const detail = deferred<Awaited<ReturnType<TeamOpsGateway['larkConnection']>>>()
+    const gateway = fixtureGateway({ larkConnection: vi.fn(() => detail.promise), rotateLarkConnection: vi.fn(async () => receipt()) })
+    const store = createTeamOpsStore(gateway)
+    store.activateScope(platform)
+    const pending = store.rotateLarkConnection('connection', { appId: 'app', appSecret: 'test-only' }, 'key', 4)
+    store.clearCommand()
+    detail.resolve({ etag: '"4"', value: { connectionId: 'connection', version: 4 } } as never)
+    expect(await pending).toBe(false)
+    expect(gateway.rotateLarkConnection).not.toHaveBeenCalled()
+  })
+
   it('rejects a second command while the shared command slot is pending', async () => {
     const pending = deferred<CommandReceipt>()
     const gateway = fixtureGateway({
@@ -191,6 +244,7 @@ function inbox(id: string): InboxItem {
     openedAt: '2026-08-27T01:00:00Z', sourceStatus: 'OPEN', closeReason: null, closedAt: null,
     dispositionStatus: 'UNREAD', dispositionVersion: 4, etag: '"4"',
     source: { type: 'REVIEW_REQUEST', id: 'review-1', revision: 1 },
+    sourceContext: null,
   }
 }
 

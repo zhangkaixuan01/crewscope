@@ -5,7 +5,9 @@ public enum BuildTool {
     MAVEN("mvn"),
     MAVEN_WRAPPER("./mvnw"),
     GRADLE_WRAPPER("./gradlew"),
-    PROJECT_SCRIPT("./scripts/");
+    PROJECT_SCRIPT("./scripts/"),
+    /** Controlled npm argv used by the versioned Node runtime profile. */
+    NPM("npm");
 
     private final String executable;
 

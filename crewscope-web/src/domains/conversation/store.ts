@@ -1,5 +1,7 @@
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
+import { commandFailureMessage, createCommandIntents } from '../../api/commandIntent'
+import { acknowledgeCreation } from '../../api/creationRecovery'
 import type { ConversationGateway } from './gateway'
 import type {
   ConversationDetails,
@@ -59,6 +61,9 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
   })
 
   let activeScope: ConversationScope | null = null
+  const createIntents = createCommandIntents<CreateConversationInput, Awaited<ReturnType<ConversationGateway['createConversation']>>>()
+  let activeCreate: Promise<string | null> | null = null
+  let commandEpoch = 0
   let activeScopeKey: string | null = null
   // URL canonicalization can start a newer synchronization without changing the Team.
   // This version prevents the older call from restoring a Conversation that the newer URL removed.
@@ -185,35 +190,47 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
     state.detailErrorStatus = null
   }
 
-  async function create(scope: ConversationScope, input: CreateConversationInput): Promise<string | null> {
+  function create(scope: ConversationScope, input: CreateConversationInput): Promise<string | null> {
+    if (activeScopeKey !== scopeKey(scope)) changeScope(scope)
+    if (activeCreate) return activeCreate
+    const pending = runCreate({ ...scope }, { ...input })
+    activeCreate = pending
+    const clear = () => { if (activeCreate === pending) activeCreate = null }
+    void pending.then(clear, clear)
+    return pending
+  }
+
+  async function runCreate(scope: ConversationScope, input: CreateConversationInput): Promise<string | null> {
     const targetScopeKey = scopeKey(scope)
-    if (activeScopeKey !== targetScopeKey) changeScope(scope)
-    const knownIds = new Set(state.items.map(item => item.id))
+    const epoch = commandEpoch
     state.commandPending = true
     state.commandErrorMessage = null
     try {
-      await gateway.createConversation(scope, input, crypto.randomUUID())
-      if (activeScopeKey !== targetScopeKey) return null
+      const receipt = await createIntents.execute({ ...scope, commandType: 'CREATE_CONVERSATION' }, input,
+        (snapshot, key) => gateway.createConversation(scope, snapshot, key))
+      if (commandEpoch !== epoch || activeScopeKey !== targetScopeKey) return null
       await load(scope, true)
-      if (activeScopeKey !== targetScopeKey) return null
-      // A01 returns a CommandReceipt rather than the created aggregate identity. Reconcile only
-      // against the refreshed server collection so the browser never invents a Conversation ID.
-      const created = state.items.find(item => !knownIds.has(item.id) && item.title === input.title)
-        ?? state.items.find(item => !knownIds.has(item.id))
-        ?? null
-      if (created) await select(scope, created.id)
-      return created?.id ?? null
+      if (commandEpoch !== epoch || activeScopeKey !== targetScopeKey) return null
+      if (!receipt.creation) throw new Error('Created Conversation result is not available')
+      const id = receipt.creation.resourceId
+      await select(scope, id)
+      if (commandEpoch !== epoch || activeScopeKey !== targetScopeKey) return null
+      if (state.detailPhase === 'ready') acknowledgeCreation(receipt.recoveryKey, scope.organizationId)
+      return id
     } catch (error) {
-      if (activeScopeKey === targetScopeKey) {
-        state.commandErrorMessage = presentError(error, '暂时无法创建对话，请稍后重试')
+      if (commandEpoch === epoch && activeScopeKey === targetScopeKey) {
+        state.commandErrorMessage = commandFailureMessage(error, '暂时无法创建对话，请稍后重试')
       }
       throw error
     } finally {
-      state.commandPending = false
+      if (commandEpoch === epoch) state.commandPending = false
     }
   }
 
   function changeScope(scope: ConversationScope): void {
+    commandEpoch += 1
+    activeCreate = null
+    state.commandPending = false
     collectionVersion += 1
     detailVersion += 1
     collectionAbort?.abort()
@@ -233,6 +250,9 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
   }
 
   function reset(): void {
+    commandEpoch += 1
+    activeCreate = null
+    createIntents.clear()
     synchronizationVersion += 1
     collectionVersion += 1
     detailVersion += 1

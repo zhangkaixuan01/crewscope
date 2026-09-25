@@ -14,8 +14,11 @@ import {
   TriangleAlert,
   X,
 } from '@lucide/vue'
-import { computed, nextTick, ref, useTemplateRef } from 'vue'
+import { computed, inject, nextTick, ref, useTemplateRef, watch } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 import { isTopmostModal } from '../../app/dialog'
+import { useScopeStore } from '../../domains/scope/store'
+import { clearReviewDecisionDraft, clearReviewDecisionDraftIfRevision, readReviewDecisionDraft, writeReviewDecisionDraft } from '../../domains/review/decisionDraft'
 import type { CodingAttemptSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
 import type { ReviewCommandState, ReviewPhase } from '../../domains/review/store'
 import type {
@@ -75,6 +78,27 @@ const rationale = ref('')
 const submitted = ref(false)
 const decisionContainer = useTemplateRef<HTMLElement>('decisionContainer')
 const decisionTrigger = ref<HTMLElement | null>(null)
+const principal = inject(AUTH_PRINCIPAL)
+const scopeStore = useScopeStore()
+const decisionDraftScope = computed(() => principal && scopeStore.state.selectedTeamId
+  ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
+  : null)
+let decisionRevisionAtOpen: number | null = null
+
+// Typed rationale lands immediately, so closing or escaping the dialog keeps it and only a
+// submitted decision clears it. Programmatic resets happen while the dialog is closed, where
+// this watch stays inert so a restore is never cleared by its own assignments (M9b-F05).
+watch([decisionType, rationale], ([type, text]) => {
+  const scope = decisionDraftScope.value
+  const requestId = props.selectedReviewRequestId
+  const revision = detail.value?.revision
+  if (!decisionDialog.value || !scope || !requestId || revision === undefined) return
+  if (type === 'COMMENTED' || !text.trim()) {
+    clearReviewDecisionDraft(scope, requestId, principal)
+    return
+  }
+  writeReviewDecisionDraft(scope, requestId, revision, { decisionType: type, rationale: text }, principal)
+})
 
 const detail = computed(() => props.review?.value ?? null)
 const orderedReviews = computed(() => [...(props.reviews ?? [])].sort((left, right) => right.revision - left.revision))
@@ -139,6 +163,18 @@ function openDecision(event?: MouseEvent): void {
   confirmRejected.value = false
   rationale.value = ''
   submitted.value = false
+  // Restore only into the freshly reset dialog and only for the same review revision, so a
+  // new round never inherits a stale conclusion.
+  const scope = decisionDraftScope.value
+  const requestId = props.selectedReviewRequestId
+  if (scope && requestId) {
+    const draft = readReviewDecisionDraft(scope, requestId, principal)
+    if (draft && draft.draftRevision === detail.value?.revision) {
+      decisionType.value = draft.decisionType
+      rationale.value = draft.rationale
+    }
+  }
+  decisionRevisionAtOpen = detail.value?.revision ?? null
   decisionDialog.value = true
   void nextTick(() => decisionContainer.value?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus())
 }
@@ -159,9 +195,17 @@ async function submitDecision(): Promise<void> {
     return
   }
   const text = rationale.value.trim()
+  const scope = decisionDraftScope.value
+  const requestId = props.selectedReviewRequestId
+  const revisionAtOpen = decisionRevisionAtOpen
   const succeeded = decisionType.value === 'CHANGES_REQUESTED'
     ? await props.onRequestChanges(text)
     : await props.onDecide({ type: decisionType.value, rationale: text })
+  // A submitted decision clears the browser draft only when it still holds the revision this
+  // dialog opened against, so a re-drafted newer rationale is never lost.
+  if (succeeded && scope && requestId && revisionAtOpen !== null) {
+    clearReviewDecisionDraftIfRevision(scope, requestId, revisionAtOpen, principal)
+  }
   if (succeeded) closeDecision()
 }
 

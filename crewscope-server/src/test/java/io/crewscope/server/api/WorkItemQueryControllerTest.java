@@ -3,26 +3,37 @@ package io.crewscope.server.api;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.team.TeamAccessContext;
+import io.crewscope.application.workitem.WorkItemAvailableTransition;
+import io.crewscope.application.workitem.WorkItemBlockedReason;
 import io.crewscope.application.workitem.WorkItemCollaborationService;
 import io.crewscope.application.workitem.WorkItemCursor;
-import io.crewscope.application.workitem.WorkItemAvailableTransition;
+import io.crewscope.application.workitem.WorkItemCursorScope;
 import io.crewscope.application.workitem.WorkItemDetails;
+import io.crewscope.application.workitem.WorkItemExecutionSummary;
+import io.crewscope.application.workitem.WorkItemFilter;
 import io.crewscope.application.workitem.WorkItemListPage;
 import io.crewscope.application.workitem.WorkItemListRow;
 import io.crewscope.application.workitem.WorkItemQueryService;
+import io.crewscope.application.workitem.WorkItemSort;
 import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.task.TaskExecutionId;
+import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskExecutionWaitReason;
+import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.team.TeamInitialization;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemComment;
@@ -38,8 +49,15 @@ import io.crewscope.domain.workitem.WorkItemType;
 import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workitem.WorkProjectKey;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,42 +119,57 @@ class WorkItemQueryControllerTest {
 
   private WorkItemQueryService queryService;
   private WorkItemCollaborationService collaborationService;
+  private WorkItemCursorCodec cursorCodec;
   private WebTestClient client;
 
   @BeforeEach
   void setUp() {
     queryService = mock(WorkItemQueryService.class);
     collaborationService = mock(WorkItemCollaborationService.class);
+    cursorCodec =
+        new WorkItemCursorCodec(
+            new TeamActivityCursorKeyRing("k1", Map.of("k1", key())),
+            Clock.fixed(Instant.parse("2026-08-08T10:00:30Z"), ZoneOffset.UTC),
+            Duration.ofMinutes(30));
     TeamRequestIdentityResolver resolver =
         (authentication, organization, correlationId) ->
             Mono.just(new TeamAccessContext(actor, false));
     client =
         WebTestClient.bindToController(
-                new WorkItemQueryController(queryService, collaborationService, resolver))
+                new WorkItemQueryController(queryService, collaborationService, resolver, cursorCodec))
             .controllerAdvice(new ApiExceptionHandler())
             .build();
   }
 
   @Test
-  void listsOneProjectWithStatusAndAnOpaqueCursor() {
-    WorkItemCursor cursor = new WorkItemCursor(item.audit().updatedAt(), item.id());
-    String encoded = new WorkItemCursorCodec().encode(cursor);
+  void listsOneProjectWithStatusSortAndAnOpaqueCursor() {
+    WorkItemFilter filter = WorkItemFilter.ofStatus(WorkItemStatus.BACKLOG);
+    WorkItemCursor cursor =
+        new WorkItemCursor(
+            scope(WorkItemSort.UPDATED_AT, filter),
+            Optional.of(item.audit().updatedAt()),
+            OptionalInt.empty(),
+            item.id());
+    String encoded = cursorCodec.encode(cursor);
     when(queryService.list(
             any(),
             eq(organizationId),
             eq(initialization.team().id()),
             eq(project.id()),
-            eq(Optional.of(WorkItemStatus.BACKLOG)),
+            eq(filter),
+            eq(WorkItemSort.UPDATED_AT),
             eq(Optional.of(cursor)),
             eq(20)))
         .thenReturn(
             new WorkItemListPage(
-                List.of(new WorkItemListRow(item, actions(WorkItemStatus.BACKLOG, false))),
+                List.of(
+                    new WorkItemListRow(
+                        item, actions(WorkItemStatus.BACKLOG, false), Optional.empty())),
                 Optional.of(cursor)));
 
     client
         .get()
-        .uri(root() + "?status=BACKLOG&after=" + encoded + "&limit=20")
+        .uri(root() + "?status=BACKLOG&sort=updatedAt&after=" + encoded + "&limit=20")
         .exchange()
         .expectStatus()
         .isOk()
@@ -153,8 +186,128 @@ class WorkItemQueryControllerTest {
         .isEqualTo("EXTERNAL_PROVIDER_MANAGED")
         .jsonPath("$.items[0].availableActions[0].reasonMessage")
         .isNotEmpty()
+        .jsonPath("$.items[0].summary")
+        .value(org.hamcrest.Matchers.nullValue())
         .jsonPath("$.nextCursor")
         .isEqualTo(encoded);
+  }
+
+  /** The M9b-A06 summary rides along in the same response, list and detail alike. */
+  @Test
+  void embedsTheExecutionSummaryInEveryListRow() {
+    TaskId taskId = TaskId.generate();
+    PrincipalId reviewer = PrincipalId.generate();
+    WorkItemExecutionSummary summary =
+        new WorkItemExecutionSummary(
+            item.id(),
+            item.version(),
+            WorkItemStatus.IN_REVIEW,
+            1,
+            1,
+            2,
+            Optional.of(taskId),
+            Optional.of(TaskExecutionId.generate()),
+            Optional.of(TaskExecutionStatus.WAITING),
+            false,
+            List.of(
+                WorkItemBlockedReason.waiting(
+                    TaskExecutionWaitReason.REVIEW,
+                    taskId,
+                    TaskExecutionId.generate(),
+                    Optional.of(now),
+                    Optional.of(reviewer)),
+                WorkItemBlockedReason.reviewPending()),
+            Optional.empty(),
+            Optional.empty(),
+            item.version(),
+            now);
+    when(queryService.list(
+            any(),
+            eq(organizationId),
+            eq(initialization.team().id()),
+            eq(project.id()),
+            eq(WorkItemFilter.ALL),
+            eq(WorkItemSort.UPDATED_AT),
+            eq(Optional.empty()),
+            eq(20)))
+        .thenReturn(
+            new WorkItemListPage(
+                List.of(
+                    new WorkItemListRow(
+                        item, actions(WorkItemStatus.IN_REVIEW, false), Optional.of(summary))),
+                Optional.empty()));
+
+    client
+        .get()
+        .uri(root())
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.items[0].summary.workItemId")
+        .isEqualTo(item.id().toString())
+        .jsonPath("$.items[0].summary.taskCount")
+        .isEqualTo(1)
+        .jsonPath("$.items[0].summary.activeTaskCount")
+        .isEqualTo(1)
+        .jsonPath("$.items[0].summary.pendingReviewCount")
+        .isEqualTo(2)
+        .jsonPath("$.items[0].summary.currentTaskId")
+        .isEqualTo(taskId.toString())
+        .jsonPath("$.items[0].summary.executionStatus")
+        .isEqualTo("WAITING")
+        .jsonPath("$.items[0].summary.selectionRequired")
+        .isEqualTo(false)
+        .jsonPath("$.items[0].summary.blockedReasons[0].code")
+        .isEqualTo("REVIEW")
+        .jsonPath("$.items[0].summary.blockedReasons[0].waitingOnPrincipalId")
+        .isEqualTo(reviewer.toString())
+        .jsonPath("$.items[0].summary.blockedReasons[1].code")
+        .isEqualTo("REVIEW_PENDING")
+        .jsonPath("$.items[0].summary.resultSummary")
+        .value(org.hamcrest.Matchers.nullValue())
+        .jsonPath("$.items[0].summary.observedAt")
+        .isEqualTo(now.toString())
+        .jsonPath("$.nextCursor")
+        .value(org.hamcrest.Matchers.nullValue());
+  }
+
+  @Test
+  void parsesMultiValueFiltersResponsibilityRoleAndSort() {
+    WorkItemFilter filter =
+        new WorkItemFilter(
+            Set.of(),
+            Set.of(WorkItemType.FEATURE, WorkItemType.BUG),
+            Set.of(WorkItemPriority.HIGH, WorkItemPriority.URGENT),
+            Optional.of(ResponsibilityRole.REVIEWER));
+    when(queryService.list(
+            any(),
+            eq(organizationId),
+            eq(initialization.team().id()),
+            eq(project.id()),
+            eq(filter),
+            eq(WorkItemSort.PRIORITY),
+            eq(Optional.empty()),
+            eq(20)))
+        .thenReturn(new WorkItemListPage(List.of(), Optional.empty()));
+
+    client
+        .get()
+        .uri(root() + "?type=FEATURE,BUG&priority=HIGH&priority=URGENT&responsibilityRole=REVIEWER&sort=priority")
+        .exchange()
+        .expectStatus()
+        .isOk();
+
+    verify(queryService)
+        .list(
+            any(),
+            eq(organizationId),
+            eq(initialization.team().id()),
+            eq(project.id()),
+            eq(filter),
+            eq(WorkItemSort.PRIORITY),
+            eq(Optional.empty()),
+            eq(20));
   }
 
   @Test
@@ -165,7 +318,9 @@ class WorkItemQueryControllerTest {
                 item,
                 List.of(comment),
                 List.of(link),
-                actions(WorkItemStatus.BACKLOG, true)));
+                actions(WorkItemStatus.BACKLOG, true),
+                Optional.of(
+                    WorkItemExecutionSummary.none(item.id(), item.version(), WorkItemStatus.BACKLOG, now))));
 
     client
         .get()
@@ -185,7 +340,11 @@ class WorkItemQueryControllerTest {
         .jsonPath("$.workItem.availableActions[0].targetStatus")
         .isEqualTo("READY")
         .jsonPath("$.workItem.availableActions[0].label")
-        .isEqualTo("准备工作项");
+        .isEqualTo("准备工作项")
+        .jsonPath("$.workItem.summary.taskCount")
+        .isEqualTo(0)
+        .jsonPath("$.workItem.summary.selectionRequired")
+        .isEqualTo(false);
 
     client
         .get()
@@ -271,6 +430,42 @@ class WorkItemQueryControllerTest {
         .isEqualTo("invalid_request");
 
     client
+        .get()
+        .uri(root() + "?sort=BOGUS")
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.code")
+        .isEqualTo("invalid_request")
+        .jsonPath("$.details.parameter")
+        .isEqualTo("sort");
+
+    client
+        .get()
+        .uri(root() + "?type=FEATURE,BOGUS")
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.code")
+        .isEqualTo("invalid_request")
+        .jsonPath("$.details.parameter")
+        .isEqualTo("type");
+
+    client
+        .get()
+        .uri(root() + "?responsibilityRole=BOGUS")
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.code")
+        .isEqualTo("invalid_request")
+        .jsonPath("$.details.parameter")
+        .isEqualTo("responsibilityRole");
+
+    client
         .post()
         .uri(root() + "/" + item.id() + "/comments")
         .header(ApiHeaders.IDEMPOTENCY_KEY, "blank-comment")
@@ -291,6 +486,11 @@ class WorkItemQueryControllerTest {
         .isEqualTo("workItemId");
   }
 
+  private WorkItemCursorScope scope(WorkItemSort sort, WorkItemFilter filter) {
+    return WorkItemCursorScope.of(
+        organizationId, initialization.team().id(), project.id(), actor.id(), sort, filter);
+  }
+
   private String root() {
     return "/api/v1/organizations/"
         + organizationId
@@ -299,6 +499,14 @@ class WorkItemQueryControllerTest {
         + "/work-projects/"
         + project.id()
         + "/work-items";
+  }
+
+  private static String key() {
+    byte[] value = new byte[32];
+    for (int index = 0; index < value.length; index++) {
+      value[index] = (byte) (11 + index);
+    }
+    return Base64.getEncoder().encodeToString(value);
   }
 
   /**

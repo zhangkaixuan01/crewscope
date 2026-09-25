@@ -36,6 +36,9 @@ import {
 } from '../domains/workdesk/types'
 import { enumLabel, enumLabelOr } from '../domains/shared/labels'
 import type { SemanticTone } from '../components/base/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 /**
  * The personal WorkDesk: what today asks of this member, across every WorkProject.
@@ -63,9 +66,10 @@ const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter
 const setupRequiredCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required).length ?? 0)
 // Keep the page mountable in isolated route/story tests where the application store is not installed.
 const workDeskStore = inject(WORKDESK_STORE, null) ?? ({
-  state: { phase: 'idle', scope: null, summary: null, errorMessage: null },
+  state: { phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionErrorMessage: null },
   activateScope: () => undefined,
   load: async () => undefined,
+  loadMore: async () => undefined,
   reset: () => undefined,
 } as WorkDeskStore)
 const workItemStore = useWorkItemStore()
@@ -89,11 +93,20 @@ const workDeskFilter = computed(() => ({
 
 const workDeskSections = computed(() => workDeskStore.state.summary?.sections ?? [])
 const sectionItems = (key: string): WorkDeskItem[] => workDeskSections.value.find(section => section.key === key)?.items ?? []
+/**
+ * The full-set count behind one section. A section's page may end before its rows do, and a chip
+ * that counts only what loaded understates the day; the server's total is the honest number.
+ */
+const sectionTotal = (key: string): number => {
+  const section = workDeskSections.value.find(candidate => candidate.key === key)
+  return section ? Math.max(section.total, section.items.length) : 0
+}
+const actionRequiredTotal = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].reduce((sum, key) => sum + sectionTotal(key), 0))
 const actionRequiredRows = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].flatMap(sectionItems))
 const myWorkRows = computed(() => sectionItems('WORK_ITEM'))
 const executionRows = computed(() => sectionItems('TASK_EXECUTION'))
 const inboxRows = computed(() => sectionItems('INBOX'))
-const inboxTotal = computed(() => workDeskSections.value.find(section => section.key === 'INBOX')?.total ?? 0)
+const inboxTotal = computed(() => sectionTotal('INBOX'))
 const inboxSample = computed(() => inboxRows.value[0] ?? null)
 
 /**
@@ -232,10 +245,12 @@ function queryValue(value: unknown): string | null {
 }
 
 async function updateDeskQuery(key: string, value: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const query = { ...route.query }
   if (!value || value === 'all' || (key === 'deskAction' && value === 'false')) delete query[key]
   else query[key] = value
   await router.replace({ query })
+  if (!pageOwner.isCurrent()) return
 }
 
 // A row without a title still has to be nameable, so it falls back to a translated object type.
@@ -269,6 +284,7 @@ function executionTone(status: string): SemanticTone {
  * single undo window and one wording per refusal across the home page and the work board.
  */
 async function runDeskAction(item: WorkDeskItem, target: string | WorkItemStatus): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const organizationId = team.value?.organizationId
   const teamId = team.value?.id
   if (!organizationId || !teamId || !item.projectId) return
@@ -278,10 +294,13 @@ async function runDeskAction(item: WorkDeskItem, target: string | WorkItemStatus
     // falls back to that name when the server sent no reason of its own.
     { id: item.objectId, key: deskTitle(item), availableActions: item.availableActions },
     target as WorkItemStatus,
+    pageOwner.isCurrent,
   )
+  if (!pageOwner.isCurrent()) return
   if (result.status === 'executed') {
     offerUndo(deskTitle(item))
     await workDeskStore.load(workDeskFilter.value, true)
+    if (!pageOwner.isCurrent()) return
     return
   }
   // A refusal and a failure are different news: the first says the row is not in a state that allows
@@ -294,15 +313,20 @@ function runCardAction(item: WorkDeskItem, action: WorkDeskItem['availableAction
 }
 function openItem(item: WorkDeskItem): void { void router.push(item.route) }
 
-watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as const, async ([teamId, organizationId]) => {
-  await scopeStore.loadMembers()
+// Each store already isolates its own responses (scope/generation guards inside), so the loads are
+// fired without an await chain: a page coordinate that changes while a load is in flight — most
+// commonly the project the scope store picks a beat after the Team — must not cancel the Team-level
+// desk load, which does not depend on it. Awaiting and checking page ownership here did exactly
+// that whenever the project landed between the members read and this continuation.
+watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as const, ([teamId, organizationId]) => {
+  void scopeStore.loadMembers()
   if (setupStore && teamId && organizationId) {
     setupStore.activateScope({ organizationId, teamId })
-    await setupStore.load()
+    void setupStore.load()
   }
   if (teamId && organizationId) {
     workDeskStore.activateScope({ organizationId, teamId })
-    await workDeskStore.load(workDeskFilter.value)
+    void workDeskStore.load(workDeskFilter.value, true)
   }
 }, { immediate: true })
 
@@ -397,7 +421,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         <section class="action-required panel" aria-labelledby="action-required-title">
           <div class="panel-heading">
             <div><h2 id="action-required-title">需要我行动</h2><p>等我决策、待我 Review 与被我阻塞的工作，来自全部 WorkProject。</p></div>
-            <span v-if="actionRequiredRows.length" class="count-chip">{{ actionRequiredRows.length }} 项</span>
+            <span v-if="actionRequiredRows.length" class="count-chip">{{ actionRequiredTotal }} 项</span>
           </div>
           <StatePanel
             v-if="!actionRequiredRows.length"
@@ -434,7 +458,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 
         <section class="my-work panel" aria-labelledby="my-work-title">
           <div class="panel-heading my-work__heading">
-            <div><h2 id="my-work-title">我的工作</h2><p>跨 WorkProject 汇总你承担责任的 {{ myWorkRows.length }} 项工作。</p></div>
+            <div><h2 id="my-work-title">我的工作</h2><p>跨 WorkProject 汇总你承担责任的 {{ sectionTotal('WORK_ITEM') }} 项工作。</p></div>
             <div class="grouping-switcher" role="group" aria-label="我的工作分组方式">
               <button type="button" :class="{ active: deskGrouping === 'status' }" :aria-pressed="deskGrouping === 'status'" @click="updateDeskQuery('deskGroup', 'status')">按状态</button>
               <button type="button" :class="{ active: deskGrouping === 'role' }" :aria-pressed="deskGrouping === 'role'" @click="updateDeskQuery('deskGroup', 'role')">按责任角色</button>
@@ -495,7 +519,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           <section class="panel executions" aria-labelledby="executions-title">
             <div class="panel-heading">
               <div><h2 id="executions-title">正在执行</h2><p>Agent 执行进入 Execution Studio 查看阶段与产物。</p></div>
-              <span v-if="executionRows.length" class="count-chip">{{ executionRows.length }} 项</span>
+              <span v-if="executionRows.length" class="count-chip">{{ sectionTotal('TASK_EXECUTION') }} 项</span>
             </div>
             <div v-if="executionRows.length" class="desk-list">
               <button v-for="item in executionRows" :key="item.objectId" type="button" class="desk-row" @click="openItem(item)">

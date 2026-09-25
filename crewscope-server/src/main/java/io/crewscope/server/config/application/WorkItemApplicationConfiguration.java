@@ -9,9 +9,12 @@ import io.crewscope.application.responsibility.GateReviewerPolicyProvider;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.responsibility.ResponsibilityCommandService;
+import io.crewscope.application.responsibility.ResponsibilityHandoverApplicationService;
+import io.crewscope.application.responsibility.ResponsibilityHandoverRepository;
 import io.crewscope.application.responsibility.ResponsibilityQueryService;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
@@ -24,6 +27,7 @@ import io.crewscope.application.workitem.WorkItemCommentRepository;
 import io.crewscope.application.workitem.WorkItemQueryService;
 import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
+import io.crewscope.application.workitem.WorkItemSummaryRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
 import io.crewscope.application.workitem.WorkItemTimelineService;
 import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector;
@@ -111,6 +115,38 @@ public class WorkItemApplicationConfiguration {
         timeProvider);
   }
 
+  /** M9b-A07: member responsibility handover replays the command primitives item by item. */
+  @Bean
+  ResponsibilityHandoverApplicationService responsibilityHandoverApplicationService(
+      ResponsibilityHandoverRepository responsibilityHandoverRepository,
+      ResponsibilityAssignmentRepository responsibilityAssignmentRepository,
+      ResponsibilityCommandService responsibilityCommandService,
+      WorkItemAccessPolicy workItemAccessPolicy,
+      TeamRepository teamRepository,
+      TeamMemberRepository teamMemberRepository,
+      TeamMembershipQuery teamMembershipQuery,
+      PrincipalRepository principalRepository,
+      DomainEventStore domainEventStore,
+      OutboxRepository outboxRepository,
+      CommandReceiptStore commandReceiptStore,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
+    return new ResponsibilityHandoverApplicationService(
+        responsibilityHandoverRepository,
+        responsibilityAssignmentRepository,
+        responsibilityCommandService,
+        workItemAccessPolicy,
+        teamRepository,
+        teamMemberRepository,
+        teamMembershipQuery,
+        principalRepository,
+        domainEventStore,
+        outboxRepository,
+        commandReceiptStore,
+        transactionExecutor,
+        timeProvider);
+  }
+
   @Bean
   WorkItemAccessPolicy workItemAccessPolicy(
       WorkItemRepository workItemRepository,
@@ -135,6 +171,7 @@ public class WorkItemApplicationConfiguration {
       WorkItemResourceLinkRepository workItemResourceLinkRepository,
       WorkItemAccessPolicy workItemAccessPolicy,
       WorkItemTransitionAvailabilityProjector workItemTransitionAvailabilityProjector,
+      WorkItemSummaryRepository workItemSummaryRepository,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
     return new WorkItemQueryService(
@@ -143,6 +180,7 @@ public class WorkItemApplicationConfiguration {
         workItemResourceLinkRepository,
         workItemAccessPolicy,
         workItemTransitionAvailabilityProjector,
+        workItemSummaryRepository,
         transactionExecutor,
         timeProvider);
   }

@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { secureId } from '../../api/secureId'
+import { createFormCommandKeys } from '../../api/formCommandKeys'
+import { createRequestScope } from '../../api/requestScope'
 import {
   BellRing, CheckCircle2, CircleOff, KeyRound, Link2, RefreshCw, RotateCw,
   Send, ShieldCheck, Unplug, UserCheck, UsersRound, X,
 } from '@lucide/vue'
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { permissions } from '../../app/auth'
 import BaseButton from '../base/BaseButton.vue'
@@ -63,14 +66,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   tab: [value: 'connection' | 'mapping' | 'notification']
   refresh: []
+  readOriginal: [connectionId: string | null]
   selectConnection: [id: string]
   createConnection: [input: { tenantKey: string, appId: string, appSecret: string, expiresAt: string | null }, key: string]
-  rotateConnection: [id: string, input: { appId: string, appSecret: string }, key: string]
+  rotateConnection: [id: string, input: { appId: string, appSecret: string }, key: string, expectedVersion: number]
   revokeConnection: [id: string, reason: string, key: string]
   preflight: [bindingId: string, version: number]
   health: [bindingId: string]
-  verifyMember: [bindingId: string, version: number, memberId: string, openId: string, key: string]
-  confirmMapping: [memberId: string, bindingId: string, proofId: string, key: string]
+  verifyMember: [bindingId: string, version: number, memberId: string, openId: string, key: string, complete: (proofId: string | null) => void]
+  confirmMapping: [memberId: string, bindingId: string, proofId: string, key: string, complete: (committed: boolean) => void]
   mappingFilter: [status: LarkMappingStatus | null]
   loadMoreMappings: []
   revokeMapping: [mappingId: string, version: number, reason: string, key: string]
@@ -89,7 +93,10 @@ const rotateForm = reactive({ appId: '', appSecret: '' })
 const revokeReason = ref('')
 const mappingMemberId = ref('')
 const openId = ref('')
-const verified = ref<{ memberId: string, bindingId: string, proofId: string } | null>(null)
+const verified = ref<{ memberId: string, bindingId: string, proofId: string, coordinate: string, key: string } | null>(null)
+let rotationTarget: { connectionId: string, version: number } | null = null
+const verifyingMember = ref(false)
+const confirmingMapping = ref(false)
 const preferenceForm = reactive<{ enabled: boolean, enabledItemTypes: InboxItemType[], mutedUntil: string }>({ enabled: true, enabledItemTypes: [...inboxItemTypes], mutedUntil: '' })
 const localMappingStatus = ref<LarkMappingStatus | ''>(props.mappingStatus ?? '')
 const deliveryFilter = reactive({ status: props.deliveryStatus ?? '', itemType: props.deliveryType ?? '', recipient: props.recipient })
@@ -103,7 +110,15 @@ const dialogRoot = ref<HTMLElement | null>(null)
 let dialogOpener: HTMLElement | null = null
 
 const activeBinding = computed(() => props.selectedConnection?.providerBindingId ?? null)
-const canMutate = computed(() => props.online && props.command.phase !== 'pending')
+const canMutate = computed(() => props.online && props.command.phase !== 'pending' && !verifyingMember.value && !confirmingMapping.value)
+const connectionCoordinate = () => JSON.stringify([props.selectedConnection?.teamId, props.selectedConnection?.connectionId,
+  props.selectedConnection?.version, props.selectedConnection?.providerBindingId, props.selectedConnection?.providerBindingVersion,
+  props.selectedConnection?.status, props.selectedConnection?.credentialStatus])
+const mappingCoordinate = () => JSON.stringify([connectionCoordinate(), mappingMemberId.value,
+  props.members.find(member => member.id === mappingMemberId.value)?.status,
+  props.members.find(member => member.id === mappingMemberId.value)?.version])
+const proofRequests = createRequestScope(mappingCoordinate)
+const credentialKeys = createFormCommandKeys()
 const initialFailure = computed(() => props.phase === 'error' && props.connections.length === 0)
 const mappingInitialFailure = computed(() => props.mappingPhase === 'error' && props.mappings.length === 0)
 const deliveryInitialFailure = computed(() => props.deliveryPhase === 'error' && props.deliveries.length === 0)
@@ -115,6 +130,7 @@ const hasActiveConnection = computed(() => props.connections.some(item => item.s
 const verifyPrerequisitesMissing = computed(() => !activeBinding.value
   || props.selectedConnection?.providerBindingVersion == null
   || !mappingMemberId.value
+  || !props.members.some(member => member.id === mappingMemberId.value && member.status === 'ACTIVE')
   || !openId.value.trim())
 const mutateReason = computed(() => (canMutate.value
   ? null
@@ -133,29 +149,47 @@ watch(() => props.preference, value => {
 
 watch(() => props.command, command => {
   if (command.phase !== 'success') return
-  if (command.operation === 'lark-member-verify' && command.receipt && 'domainEventId' in command.receipt && mappingMemberId.value && activeBinding.value) {
-    verified.value = { memberId: mappingMemberId.value, bindingId: activeBinding.value, proofId: command.receipt.domainEventId }
-    // Exact open_id is deliberately erased immediately after the one-way verification call.
-    openId.value = ''
-  }
-  if (command.operation === 'lark-create' || command.operation === 'lark-rotate') closeCredentialDialog()
+  if (command.operation === 'lark-create' && credentialDialog.value === 'create') closeCredentialDialog()
+  if (command.operation === 'lark-rotate' && credentialDialog.value === 'rotate'
+    && command.targetId === rotationTarget?.connectionId) closeCredentialDialog()
 }, { deep: true })
 
+watch(mappingCoordinate, invalidateProof, { flush: 'sync' })
+watch(openId, invalidateProof, { flush: 'sync' })
+watch(connectionCoordinate, () => {
+  openId.value = ''
+  revokeReason.value = ''
+  closeCredentialDialog(true)
+}, { flush: 'sync' })
+onBeforeUnmount(() => { proofRequests.dispose(); openId.value = ''; closeCredentialDialog(true) })
+
+function invalidateProof(): void {
+  proofRequests.invalidate()
+  verified.value = null
+  if (verifyingMember.value || confirmingMapping.value) emit('clearCommand')
+  verifyingMember.value = confirmingMapping.value = false
+}
+
 function openCredentialDialog(mode: 'create' | 'rotate'): void {
+  if (!canMutate.value || (mode === 'rotate' && !props.selectedConnection)) return
+  rotationTarget = mode === 'rotate' && props.selectedConnection
+    ? { connectionId: props.selectedConnection.connectionId, version: props.selectedConnection.version } : null
   emit('clearCommand')
   dialogOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null
   credentialDialog.value = mode
   void nextTick(() => dialogHeading.value?.focus())
 }
 
-function closeCredentialDialog(): void {
-  if (props.command.phase === 'pending') return
+function closeCredentialDialog(force = false): void {
+  if (!force && props.command.phase === 'pending') return
+  rotationTarget = null
+  credentialKeys.clear()
   credentialDialog.value = null
   createForm.tenantKey = createForm.appId = createForm.appSecret = createForm.expiresAt = ''
   rotateForm.appId = rotateForm.appSecret = ''
   const opener = dialogOpener
   dialogOpener = null
-  void nextTick(() => opener?.focus())
+  if (!force) void nextTick(() => { if (opener?.isConnected) opener.focus() })
 }
 
 function handleDialogKeydown(event: KeyboardEvent): void {
@@ -186,22 +220,50 @@ function submitCredential(): void {
     emit('createConnection', {
       tenantKey: createForm.tenantKey, appId: createForm.appId, appSecret: createForm.appSecret,
       expiresAt: createForm.expiresAt ? new Date(createForm.expiresAt).toISOString() : null,
-    }, crypto.randomUUID())
-  } else if (credentialDialog.value === 'rotate' && props.selectedConnection && rotateForm.appId && rotateForm.appSecret) {
-    emit('rotateConnection', props.selectedConnection.connectionId, { ...rotateForm }, crypto.randomUUID())
+    }, credentialKeys.forInput(['create', props.selectedConnection?.teamId ?? null, { ...createForm }]))
+  } else if (credentialDialog.value === 'rotate' && rotationTarget && props.selectedConnection && rotateForm.appId && rotateForm.appSecret) {
+    if (props.selectedConnection.connectionId !== rotationTarget.connectionId || props.selectedConnection.version !== rotationTarget.version) return
+    emit('rotateConnection', rotationTarget.connectionId, { ...rotateForm }, credentialKeys.forInput(['rotate', rotationTarget, { ...rotateForm }]), rotationTarget.version)
   }
 }
 
+function readOriginal(): void {
+  emit('readOriginal', rotationTarget?.connectionId ?? props.selectedConnection?.connectionId ?? null)
+}
+
 function verify(): void {
-  if (!canMutate.value || !activeBinding.value || props.selectedConnection?.providerBindingVersion == null || !mappingMemberId.value || !openId.value.trim()) return
+  if (!canMutate.value || verifyPrerequisitesMissing.value || !activeBinding.value || props.selectedConnection?.providerBindingVersion == null) return
+  const memberId = mappingMemberId.value
+  const bindingId = activeBinding.value
+  const version = props.selectedConnection.providerBindingVersion
+  const exact = openId.value.trim()
+  const key = secureId()
+  const confirmationKey = secureId()
   verified.value = null
-  emit('verifyMember', activeBinding.value, props.selectedConnection.providerBindingVersion, mappingMemberId.value, openId.value.trim(), crypto.randomUUID())
+  openId.value = ''
+  const request = proofRequests.begin('verify')
+  const coordinate = mappingCoordinate()
+  verifyingMember.value = true
+  emit('verifyMember', bindingId, version, memberId, exact, key, proofId => {
+    if (!request.isCurrent()) return
+    verifyingMember.value = false
+    // Only this request's callback can install a proof; unrelated shared receipts are never consumed.
+    if (proofId) verified.value = { memberId, bindingId, proofId, coordinate, key: confirmationKey }
+    request.finish()
+  })
 }
 
 function confirm(): void {
-  if (!canMutate.value || !verified.value) return
-  emit('confirmMapping', verified.value.memberId, verified.value.bindingId, verified.value.proofId, crypto.randomUUID())
-  verified.value = null
+  if (!canMutate.value || !verified.value || verified.value.coordinate !== mappingCoordinate()) return
+  const proof = verified.value
+  const request = proofRequests.begin('confirm')
+  confirmingMapping.value = true
+  emit('confirmMapping', proof.memberId, proof.bindingId, proof.proofId, proof.key, committed => {
+    if (!request.isCurrent()) return
+    confirmingMapping.value = false
+    if (committed) verified.value = null
+    request.finish()
+  })
 }
 
 function toggleItemType(value: InboxItemType): void {
@@ -216,7 +278,7 @@ function savePreference(): void {
     enabled: preferenceForm.enabled,
     enabledItemTypes: preferenceForm.enabledItemTypes,
     mutedUntil: preferenceForm.mutedUntil ? new Date(preferenceForm.mutedUntil).toISOString() : null,
-  }, crypto.randomUUID())
+  }, secureId())
 }
 
 function applyMappingFilter(): void {
@@ -261,7 +323,7 @@ function deliveryTone(status: NotificationDeliveryStatus): 'success' | 'warning'
   return 'neutral'
 }
 function shortId(value: string | null): string { return value ? `${value.slice(0, 8)}…` : '—' }
-function newKey(): string { return crypto.randomUUID() }
+function newKey(): string { return secureId() }
 function displayTime(value: string | null): string { return value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—' }
 function toLocalDate(value: string | null): string {
   if (!value) return ''
@@ -291,6 +353,7 @@ function toLocalDate(value: string | null): string {
     <StatePanel v-if="command.phase === 'conflict'" compact state="conflict" title="命令使用的版本已过期" :description="`服务端当前版本 v${command.error?.currentVersion ?? '未知'}，已停止自动重放。`" @retry="emit('refresh')" />
     <StatePanel v-else-if="command.phase === 'error'" compact :state="command.error?.kind === 'forbidden' ? 'forbidden' : command.error?.kind === 'offline' ? 'offline' : 'error'" :description="command.error?.message" />
     <div v-else-if="command.phase === 'success' && command.receipt" class="receipt" role="status"><CheckCircle2 :size="15" /><span><strong>命令已受理</strong><small class="mono">Receipt {{ shortId(command.receipt.commandId) }} · Correlation {{ shortId('correlationId' in command.receipt ? command.receipt.correlationId : null) }}</small></span></div>
+    <div v-if="command.phase === 'error' && command.error?.retryable" role="status"><p>结果尚未确认。只读核实不会重放命令，也不会把列表变化当作成功回执。</p><BaseButton variant="secondary" :disabled="!online" @click="readOriginal">只读取原连接与映射事实</BaseButton></div>
 
     <template v-if="selectedTab === 'connection'">
       <div class="connection-grid">
@@ -372,7 +435,7 @@ function toLocalDate(value: string | null): string {
       </div>
     </template>
 
-    <div v-if="credentialDialog" class="dialog-backdrop" @mousedown.self="closeCredentialDialog"><section ref="dialogRoot" role="dialog" aria-modal="true" aria-labelledby="credential-title" class="credential-dialog panel" @keydown="handleDialogKeydown"><header><div><p>One-way secret input</p><h2 id="credential-title" ref="dialogHeading" tabindex="-1">{{ credentialDialog === 'create' ? '创建飞书连接' : '轮换飞书凭证' }}</h2></div><button type="button" aria-label="关闭凭证对话框" @click="closeCredentialDialog"><X :size="17" /></button></header><form @submit.prevent="submitCredential"><label v-if="credentialDialog === 'create'">Tenant Key<input v-model="createForm.tenantKey" type="password" maxlength="200" autocomplete="off" required></label><label>App ID<input v-if="credentialDialog === 'create'" v-model="createForm.appId" type="password" maxlength="200" autocomplete="off" required><input v-else v-model="rotateForm.appId" type="password" maxlength="200" autocomplete="off" required></label><label>App Secret<input v-if="credentialDialog === 'create'" v-model="createForm.appSecret" type="password" maxlength="1000" autocomplete="new-password" required><input v-else v-model="rotateForm.appSecret" type="password" maxlength="1000" autocomplete="new-password" required></label><label v-if="credentialDialog === 'create'">凭证过期时间（可选）<input v-model="createForm.expiresAt" type="datetime-local"></label><p><CircleOff :size="14" />凭证只进入本次 HTTPS 命令，不写入 Store、URL、日志或回执。</p><footer><BaseButton variant="ghost" @click="closeCredentialDialog">取消</BaseButton><BaseButton type="submit" :loading="command.phase === 'pending'" :disabled="!canMutate" :aria-describedby="canMutate ? undefined : 'lark-mutate-reason'">确认提交</BaseButton></footer></form></section></div>
+    <div v-if="credentialDialog" class="dialog-backdrop" @mousedown.self="closeCredentialDialog()"><section ref="dialogRoot" role="dialog" aria-modal="true" aria-labelledby="credential-title" class="credential-dialog panel" @keydown="handleDialogKeydown"><header><div><p>One-way secret input</p><h2 id="credential-title" ref="dialogHeading" tabindex="-1">{{ credentialDialog === 'create' ? '创建飞书连接' : '轮换飞书凭证' }}</h2></div><button type="button" aria-label="关闭凭证对话框" @click="closeCredentialDialog()"><X :size="17" /></button></header><form @submit.prevent="submitCredential"><label v-if="credentialDialog === 'create'">Tenant Key<input v-model="createForm.tenantKey" type="password" maxlength="200" autocomplete="off" required></label><label>App ID<input v-if="credentialDialog === 'create'" v-model="createForm.appId" type="password" maxlength="200" autocomplete="off" required><input v-else v-model="rotateForm.appId" type="password" maxlength="200" autocomplete="off" required></label><label>App Secret<input v-if="credentialDialog === 'create'" v-model="createForm.appSecret" type="password" maxlength="1000" autocomplete="new-password" required><input v-else v-model="rotateForm.appSecret" type="password" maxlength="1000" autocomplete="new-password" required></label><label v-if="credentialDialog === 'create'">凭证过期时间（可选）<input v-model="createForm.expiresAt" type="datetime-local"></label><p><CircleOff :size="14" />凭证只进入本次提交，不写入 Store、URL、日志或回执。</p><footer><BaseButton v-if="command.phase === 'error' && command.error?.retryable" type="button" variant="secondary" :disabled="!online" @click="readOriginal">只读取原连接事实</BaseButton><BaseButton variant="ghost" @click="closeCredentialDialog()">取消</BaseButton><BaseButton type="submit" :loading="command.phase === 'pending'" :disabled="!canMutate" :aria-describedby="canMutate ? undefined : 'lark-mutate-reason'">确认提交</BaseButton></footer></form></section></div>
   </section>
 </template>
 

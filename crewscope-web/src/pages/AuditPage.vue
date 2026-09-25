@@ -13,6 +13,9 @@ import { useScopeStore } from '../domains/scope/store'
 import { principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import { auditEventCategories, auditOutcomes, type AuditEvent, type AuditEventCategory, type AuditFilter, type AuditOutcome, type TeamOpsScope } from '../domains/teamops/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 interface AuditFilterForm {
   from: string
@@ -59,9 +62,11 @@ const correlation = computed(() => chainId.value ? store.state.correlations[chai
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, JSON.stringify(activeFilter.value)] as const,
   async ([phase]) => {
+    const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
     await Promise.all([store.loadAudit(activeFilter.value, false, true), scopeStore.loadMembers()])
+    if (!pageOwner.isCurrent()) return
     if (chainId.value) await store.loadCorrelation(chainId.value, false, true)
   },
   { immediate: true },
@@ -108,13 +113,16 @@ function closeCorrelation(): void {
 }
 
 async function exportAudit(maximumRows: number): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!online.value || !canExport.value) return
   await store.exportAudit(activeFilter.value, maximumRows)
+  if (!pageOwner.isCurrent()) return
   const value = store.state.auditExport.value
   if (!value || store.state.auditExport.phase !== 'ready') return
   downloadCsv(value)
   // Export generation is itself auditable; refresh so the new fact becomes visible.
   await store.loadAudit(activeFilter.value, false, true)
+  if (!pageOwner.isCurrent()) return
 }
 
 function downloadCsv(value: { generatedAt: string, events: AuditEvent[] }): void {

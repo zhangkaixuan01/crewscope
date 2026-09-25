@@ -3,7 +3,7 @@ import ConversationCreateDialog from './ConversationCreateDialog.vue'
 
 describe('ConversationCreateDialog', () => {
   it('focuses the title input and emits the selected visibility on submit', async () => {
-    const wrapper = mount(ConversationCreateDialog, { attachTo: document.body })
+    const wrapper = mount(ConversationCreateDialog, { attachTo: document.body, props: { scope: null } })
     const input = wrapper.get<HTMLInputElement>('input[placeholder*="规划"]')
 
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -18,7 +18,7 @@ describe('ConversationCreateDialog', () => {
   it('emits close from cancel and Escape while exposing errors and pending state', async () => {
     const wrapper = mount(ConversationCreateDialog, {
       attachTo: document.body,
-      props: { error: '创建失败，请重试', pending: true },
+      props: { scope: null, error: '创建失败，请重试', pending: true },
     })
 
     expect(wrapper.get('[role="alert"]').text()).toContain('创建失败，请重试')

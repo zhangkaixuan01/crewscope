@@ -52,6 +52,7 @@ import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workitem.WorkProjectKey;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,6 +115,20 @@ public final class WorkItemCollaborationTestFixture
   public final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
   final List<PendingOutboxEvent> outbox = new ArrayList<>();
   final Map<String, ReceiptEntry> receipts = new HashMap<>();
+  final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
+
+  @Override
+  public void saveResult(io.crewscope.application.command.CommandResult result) {
+    results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
+  }
+
+  @Override
+  public Optional<io.crewscope.application.command.CommandResult> findResult(
+      OrganizationId organizationId, IdempotencyKey key,
+      io.crewscope.domain.shared.id.PrincipalId actorId) {
+    return Optional.ofNullable(results.get(organizationId + ":" + key))
+        .filter(result -> result.actorId().equals(actorId));
+  }
   public List<TeamMember> members = List.of(initialization.ownerMember());
   List<TeamRole> roles;
   List<MemberRole> grants;
@@ -122,6 +137,7 @@ public final class WorkItemCollaborationTestFixture
   final TeamRoleRepository roleRepository = new RoleRepository();
   final WorkItemCommentRepository commentRepository = new CommentRepository();
   final WorkItemResourceLinkRepository linkRepository = new LinkRepository();
+  final SummaryRepository summaryRepository = new SummaryRepository();
 
   public WorkItemCollaborationTestFixture() {
     items.put(item.id(), item);
@@ -280,6 +296,29 @@ public final class WorkItemCollaborationTestFixture
   @Override
   public <T> T required(Supplier<T> operation) {
     return operation.get();
+  }
+
+  /**
+   * Records batch calls so a test can prove the summary is assembled once per page over the page's
+   * ID set — never one call per row.
+   */
+  public final class SummaryRepository implements WorkItemSummaryRepository {
+
+    public final Map<WorkItemId, WorkItemExecutionSummary> facts = new HashMap<>();
+    public int calls;
+    public List<WorkItemId> lastRequestedIds;
+
+    @Override
+    public Map<WorkItemId, WorkItemExecutionSummary> summarize(
+        OrganizationId organizationId,
+        TeamId teamId,
+        Optional<WorkProjectId> projectId,
+        Collection<WorkItemId> workItemIds,
+        UtcTimestamp observedAt) {
+      calls++;
+      lastRequestedIds = List.copyOf(workItemIds);
+      return facts;
+    }
   }
 
   private final class ProjectRepository implements WorkProjectRepository {

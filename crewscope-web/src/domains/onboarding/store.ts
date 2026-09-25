@@ -1,3 +1,4 @@
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { AuthCsrfCoordinate } from '../identity/types'
@@ -53,6 +54,8 @@ export function createOnboardingStore(
   let controller: AbortController | null = null
   let retryKey: string | null = null
   let retryName: string | null = null
+  const createKeys = new Map<string, string>()
+  const uncertainCreates = new Set<string>()
 
   async function load(): Promise<boolean> {
     // A new route visit derives completion from current server facts, not a previous page receipt.
@@ -74,10 +77,16 @@ export function createOnboardingStore(
   }
 
   async function createFirstTeam(name: string, csrf: AuthCsrfCoordinate): Promise<boolean> {
+    if (state.phase === 'submitting' || state.phase === 'verifying') return false
     const normalizedName = name.trim()
+    if (!createKeys.has(normalizedName) && createKeys.size >= 100) {
+      fail(presentOnboardingProblem(new Error('待确认操作过多，请先核实原团队创建结果。')))
+      return false
+    }
     if (retryName !== normalizedName || !retryKey) {
       retryName = normalizedName
-      retryKey = crypto.randomUUID()
+      retryKey = createKeys.get(normalizedName) ?? secureId()
+      createKeys.set(normalizedName, retryKey)
     }
     const requestGeneration = begin('submitting')
     try {
@@ -99,7 +108,11 @@ export function createOnboardingStore(
         state.phase = 'verifying'
         return await verify(requestGeneration)
       }
-      if (!keepsIdempotencyKey(error)) clearRetry()
+      if (keepsIdempotencyKey(error)) uncertainCreates.add(normalizedName)
+      else if (!uncertainCreates.has(normalizedName)) {
+        createKeys.delete(normalizedName)
+        clearRetry()
+      }
       fail(presentOnboardingProblem(error))
       return false
     } finally {
@@ -194,6 +207,8 @@ export function createOnboardingStore(
   }
 
   function reset(): void {
+    createKeys.clear()
+    uncertainCreates.clear()
     generation += 1
     controller?.abort()
     controller = null

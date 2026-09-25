@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createRequestScope } from '../../api/requestScope'
 import {
   Binary,
   Check,
@@ -14,13 +15,17 @@ import {
   Wifi,
   WifiOff,
 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 import { usePreference } from '../../composables/usePreference'
+import { useScopedUserState } from '../../composables/useScopedUserState'
 import { flattenDiffTree, patchForFile, projectWorkspaceDiff } from '../../domains/coding/diff'
 import type { CodingPhase } from '../../domains/coding/store'
 import type { CodingAttemptSummary, CodingPatchDocument, DiffFileSummary } from '../../domains/coding/types'
 import type { TaskLiveState } from '../../domains/task/store'
 import type { TaskEventPage } from '../../domains/task/types'
+import { useScopeStore } from '../../domains/scope/store'
+import { clearReviewLineCommentDraftIfRevision, readReviewLineCommentDraft, writeReviewLineCommentDraft, type ReviewLineCommentCoordinate } from '../../domains/review/lineCommentDraft'
 import type { ReviewCommentSide, ReviewFindingEvidence, ReviewLineComment } from '../../domains/review/types'
 import { enumLabel, enumLabelOr } from '../../domains/shared/labels'
 import { sha256Digest } from '../../domains/shared/sha256'
@@ -54,8 +59,23 @@ const props = defineProps<{
 
 const search = ref('')
 const selectedPath = ref<string | null>(null)
+const principal = inject(AUTH_PRINCIPAL)
+const scopeStore = useScopeStore()
 const viewMode = usePreference<'unified' | 'split'>('cs.pref.diff.view-mode.v1', 'unified', { version: 1 })
-const viewedFiles = usePreference<string[]>('cs.pref.diff.viewed-files.v1', [], { version: 1 })
+// Viewed-file marks belong to one execution and one identity: they moved from the device-level
+// preference key into the scoped `reading` kind so they never cross accounts or attempts
+// (M9b-F05); the diff view-mode stays a device preference.
+const viewedFiles = useScopedUserState<string[]>({
+  scope: () => (principal && principal.accountId && scopeStore.state.selectedTeamId
+    ? {
+        accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId,
+        teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: props.attempt.executionId,
+      }
+    : null),
+  name: 'viewed-files',
+  fallback: [],
+  validate: (value): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string'),
+})
 const collapsedBlocks = ref(new Set<string>())
 const treeWidth = ref(34)
 const commentDraft = ref<{ line: ParsedPatchLine, side: ReviewCommentSide } | null>(null)
@@ -82,6 +102,36 @@ const treeRows = computed(() => flattenDiffTree(visibleFiles.value))
 const selectedFile = computed(() => projection.value.files.find(file => file.path === selectedPath.value)
   ?? projection.value.files[0]
   ?? null)
+const commentCoordinate = () => JSON.stringify([props.attempt.executionId, props.attempt.details?.workspace.id,
+  selectedFile.value?.path, projection.value.generation])
+const commentRequests = createRequestScope(commentCoordinate)
+const reviewDraftScope = computed(() => principal && scopeStore.state.selectedTeamId
+  ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
+  : null)
+
+function lineDraftCoordinate(line: ParsedPatchLine, side: ReviewCommentSide, filePath: string | null | undefined, generation: number): ReviewLineCommentCoordinate | null {
+  const lineNumber = line.lineNumber(side)
+  if (!lineNumber || !filePath) return null
+  return { executionId: props.attempt.executionId, filePath, side, lineNumber, diffGeneration: generation }
+}
+
+watch([commentCoordinate, () => props.onAddComment], (_next, previous) => {
+  // Persist the in-progress line comment under the coordinate it belongs to *before* the
+  // switch clears it, so switching files or a diff re-projection never eats typed input.
+  const openDraft = commentDraft.value
+  const content = commentText.value.trim()
+  if (openDraft && content && reviewDraftScope.value && typeof previous[0] === 'string') {
+    const [, , previousPath, previousGeneration] = JSON.parse(previous[0]) as [string, string | undefined, string | null, number | undefined]
+    const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, previousPath, previousGeneration ?? projection.value.generation)
+    if (coordinate) writeReviewLineCommentDraft(reviewDraftScope.value, coordinate, content, principal)
+  }
+  commentRequests.invalidate()
+  commentDraft.value = null
+  commentText.value = ''
+  commentError.value = null
+  commentSubmitting.value = false
+  localComments.value = []
+}, { flush: 'sync' })
 const selectedPatch = computed(() => props.patch && selectedFile.value
   ? patchForFile(props.patch.content, selectedFile.value)
   : null)
@@ -148,13 +198,31 @@ function startResize(event: PointerEvent): void {
   ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
 }
 
-onBeforeUnmount(() => { stopResize?.() })
+onBeforeUnmount(() => { stopResize?.(); commentRequests.dispose() })
+
+// Typed line-comment input lands immediately under its exact coordinate, so a refresh, an
+// accidental close or a coordinate switch never eats it (M9b-F05).
+watch(commentText, value => {
+  const openDraft = commentDraft.value
+  const scope = reviewDraftScope.value
+  if (!openDraft || !scope) return
+  const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, selectedFile.value?.path, projection.value.generation)
+  if (!coordinate) return
+  if (value.trim()) writeReviewLineCommentDraft(scope, coordinate, value, principal)
+  else clearReviewLineCommentDraftIfRevision(scope, coordinate, principal)
+})
 
 function openComment(line: ParsedPatchLine, side: ReviewCommentSide = line.oldLine !== null && line.newLine !== null ? 'NEW' : line.newLine !== null ? 'NEW' : 'OLD'): void {
+  if (commentSubmitting.value) return
   if (!line.lineNumber(side)) return
   commentDraft.value = { line, side }
-  commentText.value = ''
   commentError.value = null
+  // Restore a previously typed comment only when the composer is untouched; a changed diff
+  // generation rides in the storage key, so stale input against shifted lines never returns.
+  const coordinate = lineDraftCoordinate(line, side, selectedFile.value?.path, projection.value.generation)
+  commentText.value = coordinate && reviewDraftScope.value && !commentText.value.trim()
+    ? readReviewLineCommentDraft(reviewDraftScope.value, coordinate, principal)?.content ?? ''
+    : ''
   void nextTick(() => document.querySelector<HTMLTextAreaElement>('[data-testid="review-comment-input"]')?.focus())
 }
 
@@ -162,38 +230,48 @@ function closeComment(): void {
   if (commentSubmitting.value) return
   commentDraft.value = null
   commentError.value = null
+  // The typed content is already persisted under its coordinate; clearing the local copy lets
+  // a re-open restore it instead of showing a stale half-state.
+  commentText.value = ''
 }
 
 async function submitComment(): Promise<void> {
+  if (commentSubmitting.value) return
+  const owner = commentRequests.capture()
   const draft = commentDraft.value
   const content = commentText.value.trim()
   if (!draft || !content) { commentError.value = '请输入评论内容。'; return }
   const lineNumber = draft.line.lineNumber(draft.side)
   if (!lineNumber || !selectedFile.value) return
+  const filePath = selectedFile.value.path
+  const diffGeneration = projection.value.generation
+  const addComment = props.onAddComment
+  if (!addComment) { commentError.value = '当前没有可提交评论的 Review，请先发起 Review。'; return }
   commentSubmitting.value = true
   commentError.value = null
   try {
-    const result = await props.onAddComment?.({
-      filePath: selectedFile.value.path, side: draft.side, lineNumber,
-      hunkHeader: draft.line.hunkHeader, lineContentHash: await sha256(draft.line.text.replace(/^[+\- ]/, '')),
-      diffGeneration: projection.value.generation, content,
+    const lineContentHash = await sha256(draft.line.text.replace(/^[+\- ]/, ''))
+    if (!owner.isCurrent()) return
+    const result = await addComment({
+      filePath, side: draft.side, lineNumber,
+      hunkHeader: draft.line.hunkHeader, lineContentHash,
+      diffGeneration, content,
     })
-    if (result) localComments.value = [...localComments.value, result]
-    if (!props.onAddComment) localComments.value = [...localComments.value, draftComment(draft, content)]
+    if (!owner.isCurrent()) return
+    if (!result) { commentError.value = '评论尚未确认保存，请保留内容并核实原 Review。'; return }
+    localComments.value = [...localComments.value, result]
+    // The submitted text is on the server now; discard the browser draft for this coordinate
+    // only when it still holds this diff generation.
+    if (reviewDraftScope.value) {
+      clearReviewLineCommentDraftIfRevision(reviewDraftScope.value, {
+        executionId: props.attempt.executionId, filePath, side: draft.side, lineNumber, diffGeneration,
+      }, principal)
+    }
     commentDraft.value = null
+    commentText.value = ''
   } catch (error) {
-    commentError.value = error instanceof Error ? error.message : '评论暂时无法提交，请重试。'
-  } finally { commentSubmitting.value = false }
-}
-
-function draftComment(draft: { line: ParsedPatchLine, side: ReviewCommentSide }, content: string): ReviewLineComment {
-  const now = new Date().toISOString()
-  return {
-    id: `local-${crypto.randomUUID()}`, reviewRequestId: 'local', taskExecutionId: props.attempt.executionId,
-    filePath: selectedFile.value?.path ?? '', side: draft.side, lineNumber: draft.line.lineNumber(draft.side) ?? 1,
-    hunkHeader: draft.line.hunkHeader, lineContentHash: draft.line.contentHash, diffGeneration: projection.value.generation,
-    content, authorPrincipalId: 'local', anchorState: 'ACTIVE', deleted: false, version: 0, createdAt: now, updatedAt: now,
-  }
+    if (owner.isCurrent()) commentError.value = error instanceof Error ? error.message : '评论暂时无法提交，请重试。'
+  } finally { if (owner.isCurrent()) commentSubmitting.value = false }
 }
 
 async function sha256(value: string): Promise<string> {

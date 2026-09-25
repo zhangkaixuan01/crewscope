@@ -18,6 +18,7 @@ public final class WorkItemTimelineService {
       Set.of(
           "WORK_ITEM_CREATED",
           "WORK_ITEM_STATUS_CHANGED",
+          "WORK_ITEM_CONTENT_UPDATED",
           "WORK_ITEM_COMMENT_ADDED",
           "WORK_ITEM_RESOURCE_LINKED",
           "WORK_ITEM_OWNER_ASSIGNED",

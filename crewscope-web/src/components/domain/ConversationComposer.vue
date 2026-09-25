@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AtSign, Paperclip, SendHorizontal } from '@lucide/vue'
+import { SendHorizontal } from '@lucide/vue'
 import { nextTick, ref, useId, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 
@@ -26,6 +26,7 @@ const fieldId = useId()
 const guidanceId = `${fieldId}-guidance`
 const countId = `${fieldId}-count`
 const textarea = ref<HTMLTextAreaElement | null>(null)
+defineExpose({ focus: () => textarea.value?.focus() })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -55,12 +56,6 @@ function resize(): void {
   element.style.height = `${Math.min(element.scrollHeight, 220)}px`
 }
 
-function insertSlash(): void {
-  const content = props.modelValue.trimStart()
-  emit('update:modelValue', content.startsWith('/') ? props.modelValue : `/${props.modelValue}`)
-  void nextTick(() => { resize(); textarea.value?.focus() })
-}
-
 watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 </script>
 
@@ -82,10 +77,6 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
       />
     </label>
     <footer>
-      <div class="composer-tools" aria-label="消息工具">
-        <button type="button" class="composer-tool" :disabled="disabled" :aria-describedby="guidanceId" aria-label="添加附件（即将支持）"><Paperclip :size="13" aria-hidden="true" />附件</button>
-        <button type="button" class="composer-tool" :disabled="disabled" :aria-describedby="guidanceId" aria-label="插入 Slash 命令" @click="insertSlash"><AtSign :size="13" aria-hidden="true" />Slash</button>
-      </div>
       <span :id="guidanceId">{{ disabledReason ?? (offline ? '当前离线，可继续编辑草稿' : 'Enter 发送 · Shift + Enter 换行') }}</span>
       <span :id="countId">{{ modelValue.length.toLocaleString('zh-CN') }} / 50,000 · 预算 {{ modelBudget.toLocaleString('zh-CN') }}</span>
       <BaseButton type="submit" size="small" :disabled="disabled || submitDisabled || !modelValue.trim()" :loading="sending">
@@ -102,19 +93,15 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 .conversation-composer textarea { width: 100%; min-height: 74px; max-height: 180px; resize: vertical; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }
 .conversation-composer textarea:focus { border-color: var(--cs-border-accent-strong); outline: 3px solid var(--cs-ring-brand); }
 .conversation-composer textarea:disabled { cursor: not-allowed; opacity: .66; }
-.conversation-composer footer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--cs-space-12); }
-.composer-tools { display: flex; align-items: center; gap: var(--cs-space-8); }
-.composer-tool { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: 28px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); cursor: pointer; }
-.composer-tool:disabled { cursor: not-allowed; opacity: .52; }
+.conversation-composer footer { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--cs-space-12); }
 .conversation-composer footer > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }
 @media (max-width: 767px) {
   .conversation-composer { position: sticky; bottom: 0; z-index: 2; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12) max(var(--cs-space-12), env(safe-area-inset-bottom)); }
   .conversation-composer textarea { min-height: 58px; max-height: 120px; padding: var(--cs-space-8) var(--cs-space-12); font-size: var(--cs-text-md); resize: none; }
   .conversation-composer footer { grid-template-columns: minmax(0, 1fr) auto; gap: var(--cs-space-8); }
-  .composer-tools { grid-column: 1 / -1; }
   .conversation-composer footer > span:first-child { display: none; }
-  .conversation-composer footer > span:nth-child(3) { display: none; }
+  .conversation-composer footer > span:nth-child(2) { display: none; }
   .conversation-composer footer > :deep(.base-button) { min-width: 82px; min-height: 42px; }
 }
 </style>

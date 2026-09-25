@@ -236,7 +236,9 @@ public final class GitHubConnectionApplicationService {
                         connectionId,
                         ownerFacts.owner(),
                         CONNECTOR_KEY,
-                        required.externalAccountId(),
+                        required.externalAccountId().isBlank()
+                                ? "pending:" + connectionId.value()
+                                : required.externalAccountId(),
                         credentialId,
                         required.expiresAt(),
                         actor,
@@ -290,6 +292,23 @@ public final class GitHubConnectionApplicationService {
             long expectedConnectionVersion,
             TeamId teamId,
             boolean defaultUsage) {
+        return bind(context, organizationId, connectionId, expectedConnectionVersion, teamId,
+                defaultUsage, Optional.empty());
+    }
+
+    /**
+     * Binds a connection to the selected catalog repository resources.  The
+     * legacy overload remains available for explicit allowlist connections;
+     * discovery connections must provide a concrete selection.
+     */
+    public CommandExecution<GitHubProviderBindingView> bind(
+            TeamCommandContext context,
+            OrganizationId organizationId,
+            ConnectionId connectionId,
+            long expectedConnectionVersion,
+            TeamId teamId,
+            boolean defaultUsage,
+            Optional<Set<String>> selectedRepositoryIds) {
         TeamCommandContext trusted = Objects.requireNonNull(context, "context");
         CommandRequestHash hash = CommandRequestHash.sha256(
                 BIND_CONNECTION,
@@ -298,7 +317,10 @@ public final class GitHubConnectionApplicationService {
                 connectionId.toString(),
                 Long.toString(expectedConnectionVersion),
                 teamId.toString(),
-                Boolean.toString(defaultUsage));
+                Boolean.toString(defaultUsage),
+                selectedRepositoryIds
+                        .map(value -> value.stream().sorted().collect(Collectors.joining("\n")))
+                        .orElse(""));
         UUID commandId = UUID.randomUUID();
         return transactions.required(() -> {
             UtcTimestamp now = timeProvider.now();
@@ -340,6 +362,17 @@ public final class GitHubConnectionApplicationService {
                 throw new DomainValidationException(
                         "githubProviderBinding", "already exists for this Connection and Workspace");
             }
+            ProviderAccessScope bindingAccess = selectedRepositoryIds
+                    .filter(value -> !value.isEmpty())
+                    .map(ids -> selectedRepositoryAccess(
+                            organizationId, connectionId, connection, grant, ids, now))
+                    .orElseGet(grant::grantedAccess);
+            if (grant.grantedAccess().resources().unrestricted()
+                    && bindingAccess.resources().unrestricted()) {
+                throw new DomainValidationException(
+                        "githubProviderBinding.repositoryIds",
+                        "must select at least one GitHub repository");
+            }
             ProviderBinding binding = ProviderBinding.bind(
                     ProviderBindingId.generate(),
                     target,
@@ -348,7 +381,7 @@ public final class GitHubConnectionApplicationService {
                     foundation.implementation(),
                     Optional.of(connection),
                     Optional.of(grant),
-                    grant.grantedAccess(),
+                    bindingAccess,
                     defaultUsage,
                     trusted.access().actor(),
                     now);
@@ -679,9 +712,10 @@ public final class GitHubConnectionApplicationService {
 
     private static Set<String> repositoryAllowlist(ProviderResourceScope resources) {
         if (resources.unrestricted()) {
-            throw new DomainValidationException(
-                    "githubConnection.repositoryAllowlist",
-                    "must be explicit for a managed GitHub Connection");
+            // Discovery grants intentionally do not expose a delivery
+            // allowlist.  A concrete ProviderBinding is required before
+            // import or delivery can use the connection.
+            return Set.of();
         }
         Set<String> result = resources.resources().stream()
                 .filter(value -> value.toLowerCase(Locale.ROOT).startsWith(REPOSITORY_RESOURCE_PREFIX))
@@ -702,7 +736,10 @@ public final class GitHubConnectionApplicationService {
                 .map(value -> REPOSITORY_RESOURCE_PREFIX + value)
                 .toArray(String[]::new);
         return new ProviderAccessScope(
-                DELIVERY_CAPABILITIES, ProviderResourceScope.of(resources));
+                DELIVERY_CAPABILITIES,
+                repositories.isEmpty()
+                        ? ProviderResourceScope.allResources()
+                        : ProviderResourceScope.of(resources));
     }
 
     private OwnerFacts resolveCreateOwner(
@@ -946,6 +983,36 @@ public final class GitHubConnectionApplicationService {
                 .orElseThrow(() -> new GitHubProviderException(
                         GitHubProviderErrorCode.GRANT_UNAVAILABLE,
                         "GitHub Provider Binding is stale"));
+    }
+
+    private ProviderAccessScope selectedRepositoryAccess(
+            OrganizationId organizationId,
+            ConnectionId connectionId,
+            Connection connection,
+            ConnectionGrant grant,
+            Set<String> externalRepositoryIds,
+            UtcTimestamp now) {
+        Set<String> ids = Set.copyOf(Objects.requireNonNull(externalRepositoryIds, "externalRepositoryIds"));
+        if (ids.isEmpty()) {
+            throw new DomainValidationException(
+                    "githubProviderBinding.repositoryIds", "must not be empty");
+        }
+        Set<String> resources = ids.stream()
+                .map(id -> githubRepository.findRepository(organizationId, connectionId, id)
+                        .filter(value -> value.connectionVersion() == connection.version())
+                        .filter(value -> value.status() == GitHubRepositoryStatus.DELIVERABLE)
+                        .filter(value -> value.isCurrentAt(now))
+                        .map(GitHubRepositoryCatalogEntry::grantResourceKey)
+                        .orElseThrow(() -> new GitHubProviderException(
+                                GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
+                                "GitHub repository is unavailable")))
+                .collect(Collectors.toSet());
+        ProviderAccessScope requested = new ProviderAccessScope(
+                DELIVERY_CAPABILITIES, ProviderResourceScope.of(resources.toArray(String[]::new)));
+        return grant.effectiveAccess(requested, connection, now)
+                .orElseThrow(() -> new GitHubProviderException(
+                        GitHubProviderErrorCode.GRANT_UNAVAILABLE,
+                        "GitHub Connection Grant does not authorize the selected repository"));
     }
 
     private static GitHubProviderBindingView bindingView(ProviderBinding binding) {

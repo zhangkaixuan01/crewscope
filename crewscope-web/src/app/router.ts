@@ -2,6 +2,7 @@ import {
   createRouter,
   type Router,
   type RouterHistory,
+  type RouteLocationNormalized,
 } from 'vue-router'
 import { can, permissions } from './auth'
 import type { AuthStore } from '../domains/identity/store'
@@ -112,7 +113,15 @@ export function createCrewScopeRouter(
         path: '/team/members',
         name: 'team-members',
         component: () => import('../pages/TeamMembersPage.vue'),
-        meta: { mode: 'control', section: 'members', title: '团队成员', requiredPermission: permissions.teamMembersRead },
+        meta: {
+          mode: 'control',
+          section: 'members',
+          title: '团队成员',
+          requiredPermission: permissions.teamMembersRead,
+          // `?member=` deep link and `?tab=members|invitations` are the only recognized parameters.
+          queryWhitelist: ['team', 'project', 'member', 'tab'],
+          tabValues: ['members', 'invitations'],
+        },
       },
       {
         path: '/settings/repositories',
@@ -181,6 +190,8 @@ export function createCrewScopeRouter(
     if (typeof requiredPermission === 'string' && !can(authStore.principal, requiredPermission)) {
       return { name: 'access-denied', query: { requiredPermission, from: to.fullPath } }
     }
+    const normalized = normalizeWhitelistedQuery(to)
+    if (normalized) return normalized
     return true
   })
 
@@ -200,4 +211,32 @@ export function createCrewScopeRouter(
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/**
+ * Routes that declare `queryWhitelist` keep only those keys (plus the tab enum when present);
+ * anything else is dropped through a redirect so unknown parameters never reach the page.
+ */
+function normalizeWhitelistedQuery(
+  to: RouteLocationNormalized,
+): { name: string, query: Record<string, string>, hash: string, replace: true } | null {
+  const whitelist = to.meta?.queryWhitelist
+  if (typeof to.name !== 'string' || !Array.isArray(whitelist)) return null
+  const allowed = new Set(whitelist.map(value => String(value)))
+  const tabValues = Array.isArray(to.meta?.tabValues) ? to.meta.tabValues.map(value => String(value)) : null
+  const query: Record<string, string> = {}
+  let changed = false
+  for (const [key, raw] of Object.entries(to.query)) {
+    if (!allowed.has(key) || typeof raw !== 'string' || !raw) {
+      changed = true
+      continue
+    }
+    if (key === 'tab' && tabValues && !tabValues.includes(raw)) {
+      changed = true
+      continue
+    }
+    query[key] = raw
+  }
+  if (!changed) return null
+  return { name: to.name, query, hash: to.hash, replace: true }
 }

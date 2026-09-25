@@ -17,7 +17,7 @@ test('updates identifier fields with strong version and current-password step-up
     body: { username: 'alice-next', currentPassword: 'one-way-proof', securityVersion: 3 },
     ifMatch: '"4"', csrf: 'csrf-account-e2e',
   }])
-  expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
+  await expectCleanBrowserStorage(page)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 })
@@ -191,4 +191,18 @@ function error(code: string, message: string, currentVersion: number | null = nu
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return { status, contentType: 'application/json', headers, body: JSON.stringify(body) }
+}
+
+/**
+ * Credentials must never reach browser storage. F05 allows exactly two client-generated keys:
+ * the per-account user-content epoch and the command-recovery registry, which stores idempotency
+ * coordinates only — no command bodies and no credential material.
+ */
+async function expectCleanBrowserStorage(page: Page): Promise<void> {
+  const persisted = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(Object.keys(persisted.local)
+    .filter(key => key !== 'cs.user.epoch.v1' && key !== 'crewscope.command-recovery.v1')).toEqual([])
+  expect(persisted.session).toEqual({})
+  expect(JSON.stringify(persisted)).not.toMatch(/password|credential|secret|authorization|bearer/i)
+  expect(JSON.stringify(persisted)).not.toContain('one-way-proof')
 }

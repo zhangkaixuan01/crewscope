@@ -8,6 +8,7 @@ import io.crewscope.application.inbox.InboxPage;
 import io.crewscope.application.inbox.InboxQuery;
 import io.crewscope.application.inbox.InboxItemQueryPort;
 import io.crewscope.application.inbox.InboxItemView;
+import io.crewscope.application.inbox.InboxSourceContext;
 import io.crewscope.application.inbox.InboxSourceTarget;
 import io.crewscope.application.inbox.InboxTypeCount;
 import io.crewscope.domain.inbox.InboxCloseReason;
@@ -128,13 +129,87 @@ public class JdbcInboxRepositoryAdapter
                        disposition.status AS disposition_status,
                        disposition.version AS disposition_version,
                        disposition.updated_by_principal_id AS disposition_updated_by,
-                       disposition.updated_at AS disposition_updated_at
+                       disposition.updated_at AS disposition_updated_at,
+                       source_context.sc_project_id, source_context.sc_work_item_id,
+                       source_context.sc_work_item_title, source_context.sc_task_objective,
+                       source_context.sc_waiting_on_display_name
                 FROM crewscope.inbox_item item
                 LEFT JOIN crewscope.inbox_disposition disposition
                   ON disposition.organization_id = item.organization_id
                  AND disposition.team_id = item.team_id
                  AND disposition.member_id = item.member_id
                  AND disposition.inbox_item_id = item.inbox_item_id
+                LEFT JOIN LATERAL (
+                  SELECT wi.project_id AS sc_project_id, wi.id AS sc_work_item_id,
+                         wi.title AS sc_work_item_title,
+                         NULL::VARCHAR AS sc_task_objective,
+                         NULL::VARCHAR AS sc_waiting_on_display_name
+                  FROM crewscope.responsibility_assignment assignment
+                  JOIN crewscope.work_item wi
+                    ON wi.organization_id = assignment.organization_id
+                   AND wi.team_id = assignment.team_id AND wi.id = assignment.work_item_id
+                  WHERE item.source_type = 'RESPONSIBILITY_ASSIGNMENT'
+                    AND assignment.organization_id = item.organization_id
+                    AND assignment.team_id = item.team_id AND assignment.id = item.source_id
+                  UNION ALL
+                  SELECT task.project_id, task.work_item_id, wi.title, task.objective,
+                         reviewer.display_name
+                  FROM crewscope.review_request request
+                  JOIN crewscope.task task
+                    ON task.organization_id = request.organization_id
+                   AND task.team_id = request.team_id AND task.id = request.task_id
+                  JOIN crewscope.work_item wi
+                    ON wi.organization_id = task.organization_id AND wi.team_id = task.team_id
+                   AND wi.id = task.work_item_id
+                  LEFT JOIN LATERAL (
+                    SELECT principal.display_name
+                    FROM crewscope.responsibility_assignment assignment
+                    JOIN crewscope.principal principal ON principal.id = assignment.actor_principal_id
+                    WHERE assignment.organization_id = request.organization_id
+                      AND assignment.team_id = request.team_id
+                      AND assignment.project_id = request.project_id
+                      AND assignment.work_item_id = task.work_item_id
+                      AND assignment.role = 'REVIEWER' AND assignment.status = 'ACTIVE'
+                    ORDER BY principal.display_name LIMIT 1
+                  ) reviewer ON TRUE
+                  WHERE item.source_type = 'REVIEW_REQUEST'
+                    AND request.organization_id = item.organization_id
+                    AND request.team_id = item.team_id AND request.id = item.source_id
+                  UNION ALL
+                  SELECT task.project_id, task.work_item_id, wi.title, task.objective,
+                         NULL::VARCHAR
+                  FROM crewscope.task_execution execution
+                  JOIN crewscope.task task
+                    ON task.organization_id = execution.organization_id
+                   AND task.team_id = execution.team_id AND task.id = execution.task_id
+                  JOIN crewscope.work_item wi
+                    ON wi.organization_id = task.organization_id AND wi.team_id = task.team_id
+                   AND wi.id = task.work_item_id
+                  WHERE item.source_type = 'TASK_EXECUTION'
+                    AND execution.organization_id = item.organization_id
+                    AND execution.team_id = item.team_id AND execution.id = item.source_id
+                  UNION ALL
+                  SELECT bundle.project_id, bundle.work_item_id, wi.title,
+                         NULL::VARCHAR, NULL::VARCHAR
+                  FROM crewscope.action_bundle bundle
+                  JOIN crewscope.work_item wi
+                    ON wi.organization_id = bundle.organization_id
+                   AND wi.team_id = bundle.team_id AND wi.id = bundle.work_item_id
+                  WHERE item.source_type = 'ACTION_CONFIRMATION'
+                    AND bundle.organization_id = item.organization_id
+                    AND bundle.team_id = item.team_id AND bundle.id = item.source_id
+                  UNION ALL
+                  SELECT bundle.project_id, bundle.work_item_id, wi.title,
+                         NULL::VARCHAR, NULL::VARCHAR
+                  FROM crewscope.planned_action action
+                  JOIN crewscope.action_bundle bundle ON bundle.id = action.action_bundle_id
+                  JOIN crewscope.work_item wi
+                    ON wi.organization_id = bundle.organization_id
+                   AND wi.team_id = bundle.team_id AND wi.id = bundle.work_item_id
+                  WHERE item.source_type = 'ACTION_DELIVERY'
+                    AND bundle.organization_id = item.organization_id
+                    AND bundle.team_id = item.team_id AND action.id = item.source_id
+                ) source_context ON TRUE
                 WHERE item.organization_id = ? AND item.team_id = ? AND item.member_id = ?
                   AND item.projection_name = ? AND item.generation = ?
                 """);
@@ -160,7 +235,10 @@ public class JdbcInboxRepositoryAdapter
                 sql.toString(),
                 (row, ignored) -> {
                     CurrentRow current = currentRow(row);
-                    return InboxItemView.merge(current.item(), current.disposition());
+                    return InboxItemView.merge(
+                            current.item(),
+                            current.disposition(),
+                            Optional.ofNullable(sourceContext(row, current.item())));
                 },
                 parameters.toArray());
         boolean hasMore = rows.size() > value.limit();
@@ -490,6 +568,41 @@ public class JdbcInboxRepositoryAdapter
             case HIGH -> 3;
             case NORMAL -> 2;
             case LOW -> 1;
+        };
+    }
+
+    /**
+     * Reads the joined work facts of one page row, or null when the row's source carries none —
+     * a notification delivery, or a source object that no longer exists.
+     */
+    private static InboxSourceContext sourceContext(ResultSet row, InboxItem item)
+            throws SQLException {
+        UUID projectId = row.getObject("sc_project_id", UUID.class);
+        UUID workItemId = row.getObject("sc_work_item_id", UUID.class);
+        String title = row.getString("sc_work_item_title");
+        String objective = row.getString("sc_task_objective");
+        String waitingOn = row.getString("sc_waiting_on_display_name");
+        if (projectId == null && workItemId == null && title == null
+                && objective == null && waitingOn == null) {
+            return null;
+        }
+        return new InboxSourceContext(
+                Optional.ofNullable(projectId).map(io.crewscope.domain.workitem.WorkProjectId::new),
+                Optional.ofNullable(workItemId).map(io.crewscope.domain.workitem.WorkItemId::new),
+                Optional.ofNullable(title),
+                Optional.ofNullable(objective),
+                Optional.ofNullable(waitingOn),
+                targetActionKind(item.source().key().sourceType()));
+    }
+
+    /** The row's navigation kind, kept aligned with {@link InboxSourceTarget.Kind}. */
+    private static String targetActionKind(InboxSourceType sourceType) {
+        return switch (sourceType) {
+            case RESPONSIBILITY_ASSIGNMENT -> "WORK_ITEM";
+            case REVIEW_REQUEST -> "REVIEW";
+            case TASK_EXECUTION -> "TASK";
+            case ACTION_CONFIRMATION, ACTION_DELIVERY -> "ACTION";
+            case NOTIFICATION_DELIVERY -> "NOTIFICATION";
         };
     }
 

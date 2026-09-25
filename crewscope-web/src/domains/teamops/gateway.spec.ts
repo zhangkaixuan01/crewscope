@@ -79,6 +79,43 @@ describe('HttpTeamOpsGateway', () => {
     await expect(gateway.inbox(scope, {})).rejects.toThrow('response enum is invalid')
   })
 
+  it('parses the joined source context of an Inbox row and keeps it optional', async () => {
+    const gateway = gatewayWith(vi.fn(async () => json({
+      items: [
+        inboxPayload({
+          sourceContext: {
+            projectId: 'project-1', workItemId: 'item-1', workItemTitle: '准备发布',
+            taskObjective: '评审目标', waitingOnDisplayName: '评审人乙', targetActionKind: 'REVIEW',
+          },
+        }),
+        inboxPayload({ inboxItemId: 'inbox-2', sourceContext: null }),
+      ],
+      nextCursor: null,
+    })))
+
+    const items = (await gateway.inbox(scope, {})).items
+
+    expect(items[0]?.sourceContext).toEqual({
+      projectId: 'project-1', workItemId: 'item-1', workItemTitle: '准备发布',
+      taskObjective: '评审目标', waitingOnDisplayName: '评审人乙', targetActionKind: 'REVIEW',
+    })
+    expect(items[1]?.sourceContext).toBeNull()
+  })
+
+  it('fails closed when a source context names an unknown action kind', async () => {
+    const gateway = gatewayWith(vi.fn(async () => json({
+      items: [inboxPayload({
+        sourceContext: {
+          projectId: null, workItemId: null, workItemTitle: '准备发布',
+          taskObjective: null, waitingOnDisplayName: null, targetActionKind: 'BOGUS',
+        },
+      })],
+      nextCursor: null,
+    })))
+
+    await expect(gateway.inbox(scope, {})).rejects.toThrow('response enum is invalid')
+  })
+
   it.each([
     'https://attacker.example/work',
     '//attacker.example/work',

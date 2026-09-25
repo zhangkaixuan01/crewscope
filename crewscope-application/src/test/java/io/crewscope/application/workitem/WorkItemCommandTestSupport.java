@@ -42,6 +42,7 @@ import io.crewscope.domain.team.RoleScopeType;
 import io.crewscope.domain.team.Team;
 import io.crewscope.domain.team.TeamInitialization;
 import io.crewscope.domain.team.TeamMember;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
@@ -122,7 +123,7 @@ final class WorkItemCommandTestSupport {
         };
     private final WorkItemAccessPolicy sharedAccessPolicy =
         new WorkItemAccessPolicy(store, store, store, membershipQuery, roleRepository, store);
-    private final WorkItemCommandService service = buildService(null);
+    final WorkItemCommandService service = buildService(null);
 
     private WorkItemCommandService buildService(WorkItemAccessPolicy transitionAccessPolicy) {
       return new WorkItemCommandService(
@@ -223,6 +224,20 @@ final class WorkItemCommandTestSupport {
     private final Map<ResponsibilityAssignmentId, ResponsibilityAssignment> assignments =
         new LinkedHashMap<>();
     private final Map<String, ReceiptEntry> receipts = new HashMap<>();
+    final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
+
+    @Override
+    public void saveResult(io.crewscope.application.command.CommandResult result) {
+      results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
+    }
+
+    @Override
+    public Optional<io.crewscope.application.command.CommandResult> findResult(
+        OrganizationId organizationId, IdempotencyKey key,
+        io.crewscope.domain.shared.id.PrincipalId actorId) {
+      return Optional.ofNullable(results.get(organizationId + ":" + key))
+          .filter(result -> result.actorId().equals(actorId));
+    }
     final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
     final List<PendingOutboxEvent> outbox = new ArrayList<>();
     List<TeamMember> members;
@@ -282,6 +297,14 @@ final class WorkItemCommandTestSupport {
     @Override
     public WorkItemPage findPage(WorkItemQuery query) {
       return new WorkItemPage(List.of(), Optional.empty());
+    }
+
+    @Override
+    public WorkItemKey nextKey(OrganizationId organizationId, WorkProject project) {
+      long last = items.values().stream().filter(item -> item.scope().projectId().equals(project.id()))
+          .mapToLong(item -> Long.parseLong(item.key().value().substring(project.key().value().length() + 1)))
+          .max().orElse(0);
+      return new WorkItemKey(project.key().value() + "-" + (last + 1));
     }
 
     @Override
@@ -422,6 +445,18 @@ final class WorkItemCommandTestSupport {
           .filter(value -> value.actorPrincipalId().equals(actorPrincipalId))
           .filter(ResponsibilityAssignment::isActive)
           .findFirst();
+    }
+
+    @Override
+    public List<ResponsibilityAssignment> findActiveByActorMember(
+        OrganizationId organizationId, TeamId teamId, TeamMemberId memberId) {
+      return assignments.values().stream()
+          .filter(value -> value.scope().organizationId().equals(organizationId))
+          .filter(value -> value.scope().teamId().equals(teamId))
+          .filter(value -> value.actorMemberId().isPresent())
+          .filter(value -> value.actorMemberId().orElseThrow().equals(memberId))
+          .filter(ResponsibilityAssignment::isActive)
+          .toList();
     }
 
     @Override

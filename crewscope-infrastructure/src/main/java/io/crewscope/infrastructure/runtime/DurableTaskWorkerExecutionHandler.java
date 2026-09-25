@@ -35,6 +35,7 @@ import io.crewscope.domain.task.ExecutionLeaseReleaseReason;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionFailure;
 import io.crewscope.domain.task.TaskExecutionFailureClass;
+import io.crewscope.domain.task.TaskTokenGrantScope;
 import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskExecutionWaitReason;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecution;
@@ -73,6 +74,7 @@ public final class DurableTaskWorkerExecutionHandler
     private final ExecutionLeaseRepository leaseRepository;
     private final AgentStateSnapshotRepository snapshotRepository;
     private final TaskTokenService tokenService;
+    private final TaskTokenCurrentAuthorization currentAuthorization;
     private final AuthoritativeTimeProvider timeProvider;
     private final RuntimeWorkerRegistrationSpec registration;
     private final TaskWorkerExecutionSpec spec;
@@ -90,6 +92,7 @@ public final class DurableTaskWorkerExecutionHandler
             ExecutionLeaseRepository leaseRepository,
             AgentStateSnapshotRepository snapshotRepository,
             TaskTokenService tokenService,
+            TaskTokenCurrentAuthorization currentAuthorization,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             TaskWorkerExecutionSpec spec) {
@@ -104,6 +107,7 @@ public final class DurableTaskWorkerExecutionHandler
                 leaseRepository,
                 snapshotRepository,
                 tokenService,
+                currentAuthorization,
                 timeProvider,
                 registration,
                 spec);
@@ -120,6 +124,7 @@ public final class DurableTaskWorkerExecutionHandler
             ExecutionLeaseRepository leaseRepository,
             AgentStateSnapshotRepository snapshotRepository,
             TaskTokenService tokenService,
+            TaskTokenCurrentAuthorization currentAuthorization,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             TaskWorkerExecutionSpec spec) {
@@ -134,6 +139,8 @@ public final class DurableTaskWorkerExecutionHandler
         this.leaseRepository = Objects.requireNonNull(leaseRepository, "leaseRepository");
         this.snapshotRepository = Objects.requireNonNull(snapshotRepository, "snapshotRepository");
         this.tokenService = Objects.requireNonNull(tokenService, "tokenService");
+        this.currentAuthorization = Objects.requireNonNull(
+                currentAuthorization, "currentAuthorization");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.registration = Objects.requireNonNull(registration, "registration");
         this.spec = Objects.requireNonNull(spec, "spec");
@@ -241,6 +248,10 @@ public final class DurableTaskWorkerExecutionHandler
             prepared.codingWorkspace().ifPresent(
                     workspace -> workspace.sandbox().renewActiveLease(renewed));
             propagateMemberControl(prepared);
+            // M9b-A07: each heartbeat is an authorization boundary too. A member revoked mid-run
+            // loses the remainder of the execution at the next renewal tick, without waiting for
+            // the Lease itself to expire.
+            currentAuthorization.requireCurrent(prepared.token().grant());
         } catch (RuntimeException failure) {
             // Stop accepting runtime events after any uncertain ownership renewal. The authoritative
             // Sweeper decides whether the Lease expired; this thread never guesses ownership.
@@ -552,6 +563,13 @@ public final class DurableTaskWorkerExecutionHandler
                 return;
             }
             try {
+                // M9b-A07: revocation cuts the stream at the next commit boundary — the executing
+                // member (or the Agent executor's owning member) must still participate before
+                // this runtime event becomes a durable Task fact.
+                TaskTokenGrantScope grantScope = prepared.token().grant().scope();
+                currentAuthorization.currentExecutionMember(
+                        grantScope.workItemScope(),
+                        grantScope.executionPrincipal().principalId());
                 // DurableTaskExecutionEventService locks and validates the current Lease with
                 // authoritative database time in the same transaction as the event receipt.
                 eventService.commit(new TaskRuntimeEventCommitCommand(

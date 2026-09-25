@@ -57,6 +57,7 @@ public final class ModelConnectionApplicationService {
 
     private static final String CREATE = "CREATE_MODEL_CONNECTION";
     private static final String VERIFY = "VERIFY_MODEL_CONNECTION";
+    private static final String ACTIVATE = "ACTIVATE_MODEL_CONNECTION";
     private static final String ROTATE = "ROTATE_MODEL_CONNECTION_CREDENTIAL";
     private static final String SUSPEND = "SUSPEND_MODEL_CONNECTION";
     private static final String REVOKE = "REVOKE_MODEL_CONNECTION";
@@ -224,6 +225,14 @@ public final class ModelConnectionApplicationService {
         return mutate(context, connectionId, expectedVersion, expectedCredentialVersion, SUSPEND, "", null);
     }
 
+    public CommandExecution<ModelConnection> activate(
+            TeamCommandContext context,
+            ModelConnectionId connectionId,
+            long expectedVersion,
+            ModelCredentialVersion expectedCredentialVersion) {
+        return mutate(context, connectionId, expectedVersion, expectedCredentialVersion, ACTIVATE, "", null);
+    }
+
     public CommandExecution<ModelConnection> revoke(
             TeamCommandContext context,
             ModelConnectionId connectionId,
@@ -269,6 +278,7 @@ public final class ModelConnectionApplicationService {
         ModelConnectionLifecycleCommandGate gate = mutationGate(trusted, commandType, hash, current);
         return switch (commandType) {
             case VERIFY -> credentials.verify(command, gate);
+            case ACTIVATE -> credentials.activate(command, gate);
             case ROTATE -> credentials.rotate(command, Objects.requireNonNull(secret, "secret"), gate);
             case SUSPEND -> credentials.suspend(command, gate);
             default -> throw new IllegalArgumentException("Unsupported model connection mutation");

@@ -12,6 +12,7 @@ public class TeamActivityRealtimeProperties {
   private boolean enabled;
   private Duration pollInterval = Duration.ofMillis(500);
   private Duration heartbeatInterval = Duration.ofSeconds(15);
+  private Duration idleProbeInterval = Duration.ofSeconds(5);
   private int batchSize = 100;
   private Duration cursorMaximumAge = Duration.ofHours(24);
   private Duration cursorFutureSkew = Duration.ofSeconds(30);
@@ -41,6 +42,20 @@ public class TeamActivityRealtimeProperties {
   public void setHeartbeatInterval(Duration heartbeatInterval) {
     this.heartbeatInterval =
         requirePositive(heartbeatInterval, "heartbeatInterval", Duration.ofMinutes(5));
+  }
+
+  /**
+   * Upper bound for authorization revalidation of an otherwise idle session: every empty poll
+   * window older than this interval emits a null-data frame, which the HTTP adapter rechecks
+   * against current membership facts before forwarding.
+   */
+  public Duration getIdleProbeInterval() {
+    return idleProbeInterval;
+  }
+
+  public void setIdleProbeInterval(Duration idleProbeInterval) {
+    this.idleProbeInterval =
+        requirePositive(idleProbeInterval, "idleProbeInterval", Duration.ofMinutes(5));
   }
 
   public int getBatchSize() {

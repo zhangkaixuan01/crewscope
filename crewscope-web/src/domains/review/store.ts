@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { ReviewGateway } from './gateway'
@@ -81,6 +83,8 @@ interface PendingCommand {
 
 /** Team-scoped Review state; server responses never update a later Team or attempt selection. */
 export function createReviewStore(gateway: ReviewGateway): ReviewStore {
+  const commandIntents = createCommandGateway(gateway, { execute: 4, decide: 5, requestChanges: 5, addComment: 4 })
+  gateway = commandIntents.gateway
   const state = reactive<ReviewStoreState>(initialState())
   let activeScope: ReviewScope | null = null
   let activeScopeKey: string | null = null
@@ -197,7 +201,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   async function addComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }): Promise<ReviewLineComment | null> {
     const scope = requireScope(); const coordinates = selectedCoordinates(); const reviewRequestId = state.selectedReviewRequestId
     if (!coordinates || !reviewRequestId || !gateway.addComment) return null
-    const value = await gateway.addComment(scope, coordinates, reviewRequestId, input, crypto.randomUUID())
+    const started = generation
+    const value = await gateway.addComment(scope, coordinates, reviewRequestId, input, secureId())
+    if (started !== generation || !selectionMatches(coordinates) || state.selectedReviewRequestId !== reviewRequestId) return null
     const key = detailKey(coordinates, reviewRequestId)
     state.comments[key] ??= idleResource<ReviewLineComment[]>()
     state.comments[key]!.value = [...(state.comments[key]!.value ?? []), value]
@@ -208,7 +214,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   async function execute(): Promise<boolean> {
     const context = commandContext()
     if (!context) return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({
       generation,
       operation: 'execute',
@@ -224,7 +230,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   async function decide(input: ReviewDecisionInput): Promise<boolean> {
     const context = commandContext()
     if (!context) return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({
       generation,
       operation: 'decision',
@@ -240,7 +246,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   async function requestChanges(rationale: string): Promise<boolean> {
     const context = commandContext()
     if (!context) return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({
       generation,
       operation: 'modification',
@@ -335,6 +341,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   }
 
   function reset(): void {
+    commandIntents.clear()
     generation += 1
     abortRequests()
     pendingCommand = null

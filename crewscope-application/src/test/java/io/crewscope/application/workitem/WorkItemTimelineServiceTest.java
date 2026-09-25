@@ -49,9 +49,9 @@ class WorkItemTimelineServiceTest {
     assertEquals(Optional.of(cursor), captured.get().cursor());
     assertEquals(25, captured.get().limit());
     assertEquals(
-        10,
+        11,
         captured.get().visibleEventTypes().size(),
-        "Only the reviewed M1 business-event surface is visible");
+        "Only the reviewed M1 and A01 content events are visible");
   }
 
   @Test

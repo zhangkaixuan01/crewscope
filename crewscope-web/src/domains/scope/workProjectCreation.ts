@@ -1,4 +1,5 @@
-import { ref, type Ref } from 'vue'
+import { getCurrentScope, onScopeDispose, ref, watch, type Ref } from 'vue'
+import { createRequestScope } from '../../api/requestScope'
 import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
 import type { ScopeStore } from './store'
 import type { CreateWorkProjectInput } from './types'
@@ -21,6 +22,10 @@ export function createWorkProjectCreationFlow(
   navigation: 'push' | 'replace' = 'replace',
 ): WorkProjectCreationFlow {
   const open = ref(false)
+  const coordinate = () => JSON.stringify([route.fullPath, store.state.selectedTeamId])
+  const requests = createRequestScope(coordinate)
+  const stop = watch(coordinate, () => { requests.invalidate(); open.value = false }, { flush: 'sync' })
+  if (getCurrentScope()) onScopeDispose(() => { stop(); requests.dispose() })
 
   function show(): void {
     store.clearProjectCommand()
@@ -34,15 +39,15 @@ export function createWorkProjectCreationFlow(
   }
 
   async function submit(input: CreateWorkProjectInput, idempotencyKey: string): Promise<boolean> {
+    const owner = requests.capture()
     try {
       const created = await store.createWorkProject(input, idempotencyKey)
+      if (!owner.isCurrent()) return false
       const target = {
         query: {
-          ...route.query,
+          view: route.query.view === 'board' ? 'board' : undefined,
           team: store.state.selectedTeamId ?? undefined,
           project: created.id,
-          workItem: undefined,
-          focus: undefined,
         },
       }
       if (navigation === 'push') await router.push(target)

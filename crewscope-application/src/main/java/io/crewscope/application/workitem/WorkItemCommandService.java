@@ -2,6 +2,7 @@ package io.crewscope.application.workitem;
 
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.command.CommandResult;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
@@ -142,7 +143,7 @@ public final class WorkItemCommandService {
     TeamId requiredTeamId = Objects.requireNonNull(teamId, "teamId");
     WorkProjectId requiredProjectId = Objects.requireNonNull(projectId, "projectId");
     CreateNativeWorkItemCommand required = Objects.requireNonNull(command, "command");
-    WorkItemKey itemKey = new WorkItemKey(required.key());
+    WorkItemKey itemKey = required.key() == null ? null : new WorkItemKey(required.key());
     CommandRequestHash requestHash =
         createRequestHash(trusted, requiredTeamId, requiredProjectId, itemKey, required);
     return execute(
@@ -152,6 +153,41 @@ public final class WorkItemCommandService {
         commandId ->
             createInTransaction(
                 trusted, commandId, requiredTeamId, requiredProjectId, itemKey, required));
+  }
+
+  /** Applies one state-machine transition using the client's expected committed version. */
+  public CommandExecution<WorkItem> updateContent(
+      TeamCommandContext context, TeamId teamId, WorkProjectId projectId, WorkItemId itemId,
+      UpdateWorkItemContentCommand command) {
+    TeamCommandContext trusted = requireCommandContext(context);
+    Objects.requireNonNull(command);
+    List<String> fields = new ArrayList<>(List.of(trusted.access().actor().id().toString(),
+        teamId.toString(), projectId.toString(), itemId.toString(),
+        Long.toString(command.expectedVersion()), trusted.causationId().map(UUID::toString).orElse("")));
+    fields.addAll(command.fingerprint());
+    return execute(trusted, "UPDATE_WORK_ITEM_CONTENT",
+        CommandRequestHash.sha256("UPDATE_WORK_ITEM_CONTENT", fields.toArray(String[]::new)), commandId -> {
+          OrganizationId org = trusted.access().actor().scope().organizationId();
+          Team team = requireTeam(org, teamId);
+          WorkProject project = requireProject(org, teamId, projectId);
+          UtcTimestamp now = timeProvider.now();
+          TeamMember member = requireActiveMember(trusted.access().actor(), team);
+          requirePermission(member, TeamPermission.WORK_PARTICIPATE, project.id(), now, "edit WorkItem content");
+          WorkItem current = requireWorkItem(org, project, itemId);
+          if (!current.source().isNative()) throw new PolicyDeniedException("edit an externally managed WorkItem");
+          if (current.version() != command.expectedVersion())
+            throw new OptimisticLockConflictException("WorkItem", itemId, command.expectedVersion(), current.version());
+          WorkItem changed = current.revise(current.type(),
+              command.title().present() ? command.title().value() : current.title(),
+              command.description().present() ? Optional.ofNullable(command.description().value()) : current.description(),
+              command.priority().present() ? command.priority().value() : current.priority(),
+              command.labels().present() ? command.labels().value() : current.labels(),
+              command.dueAt().present() ? Optional.ofNullable(command.dueAt().value()) : current.dueAt(),
+              trusted.access().actor(), now);
+          WorkItem committed = workItemRepository.update(changed);
+          return completed(trusted, commandId, committed, EventType.from("WORK_ITEM_CONTENT_UPDATED"),
+              io.crewscope.domain.workitem.event.WorkItemContentUpdated.from(current, committed), now);
+        });
   }
 
   /** Applies one state-machine transition using the client's expected committed version. */
@@ -209,6 +245,7 @@ public final class WorkItemCommandService {
         project.id(),
         occurredAt,
         "create WorkItems in this WorkProject");
+    if (itemKey == null) itemKey = workItemRepository.nextKey(organizationId, project);
     if (workItemRepository.findByKey(organizationId, project.id(), itemKey).isPresent()) {
       throw new WorkItemKeyConflictException(project.id(), itemKey);
     }
@@ -347,6 +384,12 @@ public final class WorkItemCommandService {
         new CommandReceipt(commandId, eventId, workItem.version(), context.correlationId());
     receiptStore.complete(
         workItem.scope().organizationId(), context.idempotencyKey(), receipt, occurredAt);
+    if (payload instanceof WorkItemCreated) {
+      receiptStore.saveResult(new CommandResult(workItem.scope().organizationId(), context.idempotencyKey(),
+          context.access().actor().id(), CREATE_WORK_ITEM, workItem.scope().teamId(),
+          Optional.of(workItem.scope().projectId()), CommandResult.ResourceType.WORK_ITEM, workItem.id().value(),
+          workItem.version(), receipt, occurredAt));
+    }
     return CommandExecution.completed(workItem, receipt);
   }
 
@@ -450,7 +493,8 @@ public final class WorkItemCommandService {
     fields.add(context.access().actor().id().toString());
     fields.add(teamId.toString());
     fields.add(projectId.toString());
-    fields.add(itemKey.value());
+    // Keep the legacy explicit-key hash unchanged; an empty marker cannot be a valid explicit key.
+    fields.add(itemKey == null ? "" : itemKey.value());
     fields.add(command.type().name());
     fields.add(command.title().strip());
     fields.add(command.description().map(String::strip).filter(text -> !text.isEmpty()).orElse(""));

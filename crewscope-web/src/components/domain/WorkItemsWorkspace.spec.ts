@@ -11,7 +11,7 @@ const item: WorkItemSummary = {
   id: 'work-1', organizationId: 'org-1', teamId: 'team-1', workspaceId: 'workspace-1', projectId: 'project-1',
   key: 'DEMO-1', title: '拆分工作台', description: null, type: 'TASK', status: 'READY', priority: 'HIGH', labels: [], dueAt: null,
   source: 'MANUAL', sourceReference: null, version: 1, createdAt: '2026-08-24T01:00:00Z', createdByPrincipalId: null,
-  updatedAt: '2026-08-24T01:00:00Z', updatedByPrincipalId: null, availableActions: [requestReview],
+  updatedAt: '2026-08-24T01:00:00Z', updatedByPrincipalId: null, availableActions: [requestReview], summary: null,
 }
 
 function mountWorkspace(overrides: Record<string, unknown> = {}) {

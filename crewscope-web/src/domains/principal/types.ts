@@ -40,11 +40,21 @@ export interface PrincipalEntry {
 
 export interface PrincipalPage {
   items: PrincipalEntry[]
+  /** Legacy offset continuation; empty on a cursor walk or a by-id lookup. */
   nextOffset: number | null
+  /** Signed keyset continuation; absent once the visible set is exhausted. */
+  nextCursor: string | null
 }
 
 export interface PrincipalDirectoryQuery extends PrincipalScope {
+  /** Prefix filter; `namePrefix` is its long-form alias — send one, never both. */
   q?: string
+  namePrefix?: string
+  types?: PrincipalKind[]
+  /** Fixed-point lookup of at most 50 identities; excludes every filter parameter. */
+  ids?: string[]
+  /** Signed continuation from a previous page's `nextCursor`. */
+  after?: string
   offset?: number
   limit?: number
 }

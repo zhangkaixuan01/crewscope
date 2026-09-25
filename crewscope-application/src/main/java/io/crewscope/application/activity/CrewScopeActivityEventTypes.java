@@ -45,6 +45,7 @@ public final class CrewScopeActivityEventTypes {
     }
 
     private static void registerWorkItemEvents(List<ActivityEventTypeDefinition> target) {
+        target.add(workItemAggregate("WORK_ITEM_CONTENT_UPDATED", required("itemKey")));
         target.add(workItemAggregate(
                 "WORK_ITEM_CREATED", required("itemKey"), required("title"), required("status")));
         target.add(workItemAggregate(

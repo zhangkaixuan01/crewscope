@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { DeliveryGateway } from './gateway'
@@ -82,6 +84,8 @@ interface PendingCommand { generation: number, operation: DeliveryOperation, run
 
 /** Scope-isolated state for GitHub selection and the exact ActionBundle confirmation boundary. */
 export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
+  const commandIntents = createCommandGateway(gateway, { plan: 3, confirm: 3, cancel: 4, resolveFailure: 5 })
+  gateway = commandIntents.gateway
   const state = reactive<DeliveryStoreState>(initialState())
   let activeScope: DeliveryScope | null = null
   let activeScopeKey: string | null = null
@@ -271,7 +275,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   async function plan(input: PlanActionBundleInput): Promise<boolean> {
     const context = commandCoordinates()
     if (!context || state.preflight.phase !== 'ready') return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({ generation, operation: 'plan', run: () => gateway.plan(requireScope(), context, input, key) }, refresh)
   }
 
@@ -279,7 +283,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     const context = commandCoordinates()
     const bundle = selectedBundle()
     if (!context || !bundle || bundle.value.validity !== 'CURRENT' || bundle.value.confirmation) return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({ generation, operation: 'confirm', run: () => gateway.confirm(requireScope(), context, bundle, key) }, refresh)
   }
 
@@ -287,14 +291,14 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     const context = commandCoordinates()
     const bundle = selectedBundle()
     if (!context || !bundle?.value.confirmation || bundle.value.confirmation.status !== 'ACTIVE') return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({ generation, operation: 'cancel', run: () => gateway.cancel(requireScope(), context, bundle, 'MEMBER_CANCELLED', key) }, refresh)
   }
 
   async function resolveFailure(action: PlannedAction, explanation: string): Promise<boolean> {
     const context = commandCoordinates()
     if (!context || action.dispatch?.status !== 'MANUAL_REVIEW' || explanation.trim().length < 10) return false
-    const key = crypto.randomUUID()
+    const key = secureId()
     return runCommand({
       generation, operation: 'manual-resolution',
       run: () => gateway.resolveFailure(requireScope(), context, action.dispatch!.id, action.dispatch!.version, explanation.trim(), key),
@@ -388,6 +392,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   }
 
   function reset(): void {
+    commandIntents.clear()
     generation += 1
     abortRequests()
     pendingCommand = null

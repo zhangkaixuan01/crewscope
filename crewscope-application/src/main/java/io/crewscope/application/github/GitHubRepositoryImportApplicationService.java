@@ -7,7 +7,12 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.coding.RepositoryKey;
 import io.crewscope.domain.workitem.WorkProjectId;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,19 +56,20 @@ public final class GitHubRepositoryImportApplicationService {
                 request.grantId(),
                 request.grantVersion(),
                 request.externalRepositoryId());
+        RepositoryKey repositoryKey = effectiveRepositoryKey(request, authorized.catalog().fullName());
         GitHubRepositoryImportJob existing = jobs.findActiveByTarget(
                         organizationId,
                         teamId,
                         projectId,
                         request.externalRepositoryId(),
-                        request.repositoryKey())
+                        repositoryKey)
                 .orElse(null);
         if (existing != null
                 && existing.status() != GitHubRepositoryImportStatus.FAILED
                 && existing.status() != GitHubRepositoryImportStatus.CANCELLED) {
             return existing;
         }
-        GitHubRepositoryImportJob keyOwner = jobs.findByRepositoryKey(request.repositoryKey())
+        GitHubRepositoryImportJob keyOwner = jobs.findByRepositoryKey(repositoryKey)
                 .orElse(null);
         if (keyOwner != null && (existing == null || !keyOwner.id().equals(existing.id()))) {
             throw new GitHubProviderException(
@@ -93,7 +99,7 @@ public final class GitHubRepositoryImportApplicationService {
                 request.grantVersion(),
                 authorized.catalog().externalRepositoryId(),
                 authorized.catalog().fullName(),
-                request.repositoryKey(),
+                repositoryKey,
                 request.defaultBranch(),
                 trusted.access().actor().id(),
                 trusted.access().platformAdministrator(),
@@ -185,5 +191,42 @@ public final class GitHubRepositoryImportApplicationService {
         return new GitHubProviderException(
                 GitHubProviderErrorCode.CONFLICT,
                 "Repository import has started and can no longer be cancelled");
+    }
+
+    private RepositoryKey effectiveRepositoryKey(
+            CreateGitHubRepositoryImportCommand request, String fullName) {
+        if (request.repositoryKey() != null) {
+            return request.repositoryKey();
+        }
+        String base = fullName.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (base.isBlank()) {
+            base = "repository";
+        }
+        base = base.substring(0, Math.min(base.length(), 63));
+        RepositoryKey candidate = new RepositoryKey(base);
+        Optional<GitHubRepositoryImportJob> owner = jobs.findByRepositoryKey(candidate);
+        if (owner.isEmpty()
+                || owner.orElseThrow().externalRepositoryId().equals(request.externalRepositoryId())) {
+            return candidate;
+        }
+        String suffix = shortHash(request.externalRepositoryId());
+        String prefixed = base.substring(0, Math.min(base.length(), 54)) + "-" + suffix;
+        return new RepositoryKey(prefixed);
+    }
+
+    private static String shortHash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(8);
+            for (int index = 0; index < 4; index++) {
+                result.append(String.format("%02x", digest[index]));
+            }
+            return result.toString();
+        } catch (NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("SHA-256 is unavailable", failure);
+        }
     }
 }

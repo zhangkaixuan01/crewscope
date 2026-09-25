@@ -370,6 +370,18 @@ class GateReviewerAssignmentServiceTest {
                     .findFirst();
         }
 
+        @Override
+        public List<ResponsibilityAssignment> findActiveByActorMember(
+                OrganizationId organizationId, TeamId teamId, TeamMemberId memberId) {
+            return values.values().stream()
+                    .filter(ResponsibilityAssignment::isActive)
+                    .filter(value -> value.scope().organizationId().equals(organizationId))
+                    .filter(value -> value.scope().teamId().equals(teamId))
+                    .filter(value -> value.actorMemberId().isPresent())
+                    .filter(value -> value.actorMemberId().orElseThrow().equals(memberId))
+                    .toList();
+        }
+
         private List<ResponsibilityAssignment> activeByWorkItem(
                 OrganizationId organizationId, WorkItemId workItemId) {
             return values.values().stream()

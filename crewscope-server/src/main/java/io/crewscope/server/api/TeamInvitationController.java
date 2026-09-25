@@ -2,6 +2,8 @@ package io.crewscope.server.api;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import io.crewscope.application.command.CommandExecution;
+import io.crewscope.application.command.CommandResult;
+import io.crewscope.application.command.CommandResultQueryService;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.identity.AccountOrganizationResolution;
 import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
@@ -10,6 +12,7 @@ import io.crewscope.application.team.CreateTeamInvitationCommand;
 import io.crewscope.application.team.InvitationToken;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.application.team.TeamInvitationAcceptanceResult;
 import io.crewscope.application.team.TeamInvitationApplicationService;
 import io.crewscope.application.team.TeamInvitationCursor;
 import io.crewscope.application.team.TeamInvitationIssueResult;
@@ -63,6 +66,7 @@ public final class TeamInvitationController {
     private final TeamInvitationApplicationService invitations;
     private final TeamRequestIdentityResolver teamIdentities;
     private final AuthenticatedAccountOrganizationResolver accountResolver;
+    private final CommandResultQueryService commandResults;
     private final RegistrationProperties registration;
     private final TeamInvitationCursorCodec cursors = new TeamInvitationCursorCodec();
 
@@ -70,10 +74,12 @@ public final class TeamInvitationController {
             TeamInvitationApplicationService invitations,
             TeamRequestIdentityResolver teamIdentities,
             AuthenticatedAccountOrganizationResolver accountResolver,
+            CommandResultQueryService commandResults,
             RegistrationProperties registration) {
         this.invitations = invitations;
         this.teamIdentities = teamIdentities;
         this.accountResolver = accountResolver;
+        this.commandResults = commandResults;
         this.registration = registration;
     }
 
@@ -163,7 +169,7 @@ public final class TeamInvitationController {
     }
 
     @PostMapping("/api/v1/invitations/accept")
-    public Mono<ResponseEntity<CommandReceiptResponse>> accept(
+    public Mono<ResponseEntity<InvitationAcceptanceResponse>> accept(
             @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) List<String> keys,
             @Valid @RequestBody InvitationTokenRequest request,
             Authentication authentication,
@@ -172,18 +178,42 @@ public final class TeamInvitationController {
         InvitationToken token = invitationToken(request.token());
         UUID correlationId = ApiCorrelationIds.resolve(exchange);
         return resolvedAccount(authentication)
-                .flatMap(resolution -> blocking(() -> invitations.accept(
-                        new AuthenticatedInvitationCommandContext(
-                                resolution.account(),
-                                resolution.binding(),
-                                new TeamAccessContext(
-                                        resolution.principal(),
-                                        resolution.account().allowsPlatformOperations()),
-                                idempotencyKey,
-                                correlationId,
-                                Optional.empty()),
-                        token)))
-                .map(CommandReceiptResponse::accepted);
+                .flatMap(resolution -> {
+                    TeamAccessContext access = new TeamAccessContext(
+                            resolution.principal(),
+                            resolution.account().allowsPlatformOperations());
+                    return blocking(() -> invitations.accept(
+                            new AuthenticatedInvitationCommandContext(
+                                    resolution.account(),
+                                    resolution.binding(),
+                                    access,
+                                    idempotencyKey,
+                                    correlationId,
+                                    Optional.empty()),
+                            token))
+                            .flatMap(execution -> acceptanceResponse(
+                                    execution,
+                                    access,
+                                    resolution.binding().organizationId(),
+                                    idempotencyKey));
+                });
+    }
+
+    /**
+     * The first acceptance carries its committed coordinates; a replay backfills the exact stored
+     * member coordinate from the command result instead of letting the client guess.
+     */
+    private Mono<ResponseEntity<InvitationAcceptanceResponse>> acceptanceResponse(
+            CommandExecution<TeamInvitationAcceptanceResult> execution,
+            TeamAccessContext access,
+            OrganizationId organizationId,
+            IdempotencyKey idempotencyKey) {
+        if (!execution.replayed()) {
+            return Mono.just(InvitationAcceptanceResponse.accepted(execution));
+        }
+        return blocking(() -> commandResults.find(access, organizationId, idempotencyKey))
+                .map(result -> InvitationAcceptanceResponse.replayed(
+                        execution, result.orElse(null)));
     }
 
     private Mono<AccountOrganizationResolution> resolvedAccount(Authentication authentication) {
@@ -321,6 +351,54 @@ public final class TeamInvitationController {
         @JsonAnySetter
         void rejectUnknownProperty(String ignoredName, Object ignoredValue) {
             throw new IllegalArgumentException("Unsupported invitation-token property");
+        }
+    }
+
+    /** Acknowledgement plus the committed acceptance coordinates that locate the membership. */
+    public record InvitationAcceptanceResponse(
+            CommandReceiptResponse command,
+            Acceptance acceptance) {
+
+        public record Acceptance(
+                String teamId,
+                String memberId,
+                String invitationId,
+                String membershipDisposition,
+                Boolean roleGrantCreated) {}
+
+        static ResponseEntity<InvitationAcceptanceResponse> accepted(
+                CommandExecution<TeamInvitationAcceptanceResult> execution) {
+            TeamInvitationAcceptanceResult result = execution.result().orElse(null);
+            return respond(execution, result == null ? null : new Acceptance(
+                    result.membership().scope().teamId().toString(),
+                    result.membership().id().toString(),
+                    result.invitation().id().toString(),
+                    result.membershipDisposition().name(),
+                    result.roleGrantCreated()));
+        }
+
+        /** A replay backfills only the durable stored coordinate; disposition facts stay null. */
+        static ResponseEntity<InvitationAcceptanceResponse> replayed(
+                CommandExecution<TeamInvitationAcceptanceResult> execution,
+                CommandResult result) {
+            return respond(execution, result == null ? null : new Acceptance(
+                    result.teamId().toString(),
+                    result.resourceId().toString(),
+                    null,
+                    null,
+                    null));
+        }
+
+        private static ResponseEntity<InvitationAcceptanceResponse> respond(
+                CommandExecution<TeamInvitationAcceptanceResult> execution,
+                Acceptance acceptance) {
+            ResponseEntity.BodyBuilder response =
+                    ResponseEntity.accepted().cacheControl(CacheControl.noStore());
+            if (execution.replayed()) {
+                response.header(ApiHeaders.IDEMPOTENCY_REPLAYED, "true");
+            }
+            return response.body(new InvitationAcceptanceResponse(
+                    CommandReceiptResponse.from(execution.receipt()), acceptance));
         }
     }
 

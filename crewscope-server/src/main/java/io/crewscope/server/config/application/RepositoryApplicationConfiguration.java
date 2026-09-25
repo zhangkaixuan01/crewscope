@@ -9,6 +9,9 @@ import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.coding.RepositoryCatalogApplicationService;
 import io.crewscope.application.coding.RepositoryCatalogPort;
 import io.crewscope.application.coding.RepositoryCatalogUnavailableException;
+import io.crewscope.application.coding.ProjectExecutionDefaultsApplicationService;
+import io.crewscope.application.coding.ProjectExecutionDefaultsRepository;
+import io.crewscope.application.coding.BuildProfileCatalog;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
@@ -75,5 +78,16 @@ public class RepositoryApplicationConfiguration {
             throw new RepositoryCatalogUnavailableException();
         });
         return new RepositoryCatalogApplicationService(accessPolicy, catalogPort, timeProvider);
+    }
+
+    @Bean
+    ProjectExecutionDefaultsApplicationService projectExecutionDefaultsApplicationService(
+            RepositoryBindingAccessPolicy accessPolicy,
+            ProjectExecutionDefaultsRepository defaultsRepository,
+            RepositoryBindingRepository bindingRepository,
+            BuildProfileCatalog buildProfileCatalog,
+            TimeProvider timeProvider) {
+        return new ProjectExecutionDefaultsApplicationService(
+                accessPolicy, defaultsRepository, bindingRepository, buildProfileCatalog, timeProvider);
     }
 }

@@ -60,6 +60,28 @@ export interface InvitationPreview {
   targetRestricted: boolean
 }
 
+export const invitationMembershipDispositions = ['CREATED', 'ACTIVATED', 'REUSED'] as const
+export type InvitationMembershipDisposition = typeof invitationMembershipDispositions[number]
+
+/**
+ * Committed acceptance coordinates (A07): the exact team/member the accept created.
+ * A replay backfills only the durable `teamId`/`memberId`; the disposition facts and a
+ * replay without a stored result leave them (or the whole block) null.
+ */
+export interface InvitationAcceptance {
+  teamId: string | null
+  memberId: string | null
+  invitationId: string | null
+  membershipDisposition: InvitationMembershipDisposition | null
+  roleGrantCreated: boolean | null
+}
+
+export interface InvitationAcceptanceResult {
+  command: InvitationCommandReceipt
+  acceptance: InvitationAcceptance | null
+  replayed: boolean
+}
+
 export interface InvitationCommandContext {
   csrf: AuthCsrfCoordinate
   idempotencyKey: string

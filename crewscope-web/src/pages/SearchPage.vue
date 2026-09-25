@@ -12,6 +12,9 @@ import { useSearchStore } from '../domains/search/store'
 import { searchObjectTypes, type SearchObjectType, type SearchResultItem } from '../domains/search/types'
 import { searchObjectTypeLabels } from '../domains/search/labels'
 import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -39,11 +42,14 @@ const activeTypes = computed(() => selectedTypes.value.length ? selectedTypes.va
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, scopeStore.state.selectedProjectId, route.query.q, route.query.types] as const,
   async ([phase, organizationId, teamId]) => {
+    loadingMore.value = false
+    const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !scope.value || !organizationId || !teamId) return
     store.activateScope({ organizationId, teamId })
     text.value = queryString(route.query.q)
     selectedTypes.value = parseTypes(route.query.types)
     await store.search({ text: text.value, projectId: scopeStore.state.selectedProjectId, types: activeTypes.value })
+    if (!pageOwner.isCurrent()) return
   },
   { immediate: true },
 )
@@ -66,13 +72,15 @@ function clearTypes(): void {
 }
 
 async function loadMore(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const cursor = store.state.result?.nextCursor
   if (!cursor || !text.value.trim() || loadingMore.value) return
   loadingMore.value = true
   try {
     await store.search({ text: text.value, projectId: scopeStore.state.selectedProjectId, types: activeTypes.value, after: cursor })
+    if (!pageOwner.isCurrent()) return
   } finally {
-    loadingMore.value = false
+    if (pageOwner.isCurrent()) loadingMore.value = false
   }
 }
 

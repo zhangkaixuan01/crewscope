@@ -68,6 +68,35 @@ describe('HttpDeliveryGateway', () => {
     }))
   })
 
+  it('omits optional identity and allowlist fields for discovery connections', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(commandReceipt(), 202))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.createConnection(scope, {
+      authenticationType: 'OAUTH_USER', teamId: null, credentialSubjectType: 'PRINCIPAL',
+      oneShotCredential: 'discovery-token', expiresAt: null,
+    }, 'github-discovery-key')
+
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))
+    expect(body).toEqual(expect.objectContaining({
+      authenticationType: 'OAUTH_USER', credentialSubjectType: 'PRINCIPAL',
+      accessToken: 'discovery-token',
+    }))
+    expect(body).not.toHaveProperty('externalAccountId')
+    expect(body).not.toHaveProperty('repositoryAllowlist')
+  })
+
+  it('sends only the selected catalog repository when creating a ProviderBinding', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(commandReceipt(), 202))
+    const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.bindConnection(scope, githubConnection({ version: 4 }), ['101'])
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+      teamId: scope.teamId, defaultUsage: true, repositoryIds: ['101'],
+    })
+  })
+
   it('verifies a Connection with its persisted version', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ...githubConnection(), verifiedAt: '2026-09-01T12:00:00Z' }))
     const gateway = new HttpDeliveryGateway(new CrewScopeApiClient('/api/v1', fetcher))

@@ -57,8 +57,12 @@ export interface BuildProfileSummary {
   key: string
   version: number
   profileHash: string
+  schemaVersion?: number
   buildTool: string
   javaRelease: number
+  nodeVersion?: string | null
+  packageManager?: string | null
+  packageManagerVersion?: string | null
   commandKinds: string[]
 }
 
@@ -68,6 +72,34 @@ export interface BuildProfileSelection {
   version: number
   profileHash: string
 }
+
+export interface ExecutionDefaultsField<T> {
+  value: T | null
+  source: 'PROJECT_DEFAULT' | 'INHERITED' | 'NONE' | string
+  availability: 'AVAILABLE' | 'MISSING' | 'INHERITED' | 'UNAVAILABLE' | string
+  reason: string
+}
+
+export interface ExecutionDefaults {
+  version: number
+  repositoryBindingId: ExecutionDefaultsField<string>
+  repositoryBindingVersion: ExecutionDefaultsField<number>
+  branch: ExecutionDefaultsField<string>
+  buildProfile: ExecutionDefaultsField<BuildProfileSelection & { schemaVersion?: number }>
+  agentProfileId: ExecutionDefaultsField<string>
+  agentProfileRevision: ExecutionDefaultsField<number>
+}
+
+export interface ExecutionDefaultsInput {
+  repositoryBindingId: string | null
+  repositoryBindingVersion: number | null
+  branch: string | null
+  buildProfile: BuildProfileSelection | null
+  agentProfileId: string | null
+  agentProfileRevision: number | null
+}
+
+export type BuildProfileOption = BuildProfileSelection
 
 export interface CodingTargetSelection {
   repositoryBindingId: string

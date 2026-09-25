@@ -44,8 +44,12 @@ describe('InvitationStore', () => {
     expect(store.hasProof()).toBe(true)
     expect(store.registrationProof()).toBe(token)
     expect(JSON.stringify(store.state)).not.toContain(token)
-    expect(await store.acceptInvitation(csrf)).toBe(true)
+    await expect(store.acceptInvitation(csrf)).resolves.toMatchObject({
+      replayed: false,
+      acceptance: { teamId: 'team-1', memberId: 'member-1', membershipDisposition: 'CREATED' },
+    })
     expect(store.hasProof()).toBe(false)
+    expect(store.state.acceptance).toMatchObject({ teamId: 'team-1', memberId: 'member-1' })
     expect(gateway.accept).toHaveBeenCalledWith(token, expect.objectContaining({ csrf }), expect.any(AbortSignal))
   })
 
@@ -57,7 +61,7 @@ describe('InvitationStore', () => {
 
     await store.previewProof(`#token=${token}`)
     gateway.accept = vi.fn(async () => { throw apiError('invitation_invalid', 422) })
-    expect(await store.acceptInvitation(csrf)).toBe(false)
+    await expect(store.acceptInvitation(csrf)).resolves.toBeNull()
     expect(store.state.publicProblem).toMatchObject({ code: 'invitation_invalid', title: '无法使用这个邀请' })
     expect(JSON.stringify(store.state)).not.toContain('private invitation detail')
   })
@@ -85,7 +89,11 @@ function fixtureGateway(): InvitationGateway {
     create: vi.fn(async () => ({ command: receipt(), invitation: invitation(), token, replayed: false })),
     revoke: vi.fn(async () => receipt()),
     preview: vi.fn(async () => preview()),
-    accept: vi.fn(async () => receipt()),
+    accept: vi.fn(async () => ({
+      command: receipt(),
+      acceptance: { teamId: 'team-1', memberId: 'member-1', invitationId: 'invitation-1', membershipDisposition: 'CREATED' as const, roleGrantCreated: true },
+      replayed: false,
+    })),
   }
 }
 

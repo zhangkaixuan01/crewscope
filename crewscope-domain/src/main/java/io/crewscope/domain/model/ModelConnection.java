@@ -166,7 +166,7 @@ public final class ModelConnection {
             PrincipalId actor,
             UtcTimestamp occurredAt) {
         requireExpectedVersion(expectedVersion);
-        requireNonTerminal(ModelConnectionStatus.ACTIVE);
+        requireVerifiable();
         requireProvider(provider, true);
         return mutate(
                 status,
@@ -186,7 +186,7 @@ public final class ModelConnection {
             PrincipalId actor,
             UtcTimestamp occurredAt) {
         requireExpectedVersion(expectedVersion);
-        requireNonTerminal(ModelConnectionStatus.ACTIVE);
+        requireVerifiable();
         requireProvider(provider, true);
         return mutate(
                 status,
@@ -328,6 +328,13 @@ public final class ModelConnection {
         if (status.isTerminal()) {
             throw new InvalidStateTransitionException(
                     "ModelConnection", id, status, target);
+        }
+    }
+
+    private void requireVerifiable() {
+        if (status != ModelConnectionStatus.ACTIVE && status != ModelConnectionStatus.SUSPENDED) {
+            throw new InvalidStateTransitionException(
+                    "ModelConnection", id, status, ModelConnectionStatus.ACTIVE);
         }
     }
 

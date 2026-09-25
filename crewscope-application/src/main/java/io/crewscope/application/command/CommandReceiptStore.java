@@ -5,7 +5,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.Optional;
 
 /** Persistence Port for concurrent command reservation and durable completion receipts. */
-public interface CommandReceiptStore {
+public interface CommandReceiptStore extends CommandResultStore {
 
     /** Returns an exact completed replay without creating a pending reservation. */
     default Optional<CommandReceipt> findCompleted(

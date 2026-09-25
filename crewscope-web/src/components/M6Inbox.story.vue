@@ -36,6 +36,7 @@ function inbox(
     inboxItemId, itemType, priority, deadline, openedAt: '2026-08-27T08:00:00Z', sourceStatus: 'OPEN',
     closeReason: null, closedAt: null, dispositionStatus, dispositionVersion, etag: `"${dispositionVersion}"`,
     source: { type: sourceType, id: '00000000-0000-4000-8000-000000000951', revision: 3 },
+    sourceContext: null,
   }
 }
 </script>

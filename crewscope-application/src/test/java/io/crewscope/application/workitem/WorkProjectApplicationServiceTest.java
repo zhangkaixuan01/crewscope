@@ -68,6 +68,24 @@ import org.junit.jupiter.api.Test;
 
 class WorkProjectApplicationServiceTest {
 
+  @Test
+  void generatesStableAsciiCodesAndResolvesCollisionsWithoutChangingExplicitHashes() {
+    Fixture fixture = new Fixture();
+    String[] names = {"中文项目", "中文项目", "123 test", "A", "Long Project Name"};
+    String[] keys = {"PRJ", "PRJ2", "P123TE", "AP", "LONGPR"};
+    for (int i = 0; i < names.length; i++) {
+      var command = new CreateWorkProjectCommand(null, names[i]);
+      var context = fixture.commandContext("automatic-project-" + i);
+      var first = fixture.service.create(context, fixture.initialization.team().id(), command);
+      assertEquals(keys[i], first.result().orElseThrow().key().value());
+      assertEquals(first.receipt(), fixture.service.create(context, fixture.initialization.team().id(), command).receipt());
+    }
+    assertEquals(5, fixture.store.projects.size());
+    assertThrows(IdempotencyConflictException.class, () -> fixture.service.create(
+        fixture.commandContext("automatic-project-0"), fixture.initialization.team().id(),
+        new CreateWorkProjectCommand("PRJ", names[0])));
+  }
+
   private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-08-08T05:00:00Z");
 
   @Test
@@ -97,6 +115,11 @@ class WorkProjectApplicationServiceTest {
     assertTrue(replay.replayed());
     assertEquals(first.receipt(), replay.receipt());
     assertEquals(1, fixture.store.projects.size());
+    assertEquals(1, fixture.store.results.size());
+    var durable = fixture.store.results.values().iterator().next();
+    assertEquals(project.id().value(), durable.resourceId());
+    assertEquals(fixture.actor.id(), durable.actorId());
+    assertEquals(first.receipt(), durable.receipt());
   }
 
   @Test
@@ -368,6 +391,19 @@ class WorkProjectApplicationServiceTest {
     private final TeamInitialization initialization;
     private final Map<WorkProjectId, WorkProject> projects = new LinkedHashMap<>();
     private final Map<String, ReceiptEntry> receipts = new HashMap<>();
+    final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
+
+    @Override
+    public void saveResult(io.crewscope.application.command.CommandResult result) {
+      results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
+    }
+
+    @Override
+    public Optional<io.crewscope.application.command.CommandResult> findResult(
+        OrganizationId organizationId, IdempotencyKey key, PrincipalId actorId) {
+      return Optional.ofNullable(results.get(organizationId + ":" + key))
+          .filter(result -> result.actorId().equals(actorId));
+    }
     private final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
     private final List<PendingOutboxEvent> outbox = new ArrayList<>();
     private List<TeamMember> members;

@@ -101,6 +101,10 @@ test.beforeEach(async ({ page }) => {
   }
   const acceptedMessageKeys = new Set<string>()
   const acceptedInvocations = new Map<string, { invocationId: string; userMessageId: string; agentMessageId: string }>()
+  // createAndLocate never trusts the POST body alone: it re-reads /command-results by idempotency key
+  // and then the resource itself before the receipt counts as created. The three creation endpoints
+  // register their coordinates here so the mock answers that contract.
+  const creationResults = new Map<string, { receipt: Record<string, unknown>; result: Record<string, unknown> }>()
   let repositoryBindingVersion = 1
   let repositoryBindingStatus = 'ACTIVE'
   let managedAgents = agentDirectory()
@@ -150,6 +154,14 @@ test.beforeEach(async ({ page }) => {
     const path = url.pathname
     if (request.method() === 'GET' && path === '/api/v1/auth/session') {
       await fulfillJson(route, authenticatedSession(ids.organization, ids.principal, ids.team))
+      return
+    }
+    if (request.method() === 'GET' && path.endsWith('/command-results')) {
+      // The idempotency key travels as a header on the lookup, mirroring the send.
+      const key = request.headers()['idempotency-key']
+      const found = key ? creationResults.get(key) : undefined
+      if (!found) return fulfillError(route, 404, 'command_result_not_found', 'Command result not found')
+      await fulfillJson(route, found)
       return
     }
     if (request.method() === 'GET' && path.endsWith('/teams')) {
@@ -832,10 +844,12 @@ test.beforeEach(async ({ page }) => {
     }
     if (path.endsWith('/conversations') && request.method() === 'POST') {
       const input = request.postDataJSON() as { title: string; visibility: 'PRIVATE' | 'TEAM' }
-      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const idempotencyKey = request.headers()['idempotency-key']!
+      expect(idempotencyKey).toBeTruthy()
       const created = conversation(crypto.randomUUID(), ids.team, ids.workspace, input.title, input.visibility, null)
       conversations.unshift(created)
       messagesByConversation[created.id] = []
+      creationResults.set(idempotencyKey, commandCreation(ids.organization, ids.team, ids.workspace, 'CONVERSATION', created.id))
       await fulfillReceipt(route, 0)
       return
     }
@@ -922,7 +936,13 @@ test.beforeEach(async ({ page }) => {
     }
     if (path.endsWith('/work-items') && request.method() === 'POST') {
       const input = request.postDataJSON() as ReturnType<typeof workItem>
-      workItems.unshift({ ...workItem(crypto.randomUUID(), input.key, input.title, input.type, 'BACKLOG', input.priority), description: input.description, labels: input.labels, dueAt: input.dueAt })
+      const idempotencyKey = request.headers()['idempotency-key']!
+      expect(idempotencyKey).toBeTruthy()
+      const projectId = path.split('/work-projects/')[1]?.split('/')[0] ?? ids.project
+      // The server assigns the human key on create; the drawer and list both render it.
+      const created = { ...workItem(crypto.randomUUID(), 'CRW-90', input.title, input.type, 'BACKLOG', input.priority), description: input.description, labels: input.labels, dueAt: input.dueAt }
+      workItems.unshift(created)
+      creationResults.set(idempotencyKey, commandCreation(ids.organization, ids.team, projectId, 'WORK_ITEM', created.id))
       await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 0, correlationId: crypto.randomUUID() }) })
       return
     }
@@ -1103,6 +1123,10 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await page.reload()
   await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
   await expect(taskCards).not.toContainText('不可见的私有 Task')
+  // The sticky conversation header and the jump-to-latest pill overlay this section, and how much of
+  // them lands inside the element screenshot depends on how far the browser restored the scroll after
+  // the reload. Pin the section to the top of its scroll container so the overlay offset is fixed.
+  await taskCards.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }))
   await expect(taskCards).toHaveScreenshot(`conversation-tasks-${testInfo.project.name}.png`)
 
   await taskCards.locator(`[data-task-id="${ids.task}"]`).getByRole('button', { name: /查看 Task/ }).click()
@@ -1677,7 +1701,10 @@ test('Conversation creates a server-backed Team conversation and opens it', asyn
   await expect(dialog).toBeHidden()
   const createdHeading = page.getByRole('heading', { name: '检查下一阶段发布边界', exact: true, level: 2 })
   await expect(createdHeading).toBeVisible()
-  await expect(createdHeading).toBeFocused()
+  // A created conversation lands focus on the composer: the next move is the first message, not
+  // re-reading the title (ecb3e98's workspace rework).
+  const composer = page.getByRole('form', { name: '发送消息' })
+  await expect(composer.getByLabel('消息内容')).toBeFocused()
   await expect(page.getByText('开始这个对话', { exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('conversation')).toBeTruthy()
 })
@@ -2004,7 +2031,12 @@ test('Agent configuration protects dirty navigation and keeps a Team-switch draf
   await page.getByRole('button', { name: /Platform Engineering/ }).click()
   await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
   await expect(page).toHaveURL(/team=00000000-0000-0000-0000-000000000202/)
-  await expect.poll(() => page.evaluate(key => localStorage.getItem(key), `crewscope:agent-configuration:${ids.agentCoding}`)).toContain('本地草稿：保留配置变更')
+  // Configuration drafts live in the scoped F05 namespace (cs.user.v1:…:draft:<agentId>), keyed by
+  // the full identity scope rather than the purged legacy flat key.
+  await expect.poll(() => page.evaluate(() => {
+    const key = Object.keys(localStorage).find(candidate => candidate.startsWith('cs.user.v1:') && candidate.split(':')[6] === 'draft')
+    return key ? localStorage.getItem(key) : null
+  })).toContain('本地草稿：保留配置变更')
 
   // The second Team has no shared Agent fixture; return to the original Team and verify the
   // persisted draft is offered when the selected Agent is opened again.
@@ -2031,12 +2063,18 @@ test('Work creates a native WorkItem and refreshes the active query', async ({ p
 
   const dialog = page.getByRole('dialog', { name: '新建工作项' })
   await dialog.getByLabel('标题').fill('补充团队发布检查项')
+  // Type, priority and labels live behind the collapsed "更多选项" disclosure.
+  await dialog.locator('summary').click()
   await dialog.getByLabel('优先级').selectOption('HIGH')
   await dialog.getByLabel('标签').fill('release, team')
   await dialog.getByRole('button', { name: '创建工作项' }).click()
 
   await expect(dialog).toBeHidden()
-  await expect(page.getByText('补充团队发布检查项')).toBeVisible()
+  // A successful create opens the new item's detail drawer right away — the title renders both in
+  // the drawer heading and the list card, so the drawer is the unambiguous "it opened" signal.
+  const detail = page.getByRole('dialog', { name: 'CRW-90 工作项详情' })
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole('heading', { name: '补充团队发布检查项' })).toBeVisible()
 })
 
 test('WorkItem detail supports deep links, Escape and focus restoration', async ({ page }) => {
@@ -2191,7 +2229,9 @@ test('Task creation retries with the same idempotency key after a transient fail
 
   await delegate.getByRole('button', { name: '验证 Ref' }).click()
   await delegate.getByRole('button', { name: '创建 Task' }).click()
-  await expect(delegate.getByText('Task 服务暂时不可用')).toBeVisible()
+  // A transient 503 is an unknown outcome, not a refusal: the form freezes and offers the
+  // original-intent retry instead of surfacing the raw server message (commandGateway).
+  await expect(delegate.getByText('提交结果尚未确认。请保留当前内容，重试会沿用原操作标识；请勿重复新建。')).toBeVisible()
   await delegate.getByRole('button', { name: '使用原请求重试' }).click()
 
   await expect(delegate).toBeHidden()
@@ -4093,6 +4133,13 @@ function fulfillCommandReceipt(route: Route, committedVersion: number): Promise<
 
 function commandReceipt(committedVersion: number) {
   return { commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion, correlationId: crypto.randomUUID() }
+}
+
+function commandCreation(organizationId: string, teamId: string, projectId: string | null, type: 'CONVERSATION' | 'WORK_ITEM', resourceId: string) {
+  return {
+    receipt: commandReceipt(0),
+    result: { organizationId, teamId, projectId, type, resourceId, committedVersion: 0, stage: 'COMMITTED' },
+  }
 }
 
 function fulfillSse(route: Route, events: unknown[], headers: Record<string, string> = {}): Promise<void> {

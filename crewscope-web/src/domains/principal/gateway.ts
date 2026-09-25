@@ -18,12 +18,33 @@ export class HttpPrincipalDirectoryGateway implements PrincipalDirectoryGateway 
 
   async search(query: PrincipalDirectoryQuery, signal?: AbortSignal): Promise<PrincipalPage> {
     const text = query.q?.trim() ?? ''
-    if (text.length > 100) throw new TypeError('Principal directory text must not exceed 100 characters')
+    const prefix = query.namePrefix?.trim() ?? ''
+    if (text.length > 100 || prefix.length > 100) {
+      throw new TypeError('Principal directory text must not exceed 100 characters')
+    }
+    if (text && prefix && text !== prefix) {
+      throw new TypeError('Principal directory q and namePrefix must agree')
+    }
+    // The offset/limit defaults stay unconditional; every A06 parameter joins only when sent,
+    // so callers that never adopted them keep their exact request shape.
     const params = new URLSearchParams({
       offset: String(Math.max(query.offset ?? 0, 0)),
       limit: String(Math.min(Math.max(query.limit ?? 20, 1), 200)),
     })
     if (text) params.set('q', text)
+    else if (prefix) params.set('namePrefix', prefix)
+    if (query.types) {
+      for (const kind of query.types) {
+        if (!principalKinds.includes(kind)) throw new TypeError('Invalid Principal kind filter')
+      }
+      params.set('types', query.types.join(','))
+    }
+    if (query.ids) {
+      if (query.ids.length > 50) throw new TypeError('Principal directory ids must not exceed 50')
+      for (const id of query.ids) string(id)
+      params.set('ids', query.ids.join(','))
+    }
+    if (query.after) params.set('after', query.after)
     const value = record(await this.client.get(
       `/organizations/${segment(query.organizationId)}/teams/${segment(query.teamId)}/principals?${params}`,
       { signal },
@@ -31,6 +52,7 @@ export class HttpPrincipalDirectoryGateway implements PrincipalDirectoryGateway 
     return {
       items: array(value.items).map(readEntry),
       nextOffset: value.nextOffset == null ? null : integer(value.nextOffset),
+      nextCursor: value.nextCursor == null ? null : string(value.nextCursor),
     }
   }
 }

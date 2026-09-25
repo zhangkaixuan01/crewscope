@@ -19,12 +19,31 @@ import ModelConnectionDetail from '../components/domain/ModelConnectionDetail.vu
 const teamConnectionId = '00000000-0000-0000-0000-000000005201'
 
 const manager: AuthenticatedPrincipal = {
-  id: fixtureIds.principal, displayName: 'Provider Manager', role: 'Team Owner',
+  id: fixtureIds.principal, accountId: '00000000-0000-0000-0000-000000000201', displayName: 'Provider Manager', role: 'Team Owner',
   organizationId: fixtureIds.organization, organization: 'Test Organization',
   permissions: new Set(Object.values(permissions)),
 }
 
 describe('ModelSettingsPage', () => {
+  it('does not close a new credential form or navigate after an old Team command completes', async () => {
+    const { wrapper, gateway, router, scopeStore } = await mountPage(manager, 'ownerType=USER&provider=deepseek')
+    let resolve!: (value: ModelConnectionCommandReceipt) => void
+    gateway.createConnection = vi.fn(() => new Promise<ModelConnectionCommandReceipt>(yes => { resolve = yes }))
+    const open = () => wrapper.findAll('button').find(button => button.text().includes('创建连接'))!
+    await open().trigger('click')
+    await wrapper.get('input[type="password"]').setValue('original-secret')
+    await wrapper.get('.credential-dialog').trigger('submit')
+    await scopeStore.synchronize(fixtureIds.teamSecurity, fixtureIds.projectRuntime)
+    await flushPromises()
+    await open().trigger('click')
+    await wrapper.get('input[type="password"]').setValue('new-secret')
+    const target = router.currentRoute.value.fullPath
+    resolve(receipt())
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('input[type="password"]').element.value).toBe('new-secret')
+    expect(router.currentRoute.value.fullPath).toBe(target)
+    wrapper.unmount()
+  })
   it('renders versioned catalog, price, owner-scoped Connection and safe health facts', async () => {
     const { wrapper, store } = await mountPage(manager, `ownerType=TEAM&connection=${teamConnectionId}&provider=deepseek`)
 
@@ -76,13 +95,22 @@ describe('ModelSettingsPage', () => {
     expect(gateway.verifyKeys).toHaveLength(2)
     expect(gateway.verifyKeys[0]).toBe(gateway.verifyKeys[1])
   })
+
+  it('re-enables a suspended healthy connection through the lifecycle command', async () => {
+    const { wrapper, gateway } = await mountPage(manager, `ownerType=TEAM&connection=${teamConnectionId}&provider=deepseek`, true)
+    const activate = wrapper.findAll('button').find(button => button.text().includes('重新启用'))
+    expect(activate).toBeDefined()
+    await activate!.trigger('click')
+    await flushPromises()
+    expect(gateway.activateCalls).toBe(1)
+  })
 })
 
-async function mountPage(principal: AuthenticatedPrincipal, query: string) {
+async function mountPage(principal: AuthenticatedPrincipal, query: string, suspended = false) {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
-  const gateway = new FixtureModelGateway()
+  const gateway = new FixtureModelGateway(suspended)
   const store = createModelStore(gateway)
   await router.push(`/settings/models?team=${fixtureIds.teamPlatform}&${query}`)
   await router.isReady()
@@ -104,13 +132,15 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string) {
     await vi.waitFor(() => expect(store.state.connectionDetails[connectionId]?.phase).toBe('ready'))
   }
   await nextTick()
-  return { wrapper, gateway, store, router }
+  return { wrapper, gateway, store, router, scopeStore }
 }
 
 class FixtureModelGateway implements ModelGateway {
   seenApiKey: string | null = null
   failNextVerify = false
   verifyKeys: string[] = []
+  activateCalls = 0
+  constructor(private readonly suspended = false) {}
   private userConnections: ModelConnectionSummary[] = [connection('user-connection', 'USER')]
 
   async listProviders(): Promise<OffsetPage<ModelProviderSummary>> {
@@ -129,7 +159,7 @@ class FixtureModelGateway implements ModelGateway {
     const value = connectionId === teamConnectionId
       ? connection(teamConnectionId, 'TEAM')
       : this.userConnections.find(item => item.id === connectionId) ?? connection(connectionId, 'USER')
-    return { value, etag: `"${value.version}"` }
+    return { value: this.suspended ? { ...value, status: 'SUSPENDED' } : value, etag: `"${value.version}"` }
   }
 
   async createConnection(input: CreateModelConnectionInput): Promise<ModelConnectionCommandReceipt> {
@@ -152,6 +182,7 @@ class FixtureModelGateway implements ModelGateway {
     return receipt()
   }
   async rotateCredential(_organizationId: string, _connectionId: string, _etag: string, input: RotateModelCredentialInput): Promise<ModelConnectionCommandReceipt> { this.seenApiKey = input.apiKey; return receipt() }
+  async activateConnection(): Promise<ModelConnectionCommandReceipt> { this.activateCalls += 1; return receipt() }
   async suspendConnection(): Promise<ModelConnectionCommandReceipt> { return receipt() }
   async revokeConnection(): Promise<ModelConnectionCommandReceipt> { return receipt() }
 }

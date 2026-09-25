@@ -2,11 +2,15 @@ package io.crewscope.infrastructure.persistence.command;
 
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.command.CommandResult;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.domain.shared.error.IdempotencyConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -27,6 +31,57 @@ public class JdbcCommandReceiptStore implements CommandReceiptStore {
 
     public JdbcCommandReceiptStore(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate, "jdbcTemplate");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void saveResult(CommandResult result) {
+        Objects.requireNonNull(result, "result");
+        CommandReceipt receipt = result.receipt();
+        int inserted = jdbcTemplate.update("""
+                INSERT INTO crewscope.command_result (
+                    organization_id, idempotency_key, command_id, actor_id, command_type,
+                    team_id, project_id, resource_type, resource_id, resource_version, created_at
+                )
+                SELECT organization_id, idempotency_key, command_id, ?, command_type, ?, ?, ?, ?, ?, ?
+                FROM crewscope.command_receipt
+                WHERE organization_id = ? AND idempotency_key = ? AND command_id = ?
+                  AND command_type = ? AND domain_event_id = ? AND committed_version = ?
+                  AND correlation_id = ? AND status = 'COMPLETED'
+                """, result.actorId().value(), result.teamId().value(),
+                result.projectId().map(WorkProjectId::value).orElse(null),
+                result.resourceType().name(), result.resourceId(), result.resourceVersion(),
+                result.createdAt().toOffsetDateTime(), result.organizationId().value(),
+                result.idempotencyKey().value(), receipt.commandId(), result.commandType(),
+                receipt.domainEventId(), receipt.committedVersion(), receipt.correlationId());
+        if (inserted != 1) throw new IllegalStateException("Command result needs its exact completed receipt");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CommandResult> findResult(OrganizationId organizationId, IdempotencyKey key,
+            PrincipalId actorId) {
+        return jdbcTemplate.query("""
+                SELECT r.*, c.domain_event_id, c.committed_version, c.correlation_id
+                FROM crewscope.command_result r
+                JOIN crewscope.command_receipt c
+                  ON c.organization_id = r.organization_id AND c.idempotency_key = r.idempotency_key
+                 AND c.command_id = r.command_id AND c.command_type = r.command_type
+                WHERE r.organization_id = ? AND r.idempotency_key = ? AND r.actor_id = ?
+                  AND c.status = 'COMPLETED'
+                """, (rs, row) -> new CommandResult(
+                    new OrganizationId(rs.getObject("organization_id", UUID.class)),
+                    new IdempotencyKey(rs.getString("idempotency_key")),
+                    new PrincipalId(rs.getObject("actor_id", UUID.class)), rs.getString("command_type"),
+                    new TeamId(rs.getObject("team_id", UUID.class)),
+                    Optional.ofNullable(rs.getObject("project_id", UUID.class)).map(WorkProjectId::new),
+                    CommandResult.ResourceType.valueOf(rs.getString("resource_type")),
+                    rs.getObject("resource_id", UUID.class), rs.getLong("resource_version"),
+                    new CommandReceipt(rs.getObject("command_id", UUID.class),
+                        rs.getObject("domain_event_id", UUID.class), rs.getLong("committed_version"),
+                        rs.getObject("correlation_id", UUID.class)),
+                    UtcTimestamp.from(rs.getTimestamp("created_at").toInstant())),
+                organizationId.value(), key.value(), actorId.value()).stream().findFirst();
     }
 
     @Override

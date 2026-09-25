@@ -8,6 +8,22 @@ import { createTaskIntentStore } from './taskIntentStore'
 const scope = { organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform, conversationId: conversationIds.provider }
 
 describe('TaskIntentStore', () => {
+  it('does not confirm after preview returns to a retired A → B → A selection', async () => {
+    const gateway = new FixtureTaskIntentGateway()
+    let resolve!: (value: Awaited<ReturnType<typeof gateway.previewConfirmation>>) => void
+    const preview = await gateway.previewConfirmation()
+    gateway.previewConfirmation = vi.fn(() => new Promise<typeof preview>(yes => { resolve = yes }))
+    const confirm = vi.spyOn(gateway, 'confirm')
+    const store = createTaskIntentStore(gateway)
+    await store.load(scope, gateway.intent.id)
+    const old = store.confirm()
+    await store.load(scope, 'other')
+    await store.load(scope, gateway.intent.id)
+    resolve(preview)
+    expect(await old).toBe(false)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(store.state.commandPending).toBeNull()
+  })
   it('previews the exact current proposal before confirming and refreshes server facts', async () => {
     const gateway = new FixtureTaskIntentGateway()
     const store = createTaskIntentStore(gateway)

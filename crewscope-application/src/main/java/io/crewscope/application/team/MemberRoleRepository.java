@@ -1,7 +1,9 @@
 package io.crewscope.application.team;
 
-import io.crewscope.domain.team.MemberRole;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.team.MemberRole;
 import io.crewscope.domain.team.MemberRoleId;
 import io.crewscope.domain.team.TeamMemberId;
 import java.util.List;
@@ -25,4 +27,18 @@ public interface MemberRoleRepository {
             OrganizationId organizationId, TeamMemberId memberId) {
         throw new UnsupportedOperationException("MemberRole list is not implemented");
     }
+
+    /**
+     * Counts members whose membership is ACTIVE and whose effective TEAM_OWNER grant covers
+     * occurredAt, excluding one member. Call only inside the Team pessimistic lock so two
+     * concurrent Owner exits serialize and the second one observes the true count.
+     */
+    default long countEffectiveOwners(
+            OrganizationId organizationId,
+            TeamId teamId,
+            UtcTimestamp occurredAt,
+            TeamMemberId excluding) {
+        throw new UnsupportedOperationException("Effective Owner counting is not implemented");
+    }
 }
+

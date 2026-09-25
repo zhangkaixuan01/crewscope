@@ -110,7 +110,8 @@ class LarkAdministrationConcurrencyM6A04Test {
         NotificationPlanningApplicationService planning =
                 mock(NotificationPlanningApplicationService.class);
         NotificationAdministrationService service = new NotificationAdministrationService(
-                administration, repository, planning, timeProvider);
+                administration, repository, planning,
+                mock(io.crewscope.application.team.TeamMemberRepository.class), timeProvider);
         NotificationDeliveryId deliveryId = new NotificationDeliveryId(UUID.randomUUID());
 
         assertThrows(

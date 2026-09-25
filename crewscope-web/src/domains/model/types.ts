@@ -116,4 +116,4 @@ export interface RotateModelCredentialInput {
 }
 
 export type ModelConnectionCommandReceipt = CommandReceipt
-export type ModelConnectionTransition = 'verify' | 'suspend' | 'revoke'
+export type ModelConnectionTransition = 'verify' | 'suspend' | 'activate' | 'revoke'

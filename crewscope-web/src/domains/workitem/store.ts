@@ -1,3 +1,6 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { acknowledgeCreation } from '../../api/creationRecovery'
+import { secureId } from '../../api/secureId'
 import {
   inject,
   reactive,
@@ -6,6 +9,7 @@ import {
   type InjectionKey,
 } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
+import { canonicalCommandInput, commandFailure, commandFailureMessage, createCommandIntents } from '../../api/commandIntent'
 import { exclusionReason } from './bulk'
 import type { WorkItemGateway } from './gateway'
 import type {
@@ -27,6 +31,7 @@ import type {
   WorkItemTimelineEvent,
   WorkItemUndoOffer,
   WorkItemVersionConflict,
+  WorkItemListFilter,
 } from './types'
 
 export type WorkItemPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -66,6 +71,7 @@ export type WorkItemActionResult =
  */
 export interface WorkItemActionRow {
   readonly id: string
+  readonly version?: number
   /** How the row names itself in a refusal. A projection without a key falls back to the id. */
   readonly key: string | null
   readonly availableActions: readonly WorkItemAvailableTransition[]
@@ -124,9 +130,17 @@ interface WorkItemState {
 
 export interface WorkItemStore {
   state: Readonly<WorkItemState>
-  load(scope: WorkItemScope, status?: WorkItemStatus, force?: boolean): Promise<void>
+  /**
+   * Loads the first page for one filter. The legacy `load(scope, status)` shape still works: a bare
+   * status is read as `{ status }`.
+   */
+  load(
+    scope: WorkItemScope,
+    filter?: WorkItemListFilter | WorkItemStatus,
+    force?: boolean,
+  ): Promise<void>
   loadMore(): Promise<void>
-  create(input: CreateWorkItemInput): Promise<void>
+  create(input: CreateWorkItemInput): Promise<string | null>
   loadDetails(scope: WorkItemScope, workItemId: string, force?: boolean): Promise<void>
   closeDetails(): void
   transition(targetStatus: WorkItemStatus): Promise<void>
@@ -134,17 +148,20 @@ export interface WorkItemStore {
     scope: WorkItemScope,
     row: WorkItemActionRow,
     targetStatus: WorkItemStatus,
+    ownsPage?: () => boolean,
   ): Promise<WorkItemActionResult>
   transitionRows(
     scope: WorkItemScope,
     rows: readonly WorkItemActionRow[],
     targetStatus: WorkItemStatus,
+    ownsPage?: () => boolean,
   ): Promise<WorkItemBulkRowResult[]>
   assignRows(
     scope: WorkItemScope,
     rows: readonly WorkItemActionRow[],
     role: WorkItemBulkAssignmentRole,
     actorPrincipalId: string,
+    ownsPage?: () => boolean,
   ): Promise<WorkItemBulkRowResult[]>
   undoTransition(): Promise<void>
   dismissUndoOffer(): void
@@ -162,6 +179,8 @@ export interface WorkItemStore {
 export const WORK_ITEM_STORE: InjectionKey<WorkItemStore> = Symbol('crewscope-work-item-store')
 
 export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
+  const commandIntents = createCommandGateway(gateway, { transitionWorkItem: 4, addComment: 3, linkResource: 3, replaceOwner: 3, assignExecutor: 3, assignGateReviewer: 3, assignAdvisoryReviewer: 3, releaseResponsibility: 4 })
+  gateway = commandIntents.gateway
   const state = reactive<WorkItemState>({
     phase: 'idle',
     items: [],
@@ -196,19 +215,38 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   })
 
   let activeScope: WorkItemScope | null = null
-  let activeStatus: WorkItemStatus | undefined
+  const createIntents = createCommandIntents<CreateWorkItemInput, Awaited<ReturnType<WorkItemGateway['createWorkItem']>>>()
+  let activeCreate: Promise<string | null> | null = null
+  let commandEpoch = 0
+  let detailEpoch = 0
+  let activeBatch: symbol | null = null
+  const batchSteps = new Map<string, { run?: () => Promise<unknown>, done: boolean, uncertain: boolean }>()
+  let activeFilter: WorkItemListFilter = {}
   let activeQueryKey: string | null = null
   let requestVersion = 0
   let detailRequestVersion = 0
   let activeDetailScope: WorkItemScope | null = null
   let activeDetailKey: string | null = null
 
-  async function load(scope: WorkItemScope, status?: WorkItemStatus, force = false): Promise<void> {
-    const queryKey = `${scope.organizationId}:${scope.teamId}:${scope.projectId}:${status ?? 'ALL'}`
+  async function load(
+    scope: WorkItemScope,
+    filter?: WorkItemListFilter | WorkItemStatus,
+    force = false,
+  ): Promise<void> {
+    const normalized: WorkItemListFilter =
+      typeof filter === 'string' ? { status: filter } : (filter ?? {})
+    const queryKey = `${scope.organizationId}:${scope.teamId}:${scope.projectId}:${canonicalFilterKey(normalized)}`
     if (!force && queryKey === activeQueryKey && ['ready', 'empty'].includes(state.phase)) return
     const version = ++requestVersion
+    if (queryKey !== activeQueryKey) {
+      commandEpoch += 1
+      state.bulkPending = null
+      state.rowActionItemId = null
+      activeCreate = null
+      state.commandPending = false
+    }
     activeScope = { ...scope }
-    activeStatus = status
+    activeFilter = normalized
     activeQueryKey = queryKey
     state.phase = 'loading'
     state.errorMessage = null
@@ -217,7 +255,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.items = []
     state.nextCursor = null
     try {
-      const page = await gateway.listWorkItems({ ...scope, status, limit: 50 })
+      const page = await gateway.listWorkItems({ ...scope, ...normalized, limit: 50 })
       if (version !== requestVersion) return
       state.items = page.items
       state.nextCursor = page.nextCursor
@@ -237,7 +275,12 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.loadingMore = true
     state.errorMessage = null
     try {
-      const page = await gateway.listWorkItems({ ...scope, status: activeStatus, after: cursor, limit: 50 })
+      const page = await gateway.listWorkItems({
+        ...scope,
+        ...activeFilter,
+        after: cursor,
+        limit: 50,
+      })
       if (version !== requestVersion) return
       const knownIds = new Set(state.items.map(item => item.id))
       state.items.push(...page.items.filter(item => !knownIds.has(item.id)))
@@ -252,24 +295,45 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     }
   }
 
-  async function create(input: CreateWorkItemInput): Promise<void> {
+  function create(input: CreateWorkItemInput): Promise<string | null> {
+    if (activeCreate) return activeCreate
+    const pending = runCreate(input)
+    activeCreate = pending
+    const clear = () => { if (activeCreate === pending) activeCreate = null }
+    void pending.then(clear, clear)
+    return pending
+  }
+
+  async function runCreate(input: CreateWorkItemInput): Promise<string | null> {
     if (!activeScope) throw new Error('No WorkProject is selected')
     const scope = { ...activeScope }
+    const epoch = commandEpoch
     const queryKey = activeQueryKey
-    const status = activeStatus
+    const filter = activeFilter
     state.commandPending = true
     state.commandErrorMessage = null
     try {
-      await gateway.createWorkItem(scope, input, crypto.randomUUID())
+      const receipt = await createIntents.execute({ ...scope, commandType: 'CREATE_WORK_ITEM' }, input,
+        (snapshot, key) => gateway.createWorkItem(scope, snapshot, key))
       // A slow create Receipt must not navigate the collection back to an earlier WorkProject.
-      if (activeQueryKey === queryKey) await load(scope, status, true)
+      if (commandEpoch !== epoch || activeQueryKey !== queryKey) return null
+      if (!receipt.creation) throw new Error('Created WorkItem result is not available')
+      const id = receipt.creation.resourceId
+      await loadDetails(scope, id, true)
+      if (commandEpoch !== epoch || activeQueryKey !== queryKey) return null
+      await load(scope, filter, true)
+      if (commandEpoch !== epoch || activeQueryKey !== queryKey) return null
+      // A follow-up read failure must still navigate to the known committed ID, never turn
+      // into a failed creation that offers a new POST. Keep recovery until detail is visible.
+      if (state.detailPhase === 'ready') acknowledgeCreation(receipt.recoveryKey, scope.organizationId)
+      return id
     } catch (error) {
-      if (activeQueryKey === queryKey) {
-        state.commandErrorMessage = presentError(error, '暂时无法创建工作项，请稍后重试')
+      if (commandEpoch === epoch && activeQueryKey === queryKey) {
+        state.commandErrorMessage = commandFailureMessage(error, '暂时无法创建工作项，请稍后重试')
       }
       throw error
     } finally {
-      state.commandPending = false
+      if (commandEpoch === epoch) state.commandPending = false
     }
   }
 
@@ -291,6 +355,8 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.detailCommandErrorMessage = null
     if (!preserveConflict) state.versionConflict = null
     if (changed) {
+      detailEpoch += 1
+      state.detailCommandPending = null
       state.detail = null
       clearRelatedDetailState()
     }
@@ -313,6 +379,8 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   }
 
   function closeDetails(): void {
+    activeBatch = null
+    detailEpoch += 1
     detailRequestVersion += 1
     activeDetailScope = null
     activeDetailKey = null
@@ -383,12 +451,17 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     scope: WorkItemScope,
     row: WorkItemActionRow,
     targetStatus: WorkItemStatus,
+    ownsPage: () => boolean = () => true,
   ): Promise<WorkItemActionResult> {
     const offered = row.availableActions.find(candidate => candidate.targetStatus === targetStatus)
     if (offered && !offered.enabled) return refused(row, offered.reasonMessage)
+    const epoch = commandEpoch
+    const version = detailRequestVersion + 1
+    if (state.rowActionItemId) return refused(row, '已有操作正在提交')
     state.rowActionItemId = row.id
     try {
       await loadDetails(scope, row.id, true)
+      if (!ownsPage() || epoch !== commandEpoch || version !== detailRequestVersion) return refused(row, '操作范围已切换，未继续提交')
       if (state.detailPhase === 'error') {
         return {
           status: 'failed',
@@ -408,7 +481,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
       }
       return { status: 'executed' }
     } finally {
-      state.rowActionItemId = null
+      if (epoch === commandEpoch && state.rowActionItemId === row.id) state.rowActionItemId = null
     }
   }
 
@@ -438,24 +511,37 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     scope: WorkItemScope,
     rows: readonly WorkItemActionRow[],
     targetStatus: WorkItemStatus,
+    ownsPage: () => boolean = () => true,
   ): Promise<WorkItemBulkRowResult[]> {
+    if (state.bulkPending) return []
+    scope = { ...scope }
+    rows = JSON.parse(canonicalCommandInput(rows)) as WorkItemActionRow[]
+    const epoch = commandEpoch
+    const owner = Symbol('transition-batch')
+    activeBatch = owner
+    const isCurrent = () => epoch === commandEpoch && activeBatch === owner && ownsPage()
     const queryKey = activeQueryKey
     const results: WorkItemBulkRowResult[] = []
     state.bulkPending = { completed: 0, total: rows.length }
     try {
       for (const row of rows) {
-        results.push(await transitionRow(scope, row, targetStatus))
+        if (!isCurrent()) break
+        results.push(await transitionRow(scope, row, targetStatus, isCurrent))
+        if (!isCurrent()) break
         state.bulkPending = { completed: results.length, total: rows.length }
       }
     } finally {
-      state.bulkPending = null
+      if (activeBatch === owner) state.bulkPending = null
     }
     // A batch that executed nothing changed nothing, and reloading the collection would only make
     // the member wait for a page that cannot be different from the one they are looking at.
     const changed = results.some(result => result.outcome === 'executed')
-    if (changed && activeQueryKey === queryKey) {
-      await load(scope, activeStatus, true)
-      await refreshOpenDrawer(scope, rows)
+    if (results.length === rows.length && results.every(result => result.outcome === 'executed' || result.outcome === 'excluded')) {
+      for (const row of rows) batchSteps.delete(canonicalCommandInput([scope, row, targetStatus]))
+    }
+    if (isCurrent() && changed && activeQueryKey === queryKey) {
+      await load(scope, { ...activeFilter }, true)
+      if (isCurrent()) await refreshOpenDrawer(scope, rows)
     }
     return results
   }
@@ -464,6 +550,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     scope: WorkItemScope,
     row: WorkItemActionRow,
     targetStatus: WorkItemStatus,
+    isCurrent: () => boolean,
   ): Promise<WorkItemBulkRowResult> {
     const reason = exclusionReason(row, targetStatus)
     if (reason) {
@@ -472,14 +559,12 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
       return bulkResult(row, 'excluded', reason)
     }
     try {
-      const details = await gateway.getWorkItem(scope, row.id)
-      await gateway.transitionWorkItem(
-        scope,
-        row.id,
-        targetStatus,
-        details.workItem.version,
-        crypto.randomUUID(),
-      )
+      await runBatchStep([scope, row, targetStatus], isCurrent, async () => {
+        const details = await gateway.getWorkItem(scope, row.id)
+        const version = row.version ?? details.workItem.version
+        const key = secureId()
+        return () => gateway.transitionWorkItem(scope, row.id, targetStatus, version, key)
+      })
       return bulkResult(row, 'executed', null)
     } catch (error) {
       return failedBulkResult(scope, row, error, '暂时无法更新该工作项状态，请稍后重试')
@@ -499,21 +584,34 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     rows: readonly WorkItemActionRow[],
     role: WorkItemBulkAssignmentRole,
     actorPrincipalId: string,
+    ownsPage: () => boolean = () => true,
   ): Promise<WorkItemBulkRowResult[]> {
+    if (state.bulkPending) return []
+    scope = { ...scope }
+    rows = JSON.parse(canonicalCommandInput(rows)) as WorkItemActionRow[]
+    const epoch = commandEpoch
+    const owner = Symbol('assignment-batch')
+    activeBatch = owner
+    const isCurrent = () => epoch === commandEpoch && activeBatch === owner && ownsPage()
     const queryKey = activeQueryKey
     const results: WorkItemBulkRowResult[] = []
     state.bulkPending = { completed: 0, total: rows.length }
     try {
       for (const row of rows) {
-        results.push(await assignRow(scope, row, role, actorPrincipalId))
+        if (!isCurrent()) break
+        results.push(await assignRow(scope, row, role, actorPrincipalId, isCurrent))
+        if (!isCurrent()) break
         state.bulkPending = { completed: results.length, total: rows.length }
       }
     } finally {
-      state.bulkPending = null
+      if (activeBatch === owner) state.bulkPending = null
     }
-    if (activeQueryKey === queryKey) {
-      await load(scope, activeStatus, true)
-      await refreshOpenDrawer(scope, rows)
+    if (isCurrent() && activeQueryKey === queryKey) {
+      await load(scope, { ...activeFilter }, true)
+      if (isCurrent()) await refreshOpenDrawer(scope, rows)
+    }
+    if (results.length === rows.length && results.every(result => result.outcome === 'executed')) {
+      for (const row of rows) batchSteps.delete(canonicalCommandInput([scope, row, role, actorPrincipalId]))
     }
     return results
   }
@@ -523,24 +621,17 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     row: WorkItemActionRow,
     role: WorkItemBulkAssignmentRole,
     actorPrincipalId: string,
+    isCurrent: () => boolean,
   ): Promise<WorkItemBulkRowResult> {
     try {
-      if (role === 'EXECUTOR') {
-        await gateway.assignExecutor(scope, row.id, { actorPrincipalId }, crypto.randomUUID())
-        return bulkResult(row, 'executed', null)
-      }
-      const assignments = await gateway.listResponsibilities(scope, row.id)
-      const owner = assignments.find(assignment => assignment.role === 'OWNER') ?? null
-      await gateway.replaceOwner(
-        scope,
-        row.id,
-        {
-          actorPrincipalId,
-          expectedAssignmentId: owner?.id ?? null,
-          expectedVersion: owner?.version ?? null,
-        },
-        crypto.randomUUID(),
-      )
+      await runBatchStep([scope, row, role, actorPrincipalId], isCurrent, async () => {
+        const key = secureId()
+        if (role === 'EXECUTOR') return () => gateway.assignExecutor(scope, row.id, { actorPrincipalId }, key)
+        const assignments = await gateway.listResponsibilities(scope, row.id)
+        const owner = assignments.find(assignment => assignment.role === 'OWNER') ?? null
+        const input = { actorPrincipalId, expectedAssignmentId: owner?.id ?? null, expectedVersion: owner?.version ?? null }
+        return () => gateway.replaceOwner(scope, row.id, input, key)
+      })
       return bulkResult(row, 'executed', null)
     } catch (error) {
       return failedBulkResult(scope, row, error, '暂时无法指派该工作项，请稍后重试', isResponsibilityConflict(error)
@@ -559,6 +650,27 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
    * connection — is `failed`, because the member cannot know from here whether the command landed.
    * Reading a lost command as a rule they can work around is the one thing a batch must not do.
    */
+  async function runBatchStep(input: unknown, isCurrent: () => boolean, prepare: () => Promise<() => Promise<unknown>>): Promise<void> {
+    const fingerprint = canonicalCommandInput(input)
+    let step = batchSteps.get(fingerprint)
+    if (step?.done) return
+    if (!step) {
+      if (batchSteps.size >= 100) throw new Error('待确认批量操作过多，请先核实原操作')
+      step = { done: false, uncertain: false }
+      batchSteps.set(fingerprint, step)
+    }
+    try {
+      step.run ??= await prepare()
+      if (!isCurrent()) throw new DOMException('操作范围已切换，未继续提交', 'AbortError')
+      await step.run()
+      step.done = true
+    } catch (error) {
+      if (commandFailure(error) === 'unknown') step.uncertain = true
+      if (!step.uncertain) batchSteps.delete(fingerprint)
+      throw error
+    }
+  }
+
   async function failedBulkResult(
     scope: WorkItemScope,
     row: WorkItemActionRow,
@@ -566,6 +678,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     fallback: string,
     conflictMessage: string | null = null,
   ): Promise<WorkItemBulkRowResult> {
+    if (commandFailure(error) === 'unknown') return bulkResult(row, 'failed', commandFailureMessage(error, fallback))
     if (isVersionConflict(error)) {
       // Read the row back before naming its state: the summary says "current facts", so it has to
       // have asked for them. A failed re-read is not worth failing the row twice over — the row is
@@ -671,14 +784,14 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
         context.workItemId,
         targetStatus,
         context.version,
-        crypto.randomUUID(),
+        secureId(),
       )
-      if (activeDetailKey !== context.detailKey) return
+      if (!context.isCurrent()) return
       await Promise.all([
         loadDetails(context.scope, context.workItemId, true),
-        load(context.scope, activeStatus, true),
+        load(context.scope, { ...activeFilter }, true),
       ])
-      if (activeDetailKey !== context.detailKey) return
+      if (!context.isCurrent()) return
       if (kind === 'transition' && edge?.reversible && fromStatus && state.detail) {
         state.undoOffer = {
           workItemId: context.workItemId,
@@ -690,21 +803,21 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
         }
       }
     } catch (error) {
-      if (activeDetailKey === context.detailKey && isVersionConflict(error)) {
+      if (context.isCurrent() && isVersionConflict(error)) {
         state.versionConflict = {
           attemptedVersion: context.version,
           currentVersion: error.envelope.currentVersion,
         }
         await loadDetails(context.scope, context.workItemId, true, true)
-        if (activeDetailKey === context.detailKey) {
+        if (context.isCurrent()) {
           state.detailCommandErrorMessage = '工作项已被其他成员更新，详情已刷新，请确认后重试'
         }
-      } else if (activeDetailKey === context.detailKey) {
+      } else if (context.isCurrent()) {
         state.detailCommandErrorMessage = presentError(error, fallbackMessage)
       }
       throw error
     } finally {
-      if (activeDetailKey === context.detailKey) state.detailCommandPending = null
+      if (context.isCurrent()) state.detailCommandPending = null
     }
   }
 
@@ -713,7 +826,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     await runCollaborationCommand(
       'comment',
       context,
-      () => gateway.addComment(context.scope, context.workItemId, input, crypto.randomUUID()),
+      () => gateway.addComment(context.scope, context.workItemId, input, secureId()),
       '暂时无法添加评论，请稍后重试',
     )
   }
@@ -723,7 +836,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     await runCollaborationCommand(
       'resource',
       context,
-      () => gateway.linkResource(context.scope, context.workItemId, input, crypto.randomUUID()),
+      () => gateway.linkResource(context.scope, context.workItemId, input, secureId()),
       '暂时无法关联资源，请稍后重试',
     )
   }
@@ -738,7 +851,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
         actorPrincipalId,
         expectedAssignmentId: owner?.id ?? null,
         expectedVersion: owner?.version ?? null,
-      }, crypto.randomUUID()),
+      }, secureId()),
       '暂时无法替换 Owner，请稍后重试',
     )
   }
@@ -748,7 +861,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     await runResponsibilityCommand(
       'executor',
       context,
-      () => gateway.assignExecutor(context.scope, context.workItemId, { actorPrincipalId }, crypto.randomUUID()),
+      () => gateway.assignExecutor(context.scope, context.workItemId, { actorPrincipalId }, secureId()),
       '暂时无法分配 Executor，请稍后重试',
     )
   }
@@ -758,7 +871,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     await runResponsibilityCommand(
       'gate-reviewer',
       context,
-      () => gateway.assignGateReviewer(context.scope, context.workItemId, { actorPrincipalId }, crypto.randomUUID()),
+      () => gateway.assignGateReviewer(context.scope, context.workItemId, { actorPrincipalId }, secureId()),
       '候选人未通过 Gate Reviewer 资格校验，请调整后重试',
     )
   }
@@ -768,7 +881,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     await runResponsibilityCommand(
       'advisory-reviewer',
       context,
-      () => gateway.assignAdvisoryReviewer(context.scope, context.workItemId, { actorPrincipalId }, crypto.randomUUID()),
+      () => gateway.assignAdvisoryReviewer(context.scope, context.workItemId, { actorPrincipalId }, secureId()),
       '暂时无法分配 Advisory Reviewer，请稍后重试',
     )
   }
@@ -784,7 +897,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
         context.workItemId,
         assignment.id,
         assignment.version,
-        crypto.randomUUID(),
+        secureId(),
       ),
       '暂时无法释放该责任，请稍后重试',
     )
@@ -800,17 +913,17 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.responsibilityCommandErrorMessage = null
     try {
       await action()
-      if (activeDetailKey === context.detailKey) {
+      if (context.isCurrent()) {
         await Promise.all([
           refreshResponsibilities(context),
           refreshTimeline(context),
         ])
       }
     } catch (error) {
-      if (activeDetailKey === context.detailKey) {
+      if (context.isCurrent()) {
         // The server owns eligibility and concurrency decisions; refresh before presenting a retry.
         await refreshResponsibilities(context)
-        if (activeDetailKey === context.detailKey) {
+        if (context.isCurrent()) {
           state.responsibilityCommandErrorMessage = isResponsibilityConflict(error)
             ? '责任链已发生变化，最新责任已刷新，请确认后重试'
             : presentError(error, fallback)
@@ -818,7 +931,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
       }
       throw error
     } finally {
-      if (activeDetailKey === context.detailKey) state.responsibilityCommandPending = null
+      if (context.isCurrent()) state.responsibilityCommandPending = null
     }
   }
 
@@ -934,16 +1047,16 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.versionConflict = null
     try {
       await action()
-      if (activeDetailKey === context.detailKey) {
+      if (context.isCurrent()) {
         await loadDetails(context.scope, context.workItemId, true)
       }
     } catch (error) {
-      if (activeDetailKey === context.detailKey) {
+      if (context.isCurrent()) {
         state.detailCommandErrorMessage = presentError(error, fallback)
       }
       throw error
     } finally {
-      if (activeDetailKey === context.detailKey) state.detailCommandPending = null
+      if (context.isCurrent()) state.detailCommandPending = null
     }
   }
 
@@ -951,7 +1064,10 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     if (!activeDetailScope || !activeDetailKey || !state.detail) {
       throw new Error('No WorkItem detail is selected')
     }
+    const epoch = detailEpoch
+    const key = activeDetailKey
     return {
+      isCurrent: () => epoch === detailEpoch && key === activeDetailKey,
       scope: { ...activeDetailScope },
       detailKey: activeDetailKey,
       workItemId: state.detail.workItem.id,
@@ -965,9 +1081,14 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   }
 
   function reset(): void {
+    batchSteps.clear()
+    commandIntents.clear()
+    commandEpoch += 1
+    activeCreate = null
+    createIntents.clear()
     requestVersion += 1
     activeScope = null
-    activeStatus = undefined
+    activeFilter = {}
     activeQueryKey = null
     state.phase = 'idle'
     state.items = []
@@ -1021,6 +1142,21 @@ function presentError(error: unknown, fallback: string): string {
   return fallback
 }
 
+/**
+ * One stable string per filter value set, so any change to any dimension restarts the page from its
+ * beginning — a continuation cursor is only valid for the filter that minted it. Arrays are sorted
+ * before joining: `{ type: ['FEATURE','BUG'] }` and `{ type: ['BUG','FEATURE'] }` are the same query.
+ */
+function canonicalFilterKey(filter: WorkItemListFilter): string {
+  return [
+    filter.status ?? 'ALL',
+    filter.type ? [...filter.type].sort().join(',') : '',
+    filter.priority ? [...filter.priority].sort().join(',') : '',
+    filter.responsibilityRole ?? '',
+    filter.sort ?? '',
+  ].join('|')
+}
+
 function isVersionConflict(error: unknown): error is CrewScopeApiError {
   return error instanceof CrewScopeApiError
     && error.status === 409
@@ -1043,6 +1179,7 @@ function deduplicateTimeline(items: WorkItemTimelineEvent[]): WorkItemTimelineEv
 }
 
 interface DetailContext {
+  isCurrent: () => boolean
   scope: WorkItemScope
   detailKey: string
   workItemId: string

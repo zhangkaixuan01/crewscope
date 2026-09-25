@@ -74,6 +74,22 @@ describe('HttpModelGateway', () => {
     const invalidOwner = gatewayWith(vi.fn(async () => json({ ...connectionPayload(), ownerType: 'EXTERNAL' }, 200, { ETag: '"4"' })))
     await expect(invalidOwner.getConnection(scope.organizationId, connectionId)).rejects.toThrow('owner type')
   })
+
+  it('sends activate with the connection version and idempotency key', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('POST')
+      return json(receiptPayload(), 202)
+    })
+    const gateway = gatewayWith(fetcher)
+
+    await gateway.activateConnection(scope.organizationId, connectionPayload({ status: 'SUSPENDED' }), '"7"', 'activate-key')
+
+    const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers)
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(`/${connectionId}/activate`)
+    expect(headers.get('If-Match')).toBe('"7"')
+    expect(headers.get('Idempotency-Key')).toBe('activate-key')
+    expect(String(fetcher.mock.calls[0]?.[1]?.body)).toContain('credentialVersion')
+  })
 })
 
 function gatewayWith(fetcher: ReturnType<typeof vi.fn>): HttpModelGateway {

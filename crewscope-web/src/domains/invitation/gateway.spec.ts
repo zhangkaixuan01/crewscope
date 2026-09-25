@@ -49,16 +49,30 @@ describe('HttpInvitationGateway', () => {
   })
 
   it('maps privacy-bounded preview and one-way accept/revoke commands', async () => {
-    const fetcher = vi.fn<typeof fetch>(async input => String(input).endsWith('/invitations/preview')
-      ? json({ state: 'AVAILABLE', invitationId: 'invitation-1', teamName: 'Platform Engineering', targetRole: 'TEAM_LEAD', expiresAt: '2026-09-01T00:00:00Z', targetRestricted: true })
-      : json(receipt(), 202))
+    const fetcher = vi.fn<typeof fetch>(async input => {
+      const target = String(input)
+      if (target.endsWith('/invitations/preview')) {
+        return json({ state: 'AVAILABLE', invitationId: 'invitation-1', teamName: 'Platform Engineering', targetRole: 'TEAM_LEAD', expiresAt: '2026-09-01T00:00:00Z', targetRestricted: true })
+      }
+      if (target.endsWith('/invitations/accept')) {
+        return json({
+          command: receipt(),
+          acceptance: { teamId: 'team-1', memberId: 'member-1', invitationId: 'invitation-1', membershipDisposition: 'CREATED', roleGrantCreated: true },
+        }, 202)
+      }
+      return json(receipt(), 202)
+    })
     const gateway = gatewayWith(fetcher)
 
     const preview = await gateway.preview(token)
-    await gateway.accept(token, { csrf, idempotencyKey: 'accept-1' })
+    const acceptance = await gateway.accept(token, { csrf, idempotencyKey: 'accept-1' })
     await gateway.revoke('organization-1', 'team-1', 'invitation-1', { csrf, idempotencyKey: 'revoke-1' })
 
     expect(preview).toEqual({ state: 'AVAILABLE', invitationId: 'invitation-1', teamName: 'Platform Engineering', targetRole: 'TEAM_LEAD', expiresAt: '2026-09-01T00:00:00Z', targetRestricted: true })
+    expect(acceptance).toMatchObject({
+      replayed: false,
+      acceptance: { teamId: 'team-1', memberId: 'member-1', membershipDisposition: 'CREATED', roleGrantCreated: true },
+    })
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({ token })
     expect(String(fetcher.mock.calls[1]?.[1]?.body)).not.toMatch(/account|principal|membership/i)
   })

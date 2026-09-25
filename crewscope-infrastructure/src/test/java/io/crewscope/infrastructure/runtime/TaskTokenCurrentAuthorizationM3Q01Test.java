@@ -78,10 +78,14 @@ class TaskTokenCurrentAuthorizationM3Q01Test {
         TeamMemberId memberId = TeamMemberId.generate();
         Principal user = principal(PrincipalType.USER, Optional.empty());
         TeamMember member = member(user.id(), true);
+        when(member.id()).thenReturn(memberId);
+        when(member.authorizationVersion()).thenReturn(1L);
         currentAssignment(PrincipalType.USER, Optional.of(memberId));
         when(principals.findById(fixture.organizationId, fixture.executor.id()))
                 .thenReturn(Optional.of(user));
-        when(members.findById(fixture.organizationId, memberId))
+        // M9b-A07 resolves the executing member by principal inside the Team, not by member id.
+        when(members.findByTeamAndUserPrincipalId(
+                        fixture.organizationId, fixture.workScope.teamId(), user.id()))
                 .thenReturn(Optional.of(member));
         assertDoesNotThrow(() -> authorization.requireCurrent(grant));
 

@@ -17,6 +17,7 @@ import io.crewscope.application.inbox.InboxCursorExpiredException;
 import io.crewscope.application.inbox.InboxDispositionCommandService;
 import io.crewscope.application.inbox.InboxFilter;
 import io.crewscope.application.inbox.InboxItemView;
+import io.crewscope.application.inbox.InboxSourceContext;
 import io.crewscope.application.inbox.InboxSourceTarget;
 import io.crewscope.application.inbox.InboxTypeCount;
 import io.crewscope.application.team.TeamAccessContext;
@@ -79,7 +80,14 @@ class InboxControllerM6A02Test {
 
     @Test
     void detailExposesOnlyReviewedFieldsAndAStrongDispositionEtag() {
-        InboxItemView view = InboxItemView.merge(item, Optional.empty());
+        InboxItemView view = InboxItemView.merge(item, Optional.empty(), Optional.of(
+                new InboxSourceContext(
+                        Optional.of(WorkProjectId.generate()),
+                        Optional.of(WorkItemId.generate()),
+                        Optional.of("评审中的活"),
+                        Optional.of("评审目标甲"),
+                        Optional.of("评审人乙"),
+                        "REVIEW")));
         when(queries.detail(access, ORGANIZATION_ID, TEAM_ID, item.id())).thenReturn(view);
 
         client.get()
@@ -93,6 +101,10 @@ class InboxControllerM6A02Test {
                 .jsonPath("$.dispositionStatus").isEqualTo("UNREAD")
                 .jsonPath("$.etag").isEqualTo("\"0\"")
                 .jsonPath("$.source.type").isEqualTo("REVIEW_REQUEST")
+                .jsonPath("$.sourceContext.workItemTitle").isEqualTo("评审中的活")
+                .jsonPath("$.sourceContext.taskObjective").isEqualTo("评审目标甲")
+                .jsonPath("$.sourceContext.waitingOnDisplayName").isEqualTo("评审人乙")
+                .jsonPath("$.sourceContext.targetActionKind").isEqualTo("REVIEW")
                 .jsonPath("$.memberId").doesNotExist()
                 .jsonPath("$.projectionGeneration").doesNotExist()
                 .jsonPath("$.projectionName").doesNotExist();

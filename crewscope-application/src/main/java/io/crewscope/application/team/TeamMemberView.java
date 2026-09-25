@@ -5,11 +5,12 @@ import java.util.List;
 import java.util.Objects;
 
 /** Team Membership fact enriched with the authoritative USER Principal display name. */
-public record TeamMemberView(TeamMember member, String displayName, List<String> roles) {
+public record TeamMemberView(
+    TeamMember member, String displayName, List<String> roles, List<MemberGrantView> grants) {
 
   /** Compatibility constructor for callers that only need the display name. */
   public TeamMemberView(TeamMember member, String displayName) {
-    this(member, displayName, List.of());
+    this(member, displayName, List.of(), List.of());
   }
 
   public TeamMemberView {
@@ -19,5 +20,6 @@ public record TeamMemberView(TeamMember member, String displayName, List<String>
     }
     displayName = displayName.strip();
     roles = List.copyOf(Objects.requireNonNull(roles, "roles"));
+    grants = List.copyOf(Objects.requireNonNull(grants, "grants"));
   }
 }

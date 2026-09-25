@@ -7,6 +7,7 @@ import io.crewscope.domain.shared.error.InvalidStateTransitionException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.team.TeamMemberId;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
@@ -79,6 +80,29 @@ public final class TaskCredentialGrant {
             UtcTimestamp expiresAt,
             Principal actor,
             UtcTimestamp issuedAt) {
+        return issue(id, execution, lease, policy, overlay, requestedTools, providerRequests,
+                jti, expiresAt, actor, issuedAt, Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * Issues a grant whose scope also pins the executing member's authorization dimension.
+     *
+     * <p>See {@link TaskTokenGrantScope#issue} for the legacy-scope compatibility contract.
+     */
+    public static TaskCredentialIssuance issue(
+            TaskCredentialGrantId id,
+            TaskExecution execution,
+            ExecutionLease lease,
+            PolicySnapshot policy,
+            SafetyEnforcementOverlay overlay,
+            Set<String> requestedTools,
+            Collection<TaskProviderGrantRequest> providerRequests,
+            TaskTokenJti jti,
+            UtcTimestamp expiresAt,
+            Principal actor,
+            UtcTimestamp issuedAt,
+            Optional<TeamMemberId> executionMemberId,
+            Optional<Long> executionMemberAuthorizationVersion) {
         UtcTimestamp requiredIssuedAt = Objects.requireNonNull(issuedAt, "issuedAt");
         UtcTimestamp requiredExpiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
         ExecutionLease requiredLease = Objects.requireNonNull(lease, "lease");
@@ -89,7 +113,9 @@ public final class TaskCredentialGrant {
                 overlay,
                 requestedTools,
                 providerRequests,
-                requiredIssuedAt);
+                requiredIssuedAt,
+                executionMemberId,
+                executionMemberAuthorizationVersion);
         PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
                 actor, grantScope.workItemScope(), "taskCredentialGrant.createdBy");
         TaskTokenClaims claims = new TaskTokenClaims(

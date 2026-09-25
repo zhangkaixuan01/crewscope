@@ -13,6 +13,7 @@ import RepositorySettingsPage from './RepositorySettingsPage.vue'
 
 const principal: AuthenticatedPrincipal = {
   id: fixtureIds.principal,
+  accountId: '00000000-0000-0000-0000-000000000201',
   displayName: '测试管理员',
   role: 'Team Owner',
   organizationId: fixtureIds.organization,
@@ -31,7 +32,11 @@ describe('RepositorySettingsPage', () => {
     expect(text).toContain('crewscope-java')
     expect(text).toContain('1 个 RepositoryBinding')
     expect(text).toContain('Canonical Path')
+    expect(text).toContain('项目默认执行配置')
+    expect(text).toContain('node-24-npm-11 v1')
+    expect(wrapper.find('input[placeholder="使用仓库默认分支"]').exists()).toBe(true)
     expect(text).not.toContain('/private/managed')
+    wrapper.unmount()
   })
 
   it('offers only available repositories that are not already bound to the WorkProject', async () => {
@@ -61,7 +66,7 @@ describe('RepositorySettingsPage', () => {
 
     await opener.trigger('click')
     await nextTick()
-    expect(wrapper.get('select').element).toBe(document.activeElement)
+    expect(wrapper.get('.create-binding select').element).toBe(document.activeElement)
 
     await wrapper.get('.create-binding').trigger('keydown', { key: 'Escape' })
     await nextTick()
@@ -107,10 +112,8 @@ describe('RepositorySettingsPage', () => {
     expect(wrapper.text()).toContain('这个 Team 还没有 WorkProject')
     await wrapper.findAll('button').find(button => button.text().trim() === '创建 WorkProject')!.trigger('click')
     const inputs = document.body.querySelectorAll<HTMLInputElement>('.project-create-dialog input')
-    inputs[0]!.value = 'crew'
+    inputs[0]!.value = 'CrewScope Platform'
     inputs[0]!.dispatchEvent(new Event('input', { bubbles: true }))
-    inputs[1]!.value = 'CrewScope Platform'
-    inputs[1]!.dispatchEvent(new Event('input', { bubbles: true }))
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
     document.body.querySelector<HTMLFormElement>('.project-create-dialog')!
@@ -188,6 +191,22 @@ function repositoryFetcher(forbidden = false, failCatalogAfterFirst = false): ty
   let catalogRequests = 0
   return vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(String(input), 'http://crewscope.test').pathname
+    const method = typeof input === 'object' && input !== null && 'method' in input
+      ? String(input.method)
+      : 'GET'
+    if (path.endsWith('/execution-defaults/options')) return json({ items: [
+      { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
+      { key: 'node-24-npm-11', version: 1, profileHash: 'b'.repeat(64) },
+    ] })
+    if (path.endsWith('/execution-defaults')) return json({
+      version: method === 'PUT' ? 1 : 0,
+      repositoryBindingId: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置项目仓库' },
+      repositoryBindingVersion: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置项目仓库' },
+      branch: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '仓库绑定默认分支将被使用' },
+      buildProfile: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置构建方案' },
+      agentProfileId: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+      agentProfileRevision: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+    })
     if (path.endsWith('/repository-catalog')) {
       catalogRequests += 1
       if (forbidden || (failCatalogAfterFirst && catalogRequests > 1)) return json({

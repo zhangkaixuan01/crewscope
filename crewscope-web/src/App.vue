@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
-import { inject, onBeforeUnmount, watch } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
+import CreationRecoveryPanel from './components/feedback/CreationRecoveryPanel.vue'
+import { computed, inject, onBeforeUnmount, watch } from 'vue'
 import GlobalErrorBanner from './components/feedback/GlobalErrorBanner.vue'
 import ToastHost from './components/feedback/ToastHost.vue'
 import ConfirmHost from './components/feedback/ConfirmHost.vue'
@@ -11,6 +12,15 @@ import { ACTION_REGISTRY } from './app/actionRegistry'
 import CommandPalette from './components/action/CommandPalette.vue'
 
 const authStore = useAuthStore()
+const route = useRoute()
+const pageIdentity = computed(() => {
+  // Identity pages own their anonymous→authenticated transition; keying them on the session identity
+  // remounted them mid-transition and the fresh RegisterPage instance's authenticated redirect to
+  // /conversation cancelled the original instance's onboarding navigation after a first registration.
+  if (route.meta.publicIdentity === true) return 'identity'
+  return JSON.stringify([authStore.state.session?.account?.accountId,
+    authStore.state.session?.account?.securityVersion, authStore.state.session?.principal])
+})
 const actionRegistry = inject(ACTION_REGISTRY, null)
 const theme = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
 const density = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
@@ -48,9 +58,10 @@ onBeforeUnmount(() => window.removeEventListener('crewscope:preference-change', 
   <AuthSessionBoundary v-if="['idle', 'restoring', 'error'].includes(authStore.state.phase)" />
   <template v-else>
     <GlobalErrorBanner />
+    <CreationRecoveryPanel v-if="authStore.state.phase === 'authenticated'" />
     <ToastHost />
     <ConfirmHost />
     <CommandPalette v-if="actionRegistry" />
-    <RouterView />
+    <RouterView :key="pageIdentity" />
   </template>
 </template>

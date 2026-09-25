@@ -15,6 +15,7 @@ public enum DomainErrorCode {
   ACCOUNT_ORGANIZATION_BINDING_CONFLICT(
       "account_organization_binding_conflict", DomainErrorCategory.CONFLICT),
   TEAM_INVITATION_CONFLICT("team_invitation_conflict", DomainErrorCategory.CONFLICT),
+  LAST_OWNER_PROTECTION("last_owner_protection", DomainErrorCategory.CONFLICT),
   RESPONSIBILITY_CONFLICT("responsibility_conflict", DomainErrorCategory.CONFLICT),
   REPOSITORY_BINDING_KEY_CONFLICT(
       "repository_binding_key_conflict", DomainErrorCategory.CONFLICT),

@@ -23,7 +23,9 @@ public record CreateGitHubRepositoryImportCommand(
         }
         externalRepositoryId = Objects.requireNonNull(externalRepositoryId, "externalRepositoryId").strip();
         if (externalRepositoryId.isEmpty()) throw new IllegalArgumentException("externalRepositoryId is blank");
-        Objects.requireNonNull(repositoryKey, "repositoryKey");
+        // A missing key is intentional for the UI import flow.  The
+        // application service derives a stable, path-free key from the
+        // verified catalog full name and resolves collisions deterministically.
         Objects.requireNonNull(defaultBranch, "defaultBranch");
     }
 }

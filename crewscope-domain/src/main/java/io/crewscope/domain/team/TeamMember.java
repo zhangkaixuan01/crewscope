@@ -43,6 +43,7 @@ public final class TeamMember {
     private final Optional<UtcTimestamp> joinedAt;
     private final Optional<UtcTimestamp> lastActiveAt;
     private final long version;
+    private final long authorizationVersion;
     private final LifecycleMetadata lifecycle;
 
     private TeamMember(
@@ -55,6 +56,7 @@ public final class TeamMember {
             Optional<UtcTimestamp> joinedAt,
             Optional<UtcTimestamp> lastActiveAt,
             long version,
+            long authorizationVersion,
             LifecycleMetadata lifecycle) {
         this.id = Objects.requireNonNull(id, "id");
         this.scope = Objects.requireNonNull(scope, "scope");
@@ -65,6 +67,7 @@ public final class TeamMember {
         this.joinedAt = requireJoinedAt(status, joinedAt);
         this.lastActiveAt = requireLastActiveAt(this.joinedAt, lastActiveAt);
         this.version = requireVersion(version);
+        this.authorizationVersion = requireAuthorizationVersion(authorizationVersion);
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
     }
 
@@ -85,6 +88,7 @@ public final class TeamMember {
                 Optional.empty(),
                 Optional.empty(),
                 0,
+                1,
                 LifecycleMetadata.createdAt(occurredAt));
     }
 
@@ -106,6 +110,7 @@ public final class TeamMember {
                 Optional.of(acceptedAt),
                 Optional.empty(),
                 0,
+                1,
                 LifecycleMetadata.createdAt(acceptedAt));
     }
 
@@ -132,10 +137,14 @@ public final class TeamMember {
                 Optional.of(requiredTime),
                 Optional.empty(),
                 0,
+                1,
                 LifecycleMetadata.createdAt(requiredTime));
     }
 
-    /** Reconstitutes a committed membership without replaying a join or state transition. */
+    /**
+     * Reconstitutes a committed membership without replaying a join or state transition.
+     * Preserves the pre-A07 signature for callers that predate the authorization dimension.
+     */
     public static TeamMember reconstitute(
             TeamMemberId id,
             TeamScope scope,
@@ -147,6 +156,33 @@ public final class TeamMember {
             Optional<UtcTimestamp> lastActiveAt,
             long version,
             LifecycleMetadata lifecycle) {
+        return reconstitute(
+                id,
+                scope,
+                userPrincipalId,
+                status,
+                joinMethod,
+                invitedByPrincipalId,
+                joinedAt,
+                lastActiveAt,
+                version,
+                1,
+                lifecycle);
+    }
+
+    /** Reconstitutes a committed membership including its authorization dimension. */
+    public static TeamMember reconstitute(
+            TeamMemberId id,
+            TeamScope scope,
+            PrincipalId userPrincipalId,
+            TeamMemberStatus status,
+            TeamJoinMethod joinMethod,
+            Optional<PrincipalId> invitedByPrincipalId,
+            Optional<UtcTimestamp> joinedAt,
+            Optional<UtcTimestamp> lastActiveAt,
+            long version,
+            long authorizationVersion,
+            LifecycleMetadata lifecycle) {
         return new TeamMember(
                 id,
                 scope,
@@ -157,6 +193,7 @@ public final class TeamMember {
                 joinedAt,
                 lastActiveAt,
                 version,
+                authorizationVersion,
                 lifecycle);
     }
 
@@ -224,6 +261,29 @@ public final class TeamMember {
                 joinedAt,
                 Optional.of(requiredTime),
                 version + 1,
+                authorizationVersion,
+                lifecycle.modifiedAt(requiredTime));
+    }
+
+    /**
+     * Advances only the authorization dimension, for role writes that do not change participation
+     * state. The optimistic version moves with it because every committed change reaches storage
+     * through the version predicate; what stays separate is the direction — presence changes
+     * (recordActivity) never advance this counter.
+     */
+    public TeamMember markAuthorizationChanged(UtcTimestamp occurredAt) {
+        UtcTimestamp requiredTime = Objects.requireNonNull(occurredAt, "occurredAt");
+        return new TeamMember(
+                id,
+                scope,
+                userPrincipalId,
+                status,
+                joinMethod,
+                invitedByPrincipalId,
+                joinedAt,
+                lastActiveAt,
+                version + 1,
+                authorizationVersion + 1,
                 lifecycle.modifiedAt(requiredTime));
     }
 
@@ -267,6 +327,7 @@ public final class TeamMember {
                 targetJoinedAt,
                 targetLastActiveAt,
                 version + 1,
+                authorizationVersion + 1,
                 lifecycle.modifiedAt(occurredAt));
     }
 
@@ -311,6 +372,10 @@ public final class TeamMember {
 
     public long version() {
         return version;
+    }
+
+    public long authorizationVersion() {
+        return authorizationVersion;
     }
 
     public LifecycleMetadata lifecycle() {
@@ -385,6 +450,14 @@ public final class TeamMember {
     private static long requireVersion(long value) {
         if (value < 0) {
             throw new DomainValidationException("teamMember.version", "must not be negative");
+        }
+        return value;
+    }
+
+    private static long requireAuthorizationVersion(long value) {
+        if (value < 1) {
+            throw new DomainValidationException(
+                    "teamMember.authorizationVersion", "must be positive");
         }
         return value;
     }

@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { commandFailure, commandFailureMessage } from '../../api/commandIntent'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { Etagged, OffsetPage, SettingsScope } from '../settings/types'
@@ -27,7 +29,7 @@ export interface ModelPageResource<T> extends ModelResource<T[]> {
 
 export interface ModelCommandState {
   phase: 'idle' | 'pending' | 'success' | 'error' | 'conflict'
-  operation: 'create' | 'verify' | 'rotate' | 'suspend' | 'revoke' | null
+  operation: 'create' | 'verify' | 'rotate' | 'suspend' | 'activate' | 'revoke' | null
   connectionId: string | null
   receipt: ModelConnectionCommandReceipt | null
   errorMessage: string | null
@@ -52,7 +54,8 @@ export interface ModelStore {
   loadConnection(connectionId: string, force?: boolean): Promise<void>
   createConnection(input: CreateModelConnectionInput, idempotencyKey: string): Promise<boolean>
   verifyConnection(connectionId: string, idempotencyKey: string): Promise<boolean>
-  rotateCredential(connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string): Promise<boolean>
+  activateConnection(connectionId: string, idempotencyKey: string): Promise<boolean>
+  rotateCredential(connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string, expectedVersion?: number): Promise<boolean>
   suspendConnection(connectionId: string, idempotencyKey: string): Promise<boolean>
   revokeConnection(connectionId: string, reason: string, idempotencyKey: string): Promise<boolean>
   invalidateConnection(connectionId?: string): void
@@ -73,6 +76,8 @@ interface ModelRequest {
 
 /** Scope-partitioned model state. Secret command inputs never enter this reactive graph. */
 export function createModelStore(gateway: ModelGateway): ModelStore {
+  const commandIntents = createCommandGateway(gateway, { verifyConnection: 3, activateConnection: 3, suspendConnection: 3, revokeConnection: 4 })
+  gateway = commandIntents.gateway
   const state = reactive<ModelStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
@@ -182,17 +187,23 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
       gateway.verifyConnection(scope.organizationId, detail.value, detail.etag, idempotencyKey))
   }
 
+  async function activateConnection(connectionId: string, idempotencyKey: string): Promise<boolean> {
+    return withConnection(connectionId, 'activate', (scope, detail) =>
+      gateway.activateConnection(scope.organizationId, detail.value, detail.etag, idempotencyKey))
+  }
+
   async function rotateCredential(
     connectionId: string,
     credentialVersion: number,
     apiKey: string,
     idempotencyKey: string,
+    expectedVersion?: number,
   ): Promise<boolean> {
     return withConnection(connectionId, 'rotate', (scope, detail) =>
       gateway.rotateCredential(
         scope.organizationId,
         connectionId,
-        detail.etag,
+        expectedVersion === undefined ? detail.etag : `"${expectedVersion}"`,
         { credentialVersion, apiKey },
         idempotencyKey,
       ))
@@ -214,7 +225,10 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     command: (scope: SettingsScope, detail: Etagged<ModelConnectionSummary>) => Promise<ModelConnectionCommandReceipt>,
   ): Promise<boolean> {
     const scope = requireScope()
+    const started = generation
+    const previous = state.command
     if (state.connectionDetails[connectionId]?.phase !== 'ready') await loadConnection(connectionId)
+    if (started !== generation || state.command !== previous) return false
     const detail = state.connectionDetails[connectionId]?.value
     if (!detail) return false
     return runCommand(
@@ -232,23 +246,25 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     onSuccess?: () => void,
   ): Promise<boolean> {
     const commandGeneration = generation
+    if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, connectionId, receipt: null,
       errorMessage: null, errorStatus: null, retryable: false,
     }
+    const pending = state.command
     try {
       const receipt = await action()
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       state.command.phase = conflict(error) ? 'conflict' : 'error'
-      state.command.errorMessage = presentError(error, '模型连接命令执行失败')
+      state.command.errorMessage = commandFailureMessage(error, '模型连接命令执行失败')
       state.command.errorStatus = statusOf(error)
-      state.command.retryable = error instanceof CrewScopeApiError && error.envelope.retryable
+      state.command.retryable = commandFailure(error) === 'unknown' || (error instanceof CrewScopeApiError && error.envelope.retryable)
       return false
     }
   }
@@ -299,6 +315,7 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
   }
 
   function reset(): void {
+    commandIntents.clear()
     activeScope = null
     activeScopeKey = null
     generation += 1
@@ -350,6 +367,7 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     loadConnection,
     createConnection,
     verifyConnection,
+    activateConnection,
     rotateCredential,
     suspendConnection,
     revokeConnection,

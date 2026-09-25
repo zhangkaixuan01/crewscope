@@ -2,6 +2,13 @@ import { mount } from '@vue/test-utils'
 import ConversationComposer from './ConversationComposer.vue'
 
 describe('ConversationComposer', () => {
+  it('can receive focus after creation without sending or changing the draft', () => {
+    const wrapper = mount(ConversationComposer, { attachTo: document.body, props: { modelValue: '' } })
+    wrapper.vm.focus()
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('submits trimmed content with Enter and preserves Shift+Enter for a newline', async () => {
     const wrapper = mount(ConversationComposer, { props: { modelValue: '  规划 Provider  ' } })
     const textarea = wrapper.get('textarea')
@@ -51,5 +58,13 @@ describe('ConversationComposer', () => {
     })
 
     expect(wrapper.get('[id$="-guidance"]').text()).toBe('请先点击“重新连接”')
+  })
+
+  it('offers no fake attachments or slash entries', () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '' } })
+    // Every visible control must work: no "coming soon" attachments, no pseudo slash commands.
+    expect(wrapper.findAll('button').map(button => button.text())).toEqual(['发送'])
+    expect(wrapper.text()).not.toContain('附件')
+    expect(wrapper.text()).not.toContain('Slash')
   })
 })

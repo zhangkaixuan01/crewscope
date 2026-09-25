@@ -496,6 +496,19 @@ class TeamApplicationServiceTest {
     private final List<DomainEventEnvelope<? extends DomainEvent>> events = new ArrayList<>();
     private final List<PendingOutboxEvent> outbox = new ArrayList<>();
     private final Map<String, ReceiptEntry> receipts = new HashMap<>();
+    final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
+
+    @Override
+    public void saveResult(io.crewscope.application.command.CommandResult result) {
+      results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
+    }
+
+    @Override
+    public Optional<io.crewscope.application.command.CommandResult> findResult(
+        OrganizationId organizationId, IdempotencyKey key, PrincipalId actorId) {
+      return Optional.ofNullable(results.get(organizationId + ":" + key))
+          .filter(result -> result.actorId().equals(actorId));
+    }
 
     @Override
     public Team create(Team team) {

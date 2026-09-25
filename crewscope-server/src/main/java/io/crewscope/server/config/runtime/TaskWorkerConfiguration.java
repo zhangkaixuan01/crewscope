@@ -385,6 +385,7 @@ public class TaskWorkerConfiguration {
             ExecutionLeaseRepository leaseRepository,
             AgentStateSnapshotRepository snapshotRepository,
             TaskTokenService tokenService,
+            io.crewscope.infrastructure.runtime.TaskTokenCurrentAuthorization currentAuthorization,
             AuthoritativeTimeProvider timeProvider,
             RuntimeWorkerRegistrationSpec registration,
             TaskWorkerExecutionSpec spec,
@@ -400,6 +401,7 @@ public class TaskWorkerConfiguration {
                 leaseRepository,
                 snapshotRepository,
                 tokenService,
+                currentAuthorization,
                 timeProvider,
                 registration,
                 spec);

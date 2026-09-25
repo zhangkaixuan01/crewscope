@@ -2,6 +2,8 @@ import type { InjectionKey } from 'vue'
 
 export interface AuthenticatedPrincipal {
   id: string
+  /** Owning login account; scoped browser storage namespaces include it (M9b-F05). */
+  accountId: string
   displayName: string
   role: string
   organizationId: string
@@ -16,6 +18,7 @@ export const permissions = {
   scopeRead: 'scope:read',
   teamMembersRead: 'team:members:read',
   teamMembersManage: 'team:members:manage',
+  teamRolesManage: 'team:roles:manage',
   workProjectsRead: 'work-projects:read',
   workProjectsManage: 'work-projects:manage',
   workRead: 'work:read',

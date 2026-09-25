@@ -1,4 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
+import { readWorkItemCommentDraft } from '../../domains/workitem/commentDraft'
 import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails } from '../../test/workItemFixtures'
 import { fixtureConversationWorkItemAssociation } from '../../test/conversationWorkItemFixtures'
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
@@ -235,6 +238,41 @@ describe('WorkItemDetailDrawer', () => {
     await wrapper.get('.transition-section button').trigger('click')
     expect(onRetryAvailability).toHaveBeenCalled()
     wrapper.unmount()
+  })
+
+  it('keeps the comment as a scoped browser draft across re-opens and clears it once submitted', async () => {
+    clearF05UserData()
+    activateF05Identity('00000000-0000-0000-0000-000000000901')
+    const onAddComment = vi.fn().mockResolvedValue(undefined)
+    const principal = {
+      id: '00000000-0000-0000-0000-000000000101',
+      accountId: '00000000-0000-0000-0000-000000000901',
+      displayName: '张凯旋', role: 'Team Member',
+      organizationId: '00000000-0000-0000-0000-000000000001', organization: 'CrewScope',
+      permissions: new Set<string>(),
+    }
+    const mounted = () => mount(WorkItemDetailDrawer, {
+      global: { ...global, provide: { [AUTH_PRINCIPAL as symbol]: principal } },
+      props: props({ onAddComment }),
+    })
+
+    const first = mounted()
+    await first.get('#work-item-comment').setValue('跨会话的评论草稿')
+    first.unmount()
+    const draftScope = { organizationId: '00000000-0000-0000-0000-000000000001', teamId: '00000000-0000-0000-0000-000000000201', projectId: fixtureWorkItemDetails.workItem.projectId }
+    // Closing kept the draft in the scoped namespace rather than dropping it.
+    expect(readWorkItemCommentDraft(draftScope, fixtureWorkItemDetails.workItem.id, principal)?.content).toBe('跨会话的评论草稿')
+
+    const second = mounted()
+    await flushPromises()
+    expect((second.get('#work-item-comment').element as HTMLTextAreaElement).value).toBe('跨会话的评论草稿')
+    await second.get('.comment-form').trigger('submit')
+    await flushPromises()
+    expect(onAddComment).toHaveBeenCalledWith({ content: '跨会话的评论草稿' })
+    // A successful submit cleared the stored draft.
+    expect(readWorkItemCommentDraft(draftScope, fixtureWorkItemDetails.workItem.id, principal)).toBeNull()
+    second.unmount()
+    clearF05UserData()
   })
 })
 

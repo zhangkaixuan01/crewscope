@@ -222,9 +222,10 @@ public class LarkConnectorApplicationConfiguration {
             LarkMappingAdministration administration,
             NotificationAdministrationRepository repository,
             NotificationPlanningApplicationService planning,
+            TeamMemberRepository members,
             TimeProvider timeProvider) {
         return new NotificationAdministrationService(
-                administration, repository, planning, timeProvider);
+                administration, repository, planning, members, timeProvider);
     }
 
     @Bean

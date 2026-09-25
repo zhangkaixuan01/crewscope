@@ -98,6 +98,34 @@ class GitHubRepositoryImportApplicationServiceM8Q02Test {
     }
 
     @Test
+    void createDerivesRepositoryKeyWhenTheBrowserOmitsInternalKey() {
+        OrganizationId organizationId = OrganizationId.generate();
+        TeamId teamId = TeamId.generate();
+        WorkProjectId projectId = WorkProjectId.generate();
+        Principal actor = actor(organizationId);
+        GitHubRepositoryImportJobRepository jobs = mock(GitHubRepositoryImportJobRepository.class);
+        when(jobs.findActiveByTarget(any(), any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(jobs.findByRepositoryKey(new RepositoryKey("crewscope-crewscope")))
+                .thenReturn(Optional.empty());
+        when(jobs.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        GitHubRepositoryImportApplicationService service = new GitHubRepositoryImportApplicationService(
+                jobs, authorizedRepository(), mock(RepositoryBindingAccessPolicy.class), () -> NOW);
+
+        GitHubRepositoryImportJob result = service.create(
+                commandContext(actor, "github-import-auto-key"),
+                organizationId,
+                teamId,
+                projectId,
+                new CreateGitHubRepositoryImportCommand(
+                        ConnectionId.generate(), 1, ConnectionGrantId.generate(), 1,
+                        "4815162342", null, new RepositoryBranchName("main")));
+
+        assertEquals("crewscope-crewscope", result.repositoryKey().value());
+        verify(jobs).create(result);
+    }
+
+    @Test
     void importingJobCannotBeCancelledAfterRepositoryIoStarts() {
         OrganizationId organizationId = OrganizationId.generate();
         TeamId teamId = TeamId.generate();

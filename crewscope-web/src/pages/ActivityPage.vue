@@ -22,6 +22,9 @@ import {
   auditActorTypeLabels,
 } from '../domains/teamops/labels'
 import { useListSort } from '../composables/useListSort'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -56,12 +59,14 @@ const categories = activityCategories
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, JSON.stringify(activityFilter.value)] as const,
   async ([phase]) => {
+    const pageOwner = pageRequests.captureSelection()
     if (phase !== 'ready' || !scope.value) {
       realtime.stop()
       return
     }
     store.activateScope(scope.value)
     await Promise.all([store.loadTeamActivity(activityFilter.value, false, true), scopeStore.loadMembers()])
+    if (!pageOwner.isCurrent()) return
     if (!scope.value || store.state.teamActivity.error?.kind === 'forbidden') return
     realtime.start(scope.value, store.state.teamActivity.resumeCursor, activityFilter.value)
     if (selectedEventId.value) await store.loadActivityDetail(selectedEventId.value)
@@ -83,15 +88,19 @@ watch(() => activitySort.direction.value, direction => {
 onUnmounted(() => realtime.stop())
 
 async function reload(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!scope.value) return
   realtime.stop()
   await store.loadTeamActivity(activityFilter.value, false, true)
+  if (!pageOwner.isCurrent()) return
   if (store.state.teamActivity.error?.kind !== 'forbidden') realtime.start(scope.value, store.state.teamActivity.resumeCursor, activityFilter.value)
 }
 
 async function recoverCursor(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!scope.value) return
   await store.loadTeamActivity(activityFilter.value, false, true)
+  if (!pageOwner.isCurrent()) return
   realtime.retry(store.state.teamActivity.resumeCursor)
 }
 

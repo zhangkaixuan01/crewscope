@@ -1,6 +1,7 @@
 import type { IdentityGateway } from './gateway'
 import { createAuthStore, type AuthBroadcastChannel, type AuthBroadcastMessage } from './store'
 import type { AuthSession } from './types'
+import { F05_EPOCH_KEY, F05_USER_PREFIX, readF05, writeF05 } from '../../app/f05Storage'
 
 describe('AuthStore', () => {
   it('restores one server-authored Principal and never persists identity state', async () => {
@@ -11,11 +12,36 @@ describe('AuthStore', () => {
 
     expect(store.state.phase).toBe('authenticated')
     expect(store.principal).toMatchObject({
-      id: 'principal-1', displayName: 'Alice', organizationId: 'organization-1', role: 'Team Member',
+      id: 'principal-1', accountId: 'account-1', displayName: 'Alice', organizationId: 'organization-1', role: 'Team Member',
     })
     expect([...store.principal.permissions]).toEqual(['scope:read', 'conversation:use'])
-    expect(localStorage).toHaveLength(0)
+    // The scoped-namespace epoch marker is device-level metadata, not identity state.
+    expect(Object.keys(localStorage).filter(key => key !== F05_EPOCH_KEY)).toHaveLength(0)
     expect(sessionStorage).toHaveLength(0)
+  })
+
+  it('clears scoped user data before notifying listeners on sign-out', async () => {
+    localStorage.clear()
+    const store = createAuthStore(gateway(async () => session(true)), { channelFactory: () => null })
+    await store.ensureRestored()
+    const scope = { accountId: 'account-1', principalId: 'principal-1', organizationId: 'organization-1', teamId: 'team-1', projectId: null, objectId: 'draft-1' }
+    expect(writeF05('draft', scope, { note: '本地草稿' }).ok).toBe(true)
+    localStorage.setItem('cs.f05.legacy-leftover', 'stale')
+    let storageClearedWhenNotified = false
+
+    const unsubscribe = store.subscribe(phase => {
+      if (phase === 'anonymous') storageClearedWhenNotified = !Object.keys(localStorage).some(key => key.startsWith(F05_USER_PREFIX) || key.startsWith('cs.f05.'))
+    })
+
+    store.signOutLocally(false)
+    await Promise.resolve()
+
+    expect(storageClearedWhenNotified).toBe(true)
+    expect(readF05('draft', scope)).toBeNull()
+    expect(localStorage.getItem('cs.f05.legacy-leftover')).toBeNull()
+    expect(JSON.parse(localStorage.getItem(F05_EPOCH_KEY) ?? '{}').accountId).toBeNull()
+    unsubscribe()
+    localStorage.clear()
   })
 
   it('shares one startup request across concurrent guards', async () => {

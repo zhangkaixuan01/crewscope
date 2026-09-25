@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { secureId } from '../../api/secureId'
 import {
   Activity, CheckCircle2, CircleAlert, Gauge, History, Inbox,
   RefreshCw, RotateCcw, Send, ShieldCheck, Siren, X,
@@ -110,7 +111,7 @@ function open(action: PendingAction, event?: Event): void {
   confirmationInput.value = ''
   failureCode.value = 'OPERATOR_MARKED_FAILED'
   // Transport retries within this open dialog reuse one key; closing starts a new command intent.
-  idempotencyKey.value = crypto.randomUUID()
+  idempotencyKey.value = secureId()
   void nextTick(() => heading.value?.focus())
 }
 

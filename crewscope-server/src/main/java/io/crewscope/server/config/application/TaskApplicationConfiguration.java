@@ -161,7 +161,24 @@ public class TaskApplicationConfiguration {
                                 300,
                                 900,
                                 testSelectors))));
-        return new ImmutableBuildProfileCatalog(List.of(mavenJava17));
+        BuildProfile node24 = BuildProfile.defineNode(
+                "node-24-npm-11",
+                1,
+                new SandboxImageReference(
+                        "node@sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+                new CommandCatalog(Map.of(
+                        CommandKind.PREPARE,
+                        new BuildCommand(
+                                "coding.npm.prepare",
+                                List.of("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
+                                ".", 60, 900),
+                        CommandKind.COMPILE,
+                        new BuildCommand(
+                                "coding.npm.compile", List.of("npm", "run", "build"), ".", 60, 900),
+                        CommandKind.TEST,
+                        new BuildCommand(
+                                "coding.npm.test", List.of("npm", "run", "test"), ".", 60, 900))));
+        return new ImmutableBuildProfileCatalog(List.of(mavenJava17, node24));
     }
 
     @Bean

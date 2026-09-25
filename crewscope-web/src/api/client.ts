@@ -6,6 +6,7 @@ export class CrewScopeApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly envelope: ApiErrorEnvelope,
+    public readonly retryAfterMs?: number,
   ) {
     super(envelope.message)
     this.name = 'CrewScopeApiError'
@@ -14,6 +15,7 @@ export class CrewScopeApiError extends Error {
 
 export class CrewScopeApiClient {
   private authenticationRequiredHandler: (() => void) | null = null
+  private forbiddenHandler: (() => void) | null = null
 
   constructor(
     private readonly baseUrl = '/api/v1',
@@ -22,6 +24,15 @@ export class CrewScopeApiClient {
 
   onAuthenticationRequired(handler: (() => void) | null): void {
     this.authenticationRequiredHandler = handler
+  }
+
+  /**
+   * Registers the revocation sink: a 403 means the current identity lost a
+   * permission, so scoped local content of that team must stop being shown
+   * (M9b-F05: clear the affected team dimension, never another Team).
+   */
+  onForbidden(handler: (() => void) | null): void {
+    this.forbiddenHandler = handler
   }
 
   get<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
@@ -89,9 +100,16 @@ export class CrewScopeApiClient {
       })
     }
     if (!response.ok) {
-      const error = new CrewScopeApiError(response.status, await readErrorEnvelope(response))
+      const retryAfter = response.headers.get('Retry-After')
+      const retryAfterMs = retryAfter === null ? undefined : /^\d+$/.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now())
+      const error = new CrewScopeApiError(response.status, await readErrorEnvelope(response),
+        Number.isFinite(retryAfterMs) ? retryAfterMs : undefined)
       if (error.status === 401 && error.envelope.code === 'authentication_required') {
         this.authenticationRequiredHandler?.()
+      }
+      if (error.status === 403) {
+        this.forbiddenHandler?.()
       }
       throw error
     }

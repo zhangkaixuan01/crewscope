@@ -2,6 +2,7 @@ package io.crewscope.application.workitem;
 
 import io.crewscope.application.command.CommandExecution;
 import io.crewscope.application.command.CommandReceipt;
+import io.crewscope.application.command.CommandResult;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
@@ -101,7 +102,7 @@ public final class WorkProjectApplicationService {
     TeamCommandContext trusted = requireCommandContext(context);
     TeamId requiredTeamId = Objects.requireNonNull(teamId, "teamId");
     CreateWorkProjectCommand required = Objects.requireNonNull(command, "command");
-    WorkProjectKey key = new WorkProjectKey(required.key());
+    WorkProjectKey key = required.key() == null ? null : new WorkProjectKey(required.key());
     String normalizedName = required.name().strip();
     CommandRequestHash requestHash =
         CommandRequestHash.sha256(
@@ -109,7 +110,7 @@ public final class WorkProjectApplicationService {
             trusted.access().actor().id().toString(),
             requiredTeamId.toString(),
             trusted.causationId().map(UUID::toString).orElse(""),
-            key.value(),
+            key == null ? "" : key.value(),
             normalizedName);
     return execute(
         trusted,
@@ -170,6 +171,7 @@ public final class WorkProjectApplicationService {
     UtcTimestamp occurredAt = timeProvider.now();
     TeamMember member = requireActiveMember(actor, team);
     requirePermission(member, TeamPermission.WORK_PROJECT_MANAGE, occurredAt);
+    if (key == null) key = allocateKey(organizationId, teamId, name);
     if (projectRepository.findByKey(organizationId, teamId, key).isPresent()) {
       throw new WorkProjectKeyConflictException(teamId, key);
     }
@@ -210,6 +212,23 @@ public final class WorkProjectApplicationService {
         });
   }
 
+  /** Called only while holding the Team lock, including explicit-key writers. */
+  private WorkProjectKey allocateKey(OrganizationId organizationId, TeamId teamId, String name) {
+    String base = name.replaceAll("[^A-Za-z0-9]", "").toUpperCase(java.util.Locale.ROOT);
+    if (base.isEmpty()) base = "PRJ";
+    if (!Character.isLetter(base.charAt(0))) base = "P" + base;
+    if (base.length() < 2) base += "P";
+    base = base.substring(0, Math.min(6, base.length()));
+    WorkProjectKey candidate = new WorkProjectKey(base);
+    for (long suffix = 2; projectRepository.findByKey(organizationId, teamId, candidate).isPresent(); suffix++) {
+      String digits = Long.toString(suffix);
+      if (digits.length() > 9) throw new io.crewscope.domain.shared.error.DomainValidationException(
+          "workProject.key", "automatic project code space is exhausted");
+      candidate = new WorkProjectKey(base.substring(0, Math.min(base.length(), 10 - digits.length())) + digits);
+    }
+    return candidate;
+  }
+
   private CommandExecution<WorkProject> completed(
       TeamCommandContext context, UUID commandId, WorkProject project, UtcTimestamp occurredAt) {
     UUID eventId = UUID.randomUUID();
@@ -235,6 +254,10 @@ public final class WorkProjectApplicationService {
         new CommandReceipt(commandId, eventId, project.version(), context.correlationId());
     receiptStore.complete(
         project.scope().organizationId(), context.idempotencyKey(), receipt, occurredAt);
+    receiptStore.saveResult(new CommandResult(project.scope().organizationId(), context.idempotencyKey(),
+        context.access().actor().id(), CREATE_WORK_PROJECT, project.scope().teamId(),
+        Optional.of(project.id()), CommandResult.ResourceType.WORK_PROJECT, project.id().value(),
+        project.version(), receipt, occurredAt));
     return CommandExecution.completed(project, receipt);
   }
 

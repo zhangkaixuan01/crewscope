@@ -79,6 +79,84 @@ import org.junit.jupiter.api.Test;
 class WorkItemCommandServiceTest {
 
   @Test
+  void contentEditingDoesNotReopenTerminalStatesAndArchivedIsReadOnly() {
+    for (var status : List.of(WorkItemStatus.DONE, WorkItemStatus.CANCELLED, WorkItemStatus.ARCHIVED)) {
+      Fixture fixture = new Fixture();
+      WorkItem original = fixture.create(fixture.context("create"), fixture.createCommand("CRW-1", "Before")).result().orElseThrow();
+      WorkItem terminal = WorkItem.reconstitute(original.id(), original.scope(), original.key(), original.title(), status, 0, original.audit());
+      fixture.store.items.put(terminal.id(), terminal);
+      var command = new UpdateWorkItemContentCommand(UpdateWorkItemContentCommand.Field.of("After"),
+          UpdateWorkItemContentCommand.Field.absent(), UpdateWorkItemContentCommand.Field.absent(),
+          UpdateWorkItemContentCommand.Field.absent(), UpdateWorkItemContentCommand.Field.absent(), 0);
+      if (status == WorkItemStatus.ARCHIVED) {
+        assertThrows(io.crewscope.domain.shared.error.InvalidStateTransitionException.class,
+            () -> fixture.service.updateContent(fixture.context("edit"), fixture.initialization.team().id(), fixture.project.id(), terminal.id(), command));
+        assertEquals(1, fixture.store.events.size());
+      } else {
+        var changed = fixture.service.updateContent(fixture.context("edit"), fixture.initialization.team().id(), fixture.project.id(), terminal.id(), command).result().orElseThrow();
+        assertEquals(status, changed.status());
+        assertEquals("After", changed.title());
+      }
+    }
+  }
+
+  @Test
+  void suspendedMemberCannotEditContent() {
+    Fixture fixture = new Fixture();
+    var item = fixture.create(fixture.context("create"), fixture.createCommand("CRW-1", "Before")).result().orElseThrow();
+    fixture.store.members = List.of(fixture.initialization.ownerMember().suspend(NOW));
+    var command = new UpdateWorkItemContentCommand(UpdateWorkItemContentCommand.Field.of("After"),
+        UpdateWorkItemContentCommand.Field.absent(), UpdateWorkItemContentCommand.Field.absent(),
+        UpdateWorkItemContentCommand.Field.absent(), UpdateWorkItemContentCommand.Field.absent(), 0);
+    assertThrows(PolicyDeniedException.class, () -> fixture.service.updateContent(fixture.context("edit"),
+        fixture.initialization.team().id(), fixture.project.id(), item.id(), command));
+    assertEquals(1, fixture.store.events.size());
+  }
+
+  @Test
+  void allocatesKeysAfterReservationAndNeverReallocatesOnReplay() {
+    Fixture fixture = new Fixture();
+    var command = fixture.createCommand(null, "Automatic");
+    var first = fixture.create(fixture.context("auto-one"), command);
+    var second = fixture.create(fixture.context("auto-two"), command);
+    assertEquals("CRW-1", first.result().orElseThrow().key().value());
+    assertEquals("CRW-2", second.result().orElseThrow().key().value());
+    assertEquals(first.receipt(), fixture.create(fixture.context("auto-one"), command).receipt());
+    assertEquals(2, fixture.store.items.size());
+    assertThrows(IdempotencyConflictException.class, () -> fixture.create(fixture.context("auto-one"),
+        fixture.createCommand("CRW-1", "Automatic")));
+  }
+
+  @Test
+  void editsOnlyContentWithPresenceVersionAndHistory() {
+    Fixture fixture = new Fixture();
+    WorkItem item = fixture.create(fixture.context("create-edit"), fixture.createCommand("CRW-1", "Original")).result().orElseThrow();
+    var command = new UpdateWorkItemContentCommand(
+        UpdateWorkItemContentCommand.Field.of("  Updated  "), UpdateWorkItemContentCommand.Field.of(null),
+        UpdateWorkItemContentCommand.Field.absent(), UpdateWorkItemContentCommand.Field.of(Set.of()),
+        UpdateWorkItemContentCommand.Field.of(null), item.version());
+    var first = fixture.service.updateContent(fixture.context("edit-one"), fixture.initialization.team().id(),
+        fixture.project.id(), item.id(), command);
+    var changed = first.result().orElseThrow();
+    assertEquals("Updated", changed.title());
+    assertTrue(changed.description().isEmpty());
+    assertTrue(changed.labels().isEmpty());
+    assertTrue(changed.dueAt().isEmpty());
+    assertEquals(item.type(), changed.type());
+    assertEquals(item.key(), changed.key());
+    assertEquals(item.status(), changed.status());
+    assertEquals(item.priority(), changed.priority());
+    assertEquals(item.version() + 1, changed.version());
+    assertEquals("Original", item.title()); // Original snapshots are immutable.
+    assertEquals("WORK_ITEM_CONTENT_UPDATED", fixture.store.events.get(1).eventType().value());
+    assertEquals(first.receipt(), fixture.service.updateContent(fixture.context("edit-one"),
+        fixture.initialization.team().id(), fixture.project.id(), item.id(), command).receipt());
+    assertThrows(OptimisticLockConflictException.class, () -> fixture.service.updateContent(fixture.context("edit-two"),
+        fixture.initialization.team().id(), fixture.project.id(), item.id(), command));
+    assertEquals(2, fixture.store.events.size());
+  }
+
+  @Test
   void createsAllNativeFieldsAndReplaysTheOriginalReceipt() {
     Fixture fixture = new Fixture();
     CreateNativeWorkItemCommand command = fixture.createCommand("CRW-1", "Build API");
@@ -106,6 +184,11 @@ class WorkItemCommandServiceTest {
     assertTrue(replay.replayed());
     assertEquals(first.receipt(), replay.receipt());
     assertEquals(1, fixture.store.items.size());
+    assertEquals(1, fixture.store.results.size());
+    var durable = fixture.store.results.values().iterator().next();
+    assertEquals(item.id().value(), durable.resourceId());
+    assertEquals(fixture.actor.id(), durable.actorId());
+    assertEquals(first.receipt(), durable.receipt());
   }
 
   @Test

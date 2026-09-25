@@ -93,7 +93,8 @@ export class FixtureConversationGateway implements ConversationGateway {
     this.created.push(structuredClone(input))
     const created = conversation(crypto.randomUUID(), scope.teamId, input.title, input.visibility, null)
     this.conversations[scope.teamId] = [created, ...(this.conversations[scope.teamId] ?? [])]
-    return receipt()
+    return { ...receipt(), creation: { ...scope, projectId: null, type: 'CONVERSATION',
+      resourceId: created.id, committedVersion: 0, stage: 'COMMITTED' } }
   }
 }
 

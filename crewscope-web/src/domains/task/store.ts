@@ -1,3 +1,5 @@
+import { createCommandGateway } from '../../api/commandGateway'
+import { secureId } from '../../api/secureId'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { TaskGateway } from './gateway'
@@ -137,6 +139,8 @@ interface TaskStoreOptions {
 }
 
 export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions = {}): TaskStore {
+  const commandIntents = createCommandGateway(gateway, { createTask: 1, commandTask: 1 })
+  gateway = commandIntents.gateway
   const state = reactive<TaskState>({
     phase: 'idle',
     items: [],
@@ -626,7 +630,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
   async function createTask(command: CreateTaskCommand): Promise<string | null> {
     if (state.createPhase === 'submitting') return null
     createGeneration += 1
-    const idempotencyKey = crypto.randomUUID()
+    const idempotencyKey = secureId()
     pendingCreate = { command: structuredClone(command), idempotencyKey }
     return executeCreate()
   }
@@ -728,7 +732,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
       || state.details?.currentExecutionId !== command.executionId) {
       throw new Error('Task command no longer targets the selected current attempt')
     }
-    pendingTaskCommand = { command: structuredClone(command), idempotencyKey: crypto.randomUUID() }
+    pendingTaskCommand = { command: structuredClone(command), idempotencyKey: secureId() }
     await executeTaskCommand()
   }
 
@@ -919,6 +923,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
   }
 
   function reset(): void {
+    commandIntents.clear()
     synchronizationVersion += 1
     cancelAll()
     activeScope = null

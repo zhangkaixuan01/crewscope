@@ -7,7 +7,7 @@ import { createShortcutManager, SHORTCUT_MANAGER } from './app/shortcuts'
 import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from './app/auth'
 
 const principal: AuthenticatedPrincipal = {
-  id: 'member-1', displayName: '测试成员', role: 'Team Member', organizationId: 'org-1', organization: '测试组织',
+  id: 'member-1', accountId: 'account-member-1', displayName: '测试成员', role: 'Team Member', organizationId: 'org-1', organization: '测试组织',
   permissions: new Set(Object.values(permissions)),
 }
 

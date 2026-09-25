@@ -1,6 +1,7 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.audit.AuditAuthorization;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.agent.AgentModelDefaultRepository;
 import io.crewscope.application.coding.RepositoryBindingRepository;
@@ -15,6 +16,7 @@ import io.crewscope.application.setup.ConfigurationHealthApplicationService;
 import io.crewscope.application.setup.ConfigurationSearchApplicationService;
 import io.crewscope.application.principal.PrincipalDirectoryAccessPolicy;
 import io.crewscope.application.principal.PrincipalDirectoryQueryService;
+import io.crewscope.application.principal.PrincipalDirectoryRepository;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamRoleRepository;
@@ -25,11 +27,16 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.application.workitem.WorkProjectRepository;
 import io.crewscope.domain.shared.time.TimeProvider;
+import io.crewscope.server.api.PrincipalDirectoryCursorCodec;
+import io.crewscope.server.api.TeamActivityCursorKeyRing;
+import java.time.Clock;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /** Explicit composition root for the M8 Team Setup Readiness query. */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(PrincipalDirectoryQueryProperties.class)
 public class SetupReadinessApplicationConfiguration {
 
     @Bean
@@ -102,14 +109,18 @@ public class SetupReadinessApplicationConfiguration {
     @Bean
     PrincipalDirectoryQueryService principalDirectoryQueryService(
             PrincipalDirectoryAccessPolicy accessPolicy,
-            TeamMembershipQuery memberships,
-            PrincipalRepository principals,
-            AgentProfileRepository profiles,
-            MemberRoleRepository memberRoles,
-            TeamRoleRepository teamRoles,
+            AuditAuthorization auditAuthorization,
+            PrincipalDirectoryRepository directory,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
-        return new PrincipalDirectoryQueryService(accessPolicy, memberships, principals, profiles,
-                memberRoles, teamRoles, transactions, timeProvider);
+        return new PrincipalDirectoryQueryService(
+                accessPolicy, auditAuthorization, directory, transactions, timeProvider);
+    }
+
+    @Bean
+    PrincipalDirectoryCursorCodec principalDirectoryCursorCodec(
+            TeamActivityCursorKeyRing keyRing, PrincipalDirectoryQueryProperties properties) {
+        return new PrincipalDirectoryCursorCodec(
+                keyRing, Clock.systemUTC(), properties.getCursorMaximumAge());
     }
 }

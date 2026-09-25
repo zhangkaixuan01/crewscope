@@ -11,12 +11,15 @@ import io.crewscope.application.review.ReviewDecisionRepository;
 import io.crewscope.application.review.ReviewRequestRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.SafetyEnforcementOverlayRepository;
+import io.crewscope.application.team.MemberAuthorizationGuard;
 import io.crewscope.domain.action.ActionAuthorityFacts;
 import io.crewscope.domain.action.ActionAuthoritySnapshot;
 import io.crewscope.domain.coding.CodingTargetSnapshot;
+import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.SafetyEnforcementOverlay;
+import io.crewscope.domain.workitem.WorkItemScope;
 import java.util.Comparator;
 import java.util.Objects;
 
@@ -34,6 +37,7 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
     private final SafetyEnforcementOverlayRepository safetyOverlays;
     private final CodingTargetSnapshotRepository codingTargets;
     private final RepositoryBindingRepository repositories;
+    private final MemberAuthorizationGuard memberGuard;
 
     public CurrentActionAuthorityFactsResolver(
             ReviewRequestRepository reviewRequests,
@@ -46,7 +50,8 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
             PolicySnapshotRepository policies,
             SafetyEnforcementOverlayRepository safetyOverlays,
             CodingTargetSnapshotRepository codingTargets,
-            RepositoryBindingRepository repositories) {
+            RepositoryBindingRepository repositories,
+            MemberAuthorizationGuard memberGuard) {
         this.reviewRequests = Objects.requireNonNull(reviewRequests, "reviewRequests");
         this.contexts = Objects.requireNonNull(contexts, "contexts");
         this.decisions = Objects.requireNonNull(decisions, "decisions");
@@ -58,6 +63,7 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
         this.safetyOverlays = Objects.requireNonNull(safetyOverlays, "safetyOverlays");
         this.codingTargets = Objects.requireNonNull(codingTargets, "codingTargets");
         this.repositories = Objects.requireNonNull(repositories, "repositories");
+        this.memberGuard = Objects.requireNonNull(memberGuard, "memberGuard");
     }
 
     @Override
@@ -75,6 +81,14 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
         var responsibility = responsibilities.findActiveOwner(
                         organizationId, confirmed.workItemId())
                 .orElseThrow(() -> unavailable("current OWNER responsibility"));
+        // M9b-A07: the OWNER responsibility alone is not current authority — the acting member
+        // (or the Agent principal's owning member) must still participate in the Team, or the
+        // dispatch refuses to hand out fresh adapter credentials.
+        try {
+            requireOwnerMembership(scope, responsibility);
+        } catch (RuntimeException revoked) {
+            throw unavailable("current OWNER membership");
+        }
         var providerBinding = providerBindings.findById(
                         organizationId, confirmed.providerAuthorization().bindingId())
                 .orElseThrow(() -> unavailable("current ProviderBinding"));
@@ -114,6 +128,17 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
                 safety,
                 codingTarget,
                 repository);
+    }
+
+    private void requireOwnerMembership(
+            WorkItemScope scope, ResponsibilityAssignment owner) {
+        if (owner.actorType().isAgent()) {
+            memberGuard.requireAgentOwnerParticipation(
+                    scope.organizationId(), scope.teamId(), owner.actorPrincipalId());
+        } else {
+            memberGuard.requireParticipation(
+                    scope.organizationId(), scope.teamId(), owner.actorPrincipalId());
+        }
     }
 
     private static DomainValidationException unavailable(String fact) {

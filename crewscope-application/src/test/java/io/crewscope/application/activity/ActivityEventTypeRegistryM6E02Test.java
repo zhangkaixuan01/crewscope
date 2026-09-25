@@ -17,7 +17,7 @@ class ActivityEventTypeRegistryM6E02Test {
     void reviewedRegistryCoversEveryPublishedActivityCategory() {
         ActivityEventTypeRegistry registry = CrewScopeActivityEventTypes.reviewedRegistry();
 
-        assertEquals(40, registry.definitions().size());
+        assertEquals(41, registry.definitions().size());
         assertTrue(registry.find(EventType.from("TEAM_CREATED"), SchemaVersion.V1).isPresent());
         assertTrue(registry.find(EventType.from("WORK_ITEM_CREATED"), SchemaVersion.V1).isPresent());
         assertTrue(registry.find(EventType.from("TASK_DELEGATED_TO_AGENT"), SchemaVersion.V1)

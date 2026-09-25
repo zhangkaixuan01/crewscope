@@ -15,9 +15,12 @@ const props = defineProps<{
   authenticated: boolean
   registrationAllowed: boolean
   online: boolean
+  /** The accept was committed but the refreshed session has not shown the Team yet. */
+  sessionPending: boolean
+  resyncing: boolean
 }>()
 
-defineEmits<{ login: [], register: [], accept: [], retry: [] }>()
+defineEmits<{ login: [], register: [], accept: [], retry: [], resync: [] }>()
 
 const available = computed(() => props.preview?.state === 'AVAILABLE')
 
@@ -42,6 +45,23 @@ function formatDate(value: string | null): string {
     focus-on-mount
   >
     <p class="invitation-workspace__status" role="status">正在验证一次性邀请…</p>
+  </AuthCard>
+
+  <AuthCard
+    v-else-if="sessionPending"
+    kicker="团队邀请"
+    title="接受已提交，会话待同步"
+    description="服务器已经记录了你的加入；当前登录会话还没刷新出这个 Team。"
+    :busy="resyncing"
+    focus-on-mount
+  >
+    <p class="invitation-workspace__status" role="status">
+      请稍候重新同步。重新同步只刷新会话与命令结果，不会重复接受邀请。
+    </p>
+    <div class="invitation-workspace__actions">
+      <BaseButton :loading="resyncing" :disabled="!online" @click="$emit('resync')"><RefreshCw :size="14" />重新同步会话</BaseButton>
+      <BaseButton variant="ghost" :disabled="resyncing" @click="$emit('login')"><ArrowLeft :size="14" />返回登录</BaseButton>
+    </div>
   </AuthCard>
 
   <AuthCard

@@ -12,22 +12,23 @@ export function createSearchStore(gateway: SearchGateway): SearchStore {
   function activateScope(scope: SearchScope): void { const key = `${scope.organizationId}:${scope.teamId}`; const current = state.scope && `${state.scope.organizationId}:${state.scope.teamId}`; if (key === current) return; generation += 1; request = null; activeQueryKey = ''; state.scope = { ...scope }; state.result = null; state.errorMessage = null; state.phase = 'idle' }
   async function search(filter: SearchFilter): Promise<void> {
     const scope = state.scope; const text = filter.text.trim()
-    if (!scope || !text) { state.phase = 'idle'; state.result = null; return }
+    if (!scope || !text) { generation += 1; request = null; activeQueryKey = ''; state.phase = 'idle'; state.result = null; state.errorMessage = null; return }
     const currentGeneration = generation; const append = Boolean(filter.after)
     const queryKey = JSON.stringify({ text, projectId: filter.projectId ?? null, types: filter.types ?? null })
+    if (append && queryKey !== activeQueryKey) return
     if (!append) activeQueryKey = queryKey
     // Keep the current result visible while a cursor page is loading.
     if (!append) state.phase = 'loading'
     state.errorMessage = null
     const pending = gateway.search(scope, filter).then(result => {
-      if (currentGeneration !== generation || activeQueryKey !== queryKey) return
+      if (currentGeneration !== generation || activeQueryKey !== queryKey || request !== pending) return
       if (append && state.result && activeQueryKey === queryKey) {
         // Cursor pages are appended only when they belong to the same active query.
         state.result = { items: [...state.result.items, ...result.items], nextCursor: result.nextCursor }
       } else state.result = result
       state.phase = state.result.items.length ? 'ready' : 'empty'
     }).catch(error => {
-      if (currentGeneration !== generation || activeQueryKey !== queryKey) return
+      if (currentGeneration !== generation || activeQueryKey !== queryKey || request !== pending) return
       state.phase = error instanceof CrewScopeApiError && error.status === 0 ? 'offline' : 'error'
       state.errorMessage = error instanceof CrewScopeApiError ? error.envelope.message : '搜索服务暂时不可用，请稍后重试。'
     }).finally(() => { if (request === pending) request = null })

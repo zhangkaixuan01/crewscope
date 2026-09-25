@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef, watch } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 import { isTopmostModal } from '../../app/dialog'
 import type { CreateWorkItemInput, WorkItemPriority, WorkItemType } from '../../domains/workitem/types'
 import { workItemPriorities, workItemTypes } from '../../domains/workitem/types'
 import { workItemPriorityLabels, workItemTypeLabels } from '../../domains/workitem/labels'
+import type { PrincipalScope } from '../../domains/principal/types'
+import { clearWorkItemCreateDraft, readWorkItemCreateDraft, writeWorkItemCreateDraft } from '../../domains/workitem/createDraft'
 import BaseButton from '../base/BaseButton.vue'
 
 const props = defineProps<{
   projectKey: string
-  initialKey: string
+  scope: PrincipalScope | null
+  initialKey?: string
   submitting: boolean
   errorMessage: string | null
 }>()
@@ -24,7 +28,6 @@ const titleInput = useTemplateRef<HTMLInputElement>('titleInput')
 const titleId = `${useId()}-title`
 const submitted = ref(false)
 const form = ref({
-  key: props.initialKey,
   type: 'TASK' as WorkItemType,
   title: '',
   description: '',
@@ -33,18 +36,38 @@ const form = ref({
   dueAt: '',
 })
 let returnTarget: HTMLElement | null = null
+const principal = inject(AUTH_PRINCIPAL)
 
-const normalizedKey = computed(() => form.value.key.trim())
 const normalizedTitle = computed(() => form.value.title.trim())
-const validKey = computed(() => /^[A-Z][A-Z0-9]{1,9}-[1-9][0-9]*$/.test(normalizedKey.value)
-  && normalizedKey.value.startsWith(`${props.projectKey}-`))
 const validTitle = computed(() => normalizedTitle.value.length > 0 && normalizedTitle.value.length <= 240)
-const valid = computed(() => validKey.value && validTitle.value)
+const valid = computed(() => validTitle.value && (!form.value.dueAt || Number.isFinite(Date.parse(form.value.dueAt))))
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+const moreSummary = computed(() => [
+  workItemTypeLabels[form.value.type], workItemPriorityLabels[form.value.priority],
+  form.value.labels ? '已填标签' : '', form.value.dueAt ? '已设到期时间' : '',
+].filter(Boolean).join(' · '))
+const hasInput = computed(() => Boolean(form.value.title.trim() || form.value.description.trim() || form.value.labels.trim() || form.value.dueAt))
 
 onMounted(() => {
   returnTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  restoreDraft()
   void nextTick(() => titleInput.value?.focus())
 })
+
+// Closing or escaping keeps the in-progress input as a draft; only a successful create clears it.
+watch(() => [form.value.type, form.value.title, form.value.description, form.value.priority, form.value.labels, form.value.dueAt] as const, () => {
+  if (!props.scope) return
+  if (hasInput.value) writeWorkItemCreateDraft(props.scope, props.projectKey, form.value, principal)
+  else clearWorkItemCreateDraft(props.scope, props.projectKey, principal)
+})
+
+function restoreDraft(): void {
+  if (!props.scope) return
+  if (hasInput.value) return
+  const draft = readWorkItemCreateDraft(props.scope, props.projectKey, principal)
+  if (!draft) return
+  form.value = { type: draft.type, title: draft.title, description: draft.description, priority: draft.priority, labels: draft.labels, dueAt: draft.dueAt }
+}
 
 onBeforeUnmount(() => {
   if (returnTarget?.isConnected) returnTarget.focus()
@@ -58,7 +81,6 @@ function submit(): void {
   submitted.value = true
   if (!valid.value) return
   emit('submit', {
-    key: normalizedKey.value,
     type: form.value.type,
     title: normalizedTitle.value,
     description: form.value.description.trim() || null,
@@ -77,7 +99,8 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
   if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')]
+  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary')]
+    .filter(control => !control.closest('details:not([open])') || control.tagName === 'SUMMARY')
   const first = controls[0]
   const last = controls.at(-1)
   if (!first || !last) return
@@ -108,17 +131,13 @@ function handleKeydown(event: KeyboardEvent): void {
           <div>
             <p class="eyebrow">{{ projectKey }} · 工作项</p>
             <h2 :id="titleId">新建工作项</h2>
-            <span>创建者将成为初始 Owner，服务端原子提交工作项与责任事实。</span>
+            <span>编号自动生成；你将成为负责人。创建不会启动执行。</span>
           </div>
           <button type="button" aria-label="关闭新建工作项" :disabled="submitting" @click="requestClose">
             <X :size="18" />
           </button>
         </header>
         <div class="form-grid">
-          <label class="field-key">
-            <span>工作项 Key</span>
-            <input v-model="form.key" class="mono" autocomplete="off" :disabled="submitting" :aria-invalid="submitted && !validKey">
-          </label>
           <label class="field-title">
             <span>标题</span>
             <input
@@ -131,6 +150,12 @@ function handleKeydown(event: KeyboardEvent): void {
               :aria-invalid="submitted && !validTitle"
             >
           </label>
+          <label class="field-wide">
+            <span>描述（可选）</span>
+            <textarea v-model="form.description" rows="4" placeholder="补充背景、范围和验收结果" :disabled="submitting" />
+          </label>
+          <details class="field-wide">
+            <summary>更多选项 · {{ moreSummary }}</summary>
           <label>
             <span>类型</span>
             <select v-model="form.type" :disabled="submitting">
@@ -146,17 +171,15 @@ function handleKeydown(event: KeyboardEvent): void {
           <label>
             <span>到期时间</span>
             <input v-model="form.dueAt" type="datetime-local" :disabled="submitting">
+            <small>时区：{{ timezone }}</small>
           </label>
           <label>
             <span>标签</span>
             <input v-model="form.labels" placeholder="frontend, collaboration" :disabled="submitting">
           </label>
-          <label class="field-wide">
-            <span>描述</span>
-            <textarea v-model="form.description" rows="4" placeholder="补充背景、范围和验收结果" :disabled="submitting" />
-          </label>
+          </details>
         </div>
-        <p v-if="submitted && !valid" class="form-error" role="alert">请填写有效标题，并使用当前项目的 Key 格式（例如 {{ projectKey }}-1）。</p>
+        <p v-if="submitted && !valid" class="form-error" role="alert">请填写 1–240 字的标题，并检查到期时间。</p>
         <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
         <footer>
           <BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton>
@@ -168,6 +191,8 @@ function handleKeydown(event: KeyboardEvent): void {
 </template>
 
 <style scoped>
+details > label { display: grid; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
+summary { cursor: pointer; font-size: var(--cs-text-sm); }
 .work-item-create-backdrop {
   position: fixed;
   inset: 0;

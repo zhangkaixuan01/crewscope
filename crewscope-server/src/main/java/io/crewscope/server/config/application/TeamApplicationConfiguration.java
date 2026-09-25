@@ -1,6 +1,7 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.command.CommandResultStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -19,6 +20,7 @@ import io.crewscope.application.team.TeamInvitationIssueService;
 import io.crewscope.application.team.TeamInvitationRepository;
 import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCreationService;
+import io.crewscope.application.team.TeamMemberLifecycleApplicationService;
 import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
 import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.team.TeamMemberRepository;
@@ -107,6 +109,33 @@ public class TeamApplicationConfiguration {
   }
 
   @Bean
+  TeamMemberLifecycleApplicationService teamMemberLifecycleApplicationService(
+      TeamRepository teamRepository,
+      TeamMemberRepository teamMemberRepository,
+      TeamMembershipQuery teamMembershipQuery,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      PrincipalRepository principalRepository,
+      DomainEventStore domainEventStore,
+      OutboxRepository outboxRepository,
+      CommandReceiptStore commandReceiptStore,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
+    return new TeamMemberLifecycleApplicationService(
+        teamRepository,
+        teamMemberRepository,
+        teamMembershipQuery,
+        teamRoleRepository,
+        memberRoleRepository,
+        principalRepository,
+        domainEventStore,
+        outboxRepository,
+        commandReceiptStore,
+        transactionExecutor,
+        timeProvider);
+  }
+
+  @Bean
   OnboardingApplicationService onboardingApplicationService(
       UserAccountRepository userAccountRepository,
       TeamRepository teamRepository,
@@ -148,6 +177,7 @@ public class TeamApplicationConfiguration {
       DomainEventStore events,
       OutboxRepository outbox,
       CommandReceiptStore receipts,
+      CommandResultStore results,
       TransactionExecutor transactions,
       TimeProvider timeProvider) {
     return new TeamInvitationApplicationService(
@@ -164,6 +194,7 @@ public class TeamApplicationConfiguration {
         events,
         outbox,
         receipts,
+        results,
         transactions,
         timeProvider);
   }

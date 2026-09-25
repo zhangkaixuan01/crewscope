@@ -13,7 +13,7 @@ const token = 'D'.repeat(43)
 test('creates, copies and lists privacy-bounded Team invitations', async ({ page, context }) => {
   const fixture = await installInvitationApi(page, { authenticated: true })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.goto(`/team/members?team=${ids.team}`)
+  await page.goto(`/team/members?team=${ids.team}&tab=invitations`)
 
   await expect(page.getByRole('heading', { name: '团队邀请' })).toBeVisible()
   await expect(page.getByRole('list', { name: '团队邀请列表' })).toContainText('已接受')
@@ -33,14 +33,14 @@ test('creates, copies and lists privacy-bounded Team invitations', async ({ page
     body: { targetEmail: 'new@example.com', targetRole: 'TEAM_LEAD', expiresInMinutes: 10_080 },
     csrf: 'csrf-invitation-e2e', idempotencyKey: expect.any(String),
   }])
-  expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 })
+  await expectCleanBrowserStorage(page)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
 })
 
 test('confirms and revokes a pending invitation with deterministic focus', async ({ page }) => {
   await installInvitationApi(page, { authenticated: true })
-  await page.goto(`/team/members?team=${ids.team}`)
+  await page.goto(`/team/members?team=${ids.team}&tab=invitations`)
   const row = page.getByRole('listitem').filter({ hasText: 'pending@example.com' })
   await row.getByRole('button', { name: '撤销' }).click()
   const dialog = page.getByRole('dialog', { name: '撤销这个邀请？' })
@@ -164,7 +164,13 @@ async function installInvitationApi(page: Page, options: {
       if (options.rejectAccept) return route.fulfill(json(error('invitation_invalid', 'private target email mismatch'), 422))
       accepts.push({ token: body.token, csrf: header(request, 'x-xsrf-token'), idempotencyKey: header(request, 'idempotency-key') })
       joined = true
-      return route.fulfill(json(receipt('accept'), 202))
+      return route.fulfill(json({
+        command: receipt('accept'),
+        acceptance: {
+          teamId: ids.team, memberId: ids.member, invitationId: ids.invitation,
+          membershipDisposition: 'CREATED', roleGrantCreated: true,
+        },
+      }, 202))
     }
     if (path === `/api/v1/organizations/${ids.organization}/teams/${ids.team}/invitations`) {
       if (request.method() === 'GET') {
@@ -246,4 +252,18 @@ function error(code: string, message: string) {
 
 function json(body: unknown, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) }
+}
+
+/**
+ * Credentials must never reach browser storage. F05 allows exactly two client-generated keys:
+ * the per-account user-content epoch and the command-recovery registry, which stores idempotency
+ * coordinates only — no command bodies and no credential material.
+ */
+async function expectCleanBrowserStorage(page: Page): Promise<void> {
+  const persisted = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(Object.keys(persisted.local)
+    .filter(key => key !== 'cs.user.epoch.v1' && key !== 'crewscope.command-recovery.v1')).toEqual([])
+  expect(persisted.session).toEqual({})
+  expect(JSON.stringify(persisted)).not.toMatch(/password|credential|secret|authorization|bearer/i)
+  expect(JSON.stringify(persisted)).not.toContain(token)
 }

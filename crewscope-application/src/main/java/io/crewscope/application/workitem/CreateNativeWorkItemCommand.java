@@ -19,9 +19,10 @@ public record CreateNativeWorkItemCommand(
     Optional<UtcTimestamp> dueAt) {
 
   public CreateNativeWorkItemCommand {
-    key = Objects.requireNonNull(key, "key");
     type = Objects.requireNonNull(type, "type");
     title = Objects.requireNonNull(title, "title");
+    if (title.strip().isEmpty() || title.strip().length() > 240)
+      throw new io.crewscope.domain.shared.error.DomainValidationException("workItem.title", "must contain 1–240 characters");
     description = Objects.requireNonNull(description, "description");
     priority = Objects.requireNonNull(priority, "priority");
     labels = Set.copyOf(Objects.requireNonNull(labels, "labels"));

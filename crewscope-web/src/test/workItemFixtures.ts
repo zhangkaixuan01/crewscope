@@ -99,13 +99,14 @@ export class FixtureWorkItemGateway implements WorkItemGateway {
   async createWorkItem(scope: WorkItemScope, input: CreateWorkItemInput): Promise<WorkItemCommandReceipt> {
     this.creations.push(structuredClone(input))
     this.items.unshift({
-      ...workItem(crypto.randomUUID(), input.key, input.title, input.type, 'BACKLOG', input.priority),
+      ...workItem(crypto.randomUUID(), input.key ?? 'CRW-100', input.title, input.type, 'BACKLOG', input.priority),
       ...scope,
       description: input.description,
       labels: input.labels,
       dueAt: input.dueAt,
     })
-    return receipt()
+    return { ...receipt(), creation: { ...scope, type: 'WORK_ITEM',
+      resourceId: this.items[0]!.id, committedVersion: 0, stage: 'COMMITTED' } }
   }
 
   async getWorkItem(_scope: WorkItemScope, workItemId: string): Promise<WorkItemDetails> {
@@ -276,9 +277,10 @@ function workItem(
     createdByPrincipalId: fixtureIds.principal,
     updatedAt: '2026-08-08T02:00:00Z',
     updatedByPrincipalId: fixtureIds.principal,
-    // The list and detail responses inline the availability verdict, so the fixture carries it too:
-    // a summary without it would be a shape the server never sends.
+    // The list and detail responses inline the availability verdict and the execution summary, so
+    // the fixture carries them too: a row without them would be a shape the server never sends.
     availableActions: [],
+    summary: null,
   }
 }
 

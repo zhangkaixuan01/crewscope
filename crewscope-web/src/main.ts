@@ -2,8 +2,11 @@ import { createApp } from 'vue'
 import { createWebHistory } from 'vue-router'
 import App from './App.vue'
 import { installGlobalErrorHandling } from './app/errors'
+import { clearF05TeamScope } from './app/f05Storage'
+import { subscribeSessionBoundary } from './app/sessionBoundary'
 import { createCrewScopeRouter } from './app/router'
 import { apiClient } from './api/client'
+import { observeCreationStorage, setCreationIdentity, stopCreationQueries } from './api/creationRecovery'
 import { HttpConversationGateway } from './domains/conversation/gateway'
 import { HttpConversationMessageGateway } from './domains/conversation/messageGateway'
 import { installConversationMessageStore } from './domains/conversation/messageStore'
@@ -87,8 +90,7 @@ const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, 
 const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
 const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
-authStore.subscribe((phase, reason) => {
-  if (phase !== 'anonymous' || reason === 'restored') return
+subscribeSessionBoundary(authStore, reason => {
   activityRealtimeStore.stop()
   onboardingStore.reset()
   accountStore.reset()
@@ -114,6 +116,16 @@ authStore.subscribe((phase, reason) => {
   searchStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)
+router.beforeEach(() => { stopCreationQueries() })
+window.addEventListener('storage', observeCreationStorage)
+authStore.subscribe(phase => {
+  if (phase === 'authenticated') {
+    const session = authStore.state.session
+    setCreationIdentity(JSON.stringify([session?.account?.accountId, session?.principal?.principalId,
+      session?.principal?.organizationId, session?.account?.securityVersion]))
+  } else if (phase === 'anonymous') setCreationIdentity(null)
+  else stopCreationQueries()
+})
 const actionRegistry = createActionRegistry()
 installActionRegistry(app, actionRegistry)
 registerDefaultActions(actionRegistry, router, authStore.principal)
@@ -123,6 +135,14 @@ const shortcutManager = createShortcutManager({
 })
 installShortcutManager(app, shortcutManager)
 apiClient.onAuthenticationRequired(() => authStore.authenticationRequired())
+// A 403 means the identity lost a permission: scoped local content of that team
+// disappears immediately without touching another Team's data (M9b-F05).
+apiClient.onForbidden(() => {
+  const session = authStore.state.session
+  const teamId = authStore.state.activeTeamId
+  if (!session?.account || !session.principal || !teamId) return
+  clearF05TeamScope({ accountId: session.account.accountId, organizationId: session.principal.organizationId, teamId })
+})
 authStore.start()
 app.use(router)
 shortcutManager.start()

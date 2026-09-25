@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: ab739953edc493c72f92bf0ad86397244f57856ce0d08a8135bd6bbc4a56e7d5
+// Controller source SHA-256: 6a400e2c437c77ba51db2c27accc81cf9fc31ea8e21ff66b710ed6362a7af258
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -165,6 +165,14 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/command-results": {
+      "get": {
+        "operationId": "CommandResultController_get",
+        "tags": [
+          "CommandResultController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/github-connections": {
       "get": {
         "operationId": "GitHubConnectionController_list",
@@ -266,6 +274,14 @@ export const openApiDocument = {
     "/api/v1/organizations/{organizationId}/model-connections/{connectionId}": {
       "get": {
         "operationId": "ModelConnectionController_get",
+        "tags": [
+          "ModelConnectionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/model-connections/{connectionId}/activate": {
+      "post": {
+        "operationId": "ModelConnectionController_activate",
         "tags": [
           "ModelConnectionController"
         ]
@@ -971,6 +987,76 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/activate": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_activateMember",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/remove": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_removeMember",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/responsibilities": {
+      "get": {
+        "operationId": "ResponsibilityHandoverController_preview",
+        "tags": [
+          "ResponsibilityHandoverController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/roles": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_grantRole",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/roles/{grantId}/revoke": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_revokeRole",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/suspend": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_suspendMember",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/leave": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_leaveTeam",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/notification-preference": {
+      "get": {
+        "operationId": "MemberSelfNotificationPreferenceController_preference",
+        "tags": [
+          "MemberSelfNotificationPreferenceController"
+        ]
+      },
+      "put": {
+        "operationId": "MemberSelfNotificationPreferenceController_updatePreference",
+        "tags": [
+          "MemberSelfNotificationPreferenceController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/operations/health": {
       "get": {
         "operationId": "OperationsController_health",
@@ -992,6 +1078,38 @@ export const openApiDocument = {
         "operationId": "ProviderBindingController_getDefault",
         "tags": [
           "ProviderBindingController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers": {
+      "post": {
+        "operationId": "ResponsibilityHandoverController_createJob",
+        "tags": [
+          "ResponsibilityHandoverController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}": {
+      "get": {
+        "operationId": "ResponsibilityHandoverController_getJob",
+        "tags": [
+          "ResponsibilityHandoverController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}/cancel": {
+      "post": {
+        "operationId": "ResponsibilityHandoverController_cancelJob",
+        "tags": [
+          "ResponsibilityHandoverController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}/process": {
+      "post": {
+        "operationId": "ResponsibilityHandoverController_processJob",
+        "tags": [
+          "ResponsibilityHandoverController"
         ]
       }
     },
@@ -1355,9 +1473,25 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/transfer-ownership": {
+      "post": {
+        "operationId": "TeamMemberLifecycleController_transferOwnership",
+        "tags": [
+          "TeamMemberLifecycleController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/work-desk": {
       "get": {
         "operationId": "WorkDeskController_get",
+        "tags": [
+          "WorkDeskController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-desk/sections/{sectionKey}": {
+      "get": {
+        "operationId": "WorkDeskController_section",
         "tags": [
           "WorkDeskController"
         ]
@@ -1382,6 +1516,28 @@ export const openApiDocument = {
         "operationId": "WorkProjectController_get",
         "tags": [
           "WorkProjectController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/execution-defaults": {
+      "get": {
+        "operationId": "ProjectExecutionDefaultsController_get",
+        "tags": [
+          "ProjectExecutionDefaultsController"
+        ]
+      },
+      "put": {
+        "operationId": "ProjectExecutionDefaultsController_replace",
+        "tags": [
+          "ProjectExecutionDefaultsController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/execution-defaults/options": {
+      "get": {
+        "operationId": "ProjectExecutionDefaultsController_options",
+        "tags": [
+          "ProjectExecutionDefaultsController"
         ]
       }
     },
@@ -1498,6 +1654,12 @@ export const openApiDocument = {
         "operationId": "WorkItemQueryController_get",
         "tags": [
           "WorkItemQueryController"
+        ]
+      },
+      "patch": {
+        "operationId": "WorkItemController_updateContent",
+        "tags": [
+          "WorkItemController"
         ]
       }
     },
@@ -1809,6 +1971,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/command-results",
+    "operationId": "CommandResultController_get",
+    "controller": "CommandResultController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/github-connections",
     "operationId": "GitHubConnectionController_list",
     "controller": "GitHubConnectionController"
@@ -1889,6 +2057,12 @@ export const openApiOperations = [
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/model-connections/{connectionId}",
     "operationId": "ModelConnectionController_get",
+    "controller": "ModelConnectionController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/model-connections/{connectionId}/activate",
+    "operationId": "ModelConnectionController_activate",
     "controller": "ModelConnectionController"
   },
   {
@@ -2438,6 +2612,60 @@ export const openApiOperations = [
     "controller": "TeamController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/activate",
+    "operationId": "TeamMemberLifecycleController_activateMember",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/remove",
+    "operationId": "TeamMemberLifecycleController_removeMember",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/responsibilities",
+    "operationId": "ResponsibilityHandoverController_preview",
+    "controller": "ResponsibilityHandoverController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/roles",
+    "operationId": "TeamMemberLifecycleController_grantRole",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/roles/{grantId}/revoke",
+    "operationId": "TeamMemberLifecycleController_revokeRole",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/{memberId}/suspend",
+    "operationId": "TeamMemberLifecycleController_suspendMember",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/leave",
+    "operationId": "TeamMemberLifecycleController_leaveTeam",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/notification-preference",
+    "operationId": "MemberSelfNotificationPreferenceController_preference",
+    "controller": "MemberSelfNotificationPreferenceController"
+  },
+  {
+    "method": "put",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/notification-preference",
+    "operationId": "MemberSelfNotificationPreferenceController_updatePreference",
+    "controller": "MemberSelfNotificationPreferenceController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/operations/health",
     "operationId": "OperationsController_health",
@@ -2454,6 +2682,30 @@ export const openApiOperations = [
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/provider-bindings",
     "operationId": "ProviderBindingController_getDefault",
     "controller": "ProviderBindingController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers",
+    "operationId": "ResponsibilityHandoverController_createJob",
+    "controller": "ResponsibilityHandoverController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}",
+    "operationId": "ResponsibilityHandoverController_getJob",
+    "controller": "ResponsibilityHandoverController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}/cancel",
+    "operationId": "ResponsibilityHandoverController_cancelJob",
+    "controller": "ResponsibilityHandoverController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/responsibility-handovers/{jobId}/process",
+    "operationId": "ResponsibilityHandoverController_processJob",
+    "controller": "ResponsibilityHandoverController"
   },
   {
     "method": "get",
@@ -2738,9 +2990,21 @@ export const openApiOperations = [
     "controller": "TeamObserverController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/transfer-ownership",
+    "operationId": "TeamMemberLifecycleController_transferOwnership",
+    "controller": "TeamMemberLifecycleController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-desk",
     "operationId": "WorkDeskController_get",
+    "controller": "WorkDeskController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-desk/sections/{sectionKey}",
+    "operationId": "WorkDeskController_section",
     "controller": "WorkDeskController"
   },
   {
@@ -2760,6 +3024,24 @@ export const openApiOperations = [
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}",
     "operationId": "WorkProjectController_get",
     "controller": "WorkProjectController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/execution-defaults",
+    "operationId": "ProjectExecutionDefaultsController_get",
+    "controller": "ProjectExecutionDefaultsController"
+  },
+  {
+    "method": "put",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/execution-defaults",
+    "operationId": "ProjectExecutionDefaultsController_replace",
+    "controller": "ProjectExecutionDefaultsController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/execution-defaults/options",
+    "operationId": "ProjectExecutionDefaultsController_options",
+    "controller": "ProjectExecutionDefaultsController"
   },
   {
     "method": "post",
@@ -2850,6 +3132,12 @@ export const openApiOperations = [
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}",
     "operationId": "WorkItemQueryController_get",
     "controller": "WorkItemQueryController"
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}",
+    "operationId": "WorkItemController_updateContent",
+    "controller": "WorkItemController"
   },
   {
     "method": "get",
@@ -3002,4 +3290,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 217 as const
+export const openApiOperationCount = 238 as const

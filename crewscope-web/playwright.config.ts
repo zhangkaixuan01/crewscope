@@ -4,9 +4,10 @@ const snapshotPlatform = process.platform
 
 export default defineConfig({
   testDir: './e2e',
-  // Q03/Q04 own full production stacks and explicit configs. The ordinary browser matrix uses the
-  // Vite test server and must not discover those release-only specifications automatically.
-  testIgnore: ['m7-two-user-real.spec.ts', 'm7-registration-profiles-real.spec.ts'],
+  // Q03/Q04 own full production stacks and explicit configs, and the m9b-a01 recovery scenario is
+  // driven by A01BrowserIntegrationTest through a real test JVM (A01_TEST_* env). The ordinary
+  // browser matrix uses the Vite test server and must not discover those specifications.
+  testIgnore: ['m7-two-user-real.spec.ts', 'm7-registration-profiles-real.spec.ts', '**/m9b-f01/**', '**/m9b-a01/**'],
   // Text rasterization differs materially between macOS and the Linux amd64 release host.
   // Keep reviewed baselines per OS instead of weakening the visual regression threshold.
   snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-${snapshotPlatform}{ext}`,

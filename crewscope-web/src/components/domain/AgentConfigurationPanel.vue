@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { secureId } from '../../api/secureId'
+import { usePageRequestScope } from '../../composables/usePageRequestScope'
 import { Bot, CheckCircle2, Save, ShieldCheck, X } from '@lucide/vue'
-import { computed, nextTick, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { permissions } from '../../app/auth'
+import { AUTH_PRINCIPAL, permissions } from '../../app/auth'
 import { useAgentStore } from '../../domains/agent/store'
 import { useScopeStore } from '../../domains/scope/store'
 import type {
@@ -54,7 +56,9 @@ const emit = defineEmits<{
 
 const store = useAgentStore()
 const scopeStore = useScopeStore()
+const principal = inject(AUTH_PRINCIPAL)
 const route = useRoute()
+const panelRequests = usePageRequestScope(() => [props.agent.id, props.selectedRevision])
 const heading = useTemplateRef<HTMLElement>('heading')
 const initializedRevision = ref<number | null | 'none'>(null)
 const submitted = ref(false)
@@ -84,7 +88,8 @@ const formSnapshot = computed(() => ({
   bindings: { PERSONAL: { ...bindings.PERSONAL }, TEAM: { ...bindings.TEAM } },
   preferences: { ...preferences, approvedSkillKeys: [...preferences.approvedSkillKeys] },
 }))
-const dirtyForm = useDirtyForm(formSnapshot, { draftKey: `crewscope:agent-configuration:${props.agent.id}` })
+const draftScope = computed(() => principal && principal.accountId && scopeStore.state.selectedTeamId ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: props.agent.id } : undefined)
+const dirtyForm = useDirtyForm(formSnapshot, { draftScope })
 const clipboard = useClipboard()
 const copiedHash = computed(() => clipboard.copied.value)
 const draftAvailable = ref(Boolean(dirtyForm.restoreDraft()))
@@ -186,6 +191,7 @@ watch(formSnapshot, value => dirtyForm.sync(value), { deep: true })
 onMounted(() => void nextTick(() => heading.value?.focus()))
 
 async function loadFacts(force = false): Promise<void> {
+  const owner = panelRequests.capture()
   await Promise.all([
     store.loadAgent(props.agent.id, force),
     store.loadConfigurationHistory(props.agent.id, false, force),
@@ -193,13 +199,16 @@ async function loadFacts(force = false): Promise<void> {
       ? store.loadCurrentConfiguration(props.agent.id, force)
       : Promise.resolve(),
   ])
+  if (!owner.isCurrent()) return
   await loadHistoryUntilSelected()
+  if (!owner.isCurrent()) return
   if (props.canConfigure && props.template) {
     await Promise.all(allowedScopes.value.map(scope => store.loadSelectableModels(props.agent.id, scope, force)))
   }
 }
 
 async function loadHistoryUntilSelected(): Promise<void> {
+  const owner = panelRequests.capture()
   const target = props.selectedRevision
   if (!target || history.value.some(item => item.revision === target)) return
   let previousOffset: number | null | undefined
@@ -208,6 +217,7 @@ async function loadHistoryUntilSelected(): Promise<void> {
     && !history.value.some(item => item.revision === target)) {
     previousOffset = historyResource.value?.nextOffset
     await store.loadConfigurationHistory(props.agent.id, true)
+    if (!owner.isCurrent()) return
   }
 }
 
@@ -338,6 +348,7 @@ function generateOptions(): AgentGenerateOptionsInput | null {
 }
 
 async function save(): Promise<void> {
+  const owner = panelRequests.capture()
   submitted.value = true
   localNotice.value = null
   if (!props.canConfigure || !viewingCurrent.value || !formValid.value) return
@@ -345,16 +356,18 @@ async function save(): Promise<void> {
   const signature = JSON.stringify(input)
   if (signature !== saveSignature.value) {
     saveSignature.value = signature
-    saveKey.value = crypto.randomUUID()
+    saveKey.value = secureId()
   }
   const etag = currentResource.value?.value?.etag ?? '"0"'
   const success = await store.appendConfiguration(props.agent.id, input, etag, saveKey.value)
+  if (!owner.isCurrent()) return
   if (!success) return
   await Promise.all([
     store.loadCurrentConfiguration(props.agent.id, true),
     store.loadConfigurationHistory(props.agent.id, false, true),
     ...allowedScopes.value.map(scope => store.loadPreflight(props.agent.id, scope, true)),
   ])
+  if (!owner.isCurrent()) return
   initializedRevision.value = null
   submitted.value = false
   localNotice.value = `Configuration Revision ${store.state.command.receipt?.committedVersion ?? ''} 已提交并通过服务端 Preflight。`
@@ -381,12 +394,14 @@ function restoreDraft(): void {
 }
 
 async function transition(transition: AgentLifecycleTransition): Promise<void> {
+  const owner = panelRequests.capture()
   if (lifecycleConfirmation.value !== transition) {
     lifecycleConfirmation.value = transition
-    lifecycleKey.value = crypto.randomUUID()
+    lifecycleKey.value = secureId()
     return
   }
   const success = await store.transitionAgent(props.agent.id, transition, lifecycleKey.value)
+  if (!owner.isCurrent()) return
   if (!success) return
   lifecycleConfirmation.value = null
   localNotice.value = transition === 'activate' ? 'Agent 已启用。' : transition === 'disable' ? 'Agent 已禁用。' : 'Agent 已归档。'

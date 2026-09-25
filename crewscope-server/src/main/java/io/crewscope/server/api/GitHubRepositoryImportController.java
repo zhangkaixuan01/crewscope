@@ -101,11 +101,12 @@ public final class GitHubRepositoryImportController {
 
     public record ImportRequest(@NotNull UUID connectionId, long connectionVersion, @NotNull UUID grantId,
             long grantVersion, @NotBlank @Size(max = 100) String externalRepositoryId,
-            @NotBlank @Size(max = 120) String repositoryKey, @NotBlank @Size(max = 255) String defaultBranch) {
+            @Size(max = 120) String repositoryKey, @NotBlank @Size(max = 255) String defaultBranch) {
         CreateGitHubRepositoryImportCommand command() {
             return new CreateGitHubRepositoryImportCommand(new ConnectionId(connectionId), connectionVersion,
                     new ConnectionGrantId(grantId), grantVersion, externalRepositoryId,
-                    RepositoryKey.parse(repositoryKey), new RepositoryBranchName(defaultBranch));
+                    repositoryKey == null || repositoryKey.isBlank() ? null : RepositoryKey.parse(repositoryKey),
+                    new RepositoryBranchName(defaultBranch));
         }
     }
 

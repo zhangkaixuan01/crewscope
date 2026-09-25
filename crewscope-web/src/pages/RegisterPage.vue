@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { CrewScopeApiError } from '../api/client'
+import { createCommandIntents } from '../api/commandIntent'
 import { ArrowLeft, ArrowRight, RefreshCw, UsersRound } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -19,7 +21,7 @@ import {
   presentSessionProblem,
   type RegistrationProblem,
 } from '../domains/identity/presentation'
-import type { AuthCsrfCoordinate, RegistrationMode } from '../domains/identity/types'
+import type { AuthCsrfCoordinate, RegistrationInput, RegistrationMode, RegistrationResult } from '../domains/identity/types'
 import { useOptionalInvitationStore } from '../domains/invitation/store'
 
 const props = withDefaults(defineProps<{
@@ -68,20 +70,23 @@ const unavailableState = computed(() => {
 let activeController: AbortController | null = null
 let operationGeneration = 0
 let disposed = false
-let retryIdempotencyKey: string | null = null
+const registerIntents = createCommandIntents<RegistrationInput, RegistrationResult>()
+const committedRegistration = ref<RegistrationResult | null>(null)
+const inputsLocked = computed(() => submitting.value || committedRegistration.value !== null)
 
 onMounted(initialize)
 onBeforeUnmount(() => {
   disposed = true
   operationGeneration += 1
   activeController?.abort()
+  registerIntents.clear()
+  committedRegistration.value = null
   password.value = ''
   invitation.value = { kind: 'none' }
   invitationStore?.clearProof()
 })
 
 watch([username, email, displayName, password], () => {
-  retryIdempotencyKey = null
   fieldErrors.value = {}
 })
 
@@ -146,7 +151,7 @@ async function submitRegistration(): Promise<void> {
     password: password.value,
     ...(invitation.value.kind === 'valid' ? { invitationToken: invitation.value.token } : {}),
   }
-  const errors = validate(input)
+  const errors = committedRegistration.value ? {} : validate(input)
   if (Object.keys(errors).length > 0) {
     fieldErrors.value = errors
     setProblem({ code: 'invalid_input', title: '请检查注册信息', message: '修正标记的字段后再提交。', tone: 'error' })
@@ -159,31 +164,41 @@ async function submitRegistration(): Promise<void> {
     return
   }
 
-  const idempotencyKey = retryIdempotencyKey ?? window.crypto.randomUUID()
-  retryIdempotencyKey = idempotencyKey
   phase.value = 'submitting'
   try {
-    const result = await timedRequest(
-      signal => gateway.register(input, csrf.value!, idempotencyKey, signal),
+    const result = committedRegistration.value ?? await timedRequest(
+      signal => registerIntents.execute({ commandType: 'REGISTER' }, input,
+        (snapshot, key) => gateway.register(snapshot, csrf.value!, key, signal)),
       props.registrationTimeoutMs,
     )
     if (disposed) return
+    committedRegistration.value = result
+    registerIntents.clear()
+    password.value = ''
     const refreshed = await authStore.refresh()
-    if (!refreshed) throw new Error('Registered Session could not be restored')
+    if (!refreshed) throw new CrewScopeApiError(503, {
+      code: 'registration_session_unavailable', message: 'Registered Session could not be restored',
+      correlationId: 'unavailable', retryable: true, currentVersion: null, details: {},
+    })
     if (disposed) return
-    retryIdempotencyKey = null
+    registerIntents.clear()
     password.value = ''
     invitation.value = { kind: 'none' }
     invitationStore?.clearProof()
-    await router.replace(result.onboardingRequired ? '/onboarding' : '/conversation')
+    // A07: land directly on the committed Team coordinate instead of re-guessing the selection.
+    if (result.onboardingRequired) {
+      await router.replace('/onboarding')
+    } else {
+      await router.replace({ path: '/conversation', query: result.teamId ? { team: result.teamId } : {} })
+    }
   } catch (error) {
     if (disposed || isAbort(error)) return
     const nextProblem = presentRegistrationProblem(error)
-    if (!['registration_session_unavailable', 'request_timeout', 'network_unavailable'].includes(nextProblem.code)) {
-      retryIdempotencyKey = null
-    }
     phase.value = 'ready'
-    setProblem(nextProblem)
+    setProblem(committedRegistration.value ? {
+      code: 'registration_session_unavailable', title: '账号已创建，登录会话尚未恢复',
+      message: '点击“继续登录”重新检查会话，不会再次创建账号。', tone: 'warning',
+    } : nextProblem)
   }
 }
 
@@ -317,7 +332,8 @@ function isAbort(error: unknown): boolean {
           hint="用于登录和团队内识别"
           required
           :maxlength="64"
-          :disabled="submitting"
+          :disabled="inputsLocked"
+          :disabled-reason="committedRegistration ? '账号已创建，无需修改或重复提交；请继续登录。' : '正在提交注册，请稍候。'"
           :error="fieldErrors.username"
           :focus-on-mount="!problem"
         />
@@ -331,7 +347,8 @@ function isAbort(error: unknown): boolean {
           placeholder="name@example.com"
           required
           :maxlength="254"
-          :disabled="submitting"
+          :disabled="inputsLocked"
+          :disabled-reason="committedRegistration ? '账号已创建，无需修改或重复提交；请继续登录。' : '正在提交注册，请稍候。'"
           :error="fieldErrors.email"
         />
         <div class="register-page__span">
@@ -343,7 +360,8 @@ function isAbort(error: unknown): boolean {
             placeholder="你的姓名或团队称呼"
             required
             :maxlength="200"
-            :disabled="submitting"
+            :disabled="inputsLocked"
+            :disabled-reason="committedRegistration ? '账号已创建，无需修改或重复提交；请继续登录。' : '正在提交注册，请稍候。'"
             :error="fieldErrors.displayName"
           />
         </div>
@@ -357,7 +375,8 @@ function isAbort(error: unknown): boolean {
             required
             show-guidance
             :maxlength="512"
-            :disabled="submitting"
+            :disabled="inputsLocked"
+            :disabled-reason="committedRegistration ? '账号已创建，密码已清空；继续登录不会再次注册。' : '正在提交注册，请稍候。'"
             :error="fieldErrors.password"
           />
         </div>
@@ -367,7 +386,7 @@ function isAbort(error: unknown): boolean {
           :loading="submitting"
           :disabled="!online"
         >
-          {{ submitting ? '正在创建账号…' : invitation.kind === 'valid' ? '创建账号并加入团队' : '创建账号' }}
+          {{ committedRegistration ? (submitting ? '正在恢复会话…' : '继续登录') : submitting ? '正在创建账号…' : invitation.kind === 'valid' ? '创建账号并加入团队' : '创建账号' }}
           <template #icon><ArrowRight v-if="!submitting" :size="16" /></template>
         </BaseButton>
       </form>

@@ -4,6 +4,9 @@ import type {
   ArtifactBytePage,
   ArtifactSummary,
   BuildProfileSummary,
+  ExecutionDefaults,
+  ExecutionDefaultsInput,
+  BuildProfileOption,
   CodingAttemptDetails,
   CodingAttemptSummary,
   PatchBytePage,
@@ -26,6 +29,9 @@ import type {
 export type RepositoryTransition = 'activate' | 'disable'
 
 export interface CodingGateway {
+  getExecutionDefaults?(scope: CodingScope, signal?: AbortSignal): Promise<ExecutionDefaults>
+  listProjectBuildProfiles?(scope: CodingScope, signal?: AbortSignal): Promise<BuildProfileOption[]>
+  replaceExecutionDefaults?(scope: CodingScope, expectedVersion: number, input: ExecutionDefaultsInput, idempotencyKey: string): Promise<ExecutionDefaults>
   listRepositoryCatalog(scope: CodingScope, signal?: AbortSignal): Promise<RepositoryCatalogItem[]>
   listRepositoryBindings(scope: CodingScope, signal?: AbortSignal): Promise<RepositoryBinding[]>
   getRepositoryBinding(scope: CodingScope, bindingId: string, signal?: AbortSignal): Promise<RepositoryBinding>
@@ -115,6 +121,26 @@ export interface CodingGateway {
 export class HttpCodingGateway implements CodingGateway {
   constructor(private readonly client: CrewScopeApiClient = apiClient) {}
 
+  async getExecutionDefaults(scope: CodingScope, signal?: AbortSignal): Promise<ExecutionDefaults> {
+    return this.client.get<ExecutionDefaults>(executionDefaultsRoot(scope), { signal })
+  }
+
+  async listProjectBuildProfiles(scope: CodingScope, signal?: AbortSignal): Promise<BuildProfileOption[]> {
+    const value = await this.client.get<{ items: BuildProfileOption[] }>(`${executionDefaultsRoot(scope)}/options`, { signal })
+    return value.items.map(item => ({ ...pick(item, ['key', 'version', 'profileHash']) }))
+  }
+
+  async replaceExecutionDefaults(
+    scope: CodingScope,
+    expectedVersion: number,
+    input: ExecutionDefaultsInput,
+    idempotencyKey: string,
+  ): Promise<ExecutionDefaults> {
+    return this.client.request<ExecutionDefaults>(executionDefaultsRoot(scope), {
+      method: 'PUT', body: input, expectedVersion, idempotencyKey,
+    })
+  }
+
   async listRepositoryCatalog(scope: CodingScope, signal?: AbortSignal): Promise<RepositoryCatalogItem[]> {
     const value = await this.client.get<{ items: RepositoryCatalogItem[] }>(repositoryCatalogRoot(scope), { signal })
     return value.items.map(item => ({ ...pick(item, [
@@ -200,6 +226,10 @@ export class HttpCodingGateway implements CodingGateway {
     )
     return value.items.map(item => ({
       ...pick(item, ['key', 'version', 'profileHash', 'buildTool', 'javaRelease']),
+      schemaVersion: item.schemaVersion,
+      nodeVersion: item.nodeVersion ?? null,
+      packageManager: item.packageManager ?? null,
+      packageManagerVersion: item.packageManagerVersion ?? null,
       commandKinds: [...item.commandKinds],
     }))
   }
@@ -372,6 +402,11 @@ function repositoryRoot(scope: CodingScope): string {
 function repositoryCatalogRoot(scope: CodingScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}`
     + `/work-projects/${segment(scope.projectId)}/repository-catalog`
+}
+
+function executionDefaultsRoot(scope: CodingScope): string {
+  return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}`
+    + `/work-projects/${segment(scope.projectId)}/execution-defaults`
 }
 
 function codingTargetRoot(scope: CodingScope, workItemId: string): string {

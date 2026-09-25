@@ -53,7 +53,21 @@ export interface WorkItemSummary {
    * entries; this field is not a second rule, it is the same rule delivered earlier.
    */
   availableActions: WorkItemAvailableTransition[]
+  /**
+   * The M9b-A06 execution/todo read model, assembled server-side in the same request.
+   *
+   * `null` means the server published no facts for this row (for example the item left the scope
+   * between the page read and the summary batch); it is not an error and never blocks the row.
+   */
+  summary: WorkItemExecutionSummary | null
 }
+
+/**
+ * The server-owned orderings of the M9b-A06 work list. The client sends the name; the tie-breaker
+ * and the cursor that continues each ordering stay server-side.
+ */
+export const workItemSorts = ['updatedAt', 'priority', 'dueAt', 'createdAt'] as const
+export type WorkItemSortField = typeof workItemSorts[number]
 
 export interface WorkItemPage {
   items: WorkItemSummary[]
@@ -66,14 +80,67 @@ export interface WorkItemScope {
   projectId: string
 }
 
+/**
+ * Multi-value filters are arrays on the wire and comma-joined in the query string; every dimension
+ * is optional and only sent when present, so existing callers' requests stay byte-identical.
+ */
 export interface WorkItemListQuery extends WorkItemScope {
   status?: WorkItemStatus
+  type?: readonly WorkItemType[]
+  priority?: readonly WorkItemPriority[]
+  responsibilityRole?: ResponsibilityRole
+  sort?: WorkItemSortField
   after?: string
   limit?: number
 }
 
+/**
+ * The store-side filter shape: the query dimensions without scope, cursor or page size. Any change
+ * to any dimension produces a different canonical key, which restarts the page from its beginning
+ * because a continuation cursor is only valid for the filter that minted it.
+ */
+export interface WorkItemListFilter {
+  status?: WorkItemStatus
+  type?: readonly WorkItemType[]
+  priority?: readonly WorkItemPriority[]
+  responsibilityRole?: ResponsibilityRole
+  sort?: WorkItemSortField
+}
+
+/** One explainable wait aggregated into the summary. */
+export interface WorkItemBlockedReason {
+  code: string
+  taskId: string | null
+  executionId: string | null
+  since: string | null
+  waitingOnPrincipalId: string | null
+}
+
+/**
+ * The execution/todo summary of one WorkItem (§4.1): how many tasks, how many active, what is
+ * waiting and on whom. The three current-attempt fields are present together or null together, and
+ * a multi-task item reports `selectionRequired` instead of guessing a current attempt.
+ */
+export interface WorkItemExecutionSummary {
+  workItemId: string
+  workItemVersion: number
+  workStatus: WorkItemStatus
+  taskCount: number
+  activeTaskCount: number
+  pendingReviewCount: number
+  currentTaskId: string | null
+  currentExecutionId: string | null
+  executionStatus: string | null
+  selectionRequired: boolean
+  blockedReasons: WorkItemBlockedReason[]
+  resultSummary: string | null
+  resultSourceReference: string | null
+  projectionVersion: number
+  observedAt: string
+}
+
 export interface CreateWorkItemInput {
-  key: string
+  key?: string
   type: WorkItemType
   title: string
   description: string | null

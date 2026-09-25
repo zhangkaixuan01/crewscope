@@ -9,9 +9,9 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
-import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -23,6 +23,7 @@ public final class WorkItemQueryService {
   private final WorkItemResourceLinkRepository resourceLinkRepository;
   private final WorkItemAccessPolicy accessPolicy;
   private final WorkItemTransitionAvailabilityProjector transitions;
+  private final WorkItemSummaryRepository summaryRepository;
   private final TransactionExecutor transactionExecutor;
   private final TimeProvider timeProvider;
 
@@ -32,6 +33,7 @@ public final class WorkItemQueryService {
       WorkItemResourceLinkRepository resourceLinkRepository,
       WorkItemAccessPolicy accessPolicy,
       WorkItemTransitionAvailabilityProjector transitions,
+      WorkItemSummaryRepository summaryRepository,
       TransactionExecutor transactionExecutor,
       TimeProvider timeProvider) {
     this.workItemRepository = Objects.requireNonNull(workItemRepository, "workItemRepository");
@@ -40,50 +42,63 @@ public final class WorkItemQueryService {
         Objects.requireNonNull(resourceLinkRepository, "resourceLinkRepository");
     this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
     this.transitions = Objects.requireNonNull(transitions, "transitions");
+    this.summaryRepository = Objects.requireNonNull(summaryRepository, "summaryRepository");
     this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
     this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
   }
 
   /**
-   * Lists one visible WorkProject using the stable updated-time/ID keyset position.
+   * Lists one visible WorkProject with the server-owned ordering, multi-value filter and stable
+   * keyset position (M9b-A06).
    *
-   * <p>Every row carries the full adjudicated edge list, so a list row or board card can offer the
-   * same actions as the detail panel without a per-row round trip.
+   * <p>Every row carries the full adjudicated edge list and the execution/todo summary, so a list row
+   * or board card can offer the same actions and the same runtime facts as the detail panel without a
+   * per-row round trip.
    *
    * <p>The member's roles and grants are read <em>once</em> for the whole page, and the collection is
    * scoped to a single WorkProject, so the one verdict is reused for every row. Calling
    * {@link WorkItemAccessPolicy#hasPermission} per item would re-read the Team, the membership, the
    * project and both grant tables for each row — the N+1 that {@link
-   * WorkItemTransitionPermissionResolver} exists to avoid.
+   * WorkItemTransitionPermissionResolver} exists to avoid. The summary is likewise assembled in one
+   * batch over the page's ID set, never row by row.
    */
   public WorkItemListPage list(
       TeamAccessContext context,
       OrganizationId organizationId,
       TeamId teamId,
       WorkProjectId projectId,
-      Optional<WorkItemStatus> status,
+      WorkItemFilter filter,
+      WorkItemSort sort,
       Optional<WorkItemCursor> cursor,
       int limit) {
     accessPolicy.requireVisibleProject(context, organizationId, teamId, projectId);
-    WorkItemPage page =
-        workItemRepository.findPage(
-            new WorkItemQuery(
-                organizationId,
-                teamId,
-                Optional.of(projectId),
-                Objects.requireNonNull(status, "status"),
-                Objects.requireNonNull(cursor, "cursor"),
-                limit));
+    WorkItemQuery query =
+        WorkItemQuery.create(
+            organizationId,
+            teamId,
+            projectId,
+            context.actor().id(),
+            Objects.requireNonNull(filter, "filter"),
+            Objects.requireNonNull(sort, "sort"),
+            Objects.requireNonNull(cursor, "cursor"),
+            limit);
+    WorkItemPage page = workItemRepository.findPage(query);
     UtcTimestamp now = timeProvider.now();
     WorkItemTransitionPermissionResolver resolver =
         accessPolicy.resolvePermission(context, organizationId, teamId, now);
     boolean participates = resolver.granted(projectId, TeamPermission.WORK_PARTICIPATE);
+    Map<WorkItemId, WorkItemExecutionSummary> summaries =
+        summaryRepository.summarize(
+            organizationId, teamId, Optional.of(projectId),
+            page.items().stream().map(WorkItem::id).toList(), now);
     List<WorkItemListRow> rows =
         page.items().stream()
             .map(
                 item ->
                     new WorkItemListRow(
-                        item, transitions.all(item.status(), item.source().isNative(), participates)))
+                        item,
+                        transitions.all(item.status(), item.source().isNative(), participates),
+                        Optional.ofNullable(summaries.get(item.id()))))
             .toList();
     return new WorkItemListPage(rows, page.nextCursor());
   }
@@ -108,11 +123,20 @@ public final class WorkItemQueryService {
                   projectId,
                   TeamPermission.WORK_PARTICIPATE,
                   timeProvider.now());
+          UtcTimestamp now = timeProvider.now();
+          Map<WorkItemId, WorkItemExecutionSummary> summaries =
+              summaryRepository.summarize(
+                  organizationId, teamId, Optional.of(projectId), List.of(workItemId), now);
           return new WorkItemDetails(
               item,
               commentRepository.findByWorkItem(organizationId, item.id()),
               resourceLinkRepository.findByWorkItem(organizationId, item.id()),
-              transitions.all(item.status(), item.source().isNative(), participates));
+              transitions.all(item.status(), item.source().isNative(), participates),
+              Optional.ofNullable(
+                  summaries.getOrDefault(
+                      item.id(),
+                      WorkItemExecutionSummary.none(
+                          item.id(), item.version(), item.status(), now))));
         });
   }
 }

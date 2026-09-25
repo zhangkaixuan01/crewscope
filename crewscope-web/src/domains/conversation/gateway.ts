@@ -1,4 +1,5 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { createAndLocate } from '../../api/creationRecovery'
 import type {
   ConversationCommandReceipt,
   ConversationDetails,
@@ -46,7 +47,8 @@ export class HttpConversationGateway implements ConversationGateway {
     input: CreateConversationInput,
     idempotencyKey: string,
   ): Promise<ConversationCommandReceipt> {
-    return this.client.post(root(scope), input, { idempotencyKey })
+    return createAndLocate(this.client, scope, 'CONVERSATION', idempotencyKey,
+      () => this.client.post(root(scope), input, { idempotencyKey }))
   }
 }
 

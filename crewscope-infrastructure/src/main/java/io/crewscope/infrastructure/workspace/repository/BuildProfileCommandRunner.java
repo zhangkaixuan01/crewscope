@@ -271,6 +271,13 @@ final class BuildProfileCommandRunner {
                             "Project scripts do not define a dynamic selector protocol");
                 }
             }
+            case NPM -> {
+                if (!modules.isEmpty() || !tests.isEmpty()) {
+                    throw failure(
+                            SandboxCommandError.SELECTOR_NOT_ALLOWED,
+                            "Node profiles do not define dynamic module or test selectors");
+                }
+            }
         }
         return List.copyOf(argv);
     }
@@ -288,6 +295,7 @@ final class BuildProfileCommandRunner {
 
     private static String gradleTask(CommandKind kind) {
         return switch (kind) {
+            case PREPARE -> "prepare";
             case COMPILE -> "classes";
             case TEST, ACCEPTANCE -> "test";
             case VERIFY, FORMAT_CHECK -> "check";

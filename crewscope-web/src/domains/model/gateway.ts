@@ -19,6 +19,7 @@ export interface ModelGateway {
   getConnection(organizationId: string, connectionId: string, signal?: AbortSignal): Promise<Etagged<ModelConnectionSummary>>
   createConnection(input: CreateModelConnectionInput, organizationId: string, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
   verifyConnection(organizationId: string, connection: ModelConnectionSummary, etag: string, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
+  activateConnection(organizationId: string, connection: ModelConnectionSummary, etag: string, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
   rotateCredential(organizationId: string, connectionId: string, etag: string, input: RotateModelCredentialInput, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
   suspendConnection(organizationId: string, connection: ModelConnectionSummary, etag: string, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
   revokeConnection(organizationId: string, connection: ModelConnectionSummary, etag: string, reason: string, idempotencyKey: string): Promise<ModelConnectionCommandReceipt>
@@ -113,6 +114,15 @@ export class HttpModelGateway implements ModelGateway {
     idempotencyKey: string,
   ): Promise<ModelConnectionCommandReceipt> {
     return this.transition(organizationId, connection, etag, 'verify', idempotencyKey)
+  }
+
+  async activateConnection(
+    organizationId: string,
+    connection: ModelConnectionSummary,
+    etag: string,
+    idempotencyKey: string,
+  ): Promise<ModelConnectionCommandReceipt> {
+    return this.transition(organizationId, connection, etag, 'activate', idempotencyKey)
   }
 
   async rotateCredential(

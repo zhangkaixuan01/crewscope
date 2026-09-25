@@ -23,6 +23,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -86,6 +87,15 @@ public final class GitHubRepositoryImportAuthorizationService {
                 .orElseThrow(() -> failure(
                         GitHubProviderErrorCode.GRANT_UNAVAILABLE,
                         "GitHub Connection Grant is unavailable"));
+        GitHubRepositoryCatalogEntry catalog = githubRepositories.findRepository(
+                        organizationId, connection.id(), externalRepositoryId)
+                .filter(value -> value.connectionVersion() == connection.version())
+                .filter(value -> value.status() == GitHubRepositoryStatus.DELIVERABLE)
+                .filter(value -> value.isCurrentAt(now))
+                .orElseThrow(() -> failure(
+                        GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
+                        "GitHub repository is unavailable"));
+        String resourceKey = catalog.grantResourceKey();
         boolean bound = providerBindings.findCandidates(new ProviderBindingQuery(
                         organizationId,
                         teamId,
@@ -98,20 +108,14 @@ public final class GitHubRepositoryImportAuthorizationService {
                                 : ProviderExecutionIdentity.DELEGATED_USER)))
                 .stream()
                 .filter(value -> value.connectionId().filter(connection.id()::equals).isPresent())
-                .anyMatch(value -> value.status() == ProviderRegistrationStatus.ACTIVE);
+                .anyMatch(value -> value.status() == ProviderRegistrationStatus.ACTIVE
+                        && (value.effectiveAccess().resources().unrestricted()
+                                || value.effectiveAccess().resources().resources().contains(resourceKey)));
         if (!bound) {
             throw failure(
                     GitHubProviderErrorCode.GRANT_UNAVAILABLE,
                     "GitHub Connection is not bound to this Team");
         }
-        GitHubRepositoryCatalogEntry catalog = githubRepositories.findRepository(
-                        organizationId, connection.id(), externalRepositoryId)
-                .filter(value -> value.connectionVersion() == connection.version())
-                .filter(value -> value.status() == GitHubRepositoryStatus.DELIVERABLE)
-                .filter(value -> value.isCurrentAt(now))
-                .orElseThrow(() -> failure(
-                        GitHubProviderErrorCode.RESOURCE_UNAVAILABLE,
-                        "GitHub repository is unavailable"));
         ProviderAccessScope requestedAccess = new ProviderAccessScope(
                 GitHubConnectionApplicationService.DELIVERY_CAPABILITIES,
                 ProviderResourceScope.of(catalog.grantResourceKey()));
@@ -139,8 +143,13 @@ public final class GitHubRepositoryImportAuthorizationService {
     }
 
     private GitHubRepositoryPolicy policyFor(ConnectionGrant grant) {
-        if (grant.grantedAccess().resources().unrestricted()
-                || grant.grantedAccess().resources().resources().isEmpty()) {
+        if (grant.grantedAccess().resources().unrestricted()) {
+            // A discovery grant may enumerate repositories, but the exact
+            // repository requested below is still intersected against the
+            // active ProviderBinding and catalog entry before import.
+            return policySettings.policyFor(Set.of());
+        }
+        if (grant.grantedAccess().resources().resources().isEmpty()) {
             throw failure(
                     GitHubProviderErrorCode.GRANT_UNAVAILABLE,
                     "GitHub Connection Grant is unavailable");

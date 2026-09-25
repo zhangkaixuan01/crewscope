@@ -146,6 +146,7 @@ function item(overrides: Partial<InboxItem> = {}): InboxItem {
     deadline: null, openedAt: '2026-08-27T08:00:00Z', sourceStatus: 'OPEN', closeReason: null, closedAt: null,
     dispositionStatus: 'UNREAD', dispositionVersion: 0, etag: '"0"',
     source: { type: 'RESPONSIBILITY_ASSIGNMENT', id: '00000000-0000-4000-8000-000000000902', revision: 3 },
+    sourceContext: null,
     ...overrides,
   }
 }

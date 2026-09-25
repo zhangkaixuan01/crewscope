@@ -1,3 +1,4 @@
+import { createCommandGateway } from '../../api/commandGateway'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { Etagged, OffsetPage, SettingsScope } from '../settings/types'
@@ -87,6 +88,8 @@ interface AgentRequest {
 
 /** Team-scoped Agent cache with generation checks in addition to AbortSignal cancellation. */
 export function createAgentStore(gateway: AgentGateway): AgentStore {
+  const commandIntents = createCommandGateway(gateway, { createAgent: 2, transitionAgent: 4, appendConfiguration: 4, refreshConversationConfiguration: 3 })
+  gateway = commandIntents.gateway
   const state = reactive<AgentStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
@@ -242,7 +245,10 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     idempotencyKey: string,
   ): Promise<boolean> {
     const scope = requireScope()
+    const started = generation
+    const previous = state.command
     if (state.agentDetails[profileId]?.phase !== 'ready') await loadAgent(profileId)
+    if (started !== generation || state.command !== previous) return false
     const detail = state.agentDetails[profileId]?.value
     if (!detail) return false
     return runCommand(
@@ -277,9 +283,12 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     idempotencyKey: string,
   ): Promise<boolean> {
     const scope = requireScope()
+    const started = generation
+    const previous = state.command
     if (state.conversationConfigurations[conversationId]?.phase !== 'ready') {
       await loadConversationConfiguration(conversationId)
     }
+    if (started !== generation || state.command !== previous) return false
     const detail = state.conversationConfigurations[conversationId]?.value
     if (!detail) return false
     return runCommand(
@@ -297,19 +306,21 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     onSuccess?: () => void,
   ): Promise<boolean> {
     const commandGeneration = generation
+    if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, resourceId, receipt: null,
       errorMessage: null, errorStatus: null, retryable: false,
     }
+    const pending = state.command
     try {
       const receipt = await action()
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation) return false
+      if (commandGeneration !== generation || state.command !== pending) return false
       state.command.phase = conflict(error) ? 'conflict' : 'error'
       state.command.errorMessage = presentError(error, 'Agent 设置命令执行失败')
       state.command.errorStatus = statusOf(error)
@@ -414,6 +425,7 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
   }
 
   function reset(): void {
+    commandIntents.clear()
     activeScope = null
     activeScopeKey = null
     generation += 1

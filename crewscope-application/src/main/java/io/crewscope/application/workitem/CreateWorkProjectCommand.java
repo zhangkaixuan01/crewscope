@@ -6,7 +6,6 @@ import java.util.Objects;
 public record CreateWorkProjectCommand(String key, String name) {
 
   public CreateWorkProjectCommand {
-    key = Objects.requireNonNull(key, "key");
     name = Objects.requireNonNull(name, "name");
   }
 }

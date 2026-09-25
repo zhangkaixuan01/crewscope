@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { Building2, KeyRound, RotateCw, ShieldCheck, UserRound, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { isTopmostModal } from '../../app/dialog'
@@ -26,8 +27,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
+  readOriginal: [connectionId: string | null, ownerType: ModelConnectionOwnerType]
   create: [input: CreateModelConnectionInput, idempotencyKey: string]
-  rotate: [connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string]
+  rotate: [connectionId: string, credentialVersion: number, apiKey: string, idempotencyKey: string, expectedVersion: number]
 }>()
 
 const dialog = useTemplateRef<HTMLElement>('dialog')
@@ -37,7 +39,9 @@ const region = ref('')
 const expiration = ref('')
 const apiKey = ref('')
 const submitted = ref(false)
+const submissionError = ref<string | null>(null)
 let attemptKey = ''
+const intentKeys = createFormCommandKeys()
 const nowForDateTimeInput = computed(() => {
   const date = new Date(); date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
   return date.toISOString().slice(0, 16)
@@ -79,10 +83,10 @@ watch([ownerType, providerKey, region, expiration, apiKey], () => {
   dirtyForm.markDirty()
 })
 
-watch(() => [props.connection?.id, props.connection?.version, props.connection?.credentialVersion], () => {
-  // A conflict refresh changes the authoritative command coordinates and therefore starts a new request.
-  attemptKey = ''
-})
+watch(() => JSON.stringify([props.teamId, props.connection?.id, props.connection?.version, props.connection?.credentialVersion]), () => {
+  clearSecret()
+  emit('close')
+}, { flush: 'sync' })
 
 onBeforeUnmount(clearSecret)
 
@@ -101,12 +105,20 @@ function submit(): void {
   submitted.value = true
   // Trim only at the boundary; the untrimmed secret never leaves this form.
   apiKey.value = apiKey.value.trim()
-  if (!valid.value) return
+  if (!valid.value || props.submitting) return
   dirtyForm.markClean()
-  if (!attemptKey) attemptKey = crypto.randomUUID()
+  submissionError.value = null
+  try {
+    attemptKey = intentKeys.forInput([props.mode, props.teamId, props.connection?.id ?? null,
+      props.connection?.version ?? null, props.connection?.credentialVersion ?? null,
+      ownerType.value, providerKey.value, region.value, expiration.value, apiKey.value])
+  } catch (error) {
+    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
+    return
+  }
   if (props.mode === 'rotate') {
     const connection = props.connection
-    if (connection) emit('rotate', connection.id, connection.credentialVersion, apiKey.value, attemptKey)
+    if (connection) emit('rotate', connection.id, connection.credentialVersion, apiKey.value, attemptKey, connection.version)
     return
   }
   emit('create', {
@@ -123,6 +135,7 @@ function clearSecret(): void {
   // The API Key only exists in this component and is cleared on every exit path.
   apiKey.value = ''
   attemptKey = ''
+  intentKeys.clear()
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -183,7 +196,8 @@ function handleKeydown(event: KeyboardEvent): void {
         <p class="secret-hint">浏览器不会保存、回显或记录此 Key；关闭或成功后立即清空。失败后可保留在当前表单中显式重试。</p>
 
         <section class="secret-boundary" aria-label="凭证安全边界"><ShieldCheck :size="18" /><div><strong>服务端托管</strong><span>Endpoint、Credential ID、加密存储引用与 Provider 原始响应都不会进入浏览器。</span></div></section>
-        <p v-if="errorMessage" class="command-error" role="alert">{{ errorMessage }}</p>
+        <p v-if="submissionError || errorMessage" class="command-error" role="alert">{{ submissionError || errorMessage }}</p>
+        <div v-if="errorMessage && retryable"><p class="secret-hint">也可只读取原连接当前事实；读取不会再次提交凭证，列表变化不代表本次命令已确认成功。</p><BaseButton type="button" variant="secondary" :disabled="submitting" @click="emit('readOriginal', connection?.id ?? null, ownerType)">只读取原连接事实</BaseButton></div>
       </div>
 
       <footer>

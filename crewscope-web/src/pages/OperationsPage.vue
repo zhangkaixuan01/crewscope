@@ -11,6 +11,9 @@ import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ProjectionCommand, RecoveryCandidate, TeamOpsScope } from '../domains/teamops/types'
 import { formatRelativeTime } from '../composables/useRelativeTime'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
@@ -28,10 +31,12 @@ const pageVisible = ref(typeof document === 'undefined' ? true : !document.hidde
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, canManage.value] as const,
   async ([phase]) => {
+    const pageOwner = pageRequests.capture()
     stopTimer()
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
     await refresh(true)
+    if (!pageOwner.isCurrent()) return
     startTimer()
   },
   { immediate: true },
@@ -41,26 +46,35 @@ watch([online, autoRefresh], () => { stopTimer(); startTimer() })
 onBeforeUnmount(stopTimer)
 
 async function refresh(force = false): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!scope.value) return
   await Promise.all([
     store.loadOperationsHealth(force),
     canManage.value ? store.loadDiagnostics(force) : Promise.resolve(),
   ])
+  if (!pageOwner.isCurrent()) return
   lastRefreshedAt.value = new Date().toISOString()
 }
 
 async function recover(target: RecoveryCandidate, confirmation: string, idempotencyKey: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const success = await store.recover(target, confirmation, idempotencyKey)
+  if (!pageOwner.isCurrent()) return
   await refresh(true)
+  if (!pageOwner.isCurrent()) return
   if (!success && store.state.command.phase === 'conflict') return
 }
 
 async function runProjectionCommand(command: ProjectionCommand, idempotencyKey: string): Promise<void> {
+  const pageOwner = pageRequests.capture()
   await store.runProjectionCommand(command, idempotencyKey)
+  if (!pageOwner.isCurrent()) return
   await refresh(true)
+  if (!pageOwner.isCurrent()) return
 }
 
 function startTimer(): void {
+  stopTimer()
   // Offline mode retains the last facts and never lets a background timer create failing traffic.
   if (!scope.value || !online.value || !autoRefresh.value || !pageVisible.value) return
   refreshTimer = window.setInterval(() => { void refresh(true) }, 15_000)

@@ -68,6 +68,7 @@ import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionControlRequestType;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskExecutionStatus;
+import io.crewscope.domain.task.TaskTokenGrantScope;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecution;
@@ -479,6 +480,15 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
         when(token.token()).thenReturn("token-value");
         TaskCredentialGrant grant = mock(TaskCredentialGrant.class);
         when(grant.version()).thenReturn(0L);
+        // M9b-A07 guards reload the executing member from the grant scope on every boundary.
+        TaskTokenRuntimeFixture tokenFixture = new TaskTokenRuntimeFixture();
+        when(grant.scope()).thenReturn(new TaskTokenGrantScope(
+                tokenFixture.workScope, tokenFixture.taskId, tokenFixture.executionId, 1,
+                tokenFixture.leaseId, tokenFixture.environment, tokenFixture.runtimeId,
+                tokenFixture.workerId, tokenFixture.claimTokenHash, tokenFixture.fencingToken,
+                tokenFixture.executionPrincipal, tokenFixture.policyId, tokenFixture.policyHash,
+                tokenFixture.overlayReference, java.util.Set.of("repository.read"),
+                java.util.Set.of()));
         when(token.grant()).thenReturn(grant);
         TaskWorkerPreparedExecution prepared = new TaskWorkerPreparedExecution(
                 facts, leaseScope, token, UUID.randomUUID());
@@ -522,6 +532,8 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
         when(snapshotRepository.findRecoveryCandidates(organizationId, runId, 1))
                 .thenReturn(List.of());
         TaskTokenService tokenService = mock(TaskTokenService.class);
+        TaskTokenCurrentAuthorization currentAuthorization =
+                mock(TaskTokenCurrentAuthorization.class);
         AuthoritativeTimeProvider timeProvider = () ->
                 UtcTimestamp.parse("2026-08-15T06:00:15Z");
         Principal actor = Principal.create(
@@ -560,6 +572,7 @@ class DurableTaskWorkerExecutionHandlerM3I09Test {
                 leaseRepository,
                 snapshotRepository,
                 tokenService,
+                currentAuthorization,
                 timeProvider,
                 registration,
                 new TaskWorkerExecutionSpec(Duration.ofMinutes(5), heartbeatInterval, 8));

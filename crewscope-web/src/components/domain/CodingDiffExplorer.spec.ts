@@ -1,21 +1,72 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { reactive } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import type { CodingAttemptSummary, CodingPatchDocument } from '../../domains/coding/types'
+import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { TaskEventItem, TaskEventPage } from '../../domains/task/types'
 import CodingDiffExplorer from './CodingDiffExplorer.vue'
+
+const fixtureAccount = '00000000-0000-0000-0000-000000000901'
+const fixturePrincipal = {
+  id: '00000000-0000-0000-0000-000000000101',
+  accountId: fixtureAccount,
+  displayName: '张凯旋',
+  role: 'Team Member',
+  organizationId: '00000000-0000-0000-0000-000000000001',
+  organization: 'CrewScope',
+  permissions: new Set<string>(),
+}
+const scopeStore = { state: reactive({ selectedTeamId: '00000000-0000-0000-0000-000000000201', selectedProjectId: null }) } as unknown as ScopeStore
+
+function mountExplorer(options: Record<string, unknown>) {
+  return mount(CodingDiffExplorer, { ...options, global: { provide: { [SCOPE_STORE]: scopeStore, [AUTH_PRINCIPAL]: fixturePrincipal } } } as Parameters<typeof mount>[1])
+}
 
 const executionId = '00000000-0000-0000-0000-000000004301'
 const workspaceId = '00000000-0000-0000-0000-000000004401'
 
 describe('CodingDiffExplorer', () => {
+  it('preserves a draft when the server returns null instead of inventing a saved comment', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(null)
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
+    await wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+    await wrapper.get('[aria-label="评论第 1 行"]').trigger('click')
+    await wrapper.get('[data-testid="review-comment-input"]').setValue('keep this draft')
+    await wrapper.get('.review-comment-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get<HTMLTextAreaElement>('[data-testid="review-comment-input"]').element.value).toBe('keep this draft')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('评论尚未确认保存'))
+    wrapper.unmount()
+  })
+
+  it('does not publish a late comment into a newly selected file', async () => {
+    let resolve!: (value: null) => void
+    const onAddComment = vi.fn((_input: { filePath: string }) => new Promise<null>(yes => { resolve = yes }))
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
+    await wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+    await wrapper.get('[aria-label="评论第 1 行"]').trigger('click')
+    await wrapper.get('[data-testid="review-comment-input"]').setValue('original target')
+    await wrapper.get('.review-comment-form').trigger('submit')
+    await flushPromises()
+    await vi.waitFor(() => expect(onAddComment.mock.calls[0]?.[0].filePath).toBe('src/Main.java'))
+    await wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Guide.md'))!.trigger('click')
+    resolve(null)
+    await flushPromises()
+    expect(wrapper.find('.review-comment-form').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('评论尚未确认保存')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     // Each case owns its initial view; the production preference remains persisted across mounts.
     localStorage.removeItem('cs.pref.diff.view-mode.v1')
-    localStorage.removeItem('cs.pref.diff.viewed-files.v1')
+    clearF05UserData()
+    activateF05Identity(fixtureAccount)
   })
 
   it('shows the live file tree, accumulated statistics and single-file Patch', async () => {
     const onLoadPatch = vi.fn()
-    const wrapper = mount(CodingDiffExplorer, { props: props({ onLoadPatch }) })
+    const wrapper = mountExplorer({ props: props({ onLoadPatch }) })
 
     expect(wrapper.text()).toContain('Diff Explorer')
     expect(wrapper.text()).toContain('src')
@@ -34,7 +85,7 @@ describe('CodingDiffExplorer', () => {
   })
 
   it('switches renamed and binary files without presenting binary content', async () => {
-    const wrapper = mount(CodingDiffExplorer, { props: props({ patchPhase: 'ready', patch: patchDocument() }) })
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument() }) })
     const renamed = wrapper.findAll<HTMLButtonElement>('.diff-tree__file').find(button => button.text().includes('Guide.md'))!
     await renamed.trigger('click')
     expect(wrapper.get('.patch-view header').text()).toContain('from docs/README.md')
@@ -52,7 +103,7 @@ describe('CodingDiffExplorer', () => {
     page.items.push(diffEvent('WORKSPACE_DIFF_DELTA', 4, 3, [], []))
     const attemptValue = attempt()
     attemptValue.details!.diffManifest = null
-    const wrapper = mount(CodingDiffExplorer, {
+    const wrapper = mountExplorer({
       props: props({ attempt: attemptValue, eventPage: page, onReconcile }),
     })
 
@@ -70,7 +121,7 @@ describe('CodingDiffExplorer', () => {
     }))
     value.details!.diffManifest!.fileCount = 405
     value.details!.diffManifest!.additions = 405
-    const wrapper = mount(CodingDiffExplorer, { props: props({ attempt: value, eventPage: { ...eventPage(), items: [] } }) })
+    const wrapper = mountExplorer({ props: props({ attempt: value, eventPage: { ...eventPage(), items: [] } }) })
 
     expect(wrapper.text()).toContain('已显示前 400 / 405')
     await wrapper.get<HTMLInputElement>('.diff-search input').setValue('file-404')
@@ -85,7 +136,7 @@ describe('CodingDiffExplorer', () => {
       content: '**safe** <script>alert(1)</script>', authorPrincipalId: 'member-1', anchorState: 'ACTIVE', deleted: false,
       version: 1, createdAt: '2026-08-20T01:00:00Z', updatedAt: '2026-08-20T01:00:00Z',
     })
-    const wrapper = mount(CodingDiffExplorer, { props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
     await wrapper.findAll<HTMLButtonElement>('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
     expect(wrapper.text()).toContain('Java')
     await wrapper.get('.patch-action').trigger('click')
@@ -101,7 +152,7 @@ describe('CodingDiffExplorer', () => {
 
   it('walks the changed lines from the keyboard', async () => {
     // 重写行渲染就动到了这条路径的落点：焦点是靠行 id 找的，而行 id 又是行内分片的键。
-    const wrapper = mount(CodingDiffExplorer, {
+    const wrapper = mountExplorer({
       props: propsFor('src/Main.java', '@@ -1,2 +1,2 @@\n-old first\n+new first\n context\n-old second\n+new second\n'),
     })
     await flushPromises()
@@ -126,7 +177,7 @@ describe('CodingDiffExplorer', () => {
   })
 
   it('highlights the patch with the grammar for the file it is reading', async () => {
-    const wrapper = mount(CodingDiffExplorer, {
+    const wrapper = mountExplorer({
       props: propsFor('src/Main.java', '@@ -1 +1 @@\n-old\n+public class Main {}\n'),
     })
 
@@ -140,7 +191,7 @@ describe('CodingDiffExplorer', () => {
   })
 
   it('renders a file type it has no grammar for as plain text rather than refusing it', async () => {
-    const wrapper = mount(CodingDiffExplorer, {
+    const wrapper = mountExplorer({
       props: propsFor('design/logo.svg', ['<svg width="1">', '-  <rect />', '+  <circle r="1" />', '</svg>'].join('\n')),
     })
     await flushPromises()
@@ -158,7 +209,7 @@ describe('CodingDiffExplorer', () => {
     // 与上面同一种语言、同一份文件，唯一的差别是这份 Patch 没有人完整拿着：渲染上限之外的
     // 行根本画不出来。两条用例的对比才是这条规则在起作用，而不是断言了一句恒真的话。
     const overflowing = Array.from({ length: 2_100 }, (_, index) => `+    private final int counters${index} = ${index};`).join('\n')
-    const wrapper = mount(CodingDiffExplorer, {
+    const wrapper = mountExplorer({
       props: propsFor('src/Main.java', `@@ -1 +1,2101 @@\n-public class Main {}\n${overflowing}`),
     })
     await flushPromises()

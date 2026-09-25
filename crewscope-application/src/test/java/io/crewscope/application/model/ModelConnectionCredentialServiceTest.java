@@ -25,9 +25,11 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.model.ModelAdapterKey;
 import io.crewscope.domain.model.ModelBillingSubject;
 import io.crewscope.domain.model.ModelConnection;
+import io.crewscope.domain.model.ModelConnectionHealthStatus;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionRevocationReason;
+import io.crewscope.domain.model.ModelConnectionStatus;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
 import io.crewscope.domain.model.ModelProviderDefinition;
@@ -182,6 +184,22 @@ class ModelConnectionCredentialServiceTest {
         assertEquals(
                 ModelConnectionCredentialException.Error.CREDENTIAL_UNAVAILABLE,
                 failure.error());
+    }
+
+    @Test
+    void verifiesTheCurrentCredentialWhileAConnectionIsSuspended() {
+        ModelConnection created = create(FIRST_SECRET);
+        ModelConnection rotated = service.rotate(
+                command(created), CredentialSecret.utf8(SECOND_SECRET));
+        ModelConnection verified = service.verify(command(rotated));
+        ModelConnection suspended = verified.suspend(verified.version(), ACTOR_ID, time.now());
+        connections.update(suspended);
+        time.advance(Duration.ofSeconds(1));
+
+        ModelConnection reverified = service.verify(command(suspended));
+
+        assertEquals(ModelConnectionHealthStatus.HEALTHY, reverified.health().status());
+        assertEquals(ModelConnectionStatus.SUSPENDED, reverified.status());
     }
 
     @Test

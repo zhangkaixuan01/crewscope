@@ -18,6 +18,7 @@ type RepositoryStoryMode = 'ready' | 'empty' | 'loading' | 'error' | 'forbidden'
 
 const principal: AuthenticatedPrincipal = {
   id: fixtureIds.principal,
+  accountId: '00000000-0000-0000-0000-000000000201',
   displayName: '张凯旋',
   role: 'Team Owner',
   organizationId: fixtureIds.organization,

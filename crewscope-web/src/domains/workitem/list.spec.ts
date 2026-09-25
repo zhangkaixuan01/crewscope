@@ -147,5 +147,6 @@ function summary(overrides: Partial<WorkItemSummary> = {}): WorkItemSummary {
     createdAt: '2026-08-24T01:00:00Z', createdByPrincipalId: null, updatedAt: '2026-08-24T01:00:00Z',
     updatedByPrincipalId: null, availableActions: [],
     ...overrides,
+    summary: overrides.summary ?? null,
   }
 }

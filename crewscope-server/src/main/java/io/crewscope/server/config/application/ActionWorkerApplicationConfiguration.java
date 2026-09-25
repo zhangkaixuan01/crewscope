@@ -55,7 +55,8 @@ public class ActionWorkerApplicationConfiguration {
             PolicySnapshotRepository policies,
             SafetyEnforcementOverlayRepository safetyOverlays,
             CodingTargetSnapshotRepository codingTargets,
-            RepositoryBindingRepository repositories) {
+            RepositoryBindingRepository repositories,
+            io.crewscope.application.team.MemberAuthorizationGuard memberAuthorizationGuard) {
         return new CurrentActionAuthorityFactsResolver(
                 reviewRequests,
                 contexts,
@@ -67,7 +68,8 @@ public class ActionWorkerApplicationConfiguration {
                 policies,
                 safetyOverlays,
                 codingTargets,
-                repositories);
+                repositories,
+                memberAuthorizationGuard);
     }
 
     @Bean

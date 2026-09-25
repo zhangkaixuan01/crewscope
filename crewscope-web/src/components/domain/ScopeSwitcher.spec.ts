@@ -69,17 +69,15 @@ describe('ScopeSwitcher', () => {
     await wrapper.get('.scope-switcher').trigger('click')
     await wrapper.findAll('button').find(button => button.text().includes('新建'))!.trigger('click')
     const inputs = document.body.querySelectorAll<HTMLInputElement>('.project-create-dialog input')
-    inputs[0]!.value = 'crew'
+    inputs[0]!.value = 'CrewScope Platform'
     inputs[0]!.dispatchEvent(new Event('input', { bubbles: true }))
-    inputs[1]!.value = 'CrewScope Platform'
-    inputs[1]!.dispatchEvent(new Event('input', { bubbles: true }))
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
     document.body.querySelector<HTMLFormElement>('.project-create-dialog')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flushPromises()
 
-    expect(gateway.createdProjects[0]?.input).toEqual({ key: 'CREW', name: 'CrewScope Platform' })
+    expect(gateway.createdProjects[0]?.input).toEqual({ name: 'CrewScope Platform' })
     expect(router.currentRoute.value.query.project).toBe(store.state.selectedProjectId)
     expect(document.body.querySelector('.project-create-dialog')).toBeNull()
     wrapper.unmount()

@@ -38,9 +38,11 @@ import io.crewscope.domain.task.TaskProviderAuthorization;
 import io.crewscope.domain.task.TaskTokenAccessRequest;
 import io.crewscope.domain.task.TaskTokenClaims;
 import io.crewscope.domain.task.TaskTokenGrantScope;
+import io.crewscope.domain.team.TeamMember;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -190,10 +192,16 @@ public final class DurableTaskTokenService implements TaskTokenService {
         UtcTimestamp requestedExpiry = UtcTimestamp.from(now.value().plus(command.lifetime()));
         UtcTimestamp expiresAt = requestedExpiry.compareTo(lease.expiresAt()) <= 0
                 ? requestedExpiry : lease.expiresAt();
+        // ADR-038 §2: issuance pins the executing member's authorization dimension so a later
+        // suspension or role change invalidates the grant at the next side-effect boundary.
+        TeamMember executionMember = currentAuthorization.currentExecutionMember(
+                execution.scope(), planning.executionPrincipal().principalId());
         TaskCredentialIssuance issuance = TaskCredentialGrant.issue(
                 TaskCredentialGrantId.generate(), execution, lease, policy, overlay,
                 command.allowedTools(), command.providerRequests(), jtiGenerator.generate(),
-                expiresAt, spec.actor(), now);
+                expiresAt, spec.actor(), now,
+                Optional.of(executionMember.id()),
+                Optional.of(executionMember.authorizationVersion()));
         currentAuthorization.requireCurrent(issuance.grant());
         return issuance;
     }

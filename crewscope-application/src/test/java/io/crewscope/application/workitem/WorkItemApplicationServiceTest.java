@@ -237,6 +237,21 @@ class WorkItemApplicationServiceTest {
 
     private static final class InMemoryCommandReceiptStore implements CommandReceiptStore {
 
+    private final java.util.Map<String, io.crewscope.application.command.CommandResult> results = new java.util.HashMap<>();
+
+    @Override
+    public void saveResult(io.crewscope.application.command.CommandResult result) {
+      results.put(result.organizationId() + ":" + result.idempotencyKey().value(), result);
+    }
+
+    @Override
+    public java.util.Optional<io.crewscope.application.command.CommandResult> findResult(
+        OrganizationId organizationId, IdempotencyKey key, io.crewscope.domain.shared.id.PrincipalId actorId) {
+      return java.util.Optional.ofNullable(results.get(organizationId + ":" + key.value()))
+          .filter(result -> result.actorId().equals(actorId));
+    }
+
+
         private final Map<String, Entry> entries = new HashMap<>();
 
         @Override

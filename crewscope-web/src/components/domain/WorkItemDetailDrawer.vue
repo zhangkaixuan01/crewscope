@@ -13,9 +13,16 @@ import {
   Tag,
   X,
 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 import { isTopmostModal } from '../../app/dialog'
+import {
+  clearWorkItemCommentDraft,
+  clearWorkItemCommentDraftIfRevision,
+  readWorkItemCommentDraft,
+  writeWorkItemCommentDraft,
+} from '../../domains/workitem/commentDraft'
 import type { SemanticTone } from '../base/types'
 import type { ResponsibilityCommand, WorkItemDetailCommand, WorkItemPhase } from '../../domains/workitem/store'
 import {
@@ -47,6 +54,7 @@ import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import WorkItemResponsibilityPanel, { type ResponsibilityAgentCandidate, type ResponsibilityCandidate } from './WorkItemResponsibilityPanel.vue'
 import WorkItemTimeline from './WorkItemTimeline.vue'
+import WorkItemContentEditor from './WorkItemContentEditor.vue'
 import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
 import type { PrincipalScope } from '../../domains/principal/types'
 import type { ConversationWorkItemAssociation } from '../../domains/conversation/workItemLinkGateway'
@@ -86,6 +94,7 @@ const props = defineProps<{
   associations: ConversationWorkItemAssociation[]
   associationErrorMessage: string | null
   onRetry: () => void
+  onContentSaved?: () => void
   onTransition: (target: WorkItemStatus) => Promise<void>
   onRetryAvailability: () => void
   onAddComment: (input: AddWorkItemCommentInput) => Promise<void>
@@ -109,6 +118,7 @@ const emit = defineEmits<{
 }>()
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const drawer = useTemplateRef<HTMLElement>('drawer')
+const principal = inject(AUTH_PRINCIPAL)
 const comment = ref('')
 const resourceType = ref<WorkItemResourceType>('EXTERNAL_URL')
 const resourceReference = ref('')
@@ -118,6 +128,25 @@ const resourceSubmitted = ref(false)
 let previousBodyOverflow = ''
 
 const item = computed(() => props.details?.workItem ?? null)
+const commentDraftScope = computed(() => props.scope && item.value
+  ? { organizationId: props.scope.organizationId, teamId: props.scope.teamId, projectId: item.value.projectId }
+  : null)
+let restoredCommentForItem: string | null = null
+
+// Details arrive asynchronously, so restore when the item lands — only into an untouched
+// composer, and only once per drawer instance (WorkPage keys the drawer by work item).
+watch(item, value => {
+  if (!value || !commentDraftScope.value || restoredCommentForItem === value.id) return
+  restoredCommentForItem = value.id
+  if (!comment.value.trim()) comment.value = readWorkItemCommentDraft(commentDraftScope.value, value.id, principal)?.content ?? ''
+}, { immediate: true })
+
+// Closing or escaping the drawer keeps the comment as a draft; a successful submit clears it.
+watch(comment, value => {
+  if (!commentDraftScope.value || !item.value) return
+  if (value.trim()) writeWorkItemCommentDraft(commentDraftScope.value, item.value.id, item.value.version, value, principal)
+  else clearWorkItemCommentDraft(commentDraftScope.value, item.value.id, principal)
+})
 
 /**
  * The action list is whatever the server returned, never wider.
@@ -203,8 +232,14 @@ async function submitComment(): Promise<void> {
   commentSubmitted.value = true
   const content = comment.value.trim()
   if (!content) return
+  const draftScope = commentDraftScope.value
+  const itemId = item.value?.id
+  const itemVersion = item.value?.version
   try {
     await props.onAddComment({ content })
+    // Clear the stored draft only when it still holds the version this submit read, so a
+    // comment re-drafted against a newer version is never lost.
+    if (draftScope && itemId && itemVersion !== undefined) clearWorkItemCommentDraftIfRevision(draftScope, itemId, itemVersion, principal)
     comment.value = ''
     commentSubmitted.value = false
   } catch {
@@ -273,6 +308,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
           <div class="detail-tags"><StatusBadge tone="info">{{ workItemTypeLabels[item.type] }}</StatusBadge><StatusBadge :tone="item.priority === 'URGENT' ? 'danger' : item.priority === 'HIGH' ? 'warning' : 'neutral'">{{ workItemPriorityLabels[item.priority] }}优先级</StatusBadge><span v-for="label in item.labels" :key="label"><Tag :size="11" />{{ label }}</span></div>
         </section>
 
+        <WorkItemContentEditor :key="item.id" :item="item" :can-participate="canParticipate" @saved="onContentSaved ? onContentSaved() : onRetry()" />
         <section v-if="versionConflict" class="conflict-panel" role="alert">
           <RefreshCw :size="17" /><div><strong>检测到并发更新</strong><span>提交基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。详情已刷新。</span></div>
         </section>

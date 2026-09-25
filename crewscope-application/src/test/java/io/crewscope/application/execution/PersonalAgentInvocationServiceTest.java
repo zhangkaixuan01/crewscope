@@ -19,6 +19,7 @@ import io.crewscope.application.conversation.ClarificationQuestionV1;
 import io.crewscope.application.conversation.ClarificationRequestV1;
 import io.crewscope.application.conversation.MessageRepository;
 import io.crewscope.application.conversation.TaskIntentApplicationService;
+import io.crewscope.application.team.MemberAuthorizationGuard;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
@@ -91,6 +92,7 @@ class PersonalAgentInvocationServiceTest {
                 runtime,
                 new ConversationExecutionEventMapper(
                         Validation.buildDefaultValidatorFactory().getValidator()),
+                mock(MemberAuthorizationGuard.class),
                 () -> NOW);
 
         ConversationAgentSegment invoked = service.invoke(

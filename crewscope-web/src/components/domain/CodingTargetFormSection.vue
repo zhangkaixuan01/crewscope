@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { CheckCircle2, Code2, GitBranch, RefreshCw, ShieldCheck } from '@lucide/vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { codingTargetDraftKey } from '../../domains/coding/draft'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { readCodingTargetDraft, writeCodingTargetDraft } from '../../domains/coding/draft'
 import type { CodingScope, CodingTargetSelection } from '../../domains/coding/types'
 import { useCodingStore } from '../../domains/coding/store'
 import BaseButton from '../base/BaseButton.vue'
@@ -18,6 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const codingStore = useCodingStore()
+const principal = inject(AUTH_PRINCIPAL)
 const form = reactive({
   enabled: true,
   repositoryBindingId: '',
@@ -146,26 +148,17 @@ function publish(): void {
 }
 
 function restoreDraft(): void {
-  try {
-    const raw = sessionStorage.getItem(codingTargetDraftKey(props.scope, props.workItemId))
-    if (!raw) return
-    const value = JSON.parse(raw) as Record<string, unknown>
-    if (typeof value.enabled === 'boolean') form.enabled = value.enabled
-    if (typeof value.repositoryBindingId === 'string') form.repositoryBindingId = value.repositoryBindingId
-    if (typeof value.baselineRef === 'string') form.baselineRef = value.baselineRef
-    if (typeof value.allowedPaths === 'string') form.allowedPaths = value.allowedPaths
-    if (typeof value.buildProfileCoordinate === 'string') form.buildProfileCoordinate = value.buildProfileCoordinate
-  } catch {
-    sessionStorage.removeItem(codingTargetDraftKey(props.scope, props.workItemId))
-  }
+  const value = readCodingTargetDraft(props.scope, props.workItemId, principal)
+  if (!value) return
+  form.enabled = value.enabled
+  form.repositoryBindingId = value.repositoryBindingId
+  form.baselineRef = value.baselineRef
+  form.allowedPaths = value.allowedPaths
+  form.buildProfileCoordinate = value.buildProfileCoordinate
 }
 
 function persistDraft(): void {
-  try {
-    sessionStorage.setItem(codingTargetDraftKey(props.scope, props.workItemId), JSON.stringify({ ...form }))
-  } catch {
-    // Draft persistence is an interaction aid; browser storage denial must not block delegation.
-  }
+  writeCodingTargetDraft(props.scope, props.workItemId, { ...form }, principal)
 }
 
 function profileCoordinate(value: { key: string, version: number, profileHash: string }): string {

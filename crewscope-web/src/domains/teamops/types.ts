@@ -112,6 +112,22 @@ export interface InboxItem {
   dispositionVersion: number
   etag: string
   source: { type: InboxSourceType, id: string, revision: number }
+  /**
+   * The readable work facts this row points at, joined by the server at read time — a renamed
+   * WorkItem shows its current title on the next read. `null` means the row carries none (a
+   * notification delivery, or a source object that no longer exists); the row still renders.
+   */
+  sourceContext: InboxSourceContext | null
+}
+
+/** The §4.1 readable context of one Inbox row; every fact is optional, the kind never is. */
+export interface InboxSourceContext {
+  projectId: string | null
+  workItemId: string | null
+  workItemTitle: string | null
+  taskObjective: string | null
+  waitingOnDisplayName: string | null
+  targetActionKind: InboxTargetKind
 }
 
 export interface InboxCounts {

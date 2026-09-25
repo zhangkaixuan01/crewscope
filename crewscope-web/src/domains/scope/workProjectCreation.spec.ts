@@ -54,7 +54,7 @@ describe('WorkProject creation flow', () => {
 
     expect(flow.open.value).toBe(true)
     expect(store.state.projectCommandRetryable).toBe(true)
-    expect(store.state.projectCommandErrorMessage).toContain('最新事实暂时不可用')
+    expect(store.state.projectCommandErrorMessage).toContain('结果仍待确认')
     expect(router.currentRoute.value.query.project).toBeUndefined()
   })
 })

@@ -1,12 +1,34 @@
 import { mount } from '@vue/test-utils'
+import { reactive } from 'vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import type { CodingAttemptSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
+import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { ReviewCommandState } from '../../domains/review/store'
 import { etaggedReview, reviewIds, reviewSummary } from '../../test/reviewFixtures'
 import ReviewWorkbench from './ReviewWorkbench.vue'
 
+const fixtureAccount = '00000000-0000-0000-0000-000000000901'
+const fixturePrincipal = {
+  id: '00000000-0000-0000-0000-000000000101',
+  accountId: fixtureAccount,
+  displayName: '张凯旋',
+  role: 'Team Member',
+  organizationId: '00000000-0000-0000-0000-000000000001',
+  organization: 'CrewScope',
+  permissions: new Set<string>(),
+}
+const scopeStore = { state: reactive({ selectedTeamId: '00000000-0000-0000-0000-000000000201', selectedProjectId: null }) } as unknown as ScopeStore
+
+function mountWorkbench(options: Record<string, unknown>) {
+  return mount(ReviewWorkbench, { ...options, global: { provide: { [SCOPE_STORE]: scopeStore, [AUTH_PRINCIPAL]: fixturePrincipal } } } as Parameters<typeof mount>[1])
+}
+
+beforeEach(() => { clearF05UserData(); localStorage.clear(); activateF05Identity(fixtureAccount) })
+
 describe('ReviewWorkbench', () => {
   it('keeps SELF_REVIEW Agent Findings advisory and locates exact evidence in Diff', async () => {
-    const wrapper = mount(ReviewWorkbench, { props: props() })
+    const wrapper = mountWorkbench({ props: props() })
 
     expect(wrapper.text()).toContain('SELF_REVIEW · Advisory only')
     expect(wrapper.text()).toContain('Agent Findings')
@@ -24,7 +46,7 @@ describe('ReviewWorkbench', () => {
   it('submits CHANGES_REQUESTED through the modification command and records a required rationale', async () => {
     const onRequestChanges = vi.fn().mockResolvedValue(true)
     const onDecide = vi.fn().mockResolvedValue(true)
-    const wrapper = mount(ReviewWorkbench, { attachTo: document.body, props: props({ onRequestChanges, onDecide }) })
+    const wrapper = mountWorkbench({ attachTo: document.body, props: props({ onRequestChanges, onDecide }) })
 
     await wrapper.get('.gate-actions button').trigger('click')
     await wrapper.get('.gate-dialog button.decision-option--changes_requested').trigger('click')
@@ -37,7 +59,7 @@ describe('ReviewWorkbench', () => {
   })
 
   it('moves focus into the Gate dialog, traps it and restores the opener on Escape', async () => {
-    const wrapper = mount(ReviewWorkbench, { attachTo: document.body, props: props() })
+    const wrapper = mountWorkbench({ attachTo: document.body, props: props() })
     const opener = wrapper.get('.gate-actions button')
     await opener.trigger('click')
 
@@ -60,7 +82,7 @@ describe('ReviewWorkbench', () => {
         reviewerMemberId: crypto.randomUUID(), eligibilityMode: 'STRICT', decidedAt: '2026-08-25T09:00:00Z',
       }],
     })
-    const wrapper = mount(ReviewWorkbench, { props: props({ review: invalidated, canGate: false }) })
+    const wrapper = mountWorkbench({ props: props({ review: invalidated, canGate: false }) })
 
     expect(wrapper.text()).toContain('旧 Review 已失效')
     expect(wrapper.text()).toContain('代码变更已更新')
@@ -72,11 +94,11 @@ describe('ReviewWorkbench', () => {
   it('runs or resumes Reviewer only for an active ReviewRequest and keeps empty Review server-owned', async () => {
     const onExecute = vi.fn().mockResolvedValue(true)
     const open = etaggedReview({ status: 'OPEN', version: 1, findings: [], modificationRounds: [] })
-    const wrapper = mount(ReviewWorkbench, { props: props({ review: open, onExecute }) })
+    const wrapper = mountWorkbench({ props: props({ review: open, onExecute }) })
     await wrapper.get('.gate-actions button').trigger('click')
     expect(onExecute).toHaveBeenCalled()
 
-    const empty = mount(ReviewWorkbench, { props: props({ listPhase: 'empty', reviews: [] }) })
+    const empty = mountWorkbench({ props: props({ listPhase: 'empty', reviews: [] }) })
     expect(empty.text()).toContain('浏览器不接受原始 PolicySnapshot ID')
   })
 })

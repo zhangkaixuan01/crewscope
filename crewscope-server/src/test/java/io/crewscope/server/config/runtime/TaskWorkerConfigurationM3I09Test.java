@@ -258,6 +258,8 @@ class TaskWorkerConfigurationM3I09Test {
                 .withBean(TaskExecutionLeaseCoordinator.class,
                         () -> mock(TaskExecutionLeaseCoordinator.class))
                 .withBean(TaskTokenService.class, () -> mock(TaskTokenService.class))
+                .withBean(io.crewscope.infrastructure.runtime.TaskTokenCurrentAuthorization.class,
+                        () -> mock(io.crewscope.infrastructure.runtime.TaskTokenCurrentAuthorization.class))
                 .withBean(DurableTaskExecutionEventService.class,
                         () -> mock(DurableTaskExecutionEventService.class))
                 .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))

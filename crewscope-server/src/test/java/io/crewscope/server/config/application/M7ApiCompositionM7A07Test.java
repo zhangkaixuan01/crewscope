@@ -3,6 +3,7 @@ package io.crewscope.server.config.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import io.crewscope.application.command.CommandResultQueryService;
 import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
 import io.crewscope.application.identity.CurrentAccountApplicationService;
 import io.crewscope.application.identity.LocalAccountLoginService;
@@ -63,6 +64,7 @@ class M7ApiCompositionM7A07Test {
             .withBean(TeamMemberRepository.class, () -> mock(TeamMemberRepository.class))
             .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))
             .withBean(TeamRoleRepository.class, () -> mock(TeamRoleRepository.class))
+            .withBean(CommandResultQueryService.class, () -> mock(CommandResultQueryService.class))
             .withBean(
                     TeamRequestIdentityResolver.class,
                     () -> mock(TeamRequestIdentityResolver.class))

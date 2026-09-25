@@ -89,7 +89,7 @@ function authStore(): AuthStore {
         principal: { principalId: 'principal-1', organizationId: 'organization-1' }, teams: [], permissions: [],
       },
     },
-    principal: { id: 'principal-1', displayName: 'Alice', role: 'Owner', organizationId: 'organization-1', organization: 'CrewScope', permissions: new Set() },
+    principal: { id: 'principal-1', accountId: 'account-1', displayName: 'Alice', role: 'Owner', organizationId: 'organization-1', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {}, async refresh() { return true }, async retry() {},
     selectTeam() {},
     authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },

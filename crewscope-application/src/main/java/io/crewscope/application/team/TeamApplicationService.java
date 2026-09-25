@@ -255,19 +255,33 @@ public final class TeamApplicationService {
                               new AggregateNotFoundException(
                                   "Principal", member.userPrincipalId()));
               requireUserDirectoryEntry(principal, organizationId, member);
-              List<String> roleKeys = member.status() == TeamMemberStatus.ACTIVE
-                  ? memberRoleRepository.findByMember(organizationId, member.id()).stream()
-                      .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
-                      .filter(grant -> grant.isEffectiveAt(now))
-                      .map(grant -> rolesById.get(grant.teamRoleId()))
-                      .filter(Objects::nonNull)
-                      .filter(TeamRole::isGrantable)
-                      .map(role -> role.key().value())
-                      .distinct()
-                      .sorted()
-                      .toList()
-                  : List.of();
-              return new TeamMemberView(member, principal.displayName(), roleKeys);
+              List<MemberRole> effectiveGrants =
+                  member.status() == TeamMemberStatus.ACTIVE
+                      ? memberRoleRepository.findByMember(organizationId, member.id()).stream()
+                          .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
+                          .filter(grant -> grant.isEffectiveAt(now))
+                          .filter(grant -> grant.roleScope().equals(RoleScope.team()))
+                          .toList()
+                      : List.of();
+              List<String> roleKeys = effectiveGrants.stream()
+                  .map(grant -> rolesById.get(grant.teamRoleId()))
+                  .filter(Objects::nonNull)
+                  .filter(TeamRole::isGrantable)
+                  .map(role -> role.key().value())
+                  .distinct()
+                  .sorted()
+                  .toList();
+              // Grants keep their row identity so a revoke addresses the exact grant the list
+              // showed, while roles stay a plain key set for display compatibility.
+              List<MemberGrantView> grants = effectiveGrants.stream()
+                  .filter(grant -> Objects.nonNull(rolesById.get(grant.teamRoleId())))
+                  .filter(grant -> rolesById.get(grant.teamRoleId()).isGrantable())
+                  .map(grant ->
+                      new MemberGrantView(
+                          grant.id().toString(),
+                          rolesById.get(grant.teamRoleId()).key().value()))
+                  .toList();
+              return new TeamMemberView(member, principal.displayName(), roleKeys, grants);
             })
         .toList();
   }

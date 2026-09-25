@@ -25,6 +25,7 @@ class BrowserPermissionProjectionTest {
             "scope:read",
             "team:members:manage",
             "team:members:read",
+            "team:roles:manage",
             "work-projects:manage",
             "work-projects:read",
             "work:create",

@@ -1,4 +1,5 @@
 import { CrewScopeApiError } from '../../api/client'
+import { commandFailure } from '../../api/commandIntent'
 
 export interface LoginProblem {
   code: string
@@ -57,7 +58,13 @@ export function presentRegistrationProblem(error: unknown): RegistrationProblem 
     return problem('request_timeout', '注册请求超时', '提交结果尚未确认，请保留当前信息并重试。', 'warning')
   }
   if (!(error instanceof CrewScopeApiError)) {
-    return problem('registration_unavailable', '暂时无法创建账号', '请稍后使用当前信息重新尝试。', 'error')
+    return problem('registration_unknown', '注册结果尚未确认', '请保留当前信息，再次提交将安全重试原操作。', 'warning')
+  }
+  if (error.envelope.code === 'secure_random_unavailable') {
+    return problem('secure_random_unavailable', '无法安全提交', error.envelope.message, 'error')
+  }
+  if (commandFailure(error) === 'unknown' && error.envelope.code !== 'registration_session_unavailable') {
+    return problem('registration_unknown', '注册结果尚未确认', '请保留当前信息，再次提交将安全重试原操作。', 'warning')
   }
   switch (error.envelope.code) {
     case 'registration_conflict':

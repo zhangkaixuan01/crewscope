@@ -208,6 +208,32 @@ class GitHubConnectionApplicationServiceM5A06Test {
     }
 
     @Test
+    void createsDiscoveryConnectionWithoutUserSuppliedIdentityOrAllowlist() {
+        CredentialSecret secret = CredentialSecret.utf8("discovery-token");
+
+        CommandExecution<GitHubConnectionView> execution = service.create(
+                commandContext(false),
+                organizationId,
+                new CreateGitHubConnectionRequest(
+                        GitHubAuthenticationType.OAUTH_USER,
+                        Optional.empty(),
+                        CredentialSubjectType.PRINCIPAL,
+                        null,
+                        null,
+                        Optional.empty()),
+                secret);
+
+        GitHubConnectionView result = execution.result().orElseThrow();
+        assertTrue(result.repositoryAllowlist().isEmpty());
+        ArgumentCaptor<Connection> connection = ArgumentCaptor.forClass(Connection.class);
+        verify(connections).create(connection.capture());
+        assertTrue(connection.getValue().externalAccountReference().startsWith("pending:"));
+        ArgumentCaptor<ConnectionGrant> grant = ArgumentCaptor.forClass(ConnectionGrant.class);
+        verify(grants).create(grant.capture());
+        assertTrue(grant.getValue().grantedAccess().resources().unrestricted());
+    }
+
+    @Test
     void closesSecretAndDeniesTeamAppWithoutProviderManage() {
         TeamInitialization team = TeamInitialization.create(actor, "Delivery Team", NOW);
         when(teams.findUninitializedById(organizationId, team.team().id()))

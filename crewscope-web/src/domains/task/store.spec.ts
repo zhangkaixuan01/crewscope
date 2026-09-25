@@ -478,7 +478,7 @@ describe('TaskStore', () => {
       expectedVersion: 2, operation: 'CANCEL', reason: '停止这次执行',
     })).rejects.toMatchObject({ status: 0 })
     expect(store.state.commandRetryable).toBe(true)
-    expect(store.state.commandErrorMessage).toBe('网络中断')
+    expect(store.state.commandErrorMessage).toContain('提交结果尚未确认')
 
     await store.retryTaskCommand()
     expect(keys).toHaveLength(2)

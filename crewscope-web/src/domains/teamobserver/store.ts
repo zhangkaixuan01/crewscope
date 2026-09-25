@@ -1,5 +1,6 @@
 import { inject, reactive, readonly, type App, type DeepReadonly, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
+import { commandFailure } from '../../api/commandIntent'
 import type { TeamObserverGateway } from './gateway'
 import type { TeamObserverEvidence, TeamObserverScope, TeamObserverSession, TeamSummary } from './types'
 
@@ -245,11 +246,13 @@ export function createTeamObserverStore(gateway: TeamObserverGateway): TeamObser
 
   function fail(error: unknown, targetGeneration: number, fallback = 'Team Observer 暂时不可用'): false {
     if (isAbort(error) || targetGeneration !== generation) return false
+    const lostStart = state.phase === 'connecting' && !state.invocationId && commandFailure(error) === 'unknown'
     state.phase = 'error'
     state.errorStatus = error instanceof CrewScopeApiError ? error.status : null
     state.retryable = Boolean(state.invocationId && transportRetryable(error))
     // Provider or prompt contents never cross this stable presentation boundary.
-    state.errorMessage = state.errorStatus === 403 ? '当前成员无权使用 Team Observer' : fallback
+    state.errorMessage = state.errorStatus === 403 ? '当前成员无权使用 Team Observer'
+      : lostStart ? '调用结果尚未确认，尚未收到原调用标识，不能恢复原调用。再次生成摘要将发起新调用，请勿当作重试。' : fallback
     return false
   }
 

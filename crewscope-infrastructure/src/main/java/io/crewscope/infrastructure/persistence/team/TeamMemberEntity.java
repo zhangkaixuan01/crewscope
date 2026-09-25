@@ -41,6 +41,9 @@ public class TeamMemberEntity {
     @Column(nullable = false)
     private long version;
 
+    @Column(name = "authorization_version", nullable = false)
+    private long authorizationVersion;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -60,6 +63,7 @@ public class TeamMemberEntity {
             Instant joinedAt,
             Instant lastActiveAt,
             long version,
+            long authorizationVersion,
             Instant createdAt,
             Instant updatedAt) {
         this.id = id;
@@ -72,6 +76,7 @@ public class TeamMemberEntity {
         this.joinedAt = joinedAt;
         this.lastActiveAt = lastActiveAt;
         this.version = version;
+        this.authorizationVersion = authorizationVersion;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -114,6 +119,10 @@ public class TeamMemberEntity {
 
     long version() {
         return version;
+    }
+
+    long authorizationVersion() {
+        return authorizationVersion;
     }
 
     Instant createdAt() {

@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { CrewScopeApiError } from '../api/client'
 import { createCrewScopeRouter } from '../app/router'
+import { F05_EPOCH_KEY } from '../app/f05Storage'
 import { IDENTITY_GATEWAY, type IdentityGateway } from '../domains/identity/gateway'
 import type { AuthSession, LoginResult } from '../domains/identity/types'
 import { createAuthStore, AUTH_STORE } from '../domains/identity/store'
@@ -51,7 +52,8 @@ describe('LoginPage', () => {
     // authenticated-session redirect case below.
     await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/today?team=team-1'), { timeout: 5_000 })
     expect((wrapper.get<HTMLInputElement>('input[name="password"]').element).value).toBe('')
-    expect(localStorage).toHaveLength(0)
+    // The scoped-namespace epoch marker is device-level metadata, not persisted state.
+    expect(Object.keys(localStorage).filter(key => key !== F05_EPOCH_KEY)).toHaveLength(0)
     expect(sessionStorage).toHaveLength(0)
     wrapper.unmount()
   })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { secureId } from '../api/secureId'
 import { RefreshCw } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -20,6 +21,9 @@ import {
   type InboxSourceStatus,
   type TeamOpsScope,
 } from '../domains/teamops/types'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -57,6 +61,7 @@ watch(
     dispositionStatus.value,
   ] as const,
   async ([phase]) => {
+    const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
     commandAttempt.value = null
@@ -65,6 +70,7 @@ watch(
       store.loadInbox(filter.value, false, true),
       store.loadInboxCounts(true),
     ])
+    if (!pageOwner.isCurrent()) return
   },
   { immediate: true },
 )
@@ -128,11 +134,13 @@ function replaceFilter(key: string, value: string, defaultValue: string): void {
 }
 
 async function reload(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!scope.value || !online.value) return
   await Promise.all([
     store.loadInbox(filter.value, false, true),
     store.loadInboxCounts(true),
   ])
+  if (!pageOwner.isCurrent()) return
   if (selectedItemId.value) await store.loadInboxDetail(selectedItemId.value, true)
 }
 
@@ -141,19 +149,23 @@ function retryDetail(itemId: string): void {
 }
 
 async function openTarget(itemId: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!online.value) return
   await store.loadInboxTarget(itemId, true)
+  if (!pageOwner.isCurrent()) return
   const target = store.state.inboxTargets[itemId]?.value
   if (target) await router.push(target.href)
 }
 
 async function changeDisposition(itemId: string, status: Exclude<InboxDispositionStatus, 'UNREAD'>): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!online.value) return
   const current = commandAttempt.value
   if (!current || current.itemId !== itemId || current.status !== status) {
-    commandAttempt.value = { itemId, status, key: crypto.randomUUID() }
+    commandAttempt.value = { itemId, status, key: secureId() }
   }
   const success = await store.changeInboxDisposition(itemId, status, commandAttempt.value!.key)
+  if (!pageOwner.isCurrent()) return
   if (success) {
     commandAttempt.value = null
     await Promise.all([
@@ -161,6 +173,7 @@ async function changeDisposition(itemId: string, status: Exclude<InboxDispositio
       store.loadInboxCounts(true),
       store.loadInboxDetail(itemId, true),
     ])
+    if (!pageOwner.isCurrent()) return
     return
   }
   if (store.state.command.phase === 'conflict') {
@@ -171,6 +184,7 @@ async function changeDisposition(itemId: string, status: Exclude<InboxDispositio
       store.loadInboxCounts(true),
       store.loadInboxDetail(itemId, true),
     ])
+    if (!pageOwner.isCurrent()) return
   } else if (!store.state.command.error?.retryable) {
     commandAttempt.value = null
   }
@@ -181,14 +195,17 @@ function loadMore(): void {
 }
 
 async function batchDisposition(itemIds: string[], status: Exclude<InboxDispositionStatus, 'UNREAD'>): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   if (!online.value || itemIds.length === 0) return
   // Each item keeps its own idempotency key; one conflict cannot silently
   // replay or overwrite a neighbouring item's disposition. TeamOps intentionally
   // serializes commands, so execute the batch in order instead of racing them.
   for (const itemId of itemIds) {
-    await store.changeInboxDisposition(itemId, status, crypto.randomUUID())
+    await store.changeInboxDisposition(itemId, status, secureId())
+    if (!pageOwner.isCurrent()) return
   }
   await Promise.all([store.loadInbox(filter.value, false, true), store.loadInboxCounts(true)])
+  if (!pageOwner.isCurrent()) return
 }
 
 function normalizeQuery(query: Record<string, unknown>, key: string, value: string, defaultValue: string): boolean {

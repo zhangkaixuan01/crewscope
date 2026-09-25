@@ -1,5 +1,6 @@
+import { secureId } from '../../api/secureId'
+import { createCommandIntents } from '../../api/commandIntent'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
-import { CrewScopeApiError } from '../../api/client'
 import { registrationInvitationFromHash } from '../identity/invitation'
 import type { AuthCsrfCoordinate } from '../identity/types'
 import type { InvitationGateway } from './gateway'
@@ -9,6 +10,8 @@ import {
   type InvitationProblem,
 } from './presentation'
 import type {
+  InvitationAcceptance,
+  InvitationAcceptanceResult,
   InvitationCreationInput,
   InvitationCreationResult,
   InvitationPreview,
@@ -30,6 +33,8 @@ interface InvitationStoreState {
   commandGeneration: number
   publicPhase: InvitationPublicPhase
   preview: InvitationPreview | null
+  /** Committed coordinates of the last successful accept; kept for the pending-session resync. */
+  acceptance: InvitationAcceptance | null
   publicProblem: InvitationProblem | null
   publicErrorGeneration: number
 }
@@ -52,7 +57,7 @@ export interface InvitationStore {
   previewProof(hash?: string): Promise<boolean>
   hasProof(): boolean
   registrationProof(): string | null
-  acceptInvitation(csrf: AuthCsrfCoordinate): Promise<boolean>
+  acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null>
   clearCommand(): void
   pausePublic(): void
   clearProof(): void
@@ -75,7 +80,7 @@ export function createInvitationStore(
   const state = reactive<InvitationStoreState>({
     managementPhase: 'idle', items: [], nextCursor: null, managementProblem: null, managementErrorGeneration: 0,
     commandPhase: 'idle', commandKind: null, commandProblem: null, commandGeneration: 0,
-    publicPhase: 'idle', preview: null, publicProblem: null, publicErrorGeneration: 0,
+    publicPhase: 'idle', preview: null, acceptance: null, publicProblem: null, publicErrorGeneration: 0,
   })
   const queryTimeoutMs = options.queryTimeoutMs ?? 10_000
   const commandTimeoutMs = options.commandTimeoutMs ?? 20_000
@@ -84,8 +89,7 @@ export function createInvitationStore(
   let publicGeneration = 0
   let publicController: AbortController | null = null
   let proof: string | null = null
-  let createKey: string | null = null
-  let createFingerprint: string | null = null
+  const createIntents = createCommandIntents<InvitationCreationInput, InvitationCreationResult>()
   const revokeKeys = new Map<string, string>()
   let acceptKey: string | null = null
 
@@ -120,26 +124,22 @@ export function createInvitationStore(
     input: InvitationCreationInput,
     csrf: AuthCsrfCoordinate,
   ): Promise<InvitationCreationResult | null> {
-    const fingerprint = JSON.stringify([organizationId, teamId, input.targetEmail ?? null, input.targetRole, input.expiresInMinutes])
-    if (!createKey || createFingerprint !== fingerprint) {
-      createKey = crypto.randomUUID()
-      createFingerprint = fingerprint
-    }
+    if (state.commandPhase === 'pending') return null
     const requestGeneration = beginManagement()
+    const controller = managementController!
     beginCommand('create')
     try {
-      const result = await timed(managementController!, signal => gateway.create(
-        organizationId, teamId, input, { csrf, idempotencyKey: createKey! }, signal,
-      ), commandTimeoutMs)
+      const result = await createIntents.execute({ organizationId, teamId }, input, (snapshot, key) =>
+        timed(controller, signal => gateway.create(
+          organizationId, teamId, snapshot, { csrf, idempotencyKey: key }, signal,
+        ), commandTimeoutMs))
       if (requestGeneration !== managementGeneration) return null
       if (result.invitation) state.items = merge([result.invitation], state.items)
-      clearCreateIntent()
       commandSuccess()
       state.managementPhase = 'ready'
       return result
     } catch (error) {
       if (requestGeneration !== managementGeneration || isAbort(error)) return null
-      if (!keepsIdempotency(error)) clearCreateIntent()
       commandFailure(error)
       return null
     } finally {
@@ -153,8 +153,14 @@ export function createInvitationStore(
     invitationId: string,
     csrf: AuthCsrfCoordinate,
   ): Promise<boolean> {
-    const key = revokeKeys.get(invitationId) ?? crypto.randomUUID()
-    revokeKeys.set(invitationId, key)
+    const coordinate = JSON.stringify([organizationId, teamId, invitationId])
+    if (state.commandPhase === 'pending') return false
+    if (!revokeKeys.has(coordinate) && revokeKeys.size >= 100) {
+      commandFailure(new Error('待确认操作过多，请先核实原邀请'))
+      return false
+    }
+    const key = revokeKeys.get(coordinate) ?? secureId()
+    revokeKeys.set(coordinate, key)
     const requestGeneration = beginManagement()
     beginCommand('revoke')
     try {
@@ -162,14 +168,13 @@ export function createInvitationStore(
         organizationId, teamId, invitationId, { csrf, idempotencyKey: key }, signal,
       ), commandTimeoutMs)
       if (requestGeneration !== managementGeneration) return false
-      revokeKeys.delete(invitationId)
+      revokeKeys.delete(coordinate)
       state.items = state.items.map(item => item.id === invitationId ? { ...item, status: 'REVOKED' } : item)
       commandSuccess()
       state.managementPhase = 'ready'
       return true
     } catch (error) {
       if (requestGeneration !== managementGeneration || isAbort(error)) return false
-      if (!keepsIdempotency(error)) revokeKeys.delete(invitationId)
       commandFailure(error)
       return false
     } finally {
@@ -224,28 +229,28 @@ export function createInvitationStore(
     return proof
   }
 
-  async function acceptInvitation(csrf: AuthCsrfCoordinate): Promise<boolean> {
-    if (!proof) return false
-    acceptKey ??= crypto.randomUUID()
+  async function acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null> {
+    if (!proof || state.publicPhase === 'accepting') return null
+    acceptKey ??= secureId()
     const requestGeneration = beginPublic()
     state.publicPhase = 'accepting'
     state.publicProblem = null
     try {
-      await timed(publicController!, signal => gateway.accept(
+      const result = await timed(publicController!, signal => gateway.accept(
         proof!, { csrf, idempotencyKey: acceptKey! }, signal,
       ), commandTimeoutMs)
-      if (requestGeneration !== publicGeneration) return false
+      if (requestGeneration !== publicGeneration) return null
       proof = null
       acceptKey = null
+      state.acceptance = result.acceptance
       state.publicPhase = 'accepted'
-      return true
+      return result
     } catch (error) {
-      if (requestGeneration !== publicGeneration || isAbort(error)) return false
-      if (!keepsIdempotency(error)) acceptKey = null
+      if (requestGeneration !== publicGeneration || isAbort(error)) return null
       state.publicProblem = presentInvitationProblem(error)
       state.publicErrorGeneration += 1
       state.publicPhase = 'error'
-      return false
+      return null
     } finally {
       finishPublic(requestGeneration)
     }
@@ -308,6 +313,7 @@ export function createInvitationStore(
     acceptKey = null
     state.publicPhase = 'idle'
     state.preview = null
+    state.acceptance = null
     state.publicProblem = null
     state.publicErrorGeneration = 0
   }
@@ -316,7 +322,7 @@ export function createInvitationStore(
     managementGeneration += 1
     managementController?.abort()
     managementController = null
-    clearCreateIntent()
+    createIntents.clear()
     revokeKeys.clear()
     state.managementPhase = 'idle'
     state.items = []
@@ -332,10 +338,6 @@ export function createInvitationStore(
     clearProof()
   }
 
-  function clearCreateIntent(): void {
-    createKey = null
-    createFingerprint = null
-  }
 
   return {
     state: readonly(state) as Readonly<InvitationStoreState>,
@@ -382,12 +384,6 @@ async function timed<T>(
 function merge(existing: TeamInvitationSummary[], incoming: TeamInvitationSummary[]): TeamInvitationSummary[] {
   const seen = new Set<string>()
   return [...existing, ...incoming].filter(item => !seen.has(item.id) && Boolean(seen.add(item.id)))
-}
-
-function keepsIdempotency(error: unknown): boolean {
-  if (error instanceof InvitationRequestTimeoutError) return true
-  return error instanceof CrewScopeApiError
-    && ['network_unavailable', 'invitation_unavailable', 'csrf_rejected'].includes(error.envelope.code)
 }
 
 function unavailablePreview(): InvitationPreview {

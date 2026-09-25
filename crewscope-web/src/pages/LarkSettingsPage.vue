@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { RefreshCw } from '@lucide/vue'
-import { computed, inject, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, watch } from 'vue'
+import { createRequestScope } from '../api/requestScope'
+import { AUTH_STORE } from '../domains/identity/store'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
@@ -19,6 +21,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
+const authStore = inject(AUTH_STORE, null)
 const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const online = useNetworkStatus()
@@ -47,21 +50,33 @@ const deliveryFilter = computed(() => ({
   itemTypes: deliveryType.value ? [deliveryType.value] : undefined,
   recipientMemberId: recipient.value || null,
 }))
+const pageCoordinate = () => JSON.stringify([authStore?.state.session?.account?.accountId,
+  authStore?.state.session?.account?.securityVersion, principal?.id, scope.value, scopeStore.state.phase])
+const pageRequests = createRequestScope(pageCoordinate)
+const selectionRequests = createRequestScope(() => JSON.stringify([pageCoordinate(), connectionId.value]))
+onBeforeUnmount(() => { pageRequests.dispose(); selectionRequests.dispose(); store.clearCommand() })
 
 watch(
-  () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId] as const,
-  async ([phase]) => {
-    if (phase !== 'ready' || !scope.value) return
+  pageCoordinate,
+  async () => {
+    pageRequests.invalidate()
+    selectionRequests.invalidate()
+    store.clearCommand()
+    if (scopeStore.state.phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
+    const owner = pageRequests.capture()
     await scopeStore.loadMembers()
+    if (!owner.isCurrent()) return
     await loadAll(true)
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 )
 
 watch(connectionId, async id => {
+  selectionRequests.invalidate()
+  store.clearCommand()
   if (id && scope.value) await store.loadLarkConnection(id)
-})
+}, { flush: 'sync' })
 
 watch(deliveryId, async id => {
   if (id && scope.value) await store.loadNotificationDelivery(id)
@@ -80,77 +95,139 @@ watch(() => [mappingStatus.value, deliveryStatus.value, deliveryType.value, reci
 })
 
 async function loadAll(force = false): Promise<void> {
-  await Promise.all([
-    store.loadLarkConnections(force), store.loadLarkMappings(mappingStatus.value, false, force),
-    store.loadNotificationTemplates(force), store.loadNotificationDeliveries(deliveryFilter.value, false, force),
-    currentMemberId.value ? store.loadNotificationPreference(currentMemberId.value, force) : Promise.resolve(),
-  ])
-  await restoreConnection()
-  if (deliveryId.value) await store.loadNotificationDelivery(deliveryId.value, force)
+  if (!scope.value || scopeStore.state.phase !== 'ready') return
+  const request = pageRequests.begin('load-all')
+  const selection = selectionRequests.capture()
+  try {
+    await Promise.all([
+      store.loadLarkConnections(force), store.loadLarkMappings(mappingStatus.value, false, force),
+      store.loadNotificationTemplates(force), store.loadNotificationDeliveries(deliveryFilter.value, false, force),
+      currentMemberId.value ? store.loadNotificationPreference(currentMemberId.value, force) : Promise.resolve(),
+    ])
+    if (!request.isCurrent() || !selection.isCurrent()) return
+    await restoreConnection()
+    if (!request.isCurrent()) return
+    if (deliveryId.value) await store.loadNotificationDelivery(deliveryId.value, force)
+  } finally { request.finish() }
 }
 
 async function restoreConnection(): Promise<void> {
+  const owner = pageRequests.capture()
   const requested = connectionId.value
   const selected = connections.value.find(item => item.connectionId === requested) ?? connections.value[0] ?? null
   if (!selected) return
   if (selected.connectionId !== requested) await patchQuery({ connection: selected.connectionId })
+  if (!owner.isCurrent() || connectionId.value !== selected.connectionId) return
+  const selection = selectionRequests.capture()
   await store.loadLarkConnection(selected.connectionId)
+  if (!selection.isCurrent()) return
   if (selected.providerBindingId) await store.loadLarkHealth(selected.providerBindingId)
 }
 
 async function selectConnection(id: string): Promise<void> {
+  const owner = pageRequests.capture()
   store.clearCommand()
   await patchQuery({ connection: id })
+  if (!owner.isCurrent() || connectionId.value !== id) return
+  const selection = selectionRequests.capture()
   await store.loadLarkConnection(id, true)
+  if (!selection.isCurrent()) return
   const connection = store.state.larkConnectionDetails[id]?.value?.value
   if (connection?.providerBindingId) await store.loadLarkHealth(connection.providerBindingId, true)
 }
 
 async function createConnection(input: { tenantKey: string, appId: string, appSecret: string, expiresAt: string | null }, key: string): Promise<void> {
+  const owner = selectionRequests.capture()
   const before = new Set(connections.value.map(item => item.connectionId))
-  if (!await store.createLarkConnection(0, input, key)) return refreshConflict()
+  const success = await store.createLarkConnection(0, input, key)
+  if (!owner.isCurrent()) return
+  if (!success) return refreshConflict()
   await store.loadLarkConnections(true)
+  if (!owner.isCurrent()) return
   const created = connections.value.find(item => !before.has(item.connectionId))
   if (created) await selectConnection(created.connectionId)
 }
 
-async function rotateConnection(id: string, input: { appId: string, appSecret: string }, key: string): Promise<void> {
-  if (!await store.rotateLarkConnection(id, input, key)) return refreshConflict(id)
+async function rotateConnection(id: string, input: { appId: string, appSecret: string }, key: string, expectedVersion: number): Promise<void> {
+  if (connectionId.value !== id || selectedConnection.value?.version !== expectedVersion) return
+  const owner = selectionRequests.capture()
+  const success = await store.rotateLarkConnection(id, input, key, expectedVersion)
+  if (!owner.isCurrent()) return
+  if (!success) return refreshConflict(id)
   await Promise.all([store.loadLarkConnections(true), store.loadLarkConnection(id, true)])
 }
 
 async function revokeConnection(id: string, reason: string, key: string): Promise<void> {
-  if (!await store.revokeLarkConnection(id, reason, key)) return refreshConflict(id)
+  const owner = selectionRequests.capture()
+  const success = await store.revokeLarkConnection(id, reason, key)
+  if (!owner.isCurrent()) return
+  if (!success) return refreshConflict(id)
   await Promise.all([store.loadLarkConnections(true), store.loadLarkConnection(id, true)])
 }
 
-async function verifyMember(bindingId: string, version: number, _memberId: string, openId: string, key: string): Promise<void> {
-  if (!await store.verifyLarkMember(bindingId, version, openId, key)) await refreshConflict(connectionId.value)
+async function verifyMember(bindingId: string, version: number, memberId: string, openId: string, key: string, complete: (proofId: string | null) => void): Promise<void> {
+  const owner = selectionRequests.capture()
+  const selected = connectionId.value
+  if (activeBinding.value !== bindingId || selectedConnection.value?.providerBindingVersion !== version
+    || !scopeStore.state.members.some(member => member.id === memberId && member.status === 'ACTIVE')) { complete(null); return }
+  const success = await store.verifyLarkMember(bindingId, version, openId, key)
+  if (!owner.isCurrent()) { complete(null); return }
+  const receipt = store.state.command.receipt
+  complete(success && receipt && 'domainEventId' in receipt ? receipt.domainEventId : null)
+  if (!success) await refreshConflict(selected)
 }
 
-async function confirmMapping(memberId: string, bindingId: string, proofId: string, key: string): Promise<void> {
-  if (await store.confirmLarkMapping({ memberId, providerBindingId: bindingId, proofId }, key)) {
+async function confirmMapping(memberId: string, bindingId: string, proofId: string, key: string, complete: (committed: boolean) => void): Promise<void> {
+  const owner = selectionRequests.capture()
+  if (activeBinding.value !== bindingId) { complete(false); return }
+  const success = await store.confirmLarkMapping({ memberId, providerBindingId: bindingId, proofId }, key)
+  complete(success && owner.isCurrent())
+  if (success && owner.isCurrent()) {
     await store.loadLarkMappings(mappingStatus.value, false, true)
   }
 }
 
 async function savePreference(memberId: string, input: { enabled: boolean, enabledItemTypes: InboxItemType[], mutedUntil: string | null }, key: string): Promise<void> {
-  if (!await store.updateNotificationPreference(memberId, input, key)) return refreshPreferenceConflict(memberId)
+  if (currentMemberId.value !== memberId) return
+  const owner = pageRequests.capture()
+  const success = await store.updateNotificationPreference(memberId, input, key)
+  if (!owner.isCurrent() || currentMemberId.value !== memberId) return
+  if (!success) return refreshPreferenceConflict(memberId)
   await store.loadNotificationPreference(memberId, true)
 }
 
 async function redeliver(id: string, key: string): Promise<void> {
-  if (!await store.redeliverNotification(id, key)) return refreshDeliveryConflict(id)
+  if (deliveryId.value !== id) return
+  const owner = pageRequests.capture()
+  const success = await store.redeliverNotification(id, key)
+  if (!owner.isCurrent() || deliveryId.value !== id) return
+  if (!success) return refreshDeliveryConflict(id)
   await Promise.all([
     store.loadNotificationDeliveries(deliveryFilter.value, false, true),
     store.loadNotificationDelivery(id, true),
   ])
 }
 
+async function revokeMapping(id: string, version: number, reason: string, key: string): Promise<void> {
+  const owner = pageRequests.capture()
+  const success = await store.revokeLarkMapping(id, version, reason, key)
+  if (success && owner.isCurrent()) await store.loadLarkMappings(mappingStatus.value, false, true)
+}
+
 async function refreshConflict(id?: string): Promise<void> {
   if (store.state.command.phase !== 'conflict') return
+  const owner = selectionRequests.capture()
   await store.loadLarkConnections(true)
+  if (!owner.isCurrent()) return
   if (id) await store.loadLarkConnection(id, true)
+}
+
+async function readOriginal(id: string | null): Promise<void> {
+  const owner = selectionRequests.capture()
+  if (id && id !== connectionId.value) return
+  await Promise.all([store.loadLarkConnections(true), id ? store.loadLarkConnection(id, true) : Promise.resolve()])
+  if (!owner.isCurrent()) return
+  await store.loadLarkMappings(mappingStatus.value, false, true)
 }
 async function refreshPreferenceConflict(id: string): Promise<void> {
   if (store.state.command.phase === 'conflict') await store.loadNotificationPreference(id, true)
@@ -194,7 +271,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
     <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
     <LarkNotificationAdmin
       v-else
-      :key="scope.teamId"
+      :key="pageCoordinate()"
       :phase="store.state.larkConnections.phase" :error="store.state.larkConnections.error" :connections="connections"
       :selected-connection="selectedConnection" :health="health" :mappings="store.state.larkMappings.value ?? []"
       :mapping-phase="store.state.larkMappings.phase" :mapping-error="store.state.larkMappings.error"
@@ -205,11 +282,11 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
       :delivery-next-cursor="store.state.notificationDeliveries.nextCursor" :delivery-loading-more="store.state.notificationDeliveries.loadingMore"
       :selected-delivery="selectedDelivery" :command="store.state.command" :online="online" :selected-tab="tab"
       :mapping-status="mappingStatus" :delivery-status="deliveryStatus" :delivery-type="deliveryType" :recipient="recipient"
-      @tab="setTab" @refresh="loadAll(true)" @select-connection="selectConnection" @create-connection="createConnection"
+      @tab="setTab" @refresh="loadAll(true)" @read-original="readOriginal" @select-connection="selectConnection" @create-connection="createConnection"
       @rotate-connection="rotateConnection" @revoke-connection="revokeConnection"
       @preflight="(id, version) => store.loadLarkPreflight(id, version, true)" @health="id => store.loadLarkHealth(id, true)"
       @verify-member="verifyMember" @confirm-mapping="confirmMapping" @mapping-filter="setMappingFilter"
-      @load-more-mappings="store.loadLarkMappings(mappingStatus, true)" @revoke-mapping="(id, version, reason, key) => store.revokeLarkMapping(id, version, reason, key).then(success => { if (success) return store.loadLarkMappings(mappingStatus, false, true) })"
+      @load-more-mappings="store.loadLarkMappings(mappingStatus, true)" @revoke-mapping="revokeMapping"
       @save-preference="savePreference" @delivery-filter="setDeliveryFilter"
       @load-more-deliveries="store.loadNotificationDeliveries(deliveryFilter, true)" @select-delivery="selectDelivery"
       @close-delivery="closeDelivery" @redeliver="redeliver" @clear-command="store.clearCommand"

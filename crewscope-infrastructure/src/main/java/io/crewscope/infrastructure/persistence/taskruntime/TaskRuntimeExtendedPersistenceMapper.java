@@ -16,6 +16,7 @@ import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.id.ArtifactId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -304,7 +305,7 @@ public class TaskRuntimeExtendedPersistenceMapper {
         row.workerId = scope.workerId().value();
         row.claimTokenHash = scope.claimTokenHash().value();
         row.fencingToken = scope.fencingToken().value();
-        putExecutionPrincipal(row, scope.executionPrincipal());
+        putExecutionPrincipal(row, scope);
         row.policySnapshotId = scope.policySnapshotId().value();
         row.policySnapshotHash = scope.policySnapshotHash().value();
         putSafetyOverlay(row, scope.safetyOverlay());
@@ -340,7 +341,9 @@ public class TaskRuntimeExtendedPersistenceMapper {
                 new RuntimeWorkerId(row.workerId), new ClaimTokenHash(row.claimTokenHash.trim()),
                 new FencingToken(row.fencingToken), executionPrincipal(row),
                 new PolicySnapshotId(row.policySnapshotId),
-                new TaskFactHash(row.policySnapshotHash.trim()), safetyOverlay(row), tools, providers);
+                new TaskFactHash(row.policySnapshotHash.trim()), safetyOverlay(row), tools, providers,
+                Optional.ofNullable(row.executionMemberId).map(TeamMemberId::new),
+                Optional.ofNullable(row.executionMemberAuthorizationVersion));
         Optional<TaskCredentialGrantTermination> terminal = row.terminatedAt == null
                 ? Optional.empty()
                 : Optional.of(new TaskCredentialGrantTermination(
@@ -606,11 +609,13 @@ public class TaskRuntimeExtendedPersistenceMapper {
         row.responsibilitySnapshotHash = value.responsibilitySnapshotHash().value();
     }
 
-    private static void putExecutionPrincipal(TaskCredentialGrantEntity row, ExecutionPrincipalSnapshot value) {
-        row.executionPrincipalId = value.principalId().value();
-        row.executionAssignmentId = value.assignmentId().value();
-        row.executionAssignmentVersion = value.assignmentVersion();
-        row.responsibilitySnapshotHash = value.responsibilitySnapshotHash().value();
+    private static void putExecutionPrincipal(TaskCredentialGrantEntity row, TaskTokenGrantScope value) {
+        row.executionPrincipalId = value.executionPrincipal().principalId().value();
+        row.executionAssignmentId = value.executionPrincipal().assignmentId().value();
+        row.executionAssignmentVersion = value.executionPrincipal().assignmentVersion();
+        row.responsibilitySnapshotHash = value.executionPrincipal().responsibilitySnapshotHash().value();
+        row.executionMemberId = value.executionMemberId().map(memberId -> memberId.value()).orElse(null);
+        row.executionMemberAuthorizationVersion = value.executionMemberAuthorizationVersion().orElse(null);
     }
 
     private static ExecutionPrincipalSnapshot executionPrincipal(PolicySnapshotEntity row) {

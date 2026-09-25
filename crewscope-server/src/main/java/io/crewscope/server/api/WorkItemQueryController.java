@@ -8,27 +8,37 @@ import io.crewscope.application.workitem.AddWorkItemCommentCommand;
 import io.crewscope.application.workitem.LinkWorkItemResourceCommand;
 import io.crewscope.application.workitem.WorkItemCollaborationService;
 import io.crewscope.application.workitem.WorkItemCursor;
+import io.crewscope.application.workitem.WorkItemCursorScope;
 import io.crewscope.application.workitem.WorkItemAvailableTransition;
 import io.crewscope.application.workitem.WorkItemDetails;
+import io.crewscope.application.workitem.WorkItemExecutionSummary;
+import io.crewscope.application.workitem.WorkItemFilter;
 import io.crewscope.application.workitem.WorkItemListPage;
 import io.crewscope.application.workitem.WorkItemListRow;
 import io.crewscope.application.workitem.WorkItemQueryService;
+import io.crewscope.application.workitem.WorkItemSort;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemComment;
 import io.crewscope.domain.workitem.WorkItemId;
+import io.crewscope.domain.workitem.WorkItemPriority;
 import io.crewscope.domain.workitem.WorkItemResourceLink;
 import io.crewscope.domain.workitem.WorkItemResourceType;
 import io.crewscope.domain.workitem.WorkItemStatus;
+import io.crewscope.domain.workitem.WorkItemType;
 import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -56,23 +66,37 @@ public final class WorkItemQueryController {
   private final WorkItemQueryService queryService;
   private final WorkItemCollaborationService collaborationService;
   private final TeamRequestIdentityResolver identityResolver;
-  private final WorkItemCursorCodec cursorCodec = new WorkItemCursorCodec();
+  private final WorkItemCursorCodec cursorCodec;
 
   public WorkItemQueryController(
       WorkItemQueryService queryService,
       WorkItemCollaborationService collaborationService,
-      TeamRequestIdentityResolver identityResolver) {
+      TeamRequestIdentityResolver identityResolver,
+      WorkItemCursorCodec cursorCodec) {
     this.queryService = queryService;
     this.collaborationService = collaborationService;
     this.identityResolver = identityResolver;
+    this.cursorCodec = Objects.requireNonNull(cursorCodec, "cursorCodec");
   }
 
+  /**
+   * Lists one visible WorkProject with the server-owned ordering, multi-value filter and stable
+   * keyset position (M9b-A06).
+   *
+   * <p>The continuation token is decoded only after the viewer is resolved, because the token is
+   * bound to the viewing member: a token minted for another member, sort or filter is an explicit
+   * invalid-request rejection, an expired one is a 410 the client answers by restarting the query.
+   */
   @GetMapping
   public Mono<ResponseEntity<WorkItemPageResponse>> list(
       @PathVariable String organizationId,
       @PathVariable String teamId,
       @PathVariable String projectId,
       @RequestParam(required = false) WorkItemStatus status,
+      @RequestParam(required = false) List<String> type,
+      @RequestParam(required = false) List<String> priority,
+      @RequestParam(required = false) String responsibilityRole,
+      @RequestParam(required = false) String sort,
       @RequestParam(required = false) String after,
       @RequestParam(required = false) Integer limit,
       Authentication authentication,
@@ -80,21 +104,30 @@ public final class WorkItemQueryController {
     OrganizationId organization = organizationId(organizationId);
     TeamId team = teamId(teamId);
     WorkProjectId project = projectId(projectId);
-    Optional<WorkItemCursor> cursor = Optional.ofNullable(after).map(cursorCodec::decode);
-    int pageSize = ApiPagination.limit(limit);
+    WorkItemSort ordering = ordering(sort);
+    WorkItemFilter filter =
+        new WorkItemFilter(
+            status == null ? Set.of() : Set.of(status),
+            enumSet(type, WorkItemType.class, "type"),
+            enumSet(priority, WorkItemPriority.class, "priority"),
+            responsibilityRole == null || responsibilityRole.isBlank()
+                ? Optional.empty()
+                : Optional.of(responsibilityRole(responsibilityRole)));
+    int pageSize = ApiPagination.workItemLimit(limit);
     return query(
             authentication,
             organization,
             exchange,
-            access ->
-                queryService.list(
-                    access,
-                    organization,
-                    team,
-                    project,
-                    Optional.ofNullable(status),
-                    cursor,
-                    pageSize))
+            access -> {
+              WorkItemCursorScope expectedScope =
+                  WorkItemCursorScope.of(
+                      organization, team, project, access.actor().id(), ordering, filter);
+              Optional<WorkItemCursor> cursor =
+                  Optional.ofNullable(after)
+                      .map(token -> cursorCodec.decode(token, expectedScope));
+              return queryService.list(
+                  access, organization, team, project, filter, ordering, cursor, pageSize);
+            })
         .map(
             page ->
                 ResponseEntity.ok()
@@ -315,6 +348,61 @@ public final class WorkItemQueryController {
         Map.of("field", field));
   }
 
+  private static ApiRequestException invalidParameter(String parameter, String message) {
+    return new ApiRequestException(
+        org.springframework.http.HttpStatus.BAD_REQUEST,
+        "invalid_request",
+        message,
+        Map.of("parameter", parameter));
+  }
+
+  private static WorkItemSort ordering(String sort) {
+    if (sort == null || sort.isBlank()) {
+      return WorkItemSort.UPDATED_AT;
+    }
+    return WorkItemSort.parse(sort)
+        .orElseThrow(
+            () ->
+                invalidParameter(
+                    "sort", "Request contains an unsupported sort: " + sort));
+  }
+
+  private static ResponsibilityRole responsibilityRole(String value) {
+    try {
+      return ResponsibilityRole.valueOf(value.strip());
+    } catch (IllegalArgumentException unknownRole) {
+      throw invalidParameter(
+          "responsibilityRole", "Request contains an unsupported responsibilityRole: " + value);
+    }
+  }
+
+  /**
+   * Accepts repeated parameters and comma-joined values alike, so one item or a whole saved filter
+   * share one wire format. Blank segments are ignored; an unknown name is rejected by name.
+   */
+  private static <E extends Enum<E>> Set<E> enumSet(
+      List<String> values, Class<E> type, String parameter) {
+    if (values == null || values.isEmpty()) {
+      return Set.of();
+    }
+    Set<E> parsed = new LinkedHashSet<>();
+    for (String value : values) {
+      for (String name : value.split(",")) {
+        String token = name.strip();
+        if (token.isEmpty()) {
+          continue;
+        }
+        try {
+          parsed.add(Enum.valueOf(type, token));
+        } catch (IllegalArgumentException unknownName) {
+          throw invalidParameter(
+              parameter, "Request contains an unsupported value: " + token);
+        }
+      }
+    }
+    return Set.copyOf(parsed);
+  }
+
   public record AddCommentRequest(
       @NotBlank @Size(max = WorkItemComment.MAX_CONTENT_LENGTH) String content) {}
 
@@ -328,7 +416,8 @@ public final class WorkItemQueryController {
     static WorkItemPageResponse from(WorkItemListPage page, WorkItemCursorCodec cursorCodec) {
       return new WorkItemPageResponse(
           page.items().stream()
-              .map(row -> WorkItemResponse.from(row.workItem(), row.availableActions()))
+              .map(row ->
+                  WorkItemResponse.from(row.workItem(), row.availableActions(), row.summary()))
               .toList(),
           page.nextCursor().map(cursorCodec::encode).orElse(null));
     }
@@ -341,7 +430,8 @@ public final class WorkItemQueryController {
 
     static WorkItemDetailsResponse from(WorkItemDetails details) {
       return new WorkItemDetailsResponse(
-          WorkItemResponse.from(details.workItem(), details.availableActions()),
+          WorkItemResponse.from(
+              details.workItem(), details.availableActions(), details.summary()),
           details.comments().stream().map(WorkItemCommentResponse::from).toList(),
           details.resourceLinks().stream().map(WorkItemResourceLinkResponse::from).toList());
     }
@@ -368,14 +458,19 @@ public final class WorkItemQueryController {
       String createdByPrincipalId,
       String updatedAt,
       String updatedByPrincipalId,
-      List<AvailableActionResponse> availableActions) {
+      List<AvailableActionResponse> availableActions,
+      WorkItemSummaryResponse summary) {
 
     /**
      * Availability is decided by the application layer and travels with the row it belongs to, so a
      * list row, a board card and the detail panel all read the same verdict. The element type is the
      * one the availability endpoint serializes, deliberately shared, so the two surfaces cannot drift.
+     * {@code summary} is the M9b-A06 execution/todo read model, assembled in the same request.
      */
-    static WorkItemResponse from(WorkItem item, List<WorkItemAvailableTransition> availableActions) {
+    static WorkItemResponse from(
+        WorkItem item,
+        List<WorkItemAvailableTransition> availableActions,
+        Optional<WorkItemExecutionSummary> summary) {
       return new WorkItemResponse(
           item.id().toString(),
           item.scope().organizationId().toString(),
@@ -402,7 +497,8 @@ public final class WorkItemQueryController {
           item.audit().updatedBy().map(Object::toString).orElse(null),
           availableActions.stream()
               .map(WorkItemTransitionController::response)
-              .toList());
+              .toList(),
+          summary.map(WorkItemSummaryResponse::from).orElse(null));
     }
   }
 

@@ -7,6 +7,8 @@ import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.MemberRole;
 import io.crewscope.domain.team.MemberRoleId;
 import io.crewscope.domain.team.TeamMemberId;
@@ -110,6 +112,34 @@ public class JpaMemberRoleRepositoryAdapter implements MemberRoleRepository {
                 .stream()
                 .map(mapper::toDomain)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countEffectiveOwners(
+            OrganizationId organizationId, TeamId teamId, UtcTimestamp occurredAt, TeamMemberId excluding) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT COUNT(DISTINCT grant.teamMemberId)
+                        FROM MemberRoleEntity grant, TeamMemberEntity member, TeamRoleEntity role
+                        WHERE grant.organizationId = :organizationId AND grant.teamId = :teamId
+                          AND grant.status = 'ACTIVE' AND grant.scopeType = 'TEAM'
+                          AND grant.validFrom <= :now
+                          AND (grant.expiresAt IS NULL OR grant.expiresAt > :now)
+                          AND member.organizationId = :organizationId AND member.teamId = :teamId
+                          AND member.id = grant.teamMemberId AND member.status = 'ACTIVE'
+                          AND member.id <> :excluding
+                          AND role.organizationId = :organizationId AND role.teamId = :teamId
+                          AND role.id = grant.teamRoleId
+                          AND role.roleKey = 'TEAM_OWNER' AND role.status = 'ACTIVE'
+                        """,
+                        Long.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("now", Objects.requireNonNull(occurredAt).value())
+                .setParameter("excluding", Objects.requireNonNull(excluding).value())
+                .getSingleResult();
     }
 
     private void verify(int affected, MemberRole value, long expected) {

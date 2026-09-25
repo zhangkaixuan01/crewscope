@@ -294,6 +294,9 @@ class TaskCredentialGrantEntity extends WorkScopedRow {
     @Column(name = "execution_assignment_id", nullable = false) UUID executionAssignmentId;
     @Column(name = "execution_assignment_version", nullable = false) long executionAssignmentVersion;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "responsibility_snapshot_hash", nullable = false, length = 64, columnDefinition = "char(64)") String responsibilitySnapshotHash;
+    // M9b-A07 authorization dimension; NULL marks a legacy scope without the dimension.
+    @Column(name = "execution_member_id") UUID executionMemberId;
+    @Column(name = "execution_member_authorization_version") Long executionMemberAuthorizationVersion;
     @Column(name = "policy_snapshot_id", nullable = false) UUID policySnapshotId;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "policy_snapshot_hash", nullable = false, length = 64, columnDefinition = "char(64)") String policySnapshotHash;
     @Column(name = "safety_overlay_id", nullable = false) UUID safetyOverlayId;

@@ -3,6 +3,19 @@ import { FixtureScopeGateway, fixtureIds, fixtureMembers } from '../../test/scop
 import { createScopeStore } from './store'
 
 describe('scope store', () => {
+  it('only accepts the newest forced member read in the same Team', async () => {
+    const gateway = new FixtureScopeGateway()
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
+    let resolve!: (members: typeof fixtureMembers[typeof fixtureIds.teamPlatform]) => void
+    gateway.listMembers = vi.fn().mockImplementationOnce(() => new Promise(yes => { resolve = yes })).mockResolvedValue([])
+    const old = store.loadMembers(true)
+    await store.loadMembers(true)
+    resolve(fixtureMembers[fixtureIds.teamPlatform]!)
+    await old
+    expect(store.state.members).toEqual([])
+    expect(store.state.membersLoading).toBe(false)
+  })
   it('restores a Team and WorkProject selected by URL identity', async () => {
     const store = createScopeStore(new FixtureScopeGateway(), bootstrapPrincipal)
 
@@ -13,13 +26,13 @@ describe('scope store', () => {
     expect(store.selectedProject.value?.key).toBe('SEC')
   })
 
-  it('canonicalizes unknown URL scope to the first accessible Team and project', async () => {
+  it('does not substitute another project for an explicit inaccessible project', async () => {
     const store = createScopeStore(new FixtureScopeGateway(), bootstrapPrincipal)
 
     const selection = await store.synchronize(crypto.randomUUID(), crypto.randomUUID())
 
-    expect(selection).toEqual({ teamId: fixtureIds.teamPlatform, projectId: fixtureIds.projectCrewScope })
-    expect(store.state.phase).toBe('ready')
+    expect(selection.projectId).toBeNull()
+    expect(store.state.phase).toBe('error')
   })
 
   it('refreshes the active Team member list after a guarded add command', async () => {
@@ -34,6 +47,79 @@ describe('scope store', () => {
     expect(gateway.addedPrincipalIds).toEqual([newPrincipalId])
     expect(store.state.members.some(member => member.userPrincipalId === newPrincipalId)).toBe(true)
     expect(store.state.memberCommandPending).toBe(false)
+  })
+
+  it('suspends a member through the current version and re-reads the list', async () => {
+    const gateway = new FixtureScopeGateway()
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+    await store.loadMembers()
+
+    await store.suspendMember(fixtureIds.memberSecond)
+
+    const suspended = store.state.members.find(member => member.id === fixtureIds.memberSecond)
+    expect(suspended?.status).toBe('SUSPENDED')
+    expect(suspended?.version).toBe(1)
+    expect(suspended?.authorizationVersion).toBe(2)
+    expect(gateway.lifecycleCommands).toEqual([{
+      action: 'suspend', memberId: fixtureIds.memberSecond, memberVersion: 0,
+      idempotencyKey: expect.any(String),
+    }])
+  })
+
+  it('reactivation restores access without reviving revoked role grants', async () => {
+    const gateway = new FixtureScopeGateway()
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+    await store.loadMembers()
+
+    await store.grantRole(fixtureIds.memberSecond, 'TEAM_LEAD')
+    await store.suspendMember(fixtureIds.memberSecond)
+    await store.activateMember(fixtureIds.memberSecond)
+
+    const reactivated = store.state.members.find(member => member.id === fixtureIds.memberSecond)
+    expect(reactivated?.status).toBe('ACTIVE')
+    expect(reactivated?.roles).toEqual([])
+    expect(reactivated?.grants).toEqual([])
+  })
+
+  it('leaves the Team for the viewer own membership only', async () => {
+    const gateway = new FixtureScopeGateway()
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+    await store.loadMembers()
+
+    await store.leaveTeam()
+
+    const self = store.state.members.find(member => member.id === fixtureIds.memberOwner)
+    expect(self?.status).toBe('LEFT')
+    expect(gateway.lifecycleCommands.map(command => command.action)).toEqual(['leave'])
+  })
+
+  it('runs a handover from preview through processing while keeping the job in state', async () => {
+    const gateway = new FixtureScopeGateway()
+    const assignment = { assignmentId: 'assignment-1', workItemId: '00000000-0000-0000-0000-000000000901', role: 'OWNER', version: 3 }
+    gateway.responsibilities[fixtureIds.memberSecond] = [assignment]
+    const store = createScopeStore(gateway, bootstrapPrincipal)
+    await store.synchronize(fixtureIds.teamPlatform)
+    await store.loadMembers()
+
+    const preview = await store.previewResponsibilities(fixtureIds.memberSecond, 'OWNER')
+    expect(preview).toEqual([assignment])
+
+    const created = await store.createHandover({
+      sourceMemberId: fixtureIds.memberSecond,
+      targetPrincipalId: fixtureIds.principal,
+      role: 'OWNER',
+    })
+    expect(created.status).toBe('PENDING')
+    expect(store.state.handoverJob?.id).toBe(created.id)
+    expect(store.state.handoverPending).toBe(false)
+
+    const processed = await store.processHandover(created.id)
+    expect(processed.status).toBe('COMPLETED')
+    expect(processed.items.map(item => item.state)).toEqual(['DONE'])
+    expect(store.state.handoverJob?.status).toBe('COMPLETED')
   })
 
   it('creates, refreshes and selects a WorkProject under the active Team', async () => {
@@ -71,10 +157,10 @@ describe('scope store', () => {
     await expect(store.createWorkProject(
       { key: 'CREW', name: 'CrewScope Platform' },
       'project-command-retry',
-    )).rejects.toThrow('projection is not ready')
+    )).rejects.toThrow('result is not available')
 
     expect(store.state.projectCommandRetryable).toBe(true)
-    expect(store.state.projectCommandErrorMessage).toContain('最新事实暂时不可用')
+    expect(store.state.projectCommandErrorMessage).toContain('结果仍待确认')
     expect(store.state.projectCommandPending).toBe(false)
   })
 

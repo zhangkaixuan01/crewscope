@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { secureId } from '../api/secureId'
 import { ArrowRight, Bot, Boxes, Building2, Cpu, Plus, ShieldCheck, Sparkles, UserRound } from '@lucide/vue'
-import { computed, inject, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -13,6 +14,9 @@ import { useAgentStore } from '../domains/agent/store'
 import type { AgentModelBindingSummary, AgentSummary, AgentTemplateSummary, CreateAgentInput } from '../domains/agent/types'
 import { useScopeStore } from '../domains/scope/store'
 import { agentSettingsSelection, withAgentSettingsRoute } from '../domains/settings/route'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
+
+const pageRequests = usePageRequestScope()
 
 const route = useRoute()
 const router = useRouter()
@@ -86,10 +90,16 @@ const selectedTemplate = computed(() => findExactTemplate(selectedAgent.value))
 const canConfigureSelected = computed(() => Boolean(selectedAgent.value
   && (selectedAgent.value.ownershipType === 'USER' || canManageTeamAgents.value)))
 const createCommand = computed(() => agentStore.state.command.operation === 'create' ? agentStore.state.command : null)
+watch(() => [scopeStore.state.selectedTeamId, selection.value.agentId], () => {
+  createOpen.value = false
+  agentStore.clearCommand()
+}, { flush: 'sync' })
+onBeforeUnmount(() => agentStore.clearCommand())
 
 watch(
   () => scopeStore.state.selectedTeamId,
   async teamId => {
+    const pageOwner = pageRequests.capture()
     if (!teamId) return
     const teamChanged = activeTeamId !== null && activeTeamId !== teamId
     activeTeamId = teamId
@@ -99,6 +109,7 @@ watch(
         name: 'agent-settings',
         query: withAgentSettingsRoute(route.query, { teamId, agentId: null, configurationRevision: null }),
       })
+      if (!pageOwner.isCurrent()) return
     }
     agentStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
     await Promise.all([loadAgentsAndConfigurations(), loadTemplates()])
@@ -106,6 +117,11 @@ watch(
   { immediate: true },
 )
 
+// The directory, configurations and templates are Team-scoped reads, and the store isolates them by
+// its own scope generation: gating them on the page coordinate — which also covers the project the
+// scope store picks a beat after the Team — cancelled the per-agent configuration fan-out on every
+// fresh boot and left every card on "正在读取…" forever. A Team change resets the store state, so a
+// late continuation either runs against the new Team or stops at the phase check below.
 async function loadAgentsAndConfigurations(force = false, more = false): Promise<void> {
   await agentStore.loadAgents(more, force)
   if (agentStore.state.agents.phase !== 'ready') return
@@ -144,22 +160,27 @@ function openCreate(event?: MouseEvent, ownership: 'USER' | 'TEAM' = 'USER'): vo
 }
 
 async function closeCreate(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (createCommand.value?.phase === 'pending') return
   createOpen.value = false
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   createTrigger.value?.focus()
 }
 
 async function createAgent(input: CreateAgentInput): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const signature = JSON.stringify(input)
   if (signature !== createSignature.value) {
     createSignature.value = signature
-    createKey.value = crypto.randomUUID()
+    createKey.value = secureId()
   }
   const before = new Set(agents.value.map(agent => agent.id))
   const success = await agentStore.createAgent(input, createKey.value)
+  if (!pageOwner.isCurrent()) return
   if (!success) return
   await loadAgentsAndConfigurations(true)
+  if (!pageOwner.isCurrent()) return
   const created = agents.value.filter(agent => !before.has(agent.id))
   createOpen.value = false
   if (created.length === 1) await selectAgent(created[0]!)
@@ -167,10 +188,13 @@ async function createAgent(input: CreateAgentInput): Promise<void> {
 }
 
 async function selectAgent(agent: AgentSummary): Promise<void> {
+  const pageOwner = pageRequests.capture()
   await router.push(agentTarget(agent))
+  if (!pageOwner.isCurrent()) return
 }
 
 async function closeConfiguration(): Promise<void> {
+  const pageOwner = pageRequests.capture()
   const closedId = selectedAgent.value?.id
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
@@ -178,11 +202,14 @@ async function closeConfiguration(): Promise<void> {
     name: 'agent-settings',
     query: withAgentSettingsRoute(route.query, { teamId, agentId: null, configurationRevision: null }),
   })
+  if (!pageOwner.isCurrent()) return
   await nextTick()
+  if (!pageOwner.isCurrent()) return
   if (closedId) document.querySelector<HTMLElement>(`[data-agent-id="${closedId}"]`)?.focus()
 }
 
 async function selectRevision(revision: number): Promise<void> {
+  const pageOwner = pageRequests.capture()
   if (!selectedAgent.value || !scopeStore.state.selectedTeamId) return
   await router.push({
     name: 'agent-settings',
@@ -192,11 +219,14 @@ async function selectRevision(revision: number): Promise<void> {
       configurationRevision: revision,
     }),
   })
+  if (!pageOwner.isCurrent()) return
 }
 
 async function refreshSelectedAgent(): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
   const profileId = selection.value.agentId
   await loadAgentsAndConfigurations(true)
+  if (!pageOwner.isCurrent()) return
   const refreshed = agents.value.find(agent => agent.id === profileId)
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
@@ -208,6 +238,7 @@ async function refreshSelectedAgent(): Promise<void> {
       configurationRevision: refreshed?.currentConfigurationRevision ?? null,
     }),
   })
+  if (!pageOwner.isCurrent()) return
 }
 
 function agentTarget(agent: AgentSummary) {

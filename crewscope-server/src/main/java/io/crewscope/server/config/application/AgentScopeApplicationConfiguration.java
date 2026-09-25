@@ -189,6 +189,12 @@ public class AgentScopeApplicationConfiguration {
   }
 
   @Bean
+  io.crewscope.application.team.MemberAuthorizationGuard memberAuthorizationGuard(
+      TeamMemberRepository members, PrincipalRepository principals) {
+    return new io.crewscope.application.team.MemberAuthorizationGuard(members, principals);
+  }
+
+  @Bean
   PersonalAgentInvocationService personalAgentInvocationService(
       io.crewscope.application.conversation.ConversationApplicationService conversationService,
       io.crewscope.application.conversation.TaskIntentApplicationService taskIntentService,
@@ -196,6 +202,7 @@ public class AgentScopeApplicationConfiguration {
       PersonalAgentExecutionContextResolver contextResolver,
       ExecutionRuntime executionRuntime,
       ConversationExecutionEventMapper eventMapper,
+      io.crewscope.application.team.MemberAuthorizationGuard memberAuthorizationGuard,
       TimeProvider timeProvider) {
     return new PersonalAgentInvocationService(
         conversationService,
@@ -204,6 +211,7 @@ public class AgentScopeApplicationConfiguration {
         contextResolver,
         executionRuntime,
         eventMapper,
+        memberAuthorizationGuard,
         timeProvider);
   }
 

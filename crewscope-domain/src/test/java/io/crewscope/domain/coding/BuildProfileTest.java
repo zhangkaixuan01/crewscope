@@ -169,6 +169,67 @@ class BuildProfileTest {
                 .isNoBroaderThan(baseOperations));
     }
 
+    @Test
+    void freezesLegacyV1HashForM9bRuntimeExtension() {
+        BuildProfile legacy = profile(BuildTool.MAVEN_WRAPPER, CommandCatalog.of(
+                CommandKind.TEST, command("command.mavenTest", List.of("./mvnw", "test"))));
+
+        // Golden value calculated before introducing a runtime discriminator. Old snapshots must
+        // continue using this v1 encoding, not a default-filled v2 serialization.
+        assertEquals("1408ff31d5108637107d70da0f8dbccb4802a0763e997a9e351e583b70a71c1b",
+                legacy.profileHash().value());
+        assertEquals(legacy.profileHash(), BuildProfile.reconstitute(
+                legacy.key(), legacy.version(), legacy.buildTool(), legacy.javaRelease(),
+                legacy.sandboxImage(), legacy.commandCatalog(), legacy.profileHash()).profileHash());
+    }
+
+    @Test
+    void doesNotMisrepresentNpmAsAnExistingJavaBuildTool() {
+        for (BuildTool tool : BuildTool.values()) {
+            assertThrows(DomainValidationException.class, () -> profile(tool,
+                    CommandCatalog.of(CommandKind.TEST,
+                            command("command.npmTest", List.of("npm", "run", "test")))));
+        }
+    }
+
+    @Test
+    void definesVersionedNodeProfileWithOrderIndependentHashAndRequiredSlots() {
+        BuildCommand prepare = command("command.npmPrepare", List.of("npm", "ci", "--ignore-scripts"));
+        BuildCommand compile = command("command.npmCompile", List.of("npm", "run", "build"));
+        BuildCommand test = command("command.npmTest", List.of("npm", "run", "test"));
+        Map<CommandKind, BuildCommand> firstOrder = new LinkedHashMap<>();
+        firstOrder.put(CommandKind.PREPARE, prepare);
+        firstOrder.put(CommandKind.COMPILE, compile);
+        firstOrder.put(CommandKind.TEST, test);
+        Map<CommandKind, BuildCommand> secondOrder = new LinkedHashMap<>();
+        secondOrder.put(CommandKind.TEST, test);
+        secondOrder.put(CommandKind.COMPILE, compile);
+        secondOrder.put(CommandKind.PREPARE, prepare);
+
+        BuildProfile first = BuildProfile.defineNode(
+                "node-24-npm-11", 1,
+                new SandboxImageReference("node@sha256:" + "b".repeat(64)),
+                new CommandCatalog(firstOrder));
+        BuildProfile second = BuildProfile.defineNode(
+                "node-24-npm-11", 1,
+                new SandboxImageReference("node@sha256:" + "b".repeat(64)),
+                new CommandCatalog(secondOrder));
+
+        assertEquals(2, first.schemaVersion());
+        assertEquals("24.19.0", first.nodeVersion().orElseThrow());
+        assertEquals("npm", first.packageManager().orElseThrow());
+        assertEquals("11.17.0", first.packageManagerVersion().orElseThrow());
+        assertEquals(first.reference(), second.reference());
+    }
+
+    @Test
+    void rejectsNodeProfileWithoutPrepareCompileAndTestSlots() {
+        assertThrows(DomainValidationException.class, () -> BuildProfile.defineNode(
+                "node-24-npm-11", 1,
+                new SandboxImageReference("node@sha256:" + "b".repeat(64)),
+                CommandCatalog.of(CommandKind.TEST, command("command.npmTest", List.of("npm", "run", "test")))));
+    }
+
     private static BuildProfile profile(BuildTool tool, CommandCatalog catalog) {
         return BuildProfile.define("maven-java-17", 1, tool, 17, IMAGE, catalog);
     }

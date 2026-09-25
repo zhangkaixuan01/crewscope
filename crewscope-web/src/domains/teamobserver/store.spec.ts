@@ -6,6 +6,15 @@ const platform = { organizationId: 'org-1', teamId: 'platform' }
 const security = { organizationId: 'org-1', teamId: 'security' }
 
 describe('TeamObserverStore', () => {
+  it('does not disguise an initial lost response as a resumable invocation', async () => {
+    const gateway = fixtureGateway({ invoke: vi.fn(async () => { throw new TypeError('network lost') }) })
+    const store = createTeamObserverStore(gateway)
+    store.activateScope(platform)
+    expect(await store.invoke('总结')).toBe(false)
+    expect(store.state.errorMessage).toContain('再次生成摘要将发起新调用')
+    expect(await store.retry()).toBe(false)
+    expect(gateway.invoke).toHaveBeenCalledTimes(1)
+  })
   it('creates a read-only session and completes one invocation', async () => {
     const gateway = fixtureGateway()
     const store = createTeamObserverStore(gateway)

@@ -59,7 +59,8 @@ describe('LarkNotificationAdmin', () => {
     await wrapper.get('.mapping-steps form').trigger('submit')
     expect(wrapper.emitted('verifyMember')?.[0]?.slice(0, 4)).toEqual([uuid(3), 6, uuid(6), 'ou_exact_identity'])
 
-    await wrapper.setProps({ command: command('success', 'lark-member-verify', uuid(8)) })
+    const complete = wrapper.emitted('verifyMember')![0]![5] as (proofId: string | null) => void
+    complete(uuid(8))
     await flushPromises()
     expect((exactInput.element as HTMLInputElement).value).toBe('')
     expect(wrapper.html()).not.toContain('ou_exact_identity')
@@ -76,6 +77,68 @@ describe('LarkNotificationAdmin', () => {
     expect(verify.attributes('disabled')).toBeDefined()
     await wrapper.get('.mapping-steps form').trigger('submit')
     expect(wrapper.emitted('verifyMember')).toBeUndefined()
+  })
+
+  it.each(['member', 'connection', 'version', 'binding', 'openId'] as const)('discards a late proof when %s changes, even after changing back', async change => {
+    const secondMember = { id: uuid(16), userPrincipalId: uuid(17), displayName: 'Other', status: 'ACTIVE', joinMethod: 'INVITED', joinedAt: '2026-08-27T01:00:00Z', version: 0 }
+    const wrapper = mountAdmin({ selectedTab: 'mapping' })
+    await wrapper.setProps({ members: [...wrapper.props().members, secondMember] as never })
+    await wrapper.get('input[type="password"]').setValue('ou_original')
+    await wrapper.get('.mapping-steps form').trigger('submit')
+    const complete = wrapper.emitted('verifyMember')![0]![5] as (proofId: string | null) => void
+    if (change === 'member') {
+      await wrapper.get('.mapping-steps select').setValue(uuid(16))
+      await wrapper.get('.mapping-steps select').setValue(uuid(6))
+    } else if (change === 'openId') {
+      await wrapper.get('input[type="password"]').setValue('ou_different')
+      await wrapper.get('input[type="password"]').setValue('')
+    } else {
+      const next = { ...connection, ...(change === 'connection' ? { connectionId: uuid(19) }
+        : change === 'version' ? { version: connection.version + 1 } : { providerBindingVersion: 7 }) }
+      await wrapper.setProps({ selectedConnection: next })
+      await wrapper.setProps({ selectedConnection: connection })
+    }
+    complete(uuid(8))
+    await wrapper.setProps({ command: command('success', 'lark-member-verify', uuid(8)) })
+    const confirm = wrapper.findAll('button').find(button => button.text().includes('确认映射'))!
+    expect(confirm.attributes('disabled')).toBeDefined()
+    await confirm.trigger('click')
+    expect(wrapper.emitted('confirmMapping')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps the original proof and command key after an unconfirmed mapping request', async () => {
+    const wrapper = mountAdmin({ selectedTab: 'mapping' })
+    await wrapper.get('input[type="password"]').setValue('ou_original')
+    await wrapper.get('.mapping-steps form').trigger('submit')
+    ;(wrapper.emitted('verifyMember')![0]![5] as (proof: string | null) => void)(uuid(8))
+    await flushPromises()
+    const confirm = wrapper.findAll('button').find(button => button.text().includes('确认映射'))!
+    await confirm.trigger('click')
+    const first = wrapper.emitted('confirmMapping')![0]!
+    ;(first[4] as (success: boolean) => void)(false)
+    await flushPromises()
+    await confirm.trigger('click')
+    const second = wrapper.emitted('confirmMapping')![1]!
+    expect(second.slice(0, 4)).toEqual(first.slice(0, 4))
+    ;(second[4] as (success: boolean) => void)(true)
+    await flushPromises()
+    expect(confirm.attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('closes and clears a rotation dialog when its original connection version changes', async () => {
+    const wrapper = mountAdmin()
+    await wrapper.findAll('button').find(button => button.text().includes('轮换凭证'))!.trigger('click')
+    const inputs = wrapper.get('[role="dialog"]').findAll('input')
+    await inputs[0]!.setValue('app-original')
+    await inputs[1]!.setValue('secret-original')
+    await wrapper.setProps({ selectedConnection: { ...connection, version: 5 } })
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.emitted('rotateConnection')).toBeUndefined()
+    await wrapper.findAll('button').find(button => button.text().includes('轮换凭证'))!.trigger('click')
+    expect(wrapper.get('[role="dialog"]').findAll('input').map(input => (input.element as HTMLInputElement).value)).toEqual(['', ''])
+    wrapper.unmount()
   })
 
   it('allows explicit redelivery only for FAILED_FINAL and disables commands offline', async () => {

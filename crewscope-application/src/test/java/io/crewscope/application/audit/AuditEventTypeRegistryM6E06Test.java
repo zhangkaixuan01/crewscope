@@ -21,11 +21,15 @@ class AuditEventTypeRegistryM6E06Test {
 
     @Test
     void registersTheReviewedM3ToM7Coordinates() {
-        assertEquals(110, registry.size());
+        assertEquals(120, registry.size());
+        assertCategory("TEAM_MEMBER_SUSPENDED", SchemaVersion.V1, AuditEventCategory.TEAM);
+        assertCategory("TEAM_OWNERSHIP_TRANSFERRED", SchemaVersion.V1, AuditEventCategory.TEAM);
+        assertCategory("WORK_ITEM_CONTENT_UPDATED", SchemaVersion.V1, AuditEventCategory.WORK);
         assertCategory("WORK_ITEM_CREATED", SchemaVersion.V1, AuditEventCategory.WORK);
         assertCategory("TASK_DELEGATED_TO_AGENT", SchemaVersion.V2, AuditEventCategory.EXECUTION);
         assertCategory("AGENT_PROFILE_CREATED", SchemaVersion.V1, AuditEventCategory.AGENT);
         assertCategory("MODEL_CONNECTION_VERIFIED", SchemaVersion.V1, AuditEventCategory.MODEL);
+        assertCategory("MODEL_CONNECTION_ACTIVATED", SchemaVersion.V1, AuditEventCategory.MODEL);
         assertCategory("REVIEW_DECISION_RECORDED", SchemaVersion.V1, AuditEventCategory.REVIEW);
         assertCategory("ACTION_BUNDLE_CONFIRMED", SchemaVersion.V1, AuditEventCategory.ACTION);
         assertCategory(

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { LockKeyhole, UsersRound, X } from '@lucide/vue'
-import { nextTick, onMounted, ref } from 'vue'
+import { inject, nextTick, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import type { ConversationVisibility } from '../../domains/conversation/types'
+import type { PrincipalScope } from '../../domains/principal/types'
+import { clearConversationCreateDraft, readConversationCreateDraft, writeConversationCreateDraft } from '../../domains/conversation/createDraft'
+import { AUTH_PRINCIPAL } from '../../app/auth'
 
 const props = withDefaults(defineProps<{
+  scope: PrincipalScope | null
   pending?: boolean
   error?: string | null
 }>(), {
@@ -21,10 +25,27 @@ const title = ref('')
 const visibility = ref<ConversationVisibility>('PRIVATE')
 const dialog = ref<HTMLElement | null>(null)
 const titleInput = ref<HTMLInputElement | null>(null)
+const principal = inject(AUTH_PRINCIPAL)
 
 onMounted(() => {
+  restoreDraft()
   void nextTick(() => titleInput.value?.focus())
 })
+
+// Closing or escaping keeps the in-progress title as a draft; only a successful create clears it.
+watch([title, visibility], () => {
+  if (!props.scope) return
+  if (title.value.trim()) writeConversationCreateDraft(props.scope, { title: title.value, visibility: visibility.value }, principal)
+  else clearConversationCreateDraft(props.scope, principal)
+})
+
+function restoreDraft(): void {
+  if (!props.scope || title.value.trim()) return
+  const draft = readConversationCreateDraft(props.scope, principal)
+  if (!draft) return
+  title.value = draft.title
+  visibility.value = draft.visibility
+}
 
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
@@ -63,16 +84,16 @@ function submit(): void {
       <form @submit.prevent="submit">
         <label>
           <span>标题</span>
-          <input ref="titleInput" v-model="title" maxlength="200" autocomplete="off" placeholder="例如：规划 GitHub Provider 接入" />
+          <input ref="titleInput" v-model="title" maxlength="200" autocomplete="off" :disabled="pending" placeholder="例如：规划 GitHub Provider 接入" />
         </label>
         <fieldset>
           <legend>可见范围</legend>
           <label :class="{ active: visibility === 'PRIVATE' }">
-            <input v-model="visibility" type="radio" value="PRIVATE" />
+            <input v-model="visibility" type="radio" value="PRIVATE" :disabled="pending" />
             <LockKeyhole :size="17" /><span><strong>私有对话</strong><small>仅 Owner、Personal Agent 与显式参与者可见</small></span>
           </label>
           <label :class="{ active: visibility === 'TEAM' }">
-            <input v-model="visibility" type="radio" value="TEAM" />
+            <input v-model="visibility" type="radio" value="TEAM" :disabled="pending" />
             <UsersRound :size="17" /><span><strong>团队对话</strong><small>当前 Team 成员可发现，写入仍需 Participant 资格</small></span>
           </label>
         </fieldset>

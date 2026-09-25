@@ -6,6 +6,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.team.TeamAccessContext;
+import io.crewscope.application.workitem.WorkItemCursorScope;
+import io.crewscope.application.workitem.WorkItemFilter;
+import io.crewscope.application.workitem.WorkItemSort;
 import io.crewscope.application.workitem.WorkItemTimelineCursor;
 import io.crewscope.application.workitem.WorkItemTimelineEvent;
 import io.crewscope.application.workitem.WorkItemTimelinePage;
@@ -22,8 +25,15 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -105,11 +115,27 @@ class WorkItemTimelineControllerTest {
   @Test
   void rejectsMalformedForeignCursorsLimitsAndIdentifiers() {
     WorkItemTimelineCursor cursor = event().cursor();
+    // A well-signed v2 WorkItem list cursor is still foreign here: each endpoint binds its own
+    // cursor format, so a token from the list query must not decode as a timeline position.
+    WorkItemCursorScope scope =
+        WorkItemCursorScope.of(
+            organizationId,
+            teamId,
+            projectId,
+            actor.id(),
+            WorkItemSort.UPDATED_AT,
+            WorkItemFilter.ALL);
     String foreign =
-        new WorkItemCursorCodec()
+        new WorkItemCursorCodec(
+                new TeamActivityCursorKeyRing("k1", Map.of("k1", key())),
+                Clock.fixed(Instant.parse("2026-08-08T10:00:30Z"), ZoneOffset.UTC),
+                Duration.ofMinutes(30))
             .encode(
                 new io.crewscope.application.workitem.WorkItemCursor(
-                    cursor.occurredAt(), workItemId));
+                    scope,
+                    Optional.of(cursor.occurredAt()),
+                    OptionalInt.empty(),
+                    workItemId));
 
     client
         .get()
@@ -171,5 +197,13 @@ class WorkItemTimelineControllerTest {
         + "/work-items/"
         + workItemId
         + "/timeline";
+  }
+
+  private static String key() {
+    byte[] value = new byte[32];
+    for (int index = 0; index < value.length; index++) {
+      value[index] = (byte) (11 + index);
+    }
+    return Base64.getEncoder().encodeToString(value);
   }
 }

@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { CrewScopeApiError } from '../../api/client'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import type { CodingGateway } from '../../domains/coding/gateway'
 import { CODING_STORE, createCodingStore } from '../../domains/coding/store'
 import type { CodingScope } from '../../domains/coding/types'
@@ -15,7 +17,7 @@ const workItemId = '00000000-0000-4000-8000-00000000f301'
 const bindingId = '00000000-0000-4000-8000-00000000f302'
 
 describe('CodingTargetFormSection', () => {
-  beforeEach(() => sessionStorage.clear())
+  beforeEach(() => { sessionStorage.clear(); clearF05UserData(); localStorage.clear(); activateF05Identity('00000000-0000-0000-0000-000000000901') })
 
   it('applies server defaults, requires Ref Preflight and emits the exact Profile reference', async () => {
     const gateway = fixtureGateway()
@@ -86,10 +88,22 @@ function mountSection(gateway: CodingGateway) {
   return mount(CodingTargetFormSection, {
     props: { scope, workItemId },
     global: {
-      provide: { [CODING_STORE as symbol]: createCodingStore(gateway) },
+      provide: {
+        [CODING_STORE as symbol]: createCodingStore(gateway),
+        [AUTH_PRINCIPAL as symbol]: { ...fixturePrincipal },
+      },
       stubs: { RouterLink: { template: '<a><slot /></a>' } },
     },
   })
+}
+
+const fixturePrincipal = {
+  id: fixtureIds.principal,
+  accountId: '00000000-0000-0000-0000-000000000901',
+  displayName: '张凯旋',
+  organizationId: fixtureIds.organization,
+  role: 'Team Member',
+  permissions: new Set<string>(),
 }
 
 function latestChange(wrapper: ReturnType<typeof mountSection>) {
