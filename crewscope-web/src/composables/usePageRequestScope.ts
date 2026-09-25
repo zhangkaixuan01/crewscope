@@ -5,8 +5,15 @@ import { AUTH_PRINCIPAL } from '../app/auth'
 import { AUTH_STORE } from '../domains/identity/store'
 import { SCOPE_STORE } from '../domains/scope/store'
 
-/** Protects continuations owned by a mounted page, including A → B → A and identity changes. */
-export function usePageRequestScope(selection?: () => unknown) {
+/**
+ * Protects continuations owned by a mounted page, including A → B → A and identity changes.
+ *
+ * `routeSelection` narrows which route coordinates invalidate captured selections. Pages that
+ * write bypass query parameters themselves after refreshes (review focus, list filters) pass a
+ * whitelist so those writes cannot invalidate their own in-flight command continuations; the
+ * default still treats any route change as a selection change.
+ */
+export function usePageRequestScope(selection?: () => unknown, routeSelection?: () => unknown) {
   const route = useRoute()
   const auth = inject(AUTH_STORE, null)
   const principal = inject(AUTH_PRINCIPAL, null)
@@ -18,7 +25,8 @@ export function usePageRequestScope(selection?: () => unknown) {
   const coordinate = () => JSON.stringify([identityCoordinate(),
     scope?.state.selectedTeamId, scope?.state.selectedProjectId, selection?.()])
   const requests = createRequestScope(coordinate)
-  const selectionCoordinate = () => JSON.stringify([coordinate(), route.fullPath])
+  const routeCoordinate = routeSelection ?? (() => route.fullPath)
+  const selectionCoordinate = () => JSON.stringify([coordinate(), routeCoordinate()])
   const selected = createRequestScope(selectionCoordinate)
   watch(coordinate, requests.invalidate, { flush: 'sync' })
   watch(identityCoordinate, identity.invalidate, { flush: 'sync' })

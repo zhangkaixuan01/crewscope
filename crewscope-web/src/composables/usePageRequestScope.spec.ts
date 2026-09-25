@@ -1,6 +1,6 @@
 import { defineComponent, h, reactive } from 'vue'
 import { mount } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createMemoryHistory, createRouter, useRoute } from 'vue-router'
 import { AUTH_STORE } from '../domains/identity/store'
 import { SCOPE_STORE } from '../domains/scope/store'
 import { usePageRequestScope } from './usePageRequestScope'
@@ -33,5 +33,33 @@ describe('page continuation ownership', () => {
     wrapper.unmount()
     expect(last.isCurrent()).toBe(false)
     expect(last.signal.aborted).toBe(true)
+  })
+
+  it('keeps selections current across bypass query writes when a route whitelist is supplied', async () => {
+    const scope = { state: reactive({ selectedTeamId: 'A', selectedProjectId: 'p' }) }
+    const auth = { state: reactive({ session: { account: { accountId: 'user', securityVersion: 1 } } }) }
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/work', name: 'work', component: { template: '<div />' } }] })
+    await router.push('/work?task=t1')
+    let requests!: ReturnType<typeof usePageRequestScope>
+    mount(defineComponent({
+      setup() {
+        const route = useRoute()
+        // WorkPage-style whitelist: a page that writes its own bypass query parameters
+        // (review selection) keys command continuations on the routed task/attempt only.
+        requests = usePageRequestScope(undefined, () => JSON.stringify([
+          route.path, route.query.task, route.query.attempt,
+        ]))
+        return () => h('div')
+      },
+    }), {
+      global: { plugins: [router], provide: { [SCOPE_STORE as symbol]: scope, [AUTH_STORE as symbol]: auth } },
+    })
+    const owner = requests.captureSelection()
+    await router.replace('/work?task=t1&review=r9')
+    expect(owner.isCurrent()).toBe(true)
+    await router.replace('/work?task=t1&review=r9&focus=3')
+    expect(owner.isCurrent()).toBe(true)
+    await router.replace('/work?task=t2&review=r9')
+    expect(owner.isCurrent()).toBe(false)
   })
 })

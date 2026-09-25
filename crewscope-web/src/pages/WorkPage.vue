@@ -84,8 +84,6 @@ import {
 } from '../domains/workitem/types'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
-const pageRequests = usePageRequestScope()
-
 type WorkView = 'list' | 'board'
 type FilterValue<T extends string> = T | 'all'
 
@@ -100,6 +98,15 @@ const MAX_SELECTED_WORK_ITEMS = 100
 
 const route = useRoute()
 const router = useRouter()
+// Task command continuations key on the coding route coordinates only. The page itself writes
+// bypass query parameters after refreshes (review selection, focus keys, list filters); those
+// writes must not invalidate an in-flight command continuation, while unloading or switching
+// the routed work item/task/attempt/workspace still does.
+const pageRequests = usePageRequestScope(undefined, () => JSON.stringify([
+  route.path,
+  route.query.team, route.query.project, route.query.workItem,
+  route.query.task, route.query.attempt, route.query.workspace,
+]))
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
