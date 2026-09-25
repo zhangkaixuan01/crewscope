@@ -1371,6 +1371,20 @@ async function delegateToAgent(input: CreateTaskInput): Promise<void> {
   }
 }
 
+/** “仅分配”意图：复用既有 Executor 责任命令，不创建 Task、不启动执行。 */
+async function assignExecutorOnly(target: { agentPrincipalId: string }): Promise<void> {
+  try {
+    await workStore.assignExecutor(target.agentPrincipalId)
+  } catch {
+    // Store 已保留服务端原因并刷新责任链；对话框继续展示，成员可确认后重试。
+    return
+  }
+  showDelegate.value = false
+  const projectId = codingScope.value?.projectId
+  const workItemId = workStore.state.detail?.workItem.id
+  if (projectId && workItemId) taskStore.clearDelegationContext(projectId, workItemId)
+}
+
 async function retryDelegation(): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   try {
@@ -1392,6 +1406,7 @@ async function finishDelegation(taskId: string | null): Promise<void> {
     clearCodingTargetDraft(codingScope.value, workItemId, principal)
     clearTaskDelegationDraft(codingScope.value, codingScope.value.projectId, workItemId, principal)
     taskStore.clearDelegationPreflight(codingScope.value.projectId, workItemId)
+    taskStore.clearDelegationContext(codingScope.value.projectId, workItemId)
   }
   taskStore.clearCreate()
   if (taskId && workItemId) {
@@ -1567,12 +1582,12 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       v-if="showDelegate && workStore.state.detail && codingScope"
       :work-item="workStore.state.detail.workItem"
       :coding-scope="codingScope"
-      :responsibilities="workStore.state.responsibilities"
-      :submitting="taskStore.state.createPhase === 'submitting'"
+      :submitting="taskStore.state.createPhase === 'submitting' || workStore.state.responsibilityCommandPending === 'executor'"
       :retryable="taskStore.state.createRetryable"
-      :error-message="taskStore.state.createErrorMessage"
+      :error-message="taskStore.state.createErrorMessage ?? workStore.state.responsibilityCommandErrorMessage"
       :conversation-source="taskConversationSource"
       :on-submit="delegateToAgent"
+      :on-assign="assignExecutorOnly"
       :on-retry="retryDelegation"
       @close="closeDelegate"
     />

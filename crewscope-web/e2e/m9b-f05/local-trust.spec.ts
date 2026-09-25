@@ -97,7 +97,7 @@ test.describe('M9b-F05 local content trust', () => {
     await expect(comment()).toHaveValue('先记录结论，稍后补证据')
 
     // A successful submit removes exactly this revision's draft.
-    await page.getByRole('button', { name: '发送评论' }).click()
+    await page.getByRole('button', { name: '发布评论' }).click()
     await expect(page.getByText('先记录结论，稍后补证据').last()).toBeVisible()
     await openDrawer()
     await expect(comment()).toHaveValue('')
@@ -105,7 +105,7 @@ test.describe('M9b-F05 local content trust', () => {
     // A failed submit keeps the draft for retry.
     await comment().fill('失败后要保留的草稿')
     world.commentFail = true
-    await page.getByRole('button', { name: '发送评论' }).click()
+    await page.getByRole('button', { name: '发布评论' }).click()
     await expect(page.getByText('提交结果尚未确认')).toBeVisible()
     await openDrawer()
     await expect(comment()).toHaveValue('失败后要保留的草稿')

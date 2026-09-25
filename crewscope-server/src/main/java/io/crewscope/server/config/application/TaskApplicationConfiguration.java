@@ -5,6 +5,7 @@ import io.crewscope.application.agent.AgentModelGovernance;
 import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.coding.BuildProfileCatalog;
 import io.crewscope.application.coding.CodingTargetSnapshotRepository;
+import io.crewscope.application.coding.ProjectExecutionDefaultsApplicationService;
 import io.crewscope.application.coding.CodingTargetSelectionService;
 import io.crewscope.application.coding.CodingTaskTimelinePublisher;
 import io.crewscope.application.coding.CodingTaskEventCompletionPolicy;
@@ -28,11 +29,14 @@ import io.crewscope.application.model.ModelConnectionAvailabilityVerifier;
 import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
+import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
+import io.crewscope.application.responsibility.ResponsibilityQueryService;
 import io.crewscope.application.runtime.RuntimeObservationRepository;
 import io.crewscope.application.runtime.RuntimeObservationService;
 import io.crewscope.application.runtime.CodingRuntimeOperationsPort;
 import io.crewscope.application.action.TeamActionReconciliationHealthRepository;
 import io.crewscope.application.task.AgentTaskCreationService;
+import io.crewscope.application.task.DelegationContextService;
 import io.crewscope.application.task.MemberTaskCommandService;
 import io.crewscope.application.task.ConversationTaskLinkRepository;
 import io.crewscope.application.task.AgentInterruptRepository;
@@ -197,6 +201,33 @@ public class TaskApplicationConfiguration {
     }
 
     @Bean
+    DelegationContextService delegationContextService(
+            WorkItemAccessPolicy workItemAccessPolicy,
+            ResponsibilityQueryService responsibilityQueryService,
+            ResponsibilityAssignmentRepository responsibilityAssignmentRepository,
+            AgentProfileRepository agentProfileRepository,
+            PrincipalRepository principalRepository,
+            TeamMembershipQuery teamMembershipQuery,
+            ProjectExecutionDefaultsApplicationService projectExecutionDefaultsApplicationService,
+            TaskRepository taskRepository,
+            TaskExecutionRepository taskExecutionRepository,
+            TransactionExecutor transactionExecutor,
+            TimeProvider timeProvider) {
+        return new DelegationContextService(
+                workItemAccessPolicy,
+                responsibilityQueryService,
+                responsibilityAssignmentRepository,
+                agentProfileRepository,
+                principalRepository,
+                teamMembershipQuery,
+                projectExecutionDefaultsApplicationService,
+                taskRepository,
+                taskExecutionRepository,
+                transactionExecutor,
+                timeProvider);
+    }
+
+    @Bean
     AgentTaskCreationService agentTaskCreationService(
             WorkItemAccessPolicy workItemAccessPolicy,
             WorkItemRepository workItemRepository,
@@ -223,7 +254,8 @@ public class TaskApplicationConfiguration {
             TimeProvider timeProvider,
             TaskCreationPolicySpec taskCreationPolicySpec,
             TaskAgentSelectionService taskAgentSelectionService,
-            ResolvedAgentPolicySnapshotService resolvedAgentPolicySnapshotService) {
+            ResolvedAgentPolicySnapshotService resolvedAgentPolicySnapshotService,
+            ResponsibilityAssignmentService responsibilityAssignmentService) {
         RepositoryBindingPreflightPort repositoryPreflight =
                 repositoryPreflightPorts.getIfAvailable(() -> (binding, baselineRef) -> {
                     throw new RepositoryBindingPreflightException(
@@ -256,7 +288,8 @@ public class TaskApplicationConfiguration {
                 timeProvider,
                 taskCreationPolicySpec,
                 taskAgentSelectionService,
-                resolvedAgentPolicySnapshotService);
+                resolvedAgentPolicySnapshotService,
+                responsibilityAssignmentService);
     }
 
     @Bean

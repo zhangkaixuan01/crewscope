@@ -183,6 +183,74 @@ public class JdbcWorkItemSummaryRepositoryAdapter implements WorkItemSummaryRepo
         },
         withArgs(scope, requested));
 
+    // SQL 5 — the completed current attempt's delivery facts: the newest coding diff with its
+    // latest test evidence, else the newest Agent run's terminal artifact. Non-completed or
+    // multi-task items keep empty results; the summary never guesses a delivery that did not land.
+    Map<WorkItemId, DeliveryFacts> deliveries = new HashMap<>();
+    jdbc.query(
+        """
+        SELECT task.work_item_id, task.current_execution_id AS execution_id,
+               da.file_count, da.additions, da.deletions, da.final_hash,
+               st.passed AS test_passed,
+               ar.terminal_result_artifact_id
+        FROM crewscope.task task
+        JOIN crewscope.task_execution execution
+          ON execution.organization_id = task.organization_id
+         AND execution.team_id = task.team_id
+         AND execution.id = task.current_execution_id
+         AND execution.status = 'COMPLETED'
+        LEFT JOIN LATERAL (
+            SELECT ew.id
+              FROM crewscope.execution_workspace ew
+             WHERE ew.organization_id = task.organization_id
+               AND ew.team_id = task.team_id
+               AND ew.task_execution_id = task.current_execution_id
+             ORDER BY ew.attempt DESC, ew.created_at DESC
+             LIMIT 1
+        ) ew ON true
+        LEFT JOIN LATERAL (
+            SELECT da.file_count, da.additions, da.deletions, da.final_hash
+              FROM crewscope.diff_artifact da
+             WHERE da.execution_workspace_id = ew.id
+             ORDER BY da.diff_generation DESC, da.created_at DESC
+             LIMIT 1
+        ) da ON true
+        LEFT JOIN LATERAL (
+            SELECT (st.failure_classification IS NULL) AS passed
+              FROM crewscope.test_evidence st
+             WHERE st.organization_id = task.organization_id
+               AND st.team_id = task.team_id
+               AND st.task_execution_id = task.current_execution_id
+             ORDER BY st.evidence_sequence DESC, st.created_at DESC
+             LIMIT 1
+        ) st ON true
+        LEFT JOIN LATERAL (
+            SELECT ar.terminal_result_artifact_id
+              FROM crewscope.agent_run ar
+             WHERE ar.organization_id = task.organization_id
+               AND ar.team_id = task.team_id
+               AND ar.task_execution_id = task.current_execution_id
+             ORDER BY ar.run_sequence DESC
+             LIMIT 1
+        ) ar ON true
+        WHERE task.organization_id = ? AND task.team_id = ?%s
+          AND task.work_item_id IN (%s)
+        """.formatted(projectFilter.formatted("task"), idPlaceholders),
+        row -> {
+          deliveries.put(
+              new WorkItemId(row.getObject("work_item_id", java.util.UUID.class)),
+              new DeliveryFacts(
+                  Optional.ofNullable(row.getObject("execution_id", java.util.UUID.class)),
+                  Optional.ofNullable(row.getObject("final_hash", String.class)),
+                  Optional.ofNullable(row.getObject("file_count", Integer.class)),
+                  Optional.ofNullable(row.getObject("additions", Long.class)),
+                  Optional.ofNullable(row.getObject("deletions", Long.class)),
+                  Optional.ofNullable(row.getObject("test_passed", Boolean.class)),
+                  Optional.ofNullable(
+                      row.getObject("terminal_result_artifact_id", java.util.UUID.class))));
+        },
+        withArgs(scope, requested));
+
     Map<WorkItemId, WorkItemExecutionSummary> summaries = new HashMap<>();
     for (Map.Entry<WorkItemId, Counts> entry : counts.entrySet()) {
       WorkItemId workItemId = entry.getKey();
@@ -200,6 +268,11 @@ public class JdbcWorkItemSummaryRepositoryAdapter implements WorkItemSummaryRepo
         blocked = new ArrayList<>(blocked);
         blocked.add(WorkItemBlockedReason.reviewPending());
       }
+      Optional<DeliveryFacts> delivery = current
+          .filter(value -> value.executionStatus()
+              .filter(status -> status == TaskExecutionStatus.COMPLETED)
+              .isPresent())
+          .flatMap(value -> Optional.ofNullable(deliveries.get(workItemId)));
       summaries.put(
           workItemId,
           new WorkItemExecutionSummary(
@@ -214,8 +287,8 @@ public class JdbcWorkItemSummaryRepositoryAdapter implements WorkItemSummaryRepo
               current.flatMap(CurrentExecution::executionStatus),
               count.taskCount() > 1,
               List.copyOf(blocked),
-              Optional.empty(),
-              Optional.empty(),
+              delivery.flatMap(JdbcWorkItemSummaryRepositoryAdapter::resultSummary),
+              delivery.flatMap(JdbcWorkItemSummaryRepositoryAdapter::resultSourceReference),
               count.version(),
               observedAt));
     }
@@ -234,6 +307,34 @@ public class JdbcWorkItemSummaryRepositoryAdapter implements WorkItemSummaryRepo
     return executions.get(0).executionId().isPresent()
         ? Optional.of(executions.get(0))
         : Optional.empty();
+  }
+
+  /**
+   * A delivered coding attempt states its file facts and, only when a test ran, its verdict —
+   * a delivery without evidence never claims one. Non-coding deliveries keep the summary empty:
+   * the model output is not parsed into a list line, F03 owns that presentation.
+   */
+  private static Optional<String> resultSummary(DeliveryFacts facts) {
+    if (facts.finalHash().isEmpty()) {
+      return Optional.empty();
+    }
+    StringBuilder summary = new StringBuilder("已交付 ")
+        .append(facts.fileCount().orElseThrow()).append(" 个文件变更（+")
+        .append(facts.additions().orElseThrow()).append("/−")
+        .append(facts.deletions().orElseThrow()).append("）");
+    facts.testPassed().ifPresent(passed ->
+        summary.append("，测试").append(passed ? "通过" : "未通过"));
+    return Optional.of(summary.toString());
+  }
+
+  /** The diagnostic pointer names the exact attempt or artifact a later view can reopen. */
+  private static Optional<String> resultSourceReference(DeliveryFacts facts) {
+    if (facts.finalHash().isPresent()) {
+      return Optional.of("coding-attempt:" + facts.executionId().orElseThrow()
+          + "@" + facts.finalHash().orElseThrow());
+    }
+    return facts.terminalArtifactId()
+        .map(artifact -> "runtime-artifact:" + artifact);
   }
 
   private static List<WorkItemBlockedReason> blockedReasons(
@@ -279,6 +380,16 @@ public class JdbcWorkItemSummaryRepositoryAdapter implements WorkItemSummaryRepo
   }
 
   private record Counts(long version, WorkItemStatus status, int taskCount, int activeCount) {}
+
+  /** What the completed current attempt actually delivered, straight from the delivery tables. */
+  private record DeliveryFacts(
+      Optional<java.util.UUID> executionId,
+      Optional<String> finalHash,
+      Optional<Integer> fileCount,
+      Optional<Long> additions,
+      Optional<Long> deletions,
+      Optional<Boolean> testPassed,
+      Optional<java.util.UUID> terminalArtifactId) {}
 
   private record CurrentExecution(
       TaskId taskId,

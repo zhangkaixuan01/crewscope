@@ -1,6 +1,7 @@
 import type { TaskEventConnection, TaskGateway } from '../domains/task/gateway'
 import type {
   CreateTaskCommand,
+  DelegationContext,
   MemberTaskCommand,
   TaskAssociationPage,
   TaskAssociations,
@@ -18,6 +19,66 @@ import type {
   TaskSummary,
 } from '../domains/task/types'
 import { fixtureIds } from './scopeFixtures'
+
+export const agentProfileIds = {
+  personal: '00000000-0000-0000-0000-000000003511',
+  team: '00000000-0000-0000-0000-000000003512',
+} as const
+
+export const principalIds = {
+  owner: '00000000-0000-0000-0000-000000003521',
+  personalAgent: '00000000-0000-0000-0000-000000003522',
+  teamAgent: '00000000-0000-0000-0000-000000003523',
+} as const
+
+/** One unassigned, fully-authorized delegation context — the form's normal opening state. */
+export function delegationContextFixture(workItemId: string, projectId: string): DelegationContext {
+  return {
+    workItem: { id: workItemId, projectId, version: 3, title: '委托上下文夹具', status: 'IN_PROGRESS' },
+    responsibilities: [{
+      assignmentId: '00000000-0000-0000-0000-000000003531',
+      role: 'OWNER',
+      actorPrincipalId: principalIds.owner,
+      actorType: 'USER',
+      actorDisplayName: 'Owner',
+      actorAgentProfileId: null,
+      version: 0,
+    }],
+    candidates: [
+      {
+        agentProfileId: agentProfileIds.personal,
+        agentProfileVersion: 2,
+        agentPrincipalId: principalIds.personalAgent,
+        displayName: 'Owner Agent',
+        ownershipType: 'USER',
+        runtimeRole: 'SPECIALIST',
+        state: 'AVAILABLE',
+        reason: null,
+      },
+      {
+        agentProfileId: agentProfileIds.team,
+        agentProfileVersion: 1,
+        agentPrincipalId: principalIds.teamAgent,
+        displayName: 'Team Agent',
+        ownershipType: 'TEAM',
+        runtimeRole: 'TEAM_COORDINATOR',
+        state: 'AVAILABLE',
+        reason: null,
+      },
+    ],
+    defaults: {
+      version: 1,
+      repositoryBindingId: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置项目仓库' },
+      repositoryBindingVersion: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置项目仓库' },
+      branch: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '仓库绑定默认分支将被使用' },
+      buildProfile: { value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason: '尚未设置构建方案' },
+      agentProfileId: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+      agentProfileRevision: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+    },
+    activeExecution: false,
+    permissions: { canAssignResponsibility: true, canDelegate: true },
+  }
+}
 
 export const taskIds = {
   first: '00000000-0000-0000-0000-000000003101',
@@ -61,6 +122,20 @@ export class FixtureTaskGateway implements TaskGateway {
     workItemId: string
     selection: TaskDelegationSelection
   }> = []
+
+  delegationContextCalls: Array<{ projectId: string, workItemId: string }> = []
+  delegationContexts: Record<string, DelegationContext> = {}
+
+  async fetchDelegationContext(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+  ): Promise<DelegationContext> {
+    void scope
+    this.delegationContextCalls.push({ projectId, workItemId })
+    return structuredClone(this.delegationContexts[`${projectId}:${workItemId}`]
+      ?? delegationContextFixture(workItemId, projectId))
+  }
 
   async preflightDelegation(
     scope: TaskScope,

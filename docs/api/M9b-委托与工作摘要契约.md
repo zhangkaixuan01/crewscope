@@ -1,8 +1,8 @@
 # M9b：委托与工作摘要契约
 
-> 状态：2026-09-25 A06 已实现（工作项执行摘要、服务端稳定排序/筛选/分页、WorkDesk 分段分页、Inbox 来源上下文、主体目录全量化）；A05 委托编排尚未交付<br>
+> 状态：2026-09-25 A06 已实现（工作项执行摘要、服务端稳定排序/筛选/分页、WorkDesk 分段分页、Inbox 来源上下文、主体目录全量化）；同日 A05 委托编排已实现（delegation-context 一处置备、分配并启动命令、TASK 恢复坐标、resultSummary 生产侧）<br>
 > 依据：[M9b 实现边界与验收契约](../plans/M9b-实现边界与验收契约.md) §4.1/§1.1、[M9b 核心流程计划](../plans/M9b-核心流程与使用体验收口.md)<br>
-> 交付与验证：[A06 完成记录](../testing/M9b-A06-工作摘要与稳定查询完成.md)
+> 交付与验证：[A06 完成记录](../testing/M9b-A06-工作摘要与稳定查询完成.md)、[A05 完成记录](../testing/M9b-A05-委托编排完成.md)
 
 ## 1. 本包边界
 
@@ -116,12 +116,84 @@ GET /api/v1/organizations/{organizationId}/teams/{teamId}/principals
 
 `V42__work_item_query_indexes.sql`：`ix_work_item_project_updated (organization_id, team_id, project_id, updated_at DESC, id DESC)`——默认排序路径的覆盖入口。priority/dueAt 专用索引仅在 P4 规模验证（`WorkQueryScaleIntegrationTest` EXPLAIN）证明默认路径劣化时以独立迁移追加。
 
-## 9. A05 委托编排（占位）
+## 9. A05 委托编排
 
-A05 交付责任（Responsibility）领域模型与启动编排：委托表单、责任人候选联动、启动时的工作项/Task/执行三层事务。届时将补充：
+一次「交给 Agent 处理」= 一次只读置备 + 一条可恢复命令。责任领域原语与责任命令端点沿用既有契约（M3/M4），A05 只新增「一处置备」读端点与「分配并启动」载荷；评论路径零改动（§9.5）。
 
-- 责任分配写路径与候选集端点；
-- `resultSummary` / `resultSourceReference` 的生产侧填充；
-- 委托创建命令的幂等与恢复语义。
+### 9.1 委托上下文（一处置备）
 
-在此之前，本契约中的目录 `purpose=ASSIGNMENT` 仅服务既有表单的责任人候选展示。
+```http
+GET /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/delegation-context
+```
+
+只读、`Cache-Control: no-store`，授权与 `GET .../responsibilities` 同口径（requireVisibleWorkItem）。一次返回表单所需的全部服务端事实（`DelegationContextService`，readOnly 无事务副作用）：
+
+```json
+{
+  "workItem": { "id": "…", "projectId": "…", "version": 3, "title": "…", "status": "IN_PROGRESS" },
+  "responsibilities": [ { "assignmentId": "…", "role": "OWNER", "actorPrincipalId": "…",
+    "actorType": "USER", "actorDisplayName": "…", "actorAgentProfileId": null, "version": 0 } ],
+  "candidates": [ { "agentProfileId": "…", "agentProfileVersion": 2, "agentPrincipalId": "…",
+    "displayName": "…", "ownershipType": "USER", "runtimeRole": "CODING",
+    "state": "AVAILABLE", "reason": null } ],
+  "defaults": {
+    "version": 1,
+    "repositoryBindingId": { "value": "…", "source": "PROJECT_DEFAULT", "availability": "AVAILABLE", "reason": "…" },
+    "repositoryBindingVersion": { … }, "branch": { … },
+    "buildProfile": { "value": { "key": "maven-java-17", "version": 1, "profileHash": "…" }, … },
+    "agentProfileId": { "value": null, "source": "PROJECT_DEFAULT", "availability": "INHERITED", "reason": "…" },
+    "agentProfileRevision": { … }
+  },
+  "activeExecution": true,
+  "permissions": { "canAssignResponsibility": true, "canDelegate": true }
+}
+```
+
+- `candidates[].state` 五态：`AVAILABLE`（可分配）｜`ASSIGNED`（已是当前 ACTIVE EXECUTOR，沿用）｜`EXECUTOR_CONFLICT`（已有不同 ACTIVE EXECUTOR，reason 给出释放指引）｜`AGENT_DISABLED`（Agent 非 ACTIVE）｜`PRINCIPAL_INACTIVE`（Principal 不可用）。候选集 = ASSIGNMENT 目录语义 ∩ Agent Profile 事实。
+- `defaults` 直接嵌 A04 `DefaultField{value,source,availability,reason}`（每类配置一个服务端 resolver，A03/A04 定义、A05 消费）；前端按 §3.1 优先级解析（显式选择 → 已分配 EXECUTOR → 项目默认 → 引导配置），不重复选择已解析默认值。
+- `activeExecution`：当前 Task 的执行处于 `READY|RUNNING|WAITING|PAUSE_REQUESTED` 时为 true，驱动 R42「当前执行仍按原说明继续」提示（§9.5）。
+- `permissions`：`canAssignResponsibility` = `responsibility:manage`；`canDelegate` = 委托权威（WorkItem Owner / EXECUTOR 本人）。模型/构建预检不在 context 内做——选定 Agent 后仍走既有 `POST .../tasks/preflight`。
+
+### 9.2 分配并启动（扩展 DELEGATE_WORK_ITEM_TO_AGENT）
+
+`POST .../work-items/{workItemId}/tasks` 载荷新增可选字段：
+
+```json
+{ "executorAssignment": { "agentProfileId": "…" } }
+```
+
+不新建命令类型——仍是单事务、单 202 回执的一条可恢复命令（`AgentTaskCreationService.assignExecutorIfRequested`）：
+
+- **同 actor 沿用**：责任链已有同 Principal 的 ACTIVE EXECUTOR → 跳过分配直接沿用，此时命令只需要委托权威，不发生责任写。
+- **不同 ACTIVE EXECUTOR → 422 `validation_failed`**（`agentTask.executorAssignment`：`a different Executor is already active — release it explicitly first`），无 Task 落库；本命令**从不静默替换**任何人或 Agent 的责任。
+- **无 EXECUTOR**：链锁内重验 `responsibility:manage`（缺失 → 403 `policy_denied`，无 Task），随后以域原语 `ResponsibilityAssignmentService.assignExecutor` 同事务创建责任，`WORK_ITEM_EXECUTOR_ASSIGNED` 事件随命令自身的 correlation/幂等键同事务发出；分配失败与 Task 创建一起回滚，不留半提交。
+- Agent Profile 不存在 → 404；Principal 非 ACTIVE 或非 Task 编排型 → 422。
+- **requestHash 纳入 assignment 字段**（`agentProfileId` 或 `NONE`）：同幂等键不同载荷 = 422 幂等冲突；双击/重试同键同载荷 = 重放原回执，不二次分配、不二次建 Task。
+
+### 9.3 TASK 恢复坐标
+
+`CommandResult.ResourceType` 增加 `TASK`（projectScoped：teamId+projectId 必填，resourceId=Task.id）。命令完成时落 `receiptStore.saveResult`；`V47__command_result_task.sql` 重建 `ck_command_result_coordinate` 增加该分支。崩溃/超时后，执行者按幂等键查既有 `GET /command-results` 即得 Task 坐标——恢复不重复委托。
+
+### 9.4 resultSummary 生产规则（§2 字段的填充）
+
+`summary.resultSummary` / `resultSourceReference` 由 summary adapter 第五条批量 SQL 填充，规则与 A06「当前尝试」口径一致：
+
+- 单当前 Task 且其当前执行终态 `COMPLETED` 才可能有值；其余情形（多 Task、未完成、失败/取消终态）恒 null。
+- coding 尝试（存在 diff artifact）：`resultSummary` = 「已交付 {fileCount} 个文件变更（+{additions}/−{deletions}），测试{通过/未通过}」（join 形状镜像 coding 尝试查询）；`resultSourceReference` = `coding-attempt:{executionId}@{finalHash}`。
+- 非 coding：仅 `resultSourceReference` = `runtime-artifact:{terminalResultArtifactId}`；`resultSummary` 恒 null（模型结果的呈现归 F03）。
+
+### 9.5 仅分配、评论与 TaskIntent
+
+- **「仅分配」复用既有责任命令端点** `POST .../work-items/{workItemId}/responsibilities/executors`（自带 `responsibility:manage`、幂等与 If-Match），不创建 Task、不产生执行——责任与启动本就是两个意图。
+- **评论（R42）**：`POST .../comments` 仅落讨论记录；普通文本中的 `@ 名字` 是纯文本，不构成提及、不触发执行；前端按钮与占位文案明示「发布评论（记录讨论）」。已运行执行的补充要求不做热注入：表单提示「当前执行仍按原说明继续；补充要求请发布评论，或等本轮完成后开启新一轮」。评论发布与启动分开记录、分别幂等，重试互不重复；人工审查不因评论被绕过。
+- **TaskIntent 原入口零改动**：确认链路仍不建 Task；「配置 Coding Task」深链（`?delegate=coding`）打开升级后的统一表单——责任已由确认分配，表单自动进入「启动」模式。
+
+### 9.6 错误矩阵（A05 增量）
+
+| 场景 | 状态码 | `code` |
+|---|---|---|
+| executorAssignment 指向停用/非编排 Principal | 422 | `validation_failed` |
+| 不同 ACTIVE EXECUTOR 在位（需先显式释放） | 422 | `validation_failed` |
+| 无 `responsibility:manage` 但携带 assignment | 403 | `policy_denied` |
+| 同幂等键不同载荷（requestHash 不符） | 422 | 幂等冲突（既有语义） |
+| Agent Profile 不存在 | 404 | 既有边界 |

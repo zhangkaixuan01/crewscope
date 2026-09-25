@@ -8,11 +8,22 @@ import type { CodingScope, CodingTargetSelection } from '../../domains/coding/ty
 import { useCodingStore } from '../../domains/coding/store'
 import BaseButton from '../base/BaseButton.vue'
 
+/**
+ * Project-execution defaults (M9b-A04) the delegation form resolved for this WorkItem. Each field
+ * is optional; the section falls back to its own first-available choice wherever one is absent.
+ */
+export interface CodingTargetInitialDefaults {
+  repositoryBindingId: string | null
+  branch: string | null
+  buildProfile: { key: string, version: number, profileHash: string } | null
+}
+
 const props = withDefaults(defineProps<{
   scope: CodingScope
   workItemId: string
   disabled?: boolean
-}>(), { disabled: false })
+  initial?: CodingTargetInitialDefaults | null
+}>(), { disabled: false, initial: null })
 
 const emit = defineEmits<{
   change: [selection: CodingTargetSelection | null, valid: boolean]
@@ -29,6 +40,15 @@ const form = reactive({
 })
 const preflight = ref<{ bindingId: string, baselineRef: string, commit: string } | null>(null)
 const submitted = ref(false)
+// A provenance chip marks "the current value still equals the project default" — it is derived,
+// so a member who changes and returns to the default sees the chip again, honestly.
+const defaultRepositoryUsed = computed(() => props.initial?.repositoryBindingId != null
+  && form.repositoryBindingId === props.initial.repositoryBindingId)
+const defaultBranchUsed = computed(() => defaultRepositoryUsed.value
+  && props.initial?.branch != null
+  && form.baselineRef === props.initial.branch)
+const defaultProfileUsed = computed(() => props.initial?.buildProfile != null
+  && form.buildProfileCoordinate === profileCoordinate(props.initial.buildProfile))
 
 const repositoriesResource = computed(() => codingStore.state.repositories)
 const profilesResource = computed(() => codingStore.state.buildProfiles[props.workItemId] ?? null)
@@ -82,20 +102,40 @@ watch(
 
 watch(selectionValid, publish)
 
+/**
+ * Resolution order per the frozen defaults contract: the member's draft choice, then the project
+ * default, then the first available option. A value that came from the project default keeps its
+ * provenance chip until the member changes it.
+ */
 function applyDefaults(): void {
   if (['idle', 'loading'].includes(repositoriesResource.value.phase)
     || !profilesResource.value
     || ['idle', 'loading'].includes(profilesResource.value.phase)) return
-  const selectedRepository = repositories.value.find(item => item.id === form.repositoryBindingId)
-  if (!selectedRepository) {
-    form.repositoryBindingId = repositories.value[0]?.id ?? ''
-    form.baselineRef = repositories.value[0]?.defaultBranch ?? ''
-  }
-  const currentRepository = repositories.value.find(item => item.id === form.repositoryBindingId)
-  if (!form.baselineRef.trim()) form.baselineRef = currentRepository?.defaultBranch ?? ''
+  const initial = props.initial
+  const initialBranch = initial?.branch ?? null
+  const initialProfile = initial?.buildProfile ?? null
+  const repositoryPreference = form.repositoryBindingId
+    || initial?.repositoryBindingId
+    || ''
+  const resolvedRepository = repositories.value.find(item => item.id === repositoryPreference)
+  form.repositoryBindingId = resolvedRepository?.id ?? repositories.value[0]?.id ?? ''
 
-  const selectedProfile = profiles.value.find(item => profileCoordinate(item) === form.buildProfileCoordinate)
-  if (!selectedProfile) form.buildProfileCoordinate = profiles.value[0] ? profileCoordinate(profiles.value[0]) : ''
+  const currentRepository = repositories.value.find(item => item.id === form.repositoryBindingId)
+  if (!form.baselineRef.trim()) {
+    form.baselineRef = defaultRepositoryUsed.value && initialBranch
+      ? initialBranch
+      : currentRepository?.defaultBranch ?? ''
+  }
+
+  const profilePreference = form.buildProfileCoordinate
+    || (initialProfile ? profileCoordinate(initialProfile) : '')
+  const wantedProfile = profiles.value.find(item => profileCoordinate(item) === profilePreference)
+    ?? (initialProfile
+      ? profiles.value.find(item => item.key === initialProfile.key)
+      : undefined)
+  form.buildProfileCoordinate = wantedProfile
+    ? profileCoordinate(wantedProfile)
+    : profiles.value[0] ? profileCoordinate(profiles.value[0]) : ''
   publish()
 }
 
@@ -190,10 +230,10 @@ function canonicalPath(path: string): boolean {
     </div>
     <div v-else-if="profiles.length === 0" class="coding-state empty">当前 WorkItem 没有可用 BuildProfile，暂时不能创建 Coding Task。</div>
     <div v-else class="coding-fields">
-      <label><span>Repository</span><select v-model="form.repositoryBindingId" :disabled="disabled" @change="repositoryChanged"><option v-for="item in repositories" :key="item.id" :value="item.id">{{ item.repositoryKey }}</option></select></label>
-      <label><span>基线 Ref</span><div class="ref-field"><GitBranch :size="14" /><input v-model="form.baselineRef" maxlength="255" autocomplete="off" :disabled="disabled" placeholder="main"></div></label>
+      <label><span>Repository <small v-if="defaultRepositoryUsed">项目默认</small></span><select v-model="form.repositoryBindingId" :disabled="disabled" @change="repositoryChanged"><option v-for="item in repositories" :key="item.id" :value="item.id">{{ item.repositoryKey }}</option></select></label>
+      <label><span>基线 Ref <small v-if="defaultBranchUsed">项目默认分支</small></span><div class="ref-field"><GitBranch :size="14" /><input v-model="form.baselineRef" maxlength="255" autocomplete="off" :disabled="disabled" placeholder="main"></div></label>
       <label class="wide"><span>Allowed Paths <small>每行一个仓库相对路径，`.` 表示整个仓库</small></span><textarea v-model="form.allowedPaths" rows="3" maxlength="20000" :disabled="disabled" :aria-invalid="submitted && !pathsValid" placeholder="src/main&#10;pom.xml" /></label>
-      <label class="wide"><span>BuildProfile</span><select v-model="form.buildProfileCoordinate" :disabled="disabled"><option v-for="item in profiles" :key="profileCoordinate(item)" :value="profileCoordinate(item)">{{ item.key }} · v{{ item.version }} · {{ item.buildTool }} / Java {{ item.javaRelease }}</option></select><small v-if="profile">允许命令：{{ profile.commandKinds.join('、') }}</small></label>
+      <label class="wide"><span>BuildProfile <small v-if="defaultProfileUsed">项目默认</small></span><select v-model="form.buildProfileCoordinate" :disabled="disabled"><option v-for="item in profiles" :key="profileCoordinate(item)" :value="profileCoordinate(item)">{{ item.key }} · v{{ item.version }} · {{ item.buildTool }} / Java {{ item.javaRelease }}</option></select><small v-if="profile">允许命令：{{ profile.commandKinds.join('、') }}</small></label>
       <div class="preflight-row wide" aria-live="polite" aria-atomic="true">
         <BaseButton type="button" size="small" variant="secondary" :loading="preflightResource?.phase === 'loading'" :disabled="disabled || !form.baselineRef.trim() || !pathsValid" @click="runPreflight"><ShieldCheck :size="14" />验证 Ref</BaseButton>
         <span v-if="preflightCurrent" class="preflight-ok"><CheckCircle2 :size="14" />Preflight 通过 · <code>{{ preflight?.commit.slice(0, 12) }}</code></span>

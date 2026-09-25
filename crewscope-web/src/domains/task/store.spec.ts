@@ -178,6 +178,29 @@ describe('TaskStore', () => {
     expect(store.state.delegationPreflights).toEqual({})
   })
 
+  it('caches the delegation context per WorkItem and clears it after a responsibility-changing command', async () => {
+    const gateway = new FixtureTaskGateway()
+    const store = createTaskStore(gateway)
+    store.activateScope(platformScope)
+
+    const value = await store.loadDelegationContext(fixtureIds.projectCrewScope, taskIds.workItem)
+
+    expect(value?.workItem.id).toBe(taskIds.workItem)
+    expect(gateway.delegationContextCalls).toEqual([
+      { projectId: fixtureIds.projectCrewScope, workItemId: taskIds.workItem },
+    ])
+    expect(store.state.delegationContexts[`${fixtureIds.projectCrewScope}:${taskIds.workItem}`]?.phase).toBe('ready')
+
+    await store.loadDelegationContext(fixtureIds.projectCrewScope, taskIds.workItem)
+    expect(gateway.delegationContextCalls).toHaveLength(1) // stale-guarded reuse, not a refetch
+
+    store.clearDelegationContext(fixtureIds.projectCrewScope, taskIds.workItem)
+    expect(store.state.delegationContexts).toEqual({})
+
+    store.activateScope(securityScope)
+    expect(store.state.delegationContexts).toEqual({})
+  })
+
   it('reuses the exact idempotency key on retry and refreshes the server-authored Task identity', async () => {
     const gateway = new FixtureTaskGateway()
     const originalCreate = gateway.createTask.bind(gateway)

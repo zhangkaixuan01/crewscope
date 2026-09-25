@@ -4,6 +4,7 @@ import io.crewscope.application.coding.CreateCodingTargetCommand;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.task.AgentTaskCreationService;
 import io.crewscope.application.task.CreateAgentTaskCommand;
+import io.crewscope.application.task.ExecutorAssignmentInstruction;
 import io.crewscope.application.task.TaskConversationSource;
 import io.crewscope.application.task.TaskAgentExecutionSelection;
 import io.crewscope.application.task.TaskAgentSelectionRequest;
@@ -145,7 +146,8 @@ public final class TaskController {
             @Min(1) Long agentConfigurationRevision,
             @Valid ConversationSourceRequest conversationSource,
             @NotNull @Size(max = 200) Set<@NotNull UUID> providerBindingIds,
-            @Valid CodingTargetRequest codingTarget) {
+            @Valid CodingTargetRequest codingTarget,
+            @Valid ExecutorAssignmentRequest executorAssignment) {
 
         CreateAgentTaskCommand toCommand(long expectedVersion) {
             return new CreateAgentTaskCommand(
@@ -159,7 +161,20 @@ public final class TaskController {
                             .map(ProviderBindingId::new)
                             .collect(java.util.stream.Collectors.toUnmodifiableSet()),
                     Optional.ofNullable(codingTarget).map(CodingTargetRequest::toCommand),
+                    Optional.ofNullable(executorAssignment)
+                            .map(ExecutorAssignmentRequest::toInstruction),
                     expectedVersion);
+        }
+    }
+
+    /**
+     * Assign-and-start instruction: the selected Agent becomes the active Executor inside the same
+     * delegation command; the target must equal {@code executorAgentProfileId}.
+     */
+    public record ExecutorAssignmentRequest(@NotNull UUID agentProfileId) {
+
+        ExecutorAssignmentInstruction toInstruction() {
+            return new ExecutorAssignmentInstruction(new AgentProfileId(agentProfileId));
         }
     }
 

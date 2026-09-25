@@ -143,6 +143,8 @@ export interface CreateTaskInput {
   acceptanceCriteria: string[]
   executorAgentProfileId: string
   agentConfigurationRevision: number
+  /** “分配并启动”：服务端在同一条命令里先落 EXECUTOR 责任再启动（同 actor 沿用、不同 actor 拒绝）。 */
+  executorAssignment?: { agentProfileId: string } | null
   conversationSource: { conversationId: string, messageId: string } | null
   providerBindingIds: string[]
   codingTarget?: CodingTargetSelection | null
@@ -186,6 +188,65 @@ export interface CreateTaskCommand {
   workItemId: string
   expectedVersion: number
   input: CreateTaskInput
+}
+
+/**
+ * The M9b-A05 unified delegation form's single read (§3.1): responsibility chain, member-visible
+ * Agent candidates with conflict marking, the A04 project defaults, the in-flight execution fact
+ * and the caller's own authority. The form derives its mode from these server facts — it never
+ * keeps a second truth of its own.
+ */
+export const delegationCandidateStates = [
+  'ASSIGNED', 'AVAILABLE', 'EXECUTOR_CONFLICT', 'AGENT_DISABLED', 'PRINCIPAL_INACTIVE',
+] as const
+export type DelegationCandidateState = typeof delegationCandidateStates[number]
+
+export interface DelegationAgentCandidate {
+  agentProfileId: string
+  agentProfileVersion: number
+  agentPrincipalId: string
+  displayName: string
+  ownershipType: string
+  runtimeRole: string
+  state: DelegationCandidateState
+  reason: string | null
+}
+
+export interface DelegationResponsibilityLine {
+  assignmentId: string
+  role: string
+  actorPrincipalId: string
+  actorType: string
+  actorDisplayName: string
+  actorAgentProfileId: string | null
+  version: number
+}
+
+/** One resolved default: the value, where it came from, and why it is (not) usable. */
+export interface DelegationDefaultField<T> {
+  value: T | null
+  source: string
+  availability: string
+  reason: string
+}
+
+export interface DelegationDefaults {
+  version: number
+  repositoryBindingId: DelegationDefaultField<string>
+  repositoryBindingVersion: DelegationDefaultField<number>
+  branch: DelegationDefaultField<string>
+  buildProfile: DelegationDefaultField<{ key: string, version: number, profileHash: string } | null>
+  agentProfileId: DelegationDefaultField<string>
+  agentProfileRevision: DelegationDefaultField<number>
+}
+
+export interface DelegationContext {
+  workItem: { id: string, projectId: string, version: number, title: string, status: string }
+  responsibilities: DelegationResponsibilityLine[]
+  candidates: DelegationAgentCandidate[]
+  defaults: DelegationDefaults
+  activeExecution: boolean
+  permissions: { canAssignResponsibility: boolean, canDelegate: boolean }
 }
 
 export type TaskCommandReceipt = CommandReceipt

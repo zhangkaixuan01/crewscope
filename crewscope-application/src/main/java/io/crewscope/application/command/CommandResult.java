@@ -23,7 +23,7 @@ public record CommandResult(
     CommandReceipt receipt,
     UtcTimestamp createdAt) {
 
-  public enum ResourceType { WORK_PROJECT, WORK_ITEM, CONVERSATION, TEAM_MEMBER }
+  public enum ResourceType { WORK_PROJECT, WORK_ITEM, TASK, CONVERSATION, TEAM_MEMBER }
 
   public CommandResult {
     Objects.requireNonNull(organizationId, "organizationId");
@@ -42,7 +42,9 @@ public record CommandResult(
       throw new IllegalArgumentException("Invalid command result coordinate");
     }
     boolean projectScoped =
-        resourceType == ResourceType.WORK_PROJECT || resourceType == ResourceType.WORK_ITEM;
+        resourceType == ResourceType.WORK_PROJECT
+            || resourceType == ResourceType.WORK_ITEM
+            || resourceType == ResourceType.TASK;
     if (projectScoped ? projectId.isEmpty() : projectId.isPresent()) {
       throw new IllegalArgumentException("Result project coordinate does not match its type");
     }

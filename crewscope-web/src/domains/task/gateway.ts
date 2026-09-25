@@ -7,6 +7,8 @@ import type {
   AgentStateSnapshotSummary,
   AuditSummary,
   CreateTaskCommand,
+  DelegationContext,
+  DelegationDefaultField,
   ExecutionLeaseSummary,
   PlanVersion,
   RuntimeFleetSummary,
@@ -30,6 +32,12 @@ import type {
 
 export interface TaskGateway {
   createTask(command: CreateTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt>
+  fetchDelegationContext(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+    signal?: AbortSignal,
+  ): Promise<DelegationContext>
   preflightDelegation(
     scope: TaskScope,
     projectId: string,
@@ -84,6 +92,20 @@ export class HttpTaskGateway implements TaskGateway {
       command.input,
       { idempotencyKey, expectedVersion: command.expectedVersion },
     )
+  }
+
+  async fetchDelegationContext(
+    scope: TaskScope,
+    projectId: string,
+    workItemId: string,
+    signal?: AbortSignal,
+  ): Promise<DelegationContext> {
+    const value = await this.client.get<DelegationContext>(
+      `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}`
+        + `/work-projects/${segment(projectId)}/work-items/${segment(workItemId)}/delegation-context`,
+      { signal },
+    )
+    return mapDelegationContext(value)
   }
 
   async preflightDelegation(
@@ -253,6 +275,42 @@ export class HttpTaskGateway implements TaskGateway {
         nextCursor: value.conversations.nextCursor,
       },
     }
+  }
+}
+
+function mapDelegationContext(value: DelegationContext): DelegationContext {
+  return {
+    workItem: { ...pick(value.workItem, ['id', 'projectId', 'version', 'title', 'status']) },
+    responsibilities: value.responsibilities.map(item => ({ ...pick(item, [
+      'assignmentId', 'role', 'actorPrincipalId', 'actorType', 'actorDisplayName',
+      'actorAgentProfileId', 'version',
+    ]) })),
+    candidates: value.candidates.map(item => ({ ...pick(item, [
+      'agentProfileId', 'agentProfileVersion', 'agentPrincipalId', 'displayName',
+      'ownershipType', 'runtimeRole', 'state', 'reason',
+    ]) })),
+    defaults: {
+      version: value.defaults.version,
+      repositoryBindingId: mapDefaultField(value.defaults.repositoryBindingId),
+      repositoryBindingVersion: mapDefaultField(value.defaults.repositoryBindingVersion),
+      branch: mapDefaultField(value.defaults.branch),
+      buildProfile: mapDefaultField(value.defaults.buildProfile, inner => inner && {
+        ...pick(inner, ['key', 'version', 'profileHash']),
+      }),
+      agentProfileId: mapDefaultField(value.defaults.agentProfileId),
+      agentProfileRevision: mapDefaultField(value.defaults.agentProfileRevision),
+    },
+    activeExecution: value.activeExecution,
+    permissions: { ...pick(value.permissions, ['canAssignResponsibility', 'canDelegate']) },
+  }
+}
+
+function mapDefaultField<T>(field: DelegationDefaultField<T>, mapValue?: (inner: T | null) => T | null): DelegationDefaultField<T> {
+  return {
+    value: mapValue ? mapValue(field.value) : field.value,
+    source: field.source,
+    availability: field.availability,
+    reason: field.reason,
   }
 }
 

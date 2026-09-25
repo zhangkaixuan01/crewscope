@@ -104,6 +104,43 @@ describe('HttpTaskGateway', () => {
     expect(JSON.stringify(value)).not.toMatch(/private|billingSubject|systemPrompt|credential|endpoint/i)
   })
 
+  it('fetches the unified delegation context through the public whitelist', async () => {
+    const profileId = crypto.randomUUID()
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      workItem: { id: taskIds.workItem, projectId: fixtureIds.projectCrewScope, version: 7, title: '委托', status: 'IN_PROGRESS' },
+      responsibilities: [{
+        assignmentId: crypto.randomUUID(), role: 'OWNER', actorPrincipalId: crypto.randomUUID(),
+        actorType: 'USER', actorDisplayName: 'Owner', actorAgentProfileId: null, version: 0,
+      }],
+      candidates: [{
+        agentProfileId: profileId, agentProfileVersion: 2, agentPrincipalId: crypto.randomUUID(),
+        displayName: 'Owner Agent', ownershipType: 'USER', runtimeRole: 'SPECIALIST',
+        state: 'AVAILABLE', reason: null, internalCostHint: 'must-not-enter-web-state',
+      }],
+      defaults: {
+        version: 3,
+        repositoryBindingId: { value: crypto.randomUUID(), source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择仓库绑定' },
+        repositoryBindingVersion: { value: 2, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择仓库绑定' },
+        branch: { value: 'main', source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目默认分支' },
+        buildProfile: { value: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) }, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择受控构建方案' },
+        agentProfileId: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+        agentProfileRevision: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+      },
+      activeExecution: false,
+      permissions: { canAssignResponsibility: true, canDelegate: true },
+    }))
+    const gateway = new HttpTaskGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    const value = await gateway.fetchDelegationContext(scope, fixtureIds.projectCrewScope, taskIds.workItem)
+
+    expect(fetcher.mock.calls[0]?.[0]).toContain(`/work-items/${taskIds.workItem}/delegation-context`)
+    expect(value.workItem.version).toBe(7)
+    expect(value.candidates[0]?.state).toBe('AVAILABLE')
+    expect(value.defaults.buildProfile.value?.key).toBe('maven-java-17')
+    expect(value.permissions.canDelegate).toBe(true)
+    expect(JSON.stringify(value)).not.toMatch(/internalCostHint/)
+  })
+
   it('sends member Task commands to the current attempt with strong version and exact body rules', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({
       commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 3, correlationId: crypto.randomUUID(),

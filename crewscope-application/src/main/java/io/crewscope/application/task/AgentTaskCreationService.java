@@ -14,6 +14,7 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
+import io.crewscope.application.command.CommandResult;
 import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.ConversationEventRepository;
 import io.crewscope.application.conversation.ReadableConversationMessage;
@@ -24,6 +25,7 @@ import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
+import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
@@ -42,6 +44,7 @@ import io.crewscope.domain.coding.BuildProfile;
 import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
+import io.crewscope.domain.responsibility.event.ResponsibilityAssigned;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
@@ -52,8 +55,10 @@ import io.crewscope.domain.shared.event.EventActor;
 import io.crewscope.domain.shared.event.EventActorType;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
+import io.crewscope.domain.shared.DomainEvent;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ConversationTaskLink;
@@ -116,6 +121,7 @@ public final class AgentTaskCreationService {
     private final TaskCreationPolicySpec creationPolicy;
     private final Optional<TaskAgentSelectionService> agentSelectionService;
     private final Optional<ResolvedAgentPolicySnapshotService> resolvedPolicyService;
+    private final Optional<ResponsibilityAssignmentService> responsibilityAssignmentService;
 
     public AgentTaskCreationService(
             WorkItemAccessPolicy accessPolicy,
@@ -168,6 +174,7 @@ public final class AgentTaskCreationService {
                 timeProvider,
                 creationPolicy,
                 null,
+                null,
                 null);
     }
 
@@ -198,7 +205,8 @@ public final class AgentTaskCreationService {
             TimeProvider timeProvider,
             TaskCreationPolicySpec creationPolicy,
             TaskAgentSelectionService agentSelectionService,
-            ResolvedAgentPolicySnapshotService resolvedPolicyService) {
+            ResolvedAgentPolicySnapshotService resolvedPolicyService,
+            ResponsibilityAssignmentService responsibilityAssignmentService) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.workItemRepository = Objects.requireNonNull(workItemRepository, "workItemRepository");
         this.assignmentRepository = Objects.requireNonNull(
@@ -233,6 +241,7 @@ public final class AgentTaskCreationService {
         this.creationPolicy = Objects.requireNonNull(creationPolicy, "creationPolicy");
         this.agentSelectionService = Optional.ofNullable(agentSelectionService);
         this.resolvedPolicyService = Optional.ofNullable(resolvedPolicyService);
+        this.responsibilityAssignmentService = Optional.ofNullable(responsibilityAssignmentService);
     }
 
     /** Returns the server-resolved execution configuration without creating a Task. */
@@ -301,8 +310,10 @@ public final class AgentTaskCreationService {
         assignmentRepository.lockResponsibilityChain(organizationId, workItemId);
         WorkItem workItem = requireLockedWorkItem(
                 organizationId, teamId, projectId, workItemId, command.expectedWorkItemVersion());
-        List<ResponsibilityAssignment> assignments = List.copyOf(
+        List<ResponsibilityAssignment> loadedAssignments = List.copyOf(
                 assignmentRepository.findActiveByWorkItem(organizationId, workItemId));
+        List<ResponsibilityAssignment> assignments = assignExecutorIfRequested(
+                context, teamId, projectId, workItemId, workItem, loadedAssignments, command, occurredAt);
         requireDelegationAuthority(actor, assignments);
         TaskResponsibilitySnapshot responsibilitySnapshot = TaskResponsibilitySnapshot.capture(
                 workItem, assignments, occurredAt);
@@ -433,6 +444,104 @@ public final class AgentTaskCreationService {
                     "WorkItem", workItemId, expectedVersion, workItem.version());
         }
         return workItem;
+    }
+
+    /**
+     * Assign-and-start keeps one recoverable command: when the caller asks for the executor
+     * assignment, RESPONSIBILITY_MANAGE is re-checked inside the chain lock and the assignment is
+     * created in this transaction. An identical active Executor is reused, never duplicated; a
+     * different active Executor is a conflict that an explicit release must resolve first — this
+     * command never silently replaces a person's or another Agent's responsibility.
+     */
+    private List<ResponsibilityAssignment> assignExecutorIfRequested(
+            TeamCommandContext context,
+            TeamId teamId,
+            WorkProjectId projectId,
+            WorkItemId workItemId,
+            WorkItem workItem,
+            List<ResponsibilityAssignment> assignments,
+            CreateAgentTaskCommand command,
+            UtcTimestamp occurredAt) {
+        if (command.executorAssignment().isEmpty()) {
+            return assignments;
+        }
+        ExecutorAssignmentInstruction instruction = command.executorAssignment().orElseThrow();
+        OrganizationId organizationId = workItem.scope().organizationId();
+        Principal actor = context.access().actor();
+        AgentProfile profile = profileRepository
+                .findById(organizationId, instruction.agentProfileId())
+                .orElseThrow(() -> new AggregateNotFoundException(
+                        "AgentProfile", instruction.agentProfileId()));
+        Principal executor = principalRepository
+                .findById(organizationId, profile.agentPrincipalId())
+                .filter(Principal::canAct)
+                .filter(value -> isTaskOrchestrator(profile.type(), value.type()))
+                .orElseThrow(() -> new DomainValidationException(
+                        "agentTask.executorAssignment.agentProfileId",
+                        "must reference the active Personal or Team Agent Profile Principal"));
+        boolean sameExecutorActive = assignments.stream()
+                .filter(ResponsibilityAssignment::isActive)
+                .filter(value -> value.role() == ResponsibilityRole.EXECUTOR)
+                .anyMatch(value -> value.actorPrincipalId().equals(executor.id())
+                        && value.actorType() == executor.type()
+                        && value.scope().equals(workItem.scope()));
+        if (sameExecutorActive) {
+            // An identical active Executor is reused, so the command only needs delegation
+            // authority — no responsibility write happens.
+            return assignments;
+        }
+        accessPolicy.requirePermission(
+                context.access(),
+                organizationId,
+                teamId,
+                projectId,
+                workItemId,
+                TeamPermission.RESPONSIBILITY_MANAGE,
+                occurredAt,
+                "manage this WorkItem's responsibilities");
+        boolean differentExecutorActive = assignments.stream()
+                .filter(ResponsibilityAssignment::isActive)
+                .anyMatch(value -> value.role() == ResponsibilityRole.EXECUTOR
+                        && value.scope().equals(workItem.scope()));
+        if (differentExecutorActive) {
+            throw new DomainValidationException(
+                    "agentTask.executorAssignment",
+                    "a different Executor is already active — release it explicitly first");
+        }
+        ResponsibilityAssignmentService assignmentService = responsibilityAssignmentService
+                .orElseThrow(() -> new DomainValidationException(
+                        "agentTask.executorAssignment",
+                        "requires the responsibility assignment service"));
+        ResponsibilityAssignment assigned = assignmentService.assignExecutor(
+                workItem, executor, Optional.empty(), actor);
+        appendExecutorAssigned(context, assigned, occurredAt);
+        List<ResponsibilityAssignment> updated = new ArrayList<>(assignments);
+        updated.add(assigned);
+        return List.copyOf(updated);
+    }
+
+    /** The assignment fact travels with the delegation command's own correlation and key. */
+    private void appendExecutorAssigned(
+            TeamCommandContext context,
+            ResponsibilityAssignment assigned,
+            UtcTimestamp occurredAt) {
+        DomainEventEnvelope<DomainEvent> event = new DomainEventEnvelope<>(
+                UUID.randomUUID(),
+                EventType.from("WORK_ITEM_EXECUTOR_ASSIGNED"),
+                SchemaVersion.V1,
+                assigned.scope().organizationId(),
+                Optional.of(assigned.scope().teamId()),
+                Optional.of(assigned.scope().workspaceId()),
+                AggregateReference.of("RESPONSIBILITY_ASSIGNMENT", assigned.id()),
+                assigned.version(),
+                EventActor.principal(EventActorType.USER, context.access().actor().id()),
+                context.correlationId(),
+                context.causationId(),
+                Optional.of(context.idempotencyKey().value()),
+                occurredAt,
+                ResponsibilityAssigned.from(assigned, Optional.empty()));
+        eventStore.append(event);
+        outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
     }
 
     private AgentProfile requireProfile(
@@ -601,6 +710,20 @@ public final class AgentTaskCreationService {
                 commandId, eventId, task.version(), context.correlationId());
         receiptStore.complete(
                 task.scope().organizationId(), context.idempotencyKey(), receipt, occurredAt);
+        // The TASK coordinate makes an unknown-outcome delegation recoverable: the actor can look
+        // the idempotency key up later and land on the exact Task instead of delegating twice.
+        receiptStore.saveResult(new CommandResult(
+                task.scope().organizationId(),
+                context.idempotencyKey(),
+                context.access().actor().id(),
+                COMMAND_TYPE,
+                task.scope().teamId(),
+                Optional.of(task.scope().projectId()),
+                CommandResult.ResourceType.TASK,
+                task.id().value(),
+                task.version(),
+                receipt,
+                occurredAt));
         return CommandExecution.completed(result, receipt);
     }
 
@@ -635,6 +758,9 @@ public final class AgentTaskCreationService {
         fields.add(command.agentConfigurationRevision()
                 .map(value -> Long.toString(value.value()))
                 .orElse("CURRENT"));
+        fields.add(command.executorAssignment()
+                .map(value -> value.agentProfileId().toString())
+                .orElse("NONE"));
         fields.add(command.conversationSource()
                 .map(value -> value.conversationId().toString())
                 .orElse(""));

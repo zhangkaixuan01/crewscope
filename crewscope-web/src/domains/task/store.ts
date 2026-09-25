@@ -22,6 +22,7 @@ import type {
   TaskCommandVersionConflict,
   TaskDelegationPreflight,
   TaskDelegationSelection,
+  DelegationContext,
 } from './types'
 import {
   browserStorage,
@@ -81,6 +82,7 @@ interface TaskState {
   associationPages: Record<string, CachedResource<TaskAssociationPage>>
   taskAssociations: Record<string, CachedResource<TaskAssociations>>
   delegationPreflights: Record<string, CachedResource<TaskDelegationPreflight>>
+  delegationContexts: Record<string, CachedResource<DelegationContext>>
   liveTasks: Record<string, TaskLiveState>
   liveRefreshVersion: number
   liveUpdatedTaskId: string | null
@@ -115,6 +117,8 @@ export interface TaskStore {
     workItemId: string,
     selection: TaskDelegationSelection,
   ): Promise<TaskDelegationPreflight | null>
+  loadDelegationContext(projectId: string, workItemId: string, force?: boolean): Promise<DelegationContext | null>
+  clearDelegationContext(projectId: string, workItemId: string): void
   clearDelegationPreflight(projectId: string, workItemId: string): void
   synchronizeLiveTasks(taskIds: string[]): void
   stopLiveTasks(): void
@@ -160,6 +164,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     associationPages: {},
     taskAssociations: {},
     delegationPreflights: {},
+    delegationContexts: {},
     liveTasks: {},
     liveRefreshVersion: 0,
     liveUpdatedTaskId: null,
@@ -616,6 +621,37 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     return resource?.phase === 'ready' ? resource.value : null
   }
 
+  /**
+   * The unified delegation form's one read. Facts are always re-read when the form opens — a
+   * cached context would silently drive the mode and conflict marking from a stale chain.
+   */
+  async function loadDelegationContext(
+    projectId: string,
+    workItemId: string,
+    force = false,
+  ): Promise<DelegationContext | null> {
+    const scope = requireScope()
+    const cacheKey = `${projectId}:${workItemId}`
+    await loadCached(
+      `delegation-context:${cacheKey}`,
+      state.delegationContexts,
+      cacheKey,
+      force,
+      signal => gateway.fetchDelegationContext(scope, projectId, workItemId, signal),
+      '暂时无法读取委托上下文',
+    )
+    const resource = state.delegationContexts[cacheKey]
+    return resource?.phase === 'ready' ? resource.value : null
+  }
+
+  function clearDelegationContext(projectId: string, workItemId: string): void {
+    const requestKey = `delegation-context:${projectId}:${workItemId}`
+    resourceVersions.set(requestKey, (resourceVersions.get(requestKey) ?? 0) + 1)
+    resourceAborts.get(requestKey)?.abort()
+    resourceAborts.delete(requestKey)
+    delete state.delegationContexts[`${projectId}:${workItemId}`]
+  }
+
   function clearDelegationPreflight(projectId: string, workItemId: string): void {
     const requestKey = `delegation-preflight:${projectId}:${workItemId}`
     resourceVersions.set(requestKey, (resourceVersions.get(requestKey) ?? 0) + 1)
@@ -905,6 +941,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.associationPages = {}
     state.taskAssociations = {}
     state.delegationPreflights = {}
+    state.delegationContexts = {}
     state.createPhase = 'idle'
     state.createErrorMessage = null
     state.createErrorStatus = null
@@ -967,6 +1004,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.associationPages = {}
     state.taskAssociations = {}
     state.delegationPreflights = {}
+    state.delegationContexts = {}
     state.liveTasks = {}
     state.liveRefreshVersion = 0
     state.liveUpdatedTaskId = null
@@ -1045,6 +1083,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     loadByConversation,
     loadAssociations,
     preflightDelegation,
+    loadDelegationContext,
+    clearDelegationContext,
     clearDelegationPreflight,
     synchronizeLiveTasks,
     stopLiveTasks,

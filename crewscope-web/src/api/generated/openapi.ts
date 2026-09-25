@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 6a400e2c437c77ba51db2c27accc81cf9fc31ea8e21ff66b710ed6362a7af258
+// Controller source SHA-256: bc3993bd8465b6daa9295ac66c75cba9fbd43315d106b83e43c325898e4f76bd
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1725,6 +1725,14 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/delegation-context": {
+      "get": {
+        "operationId": "DelegationContextController_get",
+        "tags": [
+          "DelegationContextController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/resource-links": {
       "get": {
         "operationId": "WorkItemQueryController_resourceLinks",
@@ -3189,6 +3197,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/delegation-context",
+    "operationId": "DelegationContextController_get",
+    "controller": "DelegationContextController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/resource-links",
     "operationId": "WorkItemQueryController_resourceLinks",
     "controller": "WorkItemQueryController"
@@ -3290,4 +3304,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 238 as const
+export const openApiOperationCount = 239 as const

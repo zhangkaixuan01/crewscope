@@ -82,11 +82,38 @@ describe('CodingTargetFormSection', () => {
     expect(wrapper.text()).toContain('前往仓库设置')
     expect(latestChange(wrapper)?.[1]).toBe(false)
   })
+
+  it('starts from the project defaults and drops the provenance chip once changed', async () => {
+    const gateway = fixtureGateway()
+    gateway.listRepositoryBindings = vi.fn(async () => [
+      ...defaultBindings(),
+      { ...defaultBindings()[0]!, id: secondaryBindingId, repositoryKey: 'crewscope-web', defaultBranch: 'develop' },
+    ])
+    const wrapper = mountSection(gateway, {
+      repositoryBindingId: secondaryBindingId,
+      branch: 'release/2026-09',
+      buildProfile: { key: 'maven-java-17', version: 1, profileHash: 'a'.repeat(64) },
+    })
+    await flushPromises()
+
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe(secondaryBindingId)
+    expect((wrapper.get('input[placeholder="main"]').element as HTMLInputElement).value).toBe('release/2026-09')
+    expect(provenanceChips(wrapper)).toHaveLength(3)
+
+    await wrapper.get('select').setValue(bindingId)
+    await flushPromises()
+    // Changing the repository drops its two provenance chips and re-baselines the ref; the
+    // BuildProfile chip stays because that value still equals the project default.
+    expect(provenanceChips(wrapper)).toHaveLength(1)
+    expect((wrapper.get('input[placeholder="main"]').element as HTMLInputElement).value).toBe('main')
+  })
 })
 
-function mountSection(gateway: CodingGateway) {
+const secondaryBindingId = '00000000-0000-4000-8000-00000000f309'
+
+function mountSection(gateway: CodingGateway, initial?: { repositoryBindingId: string | null, branch: string | null, buildProfile: { key: string, version: number, profileHash: string } | null }) {
   return mount(CodingTargetFormSection, {
-    props: { scope, workItemId },
+    props: { scope, workItemId, initial: initial ?? null },
     global: {
       provide: {
         [CODING_STORE as symbol]: createCodingStore(gateway),
@@ -110,25 +137,34 @@ function latestChange(wrapper: ReturnType<typeof mountSection>) {
   return wrapper.emitted('change')?.at(-1)
 }
 
+function provenanceChips(wrapper: ReturnType<typeof mountSection>) {
+  return wrapper.findAll('small')
+    .filter(node => node.text().includes('项目默认'))
+}
+
+function defaultBindings() {
+  return [{
+    id: bindingId,
+    organizationId: scope.organizationId,
+    teamId: scope.teamId,
+    workspaceId: fixtureIds.workspacePlatform,
+    projectId: scope.projectId,
+    kind: 'LOCAL_MANAGED',
+    repositoryKey: 'crewscope-java',
+    defaultBranch: 'main',
+    status: 'ACTIVE',
+    version: 1,
+    createdAt: '2026-08-20T01:00:00Z',
+    createdByPrincipalId: fixtureIds.principal,
+    updatedAt: '2026-08-20T01:00:00Z',
+    updatedByPrincipalId: fixtureIds.principal,
+  }]
+}
+
 function fixtureGateway(): CodingGateway {
   return {
     listRepositoryCatalog: vi.fn(async () => []),
-    listRepositoryBindings: vi.fn(async () => [{
-      id: bindingId,
-      organizationId: scope.organizationId,
-      teamId: scope.teamId,
-      workspaceId: fixtureIds.workspacePlatform,
-      projectId: scope.projectId,
-      kind: 'LOCAL_MANAGED',
-      repositoryKey: 'crewscope-java',
-      defaultBranch: 'main',
-      status: 'ACTIVE',
-      version: 1,
-      createdAt: '2026-08-20T01:00:00Z',
-      createdByPrincipalId: fixtureIds.principal,
-      updatedAt: '2026-08-20T01:00:00Z',
-      updatedByPrincipalId: fixtureIds.principal,
-    }]),
+    listRepositoryBindings: vi.fn(async () => defaultBindings()),
     getRepositoryBinding: vi.fn(async () => { throw new Error('unused') }),
     createRepositoryBinding: vi.fn(async () => { throw new Error('unused') }),
     preflightRepositoryDraft: vi.fn(async () => { throw new Error('unused') }),

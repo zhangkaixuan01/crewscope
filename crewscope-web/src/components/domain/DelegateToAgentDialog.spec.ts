@@ -1,13 +1,20 @@
 import { flushPromises, mount, type MountingOptions } from '@vue/test-utils'
-import { defineComponent, onMounted } from 'vue'
+import { defineComponent, onMounted, reactive } from 'vue'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import { AGENT_STORE, type AgentStore } from '../../domains/agent/store'
 import type { AgentSummary } from '../../domains/agent/types'
 import { delegationPreflightKey, TASK_STORE, type TaskStore } from '../../domains/task/store'
-import type { TaskDelegationPreflight, TaskDelegationSelection } from '../../domains/task/types'
+import type {
+  DelegationAgentCandidate,
+  DelegationContext,
+  DelegationDefaults,
+  DelegationResponsibilityLine,
+  TaskDelegationPreflight,
+  TaskDelegationSelection,
+} from '../../domains/task/types'
 import { writeTaskDelegationDraft } from '../../domains/task/delegationDraft'
-import { fixtureResponsibilities, fixtureWorkItemDetails } from '../../test/workItemFixtures'
+import { fixtureWorkItemDetails } from '../../test/workItemFixtures'
 import { fixtureIds } from '../../test/scopeFixtures'
 import DelegateToAgentDialog from './DelegateToAgentDialog.vue'
 
@@ -22,36 +29,36 @@ const fixturePrincipal = {
   permissions: new Set<string>(),
 }
 
+const personalProfileId = '00000000-0000-0000-0000-000000000301'
+const teamProfileId = '00000000-0000-0000-0000-000000000302'
+const personalAgentPrincipalId = '00000000-0000-0000-0000-000000000201'
+const teamAgentPrincipalId = '00000000-0000-0000-0000-000000000202'
+
 describe('DelegateToAgentDialog', () => {
   beforeEach(() => { sessionStorage.clear(); clearF05UserData(); localStorage.clear(); activateF05Identity(fixtureAccount) })
 
-  it('previews responsibility and submits the selected server-authored AgentProfile identity', async () => {
-    const responsibilities = structuredClone(fixtureResponsibilities)
-    responsibilities[1] = {
-      ...responsibilities[1]!,
-      actorPrincipalId: '00000000-0000-0000-0000-000000000201',
-      actorType: 'PERSONAL_AGENT',
-      actorMemberId: null,
-      actorDisplayName: '张凯旋的 Personal Agent',
-      actorAgentProfileId: '00000000-0000-0000-0000-000000000301',
-    }
+  it('previews responsibility and submits assign-and-start with the executorAssignment payload', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     const conversationSource = { conversationId: crypto.randomUUID(), messageId: crypto.randomUUID() }
-    const wrapper = mountDialog({ responsibilities, onSubmit, conversationSource })
+    const wrapper = mountDialog({ onSubmit, conversationSource })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Owner · 张凯旋')
     expect(wrapper.text()).toContain('Executor · 张凯旋的 Personal Agent')
     expect(wrapper.text()).toContain('来源保留为当前 Conversation 消息')
     expect(wrapper.text()).toContain('PolicySnapshot Preflight 通过')
-    expect(wrapper.text()).toContain('PERSONAL')
+    expect(wrapper.text()).toContain('个人范围')
     expect(wrapper.text()).toContain('deepseek-v4-flash')
+    expect(wrapper.text()).toContain('影响确认')
+    expect(wrapper.text()).toContain('责任：把 张凯旋的 Personal Agent 记为 EXECUTOR')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       objective: fixtureWorkItemDetails.workItem.title,
-      executorAgentProfileId: '00000000-0000-0000-0000-000000000301',
+      executorAgentProfileId: personalProfileId,
+      // “分配并启动”在同一条命令里声明责任意图；服务端沿用/冲突规则兜底。
+      executorAssignment: { agentProfileId: personalProfileId },
       agentConfigurationRevision: 2,
       providerBindingIds: [],
       conversationSource,
@@ -64,21 +71,11 @@ describe('DelegateToAgentDialog', () => {
     }))
   })
 
-  it('selects a Team Agent from the responsibility chain and exposes the USER-Key safety boundary', async () => {
-    const responsibilities = structuredClone(fixtureResponsibilities)
-    responsibilities.push({
-      ...responsibilities[1]!,
-      id: crypto.randomUUID(),
-      actorPrincipalId: crypto.randomUUID(),
-      actorType: 'TEAM_AGENT',
-      actorMemberId: null,
-      actorDisplayName: 'Team Delivery Agent',
-      actorAgentProfileId: '00000000-0000-0000-0000-000000000302',
-    })
-    const wrapper = mountDialog({ responsibilities })
+  it('selects a Team Agent and exposes the USER-Key safety boundary', async () => {
+    const wrapper = mountDialog()
     await flushPromises()
 
-    await wrapper.get('select').setValue('00000000-0000-0000-0000-000000000302')
+    await wrapper.get('select').setValue(teamProfileId)
     await flushPromises()
 
     expect(wrapper.text()).toContain('TEAM')
@@ -86,15 +83,108 @@ describe('DelegateToAgentDialog', () => {
     expect(wrapper.text()).toContain('USER Key 已在服务端禁用')
   })
 
+  it('preselects the project-default Agent when no executor is assigned', async () => {
+    const wrapper = mountDialog({
+      context: context({
+        defaults: defaults({ agentProfileId: teamProfileId, agentProfileRevision: 1 }),
+      }),
+    })
+    await flushPromises()
+
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe(teamProfileId)
+  })
+
+  it('keeps an assigned executor in start mode without reassigning', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mountDialog({
+      context: context({
+        responsibilities: [
+          ownerLine(),
+          { ...personalLine(), role: 'EXECUTOR', actorPrincipalId: personalAgentPrincipalId, actorAgentProfileId: personalProfileId },
+        ],
+        candidates: [candidate(personalProfileId, 'ASSIGNED'), candidate(teamProfileId, 'EXECUTOR_CONFLICT')],
+      }),
+      onSubmit,
+    })
+    await flushPromises()
+
+    // An existing ACTIVE EXECUTOR pins the form to plain start: no intent switch, no assignment.
+    expect(wrapper.text()).not.toContain('仅分配')
+    expect(wrapper.text()).toContain('当前执行者')
+    expect(wrapper.text()).toContain('责任：沿用当前责任链，不新增分配')
+    expect(wrapper.text()).toContain('启动执行')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      executorAgentProfileId: personalProfileId,
+      executorAssignment: null,
+    }))
+  })
+
+  it('marks conflicting and disabled candidates with their server reason', async () => {
+    const wrapper = mountDialog({
+      context: context({
+        candidates: [
+          candidate(personalProfileId, 'AVAILABLE'),
+          candidate(teamProfileId, 'EXECUTOR_CONFLICT', '已有其他执行者责任——需先显式释放再分配'),
+          candidate('00000000-0000-0000-0000-000000000303', 'AGENT_DISABLED', 'Agent 已停用'),
+        ],
+      }),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('责任冲突')
+    expect(wrapper.text()).toContain('已有其他执行者责任——需先显式释放再分配')
+    expect(wrapper.text()).toContain('已停用')
+    expect(wrapper.text()).toContain('Agent 已停用')
+    const options = wrapper.get('select').findAll('option')
+    expect(options).toHaveLength(1)
+  })
+
+  it('shows the in-flight execution note while an attempt is running', async () => {
+    const wrapper = mountDialog({
+      context: context({
+        activeExecution: true,
+        responsibilities: [
+          ownerLine(),
+          { ...personalLine(), role: 'EXECUTOR', actorPrincipalId: personalAgentPrincipalId, actorAgentProfileId: personalProfileId },
+        ],
+        candidates: [candidate(personalProfileId, 'ASSIGNED'), candidate(teamProfileId, 'EXECUTOR_CONFLICT')],
+      }),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('当前执行仍按原说明继续')
+    expect(wrapper.text()).toContain('补充要求请发布评论，或等本轮完成后开启新一轮')
+  })
+
+  it('submits assign-only through the responsibility command instead of task creation', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    const onAssign = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mountDialog({ onSubmit, onAssign })
+    await flushPromises()
+
+    await wrapper.get('input[type="radio"][value="assign-only"]').setValue(true)
+    await flushPromises()
+
+    // “仅分配”隐藏启动专用的预检、编码目标与 Task brief。
+    expect(wrapper.text()).not.toContain('执行目标')
+    expect(wrapper.text()).not.toContain('PolicySnapshot Preflight 通过')
+    expect(wrapper.text()).toContain('启动：本次不启动任何执行')
+    expect(wrapper.text()).toContain('仅分配')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(onAssign).toHaveBeenCalledWith({
+      agentProfileId: personalProfileId,
+      agentPrincipalId: personalAgentPrincipalId,
+      displayName: '张凯旋的 Personal Agent',
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('restores a Scope-partitioned draft before preflighting the responsible Agent', async () => {
-    const responsibilities = structuredClone(fixtureResponsibilities)
-    responsibilities[1] = {
-      ...responsibilities[1]!,
-      actorType: 'PERSONAL_AGENT',
-      actorMemberId: null,
-      actorDisplayName: '张凯旋的 Personal Agent',
-      actorAgentProfileId: '00000000-0000-0000-0000-000000000301',
-    }
     writeTaskDelegationDraft(
       { organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform },
       fixtureIds.projectCrewScope,
@@ -102,27 +192,29 @@ describe('DelegateToAgentDialog', () => {
       {
         objective: '恢复后的执行目标',
         acceptanceCriteria: '恢复验收一\n恢复验收二',
-        executorAgentProfileId: '00000000-0000-0000-0000-000000000301',
+        executorAgentProfileId: personalProfileId,
         agentConfigurationRevision: null,
       },
       fixturePrincipal,
     )
 
-    const wrapper = mountDialog({ responsibilities })
+    const wrapper = mountDialog()
     await flushPromises()
 
-    expect(wrapper.get('input').element).toHaveProperty('value', '恢复后的执行目标')
+    expect(wrapper.get('input[maxlength="2000"]').element).toHaveProperty('value', '恢复后的执行目标')
     expect(wrapper.get('textarea').element).toHaveProperty('value', '恢复验收一\n恢复验收二')
     expect(wrapper.text()).toContain('PolicySnapshot Preflight 通过')
   })
 
-  it('fails closed without an Agent Executor and offers exact-request retry after failure', async () => {
-    const unavailable = mountDialog()
-    expect(unavailable.text()).toContain('请先在责任链中分配 Agent')
+  it('fails closed without assignable candidates and offers exact-request retry after failure', async () => {
+    const unavailable = mountDialog({ context: context({ candidates: [] }) })
+    await flushPromises()
+    expect(unavailable.text()).toContain('当前没有可分配的 Agent 候选')
     expect(unavailable.get('button[type="submit"]').attributes('disabled')).toBeDefined()
 
     const onRetry = vi.fn().mockResolvedValue(undefined)
     const retry = mountDialog({ retryable: true, errorMessage: '网络中断', onRetry })
+    await flushPromises()
     const retryButton = retry.findAll('button').find(button => button.text().includes('使用原请求重试'))!
     await retryButton.trigger('click')
     expect(retry.text()).toContain('网络中断')
@@ -130,18 +222,11 @@ describe('DelegateToAgentDialog', () => {
   })
 
   it('keeps keyboard focus inside the topmost delegation Modal and closes only that layer', async () => {
-    const responsibilities = structuredClone(fixtureResponsibilities)
-    responsibilities[1] = {
-      ...responsibilities[1]!,
-      actorType: 'PERSONAL_AGENT',
-      actorMemberId: null,
-      actorAgentProfileId: crypto.randomUUID(),
-    }
-    const wrapper = mountDialog({ responsibilities }, { attachTo: document.body })
+    const wrapper = mountDialog({}, { attachTo: document.body })
     await flushPromises()
 
     expect(document.activeElement).toBe(wrapper.get('[role="dialog"]').element)
-    const controls = wrapper.get('form').findAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')
+    const controls = wrapper.get('form').findAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')
     const first = controls[0]!.element as HTMLElement
     const last = controls.at(-1)!.element as HTMLElement
     last.focus()
@@ -155,14 +240,95 @@ describe('DelegateToAgentDialog', () => {
     wrapper.unmount()
   })
 
-  it('focuses the Modal itself when delegation has no eligible Agent Executor', async () => {
-    const wrapper = mountDialog({}, { attachTo: document.body })
+  it('focuses the Modal itself when delegation has no eligible candidate', async () => {
+    const wrapper = mountDialog({ context: context({ candidates: [] }) }, { attachTo: document.body })
     await flushPromises()
 
     expect(document.activeElement).toBe(wrapper.get('[role="dialog"]').element)
     wrapper.unmount()
   })
 })
+
+function ownerLine(): DelegationResponsibilityLine {
+  return {
+    assignmentId: crypto.randomUUID(),
+    role: 'OWNER',
+    actorPrincipalId: fixtureIds.principal,
+    actorType: 'USER',
+    actorDisplayName: '张凯旋',
+    actorAgentProfileId: null,
+    version: 0,
+  }
+}
+
+function personalLine(): DelegationResponsibilityLine {
+  return {
+    ...ownerLine(),
+    actorType: 'PERSONAL_AGENT',
+    actorDisplayName: '张凯旋的 Personal Agent',
+    actorAgentProfileId: personalProfileId,
+  }
+}
+
+function candidate(agentProfileId: string, state: DelegationAgentCandidate['state'], reason: string | null = null): DelegationAgentCandidate {
+  const personal = agentProfileId === personalProfileId
+  return {
+    agentProfileId,
+    agentProfileVersion: 2,
+    agentPrincipalId: personal ? personalAgentPrincipalId : teamAgentPrincipalId,
+    displayName: personal ? '张凯旋的 Personal Agent' : 'Team Delivery Agent',
+    ownershipType: personal ? 'USER' : 'TEAM',
+    runtimeRole: personal ? 'SPECIALIST' : 'TEAM_COORDINATOR',
+    state,
+    reason,
+  }
+}
+
+function emptyDefaults(): DelegationDefaults {
+  const missing = (reason: string) => ({
+    value: null, source: 'PROJECT_DEFAULT', availability: 'MISSING', reason,
+  })
+  const inherited = { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' }
+  return {
+    version: 1,
+    repositoryBindingId: missing('尚未设置项目仓库'),
+    repositoryBindingVersion: missing('尚未设置项目仓库'),
+    branch: missing('仓库绑定默认分支将被使用'),
+    buildProfile: missing('尚未设置构建方案'),
+    agentProfileId: inherited,
+    agentProfileRevision: inherited,
+  }
+}
+
+function defaults(agent: { agentProfileId: string, agentProfileRevision: number }): DelegationDefaults {
+  return {
+    ...emptyDefaults(),
+    agentProfileId: {
+      value: agent.agentProfileId, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择 Agent',
+    },
+    agentProfileRevision: {
+      value: agent.agentProfileRevision, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择 Agent',
+    },
+  }
+}
+
+function context(overrides: Partial<DelegationContext> = {}): DelegationContext {
+  return {
+    workItem: {
+      id: fixtureWorkItemDetails.workItem.id,
+      projectId: fixtureIds.projectCrewScope,
+      version: 3,
+      title: fixtureWorkItemDetails.workItem.title,
+      status: 'IN_PROGRESS',
+    },
+    responsibilities: [ownerLine()],
+    candidates: [candidate(personalProfileId, 'AVAILABLE'), candidate(teamProfileId, 'AVAILABLE')],
+    defaults: emptyDefaults(),
+    activeExecution: false,
+    permissions: { canAssignResponsibility: true, canDelegate: true },
+    ...overrides,
+  }
+}
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
@@ -172,7 +338,6 @@ function props(overrides: Record<string, unknown> = {}) {
       teamId: fixtureIds.teamPlatform,
       projectId: fixtureIds.projectCrewScope,
     },
-    responsibilities: structuredClone(fixtureResponsibilities),
     submitting: false,
     retryable: false,
     errorMessage: null,
@@ -186,12 +351,9 @@ function mountDialog(
   overrides: Record<string, unknown> = {},
   options: Pick<MountingOptions<typeof DelegateToAgentDialog>, 'attachTo'> = {},
 ) {
-  const responsibilities = props(overrides).responsibilities as Array<{ actorAgentProfileId: string | null }>
-  const profileIds = responsibilities
-    .map((item: { actorAgentProfileId: string | null }) => item.actorAgentProfileId)
-    .filter((value: string | null): value is string => Boolean(value))
-  const agentStore = fakeAgentStore(profileIds)
-  const taskStore = fakeTaskStore()
+  const delegationContext = (overrides.context as DelegationContext | undefined) ?? context()
+  const agentStore = fakeAgentStore([personalProfileId, teamProfileId])
+  const taskStore = fakeTaskStore(delegationContext)
   return mount(DelegateToAgentDialog, {
     ...options,
     props: props(overrides),
@@ -237,12 +399,22 @@ function fakeAgentStore(profileIds: string[]): AgentStore {
   } as unknown as AgentStore
 }
 
-function fakeTaskStore(): TaskStore {
-  const delegationPreflights: Record<string, { phase: 'ready', value: TaskDelegationPreflight, errorMessage: null, errorStatus: null }> = {}
+function fakeTaskStore(delegationContext: DelegationContext): TaskStore {
+  // The dialog reads the context through the reactive store state, so the fake must be reactive
+  // too — a plain object would never notify the computed after the load resolves.
+  const delegationPreflights: Record<string, { phase: 'ready', value: TaskDelegationPreflight, errorMessage: null, errorStatus: null }> = reactive({})
+  const delegationContexts: Record<string, unknown> = reactive({})
   return {
-    state: { delegationPreflights },
+    state: { delegationPreflights, delegationContexts },
     activateScope: vi.fn(),
     clearDelegationPreflight: vi.fn(),
+    clearDelegationContext: vi.fn(),
+    loadDelegationContext: vi.fn(async (projectId: string, workItemId: string) => {
+      delegationContexts[`${projectId}:${workItemId}`] = {
+        phase: 'ready', value: delegationContext, errorMessage: null, errorStatus: null,
+      }
+      return delegationContext
+    }),
     preflightDelegation: vi.fn(async (projectId: string, workItemId: string, selection: TaskDelegationSelection) => {
       const value = preflight(selection.executorAgentProfileId, selection.agentConfigurationRevision ?? 2)
       delegationPreflights[delegationPreflightKey(projectId, workItemId, selection)] = {

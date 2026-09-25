@@ -17,6 +17,7 @@ public record CreateAgentTaskCommand(
         Optional<TaskConversationSource> conversationSource,
         Set<ProviderBindingId> providerBindingIds,
         Optional<CreateCodingTargetCommand> codingTarget,
+        Optional<ExecutorAssignmentInstruction> executorAssignment,
         long expectedWorkItemVersion) {
 
     public CreateAgentTaskCommand {
@@ -35,6 +36,12 @@ public record CreateAgentTaskCommand(
             throw new IllegalArgumentException("providerBindingIds must not exceed 200 values");
         }
         codingTarget = Objects.requireNonNull(codingTarget, "codingTarget");
+        executorAssignment = Objects.requireNonNull(executorAssignment, "executorAssignment");
+        if (executorAssignment.isPresent()
+                && !executorAssignment.orElseThrow().agentProfileId().equals(executorAgentProfileId)) {
+            throw new IllegalArgumentException(
+                    "executorAssignment must target the same Agent as the execution selection");
+        }
         if (expectedWorkItemVersion < 0) {
             throw new IllegalArgumentException("expectedWorkItemVersion must not be negative");
         }
@@ -54,6 +61,7 @@ public record CreateAgentTaskCommand(
                 conversationSource,
                 providerBindingIds,
                 Optional.empty(),
+                Optional.empty(),
                 expectedWorkItemVersion);
     }
 
@@ -72,6 +80,7 @@ public record CreateAgentTaskCommand(
                 conversationSource,
                 providerBindingIds,
                 codingTarget,
+                Optional.empty(),
                 expectedWorkItemVersion);
     }
 

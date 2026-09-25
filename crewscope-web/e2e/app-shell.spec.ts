@@ -982,6 +982,53 @@ test.beforeEach(async ({ page }) => {
       await fulfillReceipt(route, 0)
       return
     }
+    const delegationContextMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/delegation-context$/)
+    if (delegationContextMatch && request.method() === 'GET') {
+      // Mirrors DelegationContextService: candidates derive their five states from the live
+      // responsibility chain and the Agent directory; activeExecution tracks the current Task.
+      const item = workItems.find(row => row.id === delegationContextMatch[2])
+      const lines = responsibilities.filter(entry => entry.workItemId === delegationContextMatch[2])
+      const agentExecutor = lines.find(entry => entry.role === 'EXECUTOR' && entry.status === 'ACTIVE' && entry.actorAgentProfileId)
+      const inFlight = tasks.find(existing => existing.workItemId === delegationContextMatch[2]
+        && ['READY', 'RUNNING', 'WAITING', 'PAUSE_REQUESTED'].includes(existing.currentExecutionStatus))
+      await fulfillJson(route, {
+        workItem: { id: delegationContextMatch[2]!, projectId: delegationContextMatch[1]!, version: item?.version ?? 0, title: item?.title ?? '', status: item?.status ?? 'IN_PROGRESS' },
+        responsibilities: lines.map(entry => ({
+          assignmentId: entry.id, role: entry.role, actorPrincipalId: entry.actorPrincipalId,
+          actorType: entry.actorType, actorDisplayName: entry.actorDisplayName,
+          actorAgentProfileId: entry.actorAgentProfileId, version: entry.version,
+        })),
+        candidates: managedAgents.map(agent => {
+          const state = agent.status !== 'ACTIVE'
+            ? 'AGENT_DISABLED'
+            : agentExecutor && agent.id !== agentExecutor.actorAgentProfileId
+              ? 'EXECUTOR_CONFLICT'
+              : agentExecutor
+                ? 'ASSIGNED'
+                : 'AVAILABLE'
+          return {
+            agentProfileId: agent.id, agentProfileVersion: agent.version, agentPrincipalId: agent.principalId,
+            displayName: agent.displayName, ownershipType: agent.ownershipType, runtimeRole: agent.runtimeRole,
+            state,
+            reason: state === 'AGENT_DISABLED' ? 'Agent 已停用'
+              : state === 'EXECUTOR_CONFLICT' ? '已有其他执行者责任——需先显式释放再分配'
+                : null,
+          }
+        }),
+        defaults: {
+          version: 1,
+          repositoryBindingId: { value: ids.repositoryBinding, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择仓库绑定' },
+          repositoryBindingVersion: { value: 1, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择仓库绑定' },
+          branch: { value: 'main', source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目默认分支' },
+          buildProfile: { value: { key: 'maven-java-17', version: 1, profileHash: 'b'.repeat(64) }, source: 'PROJECT_DEFAULT', availability: 'AVAILABLE', reason: '项目已选择受控构建方案' },
+          agentProfileId: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+          agentProfileRevision: { value: null, source: 'PROJECT_DEFAULT', availability: 'INHERITED', reason: '使用任务/团队解析结果' },
+        },
+        activeExecution: Boolean(inFlight),
+        permissions: { canAssignResponsibility: true, canDelegate: true },
+      })
+      return
+    }
     const responsibilityMatch = path.match(/\/work-items\/([^/]+)\/responsibilities$/)
     if (responsibilityMatch && request.method() === 'GET') {
       await fulfillJson(route, responsibilities.filter(entry => entry.workItemId === responsibilityMatch[1]))
@@ -2105,7 +2152,7 @@ test('WorkItem detail transitions, comments, links and continues in Conversation
   await dialog.getByRole('button', { name: '提交评审' }).click()
   await expect(dialog.getByText('评审中', { exact: true }).first()).toBeVisible()
   await dialog.getByLabel('添加评论').fill('补充端到端验收结论')
-  await dialog.getByRole('button', { name: '发送评论' }).click()
+  await dialog.getByRole('button', { name: '发布评论' }).click()
   await expect(dialog.getByText('补充端到端验收结论')).toBeVisible()
 
   await dialog.getByLabel('引用').fill('https://example.com/evidence')
@@ -2154,7 +2201,7 @@ test('WorkItem delegates to its assigned Agent and refreshes the Task deep link'
   await delegate.getByLabel('执行目标').fill('由 Personal Agent 验证 M3-F02')
   await delegate.getByRole('button', { name: '验证 Ref' }).click()
   await expect(delegate.getByText(/^Preflight 通过 ·/)).toBeVisible()
-  await delegate.getByRole('button', { name: '创建 Task' }).click()
+  await delegate.getByRole('button', { name: '启动执行' }).click()
 
   await expect(delegate).toBeHidden()
   await expect(page.getByRole('heading', { name: '由 Personal Agent 验证 M3-F02', exact: true })).toBeVisible()
@@ -2202,7 +2249,7 @@ test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restore
   await expect(delegate.getByText('来源保留为当前 Conversation 消息')).toBeVisible()
   await delegate.getByLabel('执行目标').fill('从 TaskIntent 上下文创建耐久 Task')
   await delegate.getByRole('button', { name: '验证 Ref' }).click()
-  await delegate.getByRole('button', { name: '创建 Task' }).click()
+  await delegate.getByRole('button', { name: '启动执行' }).click()
 
   const taskDialog = page.getByRole('dialog', { name: /从 TaskIntent 上下文创建耐久 Task Task 详情/ })
   await expect(taskDialog).toBeVisible()
@@ -2228,7 +2275,7 @@ test('Task creation retries with the same idempotency key after a transient fail
   const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
 
   await delegate.getByRole('button', { name: '验证 Ref' }).click()
-  await delegate.getByRole('button', { name: '创建 Task' }).click()
+  await delegate.getByRole('button', { name: '启动执行' }).click()
   // A transient 503 is an unknown outcome, not a refusal: the form freezes and offers the
   // original-intent retry instead of surfacing the raw server message (commandGateway).
   await expect(delegate.getByText('提交结果尚未确认。请保留当前内容，重试会沿用原操作标识；请勿重复新建。')).toBeVisible()
