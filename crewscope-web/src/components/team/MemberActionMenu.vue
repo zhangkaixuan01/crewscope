@@ -156,12 +156,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown,
 .member-menu__trigger:hover, .member-menu__trigger:focus-visible, .member-menu__trigger[aria-expanded="true"] { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
 .member-menu__trigger:disabled { opacity: .5; cursor: default; }
 .member-menu__list { position: absolute; top: calc(100% + 6px); right: 0; z-index: var(--cs-z-popover); display: grid; min-width: 250px; max-height: 340px; overflow-y: auto; padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
-.member-menu__item { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-10); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.member-menu__item { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
 .member-menu__item:hover, .member-menu__item:focus-visible { background: var(--cs-surface-accent); }
 .member-menu__item > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-style: normal; }
 .member-menu__item--danger > i { background: var(--cs-danger-soft, var(--cs-surface-subtle)); color: var(--cs-danger); }
 .member-menu__item strong { display: block; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .member-menu__item--danger strong { color: var(--cs-danger); }
 .member-menu__item small { display: block; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.member-menu__empty { margin: 0; padding: var(--cs-space-8) var(--cs-space-10); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.member-menu__empty { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

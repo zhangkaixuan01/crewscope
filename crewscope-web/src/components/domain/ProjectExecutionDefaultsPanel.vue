@@ -128,19 +128,19 @@ async function save(): Promise<void> {
 </template>
 
 <style scoped>
-.execution-defaults__header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
-.execution-defaults__form { display: grid; gap: .8rem; max-width: 42rem; margin-top: 1rem; }
-.draft-recovery { display: flex; justify-content: space-between; align-items: center; gap: .8rem; padding: .6rem .8rem; border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); }
-.draft-recovery strong { display: block; font-size: .875rem; }
-.draft-recovery span { display: block; color: var(--text-secondary); font-size: .8rem; }
-.draft-recovery > div:last-child { display: flex; gap: .4rem; }
-label { display: grid; gap: .35rem; font-weight: 600; }
+.execution-defaults__header { display: flex; justify-content: space-between; gap: var(--cs-space-16); align-items: flex-start; }
+.execution-defaults__form { display: grid; gap: var(--cs-space-12); max-width: 42rem; margin-top: var(--cs-space-16); }
+.draft-recovery { display: flex; justify-content: space-between; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); }
+.draft-recovery strong { display: block; font-size: var(--cs-text-base); }
+.draft-recovery span { display: block; color: var(--text-secondary); font-size: var(--cs-text-xs); }
+.draft-recovery > div:last-child { display: flex; gap: var(--cs-space-8); }
+label { display: grid; gap: var(--cs-space-4); font-weight: var(--cs-weight-semibold); }
 /* Control height comes from the density token, never a rem literal: the root font is 14px, so
    2.5rem measured 35px — under the 44px touch floor the narrow viewport enforces through the same
    token (48px there, so the small derived sizes stay compliant too). */
-input, select { min-height: var(--cs-density-control-height); padding: .4rem .6rem; border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); color: var(--text-primary); }
-.execution-defaults__actions { display: flex; align-items: center; gap: .8rem; margin-top: .35rem; }
-.muted { color: var(--text-secondary); font-size: .875rem; }
-.success { color: var(--success-text, #19733c); }
-.error-text { color: var(--danger-text, #a12828); }
+input, select { min-height: var(--cs-density-control-height); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); color: var(--text-primary); }
+.execution-defaults__actions { display: flex; align-items: center; gap: var(--cs-space-12); margin-top: var(--cs-space-4); }
+.muted { color: var(--text-secondary); font-size: var(--cs-text-base); }
+.success { color: var(--cs-success); }
+.error-text { color: var(--cs-danger); }
 </style>

@@ -310,7 +310,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
           <StatePanel v-else-if="store.state.membersErrorMessage" state="error" :description="store.state.membersErrorMessage" @retry="store.loadMembers(true)" />
           <StatePanel v-else-if="store.state.members.length === 0" state="empty" title="暂时没有成员事实"><template v-if="canManageMembers" #action><BaseButton size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></template></StatePanel>
           <div v-else class="member-table" role="table" aria-label="团队成员列表">
-            <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">角色</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span><span role="columnheader"><span class="visually-hidden">操作</span></span></div>
+            <div class="member-table__head" role="row"><span role="columnheader">成员</span><span role="columnheader">角色</span><span role="columnheader">状态</span><span role="columnheader">加入方式</span><span role="columnheader">加入时间</span><span role="columnheader"><span class="sr-only">操作</span></span></div>
             <div
               v-for="member in store.state.members"
               :key="member.id"
@@ -393,5 +393,4 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 .locate-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cs-space-4) var(--cs-space-12); min-height: var(--cs-density-control-height); margin: var(--cs-space-12) var(--cs-space-20) 0; padding: var(--cs-space-4) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-sm); }
 .locate-note > span { min-width: 0; }
 .member-row--located { background: var(--cs-surface-accent); box-shadow: inset 3px 0 0 var(--cs-text-brand); }
-.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
