@@ -324,6 +324,38 @@ describe('application routing', () => {
     expect(router.currentRoute.value.query.project).toBe(fixtureIds.projectCrewScope)
   })
 
+  it('keeps only the frozen work query keys and drops unknown or list values through a redirect', async () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
+
+    await router.push(
+      `/work?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
+      + '&workItem=wi-1&task=task-1&taskExecution=exec-1&attempt=exec-1&workspace=ws-1&review=rev-1'
+      + '&focus=CR-1&delegate=coding&view=board&status=all&type=all&priority=all&sort=updatedAt&direction=desc'
+      + '&taskStatus=all&taskOwner=all&conversation=conv-1&sourceMessage=msg-1'
+      + '&chatty=unexpected',
+    )
+    await router.isReady()
+
+    // The S01 §197 frozen set: object, execution and filter coordinates — nothing else arrives.
+    expect(Object.keys(router.currentRoute.value.query).sort()).toEqual([
+      'attempt', 'conversation', 'delegate', 'direction', 'focus', 'priority', 'project',
+      'review', 'sort', 'sourceMessage', 'status', 'task', 'taskExecution', 'taskOwner',
+      'taskStatus', 'team', 'type', 'view', 'workItem', 'workspace',
+    ].sort())
+    expect(router.currentRoute.value.query.taskExecution).toBe('exec-1')
+  })
+
+  it('drops a whitelisted work key whose value is a list instead of a scalar', async () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
+
+    await router.push(`/work?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}&taskExecution=a&taskExecution=b`)
+    await router.isReady()
+
+    expect(router.currentRoute.value.query.taskExecution).toBeUndefined()
+    // A list value on one key must not drop the scalar coordinates beside it.
+    expect(router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
+  })
+
   it('guards WorkProject Repository settings with repository management permission', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))

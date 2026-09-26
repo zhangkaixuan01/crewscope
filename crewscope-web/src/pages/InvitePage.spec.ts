@@ -3,6 +3,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import type { AuthStore } from '../domains/identity/store'
 import { AUTH_STORE } from '../domains/identity/store'
 import type { InvitationGateway } from '../domains/invitation/gateway'
+import { persistAcceptance } from '../domains/invitation/acceptanceRecovery'
 import { createInvitationStore, INVITATION_STORE } from '../domains/invitation/store'
 import type { ScopeStore } from '../domains/scope/store'
 import { SCOPE_STORE } from '../domains/scope/store'
@@ -11,6 +12,10 @@ import InvitePage from './InvitePage.vue'
 const token = 'C'.repeat(43)
 
 describe('InvitePage', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+
   it('clears the Fragment after capture and sends an anonymous existing user through a proof-free login return', async () => {
     const { wrapper, router, store } = await mountPage(false)
 
@@ -40,6 +45,49 @@ describe('InvitePage', () => {
     expect(router.currentRoute.value.name).toBe('conversation')
     expect(router.currentRoute.value.query.team).toBe('team-new')
     expect(store.hasProof()).toBe(false)
+    // R29: the entry landed, so the recovery record is consumed rather than left behind.
+    expect(sessionStorage.getItem('crewscope:invitation-acceptance:v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('recovers a committed acceptance from sessionStorage onto the joined Team after a reload', async () => {
+    persistAcceptance({
+      organizationId: 'organization-1', teamId: 'team-new', memberId: 'member-new',
+      principalId: 'principal-1', acceptedAt: Date.now(),
+    })
+    const { wrapper, router, scopeStore, store } = await mountPage(true, '', true)
+
+    // The reload lost the in-memory acceptance; the session still lists the earlier Team
+    // first, and the recovery must land on the joined Team, not on teams[0].
+    expect(scopeStore.synchronize).toHaveBeenCalledWith('team-new')
+    expect(router.currentRoute.value.name).toBe('conversation')
+    expect(router.currentRoute.value.query.team).toBe('team-new')
+    expect(sessionStorage.getItem('crewscope:invitation-acceptance:v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps the accept pending when the session disagrees on the membership coordinate', async () => {
+    persistAcceptance({
+      organizationId: 'organization-1', teamId: 'team-new', memberId: 'member-from-another-identity',
+      principalId: 'principal-1', acceptedAt: Date.now(),
+    })
+    const { wrapper, router, scopeStore } = await mountPage(true, '', true)
+
+    expect(router.currentRoute.value.name).toBe('invite')
+    expect(scopeStore.synchronize).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('接受已提交，会话待同步')
+    expect(sessionStorage.getItem('crewscope:invitation-acceptance:v1')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('switches accounts in place while the invitation proof stays in memory', async () => {
+    const { wrapper, authStore, store } = await mountPage(true)
+    await wrapper.findAll('button').find(button => button.text().includes('换账号接受'))!.trigger('click')
+    await flushPromises()
+
+    expect(authStore.switchAccount).toHaveBeenCalledWith(expect.objectContaining({ token: 'csrf-invite-page' }))
+    // The proof survives the switch so the matching account can still accept (L12).
+    expect(store.hasProof()).toBe(true)
     wrapper.unmount()
   })
 
@@ -52,10 +100,10 @@ describe('InvitePage', () => {
   })
 })
 
-async function mountPage(authenticated: boolean, hash = `#token=${token}`) {
+async function mountPage(authenticated: boolean, hash = `#token=${token}`, joined = false) {
   const gateway = fixtureGateway()
   const store = createInvitationStore(gateway)
-  const authStore = fixtureAuthStore(authenticated)
+  const authStore = fixtureAuthStore(authenticated, joined)
   const scopeStore = fixtureScopeStore()
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/invite', name: 'invite', component: { template: '<div />' } },
@@ -92,18 +140,18 @@ function fixtureGateway(): InvitationGateway {
   }
 }
 
-function fixtureAuthStore(authenticated: boolean): AuthStore {
+function fixtureAuthStore(authenticated: boolean, joined = false): AuthStore {
   const state = {
     phase: authenticated ? 'authenticated' as const : 'anonymous' as const,
     activeTeamId: null, errorCode: null, errorMessage: null,
-    session: session(authenticated, false),
+    session: session(authenticated, joined),
   }
   return {
     state,
     principal: { id: authenticated ? 'principal-1' : '', accountId: authenticated ? 'account-1' : '', displayName: authenticated ? 'Alice' : '', role: authenticated ? 'Member' : '', organizationId: authenticated ? 'organization-1' : '', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {},
     refresh: vi.fn(async () => { state.session = session(true, true); return true }),
-    async retry() {}, selectTeam() {}, authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
+    async retry() {}, selectTeam() {}, authenticationRequired() {}, signOutLocally() {}, switchAccount: vi.fn(async () => true), subscribe() { return () => undefined },
   }
 }
 

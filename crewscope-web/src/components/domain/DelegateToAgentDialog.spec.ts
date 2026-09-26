@@ -206,6 +206,33 @@ describe('DelegateToAgentDialog', () => {
     expect(wrapper.text()).toContain('PolicySnapshot Preflight 通过')
   })
 
+  it('lets the “让 Agent 处理” prefill override an older draft and states it visibly', async () => {
+    writeTaskDelegationDraft(
+      { organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform },
+      fixtureIds.projectCrewScope,
+      fixtureWorkItemDetails.workItem.id,
+      {
+        objective: '旧的草稿目标',
+        acceptanceCriteria: '旧验收',
+        executorAgentProfileId: personalProfileId,
+        agentConfigurationRevision: null,
+      },
+      fixturePrincipal,
+    )
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+
+    const wrapper = mountDialog({ prefillNote: '按新接口契约补齐回调', onSubmit })
+    await flushPromises()
+
+    // The explicit latest intent wins over the stored form draft, and the surface says so
+    // instead of silently rewriting the member's earlier text (R42).
+    expect(wrapper.get('input[maxlength="2000"]').element).toHaveProperty('value', '按新接口契约补齐回调')
+    expect(wrapper.text()).toContain('执行目标已预填自你的评论草稿')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ objective: '按新接口契约补齐回调' }))
+  })
+
   it('fails closed without assignable candidates and offers exact-request retry after failure', async () => {
     const unavailable = mountDialog({ context: context({ candidates: [] }) })
     await flushPromises()

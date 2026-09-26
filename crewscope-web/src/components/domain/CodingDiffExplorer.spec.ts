@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { AUTH_PRINCIPAL } from '../../app/auth'
-import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
+import { activateF05Identity, clearF05UserData, readF05Reading, writeF05Reading } from '../../app/f05Storage'
 import type { CodingAttemptSummary, CodingPatchDocument } from '../../domains/coding/types'
 import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { TaskEventItem, TaskEventPage } from '../../domains/task/types'
@@ -25,6 +25,15 @@ function mountExplorer(options: Record<string, unknown>) {
 
 const executionId = '00000000-0000-0000-0000-000000004301'
 const workspaceId = '00000000-0000-0000-0000-000000004401'
+
+/** The exact reading scope the explorer files its viewed marks under. */
+function f05Scope() {
+  return {
+    accountId: fixtureAccount, principalId: fixturePrincipal.id,
+    organizationId: fixturePrincipal.organizationId,
+    teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: executionId,
+  }
+}
 
 describe('CodingDiffExplorer', () => {
   it('preserves a draft when the server returns null instead of inventing a saved comment', async () => {
@@ -203,6 +212,91 @@ describe('CodingDiffExplorer', () => {
     expect(spans.every(span => span.classes().includes('syntax-plain'))).toBe(true)
     // 没有语法也要能读：整行文字照旧渲染，不是空白。
     expect(wrapper.get('.patch-code').text()).toContain('+  <circle r="1" />')
+  })
+
+  it('marks viewed files per content version and lets the mark be taken back', async () => {
+    const wrapper = mountExplorer({ props: propsFor('src/Main.java', javaPatch()) })
+    expect(wrapper.text()).toContain('个人阅读进度，不等于批准')
+    const treeRow = wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!
+
+    const toggle = wrapper.findAll('.patch-action').find(button => button.text().includes('标记已查看'))!
+    await toggle.trigger('click')
+    expect(toggle.text()).toContain('取消已查看')
+    expect(treeRow.find('[aria-label="已查看"]').exists()).toBe(true)
+
+    await toggle.trigger('click')
+    expect(toggle.text()).toContain('标记已查看')
+    expect(treeRow.find('[aria-label="已查看"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('falls back to not-viewed when the file content version changes, including the legacy shape', async () => {
+    // Marked under generation 2 / hash-a…
+    const first = mountExplorer({ props: propsFor('src/Main.java', javaPatch()) })
+    await first.findAll('.patch-action').find(button => button.text().includes('标记已查看'))!.trigger('click')
+    const stored = readF05Reading<{ 'src/Main.java': { hash: string } }>(f05Scope(), 'viewed-files')
+    expect(stored?.['src/Main.java']?.hash).toBe('a'.repeat(64))
+    first.unmount()
+
+    // Same path, new content version: the mark must not speak for content it never saw (R22).
+    const changed = mountExplorer({
+      props: props({
+        eventPage: {
+          items: [diffEvent('WORKSPACE_DIFF_RESET', 1, 3, [{ ...rawFile('src/Main.java', null, 'MODIFIED', 9, 3), patchSha256: 'b'.repeat(64) }], [])],
+          hasMore: false, taskTerminal: false, nextCursor: null,
+        },
+        patchPhase: 'ready', patch: patchDocument(),
+      }),
+    })
+    await changed.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+    expect(changed.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.find('[aria-label="已查看"]').exists()).toBe(false)
+    changed.unmount()
+
+    // The pre-versioning list shape can never match either — it is a one-time safe reset.
+    writeF05Reading(f05Scope(), 'viewed-files', ['src/Main.java'])
+    const legacy = mountExplorer({ props: propsFor('src/Main.java', javaPatch()) })
+    expect(legacy.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.find('[aria-label="已查看"]').exists()).toBe(false)
+    legacy.unmount()
+  })
+
+  it('keeps the line-comment affordance inert with its reason while no review can take it', async () => {
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument(), canComment: false }) })
+    await wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+
+    const lineButton = wrapper.get('[aria-label="评论第 1 行"]')
+    expect((lineButton.element as HTMLButtonElement).disabled).toBe(true)
+    // The reason rides an sr-only note the button points at — a title attribute is invisible to
+    // screen readers on touch and cannot be read back, so the gate note is the accessible path.
+    expect(lineButton.attributes('aria-describedby')).toBe('diff-comment-gate-note')
+    expect(wrapper.get('#diff-comment-gate-note').text()).toContain('当前没有可提交评论的 Review，请先发起 Review')
+    // Clicking the row itself must not open a composer either — the gate is on the capability.
+    await wrapper.get('.patch-line').trigger('click')
+    expect(wrapper.find('.review-comment-form').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows a version note instead of re-binding when the diff generation moves under an open draft', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(null)
+    const wrapper = mountExplorer({ props: props({ patchPhase: 'ready', patch: patchDocument(), onAddComment }) })
+    await wrapper.findAll('.diff-tree__file').find(button => button.text().includes('Main.java'))!.trigger('click')
+    await wrapper.get('[aria-label="评论第 1 行"]').trigger('click')
+    await wrapper.get('[data-testid="review-comment-input"]').setValue('anchored to gen 2')
+
+    await wrapper.setProps({
+      eventPage: {
+        items: [diffEvent('WORKSPACE_DIFF_RESET', 3, 3, [rawFile('src/Main.java', null, 'MODIFIED', 9, 3)], [])],
+        hasMore: false, taskTerminal: false, nextCursor: null,
+      },
+    })
+    expect(wrapper.find('.review-comment-form').exists()).toBe(true)
+    expect(wrapper.get('.comment-version-note').text()).toContain('第 3 版')
+    expect(wrapper.get('.comment-version-note').text()).toContain('第 2 版')
+
+    await wrapper.get('.review-comment-form').trigger('submit')
+    // sha256 resolves off the microtask queue (libuv thread pool), so plain flushPromises races
+    // it under load — wait for the submit chain to actually reach the gateway.
+    await vi.waitFor(() => expect(onAddComment.mock.calls[0]?.[0]).toMatchObject({ filePath: 'src/Main.java', diffGeneration: 2 }))
+    wrapper.unmount()
   })
 
   it('leaves a patch it only holds part of as plain text', async () => {

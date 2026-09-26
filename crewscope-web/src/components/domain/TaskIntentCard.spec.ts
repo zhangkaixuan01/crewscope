@@ -39,4 +39,21 @@ describe('TaskIntentCard', () => {
     await wrapper.findAll('button').find(button => button.text().includes('确认拒绝'))!.trigger('click')
     expect(wrapper.emitted('reject')?.[0]).toEqual(['目标已经改变'])
   })
+
+  it('folds to a summary card in the message flow: facts visible, actions behind the expand', async () => {
+    const wrapper = mount(TaskIntentCard, {
+      props: { intent: fixtureTaskIntent(), currentPrincipalId: fixtureIds.principal, variant: 'summary' },
+    })
+
+    // The identity, the proposal's objective and the review status stay readable…
+    expect(wrapper.text()).toContain('结构化任务提案')
+    expect(wrapper.text()).toContain('目标')
+    expect(wrapper.text()).toContain('待确认')
+    // …while every command, including the details that justify it, waits behind the explicit expand.
+    expect(wrapper.text()).not.toContain('预检并确认')
+    expect(wrapper.text()).not.toContain('验收标准')
+    await wrapper.findAll('button').find(button => button.text().includes('展开提案'))!.trigger('click')
+    expect(wrapper.emitted('expand')).toHaveLength(1)
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+  })
 })

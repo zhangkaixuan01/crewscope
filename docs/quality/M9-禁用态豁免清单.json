@@ -90,6 +90,16 @@
       "file": "components/team/ResponsibilityHandoverDialog.vue",
       "expression": "!target || !selectedRole",
       "reason": "创建交接按钮的禁用成因就是同屏两个下拉（责任角色、接手成员）尚未选齐，无可创建的交接，原因由这两个下拉自身承载。"
+    },
+    {
+      "file": "components/domain/TaskWorkspaceHeader.vue",
+      "expression": "actionDisabled",
+      "reason": "该绑定把「主动作是否可执行」原样转发给 WorkspacePrimaryAction；禁用成因（九级决策的等级与说明）由该组件 facts 区的 action.headline/action.detail 直接渲染，按钮本身不承载新的守卫条件。"
+    },
+    {
+      "file": "components/domain/WorkItemDetailDrawer.vue",
+      "expression": "!comment.trim()",
+      "reason": "「让 Agent 处理」以评论内容为委托目标：评论为空时没有可发起委托的文本，成因就是同一表单的评论输入框为空；输入框与按钮旁的常驻说明（评论仅记录讨论、委托需单独确认）已在同一上下文。"
     }
   ]
 }

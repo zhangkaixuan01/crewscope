@@ -15,6 +15,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.BuiltInTeamRole;
 import io.crewscope.domain.team.MemberRoleStatus;
 import io.crewscope.domain.team.RoleScope;
+import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
 import io.crewscope.domain.workitem.WorkProject;
@@ -75,13 +76,48 @@ public final class RepositoryBindingAccessPolicy {
         if (trusted.platformAdministrator()) {
             return project;
         }
-        var member = workItemAccessPolicy.requireVisibleTeamMember(
+        TeamMember member = workItemAccessPolicy.requireVisibleTeamMember(
                 trusted, organizationId, teamId);
+        if (!hasBuiltInTeamAdministratorGrant(organizationId, teamId, member, occurredAt)) {
+            throw new PolicyDeniedException("manage repositories in this Team");
+        }
+        return project;
+    }
+
+    /**
+     * The non-throwing twin of {@link #requireAdministrator}: whether this actor may complete the
+     * mutation side of repository/execution-defaults setup. Readiness probes must use the exact
+     * grant set the write path enforces — a TeamPermission probe widens the verdict to roles
+     * (for example TEAM_LEAD) that the settings route and the write path would then reject.
+     */
+    public boolean canAdministrate(
+            TeamAccessContext context,
+            OrganizationId organizationId,
+            TeamId teamId,
+            UtcTimestamp occurredAt) {
+        TeamAccessContext trusted = Objects.requireNonNull(context, "context");
+        if (trusted.platformAdministrator()) {
+            return true;
+        }
+        try {
+            TeamMember member = workItemAccessPolicy.requireVisibleTeamMember(
+                    trusted, organizationId, teamId);
+            return hasBuiltInTeamAdministratorGrant(organizationId, teamId, member, occurredAt);
+        } catch (RuntimeException failure) {
+            return false;
+        }
+    }
+
+    private boolean hasBuiltInTeamAdministratorGrant(
+            OrganizationId organizationId,
+            TeamId teamId,
+            TeamMember member,
+            UtcTimestamp occurredAt) {
         Map<TeamRoleId, TeamRole> roles = teamRoleRepository
                 .findByTeam(organizationId, teamId)
                 .stream()
                 .collect(Collectors.toMap(TeamRole::id, role -> role));
-        boolean administrator = memberRoleRepository
+        return memberRoleRepository
                 .findByMember(organizationId, member.id())
                 .stream()
                 .filter(grant -> grant.status() == MemberRoleStatus.ACTIVE)
@@ -92,10 +128,6 @@ public final class RepositoryBindingAccessPolicy {
                 .filter(TeamRole::isGrantable)
                 .anyMatch(role -> role.isBuiltIn(BuiltInTeamRole.TEAM_OWNER)
                         || role.isBuiltIn(BuiltInTeamRole.TEAM_ADMIN));
-        if (!administrator) {
-            throw new PolicyDeniedException("manage repositories in this Team");
-        }
-        return project;
     }
 
     private static Principal requireActiveOrganizationUser(

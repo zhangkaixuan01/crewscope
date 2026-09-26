@@ -18,7 +18,9 @@ describe('TaskDetailDrawer', () => {
 
     expect(text).toContain('完成 Task Gateway')
     expect(text).toContain('责任快照')
-    expect(text).toContain('Owner')
+    // The role badge reuses the workbench's role wording (workItemResponsibilityRoleLabels), not an
+    // English re-translation, so the same member is called the same thing everywhere.
+    expect(text).toContain('负责人')
     expect(text).toContain('Revision 2')
     expect(text).toContain('步骤进度 1/2')
     expect(text).toContain('等待外部执行')
@@ -46,19 +48,80 @@ describe('TaskDetailDrawer', () => {
     wrapper.unmount()
   })
 
-  it('keeps narrow-screen reading order in the semantic DOM and exposes fleet degradation', () => {
+  it('keeps the §4.1 workspace order in the semantic DOM and exposes fleet degradation', () => {
     const wrapper = mount(TaskDetailDrawer, { props: props() })
+    // DOM order equals reading order: header block, then the five sections in contract order —
+    // narrow widths are a single column in exactly this sequence, with no CSS order overrides.
     const ordered = [
-      '.task-hero', '.control-card', '.timeline-card', '.associations-card', '.responsibility-card', '.attempt-card', '.fleet-card',
-      '.plan-card', '.steps-card', '.runs-card', '.lease-card',
+      '.workspace-header', '#ws-overview', '#ws-discussion', '#ws-execution', '#ws-changes', '#ws-review',
     ].map(selector => wrapper.get(selector).element)
+    const overviewCards = ['.task-hero', '.responsibility-card', '.attempt-card', '.fleet-card']
+      .map(selector => wrapper.get(selector).element)
+    const executionCards = ['.control-card', '.task-runtime-panel', '.timeline-card']
+      .map(selector => wrapper.get(selector).element)
+    const changesCards = ['.execution-studio']
+      .map(selector => wrapper.get(selector).element)
 
-    for (let index = 1; index < ordered.length; index += 1) {
-      expect(ordered[index - 1]!.compareDocumentPosition(ordered[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const group of [ordered, overviewCards, executionCards, changesCards]) {
+      for (let index = 1; index < group.length; index += 1) {
+        expect(group[index - 1]!.compareDocumentPosition(group[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      }
     }
     expect(wrapper.get('.fleet-card').text()).toContain('已降级')
     expect(wrapper.get('.fleet-card').text()).toContain('并发容量已满 · 1')
     expect(wrapper.get('.fleet-card').text()).not.toContain('DEGRADED')
+    wrapper.unmount()
+  })
+
+  it('renders the primary action strip from the nine-level verdict and fires RESUME directly', async () => {
+    const wrapper = mount(TaskDetailDrawer, { props: props() })
+
+    expect(wrapper.get('.workspace-action').attributes('data-action-state')).toBe('EXECUTING')
+    expect(wrapper.get('.workspace-action').text()).toContain('执行等待中')
+    wrapper.unmount()
+
+    const onCommand = vi.fn()
+    const paused = mount(TaskDetailDrawer, {
+      props: props({
+        workspaceAction: {
+          state: 'IDLE', headline: '执行已暂停', detail: null, operation: 'RESUME', anchor: 'ws-execution',
+        },
+        onCommand,
+      }),
+    })
+    await paused.get('.workspace-action button').trigger('click')
+    expect(onCommand).toHaveBeenCalledWith('RESUME')
+    paused.unmount()
+  })
+
+  it('surfaces an execution coordinate conflict through the explicit chooser before any write', async () => {
+    const onResolveExecutionConflict = vi.fn()
+    const wrapper = mount(TaskDetailDrawer, {
+      props: props({
+        executionConflict: { unified: 'exec-unified', alias: 'exec-alias' },
+        onResolveExecutionConflict,
+      }),
+    })
+
+    expect(wrapper.get('.execution-conflict').attributes('role')).toBe('alert')
+    expect(wrapper.text()).toContain('写动作已禁止')
+    const [unifiedButton, aliasButton] = wrapper.findAll('.execution-conflict__actions button')
+    await unifiedButton!.trigger('click')
+    await aliasButton!.trigger('click')
+    expect(onResolveExecutionConflict).toHaveBeenNthCalledWith(1, 'exec-unified')
+    expect(onResolveExecutionConflict).toHaveBeenNthCalledWith(2, 'exec-alias')
+    wrapper.unmount()
+  })
+
+  it('marks a stale URL selection as history view and returns to the current execution', async () => {
+    const onSelectAttempt = vi.fn()
+    const wrapper = mount(TaskDetailDrawer, {
+      props: props({ selectedExecutionId: 'gone-execution', onSelectAttempt }),
+    })
+
+    expect(wrapper.get('.execution-history').attributes('role')).toBe('status')
+    await wrapper.get('.execution-history button').trigger('click')
+    expect(onSelectAttempt).toHaveBeenCalledWith(taskIds.execution)
     wrapper.unmount()
   })
 
@@ -229,6 +292,15 @@ function props(overrides: Record<string, unknown> = {}) {
     commandErrorMessage: null,
     commandRetryable: false,
     commandVersionConflict: null,
+    workspaceAction: {
+      state: 'EXECUTING' as const,
+      headline: '执行等待中',
+      detail: '执行在等待 Runtime 容量，恢复后自动继续。',
+      operation: 'CANCEL' as const,
+      anchor: 'ws-execution' as const,
+    },
+    executionConflict: null,
+    onResolveExecutionConflict: vi.fn(),
     onSelectAttempt: vi.fn(),
     onRetry: vi.fn(),
     onRetryRuntime: vi.fn(),

@@ -42,6 +42,12 @@ import { useFocusTrap } from '../../composables/useFocusTrap'
 defineProps<{
   title: string
   eyebrow: string
+  /**
+   * App-height mode for chat-style pages (L03): the body stops growing with content and hands the
+   * real remaining viewport height to the workspace, so the page can size its panels from the
+   * container instead of a `calc(100vh - guessed chrome)` subtraction.
+   */
+  fill?: boolean
 }>()
 
 const route = useRoute()
@@ -264,7 +270,7 @@ async function signOut(): Promise<void> {
       />
     </aside>
 
-    <div class="app-shell__body">
+    <div class="app-shell__body" :class="{ 'app-shell__body--fill': fill }">
       <div v-if="!isOnline" class="network-banner" role="status" aria-live="polite" aria-atomic="true">
         <span aria-hidden="true">●</span>当前离线：已加载事实和草稿已保留，联网后可继续提交。
       </div>
@@ -305,7 +311,7 @@ async function signOut(): Promise<void> {
         <div class="context-header__actions"><slot name="actions" /></div>
       </header>
 
-      <main id="main-workspace" class="app-shell__workspace" tabindex="-1"><slot /></main>
+      <main id="main-workspace" class="app-shell__workspace" :class="{ 'app-shell__workspace--fill': fill }" tabindex="-1"><slot /></main>
     </div>
 
     <div v-if="mobileNavOpen" class="mobile-navigation-backdrop" @click.self="closeMobileNav">
@@ -371,6 +377,10 @@ async function signOut(): Promise<void> {
 .context-header h1 { margin-bottom: 0; font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); letter-spacing: -.02em; }
 .context-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .app-shell__workspace { padding: var(--cs-density-workspace-padding); }
+/* Fill mode: the chrome (banner, topbar, context header) keeps its natural height and the workspace
+ * receives the real remaining viewport height; the page then flexes inside it (L03, contract §4.4). */
+.app-shell__body--fill { display: flex; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; overflow: hidden; }
+.app-shell__workspace--fill { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
 .mobile-mode { display: none; }
 .mobile-menu-toggle { display: none; }
 @media (max-width: 1100px) {

@@ -1096,7 +1096,15 @@ test('Setup Center exposes capability readiness, safe actions and accessible res
 
   await expect(page.getByRole('heading', { name: 'Platform Engineering 的配置中心' })).toBeVisible()
   await expect(page.getByLabel('必需能力就绪进度')).toContainText('1/3')
+  // 目标两卡聚合各自能力的缺口（L07）；「先对话」的下一步来自 TEAM_TASK 缺项。
+  const goals = page.getByRole('region', { name: '先选一个目标' })
+  await expect(goals.getByRole('heading', { name: '先开始对话' })).toBeVisible()
+  await expect(goals.getByRole('heading', { name: '先开始 Coding' })).toBeVisible()
+  await expect(goals.getByText('还需 1 项')).toBeVisible()
   const checklist = page.getByRole('region', { name: '能力与前置条件' })
+  // 已就绪能力折叠成一行摘要；展开后仍能看到就绪事实与责任方文案。
+  await expect(checklist.getByRole('heading', { name: 'Personal Conversation' })).toHaveCount(0)
+  await checklist.getByRole('button', { name: '显示已就绪能力（1）' }).click()
   await expect(checklist.getByRole('heading', { name: 'Personal Conversation' })).toBeVisible()
   await expect(checklist.getByText('已就绪', { exact: true })).toBeVisible()
   await expect(checklist.getByText('请联系 Team Owner')).toBeVisible()
@@ -1468,6 +1476,8 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
 
   await expect(page.getByRole('heading', { name: '结构化任务提案' })).toBeVisible()
+  // The pre-message card arrives folded (R19): the full criteria and the confirm action live behind the expand entry.
+  await page.getByRole('button', { name: '展开提案' }).click()
   await expect(page.getByText('关键操作进入审计记录', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '预检并确认' }).click()
 
@@ -2167,6 +2177,35 @@ test('WorkItem detail transitions, comments, links and continues in Conversation
   await expect(page.getByRole('heading', { name: /CRW-18/ })).toBeVisible()
 })
 
+test('WorkItem comments render safe Markdown and keep the two send intents separate (M9b-F03)', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
+  const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  const tableDraft = '结论 | 数量 |\n| --- | --- |\n| 接口已冻结 | 2 |'
+
+  await dialog.getByLabel('添加评论').fill(tableDraft)
+  await dialog.getByRole('button', { name: '预览' }).click()
+  await expect(dialog.locator('.comment-preview table thead th')).toHaveCount(2)
+  await expect(dialog.locator('.comment-preview table thead th').first()).toHaveText('结论')
+  await dialog.getByRole('button', { name: '编辑', exact: true }).click()
+  await expect(dialog.getByLabel('添加评论')).toHaveValue(tableDraft)
+
+  // “发布评论”是独立意图；发布后表格以语义结构（th/td）渲染，不是扁平文本。
+  await dialog.getByRole('button', { name: '发布评论' }).click()
+  await expect(dialog.locator('.comment-body table thead th').first()).toHaveText('结论')
+  await expect(dialog.locator('.comment-body tbody td').nth(1)).toHaveText('2')
+  await expect(dialog.getByLabel('添加评论')).toHaveValue('')
+
+  // “让 Agent 处理”携带草稿进入委托确认，但它本身不发布评论（执行目标是单行输入）。
+  await dialog.getByLabel('添加评论').fill('按新接口契约补齐回调')
+  await dialog.getByRole('button', { name: '让 Agent 处理', exact: true }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+  await expect(delegate.getByLabel('执行目标')).toHaveValue('按新接口契约补齐回调')
+  await expect(delegate.getByText('执行目标已预填自你的评论草稿')).toBeVisible()
+  await delegate.getByRole('button', { name: '取消' }).click()
+  await expect(delegate).toHaveCount(0)
+  await expect(dialog.getByLabel('添加评论')).toHaveValue('按新接口契约补齐回调')
+})
+
 test('WorkItem responsibility management and Timeline keep server policy boundaries visible', async ({ page }) => {
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`)
   const dialog = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
@@ -2358,7 +2397,8 @@ test('Execution Studio restores the Coding attempt and Workspace from both Task 
   await expect(studio.getByText('2 / 20', { exact: true })).toBeVisible()
   await expect(studio.getByText('5 / 100', { exact: true })).toBeVisible()
   await expect(studio.getByText(/private|container-secret|task-token|typedArgv/)).toHaveCount(0)
-  await expect.poll(() => new URL(page.url()).searchParams.get('attempt')).toBe(ids.taskExecution)
+  await expect.poll(() => new URL(page.url()).searchParams.get('taskExecution')).toBe(ids.taskExecution)
+  expect(new URL(page.url()).searchParams.get('attempt')).toBeNull()
   expect(new URL(page.url()).searchParams.get('workspace')).toBe(ids.codingWorkspace)
 
   await dialog.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
@@ -2778,8 +2818,10 @@ test('Task command conflict refreshes a terminal race and removes stale controls
   await confirm.getByRole('textbox').fill('已由其他成员处理')
   await confirm.getByRole('button', { name: '确认取消' }).click()
 
-  await expect(taskDialog.getByText('执行事实已变化')).toBeVisible()
-  await expect(taskDialog.getByText(/服务端当前版本为 v1/)).toBeVisible()
+  // The workspace primary-action bar (S2) surfaces the same conflict headline; this test asserts
+  // the execution-control copy with its version sentence, so scope to the control region.
+  await expect(taskDialog.getByTestId('coding-progress-control').getByText('执行事实已变化')).toBeVisible()
+  await expect(taskDialog.getByTestId('coding-progress-control').getByText(/服务端当前版本为 v1/)).toBeVisible()
   await expect(taskDialog.getByText('已取消', { exact: true }).first()).toBeVisible()
   await expect(taskDialog.getByRole('button', { name: '取消当前 Task' })).toHaveCount(0)
 })

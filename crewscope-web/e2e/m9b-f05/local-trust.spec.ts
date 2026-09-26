@@ -160,8 +160,9 @@ test.describe('M9b-F05 local content trust', () => {
     await page.goto(`${origin}/conversation?team=${ids.teamA}&project=${ids.projectA}&conversation=${ids.conversation}`)
     const composer = page.locator('.conversation-composer')
     await expect(composer).toBeVisible()
-    // 发送 is the only control: no attachment stub, no slash button, no icon-only fake entries.
-    expect((await composer.locator('button').allTextContents()).map(text => text.trim())).toEqual(['发送'])
+    // The only controls are local features: the Markdown preview toggle (M9b-F03/S1) and 发送.
+    // Still no attachment stub, no slash button, no icon-only fake entries.
+    expect((await composer.locator('button').allTextContents()).map(text => text.trim())).toEqual(['预览', '发送'])
   })
 
   test('a full draft budget never claims a save that did not happen', async ({ page }) => {

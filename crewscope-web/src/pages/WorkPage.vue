@@ -45,7 +45,10 @@ import {
 } from '../domains/workitem/list'
 import { useTaskStore } from '../domains/task/store'
 import { clearTaskDelegationDraft } from '../domains/task/delegationDraft'
-import { resolveTaskExecution, taskRouteSelection } from '../domains/task/route'
+import { parseExecutionSelection, resolveExecutionSelection } from '../domains/task/executionSelection'
+import { resolveWorkspaceAction } from '../domains/task/workspaceAction'
+import type { WorkspaceAction } from '../domains/task/workspaceAction'
+import type { ResultReference } from '../domains/workitem/outcome'
 import { clearCodingTargetDraft } from '../domains/coding/draft'
 import {
   codingRouteMatchesScope,
@@ -205,6 +208,7 @@ const showCreate = ref(false)
 useCreationEntry('work', () => canCreate.value && scopeStore.state.phase === 'ready'
   ? project.value?.id ?? null : null, openCreate)
 const showDelegate = ref(false)
+const delegatePrefillNote = ref('')
 watch(() => [scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId], () => {
   showCreate.value = false
   showDelegate.value = false
@@ -214,6 +218,13 @@ watch(() => route.query.workItem, () => { showDelegate.value = false; resetTrans
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
 const selectedTaskExecutionId = ref<string | null>(null)
+/** `taskExecution=` and `attempt=` name different executions: both spellings present, neither chosen. */
+const executionConflict = computed(() => {
+  const parse = parseExecutionSelection(route.query)
+  return parse.conflict && parse.unified && parse.alias
+    ? { unified: parse.unified, alias: parse.alias }
+    : null
+})
 const selectedWorkItemActivityRoute = computed<WorkItemActivityRoute | null>(() => {
   const projectId = scopeStore.state.selectedProjectId
   const workItemId = workStore.state.detail?.workItem.id
@@ -428,6 +439,54 @@ const canConfirmDelivery = computed(() => Boolean(
     && assignment.actorPrincipalId === principal.id,
   ),
 ))
+/**
+ * The nine-level primary action (contract §4.7), assembled from authoritative store facts only —
+ * the anchored execution is the explicit selection when it is still live, otherwise the server's
+ * current one; review and delivery verdicts come from the same resources the panels render.
+ */
+const workspaceTaskAction = computed<WorkspaceAction>(() => {
+  if (executionConflict.value) {
+    return {
+      state: 'FORBIDDEN',
+      headline: '执行坐标冲突',
+      detail: 'taskExecution 与 attempt 指向不同执行，写动作已禁止；在执行选择区择一后恢复。',
+      operation: null,
+      anchor: null,
+    }
+  }
+  const attempts = taskStore.state.attempts
+  const anchored = attempts.find(item => item.id === selectedTaskExecutionId.value)
+    ?? attempts.find(item => item.id === taskStore.state.details?.currentExecutionId)
+    ?? null
+  const reviews = selectedReviewListResource.value?.value ?? null
+  const bundles = selectedDeliveryListResource.value?.value ?? null
+  return resolveWorkspaceAction({
+    canControl: canControlTask.value,
+    historyView: Boolean(selectedTaskExecutionId.value
+      && !attempts.some(item => item.id === selectedTaskExecutionId.value)),
+    commandPending: taskStore.state.commandPending !== null,
+    versionConflict: taskStore.state.commandVersionConflict !== null,
+    selectionRequired: false,
+    configurationMissing: false,
+    executionStatus: anchored?.status ?? null,
+    waitingReason: anchored?.waiting?.reason ?? null,
+    reviewAwaited: Boolean(reviews?.some(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS')),
+    deliveryAwaited: Boolean(bundles?.some(bundle => bundle.actions.some(action =>
+      action.dispatch && ['UNKNOWN', 'RECONCILING', 'MANUAL_REVIEW'].includes(action.dispatch.status)))),
+    taskStatus: taskStore.state.details?.status ?? null,
+  })
+})
+/**
+ * The WorkItem-level §4.7 level-5 feed: the real parallel Task list, offered only while the member
+ * has not opened a Task — the summary's selectionRequired flag says the server refuses to guess too.
+ */
+const workItemParallelTasks = computed(() => {
+  const workItem = workStore.state.detail?.workItem
+  return workItem ? taskStore.state.items.filter(task => task.workItemId === workItem.id) : []
+})
+const workItemTaskSelectionRequired = computed(() => Boolean(
+  workStore.state.detail?.workItem.summary?.selectionRequired && !queryValue(route.query.task),
+))
 
 watch(
   () => [scopeStore.state.phase, route.query.view, route.query.status, route.query.type, route.query.priority, route.query.sort, route.query.direction],
@@ -531,17 +590,24 @@ watch(
     taskStore.state.details?.currentExecutionId,
     taskStore.state.attempts.map(item => item.id).join(','),
     route.query.taskExecution,
+    route.query.attempt,
   ] as const,
   ([taskId, currentExecutionId]) => {
     if (!taskId) {
       selectedTaskExecutionId.value = null
       return
     }
-    selectedTaskExecutionId.value = resolveTaskExecution(
-      taskRouteSelection(route.query),
+    // Contract §4.1: the URL and the server facts resolve through the four-state selection — a
+    // conflict chooses nothing (writes stay blocked until the member picks one), and an explicit
+    // execution the Task no longer has stays in view as history instead of silently swapping.
+    const resolution = resolveExecutionSelection(
+      parseExecutionSelection(route.query),
       taskStore.state.attempts,
       { selectedId: selectedTaskExecutionId.value, currentExecutionId: currentExecutionId ?? null },
     )
+    selectedTaskExecutionId.value = resolution.state === 'CONFLICT' || resolution.state === 'NO_EXECUTION'
+      ? null
+      : resolution.executionId
     if (selectedTaskExecutionId.value) {
       void taskStore.loadRuntimeFacts(taskId, selectedTaskExecutionId.value)
     }
@@ -990,6 +1056,38 @@ function updateTaskOwner(value: string | 'all'): void {
   void router.replace({ query: { ...route.query, taskOwner: value } })
 }
 
+function openParallelTask(taskId: string): void {
+  const task = taskStore.state.items.find(candidate => candidate.id === taskId)
+  if (task) selectTask(task)
+}
+
+/**
+ * The WorkItem outcome panel's evidence jump: it opens the Task the reference provably belongs
+ * to, anchored on the referenced execution (§4.1), and hands the pinned reference to the Task
+ * workspace so a hash mismatch is stated there instead of silently glossed over. The handoff is
+ * page state, never a URL parameter — the S01 query whitelist is frozen.
+ */
+const taskOutcomeHandoff = ref<ResultReference | null>(null)
+
+function openTaskFromOutcome(reference: ResultReference, taskId: string): void {
+  if (reference.kind !== 'coding-attempt') return
+  taskOutcomeHandoff.value = reference
+  const task = taskStore.state.items.find(candidate => candidate.id === taskId)
+  const query: LocationQueryRaw = {
+    ...withoutCodingRoute(route.query),
+    task: taskId,
+    workItem: task?.workItemId ?? queryValue(route.query.workItem) ?? undefined,
+    taskExecution: reference.executionId,
+  }
+  delete query.review
+  void router.replace({ query })
+}
+
+// Leaving the Task workspace ends the pinned comparison — reopening a Task later starts fresh.
+watch(() => route.query.task, value => {
+  if (!value) taskOutcomeHandoff.value = null
+})
+
 function selectTask(task: TaskSummary): void {
   taskDetailTriggerId = task.id
   const query: LocationQueryRaw = {
@@ -1000,6 +1098,29 @@ function selectTask(task: TaskSummary): void {
     // current execution.
     taskExecution: undefined,
   }
+  delete query.review
+  void router.replace({ query })
+}
+
+/**
+ * Resolves a `taskExecution`/`attempt` coordinate conflict with one explicit choice.
+ *
+ * The picked execution becomes the unified parameter and the other spelling leaves with it; the
+ * workspace and review coordinates also reset, because they belong to the conflicting selection.
+ */
+function resolveExecutionConflict(executionId: string): void {
+  const taskId = queryValue(route.query.task)
+  const teamId = queryValue(route.query.team)
+  const projectId = queryValue(route.query.project)
+  if (!taskId || !teamId || !projectId) return
+  const query = withCodingRoute(route.query, {
+    teamId,
+    projectId,
+    workItemId: queryValue(route.query.workItem),
+    taskId,
+    executionId,
+    workspaceId: null,
+  })
   delete query.review
   void router.replace({ query })
 }
@@ -1020,9 +1141,6 @@ function selectTaskAttempt(executionId: string): void {
     workspaceId: cached?.coding ? cached.details?.workspace.id : null,
   })
   delete query.review
-  // `attempt` now names the selected execution; keeping the consumed hint would let a reload
-  // override the member's own choice.
-  delete query.taskExecution
   void router.replace({ query })
 }
 
@@ -1079,7 +1197,9 @@ async function synchronizeCodingStudio(force = false): Promise<void> {
   const scope = codingScope.value
   const taskId = taskStore.state.details?.id
   const selection = codingRouteSelection(route.query)
-  if (!scope || !taskId || selection.taskId !== taskId) {
+  // A conflicting coordinate pair is not restorable: choosing one side silently is exactly what the
+  // contract forbids, so the studio stays closed until the conflict is resolved.
+  if (!scope || !taskId || selection.taskId !== taskId || selection.executionConflict) {
     codingStore.clearSelection()
     return
   }
@@ -1105,7 +1225,9 @@ async function synchronizeCodingStudio(force = false): Promise<void> {
   void codingStore.loadCommands(taskId, executionId)
   void codingStore.loadTestEvidence(taskId, executionId)
   const workspaceId = codingStore.state.selectedWorkspaceId
-  if (route.query.attempt !== executionId || route.query.workspace !== workspaceId) {
+  // The unified parameter is canonicalized here too: a restored legacy `attempt=` link rewrites to
+  // `taskExecution=` once its execution is live, so the alias can never resurface as a conflict.
+  if (route.query.taskExecution !== executionId || route.query.attempt || route.query.workspace !== workspaceId) {
     await router.replace({ query: withCodingRoute(route.query, {
       teamId: scope.teamId,
       projectId: scope.projectId,
@@ -1287,6 +1409,8 @@ async function commandTask(
   agentConfigurationRevision?: number,
 ): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
+  // While the execution coordinates conflict, no write action may run against a guessed target.
+  if (executionConflict.value) return
   const details = taskStore.state.details
   const attempt = taskStore.state.attempts.find(item => item.id === details?.currentExecutionId)
   if (!principal || !team.value || !details || !attempt) return
@@ -1307,6 +1431,7 @@ async function commandTask(
 
 async function retryTaskCommand(): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
+  if (executionConflict.value) return
   await taskStore.retryTaskCommand()
   if (!pageOwner.isCurrent()) return
   await synchronizeCodingStudio(true)
@@ -1354,8 +1479,10 @@ function retryTasks(): void {
   )
 }
 
-function openDelegate(): void {
+function openDelegate(note?: string): void {
   taskStore.clearCreate()
+  // R42: the “让 Agent 处理” comment intent pre-fills the dialog objective; a plain open clears it.
+  delegatePrefillNote.value = typeof note === 'string' && note.trim() ? note.trim() : ''
   showDelegate.value = true
 }
 
@@ -1458,7 +1585,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
 
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
-    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
+    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建你的第一个 Team；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
     <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject" description="创建 WorkProject 后即可管理团队工作项。">
       <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
     </StatePanel>
@@ -1593,6 +1720,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :retryable="taskStore.state.createRetryable"
       :error-message="taskStore.state.createErrorMessage ?? workStore.state.responsibilityCommandErrorMessage"
       :conversation-source="taskConversationSource"
+      :prefill-note="delegatePrefillNote"
       :on-submit="delegateToAgent"
       :on-assign="assignExecutorOnly"
       :on-retry="retryDelegation"
@@ -1649,6 +1777,10 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :on-load-more-responsibility-agents="() => loadResponsibilityAgents(false, true)"
       :on-load-timeline-more="workStore.loadTimelineMore"
       :on-retry-associations="retryLinks"
+      :parallel-tasks="workItemParallelTasks"
+      :task-selection-required="workItemTaskSelectionRequired"
+      :on-open-task="openParallelTask"
+      :on-open-outcome-reference="openTaskFromOutcome"
       @close="closeDetails"
       @conversation="openConversation"
       @open-conversation="openLinkedConversation"
@@ -1709,6 +1841,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :live-state="taskLiveState"
       :review-list-phase="selectedReviewListResource?.phase ?? 'idle'"
       :reviews="selectedReviewListResource?.value ?? null"
+      :delivery-actions="(selectedDeliveryListResource?.value ?? []).flatMap(bundle => bundle.actions ?? [])"
       :selected-review-request-id="reviewStore.state.selectedReviewRequestId"
       :review-detail-phase="selectedReviewDetailResource?.phase ?? 'idle'"
       :review="selectedReviewDetailResource?.value ?? null"
@@ -1726,6 +1859,10 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :command-error-message="taskStore.state.commandErrorMessage"
       :command-retryable="taskStore.state.commandRetryable"
       :command-version-conflict="taskStore.state.commandVersionConflict"
+      :workspace-action="workspaceTaskAction"
+      :execution-conflict="executionConflict"
+      :pinned-result-reference="taskOutcomeHandoff"
+      :on-resolve-execution-conflict="resolveExecutionConflict"
       :on-select-attempt="selectTaskAttempt"
       :on-retry="retryTaskDetails"
       :on-retry-runtime="retryTaskRuntime"

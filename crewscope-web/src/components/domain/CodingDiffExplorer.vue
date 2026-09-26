@@ -35,7 +35,9 @@ import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import SafeMarkdown from './SafeMarkdown.vue'
 
-const props = defineProps<{
+// Boolean props get Vue's absent-value cast to `false`, so the explicit default keeps a caller
+// that simply omits the gate on the historic always-commentable behaviour.
+const props = withDefaults(defineProps<{
   attempt: CodingAttemptSummary
   eventPage: TaskEventPage | null
   liveState: TaskLiveState | null
@@ -44,6 +46,10 @@ const props = defineProps<{
   patchErrorMessage: string | null
   reviewLocation?: ReviewFindingEvidence | null
   reviewComments?: ReviewLineComment[]
+  /** False while no review with a commentable state is open — the line affordance stays inert. */
+  canComment?: boolean
+  /** The review the marks were made under — recorded per entry, never part of the scope key. */
+  reviewRequestId?: string | null
   onAddComment?: (input: {
     filePath: string
     side: ReviewCommentSide
@@ -55,7 +61,7 @@ const props = defineProps<{
   }) => Promise<ReviewLineComment | null> | ReviewLineComment | null
   onLoadPatch: () => void
   onReconcile: () => void
-}>()
+}>(), { canComment: true, reviewRequestId: null })
 
 const search = ref('')
 const selectedPath = ref<string | null>(null)
@@ -64,8 +70,17 @@ const scopeStore = useScopeStore()
 const viewMode = usePreference<'unified' | 'split'>('cs.pref.diff.view-mode.v1', 'unified', { version: 1 })
 // Viewed-file marks belong to one execution and one identity: they moved from the device-level
 // preference key into the scoped `reading` kind so they never cross accounts or attempts
-// (M9b-F05); the diff view-mode stays a device preference.
-const viewedFiles = useScopedUserState<string[]>({
+// (M9b-F05); the diff view-mode stays a device preference. F03 adds the content version to each
+// entry (the file's patch hash) so the same path under a changed diff silently falls back to
+// "not viewed" instead of leaking an old verdict onto new content (R22).
+interface ViewedFileMark { hash: string; markedAt: string; reviewRequestId: string | null }
+type ViewedFileState = Record<string, ViewedFileMark>
+const isViewedFileState = (value: unknown): value is ViewedFileState => typeof value === 'object' && value !== null
+  && !Array.isArray(value)
+  && Object.values(value).every(mark => typeof mark === 'object' && mark !== null
+    && typeof (mark as ViewedFileMark).hash === 'string')
+const isLegacyViewedList = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string')
+const viewedFiles = useScopedUserState<ViewedFileState | string[]>({
   scope: () => (principal && principal.accountId && scopeStore.state.selectedTeamId
     ? {
         accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId,
@@ -73,12 +88,20 @@ const viewedFiles = useScopedUserState<string[]>({
       }
     : null),
   name: 'viewed-files',
-  fallback: [],
-  validate: (value): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string'),
+  fallback: {},
+  validate: (value): value is ViewedFileState | string[] => isViewedFileState(value) || isLegacyViewedList(value),
+})
+/** The pre-versioning list shape cannot prove which content it saw, so it never counts as viewed. */
+const viewedMarks = computed<ViewedFileState>(() => {
+  const stored = viewedFiles.value.value
+  if (!Array.isArray(stored)) return stored
+  const migrated: ViewedFileState = {}
+  for (const path of stored) migrated[path] = { hash: 'legacy', markedAt: '', reviewRequestId: null }
+  return migrated
 })
 const collapsedBlocks = ref(new Set<string>())
 const treeWidth = ref(34)
-const commentDraft = ref<{ line: ParsedPatchLine, side: ReviewCommentSide } | null>(null)
+const commentDraft = ref<{ line: ParsedPatchLine, side: ReviewCommentSide, filePath: string, generation: number } | null>(null)
 const commentText = ref('')
 const commentError = ref<string | null>(null)
 const commentSubmitting = ref(false)
@@ -115,14 +138,14 @@ function lineDraftCoordinate(line: ParsedPatchLine, side: ReviewCommentSide, fil
   return { executionId: props.attempt.executionId, filePath, side, lineNumber, diffGeneration: generation }
 }
 
-watch([commentCoordinate, () => props.onAddComment], (_next, previous) => {
-  // Persist the in-progress line comment under the coordinate it belongs to *before* the
-  // switch clears it, so switching files or a diff re-projection never eats typed input.
+// Switching file or execution closes the composer and banks the typed text under the coordinate
+// the draft itself was opened on (R23: an open comment never re-binds). A new diff generation of
+// the same file does *not* close it — the version note below tells the change instead.
+watch([() => props.attempt.executionId, () => selectedFile.value?.path], () => {
   const openDraft = commentDraft.value
   const content = commentText.value.trim()
-  if (openDraft && content && reviewDraftScope.value && typeof previous[0] === 'string') {
-    const [, , previousPath, previousGeneration] = JSON.parse(previous[0]) as [string, string | undefined, string | null, number | undefined]
-    const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, previousPath, previousGeneration ?? projection.value.generation)
+  if (openDraft && content && reviewDraftScope.value) {
+    const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, openDraft.filePath, openDraft.generation)
     if (coordinate) writeReviewLineCommentDraft(reviewDraftScope.value, coordinate, content, principal)
   }
   commentRequests.invalidate()
@@ -166,8 +189,22 @@ watch(
 
 watch(() => props.reviewComments, value => { localComments.value = value ? [] : localComments.value }, { deep: true })
 
-function markViewed(path: string): void {
-  if (!viewedFiles.value.value.includes(path)) viewedFiles.value.value = [...viewedFiles.value.value, path]
+function currentFileHash(path: string): string {
+  const file = projection.value.files.find(item => item.path === path)
+  return file?.patchHash || `gen:${projection.value.generation}`
+}
+
+function isViewed(path: string): boolean {
+  const mark = viewedMarks.value[path]
+  return Boolean(mark && mark.hash === currentFileHash(path))
+}
+
+/** Marking is personal reading progress, and un-marking is allowed at any time (R22). */
+function toggleViewed(path: string): void {
+  const next = { ...viewedMarks.value }
+  if (isViewed(path)) delete next[path]
+  else next[path] = { hash: currentFileHash(path), markedAt: new Date().toISOString(), reviewRequestId: props.reviewRequestId ?? null }
+  viewedFiles.value.value = next
 }
 
 function toggleBlock(key: string): void {
@@ -206,20 +243,26 @@ watch(commentText, value => {
   const openDraft = commentDraft.value
   const scope = reviewDraftScope.value
   if (!openDraft || !scope) return
-  const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, selectedFile.value?.path, projection.value.generation)
+  const coordinate = lineDraftCoordinate(openDraft.line, openDraft.side, openDraft.filePath, openDraft.generation)
   if (!coordinate) return
   if (value.trim()) writeReviewLineCommentDraft(scope, coordinate, value, principal)
   else clearReviewLineCommentDraftIfRevision(scope, coordinate, principal)
 })
 
+/** The gate lives on the affordance, not on submit — an inert button states its reason upfront. */
+const commentsEnabled = computed(() => props.canComment !== false)
+
 function openComment(line: ParsedPatchLine, side: ReviewCommentSide = line.oldLine !== null && line.newLine !== null ? 'NEW' : line.newLine !== null ? 'NEW' : 'OLD'): void {
   if (commentSubmitting.value) return
-  if (!line.lineNumber(side)) return
-  commentDraft.value = { line, side }
+  if (!commentsEnabled.value) return
+  const filePath = selectedFile.value?.path
+  if (!line.lineNumber(side) || !filePath) return
+  const generation = projection.value.generation
+  commentDraft.value = { line, side, filePath, generation }
   commentError.value = null
-  // Restore a previously typed comment only when the composer is untouched; a changed diff
-  // generation rides in the storage key, so stale input against shifted lines never returns.
-  const coordinate = lineDraftCoordinate(line, side, selectedFile.value?.path, projection.value.generation)
+  // Restore a previously typed comment only when the composer is untouched; the draft rides on
+  // the coordinate it was opened on, so input never shifts onto moved lines (R23).
+  const coordinate = lineDraftCoordinate(line, side, filePath, generation)
   commentText.value = coordinate && reviewDraftScope.value && !commentText.value.trim()
     ? readReviewLineCommentDraft(reviewDraftScope.value, coordinate, principal)?.content ?? ''
     : ''
@@ -242,9 +285,11 @@ async function submitComment(): Promise<void> {
   const content = commentText.value.trim()
   if (!draft || !content) { commentError.value = '请输入评论内容。'; return }
   const lineNumber = draft.line.lineNumber(draft.side)
-  if (!lineNumber || !selectedFile.value) return
-  const filePath = selectedFile.value.path
-  const diffGeneration = projection.value.generation
+  if (!lineNumber) return
+  // R23: the comment anchors to the coordinate it was opened on, even when the projection has
+  // since moved to a newer generation — the form shows that change instead of re-binding.
+  const filePath = draft.filePath
+  const diffGeneration = draft.generation
   const addComment = props.onAddComment
   if (!addComment) { commentError.value = '当前没有可提交评论的 Review，请先发起 Review。'; return }
   commentSubmitting.value = true
@@ -530,6 +575,9 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
             <span class="sr-only">筛选变更文件</span>
             <input v-model="search" type="search" placeholder="筛选路径" />
           </label>
+          <!-- R22: the marks are personal reading progress — the caption stays visible so the
+               check icon is never mistaken for an approval. -->
+          <p class="diff-tree__marks-note">个人阅读进度，不等于批准</p>
           <div class="diff-tree__list">
             <template v-for="row in treeRows" :key="row.key">
               <div v-if="row.kind === 'folder'" class="diff-tree__folder" :style="{ '--depth': row.depth }">
@@ -549,7 +597,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
                 <FileCode2 v-else :size="12" aria-hidden="true" />
                 <span>{{ row.name }}</span>
                 <StatusBadge :tone="changeTone(row.file?.changeKind ?? '')" :aria-label="changeName(row.file?.changeKind ?? '')">{{ changeLabel(row.file?.changeKind ?? '') }}</StatusBadge>
-                <Check v-if="viewedFiles.value.value.includes(row.path)" :size="11" aria-label="已查看" />
+                <Check v-if="isViewed(row.path)" :size="11" aria-label="已查看" />
               </button>
             </template>
           </div>
@@ -569,7 +617,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
               <span><b>+{{ selectedFile.additions }}</b><i>-{{ selectedFile.deletions }}</i></span>
               <span class="patch-language">{{ selectedLanguage }}</span>
               <button type="button" class="patch-action" @click="toggleViewMode">{{ viewMode.value.value === 'unified' ? 'Split' : 'Unified' }}</button>
-              <button type="button" class="patch-action" @click="markViewed(selectedFile.path)">标记已查看</button>
+              <button type="button" class="patch-action" @click="toggleViewed(selectedFile.path)">{{ isViewed(selectedFile.path) ? '取消已查看' : '标记已查看' }}</button>
               <button type="button" class="patch-action" @click="toggleFullscreen"><Maximize2 :size="11" />全屏</button>
             </div>
           </header>
@@ -598,11 +646,12 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
             <span>{{ generatedFile ? '生成目录内容默认隐藏，避免噪声。' : '文件超过浏览器渲染预算，仅展示摘要。' }}</span>
           </div>
           <div v-else class="patch-code" role="region" :aria-label="`${selectedFile?.path} Patch`" tabindex="0" @keydown="handlePatchKeydown">
+            <span v-if="!commentsEnabled" id="diff-comment-gate-note" class="sr-only">当前没有可提交评论的 Review，请先发起 Review</span>
             <code>
               <template v-for="line in patchLines" :key="line.id">
                 <span v-if="line.text.startsWith('···')" class="patch-context-toggle" @click="toggleBlock(line.id.slice(9))"><ChevronDown :size="11" />{{ line.text }}</span>
                 <span v-else class="patch-line" :class="[`patch-line--${line.kind}`, { focused: focusedLine === line.id, 'patch-line--split': viewMode.value.value === 'split' }]" @click="openComment(line)">
-                  <button type="button" class="line-comment-button" :aria-label="`评论第 ${line.newLine ?? line.oldLine ?? 0} 行`" @click.stop="openComment(line)">＋</button>
+                  <button type="button" class="line-comment-button" :disabled="!commentsEnabled" :aria-describedby="commentsEnabled ? undefined : 'diff-comment-gate-note'" :aria-label="`评论第 ${line.newLine ?? line.oldLine ?? 0} 行`" @click.stop="openComment(line)">＋</button>
                   <i v-if="viewMode.value.value === 'split'">{{ line.oldLine ?? '' }}</i><i>{{ viewMode.value.value === 'split' ? line.newLine ?? '' : line.newLine ?? line.oldLine ?? '' }}</i><b><span v-for="(token, tokenIndex) in tokensFor(line)" :key="`${line.id}:${tokenIndex}`" :class="`syntax-${token.kind}`">{{ token.text }}</span></b>
                 </span>
               </template>
@@ -612,6 +661,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
           <aside v-if="commentDraft || comments.length" class="review-comments" aria-label="行级 Review 评论">
             <form v-if="commentDraft" class="review-comment-form" @submit.prevent="submitComment">
               <strong>添加行级评论 · {{ commentDraft.side }} {{ commentDraft.line.lineNumber(commentDraft.side) }}</strong>
+              <p v-if="commentDraft.generation !== projection.generation" class="comment-version-note" role="status">Diff 已更新到第 {{ projection.generation }} 版；这条评论仍按打开时的第 {{ commentDraft.generation }} 版坐标提交。</p>
               <textarea v-model="commentText" data-testid="review-comment-input" rows="3" maxlength="4000" placeholder="写下可执行的反馈" />
               <p v-if="commentError" class="comment-error">{{ commentError }}</p>
               <div><button type="button" @click="closeComment">取消</button><button type="submit" :disabled="commentSubmitting">{{ commentSubmitting ? '提交中…' : '提交评论' }}</button></div>
@@ -631,7 +681,9 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
 <style scoped>
 .diff-explorer { padding: 0; overflow: hidden; }.diff-heading { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.diff-heading p, .diff-heading h3 { margin: 0; }.diff-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.diff-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.diff-heading__status { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.diff-heading__status svg { color: var(--cs-text-brand); }.diff-explorer > :deep(.state-panel) { min-height: 112px; border: 0; border-radius: 0; }.diff-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-stats > div { display: grid; min-width: 0; grid-template-columns: auto 1fr; align-items: center; gap: var(--cs-space-2) var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border-right: 1px solid var(--cs-border); }.diff-stats > div:last-child { border-right: 0; }.diff-stats svg { grid-row: 1 / 3; color: var(--cs-text-muted); }.diff-stats span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }.diff-stats strong { font: var(--cs-text-sm) var(--cs-font-mono); }.diff-stats__addition strong { color: var(--cs-success); }.diff-stats__deletion strong { color: var(--cs-danger); }.diff-gap { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-warning-border); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.diff-gap button, .patch-message button { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-glass); color: inherit; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.diff-workspace { display: grid; min-height: 350px; grid-template-columns: minmax(220px, var(--tree-width)) 5px minmax(0, 1fr); }.diff-tree { min-width: 0; border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.diff-resize-handle { width: 5px; padding: 0; border: 0; background: var(--cs-border); cursor: col-resize; }.diff-resize-handle:hover { background: var(--cs-brand-300); }.diff-search { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-8); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-muted); }.diff-search input { width: 100%; min-width: 0; height: 31px; background: transparent; font-size: var(--cs-text-base); outline: 0; }.diff-tree__list { max-height: 430px; overflow: auto; padding: 0 var(--cs-space-8) var(--cs-space-8); }.diff-tree__folder, .diff-tree__file { --indent: calc(var(--depth) * 12px); padding-left: calc(var(--cs-space-8) + var(--indent)); }.diff-tree__folder { display: flex; align-items: center; gap: var(--cs-space-4); min-height: 25px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.diff-tree__file { display: grid; width: 100%; min-height: 29px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-4); padding-right: var(--cs-space-8); border: 1px solid transparent; border-radius: 7px; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.diff-tree__file > span { overflow: hidden; font: var(--cs-text-xs) var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }.diff-tree__file.selected { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }.diff-tree__file :deep(.status-badge) { min-width: 19px; justify-content: center; padding-inline: var(--cs-space-4); }.diff-tree__limit { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-top: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.patch-view { min-width: 0; background: var(--cs-surface-subtle); }.patch-view > header { display: flex; min-height: 49px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.patch-view header strong, .patch-view header small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.patch-view header strong { font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header > span { display: flex; gap: var(--cs-space-8); font: var(--cs-text-xs) var(--cs-font-mono); }.patch-view header b { color: var(--cs-success); }.patch-view header i { color: var(--cs-danger); font-style: normal; }.patch-view > :deep(.state-panel) { min-height: 250px; border: 0; }.patch-message { display: grid; min-height: 250px; place-content: center; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-24); color: var(--cs-text-muted); text-align: center; }.patch-message svg { color: var(--cs-text-brand); }.patch-message strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.patch-message span { max-width: 320px; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.patch-message button { margin-top: var(--cs-space-4); background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.patch-code { max-height: 430px; overflow: auto; outline: none; }.patch-code:focus-visible { box-shadow: inset 0 0 0 2px var(--cs-focus); }.patch-code code { display: table; min-width: 100%; padding: var(--cs-space-8) 0; font: var(--cs-text-xs)/var(--cs-leading-normal) var(--cs-font-mono); }.patch-line { display: table-row; }.patch-line > i { display: table-cell; width: 1%; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-style: normal; text-align: right; user-select: none; }.patch-line > b { display: table-cell; padding-right: var(--cs-space-12); font-weight: var(--cs-weight-regular); white-space: pre; }.patch-line--addition { background: var(--cs-diff-addition-bg); color: var(--cs-diff-addition-text); }.patch-line--deletion { background: var(--cs-diff-deletion-bg); color: var(--cs-diff-deletion-text); }.patch-line--hunk { background: var(--cs-diff-hunk-bg); color: var(--cs-diff-hunk-text); }.patch-line--meta { color: var(--cs-text-muted); }.patch-code > p { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .review-location-note{margin:0;padding:var(--cs-space-8) var(--cs-space-12);border-bottom: 1px solid var(--cs-border-accent);background: var(--cs-surface-accent);color: var(--cs-text-brand);font-size:var(--cs-text-xs);line-height:var(--cs-leading-normal)}
-.patch-actions{display:flex;align-items:center;gap:var(--cs-space-8);flex-wrap:wrap}.patch-action{display:inline-flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface-subtle);color: var(--cs-text-secondary);font-size:var(--cs-text-xs);cursor:pointer}.patch-action:hover{border-color: var(--cs-border-accent-strong);color: var(--cs-text-brand)}.patch-language{padding:var(--cs-space-4) var(--cs-space-4);border-radius:4px;background: var(--cs-surface-subtle);color: var(--cs-text-muted);font-size:var(--cs-text-xs)}.patch-line{position:relative;cursor:pointer}.patch-line.focused{outline: 2px solid var(--cs-focus);outline-offset:-2px}.patch-line--split>i{min-width:32px}.line-comment-button{display:table-cell;width:18px;padding:0;border: 0;background: transparent;color: var(--cs-text-brand);font-size:var(--cs-text-sm);opacity:0;cursor:pointer}.patch-line:hover .line-comment-button,.line-comment-button:focus{opacity:1}.patch-context-toggle{display:flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-12);background: var(--cs-surface-subtle);color: var(--cs-text-brand);font-size:var(--cs-text-xs);cursor:pointer}.review-comments{display:grid;gap:var(--cs-space-8);padding:var(--cs-space-12);border-top: 1px solid var(--cs-border);background: var(--cs-surface)}.review-comment-form,.review-comment{padding:var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:7px;background: var(--cs-surface-subtle)}.review-comment-form{display:grid;gap:var(--cs-space-8)}.review-comment-form strong,.review-comment header strong{font-size:var(--cs-text-xs)}.review-comment-form textarea{width:100%;padding:var(--cs-space-8);border: 1px solid var(--cs-border-strong);border-radius:5px;background: var(--cs-surface);font:var(--cs-text-base) var(--cs-font-sans);resize:vertical}.review-comment-form>div{display:flex;justify-content:flex-end;gap:var(--cs-space-4)}.review-comment-form button{padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface);font-size:var(--cs-text-xs);cursor:pointer}.review-comment-form button[type=submit]{background: var(--cs-brand-600);color: var(--cs-text-on-dark)}.comment-error{margin:0;color: var(--cs-danger);font-size:var(--cs-text-xs)}.review-comment header{display:flex;justify-content:space-between;gap:var(--cs-space-8)}.review-comment header small{color: var(--cs-success);font-size:var(--cs-text-xs)}.review-comment.outdated{opacity:.7}.review-comment.outdated header small{color: var(--cs-warning)}.review-comment :deep(.safe-markdown){margin-top:var(--cs-space-4);font-size:var(--cs-text-xs)}
+.patch-actions{display:flex;align-items:center;gap:var(--cs-space-8);flex-wrap:wrap}.patch-action{display:inline-flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface-subtle);color: var(--cs-text-secondary);font-size:var(--cs-text-xs);cursor:pointer}.patch-action:hover{border-color: var(--cs-border-accent-strong);color: var(--cs-text-brand)}.patch-language{padding:var(--cs-space-4) var(--cs-space-4);border-radius:4px;background: var(--cs-surface-subtle);color: var(--cs-text-muted);font-size:var(--cs-text-xs)}.patch-line{position:relative;cursor:pointer}.patch-line.focused{outline: 2px solid var(--cs-focus);outline-offset:-2px}.patch-line--split>i{min-width:32px}.line-comment-button{display:table-cell;width:18px;padding:0;border: 0;background: transparent;color: var(--cs-text-brand);font-size:var(--cs-text-sm);opacity:0;cursor:pointer}.patch-line:hover .line-comment-button,.line-comment-button:focus{opacity:1}.patch-context-toggle{display:flex;align-items:center;gap:var(--cs-space-4);padding:var(--cs-space-4) var(--cs-space-12);background: var(--cs-surface-subtle);color: var(--cs-text-brand);font-size:var(--cs-text-xs);cursor:pointer}.review-comments{display:grid;gap:var(--cs-space-8);padding:var(--cs-space-12);border-top: 1px solid var(--cs-border);background: var(--cs-surface)}.review-comment-form,.review-comment{padding:var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:7px;background: var(--cs-surface-subtle)}.review-comment-form{display:grid;gap:var(--cs-space-8)}.review-comment-form strong,.review-comment header strong{font-size:var(--cs-text-xs)}.review-comment-form textarea{width:100%;padding:var(--cs-space-8);border: 1px solid var(--cs-border-strong);border-radius:5px;background: var(--cs-surface);font:var(--cs-text-base) var(--cs-font-sans);resize:vertical}.review-comment-form>div{display:flex;justify-content:flex-end;gap:var(--cs-space-4)}.review-comment-form button{padding:var(--cs-space-4) var(--cs-space-8);border: 1px solid var(--cs-border);border-radius:5px;background: var(--cs-surface);font-size:var(--cs-text-xs);cursor:pointer}.review-comment-form button[type=submit]{background: var(--cs-brand-600);color: var(--cs-text-on-dark)}.comment-error{margin:0;color: var(--cs-danger);font-size:var(--cs-text-xs)}
+.comment-version-note{margin:0;padding:var(--cs-space-4) var(--cs-space-8);border:1px solid var(--cs-warning-border);border-radius:5px;background:var(--cs-warning-soft);color:var(--cs-warning);font-size:var(--cs-text-xs);line-height:var(--cs-leading-normal)}
+.diff-tree__marks-note{margin:0 0 var(--cs-space-8);padding:0 var(--cs-space-8);color:var(--cs-text-muted);font-size:var(--cs-text-xs);line-height:var(--cs-leading-normal)}.review-comment header{display:flex;justify-content:space-between;gap:var(--cs-space-8)}.review-comment header small{color: var(--cs-success);font-size:var(--cs-text-xs)}.review-comment.outdated{opacity:.7}.review-comment.outdated header small{color: var(--cs-warning)}.review-comment :deep(.safe-markdown){margin-top:var(--cs-space-4);font-size:var(--cs-text-xs)}
 .syntax-keyword{color: var(--cs-code-keyword)}.syntax-string{color: var(--cs-code-string)}.syntax-comment{color: var(--cs-code-comment);font-style:italic}
 .syntax-function{color: var(--cs-code-function)}.syntax-number{color: var(--cs-code-number)}.syntax-type{color: var(--cs-code-type)}
 @media (max-width: 720px) { .diff-heading { align-items: flex-start; flex-direction: column; }.diff-stats { grid-template-columns: repeat(2, 1fr); }.diff-stats > div:nth-child(2) { border-right: 0; }.diff-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--cs-border); }.diff-workspace { grid-template-columns: 1fr; }.diff-tree { border-right: 0; border-bottom: 1px solid var(--cs-border); }.diff-resize-handle { display: none; }.diff-tree__list { max-height: 250px; }.patch-code { max-height: 460px; } }

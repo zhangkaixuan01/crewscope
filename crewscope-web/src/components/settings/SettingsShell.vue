@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { Undo2 } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { applyConfigureReturn } from '../../app/configureReturn'
 import AppShell from '../layout/AppShell.vue'
+import BaseButton from '../base/BaseButton.vue'
 import SettingsFieldSearch from './SettingsFieldSearch.vue'
 
 export interface SettingsNavItem { key: string; label: string; route: string; description?: string }
@@ -20,16 +23,27 @@ const props = withDefaults(defineProps<{ title: string; eyebrow?: string; items?
   ],
 })
 const route = useRoute()
+const router = useRouter()
 const search = ref('')
 const filteredItems = computed(() => {
   const needle = search.value.trim().toLocaleLowerCase()
   return needle ? props.items.filter(item => `${item.label} ${item.description ?? ''}`.toLocaleLowerCase().includes(needle)) : props.items
 })
+/** F02 configure-return: only a registered origin coordinate offers a way back to the task. */
+const configureReturn = computed(() => applyConfigureReturn(route.query))
+async function goConfigureReturn(): Promise<void> {
+  const target = configureReturn.value
+  if (!target) return
+  await router.push({ name: target.routeName, query: target.query })
+}
 </script>
 
 <template>
   <AppShell :title="title" :eyebrow="eyebrow">
-    <template #actions><slot name="actions" /></template>
+    <template #actions>
+      <BaseButton v-if="configureReturn" variant="ghost" size="small" @click="goConfigureReturn"><Undo2 :size="14" />{{ configureReturn.label }}</BaseButton>
+      <slot name="actions" />
+    </template>
     <div class="settings-shell">
       <nav class="settings-shell__nav" aria-label="Settings 二级导航">
         <input v-model="search" type="search" aria-label="搜索配置项" placeholder="搜索配置" /><SettingsFieldSearch :query="search" />

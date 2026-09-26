@@ -3,7 +3,6 @@ import { fixtureIds } from '../../test/scopeFixtures'
 import { taskIds } from '../../test/taskFixtures'
 import {
   isRestorableTaskRoute,
-  resolveTaskExecution,
   taskRouteMatchesScope,
   taskRouteSelection,
   withTaskRoute,
@@ -47,10 +46,13 @@ describe('Task route contract', () => {
     })
 
     expect(linked).toMatchObject({ view: 'board', status: 'ACTIVE', task: taskIds.first })
-    expect(withoutTaskRoute(linked as LocationQuery)).toMatchObject({ view: 'board', task: undefined })
+    // Closing the Task takes its execution coordinates with it, in both spellings.
+    expect(withoutTaskRoute({ ...linked, taskExecution: taskIds.execution } as LocationQuery)).toMatchObject({
+      view: 'board', task: undefined, taskExecution: undefined, attempt: undefined,
+    })
   })
 
-  it('reads the WorkDesk execution deep link separately from the Task identity', () => {
+  it('reads the execution deep link from the unified parameter or its legacy alias', () => {
     const selection = taskRouteSelection({
       team: fixtureIds.teamPlatform,
       project: fixtureIds.projectCrewScope,
@@ -59,41 +61,9 @@ describe('Task route contract', () => {
     })
 
     expect(selection.executionId).toBe(taskIds.execution)
+    // The alias still resolves for old links; resolution into workspace states is executionSelection's job.
+    expect(taskRouteSelection({ task: taskIds.first, attempt: taskIds.execution }).executionId).toBe(taskIds.execution)
     expect(taskRouteSelection({ task: taskIds.first }).executionId).toBeNull()
     expect(taskRouteSelection({ taskExecution: ['a', 'b'] } as LocationQuery).executionId).toBeNull()
-  })
-})
-
-describe('Task execution resolution', () => {
-  const attempts = [{ id: taskIds.execution }, { id: taskIds.previousExecution }]
-
-  it('honours the deep link only while it names an attempt the Task has', () => {
-    expect(resolveTaskExecution({ executionId: taskIds.previousExecution }, attempts, {
-      selectedId: taskIds.execution,
-      currentExecutionId: taskIds.execution,
-    })).toBe(taskIds.previousExecution)
-
-    // A stale or foreign identity must not blank the runtime facts: the member's own choice wins.
-    expect(resolveTaskExecution({ executionId: 'unknown' }, attempts, {
-      selectedId: taskIds.previousExecution,
-      currentExecutionId: taskIds.execution,
-    })).toBe(taskIds.previousExecution)
-  })
-
-  it('falls back to the current execution and then to the newest attempt', () => {
-    expect(resolveTaskExecution({ executionId: null }, attempts, {
-      selectedId: null,
-      currentExecutionId: taskIds.previousExecution,
-    })).toBe(taskIds.previousExecution)
-
-    expect(resolveTaskExecution({ executionId: 'unknown' }, attempts, {
-      selectedId: null,
-      currentExecutionId: null,
-    })).toBe(taskIds.execution)
-
-    expect(resolveTaskExecution({ executionId: null }, [], {
-      selectedId: null,
-      currentExecutionId: null,
-    })).toBeNull()
   })
 })

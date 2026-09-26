@@ -12,6 +12,9 @@ import type { OnboardingGateway } from '../domains/onboarding/gateway'
 import { ONBOARDING_STORE, createOnboardingStore } from '../domains/onboarding/store'
 import type { OnboardingStatus } from '../domains/onboarding/types'
 import { SCOPE_STORE, createScopeStore } from '../domains/scope/store'
+import type { SetupGateway } from '../domains/setup/gateway'
+import { SETUP_STORE, createSetupStore } from '../domains/setup/store'
+import type { SetupReadinessView } from '../domains/setup/types'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
 import OnboardingPage from './OnboardingPage.vue'
 
@@ -61,9 +64,39 @@ describe('OnboardingPage', () => {
     expect(fixture.agent.listAgents).toHaveBeenCalledTimes(2)
     fixture.wrapper.unmount()
   })
+
+  it('routes the Coding goal from the completion card back into setup as its origin', async () => {
+    const fixture = await mountPage()
+    await fixture.wrapper.get('input[name="teamName"]').setValue('Platform Engineering')
+    await fixture.wrapper.get('form').trigger('submit')
+    await vi.waitFor(() => expect(fixture.wrapper.text()).toContain('你的工作入口已经就绪'))
+
+    await fixture.wrapper.findAll('button').find(button => button.text().includes('先完成 Coding 配置'))!.trigger('click')
+    await vi.waitFor(() => expect(fixture.router.currentRoute.value.name).toBe('setup'), { timeout: 5_000 })
+    expect(fixture.router.currentRoute.value.query.from).toBe('onboarding')
+    expect(fixture.router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
+    fixture.wrapper.unmount()
+  })
+
+  it('warns about a missing conversation setup without blocking the entry', async () => {
+    const fixture = await mountPage({ conversationSetupReady: false })
+    await fixture.wrapper.get('input[name="teamName"]').setValue('Platform Engineering')
+    await fixture.wrapper.get('form').trigger('submit')
+
+    // 决策 7：readiness 只是提示，完成卡照常出现，进入对话的主动作保持可用。
+    await vi.waitFor(() => expect(fixture.wrapper.text()).toContain('你的工作入口已经就绪'))
+    expect(fixture.wrapper.text()).toContain('Personal Agent 尚未完成模型配置')
+    expect(fixture.wrapper.text()).toContain('进入团队对话')
+    expect(fixture.setup.getReadiness).toHaveBeenCalledOnce()
+    fixture.wrapper.unmount()
+  })
 })
 
-async function mountPage(options: { initiallyComplete?: boolean, firstAgentReadEmpty?: boolean } = {}) {
+async function mountPage(options: {
+  initiallyComplete?: boolean
+  firstAgentReadEmpty?: boolean
+  conversationSetupReady?: boolean
+} = {}) {
   let teamCreated = Boolean(options.initiallyComplete)
   let agentReads = 0
   const identity: IdentityGateway = {
@@ -91,10 +124,15 @@ async function mountPage(options: { initiallyComplete?: boolean, firstAgentReadE
       return { items, nextOffset: null }
     }),
   } as unknown as AgentGateway
+  const setup: SetupGateway = {
+    getReadiness: vi.fn(async (scope: { organizationId: string, teamId: string }) => readiness(scope, options.conversationSetupReady === false)),
+    getConfigurationHealth: vi.fn(),
+  }
   const authStore = createAuthStore(identity, { channelFactory: () => null })
   const onboardingStore = createOnboardingStore(onboarding)
   const scopeStore = createScopeStore(new FixtureScopeGateway(), authStore.principal)
   const agentStore = createAgentStore(agent)
+  const setupStore = createSetupStore(setup)
   const router = createCrewScopeRouter(createMemoryHistory(), authStore)
   await router.push('/onboarding')
   await router.isReady()
@@ -107,11 +145,12 @@ async function mountPage(options: { initiallyComplete?: boolean, firstAgentReadE
         [ONBOARDING_STORE as symbol]: onboardingStore,
         [SCOPE_STORE as symbol]: scopeStore,
         [AGENT_STORE as symbol]: agentStore,
+        [SETUP_STORE as symbol]: setupStore,
       },
     },
   })
   await flushPromises()
-  return { wrapper, router, onboarding, agent }
+  return { wrapper, router, onboarding, agent, setup }
 }
 
 function session(hasTeam: boolean): AuthSession {
@@ -130,6 +169,24 @@ function session(hasTeam: boolean): AuthSession {
       permissions: granted,
     }] : [],
     permissions: granted,
+  }
+}
+
+function readiness(scope: { organizationId: string, teamId: string }, conversationActionRequired: boolean): SetupReadinessView {
+  return {
+    scope, snapshotVersion: 'v1', observedAt: '2026-09-01T00:00:00Z', requiredReady: !conversationActionRequired,
+    capabilities: [
+      {
+        capability: 'PERSONAL_CONVERSATION', required: true,
+        status: conversationActionRequired ? 'ACTION_REQUIRED' : 'READY',
+        reasonCode: conversationActionRequired ? 'PERSONAL_AGENT_CONFIGURATION_REQUIRED' : 'READY',
+        canConfigure: conversationActionRequired, responsibleParty: '当前成员', actionKey: conversationActionRequired ? 'OPEN_AGENT_SETTINGS' : null,
+      },
+      ...(['TEAM_TASK', 'CODING_REVIEW', 'GITHUB_DRAFT_PR', 'LARK_NOTIFICATIONS', 'TEAM_OBSERVER'] as const).map(capability => ({
+        capability, required: false, status: 'READY' as const, reasonCode: 'READY',
+        canConfigure: false, responsibleParty: 'Team 管理员', actionKey: null,
+      })),
+    ],
   }
 }
 

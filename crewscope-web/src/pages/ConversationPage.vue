@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { useCreationEntry } from '../composables/useCreationEntry'
+import { useClipboard } from '../composables/useClipboard'
 import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  Check,
   ChevronRight,
+  Copy,
   LockKeyhole,
   MessageSquarePlus,
   Plus,
+  UsersRound,
 } from '@lucide/vue'
-import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { subscribeF05Epoch } from '../app/f05Storage'
@@ -75,6 +79,8 @@ useCreationEntry('conversation', () => scopeStore.state.phase === 'ready'
 const createError = ref<string | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof ConversationComposer> | null>(null)
+// R40: “复制原文” hands members the raw Markdown behind a rendered message.
+const clipboard = useClipboard()
 let createdConversationFocusId: string | null = null
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
@@ -97,14 +103,25 @@ const readingScope = () => (principal && principal.accountId && scopeStore.state
       teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: null,
     }
   : null)
-const scrollPositions = useScopedUserState<Record<string, number>>({ scope: readingScope, name: 'conversation-scroll', fallback: {}, validate: isNumberRecord })
+// Reading position persistence (R19): the anchor is "first visible message + offset", which survives
+// measured-height virtualisation; the legacy scrollTop numbers are not migrated because an absolute
+// pixel offset means nothing once heights are measured instead of estimated.
+interface StoredConversationAnchor {
+  messageId: string
+  offsetWithin: number
+  sequence: number
+  savedAt: string
+}
+const conversationAnchors = useScopedUserState<Record<string, StoredConversationAnchor>>({ scope: readingScope, name: 'conversation-anchor', fallback: {}, validate: isConversationAnchorRecord })
 const readSequences = useScopedUserState<Record<string, number>>({ scope: readingScope, name: 'conversation-read-sequences', fallback: {}, validate: isNumberRecord })
 const persistedMessages = computed(() => messageStore.state.items)
-const virtualList = useVirtualList(persistedMessages, 108, 8)
+const virtualList = useVirtualList(persistedMessages, { keyOf: message => message.id, estimate: 108, overscan: 8, rowGap: 16 })
 const visibleMessages = virtualList.visibleItems
 const virtualTop = virtualList.topPadding
 const virtualBottom = virtualList.bottomPadding
-const atLatest = ref(true)
+const isFollowing = virtualList.isFollowing
+// The folded TaskIntent pre-message card expands for this conversation only, never persisted (R19).
+const taskIntentExpanded = ref(false)
 let createReturnFocus: HTMLElement | null = null
 let conversationReturnFocus: HTMLElement | null = null
 let pendingDetailFocus = false
@@ -259,23 +276,39 @@ watch(
   { flush: 'post', immediate: true },
 )
 
+// The history element binds through a string ref (`ref="messageHistory"` in the template): it only
+// fires when the element mounts/unmounts. An inline function ref would re-run on every render, and
+// calling onScroll from inside the render effect spins Vue's flush loop forever (reading layout
+// synchronously re-triggers rendering) — the render-loop hang.
 watch(messageHistory, element => {
   virtualList.container.value = element
-  if (element && selected.value) {
-    element.scrollTop = scrollPositions.value.value[selected.value.id] ?? element.scrollHeight
-    virtualList.onScroll()
-  }
-}, { flush: 'post' })
+  if (element) virtualList.onScroll()
+})
 
-watch(() => selected.value?.id, async conversationId => {
-  const pageOwner = pageRequests.capture()
+function setMessageListElement(element: unknown): void {
+  virtualList.listElement.value = element instanceof HTMLElement ? element : null
+}
+
+let restoredForConversation: string | null = null
+
+watch(() => selected.value?.id, conversationId => {
   if (!conversationId) return
-  await nextTick()
-  if (!pageOwner.isCurrent()) return
-  if (!messageHistory.value) return
-  messageHistory.value.scrollTop = scrollPositions.value.value[conversationId] ?? messageHistory.value.scrollHeight
+  // A switched-to conversation restarts the list: foreign measurements go, the folded pre-message
+  // card returns, and the reading position is decided by the restore chain once history is ready.
   virtualList.reset()
-  atLatest.value = isNearLatest()
+  taskIntentExpanded.value = false
+  restoredForConversation = null
+})
+
+// Once a conversation's history is ready, put the member back where reading was: the persisted
+// anchor first, then the first unread message, and only then the latest (R19 fallback order).
+watch(() => [selected.value?.id, messageStore.state.phase, messageStore.state.items.length] as const, async ([conversationId, phase]) => {
+  const pageOwner = pageRequests.capture()
+  if (!conversationId || phase !== 'ready' || messageStore.state.items.length === 0) return
+  await nextTick()
+  if (!pageOwner.isCurrent() || restoredForConversation === conversationId) return
+  restoredForConversation = conversationId
+  restoreReadingAnchor(conversationId)
 })
 
 watch(() => [selected.value?.id, messageStore.state.phase] as const, ([conversationId, phase]) => {
@@ -284,22 +317,11 @@ watch(() => [selected.value?.id, messageStore.state.phase] as const, ([conversat
   readSequences.value.value = { ...readSequences.value.value, [conversationId]: newestMessageSequence() }
 })
 
-watch(() => messageStore.state.items.length, async () => {
-  const pageOwner = pageRequests.capture()
-  await nextTick()
-  if (!pageOwner.isCurrent()) return
-  if (atLatest.value && messageHistory.value) jumpToLatest()
-})
-
 watch(() => realtimeStore.state.streamedContent.length, async () => {
   const pageOwner = pageRequests.capture()
   await nextTick()
   if (!pageOwner.isCurrent()) return
-  if (atLatest.value && messageHistory.value) jumpToLatest()
-})
-
-onMounted(() => {
-  virtualList.container.value = messageHistory.value
+  if (isFollowing.value && messageHistory.value) jumpToLatest()
 })
 
 watch(
@@ -828,28 +850,57 @@ function isNumberRecord(value: unknown): value is Record<string, number> {
   return Boolean(value && typeof value === 'object' && Object.values(value).every(item => typeof item === 'number' && Number.isFinite(item)))
 }
 
+function isConversationAnchorRecord(value: unknown): value is Record<string, StoredConversationAnchor> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(item =>
+    Boolean(item && typeof item === 'object'
+      && typeof item.messageId === 'string'
+      && typeof item.offsetWithin === 'number' && Number.isFinite(item.offsetWithin)
+      && typeof item.sequence === 'number' && Number.isFinite(item.sequence)
+      && typeof item.savedAt === 'string')))
+}
+
 function handleHistoryScroll(): void {
   virtualList.onScroll()
-  const history = messageHistory.value
-  if (!history || !selected.value) return
-  scrollPositions.value.value = { ...scrollPositions.value.value, [selected.value.id]: history.scrollTop }
-  atLatest.value = isNearLatest()
-  if (atLatest.value) {
-    readSequences.value.value = { ...readSequences.value.value, [selected.value.id]: newestMessageSequence() }
+  const conversation = selected.value
+  if (!conversation) return
+  const anchor = virtualList.currentAnchor()
+  if (anchor) {
+    conversationAnchors.value.value = { ...conversationAnchors.value.value, [conversation.id]: {
+      messageId: anchor.key,
+      offsetWithin: Math.round(anchor.offsetWithin),
+      sequence: sequenceOfMessage(anchor.key),
+      savedAt: new Date().toISOString(),
+    } }
+  }
+  if (isFollowing.value) {
+    readSequences.value.value = { ...readSequences.value.value, [conversation.id]: newestMessageSequence() }
   }
 }
 
-function isNearLatest(): boolean {
-  const history = messageHistory.value
-  return !history || history.scrollHeight - history.scrollTop - history.clientHeight < 48
+/** Restore chain (R19): persisted anchor → first unread message → latest. */
+function restoreReadingAnchor(conversationId: string): void {
+  if (!messageHistory.value) return
+  const stored = conversationAnchors.value.value[conversationId]
+  if (stored && virtualList.scrollToAnchor({ key: stored.messageId, offsetWithin: stored.offsetWithin })) return
+  const firstUnread = messageStore.state.items.find(message => message.sequence === firstUnreadSequence.value)
+  if (firstUnread && virtualList.scrollToAnchor({ key: firstUnread.id, offsetWithin: 0 })) return
+  // Restoring a reading position is not a user-driven scroll: an animated jump leaves a window
+  // where the mid-flight offset flips isFollowing off and the jump pill flashes on load.
+  jumpToLatest('auto')
 }
 
-function jumpToLatest(): void {
+function sequenceOfMessage(messageId: string): number {
+  return messageStore.state.items.find(message => message.id === messageId)?.sequence ?? 0
+}
+
+function jumpToLatest(behavior: ScrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth'): void {
   const history = messageHistory.value
   if (!history) return
-  if (typeof history.scrollTo === 'function') history.scrollTo({ top: history.scrollHeight, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  // The follow state flips immediately so the jump affordance disappears with the click, not a
+  // smooth-scroll later; the scroll events that follow re-derive it either way.
+  isFollowing.value = true
+  if (typeof history.scrollTo === 'function') history.scrollTo({ top: history.scrollHeight, behavior })
   else history.scrollTop = history.scrollHeight
-  atLatest.value = true
   if (selected.value) readSequences.value.value = { ...readSequences.value.value, [selected.value.id]: newestMessageSequence() }
 }
 
@@ -859,7 +910,7 @@ function prefersReducedMotion(): boolean {
 </script>
 
 <template>
-  <AppShell :eyebrow="`对话 · ${teamName}`" :title="pageTitle">
+  <AppShell :eyebrow="`对话 · ${teamName}`" :title="pageTitle" fill>
     <template #actions>
       <RouterLink v-if="observerMode" v-slot="{ navigate }" custom :to="{ name: 'conversation', query: { ...route.query, assistant: undefined } }">
         <BaseButton variant="secondary" size="small" @click="navigate"><Bot :size="14" />Personal Agent 对话</BaseButton>
@@ -903,8 +954,12 @@ function prefersReducedMotion(): boolean {
           v-else-if="scopeStore.state.phase === 'empty'"
           state="empty"
           title="暂无可用 Team"
-          description="加入 Team 后即可创建对话。"
-        />
+          description="创建 Team 后即可创建对话；收到邀请链接？直接打开即可加入。"
+        >
+          <template #action>
+            <RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink>
+          </template>
+        </StatePanel>
         <StatePanel
           v-else-if="conversationStore.state.phase === 'error'"
           state="error"
@@ -919,7 +974,14 @@ function prefersReducedMotion(): boolean {
           description="创建一个 PRIVATE 或 TEAM 对话，从自然语言目标开始协作。"
         >
           <template #action>
-            <BaseButton size="small" @click="openCreate">创建第一个对话</BaseButton>
+            <div class="empty-actions">
+              <BaseButton size="small" @click="openCreate">创建第一个对话</BaseButton>
+              <!-- F02：对话不是唯一入口——需要 Coding 链路的成员可先去配置，配置完回到这里。 -->
+              <RouterLink
+                class="empty-actions__secondary"
+                :to="{ name: 'setup', query: { from: 'conversation', ...(scopeStore.state.selectedTeamId ? { team: scopeStore.state.selectedTeamId } : {}) } }"
+              >需要 Coding？先完成配置</RouterLink>
+            </div>
           </template>
         </StatePanel>
         <ul v-else class="conversation-list">
@@ -1025,10 +1087,6 @@ function prefersReducedMotion(): boolean {
               @retry="retryMessages"
             />
             <div v-else ref="messageHistory" class="message-history" tabindex="0" @scroll="handleHistoryScroll">
-              <div v-if="!atLatest || unreadCount" class="latest-jump" role="status">
-                <span v-if="unreadCount">{{ unreadCount }} 条新消息</span>
-                <button type="button" @click="jumpToLatest">跳到最新</button>
-              </div>
               <div v-if="messageStore.state.nextCursor" class="older-messages">
                 <BaseButton
                   variant="ghost"
@@ -1056,6 +1114,7 @@ function prefersReducedMotion(): boolean {
                 <TaskIntentCard
                   :intent="taskIntentStore.state.intent"
                   :current-principal-id="principal.id"
+                  :variant="taskIntentExpanded ? 'full' : 'summary'"
                   :pending="taskIntentStore.state.commandPending"
                   :error-message="taskIntentStore.state.commandErrorMessage"
                   :version-conflict="taskIntentStore.state.versionConflict"
@@ -1066,6 +1125,7 @@ function prefersReducedMotion(): boolean {
                   @revise="reviseTaskIntent"
                   @reject="rejectTaskIntent"
                   @confirm="confirmTaskIntent"
+                  @expand="taskIntentExpanded = true"
                 />
               </details>
               <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="Boolean(linkStore.state.associations.length)">
@@ -1104,20 +1164,21 @@ function prefersReducedMotion(): boolean {
                 <strong>开始这个对话</strong>
                 <p>发送第一条消息，向 Personal Agent 描述目标或补充团队上下文。</p>
               </div>
-              <ol v-else class="message-list" aria-label="消息历史">
+              <ol v-else class="message-list" :ref="setMessageListElement" aria-label="消息历史">
                 <li v-if="virtualTop" class="virtual-spacer" :style="{ height: `${virtualTop}px` }" aria-hidden="true" />
                 <template v-for="message in visibleMessages" :key="message.id">
                   <li v-if="firstUnreadSequence === message.sequence" class="unread-divider" role="separator">以下是未读消息</li>
                   <li
                     class="message-row"
                     :class="{ own: isOwnMessage(message), agent: message.type === 'AGENT_MESSAGE', system: message.type === 'SYSTEM_NOTICE' }"
+                    :data-virtual-key="message.id"
                   >
                     <div v-if="message.type !== 'SYSTEM_NOTICE'" class="message-avatar">
                       <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="15" aria-hidden="true" />
                       <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
                     </div>
                     <article>
-                      <header><strong>{{ messageAuthor(message) }}</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>#{{ message.sequence }}</span></header>
+                      <header><strong>{{ messageAuthor(message) }}</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>#{{ message.sequence }}</span><button type="button" class="message-copy" :aria-label="`复制第 ${message.sequence} 条消息的原文`" @click="clipboard.copy(message.content, message.id)"><Check v-if="clipboard.copied.value === message.id" :size="12" aria-hidden="true" /><Copy v-else :size="12" aria-hidden="true" /></button></header>
                       <SafeMarkdown :content="message.content" />
                     </article>
                   </li>
@@ -1180,6 +1241,13 @@ function prefersReducedMotion(): boolean {
                 />
               </div>
             </div>
+            <!-- The jump pill overlays the stage instead of living in the scroll content: an
+                 in-flow (even sticky) pill pushes the whole list down the moment the follow state
+                 flips, and that layout shift is invisible to the anchor compensation. -->
+            <div v-if="!isFollowing || unreadCount" class="latest-jump" role="status">
+              <span v-if="unreadCount">{{ unreadCount }} 条新消息</span>
+              <button type="button" @click="jumpToLatest()">跳到最新</button>
+            </div>
           </div>
           <ConversationComposer
             ref="composer"
@@ -1241,8 +1309,14 @@ function prefersReducedMotion(): boolean {
 </template>
 
 <style scoped>
-.conversation-workspace { display: grid; min-height: calc(100vh - 176px); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: var(--cs-space-16); }
-.conversation-list-panel, .conversation-detail, .participant-panel { min-height: 640px; overflow: hidden; }.conversation-list-panel { display: flex; height: calc(100vh - 176px); flex-direction: column; }
+/* L03: AppShell fill hands this grid the real remaining viewport height; the panels size from the
+ * container, not from a `100vh - guessed chrome` subtraction that drifts whenever the chrome changes.
+ * .message-history disables overflow-anchor: the virtual list swaps its rows and spacers wholesale,
+ * and the browser's own scroll anchoring re-anchors onto whatever survives — jumping the reading
+ * position to unexamined offsets (once straight into the follow zone, flipping isFollowing). The
+ * composable's message anchors own that compensation exclusively (§4.4). */
+.conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: var(--cs-space-16); }
+.conversation-list-panel, .conversation-detail, .participant-panel { min-height: 0; overflow: hidden; }.conversation-list-panel { display: flex; flex-direction: column; }
 .conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }
 .conversation-list-header h2, .participant-panel h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-list-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
@@ -1253,16 +1327,16 @@ function prefersReducedMotion(): boolean {
 .conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 .conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: var(--cs-text-base); }.conversation-list__copy small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .conversation-list time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: var(--cs-space-8); }
-.conversation-detail { display: grid; height: calc(100vh - 176px); grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.conversation-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .conversation-kind { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
-.message-stage { min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.message-stage { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .message-row.streaming article { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); transition: opacity var(--cs-motion-base) var(--cs-ease-out), transform var(--cs-motion-base) var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
 .participant-panel header { padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: var(--cs-space-8); margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: var(--cs-text-sm); }.participant-panel li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.participant-placeholder { display: grid; place-items: center; gap: var(--cs-space-12); padding: var(--cs-space-48) var(--cs-space-32); color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); text-align: center; }
 .mobile-back { display: none; }
 @media (max-width: 1280px) { .conversation-workspace { grid-template-columns: 290px minmax(420px, 1fr); }.participant-panel { grid-column: 1 / -1; min-height: auto; }.participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: 270px 1fr; }.participant-panel { display: none; } }
-@media (max-width: 767px) { .conversation-workspace { display: block; min-height: calc(100dvh - 208px); }.conversation-list-panel, .conversation-detail { min-height: calc(100dvh - 208px); }.conversation-list-panel { height: calc(100dvh - 208px); }.conversation-detail { display: none; height: calc(100dvh - 208px); }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
+@media (max-width: 767px) { .conversation-workspace { display: block; min-height: 0; }.conversation-list-panel, .conversation-detail { min-height: 0; height: 100%; }.conversation-list-panel { display: flex; }.conversation-detail { display: none; }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
 /* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded. */
 .conversation-workspace { grid-template-columns: var(--conversation-left-pane, 24%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 22%); }
@@ -1275,9 +1349,14 @@ function prefersReducedMotion(): boolean {
 .pane-resizer:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: -2px; }
 .detail-header-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .pane-collapse { min-height: 28px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); cursor: pointer; }
-.latest-jump { position: sticky; z-index: 3; top: 4px; display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); width: fit-content; margin: 0 auto var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-brand); font-size: var(--cs-text-xs); box-shadow: var(--cs-shadow-raised); }
+/* Overlays the stage (not the scroll content) so its appearance never shifts the reading rows. It
+ * sits at the stage's bottom, above the composer: "jump to latest" points down toward the new
+ * messages, and the top center — where the "load older" button lives — must stay clickable. */
+.latest-jump { position: absolute; z-index: 3; bottom: 4px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); width: fit-content; padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-brand); font-size: var(--cs-text-xs); box-shadow: var(--cs-shadow-raised); }
 .latest-jump button { border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .unread-divider { grid-column: 1 / -1; padding: var(--cs-space-4) 0; border-top: 1px solid var(--cs-border-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); text-align: center; }
+/* Spacers are grid items, so the row gap also separates a spacer from the edge rows; the padding
+ * maths in useVirtualList already subtracts it — here they only occupy pure height. */
 .virtual-spacer { pointer-events: none; }
 .conversation-structure { max-width: 740px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
 .conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
@@ -1287,4 +1366,7 @@ function prefersReducedMotion(): boolean {
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); }.participant-panel, .pane-resizer--right { display: none; } }
 @media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; } }
 @media (prefers-reduced-motion: reduce) { .message-row.streaming article, .pane-resizer::after { transition: none; } }
+.empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }
+.empty-actions__secondary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-decoration: underline; text-underline-offset: 3px; }
+.empty-actions__secondary:hover, .empty-actions__secondary:focus-visible { color: var(--cs-text-brand); }
 </style>

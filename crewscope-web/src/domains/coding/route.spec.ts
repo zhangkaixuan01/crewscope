@@ -9,13 +9,13 @@ import {
 } from './route'
 
 describe('Coding route contract', () => {
-  it('restores a Task/attempt/Workspace only inside the selected WorkProject Scope', () => {
+  it('restores a Task/execution/Workspace only inside the selected WorkProject Scope', () => {
     const selection = codingRouteSelection({
       team: fixtureIds.teamPlatform,
       project: fixtureIds.projectCrewScope,
       workItem: 'work-item-1',
       task: 'task-1',
-      attempt: 'attempt-1',
+      taskExecution: 'attempt-1',
       workspace: 'workspace-1',
     })
 
@@ -25,6 +25,17 @@ describe('Coding route contract', () => {
       teamId: fixtureIds.teamPlatform,
       projectId: fixtureIds.projectCrewScope,
     })).toBe(true)
+  })
+
+  it('reads the execution from either spelling, and reports a conflict instead of choosing', () => {
+    expect(codingRouteSelection({ task: 'task-1', attempt: 'attempt-1' }).executionId).toBe('attempt-1')
+    expect(codingRouteSelection({ task: 'task-1', taskExecution: 'attempt-1' }).executionId).toBe('attempt-1')
+    expect(codingRouteSelection({ task: 'task-1', taskExecution: 'attempt-1', attempt: 'attempt-1' }).executionConflict)
+      .toBe(false)
+
+    const conflict = codingRouteSelection({ task: 'task-1', taskExecution: 'attempt-1', attempt: 'attempt-2' })
+    expect(conflict.executionConflict).toBe(true)
+    expect(conflict.executionId).toBeNull()
   })
 
   it('fails closed for duplicate and incomplete nested coordinates', () => {
@@ -37,12 +48,12 @@ describe('Coding route contract', () => {
       team: fixtureIds.teamPlatform,
       project: fixtureIds.projectCrewScope,
       task: 'task-1',
-      workspace: 'workspace-without-attempt',
+      workspace: 'workspace-without-execution',
     }))).toBe(false)
   })
 
-  it('adds and removes Coding focus while preserving parent Task and Work filters', () => {
-    const linked = withCodingRoute({ view: 'board', task: 'task-1' } as LocationQuery, {
+  it('writes the unified parameter only, and closes the focus in both spellings', () => {
+    const linked = withCodingRoute({ view: 'board', task: 'task-1', attempt: 'attempt-legacy' } as LocationQuery, {
       teamId: fixtureIds.teamPlatform,
       projectId: fixtureIds.projectCrewScope,
       workItemId: 'work-item-1',
@@ -51,9 +62,13 @@ describe('Coding route contract', () => {
       workspaceId: 'workspace-1',
     })
 
-    expect(linked).toMatchObject({ view: 'board', task: 'task-1', attempt: 'attempt-1', workspace: 'workspace-1' })
-    expect(withoutCodingRoute(linked as LocationQuery)).toMatchObject({
-      view: 'board', task: 'task-1', attempt: undefined, workspace: undefined,
+    // Contract §4.1: `taskExecution=` is the one write-side parameter; the legacy alias is cleared,
+    // so writing from a restored legacy link can never leave a conflict behind.
+    expect(linked).toMatchObject({
+      view: 'board', task: 'task-1', taskExecution: 'attempt-1', attempt: undefined, workspace: 'workspace-1',
+    })
+    expect(withoutCodingRoute({ ...linked, taskExecution: 'attempt-1' } as LocationQuery)).toMatchObject({
+      view: 'board', task: 'task-1', taskExecution: undefined, attempt: undefined, workspace: undefined,
     })
   })
 })

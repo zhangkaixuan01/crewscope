@@ -1,4 +1,5 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
+import { parseExecutionSelection } from './executionSelection'
 import type { TaskScope } from './types'
 
 export interface TaskRouteSelection {
@@ -6,38 +7,23 @@ export interface TaskRouteSelection {
   projectId: string | null
   workItemId: string | null
   taskId: string | null
-  /** The WorkDesk names the Task Execution `taskExecution=`; the Coding studio names it `attempt=`. */
+  /**
+   * The unified `taskExecution=`, or the legacy `attempt=` alias it replaces. Resolution into the
+   * four workspace states lives in `executionSelection.ts`; this read never picks between them.
+   */
   executionId: string | null
 }
 
 /** Reads the server-authored `/work?...&task=` deep-link contract without guessing identities. */
 export function taskRouteSelection(query: LocationQuery): TaskRouteSelection {
+  const execution = parseExecutionSelection(query)
   return {
     teamId: scalar(query.team),
     projectId: scalar(query.project),
     workItemId: scalar(query.workItem),
     taskId: scalar(query.task),
-    executionId: scalar(query.taskExecution),
+    executionId: execution.unified ?? execution.alias,
   }
-}
-
-/**
- * Chooses which Task Execution the Task detail shows.
- *
- * A `taskExecution=` deep link is honoured only while it names an attempt the Task actually has —
- * a stale or foreign identity falls through to the member's own selection instead of blanking the
- * runtime facts. The fallback order is the one the detail already used: keep the current choice
- * while it exists, then the Task's current execution, then the newest attempt.
- */
-export function resolveTaskExecution(
-  selection: Pick<TaskRouteSelection, 'executionId'>,
-  attempts: readonly { id: string }[],
-  current: { selectedId: string | null, currentExecutionId: string | null },
-): string | null {
-  const known = (id: string | null): boolean => Boolean(id) && attempts.some(item => item.id === id)
-  if (known(selection.executionId)) return selection.executionId
-  if (known(current.selectedId)) return current.selectedId
-  return current.currentExecutionId ?? attempts[0]?.id ?? null
 }
 
 /** A Task deep link is usable only after its Team and WorkProject scopes are restored. */
@@ -62,8 +48,9 @@ export function withTaskRoute(
   }
 }
 
+/** Removes the Task focus and its execution coordinates together — a Task never outlives its selection. */
 export function withoutTaskRoute(query: LocationQuery): LocationQueryRaw {
-  return { ...query, task: undefined }
+  return { ...query, task: undefined, taskExecution: undefined, attempt: undefined }
 }
 
 function scalar(value: LocationQuery[string]): string | null {

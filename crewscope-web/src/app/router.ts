@@ -71,13 +71,26 @@ export function createCrewScopeRouter(
         path: '/setup',
         name: 'setup',
         component: () => import('../pages/SetupPage.vue'),
-        meta: { mode: 'control', section: 'setup', title: '配置中心', requiredPermission: permissions.scopeRead },
+        // `from` plus the union of configure-return coordinate keys; applyConfigureReturn re-checks each value.
+        meta: { mode: 'control', section: 'setup', title: '配置中心', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'from', 'project', 'workItem', 'conversation'] },
       },
       {
         path: '/work',
         name: 'work',
         component: () => import('../pages/WorkPage.vue'),
-        meta: { mode: 'control', section: 'work', title: '工作项', requiredPermission: permissions.workRead },
+        // The S01 §197 frozen set: object, execution and filter coordinates the page itself reads.
+        // Unknown keys are dropped through a redirect instead of reaching the workspace.
+        // The title key rides the meta opener line — the route-metadata ratchet reads it per line.
+        meta: { title: '工作项',
+          mode: 'control',
+          section: 'work',
+          requiredPermission: permissions.workRead,
+          queryWhitelist: [
+            'team', 'project', 'workItem', 'task', 'taskExecution', 'attempt', 'workspace', 'review',
+            'focus', 'delegate', 'view', 'status', 'type', 'priority', 'sort', 'direction',
+            'taskStatus', 'taskOwner', 'conversation', 'sourceMessage',
+          ],
+        },
       },
       {
         path: '/activity',
@@ -120,31 +133,31 @@ export function createCrewScopeRouter(
         path: '/settings/repositories',
         name: 'repository-settings',
         component: () => import('../pages/RepositorySettingsPage.vue'),
-        meta: { mode: 'control', section: 'repositories', title: '受管仓库', requiredPermission: permissions.repositoriesManage },
+        meta: { mode: 'control', section: 'repositories', title: '受管仓库', requiredPermission: permissions.repositoriesManage, queryWhitelist: ['team', 'project', 'binding', 'from', 'workItem', 'delegate'] },
       },
       {
         path: '/settings/agents',
         name: 'agent-settings',
         component: () => import('../pages/AgentSettingsPage.vue'),
-        meta: { mode: 'control', section: 'agents', title: 'Agent 中心', requiredPermission: permissions.scopeRead },
+        meta: { mode: 'control', section: 'agents', title: 'Agent 中心', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'agent', 'configurationRevision', 'from', 'project', 'workItem', 'delegate'] },
       },
       {
         path: '/settings/models',
         name: 'model-settings',
         component: () => import('../pages/ModelSettingsPage.vue'),
-        meta: { mode: 'control', section: 'models', title: '模型与凭证', requiredPermission: permissions.scopeRead },
+        meta: { mode: 'control', section: 'models', title: '模型与凭证', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'provider', 'connection', 'ownerType', 'from', 'project', 'workItem', 'delegate'] },
       },
       {
         path: '/settings/integrations/lark',
         name: 'lark-settings',
         component: () => import('../pages/LarkSettingsPage.vue'),
-        meta: { mode: 'control', section: 'lark', title: '飞书与通知', requiredPermission: permissions.providerManage },
+        meta: { mode: 'control', section: 'lark', title: '飞书与通知', requiredPermission: permissions.providerManage, queryWhitelist: ['team', 'tab', 'connection', 'mappingStatus', 'deliveryStatus', 'deliveryType', 'recipient', 'delivery', 'from', 'project', 'workItem', 'delegate'], tabValues: ['connection', 'mapping', 'notification'] },
       },
       {
         path: '/settings/integrations/github',
         name: 'github-settings',
         component: () => import('../pages/GitHubSettingsPage.vue'),
-        meta: { mode: 'control', section: 'github', title: 'GitHub 集成', requiredPermission: permissions.providerManage },
+        meta: { mode: 'control', section: 'github', title: 'GitHub 集成', requiredPermission: permissions.providerManage, queryWhitelist: ['team', 'connection', 'importJob', 'from', 'project', 'workItem', 'delegate'] },
       },
       {
         path: '/control',

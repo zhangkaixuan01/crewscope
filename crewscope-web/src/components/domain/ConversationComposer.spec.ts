@@ -63,8 +63,35 @@ describe('ConversationComposer', () => {
   it('offers no fake attachments or slash entries', () => {
     const wrapper = mount(ConversationComposer, { props: { modelValue: '' } })
     // Every visible control must work: no "coming soon" attachments, no pseudo slash commands.
-    expect(wrapper.findAll('button').map(button => button.text())).toEqual(['发送'])
+    // The preview toggle (R40) is a real control and joins the list.
+    expect(wrapper.findAll('button').map(button => button.text())).toEqual(['预览', '发送'])
     expect(wrapper.text()).not.toContain('附件')
     expect(wrapper.text()).not.toContain('Slash')
+  })
+
+  it('previews the draft through the same safe Markdown pipeline and keeps the text on toggle back', async () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '**要点** | 数字 |\n| --- | --- |\n| 接口 | 2 |' } })
+    const toggle = wrapper.get('.composer-preview-toggle')
+
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    await toggle.trigger('click')
+
+    expect(toggle.attributes('aria-pressed')).toBe('true')
+    expect(toggle.text()).toContain('编辑')
+    // Rendered through SafeMarkdown: table semantics, not flattened text.
+    expect(wrapper.get('.composer-preview table thead th').text()).toBe('要点')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+
+    await toggle.trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('**要点** | 数字 |\n| --- | --- |\n| 接口 | 2 |')
+  })
+
+  it('counts characters without inventing a model budget', () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '八千'.repeat(2) } })
+
+    // R43: the fixed "预算 32,000" pseudo-fact is gone; only the real character count remains.
+    expect(wrapper.get('[id$="-count"]').text()).toBe('4 / 50,000 字符')
+    expect(wrapper.text()).not.toContain('预算')
   })
 })

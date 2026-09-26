@@ -5,6 +5,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
+import { useRouteIntent } from '../composables/useRouteIntent'
 import { useBoardDrag } from '../composables/useBoardDrag'
 import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -60,6 +61,8 @@ const canParticipate = computed(() => Boolean(principal && can(principal, permis
 const isOnline = useNetworkStatus()
 const toast = useToast()
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
+// Setup 的 WORKPROJECT 缺口深链到这里：一次性消费 intent=create-project 打开创建表单。
+useRouteIntent('today', ['create-project'], () => canManageProjects.value && scopeStore.state.phase === 'ready', () => projectCreation.show())
 const setupStore = inject(SETUP_STORE, null)
 const setupReadiness = computed(() => setupStore?.state.readiness ?? null)
 const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required && item.status === 'READY').length ?? 0)
@@ -353,7 +356,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
-    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建或加入 Team 后，Today 会汇总团队范围内需要关注的工作。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
+    <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建 Team 后，Today 会汇总团队范围内需要关注的工作；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
 
     <div v-else class="today-page page-shell">
       <!--
@@ -399,15 +402,23 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
       />
 
       <template v-else>
-        <!-- A first WorkProject is the one thing the projection cannot help with, and creating it is
-             the only next step an empty Team has. -->
+        <!-- A first WorkProject is the one thing the projection cannot help with; members who
+             are not there yet can start from a conversation instead (F02 dual entry). -->
         <StatePanel
           v-if="!scopeStore.state.projects.length"
           state="empty"
           title="这个 Team 还没有 WorkProject"
           description="创建第一个 WorkProject 后，即可进入 Work 管理并绑定代码仓库。"
         >
-          <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
+          <template #action>
+            <div class="empty-actions">
+              <BaseButton v-if="canManageProjects" size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton>
+              <RouterLink
+                class="empty-actions__secondary"
+                :to="{ name: 'conversation', query: scopeStore.state.selectedTeamId ? { team: scopeStore.state.selectedTeamId } : {} }"
+              >或先从对话开始</RouterLink>
+            </div>
+          </template>
         </StatePanel>
 
         <!-- A refresh that failed keeps the last known rows and says so, rather than blanking a page
@@ -641,4 +652,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
   .my-work__heading { align-items: stretch; flex-direction: column; }
   .grouping-switcher button { flex: 1; }
 }
+.empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }
+.empty-actions__secondary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-decoration: underline; text-underline-offset: 3px; }
+.empty-actions__secondary:hover, .empty-actions__secondary:focus-visible { color: var(--cs-text-brand); }
 </style>

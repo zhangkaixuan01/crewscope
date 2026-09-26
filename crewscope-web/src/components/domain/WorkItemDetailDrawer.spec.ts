@@ -56,9 +56,54 @@ describe('WorkItemDetailDrawer', () => {
     const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
 
     await wrapper.get('.detail-footer button:last-child').trigger('click')
-    expect(wrapper.emitted('delegate')).toBeTruthy()
+    expect(wrapper.emitted('delegate')).toEqual([['']])
     await wrapper.get('.detail-footer button:first-of-type').trigger('click')
     expect(wrapper.emitted('conversation')).toBeTruthy()
+  })
+
+  it('renders stored comments through the safe Markdown pipeline with table semantics intact', () => {
+    const details = structuredClone(fixtureWorkItemDetails)
+    details.comments[0]!.content = '结论 | 数量 |\n| --- | --- |\n| 接口已冻结 | 2 |'
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ details }) })
+
+    // Semantic structure, not flattened text: th/td survive because the same SafeMarkdown
+    // whitelist backs chat, comments and line-review contexts (R40).
+    expect(wrapper.get('.comment-body table thead th').text()).toBe('结论')
+    expect(wrapper.findAll('.comment-body tbody td').map(cell => cell.text())).toEqual(['接口已冻结', '2'])
+    wrapper.unmount()
+  })
+
+  it('keeps “发布评论” and “让 Agent 处理” as two separate intents from the same draft', async () => {
+    const onAddComment = vi.fn().mockResolvedValue(undefined)
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ onAddComment }) })
+
+    await wrapper.get('#work-item-comment').setValue('按新接口契约补齐回调')
+    await wrapper.get('.comment-actions button[title^="以这条评论为执行目标"]').trigger('click')
+    // R42: the delegate intent carries the draft for the dialog to pre-fill; it publishes nothing.
+    expect(wrapper.emitted('delegate')).toEqual([['按新接口契约补齐回调']])
+    expect(onAddComment).not.toHaveBeenCalled()
+    expect(wrapper.get<HTMLTextAreaElement>('#work-item-comment').element.value).toBe('按新接口契约补齐回调')
+
+    await wrapper.get('.comment-form').trigger('submit')
+    await flushPromises()
+    expect(onAddComment).toHaveBeenCalledWith({ content: '按新接口契约补齐回调' })
+    wrapper.unmount()
+  })
+
+  it('previews the comment draft through SafeMarkdown and returns to editing without losing text', async () => {
+    const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
+
+    await wrapper.get('#work-item-comment').setValue('**结论**先行')
+    const toggle = wrapper.get('.comment-preview-toggle')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    await toggle.trigger('click')
+
+    expect(wrapper.get('.comment-preview strong').text()).toBe('结论')
+    expect(wrapper.find('#work-item-comment').exists()).toBe(false)
+
+    await toggle.trigger('click')
+    expect((wrapper.get<HTMLTextAreaElement>('#work-item-comment').element).value).toBe('**结论**先行')
+    wrapper.unmount()
   })
 
   it('shows visible source Conversations beside responsibility facts', async () => {
@@ -98,6 +143,35 @@ describe('WorkItemDetailDrawer', () => {
     const projection = wrapper.get('.activity-projection-section')
     expect(projection.text()).toContain('WorkItem Activity projection')
     expect(timeline.element.compareDocumentPosition(projection.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('offers the real parallel Task list when several Tasks run and none is chosen', async () => {
+    const onOpenTask = vi.fn()
+    const wrapper = mount(WorkItemDetailDrawer, {
+      global,
+      props: props({
+        taskSelectionRequired: true,
+        parallelTasks: [
+          { id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' },
+          { id: 'task-b', objective: '编写集成测试', status: 'WAITING' },
+        ],
+        onOpenTask,
+      }),
+    })
+
+    expect(wrapper.get('.parallel-tasks').attributes('role')).toBe('status')
+    expect(wrapper.get('.parallel-tasks').text()).toContain('2 个 Task 并行，先选择目标')
+    expect(wrapper.get('.parallel-tasks').text()).toContain('进行中')
+    await wrapper.findAll('.parallel-tasks button').find(button => button.text().includes('编写集成测试'))!.trigger('click')
+    expect(onOpenTask).toHaveBeenCalledWith('task-b')
+
+    const silent = mount(WorkItemDetailDrawer, {
+      global,
+      props: props({ taskSelectionRequired: false, parallelTasks: [{ id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' }] }),
+    })
+    expect(silent.find('.parallel-tasks').exists()).toBe(false)
+    silent.unmount()
     wrapper.unmount()
   })
 
@@ -350,6 +424,7 @@ function props(overrides: Record<string, unknown> = {}) {
     onLoadMoreResponsibilityAgents: vi.fn(),
     onLoadTimelineMore: vi.fn().mockResolvedValue(undefined),
     onRetryAssociations: vi.fn(),
+    onOpenTask: vi.fn(),
     ...overrides,
   }
 }

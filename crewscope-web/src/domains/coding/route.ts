@@ -1,4 +1,5 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
+import { parseExecutionSelection } from '../task/executionSelection'
 import type { CodingScope } from './types'
 
 export interface CodingRouteSelection {
@@ -8,17 +9,22 @@ export interface CodingRouteSelection {
   taskId: string | null
   executionId: string | null
   workspaceId: string | null
+  /** `taskExecution=` and `attempt=` name different executions: the coordinates conflict, nothing is chosen. */
+  executionConflict: boolean
 }
 
-/** Reads the Task/attempt/Workspace deep-link without manufacturing missing identities. */
+/** Reads the Task/execution/Workspace deep-link without manufacturing missing identities. */
 export function codingRouteSelection(query: LocationQuery): CodingRouteSelection {
+  const execution = parseExecutionSelection(query)
   return {
     teamId: scalar(query.team),
     projectId: scalar(query.project),
     workItemId: scalar(query.workItem),
     taskId: scalar(query.task),
-    executionId: scalar(query.attempt),
+    // On a conflict neither parameter is chosen; the workspace surfaces the conflict instead.
+    executionId: execution.conflict ? null : execution.unified ?? execution.alias,
     workspaceId: scalar(query.workspace),
+    executionConflict: execution.conflict,
   }
 }
 
@@ -50,14 +56,20 @@ export function withCodingRoute(
     project: value.projectId,
     workItem: value.workItemId ?? undefined,
     task: value.taskId,
-    attempt: value.executionId ?? undefined,
+    // Contract §4.1: `taskExecution=` is the unified write-side parameter; `attempt=` is always
+    // cleared so a restored legacy link can never resurface as a conflict.
+    taskExecution: value.executionId ?? undefined,
+    attempt: undefined,
     workspace: value.workspaceId ?? undefined,
   }
 }
 
-/** Closes the Coding focus while preserving the parent Task and shared Work filters. */
+/**
+ * Closes the Coding focus while preserving the parent Task and shared Work filters. The execution
+ * coordinates leave with it — both spellings — so a stale selection can never leak into the next Task.
+ */
 export function withoutCodingRoute(query: LocationQuery): LocationQueryRaw {
-  return { ...query, attempt: undefined, workspace: undefined }
+  return { ...query, taskExecution: undefined, attempt: undefined, workspace: undefined }
 }
 
 function scalar(value: LocationQuery[string]): string | null {

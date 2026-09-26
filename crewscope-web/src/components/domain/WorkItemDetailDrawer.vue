@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bot,
   CalendarClock,
-  CheckCircle2,
   Clock3,
   ExternalLink,
   Link2,
@@ -40,6 +39,9 @@ import {
   type WorkItemVersionConflict,
 } from '../../domains/workitem/types'
 import { enumLabel } from '../../domains/shared/labels'
+import type { TaskStatus } from '../../domains/task/types'
+import { taskStatusLabels } from '../../domains/task/labels'
+import type { ResultReference } from '../../domains/workitem/outcome'
 import { useTransitionConfirm } from '../../domains/workitem/useTransitionConfirm'
 import {
   workItemPriorityLabels,
@@ -53,6 +55,8 @@ import BaseButton from '../base/BaseButton.vue'
 import BaseTooltip from '../base/BaseTooltip.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
+import SafeMarkdown from './SafeMarkdown.vue'
+import WorkItemOutcomePanel from './WorkItemOutcomePanel.vue'
 import WorkItemResponsibilityPanel, { type ResponsibilityAgentCandidate, type ResponsibilityCandidate } from './WorkItemResponsibilityPanel.vue'
 import WorkItemTimeline from './WorkItemTimeline.vue'
 import WorkItemContentEditor from './WorkItemContentEditor.vue'
@@ -109,18 +113,26 @@ const props = defineProps<{
   onLoadMoreResponsibilityAgents: () => void
   onLoadTimelineMore: () => Promise<void>
   onRetryAssociations: () => void
+  /** §4.7 level 5: parallel Tasks with no chosen target — the real list, never a guess by order. */
+  parallelTasks?: Array<{ id: string, objective: string, status: TaskStatus }>
+  taskSelectionRequired?: boolean
+  onOpenTask: (taskId: string) => void
+  /** Opens the Task a delivered evidence reference provably belongs to (§4.1 outcome-first). */
+  onOpenOutcomeReference?: (reference: ResultReference, taskId: string) => void
 }>()
 
 const emit = defineEmits<{
   close: []
   conversation: []
   openConversation: [association: ConversationWorkItemAssociation]
-  delegate: []
+  /** Carries the comment draft when the member chooses the “让 Agent 处理” intent (R42). */
+  delegate: [commentDraft: string]
 }>()
 const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const drawer = useTemplateRef<HTMLElement>('drawer')
 const principal = inject(AUTH_PRINCIPAL)
 const comment = ref('')
+const commentPreviewing = ref(false)
 const resourceType = ref<WorkItemResourceType>('EXTERNAL_URL')
 const resourceReference = ref('')
 const resourceLabel = ref('')
@@ -270,6 +282,13 @@ function displayDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
+function taskStatusTone(status: TaskStatus): SemanticTone {
+  if (status === 'COMPLETED') return 'success'
+  if (status === 'WAITING') return 'warning'
+  if (status === 'FAILED' || status === 'CANCELLED') return 'danger'
+  return status === 'ACTIVE' ? 'agent' : 'neutral'
+}
+
 function statusTone(status: WorkItemStatus): SemanticTone {
   if (status === 'BLOCKED') return 'danger'
   if (status === 'DONE') return 'success'
@@ -305,8 +324,15 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <section class="detail-hero">
           <div class="detail-hero__status"><StatusBadge :tone="statusTone(item.status)" dot>{{ workItemStatusLabels[item.status] }}</StatusBadge><span class="mono">v{{ item.version }}</span></div>
           <h2>{{ item.title }}</h2>
-          <p v-if="item.description">{{ item.description }}</p>
+          <!-- R40: the work description renders through the same shared safe Markdown pipeline as chat and comments. -->
+          <SafeMarkdown v-if="item.description" class="detail-description" :content="item.description" />
           <div class="detail-tags"><StatusBadge tone="info">{{ workItemTypeLabels[item.type] }}</StatusBadge><StatusBadge :tone="item.priority === 'URGENT' ? 'danger' : item.priority === 'HIGH' ? 'warning' : 'neutral'">{{ workItemPriorityLabels[item.priority] }}优先级</StatusBadge><span v-for="label in item.labels" :key="label"><Tag :size="11" />{{ label }}</span></div>
+          <!-- §4.1: delivered output or the honest waiting fact, right after the title facts. -->
+          <WorkItemOutcomePanel
+            :summary="item.summary"
+            :principal-name="humanName"
+            :on-open-reference="onOpenOutcomeReference"
+          />
         </section>
 
         <WorkItemContentEditor :key="item.id" :item="item" :can-participate="canParticipate" @saved="onContentSaved ? onContentSaved() : onRetry()" />
@@ -360,8 +386,18 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <section class="detail-section facts-section">
           <div class="section-heading"><div><p>Facts</p><h3>工作项信息</h3></div></div>
           <dl><div><dt>来源</dt><dd>{{ enumLabel(item.source, workItemSourceLabels) }}</dd></div><div><dt>更新时间</dt><dd>{{ displayDate(item.updatedAt) }}</dd></div><div><dt>到期时间</dt><dd><CalendarClock :size="12" />{{ item.dueAt ? displayDate(item.dueAt) : '未设置' }}</dd></div><div><dt>创建者</dt><dd>{{ humanName(item.createdByPrincipalId) }}</dd></div></dl>
-          <!-- A06 read model's delivered-result line; the full presentation lands with F03. -->
-          <div v-if="item.summary?.resultSummary" class="delivered-result"><CheckCircle2 :size="14" /><div><strong>{{ item.summary.resultSummary }}</strong><span v-if="item.summary.resultSourceReference" class="mono" :title="`结果引用：${item.summary.resultSourceReference}`">{{ item.summary.resultSourceReference }}</span></div></div>
+          <!-- §4.7 level 5: parallel Tasks, no chosen target — offer the list, never guess by order (S01 §219). -->
+          <div v-if="taskSelectionRequired && parallelTasks?.length" class="parallel-tasks" role="status">
+            <div><strong>{{ parallelTasks.length }} 个 Task 并行，先选择目标</strong><span>写动作需要一个明确的执行目标，不会按列表顺序猜测；每个 Task 的状态以服务端事实为准。</span></div>
+            <ul>
+              <li v-for="task in parallelTasks" :key="task.id">
+                <button type="button" @click="onOpenTask(task.id)">
+                  <span>{{ task.objective }}</span>
+                  <StatusBadge :tone="taskStatusTone(task.status)" dot>{{ taskStatusLabels[task.status] }}</StatusBadge>
+                </button>
+              </li>
+            </ul>
+          </div>
         </section>
 
         <ConversationWorkItemLinks
@@ -403,10 +439,10 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <section class="detail-section comments-section">
           <div class="section-heading"><div><p>Discussion</p><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>
           <div v-if="details.comments.length" class="comment-list">
-            <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><p>{{ entry.content }}</p></div></article>
+            <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><SafeMarkdown class="comment-body" :content="entry.content" /></div></article>
           </div>
           <p v-else class="section-note">还没有评论。</p>
-          <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项；@ 成员或 Agent 不会自动触发执行" :aria-invalid="commentSubmitted && !comment.trim()" /><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="13" />发布评论</BaseButton><p class="comment-note">评论仅记录讨论，不会启动执行；补充要求请等当前执行完成或发布新一轮。</p></form>
+          <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea v-if="!commentPreviewing" id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项；@ 成员或 Agent 不会自动触发执行" :aria-invalid="commentSubmitted && !comment.trim()" /><div v-else class="comment-preview" :aria-label="`评论预览`"><SafeMarkdown v-if="comment.trim()" :content="comment" /><p v-else>暂无内容，回到编辑继续输入。</p></div><div class="comment-actions"><button type="button" class="comment-preview-toggle" :aria-pressed="commentPreviewing" @click="commentPreviewing = !commentPreviewing">{{ commentPreviewing ? '编辑' : '预览' }}</button><BaseButton v-if="canDelegate" type="button" variant="secondary" size="small" :disabled="!comment.trim()" title="以这条评论为执行目标发起委托确认；评论本身仍需单独发布才会留档" @click="emit('delegate', comment.trim())"><Bot :size="13" />让 Agent 处理</BaseButton><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="13" />发布评论</BaseButton></div><p class="comment-note">评论仅记录讨论，不会启动执行；要让 Agent 按这条内容行动，用「让 Agent 处理」单独确认委托。</p></form>
         </section>
 
         <section class="detail-section resources-section">
@@ -436,16 +472,24 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
       </div>
 
       <footer class="detail-footer">
-        <div><BaseButton variant="secondary" @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton v-if="canDelegate" variant="ghost" @click="$emit('delegate')"><Bot :size="14" />交给 Agent 处理</BaseButton></div>
+        <div><BaseButton variant="secondary" @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton v-if="canDelegate" variant="ghost" @click="$emit('delegate', '')"><Bot :size="14" />交给 Agent 处理</BaseButton></div>
       </footer>
     </aside>
   </div>
 </template>
 
 <style scoped>
-.detail-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); backdrop-filter: blur(2px); }.detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(560px, 92vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: var(--cs-shadow-drawer); }.detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-12) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.detail-header p, .detail-header strong { display: block; margin: 0; }.detail-header p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.detail-header strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.detail-content { overflow-y: auto; padding: var(--cs-space-12); }.detail-hero, .detail-section, .conflict-panel { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.detail-hero { padding: var(--cs-space-20); }.detail-hero__status { display: flex; align-items: center; justify-content: space-between; }.detail-hero__status > .mono { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-hero h2 { margin: var(--cs-space-12) 0 var(--cs-space-8); font-size: var(--cs-text-lg); line-height: var(--cs-leading-tight); }.detail-hero > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); white-space: pre-wrap; }.detail-tags { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }.detail-tags > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-section { margin-top: var(--cs-space-12); padding: var(--cs-space-16); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.transition-control { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-8); }.transition-control select, .comment-form textarea, .resource-form input, .resource-form select { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.facts-section dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0; }.facts-section dl div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.facts-section dl div:nth-last-child(-n+2) { border-bottom: 0; }.facts-section dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.facts-section dd { display: flex; align-items: center; gap: var(--cs-space-4); margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.section-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list, .resource-list { display: grid; gap: var(--cs-space-8); }.comment-list article { display: grid; grid-template-columns: 28px 1fr; gap: var(--cs-space-8); }.comment-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); }.comment-list header { display: flex; justify-content: space-between; gap: var(--cs-space-8); }.comment-list header strong, .comment-list header time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); white-space: pre-wrap; }.comment-form { display: grid; justify-items: end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.comment-form label { justify-self: start; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.comment-form textarea { min-height: 68px; padding-block: var(--cs-space-8); resize: vertical; }.comment-form textarea[aria-invalid="true"], .resource-form input[aria-invalid="true"] { border-color: var(--cs-danger); }.resource-list article { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: 8px; background: var(--cs-surface-subtle); }.resource-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); }.resource-list strong, .resource-list a, .resource-list article div > span { display: flex; min-width: 0; align-items: center; gap: var(--cs-space-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-list strong { font-size: var(--cs-text-sm); }.resource-list a, .resource-list article div > span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.resource-form { display: grid; grid-template-columns: 120px 1fr; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.resource-form label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.resource-form label:nth-child(3) { grid-column: 1 / -1; }.resource-form > button { justify-self: end; grid-column: 1 / -1; }.conflict-panel { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-12); border-color: var(--cs-warning-border); background: var(--cs-warning-soft); color: var(--cs-warning); }.conflict-panel strong, .conflict-panel span { display: block; }.conflict-panel strong { font-size: var(--cs-text-sm); }.conflict-panel span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-error { margin: var(--cs-space-8) var(--cs-space-2) 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }
+.detail-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); backdrop-filter: blur(2px); }.detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(560px, 92vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: var(--cs-shadow-drawer); }.detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-12) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.detail-header p, .detail-header strong { display: block; margin: 0; }.detail-header p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.detail-header strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.detail-content { overflow-y: auto; padding: var(--cs-space-12); }.detail-hero, .detail-section, .conflict-panel { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.detail-hero { padding: var(--cs-space-20); }.detail-hero__status { display: flex; align-items: center; justify-content: space-between; }.detail-hero__status > .mono { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-hero h2 { margin: var(--cs-space-12) 0 var(--cs-space-8); font-size: var(--cs-text-lg); line-height: var(--cs-leading-tight); }.detail-hero > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.detail-description { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.detail-tags { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }.detail-tags > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-section { margin-top: var(--cs-space-12); padding: var(--cs-space-16); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.transition-control { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-8); }.transition-control select, .comment-form textarea, .resource-form input, .resource-form select { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.facts-section dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0; }.facts-section dl div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.facts-section dl div:nth-last-child(-n+2) { border-bottom: 0; }.facts-section dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.facts-section dd { display: flex; align-items: center; gap: var(--cs-space-4); margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.section-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list, .resource-list { display: grid; gap: var(--cs-space-8); }.comment-list article { display: grid; grid-template-columns: 28px 1fr; gap: var(--cs-space-8); }.comment-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); }.comment-list header { display: flex; justify-content: space-between; gap: var(--cs-space-8); }.comment-list header strong, .comment-list header time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.comment-form { display: grid; justify-items: end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.comment-form label { justify-self: start; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.comment-form textarea { width: 100%; min-height: 68px; padding-block: var(--cs-space-8); resize: vertical; }.comment-form textarea[aria-invalid="true"], .resource-form input[aria-invalid="true"] { border-color: var(--cs-danger); }
+.comment-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--cs-space-8); width: 100%; }
+.comment-preview-toggle { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: 44px; margin-right: auto; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.comment-preview-toggle:hover, .comment-preview-toggle:focus-visible { border-color: var(--cs-border-accent); color: var(--cs-text-brand); }
+.comment-preview-toggle[aria-pressed="true"] { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); color: var(--cs-text-brand); }
+.comment-preview { width: 100%; min-height: 68px; max-height: 220px; overflow-y: auto; padding: var(--cs-space-12); border: 1px dashed var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.comment-preview p { margin: 0; color: var(--cs-text-muted); }
+.comment-body { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.resource-list article { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: 8px; background: var(--cs-surface-subtle); }.resource-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); }.resource-list strong, .resource-list a, .resource-list article div > span { display: flex; min-width: 0; align-items: center; gap: var(--cs-space-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-list strong { font-size: var(--cs-text-sm); }.resource-list a, .resource-list article div > span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.resource-form { display: grid; grid-template-columns: 120px 1fr; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.resource-form label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.resource-form label:nth-child(3) { grid-column: 1 / -1; }.resource-form > button { justify-self: end; grid-column: 1 / -1; }.conflict-panel { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-12); border-color: var(--cs-warning-border); background: var(--cs-warning-soft); color: var(--cs-warning); }.conflict-panel strong, .conflict-panel span { display: block; }.conflict-panel strong { font-size: var(--cs-text-sm); }.conflict-panel span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-error { margin: var(--cs-space-8) var(--cs-space-2) 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }
 .comment-note { justify-self: start; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.delivered-result { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-surface-subtle); color: var(--cs-success); }.delivered-result strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.delivered-result span { display: block; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); overflow-wrap: anywhere; }.command-error button { color: inherit; text-decoration: underline; cursor: pointer; }.detail-footer { display: flex; justify-content: flex-end; padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+.parallel-tasks { display: grid; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); }.parallel-tasks > div > strong { color: var(--cs-warning); font-size: var(--cs-text-sm); }.parallel-tasks span { display: block; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.parallel-tasks ul { display: grid; gap: var(--cs-space-8); padding: 0; margin: 0; list-style: none; }.parallel-tasks button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }.parallel-tasks button:hover { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }.command-error button { color: inherit; text-decoration: underline; cursor: pointer; }.detail-footer { display: flex; justify-content: flex-end; padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
 .detail-footer { display: grid; justify-items: end; gap: var(--cs-space-8); }.detail-footer > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-footer > div { display: flex; gap: var(--cs-space-8); }
 @media (max-width: 767px) { .detail-drawer { width: 100%; }.detail-content { padding: var(--cs-space-8); }.detail-hero { padding: var(--cs-space-16); }.detail-hero h2 { font-size: var(--cs-text-lg); }.detail-section { padding: var(--cs-space-16); }.resource-form { grid-template-columns: 1fr; }.resource-form label:nth-child(3), .resource-form > button { grid-column: 1; }.resource-form > button { justify-self: stretch; }.detail-footer { justify-items: stretch; }.detail-footer > div { display: grid; }.detail-footer > div > * { width: 100%; } }
 .transition-control { display: grid; gap: var(--cs-space-8); }
