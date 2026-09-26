@@ -4,6 +4,9 @@ import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.audit.AuditAuthorization;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.agent.AgentModelDefaultRepository;
+import io.crewscope.application.coding.BuildProfileCatalog;
+import io.crewscope.application.coding.ProjectExecutionDefaultsRepository;
+import io.crewscope.application.coding.RepositoryBindingAccessPolicy;
 import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.github.GitHubProviderRepository;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
@@ -51,6 +54,9 @@ public class SetupReadinessApplicationConfiguration {
             ModelProviderDefinitionRepository providers,
             WorkProjectRepository projects,
             RepositoryBindingRepository bindings,
+            RepositoryBindingAccessPolicy repositoryAdministration,
+            ProjectExecutionDefaultsRepository executionDefaults,
+            BuildProfileCatalog buildProfiles,
             ConnectionRepository connections,
             GitHubProviderRepository github,
             RuntimeObservationService runtimeObservation,
@@ -67,6 +73,9 @@ public class SetupReadinessApplicationConfiguration {
                 providers,
                 projects,
                 bindings,
+                repositoryAdministration,
+                executionDefaults,
+                buildProfiles,
                 connections,
                 github,
                 runtimeObservation,

@@ -92,7 +92,7 @@ function authStore(): AuthStore {
     principal: { id: 'principal-1', accountId: 'account-1', displayName: 'Alice', role: 'Owner', organizationId: 'organization-1', organization: 'CrewScope', permissions: new Set() },
     start() {}, stop() {}, async ensureRestored() {}, async refresh() { return true }, async retry() {},
     selectTeam() {},
-    authenticationRequired() {}, signOutLocally() {}, subscribe() { return () => undefined },
+    authenticationRequired() {}, signOutLocally() {}, async switchAccount() { return true }, subscribe() { return () => undefined },
   }
 }
 

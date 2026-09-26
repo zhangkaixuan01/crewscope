@@ -59,6 +59,19 @@ test('replays the same creation intent after an unavailable response', async ({ 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
 })
 
+test('routes the Coding goal from the completion card into setup as its return origin', async ({ page }) => {
+  await installOnboardingApi(page)
+  await page.goto('/onboarding')
+  await page.getByRole('textbox', { name: '团队名称' }).fill('Platform Engineering')
+  await page.getByRole('button', { name: '创建团队' }).click()
+  await expect(page.getByRole('heading', { name: '你的工作入口已经就绪' })).toBeFocused()
+
+  await page.getByRole('button', { name: '先完成 Coding 配置' }).click()
+  await expect(page).toHaveURL(new RegExp(`/setup\\?from=onboarding&team=${ids.team}$`))
+  // setup 登记了 onboarding 来源，配置完成后可以回到初始化继续。
+  await expect(page.getByRole('button', { name: '返回初始化' })).toBeVisible()
+})
+
 async function installOnboardingApi(
   page: Page,
   options: { initiallyComplete?: boolean, failFirstPost?: boolean } = {},
@@ -100,6 +113,7 @@ async function installOnboardingApi(
     if (path.endsWith('/teams')) return route.fulfill(json([team()]))
     if (path.endsWith('/work-projects')) return route.fulfill(json({ items: [], nextCursor: null }))
     if (path.endsWith('/agent-profiles')) return route.fulfill(json({ items: [personalAgent()] }))
+    if (path.endsWith('/setup-readiness')) return route.fulfill(json(setupReadiness()))
     if (path.includes('/conversations')) return route.fulfill(json({ items: [], nextCursor: null }))
     return route.fulfill(json([]))
   })
@@ -125,6 +139,18 @@ function personalAgent() {
     defaultProfile: true, status: 'ACTIVE', currentConfigurationRevision: 1,
     currentConfigurationHash: 'a'.repeat(64), createdAt: '2026-08-29T01:00:00Z',
     updatedAt: '2026-08-29T01:00:00Z', version: 0,
+  }
+}
+
+function setupReadiness() {
+  const capabilities = (['PERSONAL_CONVERSATION', 'TEAM_TASK', 'CODING_REVIEW', 'GITHUB_DRAFT_PR', 'LARK_NOTIFICATIONS', 'TEAM_OBSERVER'] as const)
+    .map(capability => ({
+      capability, required: capability === 'PERSONAL_CONVERSATION', status: 'READY',
+      reasonCode: 'READY', canConfigure: false, responsibleParty: 'Team 管理员', actionKey: null,
+    }))
+  return {
+    scope: { organizationId: ids.organization, teamId: ids.team },
+    snapshotVersion: 'v1', observedAt: '2026-09-01T00:00:00Z', requiredReady: true, capabilities,
   }
 }
 

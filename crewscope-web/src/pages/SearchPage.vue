@@ -122,7 +122,7 @@ function parseTypes(value: unknown): SearchObjectType[] {
         </div>
       </section>
 
-      <StatePanel v-if="scopeStore.state.phase === 'empty'" state="empty" title="当前账号还没有 Team" description="加入 Team 后即可搜索团队工作事实。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
+      <StatePanel v-if="scopeStore.state.phase === 'empty'" state="empty" title="当前账号还没有 Team" description="创建 Team 后即可搜索团队工作事实；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
       <StatePanel v-else-if="store.state.phase === 'idle'" state="empty" title="输入关键词开始搜索" description="搜索当前 Team 中你有权限查看的工作事实。" />
       <StatePanel v-else-if="store.state.phase === 'loading'" state="loading" title="正在搜索" description="正在按当前范围和权限读取最新结果。" />
       <StatePanel v-else-if="store.state.phase === 'offline'" state="offline" :description="store.state.errorMessage ?? undefined" />

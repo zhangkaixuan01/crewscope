@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Bot, Check, RefreshCw, ShieldCheck, UsersRound } from '@lucide/vue'
+import { ArrowRight, Bot, Check, CircleAlert, RefreshCw, ShieldCheck, UsersRound } from '@lucide/vue'
 import { computed } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import AuthCard from './AuthCard.vue'
@@ -19,6 +19,8 @@ const props = withDefaults(defineProps<{
   canEdit?: boolean
   online?: boolean
   personalAgentName?: string
+  /** F02: the readiness projection says the conversation capability still needs configuration. */
+  conversationSetupReady?: boolean
 }>(), {
   problem: null,
   errorGeneration: 0,
@@ -27,12 +29,14 @@ const props = withDefaults(defineProps<{
   canEdit: false,
   online: true,
   personalAgentName: 'Personal Agent',
+  conversationSetupReady: true,
 })
 
 const emit = defineEmits<{
   submit: []
   retry: []
   enter: []
+  configure: []
 }>()
 
 const loading = computed(() => props.phase === 'idle' || props.phase === 'loading')
@@ -40,6 +44,7 @@ const busy = computed(() => props.phase === 'submitting' || props.phase === 'ver
 const showForm = computed(() => props.phase === 'required' || (props.phase === 'error' && props.canEdit))
 const teamDone = computed(() => ['workspace', 'agent', 'ready'].includes(props.currentStage))
 const workspaceDone = computed(() => ['agent', 'ready'].includes(props.currentStage))
+const agentDone = computed(() => props.currentStage === 'ready')
 
 function current(step: 'team' | 'workspace'): 'step' | undefined {
   if (step === 'team' && props.currentStage === 'team') return 'step'
@@ -79,9 +84,16 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
         <div><strong>{{ personalAgentName }}</strong><small>默认对话式 Personal Agent</small></div>
         <span>已就绪</span>
       </section>
-      <BaseButton class="onboarding__primary" @click="emit('enter')">
-        进入团队对话<template #icon><ArrowRight :size="16" /></template>
-      </BaseButton>
+      <!-- F02 决策 7：readiness 缺口只提示，不阻断进入对话。 -->
+      <p v-if="!conversationSetupReady" class="onboarding__notice">
+        <CircleAlert :size="14" aria-hidden="true" />Personal Agent 尚未完成模型配置，进入对话前可先到配置中心补齐。
+      </p>
+      <div class="onboarding__entry">
+        <BaseButton class="onboarding__primary" @click="emit('enter')">
+          进入团队对话<template #icon><ArrowRight :size="16" /></template>
+        </BaseButton>
+        <BaseButton variant="secondary" @click="emit('configure')">先完成 Coding 配置</BaseButton>
+      </div>
     </AuthCard>
 
     <AuthCard
@@ -143,10 +155,11 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 
       <section v-else-if="busy" class="onboarding__progress" aria-live="polite" aria-label="团队初始化进度">
         <p>{{ phase === 'submitting' ? '正在提交原子初始化请求…' : '正在确认服务端初始化结果…' }}</p>
+        <!-- L10：只列出已确认与正在确认的步骤，不预告尚未发生的结果。 -->
         <ul>
-          <li :class="{ active: currentStage === 'team', done: teamDone }"><span />创建 Team 与 Owner 成员关系</li>
-          <li :class="{ active: currentStage === 'workspace', done: workspaceDone }"><span />确认共享 Workspace 与权限</li>
-          <li :class="{ active: currentStage === 'agent', done: currentStage === 'ready' }"><span />读取默认 Personal Agent</li>
+          <li v-if="currentStage === 'team' || teamDone" :class="{ active: currentStage === 'team', done: teamDone }"><span />创建 Team 与 Owner 成员关系</li>
+          <li v-if="teamDone" :class="{ active: currentStage === 'workspace', done: workspaceDone }"><span />确认共享 Workspace 与权限</li>
+          <li v-if="currentStage === 'agent' || agentDone" :class="{ active: currentStage === 'agent', done: agentDone }"><span />读取默认 Personal Agent</li>
         </ul>
       </section>
 
@@ -198,6 +211,9 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 .onboarding__creation span { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .onboarding__creation small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: right; }
 .onboarding__primary { width: 100%; }
+.onboarding__notice { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: 0 0 var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
+.onboarding__notice svg { flex: 0 0 auto; }
+.onboarding__entry { display: grid; gap: var(--cs-space-8); }
 .onboarding__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .onboarding__progress { display: grid; gap: var(--cs-space-16); }
 .onboarding__progress > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }

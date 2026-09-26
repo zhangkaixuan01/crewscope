@@ -262,7 +262,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 
     <StatePanel v-if="store.state.phase === 'loading' || store.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="store.state.phase === 'error'" state="error" :description="store.state.errorMessage ?? undefined" @retry="store.reload" />
-    <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="还没有可访问的 Team"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建或加入 Team</BaseButton></RouterLink></template></StatePanel>
+    <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建你的第一个 Team；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
 
     <div v-else class="members-page page-shell">
       <nav class="members-tabs" :aria-label="`${team?.name ?? 'Team'} 成员管理视图`">

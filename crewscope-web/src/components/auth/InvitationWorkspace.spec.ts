@@ -23,6 +23,16 @@ describe('InvitationWorkspace', () => {
     expect(wrapper.emitted('accept')).toHaveLength(1)
   })
 
+  it('names the receiving account and offers the in-place account switch (L12)', async () => {
+    const wrapper = mountWorkspace({ authenticated: true, accountName: 'Alice', accountIdentifier: 'alice' })
+    expect(wrapper.text()).toContain('当前账号：')
+    expect(wrapper.text()).toContain('Alice（alice）')
+    // The anonymous paths stay hidden; the switch replaces the account, not the proof.
+    expect(wrapper.text()).not.toContain('使用已有账号登录并加入')
+    await wrapper.findAll('button').find(button => button.text().includes('换账号接受'))!.trigger('click')
+    expect(wrapper.emitted('switch-account')).toHaveLength(1)
+  })
+
   it.each([
     ['expired', '这个邀请已经过期'],
     ['unavailable', '这个邀请无法使用'],

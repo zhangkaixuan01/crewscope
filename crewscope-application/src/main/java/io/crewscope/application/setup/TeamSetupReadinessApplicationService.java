@@ -2,6 +2,9 @@ package io.crewscope.application.setup;
 
 import io.crewscope.application.agent.AgentConfigurationRepository;
 import io.crewscope.application.agent.AgentModelDefaultRepository;
+import io.crewscope.application.coding.BuildProfileCatalog;
+import io.crewscope.application.coding.ProjectExecutionDefaultsRepository;
+import io.crewscope.application.coding.RepositoryBindingAccessPolicy;
 import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.github.GitHubProviderRepository;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
@@ -23,6 +26,7 @@ import io.crewscope.domain.agent.AgentModelBindingKind;
 import io.crewscope.domain.agent.AgentModelDefault;
 import io.crewscope.domain.agent.AgentModelDefaultScope;
 import io.crewscope.domain.agent.AgentRuntimeRole;
+import io.crewscope.domain.coding.ProjectExecutionDefaults;
 import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.coding.RepositoryBindingStatus;
 import io.crewscope.domain.identity.Principal;
@@ -70,6 +74,9 @@ public final class TeamSetupReadinessApplicationService {
     private final ModelProviderDefinitionRepository providers;
     private final WorkProjectRepository projects;
     private final RepositoryBindingRepository bindings;
+    private final RepositoryBindingAccessPolicy repositoryAdministration;
+    private final ProjectExecutionDefaultsRepository executionDefaults;
+    private final BuildProfileCatalog buildProfiles;
     private final ConnectionRepository connections;
     private final GitHubProviderRepository github;
     private final RuntimeObservationService runtimeObservation;
@@ -87,6 +94,9 @@ public final class TeamSetupReadinessApplicationService {
             ModelProviderDefinitionRepository providers,
             WorkProjectRepository projects,
             RepositoryBindingRepository bindings,
+            RepositoryBindingAccessPolicy repositoryAdministration,
+            ProjectExecutionDefaultsRepository executionDefaults,
+            BuildProfileCatalog buildProfiles,
             ConnectionRepository connections,
             GitHubProviderRepository github,
             RuntimeObservationService runtimeObservation,
@@ -102,6 +112,9 @@ public final class TeamSetupReadinessApplicationService {
         this.providers = Objects.requireNonNull(providers, "providers");
         this.projects = Objects.requireNonNull(projects, "projects");
         this.bindings = Objects.requireNonNull(bindings, "bindings");
+        this.repositoryAdministration = Objects.requireNonNull(repositoryAdministration, "repositoryAdministration");
+        this.executionDefaults = Objects.requireNonNull(executionDefaults, "executionDefaults");
+        this.buildProfiles = Objects.requireNonNull(buildProfiles, "buildProfiles");
         this.connections = Objects.requireNonNull(connections, "connections");
         this.github = Objects.requireNonNull(github, "github");
         this.runtimeObservation = Objects.requireNonNull(runtimeObservation, "runtimeObservation");
@@ -212,20 +225,27 @@ public final class TeamSetupReadinessApplicationService {
         Optional<WorkProject> activeProject = projects.stream()
                 .filter(value -> value.status() == WorkProjectStatus.ACTIVE)
                 .findFirst();
-        boolean repositoryReady = activeProject.map(project -> bindings.findByWorkProject(
-                        organizationId, team.id(), project.id()).stream()
-                        .anyMatch(value -> value.status() == RepositoryBindingStatus.ACTIVE))
-                .orElse(false);
+        List<RepositoryBinding> projectBindings = activeProject
+                .map(project -> bindings.findByWorkProject(organizationId, team.id(), project.id()))
+                .orElseGet(List::of);
+        boolean repositoryReady = projectBindings.stream()
+                .anyMatch(value -> value.status() == RepositoryBindingStatus.ACTIVE);
         boolean specialistReady = profiles.stream()
                 .filter(value -> value.status().name().equals("ACTIVE"))
                 .filter(value -> value.runtimeRole() == AgentRuntimeRole.SPECIALIST)
                 .anyMatch(value -> modelReady(value, team, now));
-        if (activeProject.isPresent() && repositoryReady && specialistReady && runtime.codingAvailable()) {
+        boolean defaultsReady = activeProject
+                .filter(value -> repositoryReady)
+                .map(value -> executionDefaultsComplete(organizationId, team, value, projectBindings))
+                .orElse(false);
+        if (activeProject.isPresent() && repositoryReady && specialistReady && defaultsReady
+                && runtime.codingAvailable()) {
             return ready(TeamSetupCapability.CODING_REVIEW, true, "Team 管理员");
         }
         String reason = activeProject.isEmpty() ? "WORKPROJECT_REQUIRED"
                 : !repositoryReady ? "MANAGED_REPOSITORY_REQUIRED"
                 : !specialistReady ? "CODING_AGENT_CONFIGURATION_REQUIRED"
+                : !defaultsReady ? "EXECUTION_DEFAULTS_REQUIRED"
                 : "CODING_RUNTIME_UNAVAILABLE";
         if ("CODING_RUNTIME_UNAVAILABLE".equals(reason)) {
             return unavailable(
@@ -236,13 +256,57 @@ public final class TeamSetupReadinessApplicationService {
         }
         TeamPermission permission = activeProject.isEmpty()
                 ? TeamPermission.WORK_PROJECT_MANAGE : TeamPermission.AGENT_MANAGE;
+        String actionKey = activeProject.isEmpty() ? "OPEN_WORKPROJECT_SETTINGS"
+                : "EXECUTION_DEFAULTS_REQUIRED".equals(reason) ? "OPEN_EXECUTION_DEFAULTS"
+                : "OPEN_AGENT_SETTINGS";
+        // The defaults step lands on repository settings, whose write path admits only built-in
+        // Team administrators — a WORK_PROJECT_MANAGE probe would hand TEAM_LEAD an action the
+        // route guard and the PUT would both reject. Probe the exact same grant set.
+        boolean actionable = "EXECUTION_DEFAULTS_REQUIRED".equals(reason)
+                ? repositoryAdministration.canAdministrate(
+                        context, organizationId, team.id(), timeProvider.now())
+                : canConfigure(context, organizationId, team.id(), permission);
         return actionRequired(
                 TeamSetupCapability.CODING_REVIEW,
                 true,
                 reason,
-                canConfigure(context, organizationId, team.id(), permission),
-                activeProject.isEmpty() ? "OPEN_WORKPROJECT_SETTINGS" : "OPEN_AGENT_SETTINGS",
+                actionable,
+                actionKey,
                 "Team 管理员");
+    }
+
+    /**
+     * A05 delegation only resolves a coding execution when the project pins an ACTIVE repository
+     * binding at the stored version plus an exact build profile. Those defaults gaps used to
+     * surface solely at delegation preflight; readiness now reports them as their own next step.
+     * A missing branch or agent profile is a deliberate fallback, not a gap.
+     */
+    private boolean executionDefaultsComplete(
+            OrganizationId organizationId,
+            Team team,
+            WorkProject project,
+            List<RepositoryBinding> projectBindings) {
+        Optional<ProjectExecutionDefaults> defaults =
+                executionDefaults.find(organizationId, team.id(), project.id());
+        if (defaults.isEmpty() || defaults.orElseThrow().version() == 0) {
+            return false;
+        }
+        ProjectExecutionDefaults value = defaults.orElseThrow();
+        if (value.repositoryBindingId().isEmpty() || value.buildProfile().isEmpty()) {
+            return false;
+        }
+        RepositoryBinding binding = projectBindings.stream()
+                .filter(item -> item.id().equals(value.repositoryBindingId().orElseThrow()))
+                .findFirst()
+                .orElse(null);
+        if (binding == null || binding.status() != RepositoryBindingStatus.ACTIVE) {
+            return false;
+        }
+        if (value.repositoryBindingVersion().isEmpty()
+                || value.repositoryBindingVersion().orElseThrow().longValue() != binding.version()) {
+            return false;
+        }
+        return buildProfiles.findExact(value.buildProfile().orElseThrow()).isPresent();
     }
 
     private TeamSetupReadinessItem githubDraftPr(

@@ -62,13 +62,34 @@ TEAM_OBSERVER
 
 `reasonCode` 使用稳定大写枚举；Provider 原始错误、Secret、Endpoint、Remote URL、宿主路径、内部数据库坐标和异常原文不出现在响应中。`actionKey` 只有在 `ACTION_REQUIRED` 且当前成员拥有对应配置权限时出现，值只能是服务端预注册的站内动作。
 
+### 2.2 reasonCode 与 actionKey 闭合词表
+
+新增缺口事实必须同步本表；客户端按 `actionKey` 路由到站内配置面，未知词按无动作降级。`ACTION_REQUIRED` 在当前成员缺少对应配置权限时降级为 `BLOCKED` 且不返回 `actionKey`。
+
+| 能力 | reasonCode | actionKey |
+|---|---|---|
+| Personal Conversation | `PERSONAL_AGENT_CONFIGURATION_REQUIRED` | `OPEN_AGENT_SETTINGS` |
+| Team Task | `TEAM_AGENT_CONFIGURATION_REQUIRED` | `OPEN_AGENT_SETTINGS` |
+| Team Task | `RUNTIME_UNAVAILABLE`（UNAVAILABLE） | — |
+| Coding/Review | `WORKPROJECT_REQUIRED` | `OPEN_WORKPROJECT_SETTINGS` |
+| Coding/Review | `MANAGED_REPOSITORY_REQUIRED` | `OPEN_AGENT_SETTINGS` |
+| Coding/Review | `CODING_AGENT_CONFIGURATION_REQUIRED` | `OPEN_AGENT_SETTINGS` |
+| Coding/Review | `EXECUTION_DEFAULTS_REQUIRED` | `OPEN_EXECUTION_DEFAULTS` |
+| Coding/Review | `CODING_RUNTIME_UNAVAILABLE`（UNAVAILABLE） | — |
+| GitHub Draft PR | `GITHUB_REPOSITORY_IMPORT_REQUIRED` | `START_GITHUB_IMPORT` |
+| GitHub Draft PR | `GITHUB_CONNECTION_REQUIRED` | `OPEN_GITHUB_SETTINGS` |
+| GitHub Draft PR | `GITHUB_CATALOG_UNAVAILABLE`（UNAVAILABLE） | — |
+| Lark Notifications | `LARK_CONNECTION_REQUIRED` | `OPEN_LARK_SETTINGS` |
+| Team Observer | `TEAM_OBSERVER_CONFIGURATION_REQUIRED` | `OPEN_AGENT_SETTINGS` |
+| 全部能力 | `READY` | — |
+
 ## 3. 能力前置事实
 
 | 能力 | 必需事实 | 可选集成 |
 |---|---|---|
 | Personal Conversation | 当前账号、ACTIVE Membership、默认 Personal Agent、可用模型配置 | GitHub、飞书 |
 | Team Task | Team Coordinator Agent、可用 Team 模型、目标 Runtime | 外部 Provider |
-| Coding/Review | ACTIVE WorkProject、ACTIVE 受管 RepositoryBinding、Coding/Reviewer Agent、Coding Runtime | GitHub Draft PR |
+| Coding/Review | ACTIVE WorkProject、ACTIVE 受管 RepositoryBinding、Coding/Reviewer Agent、项目执行默认值（指定版本的受管仓库绑定 + 精确 Build Profile）、Coding Runtime | GitHub Draft PR |
 | GitHub Draft PR | ACTIVE TEAM GitHub Connection 和后续导入的 Managed Repository | 飞书通知 |
 | Lark Notifications | ACTIVE TEAM Lark Connection | GitHub |
 | Team Observer | Team Observer Agent 配置和 Runtime | Lark/GitHub |

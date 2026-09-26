@@ -9,10 +9,10 @@ import { AUTH_PRINCIPAL, type AuthenticatedPrincipal } from '../../app/auth'
 import { activateF05Identity, clearF05UserData, purgeF05LegacyKeys } from '../../app/f05Storage'
 import { CrewScopeApiError } from '../../api/client'
 import type { IdentityGateway } from './gateway'
-import type { AuthSession } from './types'
+import type { AuthCsrfCoordinate, AuthSession } from './types'
 
 export type AuthPhase = 'idle' | 'restoring' | 'anonymous' | 'authenticated' | 'error'
-export type AuthTransitionReason = 'restored' | 'authentication-required' | 'cross-tab-sign-out' | 'explicit-sign-out'
+export type AuthTransitionReason = 'restored' | 'authentication-required' | 'cross-tab-sign-out' | 'explicit-sign-out' | 'account-switch'
 
 interface AuthState {
   phase: AuthPhase
@@ -44,6 +44,12 @@ export interface AuthStore {
   selectTeam(teamId?: string | null): void
   authenticationRequired(): void
   signOutLocally(broadcast?: boolean): void
+  /**
+   * F02 L12: signs the current account out on the server and locally without the
+   * `explicit-sign-out` reason, so an in-memory invitation proof survives the switch.
+   * Returns false (leaving the session untouched) when the server logout cannot complete.
+   */
+  switchAccount(csrf: AuthCsrfCoordinate): Promise<boolean>
   subscribe(listener: (phase: AuthPhase, reason: AuthTransitionReason) => void): () => void
 }
 
@@ -168,6 +174,18 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     clearSession('explicit-sign-out', broadcast)
   }
 
+  async function switchAccount(csrf: AuthCsrfCoordinate): Promise<boolean> {
+    try {
+      await gateway.logout(csrf)
+    } catch {
+      // The server Session still owns this device; switching half-way would leave the
+      // member between two accounts, so the current session stays as it is.
+      return false
+    }
+    clearSession('account-switch', true)
+    return true
+  }
+
   function clearSession(reason: AuthTransitionReason, broadcast: boolean): void {
     generation += 1
     pending = null
@@ -243,6 +261,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     selectTeam,
     authenticationRequired,
     signOutLocally,
+    switchAccount,
     subscribe,
   }
 }

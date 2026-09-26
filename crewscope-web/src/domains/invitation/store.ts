@@ -58,6 +58,8 @@ export interface InvitationStore {
   hasProof(): boolean
   registrationProof(): string | null
   acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null>
+  /** Reinstates committed accept coordinates recovered from session-scoped storage (F02 R29). */
+  restoreAcceptance(acceptance: InvitationAcceptance): void
   clearCommand(): void
   pausePublic(): void
   clearProof(): void
@@ -256,6 +258,13 @@ export function createInvitationStore(
     }
   }
 
+  function restoreAcceptance(acceptance: InvitationAcceptance): void {
+    state.acceptance = acceptance
+    // The accept already committed; 'accepted' keeps the session-pending affordance available
+    // when the refreshed session still lacks the joined Team.
+    state.publicPhase = 'accepted'
+  }
+
   function beginManagement(): number {
     managementGeneration += 1
     managementController?.abort()
@@ -342,7 +351,7 @@ export function createInvitationStore(
   return {
     state: readonly(state) as Readonly<InvitationStoreState>,
     loadManagement, createInvitation, revokeInvitation, previewProof, hasProof, registrationProof,
-    acceptInvitation, clearCommand, pausePublic, clearProof, resetManagement, reset,
+    acceptInvitation, restoreAcceptance, clearCommand, pausePublic, clearProof, resetManagement, reset,
   }
 }
 

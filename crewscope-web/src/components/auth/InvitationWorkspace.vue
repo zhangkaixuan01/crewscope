@@ -14,15 +14,24 @@ const props = defineProps<{
   problemFocusKey: number
   authenticated: boolean
   registrationAllowed: boolean
+  /** Authorized display name and login of the receiving account (L12); null when anonymous. */
+  accountName?: string | null
+  accountIdentifier?: string | null
   online: boolean
   /** The accept was committed but the refreshed session has not shown the Team yet. */
   sessionPending: boolean
   resyncing: boolean
 }>()
 
-defineEmits<{ login: [], register: [], accept: [], retry: [], resync: [] }>()
+defineEmits<{ login: [], register: [], accept: [], 'switch-account': [], retry: [], resync: [] }>()
 
 const available = computed(() => props.preview?.state === 'AVAILABLE')
+const accountLabel = computed(() => {
+  const name = props.accountName ?? null
+  const identifier = props.accountIdentifier ?? null
+  if (name && identifier) return `${name}（${identifier}）`
+  return name ?? identifier ?? '—'
+})
 
 function roleLabel(role: InvitationRole | null): string {
   if (!role) return '—'
@@ -87,6 +96,11 @@ function formatDate(value: string | null): string {
       <div><dt>有效至</dt><dd><Clock3 :size="13" />{{ formatDate(preview?.expiresAt ?? null) }}</dd></div>
     </dl>
     <p v-if="preview?.targetRestricted" class="invitation-workspace__restricted"><ShieldCheck :size="14" />这是定向邀请，登录账号的邮箱需要与邀请目标匹配。</p>
+    <div v-if="authenticated" class="invitation-workspace__account">
+      <ShieldCheck :size="14" aria-hidden="true" />
+      <p>当前账号：<strong>{{ accountLabel }}</strong></p>
+      <BaseButton variant="ghost" size="small" :disabled="phase === 'accepting' || !online" @click="$emit('switch-account')">换账号接受</BaseButton>
+    </div>
     <div v-if="authenticated" class="invitation-workspace__actions">
       <BaseButton :loading="phase === 'accepting'" :disabled="!online" @click="$emit('accept')">{{ phase === 'accepting' ? '正在加入…' : '接受邀请并加入团队' }}<template #icon><ArrowRight v-if="phase !== 'accepting'" :size="16" /></template></BaseButton>
       <BaseButton variant="ghost" :disabled="phase === 'accepting'" @click="$emit('retry')"><RefreshCw :size="14" />重新检查邀请</BaseButton>
@@ -128,6 +142,6 @@ function formatDate(value: string | null): string {
 </template>
 
 <style scoped>
-.invitation-workspace__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.invitation-workspace__mark { display: inline-flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-8); margin: 0 0 var(--cs-space-20); border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.invitation-workspace__facts { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: 12px; }.invitation-workspace__facts div { min-width: 0; padding: var(--cs-space-12); }.invitation-workspace__facts div + div { border-left: 1px solid var(--cs-border); }.invitation-workspace__facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.invitation-workspace__facts dd { display: flex; align-items: center; gap: var(--cs-space-4); margin: var(--cs-space-4) 0 0; overflow-wrap: anywhere; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.invitation-workspace__restricted, .invitation-workspace__privacy { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.invitation-workspace__restricted { padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); }.invitation-workspace__restricted svg, .invitation-workspace__privacy svg { flex: 0 0 auto; }.invitation-workspace__actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--cs-space-8); margin-top: var(--cs-space-20); }.invitation-workspace__actions--anonymous { grid-template-columns: 1.3fr 1fr; }.invitation-workspace__privacy { margin: var(--cs-space-12) 0 0; }.invitation-workspace__full { width: 100%; }.invitation-workspace__unavailable { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); margin-bottom: var(--cs-space-16); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.invitation-workspace__unavailable p { margin: 0; font-size: var(--cs-text-xs); }
-@media (max-width: 680px) { .invitation-workspace__facts { grid-template-columns: 1fr; }.invitation-workspace__facts div + div { border-top: 1px solid var(--cs-border); border-left: 0; }.invitation-workspace__actions, .invitation-workspace__actions--anonymous { grid-template-columns: 1fr; } }
+.invitation-workspace__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.invitation-workspace__mark { display: inline-flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-8); margin: 0 0 var(--cs-space-20); border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.invitation-workspace__facts { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: 12px; }.invitation-workspace__facts div { min-width: 0; padding: var(--cs-space-12); }.invitation-workspace__facts div + div { border-left: 1px solid var(--cs-border); }.invitation-workspace__facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.invitation-workspace__facts dd { display: flex; align-items: center; gap: var(--cs-space-4); margin: var(--cs-space-4) 0 0; overflow-wrap: anywhere; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.invitation-workspace__restricted, .invitation-workspace__privacy { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.invitation-workspace__account { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); margin: 0 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-subtle); }.invitation-workspace__account > svg { flex: 0 0 auto; color: var(--cs-text-muted); }.invitation-workspace__account p { min-width: 0; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); overflow-wrap: anywhere; }.invitation-workspace__account strong { color: var(--cs-text-secondary); }.invitation-workspace__restricted { padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); }.invitation-workspace__restricted svg, .invitation-workspace__privacy svg { flex: 0 0 auto; }.invitation-workspace__actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--cs-space-8); margin-top: var(--cs-space-20); }.invitation-workspace__actions--anonymous { grid-template-columns: 1.3fr 1fr; }.invitation-workspace__privacy { margin: var(--cs-space-12) 0 0; }.invitation-workspace__full { width: 100%; }.invitation-workspace__unavailable { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); margin-bottom: var(--cs-space-16); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.invitation-workspace__unavailable p { margin: 0; font-size: var(--cs-text-xs); }
+@media (max-width: 680px) { .invitation-workspace__facts { grid-template-columns: 1fr; }.invitation-workspace__facts div + div { border-top: 1px solid var(--cs-border); border-left: 0; }.invitation-workspace__actions, .invitation-workspace__actions--anonymous { grid-template-columns: 1fr; }.invitation-workspace__account { flex-wrap: wrap; }.invitation-workspace__account > button { margin-left: auto; } }
 </style>

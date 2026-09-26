@@ -47,12 +47,20 @@ class TeamSetupReadinessControllerM8A01Test {
                 true,
                 "当前成员",
                 Optional.of("OPEN_AGENT_SETTINGS"));
+        TeamSetupReadinessItem executionDefaults = new TeamSetupReadinessItem(
+                TeamSetupCapability.CODING_REVIEW,
+                true,
+                TeamSetupReadinessStatus.ACTION_REQUIRED,
+                "EXECUTION_DEFAULTS_REQUIRED",
+                true,
+                "Team 管理员",
+                Optional.of("OPEN_EXECUTION_DEFAULTS"));
         TeamSetupReadinessView view = new TeamSetupReadinessView(
                 organizationId,
                 teamId,
                 "stable-version",
                 UtcTimestamp.parse("2026-09-01T12:00:00Z"),
-                List.of(item),
+                List.of(item, executionDefaults),
                 false);
         when(service.get(any(), any(), any(), any())).thenReturn(view);
         RuntimeObservationProperties properties = new RuntimeObservationProperties();
@@ -77,6 +85,8 @@ class TeamSetupReadinessControllerM8A01Test {
                 .jsonPath("$.requiredReady").isEqualTo(false)
                 .jsonPath("$.capabilities[0].status").isEqualTo("ACTION_REQUIRED")
                 .jsonPath("$.capabilities[0].actionKey").isEqualTo("OPEN_AGENT_SETTINGS")
+                .jsonPath("$.capabilities[1].reasonCode").isEqualTo("EXECUTION_DEFAULTS_REQUIRED")
+                .jsonPath("$.capabilities[1].actionKey").isEqualTo("OPEN_EXECUTION_DEFAULTS")
                 .jsonPath("$.capabilities[0].endpoint").doesNotExist()
                 .jsonPath("$.capabilities[0].secret").doesNotExist();
     }

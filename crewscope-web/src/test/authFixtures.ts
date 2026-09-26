@@ -32,6 +32,10 @@ export function fixtureAuthStore(
     signOutLocally() {
       for (const listener of listeners) listener('anonymous', 'explicit-sign-out')
     },
+    async switchAccount() {
+      for (const listener of listeners) listener('anonymous', 'account-switch')
+      return true
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

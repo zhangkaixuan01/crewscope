@@ -12,6 +12,7 @@ import {
 } from '../domains/onboarding/presentation'
 import { useOnboardingStore, type OnboardingPhase } from '../domains/onboarding/store'
 import { useScopeStore } from '../domains/scope/store'
+import { useSetupStore } from '../domains/setup/store'
 
 type HydrationPhase = 'idle' | 'workspace' | 'agent' | 'ready' | 'error'
 
@@ -20,6 +21,7 @@ const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
+const setupStore = useSetupStore()
 const online = useNetworkStatus()
 const teamName = ref('')
 const teamError = ref<string>()
@@ -27,6 +29,8 @@ const hydrationPhase = ref<HydrationPhase>('idle')
 const localProblem = ref<OnboardingProblem | null>(null)
 const localErrorGeneration = ref(0)
 const personalAgentName = ref('Personal Agent')
+/* F02 决策 7：readiness 只提示缺口，加载失败按就绪降级，绝不阻断进入对话。 */
+const conversationSetupReady = ref(true)
 const createdTeamId = ref<string | null>(null)
 let disposed = false
 
@@ -137,6 +141,8 @@ async function hydrateWorkspace(): Promise<void> {
     )
     if (!personalAgent) throw new Error('Default Personal Agent projection is not ready')
 
+    conversationSetupReady.value = await readConversationSetup(session.principal!.organizationId, team.teamId)
+    if (disposed) return
     createdTeamId.value = team.teamId
     personalAgentName.value = personalAgent.displayName
     hydrationPhase.value = 'ready'
@@ -144,6 +150,19 @@ async function hydrateWorkspace(): Promise<void> {
     if (disposed) return
     hydrationPhase.value = 'error'
     setLocalProblem(onboardingProjectionProblem())
+  }
+}
+
+/** The readiness projection only informs the completion card; any miss degrades to ready. */
+async function readConversationSetup(organizationId: string, teamId: string): Promise<boolean> {
+  try {
+    setupStore.activateScope({ organizationId, teamId })
+    await setupStore.load()
+    const capability = setupStore.state.readiness?.capabilities
+      .find(item => item.capability === 'PERSONAL_CONVERSATION')
+    return capability ? capability.status === 'READY' : true
+  } catch {
+    return true
   }
 }
 
@@ -155,6 +174,14 @@ async function enterConversation(): Promise<void> {
     ?? authStore.state.session?.teams[0]?.teamId
   const query = teamId ? { team: teamId } : undefined
   await router.replace({ name: 'conversation', query })
+}
+
+/** F02 L12：完成后的第二个目标入口——去配置中心补齐 Coding 链路，配置完可返回初始化。 */
+async function enterSetup(): Promise<void> {
+  const teamId = createdTeamId.value
+    ?? authStore.state.activeTeamId
+    ?? authStore.state.session?.teams[0]?.teamId
+  await router.push({ name: 'setup', query: { from: 'onboarding', ...(teamId ? { team: teamId } : {}) } })
 }
 
 function setLocalProblem(value: OnboardingProblem): void {
@@ -174,8 +201,10 @@ function setLocalProblem(value: OnboardingProblem): void {
     :can-edit="canEdit"
     :online="online"
     :personal-agent-name="personalAgentName"
+    :conversation-setup-ready="conversationSetupReady"
     @submit="submit"
     @retry="retry"
     @enter="enterConversation"
+    @configure="enterSetup"
   />
 </template>

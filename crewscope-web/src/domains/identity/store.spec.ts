@@ -140,6 +140,40 @@ describe('AuthStore', () => {
     expect(await refresh).toBe(true)
     expect(store.state.phase).toBe('authenticated')
   })
+
+  it('switches accounts with a dedicated reason so an invitation proof can survive', async () => {
+    let authenticated = true
+    const identity = gateway(async () => session(authenticated))
+    const channel = new FixtureBroadcastChannel()
+    const store = createAuthStore(identity, { channelFactory: () => channel })
+    store.start()
+    await vi.waitFor(() => expect(store.state.phase).toBe('authenticated'))
+    authenticated = false
+    const reasons: string[] = []
+    store.subscribe((phase, reason) => reasons.push(reason))
+
+    await expect(store.switchAccount({ headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-authenticated' })).resolves.toBe(true)
+
+    expect(identity.logout).toHaveBeenCalledOnce()
+    expect(channel.sent).toEqual([{ type: 'signed-out' }])
+    await vi.waitFor(() => expect(store.state.phase).toBe('anonymous'))
+    // 'account-switch' is deliberately not 'explicit-sign-out': the session boundary keeps
+    // the in-memory invitation proof so the member can accept with the matching account.
+    expect(reasons).toContain('account-switch')
+    store.stop()
+  })
+
+  it('keeps the current session when the account-switch logout cannot complete', async () => {
+    const identity = gateway(async () => session(true))
+    identity.logout = vi.fn(async () => { throw new Error('offline') })
+    const store = createAuthStore(identity, { channelFactory: () => null })
+    await store.ensureRestored()
+
+    await expect(store.switchAccount({ headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-authenticated' })).resolves.toBe(false)
+
+    expect(store.state.phase).toBe('authenticated')
+    expect(store.principal.id).toBe('principal-1')
+  })
 })
 
 function gateway(load: () => Promise<AuthSession>): IdentityGateway {
