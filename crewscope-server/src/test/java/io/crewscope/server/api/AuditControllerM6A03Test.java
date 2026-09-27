@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -243,6 +244,80 @@ class AuditControllerM6A03Test {
                 .jsonPath("$.code").isEqualTo("internal_error")
                 .jsonPath("$.message").isEqualTo("The request could not be completed")
                 .jsonPath("$.details").isEmpty();
+    }
+
+    @Test
+    void resolvesOneEventByIdentifierForDeepLinks() {
+        AuditQueryEvent event = event();
+        when(service.queryEvent(
+                eq(access), any(UUID.class), eq(ORGANIZATION_ID), eq(TEAM_ID), eq(event.id())))
+                .thenReturn(Optional.of(event));
+
+        client.get()
+                .uri(route("/" + event.id().value()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().cacheControl(CacheControl.noStore())
+                .expectBody()
+                .jsonPath("$.eventId").isEqualTo(event.id().value().toString())
+                .jsonPath("$.category").isEqualTo("SECURITY")
+                .jsonPath("$.outcome").isEqualTo("SUCCEEDED")
+                .jsonPath("$.summary.operation").isEqualTo("QUERY");
+    }
+
+    @Test
+    void reportsAnUnknownEventIdentifierAsNotFoundAndStaysAuditable() {
+        AuditEventId missing = AuditEventId.generate();
+        when(service.queryEvent(
+                eq(access), any(UUID.class), eq(ORGANIZATION_ID), eq(TEAM_ID), eq(missing)))
+                .thenReturn(Optional.empty());
+
+        client.get()
+                .uri(route("/" + missing.value()))
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("aggregate_not_found");
+
+        doThrow(new PolicyDeniedException("read Audit events"))
+                .when(service)
+                .queryEvent(eq(access), any(UUID.class), any(OrganizationId.class), any(TeamId.class), any(AuditEventId.class));
+        client.get()
+                .uri(route("/" + missing.value()))
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("policy_denied");
+    }
+
+    @Test
+    void rejectsAMalformedEventIdentifierBeforeServiceExecution() {
+        client.get()
+                .uri(route("/not-a-uuid"))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("invalid_request")
+                .jsonPath("$.details.field").isEqualTo("eventId");
+
+        verify(service, never()).queryEvent(
+                any(), any(UUID.class), any(OrganizationId.class), any(TeamId.class), any(AuditEventId.class));
+    }
+
+    @Test
+    void rejectsABlankEventIdentifierAsInvalidRequestInsteadOfServerError() {
+        // A path variable that decodes to only whitespace used to escape the IllegalArgumentException
+        // guard and surface as a 500; it shares the 400 invalid_request reply.
+        client.get()
+                .uri(route("/%20%20"))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("invalid_request")
+                .jsonPath("$.details.field").isEqualTo("eventId");
+
+        verify(service, never()).queryEvent(
+                any(), any(UUID.class), any(OrganizationId.class), any(TeamId.class), any(AuditEventId.class));
     }
 
     private static AuditQueryEvent event() {

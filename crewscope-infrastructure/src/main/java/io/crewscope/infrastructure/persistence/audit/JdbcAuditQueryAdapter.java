@@ -27,6 +27,8 @@ import io.crewscope.domain.shared.event.EventActorType;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskFactHash;
 import java.sql.ResultSet;
@@ -101,6 +103,25 @@ public class JdbcAuditQueryAdapter implements AuditQueryPort {
                 "SELECT CURRENT_TIMESTAMP", OffsetDateTime.class);
         return new AuditExportBatch(
                 value, UtcTimestamp.from(Objects.requireNonNull(generatedAt, "generatedAt")), rows);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<AuditQueryEvent> findEvent(
+            OrganizationId organizationId, TeamId teamId, AuditEventId eventId) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        Objects.requireNonNull(teamId, "teamId");
+        Objects.requireNonNull(eventId, "eventId");
+        List<AuditQueryEvent> rows = jdbc.query(
+                SELECT + " AND event_id = ?",
+                this::map,
+                organizationId.value(),
+                teamId.value(),
+                eventId.value());
+        if (rows.size() > 1) {
+            throw new IllegalStateException("Audit identifiers must be unique");
+        }
+        return rows.stream().findFirst();
     }
 
     private List<AuditQueryEvent> query(

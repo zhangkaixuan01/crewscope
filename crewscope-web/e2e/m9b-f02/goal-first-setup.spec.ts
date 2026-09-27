@@ -73,7 +73,9 @@ test('a narrow viewport leads with the next step instead of a large hero', async
   const nextStep = page.getByRole('region', { name: 'Personal Conversation' })
   await expect(nextStep).toBeVisible()
   const box = await nextStep.boundingBox()
-  expect(box?.y).toBeLessThan(320)
+  // S9 的壳改造（手机全局工具栏 + 配置中心的搜索与分类导航）先于页面内容渲染，
+  // 首屏预算随之变化；「先下一步」的合同是它仍在首屏上部、且先于目标卡，而不是一个固定像素。
+  expect(box?.y).toBeLessThan(667 * 0.6)
   const goals = page.getByRole('region', { name: '先选一个目标' })
   const goalBox = await goals.boundingBox()
   expect(goalBox && goalBox.y).toBeDefined()

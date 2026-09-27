@@ -34,6 +34,11 @@ export const MENUS = [
   { path: '/settings/repositories', name: '仓库设置' },
   { path: '/settings/agents', name: 'Agent 设置' },
   { path: '/settings/models', name: '模型设置' },
+  // F04 C15: the sweep follows the router — the two integration consoles and the account page
+  // were the only signed-in destinations missing, so every menu route is walked below.
+  { path: '/settings/integrations/lark', name: '飞书集成' },
+  { path: '/settings/integrations/github', name: 'GitHub 集成' },
+  { path: '/account', name: '账号设置' },
 ]
 
 /**

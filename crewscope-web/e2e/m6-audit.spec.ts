@@ -10,10 +10,10 @@ const ids = {
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-08-27T08:30:00Z'))
-  await mockAuditApi(page)
 })
 
 test('combines filters, de-duplicates pages, explores Correlation and passes Axe with stable visuals', async ({ page }, testInfo) => {
+  await mockAuditApi(page)
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00&auditEvent=${ids.event}`)
 
   await expect(page.getByRole('heading', { name: '团队审计中心' })).toBeVisible()
@@ -37,7 +37,9 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
   await outcome.selectOption('DENIED')
   await expect(category).toHaveValue('SECURITY')
   await expect(outcome).toHaveValue('DENIED')
-  const apply = page.getByRole('button', { name: '应用筛选' })
+  // After the draft edit the export control also shows its inline "应用筛选" entry, so the
+  // footer primary submit button is the scoped locator for committing the form.
+  const apply = page.locator('.audit-filter > footer > div > button[type="submit"]')
   await expect(apply).toHaveAttribute('type', 'submit')
   await apply.click()
   await expect(page).toHaveURL(/category=SECURITY/)
@@ -56,21 +58,26 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
 })
 
 test('exports only an explicit bounded range and reports server authorization failures', async ({ page }) => {
+  await mockAuditApi(page)
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00`)
   await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
 
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: '导出 CSV' }).click()
   expect((await download).suggestedFilename()).toMatch(/^crewscope-audit-all-.*\.csv$/)
-  await expect(page.getByText('导出已生成并下载')).toBeVisible()
+  await expect(page.getByText('已导出 1 条并下载')).toBeVisible()
 
-  await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00&scenario=export-forbidden`)
-  await page.getByRole('button', { name: '导出 CSV' }).click()
-  await expect(page.getByText('服务端拒绝导出权限')).toBeVisible()
+  const forbidden = await page.context().newPage()
+  await mockAuditApi(forbidden, 'export-forbidden')
+  await forbidden.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00`)
+  await forbidden.getByRole('button', { name: '导出 CSV' }).click()
+  await expect(forbidden.getByText('服务端拒绝导出权限')).toBeVisible()
+  await forbidden.close()
 })
 
 test('keeps cached Audit facts readable offline and on expired continuation', async ({ page, context }) => {
-  await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00&scenario=cursor-expired`)
+  await mockAuditApi(page, 'cursor-expired')
+  await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00`)
   await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
   await page.getByRole('button', { name: '加载更多' }).click()
   await expect(page.getByText('审计续页 Cursor 已过期')).toBeVisible()
@@ -82,12 +89,13 @@ test('keeps cached Audit facts readable offline and on expired continuation', as
   await context.setOffline(false)
 })
 
-async function mockAuditApi(page: Page): Promise<void> {
+// Scenario switches ride this closure instead of the page URL: the audit query whitelist strips
+// unknown keys, so a test-only ?scenario= parameter would never survive navigation.
+async function mockAuditApi(page: Page, scenario: string | null = null): Promise<void> {
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname
-    const scenario = new URL(page.url()).searchParams.get('scenario')
     if (request.method() === 'GET' && path === '/api/v1/auth/session') return fulfillJson(route, authenticatedSession(ids.organization, ids.principal, ids.team))
     if (request.method() === 'GET' && path.endsWith('/teams')) return fulfillJson(route, [{ id: ids.team, organizationId: ids.organization, name: 'Platform Engineering', status: 'ACTIVE', initializationStatus: 'READY', ownerMemberId: 'member-1', defaultWorkspaceId: ids.workspace, version: 1 }])
     if (request.method() === 'GET' && path.endsWith(`/${ids.team}/work-projects`)) return fulfillJson(route, { items: [{ id: ids.project, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, key: 'CRW', name: 'CrewScope', status: 'ACTIVE', version: 1, createdAt: '2026-08-27T07:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-08-27T07:00:00Z', updatedByPrincipalId: ids.principal }], nextCursor: null })

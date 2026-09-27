@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { MessageSquare, Plus, ShieldCheck } from '@lucide/vue'
 import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue'
-import { RouterLink, useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type LocationQuery, type LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
 import { useCreationEntry } from '../composables/useCreationEntry'
 import { useBoardDrag } from '../composables/useBoardDrag'
-import { useListSort } from '../composables/useListSort'
 import { useSelection } from '../composables/useSelection'
 import BaseButton from '../components/base/BaseButton.vue'
 import WorkItemDetailDrawer from '../components/domain/WorkItemDetailDrawer.vue'
@@ -19,6 +18,8 @@ import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialo
 import WorkItemCreateDialog from '../components/domain/WorkItemCreateDialog.vue'
 import WorkItemsWorkspace from '../components/domain/WorkItemsWorkspace.vue'
 import WorkItemsToolbar from '../components/domain/WorkItemsToolbar.vue'
+import PinnedProjects from '../components/domain/PinnedProjects.vue'
+import SavedViewsControl from '../components/domain/SavedViewsControl.vue'
 import WorkItemsBulkBar from '../components/domain/WorkItemsBulkBar.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
@@ -36,13 +37,19 @@ import { workItemPriorityLabels, workItemResponsibilityRoleLabels, workItemStatu
 import { bulkSummaryMessage, summarizeBulkResults, type WorkItemBulkAssignmentRole, type WorkItemBulkRowResult } from '../domains/workitem/bulk'
 import {
   bulkTransitionTargets,
-  defaultSortDirection,
-  readWorkItemSortDirection,
   readWorkItemSortKey,
-  sortWorkItems,
-  workItemSortKeys,
   type WorkItemSortKey,
 } from '../domains/workitem/list'
+import {
+  captureFilters,
+  listViews,
+  resolveEntryView,
+  viewQuery,
+  workFilterKeys,
+  type SavedViewFilters,
+  type SavedViewOwner,
+} from '../domains/views/savedViews'
+import type { F05SavedView } from '../app/f05Storage'
 import { useTaskStore } from '../domains/task/store'
 import { clearTaskDelegationDraft } from '../domains/task/delegationDraft'
 import { parseExecutionSelection, resolveExecutionSelection } from '../domains/task/executionSelection'
@@ -132,11 +139,12 @@ const deliveryStore = useDeliveryStore()
 const teamOpsStore = useTeamOpsStore()
 const isOnline = useNetworkStatus()
 const toast = useToast()
-const listSort = useListSort<WorkItemSortKey>({
-  defaultKey: 'updatedAt',
-  defaultDirection: 'desc',
-  allowedKeys: workItemSortKeys,
-})
+/**
+ * The URL owns the ordering, so a link pasted into a message reopens the same list. The key is the
+ * server's own sort name (M9b-A06): the direction of every ordering is fixed in the server
+ * contract, which is why there is no direction here to read or write.
+ */
+const sortKey = computed<WorkItemSortKey>(() => readWorkItemSortKey(route.query.sort))
 const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canCreate = computed(() => Boolean(principal && can(principal, permissions.workCreate)))
@@ -174,6 +182,47 @@ const responsibilityAgentCandidates = computed(() => (agentStore.state.agents.va
     runtimeRole: agent.runtimeRole,
   })))
 const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board'] as const, 'list'))
+
+// --- R41 saved views: the member's own filter definitions for this list, on this machine --
+
+const savedViewsOwner = computed<SavedViewOwner | null>(() => {
+  const teamId = scopeStore.state.selectedTeamId
+  return principal && principal.accountId && teamId
+    ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId }
+    : null
+})
+const committedWorkFilters = computed<SavedViewFilters>(() => captureFilters(route.query, workFilterKeys))
+/** Applies a saved definition (or the 「默认」 reset) by rewriting the list's filter keys. */
+function applySavedView(target: F05SavedView | null): void {
+  void router.replace({ query: viewQuery(route.query, target, workFilterKeys) })
+}
+let entryViewHandled = false
+let entryViewTeam: string | null = null
+/** The canonical values the watch below writes; at these a query key says the same as no key. */
+const workEntryDefaults: Record<string, string> = { view: 'list', status: 'all', type: 'all', priority: 'all', sort: readWorkItemSortKey(undefined) }
+/**
+ * The stored default applies once on entry, only while the URL carries no filter key of its own
+ * (契约 §4.6). It runs before the canonicalization below so both rewrites compose into one query.
+ * Canonical default values in the URL do not count as explicit — otherwise a reload would strand
+ * the stored default behind the defaults the watch just wrote.
+ */
+function applyEntryViewOnce(): boolean {
+  const ownerTeam = savedViewsOwner.value?.teamId ?? null
+  if (entryViewTeam !== ownerTeam) {
+    // Switching Team reuses this component instance; each Team's namespace deserves its own
+    // entry pass, so the once-guard resets with the owner's Team instead of shielding it.
+    entryViewTeam = ownerTeam
+    entryViewHandled = false
+  }
+  if (entryViewHandled) return false
+  entryViewHandled = true
+  const owner = savedViewsOwner.value
+  const target = owner ? resolveEntryView(route.query, workFilterKeys, listViews(owner, 'work'), workEntryDefaults) : null
+  if (!target) return false
+  void router.replace({ query: viewQuery(route.query, target, workFilterKeys) })
+  return true
+}
+
 const statusFilter = computed<FilterValue<WorkItemStatus>>(() => oneOf(route.query.status, ['all', ...workItemStatuses] as const, 'all'))
 const typeFilter = computed<FilterValue<WorkItemType>>(() => oneOf(route.query.type, ['all', ...workItemTypes] as const, 'all'))
 const priorityFilter = computed<FilterValue<WorkItemPriority>>(() => oneOf(route.query.priority, ['all', ...workItemPriorities] as const, 'all'))
@@ -357,21 +406,14 @@ const taskForbidden = computed(() => [
 let liveFactRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
- * The rows in hand, narrowed by the filters and ordered by the member's choice.
+ * The rows the server returned for the applied filter and ordering.
  *
- * Both steps act on the loaded page rather than on the collection: the server lists one WorkProject
- * by its updated-time keyset and takes neither a type nor a sort parameter. What makes that honest
- * is that every surface says which set it is describing — the toolbar counts the loaded rows and
- * the sort control names them.
+ * Filtering and ordering are the server's (M9b-A06): the URL's status/type/priority/sort travel
+ * with the list query, so what arrives is already narrowed and ordered for the whole project, not
+ * just the loaded page — the row order below is the order the server chose and is never reshuffled
+ * here, because a shuffle would only ever apply to the rows in hand.
  */
-const filteredItems = computed(() => sortWorkItems(
-  workStore.state.items.filter(item =>
-    (typeFilter.value === 'all' || item.type === typeFilter.value)
-    && (priorityFilter.value === 'all' || item.priority === priorityFilter.value),
-  ),
-  listSort.key.value,
-  listSort.direction.value,
-))
+const filteredItems = computed(() => workStore.state.items)
 
 /**
  * Selection lives above the board and the list both, so switching view does not lose it. The cap is
@@ -493,38 +535,28 @@ watch(
   () => {
     // Avoid changing the route while AppShell is still restoring a Team/Project deep link.
     if (scopeStore.state.phase !== 'ready') return
-    const canonical = {
+    // A stored default view rewrote the query this tick; the watch replays on the applied keys.
+    if (applyEntryViewOnce()) return
+    const canonical: LocationQuery = {
       ...route.query,
       view: view.value,
       status: statusFilter.value,
       type: typeFilter.value,
       priority: priorityFilter.value,
-      sort: listSort.key.value,
-      direction: listSort.direction.value,
+      sort: sortKey.value,
     }
+    // Links minted before the server sorts carried a direction the server contract now owns; the
+    // canonical URL drops it so the query says only what the list actually reads.
+    delete canonical.direction
     if (
       route.query.view !== canonical.view
       || route.query.status !== canonical.status
       || route.query.type !== canonical.type
       || route.query.priority !== canonical.priority
       || route.query.sort !== canonical.sort
-      || route.query.direction !== canonical.direction
+      // A link carrying only the retired direction still needs the cleanup rewrite above.
+      || route.query.direction !== undefined
     ) void router.replace({ query: canonical })
-  },
-  { immediate: true },
-)
-
-/**
- * The URL owns the ordering, so a link pasted into a message reopens the same list.
- *
- * Reading the query back into the sort state is what keeps the composable from being a second
- * source of truth: the member's click writes the URL, and the URL is what the list is built from.
- */
-watch(
-  () => [route.query.sort, route.query.direction] as const,
-  ([key, direction]) => {
-    const sortKey = readWorkItemSortKey(key)
-    listSort.setSort(sortKey, readWorkItemSortDirection(direction, defaultSortDirection(sortKey)))
   },
   { immediate: true },
 )
@@ -761,15 +793,23 @@ watch(
 )
 
 watch(
-  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId, statusFilter.value] as const,
-  ([phase, teamId, projectId, status]) => {
+  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId, statusFilter.value, typeFilter.value, priorityFilter.value, sortKey.value] as const,
+  ([phase, teamId, projectId, status, type, priority, sort]) => {
     if (phase !== 'ready' || !teamId || !projectId || !principal) {
       if (phase === 'ready' && !projectId) workStore.reset()
       return
     }
+    // Every dimension travels with the query (M9b-A06): a change to any of them mints a different
+    // continuation scope, so the store restarts the list from its first page rather than trying to
+    // continue a cursor the server will refuse.
     void workStore.load(
       { organizationId: principal.organizationId, teamId, projectId },
-      status === 'all' ? undefined : status,
+      {
+        status: status === 'all' ? undefined : status,
+        type: type === 'all' ? undefined : [type],
+        priority: priority === 'all' ? undefined : [priority],
+        sort,
+      },
     )
   },
   { immediate: true },
@@ -798,19 +838,21 @@ function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: strin
   void router.replace({ query: { ...route.query, [name]: value } })
 }
 
+/** A pinned entry hands the member to that project's list; the scope follows the URL (R41). */
+function updateQueryProject(projectId: string): void {
+  void router.replace({ query: { ...route.query, project: projectId } })
+}
+
 /**
- * Sorts by the key the member pressed, toggling when it is already the active one.
+ * Asks the server for the ordering the member pressed.
  *
- * A key that is being switched to opens in the direction that key is worth reading first — newest,
- * most urgent, soonest due — rather than always ascending, which would show the least urgent rows
- * at the top of a list sorted by priority.
+ * There is nothing to toggle: each ordering runs in the direction the server contract fixed (newest
+ * first, most urgent first, soonest due first), so pressing the active key again is the honest
+ * no-op it always appeared to be, and the URL records only the sort name.
  */
 function sortBy(key: WorkItemSortKey): void {
-  if (key === listSort.key.value) listSort.toggleSort(key)
-  else listSort.setSort(key, defaultSortDirection(key))
-  void router.replace({
-    query: { ...route.query, sort: listSort.key.value, direction: listSort.direction.value },
-  })
+  if (key === sortKey.value) return
+  void router.replace({ query: { ...route.query, sort: key } })
 }
 
 /**
@@ -862,9 +904,9 @@ function reportBulk(results: readonly WorkItemBulkRowResult[], actionLabel: stri
   if (!summary.partial) selection.clear()
 }
 
-function clearLocalFilters(): void {
-  // Update both client-side filters atomically so concurrent router replacements cannot restore one stale value.
-  void router.replace({ query: { ...route.query, type: 'all', priority: 'all' } })
+function clearWorkFilters(): void {
+  // Clear the applied filters atomically so concurrent router replacements cannot restore one stale value.
+  void router.replace({ query: { ...route.query, status: 'all', type: 'all', priority: 'all' } })
 }
 
 function openCreate(): void {
@@ -1606,13 +1648,24 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :type-labels="workItemTypeLabels"
         :priority-labels="workItemPriorityLabels"
         :can-create="canCreate"
-        :sort-key="listSort.key.value"
-        :sort-direction="listSort.direction.value"
+        :sort-key="sortKey"
         :loaded-count="filteredItems.length"
         :has-more="Boolean(workStore.state.nextCursor)"
         @update-query="updateQuery"
         @sort="sortBy"
         @create="openCreate"
+      >
+        <template #entry>
+          <SavedViewsControl route-name="work" :filters="committedWorkFilters" :owner="savedViewsOwner" @apply="applySavedView" />
+        </template>
+      </WorkItemsToolbar>
+
+      <PinnedProjects
+        class="work-pins"
+        :owner="savedViewsOwner"
+        :projects="scopeStore.state.projects"
+        :active-project-id="scopeStore.state.selectedProjectId"
+        @select="projectId => updateQueryProject(projectId)"
       />
 
       <WorkItemsBulkBar
@@ -1638,6 +1691,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :phase="workStore.state.phase"
         :error-message="workStore.state.errorMessage"
         :filtered-items="filteredItems"
+        :has-applied-filters="statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all'"
         :view="view"
         :board-statuses="boardStatuses"
         :status-labels="statusLabels"
@@ -1656,7 +1710,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :is-selected="selection.isSelected"
         :on-create="openCreate"
         :on-retry="retry"
-        :on-clear-filters="clearLocalFilters"
+        :on-clear-filters="clearWorkFilters"
         :on-load-more="workStore.loadMore"
         :on-select="selectItem"
         :on-toggle-select="toggleSelect"
@@ -1895,7 +1949,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
 </template>
 
 <style scoped>
-.work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: var(--cs-space-8); }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.board-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }.board-column__items > p { padding: var(--cs-space-24) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }.load-more { display: grid; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-16); }.load-more p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.scope-rule { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.scope-rule svg { flex: 0 0 auto; color: var(--cs-text-brand); }
+.work-content { min-width: 0; }.work-content > :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: var(--cs-space-8); }.work-pins { margin: var(--cs-space-4) 0 var(--cs-space-4) var(--cs-space-2); }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.board-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }.board-column__items > p { padding: var(--cs-space-24) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }.load-more { display: grid; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-16); }.load-more p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.scope-rule { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.scope-rule svg { flex: 0 0 auto; color: var(--cs-text-brand); }
 .board-column.drop-target { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 2px var(--cs-ring-brand); }.board-column.drop-rejected { opacity: .62; }
 @media (max-width: 767px) { .work-board { grid-auto-columns: minmax(272px, 84vw); } }
 </style>

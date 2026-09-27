@@ -55,12 +55,8 @@ final class InboxApiSupport {
 
     static InboxDispositionStatus disposition(String value) {
         try {
-            InboxDispositionStatus status = InboxDispositionStatus.valueOf(
+            return InboxDispositionStatus.valueOf(
                     value == null ? "" : value.strip().toUpperCase(Locale.ROOT));
-            if (status == InboxDispositionStatus.UNREAD) {
-                throw new IllegalArgumentException("UNREAD is derived");
-            }
-            return status;
         } catch (IllegalArgumentException failure) {
             throw invalid("status");
         }

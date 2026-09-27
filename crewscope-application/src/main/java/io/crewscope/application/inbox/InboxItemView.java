@@ -20,9 +20,10 @@ public record InboxItemView(
         if (dispositionVersion < 0) {
             throw new IllegalArgumentException("dispositionVersion must not be negative");
         }
-        if ((dispositionStatus == InboxDispositionStatus.UNREAD) != (dispositionVersion == 0)) {
+        if (dispositionStatus != InboxDispositionStatus.UNREAD && dispositionVersion == 0) {
             throw new IllegalArgumentException(
-                    "UNREAD must use version 0 and persisted dispositions must be positive");
+                    "version 0 only represents a missing UNREAD row; persisted dispositions"
+                            + " must be positive");
         }
     }
 

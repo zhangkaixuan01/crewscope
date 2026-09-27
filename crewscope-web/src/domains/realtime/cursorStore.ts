@@ -24,8 +24,28 @@ export interface ThreeStreamCursorStore {
 
 const PREFIX = 'crewscope:stream:v1:'
 
+/**
+ * A browser with storage denied (some private modes) must still boot: cursors degrade to a
+ * per-tab in-memory shim instead of taking the whole application down at assembly time.
+ */
+function safeLocalStorage(): Storage {
+  try {
+    return localStorage
+  } catch {
+    const entries = new Map<string, string>()
+    return {
+      get length() { return entries.size },
+      clear: () => entries.clear(),
+      getItem: key => entries.get(key) ?? null,
+      key: index => [...entries.keys()][index] ?? null,
+      removeItem: key => { entries.delete(key) },
+      setItem: (key, value) => { entries.set(key, value) },
+    } as Storage
+  }
+}
+
 /** Scope-bound storage for two durable streams and the non-cursor AG-UI resume coordinate. */
-export function createThreeStreamCursorStore(storage: Storage = localStorage): ThreeStreamCursorStore {
+export function createThreeStreamCursorStore(storage: Storage = safeLocalStorage()): ThreeStreamCursorStore {
   function getDurableCursor(stream: DurableStream, scope: CursorScope): string | null {
     const key = durableKey(stream, scope)
     const stored = read(storage, key)
@@ -37,11 +57,11 @@ export function createThreeStreamCursorStore(storage: Storage = localStorage): T
 
   function saveDurableCursor(stream: DurableStream, scope: CursorScope, cursor: string): void {
     if (!cursor.trim()) throw new TypeError('Durable Cursor must not be blank')
-    storage.setItem(durableKey(stream, scope), JSON.stringify({ cursor }))
+    write(storage, durableKey(stream, scope), JSON.stringify({ cursor }))
   }
 
   function clearDurableCursor(stream: DurableStream, scope: CursorScope): void {
-    storage.removeItem(durableKey(stream, scope))
+    drop(storage, durableKey(stream, scope))
   }
 
   function getAgUiResume(scope: CursorScope): AgUiResumeCoordinate | null {
@@ -68,7 +88,7 @@ export function createThreeStreamCursorStore(storage: Storage = localStorage): T
       throw new TypeError('AG-UI resume coordinate is invalid')
     }
     // No SSE id or durable Cursor is admitted to the AG-UI namespace.
-    storage.setItem(agUiKey(scope), JSON.stringify({
+    write(storage, agUiKey(scope), JSON.stringify({
       invocationId: coordinate.invocationId,
       idempotencyKey: coordinate.idempotencyKey,
       eventOffset: coordinate.eventOffset,
@@ -76,7 +96,7 @@ export function createThreeStreamCursorStore(storage: Storage = localStorage): T
   }
 
   function clearAgUiResume(scope: CursorScope): void {
-    storage.removeItem(agUiKey(scope))
+    drop(storage, agUiKey(scope))
   }
 
   function clearScope(scope: Pick<CursorScope, 'organizationId' | 'teamId'>): void {
@@ -86,7 +106,7 @@ export function createThreeStreamCursorStore(storage: Storage = localStorage): T
       const key = storage.key(index)
       if (key?.startsWith(scopePrefix)) keys.push(key)
     }
-    keys.forEach(key => storage.removeItem(key))
+    keys.forEach(key => drop(storage, key))
   }
 
   return {
@@ -135,6 +155,27 @@ function read(storage: Storage, key: string): Record<string, unknown> | null {
 }
 
 function removeInvalid(storage: Storage, key: string): null {
-  storage.removeItem(key)
+  drop(storage, key)
   return null
+}
+
+/**
+ * Writes and removals degrade instead of throwing: some private modes expose a storage that reads
+ * fine but rejects every write, and a throw here would break the SSE handler mid-event. Losing
+ * the durable copy only costs a re-read on the next visit — the same degradation as no storage.
+ */
+function write(storage: Storage, key: string, value: string): void {
+  try {
+    storage.setItem(key, value)
+  } catch {
+    // Persistence for this entry is lost; the live streams keep running.
+  }
+}
+
+function drop(storage: Storage, key: string): void {
+  try {
+    storage.removeItem(key)
+  } catch {
+    // Same degradation as a rejected write.
+  }
 }

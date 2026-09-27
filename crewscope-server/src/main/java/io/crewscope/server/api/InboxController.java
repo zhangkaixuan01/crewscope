@@ -8,10 +8,10 @@ import io.crewscope.application.inbox.ChangeInboxDispositionCommand;
 import io.crewscope.application.inbox.InboxApplicationService;
 import io.crewscope.application.inbox.InboxCursor;
 import io.crewscope.application.inbox.InboxDispositionCommandService;
+import io.crewscope.application.inbox.InboxDispositionOutcome;
 import io.crewscope.application.inbox.InboxFilter;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
-import io.crewscope.domain.inbox.InboxDisposition;
 import io.crewscope.domain.inbox.InboxDispositionStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -169,7 +169,7 @@ public final class InboxController {
     }
 
     private static ResponseEntity<CommandReceiptResponse> accepted(
-            CommandExecution<InboxDisposition> execution) {
+            CommandExecution<InboxDispositionOutcome> execution) {
         ResponseEntity.BodyBuilder response = ResponseEntity.accepted()
                 .cacheControl(CacheControl.noStore())
                 .eTag(ApiHeaders.versionEtag(execution.receipt().committedVersion()));

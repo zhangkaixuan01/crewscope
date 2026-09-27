@@ -45,6 +45,7 @@ export class HttpPrincipalDirectoryGateway implements PrincipalDirectoryGateway 
       params.set('ids', query.ids.join(','))
     }
     if (query.after) params.set('after', query.after)
+    if (query.purpose) params.set('purpose', query.purpose)
     const value = record(await this.client.get(
       `/organizations/${segment(query.organizationId)}/teams/${segment(query.teamId)}/principals?${params}`,
       { signal },

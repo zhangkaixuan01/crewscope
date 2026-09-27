@@ -6,13 +6,16 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.inbox.InboxDisposition;
+import io.crewscope.domain.inbox.InboxDispositionStatus;
 import io.crewscope.domain.inbox.InboxItem;
 import io.crewscope.domain.inbox.InboxItemId;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMember;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,7 +46,7 @@ public final class InboxDispositionApplicationService {
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
 
-    public InboxDisposition change(
+    public InboxDispositionOutcome change(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,
@@ -64,7 +67,7 @@ public final class InboxDispositionApplicationService {
                 requiredCommand));
     }
 
-    private InboxDisposition changeInTransaction(
+    private InboxDispositionOutcome changeInTransaction(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,
@@ -81,31 +84,57 @@ public final class InboxDispositionApplicationService {
 
         Optional<InboxDisposition> committed = dispositionRepository.find(
                 organizationId, teamId, member.id(), inboxItemId);
-        InboxDisposition updated;
         if (committed.isEmpty()) {
-            updated = InboxDisposition.create(
+            // A missing row already is version-0 UNREAD; unmarking it changes nothing and must not
+            // create a row (contract §5.1 replay row). create() below rejects a non-zero
+            // expectedVersion, so the no-op branch mirrors it: a missing row only ever exposes
+            // version 0, and a stale non-zero expectation must conflict rather than mask it.
+            if (command.targetStatus() == InboxDispositionStatus.UNREAD) {
+                if (command.expectedVersion() != 0) {
+                    throw new OptimisticLockConflictException(
+                            "InboxDisposition", inboxItemId, command.expectedVersion(), 0);
+                }
+                return InboxDispositionOutcome.missingRowUnread();
+            }
+            InboxDisposition created = InboxDisposition.create(
                     item,
                     command.targetStatus(),
                     command.expectedVersion(),
                     context.actor().id(),
                     timeProvider.now());
-        } else {
-            InboxDisposition current = committed.orElseThrow();
-            if (!current.belongsTo(item)) {
-                throw new IllegalStateException(
-                        "Persisted Inbox disposition escaped its tenant or member scope");
-            }
-            updated = current.transitionTo(
-                    command.targetStatus(),
-                    command.expectedVersion(),
-                    context.actor().id(),
-                    timeProvider.now());
-            if (updated == current) {
-                return current;
-            }
+            dispositionRepository.save(created, command.expectedVersion());
+            return InboxDispositionOutcome.of(created);
+        }
+        InboxDisposition current = committed.orElseThrow();
+        if (!current.belongsTo(item)) {
+            throw new IllegalStateException(
+                    "Persisted Inbox disposition escaped its tenant or member scope");
+        }
+        // Unmarking an archive is the explicit restore-then-unmark sequence: two matrix steps,
+        // two +1 version bumps, one command — the restore is never applied silently.
+        if (current.status() == InboxDispositionStatus.ARCHIVED
+                && command.targetStatus() == InboxDispositionStatus.UNREAD) {
+            UtcTimestamp now = timeProvider.now();
+            InboxDisposition restored = current.transitionTo(
+                    InboxDispositionStatus.READ, command.expectedVersion(),
+                    context.actor().id(), now);
+            InboxDisposition unmarked = restored.transitionTo(
+                    InboxDispositionStatus.UNREAD, restored.version(),
+                    context.actor().id(), now);
+            dispositionRepository.save(restored, command.expectedVersion());
+            dispositionRepository.save(unmarked, restored.version());
+            return InboxDispositionOutcome.of(unmarked);
+        }
+        InboxDisposition updated = current.transitionTo(
+                command.targetStatus(),
+                command.expectedVersion(),
+                context.actor().id(),
+                timeProvider.now());
+        if (updated == current) {
+            return InboxDispositionOutcome.of(current);
         }
         dispositionRepository.save(updated, command.expectedVersion());
-        return updated;
+        return InboxDispositionOutcome.of(updated);
     }
 
     private TeamMember requireActiveMember(

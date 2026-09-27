@@ -206,10 +206,11 @@ export function createTeamObserverStore(gateway: TeamObserverGateway): TeamObser
         throw new TypeError('Evidence no longer matches the current Team Observer summary')
       }
       return evidence
-    } catch (error) {
-      if (!requestController.signal.aborted && coordinatesCurrent(targetGeneration, scope, sessionId, invocationId)) {
-        fail(error, targetGeneration, '暂时无法打开这条证据')
-      }
+    } catch {
+      // One evidence miss is local to its entry (§R38): the summary and every other row stay
+      // readable, so this never escalates into the shared error state — null is the caller's
+      // cue to render an inline retry beside that one row. Aborted or stale reads already
+      // left with the coordinates check above; nothing here needs to touch shared state.
       return null
     } finally {
       finishAuxiliaryRequest(requestController)

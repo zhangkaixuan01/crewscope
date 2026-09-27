@@ -305,3 +305,58 @@ test.describe('reading anchors', () => {
     await expect(rowOf(page, 105)).toContainText('第 105 条')
   })
 })
+
+/**
+ * M9b-F04（F03 交接）：1024 宽度级的对话布局。旧五列网格在 ≤1280 隐藏右分隔条后把参与者面板
+ * 困在 0 宽第四列，detail 被挤到 266px、message-stage 只剩 127px；修复改为三列 + 参与者全宽
+ * 底条（限高滚动）。两侧都要量：1024 是新布局的几何合同，1281 证明宽屏五列没有被顺手改坏。
+ */
+test.describe('F04 cross-breakpoint conversation layout', () => {
+  async function geometry(page: Page) {
+    return page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector)
+        if (!element) return null
+        const box = element.getBoundingClientRect()
+        return { width: Math.round(box.width), height: Math.round(box.height), top: Math.round(box.top) }
+      }
+      return {
+        workspace: rect('.conversation-workspace'),
+        detail: rect('.conversation-detail'),
+        stage: rect('.message-stage'),
+        participant: rect('.participant-panel'),
+        tracks: getComputedStyle(document.querySelector('.conversation-workspace')!).gridTemplateColumns.split(' ').length,
+      }
+    })
+  }
+
+  test('1024 keeps a readable message stage: three columns, participants capped below', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await openReading(page)
+
+    const g = await geometry(page)
+    // Three tracks: the dead 0-width column is gone and the stage owns the fluid one.
+    expect(g.tracks).toBe(3)
+    expect(g.detail!.width).toBeGreaterThanOrEqual(500)
+    // The defect measured 127px; the bottom roster row must give the stage its height back.
+    expect(g.stage!.height).toBeGreaterThanOrEqual(180)
+    // Participants span the whole workspace as a capped, scrollable bottom row.
+    expect(Math.abs(g.participant!.width - g.workspace!.width)).toBeLessThanOrEqual(2)
+    expect(g.participant!.height).toBeLessThanOrEqual(120)
+  })
+
+  test('1281 keeps the five-column layout with the participant sidebar restored', async ({ page }) => {
+    await page.setViewportSize({ width: 1281, height: 700 })
+    await openReading(page)
+
+    const g = await geometry(page)
+    expect(g.tracks).toBe(5)
+    // The participant panel is a right sidebar again, not a bottom row.
+    expect(g.participant!.top).toBe(g.workspace!.top)
+    expect(g.participant!.width).toBeLessThanOrEqual(320)
+    expect(g.detail!.width).toBeGreaterThanOrEqual(340)
+    // A 700px-tall viewport owes ~160 to the shell, then header/composer inside the detail —
+    // 220 is what a healthy five-column layout leaves the stage at this height.
+    expect(g.stage!.height).toBeGreaterThanOrEqual(220)
+  })
+})

@@ -13,13 +13,25 @@ describe('StatePanel', () => {
     expect(wrapper.text()).toContain('执行正在恢复')
   })
 
-  it('publishes failures assertively and delegates an explicit fact refresh', async () => {
+  it('publishes failures assertively and offers no retry without a wired action', () => {
     const wrapper = mount(StatePanel, {
       props: { state: 'error', title: '最新事实不可用' },
     })
 
     expect(wrapper.attributes('role')).toBe('alert')
     expect(wrapper.attributes('aria-live')).toBe('assertive')
+    // R25: a retry button nobody listens to is an empty promise — none is rendered.
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+
+  it('offers a business-named retry once the caller wires one', async () => {
+    const wrapper = mount(StatePanel, {
+      props: { state: 'error', retryLabel: '重新加载来源' },
+      // Declared emits live in vnode props, which is exactly what the component inspects.
+      attrs: { onRetry: () => {} },
+    })
+
+    expect(wrapper.get('button').text()).toContain('重新加载来源')
     await wrapper.get('button').trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })

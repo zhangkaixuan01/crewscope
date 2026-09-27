@@ -260,7 +260,9 @@ public class JdbcInboxRepositoryAdapter
                 """
                 SELECT item.item_type,
                        COUNT(*) AS total_count,
-                       COUNT(*) FILTER (WHERE disposition.status IS NULL) AS unread_count
+                       COUNT(*) FILTER (
+                           WHERE COALESCE(disposition.status, 'UNREAD') = 'UNREAD'
+                       ) AS unread_count
                 FROM crewscope.inbox_item item
                 LEFT JOIN crewscope.inbox_disposition disposition
                   ON disposition.organization_id = item.organization_id

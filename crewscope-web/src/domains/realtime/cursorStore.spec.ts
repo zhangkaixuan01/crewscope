@@ -54,4 +54,24 @@ describe('ThreeStreamCursorStore', () => {
     expect(() => store.getDurableCursor('CONVERSATION', scope)).toThrow('conversationId')
     expect(() => store.getAgUiResume(scope)).toThrow('conversationId')
   })
+
+  it('boots on an in-memory shim when the browser denies local storage outright', () => {
+    const storageRef = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('denied') },
+    })
+    try {
+      const store = createThreeStreamCursorStore()
+      const scope = { organizationId: 'org-1', teamId: 'team-a' }
+
+      expect(() => store.saveDurableCursor('TEAM', scope, 'cursor-1')).not.toThrow()
+      expect(store.getDurableCursor('TEAM', scope)).toBe('cursor-1')
+      store.clearScope(scope)
+      expect(store.getDurableCursor('TEAM', scope)).toBeNull()
+    } finally {
+      if (storageRef) Object.defineProperty(globalThis, 'localStorage', storageRef)
+      else Reflect.deleteProperty(globalThis, 'localStorage')
+    }
+  })
 })

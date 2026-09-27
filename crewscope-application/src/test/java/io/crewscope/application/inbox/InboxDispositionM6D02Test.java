@@ -2,6 +2,7 @@ package io.crewscope.application.inbox;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamMembershipQuery;
@@ -23,6 +24,7 @@ import io.crewscope.domain.inbox.InboxSourceRevision;
 import io.crewscope.domain.inbox.InboxSourceType;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
+import io.crewscope.domain.shared.error.InvalidStateTransitionException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.event.SchemaVersion;
@@ -92,9 +94,9 @@ class InboxDispositionM6D02Test {
 
     @Test
     void rebuildKeepsArchivedDispositionOutsideProjectionGeneration() {
-        InboxDisposition read = change(
+        InboxDispositionOutcome read = change(
                 ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
-        InboxDisposition archived = change(
+        InboxDispositionOutcome archived = change(
                 ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED, read.version());
 
         InboxItem rebuilt = item(ownerMember.id(), new ProjectionGeneration(2));
@@ -113,14 +115,14 @@ class InboxDispositionM6D02Test {
 
     @Test
     void staleEtagFailsAndExactCurrentStateRetryDoesNotWriteAgain() {
-        InboxDisposition read = change(
+        InboxDispositionOutcome read = change(
                 ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
 
         assertThrows(
                 OptimisticLockConflictException.class,
                 () -> change(
                         ownerPrincipal, currentItem.id(), InboxDispositionStatus.ACTED, 0));
-        InboxDisposition same = change(
+        InboxDispositionOutcome same = change(
                 ownerPrincipal,
                 currentItem.id(),
                 InboxDispositionStatus.READ,
@@ -145,7 +147,7 @@ class InboxDispositionM6D02Test {
 
     @Test
     void closingCurrentSourceDoesNotEraseMemberDisposition() {
-        InboxDisposition acted = change(
+        InboxDispositionOutcome acted = change(
                 ownerPrincipal, currentItem.id(), InboxDispositionStatus.ACTED, 0);
         items.current = currentItem.close(InboxCloseReason.REVIEW_COMPLETED, NOW);
 
@@ -160,7 +162,142 @@ class InboxDispositionM6D02Test {
                 merged.item().source().closeReason().orElseThrow());
     }
 
-    private InboxDisposition change(
+    @Test
+    void unmarkingAMissingRowIsTheVersionZeroNoOp() {
+        InboxDispositionOutcome outcome = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD, 0);
+
+        assertEquals(InboxDispositionStatus.UNREAD, outcome.status());
+        assertEquals(0, outcome.version());
+        assertEquals(0, dispositions.saveCount);
+        assertTrue(dispositions.find(
+                ORGANIZATION_ID, TEAM_ID, ownerMember.id(), currentItem.id()).isEmpty());
+    }
+
+    @Test
+    void unmarkingAMissingRowWithAStaleExpectedVersionConflicts() {
+        // create() rejects a non-zero expectedVersion against the implicit version-0 row, so the
+        // no-op branch must too: a silent 202 here would mask a client acting on stale state.
+        assertThrows(
+                OptimisticLockConflictException.class,
+                () -> change(
+                        ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD, 7));
+
+        assertEquals(0, dispositions.saveCount);
+        assertTrue(dispositions.find(
+                ORGANIZATION_ID, TEAM_ID, ownerMember.id(), currentItem.id()).isEmpty());
+    }
+
+    @Test
+    void unmarkingKeepsAPersistedUnreadRowAtAPositiveVersion() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome unread = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD, read.version());
+
+        assertEquals(InboxDispositionStatus.UNREAD, unread.status());
+        assertEquals(read.version() + 1, unread.version());
+        assertEquals(2, dispositions.saveCount);
+        InboxItemView merged = InboxItemView.merge(
+                currentItem,
+                dispositions.find(
+                        ORGANIZATION_ID, TEAM_ID, ownerMember.id(), currentItem.id()));
+        assertEquals(InboxDispositionStatus.UNREAD, merged.dispositionStatus());
+        assertEquals(unread.version(), merged.dispositionVersion());
+    }
+
+    @Test
+    void restoringAnArchiveLandsOnRead() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome archived = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED, read.version());
+        InboxDispositionOutcome restored = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, archived.version());
+
+        assertEquals(InboxDispositionStatus.READ, restored.status());
+        assertEquals(archived.version() + 1, restored.version());
+        assertEquals(3, dispositions.saveCount);
+    }
+
+    @Test
+    void unmarkingAnArchiveAppliesRestoreThenUnmarkAsOneCommand() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome archived = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED, read.version());
+        int savesBefore = dispositions.saveCount;
+
+        InboxDispositionOutcome outcome = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD, archived.version());
+
+        assertEquals(InboxDispositionStatus.UNREAD, outcome.status());
+        assertEquals(archived.version() + 2, outcome.version());
+        assertEquals(savesBefore + 2, dispositions.saveCount);
+        InboxDisposition persisted = dispositions.find(
+                ORGANIZATION_ID, TEAM_ID, ownerMember.id(), currentItem.id()).orElseThrow();
+        assertEquals(InboxDispositionStatus.UNREAD, persisted.status());
+        assertEquals(outcome.version(), persisted.version());
+    }
+
+    @Test
+    void aFailedSecondStepLeavesTheArchiveIntactForRetry() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome archived = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED, read.version());
+        int savesBefore = dispositions.saveCount;
+        dispositions.failNextSave = true;
+
+        // The two-step write fails mid-sequence: the whole command must surface the failure
+        // (the real repository rolls both writes back in one transaction) instead of returning
+        // a receipt for a half-applied sequence, and the retry must complete cleanly.
+        assertThrows(
+                IllegalStateException.class,
+                () -> change(
+                        ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD,
+                        archived.version()));
+        dispositions.failNextSave = false;
+        InboxDispositionOutcome retried = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD,
+                archived.version());
+
+        assertEquals(InboxDispositionStatus.UNREAD, retried.status());
+        assertEquals(archived.version() + 2, retried.version());
+        assertEquals(savesBefore + 2, dispositions.saveCount);
+    }
+
+    @Test
+    void archivingAPersistedUnreadRowKeepsThePositiveVersion() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome unread = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.UNREAD, read.version());
+        InboxDispositionOutcome archived = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED,
+                unread.version());
+
+        assertEquals(InboxDispositionStatus.ARCHIVED, archived.status());
+        assertEquals(unread.version() + 1, archived.version());
+    }
+
+    @Test
+    void archivedRowRejectsDirectReadAndActedCommands() {
+        InboxDispositionOutcome read = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.READ, 0);
+        InboxDispositionOutcome archived = change(
+                ownerPrincipal, currentItem.id(), InboxDispositionStatus.ARCHIVED, read.version());
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> change(
+                        ownerPrincipal, currentItem.id(), InboxDispositionStatus.ACTED,
+                        archived.version()));
+        // READ then ARCHIVED each wrote once; the rejected ACTED wrote nothing.
+        assertEquals(2, dispositions.saveCount);
+    }
+
+    private InboxDispositionOutcome change(
             Principal actor,
             InboxItemId itemId,
             InboxDispositionStatus status,
@@ -230,6 +367,7 @@ class InboxDispositionM6D02Test {
 
         private final Map<InboxItemId, InboxDisposition> values = new HashMap<>();
         private int saveCount;
+        private boolean failNextSave;
 
         @Override
         public Optional<InboxDisposition> find(
@@ -242,6 +380,10 @@ class InboxDispositionM6D02Test {
 
         @Override
         public void save(InboxDisposition disposition, long expectedVersion) {
+            if (failNextSave) {
+                failNextSave = false;
+                throw new IllegalStateException("simulated write failure");
+            }
             long actualVersion = Optional.ofNullable(values.get(disposition.inboxItemId()))
                     .map(InboxDisposition::version)
                     .orElse(0L);

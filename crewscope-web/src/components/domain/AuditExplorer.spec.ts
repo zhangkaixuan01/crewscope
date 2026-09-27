@@ -25,7 +25,8 @@ describe('AuditExplorer', () => {
   it('requires paired Subject filters and valid UUID identifiers', async () => {
     const wrapper = mount(AuditExplorer, { props: props(), global: { stubs: routerLinkStub } })
     await wrapper.get('.advanced-toggle').trigger('click')
-    const subjectType = wrapper.findAll<HTMLInputElement>('.audit-filter__advanced input')[3]!
+    // Without a principalScope the pickers stay unrendered, so Subject Type is the first input.
+    const subjectType = wrapper.findAll<HTMLInputElement>('.audit-filter__advanced input')[0]!
     await subjectType.setValue('WORK_ITEM')
     await wrapper.get('form').trigger('submit')
 
@@ -67,6 +68,44 @@ describe('AuditExplorer', () => {
     expect(wrapper.text()).toContain('导出时间范围不能超过 31 天')
   })
 
+  it('blocks exporting a drifted draft and names the applied conditions beside the control', async () => {
+    const applied = { ...filter(), from: '2026-08-01T08:00', to: '2026-08-20T08:00' }
+    const wrapper = mount(AuditExplorer, { props: props({ initialFilter: applied }), global: { stubs: routerLinkStub } })
+    const exportButton = wrapper.findAll('button').find(item => item.text().includes('导出 CSV'))!
+    expect(exportButton.attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('.applied-summary').text()).toContain('已应用条件')
+    expect(wrapper.get('.applied-summary').text()).toContain('2026-08-01T08:00')
+
+    await wrapper.findAll<HTMLSelectElement>('.audit-filter__primary select')[0]!.setValue('SECURITY')
+    expect(wrapper.text()).toContain('筛选已修改但未应用')
+    expect(wrapper.get('.inline-apply').text()).toBe('应用筛选')
+    expect(exportButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.emitted('export')).toBeUndefined()
+  })
+
+  it('reports the exported row count and its possible truncation after a finished export', () => {
+    // A finished export presupposes applied time bounds; without them the disabled reason wins.
+    const applied = { ...filter(), from: '2026-08-01T08:00', to: '2026-08-20T08:00' }
+    const wrapper = mount(AuditExplorer, {
+      props: props({ initialFilter: applied, exportPhase: 'ready', exportSummary: { count: 1000, possiblyIncomplete: true } }),
+      global: { stubs: routerLinkStub },
+    })
+    expect(wrapper.text()).toContain('已导出 1000 条并下载')
+    expect(wrapper.text()).toContain('达到行数上限，结果可能不完整')
+
+    const complete = mount(AuditExplorer, {
+      props: props({ initialFilter: applied, exportPhase: 'ready', exportSummary: { count: 12, possiblyIncomplete: false } }),
+      global: { stubs: routerLinkStub },
+    })
+    expect(complete.text()).toContain('已导出 12 条并下载')
+    expect(complete.text()).not.toContain('可能不完整')
+  })
+
+  it('explains when a deep-linked event is not visible in the current Team', () => {
+    const wrapper = mount(AuditExplorer, { props: props({ missingSelectedEvent: true }), global: { stubs: routerLinkStub } })
+    expect(wrapper.text()).toContain('深链的审计事件在当前 Team 不可见')
+  })
+
   it.each([
     ['loading', { phase: 'loading', items: [] }, '正在加载审计事实'],
     ['empty', { phase: 'empty', items: [] }, '当前筛选没有审计事实'],
@@ -83,8 +122,8 @@ describe('AuditExplorer', () => {
 function props(overrides: Record<string, unknown> = {}) {
   return {
     phase: 'ready' as const, items: [audit()], error: null, nextCursor: 'cursor-2', loadingMore: false,
-    selectedEvent: null, correlation: null as TeamOpsCorrelationResource | null, correlationId: '', initialFilter: filter(),
-    online: true, canExport: true, exportPhase: 'idle' as const, exportError: null,
+    selectedEvent: null, missingSelectedEvent: false, correlation: null as TeamOpsCorrelationResource | null, correlationId: '', initialFilter: filter(),
+    online: true, canExport: true, exportPhase: 'idle' as const, exportError: null, exportSummary: null,
     ...overrides,
   }
 }

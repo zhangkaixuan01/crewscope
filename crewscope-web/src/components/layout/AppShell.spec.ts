@@ -23,6 +23,8 @@ async function harness() {
       path: `/${name}`,
       name,
       component: { render: () => null },
+      // The bottom bar and the rail mark "current" from the route's own section metadata.
+      meta: { section: name },
     })),
   })
   await router.push(`/conversation?team=${fixtureIds.teamPlatform}`)
@@ -56,6 +58,37 @@ describe('AppShell', () => {
     await wrapper.setProps({ fill: false })
     expect(wrapper.get('.app-shell__body').classes()).not.toContain('app-shell__body--fill')
     expect(wrapper.get('.app-shell__workspace').classes()).not.toContain('app-shell__workspace--fill')
+    wrapper.unmount()
+  })
+
+  it('keeps appearance in the account page only — the top bar offers no theme or density toggle', async () => {
+    const wrapper = await harness()
+
+    expect(wrapper.text()).not.toContain('点击切换')
+    expect(wrapper.find('.density-button').exists()).toBe(false)
+    // 顶栏仍是「导航 | 搜索 | 通知」的工具分组：搜索与通知入口都在。
+    expect(wrapper.get('.command-search').attributes('aria-label')).toBe('打开命令面板，搜索工作、成员或 Agent')
+    expect(wrapper.get('[aria-label="打开通知 Inbox"]')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('sends the logo to the same place / goes — today, not the conversation', async () => {
+    const wrapper = await harness()
+
+    expect(wrapper.get('.brand').attributes('href')).toMatch(/^\/today\?/)
+    wrapper.unmount()
+  })
+
+  it('gives the phone bottom bar the three primary destinations', async () => {
+    const wrapper = await harness()
+
+    const links = wrapper.get('.mobile-mode').findAll('a')
+    expect(links.map(link => link.text())).toEqual(['今日', '工作', '对话'])
+    expect(links[0]!.attributes('href')).toMatch(/^\/today\?/)
+    expect(links[1]!.attributes('href')).toMatch(/^\/work\?/)
+    expect(links[2]!.attributes('href')).toMatch(/^\/conversation\?/)
+    // 当前分区在底栏亮起，与侧栏的 aria-current 同源。
+    expect(links[2]!.attributes('aria-current')).toBe('page')
     wrapper.unmount()
   })
 })

@@ -46,6 +46,12 @@ const selectedEventId = computed(() => queryValue(route.query.event))
 const selectedDetail = computed(() => selectedEventId.value
   ? store.state.activityDetails[`team:${selectedEventId.value}`] ?? null
   : null)
+// R25: the offline panel says how stale the readable activity facts are, not just that they are stale.
+const lastSyncedAt = ref<string | null>(null)
+watch(() => store.state.teamActivity.phase, phase => {
+  if (phase === 'ready') lastSyncedAt.value = new Date().toISOString()
+})
+
 const filteredItems = computed(() => [...(store.state.teamActivity.value ?? [])].sort((left, right) => {
   const delta = new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime()
   return activitySort.direction.value === 'asc' ? delta : -delta
@@ -153,6 +159,7 @@ function actorName(principalId: string | null, type: string): string {
         <ActivityStream
           :phase="store.state.teamActivity.phase" :items="filteredItems" :next-cursor="store.state.teamActivity.nextCursor"
           :loading-more="store.state.teamActivity.loadingMore" :error="store.state.teamActivity.error ?? realtime.state.error"
+          :last-synced-at="lastSyncedAt"
           :realtime-phase="realtime.state.phase" :online="online"
           :principal-names="principalNames"
           @retry="realtime.state.phase === 'cursor-expired' ? recoverCursor() : reload()"

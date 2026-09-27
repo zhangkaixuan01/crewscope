@@ -25,6 +25,11 @@ const router = inject(routerKey, null)
 const store = requiredStore(props.observerStore ?? inject(TEAM_OBSERVER_STORE))
 const instruction = ref('总结当前团队进展、阻塞、Review、待确认事项和异常，并给出可核验的证据。')
 const openingEvidence = ref<number | null>(null)
+/** The one summary row whose evidence just failed to open; the failure stays local to it (R38). */
+const failedEvidence = ref<number | null>(null)
+// A first failure with no invocation identifier offers the setup entry alongside regeneration:
+// the coordinate is the plain Team id — configuration returns, it never carries draft text.
+const setupQuery = computed(() => ({ team: props.scope.teamId }))
 const busy = computed(() => ['creating-session', 'connecting', 'running', 'reconnecting', 'cancelling'].includes(store.state.phase))
 const statusText = computed(() => ({
   idle: '等待生成团队摘要',
@@ -42,12 +47,26 @@ const sections: Array<{ key: TeamSummarySection, label: string, description: str
 
 watch(
   () => [props.scope.organizationId, props.scope.teamId] as const,
-  () => store.activateScope(props.scope),
+  () => {
+    store.activateScope(props.scope)
+    failedEvidence.value = null
+  },
   { immediate: true },
 )
 
 async function submit(): Promise<void> {
   if (!props.online || busy.value) return
+  await store.invoke(instruction.value)
+}
+
+/**
+ * Starting over is always a *new* invocation (new model time and usage), never a retry of the
+ * failed one — which is exactly how the lost-start copy frames it — so both the completed-state
+ * control and the first-failure recovery call this same fresh entry point.
+ */
+async function regenerate(): Promise<void> {
+  if (!props.online || busy.value) return
+  failedEvidence.value = null
   await store.invoke(instruction.value)
 }
 
@@ -57,7 +76,12 @@ async function openEvidence(entry: TeamSummaryEntry): Promise<void> {
   try {
     // Navigation occurs only after the server re-authorizes and the Gateway validates the route.
     const evidence = await store.resolveEvidence(entry.evidenceIndex)
-    if (evidence?.authorized && router) await router.push(evidence.navigationPath)
+    if (!evidence) {
+      failedEvidence.value = entry.evidenceIndex
+      return
+    }
+    failedEvidence.value = null
+    if (router) await router.push(evidence.navigationPath)
   } finally {
     openingEvidence.value = null
   }
@@ -101,6 +125,13 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
       <span v-if="store.state.invocationId" class="mono">Invocation {{ store.state.invocationId.slice(0, 8) }}</span>
       <BaseButton v-if="busy && store.state.invocationId" size="small" variant="ghost" :disabled="!online || store.state.phase === 'cancelling'" @click="store.cancel()">取消</BaseButton>
       <BaseButton v-else-if="store.state.phase === 'error' && store.state.retryable" size="small" variant="secondary" :disabled="!online" @click="store.retry()"><RefreshCw :size="13" />恢复调用</BaseButton>
+      <!-- First failure carries no invocation id, so nothing can be resumed: regeneration plus
+           the configuration entry are the only honest next steps (R38). -->
+      <template v-else-if="store.state.phase === 'error' && !store.state.invocationId">
+        <BaseButton size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="13" />重新生成摘要</BaseButton>
+        <RouterLink class="observer-setup-link" :to="{ name: 'setup', query: setupQuery }">检查配置</RouterLink>
+      </template>
+      <BaseButton v-else-if="store.state.phase === 'error'" size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="13" />按最新重新生成</BaseButton>
     </div>
 
     <form v-if="variant === 'conversation'" class="observer-composer panel" @submit.prevent="submit">
@@ -115,7 +146,12 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
     <div v-if="store.state.summary" class="observer-summary">
       <header>
         <div><p class="eyebrow">Authorized team summary</p><h3>团队态势</h3></div>
-        <div><span>生成于 {{ dateTime(store.state.summary.generatedAt) }}</span><BaseButton size="small" variant="ghost" :disabled="!online || busy" @click="store.refreshSummary()"><RefreshCw :size="13" />刷新事实</BaseButton></div>
+        <div>
+          <span>生成于 {{ dateTime(store.state.summary.generatedAt) }}</span>
+          <BaseButton size="small" variant="ghost" :disabled="!online || busy" @click="store.refreshSummary()"><RefreshCw :size="13" />重读本次结果</BaseButton>
+          <BaseButton size="small" variant="secondary" :disabled="!online || busy" @click="regenerate"><RefreshCw :size="13" />按最新重新生成</BaseButton>
+          <p class="regeneration-note">重读仅回读本次结果；重新生成会发起一次新调用，消耗新的模型时间与用量。</p>
+        </div>
       </header>
       <div class="observer-section-grid">
         <section v-for="section in sections" :key="section.key" class="observer-section panel" :aria-labelledby="`observer-${section.key}`">
@@ -125,7 +161,14 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
             <li v-for="entry in store.state.summary[section.key]" :key="entry.evidenceIndex">
               <!-- Summary remains plain text so model-produced markup cannot become executable UI. -->
               <p>{{ entry.summary }}</p>
-              <footer><span>{{ enumLabel(entry.dataScope, teamSummaryDataScopeLabels) }}</span><button type="button" :disabled="!online || openingEvidence !== null" :aria-describedby="openingEvidence !== null ? `evidence-reason-${entry.evidenceIndex}` : undefined" :aria-label="`打开${section.label}证据：${entry.summary}`" @click="openEvidence(entry)">查看证据<ArrowUpRight :size="12" aria-hidden="true" /></button><span :id="`evidence-reason-${entry.evidenceIndex}`" class="sr-only">正在打开另一条证据，完成前无法重复打开。</span></footer>
+              <footer>
+                <span>{{ enumLabel(entry.dataScope, teamSummaryDataScopeLabels) }}</span>
+                <!-- One failed evidence read stays here beside its row; the summary and its siblings
+                     keep rendering, and pressing the row's button retries just this entry (R38). -->
+                <span v-if="failedEvidence === entry.evidenceIndex" class="evidence-failure" role="alert">暂时无法打开这条证据</span>
+                <button type="button" :disabled="!online || openingEvidence !== null" :aria-describedby="openingEvidence !== null ? `evidence-reason-${entry.evidenceIndex}` : undefined" :aria-label="`打开${section.label}证据：${entry.summary}`" @click="openEvidence(entry)">{{ failedEvidence === entry.evidenceIndex ? '重试' : '查看证据' }}<ArrowUpRight :size="12" aria-hidden="true" /></button>
+                <span :id="`evidence-reason-${entry.evidenceIndex}`" class="sr-only">正在打开另一条证据，完成前无法重复打开。</span>
+              </footer>
             </li>
           </ol>
         </section>
@@ -140,6 +183,6 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
 </template>
 
 <style scoped>
-.observer-workspace { display: grid; gap: var(--cs-space-16); max-width: 1240px; margin: 0 auto; }.observer-hero { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-20); }.observer-identity { display: grid; width: 50px; height: 50px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 16px; background: var(--cs-agent-soft); color: var(--cs-agent); }.observer-hero h2 { margin: var(--cs-space-2) 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.observer-hero p:last-child { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.observer-guardrail { display: grid; justify-items: end; gap: var(--cs-space-4); }.observer-guardrail small { max-width: 220px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: right; }.observer-status { display: flex; min-height: 40px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-sm); }.observer-status > span:first-child { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-weight: var(--cs-weight-semibold); }.observer-status > .mono { margin-left: auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-status.error { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); color: var(--cs-danger); }.observer-composer { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-16); }.observer-composer label { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.observer-composer textarea { width: 100%; min-height: 84px; resize: vertical; padding: var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }.observer-composer footer { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.observer-composer footer span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-summary { display: grid; gap: var(--cs-space-12); }.observer-summary > header { display: flex; align-items: end; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-4) var(--cs-space-2); }.observer-summary h3 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-lg); }.observer-summary > header > div:last-child { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.observer-section:last-child { grid-column: 1 / -1; }.observer-section { overflow: hidden; }.observer-section > header { display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.observer-section > header > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.observer-section h4 { margin: 0; font-size: var(--cs-text-base); }.observer-section header p { margin: var(--cs-space-2) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-section header strong { color: var(--cs-text-brand); font-size: var(--cs-text-base); }.observer-section ol { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }.observer-section li { padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.observer-section li:last-child { border: 0; }.observer-section li > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); white-space: pre-wrap; overflow-wrap: anywhere; }.observer-section li footer { display: flex; align-items: center; justify-content: space-between; margin-top: var(--cs-space-8); }.observer-section li footer span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.observer-section li button { display: inline-flex; align-items: center; gap: var(--cs-space-4); border: 0; background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.observer-section li button:disabled { cursor: wait; opacity: .55; }.observer-empty { padding: var(--cs-space-24) var(--cs-space-16); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }
+.observer-workspace { display: grid; gap: var(--cs-space-16); max-width: 1240px; margin: 0 auto; }.observer-hero { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-20); }.observer-identity { display: grid; width: 50px; height: 50px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 16px; background: var(--cs-agent-soft); color: var(--cs-agent); }.observer-hero h2 { margin: var(--cs-space-2) 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.observer-hero p:last-child { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.observer-guardrail { display: grid; justify-items: end; gap: var(--cs-space-4); }.observer-guardrail small { max-width: 220px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: right; }.observer-status { display: flex; min-height: 40px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-sm); }.observer-status > span:first-child { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-weight: var(--cs-weight-semibold); }.observer-status > .mono { margin-left: auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-status.error { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); color: var(--cs-danger); }.observer-composer { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-16); }.observer-composer label { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.observer-composer textarea { width: 100%; min-height: 84px; resize: vertical; padding: var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }.observer-composer footer { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.observer-composer footer span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-summary { display: grid; gap: var(--cs-space-12); }.observer-summary > header { display: flex; align-items: end; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-4) var(--cs-space-2); }.observer-summary h3 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-lg); }.observer-summary > header > div:last-child { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.observer-section:last-child { grid-column: 1 / -1; }.observer-section { overflow: hidden; }.observer-section > header { display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.observer-section > header > span { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.observer-section h4 { margin: 0; font-size: var(--cs-text-base); }.observer-section header p { margin: var(--cs-space-2) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.observer-section header strong { color: var(--cs-text-brand); font-size: var(--cs-text-base); }.observer-section ol { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }.observer-section li { padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.observer-section li:last-child { border: 0; }.observer-section li > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); white-space: pre-wrap; overflow-wrap: anywhere; }.observer-section li footer { display: flex; align-items: center; justify-content: space-between; margin-top: var(--cs-space-8); }.observer-section li footer span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.observer-section li button { display: inline-flex; align-items: center; gap: var(--cs-space-4); border: 0; background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.observer-section li button:disabled { cursor: wait; opacity: .55; }.observer-empty { padding: var(--cs-space-24) var(--cs-space-16); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.observer-setup-link { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-decoration: underline; }.observer-summary .regeneration-note { margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.evidence-failure { color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 @media (max-width: 767px) { .observer-hero { grid-template-columns: 44px 1fr; padding: var(--cs-space-16); }.observer-identity { width: 42px; height: 42px; border-radius: 13px; }.observer-guardrail { grid-column: 1 / -1; justify-items: start; }.observer-guardrail small { text-align: left; }.observer-section-grid { grid-template-columns: 1fr; }.observer-section:last-child { grid-column: auto; }.observer-summary > header, .observer-composer footer { align-items: flex-start; flex-direction: column; }.observer-summary > header > div:last-child { width: 100%; justify-content: space-between; }.observer-status > .mono { display: none; }.observer-status { flex-wrap: wrap; }.observer-status :deep(.base-button) { margin-left: auto; } }
 </style>

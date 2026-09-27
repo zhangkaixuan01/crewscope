@@ -51,7 +51,7 @@ import { createInvitationStore, installInvitationStore } from './domains/invitat
 import { HttpWorkDeskGateway } from './domains/workdesk/gateway'
 import { installWorkDeskStore } from './domains/workdesk/store'
 import { HttpSearchGateway } from './domains/search/gateway'
-import { installSearchStore } from './domains/search/store'
+import { installPaletteSearchStore, installSearchStore } from './domains/search/store'
 import { createActionRegistry, installActionRegistry } from './app/actionRegistry'
 import { createShortcutManager, installShortcutManager } from './app/shortcuts'
 import { registerDefaultActions } from './app/defaultActions'
@@ -71,6 +71,9 @@ const accountStore = installAccountStore(app, createAccountStore(new HttpAccount
 const invitationStore = installInvitationStore(app, createInvitationStore(new HttpInvitationGateway()))
 const workDeskStore = installWorkDeskStore(app, new HttpWorkDeskGateway())
 const searchStore = installSearchStore(app, new HttpSearchGateway())
+// R20: the command palette keeps a separate session so its debounced preview queries
+// can never clear or replace what the full search page is showing.
+const paletteSearchStore = installPaletteSearchStore(app, new HttpSearchGateway())
 const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
 const conversationStore = installConversationStore(app, new HttpConversationGateway())
 const conversationMessageStore = installConversationMessageStore(app, new HttpConversationMessageGateway())
@@ -114,6 +117,7 @@ subscribeSessionBoundary(authStore, reason => {
   setupStore.reset()
   workDeskStore.reset()
   searchStore.reset()
+  paletteSearchStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)
 router.beforeEach(() => { stopCreationQueries() })

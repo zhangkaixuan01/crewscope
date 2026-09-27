@@ -5,8 +5,7 @@ import type { SemanticTone } from '../base/types'
 import type { WorkDeskItem } from '../../domains/workdesk/types'
 import type { WorkItemAvailableTransition, WorkItemStatus } from '../../domains/workitem/types'
 import { workDeskStatusLabel } from '../../domains/workdesk/labels'
-import { formatAbsoluteTime, formatRelativeTime } from '../../composables/formatRelativeTime'
-import BaseTooltip from '../base/BaseTooltip.vue'
+import RelativeTime from '../base/RelativeTime.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatusTransitionMenu from '../action/StatusTransitionMenu.vue'
 
@@ -113,9 +112,7 @@ function openFromCard(event: MouseEvent): void {
     </div>
 
     <footer class="desk-card__foot">
-      <BaseTooltip :text="formatAbsoluteTime(updatedAt)">
-        <span :class="{ 'desk-card__stale': item.needsAction }">最近更新 {{ formatRelativeTime(updatedAt) }}</span>
-      </BaseTooltip>
+      <span :class="{ 'desk-card__stale': item.needsAction }">最近更新 <RelativeTime :value="updatedAt" /></span>
       <span v-if="isBlocked" class="desk-card__blocked"><CircleSlash :size="12" aria-hidden="true" />已阻塞</span>
     </footer>
   </article>

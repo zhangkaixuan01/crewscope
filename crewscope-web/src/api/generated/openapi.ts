@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: bc3993bd8465b6daa9295ac66c75cba9fbd43315d106b83e43c325898e4f76bd
+// Controller source SHA-256: 97e60617be8cd1b5bbfa777ba2c0ce2b918e1222923fa1f20ac791f2d6b01ebc
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -572,6 +572,14 @@ export const openApiDocument = {
     "/api/v1/organizations/{organizationId}/teams/{teamId}/audit-events": {
       "get": {
         "operationId": "AuditController_history",
+        "tags": [
+          "AuditController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/audit-events/{eventId}": {
+      "get": {
+        "operationId": "AuditController_event",
         "tags": [
           "AuditController"
         ]
@@ -2296,6 +2304,12 @@ export const openApiOperations = [
     "controller": "AuditController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/audit-events/{eventId}",
+    "operationId": "AuditController_event",
+    "controller": "AuditController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/audit-events/export",
     "operationId": "AuditController_export",
@@ -3304,4 +3318,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 239 as const
+export const openApiOperationCount = 240 as const

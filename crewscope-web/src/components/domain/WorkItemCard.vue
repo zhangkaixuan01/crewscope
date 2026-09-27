@@ -4,8 +4,7 @@ import { computed } from 'vue'
 import type { SemanticTone } from '../base/types'
 import type { WorkItemAvailableTransition, WorkItemStatus, WorkItemSummary } from '../../domains/workitem/types'
 import { workItemPriorityLabels, workItemStatusLabels, workItemTypeLabels } from '../../domains/workitem/labels'
-import { formatAbsoluteTime, formatRelativeTime } from '../../composables/useRelativeTime'
-import BaseTooltip from '../base/BaseTooltip.vue'
+import RelativeTime from '../base/RelativeTime.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatusTransitionMenu from '../action/StatusTransitionMenu.vue'
 
@@ -125,12 +124,8 @@ function openFromCard(event: MouseEvent): void {
       <!-- Every time on the card is relative with the exact instant one keystroke away: a list of
            "2026/09/12 14:03:27" makes the member do the subtraction the page already knows how to
            do, and an absolute date with no time cannot be compared to now at all. -->
-      <BaseTooltip v-if="item.dueAt" :text="`截止 ${formatAbsoluteTime(item.dueAt)}`" :class="{ overdue }">
-        <span><CalendarClock :size="12" />截止 {{ formatRelativeTime(item.dueAt) }}</span>
-      </BaseTooltip>
-      <BaseTooltip :text="`更新于 ${formatAbsoluteTime(item.updatedAt)}`">
-        <time :datetime="item.updatedAt">更新于 {{ formatRelativeTime(item.updatedAt) }}</time>
-      </BaseTooltip>
+      <span v-if="item.dueAt" :class="{ overdue }"><CalendarClock :size="12" />截止 <RelativeTime :value="item.dueAt" /></span>
+      <span>更新于 <RelativeTime :value="item.updatedAt" /></span>
       <span v-for="label in item.labels.slice(0, labelBudget)" :key="label"><Tag :size="11" />{{ label }}</span>
       <span v-if="item.labels.length > labelBudget">+{{ item.labels.length - labelBudget }}</span>
     </div>

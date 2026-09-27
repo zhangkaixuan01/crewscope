@@ -9,13 +9,14 @@ async function mountShell(path: string): Promise<{ wrapper: ReturnType<typeof mo
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { name: 'work', path: '/work', component: { template: '<div />' } },
     { name: 'agent-settings', path: '/settings/agents', component: { template: '<div />' } },
+    { name: 'account', path: '/account', component: { template: '<div />' } },
   ] })
   await router.push(path)
   const wrapper = mount(SettingsShell, {
     props: { title: 'Agent 中心' },
     global: {
       plugins: [router],
-      stubs: { AppShell: { template: '<div><slot name="actions" /></div>' }, SettingsFieldSearch: true, RouterLink: true },
+      stubs: { AppShell: { template: '<div><slot name="actions" /><slot /></div>' }, SettingsFieldSearch: true, RouterLink: true },
     },
   })
   return { wrapper, router }
@@ -47,4 +48,30 @@ it('ignores unregistered or malformed origins instead of executing them', async 
   expect(malformed.router.currentRoute.value.name).toBe('work')
   // The duplicated (array-valued) project fails the uuid check; the single-valued team survives.
   expect(malformed.router.currentRoute.value.query).toEqual({ team: TEAM })
+})
+
+it('names the category navigation and the content as separate landmarks', async () => {
+  const { wrapper } = await mountShell('/settings/agents')
+
+  expect(wrapper.get('nav.settings-shell__nav').attributes('aria-label')).toBe('配置分类')
+  expect(wrapper.get('.settings-shell__content').attributes('aria-label')).toBe('配置内容')
+  // 搜索框属于侧栏本身，先于两个 region；分类链接跟在字段结果后面。
+  expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索配置项')
+})
+
+it('marks the section anchor of an in-page nav item current', async () => {
+  const { wrapper, router } = await mountShell('/account')
+  await wrapper.setProps({ items: [
+    { key: 'profile', label: '个人资料', route: '/account#profile' },
+    { key: 'security', label: '密码与安全', route: '/account#security' },
+  ] })
+
+  // RouterLink is stubbed here, so the rendered tag is the stub carrying the attrs.
+  const navItems = () => wrapper.findAll('nav.settings-shell__nav router-link-stub')
+  expect(navItems()[0]!.attributes('aria-current')).toBeUndefined()
+
+  await router.push('/account#profile')
+  await Promise.resolve()
+  expect(navItems()[0]!.attributes('aria-current')).toBe('page')
+  expect(navItems()[1]!.attributes('aria-current')).toBeUndefined()
 })

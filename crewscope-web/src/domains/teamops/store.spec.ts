@@ -1,7 +1,7 @@
 import { CrewScopeApiError } from '../../api/client'
 import type { CreateLarkConnectionInput, TeamOpsGateway } from './gateway'
 import { createTeamOpsStore } from './store'
-import type { ActivitySnapshot, CommandReceipt, CorrelationGraph, InboxItem, TeamOpsScope } from './types'
+import type { ActivitySnapshot, AuditEvent, CommandReceipt, CorrelationGraph, InboxItem, TeamOpsScope } from './types'
 
 const platform = { organizationId: 'org-1', teamId: 'team-platform' }
 const security = { organizationId: 'org-1', teamId: 'team-security' }
@@ -120,6 +120,26 @@ describe('TeamOpsStore', () => {
     expect(resource?.value?.events).toHaveLength(1)
     expect(resource?.nextCursor).toBeNull()
     expect(resource?.error?.kind).toBe('cursor-expired')
+  })
+
+  it('deep-links one audit event by identifier and keeps null as a stable invisible result', async () => {
+    const gateway = fixtureGateway({
+      auditEvent: vi.fn().mockResolvedValue(auditFact('event-deep')),
+    })
+    const store = createTeamOpsStore(gateway)
+    store.activateScope(platform)
+
+    await store.loadAuditEvent('event-deep')
+    expect(store.state.auditEventDetails['event-deep']?.phase).toBe('ready')
+    expect(store.state.auditEventDetails['event-deep']?.value?.eventId).toBe('event-deep')
+
+    // A settled read is not refetched, and a settled null would equally stay (not visible here).
+    await store.loadAuditEvent('event-deep')
+    expect(gateway.auditEvent).toHaveBeenCalledTimes(1)
+
+    // Switching Teams drops the cached detail together with every other scoped resource.
+    store.activateScope(security)
+    expect(store.state.auditEventDetails).toEqual({})
   })
 
   it('preserves the last authorized value when an ordinary resource refresh fails', async () => {
@@ -245,6 +265,16 @@ function inbox(id: string): InboxItem {
     dispositionStatus: 'UNREAD', dispositionVersion: 4, etag: '"4"',
     source: { type: 'REVIEW_REQUEST', id: 'review-1', revision: 1 },
     sourceContext: null,
+  }
+}
+
+function auditFact(eventId: string): AuditEvent {
+  return {
+    eventId, eventType: 'TEAM_ACCESS_DENIED', sourceSchemaVersion: 1, category: 'SECURITY', outcome: 'DENIED',
+    retentionLevel: 'EXTENDED', occurredAt: '2026-08-27T08:00:00Z',
+    identity: { initiatorId: 'principal-1', actorType: 'USER', actorId: 'principal-1', agentPrincipalId: null },
+    subject: { type: 'TEAM', id: 'team-1' }, provider: null,
+    correlation: { correlationId: 'correlation-1', causationId: null, domainEventId: 'event-1' }, summary: {},
   }
 }
 

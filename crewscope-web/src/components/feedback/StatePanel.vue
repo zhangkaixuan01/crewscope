@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, Ban, CircleStop, FileQuestion, LoaderCircle, RefreshCw, RotateCcw, Scale, WifiOff } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, getCurrentInstance, onUpdated, ref } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 
 const props = withDefaults(defineProps<{
@@ -8,10 +8,13 @@ const props = withDefaults(defineProps<{
   title?: string
   description?: string
   compact?: boolean
+  /** Names the recovery action after the business it performs (R25);「刷新事实」 is the fallback. */
+  retryLabel?: string
 }>(), {
   title: '',
   description: '',
   compact: false,
+  retryLabel: '刷新事实',
 })
 
 defineEmits<{ retry: [] }>()
@@ -30,6 +33,16 @@ const presentation = computed(() => ({
 
 const busy = computed(() => props.state === 'loading' || props.state === 'reconnecting' || props.state === 'recovering')
 const assertive = computed(() => props.state === 'error')
+// R25: a retry button with no recovery action behind it is noise — only render one when the caller
+// actually wired @retry. Declared emits are stripped from $attrs, so read the raw vnode props —
+// which are not reactive, so the update tick re-evaluates a parent flipping the handler at run
+// time (current callers bind statically, but the guard must not rot into a stale first answer).
+const retryTick = ref(0)
+onUpdated(() => { retryTick.value += 1 })
+const retryWired = computed(() => {
+  retryTick.value
+  return getCurrentInstance()?.vnode.props?.onRetry !== undefined
+})
 </script>
 
 <template>
@@ -37,11 +50,12 @@ const assertive = computed(() => props.state === 'error')
     <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering' }" :size="22" aria-hidden="true" />
     <div>
       <h3>{{ title || presentation.title }}</h3>
-      <p>{{ description || presentation.description }}</p>
+      <!-- The slot lets a description embed live content (e.g. a ticking 「最近同步于」 label). -->
+      <p><slot name="description">{{ description || presentation.description }}</slot></p>
     </div>
-    <BaseButton v-if="state === 'error' || state === 'conflict'" variant="secondary" size="small" @click="$emit('retry')">
+    <BaseButton v-if="(state === 'error' || state === 'conflict') && retryWired" variant="secondary" size="small" @click="$emit('retry')">
       <template #icon><RefreshCw :size="14" aria-hidden="true" /></template>
-      刷新事实
+      {{ retryLabel }}
     </BaseButton>
     <slot name="action" />
   </section>

@@ -100,6 +100,11 @@
       "file": "components/domain/WorkItemDetailDrawer.vue",
       "expression": "!comment.trim()",
       "reason": "「让 Agent 处理」以评论内容为委托目标：评论为空时没有可发起委托的文本，成因就是同一表单的评论输入框为空；输入框与按钮旁的常驻说明（评论仅记录讨论、委托需单独确认）已在同一上下文。"
+    },
+    {
+      "file": "components/domain/SavedViewsControl.vue",
+      "expression": "!nameDraft.trim()",
+      "reason": "保存视图的提交按钮由命名输入框是否填写决定，成因就是输入框自身的取值——空名称没有可保存的视图，输入框（placeholder 与 aria-label 已在字段上）是该状态的唯一载体，与 SearchPage 空关键词同一形态。"
     }
   ]
 }

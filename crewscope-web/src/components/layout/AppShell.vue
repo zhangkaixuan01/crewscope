@@ -20,8 +20,6 @@ import {
   Settings2,
   PanelLeftClose,
   PanelLeftOpen,
-  Sun,
-  Moon,
 } from '@lucide/vue'
 import { computed, inject, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
@@ -35,7 +33,7 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
 import AppBreadcrumb from './AppBreadcrumb.vue'
 import UserAccountMenu from './UserAccountMenu.vue'
-import { isDensityPreference, isThemePreference, resolveThemePreference, usePreference } from '../../app/preference'
+import { usePreference } from '../../app/preference'
 import { requestCommandPalette } from '../../app/shortcuts'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 
@@ -65,23 +63,12 @@ let scopeSynchronizationVersion = 0
 const signingOut = ref(false)
 const signOutError = ref<string | null>(null)
 const railCollapsed = usePreference('cs.pref.device.rail-collapsed.v1', false, { version: 1 })
-const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
-const densityPreference = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
 const railCollapsedValue = computed(() => railCollapsed.value.value)
-const darkTheme = ref(typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark')
-const isDarkTheme = computed(() => darkTheme.value)
 const mobileNavOpen = ref(false)
 const mobileNav = useTemplateRef<HTMLElement>('mobileNav')
 const mobileNavToggle = useTemplateRef<HTMLButtonElement>('mobileNavToggle')
 const mobileTouchStartX = ref<number | null>(null)
 useFocusTrap(mobileNav, mobileNavOpen)
-
-function onPreferenceChange(event: Event): void {
-  const detail = (event as CustomEvent<{ key?: string, value?: unknown }>).detail
-  if (detail?.key === 'cs.pref.device.theme.v1' && isThemePreference(detail.value)) themePreference.value.value = detail.value
-  if (detail?.key === 'cs.pref.device.density.v1' && isDensityPreference(detail.value)) densityPreference.value.value = detail.value
-}
-if (typeof window !== 'undefined') window.addEventListener('crewscope:preference-change', onPreferenceChange)
 
 const navigationGroups = [
   { label: '工作', items: [
@@ -112,20 +99,12 @@ const visibleNavigationGroups = computed(() => navigationGroups.map(group => ({
 })).filter(group => group.items.length > 0))
 const navigationTarget = (name: string): RouteLocationRaw => ({ name, query: route.query })
 
-function toggleTheme(): void {
-  const next = themePreference.value.value === 'system' ? 'light' : themePreference.value.value === 'light' ? 'dark' : 'system'
-  themePreference.value.value = next
-  const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-  const resolved = resolveThemePreference(next, systemDark)
-  document.documentElement.dataset.theme = resolved
-  darkTheme.value = resolved === 'dark'
-}
-
-function toggleDensity(): void { densityPreference.value.value = densityPreference.value.value === 'comfortable' ? 'compact' : 'comfortable' }
-function themeLabel(): string { return themePreference.value.value === 'system' ? '跟随系统' : themePreference.value.value === 'dark' ? '深色' : '浅色' }
-
 watch(
-  () => [route.query.team, route.query.project] as const,
+  // Multi-source form: Vue compares array-getter results by identity, so any query change
+  // (a filter, a sort key) would re-run this watcher and flash the whole page through
+  // scopeStore's 'loading' phase. Watching the two values as separate sources keeps the
+  // scope restoration tied to the team/project actually changing.
+  [() => route.query.team, () => route.query.project] as const,
   async ([team, project]) => {
     if (!scopeStore || !canReadScope.value) return
     const synchronizationVersion = ++scopeSynchronizationVersion
@@ -176,7 +155,10 @@ watch(
         delete nextQuery.projection
         delete nextQuery.recovery
       }
-      await router.replace({ query: nextQuery })
+      // URL 规范化是尽力而为：与成员自己的导航并发时 vue-router 会拒绝这次 replace
+      // （被更新的目标取代；目标是未命名路由时 resolve 直接同步抛出）。Scope 事实此刻
+      // 已经同步，下一次路由变化会重新对齐 —— 捕获掉，不让竞态变成未处理的拒绝。
+      try { await router.replace({ query: nextQuery }) } catch { /* 竞态下的规范化放弃 */ }
     }
   },
   { immediate: true },
@@ -199,13 +181,8 @@ function onGlobalKeydown(event: KeyboardEvent): void {
 if (typeof window !== 'undefined') window.addEventListener('keydown', onGlobalKeydown)
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
-  window.removeEventListener('crewscope:preference-change', onPreferenceChange)
 })
 watch(mobileNavOpen, async open => { if (open) await nextTick(() => mobileNav.value?.focus()) })
-watch(themePreference.value, value => {
-  const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-  darkTheme.value = resolveThemePreference(value, systemDark) === 'dark'
-})
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -240,7 +217,7 @@ async function signOut(): Promise<void> {
   <div class="app-shell" :class="{ 'app-shell--collapsed': railCollapsedValue }">
     <a class="skip-link" href="#main-workspace">跳到主要内容</a>
     <aside class="app-shell__rail" aria-label="主导航">
-      <RouterLink class="brand" :to="modeTarget('conversation')" aria-label="CrewScope 首页">
+      <RouterLink class="brand" :to="modeTarget('today')" aria-label="CrewScope 首页">
         <img :src="crewScopeMark" alt="" width="34" height="34">
         <span>CrewScope<small>Team execution</small></span>
       </RouterLink>
@@ -288,8 +265,6 @@ async function signOut(): Promise<void> {
         <button class="command-search" type="button" aria-label="打开命令面板，搜索工作、成员或 Agent" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" @click="requestCommandPalette()">
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
-        <button class="icon-button" type="button" :aria-label="`主题：${themeLabel()}，点击切换`" @click="toggleTheme"><Sun v-if="isDarkTheme" :size="18" /><Moon v-else :size="18" /></button>
-        <button class="density-button" type="button" :aria-label="`密度：${densityPreference.value.value === 'comfortable' ? '舒适' : '紧凑'}，点击切换`" @click="toggleDensity">{{ densityPreference.value.value === 'comfortable' ? '舒适' : '紧凑' }}</button>
         <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
         <UserAccountMenu
           class="mobile-profile"
@@ -326,9 +301,10 @@ async function signOut(): Promise<void> {
       </aside>
     </div>
 
-    <nav class="mobile-mode" aria-label="移动端工作模式">
-      <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined"><MessageSquare :size="18" />对话</RouterLink>
-      <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')" :aria-current="activeMode === 'control' ? 'page' : undefined"><LayoutDashboard :size="18" />工作台</RouterLink>
+    <nav class="mobile-mode" aria-label="移动端底部导航">
+      <RouterLink :class="{ active: activeSection === 'today' }" :to="modeTarget('today')" :aria-current="activeSection === 'today' ? 'page' : undefined"><CalendarDays :size="18" />今日</RouterLink>
+      <RouterLink :class="{ active: activeSection === 'work' }" :to="navigationTarget('work')" :aria-current="activeSection === 'work' ? 'page' : undefined"><BriefcaseBusiness :size="18" />工作</RouterLink>
+      <RouterLink :class="{ active: activeSection === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeSection === 'conversation' ? 'page' : undefined"><MessageSquare :size="18" />对话</RouterLink>
     </nav>
   </div>
 </template>
@@ -362,14 +338,16 @@ async function signOut(): Promise<void> {
 .app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span { display: none; }
 .app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
 .app-shell--collapsed .rail-collapse { align-self: center; }
-.topbar { position: relative; z-index: var(--cs-z-sticky); display: grid; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto auto; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: 0 var(--cs-space-24); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); backdrop-filter: blur(12px); }
+/* flex-shrink:0：fill 模式的列布局里，固定高度的 chrome 不参与内容溢出的分摊（L03 合同
+   「chrome 保持自然高度，workspace 接收剩余视口」）。实测去掉顶栏按钮后内容基线变化，
+   58px 的 topbar 一度被压到 42px，整页纵向链全部位移。 */
+.topbar { position: relative; z-index: var(--cs-z-sticky); display: grid; flex-shrink: 0; height: 58px; grid-template-columns: auto minmax(240px, 440px) auto; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: 0 var(--cs-space-24); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); backdrop-filter: blur(12px); }
 .mode-switcher { display: flex; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface-subtle); }
 .mode-switcher a { display: flex; min-height: 31px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border-radius: 7px; color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .mode-switcher a.active { background: var(--cs-surface); box-shadow: var(--cs-shadow-hairline); color: var(--cs-text); }
 .command-search { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 34px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }
 .command-search kbd { display: flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-2) var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 5px; background: var(--cs-surface); font: var(--cs-text-xs) var(--cs-font-sans); }
 .icon-button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); flex: 0 0 var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
-.density-button { min-height: 30px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }
 .context-header { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-16) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
@@ -393,19 +371,24 @@ async function signOut(): Promise<void> {
   .rail-profile :deep(.user-menu__identity), .rail-profile :deep(.user-menu__trigger > svg) { display: none; }
 }
 @media (max-width: 767px) {
-  .app-shell__rail, .mode-switcher, .command-search { display: none; }
+  .app-shell__rail, .mode-switcher { display: none; }
+  /*
+   * 手机顶栏（L02）：导航开关 / 范围 / 搜索 / 通知。搜索不再整块隐藏，而是收成图标按钮
+   * 打开命令面板——触屏没有 Meta+K，这个图标是唯一的入口。
+   */
+  .command-search { grid-template-columns: 18px; width: var(--cs-touch-min); min-height: var(--cs-touch-min); justify-items: center; flex: 0 0 auto; }
+  .command-search span, .command-search kbd { display: none; }
   .mobile-menu-toggle { display: grid !important; }
   .app-shell__body { margin-left: 0; padding-bottom: var(--cs-space-64); }
-  .topbar { height: 52px; grid-template-columns: minmax(0, 1fr) auto auto; justify-items: end; padding: 0 var(--cs-space-12); }
-  .topbar-scope { display: block; justify-self: start; max-width: calc(100vw - 70px); }
+  .topbar { height: 52px; grid-template-columns: auto minmax(0, 1fr) auto auto auto; justify-items: end; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); }
+  .topbar-scope { display: block; justify-self: stretch; min-width: 0; }
   .mobile-profile { display: block; }
-  .density-button { display: none; }
   .context-header { min-height: 72px; align-items: flex-start; padding: var(--cs-space-12) var(--cs-space-16); }
   .context-header h1 { font-size: var(--cs-text-lg); }
   .context-header { display: grid; grid-template-columns: 1fr; gap: var(--cs-space-12); }
   .context-header__actions { display: flex; flex-wrap: wrap; width: 100%; }
   .context-header__actions :deep(.base-button) { flex: 1 1 auto; }
-  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
   .mobile-mode a.active { color: var(--cs-text-brand); }
   .network-banner { min-height: 40px; padding-inline: var(--cs-space-12); font-size: var(--cs-text-xs); }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Archive,
+  ArchiveRestore,
   ArrowUpRight,
   BellRing,
   CheckCheck,
@@ -29,6 +30,9 @@ import {
   inboxItemTypes,
   inboxSourceStatuses,
   type Etagged,
+  type InboxBatchOutcome,
+  type InboxBatchReport,
+  type InboxBatchStatus,
   type InboxCounts,
   type InboxDispositionStatus,
   type InboxItem,
@@ -40,10 +44,10 @@ import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import { RouterLink } from 'vue-router'
 import { permissions } from '../../app/auth'
-import { formatAbsoluteTime, formatRelativeTime } from '../../composables/useRelativeTime'
-import BaseTooltip from '../base/BaseTooltip.vue'
+import RelativeTime from '../base/RelativeTime.vue'
 import { useListSort } from '../../composables/useListSort'
 import { useSelection } from '../../composables/useSelection'
+import { useConfirm } from '../../composables/useConfirm'
 
 const props = defineProps<{
   phase: TeamOpsPhase
@@ -54,6 +58,8 @@ const props = defineProps<{
   nextCursor: string | null
   loadingMore: boolean
   error: TeamOpsErrorState | null
+  /** When the offline panel shows, how stale the readable facts are (R25「最近同步于」). */
+  lastSyncedAt?: string | null
   selectedItemId: string | null
   detailPhase: TeamOpsPhase
   detail: Etagged<InboxItem> | null
@@ -65,6 +71,7 @@ const props = defineProps<{
   sourceStatus: InboxSourceStatus
   dispositionStatus: InboxDispositionStatus | 'ALL'
   online: boolean
+  batchReport: InboxBatchReport | null
 }>()
 
 const emit = defineEmits<{
@@ -75,10 +82,12 @@ const emit = defineEmits<{
   changeDispositionStatus: [value: InboxDispositionStatus | 'ALL']
   retry: []
   retryDetail: [itemId: string]
+  retryTarget: [itemId: string]
   loadMore: []
   openTarget: [itemId: string]
-  changeDisposition: [itemId: string, status: Exclude<InboxDispositionStatus, 'UNREAD'>]
-  batchDisposition: [itemIds: string[], status: Exclude<InboxDispositionStatus, 'UNREAD'>]
+  changeDisposition: [itemId: string, status: InboxDispositionStatus]
+  batchDisposition: [itemIds: string[], status: InboxBatchStatus]
+  dismissBatchReport: []
 }>()
 
 const detailHeading = useTemplateRef<HTMLElement>('detailHeading')
@@ -127,11 +136,12 @@ function count(type: InboxItemType): { total: number, unread: number } {
   return props.counts?.byType[type] ?? { total: 0, unread: 0 }
 }
 
-function allowedActions(status: InboxDispositionStatus): Array<Exclude<InboxDispositionStatus, 'UNREAD'>> {
+/** Contract §5.1: every disposition is reversible; ARCHIVED only steps back to READ first. */
+function allowedActions(status: InboxDispositionStatus): InboxDispositionStatus[] {
   if (status === 'UNREAD') return ['READ', 'ACTED', 'ARCHIVED']
-  if (status === 'READ') return ['ACTED', 'ARCHIVED']
-  if (status === 'ACTED') return ['ARCHIVED']
-  return []
+  if (status === 'READ') return ['ACTED', 'ARCHIVED', 'UNREAD']
+  if (status === 'ACTED') return ['ARCHIVED', 'UNREAD']
+  return ['READ', 'UNREAD']
 }
 
 function dateTime(value: string): string {
@@ -164,9 +174,64 @@ function label(value: string | null | undefined, labels: Record<string, string>)
   return enumLabel(value, labels)
 }
 
-function actionLabel(status: Exclude<InboxDispositionStatus, 'UNREAD'>): string {
-  return ({ READ: '标记已读', ACTED: '标记已处理', ARCHIVED: '归档' } as const)[status]
+/** The same target reads differently from an archive: it steps back out first (contract §5.1). */
+function actionLabel(action: InboxDispositionStatus, current: InboxDispositionStatus): string {
+  if (action === 'READ') return current === 'ARCHIVED' ? '恢复（回到已读）' : '标记已读'
+  if (action === 'ACTED') return '标记已处理'
+  if (action === 'ARCHIVED') return '归档'
+  return current === 'ARCHIVED' ? '恢复并标为未读' : '标为未读'
 }
+
+const { confirm } = useConfirm()
+
+/** Archiving stays reversible (R26): the dialog explains the archive view, it never warns of loss. */
+async function requestDisposition(itemId: string, action: InboxDispositionStatus): Promise<void> {
+  if (action === 'ARCHIVED') {
+    const agreed = await confirm({
+      title: '归档这条 Inbox',
+      description: '归档只影响你自己的 Inbox 视图；之后可以从「归档」筛选恢复，来源事实保持独立。',
+      confirmLabel: '归档',
+      cancelLabel: '取消',
+      danger: false,
+    })
+    if (!agreed) return
+  }
+  emit('changeDisposition', itemId, action)
+}
+
+async function requestBatchDisposition(itemIds: string[], status: InboxBatchStatus): Promise<void> {
+  if (status === 'ARCHIVED') {
+    const agreed = await confirm({
+      title: `归档选中的 ${itemIds.length} 项`,
+      description: '归档只影响你自己的 Inbox 视图；之后可以从「归档」筛选逐项恢复，来源事实保持独立。',
+      confirmLabel: '归档',
+      cancelLabel: '取消',
+      danger: false,
+    })
+    if (!agreed) return
+  }
+  emit('batchDisposition', itemIds, status)
+}
+
+const batchOutcomePresentation: Record<InboxBatchOutcome, { label: string, tone: 'success' | 'danger' | 'warning' | 'neutral' }> = {
+  success: { label: '成功', tone: 'success' },
+  rejected: { label: '已拒绝', tone: 'danger' },
+  conflict: { label: '版本冲突', tone: 'warning' },
+  unknown: { label: '结果未知', tone: 'neutral' },
+}
+const batchSummary = computed(() => {
+  const report = props.batchReport
+  if (!report) return ''
+  const tally = new Map<InboxBatchOutcome, number>()
+  for (const entry of report.results) tally.set(entry.outcome, (tally.get(entry.outcome) ?? 0) + 1)
+  const tallyOrder: InboxBatchOutcome[] = ['success', 'rejected', 'conflict', 'unknown']
+  return report.results.length + ' 项：' + tallyOrder.filter(outcome => tally.has(outcome)).map(outcome => `${batchOutcomePresentation[outcome].label} ${tally.get(outcome)}`).join(' · ')
+})
+/** Switching filters clears the selection, but a finished batch's own snapshot stays (contract §4.5). */
+watch(
+  () => [props.itemType, props.sourceStatus, props.dispositionStatus] as const,
+  () => selection.clear(),
+)
 
 const typePresentation: Record<InboxItemType | 'ALL', { label: string, description: string }> = {
   ALL: { label: '全部', description: '汇总当前成员需要处理的全部事实' },
@@ -220,9 +285,27 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
     </section>
     <div v-if="selectedCount" class="selection-actions" role="toolbar" aria-label="批量处置">
       <span>已选 {{ selectedCount }} 项（跨页保留）</span>
-      <BaseButton variant="secondary" size="small" :disabled="!online" @click="emit('batchDisposition', selectedIdList(), 'READ')">批量标记已读</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="!online" @click="requestBatchDisposition(selectedIdList(), 'READ')">批量标记已读</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="!online" @click="requestBatchDisposition(selectedIdList(), 'ACTED')">批量标记已处理</BaseButton>
+      <BaseButton variant="ghost" size="small" :disabled="!online" @click="requestBatchDisposition(selectedIdList(), 'ARCHIVED')">批量归档</BaseButton>
       <BaseButton variant="ghost" size="small" @click="selection.clear">清除选择</BaseButton>
     </div>
+    <section v-if="batchReport" class="batch-report panel" aria-label="批量处置结果">
+      <header>
+        <div><strong>{{ batchReport.status === 'READ' ? '批量标记已读' : batchReport.status === 'ACTED' ? '批量标记已处理' : '批量归档' }}结果</strong><span>{{ batchSummary }}</span></div>
+        <button type="button" aria-label="关闭批量结果" @click="emit('dismissBatchReport')"><X :size="15" /></button>
+      </header>
+      <ul>
+        <li v-for="entry in batchReport.results" :key="entry.itemId">
+          <StatusBadge :tone="batchOutcomePresentation[entry.outcome].tone">{{ batchOutcomePresentation[entry.outcome].label }}</StatusBadge>
+          <span class="mono">{{ entry.itemId.slice(0, 8) }}</span>
+          <small>{{ entry.outcome === 'conflict' ? '处置版本已更新，回读列表后请基于当前状态重新确认。' : entry.outcome === 'unknown' ? '结果未知：先刷新确认本次结果，不要直接重试。' : entry.outcome === 'rejected' ? (entry.message ?? '命令被服务端拒绝。') : (entry.message ?? '处置已提交。') }}</small>
+        </li>
+      </ul>
+      <footer v-if="batchReport.results.some(entry => entry.outcome === 'conflict' || entry.outcome === 'unknown')">
+        <BaseButton variant="secondary" size="small" @click="emit('retry')">回读最新列表</BaseButton>
+      </footer>
+    </section>
 
     <div class="inbox-content" :class="{ 'has-detail': selectedItemId }">
       <section class="inbox-list panel" aria-label="Inbox 项目列表">
@@ -234,7 +317,9 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
         <StatePanel v-else-if="!hasItems" state="empty" :title="`${typePresentation[itemType].label}暂无项目`" description="当前筛选下没有需要展示的成员 Inbox 事实。"><template #action><BaseButton v-if="hasOptionalFilter" variant="secondary" size="small" @click="clearOptionalFilters">清除类型与处置筛选</BaseButton></template></StatePanel>
 
         <template v-else>
-          <StatePanel v-if="offline" compact state="offline" title="正在展示最近同步的 Inbox" description="离线期间处置命令保持关闭。" />
+          <StatePanel v-if="offline" compact state="offline" title="正在展示最近同步的 Inbox" description="离线期间处置命令保持关闭。">
+            <template v-if="lastSyncedAt" #description>离线期间处置命令保持关闭。最近同步于 <RelativeTime :value="lastSyncedAt" />。</template>
+          </StatePanel>
           <StatePanel v-else-if="cursorExpired" compact state="error" title="续页 Cursor 已过期" description="刷新首屏可进入当前投影代际。" @retry="emit('retry')" />
           <StatePanel v-else-if="hardError" compact state="error" :description="error?.message" @retry="emit('retry')" />
 
@@ -243,13 +328,13 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
               <article>
                 <header>
                   <div><input type="checkbox" :checked="selection.isSelected(item.inboxItemId)" :aria-label="`选择${typePresentation[item.itemType].label}`" @change="selection.toggle(item.inboxItemId)"><BellRing v-if="item.dispositionStatus === 'UNREAD'" :size="14" aria-label="未读" /><CheckCheck v-else :size="14" aria-hidden="true" /><strong>{{ typePresentation[item.itemType].label }}</strong></div>
-                  <BaseTooltip :text="formatAbsoluteTime(item.openedAt)"><time :datetime="item.openedAt">{{ formatRelativeTime(item.openedAt) }}</time></BaseTooltip>
+                  <RelativeTime :value="item.openedAt" />
                 </header>
                 <p>{{ label(item.source.type, inboxSourceTypeLabels) }} · revision {{ item.source.revision }}</p>
                 <div class="inbox-card__facts">
                   <StatusBadge :tone="priorityTone(item.priority)">{{ inboxPriorityLabels[item.priority] }}</StatusBadge>
                   <StatusBadge :tone="dispositionTone(item.dispositionStatus)">{{ dispositionLabel(item.dispositionStatus) }}</StatusBadge>
-                  <BaseTooltip v-if="item.deadline" :text="formatAbsoluteTime(item.deadline)"><span :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" />{{ formatRelativeTime(item.deadline) }}</span></BaseTooltip>
+                  <span v-if="item.deadline" :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.deadline" /></span>
                   <span v-else :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" />无截止时间</span>
                 </div>
                 <footer><span class="mono">{{ item.source.id.slice(0, 8) }}</span><button type="button" :aria-label="`查看 ${typePresentation[item.itemType].label} 详情`" @click="emit('select', item.inboxItemId)">查看详情<ChevronRight :size="13" aria-hidden="true" /></button></footer>
@@ -269,7 +354,7 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
         <template v-else-if="selected">
           <StatePanel v-if="commandForSelection?.phase === 'conflict'" compact state="conflict" title="处置版本已更新" description="详情已回读，请基于当前处置重新确认操作。" @retry="emit('retryDetail', selectedItemId)" />
           <StatePanel v-else-if="commandForSelection?.phase === 'error'" compact state="error" title="处置命令失败" :description="commandForSelection.error?.message" />
-          <StatePanel v-if="targetError" compact state="error" title="来源解析失败" :description="targetError.message" />
+          <StatePanel v-if="targetError" compact state="error" title="来源解析失败" :description="targetError.message" retry-label="重新加载来源" @retry="emit('retryTarget', selectedItemId)" />
 
           <section class="inbox-detail__hero">
             <div><StatusBadge :tone="priorityTone(selected.priority)">{{ inboxPriorityLabels[selected.priority] }}</StatusBadge><StatusBadge :tone="dispositionTone(selected.dispositionStatus)">{{ dispositionLabel(selected.dispositionStatus) }}</StatusBadge></div>
@@ -291,9 +376,9 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
           <section class="inbox-detail__source"><ShieldCheck :size="16" aria-hidden="true" /><div><strong>服务端授权来源</strong><span class="mono">{{ selected.source.id }}</span></div><BaseButton size="small" variant="secondary" :loading="targetPhase === 'loading'" :disabled="!online" @click="emit('openTarget', selectedItemId)">打开来源<ArrowUpRight :size="13" /></BaseButton></section>
 
           <section class="inbox-detail__actions">
-            <header><div><CircleAlert :size="15" aria-hidden="true" /><strong>我的处置</strong></div><span>强 ETag · 单调状态</span></header>
+            <header><div><CircleAlert :size="15" aria-hidden="true" /><strong>我的处置</strong></div><span>强 ETag · 可逆处置</span></header>
             <p>处置只影响当前成员的 Inbox 视图，来源业务事实保持独立。</p>
-            <div v-if="allowedActions(selected.dispositionStatus).length">
+            <div>
               <BaseButton
                 v-for="status in allowedActions(selected.dispositionStatus)"
                 :key="status"
@@ -301,10 +386,9 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
                 :variant="status === 'ARCHIVED' ? 'ghost' : status === 'ACTED' ? 'primary' : 'secondary'"
                 :loading="commandForSelection?.phase === 'pending' && commandForSelection.operation === 'inbox-disposition'"
                 :disabled="!online || commandForSelection?.phase === 'pending'"
-                @click="emit('changeDisposition', selectedItemId, status)"
-              ><Eye v-if="status === 'READ'" :size="13" /><CheckCheck v-else-if="status === 'ACTED'" :size="13" /><Archive v-else :size="13" />{{ actionLabel(status) }}</BaseButton>
+                @click="requestDisposition(selectedItemId, status)"
+              ><ArchiveRestore v-if="(status === 'READ' || status === 'UNREAD') && selected.dispositionStatus === 'ARCHIVED'" :size="13" /><Eye v-else-if="status === 'READ'" :size="13" /><CheckCheck v-else-if="status === 'ACTED'" :size="13" /><Archive v-else-if="status === 'ARCHIVED'" :size="13" /><BellRing v-else :size="13" />{{ actionLabel(status, selected.dispositionStatus) }}</BaseButton>
             </div>
-            <StatusBadge v-else tone="neutral">处置已归档</StatusBadge>
           </section>
         </template>
       </aside>
@@ -316,7 +400,8 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
 .inbox-workspace { display: grid; max-width: 1240px; gap: var(--cs-space-12); margin: 0 auto; }.inbox-overview { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20); }.inbox-overview > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 13px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.inbox-overview p, .inbox-detail > header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }.inbox-overview h2 { margin: var(--cs-space-2) 0; font-size: var(--cs-text-lg); }.inbox-overview small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .inbox-views { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--cs-space-8); }.inbox-views button { position: relative; display: grid; min-width: 0; min-height: 82px; align-content: center; gap: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-40) var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.inbox-views button:hover, .inbox-views button:focus-visible { border-color: var(--cs-border-accent-strong); }.inbox-views button.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 1px var(--cs-ring-brand); color: var(--cs-text-brand-strong); }.inbox-views span { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.inbox-views small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-tight); text-overflow: ellipsis; white-space: nowrap; }.inbox-views i { position: absolute; top: 11px; right: 10px; display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-mono); font-style: normal; }.inbox-views i b { position: absolute; top: -6px; right: -6px; display: grid; min-width: 15px; height: 15px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 8px; background: var(--cs-warning); color: var(--cs-text-on-semantic); font-size: var(--cs-text-xs); }
 .inbox-toolbar { display: grid; grid-template-columns: minmax(170px, 220px) minmax(170px, 220px) 1fr; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); }.inbox-toolbar label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.inbox-toolbar select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.inbox-toolbar > span { justify-self: end; padding-bottom: var(--cs-space-8); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
-.selection-actions { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
+.selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
+.batch-report { padding: var(--cs-space-12) var(--cs-space-16); }.batch-report > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); }.batch-report > header > div { display: grid; gap: var(--cs-space-2); }.batch-report > header strong { font-size: var(--cs-text-sm); }.batch-report > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.batch-report > header button { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); cursor: pointer; }.batch-report > ul { display: grid; gap: var(--cs-space-4); margin: var(--cs-space-8) 0 0; padding: 0; list-style: none; }.batch-report > ul > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }.batch-report > ul > li .mono { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.batch-report > ul > li small { flex-basis: 100%; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.batch-report > footer { display: flex; justify-content: flex-end; margin-top: var(--cs-space-8); }
 .inbox-content { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--cs-space-12); }.inbox-content.has-detail { grid-template-columns: minmax(0, 1fr) 355px; }.inbox-list { overflow: hidden; }.inbox-list > ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }.inbox-list > ol > li { border-bottom: 1px solid var(--cs-border); }.inbox-list > ol > li:last-child { border-bottom: 0; }.inbox-list > ol > li.selected { background: var(--cs-surface-accent); }.inbox-list > ol > li.unread { box-shadow: inset 3px 0 var(--cs-warning); }.inbox-list article { padding: var(--cs-space-16) var(--cs-space-16); }.inbox-list article > header, .inbox-list article > footer, .inbox-detail__actions > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.inbox-list article > header > div { display: flex; align-items: center; gap: var(--cs-space-8); }.inbox-list article > header svg { color: var(--cs-text-brand); }.inbox-list article > header strong { font-size: var(--cs-text-sm); }.inbox-list article > header time { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.inbox-list article > p { margin: var(--cs-space-8) 0 var(--cs-space-8); color: var(--cs-text-secondary); font: var(--cs-text-xs) var(--cs-font-mono); }.inbox-card__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }.inbox-card__facts > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.overdue { color: var(--cs-danger) !important; font-weight: var(--cs-weight-semibold); }.inbox-list article > footer { margin-top: var(--cs-space-12); }.inbox-list article > footer > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-list article > footer button { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border-radius: 7px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.inbox-list article > footer button:hover, .inbox-list article > footer button:focus-visible { background: var(--cs-surface-accent-strong); }.inbox-list > footer { display: flex; justify-content: center; padding: var(--cs-space-12); border-top: 1px solid var(--cs-border); }
 .inbox-detail { position: sticky; top: 12px; overflow: hidden; }.inbox-detail > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.inbox-detail > header h2 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-md); }.inbox-detail > header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.inbox-detail__hero { padding: var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.inbox-detail__hero > div { display: flex; gap: var(--cs-space-8); }.inbox-detail__hero h3 { margin: var(--cs-space-12) 0 var(--cs-space-4); font-size: var(--cs-text-md); }.inbox-detail__hero p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-detail > dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-16); }.inbox-detail > dl > div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.inbox-detail dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.inbox-detail dd { overflow-wrap: anywhere; margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-xs); }.inbox-detail__source { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); }.inbox-detail__source > svg { color: var(--cs-text-brand); }.inbox-detail__source strong, .inbox-detail__source span { display: block; }.inbox-detail__source strong { font-size: var(--cs-text-xs); }.inbox-detail__source span { overflow: hidden; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.inbox-detail__actions { padding: var(--cs-space-16) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.inbox-detail__actions > header > div { display: flex; align-items: center; gap: var(--cs-space-4); }.inbox-detail__actions > header strong { font-size: var(--cs-text-sm); }.inbox-detail__actions > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-detail__actions > p { margin: var(--cs-space-8) 0 var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.inbox-detail__actions > div { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 @media (max-width: 980px) { .inbox-views { grid-template-columns: repeat(3, minmax(0, 1fr)); }.inbox-content.has-detail { grid-template-columns: minmax(0, 1fr) 330px; } }

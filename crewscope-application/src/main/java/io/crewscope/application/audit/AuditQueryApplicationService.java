@@ -1,13 +1,16 @@
 package io.crewscope.application.audit;
 
 import io.crewscope.application.team.TeamAccessContext;
+import io.crewscope.domain.audit.AuditEventId;
 import io.crewscope.domain.audit.AuditOutcome;
+import io.crewscope.domain.audit.AuditQueryEvent;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Authorized application boundary for Audit Explorer pages and bounded governance exports. */
@@ -113,6 +116,44 @@ public final class AuditQueryApplicationService {
                 required.scope().teamId(),
                 AuditOutcome.SUCCEEDED,
                 result.events().size(),
+                now);
+        return result;
+    }
+
+    /** Executes and audits one by-identifier point read; empty when nothing is visible. */
+    public Optional<AuditQueryEvent> queryEvent(
+            TeamAccessContext context,
+            UUID correlationId,
+            OrganizationId organizationId,
+            TeamId teamId,
+            AuditEventId eventId) {
+        Objects.requireNonNull(eventId, "eventId");
+        UtcTimestamp now = timeProvider.now();
+        Optional<AuditQueryEvent> result;
+        try {
+            authorization.requireRead(context, organizationId, teamId, now);
+            result = Objects.requireNonNull(
+                    queries.findEvent(organizationId, teamId, eventId),
+                    "AuditQueryPort.findEvent result");
+        } catch (RuntimeException failure) {
+            recordFailure(
+                    context,
+                    correlationId,
+                    AuditAccessRecord.Operation.QUERY,
+                    organizationId,
+                    teamId,
+                    failure,
+                    now);
+            throw failure;
+        }
+        record(
+                context,
+                correlationId,
+                AuditAccessRecord.Operation.QUERY,
+                organizationId,
+                teamId,
+                AuditOutcome.SUCCEEDED,
+                result.isPresent() ? 1 : 0,
                 now);
         return result;
     }

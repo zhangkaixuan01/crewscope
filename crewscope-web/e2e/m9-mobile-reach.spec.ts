@@ -58,6 +58,22 @@ for (const density of ['comfortable', 'compact'] as const) {
   })
 }
 
+test('窄屏顶栏保留搜索入口，触屏可以打开命令面板', async ({ page }) => {
+  await page.goto(`/today?team=${ids.team}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()
+
+  // L02：手机顶栏 = 导航/范围/搜索/通知。搜索收成图标，但命中区仍是触摸下限，且触屏没有
+  // Meta+K——这个图标是唯一入口，点了必须真开面板。
+  const search = page.locator('.command-search')
+  await expect(search).toBeVisible()
+  const box = await search.boundingBox()
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(TOUCH_MIN)
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(TOUCH_MIN)
+
+  await search.click()
+  await expect(page.getByRole('dialog', { name: '命令面板' })).toBeVisible()
+})
+
 test('窄屏下侧栏收起，主导航仍然到得了', async ({ page }) => {
   await page.goto(`/today?team=${ids.team}`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: '我的工作台' })).toBeVisible()

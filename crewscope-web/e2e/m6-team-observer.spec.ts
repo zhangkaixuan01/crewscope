@@ -65,13 +65,61 @@ test('keeps the authorized summary readable while all Agent and evidence calls a
   await context.setOffline(true)
   await expect(page.getByRole('heading', { name: '当前离线' })).toBeVisible()
   await expect(page.getByText('CRW-214 等待 Reviewer Agent 复核。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '刷新事实' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '重读本次结果' })).toBeDisabled()
   await expect(page.getByRole('button', { name: /打开进展证据/ })).toBeDisabled()
   await context.setOffline(false)
 })
 
-async function mockObserverApi(page: Page): Promise<{ invoke: number, resume: number, evidence: number, invocationIds: string[] }> {
-  const calls = { invoke: 0, resume: 0, evidence: 0, invocationIds: [] as string[] }
+// R38: a first failure carries no invocation id, so nothing can be resumed — the workspace says
+// so, points at configuration, and regenerating is honestly framed as a new invocation.
+test('recovers a first failure through regeneration and separates rereading from regenerating', async ({ page }) => {
+  const calls = await mockObserverApi(page, { failFirstInvoke: true })
+  await page.goto(`/team/observer?team=${ids.team}&project=${ids.project}`)
+
+  await page.getByRole('button', { name: '生成团队摘要' }).click()
+  await expect(page.getByText(/请勿当作重试/)).toBeVisible()
+  await expect(page.getByRole('link', { name: '检查配置' })).toHaveAttribute('href', `/setup?team=${ids.team}`)
+
+  await page.getByRole('button', { name: '重新生成摘要' }).click()
+  await expect(page.getByText('团队摘要已生成')).toBeVisible()
+  expect(calls.invoke).toBe(2)
+
+  await expect(page.getByText('消耗新的模型时间与用量')).toBeVisible()
+  await page.getByRole('button', { name: '重读本次结果' }).click()
+  await expect(page.getByText('团队摘要已生成')).toBeVisible()
+  expect(calls.summary).toBe(1)
+  expect(calls.invoke).toBe(2)
+
+  await page.getByRole('button', { name: '按最新重新生成' }).click()
+  await expect(page.getByText('团队摘要已生成')).toBeVisible()
+  expect(calls.invoke).toBe(3)
+})
+
+// R38: one failed evidence read stays beside its row; the summary survives and the row's own
+// button is the retry for exactly that entry.
+test('keeps one failed evidence row local without disturbing the summary', async ({ page }) => {
+  const calls = await mockObserverApi(page, { failEvidenceAttempts: 1 })
+  await page.goto(`/team/observer?team=${ids.team}&project=${ids.project}`)
+
+  await page.getByRole('button', { name: '生成团队摘要' }).click()
+  await expect(page.getByText('CRW-214 等待 Reviewer Agent 复核。')).toBeVisible()
+
+  await page.getByRole('button', { name: /打开进展证据/ }).click()
+  await expect(page.getByText('暂时无法打开这条证据')).toBeVisible()
+  await expect(page.getByText('团队摘要已生成')).toBeVisible()
+  await expect(page.getByText('CRW-214 等待 Reviewer Agent 复核。')).toBeVisible()
+
+  await page.getByRole('button', { name: /打开进展证据/ }).click()
+  await expect(page.getByText('暂时无法打开这条证据')).toBeHidden()
+  await expect(page).toHaveURL(new RegExp(`/activity\\?.*event=${ids.invocation}`))
+  expect(calls.evidence).toBe(2)
+})
+
+async function mockObserverApi(
+  page: Page,
+  options: { failFirstInvoke?: boolean, failEvidenceAttempts?: number } = {},
+): Promise<{ invoke: number, resume: number, evidence: number, summary: number, invocationIds: string[] }> {
+  const calls = { invoke: 0, resume: 0, evidence: 0, summary: 0, invocationIds: [] as string[] }
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -90,6 +138,10 @@ async function mockObserverApi(page: Page): Promise<{ invoke: number, resume: nu
     }
     if (request.method() === 'POST' && path.endsWith(`/sessions/${ids.session}/invocations`)) {
       calls.invoke += 1
+      if (options.failFirstInvoke && calls.invoke === 1) {
+        // A plain 5xx before any invocation header arrives: the client has no id to resume.
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'observer_unavailable', message: 'observer_unavailable', correlationId: ids.invocation, retryable: true, currentVersion: null, details: {} }) })
+      }
       expect(request.postDataJSON()).toEqual({ instruction: '总结当前团队进展、阻塞、Review、待确认事项和异常，并给出可核验的证据。', maxItemsPerSection: 10 })
       calls.invocationIds.push(ids.invocation)
       return sse(route, [observerEvent('STARTED', 0, null)], { 'X-CrewScope-Invocation-Id': ids.invocation })
@@ -103,8 +155,15 @@ async function mockObserverApi(page: Page): Promise<{ invoke: number, resume: nu
         'X-CrewScope-Stream-Resumed': 'true',
       })
     }
+    if (request.method() === 'GET' && path.endsWith(`/invocations/${ids.invocation}/summary`)) {
+      calls.summary += 1
+      return json(route, summary())
+    }
     if (request.method() === 'GET' && path.endsWith(`/evidence/0`)) {
       calls.evidence += 1
+      if (calls.evidence <= (options.failEvidenceAttempts ?? 0)) {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'evidence_unavailable', message: 'evidence_unavailable', correlationId: ids.invocation, retryable: true, currentVersion: null, details: {} }) })
+      }
       return json(route, { evidenceIndex: 0, section: 'PROGRESS', dataScope: 'TEAM_ACTIVITY', summary: '<script>window.promptAttack=true</script>', path: `/api/v1/organizations/${ids.organization}/teams/${ids.team}/activity/${ids.invocation}`, authorized: true })
     }
     if (request.method() === 'GET' && path.endsWith('/activity/snapshot')) {

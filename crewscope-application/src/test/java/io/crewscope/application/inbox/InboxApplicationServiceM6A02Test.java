@@ -17,7 +17,6 @@ import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
-import io.crewscope.domain.inbox.InboxDisposition;
 import io.crewscope.domain.inbox.InboxDispositionStatus;
 import io.crewscope.domain.inbox.InboxItem;
 import io.crewscope.domain.inbox.InboxItemId;
@@ -144,8 +143,8 @@ class InboxApplicationServiceM6A02Test {
                 return operation.get();
             }
         };
-        InboxDisposition disposition = mock(InboxDisposition.class);
-        when(disposition.version()).thenReturn(1L);
+        InboxDispositionOutcome disposition =
+                new InboxDispositionOutcome(InboxDispositionStatus.READ, 1);
         when(dispositionService.change(any(), any(), any(), any(), any()))
                 .thenReturn(disposition);
         when(receiptStore.findCompleted(any(), any(), any(), any()))

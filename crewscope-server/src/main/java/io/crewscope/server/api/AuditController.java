@@ -9,6 +9,8 @@ import io.crewscope.application.audit.AuditQuery;
 import io.crewscope.application.audit.AuditQueryApplicationService;
 import io.crewscope.application.audit.AuditQueryFilter;
 import io.crewscope.application.team.TeamAccessContext;
+import io.crewscope.domain.audit.AuditEventId;
+import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Optional;
@@ -99,6 +101,32 @@ public final class AuditController {
                 .map(page -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
                         .body(AuditPageResponse.from(page, codec)));
+    }
+
+    /** Deep link for one event: refreshes and new windows must land on the same fact. */
+    @GetMapping(path = "/{eventId}")
+    public Mono<ResponseEntity<AuditEventResponse>> event(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String eventId,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        AuditApiSupport.Route route = AuditApiSupport.route(organizationId, teamId);
+        AuditEventId id = AuditApiSupport.eventId(eventId);
+        UUID requestCorrelation = ApiCorrelationIds.resolve(exchange);
+        return identityResolver.resolve(authentication, route.organizationId(), requestCorrelation)
+                .flatMap(access -> blocking(() -> service.queryEvent(
+                        access,
+                        requestCorrelation,
+                        route.organizationId(),
+                        route.teamId(),
+                        id)))
+                .map(found -> found
+                        .map(event -> ResponseEntity.ok()
+                                .cacheControl(CacheControl.noStore())
+                                .body(AuditEventResponse.from(event)))
+                        .orElseThrow(() -> new AggregateNotFoundException(
+                                "AuditEvent", id)));
     }
 
     @PostMapping(path = "/export", produces = "application/vnd.crewscope.audit-export+json")

@@ -101,7 +101,7 @@ onUnmounted(cancelTimer)
       <p v-else-if="phase === 'error'" class="field-search__hint" role="status">
         <span>配置搜索暂时不可用。</span><button type="button" @click="retry">重试</button>
       </p>
-      <ul v-else-if="hits.length" class="field-search__results" aria-label="配置字段搜索结果">
+      <ul v-else-if="hits.length" class="field-search__results" aria-label="配置字段结果">
         <li v-for="hit in hits" :key="hit.key">
           <RouterLink :to="hit.to"><strong>{{ hit.label }}</strong><small>{{ hit.field }}</small></RouterLink>
         </li>
@@ -112,7 +112,10 @@ onUnmounted(cancelTimer)
 </template>
 
 <style scoped>
-.field-search { display: grid; gap: var(--cs-space-4); min-width: 0; }
+/*
+ * 结果区与分类导航分开滚动（L02）：命中多时这里自己滚，不把侧栏的分类链接推出视口。
+ */
+.field-search { display: grid; gap: var(--cs-space-4); min-width: 0; max-height: min(320px, 40vh); overflow-y: auto; overscroll-behavior: contain; }
 .field-search__hint { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; padding: var(--cs-space-4) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .field-search__hint button { padding: 0 var(--cs-space-4); border-radius: var(--cs-radius-sm); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-decoration: underline; cursor: pointer; }
 .field-search__results { display: grid; gap: var(--cs-space-2); margin: 0; padding: 0; list-style: none; }

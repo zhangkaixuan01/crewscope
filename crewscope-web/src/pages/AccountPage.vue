@@ -5,7 +5,7 @@ import { inject } from 'vue'
 import AccountWorkspace from '../components/account/AccountWorkspace.vue'
 import TeamNotificationPreferenceCard from '../components/account/TeamNotificationPreferenceCard.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import SettingsShell from '../components/settings/SettingsShell.vue'
+import SettingsShell, { type SettingsNavItem } from '../components/settings/SettingsShell.vue'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { offlineAccountProblem, type AccountProblem } from '../domains/account/presentation'
@@ -25,6 +25,16 @@ const sessionTeams = computed(() => authStore.state.session?.teams ?? [])
 const localProblem = ref<AccountProblem | null>(null)
 const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
 const densityPreference = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
+/*
+ * 账号页自己的分区导航（L02）：账号不属于团队配置目录，左侧目录在这里只会把成员引去
+ * 别人的设置页；这里列的是本页可以跳到的账号分区。
+ */
+const accountNav: SettingsNavItem[] = [
+  { key: 'profile', label: '个人资料', route: '/account#profile' },
+  { key: 'security', label: '密码与安全', route: '/account#security' },
+  { key: 'sessions', label: '登录会话', route: '/account#sessions' },
+  { key: 'notifications', label: '通知偏好', route: '/account#notifications' },
+]
 
 onMounted(() => accountStore.load())
 onBeforeUnmount(() => accountStore.reset())
@@ -79,7 +89,7 @@ function commandCsrf() {
 </script>
 
 <template>
-  <SettingsShell eyebrow="账号 · 身份安全" title="账号设置">
+  <SettingsShell eyebrow="账号 · 身份安全" title="账号设置" :items="accountNav">
     <template #actions>
       <label class="preference-control">主题<select v-model="themePreference.value.value"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <label class="preference-control">密度<select v-model="densityPreference.value.value"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
@@ -109,5 +119,5 @@ function commandCsrf() {
 
 <style scoped>
 .preference-control { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.preference-control select { min-height: 32px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
+.preference-control select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 </style>

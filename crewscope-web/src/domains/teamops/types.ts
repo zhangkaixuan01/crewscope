@@ -81,6 +81,19 @@ export const inboxSourceStatuses = ['OPEN', 'CLOSED'] as const
 export type InboxSourceStatus = typeof inboxSourceStatuses[number]
 export const inboxDispositionStatuses = ['UNREAD', 'READ', 'ACTED', 'ARCHIVED'] as const
 export type InboxDispositionStatus = typeof inboxDispositionStatuses[number]
+/** Batch commands only carry the forward statuses; unmarking stays a per-item review action. */
+export type InboxBatchStatus = Exclude<InboxDispositionStatus, 'UNREAD'>
+export type InboxBatchOutcome = 'success' | 'rejected' | 'conflict' | 'unknown'
+export interface InboxBatchEntryResult {
+  itemId: string
+  outcome: InboxBatchOutcome
+  message: string | null
+}
+/** One batch's own frozen snapshot: switching filters clears the selection, never this report. */
+export interface InboxBatchReport {
+  status: InboxBatchStatus
+  results: InboxBatchEntryResult[]
+}
 export const inboxSourceTypes = ['RESPONSIBILITY_ASSIGNMENT', 'REVIEW_REQUEST', 'ACTION_CONFIRMATION', 'TASK_EXECUTION', 'ACTION_DELIVERY', 'NOTIFICATION_DELIVERY'] as const
 export type InboxSourceType = typeof inboxSourceTypes[number]
 export const inboxCloseReasons = [

@@ -76,6 +76,7 @@ export interface TeamOpsStoreState {
   inboxDetails: Record<string, TeamOpsResource<Etagged<InboxItem>>>
   inboxTargets: Record<string, TeamOpsResource<InboxTarget>>
   audit: TeamOpsCursorResource<AuditEvent>
+  auditEventDetails: Record<string, TeamOpsResource<AuditEvent | null>>
   auditExport: TeamOpsResource<AuditExport>
   correlations: Record<string, TeamOpsCorrelationResource>
   larkConnections: TeamOpsResource<LarkConnection[]>
@@ -105,6 +106,7 @@ export interface TeamOpsStore {
   loadInboxTarget(itemId: string, force?: boolean): Promise<void>
   changeInboxDisposition(itemId: string, status: string, idempotencyKey: string): Promise<boolean>
   loadAudit(filter?: AuditFilter, more?: boolean, force?: boolean): Promise<void>
+  loadAuditEvent(eventId: string, force?: boolean): Promise<void>
   exportAudit(filter: AuditFilter, maximumRows: number): Promise<void>
   loadCorrelation(correlationId: string, more?: boolean, force?: boolean): Promise<void>
   loadLarkConnections(force?: boolean): Promise<void>
@@ -280,6 +282,15 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   async function exportAudit(filter: AuditFilter, maximumRows: number): Promise<void> {
     state.auditExport = resource<AuditExport>()
     await loadResource('audit-export', state.auditExport, true, signal => gateway.exportAudit(requireScope(), filter, maximumRows, signal), '暂时无法导出审计记录')
+  }
+
+  /** Deep-link point read: null is a stable result (the event simply is not visible here). */
+  async function loadAuditEvent(eventId: string, force = false): Promise<void> {
+    const scope = requireScope()
+    if (!state.auditEventDetails[eventId]) state.auditEventDetails[eventId] = resource<AuditEvent | null>()
+    const target = state.auditEventDetails[eventId]!
+    if (!force && (target.phase === 'ready' || target.phase === 'empty')) return
+    await loadResource(`audit-event:${eventId}`, target, true, signal => gateway.auditEvent(scope, eventId, signal), '暂时无法读取这条审计事实')
   }
 
   async function loadCorrelation(correlationId: string, more = false, force = false): Promise<void> {
@@ -633,6 +644,7 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
     loadInboxTarget,
     changeInboxDisposition,
     loadAudit,
+    loadAuditEvent,
     exportAudit,
     loadCorrelation,
     loadLarkConnections,
@@ -683,6 +695,7 @@ function initialState(): TeamOpsStoreState {
     inboxDetails: {},
     inboxTargets: {},
     audit: cursorResource<AuditEvent>(),
+    auditEventDetails: {},
     auditExport: resource<AuditExport>(),
     correlations: {},
     larkConnections: resource<LarkConnection[]>(),

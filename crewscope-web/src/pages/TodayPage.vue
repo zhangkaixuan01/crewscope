@@ -7,12 +7,13 @@ import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
 import { useRouteIntent } from '../composables/useRouteIntent'
 import { useBoardDrag } from '../composables/useBoardDrag'
-import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
 import BaseButton from '../components/base/BaseButton.vue'
 import BaseSkeleton from '../components/base/BaseSkeleton.vue'
-import BaseTooltip from '../components/base/BaseTooltip.vue'
+import RelativeTime from '../components/base/RelativeTime.vue'
 import WorkDeskBoardCard from '../components/domain/WorkDeskBoardCard.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
+import PinnedProjects from '../components/domain/PinnedProjects.vue'
+import SavedViewsControl from '../components/domain/SavedViewsControl.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
@@ -22,6 +23,17 @@ import { WORKDESK_STORE, type WorkDeskStore } from '../domains/workdesk/store'
 import { useWorkItemStore } from '../domains/workitem/store'
 import { useUndoOffer } from '../domains/workitem/useUndoOffer'
 import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
+import {
+  captureFilters,
+  listViews,
+  resolveEntryView,
+  todayFilterKeys,
+  viewFilters,
+  viewQuery,
+  type SavedViewFilters,
+  type SavedViewOwner,
+} from '../domains/views/savedViews'
+import type { F05SavedView } from '../app/f05Storage'
 import { allowedWorkItemTransitions, workItemStatuses, type WorkItemStatus } from '../domains/workitem/types'
 import { workItemStatusLabels } from '../domains/workitem/labels'
 import {
@@ -58,7 +70,7 @@ const team = scopeStore.selectedTeam
 const project = scopeStore.selectedProject
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const canParticipate = computed(() => Boolean(principal && can(principal, permissions.workParticipate)))
-const isOnline = useNetworkStatus()
+const online = useNetworkStatus()
 const toast = useToast()
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 // Setup 的 WORKPROJECT 缺口深链到这里：一次性消费 intent=create-project 打开创建表单。
@@ -94,6 +106,51 @@ const workDeskFilter = computed(() => ({
   onlyNeedsAction: deskOnlyAction.value,
 }))
 
+// --- R41 saved views: this member's desk definitions, on this machine only --------------
+
+const savedViewsOwner = computed<SavedViewOwner | null>(() => {
+  const teamId = scopeStore.state.selectedTeamId
+  return principal && principal.accountId && teamId
+    ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId }
+    : null
+})
+const committedDeskFilters = computed<SavedViewFilters>(() => captureFilters(route.query, todayFilterKeys))
+
+/** Applies a saved definition (or the 「默认」 reset) by rewriting the desk filter keys. */
+function applySavedView(target: F05SavedView | null): void {
+  void router.replace({ query: viewQuery(route.query, target, todayFilterKeys) })
+}
+
+let entryViewHandled = false
+let entryViewTeam: string | null = null
+/**
+ * The stored default applies once on entry, before the first desk load, and only while the URL
+ * carries no desk filter of its own — an explicit link always beats a local preference (契约 §4.6).
+ * Switching Team reuses this component; each Team's namespace gets its own entry pass.
+ */
+function entryDeskFilter(): { projectId: string | null, responsibilityRole: WorkDeskResponsibilityRole | null, onlyNeedsAction: boolean } {
+  const ownerTeam = savedViewsOwner.value?.teamId ?? null
+  if (entryViewTeam !== ownerTeam) {
+    entryViewTeam = ownerTeam
+    entryViewHandled = false
+  }
+  if (entryViewHandled) return workDeskFilter.value
+  entryViewHandled = true
+  const owner = savedViewsOwner.value
+  const view = owner ? resolveEntryView(route.query, todayFilterKeys, listViews(owner, 'today')) : null
+  if (!view) return workDeskFilter.value
+  const filters = viewFilters(view, todayFilterKeys)
+  void router.replace({ query: viewQuery(route.query, view, todayFilterKeys) })
+  const role = filters.deskRole && workDeskResponsibilityRoles.includes(filters.deskRole as WorkDeskResponsibilityRole)
+    ? filters.deskRole as WorkDeskResponsibilityRole
+    : null
+  return {
+    projectId: filters.deskProject && filters.deskProject !== 'all' ? filters.deskProject : null,
+    responsibilityRole: role,
+    onlyNeedsAction: filters.deskAction === 'true',
+  }
+}
+
 const workDeskSections = computed(() => workDeskStore.state.summary?.sections ?? [])
 const sectionItems = (key: string): WorkDeskItem[] => workDeskSections.value.find(section => section.key === key)?.items ?? []
 /**
@@ -106,6 +163,27 @@ const sectionTotal = (key: string): number => {
 }
 const actionRequiredTotal = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].reduce((sum, key) => sum + sectionTotal(key), 0))
 const actionRequiredRows = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].flatMap(sectionItems))
+/** Whether one section still holds rows its loaded page does not — the desk's own continuation. */
+const sectionHasMore = (key: string): boolean =>
+  Boolean(workDeskSections.value.find(section => section.key === key)?.nextCursor)
+const deskLoading = ref(false)
+/**
+ * Unfolds every section behind one panel.
+ *
+ * A panel may merge several sections (需要处理 joins three); one press continues each of them in
+ * the panel's order, so the button's promise stays one press and the panel stays one summary.
+ */
+async function loadMoreDeskSections(keys: readonly string[]): Promise<void> {
+  if (!online.value || deskLoading.value) return
+  deskLoading.value = true
+  try {
+    for (const key of keys) {
+      if (sectionHasMore(key)) await workDeskStore.loadMore(key)
+    }
+  } finally {
+    deskLoading.value = false
+  }
+}
 const myWorkRows = computed(() => sectionItems('WORK_ITEM'))
 const executionRows = computed(() => sectionItems('TASK_EXECUTION'))
 const inboxRows = computed(() => sectionItems('INBOX'))
@@ -203,7 +281,7 @@ const rowsFor = (key: string): WorkDeskItem[] => myWorkRows.value.filter(row => 
  * available and does nothing is worse than one that is not offered, so the board locks instead and
  * says why.
  */
-const canDrag = computed(() => deskGrouping.value === 'status' && isOnline.value && canParticipate.value)
+const canDrag = computed(() => deskGrouping.value === 'status' && online.value && canParticipate.value)
 const boardDrag = useBoardDrag<WorkDeskItem, string>({
   columns: () => boardColumns.value.map(column => column.key),
   columnLabel,
@@ -329,7 +407,7 @@ watch(() => [scopeStore.state.selectedTeamId, team.value?.organizationId] as con
   }
   if (teamId && organizationId) {
     workDeskStore.activateScope({ organizationId, teamId })
-    void workDeskStore.load(workDeskFilter.value, true)
+    void workDeskStore.load(entryDeskFilter(), true)
   }
 }, { immediate: true })
 
@@ -387,10 +465,19 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           <label>项目<select :value="deskProject" @change="updateDeskQuery('deskProject', ($event.target as HTMLSelectElement).value)"><option value="all">全部项目</option><option v-for="item in scopeStore.state.projects" :key="item.id" :value="item.id">{{ item.key }} · {{ item.name }}</option></select></label>
           <label>责任角色<select :value="deskRole" @change="updateDeskQuery('deskRole', ($event.target as HTMLSelectElement).value)"><option value="all">全部角色</option><option v-for="role in workDeskResponsibilityRoles" :key="role" :value="role">{{ workDeskResponsibilityRoleLabels[role] }}</option></select></label>
           <label class="desk-check"><input type="checkbox" :checked="deskOnlyAction" @change="updateDeskQuery('deskAction', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"> 仅看需要我行动</label>
-          <BaseTooltip v-if="workDeskStore.state.summary" :text="formatAbsoluteTime(new Date(workDeskStore.state.summary.generatedAt))">
-            <small class="desk-updated" :aria-busy="refreshing">{{ refreshing ? '正在刷新' : `更新于 ${formatRelativeTime(new Date(workDeskStore.state.summary.generatedAt))}` }}</small>
-          </BaseTooltip>
+          <SavedViewsControl route-name="today" :filters="committedDeskFilters" :owner="savedViewsOwner" @apply="applySavedView" />
+          <small v-if="workDeskStore.state.summary" class="desk-updated" :aria-busy="refreshing">
+            <template v-if="refreshing">正在刷新</template>
+            <template v-else>更新于 <RelativeTime :value="new Date(workDeskStore.state.summary.generatedAt)" /></template>
+          </small>
         </div>
+        <PinnedProjects
+          class="today-pins"
+          :owner="savedViewsOwner"
+          :projects="scopeStore.state.projects"
+          :active-project-id="deskProject === 'all' ? null : deskProject"
+          @select="projectId => updateDeskQuery('deskProject', projectId)"
+        />
       </header>
 
       <StatePanel v-if="firstLoad" state="loading" compact title="正在汇总你的工作" description="正在从各个 WorkProject 读取责任、决策与执行事实。" />
@@ -453,7 +540,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             >
               <span class="desk-row__main">
                 <strong>{{ deskTitle(item) }}</strong>
-                <small>{{ enumLabel(item.objectType, workDeskObjectTypeLabels) }} · {{ roleLabel(item.responsibilityRole) }} · {{ formatRelativeTime(new Date(item.updatedAt)) }}</small>
+                <small>{{ enumLabel(item.objectType, workDeskObjectTypeLabels) }} · {{ roleLabel(item.responsibilityRole) }} · <RelativeTime :value="item.updatedAt" /></small>
               </span>
               <span class="desk-row__badges">
                 <span class="desk-row__status">{{ workDeskStatusLabel(item) }}</span>
@@ -465,6 +552,9 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           <!-- A row here can be a WorkItem the member must move; that is what the board below is
                for, and saying so avoids the reader hunting for an action that lives one screen down. -->
           <p v-if="actionRequiredRows.some(canExecute)" class="desk-hint">阻塞的工作项可以直接在下面的看板上推进；决策类事项需要进入对应页面处理。</p>
+          <div v-if="['HUMAN_GATE', 'REVIEW', 'BLOCKED'].some(sectionHasMore)" class="desk-more">
+            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])">加载更多需要处理的事项</BaseButton>
+          </div>
         </section>
 
         <section class="my-work panel" aria-labelledby="my-work-title">
@@ -520,10 +610,13 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           </div>
           <p class="desk-hint" :class="{ 'desk-hint--warn': !canDrag }">
             <template v-if="deskGrouping === 'role'">按责任角色分组时不能拖动：把卡片放到某个角色列意味着改派责任，这是另一条命令，本站不在这块看板上发起。切回「按状态」即可拖动改状态。</template>
-            <template v-else-if="!isOnline">当前离线，拖动已停用；联网后可以继续改状态。</template>
+            <template v-else-if="!online">当前离线，拖动已停用；联网后可以继续改状态。</template>
             <template v-else-if="!canParticipate">当前身份没有推进工作项的权限，卡片上的动作由服务端判定后可能仍不可用。</template>
             <template v-else>拖动卡片，或聚焦卡片后按空格拾起、方向键选列、Enter 放下，都可以改状态。</template>
           </p>
+          <div v-if="sectionHasMore('WORK_ITEM')" class="desk-more">
+            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['WORK_ITEM'])">加载更多工作项</BaseButton>
+          </div>
         </section>
 
         <div class="today-columns">
@@ -534,12 +627,15 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             </div>
             <div v-if="executionRows.length" class="desk-list">
               <button v-for="item in executionRows" :key="item.objectId" type="button" class="desk-row" @click="openItem(item)">
-                <span class="desk-row__main"><strong>{{ deskTitle(item) }}</strong><small>{{ formatRelativeTime(new Date(item.updatedAt)) }}更新</small></span>
+                <span class="desk-row__main"><strong>{{ deskTitle(item) }}</strong><small><RelativeTime :value="item.updatedAt" />更新</small></span>
                 <span class="desk-row__status" :class="`desk-row__status--${executionTone(item.status)}`">{{ workDeskStatusLabel(item) }}</span>
                 <ArrowRight :size="14" aria-hidden="true" />
               </button>
             </div>
             <p v-else class="desk-inline-empty">当前没有进行中的执行。</p>
+            <div v-if="sectionHasMore('TASK_EXECUTION')" class="desk-more">
+              <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['TASK_EXECUTION'])">加载更多执行</BaseButton>
+            </div>
           </section>
 
           <section class="panel activity" aria-labelledby="today-activity-title">
@@ -550,12 +646,12 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
               <li v-for="item in todayRows" :key="`${item.objectType}:${item.objectId}`">
                 <button type="button" class="today-activity__link" @click="openItem(item)">
                   <span class="today-activity__title">{{ deskTitle(item) }}</span>
-                  <small>{{ workDeskStatusLabel(item) }} · {{ formatRelativeTime(new Date(item.updatedAt)) }}</small>
+                  <small>{{ workDeskStatusLabel(item) }} · <RelativeTime :value="item.updatedAt" /></small>
                 </button>
               </li>
             </ul>
             <p v-else class="desk-inline-empty">
-              今天还没有新的更新。<template v-if="latestUpdate">最近一次更新在 {{ formatRelativeTime(new Date(latestUpdate)) }}。</template>
+              今天还没有新的更新。<template v-if="latestUpdate">最近一次更新在 <RelativeTime :value="latestUpdate" />。</template>
             </p>
           </section>
         </div>
@@ -592,6 +688,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 .today-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding-top: var(--cs-space-8); }
 .today-head__summary { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin: var(--cs-space-4) 0 0; color: var(--cs-text); font-size: var(--cs-text-base); }
 .desk-filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }
+.today-pins { flex-basis: 100%; margin-top: calc(-1 * var(--cs-space-8)); }
 .desk-filters label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .desk-filters select { min-width: 160px; height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 .desk-check { display: flex !important; min-height: var(--cs-density-control-height); align-items: center; font-weight: var(--cs-weight-semibold) !important; }
@@ -628,6 +725,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 /* A column that would refuse the row dims, so the highlight is the only bright target. */
 .desk-board--locked .desk-column.drop-rejected, .desk-column.drop-rejected { opacity: .62; }
 .desk-hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.desk-more { display: flex; justify-content: center; margin-top: var(--cs-space-12); }
 .desk-hint--warn { color: var(--cs-warning); }
 .today-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-16); }
 .executions, .activity { display: grid; align-content: start; gap: var(--cs-space-12); }

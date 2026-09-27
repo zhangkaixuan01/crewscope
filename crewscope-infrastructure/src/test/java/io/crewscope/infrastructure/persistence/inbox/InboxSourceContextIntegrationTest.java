@@ -3,6 +3,7 @@ package io.crewscope.infrastructure.persistence.inbox;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.crewscope.application.inbox.InboxCounts;
 import io.crewscope.application.inbox.InboxFilter;
 import io.crewscope.application.inbox.InboxItemView;
 import io.crewscope.application.inbox.InboxPage;
@@ -216,6 +217,40 @@ class InboxSourceContextIntegrationTest
         assertEquals("新目标", after.taskObjective().orElseThrow());
         assertTrue(after.waitingOnDisplayName().isEmpty(),
                 "no active reviewer means nobody is named, not a stale snapshot");
+    }
+
+    /**
+     * The F04 unread count uses the COALESCE vocabulary of contract §5.1: a missing row and a
+     * persisted UNREAD row both count as unread, and an archive stays out of the totals.
+     */
+    @Test
+    void countsMissingRowsAndPersistedUnreadRowsAsUnread() {
+        seedInboxItem("EXCEPTION", "NOTIFICATION_DELIVERY", UUID.randomUUID(), 1);
+        UUID readRow = seedInboxItem("EXCEPTION", "NOTIFICATION_DELIVERY", UUID.randomUUID(), 2);
+        UUID unreadRow = seedInboxItem("EXCEPTION", "NOTIFICATION_DELIVERY", UUID.randomUUID(), 3);
+        UUID archivedRow = seedInboxItem("EXCEPTION", "NOTIFICATION_DELIVERY", UUID.randomUUID(), 4);
+        seedDisposition(readRow, "READ", 1);
+        seedDisposition(unreadRow, "UNREAD", 2);
+        seedDisposition(archivedRow, "ARCHIVED", 3);
+
+        InboxCounts counts = repository.countCurrent(organizationId, teamId, memberId);
+
+        assertEquals(3, counts.byType().get(io.crewscope.domain.inbox.InboxItemType.EXCEPTION).total());
+        assertEquals(2, counts.byType().get(io.crewscope.domain.inbox.InboxItemType.EXCEPTION).unread());
+    }
+
+    private void seedDisposition(UUID inboxItemId, String status, long version) {
+        OffsetDateTime now = BASE.atOffset(ZoneOffset.UTC);
+        jdbc.update(
+                """
+                INSERT INTO crewscope.inbox_disposition (
+                    organization_id, team_id, member_id, inbox_item_id,
+                    status, version, created_at, created_by_principal_id,
+                    updated_at, updated_by_principal_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                organizationId.value(), teamId.value(), memberId.value(), inboxItemId,
+                status, version, now, principalId, now, principalId);
     }
 
     private InboxSourceContext contextOf(UUID inboxItemId) {

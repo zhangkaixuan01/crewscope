@@ -17,8 +17,7 @@ import { principalDisplayName, type PrincipalNameDirectory } from '../../domains
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
-import { formatAbsoluteTime, formatRelativeTime } from '../../composables/useRelativeTime'
-import BaseTooltip from '../base/BaseTooltip.vue'
+import RelativeTime from '../base/RelativeTime.vue'
 
 const props = withDefaults(defineProps<{
   phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -26,6 +25,8 @@ const props = withDefaults(defineProps<{
   nextCursor: string | null
   loadingMore: boolean
   error: TeamOpsErrorState | null
+  /** When the offline panel shows, how stale the readable facts are (R25「最近同步于」). */
+  lastSyncedAt?: string | null
   realtimePhase?: ActivityRealtimePhase
   online?: boolean
   compact?: boolean
@@ -114,7 +115,9 @@ function referenceLabel(type: string): string {
     <StatePanel v-else-if="items.length === 0" state="empty" :compact="compact" title="还没有团队活动" description="责任、执行或交付事实产生后会出现在这里。" />
 
     <template v-else>
-      <StatePanel v-if="offline" state="offline" compact title="正在展示最近同步的 Activity" description="恢复网络后会从耐久 Cursor 补齐缺失事件。" />
+      <StatePanel v-if="offline" state="offline" compact title="正在展示最近同步的 Activity" description="恢复网络后会从耐久 Cursor 补齐缺失事件。">
+        <template v-if="lastSyncedAt" #description>恢复网络后会从耐久 Cursor 补齐缺失事件。最近同步于 <RelativeTime :value="lastSyncedAt" />。</template>
+      </StatePanel>
       <StatePanel v-else-if="realtimePhase === 'reconnecting' || realtimePhase === 'connecting'" state="reconnecting" compact title="正在恢复实时活动" description="历史事实保持可读，新事件会按服务端 Cursor 去重补发。" />
       <StatePanel v-else-if="hardError" state="error" compact :description="error?.message" @retry="emit('retry')" />
 
@@ -124,7 +127,7 @@ function referenceLabel(type: string): string {
           <article>
             <header>
               <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ item.eventType }}</strong><StatusBadge :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
-              <BaseTooltip :text="formatAbsoluteTime(item.occurredAt)"><time :datetime="item.occurredAt"><Clock3 :size="11" aria-hidden="true" />{{ formatRelativeTime(item.occurredAt) }}</time></BaseTooltip>
+              <Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.occurredAt" />
             </header>
             <dl>
               <div><dt><UserRound :size="11" aria-hidden="true" />Actor</dt><dd>{{ actor(item) }}</dd></div>

@@ -15,6 +15,10 @@ import {
   inboxDispositionStatuses,
   inboxItemTypes,
   inboxSourceStatuses,
+  type InboxBatchEntryResult,
+  type InboxBatchOutcome,
+  type InboxBatchReport,
+  type InboxBatchStatus,
   type InboxDispositionStatus,
   type InboxFilter,
   type InboxItemType,
@@ -31,7 +35,9 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const online = useNetworkStatus()
-const commandAttempt = ref<{ itemId: string, status: Exclude<InboxDispositionStatus, 'UNREAD'>, key: string } | null>(null)
+const commandAttempt = ref<{ itemId: string, status: InboxDispositionStatus, key: string } | null>(null)
+/** One batch's own frozen report; switching filters never rewrites it (contract §4.5). */
+const batchReport = ref<InboxBatchReport | null>(null)
 
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -50,6 +56,12 @@ const filter = computed<InboxFilter>(() => ({
 }))
 const detailResource = computed(() => selectedItemId.value ? store.state.inboxDetails[selectedItemId.value] ?? null : null)
 const targetResource = computed(() => selectedItemId.value ? store.state.inboxTargets[selectedItemId.value] ?? null : null)
+
+// R25: the offline panel says how stale the readable Inbox facts are, not just that they are stale.
+const lastSyncedAt = ref<string | null>(null)
+watch(() => store.state.inbox.phase, phase => {
+  if (phase === 'ready') lastSyncedAt.value = new Date().toISOString()
+})
 
 watch(
   () => [
@@ -148,6 +160,11 @@ function retryDetail(itemId: string): void {
   void store.loadInboxDetail(itemId, true)
 }
 
+/** The source link failed to resolve; re-read the target without navigating (R25). */
+function retryTarget(itemId: string): void {
+  void store.loadInboxTarget(itemId, true)
+}
+
 async function openTarget(itemId: string): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   if (!online.value) return
@@ -157,7 +174,7 @@ async function openTarget(itemId: string): Promise<void> {
   if (target) await router.push(target.href)
 }
 
-async function changeDisposition(itemId: string, status: Exclude<InboxDispositionStatus, 'UNREAD'>): Promise<void> {
+async function changeDisposition(itemId: string, status: InboxDispositionStatus): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   if (!online.value) return
   const current = commandAttempt.value
@@ -194,15 +211,36 @@ function loadMore(): void {
   void store.loadInbox(filter.value, true)
 }
 
-async function batchDisposition(itemIds: string[], status: Exclude<InboxDispositionStatus, 'UNREAD'>): Promise<void> {
+/**
+ * Reads the shared command slot only when it provably holds this item's own outcome; anything
+ * else (a stale receipt, an aborted epoch) means the result was never observed — 「未知」 per
+ * contract §4.5, confirmed before any retry rather than blindly resubmitted.
+ */
+function classifyBatchOutcome(itemId: string): InboxBatchEntryResult {
+  const command = store.state.command
+  if (command.operation !== 'inbox-disposition' || command.targetId !== itemId) {
+    return { itemId, outcome: 'unknown', message: '命令结果未确认。' }
+  }
+  if (command.phase === 'success') return { itemId, outcome: 'success', message: null }
+  const error = command.error
+  if (command.phase === 'conflict') return { itemId, outcome: 'conflict', message: error?.message ?? null }
+  if (error && (error.kind === 'forbidden' || error.status === 400 || error.status === 422)) {
+    return { itemId, outcome: 'rejected', message: error.message }
+  }
+  return { itemId, outcome: 'unknown', message: error?.message ?? null }
+}
+
+async function batchDisposition(itemIds: string[], status: InboxBatchStatus): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   if (!online.value || itemIds.length === 0) return
   // Each item keeps its own idempotency key; one conflict cannot silently
   // replay or overwrite a neighbouring item's disposition. TeamOps intentionally
   // serializes commands, so execute the batch in order instead of racing them.
+  batchReport.value = { status, results: [] }
   for (const itemId of itemIds) {
     await store.changeInboxDisposition(itemId, status, secureId())
     if (!pageOwner.isCurrent()) return
+    batchReport.value = { status, results: [...batchReport.value.results, classifyBatchOutcome(itemId)] }
   }
   await Promise.all([store.loadInbox(filter.value, false, true), store.loadInboxCounts(true)])
   if (!pageOwner.isCurrent()) return
@@ -242,6 +280,7 @@ function queryValue(value: unknown): string | null {
       v-if="scopeStore.state.phase === 'ready' && scope"
       :phase="store.state.inbox.phase"
       :items="store.state.inbox.value ?? []"
+      :last-synced-at="lastSyncedAt"
       :counts-phase="store.state.inboxCounts.phase"
       :counts="store.state.inboxCounts.value"
       :counts-error="store.state.inboxCounts.error"
@@ -259,6 +298,7 @@ function queryValue(value: unknown): string | null {
       :source-status="sourceStatus"
       :disposition-status="dispositionStatus"
       :online="online"
+      :batch-report="batchReport"
       @select="selectItem"
       @close-detail="closeDetail"
       @change-type="changeType"
@@ -266,10 +306,12 @@ function queryValue(value: unknown): string | null {
       @change-disposition-status="changeDispositionStatus"
       @retry="reload"
       @retry-detail="retryDetail"
+      @retry-target="retryTarget"
       @load-more="loadMore"
       @open-target="openTarget"
       @change-disposition="changeDisposition"
       @batch-disposition="batchDisposition"
+      @dismiss-batch-report="batchReport = null"
     />
   </AppShell>
 </template>

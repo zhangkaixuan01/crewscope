@@ -3,6 +3,7 @@ package io.crewscope.server.api;
 import io.crewscope.application.audit.AuditQuery;
 import io.crewscope.application.audit.AuditQueryFilter;
 import io.crewscope.domain.audit.AuditEventCategory;
+import io.crewscope.domain.audit.AuditEventId;
 import io.crewscope.domain.audit.AuditOutcome;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.shared.event.AggregateReference;
@@ -76,6 +77,18 @@ final class AuditApiSupport {
             throw invalid("limit");
         }
         return requested;
+    }
+
+    static AuditEventId eventId(String raw) {
+        try {
+            // A blank path variable would otherwise surface as an uncaught
+            // NoSuchElementException instead of the shared 400 invalid_request reply.
+            return optional(raw)
+                    .map(value -> new AuditEventId(AggregateId.parseCanonical(value, "eventId")))
+                    .orElseThrow(() -> invalid("eventId"));
+        } catch (IllegalArgumentException failure) {
+            throw invalid("eventId");
+        }
     }
 
     private static Optional<UtcTimestamp> timestamp(String value) {

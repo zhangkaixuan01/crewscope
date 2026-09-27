@@ -6,11 +6,13 @@ import { AUTH_PRINCIPAL } from '../../app/auth'
 import { ACTION_REGISTRY, type ActionContext, type ActionEntry, type ActionRegistry } from '../../app/actionRegistry'
 import { COMMAND_PALETTE_EVENT, SHORTCUT_HELP_EVENT, SHORTCUT_MANAGER, type ShortcutManager } from '../../app/shortcuts'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { isImeComposition } from '../../composables/useImeGuard'
 import { SCOPE_STORE } from '../../domains/scope/store'
-import { SEARCH_STORE, type SearchStore } from '../../domains/search/store'
+import { PALETTE_SEARCH_STORE, type SearchStore } from '../../domains/search/store'
 import type { SearchResultItem } from '../../domains/search/types'
 import { searchObjectTypeLabels } from '../../domains/search/labels'
-import { readF05Recent, subscribeF05Epoch, writeF05Recent, type F05RecentItem } from '../../app/f05Storage'
+import { readF05Recent, subscribeF05Epoch, writeF05Recent, type F05RecentItem, type F05SavedView } from '../../app/f05Storage'
+import { filterKeysFor, listViews, viewQuery, type SavedViewOwner } from '../../domains/views/savedViews'
 
 interface RecentItem {
   kind: 'action' | 'object'
@@ -28,7 +30,7 @@ const registry = inject<ActionRegistry | null>(ACTION_REGISTRY, null)
 const shortcutManager = inject<ShortcutManager | null>(SHORTCUT_MANAGER, null)
 const principal = inject(AUTH_PRINCIPAL, null)
 const scopeStore = inject(SCOPE_STORE, null)
-const searchStore = inject<SearchStore | null>(SEARCH_STORE, null)
+const searchStore = inject<SearchStore | null>(PALETTE_SEARCH_STORE, null)
 const route = useRoute()
 const router = useRouter()
 const open = ref(false)
@@ -54,7 +56,7 @@ const objectItems = computed(() => searchStore?.state.result?.items ?? [])
 const objectSearchLoading = computed(() => searchStore?.state.phase === 'loading')
 const objectSearchOffline = computed(() => searchStore?.state.phase === 'offline')
 const objectSearchError = computed(() => searchStore?.state.phase === 'error')
-const hasResults = computed(() => availableEntries.value.length > 0 || objectItems.value.length > 0 || unavailableEntries.value.length > 0)
+const hasResults = computed(() => availableEntries.value.length > 0 || objectItems.value.length > 0 || unavailableEntries.value.length > 0 || savedViewItems.value.length > 0)
 const recentItems = computed<RecentDisplay[]>(() => {
   if (normalizedQuery.value) return []
   return recent.value.map(item => {
@@ -72,9 +74,9 @@ function onOpen(): void {
   helpOpen.value = false
   query.value = ''
   selectedIndex.value = 0
-  // A02 results are shared with the full Search page; clear them so a new palette session
-  // never shows a result for a query the user did not enter in this session.
+  // R20: the palette owns its own session; clearing it on open never touches the search page.
   if (searchStore) void searchStore.search({ text: '' })
+  refreshSavedViews()
   void nextTick(() => surface.value?.querySelector<HTMLInputElement>('input')?.focus())
 }
 function onHelp(): void { open.value = true; helpOpen.value = true; query.value = ''; selectedIndex.value = 0 }
@@ -85,18 +87,29 @@ function onKeydown(event: KeyboardEvent): void {
   if (helpOpen.value || !hasResults.value || selectableCount.value === 0) return
   if (event.key === 'ArrowDown') { event.preventDefault(); selectedIndex.value = Math.min(selectedIndex.value + 1, selectableCount.value - 1); scrollSelectedIntoView(); return }
   if (event.key === 'ArrowUp') { event.preventDefault(); selectedIndex.value = Math.max(selectedIndex.value - 1, 0); scrollSelectedIntoView(); return }
-  if (event.key === 'Enter') { event.preventDefault(); void executeSelected() }
+  if (event.key === 'Enter') {
+    // IME confirmation must never run the highlighted command (R27).
+    if (isImeComposition(event)) return
+    event.preventDefault(); void executeSelected()
+  }
 }
 
-const selectableCount = computed(() => availableEntries.value.length + objectItems.value.length)
+// Keyboard order mirrors the rendered groups: saved views first, then actions, then objects —
+// a saved view must not be a mouse-only row inside an otherwise keyboard-driven palette (R27).
+const selectableCount = computed(() => savedViewItems.value.length + availableEntries.value.length + objectItems.value.length)
 function scrollSelectedIntoView(): void { void nextTick(() => surface.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })) }
 
 async function executeSelected(): Promise<void> {
-  if (selectedIndex.value < availableEntries.value.length) {
-    await executeAction(availableEntries.value[selectedIndex.value].action.id)
+  if (selectedIndex.value < savedViewItems.value.length) {
+    openSavedView(savedViewItems.value[selectedIndex.value])
     return
   }
-  const item = objectItems.value[selectedIndex.value - availableEntries.value.length]
+  const actionIndex = selectedIndex.value - savedViewItems.value.length
+  if (actionIndex < availableEntries.value.length) {
+    await executeAction(availableEntries.value[actionIndex].action.id)
+    return
+  }
+  const item = objectItems.value[actionIndex - availableEntries.value.length]
   if (item) openObject(item)
 }
 
@@ -112,6 +125,17 @@ function openObject(item: SearchResultItem): void {
   remember({ kind: 'object', objectType: item.objectType, id: item.objectId, label: item.title, subtitle: item.subtitle, route: item.route })
   close()
   void router.push(item.route)
+}
+
+/** R20: the palette only previews; 「搜索全部」 is the one action that submits the text to the search page. */
+function searchEverywhere(): void {
+  const text = query.value.trim()
+  if (!text) return
+  const searchQuery: Record<string, string> = { q: text }
+  const teamId = scopeStore?.state.selectedTeamId
+  if (teamId) searchQuery.team = teamId
+  close()
+  void router.push({ name: 'search', query: searchQuery })
 }
 
 /** Re-opens a stored recent object: refreshes the timestamp and navigates by its saved route. */
@@ -157,6 +181,32 @@ function recentScope(teamId: string | null | undefined) {
 }
 
 watch(() => scopeStore?.state.selectedTeamId, teamId => { const scope = recentScope(teamId); recent.value = scope ? readF05Recent(scope) : [] }, { immediate: true })
+
+// --- R41: saved views are jump targets too; the definitions live on this machine only ------
+
+const savedViews = ref<F05SavedView[]>([])
+function viewsOwner(teamId: string | null | undefined): SavedViewOwner | null {
+  if (!principal || !principal.accountId || !teamId) return null
+  return { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId }
+}
+function refreshSavedViews(): void {
+  const owner = viewsOwner(scopeStore?.state.selectedTeamId)
+  savedViews.value = owner ? [...listViews(owner, 'work'), ...listViews(owner, 'today')] : []
+}
+watch(() => scopeStore?.state.selectedTeamId, () => refreshSavedViews(), { immediate: true })
+subscribeF05Epoch(epoch => { if (epoch === null) savedViews.value = [] })
+
+const savedViewItems = computed(() => {
+  if (!normalizedQuery.value) return savedViews.value
+  return savedViews.value.filter(view => view.name.toLocaleLowerCase().includes(normalizedQuery.value))
+})
+
+/** Jumps to the page with the definition applied; an explicit link still wins once landed. */
+function openSavedView(view: F05SavedView): void {
+  const teamId = scopeStore?.state.selectedTeamId
+  close()
+  void router.push({ name: view.routeName, query: viewQuery({ team: teamId }, view, filterKeysFor(view.routeName as 'work' | 'today')) })
+}
 // Sign-out or an account switch seals the namespace; drop the in-memory copy too.
 subscribeF05Epoch(epoch => { if (epoch === null) recent.value = [] })
 
@@ -194,13 +244,15 @@ onBeforeUnmount(() => {
             <div v-if="shortcutManager?.state.pending.length" class="command-palette__sequence" role="status">正在输入：{{ shortcutManager.state.pending.join(' ') }} …</div>
             <div class="command-palette__results" role="listbox" aria-label="命令面板结果">
               <section v-if="recentItems.length" class="command-palette__group"><h3>最近访问</h3><ul><li v-for="item in recentItems" :key="`${item.kind}:${item.id}`"><button type="button" :aria-label="item.label" @click="item.kind === 'action' && item.action ? executeAction(item.id) : openRecent(item)"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
+              <section v-if="savedViewItems.length" class="command-palette__group"><h3>已保存视图</h3><ul><li v-for="view in savedViewItems" :key="view.id"><button type="button" :aria-selected="savedViewItems.indexOf(view) === selectedIndex" :aria-label="`打开视图 ${view.name}`" @click="openSavedView(view)"><span>{{ view.name }}<small>{{ view.routeName === 'work' ? '工作项' : '今日工作台' }}</small></span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
               <template v-for="group in ['导航', '创建', '视图', '执行控制'] as const" :key="group">
-                <section v-if="availableEntries.some(entry => entry.action.group === group)" class="command-palette__group"><h3>{{ group }}</h3><ul><li v-for="entry in availableEntries.filter(candidate => candidate.action.group === group)" :key="entry.action.id"><button type="button" :aria-label="entry.action.label" :aria-selected="availableEntries.indexOf(entry) === selectedIndex" @click="executeAction(entry.action.id)"><component :is="entry.action.icon" v-if="entry.action.icon" :size="15" aria-hidden="true" /><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd v-if="entry.action.shortcut">{{ entry.action.shortcut }}</kbd></button></li></ul></section>
+                <section v-if="availableEntries.some(entry => entry.action.group === group)" class="command-palette__group"><h3>{{ group }}</h3><ul><li v-for="entry in availableEntries.filter(candidate => candidate.action.group === group)" :key="entry.action.id"><button type="button" :aria-label="entry.action.label" :aria-selected="savedViewItems.length + availableEntries.indexOf(entry) === selectedIndex" @click="executeAction(entry.action.id)"><component :is="entry.action.icon" v-if="entry.action.icon" :size="15" aria-hidden="true" /><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd v-if="entry.action.shortcut">{{ entry.action.shortcut }}</kbd></button></li></ul></section>
               </template>
               <section v-if="objectSearchLoading" class="command-palette__state" role="status">正在搜索对象…</section>
               <section v-else-if="objectSearchOffline" class="command-palette__state" role="status">当前离线，暂时无法搜索对象。</section>
               <section v-else-if="objectSearchError" class="command-palette__state" role="alert">搜索服务暂时不可用，请稍后重试。</section>
-              <section v-if="objectItems.length" class="command-palette__group"><h3>对象</h3><ul><li v-for="(item, index) in objectItems" :key="`${item.objectType}:${item.objectId}`"><button type="button" :aria-selected="availableEntries.length + index === selectedIndex" @click="openObject(item)"><span><strong>{{ item.title }}</strong><small>{{ searchObjectTypeLabels[item.objectType] }} · {{ item.subtitle ?? item.status }}</small></span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
+              <section v-if="objectItems.length" class="command-palette__group"><h3>对象</h3><ul><li v-for="(item, index) in objectItems" :key="`${item.objectType}:${item.objectId}`"><button type="button" :aria-selected="savedViewItems.length + availableEntries.length + index === selectedIndex" @click="openObject(item)"><span><strong>{{ item.title }}</strong><small>{{ searchObjectTypeLabels[item.objectType] }} · {{ item.subtitle ?? item.status }}</small></span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
+              <button v-if="query.trim()" type="button" class="command-palette__search-all" aria-label="搜索全部" @click="searchEverywhere"><Search :size="14" aria-hidden="true" />搜索全部「{{ query.trim() }}」<ArrowRight :size="14" aria-hidden="true" /></button>
               <section v-if="unavailableEntries.length && !availableEntries.length && !objectItems.length" class="command-palette__state command-palette__state--forbidden" role="status">当前身份没有可执行的匹配动作。</section>
               <section v-else-if="normalizedQuery && !hasResults && !objectSearchLoading && !objectSearchError && !objectSearchOffline" class="command-palette__state" role="status">没有找到匹配的动作或对象。</section>
               <section v-else-if="!normalizedQuery && !availableEntries.length" class="command-palette__state" role="status">当前范围暂无可用动作。</section>
@@ -217,7 +269,7 @@ onBeforeUnmount(() => {
 .command-palette { width: min(680px, 100%); max-height: min(680px, 76vh); overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); color: var(--cs-text); box-shadow: var(--cs-shadow-float); }
 .command-palette__header, .command-palette__search { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__header { justify-content: space-between; }.command-palette__header > div { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); }.command-palette h2 { margin: 0; color: var(--cs-text); font-size: var(--cs-text-base); }.command-palette__header button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text-muted); cursor: pointer; }.command-palette__header button:hover { background: var(--cs-surface-subtle); color: var(--cs-text); }
 .command-palette__search { border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); }.command-palette__search input { min-width: 0; flex: 1; min-height: 32px; border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.command-palette__search kbd, .command-palette li kbd { display: inline-flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font: var(--cs-text-sm) var(--cs-font-mono); }
-.command-palette__sequence { padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }.command-palette__results { max-height: calc(min(680px, 76vh) - 110px); overflow: auto; padding: var(--cs-space-8) 0 var(--cs-space-12); }.command-palette__group h3, .command-palette__hint { margin: var(--cs-space-8) var(--cs-space-16) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; text-transform: uppercase; }.command-palette__group ul { padding: 0; margin: 0; list-style: none; }.command-palette__group li button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 0; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.command-palette__group li button:hover, .command-palette__group li button[aria-selected='true'] { background: var(--cs-surface-accent); color: var(--cs-text); }.command-palette__group li button > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }.command-palette__group li strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.command-palette__group li small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.command-palette__state { padding: var(--cs-space-24) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.command-palette__state--forbidden { color: var(--cs-warning); }.command-palette__help { max-height: calc(min(680px, 76vh) - 65px); overflow: auto; }.command-palette__help ul { padding: 0; margin: 0; list-style: none; }.command-palette__help li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__help li span { display: grid; gap: var(--cs-space-2); }.command-palette__help li strong { font-size: var(--cs-text-sm); }.command-palette__help li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-palette__note { margin: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.command-palette__sequence { padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }.command-palette__results { max-height: calc(min(680px, 76vh) - 110px); overflow: auto; padding: var(--cs-space-8) 0 var(--cs-space-12); }.command-palette__group h3, .command-palette__hint { margin: var(--cs-space-8) var(--cs-space-16) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; text-transform: uppercase; }.command-palette__group ul { padding: 0; margin: 0; list-style: none; }.command-palette__group li button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 0; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.command-palette__group li button:hover, .command-palette__group li button[aria-selected='true'] { background: var(--cs-surface-accent); color: var(--cs-text); }.command-palette__group li button > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }.command-palette__group li strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.command-palette__group li small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.command-palette__state { padding: var(--cs-space-24) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.command-palette__state--forbidden { color: var(--cs-warning); }.command-palette__search-all { display: flex; width: 100%; align-items: center; justify-content: center; gap: var(--cs-space-8); margin-top: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-16); border: 0; border-top: 1px solid var(--cs-border); background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }.command-palette__search-all:hover, .command-palette__search-all:focus-visible { background: var(--cs-surface-accent); }.command-palette__help { max-height: calc(min(680px, 76vh) - 65px); overflow: auto; }.command-palette__help ul { padding: 0; margin: 0; list-style: none; }.command-palette__help li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__help li span { display: grid; gap: var(--cs-space-2); }.command-palette__help li strong { font-size: var(--cs-text-sm); }.command-palette__help li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-palette__note { margin: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .command-palette__global-sequence { position: fixed; z-index: var(--cs-z-toast); top: var(--cs-space-16); left: 50%; display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-raised); color: var(--cs-text-secondary); box-shadow: var(--cs-shadow-float); font-size: var(--cs-text-xs); transform: translateX(-50%); }.command-palette__global-sequence kbd { padding: var(--cs-space-2) var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 4px; font: var(--cs-text-sm) var(--cs-font-mono); }
 .command-palette-fade-enter-active, .command-palette-fade-leave-active { transition: opacity var(--cs-motion-base) var(--cs-ease-out); }.command-palette-fade-enter-from, .command-palette-fade-leave-to { opacity: 0; }
 </style>

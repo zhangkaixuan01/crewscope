@@ -5,7 +5,7 @@ import { SCOPE_STORE, createScopeStore } from '../domains/scope/store'
 import { WORK_ITEM_STORE, createWorkItemStore } from '../domains/workitem/store'
 import { WORKDESK_STORE, createWorkDeskStore } from '../domains/workdesk/store'
 import type { WorkDeskGateway } from '../domains/workdesk/gateway'
-import type { WorkDeskFilter, WorkDeskItem, WorkDeskScope, WorkDeskSummary } from '../domains/workdesk/types'
+import type { WorkDeskFilter, WorkDeskItem, WorkDeskScope, WorkDeskSection, WorkDeskSummary } from '../domains/workdesk/types'
 import { FixtureWorkItemGateway, workItemIds } from '../test/workItemFixtures'
 import { bootstrapPrincipal } from '../test/authFixtures'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
@@ -38,8 +38,18 @@ function deskItem(overrides: Partial<WorkDeskItem> = {}): WorkDeskItem {
 class FixtureWorkDeskGateway implements WorkDeskGateway {
   readonly queries: WorkDeskFilter[] = []
   items: Record<string, WorkDeskItem[]> = { WORK_ITEM: [deskItem()] }
+  /** Rows the server holds past each section's first page; a section with rows here reports a cursor. */
+  more: Record<string, WorkDeskItem[]> = {}
   failNext = false
-  getSection = vi.fn()
+  getSection = vi.fn(async (_scope: WorkDeskScope, sectionKey: string, _filter?: WorkDeskFilter, _after?: string): Promise<WorkDeskSection> => {
+    const more = this.more[sectionKey] ?? []
+    return {
+      key: sectionKey, title: sectionKey,
+      priority: workDeskSections.indexOf(sectionKey as typeof workDeskSections[number]) + 1,
+      total: (this.items[sectionKey] ?? []).length + more.length,
+      truncated: false, items: structuredClone(more), nextCursor: null,
+    }
+  })
 
   async get(scope: WorkDeskScope, filter: WorkDeskFilter = {}): Promise<WorkDeskSummary> {
     this.queries.push(structuredClone(filter))
@@ -54,7 +64,8 @@ class FixtureWorkDeskGateway implements WorkDeskGateway {
       generatedAt: '2026-09-17T10:00:00Z',
       sections: workDeskSections.map((key, index) => {
         const items = this.items[key] ?? []
-        return { key, title: key, priority: index + 1, total: items.length, truncated: false, items: structuredClone(items), nextCursor: null }
+        const more = this.more[key] ?? []
+        return { key, title: key, priority: index + 1, total: items.length + more.length, truncated: false, items: structuredClone(items), nextCursor: more.length ? `${key}-cursor` : null }
       }),
     }
   }
@@ -67,7 +78,7 @@ interface Harness {
   workItems: FixtureWorkItemGateway
 }
 
-async function harness(options: { projects?: 'empty' | 'ready'; items?: Record<string, WorkDeskItem[]> } = {}): Promise<Harness> {
+async function harness(options: { projects?: 'empty' | 'ready'; items?: Record<string, WorkDeskItem[]>; more?: Record<string, WorkDeskItem[]> } = {}): Promise<Harness> {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -87,6 +98,7 @@ async function harness(options: { projects?: 'empty' | 'ready'; items?: Record<s
   await scopeStore.synchronize(fixtureIds.teamPlatform)
   const desk = new FixtureWorkDeskGateway()
   if (options.items) desk.items = options.items
+  if (options.more) desk.more = options.more
   const workItems = new FixtureWorkItemGateway()
   const wrapper = mount(TodayPage, {
     attachTo: document.body,
@@ -190,5 +202,25 @@ describe('TodayPage', () => {
 
     expect(wrapper.get('.desk-stale-notice').text()).toContain('刷新失败')
     expect(wrapper.text()).toContain('建立团队看板')
+  })
+
+  it('continues a desk section from its cursor instead of hiding the rest behind the first page', async () => {
+    const { wrapper, desk } = await harness({ more: { WORK_ITEM: [deskItem({ objectId: workItemIds.second, title: '第二页工作项' })] } })
+
+    // 有续页的分区给出「加载更多」；按钮以分区为单位，不把没有续页的分区也拉一遍。
+    const loadMore = wrapper.findAll('button').find(button => button.text().includes('加载更多工作项'))
+    expect(loadMore).toBeTruthy()
+    expect(wrapper.findAll('button').filter(button => button.text().includes('加载更多需要处理的事项'))).toHaveLength(0)
+
+    await loadMore!.trigger('click')
+    await flushPromises()
+
+    expect(desk.getSection).toHaveBeenCalledTimes(1)
+    expect(desk.getSection.mock.calls[0]![1]).toBe('WORK_ITEM')
+    // 续页从首页末尾的 cursor 开始，接在已加载行后面而不是替换它们。
+    expect(desk.getSection.mock.calls[0]![3]).toBe('WORK_ITEM-cursor')
+    expect(wrapper.text()).toContain('建立团队看板')
+    expect(wrapper.text()).toContain('第二页工作项')
+    expect(wrapper.findAll('button').filter(button => button.text().includes('加载更多工作项'))).toHaveLength(0)
   })
 })

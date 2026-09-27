@@ -176,7 +176,7 @@ class InboxDomainM6D02Test {
     }
 
     @Test
-    void enforcesMonotonicDispositionAndExactVersion() {
+    void enforcesReversibleDispositionMatrixAndExactVersion() {
         InboxItem item = item(
                 source(
                         MEMBER_ID,
@@ -210,6 +210,70 @@ class InboxDomainM6D02Test {
                 DomainValidationException.class,
                 () -> InboxDisposition.create(
                         item, InboxDispositionStatus.UNREAD, 0, PRINCIPAL_ID, CLOSED_AT));
+    }
+
+    @Test
+    void reversesReadAndActedBackToAPersistedUnread() {
+        InboxItem item = item(
+                source(
+                        MEMBER_ID,
+                        InboxItemType.REVIEW,
+                        InboxSourceType.REVIEW_REQUEST,
+                        InboxSourceRevision.INITIAL),
+                ProjectionGeneration.FIRST);
+        InboxDisposition read = InboxDisposition.create(
+                item, InboxDispositionStatus.READ, 0, PRINCIPAL_ID, CLOSED_AT);
+        InboxDisposition unread = read.transitionTo(
+                InboxDispositionStatus.UNREAD, 1, PRINCIPAL_ID, CLOSED_AT);
+
+        assertEquals(InboxDispositionStatus.UNREAD, unread.status());
+        assertEquals(2, unread.version());
+        assertSame(
+                unread,
+                unread.transitionTo(InboxDispositionStatus.UNREAD, 2, PRINCIPAL_ID, CLOSED_AT));
+        // A persisted UNREAD row moves forward again like a derived one.
+        InboxDisposition reread = unread.transitionTo(
+                InboxDispositionStatus.READ, 2, PRINCIPAL_ID, CLOSED_AT);
+        assertEquals(InboxDispositionStatus.READ, reread.status());
+        assertEquals(3, reread.version());
+
+        InboxDisposition acted = reread.transitionTo(
+                InboxDispositionStatus.ACTED, 3, PRINCIPAL_ID, CLOSED_AT);
+        InboxDisposition actedUnread = acted.transitionTo(
+                InboxDispositionStatus.UNREAD, 4, PRINCIPAL_ID, CLOSED_AT);
+        assertEquals(InboxDispositionStatus.UNREAD, actedUnread.status());
+        assertEquals(5, actedUnread.version());
+    }
+
+    @Test
+    void restoresAnArchiveOnlyToReadAndOnlyOneStepAtATime() {
+        InboxItem item = item(
+                source(
+                        MEMBER_ID,
+                        InboxItemType.REVIEW,
+                        InboxSourceType.REVIEW_REQUEST,
+                        InboxSourceRevision.INITIAL),
+                ProjectionGeneration.FIRST);
+        InboxDisposition archived = InboxDisposition.create(
+                item, InboxDispositionStatus.ARCHIVED, 0, PRINCIPAL_ID, CLOSED_AT);
+
+        InboxDisposition restored = archived.transitionTo(
+                InboxDispositionStatus.READ, 1, PRINCIPAL_ID, CLOSED_AT);
+        assertEquals(InboxDispositionStatus.READ, restored.status());
+        assertEquals(2, restored.version());
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> archived.transitionTo(
+                        InboxDispositionStatus.UNREAD, 1, PRINCIPAL_ID, CLOSED_AT));
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> archived.transitionTo(
+                        InboxDispositionStatus.ACTED, 1, PRINCIPAL_ID, CLOSED_AT));
+        // The archive-to-unmark sequence is restore first, then unmark.
+        InboxDisposition unread = restored.transitionTo(
+                InboxDispositionStatus.UNREAD, 2, PRINCIPAL_ID, CLOSED_AT);
+        assertEquals(InboxDispositionStatus.UNREAD, unread.status());
+        assertEquals(3, unread.version());
     }
 
     private static InboxSource source(

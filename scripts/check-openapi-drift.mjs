@@ -38,8 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-if (operationCount !== 239) {
-  console.error(`OpenAPI operation baseline changed: expected 239, found ${operationCount}`)
+// 240 = 239 + GET /audit-events/{eventId} (M9b-F04 S6 定点详情).
+if (operationCount !== 240) {
+  console.error(`OpenAPI operation baseline changed: expected 240, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

@@ -25,6 +25,11 @@ const props = withDefaults(defineProps<{ title: string; eyebrow?: string; items?
 const route = useRoute()
 const router = useRouter()
 const search = ref('')
+/** In-page section anchors (`/account#profile`) mark the section, not just the path, current. */
+function isCurrent(item: SettingsNavItem): boolean {
+  const [path, hash] = item.route.split('#')
+  return route.path === path && (hash === undefined || route.hash === `#${hash}`)
+}
 const filteredItems = computed(() => {
   const needle = search.value.trim().toLocaleLowerCase()
   return needle ? props.items.filter(item => `${item.label} ${item.description ?? ''}`.toLocaleLowerCase().includes(needle)) : props.items
@@ -45,11 +50,16 @@ async function goConfigureReturn(): Promise<void> {
       <slot name="actions" />
     </template>
     <div class="settings-shell">
-      <nav class="settings-shell__nav" aria-label="Settings 二级导航">
-        <input v-model="search" type="search" aria-label="搜索配置项" placeholder="搜索配置" /><SettingsFieldSearch :query="search" />
-        <RouterLink v-for="item in filteredItems" :key="item.key" :to="item.route" :aria-current="route.path === item.route ? 'page' : undefined">{{ item.label }}</RouterLink>
-        <span v-if="filteredItems.length === 0" class="settings-shell__empty">没有匹配配置</span>
-      </nav>
+      <!-- L02：分类导航与字段搜索是两个分别命名的 region——盲区在「搜索出了什么」与「分类还剩
+        什么」之间混淆时，屏幕阅读器用户需要一个能分别跳转的目标。 -->
+      <div class="settings-shell__side">
+        <input v-model="search" type="search" aria-label="搜索配置项" placeholder="搜索配置" />
+        <SettingsFieldSearch :query="search" />
+        <nav class="settings-shell__nav" aria-label="配置分类">
+          <RouterLink v-for="item in filteredItems" :key="item.key" :to="item.route" :aria-current="isCurrent(item) ? 'page' : undefined">{{ item.label }}</RouterLink>
+          <span v-if="filteredItems.length === 0" class="settings-shell__empty">没有匹配配置</span>
+        </nav>
+      </div>
       <section class="settings-shell__content" aria-label="配置内容"><slot /></section>
     </div>
   </AppShell>
@@ -57,10 +67,12 @@ async function goConfigureReturn(): Promise<void> {
 
 <style scoped>
 .settings-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--cs-space-20); min-width: 0; }
-.settings-shell__nav { display: grid; align-content: start; gap: var(--cs-space-4); position: sticky; top: var(--cs-space-16); height: fit-content; padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
+.settings-shell__side { display: grid; align-content: start; gap: var(--cs-space-8); position: sticky; top: var(--cs-space-16); height: fit-content; min-width: 0; }
+.settings-shell__side > input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
+.settings-shell__nav { display: grid; align-content: start; gap: var(--cs-space-4); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
 .settings-shell__nav a { min-height: var(--cs-density-control-height); display: flex; align-items: center; padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-decoration: none; }
-.settings-shell__nav input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); font-size: var(--cs-text-base); }.settings-shell__empty { padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.settings-shell__empty { padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .settings-shell__nav a:hover, .settings-shell__nav a[aria-current='page'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
 .settings-shell__content { min-width: 0; }
-@media (max-width: 767px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-12); } .settings-shell__nav { position: static; display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
+@media (max-width: 767px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-12); } .settings-shell__side { position: static; } .settings-shell__nav { display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
 </style>

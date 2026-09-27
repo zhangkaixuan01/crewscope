@@ -1,79 +1,41 @@
 import { exclusionReason, type WorkItemBulkRow } from './bulk'
 import {
   bulkTransitionTargets,
-  defaultSortDirection,
-  readWorkItemSortDirection,
   readWorkItemSortKey,
-  sortWorkItems,
+  workItemSortDirectionLabels,
+  workItemSortDirections,
   workItemSortKeys,
 } from './list'
-import { workItemStatuses, type WorkItemAvailableTransition, type WorkItemSummary } from './types'
+import { workItemStatuses, type WorkItemAvailableTransition } from './types'
 
-describe('defaultSortDirection', () => {
-  it('opens date and title lists at their natural end and activity lists at the newest', () => {
-    expect(defaultSortDirection('title')).toBe('asc')
-    expect(defaultSortDirection('dueAt')).toBe('asc')
-    expect(defaultSortDirection('updatedAt')).toBe('desc')
-    expect(defaultSortDirection('priority')).toBe('desc')
-  })
-})
-
-describe('sortWorkItems', () => {
-  it('orders by the contract’s own priority order, not the alphabetical one', () => {
-    // HIGH < LOW 按字母序，但契约顺序是 LOW…URGENT；这里若手抄一份 rank 就会漂移。
-    const items = [summary({ id: 'a', priority: 'LOW' }), summary({ id: 'b', priority: 'URGENT' }), summary({ id: 'c', priority: 'HIGH' })]
-
-    expect(sortWorkItems(items, 'priority', 'asc').map(item => item.id)).toEqual(['a', 'c', 'b'])
-    expect(sortWorkItems(items, 'priority', 'desc').map(item => item.id)).toEqual(['b', 'c', 'a'])
+describe('the server-owned orderings', () => {
+  it('publishes exactly the sort names the server list contract accepts', () => {
+    // 工具栏与 URL 读取共用这一份清单；多一个键就会出现「URL 认、按钮没有」或服务端 400 的排序。
+    expect(workItemSortKeys).toEqual(['updatedAt', 'priority', 'dueAt', 'createdAt'])
   })
 
-  it('sinks rows without a due date in both directions', () => {
-    const dated = [summary({ id: 'early', dueAt: '2026-09-01T00:00:00Z' }), summary({ id: 'late', dueAt: '2026-09-30T00:00:00Z' })]
-    const items = [summary({ id: 'none' }), ...dated]
-
-    // 反序不能把「没人设截止时间」顶成「最紧急」。
-    expect(sortWorkItems(items, 'dueAt', 'asc').map(item => item.id)).toEqual(['early', 'late', 'none'])
-    expect(sortWorkItems(items, 'dueAt', 'desc').map(item => item.id)).toEqual(['late', 'early', 'none'])
-  })
-
-  it('keeps ties in the order the server sent them', () => {
-    // 并列时保留服务端的 updated-time 顺序；否则每次重渲染都会重新洗牌。
-    const items = [summary({ id: 'first', priority: 'HIGH' }), summary({ id: 'second', priority: 'HIGH' }), summary({ id: 'third', priority: 'HIGH' })]
-    expect(sortWorkItems(items, 'priority', 'desc').map(item => item.id)).toEqual(['first', 'second', 'third'])
-  })
-
-  it('orders by update time and by title without mutating the input', () => {
-    const items = [
-      summary({ id: 'a', updatedAt: '2026-09-01T00:00:00Z', title: '乙' }),
-      summary({ id: 'b', updatedAt: '2026-09-10T00:00:00Z', title: '甲' }),
-    ]
-
-    expect(sortWorkItems(items, 'updatedAt', 'desc').map(item => item.id)).toEqual(['b', 'a'])
-    expect(sortWorkItems(items, 'title', 'asc').map(item => item.id)).toEqual(['b', 'a'])
-    expect(items.map(item => item.id)).toEqual(['a', 'b'])
-  })
-
-  it('survives an unparseable timestamp instead of handing back NaN', () => {
-    const items = [summary({ id: 'broken', updatedAt: 'not-a-date' }), summary({ id: 'ok', updatedAt: '2026-09-01T00:00:00Z' })]
-    expect(sortWorkItems(items, 'updatedAt', 'asc').map(item => item.id)).toEqual(['broken', 'ok'])
+  it('states each ordering’s fixed direction the way the server contract runs it', () => {
+    // 方向是服务端合同的一部分，不是浏览器的选择：截止时间从近到远，其余从新/高开始。
+    expect(workItemSortDirections).toEqual({
+      updatedAt: 'desc', priority: 'desc', dueAt: 'asc', createdAt: 'desc',
+    })
+    // 每个键都要有给人读的方向文案，且与方向表说同一件事。
+    expect(Object.keys(workItemSortDirectionLabels).sort()).toEqual([...workItemSortKeys].sort())
   })
 })
 
 describe('reading the sort out of a URL', () => {
   it('falls back rather than trusting what arrived', () => {
     expect(readWorkItemSortKey('priority')).toBe('priority')
+    expect(readWorkItemSortKey('createdAt')).toBe('createdAt')
     expect(readWorkItemSortKey('assignee')).toBe('updatedAt')
     expect(readWorkItemSortKey(undefined)).toBe('updatedAt')
     expect(readWorkItemSortKey(7)).toBe('updatedAt')
-
-    expect(readWorkItemSortDirection('asc')).toBe('asc')
-    expect(readWorkItemSortDirection('descending')).toBe('desc')
-    expect(readWorkItemSortDirection(null)).toBe('desc')
   })
 
-  it('publishes exactly the keys the control offers', () => {
-    // 工具栏与 URL 读取共用这一份清单；多一个键就会出现「URL 认、按钮没有」的排序。
-    expect(workItemSortKeys).toEqual(['updatedAt', 'priority', 'dueAt', 'title'])
+  it('no longer recognizes the pre-server-sort keys, including title', () => {
+    // 服务端不认 title；旧链接带着它进来时落回默认排序，而不是把一个会被拒绝的名字发给服务端。
+    expect(readWorkItemSortKey('title')).toBe('updatedAt')
   })
 })
 
@@ -137,16 +99,4 @@ function action(overrides: Partial<WorkItemAvailableTransition> = {}): WorkItemA
 
 function row(overrides: Partial<WorkItemBulkRow> = {}): WorkItemBulkRow {
   return { id: 'work-1', key: 'DEMO-1', availableActions: [], ...overrides }
-}
-
-function summary(overrides: Partial<WorkItemSummary> = {}): WorkItemSummary {
-  return {
-    id: 'work-1', organizationId: 'org-1', teamId: 'team-1', workspaceId: 'workspace-1', projectId: 'project-1',
-    key: 'DEMO-1', title: '拆分工作台', description: null, type: 'TASK', status: 'READY', priority: 'HIGH',
-    labels: [], dueAt: null, source: 'MANUAL', sourceReference: null, version: 1,
-    createdAt: '2026-08-24T01:00:00Z', createdByPrincipalId: null, updatedAt: '2026-08-24T01:00:00Z',
-    updatedByPrincipalId: null, availableActions: [],
-    ...overrides,
-    summary: overrides.summary ?? null,
-  }
 }

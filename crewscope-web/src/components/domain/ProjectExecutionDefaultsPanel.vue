@@ -57,6 +57,11 @@ watch(() => props.scope, async scope => {
 
 onMounted(() => { if (props.scope) store.activateScope(props.scope) })
 
+/** R25: the error panel names the recovery after the business it performs. */
+function reload(): void {
+  if (props.scope) void store.loadExecutionDefaults(props.scope, true)
+}
+
 function restoreDraft(): void {
   const draft = dirtyForm.restoreDraft()
   if (!draft) return
@@ -110,7 +115,7 @@ async function save(): Promise<void> {
       <span v-if="defaults" class="muted">版本 {{ defaults.version }}</span>
     </div>
     <StatePanel v-if="store.state.executionDefaults.phase === 'loading'" compact state="loading" />
-    <StatePanel v-else-if="store.state.executionDefaults.phase === 'error' && !defaults" compact state="error" :description="store.state.executionDefaults.errorMessage ?? undefined" />
+    <StatePanel v-else-if="store.state.executionDefaults.phase === 'error' && !defaults" compact state="error" :description="store.state.executionDefaults.errorMessage ?? undefined" retry-label="重新加载默认配置" @retry="reload" />
     <form v-else class="execution-defaults__form" @submit.prevent="save">
       <div v-if="draftAvailable" class="draft-recovery" role="status">
         <div><strong>发现未保存的本地草稿</strong><span>此浏览器保留了上次未保存的默认执行配置修改。</span></div>

@@ -10,7 +10,11 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMemberId;
 import java.util.Objects;
 
-/** Generation-independent authority recording a member's monotonic Inbox disposition. */
+/**
+ * Generation-independent authority recording a member's reversible Inbox disposition. Absence of a
+ * row is version-0 UNREAD; a persisted UNREAD row is the same effective status at a positive
+ * version so the authority history is never deleted (contract §5.1).
+ */
 public final class InboxDisposition {
 
     private final InboxItemId inboxItemId;
@@ -46,7 +50,11 @@ public final class InboxDisposition {
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
     }
 
-    /** Creates the first authority row; absence before this command represents version 0 UNREAD. */
+    /**
+     * Creates the first authority row; absence before this command represents version 0 UNREAD, so
+     * a first row is never UNREAD — marking unread on a missing row is the idempotent no-op of the
+     * application layer, not a new row.
+     */
     public static InboxDisposition create(
             InboxItem item,
             InboxDispositionStatus target,
@@ -57,6 +65,10 @@ public final class InboxDisposition {
         if (expectedVersion != 0) {
             throw new OptimisticLockConflictException(
                     "InboxDisposition", requiredItem.id(), expectedVersion, 0);
+        }
+        if (target == InboxDispositionStatus.UNREAD) {
+            throw new DomainValidationException(
+                    "inboxDisposition.status", "UNREAD has no first authority row");
         }
         return new InboxDisposition(
                 requiredItem.id(),
@@ -90,7 +102,11 @@ public final class InboxDisposition {
                 updatedAt);
     }
 
-    /** Advances member disposition with an exact ETag and rejects reverse transitions. */
+    /**
+     * Advances or reverses member disposition with an exact ETag, following the §5.1 matrix:
+     * read/acted/archived move forward, read or acted may return to a persisted UNREAD, and an
+     * archive is restored to READ (never directly to UNREAD or ACTED).
+     */
     public InboxDisposition transitionTo(
             InboxDispositionStatus target,
             long expectedVersion,
@@ -101,7 +117,7 @@ public final class InboxDisposition {
         if (requiredTarget == status) {
             return this;
         }
-        if (!requiredTarget.isAfter(status)) {
+        if (!status.canTransitionTo(requiredTarget)) {
             throw new InvalidStateTransitionException(
                     "InboxDisposition", inboxItemId, status, requiredTarget);
         }
@@ -140,12 +156,7 @@ public final class InboxDisposition {
     }
 
     private static InboxDispositionStatus requirePersistedStatus(InboxDispositionStatus value) {
-        InboxDispositionStatus required = Objects.requireNonNull(value, "status");
-        if (required == InboxDispositionStatus.UNREAD) {
-            throw new DomainValidationException(
-                    "inboxDisposition.status", "UNREAD is represented by the absence of a row");
-        }
-        return required;
+        return Objects.requireNonNull(value, "status");
     }
 
     public InboxItemId inboxItemId() {

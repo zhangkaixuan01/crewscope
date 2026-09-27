@@ -239,6 +239,19 @@ describe('HttpTeamOpsGateway', () => {
     else if (path.endsWith('/notification-templates')) await expect(gateway.notificationTemplates(scope)).rejects.toThrow('response enum')
     else await expect(gateway.notificationDeliveries(scope, {})).rejects.toThrow('response enum')
   })
+
+  it('translates a missing audit event into null and keeps other failures raised', async () => {
+    const missing = json({ code: 'aggregate_not_found', message: 'aggregate_not_found', correlationId: uuid(8), retryable: false, currentVersion: null, details: {} }, 404)
+    const gateway = gatewayWith(vi.fn(async () => missing))
+    await expect(gateway.auditEvent(scope, uuid(1))).resolves.toBeNull()
+
+    const forbidden = json({ code: 'policy_denied', message: 'policy_denied', correlationId: uuid(8), retryable: false, currentVersion: null, details: {} }, 403)
+    const denied = gatewayWith(vi.fn(async () => forbidden))
+    await expect(denied.auditEvent(scope, uuid(1))).rejects.toThrow('policy_denied')
+
+    const present = gatewayWith(vi.fn(async () => json(auditPayload())))
+    await expect((await present.auditEvent(scope, uuid(1)))?.eventId).toBe(uuid(1))
+  })
 })
 
 function gatewayWith(fetcher: ReturnType<typeof vi.fn>): HttpTeamOpsGateway {

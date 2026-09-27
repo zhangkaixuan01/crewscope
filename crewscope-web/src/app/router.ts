@@ -59,13 +59,17 @@ export function createCrewScopeRouter(
         path: '/search',
         name: 'search',
         component: () => import('../pages/SearchPage.vue'),
-        meta: { mode: 'control', section: 'search', title: '统一搜索', requiredPermission: permissions.scopeRead },
+        // The coordinates the page itself reads; anything else is dropped through a redirect (D07).
+        meta: { mode: 'control', section: 'search', title: '统一搜索', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'q', 'types'] },
       },
       {
         path: '/today',
         name: 'today',
         component: () => import('../pages/TodayPage.vue'),
-        meta: { mode: 'control', section: 'today', title: '今日工作', requiredPermission: permissions.scopeRead },
+        // The workbench focus coordinate (AppShell breadcrumbs link here with focus=CRW-xx), the
+        // S5 saved-desk keys, the one-shot Setup deep-link intent, and the configure-return
+        // coordinates the page may land with.
+        meta: { mode: 'control', section: 'today', title: '今日工作', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'focus', 'conversation', 'workItem', 'deskProject', 'deskRole', 'deskAction', 'deskGroup', 'intent'] },
       },
       {
         path: '/setup',
@@ -96,13 +100,15 @@ export function createCrewScopeRouter(
         path: '/activity',
         name: 'activity',
         component: () => import('../pages/ActivityPage.vue'),
-        meta: { mode: 'control', section: 'activity', title: '团队动态', requiredPermission: permissions.scopeRead },
+        // The stream's own filter/event coordinates plus the correlation deep-link keys the audit
+        // correlation API builds into its object hrefs (the page honors them as landing context).
+        meta: { mode: 'control', section: 'activity', title: '团队动态', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'category', 'actor', 'event', 'sortDirection', 'correlation', 'objectType', 'objectId'] },
       },
       {
         path: '/inbox',
         name: 'inbox',
         component: () => import('../pages/InboxPage.vue'),
-        meta: { mode: 'control', section: 'inbox', title: '我的 Inbox', requiredPermission: permissions.scopeRead },
+        meta: { mode: 'control', section: 'inbox', title: '我的 Inbox', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'inboxType', 'sourceStatus', 'disposition', 'inboxItem'] },
       },
       {
         path: '/team/observer',
@@ -120,7 +126,7 @@ export function createCrewScopeRouter(
         path: '/audit',
         name: 'audit',
         component: () => import('../pages/AuditPage.vue'),
-        meta: { mode: 'control', section: 'audit', title: '审计中心', requiredPermission: permissions.auditRead },
+        meta: { mode: 'control', section: 'audit', title: '审计中心', requiredPermission: permissions.auditRead, queryWhitelist: ['team', 'from', 'to', 'category', 'outcome', 'initiator', 'actor', 'agent', 'subjectId', 'subjectType', 'providerBinding', 'correlation', 'auditEvent', 'chain'] },
       },
       {
         path: '/team/members',

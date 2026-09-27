@@ -6,6 +6,8 @@ export type SearchPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'of
 export interface SearchStoreState { phase: SearchPhase; scope: SearchScope | null; result: SearchResultPage | null; errorMessage: string | null }
 export interface SearchStore { state: Readonly<SearchStoreState>; activateScope(scope: SearchScope): void; search(filter: SearchFilter): Promise<void>; reset(): void }
 export const SEARCH_STORE: InjectionKey<SearchStore> = Symbol('crewscope-search-store')
+/** R20: the palette owns its own session; opening or clearing it never touches the search page's. */
+export const PALETTE_SEARCH_STORE: InjectionKey<SearchStore> = Symbol('crewscope-palette-search-store')
 /** Scope-isolated search state; a response from an old Team cannot replace current results. */
 export function createSearchStore(gateway: SearchGateway): SearchStore {
   const state = reactive<SearchStoreState>({ phase: 'idle', scope: null, result: null, errorMessage: null }); let generation = 0; let request: Promise<void> | null = null; let activeQueryKey = ''
@@ -38,4 +40,5 @@ export function createSearchStore(gateway: SearchGateway): SearchStore {
   return { state: readonly(state) as Readonly<SearchStoreState>, activateScope, search, reset }
 }
 export function installSearchStore(app: App, gateway: SearchGateway): SearchStore { const store = createSearchStore(gateway); app.provide(SEARCH_STORE, store); return store }
+export function installPaletteSearchStore(app: App, gateway: SearchGateway): SearchStore { const store = createSearchStore(gateway); app.provide(PALETTE_SEARCH_STORE, store); return store }
 export function useSearchStore(): SearchStore { const store = inject(SEARCH_STORE); if (!store) throw new Error('CrewScope Search Store is not installed'); return store }

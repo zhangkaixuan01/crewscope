@@ -8,7 +8,6 @@ import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
-import io.crewscope.domain.inbox.InboxDisposition;
 import io.crewscope.domain.inbox.InboxItemId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -44,7 +43,7 @@ public final class InboxDispositionCommandService {
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
 
-    public CommandExecution<InboxDisposition> change(
+    public CommandExecution<InboxDispositionOutcome> change(
             TeamCommandContext context,
             OrganizationId organizationId,
             TeamId teamId,
@@ -72,7 +71,7 @@ public final class InboxDispositionCommandService {
                 trusted, organizationId, teamId, inboxItemId, requested, hash));
     }
 
-    private CommandExecution<InboxDisposition> execute(
+    private CommandExecution<InboxDispositionOutcome> execute(
             TeamCommandContext context,
             OrganizationId organizationId,
             TeamId teamId,
@@ -92,16 +91,17 @@ public final class InboxDispositionCommandService {
         if (!reservation.acquired()) {
             return CommandExecution.replayed(reservation.receipt().orElseThrow());
         }
-        InboxDisposition disposition = dispositions.change(
+        InboxDispositionOutcome outcome = dispositions.change(
                 context.access(), organizationId, teamId, inboxItemId, command);
         // Disposition is a Generation-independent command fact; its stable receipt identity is
-        // derived from the command and committed aggregate version without exposing source data.
+        // derived from the command and committed version without exposing source data. Version 0
+        // is the no-row UNREAD no-op and keeps its own stable receipt identity.
         UUID factId = UUID.nameUUIDFromBytes(("crewscope:inbox-disposition-command:v1:"
-                        + commandId + ":" + disposition.version())
+                        + commandId + ":" + outcome.version())
                 .getBytes(StandardCharsets.UTF_8));
         CommandReceipt receipt = new CommandReceipt(
-                commandId, factId, disposition.version(), context.correlationId());
+                commandId, factId, outcome.version(), context.correlationId());
         receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
-        return CommandExecution.completed(disposition, receipt);
+        return CommandExecution.completed(outcome, receipt);
     }
 }

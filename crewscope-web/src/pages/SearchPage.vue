@@ -4,14 +4,13 @@ import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
-import BaseTooltip from '../components/base/BaseTooltip.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useSearchStore } from '../domains/search/store'
 import { searchObjectTypes, type SearchObjectType, type SearchResultItem } from '../domains/search/types'
 import { searchObjectTypeLabels } from '../domains/search/labels'
-import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
+import RelativeTime from '../components/base/RelativeTime.vue'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
 const pageRequests = usePageRequestScope()
@@ -24,6 +23,10 @@ const store = useSearchStore()
 const text = ref(queryString(route.query.q))
 const selectedTypes = ref<SearchObjectType[]>(parseTypes(route.query.types))
 const loadingMore = ref(false)
+/** A cursor page that failed is a local fact: the loaded rows stay and only that page retries (R20). */
+const loadMoreError = ref(false)
+/** The committed query this page already loaded; guards against scope-phase replays. */
+let loadedQueryKey: string | null = null
 
 const scope = computed(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -38,6 +41,8 @@ const groupedItems = computed(() => {
   return [...groups.entries()]
 })
 const activeTypes = computed(() => selectedTypes.value.length ? selectedTypes.value : undefined)
+/** R20: a failed or refreshing search keeps the last committed result on screen, never an empty page. */
+const hasVisibleResult = computed(() => (store.state.result?.items.length ?? 0) > 0)
 
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, scopeStore.state.selectedProjectId, route.query.q, route.query.types] as const,
@@ -45,6 +50,12 @@ watch(
     loadingMore.value = false
     const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !scope.value || !organizationId || !teamId) return
+    // An unrelated query change (the search text) restarts the shell's scope synchronization,
+    // which cycles scope phase ready → loading → ready without touching the team. Replaying the
+    // identical committed query then would double-fire the search (R20 sessions).
+    const queryKey = JSON.stringify([teamId, scopeStore.state.selectedProjectId, route.query.q ?? '', route.query.types ?? ''])
+    if (queryKey === loadedQueryKey && store.state.result) return
+    loadedQueryKey = queryKey
     store.activateScope({ organizationId, teamId })
     text.value = queryString(route.query.q)
     selectedTypes.value = parseTypes(route.query.types)
@@ -55,7 +66,16 @@ watch(
 )
 
 function submit(): void {
-  const query = { ...route.query, q: text.value.trim() || undefined, types: selectedTypes.value.length ? selectedTypes.value.join(',') : undefined }
+  // Built key by key: an explicit `undefined` value would ride through the route whitelist
+  // as a non-string query entry and trigger a second normalization redirect (D07).
+  const query: Record<string, string> = {}
+  for (const key of ['team', 'project'] as const) {
+    const value = queryString(route.query[key])
+    if (value) query[key] = value
+  }
+  const q = text.value.trim()
+  if (q) query.q = q
+  if (selectedTypes.value.length) query.types = selectedTypes.value.join(',')
   void router.replace({ query })
 }
 
@@ -71,14 +91,26 @@ function clearTypes(): void {
   submit()
 }
 
+/** Retries the committed conditions — the query string, never the draft still in the input (R20). */
+async function retrySubmitted(): Promise<void> {
+  const scopeValue = scope.value
+  if (!scopeValue) return
+  store.activateScope({ organizationId: scopeValue.organizationId, teamId: scopeValue.teamId })
+  text.value = queryString(route.query.q)
+  selectedTypes.value = parseTypes(route.query.types)
+  await store.search({ text: text.value, projectId: scopeStore.state.selectedProjectId, types: activeTypes.value })
+}
+
 async function loadMore(): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   const cursor = store.state.result?.nextCursor
   if (!cursor || !text.value.trim() || loadingMore.value) return
   loadingMore.value = true
+  loadMoreError.value = false
   try {
     await store.search({ text: text.value, projectId: scopeStore.state.selectedProjectId, types: activeTypes.value, after: cursor })
     if (!pageOwner.isCurrent()) return
+    if (store.state.phase === 'error' || store.state.phase === 'offline') loadMoreError.value = true
   } finally {
     if (pageOwner.isCurrent()) loadingMore.value = false
   }
@@ -106,7 +138,7 @@ function parseTypes(value: unknown): SearchObjectType[] {
   <AppShell eyebrow="搜索 · 团队范围" title="统一搜索">
     <div class="search-page page-shell">
       <section class="search-intro">
-        <div><p class="eyebrow"><SearchIcon :size="13" />跨团队工作事实检索</p><h2>找到你要推进的对象。</h2><p>搜索只返回当前 Team 与权限范围内的工作项、对话、任务、仓库、Agent 和成员。</p></div>
+        <div><p class="eyebrow"><SearchIcon :size="13" />团队内工作事实检索</p><h2>找到你要推进的对象。</h2><p>搜索只返回当前 Team 与权限范围内的工作项、对话、任务、仓库、Agent 和成员。</p></div>
         <span class="scope-note">{{ scopeStore.selectedTeam.value?.name ?? '当前 Team' }}<small>{{ scopeStore.selectedProject.value?.name ?? '全部 WorkProject' }}</small></span>
       </section>
 
@@ -124,25 +156,28 @@ function parseTypes(value: unknown): SearchObjectType[] {
 
       <StatePanel v-if="scopeStore.state.phase === 'empty'" state="empty" title="当前账号还没有 Team" description="创建 Team 后即可搜索团队工作事实；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
       <StatePanel v-else-if="store.state.phase === 'idle'" state="empty" title="输入关键词开始搜索" description="搜索当前 Team 中你有权限查看的工作事实。" />
-      <StatePanel v-else-if="store.state.phase === 'loading'" state="loading" title="正在搜索" description="正在按当前范围和权限读取最新结果。" />
-      <StatePanel v-else-if="store.state.phase === 'offline'" state="offline" :description="store.state.errorMessage ?? undefined" />
-      <StatePanel v-else-if="store.state.phase === 'error'" state="error" :description="store.state.errorMessage ?? undefined" @retry="submit" />
-      <StatePanel v-else-if="store.state.phase === 'empty'" state="empty" title="没有找到匹配结果" description="换一个关键词，或清除对象类型筛选后重试。"><template #action><BaseButton size="small" variant="secondary" @click="clearTypes">清除筛选</BaseButton></template></StatePanel>
+      <StatePanel v-else-if="store.state.phase === 'loading' && !hasVisibleResult" state="loading" title="正在搜索" description="正在按当前范围和权限读取最新结果。" />
       <template v-else>
-        <section class="result-summary" aria-live="polite">找到 {{ store.state.result?.items.length ?? 0 }} 条结果 <span>结果按更新时间排序</span></section>
+        <section v-if="store.state.phase === 'loading'" class="result-refresh" role="status">正在更新结果<small>仍显示上次结果</small></section>
+        <StatePanel v-else-if="store.state.phase === 'offline' && !loadMoreError" compact state="offline" :description="store.state.errorMessage ?? '当前离线，暂时无法搜索。'"><template #action><BaseButton size="small" variant="secondary" @click="retrySubmitted">重试本次搜索</BaseButton></template></StatePanel>
+        <StatePanel v-else-if="store.state.phase === 'error' && !loadMoreError" compact state="error" :description="store.state.errorMessage ?? undefined" @retry="retrySubmitted" />
+        <StatePanel v-else-if="store.state.phase === 'empty' && !hasVisibleResult" state="empty" title="没有找到匹配结果" description="换一个关键词，或清除对象类型筛选后重试。"><template #action><BaseButton size="small" variant="secondary" @click="clearTypes">清除筛选</BaseButton></template></StatePanel>
+        <template v-if="hasVisibleResult">
+        <section class="result-summary" :class="{ stale: (store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError }" aria-live="polite">找到 {{ store.state.result?.items.length ?? 0 }} 条结果 <span v-if="(store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError">仍显示上次结果</span><span v-else>结果按更新时间排序</span></section>
         <div class="result-groups">
           <section v-for="[type, items] in groupedItems" :key="type" class="result-group panel" :aria-labelledby="`search-${type}`">
             <header><div><p class="eyebrow">匹配对象</p><h2 :id="`search-${type}`">{{ searchObjectTypeLabels[type] }}</h2></div><span>{{ items.length }} 条</span></header>
-            <ul><li v-for="item in items" :key="`${item.objectType}:${item.objectId}`"><button type="button" @click="openResult(item)"><span class="result-main"><strong>{{ item.title }}</strong><small>{{ displayMeta(item) }} · <BaseTooltip :text="formatAbsoluteTime(item.updatedAt)"><span>{{ formatRelativeTime(item.updatedAt) }}</span></BaseTooltip></small><em v-if="item.snippet">{{ item.snippet }}</em></span><ArrowRight :size="15" aria-hidden="true" /></button></li></ul>
+            <ul><li v-for="item in items" :key="`${item.objectType}:${item.objectId}`"><button type="button" @click="openResult(item)"><span class="result-main"><strong>{{ item.title }}</strong><small>{{ displayMeta(item) }} · <RelativeTime :value="item.updatedAt" /></small><em v-if="item.snippet">{{ item.snippet }}</em></span><ArrowRight :size="15" aria-hidden="true" /></button></li></ul>
           </section>
         </div>
-        <div v-if="store.state.result?.nextCursor" class="load-more"><BaseButton variant="secondary" :loading="loadingMore" @click="loadMore">加载更多</BaseButton></div>
+        <div v-if="store.state.result?.nextCursor" class="load-more"><BaseButton variant="secondary" :loading="loadingMore" :disabled="store.state.phase === 'loading'" @click="loadMore">{{ loadMoreError ? '重试本页' : '加载更多' }}</BaseButton><small v-if="loadMoreError" class="load-more__error" role="alert">本页加载失败，以上结果已保留。</small></div>
+        </template>
       </template>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.search-page { display: grid; gap: var(--cs-space-16); max-width: 980px; margin: 0 auto; }.search-intro { display: flex; align-items: end; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-8) var(--cs-space-2); }.search-intro h2 { margin: var(--cs-space-4) 0 var(--cs-space-8); font-size: var(--cs-text-xl); }.search-intro p:not(.eyebrow) { max-width: 590px; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.eyebrow { display: flex; align-items: center; gap: var(--cs-space-4); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.scope-note { display: grid; min-width: 150px; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: right; }.scope-note small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.search-form { display: flex; gap: var(--cs-space-12); padding: var(--cs-space-12); }.search-input { display: grid; min-width: 0; flex: 1; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); }.search-input input { width: 100%; min-height: var(--cs-density-control-height); border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.search-input kbd { padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font-size: var(--cs-text-base); }.type-filter { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); }.type-filter__heading { display: flex; align-items: center; justify-content: space-between; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.type-filter__heading span { display: flex; align-items: center; gap: var(--cs-space-8); font-weight: var(--cs-weight-semibold); }.type-filter__heading button { border: 0; background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); cursor: pointer; }.type-filter__options { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.type-filter__options button { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-8) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.type-filter__options button.selected { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }.result-summary { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.result-summary span { margin-left: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.result-groups { display: grid; gap: var(--cs-space-12); }.result-group { overflow: hidden; }.result-group > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.result-group > header h2 { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-base); }.result-group > header > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.result-group ul { padding: 0; margin: 0; list-style: none; }.result-group li + li { border-top: 1px solid var(--cs-border); }.result-group li button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16); background: var(--cs-surface); color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.result-group li button:hover { background: var(--cs-surface-accent); }.result-main { display: grid; min-width: 0; gap: var(--cs-space-4); }.result-main strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-base); text-overflow: ellipsis; white-space: nowrap; }.result-main small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.result-main em { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }.load-more { display: flex; justify-content: center; padding: var(--cs-space-4); }
+.search-page { display: grid; gap: var(--cs-space-16); max-width: 980px; margin: 0 auto; }.search-intro { display: flex; align-items: end; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-8) var(--cs-space-2); }.search-intro h2 { margin: var(--cs-space-4) 0 var(--cs-space-8); font-size: var(--cs-text-xl); }.search-intro p:not(.eyebrow) { max-width: 590px; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.eyebrow { display: flex; align-items: center; gap: var(--cs-space-4); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.scope-note { display: grid; min-width: 150px; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: right; }.scope-note small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.search-form { display: flex; gap: var(--cs-space-12); padding: var(--cs-space-12); }.search-input { display: grid; min-width: 0; flex: 1; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); }.search-input input { width: 100%; min-height: var(--cs-density-control-height); border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.search-input kbd { padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font-size: var(--cs-text-base); }.type-filter { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); }.type-filter__heading { display: flex; align-items: center; justify-content: space-between; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.type-filter__heading span { display: flex; align-items: center; gap: var(--cs-space-8); font-weight: var(--cs-weight-semibold); }.type-filter__heading button { border: 0; background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); cursor: pointer; }.type-filter__options { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.type-filter__options button { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-8) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.type-filter__options button.selected { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }.result-summary { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.result-summary span { margin-left: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.result-summary.stale span { color: var(--cs-warning); }.result-refresh { display: flex; align-items: baseline; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.result-refresh small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.result-groups { display: grid; gap: var(--cs-space-12); }.result-group { overflow: hidden; }.result-group > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.result-group > header h2 { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-base); }.result-group > header > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.result-group ul { padding: 0; margin: 0; list-style: none; }.result-group li + li { border-top: 1px solid var(--cs-border); }.result-group li button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16); background: var(--cs-surface); color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.result-group li button:hover { background: var(--cs-surface-accent); }.result-main { display: grid; min-width: 0; gap: var(--cs-space-4); }.result-main strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-base); text-overflow: ellipsis; white-space: nowrap; }.result-main small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.result-main em { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }.load-more { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); padding: var(--cs-space-4); }.load-more__error { color: var(--cs-warning); font-size: var(--cs-text-xs); }
 @media (max-width: 640px) { .search-intro { display: grid; align-items: start; }.scope-note { width: max-content; min-width: 0; text-align: left; }.search-form { display: grid; }.search-form :deep(button) { width: 100%; }.result-group li button { padding-inline: var(--cs-space-12); } }
 </style>

@@ -1,4 +1,4 @@
-import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { apiClient, CrewScopeApiError, type CrewScopeApiClient } from '../../api/client'
 import {
   auditActorTypes,
   auditEventCategories,
@@ -77,6 +77,7 @@ export interface TeamOpsGateway {
   changeInboxDisposition(scope: TeamOpsScope, itemId: string, status: string, etag: string, idempotencyKey: string): Promise<CommandReceipt>
 
   audit(scope: TeamOpsScope, filter: AuditFilter, after?: string | null, limit?: number, signal?: AbortSignal): Promise<CursorPage<AuditEvent>>
+  auditEvent(scope: TeamOpsScope, eventId: string, signal?: AbortSignal): Promise<AuditEvent | null>
   exportAudit(scope: TeamOpsScope, filter: AuditFilter, maximumRows: number, signal?: AbortSignal): Promise<AuditExport>
   correlation(scope: TeamOpsScope, correlationId: string, after?: string | null, limit?: number, signal?: AbortSignal): Promise<CorrelationGraph>
 
@@ -216,6 +217,17 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
     if (after) search.set('after', after)
     const value = asRecord(await this.client.get(`${teamRoot(scope)}/audit-events?${search}`, { signal }))
     return { items: asArray(value.items).map(mapAudit), nextCursor: nullableString(value.nextCursor) }
+  }
+
+  async auditEvent(scope: TeamOpsScope, eventId: string, signal?: AbortSignal): Promise<AuditEvent | null> {
+    try {
+      return mapAudit(await this.client.get(`${teamRoot(scope)}/audit-events/${encodeURIComponent(eventId)}`, { signal }))
+    } catch (error) {
+      // The server reports an event outside this Team Scope as 404 aggregate_not_found; for a
+      // deep link that is the stable "not visible here" answer, not a transport failure.
+      if (error instanceof CrewScopeApiError && error.status === 404 && error.envelope.code === 'aggregate_not_found') return null
+      throw error
+    }
   }
 
   async exportAudit(scope: TeamOpsScope, filter: AuditFilter, maximumRows: number, signal?: AbortSignal): Promise<AuditExport> {

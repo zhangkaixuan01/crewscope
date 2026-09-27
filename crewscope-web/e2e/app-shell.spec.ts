@@ -926,12 +926,20 @@ test.beforeEach(async ({ page }) => {
       return
     }
     if (path.endsWith('/work-items') && request.method() === 'GET') {
+      // The server owns the filters (M9b-A06): type and priority arrive as multi-value params and
+      // narrow the rows before pagination, exactly like status.
       const status = url.searchParams.get('status')
-      const matching = status ? workItems.filter(item => item.status === status) : workItems
+      const types = url.searchParams.get('type')?.split(',').filter(Boolean) ?? []
+      const priorities = url.searchParams.get('priority')?.split(',').filter(Boolean) ?? []
+      const matching = workItems
+        .filter(item => !status || item.status === status)
+        .filter(item => !types.length || types.includes(item.type))
+        .filter(item => !priorities.length || priorities.includes(item.priority))
+      const filtered = Boolean(status || types.length || priorities.length)
       const after = url.searchParams.get('after')
       await fulfillJson(route, after
         ? { items: matching.slice(4).map(withAvailability), nextCursor: null }
-        : { items: (status ? matching : matching.slice(0, 4)).map(withAvailability), nextCursor: status ? null : 'work-page-2' })
+        : { items: (filtered ? matching : matching.slice(0, 4)).map(withAvailability), nextCursor: filtered ? null : 'work-page-2' })
       return
     }
     if (path.endsWith('/work-items') && request.method() === 'POST') {
@@ -1146,7 +1154,7 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   await page.reload()
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
 
-  await page.getByRole('link', { name: '工作台', exact: true }).click()
+  await page.getByRole('link', { name: '今日', exact: true }).click()
 
   await expect(page).toHaveURL(/\/today\?/)
   const restoredQuery = new URL(page.url()).searchParams
@@ -1255,15 +1263,29 @@ test('Conversation reloads current server facts when returning from Control Mode
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
   await expect(page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })).toBeVisible()
 
-  await page.getByRole('link', { name: '工作台', exact: true }).click()
+  await page.getByRole('link', { name: '今日', exact: true }).click()
   await expect(page).toHaveURL(/\/today\?/)
   const conversationModeLink = testInfo.project.name === 'narrow-chromium'
-    ? page.getByRole('navigation', { name: '移动端工作模式' }).getByRole('link', { name: '对话', exact: true })
+    ? page.getByRole('navigation', { name: '移动端底部导航' }).getByRole('link', { name: '对话', exact: true })
     : page.getByRole('region', { name: '全局工具栏' }).getByRole('link', { name: '对话', exact: true })
   await conversationModeLink.click()
   await expect(page).toHaveURL(/\/conversation\?/)
   await expect(page.getByRole('button', { name: '打开对话 返回页面后读取的新对话' })).toBeVisible()
   expect(collectionReads).toBe(2)
+})
+
+test('fill 页面的固定高度 chrome 不参与内容溢出分摊', async ({ page }) => {
+  // 回归守卫：对话页是 fill 模式（body 100dvh 的 flex 列）。顶栏按钮精简后实测过一次
+  // 内容基线上移，58px 的 topbar 被 flex 收缩压到 42px、整页纵向链位移 16px——违反
+  // 「chrome 保持自然高度，workspace 接收剩余视口」的 L03 合同。断言高度而非截图，
+  // 让这类回归在基线之前先在这里红掉。
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByTestId('conversation-task-cards')).toBeVisible()
+  const topbar = page.locator('.topbar')
+  await expect(topbar).toBeVisible()
+  const expected = (test.info().project.name === 'narrow-chromium') ? 52 : 58
+  const box = await topbar.boundingBox()
+  expect(box?.height, `topbar 应保持 ${expected}px，而不是被 flex 收缩压扁`).toBe(expected)
 })
 
 test('Conversation sends Markdown with Enter and restores the committed message after refresh', async ({ page }) => {
@@ -1917,18 +1939,24 @@ test('Work restores filters and groups matching items on the Board', async ({ pa
   await expect(page).toHaveURL(/view=list/)
   await page.reload()
   await expect(page.getByLabel('工作项列表')).toBeVisible()
-  await expect(page.getByRole('combobox').nth(1)).toHaveValue('FEATURE')
+  // 手机上筛选行折叠在开关后面（R16）；两个视口都要读到 select 的值，先展开再断言。
+  const filterToggle = page.getByRole('button', { name: /展开筛选/ })
+  if (await filterToggle.isVisible()) await filterToggle.click()
+  await expect(page.locator('.filters').getByLabel('类型')).toHaveValue('FEATURE')
 })
 
-test('Work clears local type and priority filters in one route update', async ({ page }) => {
+test('Work clears the applied type and priority filters in one route update', async ({ page }) => {
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&status=all&type=BUG&priority=HIGH`)
   await expect(page.getByText('没有符合筛选条件的工作项')).toBeVisible()
 
-  await page.getByRole('button', { name: '清除本地筛选' }).click()
+  await page.getByRole('button', { name: '清除筛选' }).click()
 
   await expect(page.getByLabel('工作项列表')).toBeVisible()
-  await expect(page.getByRole('combobox').nth(1)).toHaveValue('all')
-  await expect(page.getByRole('combobox').nth(2)).toHaveValue('all')
+  // 手机上筛选行折叠在开关后面（R16）；两个视口都要读到 select 的值，先展开再断言。
+  const filterToggle = page.getByRole('button', { name: /展开筛选/ })
+  if (await filterToggle.isVisible()) await filterToggle.click()
+  await expect(page.locator('.filters').getByLabel('类型')).toHaveValue('all')
+  await expect(page.locator('.filters').getByLabel('优先级')).toHaveValue('all')
   const query = new URL(page.url()).searchParams
   expect(query.get('type')).toBe('all')
   expect(query.get('priority')).toBe('all')
@@ -3113,6 +3141,13 @@ test('M5 Review Workbench visual baseline', async ({ page }, testInfo) => {
 test('AppShell visual baseline', async ({ page }, testInfo) => {
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+  // 截图锚定在 R19 阅读位置恢复完成之后：标题可见只代表详情就绪，窄屏里消息历史的
+  // restore 链（jumpToLatest）还在途，直接截图会捕到确定性的中间帧（折叠区可见、跳最新
+  // pill 未消失）。桌面端 4 条消息一屏全显，scrollTop=0 即底部，此等待零成本通过。
+  await expect.poll(async () => page.evaluate(() => {
+    const history = document.querySelector('.message-history')
+    return history ? Math.abs(history.scrollHeight - history.clientHeight - history.scrollTop) < 4 : false
+  }), { message: '消息历史应完成阅读位置恢复并停在底部' }).toBe(true)
   await expect(page).toHaveScreenshot(`conversation-${testInfo.project.name}.png`, { fullPage: true })
 
   await page.goto(`/today?team=${ids.team}&project=${ids.project}`)

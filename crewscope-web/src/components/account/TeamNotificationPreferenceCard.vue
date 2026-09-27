@@ -113,7 +113,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <section class="team-preference panel">
+  <section id="notifications" class="team-preference panel">
     <div class="team-preference__heading">
       <i><BellRing :size="18" /></i>
       <div>

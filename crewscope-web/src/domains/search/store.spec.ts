@@ -1,4 +1,5 @@
-import { createSearchStore } from './store'
+import { createApp } from 'vue'
+import { createSearchStore, installPaletteSearchStore, installSearchStore, PALETTE_SEARCH_STORE, SEARCH_STORE, useSearchStore } from './store'
 import type { SearchGateway } from './gateway'
 
 describe('createSearchStore', () => {
@@ -52,5 +53,32 @@ describe('createSearchStore', () => {
     await request
     expect(store.state.scope?.teamId).toBe('team-2')
     expect(store.state.result).toBeNull()
+  })
+
+  it('keeps the palette session separate: opening and clearing it never touches the page results', async () => {
+    const item = { objectType: 'AGENT' as const, objectId: 'agent-1', projectId: null, title: '发布 Agent', subtitle: null, status: 'ACTIVE', updatedAt: '2026-09-26T00:00:00Z', route: '/settings/agents', snippet: null }
+    const gateway: SearchGateway = { search: vi.fn().mockResolvedValue({ items: [item], nextCursor: null }) }
+    const pageStore = createSearchStore(gateway)
+    const paletteStore = createSearchStore(gateway)
+    pageStore.activateScope({ organizationId: 'org', teamId: 'team' })
+    paletteStore.activateScope({ organizationId: 'org', teamId: 'team' })
+    await pageStore.search({ text: '发布' })
+    expect(pageStore.state.phase).toBe('ready')
+    // The palette opens with a blank query: that clears only its own session.
+    await paletteStore.search({ text: '' })
+    expect(pageStore.state.result?.items).toHaveLength(1)
+    expect(pageStore.state.phase).toBe('ready')
+    expect(paletteStore.state.phase).toBe('idle')
+    expect(paletteStore.state.result).toBeNull()
+  })
+
+  it('installs the page and palette stores under separate injection keys', () => {
+    const gateway: SearchGateway = { search: vi.fn() }
+    const app = createApp({ render: () => null })
+    const pageStore = installSearchStore(app, gateway)
+    const paletteStore = installPaletteSearchStore(app, gateway)
+    expect(app.runWithContext(() => useSearchStore())).toBe(pageStore)
+    expect(app.runWithContext(() => PALETTE_SEARCH_STORE !== SEARCH_STORE)).toBe(true)
+    expect(app.runWithContext(() => paletteStore)).toBe(paletteStore)
   })
 })

@@ -30,6 +30,9 @@ interface Row {
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
   updatedAt: string
   dueAt: string | null
+  /** The row's type and creation time, when a case exercises the server-side sort or filter. */
+  type?: 'TASK' | 'BUG' | 'FEATURE' | 'INCIDENT'
+  createdAt?: string
   /** The server's verdict for one edge, when it should differ from the plain state machine. */
   refusedTarget?: { status: WorkItemStatus; reasonMessage: string }
 }
@@ -54,7 +57,7 @@ function row(overrides: Partial<Row> = {}): Row {
 }
 
 test.describe('work item list capabilities', () => {
-  test('orders the loaded rows and keeps the sort in the URL', async ({ page }) => {
+  test('asks the server for the ordering and keeps the sort in the URL', async ({ page }) => {
     const state = world([
       row({ id: ids.first, key: 'CRW-18', title: '低优先级事项', priority: 'LOW', updatedAt: '2026-09-13T09:00:00Z' }),
       row({ id: ids.second, key: 'CRW-19', title: '紧急事项', priority: 'URGENT', updatedAt: '2026-09-12T09:00:00Z' }),
@@ -64,18 +67,22 @@ test.describe('work item list capabilities', () => {
     // 服务端按更新时间列出，所以首屏是「低优先级事项」在前。
     await page.goto(workUrl())
     await expect(listRows(page)).toHaveText([/低优先级事项/, /紧急事项/])
-    await expect(page.locator('.sort-control')).toContainText('排序作用于当前 2 项')
+    // 排序与筛选随查询发给服务端：作用域是整个项目，而不是已加载的行。
+    await expect(page.locator('.sort-control')).toContainText('排序与筛选作用于整个项目，共 2 项')
 
     await page.getByRole('button', { name: /^按优先级排序/ }).click()
 
     await expect(page).toHaveURL(/sort=priority/)
-    await expect(page).toHaveURL(/direction=desc/)
+    // 方向是每个排序在服务端合同里的固定属性，不再是浏览器的选择，URL 也就不再携带它。
+    await expect(page).not.toHaveURL(/direction=/)
     await expect(listRows(page)).toHaveText([/紧急事项/, /低优先级事项/])
 
-    // 再次点击同一键切换方向，而不是无声地什么都不做。
-    await page.getByRole('button', { name: /按优先级排序（当前降序）/ }).click()
-    await expect(page).toHaveURL(/direction=asc/)
-    await expect(listRows(page)).toHaveText([/低优先级事项/, /紧急事项/])
+    // 再次点击同一键是诚实的无操作：排序不换向、行序不变。
+    await page.getByRole('button', { name: /按优先级排序（当前高→低）/ }).click()
+    await expect(page).toHaveURL(/sort=priority/)
+    await expect(listRows(page)).toHaveText([/紧急事项/, /低优先级事项/])
+    // 每个键的方向都写在控件上，包括没有激活的那些。
+    await expect(page.getByRole('button', { name: '按截止时间排序（近→远）' })).toBeVisible()
 
     await expect(page.locator('.sort-control').getByRole('button', { name: '负责人' })).toBeDisabled()
     expect(await new AxeBuilder({ page }).analyze()).toEqual(expect.objectContaining({ violations: [] }))
@@ -161,7 +168,10 @@ test.describe('work item list capabilities', () => {
     await page.getByRole('checkbox', { name: '选择 CRW-20 整理发布说明' }).check()
     await expect(page.locator('[aria-label="批量操作"]')).toContainText('已选 3 项（跨页保留）')
 
-    // 被筛选掉的选择不会被悄悄丢掉，也不会被算进批量：两句话分开说。
+    // 被筛选掉的选择不会被悄悄丢掉，也不会被算进批量：两句话分开说。手机上筛选折叠在
+    // 开关后面（R16），先展开再选；桌面没有这个开关。
+    const filterToggle = page.getByRole('button', { name: /展开筛选/ })
+    if (await filterToggle.isVisible()) await filterToggle.click()
     await page.locator('.filters select').nth(2).selectOption('HIGH')
     await expect(page.locator('[aria-label="批量操作"]')).toContainText('其中 1 项不在当前结果中，批量操作只作用于当前结果的 2 项')
   })
@@ -235,10 +245,10 @@ function availabilityOf(item: Row) {
 function summaryOf(item: Row) {
   return {
     id: item.id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace,
-    projectId: ids.project, key: item.key, type: 'TASK', title: item.title,
+    projectId: ids.project, key: item.key, type: item.type ?? 'TASK', title: item.title,
     description: `${item.title}的协作说明`, status: item.status, priority: item.priority,
     labels: ['team-work'], dueAt: item.dueAt, source: 'CREWSCOPE', sourceReference: null, version: 0,
-    createdAt: '2026-09-01T01:00:00Z', createdByPrincipalId: ids.principal,
+    createdAt: item.createdAt ?? '2026-09-01T01:00:00Z', createdByPrincipalId: ids.principal,
     updatedAt: item.updatedAt, updatedByPrincipalId: ids.principal, availableActions: availabilityOf(item),
   }
 }
@@ -274,9 +284,24 @@ async function mockApi(page: Page, state: World, options: { pageSize?: number } 
     }
 
     if (method === 'GET' && path.endsWith('/work-items')) {
-      // 服务端按 updated-time keyset 排序并游标分页：排序参数不存在，所以页面只能排已加载的行。
-      const ordered = [...state.rows].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      const after = new URL(request.url()).searchParams.get('after')
+      // 服务端拥有排序与筛选（M9b-A06）：请求带什么 sort/filter，就按它们过滤排序后游标分页。
+      const params = new URL(request.url()).searchParams
+      const status = params.get('status')
+      const type = params.get('type')?.split(',').filter(Boolean) ?? []
+      const priority = params.get('priority')?.split(',').filter(Boolean) ?? []
+      const sort = params.get('sort') ?? 'updatedAt'
+      const byPriority = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+      const filtered = state.rows
+        .filter(candidate => !status || candidate.status === status)
+        .filter(candidate => !type.length || type.includes(candidate.type ?? 'TASK'))
+        .filter(candidate => !priority.length || priority.includes(candidate.priority))
+      const ordered = [...filtered].sort((left, right) => {
+        if (sort === 'priority') return byPriority.indexOf(right.priority) - byPriority.indexOf(left.priority)
+        if (sort === 'dueAt') return (left.dueAt ?? '9999').localeCompare(right.dueAt ?? '9999')
+        if (sort === 'createdAt') return (right.createdAt ?? right.updatedAt).localeCompare(left.createdAt ?? left.updatedAt)
+        return right.updatedAt.localeCompare(left.updatedAt)
+      })
+      const after = params.get('after')
       const start = after ? ordered.findIndex(item => item.id === after) + 1 : 0
       const items = ordered.slice(start, start + pageSize)
       const hasMore = start + pageSize < ordered.length

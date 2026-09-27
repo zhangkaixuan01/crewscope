@@ -17,7 +17,7 @@ const item: WorkItemSummary = {
 function mountWorkspace(overrides: Record<string, unknown> = {}) {
   return mount(WorkItemsWorkspace, {
     props: {
-      phase: 'ready', errorMessage: null, filteredItems: [item], view: 'list', boardStatuses: ['READY'], statusLabels: { READY: '就绪' },
+      phase: 'ready', errorMessage: null, filteredItems: [item], hasAppliedFilters: false, view: 'list', boardStatuses: ['READY'], statusLabels: { READY: '就绪' },
       nextCursor: null, loadingMore: false, canCreate: true, draggedWorkItem: null, dragOverStatus: null, boardAnnouncement: '',
       pendingItemId: null, confirmingTarget: null, busyItemId: null,
       allowDrop: () => true, itemsFor: () => [item], selectable: false, isSelected: () => false,
@@ -30,6 +30,17 @@ function mountWorkspace(overrides: Record<string, unknown> = {}) {
 }
 
 describe('WorkItemsWorkspace', () => {
+  it('offers the filter recovery exit only when a filter narrowed the result away', async () => {
+    // 服务端筛选后，空结果是「被筛没了」而不是「项目真空」：恢复出口只在前者出现。
+    const narrowed = mountWorkspace({ phase: 'empty', filteredItems: [], hasAppliedFilters: true })
+    expect(narrowed.text()).toContain('没有符合筛选条件的工作项')
+    expect(narrowed.text()).toContain('清除筛选')
+
+    const bare = mountWorkspace({ phase: 'empty', filteredItems: [], hasAppliedFilters: false })
+    expect(bare.text()).toContain('当前范围还没有工作项')
+    expect(bare.text()).not.toContain('清除筛选')
+  })
+
   it('renders list state and delegates card selection', async () => {
     const wrapper = mountWorkspace()
     expect(wrapper.find('[aria-label="工作项列表"]').exists()).toBe(true)

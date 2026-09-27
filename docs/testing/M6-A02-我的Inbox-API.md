@@ -31,7 +31,7 @@ M6-A02 交付当前 Team 成员自己的五类 Inbox HTTP 闭环：
 | `GET` | `/counts` | 五类总数和未读数 |
 | `GET` | `/{inboxItemId}` | 当前代际详情与强 ETag |
 | `GET` | `/{inboxItemId}/target` | 重新授权后的站内来源跳转 |
-| `PUT` | `/{inboxItemId}/disposition` | READ、ACTED 或 ARCHIVED 命令 |
+| `PUT` | `/{inboxItemId}/disposition` | READ、ACTED、ARCHIVED 或 UNREAD 命令（M9b-F04 起可逆：恢复归档到 READ、READ/ACTED 重新标未读为持久 UNREAD 正版本、无行 UNREAD 幂等无操作、归档内标未读为恢复+标未读两步） |
 
 列表默认只读 `OPEN` 来源。`itemTypes`、`sourceStatuses` 和
 `dispositionStatuses` 接受逗号分隔或重复参数。公开 DTO 不包含 MemberId、Projection Name、Generation、Schema、凭证、通知正文或原始事件 Payload。
@@ -47,7 +47,7 @@ Adapter 先读取 `member-inbox` 当前 Pointer，再在同一只读事务内读
 - 新请求读取新 Generation，并继续合并稳定 InboxItemId 对应的原处置；
 - 旧 Generation Cursor 返回 `410 cursor_expired`；
 - 已经返回的旧页不会被静默拼接到新 Generation；
-- 来源关闭仍可查询详情，且不会丢失 READ、ACTED 或 ARCHIVED 状态。
+- 来源关闭仍可查询详情，且不会丢失 READ、ACTED、ARCHIVED 或持久 UNREAD 状态。
 
 ## 4. 授权与安全跳转
 

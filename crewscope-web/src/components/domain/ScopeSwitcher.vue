@@ -6,6 +6,7 @@ import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useScopeStore } from '../../domains/scope/store'
 import { createWorkProjectCreationFlow } from '../../domains/scope/workProjectCreation'
 import WorkProjectCreateDialog from './WorkProjectCreateDialog.vue'
+import BaseTooltip from '../base/BaseTooltip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,9 +71,10 @@ onBeforeUnmount(() => {
       @click="open = !open"
     >
       <span class="scope-switcher__avatar">{{ teamInitial }}</span>
+      <!-- 省略后的名字要有地方看全（L02）：悬停或聚焦给出完整 Team/项目名，而不是截断成谜。 -->
       <span class="scope-switcher__copy">
-        <strong>{{ scopeLabel }}</strong>
-        <small>{{ projectLabel }}</small>
+        <BaseTooltip :text="scopeLabel" placement="bottom"><strong>{{ scopeLabel }}</strong></BaseTooltip>
+        <BaseTooltip :text="projectLabel" placement="bottom"><small>{{ projectLabel }}</small></BaseTooltip>
       </span>
       <ChevronDown :class="{ rotated: open }" :size="14" aria-hidden="true" />
     </button>
@@ -98,7 +100,7 @@ onBeforeUnmount(() => {
             :class="{ selected: team.id === store.state.selectedTeamId }"
             @click="chooseTeam(team.id)"
           >
-            <span>{{ team.name }}<small>{{ team.initializationStatus === 'READY' ? '团队工作区' : '等待初始化' }}</small></span>
+            <span :title="team.name">{{ team.name }}<small>{{ team.initializationStatus === 'READY' ? '团队工作区' : '等待初始化' }}</small></span>
             <Check v-if="team.id === store.state.selectedTeamId" :size="14" aria-hidden="true" />
           </button>
         </div>
@@ -117,7 +119,7 @@ onBeforeUnmount(() => {
             @click="chooseProject(project.id)"
           >
             <i>{{ project.key.slice(0, 2) }}</i>
-            <span>{{ project.name }}<small class="mono">{{ project.key }}</small></span>
+            <span :title="project.name">{{ project.name }}<small class="mono">{{ project.key }}</small></span>
             <Check v-if="project.id === store.state.selectedProjectId" :size="14" aria-hidden="true" />
           </button>
         </div>
@@ -145,6 +147,8 @@ onBeforeUnmount(() => {
 .scope-switcher { display: grid; width: 100%; min-width: 0; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-glass-strong); text-align: left; cursor: pointer; }
 .scope-switcher__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-brand-200); color: var(--cs-brand-950); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .scope-switcher__copy, .scope-switcher__copy strong, .scope-switcher__copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tooltip 包裹层接管截断容器职责：ellipsis 落在它内部的目标行上。 */
+.scope-switcher__copy > :deep(.base-tooltip) { display: block; min-width: 0; }
 .scope-switcher__copy strong { font-size: var(--cs-text-base); }.scope-switcher__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .scope-switcher > svg { transition: transform var(--cs-motion-fast) var(--cs-ease-out); }.scope-switcher > svg.rotated { transform: rotate(180deg); }
 .scope-menu { position: absolute; z-index: var(--cs-z-popover); top: calc(100% + 8px); left: 0; width: 330px; max-height: min(620px, calc(100vh - 120px)); overflow: auto; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }
@@ -160,7 +164,9 @@ onBeforeUnmount(() => {
   .scope-switcher-root { width: auto; }.scope-switcher { grid-template-columns: 30px; width: auto; padding: var(--cs-space-8); }.scope-switcher__copy, .scope-switcher > svg { display: none; }.scope-menu { position: fixed; top: 72px; left: 68px; }
 }
 @media (max-width: 767px) {
-  .scope-switcher-root { width: min(250px, calc(100vw - 70px)); margin: 0; }
+  /* 跟顶栏的 minmax(0,1fr) 列收缩（L02）：固定 250px 会盖住右侧的搜索/通知按钮，
+     剩余宽度交给 copy 行自己的 ellipsis。 */
+  .scope-switcher-root { width: 100%; min-width: 0; margin: 0; }
   .scope-switcher { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 14px; padding: var(--cs-space-4) var(--cs-space-8); border-color: transparent; background: transparent; }
   .scope-switcher__avatar { width: 28px; height: 28px; }.scope-switcher__copy, .scope-switcher > svg { display: block; }
   .scope-menu { position: fixed; top: 50px; left: 8px; width: min(350px, calc(100vw - 16px)); max-height: calc(100vh - 122px); }

@@ -48,6 +48,44 @@ describe('AccountPage', () => {
     expect(accountStore.state.phase).toBe('idle')
     expect(accountStore.state.profile).toBeNull()
   })
+
+  it('navigates its own account sections instead of the team settings directory', async () => {
+    const gateway: AccountGateway = {
+      current: vi.fn(async () => ({ value: profile(), etag: 4 })),
+      updateProfile: vi.fn(), changePassword: vi.fn(), revokeAllSessions: vi.fn(),
+    }
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/account', name: 'account', component: { template: '<div />' } },
+      { path: '/login', name: 'login', component: { template: '<div />' } },
+    ] })
+    await router.push('/account#profile')
+    await router.isReady()
+
+    const wrapper = mount(AccountPage, {
+      global: {
+        plugins: [router],
+        provide: {
+          [ACCOUNT_STORE as symbol]: createAccountStore(gateway),
+          [AUTH_STORE as symbol]: fixtureAuthStore(),
+        },
+        stubs: {
+          AppShell: { template: '<main><slot /></main>' },
+          StatePanel: { template: '<div data-state-panel />' },
+          AccountWorkspace: { template: '<section data-account-workspace />' },
+          TeamNotificationPreferenceCard: { template: '<section data-notification-card />' },
+          SettingsFieldSearch: true,
+          RouterLink: { props: ['to'], template: '<a><slot /></a>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    // 账号页的侧栏是账号分区（L02）：团队配置目录（Agent 配置等）不再出现在这里。
+    const nav = wrapper.findAll('nav[aria-label="配置分类"] a')
+    expect(nav.map(item => item.text())).toEqual(['个人资料', '密码与安全', '登录会话', '通知偏好'])
+    expect(wrapper.text()).not.toContain('Agent 配置')
+    expect(wrapper.text()).not.toContain('模型与凭证')
+  })
 })
 
 function profile(): AccountProfile {

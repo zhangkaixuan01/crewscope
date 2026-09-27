@@ -356,6 +356,44 @@ describe('application routing', () => {
     expect(router.currentRoute.value.query.team).toBe(fixtureIds.teamPlatform)
   })
 
+  it('keeps the frozen today query keys — workbench focus and saved-desk coordinates — and drops the rest', async () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
+
+    await router.push(
+      `/today?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
+      + '&focus=CRW-18&conversation=conv-1&workItem=wi-1'
+      + '&deskProject=all&deskRole=owner&deskAction=true&deskGroup=role'
+      + '&intent=create-project&chatty=unexpected',
+    )
+    await router.isReady()
+
+    expect(Object.keys(router.currentRoute.value.query).sort()).toEqual([
+      'conversation', 'deskAction', 'deskGroup', 'deskProject', 'deskRole',
+      'focus', 'intent', 'project', 'team', 'workItem',
+    ].sort())
+    // Setup's WORKPROJECT gap deep-links here with the one-shot create intent.
+    expect(router.currentRoute.value.query.intent).toBe('create-project')
+    expect(router.currentRoute.value.query.focus).toBe('CRW-18')
+  })
+
+  it('keeps the frozen activity query keys, including the correlation deep-link trio, and drops the rest', async () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
+
+    await router.push(
+      `/activity?team=${fixtureIds.teamPlatform}&project=${fixtureIds.projectCrewScope}`
+      + '&category=ALL&actor=actor-1&event=event-1&sortDirection=asc'
+      + `&correlation=corr-1&objectType=WORK_ITEM&objectId=${fixtureIds.projectCrewScope}`
+      + '&chatty=unexpected',
+    )
+    await router.isReady()
+
+    expect(Object.keys(router.currentRoute.value.query).sort()).toEqual([
+      'actor', 'category', 'correlation', 'event', 'objectId', 'objectType',
+      'project', 'sortDirection', 'team',
+    ].sort())
+    expect(router.currentRoute.value.query.correlation).toBe('corr-1')
+  })
+
   it('guards WorkProject Repository settings with repository management permission', async () => {
     const readOnlyPrincipal = { ...principal, permissions: new Set([permissions.scopeRead]) }
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(readOnlyPrincipal))

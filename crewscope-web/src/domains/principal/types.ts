@@ -57,4 +57,6 @@ export interface PrincipalDirectoryQuery extends PrincipalScope {
   after?: string
   offset?: number
   limit?: number
+  /** Why the directory is read; AUDIT widens the visible set to the Team's historical identities. */
+  purpose?: 'AUDIT'
 }

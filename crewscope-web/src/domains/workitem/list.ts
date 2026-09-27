@@ -1,24 +1,22 @@
-import type { SortDirection } from '../../composables/useListSort'
 import { exclusionReason, type WorkItemBulkRow } from './bulk'
 import {
-  workItemPriorities,
   workItemStatuses,
-  type WorkItemPriority,
   type WorkItemStatus,
-  type WorkItemSummary,
   type WorkItemTransitionStrength,
 } from './types'
 
 /**
- * The list capabilities of the WorkItem collection: how its rows are ordered and which batch
- * actions its selection offers.
+ * The list capabilities of the WorkItem collection: which server-owned orderings its list offers
+ * and which batch actions its selection offers.
  *
- * Both are derived from the row itself. The order is computed from fields the row carries, and the
- * batch targets are read out of the availability verdict the server published with the row — this
- * file never decides that an action exists or that a member may take it.
+ * The batch targets are read out of the availability verdict the server published with the row —
+ * this file never decides that an action exists or that a member may take it. The orderings are
+ * equally borrowed: the server owns every sort, its tie-breaker and the cursor that continues it,
+ * so what the browser picks is a name, not an algorithm.
  */
 
-export type WorkItemSortKey = 'updatedAt' | 'priority' | 'dueAt' | 'title'
+/** The sort names the server's list contract accepts (M9b-A06 wire spellings). */
+export type WorkItemSortKey = 'updatedAt' | 'priority' | 'dueAt' | 'createdAt'
 
 export interface WorkItemSortOption {
   readonly key: WorkItemSortKey
@@ -29,7 +27,7 @@ export const workItemSortOptions: readonly WorkItemSortOption[] = [
   { key: 'updatedAt', label: '更新时间' },
   { key: 'priority', label: '优先级' },
   { key: 'dueAt', label: '截止时间' },
-  { key: 'title', label: '标题' },
+  { key: 'createdAt', label: '创建时间' },
 ]
 
 export const workItemSortKeys: readonly WorkItemSortKey[] = workItemSortOptions.map(option => option.key)
@@ -47,79 +45,36 @@ export const unsortableWorkItemField = {
   hint: '工作项列表响应不携带责任链，无法按负责人排序；负责人可在工作项详情中查看',
 } as const
 
-/** The direction a key is worth switching to when it is chosen, before any toggling. */
-export function defaultSortDirection(key: WorkItemSortKey): SortDirection {
-  return key === 'title' || key === 'dueAt' ? 'asc' : 'desc'
+/** How each ordering runs, said in the words a member reads next to the control. */
+export const workItemSortDirectionLabels: Readonly<Record<WorkItemSortKey, string>> = {
+  updatedAt: '新→旧',
+  priority: '高→低',
+  dueAt: '近→远',
+  createdAt: '新→旧',
 }
 
 /**
- * Orders the rows this page has loaded.
- *
- * The server lists one WorkProject by its updated-time/ID keyset and takes no sort parameter, so
- * this orders the loaded set and no more: a member who sorts by priority sees the rows in hand in
- * priority order, not the project's. Every surface that shows the control therefore says which set
- * it is ordering — the counts in the toolbar are that statement, not decoration.
- *
- * Ties keep the order they arrived in. `Array.prototype.sort` is stable, so rows with the same
- * priority stay in the server's updated-time order instead of shuffling on every re-render.
+ * The same directions as the server contract states them, for the control's own arrow icon. Kept
+ * beside the labels so the two cannot drift apart.
  */
-export function sortWorkItems(
-  items: readonly WorkItemSummary[],
-  key: WorkItemSortKey,
-  direction: SortDirection,
-): WorkItemSummary[] {
-  return [...items].sort((left, right) => compareWorkItems(left, right, key, direction))
-}
-
-function compareWorkItems(left: WorkItemSummary, right: WorkItemSummary, key: WorkItemSortKey, direction: SortDirection): number {
-  // 截止时间是唯一一个「缺失值必须固定在一端」的键，它自己处理方向；其余键整体反序即可。
-  if (key === 'dueAt') return compareDueAt(left.dueAt, right.dueAt, direction)
-
-  const factor = direction === 'asc' ? 1 : -1
-  switch (key) {
-    case 'updatedAt':
-      return factor * (timestamp(left.updatedAt) - timestamp(right.updatedAt))
-    case 'priority':
-      // Read off the contract's own order (LOW…URGENT) rather than a rank table kept here, which
-      // would be one more place for the enum to drift out of step with the backend.
-      return factor * (workItemPriorities.indexOf(left.priority as WorkItemPriority)
-        - workItemPriorities.indexOf(right.priority as WorkItemPriority))
-    case 'title':
-      return factor * left.title.localeCompare(right.title, 'zh-CN')
-    default:
-      return 0
-  }
+export const workItemSortDirections: Readonly<Record<WorkItemSortKey, 'asc' | 'desc'>> = {
+  updatedAt: 'desc',
+  priority: 'desc',
+  dueAt: 'asc',
+  createdAt: 'desc',
 }
 
 /**
- * Rows without a due date sink to the bottom in both directions.
+ * Reads a sort key out of a URL query, falling back rather than trusting what arrived.
  *
- * Reversing the whole comparison would put every undated row above the whole dated list on `desc`,
- * which reads as "these are the most urgent" when it means "nobody set a date". The missing-date
- * case is therefore decided before the direction is applied, and only the dated rows reverse.
+ * A link from before the server sorts existed may still carry `sort=title` or a `direction`; the
+ * key falls back to the default ordering and the direction is simply not read anymore — the
+ * direction of every ordering is the server's own, fixed in its contract.
  */
-function compareDueAt(left: string | null, right: string | null, direction: SortDirection): number {
-  if (!left && !right) return 0
-  if (!left) return 1
-  if (!right) return -1
-  const delta = timestamp(left) - timestamp(right)
-  return direction === 'asc' ? delta : -delta
-}
-
-function timestamp(value: string): number {
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-/** Reads a sort key out of a URL query, falling back rather than trusting what arrived. */
 export function readWorkItemSortKey(value: unknown, fallback: WorkItemSortKey = 'updatedAt'): WorkItemSortKey {
   return typeof value === 'string' && (workItemSortKeys as readonly string[]).includes(value)
     ? value as WorkItemSortKey
     : fallback
-}
-
-export function readWorkItemSortDirection(value: unknown, fallback: SortDirection = 'desc'): SortDirection {
-  return value === 'asc' || value === 'desc' ? value : fallback
 }
 
 export interface WorkItemBulkTarget {

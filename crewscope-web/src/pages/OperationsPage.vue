@@ -4,13 +4,13 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
+import RelativeTime from '../components/base/RelativeTime.vue'
 import OperationsWorkspace from '../components/domain/OperationsWorkspace.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ProjectionCommand, RecoveryCandidate, TeamOpsScope } from '../domains/teamops/types'
-import { formatRelativeTime } from '../composables/useRelativeTime'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
 const pageRequests = usePageRequestScope()
@@ -98,7 +98,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
   <SettingsShell title="运行与发布" eyebrow="运维 · 健康与演示证据">
     <template #actions>
       <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
-      <span v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 {{ formatRelativeTime(lastRefreshedAt) }}</span>
+      <span v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 <RelativeTime :value="lastRefreshedAt" /></span>
       <BaseButton size="small" variant="secondary" :disabled="!scope" :aria-describedby="scope ? undefined : 'operations-scope-reason'" @click="refresh(true)"><RefreshCw :size="14" />刷新</BaseButton>
     </template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />

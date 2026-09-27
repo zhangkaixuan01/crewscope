@@ -21,7 +21,7 @@ import io.crewscope.application.inbox.InboxSourceContext;
 import io.crewscope.application.inbox.InboxSourceTarget;
 import io.crewscope.application.inbox.InboxTypeCount;
 import io.crewscope.application.team.TeamAccessContext;
-import io.crewscope.domain.inbox.InboxDisposition;
+import io.crewscope.application.inbox.InboxDispositionOutcome;
 import io.crewscope.domain.inbox.InboxDispositionStatus;
 import io.crewscope.domain.inbox.InboxItem;
 import io.crewscope.domain.inbox.InboxItemType;
@@ -129,11 +129,12 @@ class InboxControllerM6A02Test {
 
     @Test
     void dispositionRequiresBothHeadersAndReturnsCommittedStrongEtag() {
-        InboxDisposition disposition = mock(InboxDisposition.class);
+        InboxDispositionOutcome outcome = new InboxDispositionOutcome(
+                InboxDispositionStatus.READ, 1);
         CommandReceipt receipt = new CommandReceipt(
                 UUID.randomUUID(), UUID.randomUUID(), 1, UUID.randomUUID());
         when(commands.change(any(), eq(ORGANIZATION_ID), eq(TEAM_ID), eq(item.id()), any()))
-                .thenReturn(CommandExecution.completed(disposition, receipt));
+                .thenReturn(CommandExecution.completed(outcome, receipt));
 
         client.put()
                 .uri(route("/" + item.id() + "/disposition"))
@@ -154,6 +155,30 @@ class InboxControllerM6A02Test {
                 .expectHeader().valueEquals(ApiHeaders.ETAG, "\"1\"")
                 .expectBody()
                 .jsonPath("$.committedVersion").isEqualTo(1);
+    }
+
+    @Test
+    void unmarkCommandIsAcceptedAndCarriesItsPersistedVersion() {
+        // A read row at version 2 being unmarked commits version 3 — the receipt and ETag report
+        // the persisted UNREAD row's version, never a synthetic zero (contract §5.1).
+        InboxDispositionOutcome outcome = new InboxDispositionOutcome(
+                InboxDispositionStatus.UNREAD, 3);
+        CommandReceipt receipt = new CommandReceipt(
+                UUID.randomUUID(), UUID.randomUUID(), 3, UUID.randomUUID());
+        when(commands.change(any(), eq(ORGANIZATION_ID), eq(TEAM_ID), eq(item.id()), any()))
+                .thenReturn(CommandExecution.completed(outcome, receipt));
+
+        client.put()
+                .uri(route("/" + item.id() + "/disposition"))
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "m9b-f04-unmark-read")
+                .header(ApiHeaders.IF_MATCH, "\"2\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"status\":\"UNREAD\"}")
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectHeader().valueEquals(ApiHeaders.ETAG, "\"3\"")
+                .expectBody()
+                .jsonPath("$.committedVersion").isEqualTo(3);
     }
 
     @Test

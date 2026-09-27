@@ -21,7 +21,6 @@ import { clearConversationCreateDraft } from '../domains/conversation/createDraf
 import { clearConversationMessageDraft, readConversationMessageDraft, writeConversationMessageDraft } from '../domains/conversation/messageDraft'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
-import BaseTooltip from '../components/base/BaseTooltip.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import ConversationAgentActionRegion from '../components/domain/ConversationAgentActionRegion.vue'
 import ConversationComposer from '../components/domain/ConversationComposer.vue'
@@ -32,7 +31,7 @@ import ConversationWorkItemLinks from '../components/domain/ConversationWorkItem
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
 import ConversationParticipantsPanel from '../components/domain/ConversationParticipantsPanel.vue'
-import { formatAbsoluteTime, formatRelativeTime } from '../composables/formatRelativeTime'
+import RelativeTime from '../components/base/RelativeTime.vue'
 import { useScopedUserState } from '../composables/useScopedUserState'
 import { useResizablePane } from '../composables/useResizablePane'
 import { useVirtualList } from '../composables/useVirtualList'
@@ -89,8 +88,8 @@ const drafts = reactive(new Map<string, string>())
 // A sealed epoch (sign-out or account switch in any tab) empties the in-memory drafts too.
 const unsubscribeEpoch = subscribeF05Epoch(epoch => { if (epoch === null) drafts.clear() })
 onUnmounted(unsubscribeEpoch)
-const leftPane = useResizablePane('cs.pref.conversation.left-pane.v1', 24, { min: 16, max: 36 })
-const rightPane = useResizablePane('cs.pref.conversation.right-pane.v1', 22, { min: 16, max: 34 })
+const leftPane = useResizablePane('cs.pref.conversation.left-pane.v1', 24, { min: 16, max: 36, side: 'left' })
+const rightPane = useResizablePane('cs.pref.conversation.right-pane.v1', 22, { min: 16, max: 34, side: 'right' })
 const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
 const rightPaneRatio = rightPane.ratio
@@ -1008,7 +1007,7 @@ function prefersReducedMotion(): boolean {
                   <template v-if="conversation.lastMessageSequence !== null"> · {{ conversation.lastMessageSequence }} 条消息</template>
                 </small>
               </span>
-              <BaseTooltip :text="formatAbsoluteTime(conversation.updatedAt)"><time :datetime="conversation.updatedAt">{{ formatRelativeTime(conversation.updatedAt) }}</time></BaseTooltip>
+              <RelativeTime :value="conversation.updatedAt" />
               <ChevronRight :size="15" aria-hidden="true" />
             </button>
           </li>
@@ -1028,7 +1027,7 @@ function prefersReducedMotion(): boolean {
         class="pane-resizer pane-resizer--left"
         type="button"
         role="separator"
-        aria-label="调整对话列表宽度，使用左右方向键"
+        aria-label="调整对话列表宽度，方向键调整，回车折叠，Home 恢复默认"
         :aria-valuenow="leftPaneRatio"
         aria-valuemin="16"
         aria-valuemax="36"
@@ -1178,7 +1177,7 @@ function prefersReducedMotion(): boolean {
                       <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
                     </div>
                     <article>
-                      <header><strong>{{ messageAuthor(message) }}</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>#{{ message.sequence }}</span><button type="button" class="message-copy" :aria-label="`复制第 ${message.sequence} 条消息的原文`" @click="clipboard.copy(message.content, message.id)"><Check v-if="clipboard.copied.value === message.id" :size="12" aria-hidden="true" /><Copy v-else :size="12" aria-hidden="true" /></button></header>
+                      <header><strong>{{ messageAuthor(message) }}</strong><RelativeTime :value="message.createdAt" /><span>#{{ message.sequence }}</span><button type="button" class="message-copy" :aria-label="`复制第 ${message.sequence} 条消息的原文`" @click="clipboard.copy(message.content, message.id)"><Check v-if="clipboard.copied.value === message.id" :size="12" aria-hidden="true" /><Copy v-else :size="12" aria-hidden="true" /></button></header>
                       <SafeMarkdown :content="message.content" />
                     </article>
                   </li>
@@ -1192,7 +1191,7 @@ function prefersReducedMotion(): boolean {
                 >
                   <div class="message-avatar">你</div>
                   <article>
-                    <header><strong>你</strong><BaseTooltip :text="formatAbsoluteTime(message.createdAt)"><time :datetime="message.createdAt">{{ formatRelativeTime(message.createdAt) }}</time></BaseTooltip><span>{{ message.status === 'sending' ? '发送中' : '发送失败' }}</span></header>
+                    <header><strong>你</strong><RelativeTime :value="message.createdAt" /><span>{{ message.status === 'sending' ? '发送中' : '发送失败' }}</span></header>
                     <SafeMarkdown :content="message.content" />
                     <footer v-if="message.status === 'failed'">
                       <span role="alert">{{ message.errorMessage }}</span>
@@ -1205,7 +1204,7 @@ function prefersReducedMotion(): boolean {
                   <article>
                     <header>
                       <strong>你</strong>
-                      <BaseTooltip v-if="realtimeStore.state.submittedAt" :text="formatAbsoluteTime(realtimeStore.state.submittedAt)"><time :datetime="realtimeStore.state.submittedAt">{{ formatRelativeTime(realtimeStore.state.submittedAt) }}</time></BaseTooltip>
+                      <RelativeTime v-if="realtimeStore.state.submittedAt" :value="realtimeStore.state.submittedAt" />
                       <span>{{ realtimeStore.state.invocationPhase === 'connecting' ? '提交中' : '已提交 · 等待事实同步' }}</span>
                     </header>
                     <SafeMarkdown :content="visibleInvocationMessage" />
@@ -1278,7 +1277,7 @@ function prefersReducedMotion(): boolean {
         class="pane-resizer pane-resizer--right"
         type="button"
         role="separator"
-        aria-label="调整参与者面板宽度，使用左右方向键"
+        aria-label="调整参与者面板宽度，方向键调整，回车折叠，Home 恢复默认"
         :aria-valuenow="rightPaneRatio"
         aria-valuemin="16"
         aria-valuemax="34"
@@ -1334,8 +1333,6 @@ function prefersReducedMotion(): boolean {
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
 .participant-panel header { padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: var(--cs-space-8); margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: var(--cs-text-sm); }.participant-panel li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.participant-placeholder { display: grid; place-items: center; gap: var(--cs-space-12); padding: var(--cs-space-48) var(--cs-space-32); color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); text-align: center; }
 .mobile-back { display: none; }
-@media (max-width: 1280px) { .conversation-workspace { grid-template-columns: 290px minmax(420px, 1fr); }.participant-panel { grid-column: 1 / -1; min-height: auto; }.participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 900px) { .conversation-workspace { grid-template-columns: 270px 1fr; }.participant-panel { display: none; } }
 @media (max-width: 767px) { .conversation-workspace { display: block; min-height: 0; }.conversation-list-panel, .conversation-detail { min-height: 0; height: 100%; }.conversation-list-panel { display: flex; }.conversation-detail { display: none; }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
 /* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded. */
@@ -1362,9 +1359,26 @@ function prefersReducedMotion(): boolean {
 .conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .conversation-structure summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .conversation-structure > :deep(*) { margin-inline: var(--cs-space-8); }
-@media (max-width: 1280px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr) 0 minmax(0, 280px); }.participant-panel { grid-column: auto; }.pane-resizer--right { display: none; } }
+/* ≤1280: the five-column grid starves the message stage (a 908px container still owes 290+8+280
+   plus gaps), and hiding the right resizer strands the participant panel in the dead 0-width
+   column. Drop to three columns and move participants to a capped, scrollable bottom row: the
+   row gets what one header plus one roster row needs, never the panel's full content height. */
+@media (max-width: 1280px) {
+  .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .conversation-detail__header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conversation-detail__header p { display: none; }
+  .participant-panel { grid-column: 1 / -1; min-height: 0; max-height: 112px; overflow-y: auto; }
+  .participant-panel > :deep(header) { padding-block: var(--cs-space-8); }
+  .participant-panel > :deep(header) > :deep(.eyebrow) { display: none; }
+  .pane-resizer--right { display: none; }
+}
 @media (max-width: 900px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); }.participant-panel, .pane-resizer--right { display: none; } }
-@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; } }
+@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; }
+  /* A stacked document, not the desktop-with-bottom-roster grid: the header caps the ≤1280 rules
+   * added (single-line title, hidden version line) are re-opened here — this block sits after the
+   * ≤1280 one, so it wins at phone widths. The participant panel itself stays display:none via
+   * the ≤900 rule above; only its collapsed class keeps pairing with the list panel's. */
+  .conversation-detail__header h2 { overflow: visible; text-overflow: clip; white-space: normal; }.conversation-detail__header p { display: block; } }
 @media (prefers-reduced-motion: reduce) { .message-row.streaming article, .pane-resizer::after { transition: none; } }
 .empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }
 .empty-actions__secondary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-decoration: underline; text-underline-offset: 3px; }

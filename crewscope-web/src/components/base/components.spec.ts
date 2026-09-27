@@ -47,8 +47,8 @@ describe('foundation components', () => {
     expect(tabs.emitted('update:modelValue')).toEqual([['two']])
   })
 
-  it('announces errors and offers a retry action', async () => {
-    const wrapper = mount(StatePanel, { props: { state: 'error' } })
+  it('announces errors and offers a retry action once the caller wires one', async () => {
+    const wrapper = mount(StatePanel, { props: { state: 'error' }, attrs: { onRetry: () => {} } })
 
     expect(wrapper.attributes('role')).toBe('alert')
     await wrapper.get('button').trigger('click')

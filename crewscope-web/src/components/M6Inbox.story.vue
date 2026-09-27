@@ -21,6 +21,7 @@ const base = {
   error: null, selectedItemId: null, detailPhase: 'idle' as const, detail: null, detailError: null,
   targetPhase: 'idle' as const, targetError: null, command: { phase: 'idle' as const, operation: null, targetId: null, receipt: null, error: null },
   itemType: 'OWNERSHIP' as const, sourceStatus: 'OPEN' as const, dispositionStatus: 'ALL' as const, online: true,
+  batchReport: null,
 }
 
 function inbox(
@@ -55,5 +56,18 @@ function inbox(
     <Variant title="Offline cached"><InboxWorkspace v-bind="base" :online="false" /></Variant>
     <Variant title="Cursor expired"><InboxWorkspace v-bind="base" phase="error" :error="{ kind: 'cursor-expired', message: 'expired', status: 410, retryable: true, currentVersion: null }" /></Variant>
     <Variant title="Cached hard error"><InboxWorkspace v-bind="base" phase="error" :error="{ kind: 'unavailable', message: 'Inbox 服务暂不可用', status: 503, retryable: true, currentVersion: null }" /></Variant>
+    <Variant title="Archived recovery and batch report">
+      <InboxWorkspace
+        v-bind="base"
+        :selected-item-id="items[1]!.inboxItemId"
+        detail-phase="ready"
+        :detail="{ value: { ...items[1]!, dispositionStatus: 'ARCHIVED', dispositionVersion: 3, etag: '&quot;3&quot;' }, etag: '&quot;3&quot;' }"
+        :batch-report="{ status: 'ARCHIVED', results: [
+          { itemId: items[0]!.inboxItemId, outcome: 'success', message: null },
+          { itemId: items[1]!.inboxItemId, outcome: 'conflict', message: '处置版本已更新' },
+          { itemId: '00000000-0000-4000-8000-000000000903', outcome: 'unknown', message: null },
+        ] }"
+      />
+    </Variant>
   </Story>
 </template>
