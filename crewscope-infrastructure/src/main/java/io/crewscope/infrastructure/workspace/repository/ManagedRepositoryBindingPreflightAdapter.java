@@ -7,10 +7,14 @@ import io.crewscope.application.coding.RepositoryBindingPreflightResult;
 import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.coding.RepositoryBranchName;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Adapts host-local managed repository validation to the application's path-free contract. */
 public final class ManagedRepositoryBindingPreflightAdapter
         implements RepositoryBindingPreflightPort {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ManagedRepositoryBindingPreflightAdapter.class);
 
     private final BaselinePreflight baselinePreflight;
 
@@ -28,6 +32,10 @@ public final class ManagedRepositoryBindingPreflightAdapter
                     result.baselineRef(),
                     result.baselineCommit());
         } catch (RepositoryPreflightException failure) {
+            // The summary is a fixed secret-free sentence naming the failing check; logging it
+            // keeps the 422 response stable while making the rejected phase diagnosable.
+            LOGGER.warn("Managed repository Preflight rejected a target: {} ({})",
+                    failure.error(), failure.getMessage());
             throw new RepositoryBindingPreflightException(
                     map(failure.error()), "Managed repository Preflight failed");
         }

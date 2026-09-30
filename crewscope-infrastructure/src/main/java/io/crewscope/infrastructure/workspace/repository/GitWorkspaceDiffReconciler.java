@@ -20,9 +20,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Recomputes Workspace Diff facts from fixed Git commands; file events never become authority. */
 public final class GitWorkspaceDiffReconciler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GitWorkspaceDiffReconciler.class);
 
     private final GitCommandExecutor git;
     private final int previewBytes;
@@ -126,6 +130,16 @@ public final class GitWorkspaceDiffReconciler {
         } catch (WorkspaceDiffException failure) {
             throw failure;
         } catch (GitCommandException failure) {
+            // Exit codes and cause types are secret-free; naming them separates a Git refusal
+            // from a host I/O failure without exposing paths or raw Git output.
+            LOGGER.warn("Workspace Diff Git command failed: {} exit={} cause={}",
+                    failure.error(),
+                    failure.exitCode().isPresent()
+                            ? String.valueOf(failure.exitCode().getAsInt())
+                            : "none",
+                    failure.getCause() != null
+                            ? failure.getCause().getClass().getSimpleName()
+                            : "none");
             WorkspaceDiffError error = switch (failure.error()) {
                 case OUTPUT_LIMIT -> WorkspaceDiffError.DIFF_LIMIT_EXCEEDED;
                 default -> WorkspaceDiffError.COMMAND_FAILED;

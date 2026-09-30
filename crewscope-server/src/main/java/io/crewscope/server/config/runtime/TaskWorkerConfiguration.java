@@ -113,19 +113,41 @@ public class TaskWorkerConfiguration {
         return new ControlledTaskToolkitFactory(parser);
     }
 
+    /**
+     * Shared resolved-model source for both Worker agent factories: a delegated Task executes on
+     * the exact Model coordinates its PolicySnapshot pinned at creation instead of dying on the
+     * env-only crewscope-primary slot (page-configured connections never publish a Spring Model
+     * bean — the M9b-Q02 first real-stack delegation exposed the gap).
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(
+            io.crewscope.agentscope.model.PolicySnapshotTaskModelSource.class)
+    io.crewscope.agentscope.model.PolicySnapshotTaskModelSource policySnapshotTaskModelSource(
+            org.springframework.beans.factory.ObjectProvider<
+                    io.crewscope.agentscope.model.ResolvedAgentScopeModelFactory> resolvedModels) {
+        io.crewscope.agentscope.model.ResolvedAgentScopeModelFactory factory =
+                resolvedModels.getIfAvailable();
+        return factory == null
+                ? null
+                : new io.crewscope.agentscope.model.PolicySnapshotTaskModelSource(factory);
+    }
+
     @Bean(destroyMethod = "close")
     TaskAgentFactory taskAgentFactory(
             TaskAgentConfigurationSource configurationSource,
             AgentScopeModelResolver modelResolver,
             AgentStateStore stateStore,
             ControlledTaskToolkitFactory toolkitFactory,
-            TaskWorkerRuntimeProperties properties) {
+            TaskWorkerRuntimeProperties properties,
+            org.springframework.beans.factory.ObjectProvider<
+                    io.crewscope.agentscope.model.PolicySnapshotTaskModelSource> modelSource) {
         return new TaskAgentFactory(
                 configurationSource,
                 modelResolver,
                 stateStore,
                 toolkitFactory,
-                properties.getRuntimeRoot());
+                properties.getRuntimeRoot(),
+                modelSource.getIfAvailable());
     }
 
     @Bean
@@ -213,8 +235,11 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
-    AgentScopeCodingRuntime agentScopeCodingRuntime(CodingSpecialistFactory factory) {
-        return new AgentScopeCodingRuntime(factory);
+    AgentScopeCodingRuntime agentScopeCodingRuntime(
+            CodingSpecialistFactory factory,
+            org.springframework.beans.factory.ObjectProvider<
+                    io.crewscope.agentscope.model.PolicySnapshotTaskModelSource> modelSource) {
+        return new AgentScopeCodingRuntime(factory, modelSource.getIfAvailable());
     }
 
     @Bean

@@ -17,6 +17,7 @@ import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import io.crewscope.agentscope.AgentModelRole;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.ObservableAgentScopeModel;
+import io.crewscope.agentscope.ToolMessageProtocolRepairMiddleware;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
@@ -58,6 +59,31 @@ public final class CodingSpecialistFactory {
         CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
         CodingSpecialistConfiguration configuration = configuration(session);
         return createAgent(session, toolkit, legacyRuntimeConfiguration(configuration));
+    }
+
+    /**
+     * Worker variant: executes on the exact Model pair a delegated Task's PolicySnapshot pinned at
+     * creation, so page-configured connections stay effective for the Specialist — the env-only
+     * crewscope-primary slot can never see them. Operational coordinates (prompt, iterations,
+     * sampling, compaction thresholds) keep the pinned runtime properties because the resolved
+     * graph carries only hashes for those.
+     */
+    public HarnessAgent createPinned(
+            TaskAgentRuntimeSession runtimeSession,
+            Toolkit toolkit,
+            io.crewscope.agentscope.model.ResolvedAgentScopeModels pinnedModels) {
+        TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
+        CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
+        io.crewscope.agentscope.model.ResolvedAgentScopeModels pinned =
+                Objects.requireNonNull(pinnedModels, "pinnedModels");
+        CodingSpecialistConfiguration operational = configuration(session);
+        return createResolved(
+                session,
+                toolkit,
+                pinned.primary(),
+                pinned.fallback(),
+                operational.systemPrompt(),
+                SafeModelGenerateOptions.defaults());
     }
 
     /** Reuses the complete M4 Coding composition with M5's preflighted models and Template prompt. */
@@ -124,6 +150,11 @@ public final class CodingSpecialistFactory {
                 .model(configuration.primaryModel())
                 .toolkit(toolkit)
                 .middleware(new CodingSpecialistTelemetryMiddleware())
+                // Defect 10 (M9b-Q02): an interrupt boundary or the compactor can orphan a tool
+                // message from its parent tool_calls; OpenAI-compatible providers reject the whole
+                // list with 400 and the execution dies as TASK_EXECUTION_FAILED. The repair runs on
+                // the send side only — durable memory stays owned by the harness state machine.
+                .middleware(new ToolMessageProtocolRepairMiddleware())
                 .maxIters(configuration.maxIterations())
                 .maxRetries(configuration.maxRetries())
                 // Generation parameters belong to the pinned Specialist configuration. Q03 uses
@@ -226,8 +257,12 @@ public final class CodingSpecialistFactory {
      * Coding Agent remains the sole owner of work, state and authority; this agent only turns the
      * already-completed task summary into the required native structured result.
      */
-    ReActAgent createStructuredResultAgent(TaskAgentRuntimeSession runtimeSession) {
+    ReActAgent createStructuredResultAgent(
+            TaskAgentRuntimeSession runtimeSession,
+            Optional<io.crewscope.agentscope.model.ResolvedAgentScopeModels> pinnedModels) {
         TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
+        Optional<io.crewscope.agentscope.model.ResolvedAgentScopeModels> pinned =
+                Objects.requireNonNull(pinnedModels, "pinnedModels");
         CodingSpecialistConfiguration configuration = configuration(session);
         String stableName = "crewscope-coding-delivery-"
                 + session.agentProfileId()
@@ -236,9 +271,17 @@ public final class CodingSpecialistFactory {
         return ReActAgent.builder()
                 .name(stableName)
                 .sysPrompt("Return only the requested structured Coding delivery summary.")
-                .model(observedModel(configuration.modelId(), AgentModelRole.PRIMARY))
+                // Pinned Models already carry the Observable and ConnectionBound wrappers.
+                .model(pinned.map(io.crewscope.agentscope.model.ResolvedAgentScopeModels::primary)
+                        .orElseGet(() -> observedModel(
+                                configuration.modelId(), AgentModelRole.PRIMARY)))
                 .toolkit(new Toolkit())
                 .middleware(new CodingSpecialistTelemetryMiddleware())
+                // Defect 10 (M9b-Q02): an interrupt boundary or the compactor can orphan a tool
+                // message from its parent tool_calls; OpenAI-compatible providers reject the whole
+                // list with 400 and the execution dies as TASK_EXECUTION_FAILED. The repair runs on
+                // the send side only — durable memory stays owned by the harness state machine.
+                .middleware(new ToolMessageProtocolRepairMiddleware())
                 .maxIters(2)
                 .maxRetries(configuration.maxRetries())
                 .generateOptions(GenerateOptions.builder()

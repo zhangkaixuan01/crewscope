@@ -199,6 +199,28 @@ class InboxEventProjectorM6E03IntegrationTest
                 "SELECT close_reason FROM crewscope.inbox_item", String.class));
     }
 
+    /**
+     * M9b-Q02 regression: assign-and-start creates EXECUTOR responsibilities held by an Agent
+     * Principal (actor_type PERSONAL_AGENT, actor_member_id null — agents have no team member
+     * row). The previous inner join to team_member made the authority lookup resolve zero rows
+     * and dead-lettered the assignment event on the first real-stack delegation; the projection
+     * must ignore an agent-held responsibility exactly as it ignores an unresolved review owner.
+     */
+    @Test
+    void agentHeldExecutorAssignmentIsIgnoredInsteadOfDeadLettering() {
+        UUID agentAssignment = seedAgentAssignment("EXECUTOR", BASE_TIME.plusSeconds(1));
+
+        runner.consume(publication(seedEvent(
+                "WORK_ITEM_EXECUTOR_ASSIGNED", agentAssignment, 0,
+                BASE_TIME.plusSeconds(1), responsibilityPayload("EXECUTOR", Optional.empty()))));
+
+        assertEquals(0, itemCount(ProjectionGeneration.FIRST));
+        assertEquals(1, receiptCount(ProjectionGeneration.FIRST));
+        assertEquals(
+                projector.expectedSnapshot(organizationId),
+                projector.actualSnapshot(lease(ProjectionGeneration.FIRST).key()));
+    }
+
     @Test
     void memberIneligibilityClosesOpenSourcesWithStableReason() {
         UUID assignmentId = seedAssignment("OWNER", BASE_TIME);
@@ -803,6 +825,34 @@ class InboxEventProjectorM6E03IntegrationTest
                 """,
                 assignmentId, organizationId.value(), teamId, workspaceId, projectId,
                 workItemId, role, principalId, memberId, principalId,
+                acceptedAt.atOffset(ZoneOffset.UTC), acceptedAt.atOffset(ZoneOffset.UTC),
+                acceptedAt.atOffset(ZoneOffset.UTC), principalId,
+                acceptedAt.atOffset(ZoneOffset.UTC), principalId);
+        return assignmentId;
+    }
+
+    private UUID seedAgentAssignment(String role, Instant acceptedAt) {
+        UUID agentPrincipalId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO crewscope.principal (
+                    id, organization_id, principal_type, display_name, visibility, status
+                ) VALUES (?, ?, 'PERSONAL_AGENT', 'Owner agent', 'PRIVATE', 'ACTIVE')
+                """,
+                agentPrincipalId, organizationId.value());
+        UUID assignmentId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO crewscope.responsibility_assignment (
+                    id, organization_id, team_id, workspace_id, project_id, work_item_id,
+                    role, actor_principal_id, actor_type, actor_member_id, status,
+                    assigned_by_principal_id, assigned_at, accepted_at,
+                    created_at, created_by_principal_id, updated_at, updated_by_principal_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PERSONAL_AGENT', NULL, 'ACTIVE',
+                          ?, ?, ?, ?, ?, ?, ?)
+                """,
+                assignmentId, organizationId.value(), teamId, workspaceId, projectId,
+                workItemId, role, agentPrincipalId, principalId,
                 acceptedAt.atOffset(ZoneOffset.UTC), acceptedAt.atOffset(ZoneOffset.UTC),
                 acceptedAt.atOffset(ZoneOffset.UTC), principalId,
                 acceptedAt.atOffset(ZoneOffset.UTC), principalId);

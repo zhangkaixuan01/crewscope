@@ -2,6 +2,7 @@ package io.crewscope.server.config.application;
 
 import static org.mockito.Mockito.mock;
 
+import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
@@ -51,7 +52,16 @@ class GitHubConnectionApplicationConfigurationM5A06Test {
             .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
             .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
             .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
-            .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class));
+            .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
+            // The GitHub write boundaries live in the same configuration class and register
+            // in worker-capable profiles (M9b-Q02 defect 27), so their collaborators must be
+            // resolvable here too.
+            .withBean(RepositoryBindingRepository.class,
+                    () -> mock(RepositoryBindingRepository.class))
+            .withBean(io.crewscope.infrastructure.workspace.repository.ManagedRepositoryResolver.class,
+                    () -> mock(io.crewscope.infrastructure.workspace.repository.ManagedRepositoryResolver.class))
+            .withBean(io.crewscope.infrastructure.workspace.git.GitCommandExecutor.class,
+                    () -> mock(io.crewscope.infrastructure.workspace.git.GitCommandExecutor.class));
 
     @Test
     void wiresApplicationBoundaryWhenAllPersistenceAndAuthorityPortsExist() {

@@ -2780,7 +2780,7 @@ WorkspacePolicy 是一个 TaskExecution attempt 的不可变 Coding 执行授权
 
 BuildProfile 使用 Key、Version 与 canonical SHA-256 固化 Java Release、BuildTool、摘要固定的 OCI Sandbox 镜像及 CommandCatalog。CommandCatalog 只保存 typed argv，入口限定为 Maven、Maven Wrapper、Gradle Wrapper 或 `./scripts/` 下的 canonical 项目脚本；每个 CommandKind 对应唯一 Tool Key、固定 argv、仓库相对工作目录、默认/最大超时，以及有界模块白名单和精确测试类/方法选择器。执行时按 BuildProfileReference 精确读取版本，Profile 升级不改变历史执行语义。
 
-SandboxResourceBudget 固化网络、CPU、内存、PID、单命令时长、命令输出字节和只读根文件系统。WorkspaceOperationBudget 固化命令次数、变更文件数、单文件字节、写操作次数、总写入字节、Diff 字节和测试修复轮次。M4 执行固定 `network=none` 与只读根文件系统；命令最大超时受 Sandbox 与 PolicySnapshot 总时长双重约束，命令及写操作总数受 PolicySnapshot Tool 调用预算约束。
+SandboxResourceBudget 固化网络、CPU、内存、PID、单命令时长、命令输出字节和只读根文件系统。WorkspaceOperationBudget 固化命令次数、变更文件数、单文件字节、写操作次数、总写入字节、Diff 字节和测试修复轮次。M9b 起执行默认 `RESTRICTED_EGRESS`（独立用户自定义 bridge，仅出站 NAT，可拉取依赖，不与平台自身 compose 网络互联）与只读根文件系统；`SandboxNetworkMode` 保留 NONE/LOOPBACK_ONLY/RESTRICTED_EGRESS 三档并支持单调收紧，历史 `NONE` 策略照常复用。命令最大超时受 Sandbox 与 PolicySnapshot 总时长双重约束，命令及写操作总数受 PolicySnapshot Tool 调用预算约束。
 
 WorkspacePolicyOverlay 是同一 WorkspacePolicy 的单调运行时收紧流。首版继承完整基准策略，后继版本保存直接父 Overlay Hash，可缩小 AllowedPathSet、删除 CommandKind，并降低网络、CPU、内存、PID、超时、输出、文件、写入、Diff、命令次数与修复轮次；空命令目录表示停止全部命令执行。每个版本保存 canonical SHA-256 和审计信息。通用 SafetyEnforcementOverlay 继续处理 Principal、Membership、Provider、Connection、Credential、Capability 和 Tool 撤权，WorkspacePolicyOverlay 处理 Coding Workspace 的路径、命令与资源预算。
 
@@ -2818,7 +2818,7 @@ Provision 在同一非阻塞锁内完成“Repository/Archive/Branch/Path 前置
 
 TaskExecution Sandbox 由 CrewScope Factory 持有生命周期，底层复用 AgentScope 2.0.0 的 `DockerFilesystemSpec`、`DockerSandboxClient` 与 `DockerSandbox`。CrewScope 将已验证 Worktree 作为读写 bind mount 注入 `/workspace/repository`，再以 external Sandbox 交给单次 AgentScope 调用；AgentScope 调用关闭只释放调用窗口，不停止或删除 TaskExecution 容器。容器名由 Workspace Key 确定性派生，容器 Label 闭合 Workspace/物理 Fingerprint、TaskExecution、Policy、BuildProfile、摘要固定镜像、Runtime、Worker、Lease、Fencing 与 Sandbox Fingerprint，不建立第二份容器事实注册表。
 
-Sandbox 固定使用 Worktree UID/GID 普通用户、只读根文件系统、`network=none`、CPU/内存/PID 限制、`cap-drop ALL`、`no-new-privileges`、有界 `/tmp` tmpfs 和 init 进程。环境只注入平台固定的 `HOME`、`MAVEN_CONFIG`、`TMPDIR`、`CI` 与 Locale，不继承宿主凭证。命令超时与输出字节由 WorkspacePolicy 上限裁决，UTF-8 截断保持完整字符边界。Docker 控制命令完整排空有界合并输出，输出超限、读取失败和退出后管道未关闭均失败关闭，Inspect 不解析半截 JSON，容器清单不接受静默截断。公开 Sandbox State、异常和 `toString()` 只暴露稳定 ID、Fingerprint 与安全错误，不包含宿主路径、容器名或 Container ID。
+Sandbox 固定使用 Worktree UID/GID 普通用户、只读根文件系统、`RESTRICTED_EGRESS` 独立 bridge 网络（默认 `crewscope-sandbox-egress`，可经 `crewscope.coding.sandbox.egress-network-name` 配置，Worker 幂等创建且拒绝复用同名非 bridge 网络；NONE/LOOPBACK_ONLY 档仍映射 Docker `none`）、CPU/内存/PID 限制、`cap-drop ALL`、`no-new-privileges`、有界 `/tmp` tmpfs 和 init 进程。环境只注入平台固定的 `HOME`、`MAVEN_CONFIG`、`TMPDIR`、`CI` 与 Locale，不继承宿主凭证。命令超时与输出字节由 WorkspacePolicy 上限裁决，UTF-8 截断保持完整字符边界。Docker 控制命令完整排空有界合并输出，输出超限、读取失败和退出后管道未关闭均失败关闭，Inspect 不解析半截 JSON，容器清单不接受静默截断。公开 Sandbox State、异常和 `toString()` 只暴露稳定 ID、Fingerprint 与安全错误，不包含宿主路径、容器名或 Container ID。
 
 Provision 与 Recover 只复用 Label、镜像、挂载、用户、安全参数、资源预算和 Fingerprint 完整匹配的容器。同一 Lease 的 PREPARE 到 RUN 不改变 Sandbox Fingerprint；新 Lease/Fencing 恢复先精确删除旧代次容器再创建当前代次。每次 AgentScope 调用通过独占 `openCall()` 重新验证 Workspace 与活动 Lease/Fencing，调用窗口外、并发调用、过期 Lease 和旧 Fencing 全部失败关闭。Pause 默认停止并保留容器与 Worktree，Resume 幂等启动同一容器；终态 Destroy 只删除与当前句柄完整指纹和安全契约匹配的容器，旧句柄不能删除新 Fencing 代次。该能力只在 `all/worker` Profile 装配，纯 `server` Profile 不创建宿主 Docker Bean。实现与证据见 [M4-I04 TaskExecution 级 Docker Sandbox](testing/M4-I04-TaskExecution级Docker-Sandbox.md)。
 

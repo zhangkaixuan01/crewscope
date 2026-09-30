@@ -111,4 +111,36 @@ describe('CrewScopeApiClient', () => {
 
     expect(handler).toHaveBeenCalledOnce()
   })
+
+  it('fires the forbidden sink for a 403 on an acting request', async () => {
+    const handler = vi.fn()
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'policy_denied', message: 'revoked', correlationId: 'corr-403',
+      retryable: false, currentVersion: null, details: {},
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
+    const client = new CrewScopeApiClient('/api/v1', fetcher as unknown as typeof fetch)
+    client.onForbidden(handler)
+
+    await expect(client.get('/teams')).rejects.toMatchObject({ status: 403 })
+
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a preview 403 away from the forbidden sink without leaking the flag into Fetch', async () => {
+    // A preflight denial answers a hypothetical the caller asked on purpose; it is not a
+    // membership revocation and must not clear the team's F05 drafts (M9b-Q02).
+    const handler = vi.fn()
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      code: 'policy_denied', message: 'Agent model preflight denied', correlationId: 'corr-403',
+      retryable: false, currentVersion: null, details: { reason: 'MODEL_BINDING_MISSING' },
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
+    const client = new CrewScopeApiClient('/api/v1', fetcher)
+    client.onForbidden(handler)
+
+    await expect(client.post('/work-items/wi-1/tasks/preflight', {}, { preview: true }))
+      .rejects.toMatchObject({ status: 403 })
+
+    expect(handler).not.toHaveBeenCalled()
+    expect(fetcher.mock.calls[0]?.[1]).not.toHaveProperty('preview')
+  })
 })

@@ -1,6 +1,6 @@
 # M9b 单项目迁移试用指南
 
-适用成员：正在考虑从现有任务系统（如 Multica）迁到 CrewScope 的团队。本指南描述**一个项目的低风险试用**路径——它验证「CrewScope 能否承接一件真实工作」，不构成全量迁移方案。来源与取舍见《[M9b-Multica 用户迁移体验 Review](../reviews/M9b-Multica用户迁移体验Review.md)》§7.1。
+适用成员：正在考虑从现有任务系统（如 Multica）迁到 CrewScope 的团队。本指南描述**一个项目的低风险试用**路径——它验证「CrewScope 能否承接一件真实工作」，不构成全量迁移方案。来源与取舍见《[M9b-Multica 用户迁移体验 Review](../reviews/M9b-Multica用户迁移体验Review.md)》§7.1。五步主线的真实栈自动化回归（含失败恢复边界）见《[M9b-Q02 Release Gate](../testing/M9b-Q02-Release-Gate.md)》§2；部署与配置主线见《[Team-Beta 单机运维手册](../runbooks/Team-Beta单机运维手册.md)》。
 
 ## 五步试用
 

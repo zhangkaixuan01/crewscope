@@ -7,9 +7,12 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.AgentModelRole;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.ObservableAgentScopeModel;
+import io.crewscope.agentscope.model.ResolvedAgentScopeModels;
+import io.crewscope.agentscope.model.TaskResolvedModelSource;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.execution.TaskAgentStateIdentity;
 import io.crewscope.application.task.TaskPlanPublicationService;
+import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.workspace.AgentProfileId;
@@ -18,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -35,6 +39,7 @@ public final class TaskAgentFactory implements AutoCloseable {
     private final AgentStateStore stateStore;
     private final Supplier<Toolkit> toolkitFactory;
     private final Path runtimeRoot;
+    private final Optional<TaskResolvedModelSource> resolvedModelSource;
     private final ConcurrentMap<ProfileVersion, HarnessAgent> agents = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -44,6 +49,22 @@ public final class TaskAgentFactory implements AutoCloseable {
             AgentStateStore stateStore,
             Supplier<Toolkit> toolkitFactory,
             Path runtimeRoot) {
+        this(configurationSource, modelResolver, stateStore, toolkitFactory, runtimeRoot, null);
+    }
+
+    /**
+     * Production constructor: a resolved-model source rebuilds the exact trusted connection a
+     * Task's PolicySnapshot pinned at delegation time. Without one (legacy composition, or a
+     * deployment that supplies models only through the stable env slot) every model still resolves
+     * through {@link AgentScopeModelResolver}.
+     */
+    public TaskAgentFactory(
+            TaskAgentConfigurationSource configurationSource,
+            AgentScopeModelResolver modelResolver,
+            AgentStateStore stateStore,
+            Supplier<Toolkit> toolkitFactory,
+            Path runtimeRoot,
+            TaskResolvedModelSource resolvedModelSource) {
         this.configurationSource = Objects.requireNonNull(configurationSource, "configurationSource");
         this.modelResolver = Objects.requireNonNull(modelResolver, "modelResolver");
         this.stateStore = Objects.requireNonNull(stateStore, "stateStore");
@@ -51,16 +72,27 @@ public final class TaskAgentFactory implements AutoCloseable {
         this.runtimeRoot = Objects.requireNonNull(runtimeRoot, "runtimeRoot")
                 .toAbsolutePath()
                 .normalize();
+        this.resolvedModelSource = Optional.ofNullable(resolvedModelSource);
     }
 
     /** Both Session and Policy must pin the same profile before a cached Agent can be selected. */
     public HarnessAgent getOrCreate(TaskExecutionRuntimeFacts facts) {
         TaskExecutionRuntimeFacts required = Objects.requireNonNull(facts, "facts");
-        return getOrCreate(required.runtimeSession(), required.policySnapshot());
+        return getOrCreate(
+                required.runtimeSession(),
+                required.policySnapshot(),
+                required.policySnapshot().agentExecutionConfiguration());
     }
 
     public HarnessAgent getOrCreate(
             TaskAgentRuntimeSession runtimeSession, PolicySnapshot policySnapshot) {
+        return getOrCreate(runtimeSession, policySnapshot, Optional.empty());
+    }
+
+    private HarnessAgent getOrCreate(
+            TaskAgentRuntimeSession runtimeSession,
+            PolicySnapshot policySnapshot,
+            Optional<ResolvedAgentExecutionConfiguration> resolvedConfiguration) {
         if (closed.get()) {
             throw new IllegalStateException("TaskAgentFactory is closed");
         }
@@ -73,14 +105,18 @@ public final class TaskAgentFactory implements AutoCloseable {
         }
         ProfileVersion key = new ProfileVersion(
                 session.agentProfileId(), session.agentProfileVersion());
-        return agents.computeIfAbsent(key, this::createAgent);
+        // Agents are shared per immutable profile version, so the first delegation's resolved
+        // configuration fixes the model pair for every later Task on that version — the same
+        // sharing rule the env slot already followed.
+        return agents.computeIfAbsent(key, cached -> createAgent(cached, resolvedConfiguration));
     }
 
     public int cachedAgentCount() {
         return agents.size();
     }
 
-    private HarnessAgent createAgent(ProfileVersion key) {
+    private HarnessAgent createAgent(
+            ProfileVersion key, Optional<ResolvedAgentExecutionConfiguration> resolvedConfiguration) {
         TaskAgentConfiguration configuration = Objects.requireNonNull(
                 configurationSource.load(key.agentProfileId(), key.version()),
                 "configurationSource result");
@@ -89,6 +125,13 @@ public final class TaskAgentFactory implements AutoCloseable {
             throw new IllegalStateException(
                     "Task Agent configuration must match the pinned AgentProfile version");
         }
+        // A delegated Task's PolicySnapshot carries the exact model coordinates resolved when the
+        // command was accepted; rebuilding that pair keeps page-configured connections effective
+        // for the Worker, which the stable env slot alone can never see. Without a pinned pair the
+        // deployment's slot semantics stay authoritative.
+        Optional<ResolvedAgentScopeModels> resolvedModels = resolvedModelSource
+                .filter(ignored -> resolvedConfiguration.isPresent())
+                .map(source -> source.build(resolvedConfiguration.orElseThrow()));
         Toolkit toolkit = Objects.requireNonNull(toolkitFactory.get(), "toolkitFactory result");
         requireControlledToolkit(toolkit);
         String stableName = TaskAgentStateIdentity.stableAgentId(
@@ -98,7 +141,8 @@ public final class TaskAgentFactory implements AutoCloseable {
                 .agentId(stableName)
                 .description("CrewScope controlled Task Orchestrator")
                 .sysPrompt(configuration.systemPrompt())
-                .model(observedModel(configuration.modelId(), AgentModelRole.PRIMARY))
+                .model(resolvedModels.map(ResolvedAgentScopeModels::primary)
+                        .orElseGet(() -> observedModel(configuration.modelId(), AgentModelRole.PRIMARY)))
                 .toolkit(toolkit)
                 .maxIters(configuration.maxIterations())
                 .maxRetries(configuration.maxRetries())
@@ -119,8 +163,13 @@ public final class TaskAgentFactory implements AutoCloseable {
                 .disableToolsConfig()
                 .disableCompaction()
                 .enableAgentTracingLog(false);
-        configuration.fallbackModelId().ifPresent(modelId -> builder.fallbackModel(
-                observedModel(modelId, AgentModelRole.FALLBACK)));
+        Optional<Model> resolvedFallback = resolvedModels.flatMap(ResolvedAgentScopeModels::fallback);
+        if (resolvedModels.isPresent()) {
+            resolvedFallback.ifPresent(builder::fallbackModel);
+        } else {
+            configuration.fallbackModelId().ifPresent(modelId -> builder.fallbackModel(
+                    observedModel(modelId, AgentModelRole.FALLBACK)));
+        }
         HarnessAgent agent = builder.build();
         try {
             // Harness 2.0.0 auto-registers this MessageBus helper whenever a workspace exists. M3

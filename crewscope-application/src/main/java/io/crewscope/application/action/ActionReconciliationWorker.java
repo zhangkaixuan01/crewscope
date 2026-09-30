@@ -39,7 +39,6 @@ import io.crewscope.domain.action.PlannedAction;
 import io.crewscope.domain.action.PushBranchActionParameters;
 import io.crewscope.domain.provider.ProviderAccessScope;
 import io.crewscope.domain.provider.ProviderCapabilities;
-import io.crewscope.domain.provider.ProviderResourceScope;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.error.DomainException;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -484,9 +483,12 @@ public final class ActionReconciliationWorker {
                 provider.grantId(),
                 provider.grantVersion(),
                 facts.connectionGrant().grantee(),
+                // Same grant-vocabulary fact as the Action Worker preflight: the bare external
+                // repository id never matches the "github:repository:owner/name" grant keys
+                // after intersection (M9b-Q02 defect 28). Carry the grant's own resources.
                 new ProviderAccessScope(
                         capability,
-                        ProviderResourceScope.of("repository:" + externalRepositoryId)),
+                        facts.connectionGrant().grantedAccess().resources()),
                 authority.responsibility().actorPrincipalId(),
                 correlation(claimed.action()));
         return new PreflightGitHubRepositoryRequest(

@@ -41,7 +41,9 @@ public record TaskAgentStateIdentity(
         if (profileVersion < 0) {
             throw new IllegalArgumentException("profileVersion must not be negative");
         }
-        String role = requiredPurpose == TaskAgentSessionPurpose.SPECIALIST ? "coding" : "task";
+        String role = requiredPurpose == TaskAgentSessionPurpose.SPECIALIST ? "coding"
+                : requiredPurpose == TaskAgentSessionPurpose.REVIEW ? "review"
+                : "task";
         return "crewscope-" + role + "-" + required + "-v" + profileVersion;
     }
 

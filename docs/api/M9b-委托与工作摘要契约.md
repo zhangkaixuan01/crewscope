@@ -169,6 +169,7 @@ GET /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{project
 - **无 EXECUTOR**：链锁内重验 `responsibility:manage`（缺失 → 403 `policy_denied`，无 Task），随后以域原语 `ResponsibilityAssignmentService.assignExecutor` 同事务创建责任，`WORK_ITEM_EXECUTOR_ASSIGNED` 事件随命令自身的 correlation/幂等键同事务发出；分配失败与 Task 创建一起回滚，不留半提交。
 - Agent Profile 不存在 → 404；Principal 非 ACTIVE 或非 Task 编排型 → 422。
 - **requestHash 纳入 assignment 字段**（`agentProfileId` 或 `NONE`）：同幂等键不同载荷 = 422 幂等冲突；双击/重试同键同载荷 = 重放原回执，不二次分配、不二次建 Task。
+- **预检镜像（M9b-Q02）**：`POST .../work-items/{workItemId}/tasks/preflight` 载荷新增可选字段 `plannedExecutorAgentProfileId`。分配并启动的预检必须评估该命令会固化的完整图——包括它先行提交的 EXECUTOR 分配——否则未分配 Agent 的首次委托永远过不了自己的预检（首用死锁）。服务端按 `withPlannedExecutor`（`assignExecutorIfRequested` 的 preview-only 镜像）把计划分配构造为瞬态责任合入评估链：同门禁（profile 存在、Principal 可执行且为 Task 编排型、同 EXECUTOR 沿用、不同 ACTIVE EXECUTOR → 422、`responsibility:manage`），但**不落库、不发事件**；字段缺省时预检仍逐字评估当前责任链。
 
 ### 9.3 TASK 恢复坐标
 

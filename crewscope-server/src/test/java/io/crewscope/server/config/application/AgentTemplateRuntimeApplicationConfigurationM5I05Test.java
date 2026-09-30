@@ -8,6 +8,7 @@ import io.agentscope.core.state.AgentStateStore;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.model.AgentScopeModelFactory;
 import io.crewscope.agentscope.model.ResolvedAgentScopeModelFactory;
+import io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.RestrictedTemplateAgentBuilder;
@@ -48,6 +49,7 @@ class AgentTemplateRuntimeApplicationConfigurationM5I05Test {
             .hasSingleBean(ResolvedAgentScopeModelFactory.class)
             .hasSingleBean(AgentTemplateRuntimeAssembler.class)
             .hasSingleBean(TeamObserverRuntimeContextMiddleware.class)
+            .hasSingleBean(ReviewerRuntimeContextMiddleware.class)
             .hasSingleBean(RestrictedTemplateAgentBuilder.class)
             .hasSingleBean(TemplatePersonalAgentFactory.class)
             .hasSingleBean(TemplateTeamAgentFactory.class)

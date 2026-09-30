@@ -73,7 +73,9 @@ final class AgentScopeReviewerExecutionAdapter implements ReviewerExecutionPort 
                 required.reviewerAgent().id(), required.correlationId());
         TemplateAgentBuildRequest build = new TemplateAgentBuildRequest(
                 definition,
-                TemplateAgentSessionIdentity.task(required.runtimeSession()),
+                // REVIEW kind — the conversation-less reviewer security chain, not the
+                // TASK chain a review call can never satisfy (defect 20, M9b-Q02).
+                TemplateAgentSessionIdentity.review(required.runtimeSession()),
                 new Toolkit());
         return runtime.analyze(new ReviewerSpecialistRequest(
                         build,

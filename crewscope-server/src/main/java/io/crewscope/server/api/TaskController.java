@@ -111,7 +111,9 @@ public final class TaskController {
                         route.teamId(),
                         route.projectId(),
                         route.workItemId(),
-                        request.toSelection())))
+                        request.toSelection(),
+                        Optional.ofNullable(request.plannedExecutorAgentProfileId())
+                                .map(AgentProfileId::new))))
                 .map(AgentPreflightResponse::from);
     }
 
@@ -180,7 +182,8 @@ public final class TaskController {
 
     public record AgentSelectionRequest(
             @NotNull UUID executorAgentProfileId,
-            @Min(1) Long agentConfigurationRevision) {
+            @Min(1) Long agentConfigurationRevision,
+            UUID plannedExecutorAgentProfileId) {
 
         TaskAgentSelectionRequest toSelection() {
             return new TaskAgentSelectionRequest(

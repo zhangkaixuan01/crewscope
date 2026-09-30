@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { describe, expect, it } from 'vitest'
 import type { AgentTemplateSummary } from '../../domains/agent/types'
 import type { PreferenceForm } from '../../domains/agent/configurationTypes'
@@ -101,6 +102,35 @@ describe('AgentConfigurationPreferencesSection', () => {
     await wrapper.get('#preference-maximumOutputTokens').setValue('')
     expect(wrapper.emitted('updatePreferences')!.at(-1)?.[0]).toMatchObject({ maximumOutputTokens: '' })
     expect(wrapper.get('#preference-maximumOutputTokens').attributes('aria-invalid')).toBe('false')
+  })
+
+  it('folds advanced parameters by default and unfolds them once a field goes out of range', async () => {
+    // M9b-Q01（常用项优先、高级项后置）：默认收起；收起不得藏错误——任一高级字段越界时
+    // 自动展开，让被保存闸门挡下的原因可见。
+    const wrapper = mount(AgentConfigurationPreferencesSection, { props: props() })
+    const details = wrapper.get('details.advanced-preferences')
+    expect(details.attributes('open')).toBeUndefined()
+
+    await wrapper.get('#preference-temperature').setValue('3')
+    expect(details.attributes('open')).toBeDefined()
+
+    // Seed 越安全整数界同样要展开：折叠不能成为藏住任一高级字段错误的手段。
+    await wrapper.get('#preference-temperature').setValue('1.5')
+    await wrapper.get('#preference-seed').setValue('99999999999999999999')
+    expect(details.attributes('open')).toBeDefined()
+  })
+
+  it('keeps a manual collapse even while an out-of-range value stays in the form', async () => {
+    // 自动展开只在错误「出现」时翻转一次；用户看清原因后手动收起的意愿不被重复覆盖。
+    const wrapper = mount(AgentConfigurationPreferencesSection, { props: props() })
+    await wrapper.get('#preference-temperature').setValue('3')
+    expect(wrapper.get('details.advanced-preferences').attributes('open')).toBeDefined()
+
+    const element = wrapper.get('details.advanced-preferences').element as HTMLDetailsElement
+    element.open = false
+    element.dispatchEvent(new Event('toggle'))
+    await nextTick()
+    expect(wrapper.get('details.advanced-preferences').attributes('open')).toBeUndefined()
   })
 
   it('refuses an emptied field the server needs, instead of sending zero for it', async () => {

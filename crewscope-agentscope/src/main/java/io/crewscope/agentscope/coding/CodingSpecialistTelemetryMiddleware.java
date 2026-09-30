@@ -11,6 +11,7 @@ import io.agentscope.core.middleware.ModelCallInput;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.ToolChoice;
+import io.agentscope.core.model.transport.HttpTransportException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,9 +31,6 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
         if (collector == null) {
             return next.apply(input);
         }
-        AtomicReference<ChatUsage> usage = new AtomicReference<>();
-        AtomicBoolean recorded = new AtomicBoolean();
-        ModelCallInput effective = input;
         if (collector.structuredOutputRequired()
                 && input.tools().stream().anyMatch(tool ->
                         "generate_response".equals(tool.getName()))) {
@@ -45,10 +43,25 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
                             .parallelToolCalls(false)
                             .build(),
                     input.options());
-            effective = new ModelCallInput(
+            ModelCallInput effective = new ModelCallInput(
                     input.messages(), input.tools(), options, input.model());
+            return observed(next.apply(effective), collector)
+                    // Defect 11 (M9b-Q02): thinking-mode models (deepseek-flash) reject a forced
+                    // tool_choice with 400, killing the whole delivery after the tool loop already
+                    // succeeded. Degrade once to the unforced request — the delivery prompt plus the
+                    // generate_response schema still steer the structured answer.
+                    .onErrorResume(error -> forcedToolChoiceRejected(error)
+                            ? observed(next.apply(input), collector)
+                            : Flux.error(error));
         }
-        return next.apply(effective)
+        return observed(next.apply(input), collector);
+    }
+
+    private static Flux<AgentEvent> observed(
+            Flux<AgentEvent> events, CodingSpecialistTelemetryAccumulator collector) {
+        AtomicReference<ChatUsage> usage = new AtomicReference<>();
+        AtomicBoolean recorded = new AtomicBoolean();
+        return events
                 .doOnNext(event -> {
                     if (event instanceof ModelCallEndEvent ended) {
                         usage.set(ended.getUsage());
@@ -57,6 +70,23 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
                 .doOnComplete(() -> recordModel(collector, usage.get(), recorded))
                 .doOnError(ignored -> recordModel(collector, usage.get(), recorded))
                 .doOnCancel(() -> recordModel(collector, usage.get(), recorded));
+    }
+
+    /**
+     * True when the provider refused the forced tool_choice itself (4xx whose body names
+     * tool_choice), as DeepSeek's thinking mode does. Transport exceptions may arrive wrapped by
+     * the model retry layer, so the whole cause chain is inspected.
+     */
+    private static boolean forcedToolChoiceRejected(Throwable error) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof HttpTransportException transport
+                    && transport.isClientError()
+                    && transport.getResponseBody() != null
+                    && transport.getResponseBody().contains("tool_choice")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

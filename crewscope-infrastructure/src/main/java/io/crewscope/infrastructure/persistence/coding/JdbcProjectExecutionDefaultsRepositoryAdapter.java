@@ -22,9 +22,10 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-/** JDBC persistence for the single project defaults row. */
+/** JDBC persistence for the single project defaults row. Not final: @Transactional needs a CGLIB
+ * subclass, and a final adapter fails the whole context at startup (caught by the real-stack gate). */
 @Repository
-public final class JdbcProjectExecutionDefaultsRepositoryAdapter implements ProjectExecutionDefaultsRepository {
+public class JdbcProjectExecutionDefaultsRepositoryAdapter implements ProjectExecutionDefaultsRepository {
     private static final String SELECT = "SELECT * FROM crewscope.project_execution_defaults";
     private final NamedParameterJdbcTemplate jdbc;
 

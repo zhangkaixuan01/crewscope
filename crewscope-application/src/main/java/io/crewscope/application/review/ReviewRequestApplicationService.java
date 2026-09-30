@@ -47,6 +47,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.PolicySnapshot;
+import io.crewscope.domain.task.PolicySnapshotId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
@@ -93,6 +94,7 @@ public final class ReviewRequestApplicationService {
     private final CommandReceiptStore receipts;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
+    private final ReviewerPolicySnapshotAutoSource autoSnapshotSource;
 
     public ReviewRequestApplicationService(
             WorkItemAccessPolicy accessPolicy,
@@ -119,7 +121,10 @@ public final class ReviewRequestApplicationService {
             ReviewEventPublisher events,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider,
+            ReviewerPolicySnapshotAutoSource autoSnapshotSource) {
+        this.autoSnapshotSource = Objects.requireNonNull(
+                autoSnapshotSource, "autoSnapshotSource");
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.tasks = Objects.requireNonNull(tasks, "tasks");
         this.executions = Objects.requireNonNull(executions, "executions");
@@ -181,6 +186,8 @@ public final class ReviewRequestApplicationService {
         TeamCommandContext trusted = Objects.requireNonNull(context, "context");
         CreateReviewRequestCommand required = Objects.requireNonNull(command, "command");
         String commandType = successor ? RE_REVIEW : CREATE;
+        // The auto path hashes a stable sentinel instead of a fresh snapshot id, so an idempotent
+        // replay of the same command lands on the same receipt.
         CommandRequestHash hash = CommandRequestHash.sha256(
                 commandType,
                 trusted.access().actor().id().toString(),
@@ -188,11 +195,14 @@ public final class ReviewRequestApplicationService {
                 taskId.toString(),
                 executionId.toString(),
                 expectedPredecessor.map(Object::toString).orElse("initial"),
-                required.reviewerPolicySnapshotId().toString());
+                required.reviewerPolicySnapshotId().map(Object::toString).orElse("auto"));
         return transactions.required(() -> {
+            // An omitted snapshot resolves the advisory Reviewer Agent automatically. The source
+            // reuses the per-attempt snapshot it pinned before, so replays stay idempotent.
+            PolicySnapshotId snapshotId = required.reviewerPolicySnapshotId().orElseGet(
+                    () -> autoSnapshot(trusted.access(), teamId, taskId, executionId).id());
             CreationFacts facts = creationFacts(
-                    trusted.access(), teamId, taskId, executionId,
-                    required.reviewerPolicySnapshotId());
+                    trusted.access(), teamId, taskId, executionId, snapshotId);
             Optional<CommandReceipt> replay = receipts.findCompleted(
                     facts.task().scope().organizationId(), trusted.idempotencyKey(),
                     commandType, hash);
@@ -367,6 +377,18 @@ public final class ReviewRequestApplicationService {
                 actorMember,
                 teamMembers,
                 assignments.findActiveByWorkItem(organizationId, task.workItemId()));
+    }
+
+    private PolicySnapshot autoSnapshot(
+            TeamAccessContext context, TeamId teamId, TaskId taskId, TaskExecutionId executionId) {
+        VisibleTask visible = requireTask(
+                context, context.actor().scope().organizationId(), teamId, taskId);
+        TaskExecution execution = requireExecution(
+                context.actor().scope().organizationId(), visible.task(), executionId);
+        List<ResponsibilityAssignment> currentAssignments = assignments.findActiveByWorkItem(
+                context.actor().scope().organizationId(), visible.task().workItemId());
+        return autoSnapshotSource.resolveSnapshot(
+                context, visible.task(), visible.item(), execution, currentAssignments);
     }
 
     private CreationFacts creationFacts(

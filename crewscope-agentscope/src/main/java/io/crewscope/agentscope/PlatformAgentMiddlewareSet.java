@@ -14,7 +14,11 @@ public final class PlatformAgentMiddlewareSet {
             ProviderBindingSecurityMiddleware providerBindingSecurity,
             PlatformAuditMiddleware audit,
             AgentStatePreflightMiddleware statePreflight) {
-        this(List.of(runtimeContext, providerBindingSecurity, audit, statePreflight));
+        // The protocol repair sits innermost (closest to the model call): the interrupt/compaction
+        // orphaned-tool-message defect (M9b-Q02 defect 10) must be fixed on the send side after
+        // every platform concern has run, and it mutates nothing the outer middleware relies on.
+        this(List.of(runtimeContext, providerBindingSecurity, audit, statePreflight,
+                new ToolMessageProtocolRepairMiddleware()));
     }
 
     PlatformAgentMiddlewareSet(

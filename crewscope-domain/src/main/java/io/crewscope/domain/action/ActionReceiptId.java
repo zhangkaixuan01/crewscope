@@ -13,4 +13,9 @@ public record ActionReceiptId(UUID value) implements AggregateId {
     public static ActionReceiptId generate() {
         return new ActionReceiptId(AggregateId.generateValue());
     }
+
+    @Override
+    public String toString() {
+        return value.toString();
+    }
 }

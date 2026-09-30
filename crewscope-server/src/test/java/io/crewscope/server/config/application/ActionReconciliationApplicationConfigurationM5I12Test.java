@@ -19,6 +19,8 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /** Conditional composition and bounded setting proof for the M5-I12 reconciliation fleet. */
 class ActionReconciliationApplicationConfigurationM5I12Test {
@@ -38,6 +40,26 @@ class ActionReconciliationApplicationConfigurationM5I12Test {
                 .doesNotHaveBean(ActionReconciliationScheduler.class)
                 .doesNotHaveBean(ActionReconciliationStartupRunner.class)
                 .hasSingleBean(ActionManualResolutionService.class));
+    }
+
+    @Test
+    void wiresTheFleetWhenTheGitHubWritePortsRegisterAfterThisConfiguration() {
+        // Same registration-order proof as ActionWorkerApplicationConfigurationM5I11Test:
+        // production defines the GitHub write ports in a later-scanned configuration class,
+        // and presence conditions evaluated at registration time cannot see them (M9b-Q02
+        // defect 27 silently dropped this fleet from real deployments the same way).
+        baseRunner()
+                .withUserConfiguration(LateGitHubWriteBoundaries.class)
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(ActionReconciliationWorker.class)
+                        .hasSingleBean(ActionReconciliationScheduler.class)
+                        .hasSingleBean(ActionReconciliationStartupRunner.class));
+    }
+
+    @Test
+    void failsFastWhenAWorkerCapableCompositionLacksTheGitHubWritePorts() {
+        baseRunner().run(context -> context.assertThat().hasFailed());
     }
 
     @Test
@@ -74,8 +96,19 @@ class ActionReconciliationApplicationConfigurationM5I12Test {
                 .run(context -> context.assertThat().hasFailed());
     }
 
-    private ApplicationContextRunner runner(boolean includeQueryPorts) {
-        ApplicationContextRunner runner = new ApplicationContextRunner()
+    private ApplicationContextRunner runner(boolean workerCapableProfile) {
+        ApplicationContextRunner runner = baseRunner()
+                .withBean(GitHubPushPort.class, () -> mock(GitHubPushPort.class))
+                .withBean(GitHubDraftPullRequestPort.class,
+                        () -> mock(GitHubDraftPullRequestPort.class));
+        if (workerCapableProfile) {
+            return runner;
+        }
+        return runner.withPropertyValues("crewscope.runtime.execution-profile=api");
+    }
+
+    private ApplicationContextRunner baseRunner() {
+        return new ApplicationContextRunner()
                 .withUserConfiguration(ActionReconciliationApplicationConfiguration.class)
                 .withBean(ActionDispatchRepository.class,
                         () -> mock(ActionDispatchRepository.class))
@@ -97,12 +130,20 @@ class ActionReconciliationApplicationConfigurationM5I12Test {
                         () -> mock(ActionWorkerEventPublisher.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withBean(TimeProvider.class, () -> mock(TimeProvider.class));
-        if (!includeQueryPorts) {
-            return runner;
+    }
+
+    /** Stand-in for GitHubProviderApplicationConfiguration: registers after this config. */
+    @Configuration(proxyBeanMethods = false)
+    static class LateGitHubWriteBoundaries {
+
+        @Bean
+        GitHubPushPort gitHubPushPort() {
+            return mock(GitHubPushPort.class);
         }
-        return runner
-                .withBean(GitHubPushPort.class, () -> mock(GitHubPushPort.class))
-                .withBean(GitHubDraftPullRequestPort.class,
-                        () -> mock(GitHubDraftPullRequestPort.class));
+
+        @Bean
+        GitHubDraftPullRequestPort gitHubDraftPullRequestPort() {
+            return mock(GitHubDraftPullRequestPort.class);
+        }
     }
 }

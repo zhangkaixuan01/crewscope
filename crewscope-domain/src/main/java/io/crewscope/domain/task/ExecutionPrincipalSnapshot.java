@@ -31,26 +31,40 @@ public record ExecutionPrincipalSnapshot(
     public static ExecutionPrincipalSnapshot resolve(
             TaskResponsibilitySnapshot responsibilitySnapshot,
             Principal executor) {
+        return resolve(responsibilitySnapshot, executor, ResponsibilityRole.EXECUTOR);
+    }
+
+    /**
+     * Resolves one active Principal from a captured responsibility of the given role. Task
+     * execution snapshots pin the EXECUTOR seat; an advisory Reviewer snapshot pins the agent
+     * holding the REVIEWER seat — the same single-fact guarantee, a different responsibility.
+     */
+    public static ExecutionPrincipalSnapshot resolve(
+            TaskResponsibilitySnapshot responsibilitySnapshot,
+            Principal actingPrincipal,
+            ResponsibilityRole role) {
         TaskResponsibilitySnapshot snapshot = Objects.requireNonNull(
                 responsibilitySnapshot, "responsibilitySnapshot");
-        Principal requiredExecutor = Objects.requireNonNull(executor, "executor");
+        Principal requiredExecutor = Objects.requireNonNull(actingPrincipal, "actingPrincipal");
+        ResponsibilityRole requiredRole = Objects.requireNonNull(role, "role");
         WorkItemScope scope = snapshot.scope();
         TaskActorPolicy.requireActiveInScope(
                 requiredExecutor, scope, "executionPrincipal.principalId");
-        List<TaskResponsibilitySnapshotEntry> matches = snapshot.byRole(ResponsibilityRole.EXECUTOR)
+        List<TaskResponsibilitySnapshotEntry> matches = snapshot.byRole(requiredRole)
                 .stream()
                 .filter(entry -> entry.principalId().equals(requiredExecutor.id()))
                 .toList();
         if (matches.size() != 1) {
             throw new DomainValidationException(
                     "executionPrincipal.principalId",
-                    "must identify exactly one captured Executor responsibility");
+                    "must identify exactly one captured " + requiredRole.name()
+                            + " responsibility");
         }
         TaskResponsibilitySnapshotEntry match = matches.get(0);
         if (match.principalType() != requiredExecutor.type()) {
             throw new DomainValidationException(
                     "executionPrincipal.principalId",
-                    "must match the captured Executor Principal type");
+                    "must match the captured " + requiredRole.name() + " Principal type");
         }
         return new ExecutionPrincipalSnapshot(
                 match.principalId(),

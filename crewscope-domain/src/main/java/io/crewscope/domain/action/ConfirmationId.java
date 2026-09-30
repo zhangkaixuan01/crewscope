@@ -13,4 +13,9 @@ public record ConfirmationId(UUID value) implements AggregateId {
     public static ConfirmationId generate() {
         return new ConfirmationId(AggregateId.generateValue());
     }
+
+    @Override
+    public String toString() {
+        return value.toString();
+    }
 }

@@ -33,6 +33,7 @@ import io.crewscope.domain.coding.WorkspacePolicy;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.task.AgentStateSnapshotId;
+import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.StepExecution;
 import io.crewscope.domain.task.StepExecutionId;
 import io.crewscope.domain.task.StepExecutionStatus;
@@ -387,6 +388,11 @@ class CodingSpecialistStepRuntimeM4I12Test {
         when(facts.execution()).thenReturn(execution);
         when(facts.stepExecution()).thenReturn(Optional.of(step));
         when(facts.runtimeSession()).thenReturn(session);
+        // M9b-Q02: runRound reads the delegated Task's pinned model coordinates off the snapshot;
+        // this fixture pins none, so the round builds the specialist the legacy way.
+        PolicySnapshot policySnapshot = mock(PolicySnapshot.class);
+        when(policySnapshot.agentExecutionConfiguration()).thenReturn(Optional.empty());
+        when(facts.policySnapshot()).thenReturn(policySnapshot);
         return facts;
     }
 

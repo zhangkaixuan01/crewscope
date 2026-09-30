@@ -32,6 +32,7 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.domain.action.ActionAuthoritySnapshot;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.provider.ProviderBinding;
@@ -43,6 +44,7 @@ import io.crewscope.domain.coding.CodingTargetSnapshotId;
 import io.crewscope.domain.coding.BuildProfile;
 import io.crewscope.domain.coding.RepositoryBinding;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
+import io.crewscope.domain.responsibility.ResponsibilityAssignmentId;
 import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.responsibility.event.ResponsibilityAssigned;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
@@ -76,6 +78,7 @@ import io.crewscope.domain.task.TaskResponsibilitySnapshot;
 import io.crewscope.domain.task.TaskSource;
 import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import io.crewscope.domain.workspace.AgentProfile;
+import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.AgentProfileStatus;
 import io.crewscope.domain.workspace.AgentProfileType;
 import io.crewscope.domain.workitem.WorkItem;
@@ -244,24 +247,110 @@ public final class AgentTaskCreationService {
         this.responsibilityAssignmentService = Optional.ofNullable(responsibilityAssignmentService);
     }
 
-    /** Returns the server-resolved execution configuration without creating a Task. */
+    /**
+     * Returns the server-resolved execution configuration without creating a Task. The endpoint's
+     * contract is to preflight the exact graph a Task creation would pin, so a caller planning an
+     * assign-and-start command passes the executor assignment that command would commit first;
+     * the preview merges it as an unpersisted hypothetical instead of rejecting the not-yet-
+     * assigned agent with RESPONSIBILITY_REQUIRED (the M9b-Q02 first-use deadlock).
+     */
     public TaskAgentExecutionSelection preview(
             TeamAccessContext context,
             TeamId teamId,
             WorkProjectId projectId,
             WorkItemId workItemId,
-            TaskAgentSelectionRequest selection) {
+            TaskAgentSelectionRequest selection,
+            Optional<AgentProfileId> plannedExecutor) {
         return transactionExecutor.required(() -> {
             TeamAccessContext trusted = Objects.requireNonNull(context, "context");
             OrganizationId organizationId = trusted.actor().scope().organizationId();
             WorkItem item = accessPolicy.requireVisibleWorkItem(
                     trusted, organizationId, teamId, projectId, workItemId);
-            List<ResponsibilityAssignment> assignments = List.copyOf(
-                    assignmentRepository.findActiveByWorkItem(organizationId, workItemId));
+            List<ResponsibilityAssignment> assignments = withPlannedExecutor(
+                    trusted,
+                    teamId,
+                    projectId,
+                    workItemId,
+                    item,
+                    List.copyOf(assignmentRepository.findActiveByWorkItem(
+                            organizationId, workItemId)),
+                    plannedExecutor,
+                    timeProvider.now());
             requireDelegationAuthority(trusted.actor(), assignments);
             return requireAgentSelectionService().resolve(
                     trusted, item, assignments, selection, timeProvider.now());
         });
+    }
+
+    /**
+     * Preview-only mirror of {@link #assignExecutorIfRequested}: same eligibility gates and
+     * permission, but the assignment is a transient domain object — nothing is persisted and no
+     * fact is appended, because the preview must not mutate the WorkItem it inspects.
+     */
+    private List<ResponsibilityAssignment> withPlannedExecutor(
+            TeamAccessContext context,
+            TeamId teamId,
+            WorkProjectId projectId,
+            WorkItemId workItemId,
+            WorkItem workItem,
+            List<ResponsibilityAssignment> assignments,
+            Optional<AgentProfileId> plannedExecutor,
+            UtcTimestamp occurredAt) {
+        if (plannedExecutor.isEmpty()) {
+            return assignments;
+        }
+        AgentProfileId required = plannedExecutor.orElseThrow();
+        OrganizationId organizationId = workItem.scope().organizationId();
+        Principal actor = context.actor();
+        AgentProfile profile = profileRepository
+                .findById(organizationId, required)
+                .orElseThrow(() -> new AggregateNotFoundException(
+                        "AgentProfile", required));
+        Principal executor = principalRepository
+                .findById(organizationId, profile.agentPrincipalId())
+                .filter(Principal::canAct)
+                .filter(value -> isTaskOrchestrator(profile.type(), value.type()))
+                .orElseThrow(() -> new DomainValidationException(
+                        "agentTask.executorAssignment.agentProfileId",
+                        "must reference the active Personal or Team Agent Profile Principal"));
+        boolean sameExecutorActive = assignments.stream()
+                .filter(ResponsibilityAssignment::isActive)
+                .filter(value -> value.role() == ResponsibilityRole.EXECUTOR)
+                .anyMatch(value -> value.actorPrincipalId().equals(executor.id())
+                        && value.actorType() == executor.type()
+                        && value.scope().equals(workItem.scope()));
+        if (sameExecutorActive) {
+            return assignments;
+        }
+        boolean differentExecutorActive = assignments.stream()
+                .filter(ResponsibilityAssignment::isActive)
+                .anyMatch(value -> value.role() == ResponsibilityRole.EXECUTOR
+                        && value.scope().equals(workItem.scope()));
+        if (differentExecutorActive) {
+            throw new DomainValidationException(
+                    "agentTask.executorAssignment",
+                    "a different Executor is already active — release it explicitly first");
+        }
+        accessPolicy.requirePermission(
+                context,
+                organizationId,
+                teamId,
+                projectId,
+                workItemId,
+                TeamPermission.RESPONSIBILITY_MANAGE,
+                occurredAt,
+                "manage this WorkItem's responsibilities");
+        ResponsibilityAssignment planned = ResponsibilityAssignment.assign(
+                ResponsibilityAssignmentId.generate(),
+                workItem,
+                ResponsibilityRole.EXECUTOR,
+                executor,
+                Optional.empty(),
+                actor,
+                occurredAt);
+        List<ResponsibilityAssignment> updated = new ArrayList<>(assignments);
+        updated.add(planned);
+        return List.copyOf(updated);
     }
 
     public CommandExecution<AgentTaskCreationResult> create(
@@ -373,6 +462,13 @@ public final class AgentTaskCreationService {
                 .map(target -> codingTools(
                         creationPolicy.allowedTools(), target.buildProfile()))
                 .orElse(creationPolicy.allowedTools());
+        // A coding task that authorizes ProviderBindings is delivery-capable: after a gate
+        // approval its delivery actions run under this same policy, and requirePolicy
+        // (ActionAuthoritySnapshot) rejects the delivery plan unless the snapshot permits
+        // the action tools. Leaving them out makes every real delivery 422.
+        Set<String> taskAllowedTools = codingTarget.isPresent() && !providerBindingIds.isEmpty()
+                ? ActionAuthoritySnapshot.unionDeliveryTools(allowedTools)
+                : allowedTools;
         PolicySnapshot policy = agentSelection
                 .map(selection -> requireResolvedPolicyService().createInitial(
                         new CreateResolvedPolicySnapshotRequest(
@@ -380,9 +476,11 @@ public final class AgentTaskCreationService {
                                 createdTask,
                                 createdExecution,
                                 executor,
+                                io.crewscope.domain.responsibility.ResponsibilityRole.EXECUTOR,
+                                createdTask.responsibilitySnapshot(),
                                 selection.resolutionRequest(),
                                 capabilities,
-                                allowedTools,
+                                taskAllowedTools,
                                 providerBindingIds,
                                 creationPolicy.budget(),
                                 actor,
@@ -397,7 +495,7 @@ public final class AgentTaskCreationService {
                         profile.id(),
                         profile.version(),
                         capabilities,
-                        allowedTools,
+                        taskAllowedTools,
                         providerBindingIds,
                         creationPolicy.budget(),
                         actor,
@@ -512,15 +610,24 @@ public final class AgentTaskCreationService {
                 .orElseThrow(() -> new DomainValidationException(
                         "agentTask.executorAssignment",
                         "requires the responsibility assignment service"));
+        // The assignment is stamped at this command's own occurredAt: the responsibility
+        // snapshot captured just below validates acceptedAt against that same timestamp, and a
+        // nested fresh now() would tick past it on a real clock (constant test clocks hide it).
         ResponsibilityAssignment assigned = assignmentService.assignExecutor(
-                workItem, executor, Optional.empty(), actor);
+                workItem, executor, Optional.empty(), actor, occurredAt);
         appendExecutorAssigned(context, assigned, occurredAt);
         List<ResponsibilityAssignment> updated = new ArrayList<>(assignments);
         updated.add(assigned);
         return List.copyOf(updated);
     }
 
-    /** The assignment fact travels with the delegation command's own correlation and key. */
+    /**
+     * The assignment fact travels with the delegation command's own correlation, but its
+     * event-level idempotency key derives a {@code #executor-assigned} suffix: the store
+     * enforces one domain event per (organization, idempotency key), and this composite
+     * command legitimately appends two. The {@code #} separator cannot appear in a client
+     * command key, so the derived key can never collide with another command's event.
+     */
     private void appendExecutorAssigned(
             TeamCommandContext context,
             ResponsibilityAssignment assigned,
@@ -537,7 +644,7 @@ public final class AgentTaskCreationService {
                 EventActor.principal(EventActorType.USER, context.access().actor().id()),
                 context.correlationId(),
                 context.causationId(),
-                Optional.of(context.idempotencyKey().value()),
+                Optional.of(context.idempotencyKey().value() + "#executor-assigned"),
                 occurredAt,
                 ResponsibilityAssigned.from(assigned, Optional.empty()));
         eventStore.append(event);

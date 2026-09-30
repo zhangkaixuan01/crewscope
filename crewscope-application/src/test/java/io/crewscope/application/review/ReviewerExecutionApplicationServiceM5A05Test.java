@@ -45,6 +45,7 @@ import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.PolicySnapshotId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
+import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
@@ -174,6 +175,7 @@ class ReviewerExecutionApplicationServiceM5A05Test {
             when(execution.taskId()).thenReturn(taskId);
             when(execution.scope()).thenReturn(scope);
             when(execution.attempt()).thenReturn(1);
+            when(execution.status()).thenReturn(TaskExecutionStatus.COMPLETED);
             when(executions.findById(organizationId, executionId))
                     .thenReturn(Optional.of(execution));
 
@@ -230,7 +232,7 @@ class ReviewerExecutionApplicationServiceM5A05Test {
             when(policies.findById(organizationId, policyId)).thenReturn(Optional.of(policy));
             TaskAgentRuntimeSession session = mock(TaskAgentRuntimeSession.class);
             when(session.canInvoke()).thenReturn(true);
-            when(session.purpose()).thenReturn(TaskAgentSessionPurpose.SPECIALIST);
+            when(session.purpose()).thenReturn(TaskAgentSessionPurpose.REVIEW);
             when(session.agentPrincipalId()).thenReturn(reviewerAgent.id());
             when(session.agentProfileId()).thenReturn(profileId);
             when(session.agentProfileVersion()).thenReturn(3L);

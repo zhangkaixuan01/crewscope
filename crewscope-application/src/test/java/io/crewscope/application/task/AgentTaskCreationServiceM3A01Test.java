@@ -33,6 +33,7 @@ import io.crewscope.application.conversation.ReadableConversationMessage;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -41,6 +42,7 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.domain.action.ActionAuthoritySnapshot;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.conversation.Conversation;
 import io.crewscope.domain.conversation.ConversationId;
@@ -74,6 +76,15 @@ import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.policy.PolicyPackId;
 import io.crewscope.domain.policy.PolicyPackReference;
 import io.crewscope.domain.provider.ProviderBindingId;
+import io.crewscope.domain.provider.ProviderBinding;
+import io.crewscope.domain.provider.ProviderAccessScope;
+import io.crewscope.domain.provider.ProviderBindingTarget;
+import io.crewscope.domain.provider.ProviderBindingTargetType;
+import io.crewscope.domain.provider.ProviderDefinition;
+import io.crewscope.domain.provider.ProviderImplementation;
+import io.crewscope.domain.provider.ProviderOwner;
+import io.crewscope.domain.provider.ProviderOwnerType;
+
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
 import io.crewscope.domain.responsibility.ResponsibilityAssignmentId;
 import io.crewscope.domain.responsibility.ResponsibilityAssignmentStatus;
@@ -90,6 +101,7 @@ import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ExecutionCapability;
 import io.crewscope.domain.task.PolicyBudget;
+import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskBrief;
 import io.crewscope.domain.task.TaskExecution;
@@ -520,6 +532,78 @@ class AgentTaskCreationServiceM3A01Test {
         order.verify(executions).create(any());
         order.verify(policies).create(any());
         order.verify(overlays).create(any());
+    }
+
+    @Test
+    void deliveryCapableCodingTaskPermitsTheDeliveryActionToolsInTheInitialPolicy() {
+        RepositoryBinding repositoryBinding = activeRepositoryBinding();
+        BuildProfile buildProfile = buildProfile();
+        when(repositoryBindings.findById(
+                        organizationId, teamId, projectId, repositoryBinding.id()))
+                .thenReturn(Optional.of(repositoryBinding));
+        when(buildProfiles.findExact(buildProfile.reference()))
+                .thenReturn(Optional.of(buildProfile));
+        when(repositoryPreflight.preflight(
+                        repositoryBinding, new RepositoryBranchName("main")))
+                .thenReturn(new RepositoryBindingPreflightResult(
+                        repositoryBinding.repositoryKey(),
+                        new RepositoryBranchName("main"),
+                        new RepositoryCommitId("a".repeat(40))));
+        when(codingTargets.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProviderBindingId deliveryBinding = ProviderBindingId.generate();
+        ProviderBinding binding = mock(ProviderBinding.class);
+        when(binding.target()).thenReturn(new ProviderBindingTarget(
+                organizationId,
+                teamId,
+                workspaceId,
+                ProviderBindingTargetType.WORKSPACE,
+                Optional.empty()));
+        when(binding.owner()).thenReturn(new ProviderOwner(
+                organizationId,
+                ProviderOwnerType.TEAM,
+                teamId.value(),
+                Optional.of(teamId),
+                Optional.empty()));
+        when(bindings.resolveCurrent(organizationId, deliveryBinding))
+                .thenReturn(Optional.of(new ProviderBindingCandidate(
+                        binding,
+                        mock(ProviderDefinition.class),
+                        mock(ProviderImplementation.class),
+                        Optional.empty(),
+                        Optional.empty(),
+                        mock(ProviderAccessScope.class))));
+
+        CreateAgentTaskCommand base = command();
+        CreateAgentTaskCommand withDelivery = new CreateAgentTaskCommand(
+                base.brief(),
+                base.executorAgentProfileId(),
+                base.conversationSource(),
+                Set.of(deliveryBinding),
+                Optional.of(new CreateCodingTargetCommand(
+                        repositoryBinding.id(),
+                        new RepositoryBranchName("main"),
+                        CodingTargetAllowedPaths.of("crewscope-application/src"),
+                        buildProfile.reference())),
+                base.expectedWorkItemVersion());
+        service.create(context(owner, "delegate-coding-delivery-1"),
+                teamId, projectId, workItem.id(), withDelivery);
+        service.create(context(owner, "delegate-coding-nodelivery-1"),
+                teamId, projectId, workItem.id(),
+                codingCommand(repositoryBinding, buildProfile));
+
+        ArgumentCaptor<PolicySnapshot> snapshots =
+                ArgumentCaptor.forClass(PolicySnapshot.class);
+        verify(policies, times(2)).create(snapshots.capture());
+        PolicySnapshot delivered = snapshots.getAllValues().get(0);
+        PolicySnapshot plain = snapshots.getAllValues().get(1);
+        // The delivery actions run under the Task's own policy after a gate approval:
+        // requirePolicy (ActionAuthoritySnapshot) rejects the delivery plan unless the
+        // snapshot permits them, and only a binding-authorized coding task may deliver.
+        assertTrue(delivered.allowedTools()
+                .containsAll(ActionAuthoritySnapshot.DELIVERY_ACTION_TOOLS));
+        assertTrue(delivered.providerBindingIds().contains(deliveryBinding));
+        assertFalse(plain.allowedTools().contains("repository.push"));
     }
 
     @Test

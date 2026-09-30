@@ -5,6 +5,7 @@ import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.coding.CodingSpecialistFactory;
 import io.crewscope.agentscope.model.AgentScopeModelFactory;
 import io.crewscope.agentscope.model.ResolvedAgentScopeModelFactory;
+import io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.RestrictedTemplateAgentBuilder;
@@ -52,17 +53,24 @@ public class AgentTemplateRuntimeApplicationConfiguration {
   }
 
   @Bean
+  ReviewerRuntimeContextMiddleware reviewerRuntimeContextMiddleware() {
+    return new ReviewerRuntimeContextMiddleware();
+  }
+
+  @Bean
   RestrictedTemplateAgentBuilder restrictedTemplateAgentBuilder(
       AgentStateStore stateStore,
       PlatformAgentMiddlewareSet middlewareSet,
       TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
+      ReviewerRuntimeContextMiddleware reviewerMiddleware,
       TemplateAgentRuntimeProperties properties) {
     return new RestrictedTemplateAgentBuilder(
         stateStore,
         properties.validatedRuntimeRoot(),
         properties.validatedMaximumIterations(),
         middlewareSet,
-        teamObserverMiddleware);
+        teamObserverMiddleware,
+        reviewerMiddleware);
   }
 
   @Bean

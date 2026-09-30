@@ -518,6 +518,8 @@ public final class MemberTaskCommandService {
                                 failedTask,
                                 created,
                                 executor,
+                                io.crewscope.domain.responsibility.ResponsibilityRole.EXECUTOR,
+                                failedTask.responsibilitySnapshot(),
                                 value.resolutionRequest(),
                                 parentPolicy.capabilities(),
                                 parentPolicy.allowedTools(),

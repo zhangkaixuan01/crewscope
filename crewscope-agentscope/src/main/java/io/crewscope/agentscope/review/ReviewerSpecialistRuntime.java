@@ -15,6 +15,7 @@ import io.crewscope.application.review.output.ReviewFindingListV1;
 import io.crewscope.application.review.output.ReviewerStructuredOutputSpecs;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.review.ReviewFindingCandidate;
+import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -63,9 +64,15 @@ public final class ReviewerSpecialistRuntime {
     public Mono<List<ReviewFindingCandidate>> analyze(ReviewerSpecialistRequest request) {
         ReviewerSpecialistRequest required = Objects.requireNonNull(request, "request");
         JsonNode schema = schema();
+        // The REVIEW session is the trusted boundary fact the reviewer chain validates
+        // (ReviewerRuntimeContextMiddleware): server-created, purpose-pinned, and the source
+        // of the AgentScope coordinates below.
+        TaskAgentRuntimeSession reviewSession =
+                required.agentBuild().identity().requireTaskSession();
         RuntimeContext context = RuntimeContext.builder()
-                .userId(required.agentBuild().identity().agentScopeKey().userId())
-                .sessionId(required.agentBuild().identity().agentScopeKey().sessionId())
+                .userId(reviewSession.agentScopeKey().userId())
+                .sessionId(reviewSession.agentScopeKey().sessionId())
+                .put(TaskAgentRuntimeSession.class, reviewSession)
                 .build();
         return Mono.using(
                         () -> agents.create(required.agentBuild()),
@@ -112,6 +119,15 @@ public final class ReviewerSpecialistRuntime {
                 || failure instanceof IllegalArgumentException) {
             return failure;
         }
+        // Defect 20 observation (M9b-Q02): the reviewer call fails in ~49ms with no model
+        // request on the wire — the wrapping below erased both the code and the originating
+        // class. Keep the sanitization contract (no provider text) but record the bounded
+        // code and the exception class name.
+        org.slf4j.LoggerFactory.getLogger(ReviewerSpecialistRuntime.class).warn(
+                "Reviewer model call failed [code={}, cause={}, root={}]",
+                SafeModelFailures.safeCode(failure),
+                failure.getClass().getName(),
+                failure.getCause() == null ? "none" : failure.getCause().getClass().getName());
         return SafeModelFailures.sanitize(failure);
     }
 }

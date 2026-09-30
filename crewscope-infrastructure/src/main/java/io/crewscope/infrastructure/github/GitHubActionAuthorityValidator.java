@@ -32,7 +32,8 @@ final class GitHubActionAuthorityValidator {
             WorkItemScope scope,
             ProviderAuthorizationReference expected,
             ActionTargetPrecondition target) {
-        validate(scope, expected, target, ProviderCapabilities.of("source.write"), true);
+        validate(scope, expected, target,
+                ProviderCapabilities.of("source.repository.push"), true);
     }
 
     void validateDraftPullRequest(
@@ -43,7 +44,7 @@ final class GitHubActionAuthorityValidator {
                 scope,
                 expected,
                 target,
-                ProviderCapabilities.of("source.write", "pull-request.create"),
+                ProviderCapabilities.of("source.repository.push", "source.pull-request.create"),
                 false);
     }
 

@@ -13,4 +13,9 @@ public record ActionDispatchId(UUID value) implements AggregateId {
     public static ActionDispatchId generate() {
         return new ActionDispatchId(AggregateId.generateValue());
     }
+
+    @Override
+    public String toString() {
+        return value.toString();
+    }
 }

@@ -47,11 +47,12 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-.revision-rail { display: grid; align-content: start; gap: var(--cs-space-4); padding: var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }
+/* 历史列在主区右侧（M9b-Q01 后置重排），分隔线随之移到左缘；窄屏断点变横条时改走下边线。 */
+.revision-rail { display: grid; align-content: start; gap: var(--cs-space-4); padding: var(--cs-space-16); border-left: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }
 .revision-rail h3 { margin: 0 0 var(--cs-space-8); color: var(--cs-text); font-size: var(--cs-text-sm); }
 .revision-rail > button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); min-height: 52px; padding: var(--cs-space-8); border: 1px solid transparent; border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }
 .revision-rail > button:hover, .revision-rail > button.active { border-color: var(--cs-border-strong); background: var(--cs-surface); color: var(--cs-text-brand); }
 .revision-rail strong, .revision-rail small { display: block; }.revision-rail strong { font-size: var(--cs-text-xs); }.revision-rail small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .revision-empty { margin: var(--cs-space-8) 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
-@media (max-width: 900px) { .revision-rail { display: flex; overflow-x: auto; align-items: center; gap: var(--cs-space-4); border-right: 0; border-bottom: 1px solid var(--cs-border); }.revision-rail h3 { flex: 0 0 auto; padding: 0 var(--cs-space-8); }.revision-rail > button { min-width: 150px; }.revision-empty { margin: 0; } }
+@media (max-width: 900px) { .revision-rail { display: flex; overflow-x: auto; align-items: center; gap: var(--cs-space-4); border-left: 0; border-top: 1px solid var(--cs-border); }.revision-rail h3 { flex: 0 0 auto; padding: 0 var(--cs-space-8); }.revision-rail > button { min-width: 150px; }.revision-empty { margin: 0; } }
 </style>

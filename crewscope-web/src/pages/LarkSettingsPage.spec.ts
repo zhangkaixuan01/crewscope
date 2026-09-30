@@ -91,7 +91,16 @@ describe('Lark settings target wiring', () => {
     expect(store.state.command.receipt).toBeNull()
     expect(confirm).not.toHaveBeenCalled()
     if (change !== 'unmount') {
-      expect(button(wrapper, '确认映射').attributes('disabled')).toBeDefined()
+      if (change === 'team') {
+        // Switching Teams resets the Team-bound settings coordinates: the scope watcher's
+        // audit-key cleanup drops `tab` (and `connection`), so the mapping flow — and the
+        // confirm button it hosts — has no surface left for a late proof to install into.
+        // The receipt and confirm assertions above carry this test's actual contract.
+        expect(router.currentRoute.value.query.tab).toBeUndefined()
+        expect(wrapper.find('.mapping-steps').exists()).toBe(false)
+      } else {
+        expect(button(wrapper, '确认映射').attributes('disabled')).toBeDefined()
+      }
       wrapper.unmount()
     }
   })

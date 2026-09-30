@@ -12,6 +12,8 @@ import io.agentscope.harness.agent.filesystem.model.ReadResult;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.core.ReActAgent;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
+import io.crewscope.agentscope.model.ResolvedAgentScopeModels;
+import io.crewscope.agentscope.model.TaskResolvedModelSource;
 import io.crewscope.application.coding.output.CodeChangeResultV1;
 import io.crewscope.application.coding.output.CodingDeliverySummaryV1;
 import io.crewscope.application.coding.output.CodingStructuredOutputSpecs;
@@ -22,6 +24,7 @@ import io.crewscope.domain.conversation.AgentScopeSessionKey;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import reactor.core.publisher.Mono;
@@ -52,11 +55,24 @@ public final class AgentScopeCodingRuntime {
     private static final String PLACEHOLDER_SHA256 = "0".repeat(64);
 
     private final CodingSpecialistFactory factory;
+    private final Optional<TaskResolvedModelSource> resolvedModelSource;
     private final ConcurrentMap<AgentScopeSessionKey, HarnessAgent> activeCalls =
             new ConcurrentHashMap<>();
 
     public AgentScopeCodingRuntime(CodingSpecialistFactory factory) {
+        this(factory, null);
+    }
+
+    /**
+     * Production constructor: a resolved-model source rebuilds the exact trusted connection a
+     * delegated Task's PolicySnapshot pinned at delegation time, so page-configured connections
+     * stay effective for the Worker's Specialist. Without one every model resolves through the
+     * deployment's stable env slot.
+     */
+    public AgentScopeCodingRuntime(
+            CodingSpecialistFactory factory, TaskResolvedModelSource resolvedModelSource) {
         this.factory = Objects.requireNonNull(factory, "factory");
+        this.resolvedModelSource = Optional.ofNullable(resolvedModelSource);
     }
 
     /**
@@ -108,8 +124,7 @@ public final class AgentScopeCodingRuntime {
         if (activeCalls.containsKey(key)) {
             throw new IllegalStateException("Coding Specialist call has not reached a safe point");
         }
-        try (HarnessAgent agent = factory.create(
-                required.runtimeSession(), required.toolkit())) {
+        try (HarnessAgent agent = createAgent(required)) {
             return stateSnapshot(agent, key);
         }
     }
@@ -143,7 +158,8 @@ public final class AgentScopeCodingRuntime {
                                         request.runtimeSession(),
                                         request.toolkit(),
                                         RUNTIME_RECOVERY_INSTRUCTION.formatted(
-                                                request.instruction())),
+                                                request.instruction()),
+                                        request.pinnedExecution()),
                                 schema,
                                 context,
                                 telemetry,
@@ -215,7 +231,8 @@ public final class AgentScopeCodingRuntime {
     private Mono<Msg> callStructuredResultAgent(
             CodingSpecialistRequest request, JsonNode schema, RuntimeContext context) {
         return Mono.using(
-                () -> factory.createStructuredResultAgent(request.runtimeSession()),
+                () -> factory.createStructuredResultAgent(
+                        request.runtimeSession(), pinnedModels(request)),
                 resultAgent -> resultAgent.call(
                         List.of(new UserMessage(STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION.formatted(
                                 request.instruction()))),
@@ -227,7 +244,7 @@ public final class AgentScopeCodingRuntime {
 
     private HarnessAgent register(
             CodingSpecialistRequest request, AgentScopeSessionKey key) {
-        HarnessAgent agent = factory.create(request.runtimeSession(), request.toolkit());
+        HarnessAgent agent = createAgent(request);
         HarnessAgent existing = activeCalls.putIfAbsent(key, agent);
         if (existing != null) {
             agent.close();
@@ -235,6 +252,23 @@ public final class AgentScopeCodingRuntime {
                     "Coding Specialist Session already has an active call");
         }
         return agent;
+    }
+
+    /**
+     * A pinned PolicySnapshot selects the trusted resolved pair; anything else keeps the
+     * deployment's slot semantics. The factory short-caches nothing per call, so every round
+     * rebuilds from the pinned coordinates and credential rotation takes effect immediately.
+     */
+    private HarnessAgent createAgent(CodingSpecialistRequest request) {
+        Optional<ResolvedAgentScopeModels> models = pinnedModels(request);
+        return models.isPresent()
+                ? factory.createPinned(request.runtimeSession(), request.toolkit(), models.get())
+                : factory.create(request.runtimeSession(), request.toolkit());
+    }
+
+    private Optional<ResolvedAgentScopeModels> pinnedModels(CodingSpecialistRequest request) {
+        return resolvedModelSource.flatMap(
+                source -> request.pinnedExecution().map(source::build));
     }
 
     private static CodingSpecialistRunResult completedResult(

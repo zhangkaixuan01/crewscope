@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.inbox.InboxApplicationService;
 import io.crewscope.application.inbox.InboxDispositionApplicationService;
 import io.crewscope.application.inbox.InboxDispositionCommandService;
@@ -30,6 +31,7 @@ class InboxApplicationConfigurationM6A02Test {
                 .withBean(TeamMembershipQuery.class, () -> mock(TeamMembershipQuery.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
+                .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
                 .withBean(WorkItemAccessPolicy.class, () -> mock(WorkItemAccessPolicy.class))
                 .withBean(TimeProvider.class, () -> mock(TimeProvider.class))
                 .run(context -> {

@@ -109,6 +109,12 @@ const revisionOptions = computed(() => historyResource.value?.value ?? [])
 const selection = computed<TaskDelegationSelection | null>(() => selectedProfileId.value ? {
   executorAgentProfileId: selectedProfileId.value,
   agentConfigurationRevision: selectedRevision.value,
+  // The preflight must evaluate the chain the assign-and-start command would pin — including
+  // the EXECUTOR assignment it commits first — or a first-time delegation can never pass its
+  // own preview (the M9b-Q02 first-use deadlock).
+  plannedExecutorAgentProfileId: effectiveMode.value === 'assign-and-start'
+    ? selectedProfileId.value
+    : null,
 } : null)
 const preflightKey = computed(() => selection.value
   ? delegationPreflightKey(props.codingScope.projectId, props.workItem.id, selection.value)

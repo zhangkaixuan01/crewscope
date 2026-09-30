@@ -303,7 +303,11 @@ public final class ActionBundle {
     private static void requireSourceDeliveryAccess(
             ActionAuthorityFacts facts, String authorizedResourceKey) {
         ProviderAccessScope required = new ProviderAccessScope(
-                ProviderCapabilities.of("source.write", "pull-request.create"),
+                // The GitHub provider family issues grant capabilities under its own vocabulary
+                // (GitHubConnectionApplicationService.DELIVERY_CAPABILITIES, mirrored by
+                // GitHubSourceCodeProvider); the delivery check compares against the granted
+                // scope verbatim, so it must use the provider vocabulary, not a parallel one.
+                ProviderCapabilities.of("source.repository.push", "source.pull-request.create"),
                 ProviderResourceScope.of(Objects.requireNonNull(
                         authorizedResourceKey, "authorizedResourceKey")));
         ProviderAccessScope effective = Objects.requireNonNull(facts, "facts")

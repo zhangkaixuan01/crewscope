@@ -14,7 +14,7 @@ import type {
 } from './types'
 
 export type ReviewPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
-export type ReviewOperation = 'execute' | 'decision' | 'modification'
+export type ReviewOperation = 'execute' | 'decision' | 'modification' | 'create'
 
 export interface ReviewResource<T> {
   phase: ReviewPhase
@@ -50,6 +50,7 @@ export interface ReviewStoreState {
 export interface ReviewStore {
   state: Readonly<ReviewStoreState>
   activateScope(scope: ReviewScope): void
+  createReview(): Promise<boolean>
   synchronize(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId?: string | null): Promise<void>
   load(coordinates: ReviewCoordinates, force?: boolean): Promise<void>
   select(coordinates: ReviewCoordinates, reviewRequestId: string, force?: boolean): Promise<void>
@@ -83,7 +84,7 @@ interface PendingCommand {
 
 /** Team-scoped Review state; server responses never update a later Team or attempt selection. */
 export function createReviewStore(gateway: ReviewGateway): ReviewStore {
-  const commandIntents = createCommandGateway(gateway, { execute: 4, decide: 5, requestChanges: 5, addComment: 4 })
+  const commandIntents = createCommandGateway(gateway, { execute: 4, decide: 5, requestChanges: 5, addComment: 4, create: 2 })
   gateway = commandIntents.gateway
   const state = reactive<ReviewStoreState>(initialState())
   let activeScope: ReviewScope | null = null
@@ -209,6 +210,39 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     state.comments[key]!.value = [...(state.comments[key]!.value ?? []), value]
     state.comments[key]!.phase = 'ready'
     return value
+  }
+
+  /**
+   * M9b-Q02 review-gate path: requests the platform to open a Review on the selected attempt,
+   * resolving the advisory Reviewer automatically when no snapshot id is supplied.
+   */
+  async function createReview(): Promise<boolean> {
+    const scope = requireScope()
+    const coordinates = selectedCoordinates()
+    if (!coordinates || !gateway.create) return false
+    if (state.command.phase === 'pending') return false
+    const started = generation
+    state.command = { ...idleCommand(), phase: 'pending', operation: 'create' }
+    try {
+      const receipt = await gateway.create(scope, coordinates, secureId())
+      if (started !== generation) return false
+      state.command.phase = 'success'
+      state.command.receiptCorrelationId = receipt.correlationId
+      invalidateAttempt(coordinates)
+      await load(coordinates, true)
+      return true
+    } catch (error) {
+      if (started !== generation) return false
+      const api = error instanceof CrewScopeApiError ? error : null
+      const isConflict = api?.status === 409 || api?.status === 412
+      state.command.phase = isConflict ? 'conflict' : 'error'
+      state.command.errorMessage = api?.envelope.message ?? '无法发起审查'
+      state.command.errorStatus = api?.status ?? null
+      state.command.errorCode = api?.envelope.code ?? null
+      state.command.errorDetails = { ...(api?.envelope.details ?? {}) }
+      state.command.retryable = !isConflict
+      return false
+    }
   }
 
   async function execute(): Promise<boolean> {
@@ -409,7 +443,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   }
 
   return {
-    state: readonly(state) as Readonly<ReviewStoreState>, activateScope, synchronize, load, select, execute, decide,
+    state: readonly(state) as Readonly<ReviewStoreState>, activateScope, synchronize, load, select, createReview, execute, decide,
     requestChanges, loadComments, addComment, retryCommand, clearCommand, invalidateAttempt, clearSelection, reset,
   }
 }

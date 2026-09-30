@@ -20,6 +20,22 @@ describe('ConversationComposer', () => {
     expect(wrapper.emitted('submit')).toEqual([['规划 Provider']])
   })
 
+  it('treats the candidate-confirmation Enter of an active IME composition as text, not submit (M9b-Q01)', async () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '规划' } })
+    const textarea = wrapper.get('textarea')
+
+    // IME 输入中文时确认候选词的那次 Enter 带 isComposing —— 发送是 compositionend 之后
+    // 的下一次 Enter 才该做的事。这里与命令面板（useImeGuard）互为补充：本组件读原生
+    // isComposing 信号，没有 229 回退，所以只对现代信号断言。
+    await textarea.trigger('compositionstart')
+    await textarea.trigger('keydown', { key: 'Enter', isComposing: true })
+    expect(wrapper.emitted('submit')).toBeUndefined()
+
+    await textarea.trigger('compositionend')
+    await textarea.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('submit')).toEqual([['规划']])
+  })
+
   it('submits content containing line breaks without flattening it', async () => {
     const wrapper = mount(ConversationComposer, { props: { modelValue: '  第一行\n第二行  ' } })
 

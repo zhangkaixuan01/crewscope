@@ -317,6 +317,8 @@ function props(overrides: Record<string, unknown> = {}) {
     onSelectReview: vi.fn(),
     onRetryReviews: vi.fn(),
     onRetryReviewDetail: vi.fn(),
+    canCreateReview: false,
+    onCreateReview: vi.fn().mockResolvedValue(true),
     onExecuteReviewer: vi.fn().mockResolvedValue(true),
     onDecideReview: vi.fn().mockResolvedValue(true),
     onRequestReviewChanges: vi.fn().mockResolvedValue(true),

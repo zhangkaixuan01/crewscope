@@ -10,6 +10,7 @@ import io.agentscope.harness.agent.sandbox.impl.docker.DockerSandboxState;
 import io.agentscope.harness.agent.sandbox.layout.BindMountEntry;
 import io.crewscope.domain.coding.BuildProfile;
 import io.crewscope.domain.coding.ExecutionWorkspace;
+import io.crewscope.domain.coding.SandboxNetworkMode;
 import io.crewscope.domain.coding.WorkspacePolicy;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ExecutionLease;
@@ -39,6 +40,7 @@ public final class TaskExecutionSandboxFactory {
     private final String repositoryMount;
     private final Optional<Path> dependencyCacheRoot;
     private final String dependencyCacheMount;
+    private final String egressNetworkName;
     private final TaskExecutionSandboxPauseMode pauseMode;
     private final java.time.Duration pauseStopTimeout;
     private final DockerSandboxControl dockerControl;
@@ -53,6 +55,7 @@ public final class TaskExecutionSandboxFactory {
         this.repositoryMount = configured.requiredRepositoryMount();
         this.dependencyCacheRoot = configured.dependencyCacheRootPath();
         this.dependencyCacheMount = configured.requiredDependencyCacheMount();
+        this.egressNetworkName = configured.requiredEgressNetworkName();
         this.pauseMode = configured.requiredPauseMode();
         this.pauseStopTimeout = configured.requiredPauseStopTimeout();
         this.dockerControl = Objects.requireNonNull(dockerControl, "dockerControl");
@@ -173,6 +176,11 @@ public final class TaskExecutionSandboxFactory {
     private Sandbox newAgentScopeSandbox(
             TaskExecutionSandboxDescriptor descriptor,
             Optional<DockerContainerSnapshot> existing) {
+        if (descriptor.budget().networkMode() == SandboxNetworkMode.RESTRICTED_EGRESS) {
+            // Idempotent: an isolated user-defined bridge with outbound NAT only. The platform's
+            // own compose networks (PostgreSQL, Redis) are not members and stay unreachable.
+            dockerControl.ensureBridgeNetwork(descriptor.dockerNetwork());
+        }
         BindMountEntry worktreeMount = new BindMountEntry();
         worktreeMount.setHostPath(descriptor.canonicalWorktree().toString());
         worktreeMount.setReadOnly(false);
@@ -187,9 +195,16 @@ public final class TaskExecutionSandboxFactory {
         environment.put("TMPDIR", "/tmp");
         environment.put("CI", "true");
         environment.put("LANG", "C.UTF-8");
-        dependencyCacheRoot.ifPresent(ignored -> environment.put(
+        // The sandbox uid has no passwd entry, so the JVM inside resolves user.home to a literal
+        // "?" and Maven would then create ./?/.m2 inside the mounted worktree, blowing the diff
+        // budget on the first dependency fetch. The repository location is therefore always
+        // pinned explicitly: to the verified read-only snapshot when configured, or to the
+        // ephemeral tmpfs home when the deployment runs without a dependency cache.
+        environment.put(
                 "MAVEN_ARGS",
-                "--offline -Dmaven.repo.local=" + dependencyCacheMount + "/repository"));
+                dependencyCacheRoot.isPresent()
+                        ? "--offline -Dmaven.repo.local=" + dependencyCacheMount + "/repository"
+                        : "-Dmaven.repo.local=/tmp/crewscope-home/.m2/repository");
         workspace.setEnvironment(environment);
 
         DockerFilesystemSpec filesystem = new DockerFilesystemSpec()
@@ -199,7 +214,7 @@ public final class TaskExecutionSandboxFactory {
                 .memorySizeBytes(Math.multiplyExact(
                         (long) descriptor.budget().memoryMiB(), 1024 * 1024))
                 .cpuCount((long) descriptor.budget().cpuCount())
-                .network("none")
+                .network(descriptor.dockerNetwork())
                 .additionalRunArgs(additionalRunArguments(descriptor))
                 .workspaceSpec(workspace);
         filesystem.workspaceProjectionEnabled(false);
@@ -271,7 +286,16 @@ public final class TaskExecutionSandboxFactory {
                 workspaceRoot,
                 repositoryMount,
                 dependencyCacheMount,
+                dockerNetwork(policy.sandboxBudget().networkMode()),
                 containerUser);
+    }
+
+    /**
+     * Maps the reviewed policy network mode onto a Docker network name. NONE and LOOPBACK_ONLY
+     * both use Docker's network-less mode, which still provides the container loopback interface.
+     */
+    private String dockerNetwork(SandboxNetworkMode mode) {
+        return mode == SandboxNetworkMode.RESTRICTED_EGRESS ? egressNetworkName : "none";
     }
 
     private static Path canonicalWorktree(ManagedWorktree worktree) {

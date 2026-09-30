@@ -30,8 +30,8 @@ public final class DefaultPlatformModelCatalogInitializer
     implements PlatformModelCatalogInitializer {
 
   static final ModelProviderKey DEEPSEEK = new ModelProviderKey("deepseek");
-  static final ModelId DEEPSEEK_V4_FLASH = new ModelId("deepseek-v4-flash");
-  static final ModelCatalogEntryId DEEPSEEK_V4_FLASH_ENTRY_ID =
+  static final ModelId DEEPSEEK_FLASH = new ModelId("deepseek-flash");
+  static final ModelCatalogEntryId DEEPSEEK_FLASH_ENTRY_ID =
       ModelCatalogEntryId.from("0198a475-0831-7000-8000-000000000101");
   static final UtcTimestamp DEEPSEEK_PRICE_EFFECTIVE_FROM =
       UtcTimestamp.parse("2026-08-22T01:00:00Z");
@@ -103,10 +103,10 @@ public final class DefaultPlatformModelCatalogInitializer
             occurredAt);
     ModelCatalogEntry expected = ModelCatalogEntry.publishInitial(
         activeContract,
-        DEEPSEEK_V4_FLASH_ENTRY_ID,
-        DEEPSEEK_V4_FLASH,
-        new ModelRevision("DeepSeek-V4-Flash-0731"),
-        "DeepSeek V4 Flash",
+        DEEPSEEK_FLASH_ENTRY_ID,
+        DEEPSEEK_FLASH,
+        new ModelRevision("DeepSeek-Flash-0731"),
+        "DeepSeek Flash",
         128_000,
         8_192,
         Set.of(
@@ -117,18 +117,18 @@ public final class DefaultPlatformModelCatalogInitializer
         actor,
         occurredAt);
     Optional<ModelCatalogEntry> committed = catalogs.findByEntryRevision(
-        DEEPSEEK_V4_FLASH_ENTRY_ID, new ModelCatalogRevision(1));
+        DEEPSEEK_FLASH_ENTRY_ID, new ModelCatalogRevision(1));
     if (committed.isPresent()) {
       return requireSameInitialCatalog(expected, committed.orElseThrow());
     }
-    if (catalogs.findLatest(DEEPSEEK, DEEPSEEK_V4_FLASH).isPresent()) {
-      throw conflict("modelCatalog.contentHash", "DeepSeek V4 Flash catalog");
+    if (catalogs.findLatest(DEEPSEEK, DEEPSEEK_FLASH).isPresent()) {
+      throw conflict("modelCatalog.contentHash", "DeepSeek Flash catalog");
     }
     try {
       return catalogs.append(expected);
     } catch (DomainValidationException conflict) {
       return catalogs.findByEntryRevision(
-              DEEPSEEK_V4_FLASH_ENTRY_ID, new ModelCatalogRevision(1))
+              DEEPSEEK_FLASH_ENTRY_ID, new ModelCatalogRevision(1))
           .map(value -> requireSameInitialCatalog(expected, value))
           .orElseThrow(() -> conflict);
     }
@@ -180,7 +180,7 @@ public final class DefaultPlatformModelCatalogInitializer
     if (!committed.id().equals(expected.id())
         || committed.catalogRevision().value() != 1
         || !committed.contentHash().equals(expected.contentHash())) {
-      throw conflict("modelCatalog.contentHash", "DeepSeek V4 Flash catalog");
+      throw conflict("modelCatalog.contentHash", "DeepSeek Flash catalog");
     }
     return committed;
   }
@@ -188,7 +188,7 @@ public final class DefaultPlatformModelCatalogInitializer
   private static void requireSameInitialPrice(
       ModelPriceRevision expected, ModelPriceRevision committed) {
     if (!committed.contentHash().equals(expected.contentHash())) {
-      throw conflict("modelPrice.contentHash", "DeepSeek V4 Flash price");
+      throw conflict("modelPrice.contentHash", "DeepSeek Flash price");
     }
   }
 

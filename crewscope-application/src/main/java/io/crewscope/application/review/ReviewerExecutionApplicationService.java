@@ -34,6 +34,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
+import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
@@ -177,7 +178,8 @@ public final class ReviewerExecutionApplicationService {
                 .filter(value -> value.type().isAgent())
                 .orElseThrow(() -> new AggregateNotFoundException(
                         "Principal", current.reviewer().agentPrincipalId()));
-        requireCurrentReviewerAuthority(task, current, reviewerAgent);
+        AgentProfile reviewerProfile = requireCurrentReviewerAuthority(
+                task, current, reviewerAgent);
         PolicySnapshot policy = policies.findById(
                         organizationId, current.reviewer().policySnapshotId())
                 .filter(value -> value.revision() == current.reviewer().policySnapshotRevision())
@@ -188,16 +190,20 @@ public final class ReviewerExecutionApplicationService {
         TaskAgentRuntimeSession session = sessions.findByExecution(
                         organizationId, execution.id()).stream()
                 .filter(TaskAgentRuntimeSession::canInvoke)
-                .filter(value -> value.purpose() == TaskAgentSessionPurpose.SPECIALIST)
+                .filter(value -> value.purpose() == TaskAgentSessionPurpose.REVIEW)
                 .filter(value -> value.agentPrincipalId().equals(reviewerAgent.id()))
                 .filter(value -> value.agentProfileId().equals(
                         current.reviewer().agentProfileId()))
                 .filter(value -> value.agentProfileVersion()
                         == current.reviewer().agentProfileVersion())
                 .findFirst()
-                .orElseThrow(() -> new DomainValidationException(
-                        "reviewRequest.reviewerSession",
-                        "the exact active Reviewer Specialist Session is required"));
+                // M5 designed the reviewer call against a session no product path ever
+                // created; the first real walkthrough (M9b-Q02) opens it here — attempt-scoped
+                // and step-less, pinned to the exact reviewer coordinates of this request.
+                .orElseGet(() -> sessions.initializeIfAbsent(
+                        TaskAgentRuntimeSession.initializeReview(
+                                task, execution, reviewerProfile, reviewerAgent,
+                                timeProvider.now())));
 
         Optional<CommandReceipt> replay = receipts.findCompleted(
                 organizationId, context.idempotencyKey(), EXECUTE, hash);
@@ -280,9 +286,10 @@ public final class ReviewerExecutionApplicationService {
                 completed, Optional.of(result), accepted.receipt(), false);
     }
 
-    private void requireCurrentReviewerAuthority(
+    private AgentProfile requireCurrentReviewerAuthority(
             Task task, ReviewRequest request, Principal reviewerAgent) {
-        profiles.findById(task.scope().organizationId(), request.reviewer().agentProfileId())
+        AgentProfile profile = profiles.findById(
+                        task.scope().organizationId(), request.reviewer().agentProfileId())
                 .filter(value -> value.version() == request.reviewer().agentProfileVersion())
                 .filter(value -> value.agentPrincipalId().equals(reviewerAgent.id()))
                 .orElseThrow(() -> new AggregateNotFoundException(
@@ -305,6 +312,7 @@ public final class ReviewerExecutionApplicationService {
                         "Reviewer Agent owner is no longer an active Team member");
             }
         });
+        return profile;
     }
 
     private static UUID stableStartedEventId(ReviewRequestId id, long version) {

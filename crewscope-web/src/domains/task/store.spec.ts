@@ -171,7 +171,9 @@ describe('TaskStore', () => {
       selection: { executorAgentProfileId: profileId, agentConfigurationRevision: 4 },
     })
     expect(Object.keys(store.state.delegationPreflights)).toEqual([
-      `${fixtureIds.projectCrewScope}:${taskIds.workItem}:${profileId}:4`,
+      // The key's fifth segment separates a plain chain preflight from one that pins the
+      // planned EXECUTOR (the M9b-Q02 preview mirror) — they must never share a cache entry.
+      `${fixtureIds.projectCrewScope}:${taskIds.workItem}:${profileId}:4:chain`,
     ])
 
     store.activateScope(securityScope)

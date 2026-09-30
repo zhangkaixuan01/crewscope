@@ -223,7 +223,7 @@ public class InboxEventProjector implements GenerationAwareProjectionHandler {
                        assignment.released_at AS terminal_at,
                        member.status AS member_status, member.updated_at AS member_updated_at
                 FROM crewscope.responsibility_assignment assignment
-                JOIN crewscope.team_member member
+                LEFT JOIN crewscope.team_member member
                   ON member.organization_id = assignment.organization_id
                  AND member.team_id = assignment.team_id
                  AND member.id = assignment.actor_member_id
@@ -232,6 +232,12 @@ public class InboxEventProjector implements GenerationAwareProjectionHandler {
                 (result, ignored) -> authority(result),
                 event.organizationId(), assignmentId),
                 "ResponsibilityAssignment", assignmentId);
+        // An Agent-held responsibility has no team member to notify (agent assignments carry a
+        // null actor_member_id) — the same empty-member rule reviews already follow. The
+        // previous inner join made the lookup return zero rows and dead-lettered the event.
+        if (row.memberId().isEmpty()) {
+            return InboxMutation.ignore();
+        }
         requireTeam(event, row.teamId());
         InboxItemType itemType = switch (row.kind()) {
             case "OWNER" -> InboxItemType.OWNERSHIP;

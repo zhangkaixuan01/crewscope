@@ -24,7 +24,7 @@ public final class WorkspaceDiffMonitorFactory {
             ExecutionWorkspace workspace, ManagedWorktree worktree, WorkspacePolicy policy) {
         WorkspaceDiffMonitor monitor = new WorkspaceDiffMonitor(
                 workspace, worktree, policy, reconciler, events);
-        monitor.initialize();
+        initializeWithRetry(monitor);
         try {
             WorkspaceDiffWatcher watcher = watchers.open(
                     workspace, worktree, policy, monitor::acceptHint);
@@ -33,6 +33,37 @@ public final class WorkspaceDiffMonitorFactory {
         } catch (RuntimeException failure) {
             monitor.close();
             throw failure;
+        }
+    }
+
+    /**
+     * Retries the initial RESET for a bounded time when Git reports a transient command failure.
+     * A freshly provisioned Worktree can still surface a sub-second "not a repository" window on
+     * shared filesystems before its metadata is fully visible; the RESET is an idempotent
+     * recomputation, so a short retry converges instead of failing the whole execution.
+     * Deterministic findings (policy, budget, output shape) fail immediately.
+     */
+    private static void initializeWithRetry(WorkspaceDiffMonitor monitor) {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                monitor.initialize();
+                return;
+            } catch (WorkspaceDiffException failure) {
+                if (attempt >= 3 || failure.error() != WorkspaceDiffError.COMMAND_FAILED) {
+                    throw failure;
+                }
+                sleepQuietly(750);
+            }
+        }
+    }
+
+    private static void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Workspace Diff initialization was interrupted", interrupted);
         }
     }
 

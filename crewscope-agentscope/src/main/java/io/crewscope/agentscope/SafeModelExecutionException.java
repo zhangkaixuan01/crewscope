@@ -1,7 +1,7 @@
 package io.crewscope.agentscope;
 
 /** Sanitized terminal model failure safe to pass through AgentScope's internal log statements. */
-final class SafeModelExecutionException extends RuntimeException {
+public final class SafeModelExecutionException extends RuntimeException {
 
     private final String safeCode;
 
@@ -10,7 +10,8 @@ final class SafeModelExecutionException extends RuntimeException {
         this.safeCode = safeCode;
     }
 
-    String safeCode() {
+    /** Returns the bounded provider-neutral code without exposing provider exception text. */
+    public String safeCode() {
         return safeCode;
     }
 }

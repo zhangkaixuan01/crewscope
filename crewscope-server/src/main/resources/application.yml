@@ -241,6 +241,8 @@ crewscope:
       # A verified immutable Maven snapshot is mounted read-only for offline benchmark execution.
       dependency-cache-root: ${CREWSCOPE_CODING_SANDBOX_DEPENDENCY_CACHE_ROOT:}
       dependency-cache-mount: ${CREWSCOPE_CODING_SANDBOX_DEPENDENCY_CACHE_MOUNT:/maven-cache}
+      # Isolated user-defined bridge for RESTRICTED_EGRESS sandboxes (outbound NAT only).
+      egress-network-name: ${CREWSCOPE_CODING_SANDBOX_EGRESS_NETWORK_NAME:crewscope-sandbox-egress}
     recovery:
       # Startup reconciliation completes before this Worker accepts new Task claims.
       recovery-batch-size: ${CREWSCOPE_CODING_RECOVERY_BATCH_SIZE:100}
@@ -478,7 +480,13 @@ crewscope:
       temperature: ${CREWSCOPE_CODING_AGENT_TEMPERATURE:0}
       top-p: ${CREWSCOPE_CODING_AGENT_TOP_P:1}
       max-output-tokens: ${CREWSCOPE_CODING_AGENT_MAX_OUTPUT_TOKENS:8192}
-      compaction-trigger-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_TRIGGER_MESSAGES:16}
+      # Defect 10 (M9b-Q02): the harness compactor's tail cut can orphan a tool message
+      # from its parent tool_calls — OpenAI-compatible providers then reject the whole
+      # list (400 "Messages with role 'tool' must be a response to a preceding message")
+      # and the mid-session execution dies as TASK_EXECUTION_FAILED. Coding sessions are
+      # bounded by max-iterations plus tool-result eviction, so a trigger above that
+      # bound disables compaction for them without opening a context-overflow path.
+      compaction-trigger-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_TRIGGER_MESSAGES:200}
       compaction-keep-messages: ${CREWSCOPE_CODING_AGENT_COMPACTION_KEEP_MESSAGES:4}
       tool-result-eviction-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_CHARS:8192}
       tool-result-preview-chars: ${CREWSCOPE_CODING_AGENT_EVICTION_PREVIEW_CHARS:1024}

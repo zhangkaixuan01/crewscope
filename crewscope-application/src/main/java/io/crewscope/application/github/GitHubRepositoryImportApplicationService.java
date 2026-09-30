@@ -114,8 +114,7 @@ public final class GitHubRepositoryImportApplicationService {
             UUID jobId) {
         accessPolicy.requireVisibleProject(context, organizationId, teamId, projectId);
         return jobs.findById(organizationId, teamId, projectId, jobId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "GitHub repository import job is unavailable"));
+                .orElseThrow(() -> new GitHubRepositoryImportJobNotFoundException(jobId));
     }
 
     public GitHubRepositoryImportJob cancel(

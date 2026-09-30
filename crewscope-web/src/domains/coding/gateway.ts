@@ -182,7 +182,9 @@ export class HttpCodingGateway implements CodingGateway {
     const value = await this.client.post<RepositoryPreflight>(
       `${repositoryRoot(scope)}/preflight`,
       input,
-      { signal },
+      // Preflight denials answer a hypothetical on purpose; they are not membership revocations
+      // and must not fire the F05 forbidden sink (M9b-Q02).
+      { signal, preview: true },
     )
     return mapPreflight(value)
   }
@@ -195,7 +197,8 @@ export class HttpCodingGateway implements CodingGateway {
     const value = await this.client.post<RepositoryPreflight>(
       `${repositoryRoot(scope)}/${segment(bindingId)}/preflight`,
       undefined,
-      { signal },
+      // See preflightRepositoryDraft: preview denials are not revocations (M9b-Q02).
+      { signal, preview: true },
     )
     return mapPreflight(value)
   }
@@ -244,7 +247,8 @@ export class HttpCodingGateway implements CodingGateway {
     const value = await this.client.post<RepositoryPreflight>(
       `${codingTargetRoot(scope, workItemId)}/preflight`,
       { repositoryBindingId: bindingId, baselineRef },
-      { signal },
+      // See preflightRepositoryDraft: preview denials are not revocations (M9b-Q02).
+      { signal, preview: true },
     )
     return mapPreflight(value)
   }

@@ -448,16 +448,6 @@ function integerOrNull(value: PreferenceNumber): number | null {
     </header>
 
     <div class="configuration-layout">
-      <AgentConfigurationHistoryPanel
-        :history-resource="historyResource"
-        :history="history"
-        :selected-revision="selectedRevision"
-        :current-revision="agent.currentConfigurationRevision"
-        @select-revision="emit('selectRevision', $event)"
-        @retry="loadFacts(true)"
-        @load-more="store.loadConfigurationHistory(agent.id, true)"
-      />
-
       <div class="configuration-main">
         <StatePanel v-if="historicalRevisionMissing" state="error" compact title="配置版本不存在" description="该 Revision 不在当前可见历史中。" @retry="loadFacts(true)" />
         <AgentConfigurationRevisionView
@@ -533,12 +523,27 @@ function integerOrNull(value: PreferenceNumber): number | null {
           />
         </template>
       </div>
+
+      <!-- M9b-Q01（主计划 4.5「再看模型/角色/状态，高级参数和历史后置」）：配置主区在阅读
+           顺序前位，不可变历史是后置参考，放右列；窄屏单列时随 DOM 顺序落到主区之后。 -->
+      <AgentConfigurationHistoryPanel
+        :history-resource="historyResource"
+        :history="history"
+        :selected-revision="selectedRevision"
+        :current-revision="agent.currentConfigurationRevision"
+        @select-revision="emit('selectRevision', $event)"
+        @retry="loadFacts(true)"
+        @load-more="store.loadConfigurationHistory(agent.id, true)"
+      />
     </div>
   </section>
 </template>
 
 <style scoped>
 .agent-configuration { overflow: hidden; scroll-margin-top: var(--cs-space-20); }
+/* 主区左、历史右（M5 的 210px 双列定义在样式重写时丢失，900px 断点一直引用着这个 grid——
+   这里按「历史后置」的阅读顺序补回，列宽随断点语义取 300px）。 */
+.configuration-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
 /* F10 readable configuration baseline: desktop and narrow layouts share the same minimum size. */
 .configuration-main input, .configuration-main select, .configuration-main textarea { font-size: var(--cs-text-base); }
 .configuration-main label, .configuration-main legend, .configuration-main .binding-heading strong { font-size: var(--cs-text-sm); }

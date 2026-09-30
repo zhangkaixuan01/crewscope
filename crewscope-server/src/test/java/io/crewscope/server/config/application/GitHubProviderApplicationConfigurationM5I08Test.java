@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.credential.CredentialStore;
+import io.crewscope.application.coding.RepositoryBindingRepository;
+import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.github.GitHubProviderPort;
 import io.crewscope.application.github.GitHubProviderRepository;
 import io.crewscope.application.provider.ConnectionGrantRepository;
@@ -11,6 +13,8 @@ import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.domain.provider.ProviderConnectionRequirement;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.infrastructure.github.GitHubProviderAdapter;
+import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
+import io.crewscope.infrastructure.workspace.repository.ManagedRepositoryResolver;
 import io.crewscope.integration.provider.sourcecode.GitHubSourceCodeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -26,7 +30,13 @@ class GitHubProviderApplicationConfigurationM5I08Test {
             .withBean(ConnectionRepository.class, () -> mock(ConnectionRepository.class))
             .withBean(ConnectionGrantRepository.class, () -> mock(ConnectionGrantRepository.class))
             .withBean(CredentialStore.class, () -> mock(CredentialStore.class))
-            .withBean(GitHubProviderRepository.class, () -> mock(GitHubProviderRepository.class));
+            .withBean(GitHubProviderRepository.class, () -> mock(GitHubProviderRepository.class))
+            // The GitHub write boundaries share this configuration class and follow the
+            // worker-capable profile, so their collaborators must be resolvable here too.
+            .withBean(ManagedRepositoryResolver.class, () -> mock(ManagedRepositoryResolver.class))
+            .withBean(GitCommandExecutor.class, () -> mock(GitCommandExecutor.class))
+            .withBean(ProviderBindingRepository.class, () -> mock(ProviderBindingRepository.class))
+            .withBean(RepositoryBindingRepository.class, () -> mock(RepositoryBindingRepository.class));
 
     @Test
     void wiresTheHttpsAdapterAndFixedConnectionRequiredProviderContract() {

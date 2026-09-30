@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.agentscope.core.message.ToolResultBlock;
@@ -24,7 +26,11 @@ import io.crewscope.agentscope.task.ControlledTaskPlanValidationTool;
 import io.crewscope.agentscope.task.ControlledTaskToolkitFactory;
 import io.crewscope.agentscope.task.TaskAgentConfiguration;
 import io.crewscope.agentscope.task.TaskAgentFactory;
+import io.crewscope.agentscope.model.ResolvedAgentScopeModels;
+import io.crewscope.agentscope.model.TaskResolvedModelSource;
+import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.task.TaskPlanPublicationService;
+import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TodoStatus;
@@ -148,6 +154,56 @@ class AgentScopeTaskFactoryM3I06Test {
                 .state(status)
                 .metadata(priority == null ? null : Map.of("priority", priority))
                 .build();
+    }
+
+    /**
+     * M9b-Q02 regression: a delegated Task pins its model coordinates in the PolicySnapshot at
+     * creation, and the Worker must rebuild that pair through the resolved source instead of the
+     * env-only crewscope-primary slot. Page-configured connections never publish a Spring Model
+     * bean, so the previous slot-only resolution failed every real-stack delegation with a bare
+     * IllegalStateException before the first model call (the first live Coding Task exposed it).
+     */
+    @Test
+    void pinnedPolicyModelsReplaceTheEnvSlotAndAMissingPinKeepsSlotSemantics() {
+        AgentProfileId profileId = AgentProfileId.generate();
+        ControlledTaskPlanParser parser = new ControlledTaskPlanParser();
+        TaskResolvedModelSource source = mock(TaskResolvedModelSource.class);
+        ResolvedAgentExecutionConfiguration pinned =
+                mock(ResolvedAgentExecutionConfiguration.class);
+        AgentScopeModelResolver envSlot = mock(AgentScopeModelResolver.class);
+        when(envSlot.resolve("scripted")).thenReturn(new ScriptedModel("env"));
+        when(source.build(pinned)).thenReturn(new ResolvedAgentScopeModels(
+                new ScriptedModel("pinned"), Optional.empty()));
+        try (TaskAgentFactory factory = new TaskAgentFactory(
+                (id, version) -> configuration(id, version),
+                envSlot,
+                new InMemoryAgentStateStore(),
+                () -> new ControlledTaskToolkitFactory(parser).get(),
+                runtimeRoot,
+                source)) {
+
+            factory.getOrCreate(facts(profileId, 1, pinned));
+
+            verify(source).build(pinned);
+            verifyNoInteractions(envSlot);
+
+            factory.getOrCreate(facts(profileId, 2, null));
+
+            verify(envSlot).resolve("scripted");
+        }
+    }
+
+    private static TaskExecutionRuntimeFacts facts(
+            AgentProfileId profileId, long version,
+            ResolvedAgentExecutionConfiguration pinned) {
+        TaskAgentRuntimeSession session = session(profileId, version);
+        PolicySnapshot policy = policy(profileId, version);
+        when(policy.agentExecutionConfiguration()).thenReturn(
+                pinned == null ? Optional.empty() : Optional.of(pinned));
+        TaskExecutionRuntimeFacts facts = mock(TaskExecutionRuntimeFacts.class);
+        when(facts.runtimeSession()).thenReturn(session);
+        when(facts.policySnapshot()).thenReturn(policy);
+        return facts;
     }
 
     private static TaskAgentRuntimeSession session(AgentProfileId profileId, long version) {

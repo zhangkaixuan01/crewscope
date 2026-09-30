@@ -30,7 +30,6 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.net.InetSocketAddress;
-import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
@@ -112,6 +111,28 @@ class OpenAiCompatibleModelProviderHealthProbeTest {
         assertNull(redirectedAuthorization.get());
     }
 
+    @Test
+    void recoversImmediatelyWhenTheEndpointCutsIdleProbeConnections() throws Exception {
+        startServer(200, new AtomicReference<>(), new AtomicReference<>());
+        Fixture fixture = fixture();
+        OpenAiCompatibleModelProviderHealthProbe probe = probe();
+
+        assertEquals(
+                ModelProviderHealthProbe.ProbeResult.success(),
+                probe.probe(fixture.provider(), fixture.connection(), handle("fresh-secret")));
+
+        // Cutting the endpoint between probes must not leave the next probe writing into a
+        // dead pooled connection for its whole request budget (M9b-Q02 defect 22): each
+        // probe builds its own short-lived client and inherits no pool state.
+        server.stop(0);
+        startServer(200, new AtomicReference<>(), new AtomicReference<>());
+        fixture = fixture();
+
+        assertEquals(
+                ModelProviderHealthProbe.ProbeResult.success(),
+                probe.probe(fixture.provider(), fixture.connection(), handle("fresh-secret")));
+    }
+
     private void startServer(
             int status,
             AtomicReference<String> authorization,
@@ -128,11 +149,7 @@ class OpenAiCompatibleModelProviderHealthProbeTest {
 
     private OpenAiCompatibleModelProviderHealthProbe probe() {
         return new OpenAiCompatibleModelProviderHealthProbe(
-                HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(1))
-                        .followRedirects(HttpClient.Redirect.NEVER)
-                        .build(),
-                Duration.ofSeconds(2));
+                Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
 
     @SuppressWarnings("unchecked")

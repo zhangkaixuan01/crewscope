@@ -1,6 +1,7 @@
 package io.crewscope.agentscope.task;
 
 import io.agentscope.core.model.transport.HttpTransportException;
+import io.crewscope.agentscope.SafeModelExecutionException;
 import io.crewscope.application.execution.ExecutionFailure;
 import io.crewscope.application.execution.ExecutionFailureCategory;
 import java.util.Objects;
@@ -31,7 +32,8 @@ final class AgentScopeFailureClassifier {
                     "The Task runtime rejected an unsafe AgentScope event.", Optional.of("TASK_RUNTIME_EVENT_REJECTED"));
         }
         LOGGER.warn("Task Agent model call failed with cause types {} and HTTP status {}",
-                failureTypes(required), httpStatus(required).map(String::valueOf).orElse("none"));
+                failureTypes(required) + safeCode(required),
+                httpStatus(required).map(String::valueOf).orElse("none"));
         return new ExecutionFailure(ExecutionFailureCategory.MODEL_UNAVAILABLE, true,
                 "The Task Agent model is temporarily unavailable.", Optional.of("TASK_MODEL_FAILED"));
     }
@@ -56,5 +58,12 @@ final class AgentScopeFailureClassifier {
             current = current.getCause();
         }
         return Optional.empty();
+    }
+
+    /** Appends the sanitized bounded code when the boundary already classified the failure. */
+    private static String safeCode(Throwable failure) {
+        return failure instanceof SafeModelExecutionException safe
+                ? " code=" + safe.safeCode()
+                : "";
     }
 }

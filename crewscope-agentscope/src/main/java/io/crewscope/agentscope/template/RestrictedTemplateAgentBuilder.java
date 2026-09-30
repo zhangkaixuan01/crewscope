@@ -3,6 +3,7 @@ package io.crewscope.agentscope.template;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
+import io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware;
 import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ public final class RestrictedTemplateAgentBuilder {
     private final int maximumIterations;
     private final java.util.List<io.agentscope.core.middleware.MiddlewareBase> platformMiddlewares;
     private final TeamObserverRuntimeContextMiddleware teamObserverMiddleware;
+    private final ReviewerRuntimeContextMiddleware reviewerMiddleware;
 
     public RestrictedTemplateAgentBuilder(
             AgentStateStore stateStore,
@@ -24,7 +26,8 @@ public final class RestrictedTemplateAgentBuilder {
             int maximumIterations,
             PlatformAgentMiddlewareSet middlewareSet) {
         this(stateStore, runtimeRoot, maximumIterations, middlewareSet,
-                new TeamObserverRuntimeContextMiddleware());
+                new TeamObserverRuntimeContextMiddleware(),
+                new ReviewerRuntimeContextMiddleware());
     }
 
     public RestrictedTemplateAgentBuilder(
@@ -32,7 +35,8 @@ public final class RestrictedTemplateAgentBuilder {
             Path runtimeRoot,
             int maximumIterations,
             PlatformAgentMiddlewareSet middlewareSet,
-            TeamObserverRuntimeContextMiddleware teamObserverMiddleware) {
+            TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
+            ReviewerRuntimeContextMiddleware reviewerMiddleware) {
         this.stateStore = Objects.requireNonNull(stateStore, "stateStore");
         this.runtimeRoot = Objects.requireNonNull(runtimeRoot, "runtimeRoot")
                 .toAbsolutePath()
@@ -44,6 +48,8 @@ public final class RestrictedTemplateAgentBuilder {
         this.platformMiddlewares = Objects.requireNonNull(middlewareSet, "middlewareSet").ordered();
         this.teamObserverMiddleware = Objects.requireNonNull(
                 teamObserverMiddleware, "teamObserverMiddleware");
+        this.reviewerMiddleware = Objects.requireNonNull(
+                reviewerMiddleware, "reviewerMiddleware");
     }
 
     public HarnessAgent build(TemplateAgentBuildRequest request, String description) {
@@ -96,13 +102,22 @@ public final class RestrictedTemplateAgentBuilder {
         }
     }
 
-    /** Selects the security chain from the trusted session kind, never from Template text. */
+    /**
+     * Selects the security chain from the trusted session kind, never from Template text.
+     *
+     * <p>TEAM_OBSERVER and REVIEW own their conversation-less boundary middleware; everything
+     * else gets the full platform chain. REVIEW cannot reuse that chain: its calls carry no
+     * {@code PlatformExecutionContext} (a reviewer has no conversation, participant pair or
+     * personal provider binding), so the conversation-semantics context middleware would
+     * fail-closed on every legitimate review call (defect 20, M9b-Q02).
+     */
     java.util.List<io.agentscope.core.middleware.MiddlewareBase> middlewaresFor(
             TemplateAgentSessionIdentity.Kind kind) {
-        return Objects.requireNonNull(kind, "kind")
-                        == TemplateAgentSessionIdentity.Kind.TEAM_OBSERVER
-                ? java.util.List.of(teamObserverMiddleware)
-                : platformMiddlewares;
+        return switch (Objects.requireNonNull(kind, "kind")) {
+            case TEAM_OBSERVER -> java.util.List.of(teamObserverMiddleware);
+            case REVIEW -> java.util.List.of(reviewerMiddleware);
+            case CONVERSATION, TASK -> platformMiddlewares;
+        };
     }
 
     private String stableName(TemplateAgentBuildRequest request) {

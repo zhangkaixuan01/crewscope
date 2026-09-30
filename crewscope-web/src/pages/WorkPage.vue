@@ -1360,6 +1360,21 @@ function addReviewComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNu
   return reviewStore.addComment(input)
 }
 
+/** The review gate opens once the coding attempt delivered its diff and exact test evidence. */
+const canCreateReview = computed(() => {
+  const attempt = selectedCodingAttemptResource.value?.value ?? null
+  if (!attempt?.coding || !attempt.details) return false
+  const delivered = attempt.executionStatus === 'COMPLETED'
+  const evidenced = Boolean(attempt.details.diffManifest)
+    && attempt.details.testEvidenceCount > 0
+  const hasReview = (selectedReviewListResource.value?.value ?? []).length > 0
+  return delivered && evidenced && !hasReview
+})
+
+function createReview(): Promise<boolean> {
+  return reviewStore.createReview()
+}
+
 function executeReviewer(): Promise<boolean> {
   return reviewStore.execute()
 }
@@ -1933,6 +1948,8 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
       :on-select-review="selectReview"
       :on-retry-reviews="retryReviews"
       :on-retry-review-detail="retryReviewDetail"
+      :can-create-review="canCreateReview"
+      :on-create-review="createReview"
       :on-execute-reviewer="executeReviewer"
       :on-decide-review="decideReview"
       :on-request-review-changes="requestReviewChanges"

@@ -1,21 +1,19 @@
-import { execFileSync } from 'node:child_process'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
-
-type Session = {
-  authenticated: boolean
-  csrf: { headerName: string, token: string }
-  account: { accountId: string, username: string } | null
-  principal: { principalId: string, organizationId: string } | null
-  teams: Array<{ teamId: string, memberId: string, permissions: string[] }>
-}
-
-type AgentPage = {
-  items: Array<{ id: string, principalId: string, ownerMemberId: string | null, defaultProfile: boolean }>
-}
-
-const baseURL = process.env.CREWSCOPE_Q03_BASE_URL ?? 'http://127.0.0.1:18080'
-const apiContainer = process.env.CREWSCOPE_Q03_API_CONTAINER ?? 'crewscope-m7-q03-api-1'
-const redisContainer = process.env.CREWSCOPE_Q03_REDIS_CONTAINER ?? 'crewscope-m7-q03-redis-1'
+import { expect, test } from '@playwright/test'
+import {
+  baseURL,
+  command,
+  currentSession,
+  expireBrowserSessions,
+  getJson,
+  login,
+  logout,
+  onlyTeam,
+  register,
+  restartApi,
+  sessionCookie,
+  teamPath,
+  type AgentPage,
+} from './real-backend'
 
 test('two people join one Team and retain distinct identities through restart and expiry', async ({
   browser,
@@ -55,9 +53,14 @@ test('two people join one Team and retain distinct identities through restart an
     expect(teamA.permissions).toContain('team:members:manage')
     expect(teamA.permissions).toContain('audit:read')
 
-    await pageA.goto(`/team/members?team=${teamA.teamId}`)
-    await expect(pageA.getByRole('table', { name: '团队成员列表' })).toBeVisible()
-    await pageA.getByRole('button', { name: '创建邀请' }).click()
+    // 成员页是 tab 结构：邀请管理在 `tab=invitations`（TeamInvitationManager），成员目录
+    // （table 团队成员列表）在默认 tab——M9b 重排后这里曾用默认 tab 找「创建邀请」挂满
+    // 整个 test timeout，这个直落 invitations tab 的深链接就是那次回归的固定回归。
+    await pageA.goto(`/team/members?team=${teamA.teamId}&tab=invitations`)
+    // 空团队起步时 TeamInvitationManager 同时渲染工具条与空态 StatePanel 两个「创建邀请」
+    // （mock 档预置了邀请所以只见一个）——取第一个（工具条主入口）避免 strict violation。
+    await expect(pageA.getByRole('button', { name: '创建邀请' }).first()).toBeVisible()
+    await pageA.getByRole('button', { name: '创建邀请' }).first().click()
     await pageA.locator('input[name="invitationEmail"]').fill(emailB)
     await pageA.locator('select[name="invitationRole"]').selectOption('MEMBER')
     await pageA.getByRole('button', { name: '创建邀请链接' }).click()
@@ -192,101 +195,3 @@ test('two people join one Team and retain distinct identities through restart an
     await contextB.close()
   }
 })
-
-async function register(
-  page: Page,
-  username: string,
-  email: string,
-  displayName: string,
-  password: string,
-  invited: boolean,
-): Promise<void> {
-  if (!invited) await page.goto('/register')
-  await page.getByRole('textbox', { name: '用户名' }).fill(username)
-  await page.getByRole('textbox', { name: '邮箱' }).fill(email)
-  await page.getByRole('textbox', { name: '展示名' }).fill(displayName)
-  await page.locator('input[name="password"]').fill(password)
-  await page.getByRole('button', {
-    name: invited ? '创建账号并加入团队' : '创建账号',
-    exact: true,
-  }).click()
-}
-
-async function login(page: Page, identifier: string, password: string): Promise<void> {
-  await expect(page.getByRole('textbox', { name: '用户名或邮箱' })).toBeVisible()
-  await page.getByRole('textbox', { name: '用户名或邮箱' }).fill(identifier)
-  await page.locator('input[name="password"]').fill(password)
-  await page.getByRole('button', { name: '进入 CrewScope' }).click()
-  await expect(page).not.toHaveURL(/\/login/)
-}
-
-async function currentSession(page: Page): Promise<Session> {
-  return getJson<Session>(page, '/api/v1/auth/session')
-}
-
-function onlyTeam(session: Session): Session['teams'][number] {
-  expect(session.authenticated).toBe(true)
-  expect(session.teams).toHaveLength(1)
-  return session.teams[0]!
-}
-
-function teamPath(session: Session, teamId: string, suffix: string): string {
-  const organizationId = session.principal?.organizationId
-  if (!organizationId) throw new Error('Authenticated Organization is missing')
-  return `/api/v1/organizations/${organizationId}/teams/${teamId}/${suffix}`
-}
-
-async function getJson<T>(page: Page, path: string): Promise<T> {
-  const response = await page.request.get(path)
-  expect(response.ok(), `${path} returned ${response.status()}`).toBe(true)
-  return response.json() as Promise<T>
-}
-
-async function command(
-  page: Page,
-  session: Session,
-  path: string,
-  body: Record<string, unknown>,
-): Promise<void> {
-  const response = await page.request.post(path, {
-    data: body,
-    headers: {
-      [session.csrf.headerName]: session.csrf.token,
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-  })
-  expect(response.status(), `${path} command failed: ${await response.text()}`).toBe(202)
-}
-
-async function sessionCookie(context: BrowserContext): Promise<string> {
-  const cookie = (await context.cookies(baseURL)).find(value => value.name === 'CREWSCOPE_SESSION')
-  expect(cookie).toBeTruthy()
-  return cookie!.value
-}
-
-async function logout(page: Page, session: Session): Promise<void> {
-  const response = await page.request.post('/api/v1/auth/logout', {
-    headers: { [session.csrf.headerName]: session.csrf.token },
-  })
-  expect(response.status()).toBe(204)
-}
-
-function restartApi(): void {
-  execFileSync('docker', ['restart', apiContainer], { stdio: 'ignore', timeout: 30_000 })
-}
-
-function expireBrowserSessions(): void {
-  const script = String.raw`
-set -eu
-password=$(sed -n 's/^user default on >\([^ ]*\).*/\1/p' /tmp/redis_acl)
-test -n "$password"
-export REDISCLI_AUTH="$password"
-redis-cli --user default --scan --pattern 'crewscope:session:sessions:*' | while IFS= read -r key; do
-  redis-cli --user default expire "$key" 1 >/dev/null
-done
-`
-  execFileSync('docker', ['exec', redisContainer, 'sh', '-ec', script], {
-    stdio: 'ignore',
-    timeout: 30_000,
-  })
-}

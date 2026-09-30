@@ -263,8 +263,12 @@ class GitCommandExecutorM4I01IntegrationTest {
                 new GitCommandPolicy(commandHome, Duration.ofSeconds(5), 4096),
                 script.toString());
 
+        // GIT_CONFIG_GLOBAL points at the platform-owned config carrying the bind-mount
+        // safe.directory exemption (see GitProcessRunner.writePlatformGlobalConfig).
         assertEquals(
-                commandHome.toAbsolutePath().normalize() + "|1|/dev/null|0|C|unset",
+                commandHome.toAbsolutePath().normalize()
+                        + "|1|" + commandHome.toAbsolutePath().normalize().resolve("platform-git-config")
+                        + "|0|C|unset",
                 scripted.status(temporaryDirectory));
     }
 

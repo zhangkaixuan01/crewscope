@@ -24,6 +24,24 @@ git pull --ff-only
 
 `build` 成功后才执行 `up`。构建失败时原运行容器不受影响。数据库迁移由应用启动时执行；不要把新 Schema 直接交给不兼容的旧代码，回退需要同时恢复更新前的数据和配置。
 
+## 从启动到第一条回复、第一个任务、审查与 PR
+
+新环境的最小可用主线按下面五步走完；每步的真实栈自动化验证与失败证据见 [M9b-Q02 Release Gate](../testing/M9b-Q02-Release-Gate.md)。任何一步卡住先查「常见问题」，再对照该文档对应场景行。
+
+1. **启动与首用**：`quickstart.sh up` → 打开 Web 注册账号 → 创建团队。未配置任何 Provider 时对话、工作项、责任链照常可用（发送时有配置引导，不是报错页）。
+2. **第一条真实回复**：右上角进入设置 → 模型连接，新建 DeepSeek 连接（API Key 只写不读，保存后服务端真实探测 `{endpoint}/models`，状态须为 HEALTHY）→ Agent 中心为默认 Personal Agent 选择该连接作为模型 Binding → 回到对话发送消息，收到 Agent 回复。无效 Key 会在验证一步被拒绝并留在表单内，可原地更正。
+3. **第一个 Coding 任务**：设置 → GitHub 连接，粘贴 PAT（同样只写不读），验证执行身份发现并回填账号 → 同步仓库目录 → 把测试仓库绑定到团队 → 在项目的 GitHub 导入里发起导入（Worker 构建 bare mirror，完成后 preflight 可答）→ 项目执行默认值选仓库/分支/构建方案 → 工作项里「交给 Agent 处理」，确认目标与验收标准后「分配并启动」。预检在提交前评估完整执行图（含将要创建的 EXECUTOR 分配），不通过会给出可操作的原因。
+4. **审查与 PR**：执行产生尝试与 Diff 后，从工作项进入审查：逐行评论、要求修改会驱动新一轮执行；确认后从交付计划创建 **Draft PR**（系统不自动合并，PR 边界见 Release Gate §凭据说明）。
+5. **失败后的下一步**：命令超时/崩溃后系统不重复执行——通过恢复入口按幂等键找回结果坐标；仓库导入失败可取消后重读原 job（未知 job 读回专用错误码）；PR 结果未知时先只读对账再决定重试。成员被停用后下一次请求即被切断，重新激活不复活旧授权。
+
+### 模型（DeepSeek）
+
+平台目录只内置 DeepSeek（`https://api.deepseek.com`），连接端点固定取目录默认值，不能指向自定义地址。Key 经页面提交后加密落库（`CREWSCOPE_CREDENTIAL_KEYS`），任何 DTO 都不回传凭据；团队执行只用 TEAM/ORGANIZATION 连接，USER Key 在服务端被拒。健康探测失败置 UNHEALTHY，可重新启用。
+
+### GitHub
+
+PAT 需要 target 仓库的读写权限（验证一步会做真实身份发现）。连接 → 仓库目录同步 → 团队绑定 → 项目导入的链路每步都可单独重试；导入 Worker 通过 ask-pass 使用已保存凭据拉取 bare mirror，执行 Sandbox 在 `CREWSCOPE_EXECUTION_ROOT` 下受管。凭据同样只写不读。
+
 ## 配置
 
 `quickstart.sh init` 只生成配置，不启动服务。编辑 `deploy/team-beta/.runtime/.env` 后执行 `up` 应用变更，值按生成文件的格式直接填写，不需要 shell 引号。

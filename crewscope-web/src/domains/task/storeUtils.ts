@@ -6,7 +6,7 @@ export { browserStorage, safeGet, safeRemove, safeSet }
 
 /** Pure/cache helpers kept outside the orchestration store so they can be tested independently. */
 export function delegationPreflightKey(projectId: string, workItemId: string, selection: TaskDelegationSelection): string {
-  return `${projectId}:${workItemId}:${selection.executorAgentProfileId}:${selection.agentConfigurationRevision ?? 'current'}`
+  return `${projectId}:${workItemId}:${selection.executorAgentProfileId}:${selection.agentConfigurationRevision ?? 'current'}:${selection.plannedExecutorAgentProfileId ?? 'chain'}`
 }
 
 export function defaultReconnectDelay(attempt: number, signal: AbortSignal): Promise<void> {

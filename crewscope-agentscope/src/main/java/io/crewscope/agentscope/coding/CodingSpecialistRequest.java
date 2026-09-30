@@ -1,17 +1,28 @@
 package io.crewscope.agentscope.coding;
 
 import io.agentscope.core.tool.Toolkit;
+import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import java.util.Objects;
+import java.util.Optional;
 
 /** One prepared Coding invocation; the caller retains ownership of its guarded Tool sessions. */
 public record CodingSpecialistRequest(
-        TaskAgentRuntimeSession runtimeSession, Toolkit toolkit, String instruction) {
+        TaskAgentRuntimeSession runtimeSession,
+        Toolkit toolkit,
+        String instruction,
+        Optional<ResolvedAgentExecutionConfiguration> pinnedExecution) {
 
     public CodingSpecialistRequest {
         runtimeSession = Objects.requireNonNull(runtimeSession, "runtimeSession");
         toolkit = Objects.requireNonNull(toolkit, "toolkit");
         instruction = requireInstruction(instruction);
+        pinnedExecution = Objects.requireNonNull(pinnedExecution, "pinnedExecution");
+    }
+
+    public CodingSpecialistRequest(
+            TaskAgentRuntimeSession runtimeSession, Toolkit toolkit, String instruction) {
+        this(runtimeSession, toolkit, instruction, Optional.empty());
     }
 
     private static String requireInstruction(String value) {

@@ -3,6 +3,7 @@ package io.crewscope.domain.task;
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.policy.PolicyPackReference;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.provider.ProviderBindingId;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -156,11 +157,39 @@ public final class PolicySnapshot {
             PolicyBudget budget,
             Principal actor,
             UtcTimestamp createdAt) {
+        return initialV2ForRole(
+                id, task, execution, executor, ResponsibilityRole.EXECUTOR,
+                task.responsibilitySnapshot(),
+                agentExecutionConfiguration, capabilities, allowedTools,
+                providerBindingIds, budget, actor, createdAt);
+    }
+
+    /**
+     * Creates a Schema v2 snapshot pinning the acting Principal's own seat in the given
+     * responsibility facts: the task EXECUTOR in the Task's creation-time snapshot for
+     * execution snapshots, the advisory REVIEWER in a review-time recapture for review
+     * snapshots — a reviewer seat can only exist after the Task delegated its execution.
+     */
+    public static PolicySnapshot initialV2ForRole(
+            PolicySnapshotId id,
+            Task task,
+            TaskExecution execution,
+            Principal actingPrincipal,
+            ResponsibilityRole pinnedRole,
+            TaskResponsibilitySnapshot responsibilitySnapshot,
+            ResolvedAgentExecutionConfiguration agentExecutionConfiguration,
+            Set<ExecutionCapability> capabilities,
+            Set<String> allowedTools,
+            Set<ProviderBindingId> providerBindingIds,
+            PolicyBudget budget,
+            Principal actor,
+            UtcTimestamp createdAt) {
         Task requiredTask = requireTaskExecution(task, execution);
         PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
                 actor, requiredTask.scope(), "policySnapshot.createdByPrincipalId");
         ExecutionPrincipalSnapshot executionPrincipal = ExecutionPrincipalSnapshot.resolve(
-                requiredTask.responsibilitySnapshot(), executor);
+                Objects.requireNonNull(responsibilitySnapshot, "responsibilitySnapshot"),
+                actingPrincipal, pinnedRole);
         ResolvedAgentExecutionConfiguration resolved = Objects.requireNonNull(
                 agentExecutionConfiguration, "agentExecutionConfiguration");
         return build(

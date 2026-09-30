@@ -9,6 +9,7 @@ import io.crewscope.application.action.ActionWorkerEventPublisher;
 import io.crewscope.application.action.ConfirmationRepository;
 import io.crewscope.application.action.CurrentActionAuthorityFactsResolver;
 import io.crewscope.application.action.DurableActionWorkerEventPublisher;
+import io.crewscope.application.action.ExternalResultMerger;
 import io.crewscope.application.action.GitHubRepositoryPolicyResolver;
 import io.crewscope.application.coding.CodingTargetSnapshotRepository;
 import io.crewscope.application.coding.RepositoryBindingRepository;
@@ -35,7 +36,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import io.crewscope.server.config.runtime.WorkerCapableProfileCondition;
 
 /** Constructor-based production composition for M5 confirmed external Action execution. */
 @Configuration(proxyBeanMethods = false)
@@ -94,19 +97,14 @@ public class ActionWorkerApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        ActionDispatchRepository.class,
-        ActionReceiptRepository.class,
-        ActionBundleRepository.class,
-        ConfirmationRepository.class,
-        ActionAuthorityFactsResolver.class,
-        GitHubRepositoryPolicyResolver.class,
-        GitHubPushPort.class,
-        GitHubDraftPullRequestPort.class,
-        ActionWorkerEventPublisher.class,
-        TransactionExecutor.class,
-        TimeProvider.class
-    })
+    // Presence must not be expressed as @ConditionalOnBean over the GitHub write ports:
+    // component-scan registration follows class order, and this class sorts before
+    // GitHubProviderApplicationConfiguration — the condition evaluated before those ports
+    // were defined, silently dropping the delivery worker from real deployments while
+    // withBean-ordered tests stayed green. The worker-capable execution profile is the
+    // same fact the ports' own availability hangs on (ManagedRepositoryConfiguration),
+    // and collaborators resolve by injection after all definitions are registered.
+    @Conditional(WorkerCapableProfileCondition.class)
     @ConditionalOnMissingBean(ActionWorker.class)
     ActionWorker actionWorker(
             ActionDispatchRepository dispatches,
@@ -117,6 +115,7 @@ public class ActionWorkerApplicationConfiguration {
             GitHubRepositoryPolicyResolver policyResolver,
             GitHubPushPort pushPort,
             GitHubDraftPullRequestPort pullRequestPort,
+            ExternalResultMerger externalResults,
             ActionWorkerEventPublisher events,
             TransactionExecutor transactions,
             TimeProvider timeProvider,
@@ -131,6 +130,7 @@ public class ActionWorkerApplicationConfiguration {
                 policyResolver,
                 pushPort,
                 pullRequestPort,
+                externalResults,
                 events,
                 transactions,
                 timeProvider,

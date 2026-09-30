@@ -7,7 +7,10 @@ import io.crewscope.agentscope.review.ReviewerSpecialistRuntime;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentExecutionConfigurationService;
+import io.crewscope.application.agent.AgentModelGovernance;
 import io.crewscope.application.agent.AgentTemplateRepository;
+import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.coding.CodingArtifactContentPort;
 import io.crewscope.application.coding.CommandEvidenceRepository;
 import io.crewscope.application.coding.DiffArtifactRepository;
@@ -36,8 +39,10 @@ import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
+import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
+import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -92,6 +97,17 @@ class ReviewApplicationCompositionTest {
                         () -> mock(AgentTemplateRuntimeAssembler.class))
                 .withBean(AgentTemplateRuntimeRegistry.class,
                         () -> mock(AgentTemplateRuntimeRegistry.class))
+                // M9b-Q02: the advisory Reviewer snapshot source resolves the reviewer chain the
+                // same way the executor chain does, so the composition carries the same ports.
+                .withBean(TeamRepository.class, () -> mock(TeamRepository.class))
+                .withBean(ModelConnectionRepository.class,
+                        () -> mock(ModelConnectionRepository.class))
+                .withBean(AgentModelGovernance.class,
+                        () -> mock(AgentModelGovernance.class))
+                .withBean(AgentExecutionConfigurationService.class,
+                        () -> mock(AgentExecutionConfigurationService.class))
+                .withBean(ResolvedAgentPolicySnapshotService.class,
+                        () -> mock(ResolvedAgentPolicySnapshotService.class))
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(ContextPackageBuilder.class);

@@ -28,13 +28,16 @@ import io.crewscope.domain.action.ActionResultSource;
 import io.crewscope.domain.action.ActionRetryDirective;
 import io.crewscope.domain.action.ActionWorkerId;
 import io.crewscope.domain.action.CreateDraftPullRequestActionParameters;
+import io.crewscope.domain.action.ExternalObjectStatus;
 import io.crewscope.domain.action.ExternalObjectType;
+import io.crewscope.domain.action.ExternalObservation;
+import io.crewscope.domain.action.ExternalObservationKey;
 import io.crewscope.domain.action.ExternalResultIdentity;
+import io.crewscope.domain.action.ExternalResultSource;
 import io.crewscope.domain.action.PlannedAction;
 import io.crewscope.domain.action.PushBranchActionParameters;
 import io.crewscope.domain.provider.ProviderAccessScope;
 import io.crewscope.domain.provider.ProviderCapabilities;
-import io.crewscope.domain.provider.ProviderResourceScope;
 import io.crewscope.domain.shared.error.DomainException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -66,6 +69,7 @@ public final class ActionWorker {
     private final GitHubRepositoryPolicyResolver repositoryPolicyResolver;
     private final GitHubPushPort pushPort;
     private final GitHubDraftPullRequestPort pullRequestPort;
+    private final ExternalResultMerger externalResults;
     private final ActionWorkerEventPublisher events;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
@@ -83,6 +87,7 @@ public final class ActionWorker {
             GitHubRepositoryPolicyResolver repositoryPolicyResolver,
             GitHubPushPort pushPort,
             GitHubDraftPullRequestPort pullRequestPort,
+            ExternalResultMerger externalResults,
             ActionWorkerEventPublisher events,
             TransactionExecutor transactions,
             TimeProvider timeProvider,
@@ -99,6 +104,7 @@ public final class ActionWorker {
                 repositoryPolicyResolver, "repositoryPolicyResolver");
         this.pushPort = Objects.requireNonNull(pushPort, "pushPort");
         this.pullRequestPort = Objects.requireNonNull(pullRequestPort, "pullRequestPort");
+        this.externalResults = Objects.requireNonNull(externalResults, "externalResults");
         this.events = Objects.requireNonNull(events, "events");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
@@ -235,7 +241,11 @@ public final class ActionWorker {
                 "GITHUB_PUSH_" + result.outcome().name(),
                 result.repositoryId().value() + '\n'
                         + result.branch().value() + '\n'
-                        + result.deliveryHead().value());
+                        + result.deliveryHead().value(),
+                // A pushed branch has no Provider lifecycle; PRESENT is the whole fact. The
+                // write response itself is the observation instant.
+                ExternalObjectStatus.PRESENT,
+                Optional.empty());
     }
 
     private ExecutionOutcome executePullRequest(ClaimedAction claimed) {
@@ -272,7 +282,9 @@ public final class ActionWorker {
                         + result.titleHash() + '\n'
                         + result.bodyHash() + '\n'
                         + result.state().name() + '\n'
-                        + result.providerUpdatedAt());
+                        + result.providerUpdatedAt(),
+                ExternalObjectStatus.valueOf(result.state().name()),
+                Optional.of(result.providerUpdatedAt()));
     }
 
     private PreflightGitHubRepositoryRequest preflight(
@@ -282,9 +294,15 @@ public final class ActionWorker {
             GitHubRepositoryPolicy policy) {
         var authority = claimed.bundle().authority();
         var provider = authority.providerAuthorization();
+        // The provider grant vocabulary keys repositories as "github:repository:owner/name";
+        // a scope shaped from the bare external repository id never matches that key once the
+        // authorizer intersects the request with the grant, so preflight resolved every real
+        // delivery repository to REPOSITORY_BLOCKED (M9b-Q02 defect 28). Narrow only the
+        // capability dimension and carry the grant's own resources, matching the connection
+        // service's requireManagedAccess precedent.
         ProviderAccessScope requested = new ProviderAccessScope(
                 capability,
-                ProviderResourceScope.of("repository:" + externalRepositoryId));
+                claimed.facts().connectionGrant().grantedAccess().resources());
         GitHubAccessRequest access = new GitHubAccessRequest(
                 claimed.dispatch().scope().organizationId(),
                 provider.connectionId(),
@@ -337,13 +355,17 @@ public final class ActionWorker {
             ExternalResultIdentity identity,
             String targetVersion,
             String evidenceCode,
-            String canonicalEvidence) {
+            String canonicalEvidence,
+            ExternalObjectStatus observedStatus,
+            Optional<UtcTimestamp> providerUpdatedAt) {
         return complete(
                 claimed,
                 ActionReceiptResult.SUCCEEDED,
                 Optional.of(identity),
                 Optional.of(targetVersion),
                 ActionEvidenceReference.hashed(evidenceCode, canonicalEvidence),
+                observedStatus,
+                providerUpdatedAt,
                 ExecutionOutcome.SUCCEEDED);
     }
 
@@ -356,6 +378,8 @@ public final class ActionWorker {
                 ActionEvidenceReference.hashed(
                         evidenceCode,
                         claimed.dispatch().actionDigest().toString() + '\n' + evidenceCode),
+                ExternalObjectStatus.MISSING,
+                Optional.empty(),
                 ExecutionOutcome.FAILED);
     }
 
@@ -365,6 +389,8 @@ public final class ActionWorker {
             Optional<ExternalResultIdentity> identity,
             Optional<String> targetVersion,
             ActionEvidenceReference evidence,
+            ExternalObjectStatus observedStatus,
+            Optional<UtcTimestamp> providerUpdatedAt,
             ExecutionOutcome outcome) {
         return transactions.required(() -> {
             UtcTimestamp now = timeProvider.now();
@@ -390,6 +416,29 @@ public final class ActionWorker {
                 events.receiptRecorded(receipt, claimed.bundle(), correlation(current));
             }
             events.dispatchTransitioned(committed, claimed.bundle(), correlation(current));
+            // A verified write response is itself a trusted observation: materializing it as a
+            // WRITE_RESPONSE ExternalResult makes the delivery visible in the unified external
+            // projection immediately, instead of waiting for a webhook or reconciliation query
+            // (M9b-Q02 defect 29 — the delivery detail view stayed externalResult=null right
+            // after a successful push and draft PR).
+            if (result == ActionReceiptResult.SUCCEEDED && identity.isPresent()) {
+                externalResults.merge(committed, claimed.bundle(), claimed.action(),
+                        new ExternalObservation(
+                                ExternalObservationKey.derive(
+                                        identity.orElseThrow().connectionId(),
+                                        ExternalResultSource.WRITE_RESPONSE,
+                                        receipt.id().toString()),
+                                claimed.action().id(),
+                                claimed.action().digest(),
+                                identity.orElseThrow(),
+                                observedStatus,
+                                Optional.empty(),
+                                providerUpdatedAt.isPresent() ? providerUpdatedAt
+                                        : Optional.of(now),
+                                ExternalResultSource.WRITE_RESPONSE,
+                                receipt.evidence(),
+                                now));
+            }
             return outcome;
         });
     }

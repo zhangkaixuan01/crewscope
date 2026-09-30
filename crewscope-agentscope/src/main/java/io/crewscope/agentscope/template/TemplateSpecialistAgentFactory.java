@@ -30,12 +30,14 @@ public final class TemplateSpecialistAgentFactory implements TemplateAgentRuntim
     @Override
     public HarnessAgent create(TemplateAgentBuildRequest request) {
         TemplateAgentBuildRequest required = Objects.requireNonNull(request, "request");
-        if (required.identity().kind() != TemplateAgentSessionIdentity.Kind.TASK
+        TemplateAgentSessionIdentity.Kind kind = required.identity().kind();
+        if ((kind != TemplateAgentSessionIdentity.Kind.TASK
+                && kind != TemplateAgentSessionIdentity.Kind.REVIEW)
                 || required.definition().template().runtimeRole() != runtimeRole()) {
             throw new IllegalArgumentException(
                     "Specialist Template Agent requires a Specialist Task Session");
         }
-        required.identity().requireTaskPurpose(TaskAgentSessionPurpose.SPECIALIST);
+        required.identity().requireSpecialistRuntimePurpose();
         if (CODING_TEMPLATE.equals(required.definition()
                 .template()
                 .templateVersion()

@@ -143,6 +143,59 @@ public final class TaskAgentRuntimeSession {
                 occurredAt);
     }
 
+    /**
+     * Creates the advisory Reviewer's state slot for one attempt's review. Step-less like a
+     * TASK session: the reviewer evaluates the delivered diff of a finished attempt and never
+     * executes a plan step, so it cannot reuse the step-bound SPECIALIST shape — and unlike an
+     * execution session it opens exactly on a completed attempt.
+     */
+    public static TaskAgentRuntimeSession initializeReview(
+            Task task,
+            TaskExecution execution,
+            AgentProfile profile,
+            Principal reviewer,
+            UtcTimestamp occurredAt) {
+        Task requiredTask = Objects.requireNonNull(task, "task");
+        TaskExecution requiredExecution = Objects.requireNonNull(execution, "execution");
+        Principal requiredReviewer = Objects.requireNonNull(reviewer, "reviewer");
+        if (requiredTask.isClosed()
+                || requiredExecution.status() != TaskExecutionStatus.COMPLETED
+                || !requiredTask.scope().equals(requiredExecution.scope())
+                || !requiredTask.id().equals(requiredExecution.taskId())) {
+            throw new DomainValidationException(
+                    "taskAgentRuntimeSession.executionId",
+                    "must reference a completed attempt of an open Task");
+        }
+        AgentProfile requiredProfile = requireProfile(
+                profile, requiredReviewer, requiredTask.scope(),
+                TaskAgentSessionPurpose.REVIEW, null);
+        AgentRuntimeSessionId id = AgentRuntimeSessionId.forTaskExecution(
+                requiredExecution.id(), Optional.empty(), requiredProfile.id(),
+                TaskAgentSessionPurpose.REVIEW.name());
+        AgentScopeSessionKey key = AgentScopeSessionKey.forTaskExecution(
+                requiredTask.scope().organizationId(), requiredReviewer.id(),
+                requiredExecution.id(), id);
+        PrincipalId actorId = TaskActorPolicy.requireActiveInScope(
+                requiredReviewer, requiredTask.scope(), "taskAgentRuntimeSession.createdBy");
+        return new TaskAgentRuntimeSession(
+                id,
+                requiredTask.scope(),
+                requiredTask.id(),
+                requiredExecution.id(),
+                Optional.empty(),
+                TaskAgentSessionPurpose.REVIEW,
+                requiredReviewer.id(),
+                requiredReviewer.type(),
+                requiredProfile.id(),
+                requiredProfile.type(),
+                requiredProfile.version(),
+                key,
+                AgentRuntimeStateReference.forSession(id),
+                AgentRuntimeSessionStatus.ACTIVE,
+                0,
+                AuditMetadata.createdBy(actorId, occurredAt));
+    }
+
     /** Reconstitutes persisted Task-side session metadata and rechecks its derived coordinates. */
     public static TaskAgentRuntimeSession reconstitute(
             AgentRuntimeSessionId id,
@@ -416,8 +469,9 @@ public final class TaskAgentRuntimeSession {
                     && principalType == PrincipalType.TEAM_AGENT;
             // A Specialist is an execution role with an isolated AgentScope Session. It may run
             // under the Task's delegated Personal, Team, or dedicated Specialist identity; the
-            // pinned PolicySnapshot still supplies the authority and budget boundary.
-            case SPECIALIST -> (profileType == AgentProfileType.PERSONAL
+            // pinned PolicySnapshot still supplies the authority and budget boundary. The
+            // advisory reviewer follows the same identity rules for its REVIEW session.
+            case SPECIALIST, REVIEW -> (profileType == AgentProfileType.PERSONAL
                             && principalType == PrincipalType.PERSONAL_AGENT)
                     || (profileType == AgentProfileType.TEAM
                             && principalType == PrincipalType.TEAM_AGENT)
@@ -510,10 +564,12 @@ public final class TaskAgentRuntimeSession {
         TaskAgentSessionPurpose requiredPurpose = Objects.requireNonNull(purpose, "purpose");
         Optional<StepExecutionId> requiredStep = Objects.requireNonNull(
                 stepExecutionId, "stepExecutionId");
-        if ((requiredPurpose == TaskAgentSessionPurpose.TASK) == requiredStep.isPresent()) {
+        boolean stepExpected = requiredPurpose == TaskAgentSessionPurpose.STEP
+                || requiredPurpose == TaskAgentSessionPurpose.SPECIALIST;
+        if (stepExpected != requiredStep.isPresent()) {
             throw new DomainValidationException(
                     "taskAgentRuntimeSession.stepExecutionId",
-                    "must be absent for TASK and present for STEP or SPECIALIST");
+                    "must be absent for TASK or REVIEW and present for STEP or SPECIALIST");
         }
         return requiredStep;
     }

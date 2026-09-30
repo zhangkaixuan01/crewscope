@@ -67,12 +67,28 @@ public final class ResponsibilityAssignmentService {
             Principal executor,
             Optional<TeamMember> executorMember,
             Principal assignedBy) {
+        return assignExecutor(workItem, executor, executorMember, assignedBy, timeProvider.now());
+    }
+
+    /**
+     * Assigns an Executor at the invoking command's own timestamp. Composite commands that
+     * capture a responsibility snapshot at their entry timestamp must pass it here — a fresh
+     * {@code now()} taken inside this transaction can tick past the snapshot's capturedAt and
+     * trip the snapshot's own acceptedAt ordering validation.
+     */
+    public ResponsibilityAssignment assignExecutor(
+            WorkItem workItem,
+            Principal executor,
+            Optional<TeamMember> executorMember,
+            Principal assignedBy,
+            UtcTimestamp occurredAt) {
         return assignNonOwner(
                 workItem,
                 ResponsibilityRole.EXECUTOR,
                 executor,
                 executorMember,
-                assignedBy);
+                assignedBy,
+                occurredAt);
     }
 
     /** Assigns a Specialist Agent whose review output can only have advisory effect. */
@@ -91,7 +107,8 @@ public final class ResponsibilityAssignmentService {
                 ResponsibilityRole.REVIEWER,
                 requiredReviewer,
                 Optional.empty(),
-                assignedBy);
+                assignedBy,
+                timeProvider.now());
     }
 
     /** Releases an Executor or Reviewer using an explicit optimistic-lock version. */
@@ -156,13 +173,14 @@ public final class ResponsibilityAssignmentService {
             ResponsibilityRole role,
             Principal actor,
             Optional<TeamMember> actorMember,
-            Principal assignedBy) {
+            Principal assignedBy,
+            UtcTimestamp occurredAt) {
         WorkItem requiredWorkItem = Objects.requireNonNull(workItem, "workItem");
         Principal requiredActor = Objects.requireNonNull(actor, "actor");
         Optional<TeamMember> requiredMember = Objects.requireNonNull(actorMember, "actorMember");
         Principal requiredAssigner = Objects.requireNonNull(assignedBy, "assignedBy");
+        UtcTimestamp acceptedAt = Objects.requireNonNull(occurredAt, "occurredAt");
         return transactionExecutor.required(() -> {
-            UtcTimestamp occurredAt = timeProvider.now();
             if (role == ResponsibilityRole.EXECUTOR) {
                 repository.lockResponsibilityChain(
                         requiredWorkItem.scope().organizationId(), requiredWorkItem.id());
@@ -175,7 +193,7 @@ public final class ResponsibilityAssignmentService {
                     requiredActor,
                     requiredMember,
                     requiredAssigner,
-                    occurredAt);
+                    acceptedAt);
             repository.findActive(
                             requiredWorkItem.scope().organizationId(),
                             requiredWorkItem.id(),

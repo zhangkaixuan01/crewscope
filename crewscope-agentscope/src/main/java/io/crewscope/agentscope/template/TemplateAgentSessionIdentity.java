@@ -17,6 +17,7 @@ public final class TemplateAgentSessionIdentity {
     public enum Kind {
         CONVERSATION,
         TASK,
+        REVIEW,
         TEAM_OBSERVER
     }
 
@@ -78,6 +79,31 @@ public final class TemplateAgentSessionIdentity {
                 Optional.of(required));
     }
 
+    /**
+     * The advisory reviewer's own trusted kind: step-less like a TASK session but with an
+     * independent, conversation-less security chain. Routing it through TASK would select the
+     * conversation-semantics platform chain, which a review call can never satisfy (defect 20,
+     * M9b-Q02) — the Kind selects the security chain, so REVIEW must be its own value.
+     */
+    public static TemplateAgentSessionIdentity review(TaskAgentRuntimeSession session) {
+        TaskAgentRuntimeSession required = Objects.requireNonNull(session, "session");
+        if (!required.canInvoke()) {
+            throw new IllegalArgumentException("Review Agent Session must be active");
+        }
+        if (required.purpose() != TaskAgentSessionPurpose.REVIEW) {
+            throw new IllegalArgumentException(
+                    "Review Agent Session must carry the REVIEW purpose");
+        }
+        return new TemplateAgentSessionIdentity(
+                Kind.REVIEW,
+                required.agentPrincipalId(),
+                required.agentProfileId(),
+                required.agentProfileVersion(),
+                required.agentScopeKey(),
+                required.stateReference(),
+                Optional.of(required));
+    }
+
     /** Creates an identity from the server-derived Team/member Observer state coordinates. */
     public static TemplateAgentSessionIdentity teamObserver(TeamObserverRuntimeSession session) {
         TeamObserverRuntimeSession required = Objects.requireNonNull(session, "session");
@@ -103,6 +129,16 @@ public final class TemplateAgentSessionIdentity {
 
     public void requireTaskPurpose(TaskAgentSessionPurpose purpose) {
         if (taskSession.map(TaskAgentRuntimeSession::purpose).filter(purpose::equals).isEmpty()) {
+            throw new IllegalArgumentException("Task Agent Session purpose does not match the Factory");
+        }
+    }
+
+    /** The Specialist factory serves both step-execution sessions and advisory review sessions. */
+    public void requireSpecialistRuntimePurpose() {
+        if (taskSession.map(TaskAgentRuntimeSession::purpose)
+                .filter(purpose -> purpose == TaskAgentSessionPurpose.SPECIALIST
+                        || purpose == TaskAgentSessionPurpose.REVIEW)
+                .isEmpty()) {
             throw new IllegalArgumentException("Task Agent Session purpose does not match the Factory");
         }
     }

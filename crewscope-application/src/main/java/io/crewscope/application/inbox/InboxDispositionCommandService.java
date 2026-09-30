@@ -6,9 +6,17 @@ import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
+import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.inbox.InboxItemId;
+import io.crewscope.domain.inbox.event.InboxDispositionChanged;
+import io.crewscope.domain.shared.event.AggregateReference;
+import io.crewscope.domain.shared.event.DomainEventEnvelope;
+import io.crewscope.domain.shared.event.EventActor;
+import io.crewscope.domain.shared.event.EventActorType;
+import io.crewscope.domain.shared.event.EventType;
+import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -22,10 +30,13 @@ import java.util.UUID;
 public final class InboxDispositionCommandService {
 
     private static final String COMMAND_TYPE = "inbox.change-disposition";
+    private static final EventType FACT_TYPE = EventType.from("INBOX_DISPOSITION_CHANGED");
+    private static final String AGGREGATE_TYPE = "INBOX_DISPOSITION";
 
     private final InboxApplicationService authorizationQueries;
     private final InboxDispositionApplicationService dispositions;
     private final CommandReceiptStore receipts;
+    private final DomainEventStore eventStore;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
 
@@ -33,12 +44,14 @@ public final class InboxDispositionCommandService {
             InboxApplicationService authorizationQueries,
             InboxDispositionApplicationService dispositions,
             CommandReceiptStore receipts,
+            DomainEventStore eventStore,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
         this.authorizationQueries =
                 Objects.requireNonNull(authorizationQueries, "authorizationQueries");
         this.dispositions = Objects.requireNonNull(dispositions, "dispositions");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
+        this.eventStore = Objects.requireNonNull(eventStore, "eventStore");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
@@ -93,15 +106,45 @@ public final class InboxDispositionCommandService {
         }
         InboxDispositionOutcome outcome = dispositions.change(
                 context.access(), organizationId, teamId, inboxItemId, command);
-        // Disposition is a Generation-independent command fact; its stable receipt identity is
-        // derived from the command and committed version without exposing source data. Version 0
-        // is the no-row UNREAD no-op and keeps its own stable receipt identity.
-        UUID factId = UUID.nameUUIDFromBytes(("crewscope:inbox-disposition-command:v1:"
-                        + commandId + ":" + outcome.version())
-                .getBytes(StandardCharsets.UTF_8));
+        // A completed reservation must reference one committed domain fact (the V5 receipt
+        // foreign key), so the Generation-independent disposition command appends its own fact
+        // event. No projection subscribes to it and no outbox row is queued: unmark and restore
+        // must never re-notify anyone (contract §5.1). Version 0 is the no-row UNREAD no-op and
+        // keeps that same one-fact receipt identity.
+        UUID eventId = UUID.randomUUID();
+        eventStore.append(new DomainEventEnvelope<>(
+                eventId,
+                FACT_TYPE,
+                SchemaVersion.V1,
+                organizationId,
+                Optional.of(teamId),
+                Optional.empty(),
+                new AggregateReference(
+                        AGGREGATE_TYPE,
+                        dispositionAggregateId(
+                                organizationId,
+                                teamId,
+                                context.access().actor().id().value(),
+                                inboxItemId)),
+                outcome.version(),
+                EventActor.principal(EventActorType.USER, context.access().actor().id()),
+                context.correlationId(),
+                context.causationId(),
+                Optional.of(context.idempotencyKey().value()),
+                now,
+                new InboxDispositionChanged(
+                        inboxItemId.value(), outcome.status().name(), outcome.version())));
         CommandReceipt receipt = new CommandReceipt(
-                commandId, factId, outcome.version(), context.correlationId());
+                commandId, eventId, outcome.version(), context.correlationId());
         receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
         return CommandExecution.completed(outcome, receipt);
+    }
+
+    /** Stable per-member-item identity of the disposition authority the command changed. */
+    private static UUID dispositionAggregateId(
+            OrganizationId organizationId, TeamId teamId, UUID actorId, InboxItemId inboxItemId) {
+        return UUID.nameUUIDFromBytes(("crewscope:inbox-disposition:v1:"
+                        + organizationId + ":" + teamId + ":" + actorId + ":" + inboxItemId)
+                .getBytes(StandardCharsets.UTF_8));
     }
 }

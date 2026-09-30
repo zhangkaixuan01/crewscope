@@ -131,6 +131,16 @@ public final class CurrentActionDeliveryPlanningResolver implements ActionDelive
             throw unavailable("GitHub Repository Grant");
         }
         var policy = policies.findByExecution(organizationId, executionId).stream()
+                // The delivery plan reads the coding agent's executor policy chain; the same
+                // attempt also carries the advisory reviewer's snapshot at its own revision 1.
+                .filter(value -> value.executionPrincipal().assignmentId().equals(
+                        responsibilities.findActiveByWorkItem(
+                                        organizationId, latestDecision.workItemId()).stream()
+                                .filter(assignment -> assignment.role()
+                                        == io.crewscope.domain.responsibility.ResponsibilityRole.EXECUTOR)
+                                .findFirst()
+                                .orElseThrow(() -> unavailable("current Executor responsibility"))
+                                .id()))
                 .max(Comparator.comparingLong(value -> value.revision()))
                 .orElseThrow(() -> unavailable("current PolicySnapshot"));
         var safety = safetyOverlays.findByExecution(organizationId, executionId).stream()

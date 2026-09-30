@@ -20,6 +20,7 @@ public class TaskExecutionSandboxProperties {
     private TaskExecutionSandboxPauseMode pauseMode = TaskExecutionSandboxPauseMode.STOP;
     private String dependencyCacheRoot = "";
     private String dependencyCacheMount = "/maven-cache";
+    private String egressNetworkName = "crewscope-sandbox-egress";
 
     public String getWorkspaceRoot() {
         return workspaceRoot;
@@ -75,6 +76,14 @@ public class TaskExecutionSandboxProperties {
 
     public void setDependencyCacheMount(String dependencyCacheMount) {
         this.dependencyCacheMount = dependencyCacheMount;
+    }
+
+    public String getEgressNetworkName() {
+        return egressNetworkName;
+    }
+
+    public void setEgressNetworkName(String egressNetworkName) {
+        this.egressNetworkName = egressNetworkName;
     }
 
     String requiredWorkspaceRoot() {
@@ -152,6 +161,23 @@ public class TaskExecutionSandboxProperties {
                     "Sandbox dependency cache mount must be a canonical absolute container path");
         }
         return dependencyCacheMount;
+    }
+
+    /**
+     * The isolated user-defined bridge used for RESTRICTED_EGRESS sandboxes. Reserved Docker
+     * network names are rejected: they would silently downgrade egress to no network or attach
+     * the default bridge shared with other workloads.
+     */
+    String requiredEgressNetworkName() {
+        if (egressNetworkName == null
+                || !egressNetworkName.matches("[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}")
+                || egressNetworkName.equals("none")
+                || egressNetworkName.equals("bridge")
+                || egressNetworkName.equals("host")) {
+            throw new IllegalArgumentException(
+                    "Sandbox egress network name must be a dedicated user-defined bridge name");
+        }
+        return egressNetworkName;
     }
 
     private static Duration positive(Duration value, String name) {

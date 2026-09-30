@@ -185,14 +185,17 @@ class AgentTemplateRuntimeRegistryM5I05Test {
     }
 
     @Test
-    void routesOnlyTeamObserverAwayFromThePersonalAndTaskPlatformMiddlewareChain() {
+    void routesTeamObserverAndReviewerAwayFromTheConversationPlatformMiddlewareChain() {
         MiddlewareBase platform = mock(MiddlewareBase.class);
         PlatformAgentMiddlewareSet middlewareSet = mock(PlatformAgentMiddlewareSet.class);
         when(middlewareSet.ordered()).thenReturn(List.of(platform));
         TeamObserverRuntimeContextMiddleware observer =
                 new TeamObserverRuntimeContextMiddleware();
+        io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware reviewer =
+                new io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware();
         RestrictedTemplateAgentBuilder builder = new RestrictedTemplateAgentBuilder(
-                new InMemoryAgentStateStore(), runtimeRoot, 12, middlewareSet, observer);
+                new InMemoryAgentStateStore(), runtimeRoot, 12, middlewareSet,
+                observer, reviewer);
 
         assertEquals(
                 List.of(platform),
@@ -203,6 +206,11 @@ class AgentTemplateRuntimeRegistryM5I05Test {
         assertSame(
                 observer,
                 builder.middlewaresFor(TemplateAgentSessionIdentity.Kind.TEAM_OBSERVER).get(0));
+        // Defect 20 (M9b-Q02): a review call carries no PlatformExecutionContext, so the
+        // conversation chain rejects it — REVIEW owns its conversation-less boundary instead.
+        assertSame(
+                reviewer,
+                builder.middlewaresFor(TemplateAgentSessionIdentity.Kind.REVIEW).get(0));
     }
 
     @Test
@@ -246,6 +254,18 @@ class AgentTemplateRuntimeRegistryM5I05Test {
                         definition,
                         TemplateAgentSessionIdentity.task(foreign),
                         new Toolkit()));
+    }
+
+    /** Defect 20 (M9b-Q02): REVIEW is its own kind so a step specialist cannot board the
+     *  reviewer's conversation-less security chain, and vice versa. */
+    @Test
+    void reviewIdentityRejectsASpecialistPurposeSession() {
+        TaskAgentRuntimeSession specialist = taskSession(
+                AgentProfileId.generate(), PrincipalId.generate(), "specialist-as-reviewer");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TemplateAgentSessionIdentity.review(specialist));
     }
 
     /** Stable M5-Q01 Prompt, Tool, Skill and runtime-identity escalation attack set. */

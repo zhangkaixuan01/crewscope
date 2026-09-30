@@ -2,6 +2,7 @@ package io.crewscope.domain.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -145,19 +146,34 @@ class WorkspacePolicyTest {
     void rejectsNetworkWritableRootCommandTimeoutAndTamperedHash() {
         Fixture fixture = Fixture.create();
 
+        // M9b-Q02: every SandboxNetworkMode tier up to RESTRICTED_EGRESS is now a legal
+        // deployment choice; only a writable root, an over-budget command timeout or a
+        // tampered hash still close the policy.
+        assertNotNull(fixture.workspacePolicy(
+                fixture.paths,
+                fixture.policy,
+                new SandboxResourceBudget(
+                        SandboxNetworkMode.RESTRICTED_EGRESS,
+                        2,
+                        2_048,
+                        256,
+                        900,
+                        1_048_576,
+                        true),
+                fixture.operations));
         assertThrows(
                 DomainValidationException.class,
                 () -> fixture.workspacePolicy(
                         fixture.paths,
                         fixture.policy,
                         new SandboxResourceBudget(
-                                SandboxNetworkMode.LOOPBACK_ONLY,
+                                SandboxNetworkMode.NONE,
                                 2,
                                 2_048,
                                 256,
                                 900,
                                 1_048_576,
-                                true),
+                                false),
                         fixture.operations));
         assertThrows(
                 DomainValidationException.class,

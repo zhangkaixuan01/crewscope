@@ -119,7 +119,9 @@ export class HttpTaskGateway implements TaskGateway {
       `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}`
         + `/work-projects/${segment(projectId)}/work-items/${segment(workItemId)}/tasks/preflight`,
       selection,
-      { signal },
+      // A denied preflight is the guided state the form shows on purpose (M9b-Q02); it must not
+      // fire the F05 forbidden sink and wipe the draft the configure-return trip preserves.
+      { signal, preview: true },
     )
     return mapDelegationPreflight(value)
   }

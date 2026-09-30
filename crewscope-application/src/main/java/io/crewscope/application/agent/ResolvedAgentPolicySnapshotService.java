@@ -37,11 +37,13 @@ public final class ResolvedAgentPolicySnapshotService {
             throw new IllegalArgumentException(
                     "PolicySnapshot request and resolved configuration must share an Agent");
         }
-        PolicySnapshot snapshot = PolicySnapshot.initialV2(
+        PolicySnapshot snapshot = PolicySnapshot.initialV2ForRole(
                 required.snapshotId(),
                 required.task(),
                 required.execution(),
                 required.executor(),
+                required.pinnedRole(),
+                required.responsibilitySnapshot(),
                 resolved,
                 required.capabilities(),
                 required.allowedTools(),

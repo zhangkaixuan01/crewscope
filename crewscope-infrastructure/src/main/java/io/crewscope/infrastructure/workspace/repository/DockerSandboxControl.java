@@ -15,4 +15,10 @@ interface DockerSandboxControl {
     void stop(String exactContainerName, Duration gracefulTimeout);
 
     void remove(String exactContainerName);
+
+    /**
+     * Idempotently ensures an isolated user-defined bridge network exists for restricted egress.
+     * A network of the same name with a different driver is rejected, never reused.
+     */
+    void ensureBridgeNetwork(String exactNetworkName);
 }

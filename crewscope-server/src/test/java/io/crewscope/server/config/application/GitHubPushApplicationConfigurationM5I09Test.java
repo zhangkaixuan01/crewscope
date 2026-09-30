@@ -42,9 +42,16 @@ class GitHubPushApplicationConfigurationM5I09Test {
                         .hasSingleBean(GitHubPushPort.class)
                         .hasSingleBean(GitHubPushAdapter.class));
 
-        runner().run(context -> context.assertThat()
-                .hasNotFailed()
-                .doesNotHaveBean(GitHubPushPort.class));
+        // Absence is a deployment-profile fact now (M9b-Q02 defect 27): the resolver the
+        // push boundary depends on lives in a later-scanned configuration class, so the
+        // old presence condition could never see it and silently dropped push from real
+        // deployments. A worker-capable composition without the boundary fails fast.
+        runner()
+                .withPropertyValues("crewscope.runtime.execution-profile=api")
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .doesNotHaveBean(GitHubPushPort.class));
+        runner().run(context -> context.assertThat().hasFailed());
     }
 
     @Test

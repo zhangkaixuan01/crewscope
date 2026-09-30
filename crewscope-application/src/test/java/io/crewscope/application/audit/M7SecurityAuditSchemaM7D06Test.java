@@ -63,7 +63,7 @@ class M7SecurityAuditSchemaM7D06Test {
 
     @Test
     void registersExactlyTenM7V1SecurityCoordinates() {
-        assertEquals(120, registry.size());
+        assertEquals(121, registry.size());
         assertDefinition(
                 "USER_ACCOUNT_REGISTERED",
                 AuditEventCategory.IDENTITY,

@@ -297,6 +297,29 @@ class GitHubRepositoryImportApplicationServiceM8Q02Test {
                         NOW));
     }
 
+    @Test
+    void getMissFailsWithTheStableJobNotFoundContract() {
+        OrganizationId organizationId = OrganizationId.generate();
+        Principal actor = actor(organizationId);
+        GitHubRepositoryImportJobRepository jobs = mock(
+                GitHubRepositoryImportJobRepository.class);
+        when(jobs.findById(any(), any(), any(), any())).thenReturn(Optional.empty());
+        UUID jobId = UUID.randomUUID();
+
+        GitHubRepositoryImportJobNotFoundException failure = assertThrows(
+                GitHubRepositoryImportJobNotFoundException.class,
+                () -> service(jobs).get(
+                        new TeamAccessContext(actor, true),
+                        organizationId,
+                        TeamId.generate(),
+                        WorkProjectId.generate(),
+                        jobId));
+        // The id rides along so the HTTP contract can answer 404 github_import_job_not_found
+        // instead of the old generic 500 (M9b-Q01 hardening for get/cancel/retry, which all
+        // funnel through this lookup).
+        assertEquals(jobId, failure.jobId());
+    }
+
     private static GitHubRepositoryImportApplicationService service(
             GitHubRepositoryImportJobRepository jobs) {
         return new GitHubRepositoryImportApplicationService(

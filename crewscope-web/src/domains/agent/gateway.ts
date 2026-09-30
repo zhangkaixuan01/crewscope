@@ -128,7 +128,9 @@ export class HttpAgentGateway implements AgentGateway {
     const value = await this.client.post<AgentModelPreflight>(
       `${profileRoot(scope, profileId)}/model-preflight`,
       { executionScope },
-      { signal },
+      // A denied preflight is the configuration gap the settings page shows on purpose (M9b-Q02);
+      // it must not fire the F05 forbidden sink and wipe the team's local drafts.
+      { signal, preview: true },
     )
     return mapPreflight(value)
   }

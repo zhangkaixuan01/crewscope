@@ -8,6 +8,7 @@ import io.crewscope.application.conversation.ConversationEventCursorExpiredExcep
 import io.crewscope.application.error.ApplicationErrorMapper;
 import io.crewscope.application.execution.PlatformExecutionContextResolutionException;
 import io.crewscope.application.github.GitHubProviderException;
+import io.crewscope.application.github.GitHubRepositoryImportJobNotFoundException;
 import io.crewscope.application.collaboration.LarkConnectionPreflightException;
 import io.crewscope.application.inbox.InboxCursorExpiredException;
 import io.crewscope.application.identity.CurrentAccountMutationException;
@@ -319,6 +320,17 @@ public class ApiExceptionHandler {
                     false,
                     null,
                     Map.of("reason", credentialFailure.error().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof GitHubRepositoryImportJobNotFoundException jobNotFound) {
+            return response(
+                    HttpStatus.NOT_FOUND,
+                    "github_import_job_not_found",
+                    jobNotFound.getMessage(),
+                    false,
+                    null,
+                    Map.of("jobId", jobNotFound.jobId().toString()),
                     correlationId,
                     exchange);
         }

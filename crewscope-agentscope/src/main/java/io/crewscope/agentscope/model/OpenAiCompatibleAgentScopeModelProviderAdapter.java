@@ -61,6 +61,12 @@ public final class OpenAiCompatibleAgentScopeModelProviderAdapter
                 .generateOptions(safeOptions);
         if (request.formatterPolicy() == AgentScopeFormatterPolicy.DEEPSEEK) {
             builder.formatter(new DeepSeekFormatter());
+            // Defect 18 (M9b-Q02): the DeepSeek catalog is thinking-mode only, and thinking
+            // rejects the forced tool_choice the bounded structured-delivery call needs. The
+            // adapter has no request-body extension point, so the rewrite rides the transport
+            // for DeepSeek policy only — other OpenAI-compatible providers keep the default.
+            builder.httpTransport(new ThinkingModeToolChoiceTransport(
+                    io.agentscope.core.model.transport.HttpTransportFactory.getDefault()));
         } else {
             builder.formatter(new OpenAIChatFormatter());
         }

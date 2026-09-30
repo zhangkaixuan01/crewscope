@@ -119,7 +119,7 @@ flowchart TB
 
 首次启动自动生成配置和随机密钥、构建镜像并初始化数据库。打开 `http://<服务器地址>:8080`（本机用 `127.0.0.1`），注册账号后创建团队。Operator 用户名为 `crewscope-monitor`，初始密码保存在 `deploy/team-beta/.runtime/bootstrap_password`。
 
-只有四个长期运行服务：**PostgreSQL、Redis、API、Web**。API 同时运行 Worker，保留个人对话、普通任务执行、仓库导入和 Coding/Review 运行能力。模型、GitHub、飞书需另外配置；当前构建方案仅内置 Maven/Java 17，尚无完整的自定义构建方案管理页面。远端 HTTP 的浏览器兼容及 GitHub 空环境导入断点已纳入 M9b、尚未修复，详见上方 Review；不能将“服务启动成功”视为全部业务路径已经验收。
+只有四个长期运行服务：**PostgreSQL、Redis、API、Web**。API 同时运行 Worker，保留个人对话、普通任务执行、仓库导入和 Coding/Review 运行能力。模型（DeepSeek）、GitHub、飞书需另外配置，配置主线（启动 → 第一条回复 → 第一个 Coding 任务 → 审查/PR → 失败恢复）见[运维手册](docs/runbooks/Team-Beta单机运维手册.md)；当前构建方案仅内置 Maven/Java 17，尚无完整的自定义构建方案管理页面。远端 HTTP 下的页面提交兼容与 GitHub 未知导入的错误呈现已在 M9b 修复并有[真实栈验证入口](docs/testing/M9b-Q02-Release-Gate.md)；模型/GitHub 真实凭据链路需自行配置后按该文档复验，不能将“服务启动成功”视为全部业务路径已经验收。
 
 不需要证书、域名、外部 Secret 目录、镜像 Digest、监控栈或 Socket Proxy。默认 HTTP，Web 发布 8080；数据库与 Redis 不发布宿主端口。Coding 使用本机 Docker Socket 创建 Sandbox，脚本自动准备执行目录和 Socket 组权限；应用因此具备管理本机 Docker 的权限，适用于自己的单机或团队专用主机。
 
@@ -248,7 +248,7 @@ Team Beta MVP 采用固定攻击集、故障集、真实 Linux Release Candidate
 
 完整发布证据见 [M7-Q04 Release Gate](docs/testing/M7-Q04-Release-Gate.md)，前端收口证据见 [M7-F08 认证与 Onboarding 前端收口](docs/testing/M7-F08-认证与Onboarding前端收口.md)，持续集成状态见 [GitHub Actions](https://github.com/zhangkaixuan01/crewscope/actions/workflows/ci.yml)。
 
-README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release Gate 文档记录的 Git Revision、Artifact 和 CI Run；它们不会随当前工作区自动更新。当前前端全生产代码 Coverage 基线、分层门禁和验证命令见 [M8-Q01 质量反馈与分层门禁](docs/testing/M8-Q01-质量反馈与分层门禁.md)；M9 的十二项体验门禁、计数式基线与当前回归值见 [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)。
+README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release Gate 文档记录的 Git Revision、Artifact 和 CI Run；它们不会随当前工作区自动更新。当前前端全生产代码 Coverage 基线、分层门禁和验证命令见 [M8-Q01 质量反馈与分层门禁](docs/testing/M8-Q01-质量反馈与分层门禁.md)；M9 的十二项体验门禁、计数式基线与当前回归值见 [M9-Q01 质量门禁与基线](docs/testing/M9-Q01-质量门禁与基线.md)；M9b 的真实栈场景矩阵（含真实 DeepSeek 回复与 GitHub 全链凭据门控行）见 [M9b-Q02 Release Gate](docs/testing/M9b-Q02-Release-Gate.md)。
 
 本地执行完整 Release Gate：
 
@@ -273,7 +273,7 @@ README 中的 M6/M7 数字均为历史发布证据，分别绑定对应 Release 
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP。默认路径为从源码构建的四服务 HTTP Compose，API 内含 Worker，Coding Sandbox 使用本机 Docker。模型与协作凭据需要自行配置，监控、TLS 和高可用按需扩展。M9 已交付体验基础，下一步先完成 M9b 的核心路径与真实使用验收，再进入 M10 知识闭环；未执行的真实环境与外部 Provider 验收保持待执行。
+当前交付形态为可自部署的 Team Beta MVP。默认路径为从源码构建的四服务 HTTP Compose，API 内含 Worker，Coding Sandbox 使用本机 Docker。模型与协作凭据需要自行配置，监控、TLS 和高可用按需扩展。M9b 已完成核心路径的真实栈验收（真实 DeepSeek 回复链全验、GitHub 连接到 Coding 执行与审查的真实链路验证，见 [M9b-Q02 Release Gate](docs/testing/M9b-Q02-Release-Gate.md)）；已知边界：Coding Sandbox 无网络，依赖联网拉取的构建栈（如官方 Maven 镜像）无法在沙箱内完成测试验证，下一阶段进入 M10 知识闭环。
 
 ## 参与贡献
 

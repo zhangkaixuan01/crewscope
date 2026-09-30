@@ -2,6 +2,7 @@ package io.crewscope.application.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -246,6 +247,13 @@ class AgentTaskCreationServiceA05Test {
                 eventCaptor.getAllValues().get(0).eventType().value());
         assertEquals("TASK_DELEGATED_TO_AGENT",
                 eventCaptor.getAllValues().get(1).eventType().value());
+        // The composite command appends two events under one client key: the store's
+        // one-event-per-key constraint requires the nested assignment fact to derive its own
+        // deterministic key ('#' can never appear in a client command key).
+        assertEquals(Optional.of("assign-and-start-1#executor-assigned"),
+                eventCaptor.getAllValues().get(0).idempotencyKey());
+        assertEquals(Optional.of("assign-and-start-1"),
+                eventCaptor.getAllValues().get(1).idempotencyKey());
         verify(outbox, times(2)).enqueue(any());
 
         ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
@@ -262,6 +270,63 @@ class AgentTaskCreationServiceA05Test {
         assertEquals(result.task().id().value(), coordinate.resourceId());
         assertEquals(Optional.of(projectId), coordinate.projectId());
         assertEquals("DELEGATE_WORK_ITEM_TO_AGENT", coordinate.commandType());
+    }
+
+    /**
+     * M9b-Q02 regression: assign-and-start stamps the executor assignment at the command's own
+     * occurredAt. On a real clock a fresh now() taken inside the assignment service ticks past
+     * the responsibility snapshot captured at that same occurredAt, and the snapshot's acceptedAt
+     * ordering rejects the first delegation with 422 — constant test clocks hid the race (the
+     * real stack caught it).
+     */
+    @Test
+    void assignAndStartStampsTheExecutorAssignmentAtTheCommandTimestamp() {
+        when(assignments.findActiveByWorkItem(organizationId, workItem.id()))
+                .thenReturn(List.of(ownerAssignment));
+        // The assignment service runs one second past the command's clock; the nested write must
+        // not consult it for its acceptedAt.
+        AgentTaskCreationService realClockService = new AgentTaskCreationService(
+                accessPolicy,
+                workItems,
+                assignments,
+                principals,
+                profiles,
+                conversations,
+                bindings,
+                repositoryBindings,
+                repositoryPreflight,
+                buildProfiles,
+                codingTargets,
+                tasks,
+                executions,
+                policies,
+                overlays,
+                links,
+                events,
+                conversationEvents,
+                taskEvents,
+                outbox,
+                receipts,
+                transactions,
+                () -> NOW,
+                policySpec,
+                null,
+                null,
+                new ResponsibilityAssignmentService(
+                        assignments, transactions, () -> UtcTimestamp.parse("2026-09-25T08:00:01Z")));
+
+        CommandExecution<AgentTaskCreationResult> execution = realClockService.create(
+                context(owner, "assign-and-start-clock"),
+                teamId, projectId, workItem.id(), commandWithAssignment());
+
+        assertFalse(execution.replayed());
+        ArgumentCaptor<ResponsibilityAssignment> assignmentCaptor =
+                ArgumentCaptor.forClass(ResponsibilityAssignment.class);
+        verify(assignments).create(assignmentCaptor.capture());
+        assertEquals(NOW, assignmentCaptor.getValue().acceptedAt());
+        // The snapshot captured at the same NOW validates the ordering instead of rejecting it.
+        assertEquals(2, execution.result().orElseThrow().task()
+                .responsibilitySnapshot().entries().size());
     }
 
     @Test
@@ -357,6 +422,82 @@ class AgentTaskCreationServiceA05Test {
                 .equals(reservations.getAllValues().get(1).requestHash()));
     }
 
+    /**
+     * M9b-Q02 regression: the preflight endpoint promises the exact graph a Task creation would
+     * pin, so an assign-and-start preview must evaluate the executor assignment that command
+     * commits first — as a transient merge, never a write. The first real-stack run caught the
+     * previous behaviour rejecting the not-yet-assigned agent with RESPONSIBILITY_REQUIRED,
+     * which deadlocked the page's first delegation (submit is gated on an approved preflight).
+     */
+    @Test
+    void previewMergesThePlannedExecutorAssignmentWithoutCommittingIt() {
+        TaskAgentSelectionService selection = mock(TaskAgentSelectionService.class);
+        service = serviceWith(selection);
+        when(accessPolicy.requireVisibleWorkItem(
+                any(), eq(organizationId), eq(teamId), eq(projectId), eq(workItem.id())))
+                .thenReturn(workItem);
+        when(assignments.findActiveByWorkItem(organizationId, workItem.id()))
+                .thenReturn(List.of(ownerAssignment));
+        TaskAgentExecutionSelection resolved = mock(TaskAgentExecutionSelection.class);
+        when(selection.resolve(any(), any(), any(), any(), any())).thenReturn(resolved);
+
+        TaskAgentExecutionSelection previewed = service.preview(
+                new TeamAccessContext(owner, false),
+                teamId,
+                projectId,
+                workItem.id(),
+                TaskAgentSelectionRequest.current(profile.id()),
+                Optional.of(profile.id()));
+
+        assertSame(resolved, previewed);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ResponsibilityAssignment>> chain =
+                ArgumentCaptor.forClass((Class<List<ResponsibilityAssignment>>) (Class<?>) List.class);
+        verify(selection).resolve(
+                any(), eq(workItem), chain.capture(),
+                eq(TaskAgentSelectionRequest.current(profile.id())), eq(NOW));
+        assertTrue(chain.getValue().stream().anyMatch(value ->
+                value.role() == ResponsibilityRole.EXECUTOR
+                        && value.actorPrincipalId().equals(executor.id())));
+        // The hypothetical assignment is preview-only: no responsibility write, no fact.
+        verify(assignments, never()).create(any());
+        verify(events, never()).append(any());
+        verify(accessPolicy).requirePermission(
+                any(), eq(organizationId), eq(teamId), eq(projectId), eq(workItem.id()),
+                eq(TeamPermission.RESPONSIBILITY_MANAGE), eq(NOW),
+                eq("manage this WorkItem's responsibilities"));
+    }
+
+    /** Without a planned assignment the preview keeps inspecting the current chain verbatim. */
+    @Test
+    void previewWithoutAPlannedAssignmentPreflightsTheCurrentChain() {
+        TaskAgentSelectionService selection = mock(TaskAgentSelectionService.class);
+        service = serviceWith(selection);
+        when(accessPolicy.requireVisibleWorkItem(
+                any(), eq(organizationId), eq(teamId), eq(projectId), eq(workItem.id())))
+                .thenReturn(workItem);
+        when(assignments.findActiveByWorkItem(organizationId, workItem.id()))
+                .thenReturn(List.of(ownerAssignment));
+        TaskAgentExecutionSelection resolved = mock(TaskAgentExecutionSelection.class);
+        when(selection.resolve(any(), any(), any(), any(), any())).thenReturn(resolved);
+
+        service.preview(
+                new TeamAccessContext(owner, false),
+                teamId,
+                projectId,
+                workItem.id(),
+                TaskAgentSelectionRequest.current(profile.id()),
+                Optional.empty());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ResponsibilityAssignment>> chain =
+                ArgumentCaptor.forClass((Class<List<ResponsibilityAssignment>>) (Class<?>) List.class);
+        verify(selection).resolve(
+                any(), eq(workItem), chain.capture(), any(), eq(NOW));
+        assertEquals(List.of(ownerAssignment), chain.getValue());
+        verify(assignments, never()).create(any());
+    }
+
     @Test
     void assignmentInstructionMustTargetTheExecutionSelection() {
         AgentProfileId differentProfile = AgentProfileId.generate();
@@ -401,6 +542,38 @@ class AgentTaskCreationServiceA05Test {
                 ArgumentCaptor.forClass(DomainEventEnvelope.class);
         verify(events, times(1)).append(captor.capture());
         return captor.getValue();
+    }
+
+    /** Same composition as setUp but with a controllable selection service for preview tests. */
+    private AgentTaskCreationService serviceWith(TaskAgentSelectionService selection) {
+        return new AgentTaskCreationService(
+                accessPolicy,
+                workItems,
+                assignments,
+                principals,
+                profiles,
+                conversations,
+                bindings,
+                repositoryBindings,
+                repositoryPreflight,
+                buildProfiles,
+                codingTargets,
+                tasks,
+                executions,
+                policies,
+                overlays,
+                links,
+                events,
+                conversationEvents,
+                taskEvents,
+                outbox,
+                receipts,
+                transactions,
+                () -> NOW,
+                policySpec,
+                selection,
+                null,
+                new ResponsibilityAssignmentService(assignments, transactions, () -> NOW));
     }
 
     private TeamCommandContext context(Principal actor, String key) {

@@ -81,7 +81,7 @@ public final class ReviewController {
             ServerWebExchange exchange) {
         Route route = route(organizationId, teamId, taskId, executionId);
         CreateReviewRequestCommand command = new CreateReviewRequestCommand(
-                policySnapshotId(body.reviewerPolicySnapshotId()));
+                optionalPolicySnapshotId(body.reviewerPolicySnapshotId()));
         return command(authentication, route.organizationId(), key, exchange, context ->
                 requests.create(
                         context, route.teamId(), route.taskId(), route.executionId(), command));
@@ -101,7 +101,7 @@ public final class ReviewController {
         Route route = route(organizationId, teamId, taskId, executionId);
         ReviewRequestId predecessor = reviewRequestId(reviewRequestId);
         CreateReviewRequestCommand command = new CreateReviewRequestCommand(
-                policySnapshotId(body.reviewerPolicySnapshotId()));
+                optionalPolicySnapshotId(body.reviewerPolicySnapshotId()));
         return command(authentication, route.organizationId(), key, exchange, context ->
                 requests.reReview(
                         context, route.teamId(), route.taskId(), route.executionId(),
@@ -283,6 +283,13 @@ public final class ReviewController {
         }
     }
 
+    /** An absent id lets the platform resolve the advisory Reviewer Agent automatically. */
+    private static java.util.Optional<PolicySnapshotId> optionalPolicySnapshotId(String value) {
+        return value == null || value.isBlank()
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(policySnapshotId(value));
+    }
+
     private static ReviewDecisionType decisionType(String value) {
         try {
             return ReviewDecisionType.valueOf(value);
@@ -299,7 +306,7 @@ public final class ReviewController {
                 Map.of("field", field));
     }
 
-    public record CreateReviewBody(@NotBlank String reviewerPolicySnapshotId) {}
+    public record CreateReviewBody(String reviewerPolicySnapshotId) {}
 
     public record DecisionBody(
             @NotBlank String type,

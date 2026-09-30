@@ -100,6 +100,8 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
                 .orElseThrow(() -> unavailable("current ConnectionGrant"));
         PolicySnapshot policy = policies.findByExecution(
                         organizationId, confirmed.taskExecutionId()).stream()
+                .filter(value -> value.executionPrincipal().assignmentId().equals(
+                        executorSeat(organizationId, confirmed.workItemId()).id()))
                 .max(Comparator.comparingLong(PolicySnapshot::revision))
                 .orElseThrow(() -> unavailable("current PolicySnapshot"));
         SafetyEnforcementOverlay safety = safetyOverlays.findByExecution(
@@ -139,6 +141,21 @@ public final class CurrentActionAuthorityFactsResolver implements ActionAuthorit
             memberGuard.requireParticipation(
                     scope.organizationId(), scope.teamId(), owner.actorPrincipalId());
         }
+    }
+
+    /**
+     * The execution's policy chain is the executor's: the same attempt also carries the
+     * advisory reviewer's snapshot at its own revision 1, and action authority must read the
+     * coding agent's tool face, never the reviewer's.
+     */
+    private ResponsibilityAssignment executorSeat(
+            io.crewscope.domain.shared.id.OrganizationId organizationId,
+            io.crewscope.domain.workitem.WorkItemId workItemId) {
+        return responsibilities.findActiveByWorkItem(organizationId, workItemId).stream()
+                .filter(value -> value.role()
+                        == io.crewscope.domain.responsibility.ResponsibilityRole.EXECUTOR)
+                .findFirst()
+                .orElseThrow(() -> unavailable("current Executor responsibility"));
     }
 
     private static DomainValidationException unavailable(String fact) {

@@ -2,6 +2,7 @@ package io.crewscope.application.coding.output;
 
 import static io.crewscope.application.coding.output.CodingOutputPatterns.CANONICAL_UUID;
 import static io.crewscope.application.coding.output.CodingOutputPatterns.REPOSITORY_PATH;
+import static io.crewscope.application.coding.output.CodingOutputPatterns.REPOSITORY_PATH_OR_ROOT;
 import static io.crewscope.application.coding.output.CodingOutputPatterns.SHA_256;
 
 import io.crewscope.application.execution.StructuredOutputSpec;
@@ -40,8 +41,10 @@ public final class CodingStructuredOutputSpecs {
                 "codingTargetRevision", integer(1L, null),
                 "codingTargetHash", string(SHA_256, null),
                 "modules", array(string(null, 200), 0, 100),
-                "buildEntries", array(string(REPOSITORY_PATH, 1_024), 0, 50),
-                "relevantPaths", array(string(REPOSITORY_PATH, 1_024), 1, 500),
+                // Analysis root lists may name the whole repository as "." (the domain
+                // CodingTargetAllowedPaths vocabulary); diff file paths never do.
+                "buildEntries", array(string(REPOSITORY_PATH_OR_ROOT, 1_024), 0, 50),
+                "relevantPaths", array(string(REPOSITORY_PATH_OR_ROOT, 1_024), 1, 500),
                 "risks", array(string(null, 1_000), 0, 50),
                 "plan", array(string(null, 1_000), 1, 100)));
     }

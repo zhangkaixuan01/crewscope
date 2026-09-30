@@ -9,6 +9,7 @@ import io.crewscope.application.action.ActionReceiptRepository;
 import io.crewscope.application.action.ActionWorker;
 import io.crewscope.application.action.ActionWorkerEventPublisher;
 import io.crewscope.application.action.ConfirmationRepository;
+import io.crewscope.application.action.ExternalResultMerger;
 import io.crewscope.application.action.GitHubRepositoryPolicyResolver;
 import io.crewscope.application.coding.CodingTargetSnapshotRepository;
 import io.crewscope.application.coding.RepositoryBindingRepository;
@@ -30,12 +31,14 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /** Conditional Spring composition and bounded configuration proof for the M5-I11 Worker. */
 class ActionWorkerApplicationConfigurationM5I11Test {
 
     @Test
-    void wiresWorkerAndSchedulerOnlyWhenBothGitHubWriteBoundariesExist() {
+    void wiresWorkerAndSchedulerOnlyInWorkerCapableProfiles() {
         runner(true).run(context -> context.assertThat()
                 .hasNotFailed()
                 .hasSingleBean(ActionWorker.class)
@@ -45,6 +48,30 @@ class ActionWorkerApplicationConfigurationM5I11Test {
                 .hasNotFailed()
                 .doesNotHaveBean(ActionWorker.class)
                 .doesNotHaveBean(ActionWorkerScheduler.class));
+    }
+
+    @Test
+    void wiresTheWorkerWhenTheGitHubWritePortsRegisterAfterThisConfiguration() {
+        // Component-scan registration follows class order: this configuration sorts before
+        // GitHubProviderApplicationConfiguration, the class that defines the GitHub write
+        // ports in production. A presence condition evaluated at registration time cannot
+        // see beans a later class has not registered yet — exactly how real deployments
+        // silently lost the delivery worker while withBean-ordered tests stayed green
+        // (M9b-Q02 defect 27). Late-registered collaborators must still wire by injection.
+        baseRunner()
+                .withUserConfiguration(LateGitHubWriteBoundaries.class)
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(ActionWorker.class)
+                        .hasSingleBean(ActionWorkerScheduler.class));
+    }
+
+    @Test
+    void failsFastWhenAWorkerCapableCompositionLacksTheGitHubWritePorts() {
+        // Absence is a deployment-profile fact, not an incidental bean-presence fact: a
+        // worker-capable composition that cannot resolve the write ports fails at startup
+        // instead of silently running without its delivery fleet.
+        baseRunner().run(context -> context.assertThat().hasFailed());
     }
 
     @Test
@@ -87,8 +114,19 @@ class ActionWorkerApplicationConfigurationM5I11Test {
                 .run(context -> context.assertThat().hasFailed());
     }
 
-    private ApplicationContextRunner runner(boolean includeGitHubWrites) {
-        ApplicationContextRunner runner = new ApplicationContextRunner()
+    private ApplicationContextRunner runner(boolean workerCapableProfile) {
+        ApplicationContextRunner runner = baseRunner()
+                .withBean(GitHubPushPort.class, () -> mock(GitHubPushPort.class))
+                .withBean(GitHubDraftPullRequestPort.class,
+                        () -> mock(GitHubDraftPullRequestPort.class));
+        if (workerCapableProfile) {
+            return runner;
+        }
+        return runner.withPropertyValues("crewscope.runtime.execution-profile=api");
+    }
+
+    private ApplicationContextRunner baseRunner() {
+        return new ApplicationContextRunner()
                 .withUserConfiguration(ActionWorkerApplicationConfiguration.class)
                 .withBean(GitHubProviderProperties.class, GitHubProviderProperties::new)
                 .withBean(ActionDispatchRepository.class, () -> mock(ActionDispatchRepository.class))
@@ -99,17 +137,26 @@ class ActionWorkerApplicationConfigurationM5I11Test {
                         () -> mock(ActionAuthorityFactsResolver.class))
                 .withBean(GitHubRepositoryPolicyResolver.class,
                         () -> mock(GitHubRepositoryPolicyResolver.class))
+                .withBean(ExternalResultMerger.class, () -> mock(ExternalResultMerger.class))
                 .withBean(ActionWorkerEventPublisher.class,
                         () -> mock(ActionWorkerEventPublisher.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withBean(TimeProvider.class, () -> mock(TimeProvider.class));
-        if (!includeGitHubWrites) {
-            return runner;
+    }
+
+    /** Stand-in for GitHubProviderApplicationConfiguration: registers after the worker config. */
+    @Configuration(proxyBeanMethods = false)
+    static class LateGitHubWriteBoundaries {
+
+        @Bean
+        GitHubPushPort gitHubPushPort() {
+            return mock(GitHubPushPort.class);
         }
-        return runner
-                .withBean(GitHubPushPort.class, () -> mock(GitHubPushPort.class))
-                .withBean(GitHubDraftPullRequestPort.class,
-                        () -> mock(GitHubDraftPullRequestPort.class));
+
+        @Bean
+        GitHubDraftPullRequestPort gitHubDraftPullRequestPort() {
+            return mock(GitHubDraftPullRequestPort.class);
+        }
     }
 
     private ApplicationContextRunner compositionRunner() {
@@ -146,6 +193,7 @@ class ActionWorkerApplicationConfigurationM5I11Test {
                 .withBean(GitHubPushPort.class, () -> mock(GitHubPushPort.class))
                 .withBean(GitHubDraftPullRequestPort.class,
                         () -> mock(GitHubDraftPullRequestPort.class))
+                .withBean(ExternalResultMerger.class, () -> mock(ExternalResultMerger.class))
                 .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
                 .withBean(TimeProvider.class, () -> mock(TimeProvider.class));
     }

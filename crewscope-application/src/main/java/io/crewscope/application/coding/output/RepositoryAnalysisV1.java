@@ -1,7 +1,7 @@
 package io.crewscope.application.coding.output;
 
 import static io.crewscope.application.coding.output.CodingOutputPatterns.CANONICAL_UUID;
-import static io.crewscope.application.coding.output.CodingOutputPatterns.REPOSITORY_PATH;
+import static io.crewscope.application.coding.output.CodingOutputPatterns.REPOSITORY_PATH_OR_ROOT;
 import static io.crewscope.application.coding.output.CodingOutputPatterns.SHA_256;
 import static io.crewscope.application.coding.output.CodingOutputPatterns.VERSION_ONE;
 
@@ -27,9 +27,9 @@ public record RepositoryAnalysisV1(
         @JsonProperty(required = true) @NotNull @Size(max = 100)
                 List<@NotBlank @Size(max = 200) String> modules,
         @JsonProperty(required = true) @NotNull @Size(max = 50)
-                List<@NotBlank @Pattern(regexp = REPOSITORY_PATH) String> buildEntries,
+                List<@NotBlank @Pattern(regexp = REPOSITORY_PATH_OR_ROOT) String> buildEntries,
         @JsonProperty(required = true) @NotNull @Size(min = 1, max = 500)
-                List<@NotBlank @Pattern(regexp = REPOSITORY_PATH) String> relevantPaths,
+                List<@NotBlank @Pattern(regexp = REPOSITORY_PATH_OR_ROOT) String> relevantPaths,
         @JsonProperty(required = true) @NotNull @Size(max = 50)
                 List<@NotBlank @Size(max = 1_000) String> risks,
         @JsonProperty(required = true) @NotNull @Size(min = 1, max = 100)

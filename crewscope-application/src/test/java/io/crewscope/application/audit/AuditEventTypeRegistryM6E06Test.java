@@ -21,7 +21,7 @@ class AuditEventTypeRegistryM6E06Test {
 
     @Test
     void registersTheReviewedM3ToM7Coordinates() {
-        assertEquals(120, registry.size());
+        assertEquals(121, registry.size());
         assertCategory("TEAM_MEMBER_SUSPENDED", SchemaVersion.V1, AuditEventCategory.TEAM);
         assertCategory("TEAM_OWNERSHIP_TRANSFERRED", SchemaVersion.V1, AuditEventCategory.TEAM);
         assertCategory("WORK_ITEM_CONTENT_UPDATED", SchemaVersion.V1, AuditEventCategory.WORK);

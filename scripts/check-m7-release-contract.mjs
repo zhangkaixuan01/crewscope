@@ -102,6 +102,8 @@ assert.ok(!backendPaths.test('docs/plans/README.md'), 'Documentation alone must 
 const defaultPlaywright = readFileSync(join(root, 'crewscope-web/playwright.config.ts'), 'utf8')
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-two-user-real\.spec\.ts/)
 assert.match(defaultPlaywright, /testIgnore:[\s\S]*m7-registration-profiles-real\.spec\.ts/)
+assert.match(defaultPlaywright, /testIgnore:[\s\S]*m9b-q01\/\*\*/)
+assert.match(defaultPlaywright, /testIgnore:[\s\S]*m9b-q02\/\*\*/)
 
 /*
  * Zero skipped or focused tests, with one distinction the pattern has to make. The browser matrix runs

@@ -166,16 +166,27 @@ public class RuntimeWorkerProperties {
         private String runtimeKey = "agentscope-java";
         private String displayName = "AgentScope Java";
         private String implementationVersion = "2.0.0";
+        // The in-process runtime executes Tasks itself, so the advertised set must cover every
+        // capability TaskRuntimeCapabilityResolver requires (TASK_EXECUTION, DURABLE_EVENT_STREAM,
+        // PAUSE_RESUME for any Task; SANDBOX and WORKTREE for coding targets — the execution root
+        // and worktrees live on this process's filesystem). The previous defaults omitted them and
+        // the claim scheduler found no compatible carrier, leaving every created Task in
+        // WAITING(RUNTIME) forever (first real-stack Task exposed it).
         private Set<RuntimeCapability> capabilities = EnumSet.of(
                 RuntimeCapability.CONVERSATION,
+                RuntimeCapability.TASK_EXECUTION,
                 RuntimeCapability.STREAMING,
+                RuntimeCapability.DURABLE_EVENT_STREAM,
                 RuntimeCapability.STRUCTURED_OUTPUT,
                 RuntimeCapability.INTERRUPT_RESUME,
+                RuntimeCapability.PAUSE_RESUME,
                 RuntimeCapability.CANCEL,
                 RuntimeCapability.SESSION_STATE,
                 RuntimeCapability.PLAN,
                 RuntimeCapability.EXTERNAL_TOOL,
-                RuntimeCapability.DISTRIBUTED_STATE);
+                RuntimeCapability.DISTRIBUTED_STATE,
+                RuntimeCapability.SANDBOX,
+                RuntimeCapability.WORKTREE);
         private Set<String> languages = new LinkedHashSet<>();
         private Set<String> buildSystems = new LinkedHashSet<>();
         private Worker worker = new Worker();

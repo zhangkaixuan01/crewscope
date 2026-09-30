@@ -131,6 +131,8 @@ const props = defineProps<{
   onSelectReview: (reviewRequestId: string) => void
   onRetryReviews: () => void
   onRetryReviewDetail: () => void
+  canCreateReview: boolean
+  onCreateReview: () => Promise<boolean>
   onExecuteReviewer: () => Promise<boolean>
   onDecideReview: (input: ReviewDecisionInput) => Promise<boolean>
   onRequestReviewChanges: (rationale: string) => Promise<boolean>
@@ -528,11 +530,13 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                 :coding-attempt="codingAttempt"
                 :tests="codingTests"
                 :can-gate="canGateReview"
+                :can-create="canCreateReview"
                 :online="online"
                 :command="reviewCommand"
                 :on-select="onSelectReview"
                 :on-retry-list="onRetryReviews"
                 :on-retry-detail="onRetryReviewDetail"
+                :on-create="onCreateReview"
                 :on-execute="onExecuteReviewer"
                 :on-decide="onDecideReview"
                 :on-request-changes="onRequestReviewChanges"

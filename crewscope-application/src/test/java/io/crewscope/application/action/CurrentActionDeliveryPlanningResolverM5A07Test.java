@@ -38,6 +38,8 @@ import io.crewscope.domain.provider.ProviderCapabilities;
 import io.crewscope.domain.provider.ProviderExecutionIdentity;
 import io.crewscope.domain.provider.ProviderResourceScope;
 import io.crewscope.domain.responsibility.ResponsibilityAssignment;
+import io.crewscope.domain.responsibility.ResponsibilityAssignmentId;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.review.ContextPackage;
 import io.crewscope.domain.review.ContextPackageId;
 import io.crewscope.domain.review.ContextPackageReference;
@@ -52,6 +54,7 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.task.ExecutionPrincipalSnapshot;
 import io.crewscope.domain.task.PolicySnapshot;
 import io.crewscope.domain.task.SafetyEnforcementOverlay;
 import io.crewscope.domain.task.TaskExecutionId;
@@ -169,7 +172,7 @@ class CurrentActionDeliveryPlanningResolverM5A07Test {
             when(binding.executionIdentity())
                     .thenReturn(Optional.of(ProviderExecutionIdentity.TEAM_SERVICE_ACCOUNT));
             when(binding.effectiveAccess()).thenReturn(new ProviderAccessScope(
-                    ProviderCapabilities.of("source.write", "pull-request.create"),
+                    ProviderCapabilities.of("source.repository.push", "source.pull-request.create"),
                     ProviderResourceScope.of(grantedResource)));
             when(bindings.findById(organizationId, bindingId)).thenReturn(Optional.of(binding));
             Connection connection = mock(Connection.class);
@@ -179,8 +182,30 @@ class CurrentActionDeliveryPlanningResolverM5A07Test {
                     .thenReturn(Optional.of(connection));
             when(grants.findById(organizationId, grantId))
                     .thenReturn(Optional.of(mock(ConnectionGrant.class)));
+            // The attempt carries both the executor chain and the advisory reviewer's snapshot;
+            // a reviewer snapshot at a higher revision must never become the delivery policy.
+            ResponsibilityAssignmentId executorAssignmentId =
+                    ResponsibilityAssignmentId.generate();
+            ResponsibilityAssignment executorSeat = mock(ResponsibilityAssignment.class);
+            when(executorSeat.id()).thenReturn(executorAssignmentId);
+            when(executorSeat.role()).thenReturn(ResponsibilityRole.EXECUTOR);
+            when(responsibilities.findActiveByWorkItem(organizationId, workItemId))
+                    .thenReturn(List.of(executorSeat));
+            PolicySnapshot executorPolicy = mock(PolicySnapshot.class);
+            ExecutionPrincipalSnapshot executorPrincipal =
+                    mock(ExecutionPrincipalSnapshot.class);
+            when(executorPrincipal.assignmentId()).thenReturn(executorAssignmentId);
+            when(executorPolicy.executionPrincipal()).thenReturn(executorPrincipal);
+            when(executorPolicy.revision()).thenReturn(1L);
+            PolicySnapshot reviewerPolicy = mock(PolicySnapshot.class);
+            ExecutionPrincipalSnapshot reviewerPrincipal =
+                    mock(ExecutionPrincipalSnapshot.class);
+            when(reviewerPrincipal.assignmentId())
+                    .thenReturn(ResponsibilityAssignmentId.generate());
+            when(reviewerPolicy.executionPrincipal()).thenReturn(reviewerPrincipal);
+            when(reviewerPolicy.revision()).thenReturn(2L);
             when(policies.findByExecution(organizationId, executionId))
-                    .thenReturn(List.of(mock(PolicySnapshot.class)));
+                    .thenReturn(List.of(executorPolicy, reviewerPolicy));
             when(overlays.findByExecution(organizationId, executionId))
                     .thenReturn(List.of(mock(SafetyEnforcementOverlay.class)));
             CodingTargetSnapshot target = mock(CodingTargetSnapshot.class);

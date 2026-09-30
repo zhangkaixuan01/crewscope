@@ -213,11 +213,11 @@ public final class WorkspacePolicy {
         SandboxResourceBudget requiredSandbox = Objects.requireNonNull(sandbox, "sandboxBudget");
         WorkspaceOperationBudget requiredOperations = Objects.requireNonNull(
                 operations, "operationBudget");
-        if (requiredSandbox.networkMode() != SandboxNetworkMode.NONE
+        if (!requiredSandbox.networkMode().isNoBroaderThan(SandboxNetworkMode.RESTRICTED_EGRESS)
                 || !requiredSandbox.readOnlyRootFilesystem()) {
             throw new DomainValidationException(
                     "workspacePolicy.sandboxResourceBudget",
-                    "M4 requires no network and a read-only root filesystem");
+                    "M9b requires at most restricted egress and a read-only root filesystem");
         }
         if (catalog.maximumCommandTimeoutSeconds() > requiredSandbox.maxCommandDurationSeconds()
                 || requiredSandbox.maxCommandDurationSeconds() > policy.budget().maxDurationSeconds()) {
@@ -240,12 +240,12 @@ public final class WorkspacePolicy {
             throw new DomainValidationException(
                     "workspacePolicy.commandCatalog", "must contain at least one command");
         }
-        if (sandbox.networkMode() != SandboxNetworkMode.NONE
+        if (!sandbox.networkMode().isNoBroaderThan(SandboxNetworkMode.RESTRICTED_EGRESS)
                 || !sandbox.readOnlyRootFilesystem()
                 || catalog.maximumCommandTimeoutSeconds() > sandbox.maxCommandDurationSeconds()) {
             throw new DomainValidationException(
                     "workspacePolicy.sandboxResourceBudget",
-                    "must preserve no-network, read-only-root and command-timeout boundaries");
+                    "must preserve restricted-egress, read-only-root and command-timeout boundaries");
         }
     }
 

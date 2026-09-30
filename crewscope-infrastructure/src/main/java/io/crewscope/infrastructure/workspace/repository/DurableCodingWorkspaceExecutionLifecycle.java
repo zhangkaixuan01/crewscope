@@ -425,8 +425,11 @@ public final class DurableCodingWorkspaceExecutionLifecycle
     }
 
     private SandboxResourceBudget sandboxBudget() {
+        // M9b-Q02: coding agents run builds like a human developer does — dependencies are
+        // fetched over the network. RESTRICTED_EGRESS is an isolated user-defined bridge with
+        // outbound NAT only; the platform's internal compose networks stay unreachable.
         return new SandboxResourceBudget(
-                SandboxNetworkMode.NONE,
+                SandboxNetworkMode.RESTRICTED_EGRESS,
                 properties.getCpuCount(),
                 properties.getMemoryMib(),
                 properties.getPids(),

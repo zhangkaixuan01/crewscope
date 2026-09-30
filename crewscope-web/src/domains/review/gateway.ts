@@ -16,6 +16,7 @@ import type {
 } from './types'
 
 export interface ReviewGateway {
+  create?(scope: ReviewScope, coordinates: ReviewCoordinates, idempotencyKey: string, reviewerPolicySnapshotId?: string): Promise<CommandReceipt>
   list(scope: ReviewScope, coordinates: ReviewCoordinates, signal?: AbortSignal): Promise<ReviewSummary[]>
   get(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, signal?: AbortSignal): Promise<EtaggedReview>
   execute(scope: ReviewScope, coordinates: ReviewCoordinates, reviewRequestId: string, expectedVersion: number, idempotencyKey: string): Promise<ReviewerExecutionResult>
@@ -30,6 +31,20 @@ export interface ReviewGateway {
 /** M5-A05 adapter that admits only the member-safe Review projection. */
 export class HttpReviewGateway implements ReviewGateway {
   constructor(private readonly client: CrewScopeApiClient = apiClient) {}
+
+  /** M9b-Q02 review-gate path: an omitted snapshot lets the platform resolve the advisory Reviewer. */
+  async create(
+    scope: ReviewScope,
+    coordinates: ReviewCoordinates,
+    idempotencyKey: string,
+    reviewerPolicySnapshotId?: string,
+  ): Promise<CommandReceipt> {
+    return this.client.post<CommandReceipt>(
+      root(scope, coordinates),
+      reviewerPolicySnapshotId ? { reviewerPolicySnapshotId } : {},
+      { idempotencyKey },
+    ).then(mapReceipt)
+  }
 
   async list(scope: ReviewScope, coordinates: ReviewCoordinates, signal?: AbortSignal): Promise<ReviewSummary[]> {
     const value = await this.client.get<{ items: ReviewSummary[] }>(root(scope, coordinates), { signal })

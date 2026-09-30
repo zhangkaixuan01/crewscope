@@ -38,4 +38,6 @@ POST /api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projec
 
 取消只在 `REQUESTED/PREFLIGHTING` 阶段接受，并通过数据库条件更新与 Worker Claim 原子竞争。进入 `IMPORTING` 后已开始 Git I/O，取消返回稳定 `409 github_conflict`，避免将已产生的受管仓库或 Binding 伪装为已取消。`FAILED` 任务使用 Retry 重新复验当前 Connection、Grant 和 Catalog。
 
+查询、取消与重试命中的 `jobId` 在当前 WorkProject 范围内不存在时，三个端点统一返回稳定 `404 github_import_job_not_found`（`details.jobId` 回显请求坐标）；M9b-Q01 起该码取代历史上落到兜底 `500 internal_error` 的裸异常。
+
 `READY` 表示仓库已通过 canonical containment、Worker Owner、bare 格式和默认分支基线校验，并已出现在 WorkProject 受管 Repository Catalog 中，可以继续创建 CodingTarget。

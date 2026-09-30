@@ -42,6 +42,22 @@ export const MENUS = [
 ]
 
 /**
+ * M9b-Q01 制度化的视口矩阵六档。不扩 playwright projects（那会让全站截图基线双档重拍），
+ * 由 menu-matrix 在页内 `setViewportSize` 逐档遍历。档位跟着 design/tokens.css 的断点语义走：
+ * 1440/1100/1024 是宽屏三档——1100 是 `--cs-bp-lg`（AppShell 侧栏收起线，但导航仍常驻）；
+ * 767/390/320 是窄屏三档——767 是 `--cs-bp-md` 的排他下侧（媒体查询写不了
+ * `calc(var(--cs-bp-md) - 1px)`），从这档起 `.mobile-menu-toggle` 才显示，窄屏分支断言它。
+ */
+export const VIEWPORTS = [
+  { width: 1440, height: 900 },
+  { width: 1100, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 767, height: 1024 },
+  { width: 390, height: 844 },
+  { width: 320, height: 568 },
+] as const
+
+/**
  * 逐个菜单需要逐个菜单的数据，但这两条契约验的是呈现而不是数据，所以未命中的 GET 统一返回
  * 一个**形状合法的空结果**：分页列表给 `{ items: [], nextCursor: null }`，其余给 `{}`。
  * 页面因此渲染各自的空态——空态一样带工具条、筛选器与主操作按钮，正是要量的那些东西。

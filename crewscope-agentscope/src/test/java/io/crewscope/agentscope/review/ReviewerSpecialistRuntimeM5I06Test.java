@@ -77,6 +77,7 @@ import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.PolicySnapshotId;
 import io.crewscope.domain.task.RuntimeContentHash;
+import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.task.TaskId;
@@ -272,10 +273,16 @@ class ReviewerSpecialistRuntimeM5I06Test {
             when(identity.agentPrincipalId()).thenReturn(reviewerAgent.id());
             when(identity.agentProfileId()).thenReturn(profileId);
             when(identity.agentProfileVersion()).thenReturn(1L);
-            when(identity.agentScopeKey()).thenReturn(AgentScopeSessionKey.forTaskExecution(
+            AgentScopeSessionKey scopeKey = AgentScopeSessionKey.forTaskExecution(
                     scope.organizationId(), reviewerAgent.id(), executionId,
                     io.crewscope.domain.conversation.AgentRuntimeSessionId.forTaskExecution(
-                            executionId, Optional.empty(), profileId, "reviewer")));
+                            executionId, Optional.empty(), profileId, "reviewer"));
+            when(identity.agentScopeKey()).thenReturn(scopeKey);
+            // analyze() derives the RuntimeContext from the REVIEW session fact it publishes
+            // for the reviewer security chain (defect 20, M9b-Q02).
+            TaskAgentRuntimeSession reviewSession = mock(TaskAgentRuntimeSession.class);
+            when(reviewSession.agentScopeKey()).thenReturn(scopeKey);
+            when(identity.requireTaskSession()).thenReturn(reviewSession);
             return build;
         }
 

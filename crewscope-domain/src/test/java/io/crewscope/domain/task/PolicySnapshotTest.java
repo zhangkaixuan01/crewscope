@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.agent.ResolvedAgentExecutionTestFixture;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -112,6 +113,69 @@ class PolicySnapshotTest {
                 DomainValidationException.class,
                 () -> ExecutionPrincipalSnapshot.resolve(
                         fixture.task.responsibilitySnapshot(), fixture.base.reviewer));
+    }
+
+    @Test
+    void pinsAdvisoryReviewerSeatWithoutRequiringTheExecutorSeat() {
+        TaskPlanningFixture fixture = new TaskPlanningFixture();
+        ResolvedAgentExecutionConfiguration resolved =
+                ResolvedAgentExecutionTestFixture.create();
+
+        // An advisory Reviewer snapshot resolves the agent's own REVIEWER seat from the
+        // review-time responsibility facts; before the pinned-role factory existed this path
+        // reused the EXECUTOR invariant and a reviewer could never pin its model graph.
+        PolicySnapshot reviewPolicy = PolicySnapshot.initialV2ForRole(
+                PolicySnapshotId.generate(),
+                fixture.task,
+                fixture.execution,
+                fixture.base.reviewer,
+                ResponsibilityRole.REVIEWER,
+                fixture.task.responsibilitySnapshot(),
+                resolved,
+                Set.of(ExecutionCapability.STRUCTURED_OUTPUT),
+                Set.of("repository.read"),
+                Set.of(),
+                new PolicyBudget(65_536, 8, 1, 3_600),
+                fixture.base.owner,
+                TaskPlanningFixture.POLICY_AT);
+
+        assertEquals(2, reviewPolicy.schemaVersion());
+        assertEquals(
+                fixture.base.reviewer.id(), reviewPolicy.executionPrincipal().principalId());
+        assertEquals(
+                fixture.base.reviewerAssignment.id(),
+                reviewPolicy.executionPrincipal().assignmentId());
+        // The Task's creation-time snapshot captures only the delegation seats (OWNER +
+        // EXECUTOR): a reviewer is assigned after delegation, so pinning a reviewer policy
+        // against creation-time facts can never find the seat.
+        TaskResponsibilitySnapshot creationTimeSnapshot = TaskResponsibilitySnapshot.capture(
+                fixture.base.workItem,
+                java.util.List.of(fixture.base.ownerAssignment, fixture.base.executorAssignment),
+                TaskDomainFixture.CREATED_AT);
+        assertThrows(
+                DomainValidationException.class,
+                () -> PolicySnapshot.initialV2ForRole(
+                        PolicySnapshotId.generate(),
+                        fixture.task,
+                        fixture.execution,
+                        fixture.base.reviewer,
+                        ResponsibilityRole.REVIEWER,
+                        creationTimeSnapshot,
+                        resolved,
+                        Set.of(ExecutionCapability.STRUCTURED_OUTPUT),
+                        Set.of("repository.read"),
+                        Set.of(),
+                        new PolicyBudget(65_536, 8, 1, 3_600),
+                        fixture.base.owner,
+                        TaskPlanningFixture.POLICY_AT));
+        // The single-fact invariant stays role-exact in the other direction too: the coding
+        // Executor holds no REVIEWER seat, so it cannot pin a reviewer policy.
+        assertThrows(
+                DomainValidationException.class,
+                () -> ExecutionPrincipalSnapshot.resolve(
+                        fixture.task.responsibilitySnapshot(),
+                        fixture.base.executor,
+                        ResponsibilityRole.REVIEWER));
     }
 
     @Test

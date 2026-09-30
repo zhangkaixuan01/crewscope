@@ -109,6 +109,48 @@ final class DockerCliSandboxControl implements DockerSandboxControl {
         }
     }
 
+    @Override
+    public void ensureBridgeNetwork(String exactNetworkName) {
+        String name = requiredNetworkName(exactNetworkName);
+        DockerResult inspectResult = run(List.of("docker", "network", "inspect", name));
+        if (inspectResult.exitCode() == 0) {
+            try {
+                JsonNode response = objectMapper.readTree(inspectResult.output());
+                if (response.isArray()
+                        && response.size() == 1
+                        && response.get(0).isObject()
+                        && "bridge".equals(response.get(0).path("Driver").asText())) {
+                    return;
+                }
+            } catch (Exception failure) {
+                throw failure(
+                        TaskExecutionSandboxError.INVALID_CONFIGURATION,
+                        "Sandbox egress network could not be verified as a bridge network");
+            }
+            throw failure(
+                    TaskExecutionSandboxError.INVALID_CONFIGURATION,
+                    "Sandbox egress network name is occupied by a non-bridge Docker network");
+        }
+        String normalized = inspectResult.output().toLowerCase(java.util.Locale.ROOT);
+        if (!normalized.contains("no such network")
+                && !normalized.contains("not found")) {
+            throw failure(
+                    TaskExecutionSandboxError.COMMAND_FAILED,
+                    "Docker daemon could not inspect the sandbox egress network");
+        }
+        DockerResult createResult = run(List.of(
+                "docker", "network", "create", "--driver", "bridge", name));
+        if (createResult.exitCode() != 0) {
+            // A concurrent creator is fine; anything else is a real failure.
+            DockerResult recheck = run(List.of("docker", "network", "inspect", name));
+            if (recheck.exitCode() != 0) {
+                throw failure(
+                        TaskExecutionSandboxError.COMMAND_FAILED,
+                        "Sandbox egress bridge network could not be created");
+            }
+        }
+    }
+
     private DockerResult run(List<String> argv) {
         Process process = null;
         try {
@@ -184,6 +226,15 @@ final class DockerCliSandboxControl implements DockerSandboxControl {
             throw failure(
                     TaskExecutionSandboxError.INVALID_CONFIGURATION,
                     "Managed Sandbox container name is invalid");
+        }
+        return value;
+    }
+
+    private static String requiredNetworkName(String value) {
+        if (value == null || !value.matches("[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}")) {
+            throw failure(
+                    TaskExecutionSandboxError.INVALID_CONFIGURATION,
+                    "Sandbox egress network name is invalid");
         }
         return value;
     }

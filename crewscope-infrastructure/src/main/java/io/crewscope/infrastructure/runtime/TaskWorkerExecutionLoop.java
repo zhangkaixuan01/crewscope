@@ -4,6 +4,7 @@ import io.crewscope.application.task.TaskClaimBatchResult;
 import io.crewscope.application.task.TaskClaimScheduler;
 import io.crewscope.domain.task.ClaimReceipt;
 import io.crewscope.domain.task.ExecutionLeaseId;
+import io.crewscope.infrastructure.workspace.repository.WorkspaceDiffException;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
@@ -158,6 +159,11 @@ public final class TaskWorkerExecutionLoop implements AutoCloseable {
                 types.append(" <- ");
             }
             types.append(current.getClass().getSimpleName());
+            // WorkspaceDiffException pairs its type with a secret-free stable error code;
+            // surfacing the code keeps the no-message policy while naming the failing phase.
+            if (current instanceof WorkspaceDiffException diff) {
+                types.append('[').append(diff.error().name()).append(']');
+            }
             current = current.getCause();
         }
         return types.toString();

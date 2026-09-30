@@ -101,6 +101,17 @@ describe('ReviewWorkbench', () => {
     const empty = mountWorkbench({ props: props({ listPhase: 'empty', reviews: [] }) })
     expect(empty.text()).toContain('浏览器不接受原始 PolicySnapshot ID')
   })
+
+  it('offers the M9b-Q02 review-gate entry only when the attempt may open a Review', async () => {
+    const onCreate = vi.fn().mockResolvedValue(true)
+
+    const closed = mountWorkbench({ props: props({ listPhase: 'empty', reviews: [], canCreate: false }) })
+    expect(closed.find('[data-testid="create-review"]').exists()).toBe(false)
+
+    const open = mountWorkbench({ props: props({ listPhase: 'empty', reviews: [], canCreate: true, onCreate }) })
+    await open.get('[data-testid="create-review"]').trigger('click')
+    expect(onCreate).toHaveBeenCalled()
+  })
 })
 
 function props(overrides: Record<string, unknown> = {}) {
@@ -115,11 +126,13 @@ function props(overrides: Record<string, unknown> = {}) {
     codingAttempt: codingAttempt(),
     tests: testPage(),
     canGate: true,
+    canCreate: false,
     online: true,
     command: idleCommand(),
     onSelect: vi.fn(),
     onRetryList: vi.fn(),
     onRetryDetail: vi.fn(),
+    onCreate: vi.fn().mockResolvedValue(true),
     onExecute: vi.fn().mockResolvedValue(true),
     onDecide: vi.fn().mockResolvedValue(true),
     onRequestChanges: vi.fn().mockResolvedValue(true),

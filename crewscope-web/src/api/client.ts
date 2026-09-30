@@ -30,6 +30,8 @@ export class CrewScopeApiClient {
    * Registers the revocation sink: a 403 means the current identity lost a
    * permission, so scoped local content of that team must stop being shown
    * (M9b-F05: clear the affected team dimension, never another Team).
+   * Preview (preflight) requests are exempt — their denial answers a hypothetical
+   * the caller asked on purpose, it is not a revocation (M9b-Q02).
    */
   onForbidden(handler: (() => void) | null): void {
     this.forbiddenHandler = handler
@@ -54,7 +56,7 @@ export class CrewScopeApiClient {
   /** Opens a validated response for streaming adapters while retaining CrewScope's HTTP boundary. */
   async open(path: string, options: ApiRequestOptions = {}, accept = JSON_CONTENT_TYPE): Promise<Response> {
     // Command metadata belongs to CrewScope's client contract and must not leak into Fetch options.
-    const { idempotencyKey, expectedVersion, body, ...requestInit } = options
+    const { idempotencyKey, expectedVersion, preview, body, ...requestInit } = options
     const headers = new Headers(requestInit.headers)
     headers.set('Accept', accept)
     if (body !== undefined) {
@@ -108,7 +110,7 @@ export class CrewScopeApiClient {
       if (error.status === 401 && error.envelope.code === 'authentication_required') {
         this.authenticationRequiredHandler?.()
       }
-      if (error.status === 403) {
+      if (error.status === 403 && !preview) {
         this.forbiddenHandler?.()
       }
       throw error

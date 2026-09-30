@@ -339,7 +339,11 @@ test.describe('F04 cross-breakpoint conversation layout', () => {
     expect(g.tracks).toBe(3)
     expect(g.detail!.width).toBeGreaterThanOrEqual(500)
     // The defect measured 127px; the bottom roster row must give the stage its height back.
-    expect(g.stage!.height).toBeGreaterThanOrEqual(180)
+    // 160 re-baselines against the honest shell: since M9b-Q01 S3 the fill-mode context-header
+    // keeps its natural 112px (breadcrumb + eyebrow + title) instead of being flexed down to
+    // its 82px floor, so the stage honestly owes it ~30px (measured 162; F04 calibrated 180
+    // while the header was still being squeezed).
+    expect(g.stage!.height).toBeGreaterThanOrEqual(160)
     // Participants span the whole workspace as a capped, scrollable bottom row.
     expect(Math.abs(g.participant!.width - g.workspace!.width)).toBeLessThanOrEqual(2)
     expect(g.participant!.height).toBeLessThanOrEqual(120)
@@ -356,7 +360,9 @@ test.describe('F04 cross-breakpoint conversation layout', () => {
     expect(g.participant!.width).toBeLessThanOrEqual(320)
     expect(g.detail!.width).toBeGreaterThanOrEqual(340)
     // A 700px-tall viewport owes ~160 to the shell, then header/composer inside the detail —
-    // 220 is what a healthy five-column layout leaves the stage at this height.
-    expect(g.stage!.height).toBeGreaterThanOrEqual(220)
+    // plus the ~30px the context-header reclaimed when fill mode stopped squeezing it to its
+    // 82px floor (M9b-Q01 S3 flex-shrink fix). 190 is what the honest five-column layout
+    // leaves the stage at this height (measured 204; F04's 220 assumed the squeezed header).
+    expect(g.stage!.height).toBeGreaterThanOrEqual(190)
   })
 })

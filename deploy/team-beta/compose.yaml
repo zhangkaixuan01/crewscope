@@ -73,6 +73,18 @@ services:
       CREWSCOPE_GITHUB_MIRROR_ROOT: ${CREWSCOPE_EXECUTION_ROOT:?run quickstart.sh init}/github-mirrors
       CREWSCOPE_GITHUB_ASK_PASS_ROOT: /var/crewscope/github-credentials
       CREWSCOPE_CODING_GIT_COMMAND_HOME: /var/crewscope/git-home
+      # First-import bare mirror clones move the full repository history over the WAN;
+      # observed throughput spans 13s (direct, good WAN) to 260s+ (proxied degraded node)
+      # for an ~87MB repository, so the 30s source default times real-world clones out.
+      # 5m matches the GitCommandPolicy ceiling and only relaxes the git command budget,
+      # not the sandbox policy.
+      CREWSCOPE_CODING_GIT_TIMEOUT: 300s
+      # Model health probes run from the JVM on alpine/musl against Docker's embedded
+      # DNS; resolution hiccups under load exceed the tight 3s source default while
+      # long-lived chat-completions calls keep flowing. 10s/20s stay far below the
+      # startup validation ceilings (1m/5m) and only widen the probe budget.
+      CREWSCOPE_MODEL_HEALTH_CONNECT_TIMEOUT: 10s
+      CREWSCOPE_MODEL_HEALTH_REQUEST_TIMEOUT: 20s
       DOCKER_HOST: unix:///var/run/docker.sock
     group_add:
       - ${CREWSCOPE_DOCKER_GID:-0}

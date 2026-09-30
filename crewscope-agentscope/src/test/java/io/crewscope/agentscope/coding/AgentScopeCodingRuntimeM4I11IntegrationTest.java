@@ -146,6 +146,75 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
         assertEquals(CodingSpecialistToolSurface.controlledTools(), toolkit.getToolNames());
     }
 
+    /**
+     * M9b-Q02 regression: page-configured connections never publish a Spring Model bean, so the
+     * slot-only build failed every real-stack Coding delegation with a bare IllegalStateException
+     * before the first model call. A pinned PolicySnapshot must execute the whole Worker
+     * Specialist loop through the resolved source without touching the env slot at all.
+     */
+    @Test
+    void pinnedPolicyModelsExecuteTheWorkerSpecialistWithoutTheEnvSlot() {
+        ScriptedModel pinned = new ScriptedModel(
+                toolResponse(
+                        "skill",
+                        CodingSpecialistToolSurface.SKILL_LOAD_TOOL,
+                        Map.of(
+                                "skillId", CodingSpecialistSkillBundle.SKILL_ID,
+                                "path", "SKILL.md")),
+                toolResponse("plan-enter", "plan_enter", Map.of()),
+                toolResponse(
+                        "plan-write",
+                        "plan_write",
+                        Map.of("content", "1. Complete the bounded task\n2. Verify the result")),
+                toolResponse(
+                        "plan-exit",
+                        "plan_exit",
+                        Map.of("summary", "Complete the planned task")),
+                structuredResponse(validResult()));
+        AgentScopeCodingRuntime runtime = pinnedRuntime(pinned, 40);
+        io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration configuration =
+                mock(io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration.class);
+
+        CodingSpecialistRunResult result = runtime.execute(new CodingSpecialistRequest(
+                        specialistSession(),
+                        toolkit(new ControlledCodingTools()),
+                        "Load the skill, persist the Plan and return the result.",
+                        Optional.of(configuration)))
+                .block(Duration.ofSeconds(10));
+
+        assertEquals(List.of("Updated both bounded fixture files"), result.output().changeSummary());
+        assertEquals(5, pinned.callCount());
+        assertEquals(5, result.telemetry().modelCalls());
+    }
+
+    /** The pinned build hands the exact resolved pair to the agent — primary and fallback. */
+    @Test
+    void pinnedSpecialistBuildTakesTheExactResolvedPair() {
+        ScriptedModel pinned = repeatedModel("unused", 2);
+        ScriptedModel fallback = repeatedModel("unused fallback", 2);
+        CodingSpecialistFactory factory = new CodingSpecialistFactory(
+                pinnedConfigurationSource(40),
+                modelId -> {
+                    throw new AssertionError("env slot must not resolve: " + modelId);
+                },
+                new InMemoryAgentStateStore(),
+                new CodingSpecialistSkillBundle(),
+                runtimeRoot);
+
+        try (HarnessAgent agent = factory.createPinned(
+                specialistSession(),
+                toolkit(new ControlledCodingTools()),
+                new io.crewscope.agentscope.model.ResolvedAgentScopeModels(
+                        pinned, Optional.of(fallback)))) {
+            assertSame(pinned, agent.getModel());
+            assertSame(fallback, agent.getDelegate().getModelConfig().fallbackModel());
+            assertEquals(
+                    "You are CrewScope's Coding Specialist operating on pinned coordinates.",
+                    agent.getDelegate().getSysPrompt());
+            assertNotNull(agent.getCompactionHook());
+        }
+    }
+
     @Test
     void rejectsAnyMissingExtraOrRawToolBeforeTheModelRuns() {
         ControlledCodingTools tools = new ControlledCodingTools();
@@ -362,6 +431,42 @@ class AgentScopeCodingRuntimeM4I11IntegrationTest {
                     initialRuntimeTools,
                     agent.getToolkit().getToolNames());
         }
+    }
+
+    private AgentScopeCodingRuntime pinnedRuntime(
+            ScriptedModel pinned, int compactionMessages) {
+        CodingSpecialistFactory factory = new CodingSpecialistFactory(
+                pinnedConfigurationSource(compactionMessages),
+                modelId -> {
+                    throw new AssertionError("env slot must not resolve: " + modelId);
+                },
+                new InMemoryAgentStateStore(),
+                new CodingSpecialistSkillBundle(),
+                runtimeRoot);
+        return new AgentScopeCodingRuntime(
+                factory,
+                resolved -> new io.crewscope.agentscope.model.ResolvedAgentScopeModels(
+                        pinned, Optional.empty()));
+    }
+
+    private static CodingSpecialistConfigurationSource pinnedConfigurationSource(
+            int compactionMessages) {
+        return (requested, version) -> new CodingSpecialistConfiguration(
+                requested,
+                version,
+                "primary",
+                Optional.empty(),
+                "compaction",
+                "You are CrewScope's Coding Specialist operating on pinned coordinates.",
+                30,
+                2,
+                0.0,
+                1.0,
+                8_192,
+                compactionMessages,
+                2,
+                1_024,
+                64);
     }
 
     private AgentScopeCodingRuntime runtime(

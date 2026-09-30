@@ -25,6 +25,9 @@ import reactor.core.publisher.Mono;
  */
 public final class CodingSpecialistStepRuntime {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(CodingSpecialistStepRuntime.class);
+
     private final AgentScopeCodingRuntime runtime;
     private final CodingSpecialistAuthorityGateway authorityGateway;
     private final CodingSpecialistExecutionStore executionStore;
@@ -120,7 +123,12 @@ public final class CodingSpecialistStepRuntime {
                         "Authority Gateway returned a different repair round"));
             }
             CodingSpecialistRequest invocation = new CodingSpecialistRequest(
-                    state.request.facts().runtimeSession(), round.toolkit(), round.instruction());
+                    state.request.facts().runtimeSession(),
+                    round.toolkit(),
+                    round.instruction(),
+                    // The delegated Task's pinned model coordinates travel with every round, so
+                    // repair and recovery turns keep the exact connection the first turn used.
+                    state.request.facts().policySnapshot().agentExecutionConfiguration());
             state.lastInvocation = invocation;
             // Materialize only the AgentScope call. Durability or authority failures from
             // afterCall must propagate and must never be rewritten onto the same event sequence.
@@ -247,6 +255,14 @@ public final class CodingSpecialistStepRuntime {
                                         .orElseThrow(() -> new IllegalStateException(
                                                 "Successful TestEvidence is absent")));
                     } catch (CodingOutputValidationException | IllegalStateException invalid) {
+                        // The terminal code stays secret-free; the rejecting field is the only
+                        // operator-visible way to tell a model-output defect from a missing
+                        // platform fact behind the same CODING_RESULT_INVALID outcome.
+                        LOGGER.warn(
+                                "Coding final result rejected: {}",
+                                invalid.getMessage() != null
+                                        ? invalid.getMessage()
+                                        : invalid.getClass().getSimpleName());
                         throw new InvalidFinalResultException();
                     }
                     synchronized (state) {

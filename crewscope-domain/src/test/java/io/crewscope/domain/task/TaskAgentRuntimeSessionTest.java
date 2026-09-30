@@ -70,6 +70,47 @@ class TaskAgentRuntimeSessionTest {
     }
 
     @Test
+    void createsStepLessReviewSessionOnlyForACompletedAttempt() {
+        RuntimeFixture fixture = new RuntimeFixture();
+        Principal reviewer = fixture.specialist();
+        AgentProfile reviewerProfile = fixture.profile(
+                reviewer, AgentProfileType.SPECIALIST, 0);
+        TaskExecution running = fixture.graph.execution();
+
+        // The advisory review opens on a finished attempt — the mirror image of execution
+        // sessions, which require a non-terminal one.
+        assertThrows(
+                DomainValidationException.class,
+                () -> TaskAgentRuntimeSession.initializeReview(
+                        fixture.planning.task, running, reviewerProfile, reviewer,
+                        TaskPlanningFixture.STEP_AT));
+        TaskExecution completed = TaskExecution.reconstitute(
+                running.id(), running.scope(), running.taskId(), running.attempt(),
+                running.maxAttempts(), running.parentExecutionId(), running.priority(),
+                running.notBefore(), TaskExecutionStatus.COMPLETED, running.waiting(),
+                running.controlRequest(),
+                Optional.of(new TaskExecutionTerminal(
+                        TaskExecutionStatus.COMPLETED, fixture.planning.base.owner.id(),
+                        TaskDomainFixture.CREATED_AT, Optional.empty())),
+                running.planningContext(), running.lastFencingToken(), running.version(),
+                running.audit());
+
+        // Deterministic per (execution, profile) so re-resolution stays idempotent.
+        TaskAgentRuntimeSession session = TaskAgentRuntimeSession.initializeReview(
+                fixture.planning.task, completed, reviewerProfile, reviewer,
+                TaskDomainFixture.CREATED_AT);
+        TaskAgentRuntimeSession resolvedAgain = TaskAgentRuntimeSession.initializeReview(
+                fixture.planning.task, completed, reviewerProfile, reviewer,
+                TaskDomainFixture.CREATED_AT);
+
+        assertEquals(TaskAgentSessionPurpose.REVIEW, session.purpose());
+        assertTrue(session.stepExecutionId().isEmpty());
+        assertEquals(session.id(), resolvedAgain.id());
+        assertEquals(session.agentScopeKey(), resolvedAgain.agentScopeKey());
+        assertTrue(session.canInvoke());
+    }
+
+    @Test
     void rejectsCrossExecutionStepAndWrongProfileIdentity() {
         RuntimeFixture fixture = new RuntimeFixture();
         AgentProfile forged = AgentProfile.reconstitute(

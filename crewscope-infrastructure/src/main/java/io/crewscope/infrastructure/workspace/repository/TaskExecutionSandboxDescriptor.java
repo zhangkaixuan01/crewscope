@@ -27,6 +27,7 @@ record TaskExecutionSandboxDescriptor(
         String repositoryMount,
         String dependencyCacheMount,
         String containerUser,
+        String dockerNetwork,
         TaskExecutionSandboxFingerprint fingerprint,
         String sessionId,
         String containerName,
@@ -58,6 +59,7 @@ record TaskExecutionSandboxDescriptor(
         dependencyCacheMount = Objects.requireNonNull(
                 dependencyCacheMount, "dependencyCacheMount");
         containerUser = Objects.requireNonNull(containerUser, "containerUser");
+        dockerNetwork = Objects.requireNonNull(dockerNetwork, "dockerNetwork");
         fingerprint = Objects.requireNonNull(fingerprint, "fingerprint");
         sessionId = Objects.requireNonNull(sessionId, "sessionId");
         containerName = Objects.requireNonNull(containerName, "containerName");
@@ -72,6 +74,7 @@ record TaskExecutionSandboxDescriptor(
             Path canonicalWorktree,
             String workspaceRoot,
             String repositoryMount,
+            String dockerNetwork,
             String containerUser) {
         return create(
                 workspace,
@@ -83,6 +86,7 @@ record TaskExecutionSandboxDescriptor(
                 workspaceRoot,
                 repositoryMount,
                 "/maven-cache",
+                dockerNetwork,
                 containerUser);
     }
 
@@ -96,6 +100,7 @@ record TaskExecutionSandboxDescriptor(
             String workspaceRoot,
             String repositoryMount,
             String dependencyCacheMount,
+            String dockerNetwork,
             String containerUser) {
         TaskExecutionSandboxFingerprint fingerprint = fingerprint(
                 workspace,
@@ -107,6 +112,7 @@ record TaskExecutionSandboxDescriptor(
                 workspaceRoot,
                 repositoryMount,
                 dependencyCacheMount,
+                dockerNetwork,
                 containerUser);
         String sessionId = sessionId(workspace);
         String containerName = "agentscope-sandbox-" + sessionId;
@@ -142,6 +148,7 @@ record TaskExecutionSandboxDescriptor(
                 repositoryMount,
                 dependencyCacheMount,
                 containerUser,
+                dockerNetwork,
                 fingerprint,
                 sessionId,
                 containerName,
@@ -189,7 +196,7 @@ record TaskExecutionSandboxDescriptor(
                 && labels.entrySet().stream()
                         .allMatch(entry -> entry.getValue().equals(
                                 container.labels().get(entry.getKey())))
-                && "none".equals(container.networkMode())
+                && dockerNetwork.equals(container.networkMode())
                 && container.readOnlyRootFilesystem()
                 && container.memoryBytes() == Math.multiplyExact((long) budget.memoryMiB(), 1024 * 1024)
                 && container.nanoCpus() == Math.multiplyExact((long) budget.cpuCount(), 1_000_000_000L)
@@ -212,21 +219,22 @@ record TaskExecutionSandboxDescriptor(
                 && container.environment("TMPDIR").filter("/tmp"::equals).isPresent()
                 && container.environment("CI").filter("true"::equals).isPresent()
                 && container.environment("LANG").filter("C.UTF-8"::equals).isPresent()
-                && dependencyCacheEnvironmentMatches(container);
+                && mavenEnvironmentMatches(container);
     }
 
     private Set<String> expectedEnvironmentNames() {
-        if (dependencyCacheRoot.isEmpty()) {
-            return ALLOWED_ENVIRONMENT_NAMES;
-        }
         java.util.HashSet<String> names = new java.util.HashSet<>(ALLOWED_ENVIRONMENT_NAMES);
+        // MAVEN_ARGS is always present: it pins the Maven repository location so builds never
+        // depend on the JVM's user.home resolution (a literal "?" for the passwd-less uid).
         names.add("MAVEN_ARGS");
         return Set.copyOf(names);
     }
 
-    private boolean dependencyCacheEnvironmentMatches(DockerContainerSnapshot container) {
+    private boolean mavenEnvironmentMatches(DockerContainerSnapshot container) {
         if (dependencyCacheRoot.isEmpty()) {
-            return container.environment("MAVEN_ARGS").isEmpty();
+            return container.environment("MAVEN_ARGS")
+                    .filter("-Dmaven.repo.local=/tmp/crewscope-home/.m2/repository"::equals)
+                    .isPresent();
         }
         String expected = "--offline -Dmaven.repo.local=" + dependencyCacheMount + "/repository";
         return container.environment("MAVEN_ARGS").filter(expected::equals).isPresent();
@@ -242,6 +250,7 @@ record TaskExecutionSandboxDescriptor(
             String workspaceRoot,
             String repositoryMount,
             String dependencyCacheMount,
+            String dockerNetwork,
             String containerUser) {
         StringBuilder canonical = new StringBuilder("task-execution-sandbox-v1");
         append(canonical, workspace.id().toString());
@@ -258,6 +267,7 @@ record TaskExecutionSandboxDescriptor(
         append(canonical, workspaceRoot);
         append(canonical, repositoryMount);
         append(canonical, dependencyCacheMount);
+        append(canonical, dockerNetwork);
         append(canonical, containerUser);
         ExecutionWorkspaceOwnership ownership = workspace.ownership();
         append(canonical, ownership.environment().value());

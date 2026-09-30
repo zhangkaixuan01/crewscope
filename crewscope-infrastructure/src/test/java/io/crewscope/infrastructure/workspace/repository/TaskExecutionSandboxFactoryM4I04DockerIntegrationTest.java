@@ -160,6 +160,46 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
     }
 
     @Test
+    void provisionsRestrictedEgressSandboxOnAnIsolatedBridgeNetwork() throws Exception {
+        SandboxFacts facts = facts(
+                FencingToken.initial(),
+                SandboxNetworkMode.RESTRICTED_EGRESS,
+                "crewscope-sandbox-egress");
+        ManagedTaskExecutionSandbox managed = provision(facts);
+
+        DockerContainerSnapshot container = dockerControl.inspect(managed.containerName())
+                .orElseThrow();
+        assertTrue(facts.descriptor().exactlyMatches(container));
+        assertEquals("crewscope-sandbox-egress", container.networkMode());
+        assertTrue(container.readOnlyRootFilesystem());
+
+        try (TaskExecutionSandboxCall call = managed.openCall(
+                facts.workspace(), facts.lease(), now())) {
+            Sandbox external = call.sandboxContext().getExternalSandbox();
+            external.start();
+            // eth0 proves the container joined the bridge (the no-network profile asserts the
+            // opposite); every other hardening fact stays identical.
+            ExecResult result = external.exec(
+                    null,
+                    "test -e /sys/class/net/eth0"
+                            + " && test \"$(id -u)\" != 0"
+                            + " && test \"$HOME\" = /tmp/crewscope-home"
+                            // Without a dependency cache the repository location is still pinned
+                            // away from the worktree: the passwd-less uid makes the JVM resolve
+                            // user.home as a literal "?", which Maven would otherwise write into.
+                            + " && test \"$MAVEN_ARGS\" = '-Dmaven.repo.local=/tmp/crewscope-home/.m2/repository'"
+                            + " && printf egress-ok > repository/m9b-q02.txt",
+                    5);
+            assertEquals(0, result.exitCode());
+            assertEquals("egress-ok", Files.readString(
+                    facts.worktreePath().resolve("m9b-q02.txt")));
+        }
+
+        factory.destroy(managed, facts.workspace());
+        assertTrue(dockerControl.inspect(managed.containerName()).isEmpty());
+    }
+
+    @Test
     void mountsTheFrozenMavenCacheReadOnlyAndForcesOfflineResolution() throws Exception {
         Path cache = Files.createDirectory(temporaryDirectory.resolve("maven-cache"));
         Files.createDirectory(cache.resolve("repository"));
@@ -592,6 +632,13 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
     }
 
     private SandboxFacts facts(FencingToken fencingToken) throws Exception {
+        return facts(fencingToken, SandboxNetworkMode.NONE, "none");
+    }
+
+    private SandboxFacts facts(
+            FencingToken fencingToken,
+            SandboxNetworkMode networkMode,
+            String dockerNetwork) throws Exception {
         Path worktreePath = Files.createDirectory(
                 temporaryDirectory.resolve("worktree-" + fencingToken.value()));
         ExecutionWorkspaceId workspaceId = ExecutionWorkspaceId.generate();
@@ -646,7 +693,7 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                                 10)));
         BuildProfileReference profileReference = buildProfile.reference();
         WorkspacePolicy policy = policy(
-                workspace, target, scope, taskId, profileReference);
+                workspace, target, scope, taskId, profileReference, networkMode);
         ExecutionLease lease = lease(workspace, ownership, true);
         TaskExecutionSandboxDescriptor descriptor = TaskExecutionSandboxDescriptor.create(
                 workspace,
@@ -656,6 +703,7 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                 worktreePath.toRealPath(),
                 "/workspace",
                 "repository",
+                dockerNetwork,
                 unixUser(worktreePath));
         return new SandboxFacts(
                 workspace,
@@ -702,7 +750,8 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                 workspace.codingTarget(),
                 workspace.scope(),
                 workspace.taskId(),
-                previous.buildProfile().reference());
+                previous.buildProfile().reference(),
+                previous.policy().sandboxBudget().networkMode());
         ExecutionLease lease = lease(workspace, ownership, true);
         TaskExecutionSandboxDescriptor descriptor = TaskExecutionSandboxDescriptor.create(
                 workspace,
@@ -712,6 +761,7 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                 previous.worktreePath().toRealPath(),
                 "/workspace",
                 "repository",
+                previous.descriptor().dockerNetwork(),
                 unixUser(previous.worktreePath()));
         containerNames.add(descriptor.containerName());
         return new SandboxFacts(
@@ -758,7 +808,8 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
             CodingTargetSnapshotReference target,
             WorkItemScope scope,
             TaskId taskId,
-            BuildProfileReference profileReference) {
+            BuildProfileReference profileReference,
+            SandboxNetworkMode networkMode) {
         TaskExecutionId executionId = workspace.taskExecutionId();
         int attempt = workspace.attempt();
         WorkspacePolicy policy = mock(WorkspacePolicy.class);
@@ -782,7 +833,7 @@ class TaskExecutionSandboxFactoryM4I04DockerIntegrationTest {
                         10))));
         when(policy.allowedPaths()).thenReturn(AllowedPathSet.of("src"));
         when(policy.sandboxBudget()).thenReturn(new SandboxResourceBudget(
-                SandboxNetworkMode.NONE, 1, 256, 32, 10, 4096, true));
+                networkMode, 1, 256, 32, 10, 4096, true));
         when(policy.operationBudget()).thenReturn(new WorkspaceOperationBudget(
                 10, 20, 1024 * 1024, 20, 1024 * 1024, 1024 * 1024, 2));
         return policy;

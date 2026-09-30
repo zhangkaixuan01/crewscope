@@ -107,6 +107,9 @@ watch(
   [() => route.query.team, () => route.query.project] as const,
   async ([team, project]) => {
     if (!scopeStore || !canReadScope.value) return
+    // synchronize() overwrites the store's selection, so capture the team being left first —
+    // it is the only signal that distinguishes a real Team switch from a first entry.
+    const previousTeamId = scopeStore.state.selectedTeamId
     const synchronizationVersion = ++scopeSynchronizationVersion
     const selection = await scopeStore.synchronize(queryValue(team), queryValue(project))
     // Route changes can start a newer Scope restoration before the previous request settles.
@@ -120,14 +123,23 @@ watch(
     if (selection.projectId) nextQuery.project = selection.projectId
     else delete nextQuery.project
 
+    const leftTeam = previousTeamId !== null && previousTeamId !== selection.teamId
     const teamChanged = queryValue(route.query.team) !== selection.teamId
-    const scopeChanged = teamChanged || queryValue(route.query.project) !== selection.projectId
+    // A URL that carries no explicit project gets the default project filled in — that alone is
+    // canonicalization, not a member-driven scope switch. Deep-link coordinates (conversation,
+    // focus, workItem) were authored against the Team as a whole and survive the fill-in; they
+    // are invalidated by a Team actually left (ScopeSwitcher clears `project` on that switch)
+    // or by a project the URL does carry yet no longer matches the selection. Treating the bare
+    // fill-in as a switch swallowed conversation deep links at first entry (M9b-Q02).
+    const projectSwitched = queryValue(route.query.project) !== null
+      && queryValue(route.query.project) !== selection.projectId
+    const scopeChanged = leftTeam || teamChanged || projectSwitched
     if (scopeChanged) {
       // Object identity belongs to the original Scope and cannot survive URL canonicalization.
       delete nextQuery.workItem
       delete nextQuery.focus
       delete nextQuery.conversation
-      if (teamChanged) {
+      if (teamChanged || leftTeam) {
         // Audit identities and Correlation graphs are Team-bound but independent of WorkProject.
         delete nextQuery.auditEvent
         delete nextQuery.chain
@@ -350,7 +362,11 @@ async function signOut(): Promise<void> {
 .icon-button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); flex: 0 0 var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }
-.context-header { display: flex; min-height: 82px; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-16) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
+/* fill 模式下 app-shell__body 是 flex column，header 是文档头而不是弹性区：没有这行
+ * flex-shrink:0，767 档一旦 workspace 的内容需求（conversation 的 min-height 链）超过
+ * 剩余空间，header 会被压短 ~37px，actions 按钮行溢出 header 底缘、叠进 workspace 顶部
+ * 的 mobile-back——触控目标被遮掉一半（M9b-Q01 六视口矩阵顺带揭出的潜伏缺陷）。 */
+.context-header { display: flex; min-height: 82px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-16) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
 .context-header p { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
 .context-header h1 { margin-bottom: 0; font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); letter-spacing: -.02em; }
 .context-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
@@ -387,7 +403,10 @@ async function signOut(): Promise<void> {
   .context-header h1 { font-size: var(--cs-text-lg); }
   .context-header { display: grid; grid-template-columns: 1fr; gap: var(--cs-space-12); }
   .context-header__actions { display: flex; flex-wrap: wrap; width: 100%; }
-  .context-header__actions :deep(.base-button) { flex: 1 1 auto; }
+  /* 半宽基准而不是 auto：三个操作按钮的 min-content 总宽恰好卡在 358px 容器的临界点，
+   * 换不换行取决于 webfont 加载竞速——header 高度在 132/180 间抖动，mobile-back 的落位
+   * 跟着抖（M9b-Q01 axe 定位 target-size 时的伴生发现）。固定 2+1 两行布局，高度确定。 */
+  .context-header__actions :deep(.base-button) { flex: 1 1 calc(50% - var(--cs-space-8)); }
   .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
   .mobile-mode a.active { color: var(--cs-text-brand); }

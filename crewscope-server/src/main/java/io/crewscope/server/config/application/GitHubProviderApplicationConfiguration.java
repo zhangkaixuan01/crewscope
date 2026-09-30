@@ -40,9 +40,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.ObjectProvider;
 import tools.jackson.databind.ObjectMapper;
+import io.crewscope.server.config.runtime.WorkerCapableProfileCondition;
 
 /** Explicit Spring composition for the GitHub Provider read boundary. */
 @Configuration(proxyBeanMethods = false)
@@ -165,7 +167,13 @@ public class GitHubProviderApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(ManagedRepositoryResolver.class)
+    // Order-robust twin of the ManagedRepository availability fact: component-scan
+    // registration processes this class before the infrastructure configuration that
+    // defines ManagedRepositoryResolver, so the presence condition below could never
+    // see it and the GitHub write boundary silently vanished from real deployments
+    // (M9b-Q02 defect 27). The worker-capable execution profile carries the same fact;
+    // the resolver itself resolves by injection after all definitions are registered.
+    @Conditional(WorkerCapableProfileCondition.class)
     @ConditionalOnMissingBean(GitHubPushPort.class)
     GitHubPushPort gitHubPushPort(
             GitHubProviderPort provider,
@@ -196,7 +204,11 @@ public class GitHubProviderApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({ProviderBindingRepository.class, RepositoryBindingRepository.class})
+    // Same registration-order fact as gitHubPushPort: the provider repositories live in
+    // the later-scanned infrastructure persistence configuration. The draft pull request
+    // boundary is consumed only by the worker-capable action fleet, so its availability
+    // follows the same execution profile.
+    @Conditional(WorkerCapableProfileCondition.class)
     @ConditionalOnMissingBean(GitHubDraftPullRequestPort.class)
     GitHubDraftPullRequestPort gitHubDraftPullRequestPort(
             GitHubProviderPort provider,

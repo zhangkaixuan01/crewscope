@@ -226,7 +226,7 @@ class ActionBundleTest {
                 fixture.grant.id(), fixture.grant.organizationId(), fixture.grant.connectionId(),
                 fixture.grant.connectionOwner(), fixture.grant.grantee(),
                 new ProviderAccessScope(
-                        ProviderCapabilities.of("source.write"),
+                        ProviderCapabilities.of("source.repository.push"),
                         ProviderResourceScope.of("repository:101")),
                 fixture.grant.validFrom(), fixture.grant.expiresAt(), fixture.grant.status(),
                 fixture.grant.terminalReason(), fixture.grant.version(), fixture.grant.audit());
@@ -248,7 +248,7 @@ class ActionBundleTest {
     void requiresCompleteSourceWriteAndPullRequestCapabilitiesWhenPlanning() {
         Fixture fixture = new Fixture();
         ProviderAccessScope sourceWriteOnly = new ProviderAccessScope(
-                ProviderCapabilities.of("source.write"),
+                ProviderCapabilities.of("source.repository.push"),
                 ProviderResourceScope.of("repository:101"));
         ProviderBinding partialBinding = fixture.bindingWithAccess(sourceWriteOnly, 0);
         ConnectionGrant partialGrant = ConnectionGrant.reconstitute(
@@ -427,7 +427,8 @@ class ActionBundleTest {
         private final ReviewDecision approval = decision(ReviewDecisionType.APPROVED);
         private final ProviderOwner providerOwner = ProviderOwner.team(team);
         private final ProviderAccessScope access = new ProviderAccessScope(
-                ProviderCapabilities.of("source.read", "source.write", "pull-request.create"),
+                ProviderCapabilities.of(
+                        "source.repository.read", "source.repository.push", "source.pull-request.create"),
                 ProviderResourceScope.of("repository:101"));
         private final Connection connection = Connection.authorize(
                 ConnectionId.generate(), providerOwner, "github", "installation:101",

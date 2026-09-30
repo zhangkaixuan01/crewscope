@@ -153,6 +153,8 @@ export interface CreateTaskInput {
 export interface TaskDelegationSelection {
   executorAgentProfileId: string
   agentConfigurationRevision: number | null
+  /** The executor assignment an assign-and-start command would commit first; null to preflight the current chain. */
+  plannedExecutorAgentProfileId?: string | null
 }
 
 export interface TaskDelegationModelSelection {

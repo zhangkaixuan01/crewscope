@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.IdempotencyKey;
+import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -26,11 +28,17 @@ import io.crewscope.domain.inbox.InboxSource;
 import io.crewscope.domain.inbox.InboxSourceKey;
 import io.crewscope.domain.inbox.InboxSourceRevision;
 import io.crewscope.domain.inbox.InboxSourceType;
+import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.identity.PrincipalScope;
+import io.crewscope.domain.identity.PrincipalType;
+import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
+import io.crewscope.domain.shared.event.DomainEventEnvelope;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMember;
@@ -38,6 +46,7 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -57,6 +66,15 @@ class InboxApplicationServiceM6A02Test {
     private static final WorkItemId WORK_ITEM_ID = WorkItemId.generate();
     private static final UtcTimestamp NOW =
             UtcTimestamp.from(Instant.parse("2026-08-27T01:00:00Z"));
+    private static final Principal ACTOR = Principal.create(
+            PrincipalId.generate(),
+            PrincipalScope.organization(ORGANIZATION_ID),
+            PrincipalType.USER,
+            Optional.empty(),
+            "M6-A02 Inbox Actor",
+            Optional.empty(),
+            PrincipalVisibility.ORGANIZATION,
+            NOW);
 
     private InboxItemQueryPort queries;
     private WorkItemAccessPolicy accessPolicy;
@@ -68,6 +86,7 @@ class InboxApplicationServiceM6A02Test {
         queries = mock(InboxItemQueryPort.class);
         accessPolicy = mock(WorkItemAccessPolicy.class);
         access = mock(TeamAccessContext.class);
+        when(access.actor()).thenReturn(ACTOR);
         TeamMember member = mock(TeamMember.class);
         when(member.id()).thenReturn(MEMBER_ID);
         when(accessPolicy.requireVisibleTeamMember(access, ORGANIZATION_ID, TEAM_ID))
@@ -137,6 +156,7 @@ class InboxApplicationServiceM6A02Test {
                 mock(InboxDispositionApplicationService.class);
         InboxApplicationService authorizationQueries = mock(InboxApplicationService.class);
         CommandReceiptStore receiptStore = mock(CommandReceiptStore.class);
+        DomainEventStore eventStore = mock(DomainEventStore.class);
         TransactionExecutor direct = new TransactionExecutor() {
             @Override
             public <T> T required(Supplier<T> operation) {
@@ -151,7 +171,13 @@ class InboxApplicationServiceM6A02Test {
                 .thenReturn(Optional.empty());
         when(receiptStore.reserve(any())).thenReturn(CommandReservation.newlyAcquired());
         InboxDispositionCommandService commandService = new InboxDispositionCommandService(
-                authorizationQueries, dispositionService, receiptStore, direct, () -> NOW);
+                authorizationQueries, dispositionService, receiptStore, eventStore, direct,
+                () -> NOW);
+        List<DomainEventEnvelope<?>> appendedFacts = new ArrayList<>();
+        doAnswer(invocation -> {
+            appendedFacts.add(invocation.getArgument(0));
+            return null;
+        }).when(eventStore).append(any());
         TeamCommandContext commandContext = new TeamCommandContext(
                 access,
                 IdempotencyKey.from("m6-a02-read-1"),
@@ -171,6 +197,11 @@ class InboxApplicationServiceM6A02Test {
 
         assertEquals(receipt, replay.receipt());
         assertEquals(true, replay.replayed());
+        // The completed receipt must reference the one domain fact the command appended, so the
+        // V5 command_receipt foreign key holds on real PostgreSQL (M9b-Q02 regression).
+        assertEquals(1, appendedFacts.size());
+        assertEquals(receipt.domainEventId(), appendedFacts.get(0).eventId());
+        verify(eventStore).append(any());
         verify(dispositionService).change(
                 eq(access), eq(ORGANIZATION_ID), eq(TEAM_ID), eq(itemId), eq(command));
         verify(authorizationQueries, org.mockito.Mockito.times(2)).detail(
@@ -191,6 +222,7 @@ class InboxApplicationServiceM6A02Test {
                 authorizationQueries,
                 dispositionService,
                 receiptStore,
+                mock(DomainEventStore.class),
                 transactions,
                 () -> NOW);
         TeamCommandContext commandContext = new TeamCommandContext(

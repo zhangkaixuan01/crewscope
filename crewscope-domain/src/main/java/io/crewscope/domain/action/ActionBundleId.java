@@ -13,4 +13,9 @@ public record ActionBundleId(UUID value) implements AggregateId {
     public static ActionBundleId generate() {
         return new ActionBundleId(AggregateId.generateValue());
     }
+
+    @Override
+    public String toString() {
+        return value.toString();
+    }
 }

@@ -103,6 +103,7 @@ import io.crewscope.agentscope.AgentStatePreflightMiddleware;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.PlatformAuditMiddleware;
 import io.crewscope.agentscope.PlatformRuntimeContextMiddleware;
+import io.crewscope.agentscope.ToolMessageProtocolRepairMiddleware;
 import io.crewscope.agentscope.PersonalAgentFactory;
 import io.crewscope.agentscope.ProviderBindingSecurityMiddleware;
 import io.crewscope.agentscope.agui.ControlledAguiBridge;
@@ -276,12 +277,15 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(AgentCallObservabilityMetrics.class);
           assertThat(context).hasSingleBean(AgentStatePreflightMiddleware.class);
           assertThat(context).hasSingleBean(PlatformAgentMiddlewareSet.class);
+          // ToolMessageProtocolRepairMiddleware is instantiated inside the set, not a bean.
           assertThat(context.getBean(PlatformAgentMiddlewareSet.class).ordered())
+              .extracting(Object::getClass)
               .containsExactly(
-                  context.getBean(PlatformRuntimeContextMiddleware.class),
-                  context.getBean(ProviderBindingSecurityMiddleware.class),
-                  context.getBean(PlatformAuditMiddleware.class),
-                  context.getBean(AgentStatePreflightMiddleware.class));
+                  PlatformRuntimeContextMiddleware.class,
+                  ProviderBindingSecurityMiddleware.class,
+                  PlatformAuditMiddleware.class,
+                  AgentStatePreflightMiddleware.class,
+                  ToolMessageProtocolRepairMiddleware.class);
           assertThat(context).hasSingleBean(TeamApplicationService.class);
           assertThat(context).hasSingleBean(ConversationApplicationService.class);
           assertThat(context).hasSingleBean(TaskIntentApplicationService.class);

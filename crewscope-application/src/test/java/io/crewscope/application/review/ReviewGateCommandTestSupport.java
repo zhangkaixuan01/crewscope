@@ -75,6 +75,7 @@ import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
+import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.task.TaskId;
 import io.crewscope.domain.team.TeamMember;
@@ -185,6 +186,10 @@ class ReviewGateCommandTestSupport {
             mock(io.crewscope.application.command.CommandReceiptStore.class);
     final GateReviewerPolicyProvider reviewerPolicies =
             mock(GateReviewerPolicyProvider.class);
+    /** Tests replace this to drive the automatic Reviewer resolution path (M9b-Q02). */
+    final java.util.concurrent.atomic.AtomicReference<ReviewerPolicySnapshotAutoSource> autoSource =
+            new java.util.concurrent.atomic.AtomicReference<>(
+                    ReviewerPolicySnapshotAutoSource.unavailable());
 
     final ReviewGateApplicationService gate;
     final ReviewerExecutionApplicationService reviewer;
@@ -212,6 +217,9 @@ class ReviewGateCommandTestSupport {
         when(execution.taskId()).thenReturn(taskId);
         when(execution.scope()).thenReturn(scope);
         when(execution.attempt()).thenReturn(1);
+        // A ReviewRequest only exists over a finished attempt — the same fact the reviewer's
+        // REVIEW session pins when it is opened on first execute.
+        when(execution.status()).thenReturn(TaskExecutionStatus.COMPLETED);
         when(executions.findById(organizationId, executionId))
                 .thenReturn(Optional.of(execution));
 
@@ -263,7 +271,13 @@ class ReviewGateCommandTestSupport {
                 principals, profiles, memberships, assignments, subjects, contexts, requests,
                 findings, decisions, rounds, queries, contextBuilder,
                 new ReviewGateAvailabilityProjector(), reviewerPolicies, events, receipts,
-                transactions, () -> NOW);
+                transactions, () -> NOW, delegateAutoSource());
+    }
+
+    private ReviewerPolicySnapshotAutoSource delegateAutoSource() {
+        return (context, task, item, execution, currentAssignments) ->
+                autoSource.get().resolveSnapshot(
+                        context, task, item, execution, currentAssignments);
     }
 
     /**
@@ -334,7 +348,7 @@ class ReviewGateCommandTestSupport {
 
         TaskAgentRuntimeSession session = mock(TaskAgentRuntimeSession.class);
         when(session.canInvoke()).thenReturn(true);
-        when(session.purpose()).thenReturn(TaskAgentSessionPurpose.SPECIALIST);
+        when(session.purpose()).thenReturn(TaskAgentSessionPurpose.REVIEW);
         when(session.agentPrincipalId()).thenReturn(reviewerAgent.id());
         when(session.agentProfileId()).thenReturn(profileId);
         when(session.agentProfileVersion()).thenReturn(3L);

@@ -73,6 +73,7 @@ const reviewProps = {
   codingAttempt: null, tests: null, canGate: true, online: true, command: reviewCommand,
   onSelect: noop, onRetryList: noop, onRetryDetail: noop, onExecute: success, onDecide: success,
   onRequestChanges: success, onRetryCommand: success, onClearCommand: noop,
+  canCreate: false, onCreate: success,
 }
 const invalidatedReviewProps = {
   ...reviewProps,

@@ -103,4 +103,25 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <!-- Publishes the test-jar other modules reuse (M9b-A06 fixtures for the
+                     M9b-Q01 HTTP scale gates). Classes stay in the infrastructure tests so the
+                     SQL-level A06 suite keeps owning them. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <id>test-jar</id>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

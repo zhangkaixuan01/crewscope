@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -20,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Package-private process boundary that applies one policy to every typed Git operation. */
 final class GitProcessRunner {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(GitProcessRunner.class);
     private static final long TERMINATION_GRACE_MILLIS = 5_000;
 
     private final GitCommandPolicy policy;
@@ -149,6 +152,17 @@ final class GitProcessRunner {
             int exitCode = process.exitValue();
             if (!acceptedCodes.contains(exitCode)) {
                 GitCommandError classification = classify(output);
+                // The first stderr line of a rejected Git command names the failure (e.g.
+                // "fatal: ..."); it is command metadata, not credential material — the ask-pass
+                // program never echoes the secret and URLs never carry one. One bounded line
+                // turns an opaque COMMAND_FAILED into a diagnosable event.
+                if (classification == GitCommandError.COMMAND_FAILED) {
+                    LOGGER.warn("Git command rejected: exit={} firstLine={}",
+                            exitCode,
+                            output.lines().findFirst().map(value ->
+                                    value.length() > 200 ? value.substring(0, 200) : value)
+                                    .orElse("none"));
+                }
                 throw failure(
                         classification,
                         safeSummary(classification),
@@ -180,7 +194,9 @@ final class GitProcessRunner {
         }
         environment.put("HOME", policy.commandHome().toString());
         environment.put("GIT_CONFIG_NOSYSTEM", "1");
-        environment.put("GIT_CONFIG_GLOBAL", "/dev/null");
+        // The platform global config carries the bind-mount ownership exemption; see
+        // writePlatformGlobalConfig.
+        environment.put("GIT_CONFIG_GLOBAL", policy.commandHome().resolve("platform-git-config").toString());
         environment.put("GIT_TERMINAL_PROMPT", "0");
         environment.put("GIT_PAGER", "cat");
         environment.put("PAGER", "cat");
@@ -279,9 +295,38 @@ final class GitProcessRunner {
     private static void initializeCommandHome(GitCommandPolicy policy) {
         try {
             Files.createDirectories(policy.commandHome());
+            writePlatformGlobalConfig(policy);
         } catch (IOException failure) {
             throw new IllegalStateException("Git command home could not be initialized", failure);
         }
+    }
+
+    /**
+     * Writes the platform-owned global Git config and points {@code GIT_CONFIG_GLOBAL} at it.
+     *
+     * <p>Git refuses to operate on a repository whose recorded owner differs from the effective
+     * uid ("detected dubious ownership"). On shared-filesystem bind mounts (Docker Desktop
+     * virtiofs), directories this process creates as its own uid can re-appear owned by root
+     * once the sharing layer's metadata round-trip settles, so the refusal fires against
+     * repositories the platform itself just provisioned. {@code safe.directory} is only honored
+     * from a system or global config, so the sanitized environment cannot relax it per command;
+     * the exemption lives here instead.
+     *
+     * <p>{@code *} is acceptable in this file: the execution root is a dedicated, platform-owned
+     * directory asserted at startup, every repository under it is created by this process, and
+     * the environment is otherwise fully sanitized ({@code GIT_CONFIG_NOSYSTEM} on, no user
+     * config). The check this disables guards against untrusted repository owners on
+     * multi-user hosts — a threat this hermetic root does not have.
+     */
+    private static void writePlatformGlobalConfig(GitCommandPolicy policy) throws IOException {
+        Path config = policy.commandHome().resolve("platform-git-config");
+        Files.writeString(
+                config,
+                "[safe]\n\tdirectory = *\n",
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                java.nio.file.StandardOpenOption.WRITE);
     }
 
     private static GitCommandException failure(

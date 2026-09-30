@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { ids, mockApi } from '../menu-walk'
+import { ids, mockApi, VIEWPORTS } from '../menu-walk'
 
 /**
  * M9b-F04 C15 的收口矩阵（走 dev server，同 menu-walk 三件套）：
@@ -8,19 +8,12 @@ import { ids, mockApi } from '../menu-walk'
  * 1. **23 页补全** —— MENUS 三件套已走 17 个登录态菜单；这里补 6 个非菜单路由
  *    （login/register/invite/onboarding/access-denied/not-found）。23 = 17 + 6，与 router
  *    的路由数一致，到此「每一页都走过」成立。
- * 2. **四视口几何** —— 1440×900 / 1024×768 / 390×844 / 320×568 上抽查：无横向溢出、
- *    工作区在视口内、窄屏唯一的导航入口真的点得到（elementFromPoint 命中）。1024×768 的
- *    对话工作区几何由 reading-anchors 的 F04 用例单独断言，这里不再重复。
+ * 2. **六视口几何** —— M9b-Q01 把四档升格为 menu-walk 共享的六档 VIEWPORTS
+ *    （1440/1100/1024/767/390/320）并在此逐档抽查：无横向溢出、工作区在视口内、窄屏
+ *    唯一的导航入口真的点得到（elementFromPoint 命中）。1024×768 的对话工作区几何由
+ *    reading-anchors 的 F04 用例单独断言，这里不再重复。
  * 3. **长无空格路径** —— 200 字符路径与超长 focus 坐标不撑破任何容器。
  */
-
-/** 四视口里窄屏的一对（390/320）要断言汉堡入口；宽屏一对（1440/1024）断言工作区几何。 */
-const VIEWPORTS = [
-  { width: 1440, height: 900 },
-  { width: 1024, height: 768 },
-  { width: 390, height: 844 },
-  { width: 320, height: 568 },
-] as const
 
 /** 公开三页走 AuthCard 状态机（loading → 主表单），标题文案随分支变，断言挂卡片结构本身。 */
 const PUBLIC_ROUTES = ['/login', '/register', '/invite']
@@ -61,7 +54,7 @@ test('onboarding 与两个错误路由到得了且可读', async ({ page }) => {
   }
 })
 
-test.describe('四视口几何抽查', () => {
+test.describe('六视口几何抽查', () => {
   /** 每视口都量同一组事实：溢出、工作区边界、窄屏导航入口可点。 */
   async function assertViewport(page: Page, width: number): Promise<void> {
     const overflow = await page.evaluate(() => ({

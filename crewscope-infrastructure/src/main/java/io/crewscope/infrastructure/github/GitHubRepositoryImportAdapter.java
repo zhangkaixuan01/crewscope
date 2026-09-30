@@ -23,6 +23,8 @@ import java.util.Objects;
 
 /** Worker adapter that imports a verified remote branch into one owned bare repository. */
 public final class GitHubRepositoryImportAdapter implements GitHubRepositoryImportPort {
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(GitHubRepositoryImportAdapter.class);
     private static final LinkOption[] NO_FOLLOW = {LinkOption.NOFOLLOW_LINKS};
     private final GitHubConnectionGrantAuthorizer authorizer;
     private final GitCommandExecutor git;
@@ -91,6 +93,17 @@ public final class GitHubRepositoryImportAdapter implements GitHubRepositoryImpo
                 } catch (RuntimeException failure) {
                     if (!existing) cleanup(target);
                     if (failure instanceof GitHubPushException safe) throw safe;
+                    // Exception class, Git error and exit code are secret-free; naming them
+                    // separates an authorization failure from a Git/host failure without
+                    // exposing the credential path or raw Git output.
+                    LOGGER.warn("GitHub repository import failed: {} gitError={} exit={}",
+                            failure.getClass().getSimpleName(),
+                            failure instanceof io.crewscope.infrastructure.workspace.git.GitCommandException git
+                                    ? git.error().name()
+                                    : "none",
+                            failure instanceof io.crewscope.infrastructure.workspace.git.GitCommandException git
+                                    ? (git.exitCode().isPresent() ? String.valueOf(git.exitCode().getAsInt()) : "none")
+                                    : "none");
                     throw failure("GitHub repository import failed");
                 }
             });

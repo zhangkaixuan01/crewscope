@@ -167,11 +167,11 @@ class M5I01ModelAgentPersistenceIntegrationTest
                 "SELECT count(*) FROM crewscope.model_price_revision",
                 Integer.class));
         ModelCatalogEntry catalog = catalogs.findLatest(
-                        new ModelProviderKey("deepseek"), new ModelId("deepseek-v4-flash"))
+                        new ModelProviderKey("deepseek"), new ModelId("deepseek-flash"))
                 .orElseThrow();
         ModelPriceRevision price = prices.findEffectivePrice(catalog.coordinate(), LATER)
                 .orElseThrow();
-        assertEquals("DeepSeek-V4-Flash-0731", catalog.modelRevision().toString());
+        assertEquals("DeepSeek-Flash-0731", catalog.modelRevision().toString());
         assertEquals("0.44", price.tokenPrice().inputPerMillionTokens().toPlainString());
         assertEquals("1.32", price.tokenPrice().outputPerMillionTokens().toPlainString());
         assertEquals("0.014", price.tokenPrice().cachedInputPerMillionTokens()

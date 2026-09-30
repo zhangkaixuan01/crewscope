@@ -40,7 +40,8 @@ final class TaskExecutionSandboxFacts {
                 || requiredWorkspace.attempt() != requiredPolicy.attempt()
                 || !requiredWorkspace.codingTarget().equals(requiredPolicy.codingTarget())
                 || !requiredPolicy.buildProfile().equals(requiredProfile.reference())
-                || requiredPolicy.sandboxBudget().networkMode() != SandboxNetworkMode.NONE
+                || !requiredPolicy.sandboxBudget().networkMode()
+                        .isNoBroaderThan(SandboxNetworkMode.RESTRICTED_EGRESS)
                 || !requiredPolicy.sandboxBudget().readOnlyRootFilesystem()) {
             throw failure(
                     TaskExecutionSandboxError.POLICY_MISMATCH,

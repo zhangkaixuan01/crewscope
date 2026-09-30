@@ -4,7 +4,10 @@ import io.crewscope.agentscope.review.ReviewerSpecialistRuntime;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.application.agent.AgentConfigurationRepository;
+import io.crewscope.application.agent.AgentExecutionConfigurationService;
+import io.crewscope.application.agent.AgentModelGovernance;
 import io.crewscope.application.agent.AgentTemplateRepository;
+import io.crewscope.application.agent.ResolvedAgentPolicySnapshotService;
 import io.crewscope.application.coding.CodingArtifactContentPort;
 import io.crewscope.application.coding.CommandEvidenceRepository;
 import io.crewscope.application.coding.DiffArtifactRepository;
@@ -30,14 +33,18 @@ import io.crewscope.application.review.ReviewLineCommentQueryService;
 import io.crewscope.application.review.ReviewLineCommentRepository;
 import io.crewscope.application.review.ReviewRequestRepository;
 import io.crewscope.application.review.ReviewSubjectRepository;
+import io.crewscope.application.review.AdvisoryReviewerPolicySnapshotSource;
+import io.crewscope.application.review.ReviewerPolicySnapshotAutoSource;
 import io.crewscope.application.review.ReviewerExecutionApplicationService;
 import io.crewscope.application.review.ReviewerExecutionPort;
 import io.crewscope.application.task.PolicySnapshotRepository;
 import io.crewscope.application.task.TaskAgentRuntimeSessionRepository;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
+import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
+import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -98,6 +105,36 @@ public class ReviewApplicationConfiguration {
                 profiles, templates, configurations, assembler, runtime);
     }
 
+    /**
+     * M9b-Q02 review-gate path: resolves the advisory Reviewer Agent's per-attempt snapshot with
+     * the same trusted pipeline Task delegation uses, so Review creation works without a
+     * pre-pinned reviewerPolicySnapshotId (no product path ever created one before).
+     */
+    @Bean
+    AdvisoryReviewerPolicySnapshotSource advisoryReviewerPolicySnapshotSource(
+            AgentProfileRepository profiles,
+            PrincipalRepository principals,
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            ModelConnectionRepository connections,
+            AgentModelGovernance governance,
+            AgentExecutionConfigurationService executionConfigurations,
+            ResolvedAgentPolicySnapshotService snapshots,
+            PolicySnapshotRepository policies,
+            TimeProvider timeProvider) {
+        return new AdvisoryReviewerPolicySnapshotSource(
+                profiles,
+                principals,
+                teams,
+                memberships,
+                connections,
+                governance,
+                executionConfigurations,
+                snapshots,
+                policies,
+                timeProvider);
+    }
+
     @Bean
     ReviewRequestApplicationService reviewRequestApplicationService(
             WorkItemAccessPolicy accessPolicy,
@@ -124,12 +161,14 @@ public class ReviewApplicationConfiguration {
             ReviewEventPublisher reviewEvents,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider,
+            ReviewerPolicySnapshotAutoSource autoSnapshotSource) {
         return new ReviewRequestApplicationService(
                 accessPolicy, tasks, executions, diffs, tests, commands, policies,
                 principals, profiles, memberships, assignments, subjects, contexts, requests,
                 findings, decisions, rounds, queries, contextBuilder, gateAvailability,
-                reviewerPolicies, reviewEvents, receipts, transactions, timeProvider);
+                reviewerPolicies, reviewEvents, receipts, transactions, timeProvider,
+                autoSnapshotSource);
     }
 
     @Bean

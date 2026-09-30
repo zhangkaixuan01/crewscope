@@ -15,6 +15,7 @@ import io.crewscope.application.github.GitHubBranchQueryResult;
 import io.crewscope.application.github.GitHubDraftPullRequestPort;
 import io.crewscope.application.github.GitHubPushPort;
 import io.crewscope.application.github.GitHubRepositoryPolicy;
+import io.crewscope.application.github.PushGitHubBranchRequest;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.action.ActionAuthorityFacts;
 import io.crewscope.domain.action.ActionAuthoritySnapshot;
@@ -53,7 +54,10 @@ import io.crewscope.domain.coding.RepositoryCommitId;
 import io.crewscope.domain.provider.ConnectionGrant;
 import io.crewscope.domain.provider.ConnectionGrantId;
 import io.crewscope.domain.provider.ConnectionId;
+import io.crewscope.domain.provider.ProviderAccessScope;
+import io.crewscope.domain.provider.ProviderCapabilities;
 import io.crewscope.domain.provider.ProviderOwner;
+import io.crewscope.domain.provider.ProviderResourceScope;
 import io.crewscope.domain.shared.audit.AuditMetadata;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -64,6 +68,7 @@ import io.crewscope.domain.task.TaskFactHash;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -84,6 +89,26 @@ class ActionReconciliationWorkerM5I12Test {
         verify(fixture.pushPort, never()).pushBranch(any());
         verify(fixture.pullRequestPort, never()).ensureDraft(any());
         verify(fixture.receipts).insertIfAbsent(any());
+    }
+
+    @Test
+    void reconciliationQueriesInheritTheGrantResourceVocabulary() {
+        Fixture fixture = new Fixture();
+        List<PushGitHubBranchRequest> queries = new ArrayList<>();
+        when(fixture.pushPort.queryBranch(any())).thenAnswer(invocation -> {
+            queries.add(invocation.getArgument(0));
+            return new GitHubBranchQueryResult(Optional.of(fixture.delivery), fixture.now);
+        });
+
+        fixture.worker().runOnce(fixture.organizationId);
+
+        // Same grant-vocabulary fact as the delivery worker (M9b-Q02 defect 28): the
+        // reconciliation query's access must carry the grant's resources, never an
+        // external-id-shaped scope that can never match a "github:repository:" key.
+        assertEquals(1, queries.size());
+        assertEquals(
+                fixture.grantedAccess.resources(),
+                queries.get(0).repositoryPreflight().access().requestedAccess().resources());
     }
 
     @Test
@@ -230,6 +255,13 @@ class ActionReconciliationWorkerM5I12Test {
         private final ActionAuthorityFactsResolver authorityResolver =
                 mock(ActionAuthorityFactsResolver.class);
         private final GitHubPushPort pushPort = mock(GitHubPushPort.class);
+        private final ProviderAccessScope grantedAccess = new ProviderAccessScope(
+                ProviderCapabilities.of(
+                        "source.repository.push",
+                        "source.pull-request.create",
+                        "source.repository.catalog",
+                        "source.repository.read"),
+                ProviderResourceScope.of("github:repository:crewscope/crewscope-java"));
         private final GitHubDraftPullRequestPort pullRequestPort =
                 mock(GitHubDraftPullRequestPort.class);
 
@@ -281,6 +313,7 @@ class ActionReconciliationWorkerM5I12Test {
             ProviderOwner owner = mock(ProviderOwner.class);
             when(owner.organizationId()).thenReturn(organizationId);
             when(grant.grantee()).thenReturn(owner);
+            when(grant.grantedAccess()).thenReturn(grantedAccess);
             when(facts.connectionGrant()).thenReturn(grant);
             when(authorityResolver.resolveCurrent(authority)).thenReturn(facts);
             var provider = mock(io.crewscope.domain.action.ProviderAuthorizationReference.class);

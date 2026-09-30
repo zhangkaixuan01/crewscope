@@ -53,8 +53,16 @@ public record ActionAuthoritySnapshot(
             SafetyRestriction.CREDENTIAL_REVOKED,
             SafetyRestriction.RESOURCE_BLOCKED,
             SafetyRestriction.PLUGIN_KILL_SWITCH);
-    private static final Set<String> ACTION_TOOLS =
+    /** Tools the post-approval delivery actions run under the Task's own policy. */
+    public static final Set<String> DELIVERY_ACTION_TOOLS =
             Set.of("pull-request.create-draft", "repository.push");
+
+    /** The toolset a delivery-capable Task policy must permit, joined onto its own tools. */
+    public static Set<String> unionDeliveryTools(Set<String> tools) {
+        java.util.HashSet<String> union = new java.util.HashSet<>(tools);
+        union.addAll(DELIVERY_ACTION_TOOLS);
+        return Set.copyOf(union);
+    }
 
     public ActionAuthoritySnapshot {
         scope = Objects.requireNonNull(scope, "scope");
@@ -187,7 +195,10 @@ public record ActionAuthoritySnapshot(
                 || binding.executionIdentity().filter(
                         expectedExecutionIdentity(connection.owner().type())::equals).isEmpty()
                 || !binding.effectiveAccess().capabilities().includes(
-                        ProviderCapabilities.of("source.write", "pull-request.create"))
+                        // Same provider vocabulary as ActionBundle.requireSourceDeliveryAccess:
+                        // grants are issued as source.repository.push / source.pull-request.create.
+                        ProviderCapabilities.of(
+                                "source.repository.push", "source.pull-request.create"))
                 || !connection.isUsableAt(now)
                 || grant.effectiveAccess(binding.effectiveAccess(), connection, now)
                         .filter(binding.effectiveAccess()::equals)
@@ -207,7 +218,7 @@ public record ActionAuthoritySnapshot(
             throw new DomainValidationException(
                     "actionBundle.policySnapshot", "must authorize the selected ProviderBinding");
         }
-        if (!current.safetyOverlay().permits(policy, Set.of(), ACTION_TOOLS)) {
+        if (!current.safetyOverlay().permits(policy, Set.of(), DELIVERY_ACTION_TOOLS)) {
             throw new DomainValidationException(
                     "actionBundle.policySnapshot",
                     "PolicySnapshot and Safety Overlay must permit the delivery action tools");

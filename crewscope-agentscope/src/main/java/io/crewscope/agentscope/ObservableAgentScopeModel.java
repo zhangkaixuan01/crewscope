@@ -10,11 +10,15 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.util.retry.Retry;
 
 /** Preserves AgentScope retry semantics while exposing real attempts and sanitizing terminal errors. */
 public final class ObservableAgentScopeModel implements Model {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ObservableAgentScopeModel.class);
 
     private final Model delegate;
     private final AgentModelRole role;
@@ -100,8 +104,16 @@ public final class ObservableAgentScopeModel implements Model {
                     });
             attempts = attempts.retryWhen(retry);
         }
-        return attempts.onErrorMap(failure -> new SafeModelExecutionException(
-                AgentCallFailureClassifier.classify(AgentCallFailureClassifier.unwrap(failure))));
+        return attempts.onErrorMap(failure -> {
+            Throwable cause = AgentCallFailureClassifier.unwrap(failure);
+            // Defect 20 observation (M9b-Q02): a reviewer call failed in ~49ms with no model
+            // request on the wire and nothing logged — the sanitized exception erased both the
+            // code and the originating class. Keep the sanitization contract (no provider text)
+            // but record the bounded code and the exception class name.
+            LOGGER.warn("Model stream terminated [code={}, cause={}]",
+                    AgentCallFailureClassifier.classify(cause), cause.getClass().getName());
+            return new SafeModelExecutionException(AgentCallFailureClassifier.classify(cause));
+        });
     }
 
     private static GenerateOptions singleAttemptOptions(GenerateOptions original) {

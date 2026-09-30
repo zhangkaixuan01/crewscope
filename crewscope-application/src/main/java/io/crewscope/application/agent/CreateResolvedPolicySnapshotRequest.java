@@ -2,12 +2,14 @@ package io.crewscope.application.agent;
 
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.provider.ProviderBindingId;
+import io.crewscope.domain.responsibility.ResponsibilityRole;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.ExecutionCapability;
 import io.crewscope.domain.task.PolicyBudget;
 import io.crewscope.domain.task.PolicySnapshotId;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
+import io.crewscope.domain.task.TaskResponsibilitySnapshot;
 import java.util.Objects;
 import java.util.Set;
 
@@ -17,6 +19,8 @@ public record CreateResolvedPolicySnapshotRequest(
         Task task,
         TaskExecution execution,
         Principal executor,
+        ResponsibilityRole pinnedRole,
+        TaskResponsibilitySnapshot responsibilitySnapshot,
         ResolveAgentExecutionConfigurationRequest resolutionRequest,
         Set<ExecutionCapability> capabilities,
         Set<String> allowedTools,
@@ -30,6 +34,9 @@ public record CreateResolvedPolicySnapshotRequest(
         task = Objects.requireNonNull(task, "task");
         execution = Objects.requireNonNull(execution, "execution");
         executor = Objects.requireNonNull(executor, "executor");
+        pinnedRole = Objects.requireNonNull(pinnedRole, "pinnedRole");
+        responsibilitySnapshot = Objects.requireNonNull(
+                responsibilitySnapshot, "responsibilitySnapshot");
         resolutionRequest = Objects.requireNonNull(resolutionRequest, "resolutionRequest");
         capabilities = Set.copyOf(Objects.requireNonNull(capabilities, "capabilities"));
         allowedTools = Set.copyOf(Objects.requireNonNull(allowedTools, "allowedTools"));

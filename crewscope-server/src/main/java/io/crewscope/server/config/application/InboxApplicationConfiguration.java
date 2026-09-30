@@ -1,6 +1,7 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.inbox.InboxApplicationService;
 import io.crewscope.application.inbox.InboxDispositionApplicationService;
 import io.crewscope.application.inbox.InboxDispositionCommandService;
@@ -39,9 +40,11 @@ public class InboxApplicationConfiguration {
             InboxApplicationService authorizationQueries,
             InboxDispositionApplicationService dispositions,
             CommandReceiptStore receipts,
+            DomainEventStore eventStore,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
         return new InboxDispositionCommandService(
-                authorizationQueries, dispositions, receipts, transactions, timeProvider);
+                authorizationQueries, dispositions, receipts, eventStore, transactions,
+                timeProvider);
     }
 }

@@ -99,6 +99,26 @@ class CodingStructuredOutputContractTest {
     }
 
     @Test
+    void acceptsRepositoryRootAnalysisWhenTargetCoversTheWholeRepository() {
+        Facts facts = Facts.create();
+        // A whole-repository target (allowedPaths ".") carries that same root into the
+        // authority-proposed analysis, so both root lists must accept ".".
+        when(facts.target.allowedPaths()).thenReturn(CodingTargetAllowedPaths.of("."));
+        validator.validateRepositoryAnalysis(new RepositoryAnalysisV1(
+                "1", facts.targetId.toString(), 1, facts.targetHash.toString(),
+                List.of("domain"), List.of("."), List.of("."), List.of(),
+                List.of("Update documentation")), facts.target);
+
+        // Under a limited target the repository root stays outside the captured roots.
+        when(facts.target.allowedPaths()).thenReturn(CodingTargetAllowedPaths.of("crewscope-domain", "docs"));
+        assertThrows(CodingOutputValidationException.class,
+                () -> validator.validateRepositoryAnalysis(new RepositoryAnalysisV1(
+                        "1", facts.targetId.toString(), 1, facts.targetHash.toString(),
+                        List.of("domain"), List.of("."), List.of("."), List.of(),
+                        List.of("Update documentation")), facts.target));
+    }
+
+    @Test
     void comparesDiffAndEvidenceAgainstExactAuthorityOrderAndHashes() {
         Facts facts = Facts.create();
         DiffManifestV1 diff = facts.diffOutput();

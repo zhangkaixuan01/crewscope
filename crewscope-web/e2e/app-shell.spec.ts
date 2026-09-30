@@ -1,4 +1,4 @@
-import { expect, test, type Route } from '@playwright/test'
+import { expect, test, type Locator, type Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { createHash } from 'node:crypto'
 import { authenticatedSession } from './auth-session'
@@ -1180,10 +1180,13 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await page.route(new RegExp(`/tasks/${completed.id}/events$`), route => fulfillSse(route, []))
 
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  // M9b-Q01 起关联卡默认摘要收起（待确认的任务提案卡除外）——展开后才能断言卡内事实。
+  await page.locator('summary', { hasText: '关联任务' }).click()
   const taskCards = page.getByTestId('conversation-task-cards')
   await expect(taskCards.getByText('完成 Agent Task 列表与委托入口', { exact: true })).toBeVisible()
   await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
   await page.reload()
+  await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
   await expect(taskCards).not.toContainText('不可见的私有 Task')
   // The sticky conversation header and the jump-to-latest pill overlay this section, and how much of
@@ -1201,6 +1204,8 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
   await expect(page).toHaveURL(/\/conversation\?/)
   expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
+  // 返回对话同样是新 DOM，关联卡回到默认摘要收起。
+  await page.locator('summary', { hasText: '关联任务' }).click()
 
   await taskCards.locator(`[data-task-id="${ids.task}"]`).getByRole('button', { name: '工作项' }).click()
   await expect(page).toHaveURL(/\/work\?/)
@@ -1234,6 +1239,8 @@ test('Conversation Task SSE invalidates durable facts and stops after the termin
   }]))
 
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  // 关联卡默认摘要收起（M9b-Q01）：断言卡内事实前先展开。
+  await page.locator('summary', { hasText: '关联任务' }).click()
   const card = page.getByTestId('conversation-task-cards').locator(`[data-task-id="${ids.task}"]`)
   await expect(card.getByText('已完成', { exact: true })).toBeVisible()
   await expect(card.getByText('WAITING_APPROVAL')).toBeHidden()
@@ -1280,6 +1287,8 @@ test('fill 页面的固定高度 chrome 不参与内容溢出分摊', async ({ p
   // 「chrome 保持自然高度，workspace 接收剩余视口」的 L03 合同。断言高度而非截图，
   // 让这类回归在基线之前先在这里红掉。
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  // 关联卡默认摘要收起（M9b-Q01）：守卫断言的对象在收起内容里，先展开。
+  await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(page.getByTestId('conversation-task-cards')).toBeVisible()
   const topbar = page.locator('.topbar')
   await expect(topbar).toBeVisible()
@@ -1322,6 +1331,8 @@ test('Conversation shows the submitted owner message before the Agent stream is 
     await route.fallback()
   })
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  // 关联卡默认摘要收起（M9b-Q01）：卡内事实断言在消息收口验证里，先展开。
+  await page.locator('summary', { hasText: '关联任务' }).click()
 
   await page.getByLabel('消息内容').fill('验证 Pending 消息收口。')
   await page.getByLabel('消息内容').press('Enter')
@@ -1506,6 +1517,8 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   await expect(page.getByText('已确认', { exact: true }).first()).toBeVisible()
   expect(confirmationBody).toBeNull()
 
+  // 关联 WorkItem 卡默认摘要收起（M9b-Q01）：进入工作区的入口在展开内容里。
+  await page.locator('summary', { hasText: '关联 WorkItem' }).click()
   await page.getByRole('button', { name: '查看工作项 CRW-18' }).click()
   await expect(page).toHaveURL(/\/work\?/)
   expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
@@ -1518,6 +1531,8 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   await expect(page).toHaveURL(/\/conversation\?/)
   expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
   await page.reload()
+  // reload 后关联 WorkItem 卡回到默认摘要收起。
+  await page.locator('summary', { hasText: '关联 WorkItem' }).click()
   await expect(page.getByRole('button', { name: '查看工作项 CRW-18' })).toBeVisible()
 })
 
@@ -1786,6 +1801,16 @@ test('Conversation creates a server-backed Team conversation and opens it', asyn
   await expect(composer.getByLabel('消息内容')).toBeFocused()
   await expect(page.getByText('开始这个对话', { exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('conversation')).toBeTruthy()
+})
+
+test('Conversation keeps a project-less deep link on first entry', async ({ page }) => {
+  // A shared or bookmarked conversation link carries the conversation coordinate and no project;
+  // the default-project fill-in is canonicalization, not a scope switch, and must not swallow
+  // it (the M9b-Q02 first-use regression: the deep link bounced back to the welcome state).
+  await page.goto(`/conversation?team=${ids.team}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('form', { name: '发送消息' })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
 })
 
 test('Conversation clears an incompatible deep link when switching Team Scope', async ({ page }) => {
@@ -2308,6 +2333,8 @@ test('CodingTarget loading indicator honors reduced motion', async ({ page }) =>
 
 test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restores its card', async ({ page }) => {
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  // 「已确认工作项」区在默认收起的关联 WorkItem 卡内（M9b-Q01 摘要化），先展开。
+  await page.locator('summary', { hasText: '关联 WorkItem' }).click()
   await page.getByRole('region', { name: '已确认工作项' }).getByRole('button', { name: '为工作项 CRW-18 配置 Coding Task' }).click()
   await expect(page).toHaveURL(/sourceMessage=/)
   expect(new URL(page.url()).searchParams.get('sourceMessage')).toBe('00000000-0000-0000-0000-000000001304')
@@ -2322,8 +2349,11 @@ test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restore
   await expect(taskDialog).toBeVisible()
   await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
   const cards = page.getByTestId('conversation-task-cards')
+  // 关联卡默认摘要收起（M9b-Q01）：返回与 reload 各展开一次再断言卡内事实。
+  await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
   await page.reload()
+  await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
 })
 
@@ -3139,6 +3169,18 @@ test('M5 Review Workbench visual baseline', async ({ page }, testInfo) => {
 })
 
 test('AppShell visual baseline', async ({ page }, testInfo) => {
+  // SSE 保活（M9b-Q02 时代 AppShell 基线 flaky 的根治）：beforeEach 的全局 events 兜底是
+  // 立即 EOF 的空流，realtimeStore.consumeDurableEvents 会进入 300ms→4s 退避重连循环；每次
+  // 重连推高 messageRefreshVersion 并重置列表跟随状态，竞态表现为 latest-jump pill 闪现
+  // （截图 151px 恒差的来源）。route.fulfill 无法流式保持连接，唯一保活手段是挂起 handler
+  // 不响应；非 SSE 的 JSON 历史请求 fallback 回全局兜底，功能用例不受影响（它们各自覆盖
+  // events 路由并依赖事件送达）。
+  await page.route(/\/(conversations\/[^/]+|tasks\/[^/]+)\/events(?:\?.*)?$/, (route: Route) => {
+    if (route.request().headers().accept?.includes('text/event-stream')) {
+      return new Promise<void>(() => {})
+    }
+    return route.fallback()
+  })
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
   // 截图锚定在 R19 阅读位置恢复完成之后：标题可见只代表详情就绪，窄屏里消息历史的
@@ -3211,6 +3253,9 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
 
   // M9-F10 ③ 的浏览器侧证据：四个数值字段的 min/max/step 就是服务端校验的区间（这三个数由领域表
   // 生成、由 check-openapi-drift 守着），越界在输入时即可见，字段正文不小于 14px。
+  // M9b-Q01 起 8 个 generate 参数折叠默认收起（常用项优先、高级项后置）——键盘可达的原生
+  // details，先展开再操作。
+  await configuration.getByText('高级生成参数').click()
   const temperature = configuration.getByLabel(/Temperature/)
   await expect(temperature).toHaveAttribute('min', '0')
   await expect(temperature).toHaveAttribute('max', '2')
@@ -3241,6 +3286,61 @@ test('M5 Agent creation and configuration preserve server-owned boundaries', asy
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', await page.locator('html').evaluate(element => element.clientWidth))
 })
 
+test('M9b-Q01 agent settings keep common fields first and fold advanced parameters', async ({ page }, testInfo) => {
+  // 主计划 4.5「Agent 配置先选对象，再看模型/角色/状态，高级参数和历史后置」的 e2e 证据：
+  // 常用项（模型绑定/补充指令/批准 Skill）先于高级参数；高级参数默认收起且键盘可达。
+  await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}`)
+  const configuration = page.locator('.agent-configuration')
+  await expect(configuration.getByRole('heading', { name: 'CrewScope Coding Agent' })).toBeVisible()
+
+  // 阅读顺序：配置主区在前，不可变历史后置（desktop 右列、narrow 横条垫底）。
+  const main = configuration.locator('.configuration-main')
+  const history = configuration.locator('.revision-rail')
+  expect(await main.evaluate((element, other) =>
+    Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING), await history.elementHandle())).toBe(true)
+  const mainBox = await main.boundingBox()
+  const historyBox = await history.boundingBox()
+  if (testInfo.project.name === 'desktop-chromium') {
+    expect(historyBox!.x, 'desktop：历史列在主区右侧').toBeGreaterThanOrEqual(mainBox!.x + mainBox!.width - 1)
+  } else {
+    expect(historyBox!.y, 'narrow：历史横条垫底').toBeGreaterThanOrEqual(mainBox!.y + mainBox!.height - 1)
+  }
+
+  // 常用项先于高级参数出现；高级参数默认收起、字段不可见。
+  const advancedSummary = configuration.getByText('高级生成参数').first()
+  const commonField = configuration.getByLabel(/补充指令/)
+  expect(await commonField.evaluate((element, other) =>
+    Boolean(element.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING), await advancedSummary.elementHandle())).toBe(true)
+  const advanced = configuration.locator('details.advanced-preferences')
+  await expect(advanced).not.toHaveAttribute('open')
+  await expect(configuration.getByLabel(/Temperature/)).toBeHidden()
+
+  // 原生 details 的键盘可达：聚焦 summary，Enter 展开。
+  await advanced.locator('summary').focus()
+  await page.keyboard.press('Enter')
+  await expect(advanced).toHaveAttribute('open')
+  await expect(configuration.getByLabel(/Temperature/)).toBeVisible()
+})
+
+test('M9b-Q01 conversation association cards fold by default with the count as status', async ({ page }) => {
+  // 主计划 4.5「关联卡默认摘要，参与者按需展开」：摘要行的计数就是状态；待确认的任务提案
+  // 卡是例外，保持展开突出。
+  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+
+  const workItemCard = page.locator('summary', { hasText: '关联 WorkItem' }).locator('..')
+  await expect(workItemCard.locator('summary')).toContainText(/关联 WorkItem \d+ 项/)
+  await expect(workItemCard.getByRole('region', { name: '已确认工作项' })).toBeHidden()
+  const taskCard = page.locator('summary', { hasText: '关联任务' }).locator('..')
+  await expect(taskCard.getByTestId('conversation-task-cards')).toBeHidden()
+  // 待确认任务提案卡保持展开的例外语义（details 固定 open）由「reviews the latest TaskIntent」
+  // 用例覆盖——那里的 TaskIntent 事实经由 events mock 送达。
+
+  // 参与者按需展开后内容可见。
+  await taskCard.locator('summary').click()
+  await expect(taskCard.getByTestId('conversation-task-cards')).toBeVisible()
+})
+
 test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
   await page.goto(`/settings/agents?team=${ids.team}`)
   await expect(page.getByRole('heading', { name: '我的 Specialist' })).toBeVisible()
@@ -3262,14 +3362,16 @@ test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
 test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   // This gate intentionally visits every primary page and several dialogs in one browser context.
   test.setTimeout(90_000)
-  const routes = [
+  const routes: { path: string, setup?: () => Promise<void>, ready: () => Locator }[] = [
     { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first() },
     { path: `/today?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: '我的工作台', exact: true }) },
     { path: `/setup?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'Platform Engineering 的配置中心' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`, ready: () => page.getByRole('dialog', { name: 'CRW-18 工作项详情' }) },
-    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, ready: () => page.getByTestId('conversation-task-cards') },
+    // M9b-Q01 起关联卡默认收起：扫展开态需要先点开「关联任务」（收起的内容不在可访问树，
+    // axe 本身扫不到，这里保持的是对展开内容的既有覆盖）。
+    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, setup: async () => { await page.locator('summary', { hasText: '关联任务' }).click() }, ready: () => page.getByTestId('conversation-task-cards') },
     { path: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`, ready: () => page.getByRole('region', { name: 'Agent Tasks' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`, ready: () => page.getByRole('dialog', { name: /Task 详情/ }) },
     { path: `/settings/repositories?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'CrewScope 仓库设置' }) },
@@ -3279,6 +3381,7 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
 
   for (const route of routes) {
     await page.goto(route.path)
+    if (route.setup) await route.setup()
     await expect(route.ready()).toBeVisible()
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])

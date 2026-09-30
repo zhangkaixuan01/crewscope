@@ -1127,7 +1127,9 @@ function prefersReducedMotion(): boolean {
                   @expand="taskIntentExpanded = true"
                 />
               </details>
-              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="Boolean(linkStore.state.associations.length)">
+              <!-- M9b-Q01（主计划 4.5「关联卡默认摘要，参与者按需展开」）：默认收起，摘要行的
+                   计数就是状态；待确认的任务提案卡在上方保持例外突出。 -->
+              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure">
                 <summary>关联 WorkItem <span>{{ linkStore.state.associations.length }} 项</span></summary>
                 <ConversationWorkItemLinks
                   :phase="linkStore.state.phase"
@@ -1140,7 +1142,7 @@ function prefersReducedMotion(): boolean {
                   @retry="retryLinks"
                 />
               </details>
-              <details v-if="taskAssociations.length || (taskAssociationResource?.phase ?? 'idle') !== 'idle'" class="conversation-structure" :open="Boolean(taskAssociations.length)">
+              <details v-if="taskAssociations.length || (taskAssociationResource?.phase ?? 'idle') !== 'idle'" class="conversation-structure">
                 <summary>关联任务 <span>{{ taskAssociations.length }} 项</span></summary>
                 <ConversationTaskCards
                   :phase="taskAssociationResource?.phase ?? 'idle'"

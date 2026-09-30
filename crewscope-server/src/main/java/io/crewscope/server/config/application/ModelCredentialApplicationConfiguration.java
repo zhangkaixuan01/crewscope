@@ -11,7 +11,6 @@ import io.crewscope.application.model.ModelProviderHealthProbe;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.infrastructure.model.OpenAiCompatibleModelProviderHealthProbe;
-import java.net.http.HttpClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -26,14 +25,11 @@ public class ModelCredentialApplicationConfiguration {
     @Bean
     @ConditionalOnMissingBean(ModelProviderHealthProbe.class)
     ModelProviderHealthProbe modelProviderHealthProbe(ModelCredentialProperties properties) {
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(properties.validatedHealthConnectTimeout())
-                // A Provider endpoint is platform-controlled, but redirects must never be able
-                // to move a bearer credential to a different host or scheme.
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
+        // The probe builds a short-lived client per call; passing only the budgets here keeps
+        // pooled connection state from leaking between probes (M9b-Q02 defect 22).
         return new OpenAiCompatibleModelProviderHealthProbe(
-                client, properties.validatedHealthRequestTimeout());
+                properties.validatedHealthConnectTimeout(),
+                properties.validatedHealthRequestTimeout());
     }
 
     @Bean

@@ -30,6 +30,7 @@ import io.crewscope.domain.identity.event.AuthenticationFailuresAggregated;
 import io.crewscope.domain.identity.event.AuthenticationSucceeded;
 import io.crewscope.domain.identity.event.UserIdentityMapped;
 import io.crewscope.domain.identity.event.UserAccountRegistered;
+import io.crewscope.domain.inbox.event.InboxDispositionChanged;
 import io.crewscope.domain.model.event.ModelConnectionCredentialChanged;
 import io.crewscope.domain.projection.ProjectionLifecycleEvent;
 import io.crewscope.domain.provider.event.ConnectionLifecycleChanged;
@@ -444,6 +445,17 @@ public final class CrewScopeAuditEventTypes {
                 AuditRetentionLevel.STANDARD,
                 required("sequence"),
                 required("messageType"));
+        register(
+                target,
+                List.of("INBOX_DISPOSITION_CHANGED"),
+                List.of(SchemaVersion.V1),
+                InboxDispositionChanged.class,
+                AuditEventCategory.COLLABORATION,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("inboxItemId"),
+                required("status"),
+                required("version"));
         register(
                 target,
                 List.of("AGENT_RUNTIME_CONFIGURATION_REFRESHED"),

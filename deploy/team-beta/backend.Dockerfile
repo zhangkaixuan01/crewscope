@@ -20,8 +20,11 @@ COPY crewscope-agentscope/src crewscope-agentscope/src
 COPY crewscope-integration/src crewscope-integration/src
 COPY crewscope-infrastructure/src crewscope-infrastructure/src
 COPY crewscope-server/src crewscope-server/src
+# -DskipTests (not -Dmaven.test.skip=true): crewscope-server consumes the infrastructure
+# test-jar (A06 scale fixtures) at test scope, and a fully skipped test compile leaves that
+# classifier unresolvable in the reactor — skipping execution only keeps the build honest.
 RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress \
-    -pl crewscope-server -am -Dmaven.test.skip=true package
+    -pl crewscope-server -am -DskipTests package
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG CREWSCOPE_UID=10001

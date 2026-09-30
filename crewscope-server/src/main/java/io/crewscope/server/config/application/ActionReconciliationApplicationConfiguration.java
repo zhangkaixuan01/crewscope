@@ -27,7 +27,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import io.crewscope.server.config.runtime.WorkerCapableProfileCondition;
 
 /** Production composition for query-only UNKNOWN recovery and external result convergence. */
 @Configuration(proxyBeanMethods = false)
@@ -79,22 +81,12 @@ public class ActionReconciliationApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        ActionDispatchRepository.class,
-        ActionReceiptRepository.class,
-        ActionBundleRepository.class,
-        ConfirmationRepository.class,
-        ExternalObservationRepository.class,
-        ExternalResultMerger.class,
-        ActionAuthorityFactsResolver.class,
-        GitHubRepositoryPolicyResolver.class,
-        GitHubPushPort.class,
-        GitHubDraftPullRequestPort.class,
-        ActionWorkerEventPublisher.class,
-        ActionReconciliationObserver.class,
-        TransactionExecutor.class,
-        TimeProvider.class
-    })
+    // Same registration-order fact as ActionWorker's bean above: cross-class presence
+    // conditions on the GitHub write ports evaluate before the later-scanned
+    // GitHubProviderApplicationConfiguration defines them, silently dropping the
+    // reconciliation fleet from real deployments. The worker-capable execution profile
+    // carries the intent instead; collaborators resolve by injection.
+    @Conditional(WorkerCapableProfileCondition.class)
     @ConditionalOnMissingBean(ActionReconciliationWorker.class)
     ActionReconciliationWorker actionReconciliationWorker(
             ActionDispatchRepository dispatches,

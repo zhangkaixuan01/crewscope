@@ -55,11 +55,14 @@ const props = defineProps<{
   codingAttempt: CodingAttemptSummary | null
   tests: EvidencePage<TestEvidenceSummary> | null
   canGate: boolean
+  /** M9b-Q02 review-gate path: true when the attempt may open its first ReviewRequest. */
+  canCreate: boolean
   online: boolean
   command: ReviewCommandState
   onSelect: (reviewRequestId: string) => void
   onRetryList: () => void
   onRetryDetail: () => void
+  onCreate: () => Promise<boolean>
   onExecute: () => Promise<boolean>
   onDecide: (input: ReviewDecisionInput) => Promise<boolean>
   onRequestChanges: (rationale: string) => Promise<boolean>
@@ -275,8 +278,21 @@ function handleDecisionKeydown(event: KeyboardEvent): void {
       compact
       state="empty"
       title="当前 Attempt 尚无 ReviewRequest"
-      description="ReviewRequest 由服务端绑定 Reviewer PolicySnapshot、最终 Diff 与精确测试证据后进入这里；浏览器不接受原始 PolicySnapshot ID。"
-    />
+      description="ReviewRequest 由服务端绑定顾问 Reviewer Agent、最终 Diff 与精确测试证据后进入这里；浏览器不接受原始 PolicySnapshot ID。"
+    >
+      <template #action>
+        <BaseButton
+          v-if="canCreate"
+          size="small"
+          data-testid="create-review"
+          :disabled="!online || command.phase === 'pending'"
+          :loading="command.phase === 'pending' && command.operation === 'create'"
+          @click="onCreate"
+        >
+          <Bot :size="13" aria-hidden="true" />发起审查
+        </BaseButton>
+      </template>
+    </StatePanel>
 
     <template v-else>
       <div class="review-revisions" role="group" aria-label="Review 修订历史">

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,6 +24,10 @@ import io.crewscope.application.github.GitHubPushOutcome;
 import io.crewscope.application.github.GitHubPushPort;
 import io.crewscope.application.github.GitHubPushResult;
 import io.crewscope.application.github.GitHubRepositoryPolicy;
+import io.crewscope.application.github.PushGitHubBranchRequest;
+import io.crewscope.domain.provider.ProviderAccessScope;
+import io.crewscope.domain.provider.ProviderCapabilities;
+import io.crewscope.domain.provider.ProviderResourceScope;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.action.ActionAuthorityFacts;
 import io.crewscope.domain.action.ActionAuthoritySnapshot;
@@ -41,7 +46,11 @@ import io.crewscope.domain.action.ActionIdempotencyKey;
 import io.crewscope.domain.action.ActionReceipt;
 import io.crewscope.domain.action.ActionWorkerId;
 import io.crewscope.domain.action.CreateDraftPullRequestActionParameters;
+import io.crewscope.domain.action.ExternalObjectStatus;
+import io.crewscope.domain.action.ExternalObservation;
+import io.crewscope.domain.action.ExternalObjectType;
 import io.crewscope.domain.action.ExternalRepositoryId;
+import io.crewscope.domain.action.ExternalResultSource;
 import io.crewscope.domain.action.PlannedAction;
 import io.crewscope.domain.action.PlannedActionId;
 import io.crewscope.domain.action.ProviderAuthorizationReference;
@@ -227,6 +236,76 @@ class ActionWorkerM5I11Test {
         verify(fixture.pullRequestClaimed).markUnknown(anyLong(), any(), any());
     }
 
+    @Test
+    void successfulWritesMaterializeWriteResponseExternalObservations() {
+        Fixture fixture = new Fixture();
+        fixture.queue(fixture.pushCandidate, fixture.pullRequestCandidate);
+        when(fixture.pushPort.pushBranch(any())).thenReturn(fixture.pushResult());
+        when(fixture.pullRequestPort.ensureDraft(any())).thenReturn(fixture.pullRequestResult());
+
+        fixture.worker().runOnce(fixture.organizationId);
+
+        var observations = org.mockito.ArgumentCaptor
+                .forClass(ExternalObservation.class);
+        verify(fixture.externalResults, times(2))
+                .merge(any(), any(), any(), observations.capture());
+        // The verified write response is itself a trusted observation (M9b-Q02 defect 29):
+        // a finished delivery must be visible in the unified external projection without
+        // waiting for a webhook or a reconciliation query.
+        ExternalObservation push = observations.getAllValues().get(0);
+        assertEquals(ExternalResultSource.WRITE_RESPONSE, push.source());
+        assertEquals(ExternalObjectType.BRANCH, push.identity().objectType());
+        assertEquals(ExternalObjectStatus.PRESENT, push.status());
+        ExternalObservation pullRequest = observations.getAllValues().get(1);
+        assertEquals(ExternalResultSource.WRITE_RESPONSE, pullRequest.source());
+        assertEquals(ExternalObjectType.PULL_REQUEST, pullRequest.identity().objectType());
+        assertEquals(ExternalObjectStatus.OPEN, pullRequest.status());
+
+        Fixture failed = new Fixture();
+        failed.queue(failed.pushCandidate);
+        when(failed.pushPort.pushBranch(any())).thenThrow(
+                new io.crewscope.application.github.GitHubPushException(
+                        io.crewscope.application.github.GitHubPushErrorCode.UNKNOWN,
+                        "outcome requires reconciliation"));
+        failed.worker().runOnce(failed.organizationId);
+
+        // Failed and unknown receipts never materialize an external fact.
+        verify(failed.externalResults, never()).merge(any(), any(), any(), any());
+    }
+
+    @Test
+    void preflightRequestsInheritTheGrantResourceVocabulary() {
+        Fixture fixture = new Fixture();
+        fixture.queue(fixture.pushCandidate, fixture.pullRequestCandidate);
+        List<PushGitHubBranchRequest> pushes = new ArrayList<>();
+        when(fixture.pushPort.pushBranch(any())).thenAnswer(invocation -> {
+            pushes.add(invocation.getArgument(0));
+            return fixture.pushResult();
+        });
+        List<io.crewscope.application.github.CreateGitHubDraftPullRequestRequest> pulls =
+                new ArrayList<>();
+        when(fixture.pullRequestPort.ensureDraft(any())).thenAnswer(invocation -> {
+            pulls.add(invocation.getArgument(0));
+            return fixture.pullRequestResult();
+        });
+
+        fixture.worker().runOnce(fixture.organizationId);
+
+        // The provider grant vocabulary keys repositories as "github:repository:owner/name".
+        // A scope shaped from the bare external repository id never matches that key after
+        // grant intersection, so real-deployment preflights resolved every repository to
+        // REPOSITORY_BLOCKED (M9b-Q02 defect 28). Both delivery requests must carry the
+        // grant's own resources — only the capability dimension is narrowed per action.
+        assertEquals(1, pushes.size());
+        assertEquals(
+                fixture.grantedAccess.resources(),
+                pushes.get(0).repositoryPreflight().access().requestedAccess().resources());
+        assertEquals(1, pulls.size());
+        assertEquals(
+                fixture.grantedAccess.resources(),
+                pulls.get(0).repositoryPreflight().access().requestedAccess().resources());
+    }
+
     private static final class Fixture {
 
         private final UtcTimestamp now = UtcTimestamp.parse("2026-08-23T12:00:00Z");
@@ -282,6 +361,13 @@ class ActionWorkerM5I11Test {
         private final ActionAuthoritySnapshot authority = mock(ActionAuthoritySnapshot.class);
         private final ActionAuthorityFacts facts = mock(ActionAuthorityFacts.class);
         private final ConnectionGrant grant = mock(ConnectionGrant.class);
+        private final ProviderAccessScope grantedAccess = new ProviderAccessScope(
+                ProviderCapabilities.of(
+                        "source.repository.push",
+                        "source.pull-request.create",
+                        "source.repository.catalog",
+                        "source.repository.read"),
+                ProviderResourceScope.of("github:repository:crewscope/crewscope-java"));
         private final PlannedAction pushAction = action(
                 pushId, pushDigest, pushParameters, List.of());
         private final PlannedAction pullRequestAction = action(
@@ -316,6 +402,7 @@ class ActionWorkerM5I11Test {
         private final GitHubPushPort pushPort = mock(GitHubPushPort.class);
         private final GitHubDraftPullRequestPort pullRequestPort =
                 mock(GitHubDraftPullRequestPort.class);
+        private final ExternalResultMerger externalResults = mock(ExternalResultMerger.class);
         private final TrackingTransactions transactions = new TrackingTransactions();
         private final Map<PlannedActionId, ActionReceipt> committedReceipts = new HashMap<>();
         private final List<ActionDispatch> queue = new ArrayList<>();
@@ -351,6 +438,7 @@ class ActionWorkerM5I11Test {
             ProviderOwner providerOwner = mock(ProviderOwner.class);
             when(providerOwner.organizationId()).thenReturn(organizationId);
             when(grant.grantee()).thenReturn(providerOwner);
+            when(grant.grantedAccess()).thenReturn(grantedAccess);
             when(facts.connectionGrant()).thenReturn(grant);
             when(bundle.id()).thenReturn(bundleId);
             when(bundle.digest()).thenReturn(bundleDigest);
@@ -408,6 +496,7 @@ class ActionWorkerM5I11Test {
                     policyResolver,
                     pushPort,
                     pullRequestPort,
+                    externalResults,
                     events,
                     transactions,
                     () -> now,

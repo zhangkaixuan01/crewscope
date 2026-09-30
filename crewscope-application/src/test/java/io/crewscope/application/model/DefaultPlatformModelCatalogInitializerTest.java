@@ -45,7 +45,7 @@ class DefaultPlatformModelCatalogInitializerTest {
     assertEquals(1, registry.priceWrites);
     assertEquals("openai-compatible", registry.provider.adapterKey().toString());
     assertEquals("https://api.deepseek.com", registry.provider.defaultEndpoint().toString());
-    assertEquals("deepseek-v4-flash", registry.catalog.modelId().toString());
+    assertEquals("deepseek-flash", registry.catalog.modelId().toString());
     assertTrue(registry.catalog.capabilities().stream()
         .map(Object::toString)
         .toList()
@@ -172,7 +172,7 @@ class DefaultPlatformModelCatalogInitializerTest {
     @Override
     public List<ModelCatalogEntry> findPage(
         ModelProviderKey providerKey, int offset, int limit) {
-      return findLatest(providerKey, DefaultPlatformModelCatalogInitializer.DEEPSEEK_V4_FLASH)
+      return findLatest(providerKey, DefaultPlatformModelCatalogInitializer.DEEPSEEK_FLASH)
           .map(List::of)
           .orElseGet(List::of);
     }

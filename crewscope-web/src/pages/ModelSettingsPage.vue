@@ -118,6 +118,11 @@ async function selectProvider(provider: ModelProviderSummary): Promise<void> {
   const pageOwner = pageRequests.capture()
   const teamId = scopeStore.state.selectedTeamId
   if (!teamId) return
+  // The auto-selection of the first provider settles late on a real stack; by then the member
+  // may already have used the configure-return trip to leave this page. A stale push here
+  // drags them back onto settings with a query that no longer carries `from`, stranding the
+  // draft round-trip (M9b-Q02) — abandon it once the route has moved on.
+  if (route.name !== 'model-settings') return
   await router.push({
     name: 'model-settings',
     query: withModelSettingsRoute(route.query, {

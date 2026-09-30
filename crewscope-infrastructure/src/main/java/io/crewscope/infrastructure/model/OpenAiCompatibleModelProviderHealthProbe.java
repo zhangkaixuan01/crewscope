@@ -17,12 +17,12 @@ import java.util.Objects;
 /** OpenAI-compatible GET /models probe with status-only processing and safe failure mapping. */
 public final class OpenAiCompatibleModelProviderHealthProbe implements ModelProviderHealthProbe {
 
-    private final HttpClient httpClient;
+    private final Duration connectTimeout;
     private final Duration requestTimeout;
 
     public OpenAiCompatibleModelProviderHealthProbe(
-            HttpClient httpClient, Duration requestTimeout) {
-        this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
+            Duration connectTimeout, Duration requestTimeout) {
+        this.connectTimeout = requirePositive(connectTimeout);
         this.requestTimeout = requirePositive(requestTimeout);
     }
 
@@ -44,6 +44,17 @@ public final class OpenAiCompatibleModelProviderHealthProbe implements ModelProv
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + bearerToken)
                 .GET()
+                .build();
+        // A probe-held pooled client inherits connections a middlebox may already have cut
+        // silently: after a long chat session the next verify wrote into a dead h2
+        // connection and burned its whole request budget (M9b-Q02 defect 22 — the verify
+        // call measured 18.5s before returning UNHEALTHY). Probes are rare, so each one
+        // gets its own short-lived client and never inherits pool state.
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
+                // A Provider endpoint is platform-controlled, but redirects must never be able
+                // to move a bearer credential to a different host or scheme.
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         try {
             HttpResponse<Void> response = httpClient.send(
