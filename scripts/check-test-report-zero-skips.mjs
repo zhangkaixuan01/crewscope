@@ -8,9 +8,14 @@ const reactorModules = [...readFileSync(join(root, 'pom.xml'), 'utf8').matchAll(
   .map(match => match[1].trim())
 // Opt-in browser gates are run outside the reactor by design (they boot Node-owned server JVMs
 // and a real browser via -Da01.browser=true), so their suites report exactly one skipped test
-// in a plain `mvn verify`. They are registered here by classname and their skips stay visible in
-// the output; every other skip still fails the gate.
-const SKIP_ALLOWED = new Set(['io.crewscope.server.a01.A01BrowserIntegrationTest'])
+// in a plain `mvn verify`. The A06 scale walk follows the same opt-in shape: its FULL tier
+// (10 000 rows, minutes-long) only runs with -Dq01.scale=full and reports one skipped test
+// otherwise. They are registered here by classname and their skips stay visible in the
+// output; every other skip still fails the gate.
+const SKIP_ALLOWED = new Set([
+  'io.crewscope.server.a01.A01BrowserIntegrationTest',
+  'io.crewscope.server.api.WorkQueryScaleHttpIntegrationTest',
+])
 // Runtime worktrees under var/ can contain intentionally failing coding-evaluation reports. Only
 // reports produced by the modules declared in the root Maven Reactor belong to this release gate.
 const reports = reactorModules.flatMap(module => collectModuleReports(join(root, module)))
