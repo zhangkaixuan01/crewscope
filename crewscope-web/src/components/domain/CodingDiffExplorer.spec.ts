@@ -299,6 +299,9 @@ describe('CodingDiffExplorer', () => {
     wrapper.unmount()
   })
 
+  // The 2 100-line patch mounts thousands of spans, so a slow CI runner legitimately needs
+  // more than the default 5s budget for the render pass (timed out at 5 285ms on GitHub
+  // hosted runners while staying in the tens of milliseconds locally).
   it('leaves a patch it only holds part of as plain text', async () => {
     // 与上面同一种语言、同一份文件，唯一的差别是这份 Patch 没有人完整拿着：渲染上限之外的
     // 行根本画不出来。两条用例的对比才是这条规则在起作用，而不是断言了一句恒真的话。
@@ -313,7 +316,7 @@ describe('CodingDiffExplorer', () => {
     const spans = wrapper.findAll('.patch-code .patch-line > b > span')
     expect(spans.length).toBeGreaterThan(0)
     expect(spans.every(span => span.classes().includes('syntax-plain'))).toBe(true)
-  })
+  }, 20_000)
 })
 
 /**
