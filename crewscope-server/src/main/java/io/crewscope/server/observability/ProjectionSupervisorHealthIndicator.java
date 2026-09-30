@@ -3,14 +3,21 @@ package io.crewscope.server.observability;
 import io.crewscope.infrastructure.event.projection.ProjectionSupervisor;
 import io.crewscope.infrastructure.event.projection.ProjectionSupervisorSummary;
 import java.util.Objects;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.stereotype.Component;
 
 /** Actuator-safe Projection Supervisor health without tenant, target or exception cardinality. */
+// The supervisor is a @Bean of a later-scanned infrastructure configuration class, so a
+// presence condition here never saw it and the indicator silently never registered — even with
+// the supervisor enabled (M9b-Q02 defect 4). The property gate that governs the supervisor
+// itself carries the intent instead; enabling it without a resolvable supervisor fails fast.
 @Component
-@ConditionalOnBean(ProjectionSupervisor.class)
+@ConditionalOnProperty(
+        prefix = "crewscope.projection.supervisor",
+        name = "enabled",
+        havingValue = "true")
 public final class ProjectionSupervisorHealthIndicator implements HealthIndicator {
 
     private final ProjectionSupervisor supervisor;

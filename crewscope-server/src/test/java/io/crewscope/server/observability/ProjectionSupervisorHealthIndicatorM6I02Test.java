@@ -15,10 +15,20 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class ProjectionSupervisorHealthIndicatorM6I02Test {
 
     @Test
-    void healthBeanIsAbsentWithoutSupervisor() {
+    void healthBeanIsAbsentWhileTheSupervisorPropertyIsDisabled() {
         runner().run(context -> context.assertThat()
                 .hasNotFailed()
                 .doesNotHaveBean(ProjectionSupervisorHealthIndicator.class));
+    }
+
+    @Test
+    void failsFastWhenTheSupervisorPropertyIsEnabledWithoutASupervisor() {
+        // The supervisor itself is a fail-closed conditional bean; enabling the property in a
+        // composition that cannot provide it must surface as a startup failure rather than a
+        // silently missing health contributor (M9b-Q02 defect 4).
+        runner()
+                .withPropertyValues("crewscope.projection.supervisor.enabled=true")
+                .run(context -> context.assertThat().hasFailed());
     }
 
     @Test
@@ -26,24 +36,27 @@ class ProjectionSupervisorHealthIndicatorM6I02Test {
         ProjectionSupervisor supervisor = mock(ProjectionSupervisor.class);
         when(supervisor.summary()).thenReturn(new ProjectionSupervisorSummary(2, 3, 1, 1, 4, 5));
 
-        runner().withBean(ProjectionSupervisor.class, () -> supervisor).run(context -> {
-            context.assertThat().hasNotFailed()
-                    .hasSingleBean(ProjectionSupervisorHealthIndicator.class);
-            var health = context.getBean(ProjectionSupervisorHealthIndicator.class).health();
+        runner()
+                .withPropertyValues("crewscope.projection.supervisor.enabled=true")
+                .withBean(ProjectionSupervisor.class, () -> supervisor)
+                .run(context -> {
+                    context.assertThat().hasNotFailed()
+                            .hasSingleBean(ProjectionSupervisorHealthIndicator.class);
+                    var health = context.getBean(ProjectionSupervisorHealthIndicator.class).health();
 
-            assertEquals("DOWN", health.getStatus().getCode());
-            assertEquals(
-                    Set.of(
-                            "running",
-                            "caughtUp",
-                            "interrupted",
-                            "expired",
-                            "pendingRecovery",
-                            "cleanupEligible"),
-                    health.getDetails().keySet());
-            assertFalse(health.getDetails().containsKey("organizationId"));
-            assertFalse(health.getDetails().containsKey("projectionName"));
-        });
+                    assertEquals("DOWN", health.getStatus().getCode());
+                    assertEquals(
+                            Set.of(
+                                    "running",
+                                    "caughtUp",
+                                    "interrupted",
+                                    "expired",
+                                    "pendingRecovery",
+                                    "cleanupEligible"),
+                            health.getDetails().keySet());
+                    assertFalse(health.getDetails().containsKey("organizationId"));
+                    assertFalse(health.getDetails().containsKey("projectionName"));
+                });
     }
 
     private ApplicationContextRunner runner() {

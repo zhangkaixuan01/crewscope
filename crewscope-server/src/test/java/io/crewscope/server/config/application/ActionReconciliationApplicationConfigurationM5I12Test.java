@@ -17,6 +17,9 @@ import io.crewscope.application.github.GitHubDraftPullRequestPort;
 import io.crewscope.application.github.GitHubPushPort;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
+import io.crewscope.server.observability.ActionReconciliationMetricsObserver;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -60,6 +63,24 @@ class ActionReconciliationApplicationConfigurationM5I12Test {
     @Test
     void failsFastWhenAWorkerCapableCompositionLacksTheGitHubWritePorts() {
         baseRunner().run(context -> context.assertThat().hasFailed());
+    }
+
+    @Test
+    void observerResolvesMetricsAtInjectionTimeAndFallsBackToNoOpOtherwise() {
+        // M9b-Q02 defect 4: MeterRegistry and Tracer are auto-configured beans registering
+        // after every user configuration class, so the former presence condition always
+        // evaluated false and the fleet ran on the no-op observer even with actuator present.
+        runner(true).run(context -> {
+            context.assertThat().hasNotFailed();
+            context.assertThat().doesNotHaveBean(ActionReconciliationMetricsObserver.class);
+        });
+        runner(true)
+                .withBean(MeterRegistry.class, () -> mock(MeterRegistry.class))
+                .withBean(Tracer.class, () -> mock(Tracer.class))
+                .run(context -> {
+                    context.assertThat().hasNotFailed();
+                    context.assertThat().hasSingleBean(ActionReconciliationMetricsObserver.class);
+                });
     }
 
     @Test

@@ -6,6 +6,7 @@ import io.crewscope.application.action.ActionDispatchRepository;
 import io.crewscope.application.action.ActionReceiptRepository;
 import io.crewscope.application.action.ActionWorker;
 import io.crewscope.application.action.ActionWorkerEventPublisher;
+import io.crewscope.application.action.ActionWorkerObserver;
 import io.crewscope.application.action.ConfirmationRepository;
 import io.crewscope.application.action.CurrentActionAuthorityFactsResolver;
 import io.crewscope.application.action.DurableActionWorkerEventPublisher;
@@ -39,6 +40,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import io.crewscope.server.config.runtime.WorkerCapableProfileCondition;
+import io.crewscope.server.observability.ActionWorkerLoggingObserver;
 
 /** Constructor-based production composition for M5 confirmed external Action execution. */
 @Configuration(proxyBeanMethods = false)
@@ -119,7 +121,8 @@ public class ActionWorkerApplicationConfiguration {
             ActionWorkerEventPublisher events,
             TransactionExecutor transactions,
             TimeProvider timeProvider,
-            ActionWorkerProperties properties) {
+            ActionWorkerProperties properties,
+            ActionWorkerObserver observer) {
         properties.validatedPollInterval();
         return new ActionWorker(
                 dispatches,
@@ -137,7 +140,14 @@ public class ActionWorkerApplicationConfiguration {
                 new ActionWorkerId(properties.validatedWorkerId()),
                 properties.validatedLeaseDuration(),
                 properties.validatedRetryDelay(),
-                properties.validatedBatchSize());
+                properties.validatedBatchSize(),
+                observer);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ActionWorkerObserver.class)
+    ActionWorkerObserver actionWorkerObserver() {
+        return new ActionWorkerLoggingObserver();
     }
 
     @Bean

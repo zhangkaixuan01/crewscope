@@ -95,6 +95,24 @@ import org.mockito.InOrder;
 class ActionWorkerM5I11Test {
 
     @Test
+    void rejectedClaimStaysReadyAndIsReportedWithTheDispatchIdAndReasonCode() {
+        // M9b-Q02 defect 5: a dispatch the worker keeps leaving READY used to vanish into a
+        // silent continue — the only way to find it was a database statement census. The skip
+        // now carries the dispatch id and the closed reason code to the observer.
+        Fixture fixture = new Fixture();
+        fixture.queue(fixture.pushCandidate);
+        when(fixture.confirmations.findById(any(), any())).thenReturn(java.util.Optional.empty());
+
+        ActionWorkerBatchResult result = fixture.worker().runOnce(fixture.organizationId);
+
+        assertEquals(new ActionWorkerBatchResult(0, 0, 0, 0, 0), result);
+        verify(fixture.observer).claimSkipped(
+                fixture.pushCandidate.id(),
+                io.crewscope.domain.shared.error.DomainErrorCode.INVALID_VALUE);
+        verify(fixture.pushPort, never()).pushBranch(any());
+    }
+
+    @Test
     void executesPushThenDraftPullRequestOnlyOutsideTransactionsAndWritesTwoReceipts() {
         Fixture fixture = new Fixture();
         fixture.queue(fixture.pushCandidate, fixture.pullRequestCandidate);
@@ -397,6 +415,7 @@ class ActionWorkerM5I11Test {
         private final ActionReceiptRepository receipts = mock(ActionReceiptRepository.class);
         private final ActionBundleRepository bundles = mock(ActionBundleRepository.class);
         private final ConfirmationRepository confirmations = mock(ConfirmationRepository.class);
+        private final ActionWorkerObserver observer = mock(ActionWorkerObserver.class);
         private final ActionAuthorityFactsResolver authorityResolver =
                 mock(ActionAuthorityFactsResolver.class);
         private final GitHubPushPort pushPort = mock(GitHubPushPort.class);
@@ -503,7 +522,8 @@ class ActionWorkerM5I11Test {
                     new ActionWorkerId("m5-i11-worker"),
                     Duration.ofMinutes(2),
                     Duration.ofSeconds(15),
-                    10);
+                    10,
+                    observer);
         }
 
         private GitHubPushResult pushResult() {

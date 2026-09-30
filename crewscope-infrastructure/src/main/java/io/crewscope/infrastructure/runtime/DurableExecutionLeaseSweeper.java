@@ -15,6 +15,7 @@ import io.crewscope.application.task.TaskEventRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
+import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.event.AggregateReference;
 import io.crewscope.domain.shared.event.DomainEventEnvelope;
 import io.crewscope.domain.shared.event.EventActor;
@@ -35,6 +36,8 @@ import java.util.UUID;
 public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper {
 
     public static final String RECOVERY_EVENT_TYPE = "TASK_EXECUTION_RECOVERY_STARTED";
+
+    private static final int MAX_CONFLICT_ATTEMPTS = 4;
 
     private final TaskExecutionRepository executionRepository;
     private final ExecutionLeaseRepository leaseRepository;
@@ -76,13 +79,39 @@ public final class DurableExecutionLeaseSweeper implements ExecutionLeaseSweeper
                     "requestedLimit must be between 1 and " + spec.maximumSweepSize());
         }
         try {
-            LeaseSweepResult result = transactionExecutor.required(() -> sweepTransaction(requestedLimit));
+            LeaseSweepResult result = withConflictRetry(
+                    () -> transactionExecutor.required(() -> sweepTransaction(requestedLimit)));
             safeRecord(LeaseCoordinatorOutcome.SUCCEEDED, 1);
             return result;
         } catch (RuntimeException failure) {
             safeRecord(LeaseCoordinatorOutcome.FAILED, 1);
             throw failure;
         }
+    }
+
+    /**
+     * Re-reads and retries a whole sweep attempt when a version race loses.
+     *
+     * <p>During an api restart window the dying process can still commit a late Lease or
+     * TaskExecution write between this Sweeper's read and its update; the losing sweep used to
+     * surface the conflict upward, aborting startup reconciliation and deferring the recovering
+     * execution by another full cycle (M9b-Q02 defect 8). Every attempt opens a fresh
+     * transaction and re-selects expired Leases with FOR UPDATE SKIP LOCKED, so the retry
+     * converges on the latest committed versions — the same re-read-and-retry shape as
+     * RuntimeRegistryCoordinator, honoring the I01 Claim/Fencing contract: the loser of a
+     * version race re-reads and retries, never writes blind.
+     */
+    private <T> T withConflictRetry(java.util.function.Supplier<T> operation) {
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= MAX_CONFLICT_ATTEMPTS; attempt++) {
+            try {
+                return operation.get();
+            } catch (OptimisticLockConflictException
+                    | org.springframework.dao.DataIntegrityViolationException conflict) {
+                last = conflict;
+            }
+        }
+        throw Objects.requireNonNull(last, "lastConflict");
     }
 
     private LeaseSweepResult sweepTransaction(int requestedLimit) {

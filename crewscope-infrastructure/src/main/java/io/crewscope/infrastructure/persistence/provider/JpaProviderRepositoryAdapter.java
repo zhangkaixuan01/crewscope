@@ -2,6 +2,7 @@ package io.crewscope.infrastructure.persistence.provider;
 
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
+import io.crewscope.application.provider.ProviderBindingDefaultConflictException;
 import io.crewscope.application.provider.ProviderBindingQuery;
 import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.provider.ProviderBootstrapLock;
@@ -18,11 +19,14 @@ import io.crewscope.domain.provider.ProviderDefinitionId;
 import io.crewscope.domain.provider.ProviderImplementation;
 import io.crewscope.domain.provider.ProviderImplementationId;
 import io.crewscope.domain.provider.ProviderOwner;
+import io.crewscope.domain.provider.ProviderType;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.AggregateId;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.id.WorkspaceId;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Objects;
@@ -412,8 +416,23 @@ public class JpaProviderRepositoryAdapter
         ProviderBinding required = Objects.requireNonNull(binding, "binding");
         requireNew("providerBinding.version", required.version());
         ProviderBindingEntity row = mapper.toEntity(required);
-        entityManager.persist(row);
-        entityManager.flush();
+        try {
+            entityManager.persist(row);
+            entityManager.flush();
+        } catch (RuntimeException failure) {
+            // Concurrent-insert fallback for the level check callers perform before creating:
+            // a parallel writer can commit the default binding first, and the constraint
+            // rejection must surface as the 409 conflict semantic instead of a retryable
+            // internal error (M9b-Q02 defect 23). The raw flush raises the Hibernate shape
+            // before Spring translation, so the cause chain is walked here.
+            ProviderBindingDefaultConflictException conflict =
+                    ProviderBindingDefaultConflictException.fromConstraintViolation(failure)
+                            .orElse(null);
+            if (conflict != null) {
+                throw conflict;
+            }
+            throw failure;
+        }
         return mapper.toDomain(row);
     }
 
@@ -513,6 +532,44 @@ public class JpaProviderRepositoryAdapter
         required.executionIdentity().ifPresent(
                 value -> persistenceQuery.setParameter("executionIdentity", value.name()));
         return persistenceQuery.getResultList().stream().map(mapper::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProviderBinding> findActiveWorkspaceDefaults(
+            OrganizationId organizationId,
+            TeamId teamId,
+            WorkspaceId workspaceId,
+            ProviderOwner owner,
+            ProviderType providerType) {
+        // Mirrors the ux_provider_binding_active_default level key: WORKSPACE targets carry a
+        // null work_project_id, which the index COALESCEs to the zero UUID — one exact level.
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM ProviderBindingEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.teamId = :teamId
+                          AND value.workspaceId = :workspaceId
+                          AND value.ownerType = :ownerType
+                          AND value.ownerId = :ownerId
+                          AND value.providerType = :providerType
+                          AND value.status = 'ACTIVE'
+                          AND value.defaultUsage = true
+                          AND value.targetType = 'WORKSPACE'
+                        ORDER BY value.id
+                        """,
+                        ProviderBindingEntity.class)
+                .setParameter("organizationId", organizationId.value())
+                .setParameter("teamId", teamId.value())
+                .setParameter("workspaceId", workspaceId.value())
+                .setParameter("ownerType", owner.type().name())
+                .setParameter("ownerId", owner.ownerId())
+                .setParameter("providerType", providerType.name())
+                .getResultList()
+                .stream()
+                .map(mapper::toDomain)
+                .toList();
     }
 
     private void finishUpdate(

@@ -23,6 +23,7 @@ import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
 import io.crewscope.application.provider.BuiltInProviderRegistration;
+import io.crewscope.application.provider.ProviderBindingDefaultConflictException;
 import io.crewscope.application.provider.ProviderBindingQuery;
 import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.provider.ProviderBootstrapLock;
@@ -361,6 +362,21 @@ public final class GitHubConnectionApplicationService {
             if (existing.size() == 1) {
                 throw new DomainValidationException(
                         "githubProviderBinding", "already exists for this Connection and Workspace");
+            }
+            if (defaultUsage) {
+                // The level already holding an ACTIVE default (any Connection) is rejected here
+                // so the client receives the conflict with the existing binding id, instead of
+                // the database constraint leaking as a retryable internal error (M9b-Q02
+                // defect 23). Demote the current default or bind non-default, then replace.
+                bindings.findActiveWorkspaceDefaults(
+                                organizationId, team.id(), workspace.id(),
+                                connection.owner(), ProviderType.SOURCE_CODE)
+                        .stream()
+                        .findFirst()
+                        .ifPresent(currentDefault -> {
+                            throw new ProviderBindingDefaultConflictException(
+                                    currentDefault.id());
+                        });
             }
             ProviderAccessScope bindingAccess = selectedRepositoryIds
                     .filter(value -> !value.isEmpty())

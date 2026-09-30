@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -27,6 +28,7 @@ import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.provider.BuiltInProviderRegistration;
 import io.crewscope.application.provider.ConnectionGrantRepository;
 import io.crewscope.application.provider.ConnectionRepository;
+import io.crewscope.application.provider.ProviderBindingDefaultConflictException;
 import io.crewscope.application.provider.ProviderBindingRepository;
 import io.crewscope.application.provider.ProviderBootstrapLock;
 import io.crewscope.application.provider.ProviderDefinitionRepository;
@@ -459,6 +461,152 @@ class GitHubConnectionApplicationServiceM5A06Test {
         assertEquals(grant.id(), binding.getValue().connectionGrantId().orElseThrow());
         assertEquals(ProviderExecutionIdentity.DELEGATED_USER,
                 binding.getValue().executionIdentity().orElseThrow());
+    }
+
+    @Test
+    void bindingASecondDefaultIsRejectedAsAConflictNamingTheCurrentDefault() {
+        TeamInitialization team = TeamInitialization.create(actor, "Default Team", NOW);
+        when(teams.findUninitializedById(organizationId, team.team().id()))
+                .thenReturn(Optional.empty());
+        when(teams.findById(organizationId, team.team().id()))
+                .thenReturn(Optional.of(team.team()));
+        when(memberships.findByTeam(organizationId, team.team().id()))
+                .thenReturn(List.of(team.ownerMember()));
+        when(workspaces.findById(organizationId, team.defaultWorkspace().id()))
+                .thenReturn(Optional.of(team.defaultWorkspace()));
+        Connection connection = Connection.authorize(
+                ConnectionId.generate(),
+                ProviderOwner.user(actor),
+                GitHubConnectionApplicationService.CONNECTOR_KEY,
+                "2718",
+                io.crewscope.domain.shared.id.CredentialId.generate(),
+                Optional.empty(),
+                actor,
+                NOW);
+        when(connections.findById(organizationId, connection.id()))
+                .thenReturn(Optional.of(connection));
+        ConnectionGrant grant = ConnectionGrant.grant(
+                io.crewscope.domain.provider.ConnectionGrantId.generate(),
+                connection,
+                connection.owner(),
+                new io.crewscope.domain.provider.ProviderAccessScope(
+                        GitHubConnectionApplicationService.DELIVERY_CAPABILITIES,
+                        io.crewscope.domain.provider.ProviderResourceScope.of(
+                                "github:repository:crewscope/repository-a")),
+                NOW,
+                Optional.empty(),
+                actor,
+                NOW);
+        when(grants.findByConnectionAndGrantee(connection.id(), connection.owner()))
+                .thenReturn(List.of(grant));
+        GitHubConnectionProfile profile = mock(GitHubConnectionProfile.class);
+        when(profile.isCurrentFor(connection.version())).thenReturn(true);
+        when(githubRepository.findProfile(organizationId, connection.id(), connection.version()))
+                .thenReturn(Optional.of(profile));
+        when(definitions.findByKey(
+                        organizationId, GitHubConnectionApplicationService.CONNECTOR_KEY))
+                .thenReturn(Optional.empty());
+        when(definitions.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(implementations.findByDefinition(any(), any())).thenReturn(List.of());
+        when(implementations.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bindings.findCandidates(any())).thenReturn(List.of());
+        // A default from another Connection already occupies the level; creating a second
+        // default used to surface the ux_provider_binding_active_default constraint as a
+        // retryable internal error with no pointer (M9b-Q02 defect 23).
+        ProviderBinding currentDefault = mock(ProviderBinding.class);
+        when(currentDefault.id()).thenReturn(ProviderBindingId.generate());
+        when(bindings.findActiveWorkspaceDefaults(
+                        eq(organizationId),
+                        eq(team.team().id()),
+                        eq(team.defaultWorkspace().id()),
+                        eq(connection.owner()),
+                        eq(ProviderType.SOURCE_CODE)))
+                .thenReturn(List.of(currentDefault));
+
+        ProviderBindingDefaultConflictException conflict = assertThrows(
+                ProviderBindingDefaultConflictException.class,
+                () -> service.bind(
+                        commandContext(false),
+                        organizationId,
+                        connection.id(),
+                        connection.version(),
+                        team.team().id(),
+                        true));
+
+        assertEquals(io.crewscope.domain.shared.error.DomainErrorCode
+                        .PROVIDER_BINDING_DEFAULT_CONFLICT,
+                conflict.error().code());
+        assertEquals(currentDefault.id().toString(),
+                conflict.error().details().get("existingBindingId"));
+        verify(bindings, never()).create(any());
+    }
+
+    @Test
+    void bindingNonDefaultAlongsideTheCurrentDefaultSucceeds() {
+        TeamInitialization team = TeamInitialization.create(actor, "Coexisting Team", NOW);
+        when(teams.findUninitializedById(organizationId, team.team().id()))
+                .thenReturn(Optional.empty());
+        when(teams.findById(organizationId, team.team().id()))
+                .thenReturn(Optional.of(team.team()));
+        when(memberships.findByTeam(organizationId, team.team().id()))
+                .thenReturn(List.of(team.ownerMember()));
+        when(workspaces.findById(organizationId, team.defaultWorkspace().id()))
+                .thenReturn(Optional.of(team.defaultWorkspace()));
+        Connection connection = Connection.authorize(
+                ConnectionId.generate(),
+                ProviderOwner.user(actor),
+                GitHubConnectionApplicationService.CONNECTOR_KEY,
+                "2718",
+                io.crewscope.domain.shared.id.CredentialId.generate(),
+                Optional.empty(),
+                actor,
+                NOW);
+        ConnectionGrant grant = ConnectionGrant.grant(
+                io.crewscope.domain.provider.ConnectionGrantId.generate(),
+                connection,
+                connection.owner(),
+                new io.crewscope.domain.provider.ProviderAccessScope(
+                        GitHubConnectionApplicationService.DELIVERY_CAPABILITIES,
+                        io.crewscope.domain.provider.ProviderResourceScope.of(
+                                "github:repository:crewscope/repository-a")),
+                NOW,
+                Optional.empty(),
+                actor,
+                NOW);
+        when(connections.findById(organizationId, connection.id()))
+                .thenReturn(Optional.of(connection));
+        when(grants.findByConnectionAndGrantee(connection.id(), connection.owner()))
+                .thenReturn(List.of(grant));
+        GitHubConnectionProfile profile = mock(GitHubConnectionProfile.class);
+        when(profile.isCurrentFor(connection.version())).thenReturn(true);
+        when(githubRepository.findProfile(organizationId, connection.id(), connection.version()))
+                .thenReturn(Optional.of(profile));
+        when(definitions.findByKey(
+                        organizationId, GitHubConnectionApplicationService.CONNECTOR_KEY))
+                .thenReturn(Optional.empty());
+        when(definitions.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(implementations.findByDefinition(any(), any())).thenReturn(List.of());
+        when(implementations.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bindings.findCandidates(any())).thenReturn(List.of());
+        // The default of another Connection occupies the level; a non-default binding is the
+        // supported coexistence path and must stay untouched by the level check.
+        when(bindings.findActiveWorkspaceDefaults(any(), any(), any(), any(), any()))
+                .thenReturn(List.of(mock(ProviderBinding.class)));
+        when(bindings.create(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CommandExecution<GitHubProviderBindingView> execution = service.bind(
+                commandContext(false),
+                organizationId,
+                connection.id(),
+                connection.version(),
+                team.team().id(),
+                false);
+
+        GitHubProviderBindingView result = execution.result().orElseThrow();
+        assertEquals(connection.id().toString(), result.connectionId());
+        ArgumentCaptor<ProviderBinding> binding = ArgumentCaptor.forClass(ProviderBinding.class);
+        verify(bindings).create(binding.capture());
+        assertEquals(false, binding.getValue().defaultUsage());
     }
 
     @Test

@@ -7,7 +7,6 @@ import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.infrastructure.runtime.DurableTaskWorkerStartupReconciler;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -32,14 +31,16 @@ public class CodingWorkspaceRecoveryConfiguration {
 
     @Bean
     @Primary
-    @ConditionalOnBean({
-        DurableTaskWorkerStartupReconciler.class,
-        WorkspacePolicyRepository.class,
-        WorktreeProvisioner.class,
-        WorkspaceDiffMonitorFactory.class,
-        DockerSandboxControl.class,
-        CodingArtifactLifecycle.class
-    })
+    @ConditionalOnMissingBean(CodingWorkspaceStartupReconciler.class)
+    // No cross-class @ConditionalOnBean here: three prerequisites (WorktreeProvisioner,
+    // WorkspaceDiffMonitorFactory, DockerSandboxControl) are @Bean methods of sibling
+    // infrastructure configurations processed later in scan order, so the guard was
+    // permanently false and the reconciler never assembled in real deployments (M9b-Q02
+    // defect 27 family, surfaced by the M10-Q00 fail-fast wiring of the server-side
+    // runtime operations adapter). Every prerequisite shares this class's
+    // WorkerManagedRepositoryCondition predicate (or registers unconditionally), so
+    // constructor injection resolves them whenever this configuration is active and
+    // fails fast on any genuinely missing collaborator.
     CodingWorkspaceStartupReconciler codingWorkspaceStartupReconciler(
             DurableTaskWorkerStartupReconciler taskReconciler,
             ExecutionWorkspaceRepository workspaces,

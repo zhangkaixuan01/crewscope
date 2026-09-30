@@ -206,6 +206,31 @@ class GitHubConnectionControllerM5A06Test {
                 .jsonPath("$.details.endpoint").doesNotExist();
     }
 
+    @Test
+    void mapsASecondDefaultBindingToAConflictNamingTheCurrentDefaultWithoutRetryAdvice() {
+        // The ux_provider_binding_active_default rejection used to leak as a retryable internal
+        // error (M9b-Q02 defect 23); the HTTP contract is now 409 with the existing binding id.
+        io.crewscope.domain.provider.ProviderBindingId existing =
+                io.crewscope.domain.provider.ProviderBindingId.generate();
+        when(service.bind(any(), any(), any(), anyLong(), any(), anyBoolean(), any()))
+                .thenThrow(new io.crewscope.application.provider.ProviderBindingDefaultConflictException(
+                        existing));
+
+        client.post()
+                .uri(base() + "/" + connectionId + "/bindings")
+                .header(ApiHeaders.IF_MATCH, "\"0\"")
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "m10-q00-default-binding-conflict")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"teamId\":\"" + java.util.UUID.randomUUID()
+                        + "\",\"defaultUsage\":true}")
+                .exchange()
+                .expectStatus().isEqualTo(409)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("provider_binding_default_conflict")
+                .jsonPath("$.retryable").isEqualTo(false)
+                .jsonPath("$.details.existingBindingId").isEqualTo(existing.toString());
+    }
+
     private String base() {
         return "/api/v1/organizations/" + organizationId + "/github-connections";
     }

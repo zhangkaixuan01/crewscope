@@ -19,6 +19,8 @@ public enum DomainErrorCode {
   RESPONSIBILITY_CONFLICT("responsibility_conflict", DomainErrorCategory.CONFLICT),
   REPOSITORY_BINDING_KEY_CONFLICT(
       "repository_binding_key_conflict", DomainErrorCategory.CONFLICT),
+  PROVIDER_BINDING_DEFAULT_CONFLICT(
+      "provider_binding_default_conflict", DomainErrorCategory.CONFLICT),
   CODING_TARGET_SNAPSHOT_REVISION_CONFLICT(
       "coding_target_snapshot_revision_conflict", DomainErrorCategory.CONFLICT),
   EXECUTION_WORKSPACE_ATTEMPT_CONFLICT(

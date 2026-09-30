@@ -28,6 +28,8 @@ import io.crewscope.domain.provider.ProviderType;
 import io.crewscope.domain.shared.id.CredentialId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamInitialization;
 import io.crewscope.domain.workitem.WorkProject;
@@ -446,6 +448,27 @@ class ProviderBindingResolverTest {
         public List<ProviderBinding> findCandidates(ProviderBindingQuery query) {
             lastQuery = query;
             return new ArrayList<>(bindings.values());
+        }
+
+        @Override
+        public List<ProviderBinding> findActiveWorkspaceDefaults(
+                OrganizationId requestedOrganizationId,
+                TeamId requestedTeamId,
+                WorkspaceId requestedWorkspaceId,
+                ProviderOwner requestedOwner,
+                ProviderType requestedProviderType) {
+            return bindings.values().stream()
+                    .filter(value -> value.defaultUsage()
+                            && value.status()
+                                    == io.crewscope.domain.provider.ProviderRegistrationStatus.ACTIVE
+                            && value.target().type()
+                                    == io.crewscope.domain.provider.ProviderBindingTargetType.WORKSPACE
+                            && value.organizationId().equals(requestedOrganizationId)
+                            && value.target().teamId().equals(requestedTeamId)
+                            && value.target().workspaceId().equals(requestedWorkspaceId)
+                            && value.owner().equals(requestedOwner)
+                            && value.providerType() == requestedProviderType)
+                    .toList();
         }
 
         @Override

@@ -529,10 +529,13 @@ public class TaskWorkerConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({
-        CodingWorkspaceRuntimeRegistry.class,
-        CodingWorkspaceStartupReconciler.class
-    })
+    // Same registration-order fact as the ActionWorker fleet: the registry and reconciler are
+    // @Bean methods of later-scanned infrastructure configuration classes, so a cross-class
+    // presence condition here evaluated at registration time and never saw them — the adapter,
+    // RuntimeMaintenanceService and the startup health indicator silently never assembled in
+    // any real deployment (M9b-Q02 defect 4). The worker-capable profile governing this whole
+    // configuration carries the intent; collaborators resolve by injection and a worker-capable
+    // composition that cannot provide them fails fast at startup.
     CodingWorkspaceRuntimeOperationsAdapter codingWorkspaceRuntimeOperationsAdapter(
             CodingWorkspaceRuntimeRegistry registry,
             CodingWorkspaceStartupReconciler reconciler,

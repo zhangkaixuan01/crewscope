@@ -498,6 +498,13 @@ public class FilesystemArtifactStore implements ArtifactStore {
         String lockKey = type + ':' + key;
         ReentrantLock localLock = lockStripes[Math.floorMod(lockKey.hashCode(), lockStripes.length)];
         localLock.lock();
+        // FileChannel.lock() throws FileLockInterruptionException whenever the invoking thread's
+        // interrupt status is merely set — no blocking required. Command evidence for a cancelled
+        // or timed-out command is stored after its runner has answered the interrupt, so the
+        // acquisition clears the status around the critical section and restores it on the way
+        // out: "the execution is being cancelled" stays decoupled from "the evidence cannot be
+        // recorded" (M9b-Q02 defect 24 — the evidence path had never survived a cancellation).
+        boolean interrupted = Thread.interrupted();
         try {
             Path lockDirectory = locksRoot.resolve(type);
             Files.createDirectories(lockDirectory);
@@ -514,6 +521,9 @@ public class FilesystemArtifactStore implements ArtifactStore {
         } catch (IOException exception) {
             throw storageFailure("Artifact filesystem operation failed", exception);
         } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
             localLock.unlock();
         }
     }

@@ -60,6 +60,59 @@ class CodingWorkspaceRecoveryConfigurationTest {
                 .run(context -> context.assertThat().hasFailed());
     }
 
+    @Test
+    void assemblesTheReconcilerWhenLateRegisteredConfigurationsSupplyTheCollaborators() {
+        // Reproduces the production scan order (M9b-Q02 defect 27 family, surfaced by M10-Q00):
+        // the sibling configurations owning WorktreeProvisioner, WorkspaceDiffMonitorFactory and
+        // DockerSandboxControl are processed after this configuration, so the old cross-class
+        // @ConditionalOnBean guard read as permanently false and the reconciler never assembled.
+        new ApplicationContextRunner()
+                .withPropertyValues("crewscope.runtime.execution-profile=worker")
+                .withUserConfiguration(CodingWorkspaceRecoveryConfiguration.class, LateCollaborators.class)
+                .withBean(
+                        ExecutionWorkspaceRepository.class, () -> mock(ExecutionWorkspaceRepository.class))
+                .withBean(WorkspacePolicyRepository.class, () -> mock(WorkspacePolicyRepository.class))
+                .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
+                .withBean(AuthoritativeTimeProvider.class, () -> mock(AuthoritativeTimeProvider.class))
+                .withBean(CodingTaskTimelinePublisher.class, () -> CodingTaskTimelinePublisher.NO_OP)
+                .withBean(RuntimeWorkerRegistrationSpec.class, CodingWorkspaceRecoveryConfigurationTest::registration)
+                .withBean(
+                        DurableTaskWorkerStartupReconciler.class,
+                        () -> mock(DurableTaskWorkerStartupReconciler.class))
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(CodingWorkspaceStartupReconciler.class));
+    }
+
+    /**
+     * Stands in for ManagedWorktreeConfiguration / WorkspaceDiffConfiguration /
+     * TaskExecutionSandboxConfiguration / CodingArtifactConfiguration, which sit later in scan
+     * order than CodingWorkspaceRecoveryConfiguration.
+     */
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    static final class LateCollaborators {
+
+        @org.springframework.context.annotation.Bean
+        WorktreeProvisioner worktreeProvisioner() {
+            return mock(WorktreeProvisioner.class);
+        }
+
+        @org.springframework.context.annotation.Bean
+        WorkspaceDiffMonitorFactory workspaceDiffMonitorFactory() {
+            return mock(WorkspaceDiffMonitorFactory.class);
+        }
+
+        @org.springframework.context.annotation.Bean
+        DockerSandboxControl dockerSandboxControl() {
+            return mock(DockerSandboxControl.class);
+        }
+
+        @org.springframework.context.annotation.Bean
+        CodingArtifactLifecycle codingArtifactLifecycle() {
+            return mock(CodingArtifactLifecycle.class);
+        }
+    }
+
     private static RuntimeWorkerRegistrationSpec registration() {
         RuntimeWorkerRegistrationSpec registration = mock(RuntimeWorkerRegistrationSpec.class);
         org.mockito.Mockito.when(registration.actor()).thenReturn(mock(Principal.class));

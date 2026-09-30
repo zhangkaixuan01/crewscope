@@ -22,6 +22,7 @@ import io.crewscope.server.observability.ActionReconciliationHealthIndicator;
 import io.crewscope.server.observability.ActionReconciliationMetricsObserver;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Tracer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -67,17 +68,19 @@ public class ActionReconciliationApplicationConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean({MeterRegistry.class, Tracer.class})
     @ConditionalOnMissingBean(ActionReconciliationObserver.class)
     ActionReconciliationObserver actionReconciliationObserver(
-            MeterRegistry registry, Tracer tracer) {
-        return new ActionReconciliationMetricsObserver(registry, tracer);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(ActionReconciliationObserver.class)
-    ActionReconciliationObserver noOpActionReconciliationObserver() {
-        return ActionReconciliationObserver.noOp();
+            ObjectProvider<MeterRegistry> registries, ObjectProvider<Tracer> tracers) {
+        // MeterRegistry and Tracer are auto-configured beans: they register after every user
+        // configuration class, so a presence condition on them here always evaluated false and
+        // the fleet silently ran on the no-op observer even with actuator present (M9b-Q02
+        // defect 4). Resolution moves to injection time — both observability beans present
+        // gives the metrics observer, anything less keeps the explicit no-op fallback.
+        MeterRegistry registry = registries.getIfAvailable();
+        Tracer tracer = tracers.getIfAvailable();
+        return registry == null || tracer == null
+                ? ActionReconciliationObserver.noOp()
+                : new ActionReconciliationMetricsObserver(registry, tracer);
     }
 
     @Bean

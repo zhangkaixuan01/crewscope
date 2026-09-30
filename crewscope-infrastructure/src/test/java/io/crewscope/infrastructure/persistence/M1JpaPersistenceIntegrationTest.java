@@ -397,6 +397,103 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   }
 
   @Test
+  void rejectsASecondActiveDefaultBindingWithTheConflictSemanticInsteadOfAnInternalError() {
+    OrganizationId organizationId = OrganizationId.generate();
+    jdbcTemplate.update(
+        "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Conflict', 'ACTIVE')",
+        organizationId.value());
+    Principal creator = createUser(organizationId, "Conflict Owner");
+    BuiltInProviderRegistration registration = nativeRegistration();
+    BuiltInProviderInitializationService providerInitializer =
+        new BuiltInProviderInitializationService(
+            registration,
+            providerDefinitionRepository,
+            providerImplementationRepository,
+            providerBindingRepository,
+            providerBootstrapLock,
+            transactionExecutor,
+            () -> NOW);
+    TeamCreationService teamCreation =
+        new TeamCreationService(
+            teamRepository,
+            workspaceRepository,
+            teamMemberRepository,
+            teamRoleRepository,
+            memberRoleRepository,
+            defaultPersonalAgentRepository,
+            providerInitializer::initialize,
+            transactionExecutor,
+            () -> NOW,
+            (actor, occurredAt) -> {},
+            (catalogOrganizationId, actor, occurredAt) -> {},
+            (team, workspace, ownerMember, ownerUser) -> {});
+    TeamInitialization foundation =
+        teamCreation.create(creator, new CreateTeamCommand("Conflict Team"));
+
+    // Second default at the same level, straight to the repository — the concurrent-insert
+    // path the service-level check cannot see. The ux_provider_binding_active_default
+    // rejection must surface as the 409 conflict semantic, not a retryable internal error
+    // (M9b-Q02 defect 23).
+    io.crewscope.domain.provider.ProviderBindingTarget target =
+        io.crewscope.domain.provider.ProviderBindingTarget.workspace(foundation.defaultWorkspace());
+    io.crewscope.domain.provider.ProviderBinding second =
+        io.crewscope.domain.provider.ProviderBinding.bind(
+            io.crewscope.domain.provider.ProviderBindingId.generate(),
+            target,
+            io.crewscope.domain.provider.ProviderOwner.team(foundation.team()),
+            providerDefinitionRepository
+                .findByKey(organizationId, registration.definitionKey())
+                .orElseThrow(),
+            providerImplementationRepository
+                .findByDefinition(
+                    organizationId,
+                    providerDefinitionRepository
+                        .findByKey(organizationId, registration.definitionKey())
+                        .orElseThrow()
+                        .id())
+                .get(0),
+            Optional.empty(),
+            Optional.empty(),
+            registration.workspaceAccess(target.workspaceId()),
+            true,
+            creator,
+            NOW);
+
+    io.crewscope.application.provider.ProviderBindingDefaultConflictException conflict =
+        assertThrows(
+            io.crewscope.application.provider.ProviderBindingDefaultConflictException.class,
+            () -> transactionExecutor.required(() -> providerBindingRepository.create(second)));
+
+    assertEquals(
+        io.crewscope.domain.shared.error.DomainErrorCode.PROVIDER_BINDING_DEFAULT_CONFLICT,
+        conflict.error().code());
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.provider_binding
+            WHERE organization_id = ? AND team_id = ? AND default_usage AND status = 'ACTIVE'
+            """,
+            Integer.class,
+            organizationId.value(),
+            foundation.team().id().value()));
+    // The level read names the seeded default, which is the actionable pointer clients get
+    // on the pre-check path.
+    assertEquals(
+        registration.workspaceBindingId(organizationId, foundation.team().id()).toString(),
+        providerBindingRepository
+            .findActiveWorkspaceDefaults(
+                organizationId,
+                foundation.team().id(),
+                foundation.defaultWorkspace().id(),
+                io.crewscope.domain.provider.ProviderOwner.team(foundation.team()),
+                registration.type())
+            .get(0)
+            .id()
+            .toString());
+  }
+
+  @Test
   void rollsBackTheWholeTeamFoundationWhenProviderInitializationFails() {
     OrganizationId organizationId = OrganizationId.generate();
     jdbcTemplate.update(

@@ -19,6 +19,7 @@ import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.runtime.RuntimeMaintenanceService;
 import io.crewscope.application.task.AgentRunRepository;
 import io.crewscope.application.task.AgentStateSnapshotRepository;
 import io.crewscope.application.task.ExecutionLeaseRepository;
@@ -65,8 +66,10 @@ import io.crewscope.infrastructure.runtime.TaskWorkerSpecialistExecution;
 import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSessionFactory;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRecoveryMarker;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceExecutionLifecycle;
+import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRuntimeOperationsAdapter;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceRuntimeRegistry;
 import io.crewscope.infrastructure.workspace.repository.CodingWorkspaceStartupReconciler;
+import io.crewscope.server.observability.CodingWorkspaceStartupHealthIndicator;
 import io.crewscope.server.observability.TaskWorkerHealthIndicator;
 import java.time.Duration;
 import java.util.List;
@@ -76,6 +79,8 @@ import java.util.function.Supplier;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /** Spring composition proof for identical ALL/WORKER loops and SERVER exclusion. */
 class TaskWorkerConfigurationM3I09Test {
@@ -135,8 +140,37 @@ class TaskWorkerConfigurationM3I09Test {
         });
     }
 
+    @Test
+    void wiresRuntimeMaintenanceWhenWorkspaceRuntimeRegistersAfterThisConfiguration() {
+        // Same registration-order proof as ActionWorkerApplicationConfigurationM5I11Test:
+        // production defines the workspace registry and startup reconciler in later-scanned
+        // infrastructure configuration classes, and the former presence condition evaluated
+        // at registration time never saw them — the operations adapter, RuntimeMaintenanceService
+        // and the startup health indicator silently never assembled (M9b-Q02 defect 4).
+        workerContext("all", RuntimeProfile.ALL, false)
+                .withUserConfiguration(LateWorkspaceRuntimeBoundaries.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(CodingWorkspaceRuntimeOperationsAdapter.class);
+                    assertThat(context).hasSingleBean(RuntimeMaintenanceService.class);
+                    assertThat(context).hasSingleBean(CodingWorkspaceStartupHealthIndicator.class);
+                });
+    }
+
+    @Test
+    void failsFastWhenAWorkerCapableCompositionLacksTheWorkspaceRuntime() {
+        workerContext("all", RuntimeProfile.ALL, false)
+                .run(context -> assertThat(context).hasFailed());
+    }
+
     private static ApplicationContextRunner workerContext(
             String deploymentProfile, RuntimeProfile runtimeProfile) {
+        return workerContext(deploymentProfile, runtimeProfile, true);
+    }
+
+    private static ApplicationContextRunner workerContext(
+            String deploymentProfile, RuntimeProfile runtimeProfile,
+            boolean workspaceRuntimePreRegistered) {
         OrganizationId organizationId = OrganizationId.generate();
         Principal actor = Principal.create(
                 PrincipalId.generate(),
@@ -188,7 +222,7 @@ class TaskWorkerConfigurationM3I09Test {
         TaskExecutionRepository executions = mock(TaskExecutionRepository.class);
         when(executions.findRecoveringForUpdate(organizationId, 100)).thenReturn(List.of());
 
-        return new ApplicationContextRunner()
+        ApplicationContextRunner prefix = new ApplicationContextRunner()
                 .withUserConfiguration(TaskWorkerConfiguration.class)
                 // Production ownership lives in RuntimeRegistryConfiguration; this focused
                 // composition test supplies the shared counter at that configuration boundary.
@@ -199,14 +233,21 @@ class TaskWorkerConfigurationM3I09Test {
                         () -> mock(CodingWorkspaceRecoveryMarker.class))
                 .withBean(CodingWorkspaceExecutionLifecycle.class,
                         () -> mock(CodingWorkspaceExecutionLifecycle.class))
-                .withBean(CodingWorkspaceRuntimeRegistry.class,
-                        CodingWorkspaceRuntimeRegistry::new)
                 .withBean(CodingSpecialistToolSessionFactory.class,
-                        () -> mock(CodingSpecialistToolSessionFactory.class))
-                .withBean(
-                        CodingWorkspaceStartupReconciler.class,
-                        () -> mock(CodingWorkspaceStartupReconciler.class),
-                        definition -> definition.setPrimary(true))
+                        () -> mock(CodingSpecialistToolSessionFactory.class));
+        // The pre-registered path models the stereotype-scanned collaborators; passing false
+        // leaves them to a later-processed configuration class, which is how production
+        // actually registers them (infrastructure configuration processed after this one).
+        ApplicationContextRunner runner = workspaceRuntimePreRegistered
+                ? prefix
+                        .withBean(CodingWorkspaceRuntimeRegistry.class,
+                                CodingWorkspaceRuntimeRegistry::new)
+                        .withBean(
+                                CodingWorkspaceStartupReconciler.class,
+                                () -> mock(CodingWorkspaceStartupReconciler.class),
+                                definition -> definition.setPrimary(true))
+                : prefix;
+        return runner
                 .withBean(RuntimeWorkerRegistrationSpec.class, () -> registration)
                 .withBean(RuntimeWorkerLifecycle.class, () -> lifecycle)
                 .withBean(RuntimeRegistryCoordinator.class, () -> registryCoordinator)
@@ -288,6 +329,22 @@ class TaskWorkerConfigurationM3I09Test {
         @Override
         public <T> T required(Supplier<T> operation) {
             return operation.get();
+        }
+    }
+
+    /** Models the production fact that infrastructure configuration classes register later. */
+    @Configuration(proxyBeanMethods = false)
+    static class LateWorkspaceRuntimeBoundaries {
+
+        @Bean
+        CodingWorkspaceRuntimeRegistry lateCodingWorkspaceRuntimeRegistry() {
+            return new CodingWorkspaceRuntimeRegistry();
+        }
+
+        @Bean
+        @org.springframework.context.annotation.Primary
+        CodingWorkspaceStartupReconciler lateCodingWorkspaceStartupReconciler() {
+            return mock(CodingWorkspaceStartupReconciler.class);
         }
     }
 }

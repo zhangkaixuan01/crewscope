@@ -77,6 +77,7 @@ public final class ActionWorker {
     private final Duration leaseDuration;
     private final Duration retryDelay;
     private final int batchSize;
+    private final ActionWorkerObserver observer;
 
     public ActionWorker(
             ActionDispatchRepository dispatches,
@@ -94,7 +95,8 @@ public final class ActionWorker {
             ActionWorkerId workerId,
             Duration leaseDuration,
             Duration retryDelay,
-            int batchSize) {
+            int batchSize,
+            ActionWorkerObserver observer) {
         this.dispatches = Objects.requireNonNull(dispatches, "dispatches");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.bundles = Objects.requireNonNull(bundles, "bundles");
@@ -117,6 +119,7 @@ public final class ActionWorker {
             throw new IllegalArgumentException("Action Worker batchSize must be between 1 and 100");
         }
         this.batchSize = batchSize;
+        this.observer = Objects.requireNonNull(observer, "observer");
     }
 
     /** Polls and executes at most the configured number of committed READY actions. */
@@ -188,6 +191,10 @@ public final class ActionWorker {
             } catch (DomainException unavailableOrBlocked) {
                 // A locked but currently unauthorized/dependency-blocked row remains durable READY.
                 // A07 cancellation and later current-fact changes can make it eligible again.
+                // The skip is reported with the dispatch id and closed reason code — a row that
+                // stays here for long had zero observable trace before (M9b-Q02 defect 5).
+                observer.claimSkipped(
+                        candidate.id(), unavailableOrBlocked.error().code());
                 continue;
             }
             // Persistence/event failures must escape so the outer transaction rolls the claim back.

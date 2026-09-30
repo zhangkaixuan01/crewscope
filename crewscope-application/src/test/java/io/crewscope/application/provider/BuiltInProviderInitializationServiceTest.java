@@ -23,6 +23,7 @@ import io.crewscope.domain.provider.ProviderDefinitionId;
 import io.crewscope.domain.provider.ProviderImplementation;
 import io.crewscope.domain.provider.ProviderImplementationId;
 import io.crewscope.domain.provider.ProviderOwner;
+import io.crewscope.domain.provider.ProviderBindingTargetType;
 import io.crewscope.domain.provider.ProviderRegistrationStatus;
 import io.crewscope.domain.provider.ProviderType;
 import io.crewscope.domain.shared.error.DomainValidationException;
@@ -349,6 +350,25 @@ class BuiltInProviderInitializationServiceTest {
           .filter(value -> value.executionIdentity().equals(query.executionIdentity()))
           .forEach(result::add);
       return List.copyOf(result);
+    }
+
+    @Override
+    public List<ProviderBinding> findActiveWorkspaceDefaults(
+        OrganizationId requestedOrganizationId,
+        TeamId requestedTeamId,
+        WorkspaceId requestedWorkspaceId,
+        ProviderOwner requestedOwner,
+        ProviderType requestedProviderType) {
+      return bindings.values().stream()
+          .filter(value -> value.defaultUsage())
+          .filter(value -> value.status() == ProviderRegistrationStatus.ACTIVE)
+          .filter(value -> value.target().type() == ProviderBindingTargetType.WORKSPACE)
+          .filter(value -> value.organizationId().equals(requestedOrganizationId))
+          .filter(value -> value.target().teamId().equals(requestedTeamId))
+          .filter(value -> value.target().workspaceId().equals(requestedWorkspaceId))
+          .filter(value -> value.owner().equals(requestedOwner))
+          .filter(value -> value.providerType() == requestedProviderType)
+          .toList();
     }
 
     @Override

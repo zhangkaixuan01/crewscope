@@ -147,9 +147,21 @@ final class BuildProfileCommandRunner {
                     "",
                     false);
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
+            // The interrupt reaching a running command is the platform's timeout/cancel
+            // delivery (M9b-Q02 defect 24 measured it exactly at the command budget). It is
+            // answered here as the command's termination fact instead of being restored as a
+            // thread status first: a restored status made the very next evidence store throw
+            // (FileChannel.lock() refuses a set status) and later broke the Docker control
+            // path, escalating one timed-out command into a dead execution. The interrupt is
+            // consumed, not swallowed — the outcome is persisted and the model can retry
+            // narrower. Throwing InterruptedException already cleared the status, and nothing
+            // below is a blocking cancellation point that could miss the request.
+            boolean atOrBeyondBudget = !clock.instant()
+                    .isBefore(startedAt.value().plusSeconds(spec.timeoutSeconds()));
             CommandTermination termination = resetTimedOutCommand(guardedCall)
-                    ? CommandTermination.CANCELLED
+                    ? (atOrBeyondBudget
+                            ? CommandTermination.TIMED_OUT
+                            : CommandTermination.CANCELLED)
                     : CommandTermination.SANDBOX_POLICY_VIOLATION;
             return execution(
                     spec,

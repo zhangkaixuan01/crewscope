@@ -314,6 +314,51 @@ class BuildProfileCommandRunnerM4I07Test {
         assertTrue(startFailure.stderr().isEmpty());
     }
 
+    @Test
+    void answersAnInterruptedCommandAsItsTerminationFactWithoutRestoringTheStatus()
+            throws Exception {
+        // M9b-Q02 defect 24: the platform delivers a command timeout/cancel as a thread
+        // interrupt. Restoring the status here used to break the very next evidence store and
+        // later the Docker control path, escalating one timed-out command into a dead
+        // execution; the runner instead answers the interrupt as the persisted termination
+        // fact and leaves the thread's status clear.
+        BuildProfile profile = profile(
+                BuildTool.MAVEN_WRAPPER,
+                command("./mvnw", List.of(), 0));
+        WorkspacePolicy policy = policy(profile);
+        MutableClock interruptClock = new MutableClock(NOW);
+        BuildProfileCommandRunner interruptedRunner = new BuildProfileCommandRunner(interruptClock);
+        when(sandbox.exec(any(), anyString(), anyInt()))
+                .thenAnswer(invocation -> {
+                    interruptClock.set(NOW.plusSeconds(30));
+                    throw new InterruptedException();
+                });
+        SandboxCommandExecution timedOut = interruptedRunner.run(
+                call, runtimeContext, "/workspace/repository", policy, profile,
+                CommandKind.TEST, List.of(), List.of(), null);
+        assertEquals(CommandTermination.TIMED_OUT, timedOut.termination());
+        assertTrue(timedOut.exitCode().isEmpty());
+        verify(call).resetAfterCommandTimeout();
+
+        org.mockito.Mockito.reset(sandbox, call);
+        when(call.sandboxContext())
+                .thenReturn(SandboxContext.builder().externalSandbox(sandbox).build());
+        when(sandbox.exec(any(), anyString(), anyInt()))
+                .thenAnswer(invocation -> {
+                    interruptClock.set(NOW.plusSeconds(5));
+                    throw new InterruptedException();
+                });
+        SandboxCommandExecution cancelled = interruptedRunner.run(
+                call, runtimeContext, "/workspace/repository", policy, profile,
+                CommandKind.TEST, List.of(), List.of(), null);
+        assertEquals(CommandTermination.CANCELLED, cancelled.termination());
+        verify(call).resetAfterCommandTimeout();
+
+        // The interrupt was consumed as data; throwing it already cleared the status and the
+        // runner must not set it again (consuming also keeps this test thread clean).
+        assertFalse(Thread.interrupted());
+    }
+
     private SandboxCommandExecution run(BuildProfile profile, WorkspacePolicy policy) {
         return runner.run(
                 call,
@@ -357,5 +402,34 @@ class BuildProfileCommandRunnerM4I07Test {
         when(policy.sandboxBudget()).thenReturn(new SandboxResourceBudget(
                 SandboxNetworkMode.NONE, 1, 256, 32, 120, 65_536, true));
         return policy;
+    }
+
+    /** Lets the simulated interrupt decide how far into the command budget it lands. */
+    private static final class MutableClock extends Clock {
+
+        private volatile Instant instant;
+
+        MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void set(Instant instant) {
+            this.instant = instant;
+        }
+
+        @Override
+        public ZoneOffset getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

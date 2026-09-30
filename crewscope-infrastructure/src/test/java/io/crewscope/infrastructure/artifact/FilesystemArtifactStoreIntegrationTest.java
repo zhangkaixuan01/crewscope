@@ -169,6 +169,30 @@ class FilesystemArtifactStoreIntegrationTest {
     }
 
     @Test
+    void storesEvidenceWhileTheCallingThreadCarriesAnInterruptStatus() {
+        // M9b-Q02 defect 24: the cancel/timeout delivery leaves the runner's thread with a set
+        // interrupt status while it is still writing command evidence. FileChannel.lock()
+        // refuses such a thread outright, so that evidence path had never survived a
+        // cancellation; the store must clear the status around the critical section and give
+        // it back untouched.
+        ArtifactWriteRequest request = request(
+                ArtifactId.generate(),
+                workspaceScope(),
+                ArtifactVisibility.WORKSPACE,
+                CONTENT,
+                Optional.empty());
+        Thread.currentThread().interrupt();
+        try {
+            ArtifactDescriptor descriptor = store.put(request, new ByteArrayInputStream(CONTENT));
+            assertEquals(request.artifactId(), descriptor.artifactId());
+            assertEquals(1, regularFileCount(temporaryDirectory.resolve("objects")));
+        } finally {
+            // Consume the restored status so the flag cannot leak into later tests.
+            assertTrue(Thread.interrupted());
+        }
+    }
+
+    @Test
     void makesIdenticalRetryIdempotentAndRejectsDifferentMetadata() {
         ArtifactId artifactId = ArtifactId.generate();
         ArtifactWriteRequest request = request(
