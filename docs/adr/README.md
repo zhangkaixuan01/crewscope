@@ -44,6 +44,8 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-027](ADR-027-设计系统与交互内核.md) | Design System v2、反馈组件、ActionRegistry、状态动作与撤销窗口 | ACCEPTED |
 | [ADR-028](ADR-028-个人工作台与统一搜索.md) | 个人工作摘要、统一搜索、OpenAPI 与状态机生成边界 | ACCEPTED |
 | [ADR-029](ADR-029-行级Review与配置体验合同.md) | Diff 高亮、行级评论锚点、配置脏态/版本/健康合同 | ACCEPTED |
+| [ADR-030](ADR-030-知识与记忆三层模型.md) | M10 三类数据单权威、来源版本/Generation、授权内联、embedding Provider、pgvector 迁移、注入证据与辅助记忆边界 | ACCEPTED（设计，待 D01/A02/I01/A01/I02 实现） |
+| [ADR-031](ADR-031-Skill沉淀与多Agent协同拓扑.md) | M10 Team Skill 发布/执行双授权、Factory 四扩展点、内置兼容；拓扑部分待 E01 选入 | Skill 部分 ACCEPTED（设计，待 A03 实现）；拓扑 PROPOSED-待选入 |
 | [ADR-038](ADR-038-团队成员生命周期与责任转移.md) | M9b 成员撤权、最后 Owner、持续授权与耐久责任交接；M11 只增新通道 | ACCEPTED（设计，待 A07 实现） |
 
 ## ADR 内容要求

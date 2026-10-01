@@ -1,0 +1,22 @@
+[
+  {"id": "uq-001", "lang": "zh", "domain": "code", "query": "CrewScope 的 Flutter 移动端构建配置在哪里"},
+  {"id": "uq-002", "lang": "en", "domain": "code", "query": "where is the Kubernetes operator deployment manifest"},
+  {"id": "uq-003", "lang": "zh", "domain": "code", "query": "Rust 编译任务的沙箱支持代码"},
+  {"id": "uq-004", "lang": "en", "domain": "code", "query": "GraphQL schema federation entry point"},
+  {"id": "uq-005", "lang": "zh", "domain": "code", "query": "MongoDB 持久化适配器实现"},
+  {"id": "uq-006", "lang": "en", "domain": "code", "query": "Kafka stream consumer for click events"},
+  {"id": "uq-007", "lang": "zh", "domain": "code", "query": "Python 脚本任务的执行入口"},
+  {"id": "uq-008", "lang": "en", "domain": "code", "query": "iOS Swift package build profile"},
+  {"id": "uq-009", "lang": "zh", "domain": "code", "query": "ClickHouse 分析仓库的写入适配器"},
+  {"id": "uq-010", "lang": "en", "domain": "code", "query": "Terraform infrastructure as code module"},
+  {"id": "uq-011", "lang": "zh", "domain": "knowledge", "query": "团队的远程办公津贴报销政策"},
+  {"id": "uq-012", "lang": "en", "domain": "knowledge", "query": "company holiday calendar and PTO policy"},
+  {"id": "uq-013", "lang": "zh", "domain": "knowledge", "query": "新员工入职设备采购流程"},
+  {"id": "uq-014", "lang": "en", "domain": "knowledge", "query": "marketing brand guideline colors and typography"},
+  {"id": "uq-015", "lang": "zh", "domain": "knowledge", "query": "会议室预定规范"},
+  {"id": "uq-016", "lang": "en", "domain": "knowledge", "query": "sales commission structure for Q4"},
+  {"id": "uq-017", "lang": "zh", "domain": "knowledge", "query": "出差差旅住宿标准"},
+  {"id": "uq-018", "lang": "en", "domain": "knowledge", "query": "customer support SLA escalation matrix"},
+  {"id": "uq-019", "lang": "zh", "domain": "knowledge", "query": "办公网络安全访客wifi申请流程"},
+  {"id": "uq-020", "lang": "en", "domain": "knowledge", "query": "design system animation easing tokens"}
+]
