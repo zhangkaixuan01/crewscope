@@ -1,6 +1,6 @@
 # M10：Agent 智能跃迁与知识闭环执行清单
 
-> 里程碑状态：进行中——`M10-S01` 已完成（2026-10-01，合同冻结+真实 embedding 实测+隔离原型，见 [S01 冻结记录](../spikes/M10-S01-知识与检索合同冻结.md) §6 台账）；`M10-D01`/`M10-I01a` 可开工<br>
+> 里程碑状态：进行中——`M10-S01` 已完成（2026-10-01，合同冻结+真实 embedding 实测+隔离原型，见 [S01 冻结记录](../spikes/M10-S01-知识与检索合同冻结.md) §6 台账）；`M10-D01` 已完成（2026-10-02，知识与检索公共地基，证据见 S01 冻结记录 §6 D01 列）；`M10-A02`/`M10-I01`/`M10-I01a` 可开工<br>
 > 前置里程碑：`M9b-Q02`；M9 未完成的技术路径在 M9b 新版本补证，不能以历史本地 PASS 替代；不继承已取消的真人测评门槛<br>
 > 评审来源：[M8 后全面架构与产品体验 Review](../reviews/M8后-全面架构与产品体验Review.md) `BE-03`<br>
 > 运行时基线：`agentscope-java 2.0.0`（已有 Session/State/Checkpoint；新增扩展的可用性与兼容性由 S01 复核）<br>
@@ -413,5 +413,6 @@ API/端口契约：
 - 2026-09-30：embedding Provider 选型范围冻结为智谱 `embedding-3` / 阿里 `text-embedding-v4`（OpenAI 兼容、国内直连，§10.11 第 2 条），S01 在此范围内实测冻结维度与数据策略。
 - 2026-10-01：S01a 完成——§10.11 十项合同与评测样本设计冻结于 [S01 冻结记录](../spikes/M10-S01-知识与检索合同冻结.md)，ADR-030 与 ADR-031（Skill 部分）创建并登记索引；embedding 维度/批量/价格、预算默认值、阈值校准值留 S01b 实测回填。
 - 2026-10-01：S01b 完成，**S01 关闭**——embedding 实测选定阿里 `text-embedding-v4`（1024 维、批量上限 10、0.0005 元/千 Token 人民币、verify 不能证 embedding 能力改为首条真实嵌入探针），隔离原型全部达标（标注集首轮：知识 Recall@5/@10=1.0、代码文件级 Recall@10=1.0、版本准确性=1.0、无答案误召回 0@τ=0.55；作业恢复 claim/fencing/checkpoint 续传四场景全过）；全部数字回填 S01 冻结记录 §3.2/§3.4/§4/§6；D01/I01a 开放。
+- 2026-10-02：D01 完成——知识与检索公共地基交付：`domain/knowledge`（Entry 头乐观锁+Version append-only 两对象聚合、头指针生效闸、内容寻址 hash 不含 revision、DELETED 墓碑不可复活、4 个 SchemaVersion.V1 事件）与 `domain/retrieval`（六分量 RepositoryIndexKey、Generation 词汇/保留策略、注入清单 Schema：三重归属 ref/预算分层/三降级码）两包；`application` 端口三件（KnowledgeRepository 含写与 findEffectiveVersion 权威闸、GenerationCatalog 只读、InjectionManifestRepository 占位）；V52 纯 PostgreSQL 两表迁移+team_role 存量幂等同步（KNOWLEDGE_MANAGE→OWNER+ADMIN、SKILL_MANAGE→OWNER）；TeamPermission +2 枚举。验收：权限/版本并发/来源归属合同测试（InMemory fake+反射租户守卫）、空库 52 版迁移+validate+pg_extension=0、领域零框架（domain pom 零改动）。JDBC 适配器/命令面/事件接线/Generation 执行随 A02/I01 交付；证据回填 S01 冻结记录 §6 D01 列。
 
 尚未实测的数值不在计划里编造为保证；S01 未闭合对应主线合同，不进入该范围实现或以 Mock 标为验收通过。

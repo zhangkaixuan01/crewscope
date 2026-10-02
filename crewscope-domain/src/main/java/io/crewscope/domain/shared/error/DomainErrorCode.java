@@ -35,6 +35,9 @@ public enum DomainErrorCode {
       "coding_checkpoint_sequence_conflict", DomainErrorCategory.CONFLICT),
   WORK_PROJECT_KEY_CONFLICT("work_project_key_conflict", DomainErrorCategory.CONFLICT),
   WORK_ITEM_KEY_CONFLICT("work_item_key_conflict", DomainErrorCategory.CONFLICT),
+  KNOWLEDGE_ENTRY_KEY_CONFLICT("knowledge_entry_key_conflict", DomainErrorCategory.CONFLICT),
+  KNOWLEDGE_VERSION_CONTENT_CONFLICT(
+      "knowledge_version_content_conflict", DomainErrorCategory.CONFLICT),
   IDEMPOTENCY_CONFLICT("idempotency_conflict", DomainErrorCategory.CONFLICT);
 
   private final String value;

@@ -44,6 +44,32 @@ class TeamRoleTest {
     }
 
     @Test
+    void knowledgeManageIsGrantedToOwnerAndAdminOnly() {
+        for (BuiltInTeamRole definition : BuiltInTeamRole.values()) {
+            boolean granted = definition.permissions().contains(TeamPermission.KNOWLEDGE_MANAGE);
+
+            assertEquals(
+                    definition == BuiltInTeamRole.TEAM_OWNER
+                            || definition == BuiltInTeamRole.TEAM_ADMIN,
+                    granted,
+                    definition + " must not diverge from the M10-D01 KNOWLEDGE_MANAGE grant");
+        }
+    }
+
+    @Test
+    void skillManageIsCurrentlyOwnerOnly() {
+        for (BuiltInTeamRole definition : BuiltInTeamRole.values()) {
+            boolean granted = definition.permissions().contains(TeamPermission.SKILL_MANAGE);
+
+            assertEquals(
+                    definition == BuiltInTeamRole.TEAM_OWNER,
+                    granted,
+                    definition + " must not diverge from the M10-D01 SKILL_MANAGE freeze "
+                            + "(TEAM_ADMIN joins in A03)");
+        }
+    }
+
+    @Test
     void createsAWorkProjectScopedCustomRole() {
         TeamRole role = TeamRole.createCustom(
                 TeamRoleId.generate(),
