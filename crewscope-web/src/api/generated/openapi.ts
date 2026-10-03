@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: db4c5837f2a5e04a59a59aeee7bdd3ff2277e00cd2b17584e2c6b5631daeab1b
+// Controller source SHA-256: 4c6da0670b54ce545fe0c45d8e0b7fcb06c43985277b5a87be8cd1b8e423627b
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -848,6 +848,88 @@ export const openApiDocument = {
         "operationId": "TeamInvitationController_revoke",
         "tags": [
           "TeamInvitationController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/distillations": {
+      "post": {
+        "operationId": "KnowledgeDistillationController_distill",
+        "tags": [
+          "KnowledgeDistillationController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries": {
+      "get": {
+        "operationId": "KnowledgeEntryController_list",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      },
+      "post": {
+        "operationId": "KnowledgeEntryController_create",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}": {
+      "delete": {
+        "operationId": "KnowledgeEntryController_delete",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      },
+      "get": {
+        "operationId": "KnowledgeEntryController_get",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      },
+      "patch": {
+        "operationId": "KnowledgeEntryController_updateDraft",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/effective-version": {
+      "get": {
+        "operationId": "KnowledgeEntryController_effectiveVersion",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/publish": {
+      "post": {
+        "operationId": "KnowledgeEntryController_publish",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/retire": {
+      "post": {
+        "operationId": "KnowledgeEntryController_retire",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/versions": {
+      "get": {
+        "operationId": "KnowledgeEntryController_versions",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/versions/{revision}": {
+      "get": {
+        "operationId": "KnowledgeEntryController_version",
+        "tags": [
+          "KnowledgeEntryController"
         ]
       }
     },
@@ -2520,6 +2602,72 @@ export const openApiOperations = [
     "controller": "TeamInvitationController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/distillations",
+    "operationId": "KnowledgeDistillationController_distill",
+    "controller": "KnowledgeDistillationController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries",
+    "operationId": "KnowledgeEntryController_list",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries",
+    "operationId": "KnowledgeEntryController_create",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "delete",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}",
+    "operationId": "KnowledgeEntryController_delete",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}",
+    "operationId": "KnowledgeEntryController_get",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}",
+    "operationId": "KnowledgeEntryController_updateDraft",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/effective-version",
+    "operationId": "KnowledgeEntryController_effectiveVersion",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/publish",
+    "operationId": "KnowledgeEntryController_publish",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/retire",
+    "operationId": "KnowledgeEntryController_retire",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/versions",
+    "operationId": "KnowledgeEntryController_versions",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/versions/{revision}",
+    "operationId": "KnowledgeEntryController_version",
+    "controller": "KnowledgeEntryController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/lark/bindings/{bindingId}/health",
     "operationId": "LarkAdministrationController_health",
@@ -3318,4 +3466,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 240 as const
+export const openApiOperationCount = 251 as const

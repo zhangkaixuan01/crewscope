@@ -136,7 +136,8 @@ class CommandResultQueryServiceTest {
 
   private CommandResult result(CommandResult.ResourceType type, PrincipalId creator) {
     boolean projectScoped = type != CommandResult.ResourceType.CONVERSATION
-        && type != CommandResult.ResourceType.TEAM_MEMBER;
+        && type != CommandResult.ResourceType.TEAM_MEMBER
+        && type != CommandResult.ResourceType.KNOWLEDGE_ENTRY;
     return new CommandResult(org, key, creator, "CREATE_TEST", team,
         projectScoped ? Optional.of(project) : Optional.empty(),
         type, type == CommandResult.ResourceType.WORK_PROJECT ? project.value() : UUID.randomUUID(),

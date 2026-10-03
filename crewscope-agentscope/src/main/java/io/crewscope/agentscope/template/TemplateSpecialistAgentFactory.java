@@ -32,12 +32,16 @@ public final class TemplateSpecialistAgentFactory implements TemplateAgentRuntim
         TemplateAgentBuildRequest required = Objects.requireNonNull(request, "request");
         TemplateAgentSessionIdentity.Kind kind = required.identity().kind();
         if ((kind != TemplateAgentSessionIdentity.Kind.TASK
-                && kind != TemplateAgentSessionIdentity.Kind.REVIEW)
+                && kind != TemplateAgentSessionIdentity.Kind.REVIEW
+                && kind != TemplateAgentSessionIdentity.Kind.DISTILLER)
                 || required.definition().template().runtimeRole() != runtimeRole()) {
             throw new IllegalArgumentException(
                     "Specialist Template Agent requires a Specialist Task Session");
         }
-        required.identity().requireSpecialistRuntimePurpose();
+        // DISTILLER is a conversation-less single-turn call with no Task session at all.
+        if (kind != TemplateAgentSessionIdentity.Kind.DISTILLER) {
+            required.identity().requireSpecialistRuntimePurpose();
+        }
         if (CODING_TEMPLATE.equals(required.definition()
                 .template()
                 .templateVersion()

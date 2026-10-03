@@ -6,8 +6,10 @@ import io.crewscope.domain.shared.error.InvalidStateTransitionException;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamScope;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Head of one Team Knowledge entry: optimistic-locked state, the authoritative
@@ -18,9 +20,30 @@ import java.util.Optional;
  */
 public final class KnowledgeEntry {
 
+    /**
+     * Source-to-target status transitions. A DELETED tombstone is terminal; a RETIRED
+     * entry may be revived only by publishing a new revision. Kept as a declarative
+     * map so the generated state-machine catalogue can publish this lifecycle.
+     */
+    private static final Map<KnowledgeEntryStatus, Set<KnowledgeEntryStatus>> ALLOWED_TRANSITIONS =
+            Map.of(
+                    KnowledgeEntryStatus.DRAFT,
+                    Set.of(KnowledgeEntryStatus.PUBLISHED, KnowledgeEntryStatus.DELETED),
+                    KnowledgeEntryStatus.PUBLISHED,
+                    Set.of(
+                            KnowledgeEntryStatus.PUBLISHED,
+                            KnowledgeEntryStatus.RETIRED,
+                            KnowledgeEntryStatus.DELETED),
+                    KnowledgeEntryStatus.RETIRED,
+                    Set.of(KnowledgeEntryStatus.PUBLISHED, KnowledgeEntryStatus.DELETED),
+                    KnowledgeEntryStatus.DELETED,
+                    Set.of());
+
     private final KnowledgeEntryId id;
     private final TeamScope scope;
     private final KnowledgeEntryKey entryKey;
+    private final KnowledgeCategory category;
+    private final Optional<KnowledgeEntryOrigin> origin;
     private final KnowledgeEntryStatus status;
     private final Optional<KnowledgeEntryRevision> effectiveRevision;
     private final long latestRevision;
@@ -32,6 +55,8 @@ public final class KnowledgeEntry {
             KnowledgeEntryId id,
             TeamScope scope,
             KnowledgeEntryKey entryKey,
+            KnowledgeCategory category,
+            Optional<KnowledgeEntryOrigin> origin,
             KnowledgeEntryStatus status,
             Optional<KnowledgeEntryRevision> effectiveRevision,
             long latestRevision,
@@ -41,6 +66,8 @@ public final class KnowledgeEntry {
         this.id = Objects.requireNonNull(id, "id");
         this.scope = Objects.requireNonNull(scope, "scope");
         this.entryKey = Objects.requireNonNull(entryKey, "entryKey");
+        this.category = Objects.requireNonNull(category, "category");
+        this.origin = Objects.requireNonNull(origin, "origin");
         this.status = Objects.requireNonNull(status, "status");
         this.effectiveRevision = Objects.requireNonNull(effectiveRevision, "effectiveRevision");
         if (latestRevision < 0) {
@@ -60,14 +87,49 @@ public final class KnowledgeEntry {
     public static KnowledgeEntry create(
             TeamScope scope,
             KnowledgeEntryKey entryKey,
+            KnowledgeCategory category,
             String title,
             String content,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
+        return createDraft(
+                scope, entryKey, category, title, content, Optional.empty(), actor, occurredAt);
+    }
+
+    /**
+     * Creates a DRAFT entry distilled from one completed Task execution attempt; the
+     * origin is immutable attribution that survives publishing, retiring and deletion,
+     * and marks the entry for the command-level disclosure check before publication.
+     */
+    public static KnowledgeEntry createDistilled(
+            TeamScope scope,
+            KnowledgeEntryKey entryKey,
+            KnowledgeCategory category,
+            String title,
+            String content,
+            KnowledgeEntryOrigin origin,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
+        return createDraft(
+                scope, entryKey, category, title, content,
+                Optional.of(Objects.requireNonNull(origin, "origin")), actor, occurredAt);
+    }
+
+    private static KnowledgeEntry createDraft(
+            TeamScope scope,
+            KnowledgeEntryKey entryKey,
+            KnowledgeCategory category,
+            String title,
+            String content,
+            Optional<KnowledgeEntryOrigin> origin,
             PrincipalId actor,
             UtcTimestamp occurredAt) {
         return new KnowledgeEntry(
                 KnowledgeEntryId.generate(),
                 scope,
                 entryKey,
+                category,
+                origin,
                 KnowledgeEntryStatus.DRAFT,
                 Optional.empty(),
                 0L,
@@ -78,11 +140,13 @@ public final class KnowledgeEntry {
                         Objects.requireNonNull(occurredAt, "occurredAt")));
     }
 
-    /** Restores a persisted head; validates the shape invariants enforced by V52. */
+    /** Restores a persisted head; validates the shape invariants enforced by V52/V53/V54. */
     public static KnowledgeEntry reconstitute(
             KnowledgeEntryId id,
             TeamScope scope,
             KnowledgeEntryKey entryKey,
+            KnowledgeCategory category,
+            Optional<KnowledgeEntryOrigin> origin,
             KnowledgeEntryStatus status,
             Optional<KnowledgeEntryRevision> effectiveRevision,
             long latestRevision,
@@ -90,8 +154,8 @@ public final class KnowledgeEntry {
             long version,
             AuditMetadata audit) {
         return new KnowledgeEntry(
-                id, scope, entryKey, status, effectiveRevision, latestRevision, draft,
-                version, audit);
+                id, scope, entryKey, category, origin, status, effectiveRevision, latestRevision,
+                draft, version, audit);
     }
 
     /**
@@ -108,7 +172,7 @@ public final class KnowledgeEntry {
                 id, scope, revision, previousRevision(),
                 currentDraft.title(), currentDraft.content(), actor, occurredAt);
         KnowledgeEntry updated = new KnowledgeEntry(
-                id, scope, entryKey, KnowledgeEntryStatus.PUBLISHED,
+                id, scope, entryKey, category, origin, KnowledgeEntryStatus.PUBLISHED,
                 Optional.of(revision), revision.value(), Optional.empty(),
                 version + 1, audit.modifiedBy(actor, occurredAt));
         return new KnowledgeEntryPublication(updated, appended);
@@ -118,8 +182,8 @@ public final class KnowledgeEntry {
     public KnowledgeEntry retire(PrincipalId actor, UtcTimestamp occurredAt) {
         requireTransition(KnowledgeEntryStatus.RETIRED);
         return new KnowledgeEntry(
-                id, scope, entryKey, KnowledgeEntryStatus.RETIRED, effectiveRevision,
-                latestRevision, draft, version + 1,
+                id, scope, entryKey, category, origin, KnowledgeEntryStatus.RETIRED,
+                effectiveRevision, latestRevision, draft, version + 1,
                 audit.modifiedBy(actor, occurredAt));
     }
 
@@ -130,20 +194,28 @@ public final class KnowledgeEntry {
     public KnowledgeEntry delete(PrincipalId actor, UtcTimestamp occurredAt) {
         requireTransition(KnowledgeEntryStatus.DELETED);
         return new KnowledgeEntry(
-                id, scope, entryKey, KnowledgeEntryStatus.DELETED, effectiveRevision,
-                latestRevision, draft, version + 1,
+                id, scope, entryKey, category, origin, KnowledgeEntryStatus.DELETED,
+                effectiveRevision, latestRevision, draft, version + 1,
                 audit.modifiedBy(actor, occurredAt));
     }
 
-    /** Replaces the mutable draft; never touches the effective pointer. */
+    /**
+     * Replaces the mutable draft and optionally reclassifies the entry; never touches
+     * the effective pointer and never mints a version row.
+     */
     public KnowledgeEntry updateDraft(
-            String title, String content, PrincipalId actor, UtcTimestamp occurredAt) {
+            String title,
+            String content,
+            Optional<KnowledgeCategory> category,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
         if (status == KnowledgeEntryStatus.DELETED) {
             throw new InvalidStateTransitionException(
                     "KnowledgeEntry", id, status, KnowledgeEntryStatus.DRAFT);
         }
         return new KnowledgeEntry(
-                id, scope, entryKey, status, effectiveRevision, latestRevision,
+                id, scope, entryKey, category.orElse(this.category), origin, status,
+                effectiveRevision, latestRevision,
                 Optional.of(new KnowledgeDraft(title, content)), version + 1,
                 audit.modifiedBy(actor, occurredAt));
     }
@@ -168,6 +240,15 @@ public final class KnowledgeEntry {
 
     public KnowledgeEntryKey entryKey() {
         return entryKey;
+    }
+
+    public KnowledgeCategory category() {
+        return category;
+    }
+
+    /** Immutable distillation attribution; empty for manually authored entries. */
+    public Optional<KnowledgeEntryOrigin> origin() {
+        return origin;
     }
 
     public KnowledgeEntryStatus status() {
@@ -201,15 +282,7 @@ public final class KnowledgeEntry {
     }
 
     private void requireTransition(KnowledgeEntryStatus target) {
-        boolean allowed = switch (target) {
-            case PUBLISHED -> status == KnowledgeEntryStatus.DRAFT
-                    || status == KnowledgeEntryStatus.PUBLISHED
-                    || status == KnowledgeEntryStatus.RETIRED;
-            case RETIRED -> status == KnowledgeEntryStatus.PUBLISHED;
-            case DELETED -> status != KnowledgeEntryStatus.DELETED;
-            case DRAFT -> false;
-        };
-        if (!allowed) {
+        if (!ALLOWED_TRANSITIONS.getOrDefault(status, Set.of()).contains(target)) {
             throw new InvalidStateTransitionException("KnowledgeEntry", id, status, target);
         }
     }

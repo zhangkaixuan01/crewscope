@@ -34,8 +34,12 @@ public interface KnowledgeRepository {
     Optional<KnowledgeEntry> findByKey(
             OrganizationId organizationId, TeamId teamId, KnowledgeEntryKey entryKey);
 
-    List<KnowledgeEntry> findByTeam(
-            OrganizationId organizationId, TeamId teamId, KnowledgeEntryFilter filter);
+    /** One keyset page of the Team listing ordered by entry key ascending. */
+    KnowledgeEntryPage findByTeam(
+            OrganizationId organizationId,
+            TeamId teamId,
+            KnowledgeEntryFilter filter,
+            KnowledgeEntryPageRequest pageRequest);
 
     Optional<KnowledgeEntryVersion> findVersion(
             OrganizationId organizationId,
@@ -43,9 +47,12 @@ public interface KnowledgeRepository {
             KnowledgeEntryId entryId,
             KnowledgeEntryRevision revision);
 
-    /** Full version history of one entry, oldest revision first. */
-    List<KnowledgeEntryVersion> findVersionHistory(
-            OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId);
+    /** One keyset page of the entry's version history, oldest revision first. */
+    KnowledgeEntryVersionPage findVersionHistory(
+            OrganizationId organizationId,
+            TeamId teamId,
+            KnowledgeEntryId entryId,
+            KnowledgeVersionPageRequest pageRequest);
 
     /**
      * The authoritative effective-version gate: resolves the head's effective pointer and

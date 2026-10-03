@@ -3,6 +3,8 @@ package io.crewscope.agentscope.template;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
+import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeContextMiddleware;
+import io.crewscope.agentscope.knowledge.KnowledgeDistillerUsageMiddleware;
 import io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware;
 import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import java.io.IOException;
@@ -19,6 +21,8 @@ public final class RestrictedTemplateAgentBuilder {
     private final java.util.List<io.agentscope.core.middleware.MiddlewareBase> platformMiddlewares;
     private final TeamObserverRuntimeContextMiddleware teamObserverMiddleware;
     private final ReviewerRuntimeContextMiddleware reviewerMiddleware;
+    private final KnowledgeDistillerRuntimeContextMiddleware distillerMiddleware;
+    private final KnowledgeDistillerUsageMiddleware distillerUsageMiddleware;
 
     public RestrictedTemplateAgentBuilder(
             AgentStateStore stateStore,
@@ -37,6 +41,21 @@ public final class RestrictedTemplateAgentBuilder {
             PlatformAgentMiddlewareSet middlewareSet,
             TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
             ReviewerRuntimeContextMiddleware reviewerMiddleware) {
+        this(stateStore, runtimeRoot, maximumIterations, middlewareSet,
+                teamObserverMiddleware, reviewerMiddleware,
+                new KnowledgeDistillerRuntimeContextMiddleware(),
+                new KnowledgeDistillerUsageMiddleware());
+    }
+
+    public RestrictedTemplateAgentBuilder(
+            AgentStateStore stateStore,
+            Path runtimeRoot,
+            int maximumIterations,
+            PlatformAgentMiddlewareSet middlewareSet,
+            TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
+            ReviewerRuntimeContextMiddleware reviewerMiddleware,
+            KnowledgeDistillerRuntimeContextMiddleware distillerMiddleware,
+            KnowledgeDistillerUsageMiddleware distillerUsageMiddleware) {
         this.stateStore = Objects.requireNonNull(stateStore, "stateStore");
         this.runtimeRoot = Objects.requireNonNull(runtimeRoot, "runtimeRoot")
                 .toAbsolutePath()
@@ -50,6 +69,10 @@ public final class RestrictedTemplateAgentBuilder {
                 teamObserverMiddleware, "teamObserverMiddleware");
         this.reviewerMiddleware = Objects.requireNonNull(
                 reviewerMiddleware, "reviewerMiddleware");
+        this.distillerMiddleware = Objects.requireNonNull(
+                distillerMiddleware, "distillerMiddleware");
+        this.distillerUsageMiddleware = Objects.requireNonNull(
+                distillerUsageMiddleware, "distillerUsageMiddleware");
     }
 
     public HarnessAgent build(TemplateAgentBuildRequest request, String description) {
@@ -105,17 +128,18 @@ public final class RestrictedTemplateAgentBuilder {
     /**
      * Selects the security chain from the trusted session kind, never from Template text.
      *
-     * <p>TEAM_OBSERVER and REVIEW own their conversation-less boundary middleware; everything
-     * else gets the full platform chain. REVIEW cannot reuse that chain: its calls carry no
-     * {@code PlatformExecutionContext} (a reviewer has no conversation, participant pair or
+     * <p>TEAM_OBSERVER, REVIEW and DISTILLER own their conversation-less boundary middleware;
+     * everything else gets the full platform chain. Those kinds cannot reuse that chain: their
+     * calls carry no {@code PlatformExecutionContext} (no conversation, participant pair or
      * personal provider binding), so the conversation-semantics context middleware would
-     * fail-closed on every legitimate review call (defect 20, M9b-Q02).
+     * fail-closed on every legitimate call (defect 20, M9b-Q02).
      */
     java.util.List<io.agentscope.core.middleware.MiddlewareBase> middlewaresFor(
             TemplateAgentSessionIdentity.Kind kind) {
         return switch (Objects.requireNonNull(kind, "kind")) {
             case TEAM_OBSERVER -> java.util.List.of(teamObserverMiddleware);
             case REVIEW -> java.util.List.of(reviewerMiddleware);
+            case DISTILLER -> java.util.List.of(distillerMiddleware, distillerUsageMiddleware);
             case CONVERSATION, TASK -> platformMiddlewares;
         };
     }

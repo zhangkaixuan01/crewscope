@@ -32,6 +32,7 @@ import io.crewscope.domain.identity.event.UserIdentityMapped;
 import io.crewscope.domain.identity.event.UserAccountRegistered;
 import io.crewscope.domain.inbox.event.InboxDispositionChanged;
 import io.crewscope.domain.model.event.ModelConnectionCredentialChanged;
+import io.crewscope.domain.model.event.ModelUsageFactRecorded;
 import io.crewscope.domain.projection.ProjectionLifecycleEvent;
 import io.crewscope.domain.provider.event.ConnectionLifecycleChanged;
 import io.crewscope.domain.provider.event.ProviderBindingChanged;
@@ -57,6 +58,10 @@ import io.crewscope.domain.task.event.MemberTaskCommandAccepted;
 import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import io.crewscope.domain.task.event.TaskExecutionRecoveryStarted;
 import io.crewscope.domain.task.event.WorkerTaskCommandAccepted;
+import io.crewscope.domain.knowledge.event.KnowledgeEntryCreated;
+import io.crewscope.domain.knowledge.event.KnowledgeEntryDeleted;
+import io.crewscope.domain.knowledge.event.KnowledgeVersionPublished;
+import io.crewscope.domain.knowledge.event.KnowledgeVersionRetired;
 import io.crewscope.domain.team.event.MemberRoleGranted;
 import io.crewscope.domain.team.event.MemberRoleRevoked;
 import io.crewscope.domain.team.event.TeamCreated;
@@ -100,7 +105,51 @@ public final class CrewScopeAuditEventTypes {
         registerActionAndProviderEvents(definitions);
         registerM6SecurityEvents(definitions);
         registerM7IdentityEvents(definitions);
+        registerKnowledgeEvents(definitions);
         return new AuditEventTypeRegistry(definitions);
+    }
+
+    private static void registerKnowledgeEvents(List<AuditEventTypeDefinition> target) {
+        register(
+                target,
+                List.of("KNOWLEDGE_ENTRY_CREATED"),
+                List.of(SchemaVersion.V1),
+                KnowledgeEntryCreated.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("entryKey"),
+                required("category"));
+        register(
+                target,
+                List.of("KNOWLEDGE_VERSION_PUBLISHED"),
+                List.of(SchemaVersion.V1),
+                KnowledgeVersionPublished.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("entryKey"),
+                required("revision"));
+        register(
+                target,
+                List.of("KNOWLEDGE_VERSION_RETIRED"),
+                List.of(SchemaVersion.V1),
+                KnowledgeVersionRetired.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("entryKey"),
+                required("retiredRevision"));
+        register(
+                target,
+                List.of("KNOWLEDGE_ENTRY_DELETED"),
+                List.of(SchemaVersion.V1),
+                KnowledgeEntryDeleted.class,
+                AuditEventCategory.TEAM,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("entryKey"),
+                required("lastEffectiveRevision"));
     }
 
     private static void registerM7IdentityEvents(List<AuditEventTypeDefinition> target) {
@@ -741,6 +790,18 @@ public final class CrewScopeAuditEventTypes {
                 required("providerKey"),
                 required("connectionStatus"),
                 required("failureCode"));
+        register(
+                target,
+                List.of("MODEL_USAGE_FACT_RECORDED"),
+                List.of(SchemaVersion.V1),
+                ModelUsageFactRecorded.class,
+                AuditEventCategory.MODEL,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("role"),
+                required("attempt"),
+                required("providerKey", "providerKey.value"),
+                required("modelId", "modelId.value"));
     }
 
     private static void registerReviewEvents(List<AuditEventTypeDefinition> target) {

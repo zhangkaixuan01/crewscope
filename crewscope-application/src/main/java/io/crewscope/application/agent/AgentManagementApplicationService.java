@@ -52,6 +52,7 @@ import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
+import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerTemplate;
 import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
@@ -198,6 +199,11 @@ public final class AgentManagementApplicationService {
                         "agentProfile.templateVersion",
                         "the built-in Team Observer is provisioned only by Team initialization");
             }
+            if (KnowledgeDistillerTemplate.isTemplateVersion(template.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Knowledge Distiller is provisioned only by distillation readiness");
+            }
             if (template.runtimeRole() == AgentRuntimeRole.PERSONAL_ASSISTANT) {
                 throw new DomainValidationException(
                         "agentProfile.runtimeRole",
@@ -340,6 +346,11 @@ public final class AgentManagementApplicationService {
                 throw new DomainValidationException(
                         "agentProfile.templateVersion",
                         "the built-in Team Observer lifecycle uses its configuration Preflight gate");
+            }
+            if (KnowledgeDistillerTemplate.isTemplateVersion(current.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Knowledge Distiller lifecycle is managed by its provisioning service");
             }
             if (current.version() != expectedVersion) {
                 throw new OptimisticLockConflictException(

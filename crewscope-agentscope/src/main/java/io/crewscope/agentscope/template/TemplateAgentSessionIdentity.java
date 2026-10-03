@@ -1,12 +1,13 @@
 package io.crewscope.agentscope.template;
 
+import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeSession;
+import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeStateReference;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
-import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeSession;
 import io.crewscope.domain.workspace.AgentProfileId;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,7 +19,8 @@ public final class TemplateAgentSessionIdentity {
         CONVERSATION,
         TASK,
         REVIEW,
-        TEAM_OBSERVER
+        TEAM_OBSERVER,
+        DISTILLER
     }
 
     private final Kind kind;
@@ -112,6 +114,23 @@ public final class TemplateAgentSessionIdentity {
                 required.observerPrincipalId(),
                 required.observerProfileId(),
                 required.observerProfileVersion(),
+                required.agentScopeKey(),
+                required.stateReference(),
+                Optional.empty());
+    }
+
+    /**
+     * The built-in Knowledge Distiller's own trusted kind: like TEAM_OBSERVER it owns a
+     * conversation-less, tool-less boundary, so it selects its own security chain rather
+     * than the conversation-semantics platform chain.
+     */
+    public static TemplateAgentSessionIdentity distiller(KnowledgeDistillerRuntimeSession session) {
+        KnowledgeDistillerRuntimeSession required = Objects.requireNonNull(session, "session");
+        return new TemplateAgentSessionIdentity(
+                Kind.DISTILLER,
+                required.distillerPrincipalId(),
+                required.distillerProfileId(),
+                required.distillerProfileVersion(),
                 required.agentScopeKey(),
                 required.stateReference(),
                 Optional.empty());

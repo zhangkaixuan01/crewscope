@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.crewscope.domain.knowledge.KnowledgeCategory;
 import io.crewscope.domain.knowledge.KnowledgeEntry;
 import io.crewscope.domain.knowledge.KnowledgeEntryId;
 import io.crewscope.domain.knowledge.KnowledgeEntryKey;
@@ -18,17 +19,14 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamScope;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * Executable contract for the future PostgreSQL knowledge adapter (A02): tenant
- * scoping, version concurrency and source attribution must hold before any SQL exists.
+ * Executable contract for the PostgreSQL knowledge adapter: tenant scoping, version
+ * concurrency and source attribution must hold before any SQL exists, and the JDBC
+ * adapter must repeat the same semantics (plus the keyset pagination contract).
  */
 class KnowledgeRepositoryContractTest {
 
@@ -106,7 +104,10 @@ class KnowledgeRepositoryContractTest {
         assertEquals(publication.version().contentHash(), version.orElseThrow().contentHash());
         assertEquals(
                 List.of(new KnowledgeEntryRevision(1L)),
-                repository.findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id()).stream()
+                repository
+                        .findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id(),
+                                new KnowledgeVersionPageRequest(Optional.empty(), 100))
+                        .items().stream()
                         .map(KnowledgeEntryVersion::revision)
                         .toList());
     }
@@ -133,7 +134,7 @@ class KnowledgeRepositoryContractTest {
                 () -> repository.save(
                         first.entry().updateDraft(
                                 "Deploy Runbook", "Step one: drain the pool.",
-                                PrincipalId.generate(), NOW),
+                                Optional.empty(), PrincipalId.generate(), NOW),
                         Optional.of(duplicate)));
     }
 
@@ -156,7 +157,7 @@ class KnowledgeRepositoryContractTest {
 
         KnowledgeEntry redrafted = first.entry()
                 .updateDraft("Deploy Runbook v2", "Step one: drain, then verify.",
-                        PrincipalId.generate(), NOW);
+                        Optional.empty(), PrincipalId.generate(), NOW);
         repository.save(redrafted, Optional.empty());
         var second = redrafted.publish(PrincipalId.generate(), NOW);
         repository.save(second.entry(), Optional.of(second.version()));
@@ -168,7 +169,10 @@ class KnowledgeRepositoryContractTest {
                         .revision());
         assertEquals(
                 2,
-                repository.findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id()).size());
+                repository
+                        .findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id(),
+                                new KnowledgeVersionPageRequest(Optional.empty(), 100))
+                        .items().size());
 
         KnowledgeEntry retired = second.entry().retire(PrincipalId.generate(), NOW);
         repository.save(retired, Optional.empty());
@@ -176,7 +180,10 @@ class KnowledgeRepositoryContractTest {
                 repository.findEffectiveVersion(ORGANIZATION_ID, TEAM_ID, created.id()).isEmpty());
         assertEquals(
                 2,
-                repository.findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id()).size());
+                repository
+                        .findVersionHistory(ORGANIZATION_ID, TEAM_ID, created.id(),
+                                new KnowledgeVersionPageRequest(Optional.empty(), 100))
+                        .items().size());
 
         repository.save(retired.delete(PrincipalId.generate(), NOW), Optional.empty());
         assertTrue(
@@ -214,164 +221,107 @@ class KnowledgeRepositoryContractTest {
         assertEquals(
                 1,
                 repository
-                        .findByTeam(ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.all())
-                        .size());
+                        .findByTeam(ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.all(),
+                                new KnowledgeEntryPageRequest(Optional.empty(), 50))
+                        .items().size());
         assertEquals(
                 0,
                 repository
                         .findByTeam(
-                                ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.effectivelyPublished())
-                        .size());
+                                ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.effectivelyPublished(),
+                                new KnowledgeEntryPageRequest(Optional.empty(), 50))
+                        .items().size());
+    }
+
+    @Test
+    void teamListingPagesByEntryKeyAscendingAndFiltersByCategory() {
+        InMemoryKnowledgeRepository repository = new InMemoryKnowledgeRepository();
+        repository.create(entry("deploy-runbook", KnowledgeCategory.RUNBOOK));
+        repository.create(entry("incident-guide", KnowledgeCategory.GUIDE));
+        repository.create(entry("review-conventions", KnowledgeCategory.CONVENTION));
+        repository.create(entry("tech-decisions", KnowledgeCategory.DECISION));
+
+        KnowledgeEntryPage firstPage = repository.findByTeam(
+                ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.all(),
+                new KnowledgeEntryPageRequest(Optional.empty(), 2));
+        assertEquals(
+                List.of("deploy-runbook", "incident-guide"),
+                firstPage.items().stream().map(entry -> entry.entryKey().value()).toList());
+        assertEquals("incident-guide", firstPage.nextEntryKey().orElseThrow().value());
+
+        KnowledgeEntryPage secondPage = repository.findByTeam(
+                ORGANIZATION_ID, TEAM_ID, KnowledgeEntryFilter.all(),
+                new KnowledgeEntryPageRequest(firstPage.nextEntryKey(), 2));
+        assertEquals(
+                List.of("review-conventions", "tech-decisions"),
+                secondPage.items().stream().map(entry -> entry.entryKey().value()).toList());
+        assertTrue(secondPage.nextEntryKey().isEmpty());
+
+        KnowledgeEntryPage guideOnly = repository.findByTeam(
+                ORGANIZATION_ID, TEAM_ID,
+                KnowledgeEntryFilter.byCategory(
+                        java.util.EnumSet.allOf(KnowledgeEntryStatus.class),
+                        KnowledgeCategory.GUIDE),
+                new KnowledgeEntryPageRequest(Optional.empty(), 50));
+        assertEquals(
+                List.of("incident-guide"),
+                guideOnly.items().stream().map(entry -> entry.entryKey().value()).toList());
+        assertTrue(guideOnly.nextEntryKey().isEmpty());
+    }
+
+    @Test
+    void versionHistoryPagesByRevisionAscending() {
+        InMemoryKnowledgeRepository repository = new InMemoryKnowledgeRepository();
+        KnowledgeEntry created = repository.create(entry("deploy-runbook"));
+        KnowledgeEntry head = created;
+        for (int index = 1; index <= 3; index++) {
+            KnowledgeEntry redrafted = head
+                    .updateDraft("Deploy Runbook v" + index, "Step " + index + ": content.",
+                            Optional.empty(), PrincipalId.generate(), NOW);
+            repository.save(redrafted, Optional.empty());
+            var publication = redrafted.publish(PrincipalId.generate(), NOW);
+            repository.save(publication.entry(), Optional.of(publication.version()));
+            head = publication.entry();
+        }
+
+        KnowledgeEntryVersionPage firstPage = repository.findVersionHistory(
+                ORGANIZATION_ID, TEAM_ID, created.id(),
+                new KnowledgeVersionPageRequest(Optional.empty(), 2));
+        assertEquals(
+                List.of(1L, 2L),
+                firstPage.items().stream().map(version -> version.revision().value()).toList());
+        assertEquals(2L, firstPage.nextRevision().orElseThrow().value());
+
+        KnowledgeEntryVersionPage secondPage = repository.findVersionHistory(
+                ORGANIZATION_ID, TEAM_ID, created.id(),
+                new KnowledgeVersionPageRequest(firstPage.nextRevision(), 2));
+        assertEquals(
+                List.of(3L),
+                secondPage.items().stream().map(version -> version.revision().value()).toList());
+        assertTrue(secondPage.nextRevision().isEmpty());
     }
 
     private static KnowledgeEntry entry(String entryKey) {
-        return entryInScope(new TeamScope(ORGANIZATION_ID, TEAM_ID), entryKey);
+        return entry(entryKey, KnowledgeCategory.RUNBOOK);
+    }
+
+    private static KnowledgeEntry entry(String entryKey, KnowledgeCategory category) {
+        return entryInScope(new TeamScope(ORGANIZATION_ID, TEAM_ID), entryKey, category);
     }
 
     private static KnowledgeEntry entryInScope(TeamScope scope, String entryKey) {
+        return entryInScope(scope, entryKey, KnowledgeCategory.RUNBOOK);
+    }
+
+    private static KnowledgeEntry entryInScope(
+            TeamScope scope, String entryKey, KnowledgeCategory category) {
         return KnowledgeEntry.create(
                 scope,
                 KnowledgeEntryKey.parse(entryKey),
+                category,
                 "Deploy Runbook",
                 "Step one: drain the pool.",
                 PrincipalId.generate(),
                 NOW);
-    }
-
-    /** Contract-grade in-memory fake: atomic save, optimistic head, tenant scoping. */
-    private static final class InMemoryKnowledgeRepository implements KnowledgeRepository {
-
-        private final Map<KnowledgeEntryId, KnowledgeEntry> entries = new HashMap<>();
-        private final Map<KnowledgeEntryId, List<KnowledgeEntryVersion>> versions = new HashMap<>();
-
-        @Override
-        public KnowledgeEntry create(KnowledgeEntry entry) {
-            findByKey(entry.scope().organizationId(), entry.scope().teamId(), entry.entryKey())
-                    .ifPresent(ignored -> {
-                        throw new KnowledgeEntryKeyConflictException(entry.scope(), entry.entryKey());
-                    });
-            entries.put(entry.id(), entry);
-            versions.put(entry.id(), new ArrayList<>());
-            return entry;
-        }
-
-        @Override
-        public KnowledgeEntry save(
-                KnowledgeEntry entry, Optional<KnowledgeEntryVersion> appendedVersion) {
-            KnowledgeEntry stored = requireExisting(entry.id());
-            if (entry.version() != stored.version() + 1) {
-                throw new OptimisticLockConflictException(
-                        "KnowledgeEntry", entry.id(), entry.version() - 1, stored.version());
-            }
-            appendedVersion.ifPresent(version -> {
-                if (!version.entryId().equals(entry.id())
-                        || !version.scope().equals(entry.scope())) {
-                    throw new IllegalArgumentException(
-                            "appended version must belong to the saving entry's scope");
-                }
-                versions.getOrDefault(entry.id(), List.of()).stream()
-                        .filter(existing -> existing.revision().equals(version.revision()))
-                        .findFirst()
-                        .ifPresent(existing -> {
-                            throw new OptimisticLockConflictException(
-                                    "KnowledgeEntryVersion",
-                                    entry.id(),
-                                    version.revision().value(),
-                                    existing.revision().value());
-                        });
-                versions.getOrDefault(entry.id(), List.of()).stream()
-                        .filter(existing -> existing.contentHash().equals(version.contentHash()))
-                        .findFirst()
-                        .ifPresent(existing -> {
-                            throw new KnowledgeVersionContentConflictException(
-                                    entry.id(), version.revision(), version.contentHash());
-                        });
-            });
-            entries.put(entry.id(), entry);
-            appendedVersion.ifPresent(version -> versions.get(entry.id()).add(version));
-            return entry;
-        }
-
-        @Override
-        public Optional<KnowledgeEntry> findById(
-                OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
-            return Optional.ofNullable(entries.get(entryId))
-                    .filter(entry -> inScope(entry, organizationId, teamId));
-        }
-
-        @Override
-        public Optional<KnowledgeEntry> findByKey(
-                OrganizationId organizationId, TeamId teamId, KnowledgeEntryKey entryKey) {
-            return entries.values().stream()
-                    .filter(entry -> inScope(entry, organizationId, teamId))
-                    .filter(entry -> entry.entryKey().equals(entryKey))
-                    .findFirst();
-        }
-
-        @Override
-        public List<KnowledgeEntry> findByTeam(
-                OrganizationId organizationId, TeamId teamId, KnowledgeEntryFilter filter) {
-            return entries.values().stream()
-                    .filter(entry -> inScope(entry, organizationId, teamId))
-                    .filter(entry -> filter.statuses().contains(entry.status()))
-                    .sorted(Comparator.comparing(entry -> entry.entryKey().value()))
-                    .toList();
-        }
-
-        @Override
-        public Optional<KnowledgeEntryVersion> findVersion(
-                OrganizationId organizationId,
-                TeamId teamId,
-                KnowledgeEntryId entryId,
-                KnowledgeEntryRevision revision) {
-            return findVersionHistory(organizationId, teamId, entryId).stream()
-                    .filter(version -> version.revision().equals(revision))
-                    .findFirst();
-        }
-
-        @Override
-        public List<KnowledgeEntryVersion> findVersionHistory(
-                OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
-            return findById(organizationId, teamId, entryId)
-                    .map(entry -> versions.getOrDefault(entry.id(), List.of()).stream()
-                            .sorted(Comparator.comparing(version -> version.revision().value()))
-                            .toList())
-                    .orElseGet(List::of);
-        }
-
-        @Override
-        public Optional<KnowledgeEntryVersion> findEffectiveVersion(
-                OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
-            return findById(organizationId, teamId, entryId)
-                    .filter(KnowledgeEntry::effectivelyPublished)
-                    .flatMap(entry -> findVersion(
-                            organizationId, teamId, entryId, entry.effectiveRevision().orElseThrow()));
-        }
-
-        @Override
-        public List<KnowledgeEntryVersion> findEffectiveVersionsByTeam(
-                OrganizationId organizationId, TeamId teamId) {
-            return entries.values().stream()
-                    .filter(entry -> inScope(entry, organizationId, teamId))
-                    .filter(KnowledgeEntry::effectivelyPublished)
-                    .map(entry -> findVersion(
-                            organizationId, teamId, entry.id(), entry.effectiveRevision().orElseThrow()))
-                    .flatMap(Optional::stream)
-                    .toList();
-        }
-
-        private KnowledgeEntry requireExisting(KnowledgeEntryId entryId) {
-            KnowledgeEntry stored = entries.get(entryId);
-            if (stored == null) {
-                throw new IllegalArgumentException("unknown entry " + entryId);
-            }
-            return stored;
-        }
-
-        private static boolean inScope(
-                KnowledgeEntry entry, OrganizationId organizationId, TeamId teamId) {
-            return entry.scope().organizationId().equals(organizationId)
-                    && entry.scope().teamId().equals(teamId);
-        }
     }
 }

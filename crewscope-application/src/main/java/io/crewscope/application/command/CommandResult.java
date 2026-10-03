@@ -23,7 +23,9 @@ public record CommandResult(
     CommandReceipt receipt,
     UtcTimestamp createdAt) {
 
-  public enum ResourceType { WORK_PROJECT, WORK_ITEM, TASK, CONVERSATION, TEAM_MEMBER }
+  public enum ResourceType {
+    WORK_PROJECT, WORK_ITEM, TASK, CONVERSATION, TEAM_MEMBER, KNOWLEDGE_ENTRY
+  }
 
   public CommandResult {
     Objects.requireNonNull(organizationId, "organizationId");
