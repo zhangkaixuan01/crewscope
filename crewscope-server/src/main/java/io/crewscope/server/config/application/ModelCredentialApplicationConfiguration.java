@@ -3,6 +3,7 @@ package io.crewscope.server.config.application;
 import io.crewscope.application.credential.CredentialStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
+import io.crewscope.application.model.EmbeddingCapabilityProbe;
 import io.crewscope.application.model.ModelConnectionCredentialService;
 import io.crewscope.application.model.ModelConnectionAvailabilityVerifier;
 import io.crewscope.application.model.ModelConnectionRepository;
@@ -43,14 +44,20 @@ public class ModelCredentialApplicationConfiguration {
             TransactionExecutor transactionExecutor,
             TimeProvider timeProvider,
             ModelCredentialProperties properties,
-            ObjectProvider<ModelConnectionAvailabilityVerifier> availabilityVerifiers) {
+            ObjectProvider<ModelConnectionAvailabilityVerifier> availabilityVerifiers,
+            ObjectProvider<EmbeddingCapabilityProbe> embeddingCapabilityProbes) {
         ModelConnectionAvailabilityVerifier availabilityVerifier = availabilityVerifiers
                 .getIfAvailable(ModelConnectionAvailabilityVerifier::persistedStateOnly);
+        // A missing probe bean is the absent leg, which reproduces the pre-I01a
+        // verification behavior exactly.
+        EmbeddingCapabilityProbe embeddingCapabilityProbe =
+                embeddingCapabilityProbes.getIfAvailable(() -> EmbeddingCapabilityProbe.ABSENT);
         return new ModelConnectionCredentialService(
                 connectionRepository,
                 providerRepository,
                 credentialStore,
                 healthProbe,
+                embeddingCapabilityProbe,
                 eventStore,
                 outboxRepository,
                 transactionExecutor,

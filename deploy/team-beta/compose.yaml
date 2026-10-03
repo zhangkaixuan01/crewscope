@@ -54,6 +54,9 @@ services:
       CREWSCOPE_OPERATOR_BOOTSTRAP_EMAIL: crewscope-monitor@crewscope.local
       CREWSCOPE_OPERATOR_BOOTSTRAP_DISPLAY_NAME: CrewScope Team Beta Operator
       CREWSCOPE_REGISTRATION_MODE: ${CREWSCOPE_REGISTRATION_MODE:-OPEN}
+      # M10-I01a: together with compose.pgvector.yaml this enables the optional
+      # knowledge vector store; the process flag and the image must switch together.
+      CREWSCOPE_PGVECTOR_ENABLED: ${CREWSCOPE_PGVECTOR_ENABLED:-false}
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
       CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"

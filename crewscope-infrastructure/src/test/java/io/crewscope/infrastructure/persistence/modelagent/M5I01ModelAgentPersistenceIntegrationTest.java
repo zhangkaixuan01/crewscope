@@ -153,29 +153,49 @@ class M5I01ModelAgentPersistenceIntegrationTest
         Fixture fixture = seedFixture("platform-catalog");
         DefaultPlatformModelCatalogInitializer initializer =
                 new DefaultPlatformModelCatalogInitializer(providers, catalogs, prices);
+        // The DashScope embedding price only becomes effective 2026-10-01 and the table
+        // CHECK requires effective_from <= created_at, so this proof pins the platform
+        // initialization era past that frozen moment (S01 §3.2).
+        UtcTimestamp created = UtcTimestamp.parse("2026-10-02T08:00:00Z");
+        UtcTimestamp later = UtcTimestamp.parse("2026-10-03T08:00:00Z");
 
-        initializer.initialize(fixture.actorId(), CREATED);
-        initializer.initialize(fixture.actorId(), LATER);
+        initializer.initialize(fixture.actorId(), created);
+        initializer.initialize(fixture.actorId(), later);
 
-        assertEquals(1, jdbc.queryForObject(
+        assertEquals(2, jdbc.queryForObject(
                 "SELECT count(*) FROM crewscope.model_provider_definition",
                 Integer.class));
-        assertEquals(1, jdbc.queryForObject(
+        assertEquals(2, jdbc.queryForObject(
                 "SELECT count(*) FROM crewscope.model_catalog_entry",
                 Integer.class));
-        assertEquals(1, jdbc.queryForObject(
+        assertEquals(2, jdbc.queryForObject(
                 "SELECT count(*) FROM crewscope.model_price_revision",
                 Integer.class));
         ModelCatalogEntry catalog = catalogs.findLatest(
                         new ModelProviderKey("deepseek"), new ModelId("deepseek-flash"))
                 .orElseThrow();
-        ModelPriceRevision price = prices.findEffectivePrice(catalog.coordinate(), LATER)
+        ModelPriceRevision price = prices.findEffectivePrice(catalog.coordinate(), later)
                 .orElseThrow();
         assertEquals("DeepSeek-Flash-0731", catalog.modelRevision().toString());
         assertEquals("0.44", price.tokenPrice().inputPerMillionTokens().toPlainString());
         assertEquals("1.32", price.tokenPrice().outputPerMillionTokens().toPlainString());
         assertEquals("0.014", price.tokenPrice().cachedInputPerMillionTokens()
                 .orElseThrow().toPlainString());
+
+        ModelCatalogEntry embedding = catalogs.findLatest(
+                        new ModelProviderKey("dashscope"), new ModelId("text-embedding-v4"))
+                .orElseThrow();
+        ModelPriceRevision embeddingPrice = prices
+                .findEffectivePrice(embedding.coordinate(), later)
+                .orElseThrow();
+        assertEquals("text-embedding-v4", embedding.modelRevision().toString());
+        assertTrue(embedding.capabilities().stream()
+                .map(Object::toString)
+                .toList()
+                .contains("embedding"));
+        assertEquals("0.5", embeddingPrice.tokenPrice().inputPerMillionTokens()
+                .toPlainString());
+        assertEquals("CNY", embeddingPrice.tokenPrice().currencyCode());
     }
 
     @Test

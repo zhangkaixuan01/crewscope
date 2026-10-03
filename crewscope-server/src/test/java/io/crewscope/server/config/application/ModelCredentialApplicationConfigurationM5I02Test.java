@@ -60,4 +60,16 @@ class ModelCredentialApplicationConfigurationM5I02Test {
         runner.withPropertyValues("crewscope.model.credential.handle-ttl=11m")
                 .run(context -> context.assertThat().hasFailed());
     }
+
+    @Test
+    void wiresAnEmbeddingCapabilityProbeWhenOneExists() {
+        runner.withBean(
+                        io.crewscope.application.model.EmbeddingCapabilityProbe.class,
+                        () -> mock(io.crewscope.application.model.EmbeddingCapabilityProbe.class))
+                .run(context -> context.assertThat()
+                        .hasNotFailed()
+                        .hasSingleBean(ModelConnectionCredentialService.class)
+                        .hasSingleBean(
+                                io.crewscope.application.model.EmbeddingCapabilityProbe.class));
+    }
 }

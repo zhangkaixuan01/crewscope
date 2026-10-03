@@ -25,6 +25,7 @@ import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.model.ModelAdapterKey;
 import io.crewscope.domain.model.ModelBillingSubject;
 import io.crewscope.domain.model.ModelConnection;
+import io.crewscope.domain.model.ModelConnectionHealthFailureCode;
 import io.crewscope.domain.model.ModelConnectionHealthStatus;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
@@ -262,6 +263,144 @@ class ModelConnectionCredentialServiceTest {
         assertTrue(replay.replayed());
         assertEquals(receipt, replay.receipt());
         assertEquals(eventCount, events.size());
+    }
+
+    // ------------------------------------------------------------------ embedding capability leg
+
+    @Test
+    void verifyRecordsHealthyOnlyAfterTheEmbeddingCapabilityLegPasses() {
+        ModelConnection connection = create(FIRST_SECRET);
+        List<ProviderCredentialHandle> probeHandles = new ArrayList<>();
+        List<UUID> probeCorrelations = new ArrayList<>();
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.success(),
+                (definition, conn, handle, correlationId) -> {
+                    probeHandles.add(handle);
+                    probeCorrelations.add(correlationId);
+                    return Optional.of(EmbeddingCapabilityProbe.Outcome.success());
+                });
+        UUID correlationId = UUID.randomUUID();
+
+        ModelConnection verified = withProbe.verify(new ModelConnectionCredentialCommand(
+                ORGANIZATION_ID,
+                connection.id(),
+                connection.version(),
+                connection.credentialBinding().credentialVersion(),
+                ACTOR_ID,
+                correlationId));
+
+        assertEquals(ModelConnectionHealthStatus.HEALTHY, verified.health().status());
+        assertEquals(1, probeHandles.size(), "the probe must reuse the verification handle");
+        assertEquals(List.of(correlationId), probeCorrelations);
+    }
+
+    @Test
+    void verifyRecordsTheEmbeddingCapabilityFailureAsUnhealthy() {
+        ModelConnection connection = create(FIRST_SECRET);
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.success(),
+                (definition, conn, handle, correlationId) -> Optional.of(
+                        EmbeddingCapabilityProbe.Outcome.failed(
+                                ModelConnectionHealthFailureCode.RATE_LIMITED)));
+
+        ModelConnection verified = withProbe.verify(command(connection));
+
+        assertEquals(ModelConnectionHealthStatus.UNHEALTHY, verified.health().status());
+        assertEquals(
+                Optional.of(ModelConnectionHealthFailureCode.RATE_LIMITED),
+                verified.health().failureCode());
+    }
+
+    @Test
+    void anInapplicableCapabilityProbeLeavesTheTransportVerdictUntouched() {
+        ModelConnection connection = create(FIRST_SECRET);
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.success(),
+                (definition, conn, handle, correlationId) -> Optional.empty());
+
+        ModelConnection verified = withProbe.verify(command(connection));
+
+        assertEquals(ModelConnectionHealthStatus.HEALTHY, verified.health().status());
+    }
+
+    @Test
+    void anEmbeddingProbeCrashIsSanitizedIntoProviderRejected() {
+        ModelConnection connection = create(FIRST_SECRET);
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.success(),
+                (definition, conn, handle, correlationId) -> {
+                    throw new IllegalStateException("provider response body leaked here");
+                });
+
+        ModelConnection verified = withProbe.verify(command(connection));
+
+        assertEquals(ModelConnectionHealthStatus.UNHEALTHY, verified.health().status());
+        assertEquals(
+                Optional.of(ModelConnectionHealthFailureCode.PROVIDER_REJECTED),
+                verified.health().failureCode());
+    }
+
+    @Test
+    void aFailedTransportProbeSkipsTheEmbeddingCapabilityLeg() {
+        ModelConnection connection = create(FIRST_SECRET);
+        List<ProviderCredentialHandle> probeHandles = new ArrayList<>();
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.failed(
+                        ModelConnectionHealthFailureCode.ENDPOINT_UNREACHABLE),
+                (definition, conn, handle, correlationId) -> {
+                    probeHandles.add(handle);
+                    return Optional.of(EmbeddingCapabilityProbe.Outcome.success());
+                });
+
+        ModelConnection verified = withProbe.verify(command(connection));
+
+        assertEquals(ModelConnectionHealthStatus.UNHEALTHY, verified.health().status());
+        assertEquals(
+                Optional.of(ModelConnectionHealthFailureCode.ENDPOINT_UNREACHABLE),
+                verified.health().failureCode());
+        assertEquals(0, probeHandles.size(), "no embedding tokens are spent on a dead transport");
+    }
+
+    @Test
+    void aSuspendedConnectionStillVerifiesThroughBothLegs() {
+        ModelConnection created = create(FIRST_SECRET);
+        ModelConnection suspended = connections.update(
+                created.suspend(created.version(), ACTOR_ID, time.now()));
+        List<ProviderCredentialHandle> probeHandles = new ArrayList<>();
+        ModelConnectionCredentialService withProbe = serviceWith(
+                (definition, conn, handle) -> ModelProviderHealthProbe.ProbeResult.success(),
+                (definition, conn, handle, correlationId) -> {
+                    probeHandles.add(handle);
+                    return Optional.of(EmbeddingCapabilityProbe.Outcome.success());
+                });
+
+        ModelConnection verified = withProbe.verify(command(suspended));
+
+        assertEquals(ModelConnectionHealthStatus.HEALTHY, verified.health().status());
+        assertEquals(1, probeHandles.size());
+    }
+
+    private ModelConnectionCredentialService serviceWith(
+            ModelProviderHealthProbe transport, EmbeddingCapabilityProbe capability) {
+        DomainEventStore eventStore = events::add;
+        OutboxRepository outbox = ignored -> {};
+        return new ModelConnectionCredentialService(
+                connections,
+                providers,
+                credentials,
+                transport,
+                capability,
+                eventStore,
+                outbox,
+                new TransactionExecutor() {
+                    @Override
+                    public <T> T required(Supplier<T> operation) {
+                        return operation.get();
+                    }
+                },
+                time,
+                Duration.ofSeconds(30),
+                ModelConnectionAvailabilityVerifier.persistedStateOnly());
     }
 
     private ModelConnection create(String secretText) {

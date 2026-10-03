@@ -1,0 +1,12 @@
+# M10-I01a: overlay that swaps the Team Beta postgres for the pgvector image
+# (S01b measured: pgvector/pgvector:pg17). The quickstart applies this file while
+# CREWSCOPE_PGVECTOR_ENABLED=true is set in the runtime env, and keeps applying it
+# afterwards through the .runtime/pgvector-installed marker: once a data volume has
+# run this image, switching it back to the Alpine base would strand the installed
+# extension (ADR-030 §5 — installation state and the retrieval switch are separate).
+# NOTE: the base image is Alpine, this one is Debian — an existing data volume must be
+# snapshotted (snapshot.sh) before the first switch; see the runbook section
+# "可选向量存储（pgvector）".
+services:
+  postgres:
+    image: pgvector/pgvector:pg17

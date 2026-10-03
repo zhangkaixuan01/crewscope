@@ -319,7 +319,18 @@ crewscope:
       # No development fallback: startup fails until the process receives an external key ring.
       current-key-id: ${CREWSCOPE_CREDENTIAL_CURRENT_KEY_ID:}
       keys: ${CREWSCOPE_CREDENTIAL_KEYS:}
+  knowledge:
+    vector:
+      # M10-I01a opt-in pgvector store; enabling also requires the pgvector postgres
+      # image (compose.pgvector.yaml). Disabled deployments keep the pre-I01a schema.
+      enabled: ${CREWSCOPE_PGVECTOR_ENABLED:false}
   model:
+    embedding:
+      # Embeddings transport budgets (S01 §3.2): request timeout floor 1s, attempts 1..5.
+      connect-timeout: ${CREWSCOPE_MODEL_EMBEDDING_CONNECT_TIMEOUT:3s}
+      request-timeout: ${CREWSCOPE_MODEL_EMBEDDING_REQUEST_TIMEOUT:30s}
+      retry-max-attempts: ${CREWSCOPE_MODEL_EMBEDDING_RETRY_MAX_ATTEMPTS:3}
+      retry-base-delay: ${CREWSCOPE_MODEL_EMBEDDING_RETRY_BASE_DELAY:2s}
     preflight:
       # Availability decisions are exact-version keyed and never outlive credential expiration.
       health-cache-ttl: ${CREWSCOPE_MODEL_PREFLIGHT_HEALTH_CACHE_TTL:30s}

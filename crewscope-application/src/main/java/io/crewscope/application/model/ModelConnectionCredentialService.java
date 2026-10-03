@@ -50,6 +50,7 @@ public final class ModelConnectionCredentialService {
     private final ModelProviderDefinitionRepository providerRepository;
     private final CredentialStore credentialStore;
     private final ModelProviderHealthProbe healthProbe;
+    private final EmbeddingCapabilityProbe embeddingCapabilityProbe;
     private final DomainEventStore eventStore;
     private final OutboxRepository outboxRepository;
     private final TransactionExecutor transactionExecutor;
@@ -91,10 +92,43 @@ public final class ModelConnectionCredentialService {
             TimeProvider timeProvider,
             Duration handleTimeToLive,
             ModelConnectionAvailabilityVerifier availabilityVerifier) {
+        this(
+                connectionRepository,
+                providerRepository,
+                credentialStore,
+                healthProbe,
+                EmbeddingCapabilityProbe.ABSENT,
+                eventStore,
+                outboxRepository,
+                transactionExecutor,
+                timeProvider,
+                handleTimeToLive,
+                availabilityVerifier);
+    }
+
+    /**
+     * Full lifecycle service with the optional embedding capability leg (M10-I01a): the
+     * {@link EmbeddingCapabilityProbe#ABSENT} probe reproduces the pre-I01a verification
+     * behavior exactly — the transport probe alone decides the recorded health.
+     */
+    public ModelConnectionCredentialService(
+            ModelConnectionRepository connectionRepository,
+            ModelProviderDefinitionRepository providerRepository,
+            CredentialStore credentialStore,
+            ModelProviderHealthProbe healthProbe,
+            EmbeddingCapabilityProbe embeddingCapabilityProbe,
+            DomainEventStore eventStore,
+            OutboxRepository outboxRepository,
+            TransactionExecutor transactionExecutor,
+            TimeProvider timeProvider,
+            Duration handleTimeToLive,
+            ModelConnectionAvailabilityVerifier availabilityVerifier) {
         this.connectionRepository = Objects.requireNonNull(connectionRepository, "connectionRepository");
         this.providerRepository = Objects.requireNonNull(providerRepository, "providerRepository");
         this.credentialStore = Objects.requireNonNull(credentialStore, "credentialStore");
         this.healthProbe = Objects.requireNonNull(healthProbe, "healthProbe");
+        this.embeddingCapabilityProbe = Objects.requireNonNull(
+                embeddingCapabilityProbe, "embeddingCapabilityProbe");
         this.eventStore = Objects.requireNonNull(eventStore, "eventStore");
         this.outboxRepository = Objects.requireNonNull(outboxRepository, "outboxRepository");
         this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor");
@@ -198,12 +232,9 @@ public final class ModelConnectionCredentialService {
         VerificationTarget target = transactionExecutor.required(() -> prepareVerification(required));
         ModelProviderHealthProbe.ProbeResult result;
         try (ProviderCredentialHandle handle = target.handle()) {
-            try {
-                result = healthProbe.probe(target.provider(), target.connection(), handle);
-            } catch (RuntimeException ignored) {
-                // Provider exception messages can contain endpoint or response data and never cross this boundary.
-                result = ModelProviderHealthProbe.ProbeResult.failed(
-                        ModelConnectionHealthFailureCode.PROVIDER_REJECTED);
+            result = transportProbe(target, handle);
+            if (result.healthy()) {
+                result = probeEmbeddingCapability(target, handle, required.correlationId());
             }
         }
         ModelProviderHealthProbe.ProbeResult sanitized = result;
@@ -228,11 +259,9 @@ public final class ModelConnectionCredentialService {
         VerificationTarget target = transactionExecutor.required(() -> prepareVerification(required));
         ModelProviderHealthProbe.ProbeResult result;
         try (ProviderCredentialHandle handle = target.handle()) {
-            try {
-                result = healthProbe.probe(target.provider(), target.connection(), handle);
-            } catch (RuntimeException ignored) {
-                result = ModelProviderHealthProbe.ProbeResult.failed(
-                        ModelConnectionHealthFailureCode.PROVIDER_REJECTED);
+            result = transportProbe(target, handle);
+            if (result.healthy()) {
+                result = probeEmbeddingCapability(target, handle, required.correlationId());
             }
         }
         ModelProviderHealthProbe.ProbeResult sanitized = result;
@@ -381,6 +410,42 @@ public final class ModelConnectionCredentialService {
         UUID eventId = appendEvent(
                 updated, "ACTIVATED", Optional.empty(), command.actor(), command.correlationId(), occurredAt);
         return new LifecycleChange(updated, eventId);
+    }
+
+    private ModelProviderHealthProbe.ProbeResult transportProbe(
+            VerificationTarget target, ProviderCredentialHandle handle) {
+        try {
+            return healthProbe.probe(target.provider(), target.connection(), handle);
+        } catch (RuntimeException ignored) {
+            // Provider exception messages can contain endpoint or response data and never cross this boundary.
+            return ModelProviderHealthProbe.ProbeResult.failed(
+                    ModelConnectionHealthFailureCode.PROVIDER_REJECTED);
+        }
+    }
+
+    /**
+     * Second verification leg (M10-I01a): a /models 200 cannot prove embedding capability,
+     * so an embedding provider's connection is only HEALTHY after one real embedding probe.
+     * An absent probe (or {@link Optional#empty()} for providers without embedding models)
+     * leaves the transport verdict untouched.
+     */
+    private ModelProviderHealthProbe.ProbeResult probeEmbeddingCapability(
+            VerificationTarget target, ProviderCredentialHandle handle, UUID correlationId) {
+        Optional<EmbeddingCapabilityProbe.Outcome> outcome;
+        try {
+            outcome = embeddingCapabilityProbe.probeEmbeddingCapability(
+                    target.provider(), target.connection(), handle, correlationId);
+        } catch (RuntimeException ignored) {
+            // Probe exception messages can contain provider data; only the sanitized code crosses.
+            return ModelProviderHealthProbe.ProbeResult.failed(
+                    ModelConnectionHealthFailureCode.PROVIDER_REJECTED);
+        }
+        return outcome
+                .map(value -> value.healthy()
+                        ? ModelProviderHealthProbe.ProbeResult.success()
+                        : ModelProviderHealthProbe.ProbeResult.failed(
+                                value.failureCode().orElseThrow()))
+                .orElseGet(ModelProviderHealthProbe.ProbeResult::success);
     }
 
     private VerificationTarget prepareVerification(ModelConnectionCredentialCommand command) {

@@ -96,9 +96,25 @@ prepare_env() {
 }
 
 compose() {
+  # The optional vector store (M10-I01a) layers the pgvector image on the same postgres
+  # service. Installation is sticky: once this runtime has layered the pgvector image,
+  # the marker keeps it layered even if the enabled flag is later switched off — the
+  # plain postgres image lacks the extension binaries the data volume's database now
+  # references, and the vector migration chain would fail startup on it. Turning
+  # CREWSCOPE_PGVECTOR_ENABLED off therefore disables retrieval, never the image;
+  # only `reset` (which drops the volumes) or a wiped runtime clears the marker.
+  # ADR-030 §5: installation state and the retrieval switch are separate concerns.
+  pgvector_marker="$RUNTIME_ROOT/pgvector-installed"
+  pgvector_enabled="${CREWSCOPE_PGVECTOR_ENABLED:-$(env_value CREWSCOPE_PGVECTOR_ENABLED)}"
+  if [ "$pgvector_enabled" = "true" ] || [ -f "$pgvector_marker" ]; then
+    : >"$pgvector_marker"
+    compose_files="--file $COMPOSE_FILE --file $SCRIPT_DIR/compose.pgvector.yaml"
+  else
+    compose_files="--file $COMPOSE_FILE"
+  fi
   CREWSCOPE_ENV_FILE="$ENV_FILE" \
   CREWSCOPE_DOCKER_GID="${CREWSCOPE_DOCKER_GID:-$(if [ -f "$RUNTIME_ROOT/docker-gid" ]; then tr -d '\n' <"$RUNTIME_ROOT/docker-gid"; else echo 0; fi)}" \
-    docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
+    docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" $compose_files "$@"
 }
 
 prepare_execution() {
@@ -158,6 +174,7 @@ case "$action" in
   down) compose down --remove-orphans ;;
   reset)
     compose down --remove-orphans --volumes
+    rm -f "$RUNTIME_ROOT/pgvector-installed"
     echo "Project volumes removed. Configuration and execution repositories/worktrees are retained in $RUNTIME_ROOT."
     ;;
   status) compose ps ;;

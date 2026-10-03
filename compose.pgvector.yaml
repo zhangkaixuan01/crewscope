@@ -1,0 +1,12 @@
+# M10-I01a: overlay that swaps the development postgres for the pgvector image
+# (S01b measured: pgvector/pgvector:pg17). Combine with the opt-in flag:
+#   CREWSCOPE_PGVECTOR_ENABLED=true docker compose --file compose.yaml --file compose.pgvector.yaml up --detach
+# NOTE 1: switching an existing volume between Alpine and Debian based images changes the
+# on-disk locale layout — back up the volume before switching (see the Team Beta runbook).
+# NOTE 2: this root dev compose has no quickstart marker, so stickiness is on you: once a
+# dev volume has run this overlay, keep layering it even after setting the flag back to
+# false. The flag only disables retrieval; the volume's installed extension still needs
+# this image, or startup's vector-chain validation will fail on it.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17

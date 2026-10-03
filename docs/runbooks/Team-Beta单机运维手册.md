@@ -55,6 +55,7 @@ PAT 需要 target 仓库的读写权限（验证一步会做真实身份发现�
 | `CREWSCOPE_DOCKER_SOCKET` | `/var/run/docker.sock`，可改为本机 Docker 的 Unix Socket |
 | `CREWSCOPE_SESSION_COOKIE_SECURE` | `false`；使用 HTTPS 时可选 `true` |
 | `CREWSCOPE_HSTS_ENABLED` | `false`；确认长期使用 HTTPS 后可选 `true` |
+| `CREWSCOPE_PGVECTOR_ENABLED` | `false`；启用可选知识向量存储（pgvector），见下方小节 |
 
 数据库密码、凭据加密、游标、邀请、Task Token 和登录防护 HMAC 密钥自动生成，重启不轮换。登录防护保持启用，不需要手动提供密钥。保管好 `.runtime/.env`：仅备份数据库而丢失加密密钥，不能恢复模型等已保存凭据。不要将运行目录提交 Git，也不要直接修改已有数据库密码来“重置密码”。
 
@@ -69,6 +70,32 @@ PAT 需要 target 仓库的读写权限（验证一步会做真实身份发现�
 HTTP 下密码和会话不加密，公网使用仍建议 HTTPS。内置 Web 会覆盖来访者的 X-Forwarded-For，并清除标准 Forwarded 及端口/前缀等冲突转发头，防止伪造登录防护来源和请求地址；添加上游代理后，默认按代理地址限流。如需区分真实客户端，应由管理员限定可信代理后再配置 Nginx real_ip，不能直接信任公网提供的转发头。
 
 运行目录和执行目录须使用专用绝对路径，不含 `.`/`..` 或重复斜线；脚本按实际物理路径检查，不允许通过符号链接指向主目录、仓库根或系统目录，也不接受符号链接 env 文件。不要同时编辑配置或并发执行初始化/升级/备份；初始化发布不会覆盖另一进程已生成的密钥，发生并发提示后重新运行即可。
+
+### 可选向量存储（pgvector）
+
+M10-I01a 起知识条目嵌入支持可选 pgvector 存储，默认关闭；关闭时数据库结构与升级前完全一致。启用条件有二，缺一不可：
+
+1. 在 `.runtime/.env` 写入 `CREWSCOPE_PGVECTOR_ENABLED=true`（quickstart 会自动叠加 `deploy/team-beta/compose.pgvector.yaml`，把 postgres 镜像换成 `pgvector/pgvector:pg17`）；
+2. Postgres 数据卷在 pgvector 镜像下重建或迁移（见下方警告）。
+
+启用流程（先备份再切换）：
+
+```bash
+# 1. 停机快照，保管好备份目录
+./deploy/team-beta/quickstart.sh down
+./deploy/team-beta/snapshot.sh backup /absolute/path/to/pre-pgvector-backup
+
+# 2. 持久化开关（编辑 .runtime/.env 增加：CREWSCOPE_PGVECTOR_ENABLED=true）
+
+# 3. 启动：首次会在独立迁移链 flyway_vector_history 上安装 vector 扩展与知识向量表
+./deploy/team-beta/quickstart.sh up
+```
+
+**镜像基底不兼容警告**：基础镜像是 Alpine（`postgres:17-alpine`），pgvector 镜像是 Debian 基底（`pgvector/pgvector:pg17`），两者 locale/ICU 布局不同。已有数据卷直接换镜像可能因 locale 不一致导致索引损坏或启动失败；切换前必须按上述流程做快照，失败时用快照恢复，不要在未备份的数据卷上来回切换镜像。PostgreSQL 主版本保持 17 不变。
+
+关闭流程：把 env 改回 `CREWSCOPE_PGVECTOR_ENABLED=false` 后 `up`。关闭只停用检索，**不换回镜像**：quickstart 一旦叠加过 pgvector 叠层就会在 `.runtime/pgvector-installed` 留下标记并持续叠加（安装状态与检索开关分离，ADR-030 §5）——数据卷上已安装的扩展引用的 .so 只在 Debian 基底镜像里存在，换回 Alpine 会使向量链在启动校验时失败。已安装的向量表与 `flyway_vector_history` 会保留，应用每次启动仍会校验并升级该链（这是有意设计：装过就不静默漂移）；要彻底移除需恢复到启用前的快照，或 `reset`（连卷一起删）后重新初始化。嵌入向量可随时由知识条目内容重建，属可再生数据；`knowledge_entry`/`knowledge_entry_version` 是权威数据，不可丢。
+
+健康检查：启用后 Actuator `/actuator/health` 出现 `knowledgeVector` 组件——迁移已应用为 UP；若为 DOWN 会带原因（例如镜像未随开关更换），按原因排查后再重启。
 
 ## 状态、日志与停止
 
