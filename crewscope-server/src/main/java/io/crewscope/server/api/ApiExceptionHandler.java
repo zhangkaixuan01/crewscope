@@ -20,6 +20,8 @@ import io.crewscope.application.identity.PasswordHashCapacityException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.principal.PrincipalDirectoryCursorExpiredException;
+import io.crewscope.application.retrieval.KnowledgeIndexJobNotCancellableException;
+import io.crewscope.application.retrieval.KnowledgeIndexJobNotFoundException;
 import io.crewscope.application.team.FirstTeamAlreadyExistsException;
 import io.crewscope.application.team.TeamInvitationApplicationException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
@@ -320,6 +322,30 @@ public class ApiExceptionHandler {
                     false,
                     null,
                     Map.of("reason", credentialFailure.error().name()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof KnowledgeIndexJobNotFoundException indexJobNotFound) {
+            return response(
+                    HttpStatus.NOT_FOUND,
+                    "knowledge_index_job_not_found",
+                    indexJobNotFound.getMessage(),
+                    false,
+                    null,
+                    Map.of("jobId", indexJobNotFound.jobId().toString()),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof KnowledgeIndexJobNotCancellableException notCancellable) {
+            return response(
+                    HttpStatus.CONFLICT,
+                    "knowledge_index_job_not_cancellable",
+                    notCancellable.getMessage(),
+                    false,
+                    null,
+                    Map.of(
+                            "jobId", notCancellable.jobId().toString(),
+                            "status", notCancellable.status().name()),
                     correlationId,
                     exchange);
         }

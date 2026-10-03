@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 251 = 240 + 10 knowledge management endpoints (M10-A02a) + 1 distillation endpoint (M10-A02b).
-if (operationCount !== 251) {
-  console.error(`OpenAPI operation baseline changed: expected 251, found ${operationCount}`)
+// 256 = 240 + 10 knowledge management (A02a) + 1 distillation (A02b) + 5 knowledge index control plane (M10-I01c).
+if (operationCount !== 256) {
+  console.error(`OpenAPI operation baseline changed: expected 256, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

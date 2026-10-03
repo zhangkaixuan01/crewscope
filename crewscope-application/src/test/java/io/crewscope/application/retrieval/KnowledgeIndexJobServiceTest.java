@@ -167,6 +167,52 @@ final class KnowledgeIndexJobServiceTest {
         assertEquals(1, jobs.values.size());
     }
 
+    @Test
+    void entryEnqueueRacingAConcurrentCreateConvergesOntoTheWinner() {
+        KnowledgeIndexJobService service = service(true);
+        jobs.raceOnCreate = true;
+
+        KnowledgeIndexJob converged = service.enqueueEntryRefresh(
+                organizationId, teamId, entryId, actor).orElseThrow();
+
+        assertEquals(1, jobs.values.size());
+        assertEquals(converged.id(), jobs.values.values().iterator().next().id(),
+                "the 23505 loser converges onto the racing writer's job");
+        assertEquals(converged.id(),
+                service.enqueueEntryCleanup(organizationId, teamId, entryId, actor).id(),
+                "the cleanup path converges onto the same live job");
+        assertEquals(1, jobs.values.size());
+    }
+
+    @Test
+    void repositoryBuildRacingAConcurrentCreateConvergesOntoTheWinner() {
+        embeddings.model = MODEL;
+        KnowledgeIndexJobService service = service(true);
+        jobs.raceOnCreate = true;
+
+        KnowledgeIndexJob converged = service.enqueueRepositoryBuild(
+                organizationId, teamId, projectId, bindingId, commit, actor).orElseThrow();
+
+        assertEquals(1, jobs.values.size());
+        assertEquals(converged.id(), jobs.values.values().iterator().next().id(),
+                "the index-key race converges onto the racing writer's job");
+        assertEquals(bindingId, converged.indexKey().orElseThrow().repositoryBindingId());
+    }
+
+    @Test
+    void rebuildSkipsEntriesWhoseLiveSlotWasRaced() {
+        knowledge.effectiveVersions.addAll(List.of(
+                versionOf(KnowledgeEntryId.generate(), 1),
+                versionOf(KnowledgeEntryId.generate(), 2)));
+        KnowledgeIndexJobService service = service(true);
+        jobs.raceOnCreate = true;
+
+        assertEquals(1, service.rebuildTeamKnowledge(organizationId, teamId, actor),
+                "the raced entry does not count as created; the second one does");
+        assertEquals(2, jobs.values.size(),
+                "the racing winner plus the second entry's own job");
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private KnowledgeIndexJobService service(boolean refreshEnabled) {
@@ -225,8 +271,35 @@ final class KnowledgeIndexJobServiceTest {
         private final Map<UUID, KnowledgeIndexJob> values = new LinkedHashMap<>();
         private final Map<UUID, List<int[]>> checkpoints = new LinkedHashMap<>();
 
+        /**
+         * When set, the next create simulates the check-then-create race: a concurrent
+         * writer's job for the same target lands first, then our insert throws the
+         * translated live-conflict error the JDBC adapter produces on SQLState 23505.
+         */
+        private boolean raceOnCreate;
+
         @Override
         public KnowledgeIndexJob create(KnowledgeIndexJob job) {
+            if (raceOnCreate) {
+                raceOnCreate = false;
+                KnowledgeIndexJob racingWriter;
+                String constraint;
+                if (job.source() == KnowledgeIndexJobSource.REPOSITORY) {
+                    racingWriter = KnowledgeIndexJob.repositoryBuild(
+                            UUID.randomUUID(), job.organizationId(), job.teamId(),
+                            job.projectId().orElseThrow(), job.indexKey().orElseThrow(),
+                            job.createdBy(), job.createdAt());
+                    constraint = "ux_knowledge_index_job_index_key_live";
+                } else {
+                    racingWriter = KnowledgeIndexJob.knowledgeEntry(
+                            UUID.randomUUID(), job.organizationId(), job.teamId(),
+                            job.entryId().orElseThrow(), job.createdBy(), job.createdAt());
+                    constraint = "ux_knowledge_index_job_entry_live";
+                }
+                values.put(racingWriter.id(), racingWriter);
+                checkpoints.put(racingWriter.id(), new ArrayList<>());
+                throw new KnowledgeIndexJobLiveConflictException(constraint);
+            }
             values.put(job.id(), job);
             checkpoints.put(job.id(), new ArrayList<>());
             return job;
@@ -273,6 +346,42 @@ final class KnowledgeIndexJobServiceTest {
                             && job.teamId().equals(teamId)
                             && job.entryId().equals(Optional.of(entryId)))
                     .max(Comparator.comparing(KnowledgeIndexJob::updatedAt));
+        }
+
+        @Override
+        public KnowledgeIndexJobPage findByTeam(
+                OrganizationId organizationId,
+                TeamId teamId,
+                KnowledgeIndexJobFilter filter,
+                KnowledgeIndexJobPageRequest pageRequest) {
+            List<KnowledgeIndexJob> ordered = values.values().stream()
+                    .filter(job -> job.organizationId().equals(organizationId)
+                            && job.teamId().equals(teamId))
+                    .sorted(Comparator.comparing(KnowledgeIndexJob::createdAt)
+                            .thenComparing(job -> job.id().toString()))
+                    .toList();
+            int start = 0;
+            if (pageRequest.afterJobId().isPresent()) {
+                UUID after = pageRequest.afterJobId().orElseThrow();
+                List<UUID> ids = ordered.stream().map(KnowledgeIndexJob::id).toList();
+                int index = ids.indexOf(after);
+                if (index < 0) {
+                    throw new IllegalArgumentException(
+                            "cursor job " + after + " is not part of this Team's jobs");
+                }
+                start = index + 1;
+            }
+            List<KnowledgeIndexJob> candidates = ordered.subList(start, ordered.size()).stream()
+                    .filter(job -> filter.source().map(job.source()::equals).orElse(true))
+                    .filter(job -> filter.status().map(job.status()::equals).orElse(true))
+                    .limit(pageRequest.limit() + 1L)
+                    .toList();
+            if (candidates.size() <= pageRequest.limit()) {
+                return new KnowledgeIndexJobPage(candidates, Optional.empty());
+            }
+            List<KnowledgeIndexJob> items = candidates.subList(0, pageRequest.limit());
+            return new KnowledgeIndexJobPage(
+                    items, Optional.of(items.get(items.size() - 1).id()));
         }
 
         @Override

@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 26762d8365187e3d9d5a9939738cf296943670d6d209d7e2cbd581e78ad96194
+// Controller source SHA-256: 84de9b03255aecf5bf38015ca8eebadb0a8054e8b5513314e587d0aae0e9c2c6
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -930,6 +930,46 @@ export const openApiDocument = {
         "operationId": "KnowledgeEntryController_version",
         "tags": [
           "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs": {
+      "get": {
+        "operationId": "KnowledgeIndexController_list",
+        "tags": [
+          "KnowledgeIndexController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs/{jobId}": {
+      "get": {
+        "operationId": "KnowledgeIndexController_job",
+        "tags": [
+          "KnowledgeIndexController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs/{jobId}/cancel": {
+      "post": {
+        "operationId": "KnowledgeIndexController_cancel",
+        "tags": [
+          "KnowledgeIndexController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/rebuilds": {
+      "post": {
+        "operationId": "KnowledgeIndexController_rebuild",
+        "tags": [
+          "KnowledgeIndexController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/repository-builds": {
+      "post": {
+        "operationId": "KnowledgeIndexController_enqueueRepositoryBuild",
+        "tags": [
+          "KnowledgeIndexController"
         ]
       }
     },
@@ -2669,6 +2709,36 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs",
+    "operationId": "KnowledgeIndexController_list",
+    "controller": "KnowledgeIndexController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs/{jobId}",
+    "operationId": "KnowledgeIndexController_job",
+    "controller": "KnowledgeIndexController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/jobs/{jobId}/cancel",
+    "operationId": "KnowledgeIndexController_cancel",
+    "controller": "KnowledgeIndexController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/rebuilds",
+    "operationId": "KnowledgeIndexController_rebuild",
+    "controller": "KnowledgeIndexController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/index/repository-builds",
+    "operationId": "KnowledgeIndexController_enqueueRepositoryBuild",
+    "controller": "KnowledgeIndexController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/lark/bindings/{bindingId}/health",
     "operationId": "LarkAdministrationController_health",
     "controller": "LarkAdministrationController"
@@ -3466,4 +3536,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 251 as const
+export const openApiOperationCount = 256 as const

@@ -67,6 +67,7 @@ DRAFT ──publish──▶ PUBLISHED ──retire──▶ RETIRED ──publi
 - `FAILED`：该条目最近一次索引作业终态失败（原因码如 `CHUNK_TOO_LARGE`/`CHUNK_LIMIT_EXCEEDED`/`MODEL_DRIFT`，由索引侧状态目录透出）；
 - `PENDING`：其余一切——尚未入队、作业进行中、或部署未启用向量存储（`crewscope.knowledge.vector.enabled=false` 时恒 `PENDING`，与 I01b 之前的响应字节级一致）。
 - 投影由索引侧 `KnowledgeIndexStatusCatalog` 派生计算（向量行存在性+最近作业状态，不落冗余列），本 API 永不自行计算；客户端不得将 `PENDING` 解释为"内容未保存"。
+- 作业级状态、控制与恢复面（重建触发、作业列表/详情、取消、仓库索引构建）见《M10-仓库索引API契约》（I01c 控制面，与本读面共用上述枚举语义）。
 
 ## 6. 分类（category）
 

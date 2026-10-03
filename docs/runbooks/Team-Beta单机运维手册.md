@@ -111,6 +111,22 @@ M10-I01a 起知识条目嵌入支持可选 pgvector 存储，默认关闭；关�
 
 `down` 保留所有数据。仅清空测试环境时使用 `reset`：它删除当前项目的 PostgreSQL、Redis、Artifact 和四类 Agent 数据卷，保留配置及执行仓库/Worktree。它不是完整的数据擦除命令。
 
+## 作业故障恢复
+
+知识索引作业仅在同时启用 pgvector 与知识索引（`crewscope.knowledge.vector.enabled=true` + `crewscope.knowledge.index.enabled=true`）后产生；作业查询面恒可用（含关闭态的历史数据）。以下 curl 以 `$TOKEN`（API Token）与 `{org}`/`{team}`（组织/Team id）占位。
+
+1. **先看健康与作业列表**：`/actuator/health` 的 `knowledgeIndex`/`knowledgeVector` 组件（DOWN 会带 reason）；`GET /api/v1/organizations/{org}/teams/{team}/knowledge/index/jobs?status=FAILED`（可加 `&source=REPOSITORY` 只看仓库作业）；`GET …/jobs/{jobId}` 看详情的 `failureCode`/`attempt`/`chunksDone`。
+
+2. **FAILED 重试**：条目类→`POST …/knowledge/index/rebuilds`（幂等坍缩到活作业，可安全重复）；仓库类→修复根因后 `POST …/knowledge/index/repository-builds`（体 `{projectId, bindingId, commit}`）。失败码速查：`REPOSITORY_UNAVAILABLE`/`REPOSITORY_READ_FAILED`→查受管 mirror 与 GitHub 导入状态；`MODEL_DRIFT`/模型连接类→查模型连接健康与 embedding 治理链；`CHUNK_TOO_LARGE`/`CHUNK_LIMIT_EXCEEDED`→修内容或调 `max-file-bytes`（注意改分片值即换策略哈希=新 Generation，属预期行为）。
+
+3. **卡死作业**：租约默认 30 分钟（`CREWSCOPE_KNOWLEDGE_INDEX_WORKER_LEASE`，5s–1h），过期由 claim 自动重领，`claimToken` 单调递增使旧 Worker 写显式失败（日志/遥测可见 FENCED）——**不要重启数据库或手改作业行**；checkpoint 保证重领后从批尾续传，不重复嵌入。
+
+4. **取消排队作业**：`POST …/knowledge/index/jobs/{jobId}/cancel`；200=CANCELLED（重复调用幂等）；409=已被领取或已终态（分批短事务设计使中断安全）；404=不存在或跨租户同形。
+
+5. **开关矩阵排障**：触发命令返回 `enqueued:0` 是 refresh 闸关闭的跳过，不是故障；`index=true` 而 `vector=false` 是唯一非法组合（health DOWN），先启用 pgvector 再开索引。
+
+6. **升级/模型/策略变更=新 Generation**：换 embedding 模型或改分片旋钮→索引键变→新 Generation 构建成功后单事务原子激活、保留 2 代、失败绝不影响 ACTIVE 代。向量数据可再生（重新触发构建即可），权威数据随数据库备份（见下节「备份与恢复」）。
+
 ## 备份与恢复
 
 建议在无活动任务时做停机备份。完整恢复需要 **全部项目数据卷、执行目录和同一份 env 密钥**。旧版 `operations/` 和 systemd 脚本针对旧七/十服务合同，不能直接用于本版。

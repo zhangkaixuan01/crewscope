@@ -12,6 +12,9 @@ import io.crewscope.application.knowledge.KnowledgeRepository;
 import io.crewscope.application.knowledge.KnowledgeVersionPageRequest;
 import io.crewscope.application.retrieval.KnowledgeEmbeddingExecutor;
 import io.crewscope.application.retrieval.KnowledgeIndexJob;
+import io.crewscope.application.retrieval.KnowledgeIndexJobFilter;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPage;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPageRequest;
 import io.crewscope.application.retrieval.KnowledgeIndexJobRepository;
 import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.retrieval.KnowledgeIndexJobSource;
@@ -310,6 +313,15 @@ class KnowledgeIndexInvalidationConsumerTest {
         @Override
         public Optional<KnowledgeIndexJob> findLatestByEntry(
                 OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public KnowledgeIndexJobPage findByTeam(
+                OrganizationId organizationId,
+                TeamId teamId,
+                KnowledgeIndexJobFilter filter,
+                KnowledgeIndexJobPageRequest pageRequest) {
             throw new UnsupportedOperationException();
         }
 

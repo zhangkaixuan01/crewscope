@@ -42,6 +42,18 @@ public interface KnowledgeIndexJobRepository {
             OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId);
 
     /**
+     * Lists the Team's jobs ordered by {@code (createdAt, id)} ascending (M10-I01c
+     * control-plane read). Keyset cursor: {@code pageRequest.afterJobId()} is the last
+     * job id of the previous page; the cursor must resolve within the same Team's jobs,
+     * otherwise callers reject the request.
+     */
+    KnowledgeIndexJobPage findByTeam(
+            OrganizationId organizationId,
+            TeamId teamId,
+            KnowledgeIndexJobFilter filter,
+            KnowledgeIndexJobPageRequest pageRequest);
+
+    /**
      * Atomically claims the oldest live job: attempt+1, claimToken+1, CHUNKING, lease
      * installed. The returned job already carries the new claim state.
      */

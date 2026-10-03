@@ -678,6 +678,42 @@ final class KnowledgeIndexWorkerTest {
         }
 
         @Override
+        public KnowledgeIndexJobPage findByTeam(
+                OrganizationId organizationId,
+                TeamId teamId,
+                KnowledgeIndexJobFilter filter,
+                KnowledgeIndexJobPageRequest pageRequest) {
+            List<KnowledgeIndexJob> ordered = values.values().stream()
+                    .filter(job -> job.organizationId().equals(organizationId)
+                            && job.teamId().equals(teamId))
+                    .sorted(Comparator.comparing(KnowledgeIndexJob::createdAt)
+                            .thenComparing(job -> job.id().toString()))
+                    .toList();
+            int start = 0;
+            if (pageRequest.afterJobId().isPresent()) {
+                UUID after = pageRequest.afterJobId().orElseThrow();
+                List<UUID> ids = ordered.stream().map(KnowledgeIndexJob::id).toList();
+                int index = ids.indexOf(after);
+                if (index < 0) {
+                    throw new IllegalArgumentException(
+                            "cursor job " + after + " is not part of this Team's jobs");
+                }
+                start = index + 1;
+            }
+            List<KnowledgeIndexJob> candidates = ordered.subList(start, ordered.size()).stream()
+                    .filter(job -> filter.source().map(job.source()::equals).orElse(true))
+                    .filter(job -> filter.status().map(job.status()::equals).orElse(true))
+                    .limit(pageRequest.limit() + 1L)
+                    .toList();
+            if (candidates.size() <= pageRequest.limit()) {
+                return new KnowledgeIndexJobPage(candidates, Optional.empty());
+            }
+            List<KnowledgeIndexJob> items = candidates.subList(0, pageRequest.limit());
+            return new KnowledgeIndexJobPage(
+                    items, Optional.of(items.get(items.size() - 1).id()));
+        }
+
+        @Override
         public Optional<KnowledgeIndexJob> claimNext(
                 String owner, UtcTimestamp now, Duration leaseDuration) {
             Optional<KnowledgeIndexJob> candidate = values.values().stream()

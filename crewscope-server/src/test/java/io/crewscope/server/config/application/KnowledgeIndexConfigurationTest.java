@@ -7,14 +7,20 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.embedding.TeamEmbeddingService;
 import io.crewscope.application.knowledge.KnowledgeRepository;
 import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
+import io.crewscope.application.retrieval.KnowledgeIndexControlService;
 import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.retrieval.KnowledgeIndexStatusCatalog;
 import io.crewscope.application.retrieval.KnowledgeIndexWorker;
 import io.crewscope.application.retrieval.KnowledgeIndexWorkerRunResult;
+import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.TeamMembershipQuery;
+import io.crewscope.application.team.TeamRepository;
+import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
@@ -33,10 +39,11 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Assembly contract for the durable knowledge index (M10-I01b): the switch matrix's one
- * illegal combination (index without vector) rejects refresh enqueues and reports DOWN,
- * the leased worker and its scheduler assemble only for worker profiles behind both
- * switches, and the polling loop never overlaps itself.
+ * Assembly contract for the durable knowledge index (M10-I01b/I01c): the switch matrix's
+ * one illegal combination (index without vector) rejects refresh enqueues and reports
+ * DOWN, the leased worker and its scheduler assemble only for worker profiles behind
+ * both switches, the control plane assembles behind no switch at all, and the polling
+ * loop never overlaps itself.
  */
 class KnowledgeIndexConfigurationTest {
 
@@ -62,7 +69,14 @@ class KnowledgeIndexConfigurationTest {
             .withBean(TransactionExecutor.class, () -> mock(TransactionExecutor.class))
             .withBean(OperationalTelemetry.class, OperationalTelemetry::noop)
             .withBean(ManagedRepositoryResolver.class, () -> mock(ManagedRepositoryResolver.class))
-            .withBean(GitCommandExecutor.class, () -> mock(GitCommandExecutor.class));
+            .withBean(GitCommandExecutor.class, () -> mock(GitCommandExecutor.class))
+            // Control-plane collaborators (M10-I01c): the bean assembles behind no switch.
+            .withBean(RepositoryBindingRepository.class,
+                    () -> mock(RepositoryBindingRepository.class))
+            .withBean(TeamRepository.class, () -> mock(TeamRepository.class))
+            .withBean(TeamMembershipQuery.class, () -> mock(TeamMembershipQuery.class))
+            .withBean(TeamRoleRepository.class, () -> mock(TeamRoleRepository.class))
+            .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class));
 
     @Test
     void indexWithoutVectorRejectsRefreshEnqueuesAndReportsDown() {
@@ -70,6 +84,7 @@ class KnowledgeIndexConfigurationTest {
             context.assertThat()
                     .hasNotFailed()
                     .hasSingleBean(KnowledgeIndexJobService.class)
+                    .hasSingleBean(KnowledgeIndexControlService.class)
                     .hasSingleBean(KnowledgeIndexHealthIndicator.class)
                     .doesNotHaveBean(KnowledgeIndexStatusCatalog.class)
                     .doesNotHaveBean(KnowledgeIndexWorker.class)
@@ -96,6 +111,7 @@ class KnowledgeIndexConfigurationTest {
                     context.assertThat()
                             .hasNotFailed()
                             .hasSingleBean(KnowledgeIndexStatusCatalog.class)
+                            .hasSingleBean(KnowledgeIndexControlService.class)
                             .hasSingleBean(KnowledgeIndexHealthIndicator.class)
                             .hasSingleBean(KnowledgeIndexWorker.class)
                             .doesNotHaveBean(KnowledgeIndexWorkerScheduler.class);

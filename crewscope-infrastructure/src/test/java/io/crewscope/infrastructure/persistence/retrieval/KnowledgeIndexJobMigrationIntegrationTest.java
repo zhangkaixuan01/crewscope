@@ -6,6 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.retrieval.KnowledgeIndexJob;
+import io.crewscope.application.retrieval.KnowledgeIndexJobFilter;
+import io.crewscope.application.retrieval.KnowledgeIndexJobLiveConflictException;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPage;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPageRequest;
+import io.crewscope.application.retrieval.KnowledgeIndexJobSource;
 import io.crewscope.application.retrieval.KnowledgeIndexJobStatus;
 import io.crewscope.domain.knowledge.KnowledgeEntryId;
 import io.crewscope.domain.retrieval.RepositoryIndexKey;
@@ -17,6 +22,7 @@ import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -83,6 +89,10 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
                         + " AND to_regclass('crewscope.repository_index_generation') IS NOT NULL"
                         + " AND to_regclass('crewscope.repository_chunk_embedding') IS NOT NULL",
                 Boolean.class));
+        assertTrue(jdbc.queryForObject(
+                "SELECT to_regclass('crewscope.ix_knowledge_index_job_team_listing') IS NOT NULL",
+                Boolean.class),
+                "V57 (M10-I01c) lands the Team listing keyset index");
     }
 
     @Test
@@ -226,13 +236,13 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
         jobs.create(KnowledgeIndexJob.knowledgeEntry(
                 UUID.randomUUID(), organizationId, teamId, entryId, actor, NOW));
 
-        DataIntegrityViolationException duplicate = assertThrows(
-                DataIntegrityViolationException.class,
+        KnowledgeIndexJobLiveConflictException duplicate = assertThrows(
+                KnowledgeIndexJobLiveConflictException.class,
                 () -> jobs.create(KnowledgeIndexJob.knowledgeEntry(
                         UUID.randomUUID(), organizationId, teamId, entryId, actor,
                         UtcTimestamp.from(NOW.value().plusSeconds(60)))));
         assertTrue(duplicate.getMessage().contains("ux_knowledge_index_job_entry_live"),
-                "the partial unique index name must surface: " + duplicate.getMessage());
+                "the live-job constraint name must surface: " + duplicate.getMessage());
 
         KnowledgeIndexJob claim = jobs.claimNext("worker-a", NOW, LEASE).orElseThrow();
         UtcTimestamp done = UtcTimestamp.from(NOW.value().plusSeconds(30));
@@ -251,13 +261,13 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
                 UUID.randomUUID(), organizationId, teamId, WorkProjectId.generate(),
                 coordinate, actor, NOW));
 
-        DataIntegrityViolationException duplicate = assertThrows(
-                DataIntegrityViolationException.class,
+        KnowledgeIndexJobLiveConflictException duplicate = assertThrows(
+                KnowledgeIndexJobLiveConflictException.class,
                 () -> jobs.create(KnowledgeIndexJob.repositoryBuild(
                         UUID.randomUUID(), organizationId, teamId, WorkProjectId.generate(),
                         coordinate, actor, UtcTimestamp.from(NOW.value().plusSeconds(60)))));
         assertTrue(duplicate.getMessage().contains("ux_knowledge_index_job_index_key_live"),
-                "the partial unique index name must surface: " + duplicate.getMessage());
+                "the live-job constraint name must surface: " + duplicate.getMessage());
 
         KnowledgeIndexJob claim = jobs.claimNext("worker-a", NOW, LEASE).orElseThrow();
         assertTrue(jobs.cancelQueued(claim, NOW).isEmpty(),
@@ -272,12 +282,85 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
         assertTrue(true, "a terminal job frees the index coordinate for a fresh enqueue");
     }
 
+    @Test
+    void listsTeamJobsByKeysetWithFiltersAndTenantIsolation() {
+        KnowledgeEntryId secondEntry = KnowledgeEntryId.generate();
+        seedEntryFor(secondEntry);
+        KnowledgeIndexJob first = jobs.create(KnowledgeIndexJob.knowledgeEntry(
+                UUID.randomUUID(), organizationId, teamId, entryId, actor, NOW));
+        KnowledgeIndexJob second = jobs.create(KnowledgeIndexJob.knowledgeEntry(
+                UUID.randomUUID(), organizationId, teamId, secondEntry, actor,
+                UtcTimestamp.from(NOW.value().plusSeconds(60))));
+        KnowledgeIndexJob build = jobs.create(KnowledgeIndexJob.repositoryBuild(
+                UUID.randomUUID(), organizationId, teamId, WorkProjectId.generate(),
+                indexKey(), actor, UtcTimestamp.from(NOW.value().plusSeconds(120))));
+        OrganizationId strangerOrg = OrganizationId.generate();
+        TeamId strangerTeam = TeamId.generate();
+        PrincipalId strangerActor = PrincipalId.generate();
+        seedTenantFor(strangerOrg, strangerTeam, strangerActor);
+        KnowledgeIndexJob stranger = jobs.create(KnowledgeIndexJob.repositoryBuild(
+                UUID.randomUUID(), strangerOrg, strangerTeam, WorkProjectId.generate(),
+                indexKey(strangerOrg, strangerTeam), strangerActor, NOW));
+
+        // One-item pages walk (created_at, id) ascending; the page boundary carries
+        // the last seen job id as the cursor.
+        KnowledgeIndexJobPage pageOne = jobs.findByTeam(
+                organizationId, teamId, KnowledgeIndexJobFilter.all(),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 1));
+        assertEquals(List.of(first.id()), ids(pageOne));
+        assertEquals(Optional.of(first.id()), pageOne.nextAfterJobId());
+        KnowledgeIndexJobPage pageTwo = jobs.findByTeam(
+                organizationId, teamId, KnowledgeIndexJobFilter.all(),
+                new KnowledgeIndexJobPageRequest(pageOne.nextAfterJobId(), 1));
+        assertEquals(List.of(second.id()), ids(pageTwo));
+        KnowledgeIndexJobPage pageThree = jobs.findByTeam(
+                organizationId, teamId, KnowledgeIndexJobFilter.all(),
+                new KnowledgeIndexJobPageRequest(pageTwo.nextAfterJobId(), 10));
+        assertEquals(List.of(build.id()), ids(pageThree));
+        assertTrue(pageThree.nextAfterJobId().isEmpty(), "the final page carries no cursor");
+
+        // Filters narrow without disturbing the keyset order.
+        KnowledgeIndexJobPage repositoryOnly = jobs.findByTeam(
+                organizationId, teamId,
+                new KnowledgeIndexJobFilter(
+                        Optional.of(KnowledgeIndexJobSource.REPOSITORY), Optional.empty()),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
+        assertEquals(List.of(build.id()), ids(repositoryOnly));
+        KnowledgeIndexJobPage queuedOnly = jobs.findByTeam(
+                organizationId, teamId,
+                new KnowledgeIndexJobFilter(
+                        Optional.empty(), Optional.of(KnowledgeIndexJobStatus.QUEUED)),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
+        assertEquals(3, queuedOnly.items().size(), "every seeded job is still QUEUED");
+
+        // Tenant isolation: the stranger's job never leaks into this Team's pages, and
+        // a cursor foreign to the querying Team resolves to nothing (callers reject it
+        // through their own findById gate before paging).
+        KnowledgeIndexJobPage strangers = jobs.findByTeam(
+                strangerOrg, strangerTeam, KnowledgeIndexJobFilter.all(),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
+        assertEquals(List.of(stranger.id()), ids(strangers));
+        KnowledgeIndexJobPage foreignCursor = jobs.findByTeam(
+                strangerOrg, strangerTeam, KnowledgeIndexJobFilter.all(),
+                new KnowledgeIndexJobPageRequest(Optional.of(first.id()), 10));
+        assertTrue(foreignCursor.items().isEmpty());
+        assertTrue(foreignCursor.nextAfterJobId().isEmpty());
+    }
+
     // ------------------------------------------------------------------ fixtures
 
+    private static List<UUID> ids(KnowledgeIndexJobPage page) {
+        return page.items().stream().map(KnowledgeIndexJob::id).toList();
+    }
+
     private RepositoryIndexKey indexKey() {
+        return indexKey(organizationId, teamId);
+    }
+
+    private RepositoryIndexKey indexKey(OrganizationId org, TeamId team) {
         return IndexKeyCodec.reconstitute(
-                organizationId,
-                teamId,
+                org,
+                team,
                 io.crewscope.domain.coding.RepositoryBindingId.generate(),
                 "0123456789012345678901234567890123456789",
                 "b".repeat(64),
@@ -338,18 +421,22 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
     }
 
     private void seedTenant() {
+        seedTenantFor(organizationId, teamId, actor);
+    }
+
+    private void seedTenantFor(OrganizationId org, TeamId team, PrincipalId principal) {
         jdbc.update(
                 "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Index Org', 'ACTIVE')",
-                organizationId.value());
+                org.value());
         jdbc.update(
                 "INSERT INTO crewscope.team (id, organization_id, name, status) VALUES (?, ?, 'Index Team', 'ACTIVE')",
-                teamId.value(), organizationId.value());
+                team.value(), org.value());
         jdbc.update(
                 """
                 INSERT INTO crewscope.principal (id, organization_id, principal_type, display_name, status)
                 VALUES (?, ?, 'USER', 'Index owner', 'ACTIVE')
                 """,
-                actor.value(), organizationId.value());
+                principal.value(), org.value());
     }
 
     private void seedEntry() {

@@ -2,6 +2,10 @@ package io.crewscope.infrastructure.persistence.retrieval;
 
 import io.crewscope.application.embedding.TeamEmbeddingService;
 import io.crewscope.application.retrieval.KnowledgeIndexJob;
+import io.crewscope.application.retrieval.KnowledgeIndexJobFilter;
+import io.crewscope.application.retrieval.KnowledgeIndexJobLiveConflictException;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPage;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPageRequest;
 import io.crewscope.application.retrieval.KnowledgeIndexJobRepository;
 import io.crewscope.application.retrieval.KnowledgeIndexJobSource;
 import io.crewscope.application.retrieval.KnowledgeIndexJobStatus;
@@ -18,10 +22,13 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -46,19 +53,30 @@ public class JdbcKnowledgeIndexJobRepositoryAdapter
     @Override
     public KnowledgeIndexJob create(KnowledgeIndexJob job) {
         KnowledgeIndexJob required = Objects.requireNonNull(job, "job");
-        jdbc.update("""
-                INSERT INTO crewscope.knowledge_index_job
-                (id, organization_id, team_id, source, entry_id, project_id,
-                 repository_binding_id, source_commit, chunk_policy_hash, model_key,
-                 model_revision, index_key, status, attempt, chunks_done, chunks_total,
-                 failure_code, generation_build_sequence, claimed_by, claim_token,
-                 lease_expires_at, created_by_principal_id, created_at, updated_at)
-                VALUES (:id, :organizationId, :teamId, :source, :entryId, :projectId,
-                 :repositoryBindingId, :sourceCommit, :chunkPolicyHash, :modelKey,
-                 :modelRevision, :indexKey, :status, :attempt, :chunksDone, :chunksTotal,
-                 :failureCode, :generationBuildSequence, :claimedBy, :claimToken,
-                 :leaseExpiresAt, :createdBy, :createdAt, :updatedAt)
-                """, params(required));
+        try {
+            jdbc.update("""
+                    INSERT INTO crewscope.knowledge_index_job
+                    (id, organization_id, team_id, source, entry_id, project_id,
+                     repository_binding_id, source_commit, chunk_policy_hash, model_key,
+                     model_revision, index_key, status, attempt, chunks_done, chunks_total,
+                     failure_code, generation_build_sequence, claimed_by, claim_token,
+                     lease_expires_at, created_by_principal_id, created_at, updated_at)
+                    VALUES (:id, :organizationId, :teamId, :source, :entryId, :projectId,
+                     :repositoryBindingId, :sourceCommit, :chunkPolicyHash, :modelKey,
+                     :modelRevision, :indexKey, :status, :attempt, :chunksDone, :chunksTotal,
+                     :failureCode, :generationBuildSequence, :claimedBy, :claimToken,
+                     :leaseExpiresAt, :createdBy, :createdAt, :updatedAt)
+                    """, params(required));
+        } catch (DataIntegrityViolationException failure) {
+            // The structural-idempotency race loser: a concurrent create won the partial
+            // unique index. Callers converge onto the winner via the find-live lookups.
+            for (String constraint : LIVE_JOB_CONSTRAINTS) {
+                if (hasConstraint(failure, constraint)) {
+                    throw new KnowledgeIndexJobLiveConflictException(constraint);
+                }
+            }
+            throw failure;
+        }
         return required;
     }
 
@@ -115,6 +133,57 @@ public class JdbcKnowledgeIndexJobRepositoryAdapter
                 .addValue("organizationId", organizationId.value())
                 .addValue("teamId", teamId.value())
                 .addValue("entryId", entryId.value()));
+    }
+
+    @Override
+    public KnowledgeIndexJobPage findByTeam(
+            OrganizationId organizationId,
+            TeamId teamId,
+            KnowledgeIndexJobFilter filter,
+            KnowledgeIndexJobPageRequest pageRequest) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        Objects.requireNonNull(teamId, "teamId");
+        Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(pageRequest, "pageRequest");
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("organizationId", organizationId.value())
+                .addValue("teamId", teamId.value())
+                .addValue("limit", pageRequest.limit() + 1);
+        StringBuilder predicates = new StringBuilder(
+                "WHERE organization_id = :organizationId AND team_id = :teamId\n");
+        if (filter.source().isPresent()) {
+            predicates.append("  AND source = :source\n");
+            parameters.addValue("source", filter.source().orElseThrow().name());
+        }
+        if (filter.status().isPresent()) {
+            predicates.append("  AND status = :status\n");
+            parameters.addValue("status", filter.status().orElseThrow().name());
+        }
+        // Keyset on the plain job id: the subquery resolves the cursor's (created_at, id)
+        // pair within the same Team, so a foreign or stale id simply yields no rows and
+        // callers reject it through their own findById gate.
+        if (pageRequest.afterJobId().isPresent()) {
+            predicates.append("""
+                      AND (created_at, id) > (
+                          SELECT s.created_at, s.id
+                          FROM crewscope.knowledge_index_job s
+                          WHERE s.id = :afterJobId
+                            AND s.organization_id = :organizationId
+                            AND s.team_id = :teamId)
+                    """);
+            parameters.addValue("afterJobId", pageRequest.afterJobId().orElseThrow());
+        }
+        List<KnowledgeIndexJob> found = jdbc.query(
+                "SELECT * FROM crewscope.knowledge_index_job\n" + predicates
+                        + "ORDER BY created_at, id\nLIMIT :limit\n",
+                parameters,
+                (row, number) -> map(row));
+        if (found.size() <= pageRequest.limit()) {
+            return new KnowledgeIndexJobPage(found, Optional.empty());
+        }
+        List<KnowledgeIndexJob> items = found.subList(0, pageRequest.limit());
+        return new KnowledgeIndexJobPage(
+                items, Optional.of(items.get(items.size() - 1).id()));
     }
 
     @Override
@@ -237,6 +306,25 @@ public class JdbcKnowledgeIndexJobRepositoryAdapter
     }
 
     // ------------------------------------------------------------------ mapping
+
+    private static final String[] LIVE_JOB_CONSTRAINTS = {
+        "ux_knowledge_index_job_entry_live",
+        "ux_knowledge_index_job_index_key_live"
+    };
+
+    /** True when the cause chain carries SQLState 23505 naming the given constraint. */
+    private static boolean hasConstraint(Throwable failure, String constraintName) {
+        String expected = constraintName.toLowerCase(Locale.ROOT);
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof SQLException sql
+                    && "23505".equals(sql.getSQLState())
+                    && current.getMessage() != null
+                    && current.getMessage().toLowerCase(Locale.ROOT).contains(expected)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private Optional<KnowledgeIndexJob> first(String sql, MapSqlParameterSource parameters) {
         return jdbc.query(sql, parameters, (row, number) -> map(row)).stream().findFirst();

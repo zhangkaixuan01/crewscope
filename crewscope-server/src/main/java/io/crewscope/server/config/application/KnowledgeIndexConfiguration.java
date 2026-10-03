@@ -1,9 +1,11 @@
 package io.crewscope.server.config.application;
 
+import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.knowledge.KnowledgeRepository;
 import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
+import io.crewscope.application.retrieval.KnowledgeIndexControlService;
 import io.crewscope.application.retrieval.KnowledgeIndexJobRepository;
 import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.retrieval.KnowledgeIndexStatusCatalog;
@@ -11,6 +13,10 @@ import io.crewscope.application.retrieval.KnowledgeIndexWorker;
 import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.application.retrieval.RepositoryContentPort;
 import io.crewscope.application.retrieval.RepositoryGenerationStore;
+import io.crewscope.application.team.MemberRoleRepository;
+import io.crewscope.application.team.TeamMembershipQuery;
+import io.crewscope.application.team.TeamRepository;
+import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.embedding.TeamEmbeddingService;
 import io.crewscope.domain.retrieval.GenerationRetentionPolicy;
@@ -36,8 +42,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Server composition for the durable knowledge index (M10-I01b). The enqueue service and
- * the health projection always exist; the invalidation consumer and the derived status
+ * Server composition for the durable knowledge index (M10-I01b/I01c). The enqueue service,
+ * the control plane and the health projection always exist; the invalidation consumer and the derived status
  * catalog only assemble when the vector store is enabled, because both would otherwise
  * touch vector-chain tables that a non-pgvector deployment never created. Leased worker
  * execution is worker-profile only and needs both switches — the switch matrix's single
@@ -64,6 +70,34 @@ public class KnowledgeIndexConfiguration {
                 knowledge,
                 timeProvider,
                 properties.isEnabled() && vectorEnabled);
+    }
+
+    /**
+     * Always assembled (M10-I01c): reads stay available with both switches off, and
+     * trigger commands answer 202-with-zero instead of failing while the gate is
+     * closed — the switch matrix lives in the enqueue service, not the wiring.
+     */
+    @Bean
+    KnowledgeIndexControlService knowledgeIndexControlService(
+            KnowledgeIndexJobService enqueue,
+            KnowledgeIndexJobRepository jobs,
+            RepositoryBindingRepository bindings,
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            TeamRoleRepository roles,
+            MemberRoleRepository grants,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider) {
+        return new KnowledgeIndexControlService(
+                enqueue,
+                jobs,
+                bindings,
+                teams,
+                memberships,
+                roles,
+                grants,
+                transactions,
+                timeProvider);
     }
 
     @Bean

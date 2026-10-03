@@ -25,7 +25,10 @@ import java.util.UUID;
  * freeze it into the index key; a Team without a usable model fails fast.
  *
  * <p>Enqueue is idempotent per target: while a live job exists for the same entry or
- * index coordinate, it is returned instead of creating a second one.
+ * index coordinate, it is returned instead of creating a second one. Concurrent
+ * creates for the same target race on the partial unique indexes; the loser's
+ * {@link KnowledgeIndexJobLiveConflictException} converges onto the winner through
+ * the same find-live lookups, so the race never surfaces as an error.
  */
 public final class KnowledgeIndexJobService {
 
@@ -113,10 +116,15 @@ public final class KnowledgeIndexJobService {
         int created = 0;
         for (var version : knowledge.findEffectiveVersionsByTeam(organizationId, teamId)) {
             if (jobs.findLiveByEntry(organizationId, teamId, version.entryId()).isEmpty()) {
-                jobs.create(KnowledgeIndexJob.knowledgeEntry(
-                        UUID.randomUUID(), organizationId, teamId, version.entryId(),
-                        actor, now()));
-                created++;
+                try {
+                    jobs.create(KnowledgeIndexJob.knowledgeEntry(
+                            UUID.randomUUID(), organizationId, teamId, version.entryId(),
+                            actor, now()));
+                    created++;
+                } catch (KnowledgeIndexJobLiveConflictException raceLost) {
+                    // The invalidation consumer raced this entry's live slot and won;
+                    // its job is the winner and this entry does not count as created.
+                }
             }
         }
         return created;
@@ -137,9 +145,14 @@ public final class KnowledgeIndexJobService {
         if (live.isPresent()) {
             return live.get();
         }
-        return jobs.create(KnowledgeIndexJob.knowledgeEntry(
-                UUID.randomUUID(), organizationId, teamId, entryId,
-                Objects.requireNonNull(actor, "actor"), now()));
+        try {
+            return jobs.create(KnowledgeIndexJob.knowledgeEntry(
+                    UUID.randomUUID(), organizationId, teamId, entryId,
+                    Objects.requireNonNull(actor, "actor"), now()));
+        } catch (KnowledgeIndexJobLiveConflictException raceLost) {
+            return jobs.findLiveByEntry(organizationId, teamId, entryId)
+                    .orElseThrow(() -> raceLost);
+        }
     }
 
     private KnowledgeIndexJob enqueueRepositoryJob(
@@ -149,10 +162,14 @@ public final class KnowledgeIndexJobService {
         if (live.isPresent()) {
             return live.get();
         }
-        return jobs.create(KnowledgeIndexJob.repositoryBuild(
-                UUID.randomUUID(), organizationId, teamId,
-                Objects.requireNonNull(projectId, "projectId"), indexKey,
-                Objects.requireNonNull(actor, "actor"), now()));
+        try {
+            return jobs.create(KnowledgeIndexJob.repositoryBuild(
+                    UUID.randomUUID(), organizationId, teamId,
+                    Objects.requireNonNull(projectId, "projectId"), indexKey,
+                    Objects.requireNonNull(actor, "actor"), now()));
+        } catch (KnowledgeIndexJobLiveConflictException raceLost) {
+            return jobs.findLiveByIndexKey(indexKey).orElseThrow(() -> raceLost);
+        }
     }
 
     private UtcTimestamp now() {
