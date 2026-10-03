@@ -1,7 +1,7 @@
 /* eslint-disable */
 // GENERATED FILE. Source: crewscope-domain transition maps.
 // Regenerate with: node scripts/generate-state-machine.mjs
-// Domain source SHA-256: fd218184cda837dad7465ba609add1e3c542cd347b5914edf92459b2ffde6d5e
+// Domain source SHA-256: 2b3c8c56e6890bdd47b0cf33e86b1171a0bbcda9694f66ee05e7da74e8d1ea54
 
 export interface GeneratedStateMachine {
   readonly name: string

@@ -533,6 +533,42 @@ public final class GitCommandExecutor {
                         Optional.empty());
     }
 
+    /**
+     * NUL-delimited recursive listing of one commit's tree with blob sizes
+     * ({@code <mode> SP <type> SP <object> SP <size> TAB <path>}); the knowledge index
+     * (M10-I01b) chunks from it without a checkout. Output is bounded by the command
+     * policy, so oversized repositories fail with {@code OUTPUT_LIMIT} instead of paging.
+     */
+    public String listTreeFiles(Path repository, RepositoryCommitId commit) {
+        Path location = absolutePath(repository, "repository");
+        RepositoryCommitId immutableCommit = Objects.requireNonNull(commit, "commit");
+        return run(
+                List.of(
+                        "-C",
+                        location.toString(),
+                        "ls-tree",
+                        "-r",
+                        "-l",
+                        "-z",
+                        "--end-of-options",
+                        immutableCommit.value()),
+                Optional.empty());
+    }
+
+    /** Reads one repository-relative blob's exact content from an immutable commit. */
+    public String readFileAtCommit(Path repository, RepositoryCommitId commit, String path) {
+        Path location = absolutePath(repository, "repository");
+        RepositoryCommitId immutableCommit = Objects.requireNonNull(commit, "commit");
+        String relativePath = Objects.requireNonNull(path, "path").strip();
+        if (relativePath.isEmpty()) {
+            throw new IllegalArgumentException("path must not be empty");
+        }
+        String object = immutableCommit.value() + ":" + relativePath;
+        return run(
+                List.of("-C", location.toString(), "cat-file", "blob", "--end-of-options", object),
+                Optional.empty());
+    }
+
     /** Stages the complete Worktree through a fixed {@code git add --all} template. */
     public void stageAll(Path worktree) {
         Path location = absolutePath(worktree, "worktree");

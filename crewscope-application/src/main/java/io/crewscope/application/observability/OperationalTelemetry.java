@@ -26,7 +26,8 @@ public interface OperationalTelemetry {
         NOTIFICATION,
         PROVIDER,
         AGENT,
-        OPERATIONS
+        OPERATIONS,
+        KNOWLEDGE_INDEX
     }
 
     enum Operation {
@@ -185,6 +186,11 @@ public interface OperationalTelemetry {
             return basic(Type.AGENT, Operation.SUMMARIZE, WorkerRole.WORKER);
         }
 
+        /** One knowledge-index worker pass: claiming and reconciling durable jobs. */
+        public static Request knowledgeIndex() {
+            return basic(Type.KNOWLEDGE_INDEX, Operation.RECONCILE, WorkerRole.WORKER);
+        }
+
         private static Request basic(Type type, Operation operation, WorkerRole workerRole) {
             return new Request(
                     type,
@@ -225,6 +231,7 @@ public interface OperationalTelemetry {
                         || operation == Operation.DISPATCH;
                 case AGENT -> operation == Operation.SUMMARIZE;
                 case OPERATIONS -> false;
+                case KNOWLEDGE_INDEX -> operation == Operation.RECONCILE;
             };
             if (!allowed) {
                 throw new IllegalArgumentException("operation does not match telemetry type");

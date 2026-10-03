@@ -324,6 +324,19 @@ crewscope:
       # M10-I01a opt-in pgvector store; enabling also requires the pgvector postgres
       # image (compose.pgvector.yaml). Disabled deployments keep the pre-I01a schema.
       enabled: ${CREWSCOPE_PGVECTOR_ENABLED:false}
+    index:
+      # M10-I01b durable index jobs: refresh enqueues are gated on index AND vector;
+      # index=true without vector is the one illegal combination (health DOWN).
+      # Cleanup enqueues and leased execution follow the worker switches below.
+      enabled: ${CREWSCOPE_KNOWLEDGE_INDEX_ENABLED:false}
+      max-chunks-per-generation: ${CREWSCOPE_KNOWLEDGE_INDEX_MAX_CHUNKS:20000}
+      # Feeds the chunking policy hash: changing it requires a new generation.
+      max-file-bytes: ${CREWSCOPE_KNOWLEDGE_INDEX_MAX_FILE_BYTES:1048576}
+      worker:
+        enabled: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED:false}
+        worker-id: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ID:knowledge-index-worker-local}
+        poll-interval: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_POLL_INTERVAL:1s}
+        lease-duration: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_LEASE:30m}
   model:
     embedding:
       # Embeddings transport budgets (S01 §3.2): request timeout floor 1s, attempts 1..5.

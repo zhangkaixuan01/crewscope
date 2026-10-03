@@ -18,6 +18,8 @@ import io.crewscope.application.knowledge.KnowledgeEntryPageRequest;
 import io.crewscope.application.knowledge.KnowledgeEntryVersionPage;
 import io.crewscope.application.knowledge.KnowledgeVersionPageRequest;
 import io.crewscope.application.knowledge.UpdateKnowledgeDraftCommand;
+import io.crewscope.application.retrieval.KnowledgeIndexStatus;
+import io.crewscope.application.retrieval.KnowledgeIndexStatusCatalog;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -51,6 +53,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
@@ -112,9 +115,31 @@ class KnowledgeEntryControllerTest {
         (authentication, organization, correlationId) ->
             Mono.just(new TeamAccessContext(actor, false));
     client =
-        WebTestClient.bindToController(new KnowledgeEntryController(service, resolver))
+        WebTestClient.bindToController(
+                new KnowledgeEntryController(service, resolver, indexStatusProvider(null)))
             .controllerAdvice(new ApiExceptionHandler())
             .build();
+  }
+
+  private TeamRequestIdentityResolver resolver() {
+    return (authentication, organization, correlationId) ->
+        Mono.just(new TeamAccessContext(actor, false));
+  }
+
+  /** Empty on deployments without the optional vector store: every answer is PENDING. */
+  private static ObjectProvider<KnowledgeIndexStatusCatalog> indexStatusProvider(
+      KnowledgeIndexStatusCatalog catalog) {
+    return new ObjectProvider<>() {
+      @Override
+      public KnowledgeIndexStatusCatalog getObject() {
+        throw new IllegalStateException("no index status catalog assembled");
+      }
+
+      @Override
+      public KnowledgeIndexStatusCatalog getIfAvailable() {
+        return catalog;
+      }
+    };
   }
 
   @Test
@@ -367,6 +392,8 @@ class KnowledgeEntryControllerTest {
             List.of(version), Optional.of(new KnowledgeEntryRevision(2))));
     when(service.version(any(), any(), any(), any(), any())).thenReturn(version);
     when(service.effectiveVersion(any(), any(), any(), any())).thenReturn(version);
+    // No catalog is assembled here: the projection short-circuits to PENDING and the
+    // version endpoints must not even query the entry head.
 
     client
         .get()
@@ -393,6 +420,74 @@ class KnowledgeEntryControllerTest {
     client.get().uri(root() + "/" + entry.id() + "/effective-version")
         .exchange().expectStatus().isOk()
         .expectHeader().valueEquals(ApiHeaders.ETAG, expectedEtag);
+  }
+
+  @Test
+  void reportsTheDerivedIndexProjectionWhenTheCatalogIsAssembled() {
+    // A published head whose effective revision is 1: only that revision can be INDEXED.
+    KnowledgeEntry published =
+        KnowledgeEntry.reconstitute(
+            entry.id(),
+            scope,
+            entry.entryKey(),
+            KnowledgeCategory.RUNBOOK,
+            Optional.empty(),
+            KnowledgeEntryStatus.PUBLISHED,
+            Optional.of(new KnowledgeEntryRevision(1)),
+            1,
+            Optional.empty(),
+            2,
+            entry.audit());
+    KnowledgeEntryVersion second =
+        KnowledgeEntryVersion.create(
+            entry.id(),
+            scope,
+            new KnowledgeEntryRevision(2),
+            Optional.of(new KnowledgeEntryRevision(1)),
+            "On-call runbook",
+            "Step two",
+            actor.id(),
+            NOW);
+    when(service.entry(any(), any(), any(), any())).thenReturn(published);
+    when(service.teamListing(any(), any(), any(), any(), any()))
+        .thenReturn(new KnowledgeEntryPage(List.of(published), Optional.empty()));
+    when(service.versionHistory(any(), any(), any(), any(), any()))
+        .thenReturn(new KnowledgeEntryVersionPage(
+            List.of(version, second), Optional.empty()));
+    when(service.version(any(), any(), any(), any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation.getArgument(4, KnowledgeEntryRevision.class).value() == 2
+                    ? second
+                    : version);
+    when(service.effectiveVersion(any(), any(), any(), any())).thenReturn(version);
+    KnowledgeIndexStatusCatalog catalog = mock(KnowledgeIndexStatusCatalog.class);
+    when(catalog.statusOf(any(), any(), any())).thenReturn(KnowledgeIndexStatus.INDEXED);
+    when(catalog.statusesOf(any(), any(), any()))
+        .thenReturn(java.util.Map.of(entry.id(), KnowledgeIndexStatus.INDEXED));
+    WebTestClient indexed =
+        WebTestClient.bindToController(
+                new KnowledgeEntryController(service, resolver(), indexStatusProvider(catalog)))
+            .controllerAdvice(new ApiExceptionHandler())
+            .build();
+
+    indexed.get().uri(root() + "/" + entry.id())
+        .exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.indexStatus").isEqualTo("INDEXED");
+    indexed.get().uri(root())
+        .exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.items[0].indexStatus").isEqualTo("INDEXED");
+    indexed.get().uri(root() + "/" + entry.id() + "/versions")
+        .exchange().expectStatus().isOk()
+        .expectBody()
+        .jsonPath("$.items[0].indexStatus").isEqualTo("INDEXED")
+        .jsonPath("$.items[1].indexStatus").isEqualTo("PENDING");
+    indexed.get().uri(root() + "/" + entry.id() + "/versions/2")
+        .exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.indexStatus").isEqualTo("PENDING");
+    indexed.get().uri(root() + "/" + entry.id() + "/effective-version")
+        .exchange().expectStatus().isOk()
+        .expectBody().jsonPath("$.indexStatus").isEqualTo("INDEXED");
   }
 
   @Test

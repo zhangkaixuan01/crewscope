@@ -9,7 +9,7 @@
 
 本契约覆盖**人工录入管理**（A02a：创建草稿、改草稿、发布/废弃版本、删除条目、管理面读取）与**来源提炼**（A02b：从已完成 Task 执行提炼 DRAFT 草稿、发布前披露检查、DISTILLATION 用量事实事件）。以下能力不在本契约内：
 
-- **I01/A01**：检索索引、embedding、向量库——所有响应的 `indexStatus` 恒为 `PENDING`（见 §5）；
+- **I01/A01**：检索索引、embedding、向量库——`indexStatus` 投影已由 M10-I01b 接管（枚举 `PENDING`/`INDEXED`/`FAILED`，未部署向量存储时恒 `PENDING`，见 §5）；
 - **I01/I02 来源扩展**：仓库内容、个人记忆提炼（本轮来源仅 TaskExecution）；
 - **F01**：前端 UI；**F03**：用量聚合投影与价格核算（事件形状见 §12，消费归 F03b）；
 - **A03**：Skill 提炼。
@@ -59,12 +59,14 @@ DRAFT ──publish──▶ PUBLISHED ──retire──▶ RETIRED ──publi
 
 草稿永不可检索（ADR-030 §2：只有 PUBLISHED 头 + 生效指针命中才可检索），因此改草稿不改变可检索集合，索引消费者（I01）不受影响——`PATCH` 不发领域事件、不写 outbox，只在命令回执表记账。发布/废弃/删除才发事件驱动索引失效与重建。
 
-## 5. indexStatus 与 I01 接管协议
+## 5. indexStatus 投影（M10-I01b 已接管，枚举冻结）
 
-所有读响应（头详情、版本、列表）恒带 `"indexStatus": "PENDING"`。语义：
+所有读响应（头详情、版本、列表）恒带 `"indexStatus"` 字段，值域已冻结为三值枚举 `PENDING` / `INDEXED` / `FAILED`。语义：
 
-- A02a 阶段检索索引尚未建设，`PENDING` 是唯一合法值；
-- I01 上线后由索引投影改写该字段（`PENDING → INDEXED / STALE …`，具体枚举届时冻结于 I01 契约）；本 API 永不自行计算索引状态，客户端不得将 `PENDING` 解释为"内容未保存"。
+- `INDEXED`：该坐标已有向量行——条目读=生效修订（`effectiveRevision`）已嵌入；版本读=该修订已嵌入且条目头为 `PUBLISHED`、生效指针恰命中该修订；
+- `FAILED`：该条目最近一次索引作业终态失败（原因码如 `CHUNK_TOO_LARGE`/`CHUNK_LIMIT_EXCEEDED`/`MODEL_DRIFT`，由索引侧状态目录透出）；
+- `PENDING`：其余一切——尚未入队、作业进行中、或部署未启用向量存储（`crewscope.knowledge.vector.enabled=false` 时恒 `PENDING`，与 I01b 之前的响应字节级一致）。
+- 投影由索引侧 `KnowledgeIndexStatusCatalog` 派生计算（向量行存在性+最近作业状态，不落冗余列），本 API 永不自行计算；客户端不得将 `PENDING` 解释为"内容未保存"。
 
 ## 6. 分类（category）
 

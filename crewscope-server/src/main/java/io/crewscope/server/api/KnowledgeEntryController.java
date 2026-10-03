@@ -10,6 +10,8 @@ import io.crewscope.application.knowledge.KnowledgeEntryPageRequest;
 import io.crewscope.application.knowledge.KnowledgeEntryVersionPage;
 import io.crewscope.application.knowledge.KnowledgeVersionPageRequest;
 import io.crewscope.application.knowledge.UpdateKnowledgeDraftCommand;
+import io.crewscope.application.retrieval.KnowledgeIndexStatus;
+import io.crewscope.application.retrieval.KnowledgeIndexStatusCatalog;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.domain.knowledge.KnowledgeCategory;
@@ -31,6 +33,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -52,23 +55,28 @@ import reactor.core.scheduler.Schedulers;
 /**
  * A02a HTTP boundary for manually maintained Team knowledge: entry lifecycle commands
  * with strong ETag concurrency plus member-wide reads of heads and immutable versions.
- * Retrieval-affecting responses always report {@code indexStatus} as {@code PENDING}:
- * the authoritative index projection belongs to I01 and consumes the emitted events.
+ * {@code indexStatus} is the I01b derived projection: INDEXED when a vector row exists
+ * for the effective revision, FAILED behind it, PENDING otherwise — and constantly
+ * PENDING on deployments where the optional index catalog is not assembled.
  */
 @RestController
 @RequestMapping("/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries")
 public final class KnowledgeEntryController {
 
-    /** A02a boundary: index state is owned by the I01 projection, never claimed here. */
+    /** Also the constant answer whenever the index catalog is not assembled. */
     private static final String INDEX_STATUS_PENDING = "PENDING";
 
     private final KnowledgeCommandService service;
     private final TeamRequestIdentityResolver identityResolver;
+    private final ObjectProvider<KnowledgeIndexStatusCatalog> indexStatusCatalog;
 
     public KnowledgeEntryController(
-            KnowledgeCommandService service, TeamRequestIdentityResolver identityResolver) {
+            KnowledgeCommandService service,
+            TeamRequestIdentityResolver identityResolver,
+            ObjectProvider<KnowledgeIndexStatusCatalog> indexStatusCatalog) {
         this.service = service;
         this.identityResolver = identityResolver;
+        this.indexStatusCatalog = indexStatusCatalog;
     }
 
     @PostMapping
@@ -114,11 +122,15 @@ public final class KnowledgeEntryController {
                         authentication,
                         organization,
                         exchange,
-                        access -> service.teamListing(
-                                access, organization, team, filter, pageRequest))
-                .map(page -> ResponseEntity.ok()
+                        access -> {
+                            KnowledgeEntryPage page = service.teamListing(
+                                    access, organization, team, filter, pageRequest);
+                            return new ListingView(
+                                    page, indexStatuses(organization, team, page));
+                        })
+                .map(view -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
-                        .body(EntryListResponse.from(page)));
+                        .body(EntryListResponse.from(view.page(), view.statuses())));
     }
 
     @GetMapping("/{entryId}")
@@ -135,11 +147,15 @@ public final class KnowledgeEntryController {
                         authentication,
                         organization,
                         exchange,
-                        access -> service.entry(access, organization, team, entry))
-                .map(value -> ResponseEntity.ok()
+                        access -> {
+                            KnowledgeEntry value =
+                                    service.entry(access, organization, team, entry);
+                            return new EntryView(value, indexStatus(organization, team, value));
+                        })
+                .map(view -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
-                        .eTag(ApiHeaders.versionEtag(value.version()))
-                        .body(EntryResponse.from(value)));
+                        .eTag(ApiHeaders.versionEtag(view.entry().version()))
+                        .body(EntryResponse.from(view.entry(), view.status())));
     }
 
     @PatchMapping("/{entryId}")
@@ -252,11 +268,19 @@ public final class KnowledgeEntryController {
                         authentication,
                         organization,
                         exchange,
-                        access -> service.versionHistory(
-                                access, organization, team, entry, pageRequest))
-                .map(page -> ResponseEntity.ok()
+                        access -> {
+                            KnowledgeEntryVersionPage page = service.versionHistory(
+                                    access, organization, team, entry, pageRequest);
+                            return new VersionListView(
+                                    page,
+                                    indexProjectionEnabled()
+                                            ? versionStatuses(organization, team, service.entry(
+                                                    access, organization, team, entry))
+                                            : revision -> INDEX_STATUS_PENDING);
+                        })
+                .map(view -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
-                        .body(VersionListResponse.from(page)));
+                        .body(VersionListResponse.from(view.page(), view.statuses())));
     }
 
     @GetMapping("/{entryId}/versions/{revision}")
@@ -275,11 +299,20 @@ public final class KnowledgeEntryController {
                         authentication,
                         organization,
                         exchange,
-                        access -> service.version(access, organization, team, entry, parsed))
-                .map(value -> ResponseEntity.ok()
+                        access -> {
+                            KnowledgeEntryVersion value =
+                                    service.version(access, organization, team, entry, parsed);
+                            return new VersionView(
+                                    value,
+                                    indexProjectionEnabled()
+                                            ? versionIndexStatus(organization, team, service.entry(
+                                                    access, organization, team, entry), value.revision())
+                                            : INDEX_STATUS_PENDING);
+                        })
+                .map(view -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
-                        .eTag(contentHashEtag(value))
-                        .body(VersionResponse.from(value)));
+                        .eTag(contentHashEtag(view.version()))
+                        .body(VersionResponse.from(view.version(), view.status())));
     }
 
     @GetMapping("/{entryId}/effective-version")
@@ -296,14 +329,85 @@ public final class KnowledgeEntryController {
                         authentication,
                         organization,
                         exchange,
-                        access -> service.effectiveVersion(access, organization, team, entry))
-                .map(value -> ResponseEntity.ok()
+                        access -> {
+                            KnowledgeEntryVersion value =
+                                    service.effectiveVersion(access, organization, team, entry);
+                            return new VersionView(
+                                    value,
+                                    indexProjectionEnabled()
+                                            ? versionIndexStatus(organization, team, service.entry(
+                                                    access, organization, team, entry), value.revision())
+                                            : INDEX_STATUS_PENDING);
+                        })
+                .map(view -> ResponseEntity.ok()
                         .cacheControl(CacheControl.noStore())
-                        .eTag(contentHashEtag(value))
-                        .body(VersionResponse.from(value)));
+                        .eTag(contentHashEtag(view.version()))
+                        .body(VersionResponse.from(view.version(), view.status())));
     }
 
     // ---------------------------------------------------------------- internals
+
+    /** Carries the derived projection out of the blocking query, never off the pool. */
+    private record EntryView(KnowledgeEntry entry, String status) {}
+
+    private record ListingView(
+            KnowledgeEntryPage page, Map<KnowledgeEntryId, KnowledgeIndexStatus> statuses) {}
+
+    private record VersionListView(
+            KnowledgeEntryVersionPage page, Function<KnowledgeEntryRevision, String> statuses) {}
+
+    private record VersionView(KnowledgeEntryVersion version, String status) {}
+
+    private String indexStatus(OrganizationId organization, TeamId team, KnowledgeEntry entry) {
+        KnowledgeIndexStatusCatalog catalog = indexStatusCatalog.getIfAvailable();
+        if (catalog == null) {
+            return INDEX_STATUS_PENDING;
+        }
+        return catalog.statusOf(organization, team, entry.id()).name();
+    }
+
+    /**
+     * Deployments without the vector store report a constant PENDING, so the version
+     * endpoints skip their entry-head query entirely instead of paying it for a value
+     * that is decided before the row is read.
+     */
+    private boolean indexProjectionEnabled() {
+        return indexStatusCatalog.getIfAvailable() != null;
+    }
+
+    private Map<KnowledgeEntryId, KnowledgeIndexStatus> indexStatuses(
+            OrganizationId organization, TeamId team, KnowledgeEntryPage page) {
+        KnowledgeIndexStatusCatalog catalog = indexStatusCatalog.getIfAvailable();
+        if (catalog == null) {
+            return Map.of();
+        }
+        return catalog.statusesOf(
+                organization, team, page.items().stream().map(KnowledgeEntry::id).toList());
+    }
+
+    /**
+     * One version's projection: only the effective revision of a PUBLISHED head can be
+     * INDEXED — superseded or retired revisions answer PENDING by definition.
+     */
+    private String versionIndexStatus(
+            OrganizationId organization,
+            TeamId team,
+            KnowledgeEntry head,
+            KnowledgeEntryRevision revision) {
+        boolean effective = head.status() == KnowledgeEntryStatus.PUBLISHED
+                && revision != null
+                && head.effectiveRevision().map(revision::equals).orElse(false);
+        return effective ? indexStatus(organization, team, head) : INDEX_STATUS_PENDING;
+    }
+
+    private Function<KnowledgeEntryRevision, String> versionStatuses(
+            OrganizationId organization, TeamId team, KnowledgeEntry head) {
+        String effectiveStatus = versionIndexStatus(
+                organization, team, head, head.effectiveRevision().orElse(null));
+        return revision -> revision.equals(head.effectiveRevision().orElse(null))
+                ? effectiveStatus
+                : INDEX_STATUS_PENDING;
+    }
 
     private interface MutatingAction {
         CommandExecution<KnowledgeEntry> apply(
@@ -480,9 +584,15 @@ public final class KnowledgeEntryController {
             String category) {}
 
     public record EntryListResponse(List<EntryResponse> items, String nextAfter) {
-        static EntryListResponse from(KnowledgeEntryPage page) {
+        static EntryListResponse from(
+                KnowledgeEntryPage page, Map<KnowledgeEntryId, KnowledgeIndexStatus> statuses) {
             return new EntryListResponse(
-                    page.items().stream().map(EntryResponse::from).toList(),
+                    page.items().stream()
+                            .map(item -> EntryResponse.from(
+                                    item,
+                                    statuses.getOrDefault(item.id(), KnowledgeIndexStatus.PENDING)
+                                            .name()))
+                            .toList(),
                     page.nextEntryKey().map(key -> key.value()).orElse(null));
         }
     }
@@ -503,13 +613,13 @@ public final class KnowledgeEntryController {
             String createdBy,
             String updatedBy,
             OriginResponse origin) {
-        static EntryResponse from(KnowledgeEntry value) {
+        static EntryResponse from(KnowledgeEntry value, String indexStatus) {
             return new EntryResponse(
                     value.id().value().toString(),
                     value.entryKey().value(),
                     value.category().name(),
                     value.status().name(),
-                    INDEX_STATUS_PENDING,
+                    indexStatus,
                     value.effectiveRevision().map(revision -> revision.value()).orElse(null),
                     value.latestRevision(),
                     value.draft().map(DraftResponse::from).orElse(null),
@@ -540,9 +650,13 @@ public final class KnowledgeEntryController {
     }
 
     public record VersionListResponse(List<VersionResponse> items, Long nextAfter) {
-        static VersionListResponse from(KnowledgeEntryVersionPage page) {
+        static VersionListResponse from(
+                KnowledgeEntryVersionPage page,
+                Function<KnowledgeEntryRevision, String> indexStatus) {
             return new VersionListResponse(
-                    page.items().stream().map(VersionResponse::from).toList(),
+                    page.items().stream()
+                            .map(item -> VersionResponse.from(item, indexStatus.apply(item.revision())))
+                            .toList(),
                     page.nextRevision().map(revision -> revision.value()).orElse(null));
         }
     }
@@ -558,7 +672,7 @@ public final class KnowledgeEntryController {
             String indexStatus,
             String createdAt,
             String createdBy) {
-        static VersionResponse from(KnowledgeEntryVersion value) {
+        static VersionResponse from(KnowledgeEntryVersion value, String indexStatus) {
             return new VersionResponse(
                     value.entryId().value().toString(),
                     value.revision().value(),
@@ -566,7 +680,7 @@ public final class KnowledgeEntryController {
                     value.title(),
                     value.content(),
                     value.contentHash().value(),
-                    INDEX_STATUS_PENDING,
+                    indexStatus,
                     value.audit().createdAt().toString(),
                     value.audit().createdBy().map(id -> id.value().toString()).orElse(null));
         }

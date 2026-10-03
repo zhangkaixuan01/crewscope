@@ -1,0 +1,85 @@
+package io.crewscope.infrastructure.persistence.retrieval;
+
+import io.crewscope.application.retrieval.RepositoryChunkVector;
+import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
+import io.crewscope.domain.retrieval.RepositoryGenerationKey;
+import io.crewscope.infrastructure.persistence.vector.VectorLiteral;
+import java.util.List;
+import java.util.Objects;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+/**
+ * pgvector write side for repository chunk embeddings (M10-I01b, vector-chain V3).
+ * Vectors cross the wire as text literals bound through {@code CAST(? AS public.vector)}
+ * like {@code PgVectorKnowledgeEmbeddingStore}; rows upsert on
+ * (index_key, build_sequence, chunk_seq), so the crash-recovery re-embed of one batch
+ * overwrites the same positions instead of duplicating them. Retention deletes flow
+ * through the activation transaction in {@code JdbcRepositoryGenerationStoreAdapter}.
+ */
+public final class PgVectorRepositoryChunkStore implements RepositoryChunkVectorStore {
+
+    private final JdbcTemplate jdbc;
+
+    public PgVectorRepositoryChunkStore(JdbcTemplate jdbc) {
+        this.jdbc = Objects.requireNonNull(jdbc, "jdbc");
+    }
+
+    @Override
+    public void replaceBatch(RepositoryGenerationKey generation, List<RepositoryChunkVector> vectors) {
+        RepositoryGenerationKey coordinate = Objects.requireNonNull(generation, "generation");
+        List<RepositoryChunkVector> batch =
+                List.copyOf(Objects.requireNonNull(vectors, "vectors"));
+        for (RepositoryChunkVector vector : batch) {
+            Objects.requireNonNull(vector, "vector");
+            if (!coordinate.equals(vector.generation())) {
+                throw new IllegalArgumentException(
+                        "every vector must belong to the batch generation");
+            }
+            jdbc.update(
+                    """
+                    INSERT INTO crewscope.repository_chunk_embedding (
+                        index_key, build_sequence, chunk_seq, organization_id, team_id,
+                        repository_binding_id, path, language, start_line, end_line,
+                        content_hash, content, model_key, model_revision, embedding, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS public.vector), now())
+                    ON CONFLICT (index_key, build_sequence, chunk_seq) DO UPDATE SET
+                        path = EXCLUDED.path,
+                        language = EXCLUDED.language,
+                        start_line = EXCLUDED.start_line,
+                        end_line = EXCLUDED.end_line,
+                        content_hash = EXCLUDED.content_hash,
+                        content = EXCLUDED.content,
+                        model_key = EXCLUDED.model_key,
+                        model_revision = EXCLUDED.model_revision,
+                        embedding = EXCLUDED.embedding,
+                        created_at = EXCLUDED.created_at
+                    """,
+                    IndexKeyCodec.hash(coordinate.indexKey()),
+                    coordinate.buildSequence(),
+                    vector.chunkSeq(),
+                    coordinate.indexKey().organizationId().value(),
+                    coordinate.indexKey().teamId().value(),
+                    coordinate.indexKey().repositoryBindingId().value(),
+                    vector.path(),
+                    vector.language(),
+                    vector.startLine(),
+                    vector.endLine(),
+                    vector.contentHash(),
+                    vector.content(),
+                    vector.model().modelKey(),
+                    vector.model().revision(),
+                    VectorLiteral.of(vector.embedding()));
+        }
+    }
+
+    @Override
+    public int deleteByGeneration(RepositoryGenerationKey generation) {
+        RepositoryGenerationKey coordinate = Objects.requireNonNull(generation, "generation");
+        return jdbc.update(
+                """
+                DELETE FROM crewscope.repository_chunk_embedding
+                WHERE index_key = ? AND build_sequence = ?
+                """,
+                IndexKeyCodec.hash(coordinate.indexKey()), coordinate.buildSequence());
+    }
+}

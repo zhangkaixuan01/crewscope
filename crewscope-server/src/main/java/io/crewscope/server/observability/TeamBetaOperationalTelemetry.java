@@ -35,6 +35,8 @@ public final class TeamBetaOperationalTelemetry implements OperationalTelemetry 
     public static final String NOTIFICATION_DURATION = "crewscope.m6.notification.duration";
     public static final String PROVIDER_DURATION = "crewscope.m6.provider.duration";
     public static final String PROVIDER_ERRORS = "crewscope.m6.provider.errors";
+    public static final String KNOWLEDGE_INDEX_DURATION =
+            "crewscope.m10.knowledge.index.duration";
     public static final String TEAM_OBSERVER_DURATION = "crewscope.m6.team.observer.duration";
     public static final String OPERATIONS_HEALTH = "crewscope.m6.operations.health";
     public static final String TELEMETRY_DROPPED = "crewscope.m6.telemetry.dropped";
@@ -225,6 +227,7 @@ public final class TeamBetaOperationalTelemetry implements OperationalTelemetry 
             case INBOX -> INBOX_DURATION;
             case NOTIFICATION -> NOTIFICATION_DURATION;
             case PROVIDER -> PROVIDER_DURATION;
+            case KNOWLEDGE_INDEX -> KNOWLEDGE_INDEX_DURATION;
             case AGENT -> TEAM_OBSERVER_DURATION;
             case OPERATIONS -> OPERATIONS_HEALTH;
         };
