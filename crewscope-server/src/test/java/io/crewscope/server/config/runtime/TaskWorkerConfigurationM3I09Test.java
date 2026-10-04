@@ -312,6 +312,10 @@ class TaskWorkerConfigurationM3I09Test {
                         () -> mock(CodingCheckpointRepository.class))
                 .withBean(TestEvidenceRepository.class,
                         () -> mock(TestEvidenceRepository.class))
+                .withBean(io.crewscope.application.retrieval.PromptInjectionService.class,
+                        () -> mock(io.crewscope.application.retrieval.PromptInjectionService.class))
+                .withBean(io.crewscope.agentscope.coding.InjectionPromptRenderer.class,
+                        () -> mock(io.crewscope.agentscope.coding.InjectionPromptRenderer.class))
                 .withBean(Validator.class, () -> mock(Validator.class))
                 .withBean(AgentStateStore.class, () -> mock(AgentStateStore.class))
                 .withBean(AgentScopeModelResolver.class,

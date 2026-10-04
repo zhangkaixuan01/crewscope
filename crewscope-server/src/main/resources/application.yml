@@ -342,6 +342,15 @@ crewscope:
       # degraded=RETRIEVAL_DISABLED (a skip, not an error); retrieval=true without
       # vector=true is the illegal combination reported DOWN by the health indicator.
       enabled: ${CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED:false}
+    injection:
+      # M10-I02b prompt injection: off = no assembly, no sealed manifest, no prompt
+      # block. The total carries a hard 32768 ceiling — a wider value refuses startup —
+      # and the three layer budgets may never sum past the total.
+      enabled: ${CREWSCOPE_KNOWLEDGE_INJECTION_ENABLED:false}
+      total-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_TOTAL_TOKENS:8192}
+      knowledge-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_KNOWLEDGE_TOKENS:3072}
+      chunk-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_CHUNK_TOKENS:4096}
+      memory-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_MEMORY_TOKENS:1024}
   memory:
     # M10-I02a agent assistant memory: off = no new model-facing writes (the runtime write
     # port answers MEMORY_DISABLED); member view/clear and the TTL sweep stay ungated.

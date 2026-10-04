@@ -3,15 +3,21 @@ package io.crewscope.server.config.runtime;
 import io.crewscope.agentscope.coding.CodingSpecialistAuthority;
 import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
 import io.crewscope.agentscope.coding.CodingSpecialistRound;
+import io.crewscope.agentscope.coding.InjectionPromptRenderer;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.coding.output.RepositoryAnalysisV1;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.retrieval.PromptInjectionPlan;
+import io.crewscope.application.retrieval.PromptInjectionRequest;
+import io.crewscope.application.retrieval.PromptInjectionService;
+import io.crewscope.application.retrieval.KnowledgeRetrievalQuery;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.TestEvidence;
 import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.retrieval.SourceCommit;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSession;
 import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSessionFactory;
@@ -37,6 +43,8 @@ public final class WorkerCodingSpecialistAuthorityGateway
     private final RuntimeWorkerRegistrationSpec registration;
     private final AuthoritativeTimeProvider timeProvider;
     private final TransactionExecutor transactions;
+    private final PromptInjectionService injection;
+    private final InjectionPromptRenderer injectionRenderer;
     private final ConcurrentMap<RoundKey, CodingSpecialistToolSession> sessions =
             new ConcurrentHashMap<>();
 
@@ -49,7 +57,9 @@ public final class WorkerCodingSpecialistAuthorityGateway
             PrincipalRepository principals,
             RuntimeWorkerRegistrationSpec registration,
             AuthoritativeTimeProvider timeProvider,
-            TransactionExecutor transactions) {
+            TransactionExecutor transactions,
+            PromptInjectionService injection,
+            InjectionPromptRenderer injectionRenderer) {
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tools = Objects.requireNonNull(tools, "tools");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
@@ -59,6 +69,8 @@ public final class WorkerCodingSpecialistAuthorityGateway
         this.registration = Objects.requireNonNull(registration, "registration");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
+        this.injection = Objects.requireNonNull(injection, "injection");
+        this.injectionRenderer = Objects.requireNonNull(injectionRenderer, "injectionRenderer");
     }
 
     @Override
@@ -79,6 +91,11 @@ public final class WorkerCodingSpecialistAuthorityGateway
                         ownership.leaseId())
                 .orElseThrow(() -> new IllegalStateException(
                         "Coding Workspace current Lease is unavailable"));
+        // The sealed manifest is a precondition of the first model call, so assembly
+        // runs before the session opens: a failed assembly leaves no half-open session.
+        // It runs after the lease check so a dead lease seals no manifest and renews
+        // no memory TTL.
+        String injectionBlock = injectionBlock(facts, workspace);
         CodingSpecialistToolSession session = tools.open(
                 workspace, lease, executionPrincipal(facts),
                 transactions.required(timeProvider::now));
@@ -90,7 +107,7 @@ public final class WorkerCodingSpecialistAuthorityGateway
         return new CodingSpecialistRound(
                 round,
                 session.toolkit(),
-                instruction(facts, workspace, round, previousFailedEvidence));
+                instruction(facts, workspace, round, previousFailedEvidence, injectionBlock));
     }
 
     @Override
@@ -189,6 +206,48 @@ public final class WorkerCodingSpecialistAuthorityGateway
                         "Coding execution Principal is unavailable"));
     }
 
+    /**
+     * The injection actor is the task creator: one member identity under which both
+     * retrieval authorization and memory ownership run for the whole assembly. An
+     * unavailable or disqualified creator fails the round closed — revocation must not
+     * degrade into injecting with a stale identity (ADR-038).
+     */
+    private Principal injectionPrincipal(TaskExecutionRuntimeFacts facts) {
+        return facts.task().audit().createdBy()
+                .map(creator -> principals.findById(registration.organizationId(), creator))
+                .flatMap(java.util.function.Function.identity())
+                .filter(Principal::canAct)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Task creator Principal is unavailable for prompt injection"));
+    }
+
+    /** Renders the injection block of one assembly; a disabled switch renders "". */
+    private String injectionBlock(
+            TaskExecutionRuntimeFacts facts, CodingWorkspaceExecution workspace) {
+        // A disabled switch is zero behavior change: no creator resolution, no request,
+        // no assembly — an unavailable task creator must not fail a round injection is
+        // not part of.
+        if (!injection.enabled()) {
+            return "";
+        }
+        PromptInjectionPlan plan = injection.assemble(new PromptInjectionRequest(
+                workspace.target().scope().organizationId(),
+                workspace.target().scope().teamId(),
+                workspace.target().scope().workspaceId(),
+                workspace.target().scope().projectId(),
+                facts.execution().id(),
+                facts.execution().attempt(),
+                facts.policySnapshot().agentProfileId(),
+                injectionPrincipal(facts),
+                facts.task().brief().objective(),
+                facts.task().brief().acceptanceCriteria(),
+                new KnowledgeRetrievalQuery.RepositoryTarget(
+                        workspace.target().scope().projectId(),
+                        workspace.target().repositoryBindingId(),
+                        new SourceCommit(workspace.target().baselineCommit().value()))));
+        return injectionRenderer.render(plan);
+    }
+
     private Optional<TestEvidence> latestEvidence(CodingWorkspaceExecution execution) {
         List<TestEvidence> evidence = testEvidence.findByWorkspace(
                 execution.workspace().scope().organizationId(),
@@ -220,6 +279,15 @@ public final class WorkerCodingSpecialistAuthorityGateway
             CodingWorkspaceExecution execution,
             int round,
             Optional<TestEvidence> previousFailedEvidence) {
+        return instruction(facts, execution, round, previousFailedEvidence, "");
+    }
+
+    static String instruction(
+            TaskExecutionRuntimeFacts facts,
+            CodingWorkspaceExecution execution,
+            int round,
+            Optional<TestEvidence> previousFailedEvidence,
+            String injectionBlock) {
         TaskExecutionRuntimeFacts requiredFacts = Objects.requireNonNull(facts, "facts");
         CodingWorkspaceExecution requiredExecution = Objects.requireNonNull(
                 execution, "execution");
@@ -232,7 +300,7 @@ public final class WorkerCodingSpecialistAuthorityGateway
                 .toString();
         String acceptanceCriteria = String.join(
                 "; ", requiredFacts.task().brief().acceptanceCriteria());
-        return "Coding round " + round
+        String base = "Coding round " + round
                 + " for target " + requiredExecution.target().id()
                 + " revision " + requiredExecution.target().revision()
                 + ". Task objective: " + requiredFacts.task().brief().objective()
@@ -249,6 +317,8 @@ public final class WorkerCodingSpecialistAuthorityGateway
                 + ", workspaceFingerprint=" + requiredExecution.workspace().fingerprint()
                 + ", codingTargetHash=" + requiredExecution.target().snapshotHash()
                 + ", repositoryAnalysisHash=" + analysisHash + "." + previous;
+        String block = Objects.requireNonNull(injectionBlock, "injectionBlock");
+        return block.isEmpty() ? base : base + "\n\n" + block;
     }
 
     private static RoundKey key(TaskExecutionRuntimeFacts facts, int round) {

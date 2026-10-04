@@ -3,6 +3,7 @@ package io.crewscope.server.config.runtime;
 import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.core.model.Model;
 import io.crewscope.agentscope.AgentScopeModelResolver;
+import io.crewscope.agentscope.coding.InjectionPromptRenderer;
 import io.crewscope.agentscope.task.AgentScopeTaskPlanAdapter;
 import io.crewscope.agentscope.task.AgentScopeTaskPlanningSnapshotMapper;
 import io.crewscope.agentscope.task.AgentScopeTaskRuntime;
@@ -44,6 +45,7 @@ import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskPlanPublicationService;
 import io.crewscope.application.task.TaskRepository;
 import io.crewscope.application.task.TaskTokenService;
+import io.crewscope.application.retrieval.PromptInjectionService;
 import io.crewscope.application.runtime.RuntimeMaintenanceService;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
@@ -277,7 +279,9 @@ public class TaskWorkerConfiguration {
             PrincipalRepository principals,
             RuntimeWorkerRegistrationSpec registration,
             AuthoritativeTimeProvider timeProvider,
-            TransactionExecutor transactionExecutor) {
+            TransactionExecutor transactionExecutor,
+            PromptInjectionService promptInjection,
+            InjectionPromptRenderer injectionPromptRenderer) {
         return new WorkerCodingSpecialistAuthorityGateway(
                 workspaces,
                 tools,
@@ -287,7 +291,9 @@ public class TaskWorkerConfiguration {
                 principals,
                 registration,
                 timeProvider,
-                transactionExecutor);
+                transactionExecutor,
+                promptInjection,
+                injectionPromptRenderer);
     }
 
     /** M4-A03 supplies the production Workspace/Tool lifecycle Gateway. */
