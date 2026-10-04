@@ -297,6 +297,8 @@ final class KnowledgeIndexControlServiceTest {
 
     @Test
     void listPassesFiltersAndCursorsThroughAndRejectsForeignCursors() {
+        // Distinct created_at values keep the (created_at, id) keyset order deterministic:
+        // a tie would fall through to the random UUID tie-break and flip the pages.
         KnowledgeIndexJob first = seedEntryJob(NOW);
         KnowledgeIndexJob second = seedEntryJob(UtcTimestamp.from(NOW.value().plusSeconds(60)));
         KnowledgeIndexJob build = jobs.create(KnowledgeIndexJob.repositoryBuild(
@@ -304,7 +306,7 @@ final class KnowledgeIndexControlServiceTest {
                 new RepositoryIndexKey(
                         organizationId, teamId, RepositoryBindingId.generate(), COMMIT,
                         ChunkingPolicy.defaults().policyHash(), MODEL),
-                actor.id(), UtcTimestamp.from(NOW.value().plusSeconds(60))));
+                actor.id(), UtcTimestamp.from(NOW.value().plusSeconds(120))));
         KnowledgeIndexControlService service = service(true);
 
         KnowledgeIndexJobPage page = service.list(
