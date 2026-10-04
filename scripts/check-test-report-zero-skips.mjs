@@ -10,11 +10,15 @@ const reactorModules = [...readFileSync(join(root, 'pom.xml'), 'utf8').matchAll(
 // and a real browser via -Da01.browser=true), so their suites report exactly one skipped test
 // in a plain `mvn verify`. The A06 scale walk follows the same opt-in shape: its FULL tier
 // (10 000 rows, minutes-long) only runs with -Dq01.scale=full and reports one skipped test
-// otherwise. They are registered here by classname and their skips stay visible in the
-// output; every other skip still fails the gate.
+// otherwise. The DashScope live suites follow the same opt-in shape: they only run with
+// S01B_DASHSCOPE_KEY_FILE pointing at a real key (paid provider calls) and report one
+// skipped test otherwise. They are registered here by classname and their skips stay
+// visible in the output; every other skip still fails the gate.
 const SKIP_ALLOWED = new Set([
   'io.crewscope.server.a01.A01BrowserIntegrationTest',
   'io.crewscope.server.api.WorkQueryScaleHttpIntegrationTest',
+  'io.crewscope.infrastructure.model.DashScopeEmbeddingLiveTest',
+  'io.crewscope.infrastructure.persistence.retrieval.KnowledgeRetrievalQualityGateTest',
 ])
 // Runtime worktrees under var/ can contain intentionally failing coding-evaluation reports. Only
 // reports produced by the modules declared in the root Maven Reactor belong to this release gate.
