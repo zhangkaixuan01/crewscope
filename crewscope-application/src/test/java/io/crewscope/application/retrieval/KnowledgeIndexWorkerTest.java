@@ -587,6 +587,11 @@ final class KnowledgeIndexWorkerTest {
             trace.add("deleteByGeneration:" + generation.buildSequence());
             return 0;
         }
+
+        @Override
+        public List<ScoredRepositoryChunk> nearest(RepositoryChunkEmbeddingQuery query) {
+            throw new UnsupportedOperationException("the worker never reads chunks");
+        }
     }
 
     private static final class FakeGenerationStore implements RepositoryGenerationStore {

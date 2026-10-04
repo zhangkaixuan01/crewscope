@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 84de9b03255aecf5bf38015ca8eebadb0a8054e8b5513314e587d0aae0e9c2c6
+// Controller source SHA-256: 06d895d1d4169bd8cfd17da74daa7467a76b6cb3a86013e262bed9c12c42fc6c
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -970,6 +970,14 @@ export const openApiDocument = {
         "operationId": "KnowledgeIndexController_enqueueRepositoryBuild",
         "tags": [
           "KnowledgeIndexController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/knowledge-retrieval:preview": {
+      "post": {
+        "operationId": "KnowledgeRetrievalController_preview",
+        "tags": [
+          "KnowledgeRetrievalController"
         ]
       }
     },
@@ -2738,6 +2746,12 @@ export const openApiOperations = [
     "controller": "KnowledgeIndexController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/knowledge-retrieval:preview",
+    "operationId": "KnowledgeRetrievalController_preview",
+    "controller": "KnowledgeRetrievalController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/lark/bindings/{bindingId}/health",
     "operationId": "LarkAdministrationController_health",
@@ -3536,4 +3550,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 256 as const
+export const openApiOperationCount = 257 as const

@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.retrieval.KnowledgeIndexJob;
+import io.crewscope.application.retrieval.RepositoryChunkEmbeddingQuery;
 import io.crewscope.application.retrieval.RepositoryChunkVector;
+import io.crewscope.application.retrieval.ScoredRepositoryChunk;
 import io.crewscope.domain.coding.RepositoryBindingId;
 import io.crewscope.domain.retrieval.EmbeddingModelRevision;
 import io.crewscope.domain.retrieval.RepositoryGenerationKey;
@@ -32,11 +34,12 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 /**
- * pgvector proof for repository chunk vectors (M10-I01b, vector-chain V3): the chain
- * only applies after the default chain committed V56, chunk rows obey the cross-chain
- * generation foreign key, text-literal vectors round-trip through idempotent upserts
- * positioned by (generation, chunkSeq), and retention deletes remove exactly one
- * generation.
+ * pgvector proof for repository chunk vectors (M10-I01b write side / M10-A01 read side,
+ * vector-chain V3): the chain only applies after the default chain committed V56, chunk
+ * rows obey the cross-chain generation foreign key, text-literal vectors round-trip
+ * through idempotent upserts positioned by (generation, chunkSeq), retention deletes
+ * remove exactly one generation, and nearest-neighbour reads stay confined to the one
+ * generation coordinate with cosine ordering and the top-K ceiling ahead of any filter.
  */
 class PgVectorRepositoryChunkStoreIntegrationTest extends AbstractPgVectorContainerIntegrationTest {
 
@@ -145,6 +148,68 @@ class PgVectorRepositoryChunkStoreIntegrationTest extends AbstractPgVectorContai
         assertEquals(1, chunkRows(), "the other generation keeps its vectors");
     }
 
+    @Test
+    void nearestOrdersByCosineSimilarityAndHonoursTopK() {
+        RepositoryIndexKey key = key();
+        RepositoryGenerationKey generation = openGeneration(key);
+        float[] aligned = basis(0);
+        float[] orthogonal = basis(1);
+        float[] opposed = negative(0);
+        store.replaceBatch(generation, List.of(
+                vector(generation, 1, "aligned", aligned),
+                vector(generation, 2, "orthogonal", orthogonal),
+                vector(generation, 3, "opposed", opposed)));
+
+        List<ScoredRepositoryChunk> top = store.nearest(
+                new RepositoryChunkEmbeddingQuery(generation, basis(0), 2));
+
+        assertEquals(2, top.size(), "the top-K ceiling truncates, never widens");
+        assertEquals("docs/aligned.md", top.get(0).path());
+        assertEquals("docs/orthogonal.md", top.get(1).path());
+        assertEquals(1.0, top.get(0).score(), 1e-9);
+        assertEquals(0.0, top.get(1).score(), 1e-9);
+        // The span and content projections ride along: candidate assembly never re-reads git.
+        assertEquals(11, top.get(0).startLine());
+        assertEquals(44, top.get(0).endLine());
+        assertEquals("aligned", top.get(0).content());
+        assertEquals("a".repeat(64), top.get(0).contentHash());
+        assertEquals("markdown", top.get(0).language());
+    }
+
+    @Test
+    void nearestIsConfinedToTheExactGenerationCoordinate() {
+        RepositoryIndexKey key = key();
+        RepositoryGenerationKey first = openGeneration(key);
+        RepositoryGenerationKey second = openGeneration(key);
+        RepositoryIndexKey otherCommit = new RepositoryIndexKey(
+                organizationId, teamId, bindingId,
+                new SourceCommit("9999999999999999999999999999999999999999"),
+                key.chunkingPolicyHash(), MODEL);
+        RepositoryGenerationKey neighbor = openGeneration(otherCommit);
+        RepositoryIndexKey otherRevision = new RepositoryIndexKey(
+                organizationId, teamId, bindingId, key.sourceCommit(),
+                key.chunkingPolicyHash(),
+                new EmbeddingModelRevision(MODEL.modelKey(), MODEL.dimension(), MODEL.revision() + 1));
+        RepositoryGenerationKey drifted = openGeneration(otherRevision);
+        float[] probe = basis(0);
+        store.replaceBatch(first, List.of(vector(first, 1, "first", probe)));
+        store.replaceBatch(second, List.of(vector(second, 1, "second", probe)));
+        store.replaceBatch(neighbor, List.of(vector(neighbor, 1, "neighbor", probe)));
+        store.replaceBatch(drifted, List.of(vector(drifted, 1, "drifted", probe)));
+
+        // Same coordinate, other build: only the queried generation's rows surface.
+        assertEquals(List.of("docs/second.md"),
+                store.nearest(new RepositoryChunkEmbeddingQuery(second, probe, 5))
+                        .stream().map(ScoredRepositoryChunk::path).toList());
+        // Another commit of the same binding, and another model revision of the same
+        // commit: both are different index keys and stay invisible.
+        assertTrue(store.nearest(new RepositoryChunkEmbeddingQuery(
+                        new RepositoryGenerationKey(key, first.buildSequence()), probe, 5))
+                        .stream().allMatch(hit -> hit.path().equals("docs/first.md")));
+        assertTrue(store.nearest(new RepositoryChunkEmbeddingQuery(drifted, probe, 5)).isEmpty(),
+                "a drifted model revision is a different index key and never mixes");
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private RepositoryIndexKey key() {
@@ -175,6 +240,26 @@ class PgVectorRepositoryChunkStoreIntegrationTest extends AbstractPgVectorContai
         return new RepositoryChunkVector(
                 generation, chunkSeq, "docs/" + content + ".md", "markdown",
                 1, 4, "b".repeat(64), content, MODEL, filled(0.25f));
+    }
+
+    private RepositoryChunkVector vector(
+            RepositoryGenerationKey generation, int chunkSeq, String content, float[] embedding) {
+        return new RepositoryChunkVector(
+                generation, chunkSeq, "docs/" + content + ".md", "markdown",
+                11, 44, "a".repeat(64), content, MODEL, embedding);
+    }
+
+    /** One-hot unit vector: orthogonal bases give exact 1.0 / 0.0 / -1.0 cosine scores. */
+    private static float[] basis(int index) {
+        float[] embedding = new float[MODEL.dimension()];
+        embedding[index] = 1f;
+        return embedding;
+    }
+
+    private static float[] negative(int index) {
+        float[] embedding = basis(index);
+        embedding[index] = -1f;
+        return embedding;
     }
 
     private static float[] filled(float value) {

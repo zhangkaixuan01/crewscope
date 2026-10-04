@@ -24,7 +24,6 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.infrastructure.persistence.knowledge.KnowledgeIndexInvalidationConsumer;
 import io.crewscope.infrastructure.persistence.retrieval.JdbcKnowledgeIndexStatusCatalog;
 import io.crewscope.infrastructure.persistence.retrieval.JdbcRepositoryGenerationStoreAdapter;
-import io.crewscope.infrastructure.persistence.retrieval.PgVectorRepositoryChunkStore;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import io.crewscope.infrastructure.workspace.repository.GitRepositoryContentAdapter;
 import io.crewscope.infrastructure.workspace.repository.ManagedRepositoryResolver;
@@ -36,7 +35,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.ObjectMapper;
@@ -139,14 +137,8 @@ public class KnowledgeIndexConfiguration {
         return new GitRepositoryContentAdapter(jdbc, resolver, gitCommands);
     }
 
-    @Bean
-    @Conditional(WorkerCapableProfileCondition.class)
-    @ConditionalOnProperty(
-            name = {"crewscope.knowledge.index.enabled", "crewscope.knowledge.vector.enabled"},
-            havingValue = "true")
-    RepositoryChunkVectorStore repositoryChunkVectorStore(JdbcTemplate jdbcTemplate) {
-        return new PgVectorRepositoryChunkStore(jdbcTemplate);
-    }
+    // The chunk vector store is no longer defined here (M10-A01): KnowledgeVectorConfiguration
+    // owns it behind the single vector switch, because unified retrieval reads it too.
 
     @Bean
     @Conditional(WorkerCapableProfileCondition.class)

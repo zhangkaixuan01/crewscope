@@ -17,6 +17,7 @@ import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.retrieval.KnowledgeIndexStatusCatalog;
 import io.crewscope.application.retrieval.KnowledgeIndexWorker;
 import io.crewscope.application.retrieval.KnowledgeIndexWorkerRunResult;
+import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -61,6 +62,10 @@ class KnowledgeIndexConfigurationTest {
             .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
             .withBean(KnowledgeEmbeddingVectorStore.class,
                     () -> mock(KnowledgeEmbeddingVectorStore.class))
+            // The chunk store moved to KnowledgeVectorConfiguration (M10-A01); the
+            // worker still consumes it, so assembly tests supply it as a collaborator.
+            .withBean(RepositoryChunkVectorStore.class,
+                    () -> mock(RepositoryChunkVectorStore.class))
             // The generation store is NOT mocked: the configuration assembles the real
             // JDBC adapter behind the vector switch (same matrix as the worker), against
             // the mocked jdbc/transaction collaborators below.

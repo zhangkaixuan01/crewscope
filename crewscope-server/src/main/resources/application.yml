@@ -337,6 +337,11 @@ crewscope:
         worker-id: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ID:knowledge-index-worker-local}
         poll-interval: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_POLL_INTERVAL:1s}
         lease-duration: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_LEASE:30m}
+    retrieval:
+      # M10-A01 unified retrieval: a closed switch answers empty candidates with
+      # degraded=RETRIEVAL_DISABLED (a skip, not an error); retrieval=true without
+      # vector=true is the illegal combination reported DOWN by the health indicator.
+      enabled: ${CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED:false}
   model:
     embedding:
       # Embeddings transport budgets (S01 §3.2): request timeout floor 1s, attempts 1..5.

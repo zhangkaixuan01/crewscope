@@ -1,7 +1,9 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
+import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.infrastructure.persistence.knowledge.PgVectorKnowledgeEmbeddingStore;
+import io.crewscope.infrastructure.persistence.retrieval.PgVectorRepositoryChunkStore;
 import io.crewscope.server.observability.KnowledgeVectorHealthIndicator;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,20 @@ public class KnowledgeVectorConfiguration {
             matchIfMissing = false)
     KnowledgeEmbeddingVectorStore knowledgeEmbeddingVectorStore(JdbcTemplate jdbcTemplate) {
         return new PgVectorKnowledgeEmbeddingStore(jdbcTemplate);
+    }
+
+    /**
+     * M10-A01 wiring relocation: the chunk store serves both the leased worker's writes
+     * and unified retrieval's reads, so the single vector switch owns it — not the
+     * worker-profile matrix in {@code KnowledgeIndexConfiguration}.
+     */
+    @Bean
+    @ConditionalOnProperty(
+            name = "crewscope.knowledge.vector.enabled",
+            havingValue = "true",
+            matchIfMissing = false)
+    RepositoryChunkVectorStore repositoryChunkVectorStore(JdbcTemplate jdbcTemplate) {
+        return new PgVectorRepositoryChunkStore(jdbcTemplate);
     }
 
     @Bean

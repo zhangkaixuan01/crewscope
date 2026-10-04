@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
+import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.server.observability.KnowledgeVectorHealthIndicator;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -39,6 +40,7 @@ class KnowledgeVectorConfigurationTest {
             context.assertThat()
                     .hasNotFailed()
                     .doesNotHaveBean(KnowledgeEmbeddingVectorStore.class)
+                    .doesNotHaveBean(RepositoryChunkVectorStore.class)
                     .doesNotHaveBean(KnowledgeVectorHealthIndicator.class)
                     .hasSingleBean(KnowledgeVectorMigrationRunner.class);
             KnowledgeVectorMigrationRunner migrationRunner =
@@ -57,6 +59,7 @@ class KnowledgeVectorConfigurationTest {
                     context.assertThat()
                             .hasNotFailed()
                             .hasSingleBean(KnowledgeEmbeddingVectorStore.class)
+                            .hasSingleBean(RepositoryChunkVectorStore.class)
                             .hasSingleBean(KnowledgeVectorHealthIndicator.class);
                     KnowledgeVectorMigrationRunner migrationRunner =
                             context.getBean(KnowledgeVectorMigrationRunner.class);

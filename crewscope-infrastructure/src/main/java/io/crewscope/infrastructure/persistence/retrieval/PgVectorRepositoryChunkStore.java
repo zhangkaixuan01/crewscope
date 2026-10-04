@@ -1,7 +1,9 @@
 package io.crewscope.infrastructure.persistence.retrieval;
 
+import io.crewscope.application.retrieval.RepositoryChunkEmbeddingQuery;
 import io.crewscope.application.retrieval.RepositoryChunkVector;
 import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
+import io.crewscope.application.retrieval.ScoredRepositoryChunk;
 import io.crewscope.domain.retrieval.RepositoryGenerationKey;
 import io.crewscope.infrastructure.persistence.vector.VectorLiteral;
 import java.util.List;
@@ -9,12 +11,14 @@ import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * pgvector write side for repository chunk embeddings (M10-I01b, vector-chain V3).
- * Vectors cross the wire as text literals bound through {@code CAST(? AS public.vector)}
- * like {@code PgVectorKnowledgeEmbeddingStore}; rows upsert on
- * (index_key, build_sequence, chunk_seq), so the crash-recovery re-embed of one batch
- * overwrites the same positions instead of duplicating them. Retention deletes flow
+ * pgvector persistence for repository chunk embeddings (M10-I01b write side / M10-A01
+ * read side, vector-chain V3). Vectors cross the wire as text literals bound through
+ * {@code CAST(? AS public.vector)} like {@code PgVectorKnowledgeEmbeddingStore}; rows
+ * upsert on (index_key, build_sequence, chunk_seq), so the crash-recovery re-embed of one
+ * batch overwrites the same positions instead of duplicating them. Retention deletes flow
  * through the activation transaction in {@code JdbcRepositoryGenerationStoreAdapter}.
+ * The nearest query hardcodes the tenant, binding and generation predicates ahead of the
+ * vector ordering — the candidate set is one ACTIVE generation by construction.
  */
 public final class PgVectorRepositoryChunkStore implements RepositoryChunkVectorStore {
 
@@ -81,5 +85,47 @@ public final class PgVectorRepositoryChunkStore implements RepositoryChunkVector
                 WHERE index_key = ? AND build_sequence = ?
                 """,
                 IndexKeyCodec.hash(coordinate.indexKey()), coordinate.buildSequence());
+    }
+
+    @Override
+    public List<ScoredRepositoryChunk> nearest(RepositoryChunkEmbeddingQuery query) {
+        RepositoryChunkEmbeddingQuery value = Objects.requireNonNull(query, "query");
+        RepositoryGenerationKey coordinate = value.generation();
+        String literal = VectorLiteral.of(value.queryVector());
+        return jdbc.query(
+                """
+                SELECT v.chunk_seq, v.path, v.language, v.start_line, v.end_line,
+                       v.content_hash, v.content,
+                       1 - (v.embedding <=> CAST(? AS public.vector)) AS similarity
+                FROM crewscope.repository_chunk_embedding v
+                WHERE v.organization_id = ?
+                  AND v.team_id = ?
+                  AND v.repository_binding_id = ?
+                  AND v.index_key = ?
+                  AND v.build_sequence = ?
+                  AND v.model_key = ?
+                  AND v.model_revision = ?
+                ORDER BY v.embedding <=> CAST(? AS public.vector)
+                LIMIT ?
+                """,
+                (rs, row) -> new ScoredRepositoryChunk(
+                        rs.getInt("chunk_seq"),
+                        rs.getString("path"),
+                        rs.getString("language"),
+                        rs.getInt("start_line"),
+                        rs.getInt("end_line"),
+                        rs.getString("content_hash"),
+                        rs.getString("content"),
+                        rs.getDouble("similarity")),
+                literal,
+                coordinate.indexKey().organizationId().value(),
+                coordinate.indexKey().teamId().value(),
+                coordinate.indexKey().repositoryBindingId().value(),
+                IndexKeyCodec.hash(coordinate.indexKey()),
+                coordinate.buildSequence(),
+                coordinate.indexKey().embeddingModelRevision().modelKey(),
+                coordinate.indexKey().embeddingModelRevision().revision(),
+                literal,
+                value.topK());
     }
 }
