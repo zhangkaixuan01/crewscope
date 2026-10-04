@@ -342,6 +342,12 @@ crewscope:
       # degraded=RETRIEVAL_DISABLED (a skip, not an error); retrieval=true without
       # vector=true is the illegal combination reported DOWN by the health indicator.
       enabled: ${CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED:false}
+  memory:
+    # M10-I02a agent assistant memory: off = no new model-facing writes (the runtime write
+    # port answers MEMORY_DISABLED); member view/clear and the TTL sweep stay ungated.
+    enabled: ${CREWSCOPE_MEMORY_ENABLED:false}
+    sweep:
+      poll-interval: ${CREWSCOPE_MEMORY_SWEEP_POLL_INTERVAL:1h}
   model:
     embedding:
       # Embeddings transport budgets (S01 §3.2): request timeout floor 1s, attempts 1..5.
