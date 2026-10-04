@@ -4,6 +4,7 @@ import io.crewscope.domain.retrieval.InjectionManifest;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.task.TaskExecutionId;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -20,4 +21,10 @@ public interface InjectionManifestRepository {
             TeamId teamId,
             TaskExecutionId executionId,
             int attempt);
+
+    /** Every sealed manifest of one execution, ascending by attempt (I02c read side). */
+    List<InjectionManifest> findByExecution(
+            OrganizationId organizationId,
+            TeamId teamId,
+            TaskExecutionId executionId);
 }

@@ -20,8 +20,13 @@ import io.crewscope.application.identity.PasswordHashCapacityException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
 import io.crewscope.application.principal.PrincipalDirectoryCursorExpiredException;
+import io.crewscope.application.retrieval.ClaimedReferenceOutsideManifestException;
+import io.crewscope.application.retrieval.FeedbackReferenceOutsideManifestException;
+import io.crewscope.application.retrieval.InjectionClaimedReferenceConflictException;
+import io.crewscope.application.retrieval.InjectionManifestNotSealedException;
 import io.crewscope.application.retrieval.KnowledgeIndexJobNotCancellableException;
 import io.crewscope.application.retrieval.KnowledgeIndexJobNotFoundException;
+import io.crewscope.domain.retrieval.ManifestSourceKey;
 import io.crewscope.application.team.FirstTeamAlreadyExistsException;
 import io.crewscope.application.team.TeamInvitationApplicationException;
 import io.crewscope.application.task.TaskEventCursorExpiredException;
@@ -349,6 +354,60 @@ public class ApiExceptionHandler {
                     correlationId,
                     exchange);
         }
+        if (failure instanceof FeedbackReferenceOutsideManifestException feedbackOutside) {
+            return response(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "feedback_reference_outside_manifest",
+                    feedbackOutside.getMessage(),
+                    false,
+                    null,
+                    Map.of(
+                            "executionId", feedbackOutside.executionId().value().toString(),
+                            "source", compact(feedbackOutside.source())),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof ClaimedReferenceOutsideManifestException claimedOutside) {
+            return response(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "claimed_reference_outside_manifest",
+                    claimedOutside.getMessage(),
+                    false,
+                    null,
+                    Map.of(
+                            "executionId", claimedOutside.executionId().value().toString(),
+                            "attempt", String.valueOf(claimedOutside.attempt()),
+                            "outside", compact(claimedOutside.outside())),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof InjectionManifestNotSealedException notSealed) {
+            return response(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "injection_manifest_not_sealed",
+                    notSealed.getMessage(),
+                    false,
+                    null,
+                    Map.of(
+                            "executionId", notSealed.executionId().value().toString(),
+                            "attempt", String.valueOf(notSealed.attempt())),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof InjectionClaimedReferenceConflictException claimedConflict) {
+            return response(
+                    HttpStatus.CONFLICT,
+                    "injection_claimed_reference_conflict",
+                    claimedConflict.getMessage(),
+                    false,
+                    null,
+                    Map.of(
+                            "executionId", claimedConflict.executionId().value().toString(),
+                            "attempt", String.valueOf(claimedConflict.attempt()),
+                            "storedClaimed", compact(claimedConflict.stored().claimed())),
+                    correlationId,
+                    exchange);
+        }
         if (failure instanceof GitHubRepositoryImportJobNotFoundException jobNotFound) {
             return response(
                     HttpStatus.NOT_FOUND,
@@ -666,6 +725,21 @@ public class ApiExceptionHandler {
                         retryable,
                         currentVersion,
                         details));
+    }
+
+    /**
+     * One manifest source key, or a list of them, as a compact diagnostic string —
+     * the machine-readable face of claimed evidence is the GET read side, not the
+     * conflict details.
+     */
+    private static String compact(ManifestSourceKey key) {
+        return key.type().name() + ":" + key.sourceId() + ":" + key.version()
+                + ":" + key.contentHash();
+    }
+
+    private static String compact(java.util.List<ManifestSourceKey> keys) {
+        return keys.stream().map(ApiExceptionHandler::compact)
+                .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
     }
 
     private static Long parseVersion(String value) {

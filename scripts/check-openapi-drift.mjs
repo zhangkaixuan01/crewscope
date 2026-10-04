@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 257 = 256 + 1 knowledge retrieval preview (M10-A01).
-if (operationCount !== 257) {
-  console.error(`OpenAPI operation baseline changed: expected 257, found ${operationCount}`)
+// 262 = 259 + 3 injection reference view, feedback, claimed (M10-I02c).
+if (operationCount !== 262) {
+  console.error(`OpenAPI operation baseline changed: expected 262, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

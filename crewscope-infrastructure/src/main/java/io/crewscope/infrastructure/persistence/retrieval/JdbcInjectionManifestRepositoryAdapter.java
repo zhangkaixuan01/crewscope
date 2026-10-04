@@ -65,6 +65,14 @@ public class JdbcInjectionManifestRepositoryAdapter implements InjectionManifest
             WHERE organization_id = ? AND team_id = ? AND execution_id = ? AND attempt = ?
             """;
 
+    private static final String FIND_BY_EXECUTION = """
+            SELECT id, execution_id, attempt, source_references, trims, budget,
+                   degradations, created_at
+            FROM crewscope.injection_manifest
+            WHERE organization_id = ? AND team_id = ? AND execution_id = ?
+            ORDER BY attempt
+            """;
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final RowMapper<InjectionManifest> reader = new Reader();
@@ -104,6 +112,20 @@ public class JdbcInjectionManifestRepositoryAdapter implements InjectionManifest
                         organizationId.value(), teamId.value(), executionId.value(), attempt)
                 .stream()
                 .findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<InjectionManifest> findByExecution(
+            OrganizationId organizationId,
+            TeamId teamId,
+            TaskExecutionId executionId) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        Objects.requireNonNull(teamId, "teamId");
+        Objects.requireNonNull(executionId, "executionId");
+        return jdbc.query(
+                FIND_BY_EXECUTION, reader,
+                organizationId.value(), teamId.value(), executionId.value());
     }
 
     // ------------------------------------------------------------------ statements

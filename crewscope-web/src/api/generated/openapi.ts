@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 06d895d1d4169bd8cfd17da74daa7467a76b6cb3a86013e262bed9c12c42fc6c
+// Controller source SHA-256: a4fced1a7de056227c08fb84a046596e34e44254df2270e45cd2167a633aabff
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -542,6 +542,20 @@ export const openApiDocument = {
         "operationId": "AgentManagementController_disable",
         "tags": [
           "AgentManagementController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{profileId}/memory": {
+      "delete": {
+        "operationId": "AgentMemoryController_clear",
+        "tags": [
+          "AgentMemoryController"
+        ]
+      },
+      "get": {
+        "operationId": "AgentMemoryController_view",
+        "tags": [
+          "AgentMemoryController"
         ]
       }
     },
@@ -1414,6 +1428,30 @@ export const openApiDocument = {
         "operationId": "CodingArtifactController_testReport",
         "tags": [
           "CodingArtifactController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references": {
+      "get": {
+        "operationId": "InjectionReferenceController_view",
+        "tags": [
+          "InjectionReferenceController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references/claimed": {
+      "post": {
+        "operationId": "InjectionReferenceController_claimed",
+        "tags": [
+          "InjectionReferenceController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references/feedback": {
+      "post": {
+        "operationId": "InjectionReferenceController_feedback",
+        "tags": [
+          "InjectionReferenceController"
         ]
       }
     },
@@ -2410,6 +2448,18 @@ export const openApiOperations = [
     "controller": "AgentManagementController"
   },
   {
+    "method": "delete",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{profileId}/memory",
+    "operationId": "AgentMemoryController_clear",
+    "controller": "AgentMemoryController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{profileId}/memory",
+    "operationId": "AgentMemoryController_view",
+    "controller": "AgentMemoryController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/agent-profiles/{profileId}/model-catalog",
     "operationId": "AgentConfigurationController_catalog",
@@ -3088,6 +3138,24 @@ export const openApiOperations = [
     "controller": "CodingArtifactController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references",
+    "operationId": "InjectionReferenceController_view",
+    "controller": "InjectionReferenceController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references/claimed",
+    "operationId": "InjectionReferenceController_claimed",
+    "controller": "InjectionReferenceController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/injection-references/feedback",
+    "operationId": "InjectionReferenceController_feedback",
+    "controller": "InjectionReferenceController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks/{taskId}/attempts/{executionId}/pause",
     "operationId": "TaskCommandController_pause",
@@ -3550,4 +3618,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 257 as const
+export const openApiOperationCount = 262 as const
