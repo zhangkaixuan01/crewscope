@@ -261,9 +261,21 @@ public final class AgentScopeCodingRuntime {
      */
     private HarnessAgent createAgent(CodingSpecialistRequest request) {
         Optional<ResolvedAgentScopeModels> models = pinnedModels(request);
-        return models.isPresent()
-                ? factory.createPinned(request.runtimeSession(), request.toolkit(), models.get())
-                : factory.create(request.runtimeSession(), request.toolkit());
+        if (models.isPresent()) {
+            return request.dynamicTeamSkills().isEmpty()
+                    ? factory.createPinned(
+                            request.runtimeSession(), request.toolkit(), models.get())
+                    : factory.createPinned(
+                            request.runtimeSession(), request.toolkit(), models.get(),
+                            request.dynamicTeamSkills());
+        }
+        if (!request.dynamicTeamSkills().isEmpty()) {
+            // The approved keys live inside the pinned execution configuration, so dynamic
+            // skills without one cannot have been resolved on a real execution path.
+            throw new IllegalStateException(
+                    "dynamic Team Skills require a pinned execution configuration");
+        }
+        return factory.create(request.runtimeSession(), request.toolkit());
     }
 
     private Optional<ResolvedAgentScopeModels> pinnedModels(CodingSpecialistRequest request) {

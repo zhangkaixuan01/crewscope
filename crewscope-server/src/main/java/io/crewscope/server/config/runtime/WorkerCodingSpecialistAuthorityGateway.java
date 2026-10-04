@@ -12,11 +12,15 @@ import io.crewscope.application.retrieval.PromptInjectionPlan;
 import io.crewscope.application.retrieval.PromptInjectionRequest;
 import io.crewscope.application.retrieval.PromptInjectionService;
 import io.crewscope.application.retrieval.KnowledgeRetrievalQuery;
+import io.crewscope.application.skill.TeamSkillExecutionSource;
 import io.crewscope.application.task.ExecutionLeaseRepository;
 import io.crewscope.application.transaction.AuthoritativeTimeProvider;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.coding.TestEvidence;
 import io.crewscope.domain.identity.Principal;
+import io.crewscope.domain.retrieval.ManifestSourceRef;
+import io.crewscope.domain.retrieval.ManifestSourceStage;
+import io.crewscope.domain.retrieval.ManifestSourceType;
 import io.crewscope.domain.retrieval.SourceCommit;
 import io.crewscope.infrastructure.runtime.RuntimeWorkerRegistrationSpec;
 import io.crewscope.infrastructure.workspace.repository.CodingSpecialistToolSession;
@@ -45,6 +49,7 @@ public final class WorkerCodingSpecialistAuthorityGateway
     private final TransactionExecutor transactions;
     private final PromptInjectionService injection;
     private final InjectionPromptRenderer injectionRenderer;
+    private final TeamSkillExecutionSource teamSkills;
     private final ConcurrentMap<RoundKey, CodingSpecialistToolSession> sessions =
             new ConcurrentHashMap<>();
 
@@ -59,7 +64,8 @@ public final class WorkerCodingSpecialistAuthorityGateway
             AuthoritativeTimeProvider timeProvider,
             TransactionExecutor transactions,
             PromptInjectionService injection,
-            InjectionPromptRenderer injectionRenderer) {
+            InjectionPromptRenderer injectionRenderer,
+            TeamSkillExecutionSource teamSkills) {
         this.workspaces = Objects.requireNonNull(workspaces, "workspaces");
         this.tools = Objects.requireNonNull(tools, "tools");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
@@ -71,6 +77,7 @@ public final class WorkerCodingSpecialistAuthorityGateway
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.injection = Objects.requireNonNull(injection, "injection");
         this.injectionRenderer = Objects.requireNonNull(injectionRenderer, "injectionRenderer");
+        this.teamSkills = teamSkills;
     }
 
     @Override
@@ -244,8 +251,36 @@ public final class WorkerCodingSpecialistAuthorityGateway
                 new KnowledgeRetrievalQuery.RepositoryTarget(
                         workspace.target().scope().projectId(),
                         workspace.target().repositoryBindingId(),
-                        new SourceCommit(workspace.target().baselineCommit().value()))));
+                        new SourceCommit(workspace.target().baselineCommit().value())),
+                dynamicSkillInstructions(facts)));
         return injectionRenderer.render(plan);
+    }
+
+    /**
+     * The sealed manifest is the load-evidence anchor of the dynamic Team Skills (D2):
+     * the same pinned-execution resolution the Step runtime loads from produces the
+     * INJECTED SKILL triples sealed here, so manifest and repository can never drift.
+     * A missing source (older worker assembly) changes nothing.
+     */
+    private List<ManifestSourceRef> dynamicSkillInstructions(TaskExecutionRuntimeFacts facts) {
+        if (teamSkills == null) {
+            return List.of();
+        }
+        return teamSkills
+                .resolveForPinnedExecution(
+                        facts.task().scope().organizationId(),
+                        facts.task().scope().teamId(),
+                        facts.policySnapshot().agentExecutionConfiguration(),
+                        facts.execution().id(),
+                        facts.execution().attempt())
+                .stream()
+                .map(published -> new ManifestSourceRef(
+                        ManifestSourceType.SKILL_INSTRUCTION,
+                        published.skillKey(),
+                        published.revision(),
+                        published.contentHash(),
+                        ManifestSourceStage.INJECTED))
+                .toList();
     }
 
     private Optional<TestEvidence> latestEvidence(CodingWorkspaceExecution execution) {

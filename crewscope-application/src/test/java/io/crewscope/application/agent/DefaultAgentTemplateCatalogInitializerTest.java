@@ -26,7 +26,7 @@ class DefaultAgentTemplateCatalogInitializerTest {
     private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-08-31T00:00:00Z");
 
     @Test
-    void restoresTheSixBuiltInTemplatesExactlyOnce() {
+    void restoresTheSevenBuiltInTemplatesExactlyOnce() {
         RecordingRepository repository = new RecordingRepository();
         DefaultAgentTemplateCatalogInitializer initializer =
                 new DefaultAgentTemplateCatalogInitializer(repository, new ObjectMapper());
@@ -40,13 +40,14 @@ class DefaultAgentTemplateCatalogInitializerTest {
                         "knowledge-distiller",
                         "personal-assistant",
                         "reviewer",
+                        "skill-distiller",
                         "team-coordinator",
                         "team-observer"),
                 repository.values.stream()
                         .map(value -> value.templateVersion().key().value())
                         .sorted()
                         .toList());
-        assertEquals(6, repository.appendCount);
+        assertEquals(7, repository.appendCount);
         assertTrue(repository.values.stream().allMatch(value -> value.status().name().equals("ACTIVE")));
         assertTrue(repository.values.stream()
                 .filter(value -> value.templateVersion().key().equals(new AgentTemplateKey("reviewer")))
@@ -65,8 +66,8 @@ class DefaultAgentTemplateCatalogInitializerTest {
 
         initializer.initialize(ORGANIZATION, ACTOR, NOW);
 
-        assertEquals(6, repository.values.size());
-        assertEquals(6, repository.appendCount);
+        assertEquals(7, repository.values.size());
+        assertEquals(7, repository.appendCount);
     }
 
     @Test

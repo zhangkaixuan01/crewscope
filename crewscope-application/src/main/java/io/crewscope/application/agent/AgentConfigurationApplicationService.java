@@ -102,6 +102,7 @@ public final class AgentConfigurationApplicationService {
     private final CommandReceiptStore receipts;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
+    private final Optional<ApprovedSkillCeilingContributor> skillCeilingContributor;
 
     public AgentConfigurationApplicationService(
             AgentProfileRepository profiles,
@@ -121,6 +122,30 @@ public final class AgentConfigurationApplicationService {
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
+        this(profiles, templates, configurations, connections, catalogs, selectableModels,
+                resolver, governance, teams, memberships, roles, grants, events, outbox,
+                receipts, transactions, timeProvider, null);
+    }
+
+    public AgentConfigurationApplicationService(
+            AgentProfileRepository profiles,
+            AgentTemplateRepository templates,
+            AgentConfigurationRepository configurations,
+            ModelConnectionRepository connections,
+            ModelCatalogEntryRepository catalogs,
+            SelectableModelCatalogService selectableModels,
+            AgentExecutionConfigurationResolver resolver,
+            AgentModelGovernance governance,
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            TeamRoleRepository roles,
+            MemberRoleRepository grants,
+            DomainEventStore events,
+            OutboxRepository outbox,
+            CommandReceiptStore receipts,
+            TransactionExecutor transactions,
+            TimeProvider timeProvider,
+            ApprovedSkillCeilingContributor skillCeilingContributor) {
         this.profiles = Objects.requireNonNull(profiles, "profiles");
         this.templates = Objects.requireNonNull(templates, "templates");
         this.configurations = Objects.requireNonNull(configurations, "configurations");
@@ -138,6 +163,7 @@ public final class AgentConfigurationApplicationService {
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+        this.skillCeilingContributor = Optional.ofNullable(skillCeilingContributor);
     }
 
     /** Returns the current immutable revision after the same visibility check as Agent detail. */
@@ -250,7 +276,8 @@ public final class AgentConfigurationApplicationService {
             }
 
             AgentConfigurationVersion candidate = createCandidate(
-                    facts, current, requiredDraft, now);
+                    facts, current, requiredDraft,
+                    approvedSkillCeilingExtension(facts, organizationId, teamId), now);
             preflightCandidate(facts, candidate);
             AgentConfigurationVersion committed = configurations.append(candidate);
             return complete(trusted, commandId, committed, now);
@@ -282,10 +309,26 @@ public final class AgentConfigurationApplicationService {
         });
     }
 
+    /**
+     * Only the Coding template's execution chain loads dynamic Team Skills (A03b), so
+     * only its saves widen the immutable ceiling with the Team's published keys; every
+     * other template keeps the exact template ceiling and rejects foreign keys as before.
+     */
+    private Set<String> approvedSkillCeilingExtension(
+            ManagementFacts facts, OrganizationId organizationId, TeamId teamId) {
+        if (!"coding".equals(facts.template().templateVersion().key().value())
+                || skillCeilingContributor.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(skillCeilingContributor.orElseThrow()
+                .publishedSkillKeys(organizationId, teamId));
+    }
+
     private AgentConfigurationVersion createCandidate(
             ManagementFacts facts,
             Optional<AgentConfigurationVersion> current,
             AgentConfigurationDraft draft,
+            Set<String> approvedSkillCeilingExtension,
             UtcTimestamp now) {
         Optional<AgentExecutionModelBinding> personal = binding(
                 facts, AgentExecutionScope.PERSONAL, draft.personalModelBinding());
@@ -311,6 +354,7 @@ public final class AgentConfigurationApplicationService {
                     team,
                     draft.supplementalInstructions(),
                     draft.approvedSkillKeys(),
+                    approvedSkillCeilingExtension,
                     draft.memoryPolicy(),
                     draft.budgetPolicy(),
                     facts.governance().policyPack(),
@@ -325,6 +369,7 @@ public final class AgentConfigurationApplicationService {
                 team,
                 draft.supplementalInstructions(),
                 draft.approvedSkillKeys(),
+                approvedSkillCeilingExtension,
                 draft.memoryPolicy(),
                 draft.budgetPolicy(),
                 facts.governance().policyPack(),

@@ -53,7 +53,8 @@ public final class AgentConfigurationVersion {
             SafeModelGenerateOptions generateOptions,
             AuditMetadata audit,
             AgentConfigurationHash expectedConfigurationHash,
-            boolean requireActiveFacts) {
+            boolean requireActiveFacts,
+            Set<String> approvedSkillCeilingExtension) {
         AgentProfile requiredProfile = Objects.requireNonNull(profile, "profile");
         AgentTemplateDefinition requiredTemplate = Objects.requireNonNull(template, "template");
         requireProfileTemplateFacts(requiredProfile, requiredTemplate, requireActiveFacts);
@@ -72,7 +73,9 @@ public final class AgentConfigurationVersion {
         requireBindingShape(requiredProfile, requiredTemplate);
         this.templateConfiguration = requireTemplateConfiguration(
                 requiredTemplate, templateConfiguration);
-        this.approvedSkillKeys = requireApprovedSkills(requiredTemplate, approvedSkillKeys);
+        this.approvedSkillKeys = requireApprovedSkills(
+                requiredTemplate, approvedSkillKeys, approvedSkillCeilingExtension,
+                requireActiveFacts);
         this.memoryPolicy = Objects.requireNonNull(memoryPolicy, "memoryPolicy");
         this.budgetPolicy = Objects.requireNonNull(budgetPolicy, "budgetPolicy");
         this.policyPack = Objects.requireNonNull(policyPack, "policyPack");
@@ -105,6 +108,43 @@ public final class AgentConfigurationVersion {
             SafeModelGenerateOptions generateOptions,
             PrincipalId actor,
             UtcTimestamp occurredAt) {
+        return createInitial(
+                profile,
+                template,
+                ownerUserPrincipalId,
+                personalModelBinding,
+                teamModelBinding,
+                supplementalInstructions,
+                approvedSkillKeys,
+                Set.of(),
+                memoryPolicy,
+                budgetPolicy,
+                policyPack,
+                generateOptions,
+                actor,
+                occurredAt);
+    }
+
+    /**
+     * Creates revision one with a caller-proven approved-Skill ceiling extension (M10-A03b):
+     * the extension widens, never narrows, the immutable template ceiling and is supplied by
+     * the save boundary that can prove the keys are currently published for this Team.
+     */
+    public static AgentConfigurationVersion createInitial(
+            AgentProfile profile,
+            AgentTemplateDefinition template,
+            Optional<PrincipalId> ownerUserPrincipalId,
+            Optional<AgentExecutionModelBinding> personalModelBinding,
+            Optional<AgentExecutionModelBinding> teamModelBinding,
+            Optional<String> supplementalInstructions,
+            Set<String> approvedSkillKeys,
+            Set<String> approvedSkillCeilingExtension,
+            Optional<AgentMemoryPolicyReference> memoryPolicy,
+            Optional<AgentBudgetPolicyReference> budgetPolicy,
+            PolicyPackReference policyPack,
+            SafeModelGenerateOptions generateOptions,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
         AgentTemplateDefinition requiredTemplate = Objects.requireNonNull(template, "template");
         AgentTemplateMemberConfiguration configuration = requiredTemplate.policy()
                 .resolveMemberConfiguration(
@@ -127,7 +167,8 @@ public final class AgentConfigurationVersion {
                 generateOptions,
                 AuditMetadata.createdBy(actor, occurredAt),
                 null,
-                true);
+                true,
+                approvedSkillCeilingExtension);
     }
 
     /** Appends the next revision and leaves this historical version unchanged. */
@@ -138,6 +179,37 @@ public final class AgentConfigurationVersion {
             Optional<AgentExecutionModelBinding> nextTeamModelBinding,
             Optional<String> nextSupplementalInstructions,
             Set<String> nextApprovedSkillKeys,
+            Optional<AgentMemoryPolicyReference> nextMemoryPolicy,
+            Optional<AgentBudgetPolicyReference> nextBudgetPolicy,
+            PolicyPackReference nextPolicyPack,
+            SafeModelGenerateOptions nextGenerateOptions,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
+        return appendNext(
+                profile,
+                template,
+                nextPersonalModelBinding,
+                nextTeamModelBinding,
+                nextSupplementalInstructions,
+                nextApprovedSkillKeys,
+                Set.of(),
+                nextMemoryPolicy,
+                nextBudgetPolicy,
+                nextPolicyPack,
+                nextGenerateOptions,
+                actor,
+                occurredAt);
+    }
+
+    /** Appends the next revision against a caller-proven approved-Skill ceiling extension. */
+    public AgentConfigurationVersion appendNext(
+            AgentProfile profile,
+            AgentTemplateDefinition template,
+            Optional<AgentExecutionModelBinding> nextPersonalModelBinding,
+            Optional<AgentExecutionModelBinding> nextTeamModelBinding,
+            Optional<String> nextSupplementalInstructions,
+            Set<String> nextApprovedSkillKeys,
+            Set<String> approvedSkillCeilingExtension,
             Optional<AgentMemoryPolicyReference> nextMemoryPolicy,
             Optional<AgentBudgetPolicyReference> nextBudgetPolicy,
             PolicyPackReference nextPolicyPack,
@@ -166,7 +238,8 @@ public final class AgentConfigurationVersion {
                 nextGenerateOptions,
                 AuditMetadata.createdBy(actor, occurredAt),
                 null,
-                true);
+                true,
+                approvedSkillCeilingExtension);
     }
 
     /** Reconstitutes a historical revision and verifies its exact canonical hash. */
@@ -202,7 +275,8 @@ public final class AgentConfigurationVersion {
                 generateOptions,
                 audit,
                 Objects.requireNonNull(configurationHash, "configurationHash"),
-                false);
+                false,
+                Set.of());
     }
 
     private void requireSameProfileAndTemplate(
@@ -464,14 +538,30 @@ public final class AgentConfigurationVersion {
         return required;
     }
 
+    /**
+     * Writes validate the approved keys against the template ceiling extended by the
+     * caller-proven domain (M10-A03b: the Coding template ceiling is static and hash-pinned,
+     * so a Team's published Team Skills join the ceiling explicitly at the save boundary).
+     * Reconstituted rows replay a committed fact — their integrity is the canonical
+     * configurationHash, and a persisted extension key must survive repository round-trips.
+     */
     private static Set<String> requireApprovedSkills(
-            AgentTemplateDefinition template, Set<String> approvedSkillKeys) {
+            AgentTemplateDefinition template,
+            Set<String> approvedSkillKeys,
+            Set<String> approvedSkillCeilingExtension,
+            boolean verifyCeiling) {
         Set<String> required = Set.copyOf(
                 Objects.requireNonNull(approvedSkillKeys, "approvedSkillKeys"));
-        if (!template.policy().approvedSkillKeys().containsAll(required)) {
-            throw new DomainValidationException(
-                    "agentConfiguration.approvedSkillKeys",
-                    "must be a subset of the Agent template approved Skills");
+        if (verifyCeiling) {
+            java.util.HashSet<String> ceiling = new java.util.HashSet<>(
+                    template.policy().approvedSkillKeys());
+            ceiling.addAll(Set.copyOf(Objects.requireNonNull(
+                    approvedSkillCeilingExtension, "approvedSkillCeilingExtension")));
+            if (!ceiling.containsAll(required)) {
+                throw new DomainValidationException(
+                        "agentConfiguration.approvedSkillKeys",
+                        "must be a subset of the Agent template approved Skills");
+            }
         }
         return required;
     }

@@ -20,6 +20,7 @@ import io.crewscope.agentscope.coding.CodingSpecialistFactory;
 import io.crewscope.agentscope.coding.CodingSpecialistSkillBundle;
 import io.crewscope.agentscope.coding.CodingSpecialistAuthorityGateway;
 import io.crewscope.agentscope.coding.CodingSpecialistStepRuntime;
+import io.crewscope.application.skill.TeamSkillExecutionSource;
 import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
 import io.crewscope.application.coding.CodingCheckpointRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
@@ -281,7 +282,8 @@ public class TaskWorkerConfiguration {
             AuthoritativeTimeProvider timeProvider,
             TransactionExecutor transactionExecutor,
             PromptInjectionService promptInjection,
-            InjectionPromptRenderer injectionPromptRenderer) {
+            InjectionPromptRenderer injectionPromptRenderer,
+            ObjectProvider<TeamSkillExecutionSource> teamSkills) {
         return new WorkerCodingSpecialistAuthorityGateway(
                 workspaces,
                 tools,
@@ -293,7 +295,8 @@ public class TaskWorkerConfiguration {
                 timeProvider,
                 transactionExecutor,
                 promptInjection,
-                injectionPromptRenderer);
+                injectionPromptRenderer,
+                teamSkills.getIfAvailable());
     }
 
     /** M4-A03 supplies the production Workspace/Tool lifecycle Gateway. */
@@ -303,9 +306,11 @@ public class TaskWorkerConfiguration {
             AgentScopeCodingRuntime runtime,
             CodingSpecialistAuthorityGateway authorityGateway,
             DurableCodingSpecialistExecutionStore executionStore,
-            CodingOutputValidator outputValidator) {
+            CodingOutputValidator outputValidator,
+            ObjectProvider<TeamSkillExecutionSource> teamSkills) {
         return new CodingSpecialistStepRuntime(
-                runtime, authorityGateway, executionStore, outputValidator);
+                runtime, authorityGateway, executionStore, outputValidator,
+                teamSkills.getIfAvailable());
     }
 
     /** Routes Coding Task completion into the Specialist before the owning Lease is released. */

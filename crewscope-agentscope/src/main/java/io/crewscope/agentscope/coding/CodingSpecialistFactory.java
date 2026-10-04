@@ -18,13 +18,16 @@ import io.crewscope.agentscope.AgentModelRole;
 import io.crewscope.agentscope.AgentScopeModelResolver;
 import io.crewscope.agentscope.ObservableAgentScopeModel;
 import io.crewscope.agentscope.ToolMessageProtocolRepairMiddleware;
+import io.crewscope.application.skill.TeamSkillExecutionSource;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -72,18 +75,35 @@ public final class CodingSpecialistFactory {
             TaskAgentRuntimeSession runtimeSession,
             Toolkit toolkit,
             io.crewscope.agentscope.model.ResolvedAgentScopeModels pinnedModels) {
+        return createPinned(runtimeSession, toolkit, pinnedModels, List.of());
+    }
+
+    /**
+     * Worker variant with this attempt's resolved dynamic Team Skills (M10-A03b): the
+     * agent loads them from a private read-only repository joined onto the built-in one,
+     * under an allow-list that admits exactly the built-in name plus the approved keys.
+     */
+    public HarnessAgent createPinned(
+            TaskAgentRuntimeSession runtimeSession,
+            Toolkit toolkit,
+            io.crewscope.agentscope.model.ResolvedAgentScopeModels pinnedModels,
+            List<TeamSkillExecutionSource.PublishedTeamSkill>
+                    dynamicTeamSkills) {
         TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
         CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
         io.crewscope.agentscope.model.ResolvedAgentScopeModels pinned =
                 Objects.requireNonNull(pinnedModels, "pinnedModels");
         CodingSpecialistConfiguration operational = configuration(session);
+        // Delegates through the resolved composition so no env-slot modelId is ever
+        // resolved: the pinned pair must reach the agent untouched (M9b-Q02).
         return createResolved(
                 session,
                 toolkit,
                 pinned.primary(),
                 pinned.fallback(),
                 operational.systemPrompt(),
-                SafeModelGenerateOptions.defaults());
+                SafeModelGenerateOptions.defaults(),
+                Objects.requireNonNull(dynamicTeamSkills, "dynamicTeamSkills"));
     }
 
     /** Reuses the complete M4 Coding composition with M5's preflighted models and Template prompt. */
@@ -94,6 +114,21 @@ public final class CodingSpecialistFactory {
             Optional<Model> fallbackModel,
             String systemPrompt,
             SafeModelGenerateOptions generateOptions) {
+        return createResolved(
+                runtimeSession, toolkit, primaryModel, fallbackModel, systemPrompt,
+                generateOptions, List.of());
+    }
+
+    /** Same composition with this attempt's resolved dynamic Team Skills (M10-A03b). */
+    public HarnessAgent createResolved(
+            TaskAgentRuntimeSession runtimeSession,
+            Toolkit toolkit,
+            Model primaryModel,
+            Optional<Model> fallbackModel,
+            String systemPrompt,
+            SafeModelGenerateOptions generateOptions,
+            List<TeamSkillExecutionSource.PublishedTeamSkill>
+                    dynamicTeamSkills) {
         TaskAgentRuntimeSession session = requireSpecialistSession(runtimeSession);
         CodingSpecialistToolSurface.requireControlledToolkit(toolkit);
         CodingSpecialistConfiguration operational = configuration(session);
@@ -122,13 +157,30 @@ public final class CodingSpecialistFactory {
                 operational.compactionKeepMessages(),
                 operational.toolResultEvictionChars(),
                 operational.toolResultPreviewChars());
-        return createAgent(session, toolkit, runtime);
+        return createAgent(
+                session, toolkit, runtime,
+                Objects.requireNonNull(dynamicTeamSkills, "dynamicTeamSkills"));
     }
 
     private HarnessAgent createAgent(
             TaskAgentRuntimeSession session,
             Toolkit toolkit,
             RuntimeConfiguration configuration) {
+        return createAgent(session, toolkit, configuration, List.of());
+    }
+
+    /**
+     * Single agent construction path. With no dynamic skills the composition stays exactly
+     * the pre-A03b shape; otherwise the built-in repository is joined by one private
+     * read-only in-memory repository and the allow-list widens to precisely the approved
+     * keys — nothing else about the nine frozen hard-disable surface moves.
+     */
+    private HarnessAgent createAgent(
+            TaskAgentRuntimeSession session,
+            Toolkit toolkit,
+            RuntimeConfiguration configuration,
+            List<TeamSkillExecutionSource.PublishedTeamSkill>
+                    dynamicTeamSkills) {
 
         String stableName = "crewscope-coding-"
                 + session.agentProfileId()
@@ -141,6 +193,15 @@ public final class CodingSpecialistFactory {
         Set<String> evictionExclusions = new HashSet<>(
                 CodingSpecialistToolSurface.FILESYSTEM_TOOLS);
         evictionExclusions.add(CodingSpecialistToolSurface.SKILL_LOAD_TOOL);
+
+        // The allow-list admits exactly the built-in name plus the approved keys resolved
+        // for this attempt; with no dynamic skills it stays the single frozen name.
+        List<String> allowedSkillNames = new ArrayList<>();
+        allowedSkillNames.add(CodingSpecialistSkillBundle.SKILL_NAME);
+        for (TeamSkillExecutionSource.PublishedTeamSkill published : dynamicTeamSkills) {
+            allowedSkillNames.add(published.skillKey());
+        }
+        String[] skillNameArray = allowedSkillNames.toArray(String[]::new);
 
         HarnessAgent.Builder builder = HarnessAgent.builder()
                 .name(stableName)
@@ -192,7 +253,7 @@ public final class CodingSpecialistFactory {
                         .previewChars(configuration.toolResultPreviewChars())
                         .excludedToolNames(evictionExclusions)
                         .build())
-                .skillFilter(SkillFilter.only(CodingSpecialistSkillBundle.SKILL_NAME))
+                .skillFilter(SkillFilter.only(skillNameArray))
                 .disableDefaultWorkspaceSkills()
                 .disableFilesystemTools()
                 .disableShellTool()
@@ -207,11 +268,21 @@ public final class CodingSpecialistFactory {
         configuration.fallbackModel().ifPresent(builder::fallbackModel);
 
         // AgentScope 2.0 installs its read-only Skill loader through per-call middleware. The
-        // single classpath repository, its content hash and the filter above are immutable.
+        // single classpath repository, its content hash and the filter above are immutable;
+        // dynamic Team Skills join as one more read-only repository whose contents are the
+        // attempt's sealed evidence, never a writable catalog surface.
         ClasspathSkillRepository skillRepository = skillBundle.openRepository();
         HarnessAgent agent;
         try {
-            agent = builder.skillRepository(skillRepository).build();
+            if (dynamicTeamSkills.isEmpty()) {
+                agent = builder.skillRepository(skillRepository).build();
+            } else {
+                agent = builder
+                        .skillRepositories(List.of(
+                                skillRepository,
+                                new InMemoryTeamSkillRepository(dynamicTeamSkills)))
+                        .build();
+            }
         } catch (RuntimeException exception) {
             skillRepository.close();
             throw exception;

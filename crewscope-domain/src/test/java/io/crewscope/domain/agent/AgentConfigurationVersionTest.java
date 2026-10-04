@@ -564,6 +564,102 @@ class AgentConfigurationVersionTest {
                 attack.id(), attack.operation()::run));
     }
 
+    @Test
+    void widensApprovedSkillCeilingOnlyThroughCallerProvenExtension() {
+        AgentTemplateDefinition template = AgentConfigurationTestFixture.specialistTemplate();
+        AgentProfile profile = AgentConfigurationTestFixture.userProfile(template);
+
+        // The immutable template ceiling still rejects unpublished keys on the classic path.
+        assertThrows(DomainValidationException.class, () ->
+                AgentConfigurationVersion.createInitial(
+                        profile,
+                        template,
+                        Optional.of(OWNER_USER_ID),
+                        basicPersonalBinding(),
+                        Optional.of(AgentExecutionModelBinding.inheritTeamDefault()),
+                        Optional.empty(),
+                        Set.of("team-skill-x"),
+                        Optional.empty(),
+                        Optional.empty(),
+                        policyPack(1),
+                        SafeModelGenerateOptions.defaults(),
+                        ACTOR,
+                        CREATED_AT));
+
+        // The caller-proven extension admits exactly the published Team Skill domain.
+        AgentConfigurationVersion widened = AgentConfigurationVersion.createInitial(
+                profile,
+                template,
+                Optional.of(OWNER_USER_ID),
+                basicPersonalBinding(),
+                Optional.of(AgentExecutionModelBinding.inheritTeamDefault()),
+                Optional.empty(),
+                Set.of("team-skill-x"),
+                Set.of("team-skill-x"),
+                Optional.empty(),
+                Optional.empty(),
+                policyPack(1),
+                SafeModelGenerateOptions.defaults(),
+                ACTOR,
+                CREATED_AT);
+        assertEquals(Set.of("team-skill-x"), widened.approvedSkillKeys());
+
+        // The extension widens; it can never hide a genuine template ceiling key.
+        AgentConfigurationVersion baseline = widened.appendNext(
+                profile,
+                template,
+                basicPersonalBinding(),
+                Optional.of(AgentExecutionModelBinding.inheritTeamDefault()),
+                Optional.empty(),
+                Set.of("java-review"),
+                Set.of(),
+                Optional.empty(),
+                Optional.empty(),
+                policyPack(1),
+                SafeModelGenerateOptions.defaults(),
+                ACTOR,
+                CREATED_AT);
+        assertEquals(Set.of("java-review"), baseline.approvedSkillKeys());
+
+        // Keys outside both the ceiling and the extension stay rejected.
+        assertThrows(DomainValidationException.class, () ->
+                AgentConfigurationVersion.createInitial(
+                        profile,
+                        template,
+                        Optional.of(OWNER_USER_ID),
+                        basicPersonalBinding(),
+                        Optional.of(AgentExecutionModelBinding.inheritTeamDefault()),
+                        Optional.empty(),
+                        Set.of("team-skill-x", "rogue-skill"),
+                        Set.of("team-skill-x"),
+                        Optional.empty(),
+                        Optional.empty(),
+                        policyPack(1),
+                        SafeModelGenerateOptions.defaults(),
+                        ACTOR,
+                        CREATED_AT));
+
+        // A persisted extension key must survive repository round-trips.
+        AgentConfigurationVersion restored = AgentConfigurationVersion.reconstitute(
+                profile,
+                template,
+                Optional.of(OWNER_USER_ID),
+                widened.revision(),
+                widened.previousRevision(),
+                widened.personalModelBinding(),
+                widened.teamModelBinding(),
+                widened.templateConfiguration(),
+                widened.approvedSkillKeys(),
+                widened.memoryPolicy(),
+                widened.budgetPolicy(),
+                widened.policyPack(),
+                widened.generateOptions(),
+                widened.configurationHash(),
+                widened.audit());
+        assertEquals(widened.configurationHash(), restored.configurationHash());
+        assertEquals(Set.of("team-skill-x"), restored.approvedSkillKeys());
+    }
+
     private static AgentConfigurationVersion basicUserConfiguration(
             AgentProfile profile, AgentTemplateDefinition template) {
         return AgentConfigurationVersion.createInitial(

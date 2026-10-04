@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: a4fced1a7de056227c08fb84a046596e34e44254df2270e45cd2167a633aabff
+// Controller source SHA-256: 0222579bf4aec840461bb0680d993bd935ff84e58d6b457fbcc7427879579fd9
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1294,6 +1294,90 @@ export const openApiDocument = {
         "operationId": "TeamSetupReadinessController_get",
         "tags": [
           "TeamSetupReadinessController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills": {
+      "get": {
+        "operationId": "TeamSkillController_list",
+        "tags": [
+          "TeamSkillController"
+        ]
+      },
+      "post": {
+        "operationId": "TeamSkillController_create",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}": {
+      "get": {
+        "operationId": "TeamSkillController_get",
+        "tags": [
+          "TeamSkillController"
+        ]
+      },
+      "patch": {
+        "operationId": "TeamSkillController_updateDraft",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/disable": {
+      "post": {
+        "operationId": "TeamSkillController_disable",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/effective-version": {
+      "get": {
+        "operationId": "TeamSkillController_effectiveVersion",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/publish": {
+      "post": {
+        "operationId": "TeamSkillController_publish",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/rollback": {
+      "post": {
+        "operationId": "TeamSkillController_rollback",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/versions": {
+      "get": {
+        "operationId": "TeamSkillController_versions",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/versions/{revision}": {
+      "get": {
+        "operationId": "TeamSkillController_version",
+        "tags": [
+          "TeamSkillController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/distillations": {
+      "post": {
+        "operationId": "TeamSkillController_distill",
+        "tags": [
+          "TeamSkillController"
         ]
       }
     },
@@ -3037,6 +3121,72 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills",
+    "operationId": "TeamSkillController_list",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills",
+    "operationId": "TeamSkillController_create",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}",
+    "operationId": "TeamSkillController_get",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}",
+    "operationId": "TeamSkillController_updateDraft",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/disable",
+    "operationId": "TeamSkillController_disable",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/effective-version",
+    "operationId": "TeamSkillController_effectiveVersion",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/publish",
+    "operationId": "TeamSkillController_publish",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/rollback",
+    "operationId": "TeamSkillController_rollback",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/versions",
+    "operationId": "TeamSkillController_versions",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/{skillId}/versions/{revision}",
+    "operationId": "TeamSkillController_version",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/skills/distillations",
+    "operationId": "TeamSkillController_distill",
+    "controller": "TeamSkillController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/tasks",
     "operationId": "TaskQueryController_list",
     "controller": "TaskQueryController"
@@ -3618,4 +3768,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 262 as const
+export const openApiOperationCount = 273 as const

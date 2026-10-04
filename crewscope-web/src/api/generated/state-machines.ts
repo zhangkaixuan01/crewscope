@@ -1,7 +1,7 @@
 /* eslint-disable */
 // GENERATED FILE. Source: crewscope-domain transition maps.
 // Regenerate with: node scripts/generate-state-machine.mjs
-// Domain source SHA-256: 17f36c670cf6ed01780d46b5bdb1fe28c4fd80b3063eaa33c436014ea5900047
+// Domain source SHA-256: 095c233c61bf7d10f75070c7509931e884be9afb585471518c7180861bc83b0d
 
 export interface GeneratedStateMachine {
   readonly name: string
@@ -490,6 +490,29 @@ export const stateMachines = {
     "terminalStates": [
       "ARCHIVED"
     ]
+  },
+  "TeamSkill": {
+    "name": "TeamSkill",
+    "statusType": "TeamSkillStatus",
+    "states": [
+      "DISABLED",
+      "DRAFT",
+      "PUBLISHED"
+    ],
+    "transitions": {
+      "DRAFT": [
+        "PUBLISHED",
+        "DISABLED"
+      ],
+      "PUBLISHED": [
+        "PUBLISHED",
+        "DISABLED"
+      ],
+      "DISABLED": [
+        "PUBLISHED"
+      ]
+    },
+    "terminalStates": []
   },
   "UserAccount": {
     "name": "UserAccount",

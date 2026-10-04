@@ -3,11 +3,14 @@ package io.crewscope.infrastructure.persistence.team;
 import static io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdapter.previousVersion;
 
 import io.crewscope.application.knowledge.KnowledgeDistillerRepository;
+import io.crewscope.application.skill.SkillDistillerRepository;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.DefaultPersonalAgentRepository;
 import io.crewscope.application.teamobserver.DefaultTeamObserverRepository;
 import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerInitialization;
 import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerTemplate;
+import io.crewscope.domain.skill.distiller.SkillDistillerInitialization;
+import io.crewscope.domain.skill.distiller.SkillDistillerTemplate;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
@@ -41,7 +44,8 @@ public class JpaAgentProfileRepositoryAdapter
         implements AgentProfileRepository,
                 DefaultPersonalAgentRepository,
                 DefaultTeamObserverRepository,
-                KnowledgeDistillerRepository {
+                KnowledgeDistillerRepository,
+                SkillDistillerRepository {
     private final TeamPersistenceMapper mapper;
     @PersistenceContext private EntityManager entityManager;
 
@@ -321,6 +325,108 @@ public class JpaAgentProfileRepositoryAdapter
         update(required.agentProfile());
         entityManager.clear();
         return findDistillerForTeam(
+                        required.agentProfile().scope().organizationId(),
+                        required.agentProfile().scope().teamId().orElseThrow())
+                .orElseThrow();
+    }
+
+    @Override
+    @Transactional
+    public SkillDistillerInitialization initializeIfAbsent(
+            SkillDistillerInitialization candidate) {
+        SkillDistillerInitialization required = Objects.requireNonNull(candidate, "candidate");
+        AgentProfile profile = required.agentProfile();
+        TeamId teamId = profile.scope().teamId().orElseThrow();
+
+        // The same Team pessimistic lock serializes Skill Distiller provisioning too.
+        entityManager
+                .createQuery(
+                        """
+                        SELECT team FROM TeamEntity team
+                        WHERE team.organizationId = :organizationId AND team.id = :teamId
+                        """,
+                        TeamEntity.class)
+                .setParameter("organizationId", profile.scope().organizationId().value())
+                .setParameter("teamId", teamId.value())
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .getResultStream()
+                .findFirst()
+                .orElseThrow(() -> new AggregateNotFoundException("Team", teamId));
+
+        Optional<SkillDistillerInitialization> existing =
+                findSkillDistillerForTeam(profile.scope().organizationId(), teamId);
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+        entityManager.persist(mapper.toEntity(required.agentPrincipal()));
+        entityManager.persist(mapper.toEntity(profile));
+        entityManager.flush();
+        return findSkillDistillerForTeam(profile.scope().organizationId(), teamId).orElseThrow();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<SkillDistillerInitialization> findSkillDistillerForTeam(
+            OrganizationId organizationId, TeamId teamId) {
+        Optional<AgentProfileEntity> profile = entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM AgentProfileEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.teamId = :teamId
+                          AND value.templateKey = :templateKey
+                          AND value.templateVersion = :templateVersion
+                        """,
+                        AgentProfileEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("teamId", Objects.requireNonNull(teamId).value())
+                .setParameter("templateKey", SkillDistillerTemplate.VERSION.key().value())
+                .setParameter("templateVersion", SkillDistillerTemplate.VERSION.version())
+                .getResultStream()
+                .findFirst();
+        if (profile.isEmpty()) {
+            return Optional.empty();
+        }
+        AgentProfile committedProfile = mapper.toDomain(profile.orElseThrow());
+        PrincipalEntity principal = findPrincipal(
+                        organizationId, committedProfile.agentPrincipalId().value())
+                .orElseThrow(() -> new AggregateNotFoundException(
+                        "Principal", committedProfile.agentPrincipalId()));
+        return Optional.of(new SkillDistillerInitialization(
+                mapper.toDomain(principal), committedProfile));
+    }
+
+    @Override
+    @Transactional
+    public SkillDistillerInitialization updateLifecycle(
+            SkillDistillerInitialization initialization) {
+        SkillDistillerInitialization required =
+                Objects.requireNonNull(initialization, "initialization");
+        var principal = required.agentPrincipal();
+        long expectedPrincipal = previousVersion(
+                principal.version(), "skillDistiller.agentPrincipal.version");
+        int principalAffected = entityManager
+                .createQuery(
+                        """
+                        UPDATE PrincipalEntity value
+                           SET value.status = :status,
+                               value.updatedAt = :updatedAt,
+                               value.version = :version
+                         WHERE value.organizationId = :organizationId
+                           AND value.id = :id
+                           AND value.version = :expected
+                        """)
+                .setParameter("status", principal.status().name())
+                .setParameter("updatedAt", principal.lifecycle().updatedAt().value())
+                .setParameter("version", principal.version())
+                .setParameter("organizationId", principal.scope().organizationId().value())
+                .setParameter("id", principal.id().value())
+                .setParameter("expected", expectedPrincipal)
+                .executeUpdate();
+        verifyPrincipalLifecycleUpdate(principalAffected, principal, expectedPrincipal);
+        update(required.agentProfile());
+        entityManager.clear();
+        return findSkillDistillerForTeam(
                         required.agentProfile().scope().organizationId(),
                         required.agentProfile().scope().teamId().orElseThrow())
                 .orElseThrow();

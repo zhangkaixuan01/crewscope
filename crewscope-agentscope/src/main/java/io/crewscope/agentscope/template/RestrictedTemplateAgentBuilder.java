@@ -6,6 +6,8 @@ import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeContextMiddleware;
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerUsageMiddleware;
 import io.crewscope.agentscope.review.ReviewerRuntimeContextMiddleware;
+import io.crewscope.agentscope.skill.SkillDistillerRuntimeContextMiddleware;
+import io.crewscope.agentscope.skill.SkillDistillerUsageMiddleware;
 import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeContextMiddleware;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,6 +25,8 @@ public final class RestrictedTemplateAgentBuilder {
     private final ReviewerRuntimeContextMiddleware reviewerMiddleware;
     private final KnowledgeDistillerRuntimeContextMiddleware distillerMiddleware;
     private final KnowledgeDistillerUsageMiddleware distillerUsageMiddleware;
+    private final SkillDistillerRuntimeContextMiddleware skillDistillerMiddleware;
+    private final SkillDistillerUsageMiddleware skillDistillerUsageMiddleware;
 
     public RestrictedTemplateAgentBuilder(
             AgentStateStore stateStore,
@@ -56,6 +60,24 @@ public final class RestrictedTemplateAgentBuilder {
             ReviewerRuntimeContextMiddleware reviewerMiddleware,
             KnowledgeDistillerRuntimeContextMiddleware distillerMiddleware,
             KnowledgeDistillerUsageMiddleware distillerUsageMiddleware) {
+        this(stateStore, runtimeRoot, maximumIterations, middlewareSet,
+                teamObserverMiddleware, reviewerMiddleware,
+                distillerMiddleware, distillerUsageMiddleware,
+                new SkillDistillerRuntimeContextMiddleware(),
+                new SkillDistillerUsageMiddleware());
+    }
+
+    public RestrictedTemplateAgentBuilder(
+            AgentStateStore stateStore,
+            Path runtimeRoot,
+            int maximumIterations,
+            PlatformAgentMiddlewareSet middlewareSet,
+            TeamObserverRuntimeContextMiddleware teamObserverMiddleware,
+            ReviewerRuntimeContextMiddleware reviewerMiddleware,
+            KnowledgeDistillerRuntimeContextMiddleware distillerMiddleware,
+            KnowledgeDistillerUsageMiddleware distillerUsageMiddleware,
+            SkillDistillerRuntimeContextMiddleware skillDistillerMiddleware,
+            SkillDistillerUsageMiddleware skillDistillerUsageMiddleware) {
         this.stateStore = Objects.requireNonNull(stateStore, "stateStore");
         this.runtimeRoot = Objects.requireNonNull(runtimeRoot, "runtimeRoot")
                 .toAbsolutePath()
@@ -73,6 +95,10 @@ public final class RestrictedTemplateAgentBuilder {
                 distillerMiddleware, "distillerMiddleware");
         this.distillerUsageMiddleware = Objects.requireNonNull(
                 distillerUsageMiddleware, "distillerUsageMiddleware");
+        this.skillDistillerMiddleware = Objects.requireNonNull(
+                skillDistillerMiddleware, "skillDistillerMiddleware");
+        this.skillDistillerUsageMiddleware = Objects.requireNonNull(
+                skillDistillerUsageMiddleware, "skillDistillerUsageMiddleware");
     }
 
     public HarnessAgent build(TemplateAgentBuildRequest request, String description) {
@@ -140,6 +166,8 @@ public final class RestrictedTemplateAgentBuilder {
             case TEAM_OBSERVER -> java.util.List.of(teamObserverMiddleware);
             case REVIEW -> java.util.List.of(reviewerMiddleware);
             case DISTILLER -> java.util.List.of(distillerMiddleware, distillerUsageMiddleware);
+            case SKILL_DISTILLER -> java.util.List.of(
+                    skillDistillerMiddleware, skillDistillerUsageMiddleware);
             case CONVERSATION, TASK -> platformMiddlewares;
         };
     }

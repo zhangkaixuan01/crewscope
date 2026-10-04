@@ -1,6 +1,6 @@
 # ADR-031：Skill 沉淀与多 Agent 协同拓扑
 
-> 状态：Skill 部分 ACCEPTED（M10-S01 设计冻结；实现归属 A03/F02）；拓扑部分 **PROPOSED-待选入**（仅 E01 选做时激活，S01 未冻结，本文不构成拓扑承诺）<br>
+> 状态：Skill 部分 ACCEPTED（M10-S01 设计冻结；A03a 目录/审批版本合同已交付 2026-10-04，见[Skill 目录与审核 API 契约](../api/M10-Skill目录与审核API契约.md)；**A03b 真实提炼端点与 Coding 执行接线已于 2026-10-04 交付，A03 父包关闭**——提炼门=本人选择权（任务创建者），skillKey 为命令参数模型只产 description/body，产物 DRAFT；保存侧上限=policy 上限 ∪ Team 目录 PUBLISHED keys（扩展域经 append-only 版本行哈希对账）；执行加载 allow-list 按快照钉住的 approvedSkillKeys 构建，注入清单 INJECTED `SKILL_INSTRUCTION` refs 即 (skillKey, revision, contentHash) 加载证据，与只读内存仓库同源、hash 不一致 fail-close；injection.enabled=false 时动态不加载、内置照常）；拓扑部分 **PROPOSED-待选入**（仅 E01 选做时激活，S01 未冻结，本文不构成拓扑承诺）<br>
 > 日期：2026-10-01；源码基线：`6645c9a`<br>
 > 归属：M10-S01/A03/F02；拓扑增量归属 E01/F02/F03<br>
 > 关联：[S01 冻结记录](../spikes/M10-S01-知识与检索合同冻结.md)、[ADR-030 三层模型](ADR-030-知识与记忆三层模型.md)、[ADR-016 Agent 模板与执行配置](ADR-016-Agent所有权、模板与执行配置.md)、[ADR-017 Reviewer 与 Human Gate](ADR-017-Reviewer证据与人工Gate边界.md)。
@@ -41,7 +41,7 @@ M10 主线要把「反复出现的执行套路」沉淀为 Team Skill 复用。�
 
 ### 5. 验证
 
-A03a：目录/审批/版本合同（幂等、披露、版本冲突 409 对齐既有约定）。A03b：真实提炼、Factory 接线、真实后续任务加载指定发布版本、内置 Skill 回归、撤权不使用、同名拒绝、加载证据与运行快照一致。F02：目录/Diff/审核/发布/禁用/回滚/历史证据呈现。Q02：真实闭环第二次执行加载已发布 Skill。
+A03a：目录/审批/版本合同（幂等、披露、版本冲突 409 对齐既有约定）——**已交付（2026-10-04）**：domain/application/infrastructure/server 四层 + V61 迁移 + TEAM_ADMIN SKILL_MANAGE 回填 + `crewscope.skill.enabled` 写门（默认关），契约见[Skill 目录与审核 API 契约](../api/M10-Skill目录与审核API契约.md)。A03b：真实提炼、Factory 接线、真实后续任务加载指定发布版本、内置 Skill 回归、撤权不使用、同名拒绝、加载证据与运行快照一致。F02：目录/Diff/审核/发布/禁用/回滚/历史证据呈现。Q02：真实闭环第二次执行加载已发布 Skill。
 
 ## 二、多 Agent 协同拓扑（PROPOSED-待选入，未冻结）
 

@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 262 = 259 + 3 injection reference view, feedback, claimed (M10-I02c).
-if (operationCount !== 262) {
-  console.error(`OpenAPI operation baseline changed: expected 262, found ${operationCount}`)
+// 273 = 272 + 1 team skill distillation endpoint (M10-A03b).
+if (operationCount !== 273) {
+  console.error(`OpenAPI operation baseline changed: expected 273, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {
@@ -51,7 +51,7 @@ if (openApi.includes('Mapping}}')) {
 const stateMachinePath = resolve(root, 'crewscope-web/src/api/generated/state-machines.ts')
 const stateMachines = await readFile(stateMachinePath, 'utf8').catch(() => '')
 const aggregateCount = (stateMachines.match(/^  "[^"]+": \{$/gm) ?? []).length
-if (aggregateCount !== 17) {
+if (aggregateCount !== 18) {
   console.error(`State-machine aggregate baseline changed: expected 17, found ${aggregateCount}`)
   process.exit(1)
 }
@@ -91,5 +91,5 @@ if (boundsMissing.length) {
 }
 
 console.log('OpenAPI generated artefact is present and declares OpenAPI 3.1.0.')
-console.log('State-machine generated artefact covers 17 aggregates and the 8-state/17-edge WorkItem machine.')
+console.log('State-machine generated artefact covers 18 aggregates and the 8-state/17-edge WorkItem machine.')
 console.log('GenerateOptions limit artefact covers 4 bounded fields with numeric bounds and whole steps.')

@@ -24,7 +24,8 @@ public enum BuiltInTeamRole {
                     TeamPermission.COLLABORATION_REQUEST,
                     TeamPermission.TEAM_OBSERVE,
                     TeamPermission.AUDIT_READ,
-                    TeamPermission.KNOWLEDGE_MANAGE)),
+                    TeamPermission.KNOWLEDGE_MANAGE,
+                    TeamPermission.SKILL_MANAGE)),
     TEAM_LEAD(
             "Team Lead",
             EnumSet.of(

@@ -37,6 +37,7 @@ import io.crewscope.domain.retrieval.PromptBudgetSnapshot;
 import io.crewscope.domain.retrieval.SourceCommit;
 import io.crewscope.domain.retrieval.TokenEstimator;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
+import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -349,6 +350,52 @@ final class PromptInjectionServiceTest {
                 .retrieve(any(), any(), any(), degraded.capture());
         assertEquals(longObjective, degraded.getValue().query(),
                 "an over-bound composition degrades to the objective alone");
+    }
+
+    // ------------------------------------------------------------------ dynamic skills (A03b)
+
+    @Test
+    void dynamicTeamSkillReferencesSealAsInjectedLoadEvidenceNextToTheBuiltinSkill() {
+        stubRetrieval(new KnowledgeRetrievalResult(List.of(), List.of()));
+        when(memory.list(any())).thenReturn(List.of());
+        ManifestSourceRef dynamicOne = new ManifestSourceRef(
+                ManifestSourceType.SKILL_INSTRUCTION, "code-review", 1,
+                hex(0xBEEF), ManifestSourceStage.INJECTED);
+        ManifestSourceRef dynamicTwo = new ManifestSourceRef(
+                ManifestSourceType.SKILL_INSTRUCTION, "deploy-runbook", 4,
+                hex(0xC0DE), ManifestSourceStage.INJECTED);
+        PromptInjectionRequest withSkills = new PromptInjectionRequest(
+                organizationId, teamId, WorkspaceId.generate(), projectId,
+                executionId, 1, profileId, actor, "Implement the endpoint",
+                List.of(), request().repositoryTarget(), List.of(dynamicOne, dynamicTwo));
+
+        PromptInjectionPlan plan = service(true, true, GENEROUS).assemble(withSkills);
+
+        assertEquals(List.of(SKILL_REF, dynamicOne, dynamicTwo),
+                plan.manifest().references(),
+                "resolved dynamic skills seal as hard-retained evidence after the built-in");
+        assertEquals(1, manifests.appends);
+
+        // A later round of the same attempt reuses the sealed manifest verbatim.
+        PromptInjectionPlan replay = service(true, true, GENEROUS).assemble(withSkills);
+        assertEquals(plan.manifest(), replay.manifest());
+        assertEquals(1, manifests.appends);
+    }
+
+    @Test
+    void dynamicSkillInstructionsMustArriveAsInjectedSkillReferences() {
+        assertThrows(DomainValidationException.class, () -> new PromptInjectionRequest(
+                organizationId, teamId, WorkspaceId.generate(), projectId,
+                executionId, 1, profileId, actor, "Implement the endpoint",
+                List.of(), request().repositoryTarget(), List.of(new ManifestSourceRef(
+                        ManifestSourceType.KNOWLEDGE_ENTRY, "code-review", 1,
+                        hex(0xBEEF), ManifestSourceStage.INJECTED))));
+        assertThrows(DomainValidationException.class, () -> new PromptInjectionRequest(
+                organizationId, teamId, WorkspaceId.generate(), projectId,
+                executionId, 1, profileId, actor, "Implement the endpoint",
+                List.of(), request().repositoryTarget(), List.of(new ManifestSourceRef(
+                        ManifestSourceType.SKILL_INSTRUCTION, "code-review", 1,
+                        hex(0xBEEF), ManifestSourceStage.CANDIDATE))));
     }
 
     // ------------------------------------------------------------------ fixtures

@@ -216,7 +216,8 @@ class WorkerCodingSpecialistAuthorityGatewayInjectionTest {
                 mock(AuthoritativeTimeProvider.class),
                 directTransactions(),
                 injection,
-                new InjectionPromptRenderer());
+                new InjectionPromptRenderer(),
+                null);
     }
 
     /** Wires the facts/workspace/target graph requireWorkspace and assembly read. */

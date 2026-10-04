@@ -6,10 +6,12 @@ import io.crewscope.application.coding.output.CodingOutputValidator;
 import io.crewscope.application.execution.ExecutionInterruptToken;
 import io.crewscope.application.execution.TaskAgentStateRecoveryResult;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
+import io.crewscope.application.skill.TeamSkillExecutionSource;
 import io.crewscope.domain.coding.CodingCheckpointId;
 import io.crewscope.domain.coding.TestEvidence;
 import io.crewscope.domain.task.StepExecutionStatus;
 import io.crewscope.domain.task.TaskAgentSessionPurpose;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,6 +34,8 @@ public final class CodingSpecialistStepRuntime {
     private final CodingSpecialistAuthorityGateway authorityGateway;
     private final CodingSpecialistExecutionStore executionStore;
     private final CodingOutputValidator outputValidator;
+    /** Nullable: absent means dynamic Team Skills stay unloaded (the pre-A03b shape). */
+    private final TeamSkillExecutionSource teamSkillSource;
     private final ConcurrentMap<String, ActiveExecution> active = new ConcurrentHashMap<>();
 
     public CodingSpecialistStepRuntime(
@@ -39,10 +43,20 @@ public final class CodingSpecialistStepRuntime {
             CodingSpecialistAuthorityGateway authorityGateway,
             CodingSpecialistExecutionStore executionStore,
             CodingOutputValidator outputValidator) {
+        this(runtime, authorityGateway, executionStore, outputValidator, null);
+    }
+
+    public CodingSpecialistStepRuntime(
+            AgentScopeCodingRuntime runtime,
+            CodingSpecialistAuthorityGateway authorityGateway,
+            CodingSpecialistExecutionStore executionStore,
+            CodingOutputValidator outputValidator,
+            TeamSkillExecutionSource teamSkillSource) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.authorityGateway = Objects.requireNonNull(authorityGateway, "authorityGateway");
         this.executionStore = Objects.requireNonNull(executionStore, "executionStore");
         this.outputValidator = Objects.requireNonNull(outputValidator, "outputValidator");
+        this.teamSkillSource = teamSkillSource;
     }
 
     public Mono<CodingSpecialistStepResult> execute(CodingSpecialistStepRequest request) {
@@ -128,7 +142,8 @@ public final class CodingSpecialistStepRuntime {
                     round.instruction(),
                     // The delegated Task's pinned model coordinates travel with every round, so
                     // repair and recovery turns keep the exact connection the first turn used.
-                    state.request.facts().policySnapshot().agentExecutionConfiguration());
+                    state.request.facts().policySnapshot().agentExecutionConfiguration(),
+                    resolveDynamicTeamSkills(state.request.facts()));
             state.lastInvocation = invocation;
             // Materialize only the AgentScope call. Durability or authority failures from
             // afterCall must propagate and must never be rewritten onto the same event sequence.
@@ -468,6 +483,25 @@ public final class CodingSpecialistStepRuntime {
     private static String executionKey(TaskExecutionRuntimeFacts facts) {
         return facts.execution().id() + ":" + facts.stepExecution().orElseThrow().id()
                 + ":" + facts.runtimeSession().agentScopeKey().sessionId();
+    }
+
+    /**
+     * Resolves this attempt's dynamic Team Skills from the pinned PolicySnapshot. The
+     * execution source owns the switches, the approved-key read-back from the pinned
+     * configuration revision, the disabled/missing-version filtering and the sealed-manifest
+     * digest proof, so an empty result here is the honest pre-A03b shape.
+     */
+    private List<TeamSkillExecutionSource.PublishedTeamSkill> resolveDynamicTeamSkills(
+            TaskExecutionRuntimeFacts facts) {
+        if (teamSkillSource == null) {
+            return List.of();
+        }
+        return teamSkillSource.resolveForPinnedExecution(
+                facts.task().scope().organizationId(),
+                facts.task().scope().teamId(),
+                facts.policySnapshot().agentExecutionConfiguration(),
+                facts.execution().id(),
+                facts.execution().attempt());
     }
 
     private static boolean sameControlBoundary(

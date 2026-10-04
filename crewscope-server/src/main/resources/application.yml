@@ -351,6 +351,12 @@ crewscope:
       knowledge-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_KNOWLEDGE_TOKENS:3072}
       chunk-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_CHUNK_TOKENS:4096}
       memory-tokens: ${CREWSCOPE_KNOWLEDGE_INJECTION_MEMORY_TOKENS:1024}
+  skill:
+    # M10-A03 Team Skill catalog: off = every write command answers SKILL_DISABLED
+    # (422); head/version reads stay available under authorization. Distillation and
+    # the dynamic factory wiring ship with A03b; the default stays off — flipping it
+    # is a deployment decision, not a code change.
+    enabled: ${CREWSCOPE_SKILL_ENABLED:false}
   memory:
     # M10-I02a agent assistant memory: off = no new model-facing writes (the runtime write
     # port answers MEMORY_DISABLED); member view/clear and the TTL sweep stay ungated.

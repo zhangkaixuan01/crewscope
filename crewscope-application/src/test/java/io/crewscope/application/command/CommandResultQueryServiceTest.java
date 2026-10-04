@@ -58,6 +58,8 @@ class CommandResultQueryServiceTest {
         case CONVERSATION -> verify(conversations).get(access, org, team,
             new ConversationId(result.resourceId()));
         case TEAM_MEMBER -> verify(members).findByTeamAndUserPrincipalId(org, team, actor.id());
+        case KNOWLEDGE_ENTRY, TEAM_SKILL -> verify(members, atLeastOnce())
+            .findByTeamAndUserPrincipalId(org, team, actor.id());
       }
     }
   }
@@ -137,7 +139,8 @@ class CommandResultQueryServiceTest {
   private CommandResult result(CommandResult.ResourceType type, PrincipalId creator) {
     boolean projectScoped = type != CommandResult.ResourceType.CONVERSATION
         && type != CommandResult.ResourceType.TEAM_MEMBER
-        && type != CommandResult.ResourceType.KNOWLEDGE_ENTRY;
+        && type != CommandResult.ResourceType.KNOWLEDGE_ENTRY
+        && type != CommandResult.ResourceType.TEAM_SKILL;
     return new CommandResult(org, key, creator, "CREATE_TEST", team,
         projectScoped ? Optional.of(project) : Optional.empty(),
         type, type == CommandResult.ResourceType.WORK_PROJECT ? project.value() : UUID.randomUUID(),

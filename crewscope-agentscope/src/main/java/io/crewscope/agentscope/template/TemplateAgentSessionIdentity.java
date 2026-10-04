@@ -1,6 +1,7 @@
 package io.crewscope.agentscope.template;
 
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeSession;
+import io.crewscope.agentscope.skill.SkillDistillerRuntimeSession;
 import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeStateReference;
@@ -20,7 +21,8 @@ public final class TemplateAgentSessionIdentity {
         TASK,
         REVIEW,
         TEAM_OBSERVER,
-        DISTILLER
+        DISTILLER,
+        SKILL_DISTILLER
     }
 
     private final Kind kind;
@@ -128,6 +130,20 @@ public final class TemplateAgentSessionIdentity {
         KnowledgeDistillerRuntimeSession required = Objects.requireNonNull(session, "session");
         return new TemplateAgentSessionIdentity(
                 Kind.DISTILLER,
+                required.distillerPrincipalId(),
+                required.distillerProfileId(),
+                required.distillerProfileVersion(),
+                required.agentScopeKey(),
+                required.stateReference(),
+                Optional.empty());
+    }
+
+    /** The built-in Skill Distiller's own trusted kind, same rationale as DISTILLER. */
+    public static TemplateAgentSessionIdentity skillDistiller(
+            SkillDistillerRuntimeSession session) {
+        SkillDistillerRuntimeSession required = Objects.requireNonNull(session, "session");
+        return new TemplateAgentSessionIdentity(
+                Kind.SKILL_DISTILLER,
                 required.distillerPrincipalId(),
                 required.distillerProfileId(),
                 required.distillerProfileVersion(),

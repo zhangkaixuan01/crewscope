@@ -24,7 +24,7 @@ public record CommandResult(
     UtcTimestamp createdAt) {
 
   public enum ResourceType {
-    WORK_PROJECT, WORK_ITEM, TASK, CONVERSATION, TEAM_MEMBER, KNOWLEDGE_ENTRY
+    WORK_PROJECT, WORK_ITEM, TASK, CONVERSATION, TEAM_MEMBER, KNOWLEDGE_ENTRY, TEAM_SKILL
   }
 
   public CommandResult {

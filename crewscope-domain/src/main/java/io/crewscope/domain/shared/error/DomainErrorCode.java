@@ -39,6 +39,10 @@ public enum DomainErrorCode {
   KNOWLEDGE_VERSION_CONTENT_CONFLICT(
       "knowledge_version_content_conflict", DomainErrorCategory.CONFLICT),
   KNOWLEDGE_DISCLOSURE_DENIED("knowledge_disclosure_denied", DomainErrorCategory.POLICY),
+  SKILL_KEY_CONFLICT("skill_key_conflict", DomainErrorCategory.CONFLICT),
+  SKILL_VERSION_UNCHANGED("skill_version_unchanged", DomainErrorCategory.VALIDATION),
+  SKILL_DISCLOSURE_DENIED("skill_disclosure_denied", DomainErrorCategory.POLICY),
+  SKILL_DISABLED("skill_disabled", DomainErrorCategory.VALIDATION),
   IDEMPOTENCY_CONFLICT("idempotency_conflict", DomainErrorCategory.CONFLICT);
 
   private final String value;

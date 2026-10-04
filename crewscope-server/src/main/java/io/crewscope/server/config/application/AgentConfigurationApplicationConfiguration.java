@@ -12,6 +12,7 @@ import io.crewscope.application.conversation.ConversationConfigurationRefreshGua
 import io.crewscope.application.conversation.ConversationConfigurationRefreshService;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.event.DomainEventStore;
+import io.crewscope.application.skill.TeamSkillCatalogCeilingContributor;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.model.ModelCatalogEntryRepository;
@@ -33,6 +34,7 @@ import io.crewscope.domain.policy.PolicyPackId;
 import io.crewscope.domain.policy.PolicyPackReference;
 import io.crewscope.domain.shared.time.TimeProvider;
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -90,7 +92,8 @@ public class AgentConfigurationApplicationConfiguration {
             OutboxRepository outbox,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider,
+            Optional<TeamSkillCatalogCeilingContributor> skillCeilingContributor) {
         return new AgentConfigurationApplicationService(
                 profiles,
                 templates,
@@ -108,7 +111,8 @@ public class AgentConfigurationApplicationConfiguration {
                 outbox,
                 receipts,
                 transactions,
-                timeProvider);
+                timeProvider,
+                skillCeilingContributor.orElse(null));
     }
 
     @Bean

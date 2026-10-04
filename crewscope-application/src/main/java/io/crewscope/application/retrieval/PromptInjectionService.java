@@ -126,7 +126,8 @@ public final class PromptInjectionService {
             int keepChunks = budget.keptCounts().get(ManifestSourceType.REPOSITORY_CHUNK);
             int keepMemory = budget.keptCounts().get(ManifestSourceType.MEMORY_PREFERENCE);
             manifest = seal(request, references(
-                    knowledge, chunks, entries, keepKnowledge, keepChunks, keepMemory),
+                    request, knowledge, chunks, entries,
+                    keepKnowledge, keepChunks, keepMemory),
                     budget, result.degradations());
             knowledge = prefix(knowledge, keepKnowledge);
             chunks = prefix(chunks, keepChunks);
@@ -206,11 +207,15 @@ public final class PromptInjectionService {
     }
 
     /**
-     * The reference set of one assembly: the hard-retained skill instruction first,
-     * then each layer's kept candidates as INJECTED followed by the trimmed tail as
-     * CANDIDATE — trimmed repository candidates contribute one reference per fragment.
+     * The reference set of one assembly: the hard-retained skill instruction first —
+     * then the request's already-proven dynamic Team Skills, also hard-retained (A03b:
+     * their load evidence is the very reason they may load, so the budget never trims
+     * them) — then each layer's kept candidates as INJECTED followed by the trimmed
+     * tail as CANDIDATE — trimmed repository candidates contribute one reference per
+     * fragment.
      */
     private List<ManifestSourceRef> references(
+            PromptInjectionRequest request,
             List<RetrievalCandidate> knowledge,
             List<RetrievalCandidate> chunks,
             List<AgentMemoryEntry> entries,
@@ -219,6 +224,7 @@ public final class PromptInjectionService {
             int keepMemory) {
         List<ManifestSourceRef> references = new ArrayList<>();
         references.add(skillInstruction);
+        references.addAll(request.dynamicSkillInstructions());
         for (int index = 0; index < knowledge.size(); index++) {
             references.add(knowledgeRef(knowledge.get(index), index < keepKnowledge));
         }

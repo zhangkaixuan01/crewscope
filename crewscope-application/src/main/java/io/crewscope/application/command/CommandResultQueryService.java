@@ -69,6 +69,12 @@ public final class CommandResultQueryService {
               .filter(TeamMember::canParticipate)
               .orElseThrow(() -> new PolicyDeniedException(
                   "read the knowledge entry result while participating"));
+          case TEAM_SKILL -> members
+              .findByTeamAndUserPrincipalId(organizationId, value.teamId(),
+                  access.actor().id())
+              .filter(TeamMember::canParticipate)
+              .orElseThrow(() -> new PolicyDeniedException(
+                  "read the team skill result while participating"));
         }
         return result;
       } catch (AggregateNotFoundException | PolicyDeniedException denied) {

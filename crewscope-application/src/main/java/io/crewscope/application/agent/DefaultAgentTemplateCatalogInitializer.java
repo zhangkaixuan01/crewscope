@@ -17,6 +17,7 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerTemplate;
+import io.crewscope.domain.skill.distiller.SkillDistillerTemplate;
 import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import java.util.List;
 import java.util.Objects;
@@ -131,7 +132,9 @@ public final class DefaultAgentTemplateCatalogInitializer implements AgentTempla
                 TeamObserverTemplate.create(organization, actor, occurredAt);
         AgentTemplateDefinition distiller =
                 KnowledgeDistillerTemplate.create(organization, actor, occurredAt);
-        return List.of(personal, coding, reviewer, team, observer, distiller);
+        AgentTemplateDefinition skillDistiller =
+                SkillDistillerTemplate.create(organization, actor, occurredAt);
+        return List.of(personal, coding, reviewer, team, observer, distiller, skillDistiller);
     }
 
     private String reviewerSchema() {
