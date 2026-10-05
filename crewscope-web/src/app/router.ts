@@ -117,6 +117,18 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'team-observer', title: '团队观测', requiredPermission: permissions.scopeRead },
       },
       {
+        path: '/knowledge',
+        name: 'knowledge-base',
+        component: () => import('../pages/KnowledgeBasePage.vue'),
+        meta: { mode: 'control', section: 'knowledge', title: '知识库', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'status', 'category', 'entry', 'revision', 'tab'], tabValues: ['draft', 'versions'] },
+      },
+      {
+        path: '/knowledge/index',
+        name: 'knowledge-index',
+        component: () => import('../pages/KnowledgeIndexPage.vue'),
+        meta: { mode: 'control', section: 'knowledge', title: '索引作业', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'source', 'status'] },
+      },
+      {
         path: '/operations',
         name: 'operations',
         component: () => import('../pages/OperationsPage.vue'),

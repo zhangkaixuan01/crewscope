@@ -147,7 +147,7 @@ final class KnowledgeCommandServiceTest {
     }
 
     @Test
-    void updateDraftEmitsNoEventAndLocatesTheReceiptByTheEntryId() {
+    void updateDraftEmitsNoEventAndAnchorsTheReceiptOnTheCommandId() {
         KnowledgeEntry created = createEntry("draft-1", KnowledgeCategory.RUNBOOK)
                 .result().orElseThrow();
 
@@ -165,8 +165,9 @@ final class KnowledgeCommandServiceTest {
         // A draft never changes the retrievable set, so no event and no outbox row (D4).
         assertEquals(1, store.events.size());
         assertEquals(1, store.outbox.size());
-        // The event-less receipt points at the stable entry id, not a domain event.
-        assertEquals(created.id().value(), execution.receipt().domainEventId());
+        // The event-less receipt anchors on the command id: no event exists to point at, and
+        // the per-command anchor keeps repeated draft saves from colliding on the anchor index.
+        assertEquals(execution.receipt().commandId(), execution.receipt().domainEventId());
         assertEquals(1, execution.receipt().committedVersion());
         assertTrue(
                 store.findResult(organizationId, IdempotencyKey.from("draft-1-edit"), actor.id()).isEmpty(),

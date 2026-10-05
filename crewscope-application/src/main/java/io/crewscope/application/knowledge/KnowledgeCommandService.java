@@ -344,9 +344,11 @@ public final class KnowledgeCommandService {
                             required.title(), required.content(), required.category(),
                             actor.id(), now),
                     Optional.empty());
-            // No domain event by design; the receipt locates the fact via its stable id.
+            // No domain event by design; the receipt anchors on the command id — the only
+            // durable fact a zero-event write can name without inventing a stream event,
+            // unique per command so replayed saves never collide on the anchor index.
             CommandReceipt receipt =
-                    new CommandReceipt(commandId, committed.id().value(), committed.version(),
+                    new CommandReceipt(commandId, commandId, committed.version(),
                             trusted.correlationId());
             receipts.complete(organizationId, trusted.idempotencyKey(), receipt, now);
             return CommandExecution.completed(committed, receipt);

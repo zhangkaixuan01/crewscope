@@ -174,7 +174,7 @@ final class TeamSkillCommandServiceTest {
     }
 
     @Test
-    void updateDraftEmitsNoEventAndLocatesTheReceiptByTheSkillId() {
+    void updateDraftEmitsNoEventAndAnchorsTheReceiptOnTheCommandId() {
         TeamSkill created = createSkill("draft-1", document(
                 "Standard rollback drill.", "Drain the pool."))
                 .result().orElseThrow();
@@ -193,7 +193,9 @@ final class TeamSkillCommandServiceTest {
         assertEquals(0, committed.latestRevision());
         assertEquals(1, store.events.size());
         assertEquals(1, store.outbox.size());
-        assertEquals(created.id().value(), execution.receipt().domainEventId());
+        // The event-less receipt anchors on the command id: no event exists to point at, and
+        // the per-command anchor keeps repeated draft saves from colliding on the anchor index.
+        assertEquals(execution.receipt().commandId(), execution.receipt().domainEventId());
         assertEquals(1, execution.receipt().committedVersion());
         assertTrue(
                 store.findResult(organizationId, IdempotencyKey.from("draft-1-edit"), actor.id()).isEmpty(),

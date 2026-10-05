@@ -31,6 +31,7 @@ export const permissions = {
   auditRead: 'audit:read',
   governanceExport: 'governance:export',
   operationsManage: 'operations:manage',
+  knowledgeManage: 'knowledge:manage',
 } as const
 
 export function can(principal: AuthenticatedPrincipal, permission: string): boolean {

@@ -135,6 +135,31 @@ class JdbcCommandResultIntegrationTest {
     assertEquals(1, count("work_project"));
   }
 
+  @Test void v62AdmitsKnowledgeAndSkillCoordinatesWithoutProjectScope() {
+    migrate("62");
+    for (CommandResult.ResourceType type : List.of(
+        CommandResult.ResourceType.KNOWLEDGE_ENTRY, CommandResult.ResourceType.TEAM_SKILL)) {
+      var request = request("v62-" + type.name());
+      tx.execute(status -> {
+        var receipt = create(request, actor, false);
+        store.saveResult(new CommandResult(org, request.idempotencyKey(), actor,
+            request.commandType(), team, Optional.empty(), type, UUID.randomUUID(), 0, receipt, NOW));
+        return null;
+      });
+    }
+    assertEquals(2, count("command_result"));
+    // The coordinate contract still fails closed: a team-level aggregate cannot smuggle in a
+    // project scope. The application-layer guard rejects the construction before any SQL runs
+    // (the database constraint behind it stays as the storage-tier backstop).
+    var scoped = request("v62-project-scoped");
+    var scopedReceipt = tx.execute(status -> create(scoped, actor, false));
+    assertThrows(IllegalArgumentException.class, () -> new CommandResult(org,
+        scoped.idempotencyKey(), actor, scoped.commandType(), team,
+        Optional.of(WorkProjectId.generate()), CommandResult.ResourceType.KNOWLEDGE_ENTRY,
+        UUID.randomUUID(), 0, scopedReceipt, NOW));
+    assertEquals(2, count("command_result"));
+  }
+
   @Test void resultsAreImmutableAndReceiptIdentityCannotBeMixed() {
     migrate("40");
     var first = request("immutable");

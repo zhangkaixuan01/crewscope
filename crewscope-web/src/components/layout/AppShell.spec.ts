@@ -14,9 +14,9 @@ import AppShell from './AppShell.vue'
 async function harness() {
   // RouterLink resolves every navigation name during render; unknown names throw, so register them all.
   const navigationNames = ['access-denied', 'account', 'activity', 'agent-settings', 'audit',
-    'conversation', 'github-settings', 'inbox', 'invite', 'lark-settings', 'login', 'model-settings',
-    'not-found', 'onboarding', 'operations', 'register', 'repository-settings', 'search', 'setup',
-    'team-members', 'team-observer', 'today', 'work']
+    'conversation', 'github-settings', 'inbox', 'invite', 'knowledge-base', 'knowledge-index', 'lark-settings', 'login',
+    'model-settings', 'not-found', 'onboarding', 'operations', 'register', 'repository-settings', 'search',
+    'setup', 'team-members', 'team-observer', 'today', 'work']
   const router = createRouter({
     history: createMemoryHistory(),
     routes: navigationNames.map(name => ({

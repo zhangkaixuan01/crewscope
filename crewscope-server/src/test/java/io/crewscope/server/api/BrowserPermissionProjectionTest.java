@@ -19,6 +19,7 @@ class BrowserPermissionProjectionTest {
             "audit:read",
             "conversation:use",
             "governance:export",
+            "knowledge:manage",
             "provider:manage",
             "repositories:manage",
             "responsibility:manage",

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 // Keep opt-in indexes aligned with actual Gateway signatures, not an all-POST retry interceptor.
-const owners = ['scope', 'workitem', 'task', 'coding', 'review', 'agent', 'model', 'teamops', 'delivery']
+const owners = ['scope', 'workitem', 'task', 'coding', 'review', 'agent', 'model', 'teamops', 'delivery', 'knowledge']
 const paths = owners.map(name => [`domains/${name}/store.ts`, `domains/${name}/gateway.ts`])
 paths.push(['domains/conversation/taskIntentStore.ts', 'domains/conversation/taskIntentGateway.ts'],
   ['domains/conversation/realtimeStore.ts', 'domains/conversation/realtimeGateway.ts'],

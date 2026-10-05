@@ -2,6 +2,7 @@
 import {
   Activity,
   Bell,
+  BookOpen,
   Bot,
   BriefcaseBusiness,
   CalendarDays,
@@ -13,6 +14,7 @@ import {
   UsersRound,
   GitFork,
   Inbox,
+  Layers,
   ScanSearch,
   KeyRound,
   Send,
@@ -81,6 +83,8 @@ const navigationGroups = [
   ] },
   { label: '团队', items: [
     { label: '团队观测', icon: ScanSearch, name: 'team-observer', section: 'team-observer', permission: permissions.scopeRead },
+    { label: '知识库', icon: BookOpen, name: 'knowledge-base', section: 'knowledge', permission: permissions.scopeRead },
+    { label: '索引作业', icon: Layers, name: 'knowledge-index', section: 'knowledge', permission: permissions.scopeRead },
     { label: '团队成员', icon: UsersRound, name: 'team-members', section: 'members', permission: permissions.teamMembersRead },
     { label: '审计中心', icon: ShieldCheck, name: 'audit', section: 'audit', permission: permissions.auditRead },
   ] },
@@ -159,6 +163,8 @@ watch(
         delete nextQuery.recipient
         delete nextQuery.tab
         delete nextQuery.member
+        delete nextQuery.entry
+        delete nextQuery.revision
         delete nextQuery.event
         delete nextQuery.inboxItem
         delete nextQuery.assistant

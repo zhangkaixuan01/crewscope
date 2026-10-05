@@ -28,6 +28,8 @@ export const MENUS = [
   { path: '/activity', name: '动态' },
   { path: '/inbox', name: 'Inbox' },
   { path: '/team/observer', name: 'Team Observer' },
+  { path: '/knowledge', name: '知识库' },
+  { path: '/knowledge/index', name: '索引作业' },
   { path: '/operations', name: '运维' },
   { path: '/audit', name: '审计' },
   { path: '/team/members', name: '成员' },
@@ -73,6 +75,9 @@ export async function mockApi(page: Page): Promise<void> {
     if (path.endsWith(`/${ids.team}/work-projects`)) return json(route, { items: [project()], nextCursor: null })
     if (path.endsWith('/members')) return json(route, [])
     if (path.endsWith('/work-desk')) return json(route, workDesk())
+    // Knowledge pages use `nextAfter` (entryKey/jobId cursor), not the generic `nextCursor` shape above.
+    if (/\/knowledge\/entries$/.test(path)) return json(route, { items: [], nextAfter: null })
+    if (/\/knowledge\/index\/jobs$/.test(path)) return json(route, { items: [], nextAfter: null })
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
 }
