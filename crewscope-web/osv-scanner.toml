@@ -6,7 +6,7 @@
 # directory, so this file must live next to pnpm-lock.yaml. A copy at the
 # repository root never applies to this lockfile.
 
-[[Ignored]]
+[[IgnoredVulns]]
 id = "GHSA-vfj7-8cjw-p6xm"
 # braces <=3.0.3 recursive-descent stack overflow (CWE-674, High). No fixed
 # release exists upstream (3.0.3 is the latest published version). Here braces
