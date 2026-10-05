@@ -198,7 +198,7 @@ function handleKeydown(event: KeyboardEvent): void {
 .knowledge-dialog__content { display: grid; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20) var(--cs-space-4); }
 .knowledge-dialog__field { display: grid; gap: var(--cs-space-4); }
 .knowledge-dialog__field > span { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.knowledge-dialog__count { color: var(--cs-text-muted); font-weight: var(--cs-weight-normal); }
+.knowledge-dialog__count { color: var(--cs-text-muted); font-weight: var(--cs-weight-regular); }
 .knowledge-dialog__field input, .knowledge-dialog__mono-input { width: 100%; min-height: 40px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 .knowledge-dialog__mono-input { font-family: var(--cs-font-mono, ui-monospace, monospace); }
 .knowledge-dialog__hint { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }

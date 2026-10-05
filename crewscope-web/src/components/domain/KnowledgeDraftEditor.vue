@@ -191,7 +191,7 @@ defineExpose({ applyServerDraft, confirmDiscard: dirtyForm.confirmDiscard, isDir
 .draft-editor__form { display: flex; flex-direction: column; gap: var(--cs-space-12); }
 .draft-editor__field { display: flex; flex-direction: column; gap: var(--cs-space-4); }
 .draft-editor__label { display: flex; justify-content: space-between; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.draft-editor__count.over { color: var(--cs-danger, #b3261e); font-weight: var(--cs-weight-semibold); }
+.draft-editor__count.over { color: var(--cs-danger); font-weight: var(--cs-weight-semibold); }
 .draft-editor__input { padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); font: inherit; }
 .draft-editor__input:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
 .draft-editor__actions { display: flex; align-items: center; gap: var(--cs-space-8); }

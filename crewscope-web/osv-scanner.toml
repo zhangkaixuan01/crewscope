@@ -1,6 +1,10 @@
 # OSV scanner exemptions. Keep every entry scoped, justified and revisit on
 # each bump of the offending toolchain — an exemption without an owner-ready
 # reason rots into a blanket ignore.
+#
+# Placement matters: osv-scanner resolves the config per scanned manifest
+# directory, so this file must live next to pnpm-lock.yaml. A copy at the
+# repository root never applies to this lockfile.
 
 [[Ignored]]
 id = "GHSA-vfj7-8cjw-p6xm"
