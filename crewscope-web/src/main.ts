@@ -42,6 +42,8 @@ import { installTeamObserverStore } from './domains/teamobserver/store'
 import { HttpKnowledgeGateway } from './domains/knowledge/gateway'
 import { installKnowledgeIndexStore } from './domains/knowledge/index-store'
 import { installKnowledgeStore } from './domains/knowledge/store'
+import { HttpSkillGateway } from './domains/skill/gateway'
+import { installSkillStore } from './domains/skill/store'
 import { HttpInjectionGateway } from './domains/injection/gateway'
 import { installInjectionStore } from './domains/injection/store'
 import { HttpSetupGateway } from './domains/setup/gateway'
@@ -103,6 +105,7 @@ const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGate
 const knowledgeGateway = new HttpKnowledgeGateway()
 const knowledgeStore = installKnowledgeStore(app, knowledgeGateway)
 const knowledgeIndexStore = installKnowledgeIndexStore(app, knowledgeGateway)
+const skillStore = installSkillStore(app, new HttpSkillGateway())
 const injectionStore = installInjectionStore(app, new HttpInjectionGateway())
 const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
@@ -130,6 +133,7 @@ subscribeSessionBoundary(authStore, reason => {
   teamObserverStore.reset()
   knowledgeStore.reset()
   knowledgeIndexStore.reset()
+  skillStore.reset()
   injectionStore.reset()
   setupStore.reset()
   workDeskStore.reset()

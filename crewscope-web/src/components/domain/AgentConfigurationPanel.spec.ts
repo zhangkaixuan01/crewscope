@@ -3,6 +3,7 @@ import { reactive } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AGENT_STORE, type AgentStore, type AgentStoreState } from '../../domains/agent/store'
 import { createAgentMemoryStore, AGENT_MEMORY_STORE } from '../../domains/agent/memory-store'
+import { createSkillStore, SKILL_STORE } from '../../domains/skill/store'
 import type { AgentMemoryView } from '../../domains/agent/types'
 import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { AgentConfigurationInput, AgentSummary, AgentTemplateSummary, SelectableAgentModel } from '../../domains/agent/types'
@@ -15,6 +16,25 @@ function memoryStoreFixture() {
       return { policyReference: null, policy: null, degraded: null, clearanceGeneration: 1, entries: [], entryCount: 0 }
     },
     async clearMemory(): Promise<never> { throw new Error('not stubbed') },
+  })
+  store.activateScope({ organizationId: 'org-1', teamId: 'team-1' })
+  return store
+}
+
+/** D4: the panel folds PUBLISHED team-skill keys out of the shared skill store; empty catalog by default. */
+function skillStoreFixture() {
+  const store = createSkillStore({
+    async listSkills() { return { items: [], nextAfter: null } },
+    async getSkill(): Promise<never> { throw new Error('not stubbed') },
+    async listVersions(): Promise<never> { throw new Error('not stubbed') },
+    async getVersion(): Promise<never> { throw new Error('not stubbed') },
+    async getEffectiveVersion(): Promise<never> { throw new Error('not stubbed') },
+    async createSkill(): Promise<never> { throw new Error('not stubbed') },
+    async saveDraft(): Promise<never> { throw new Error('not stubbed') },
+    async publishSkill(): Promise<never> { throw new Error('not stubbed') },
+    async disableSkill(): Promise<never> { throw new Error('not stubbed') },
+    async rollbackSkill(): Promise<never> { throw new Error('not stubbed') },
+    async distill(): Promise<never> { throw new Error('not stubbed') },
   })
   store.activateScope({ organizationId: 'org-1', teamId: 'team-1' })
   return store
@@ -33,7 +53,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, appendConfiguration } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
     const selects = wrapper.findAll('.binding-editor select')
@@ -67,7 +87,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, appendConfiguration } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: template('TEAM'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('继承已发布的 Team/Organization 默认')
@@ -86,7 +106,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore } = fixtureStore('PERSONAL', true)
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(2), template: template('PERSONAL'), canConfigure: true, selectedRevision: 1 },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('历史版本不可编辑')
@@ -98,7 +118,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, transitionAgent } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
     const disable = wrapper.findAll('button').find(button => button.text() === '禁用')!
@@ -132,7 +152,7 @@ describe('AgentConfigurationPanel', () => {
         canConfigure: true,
         selectedRevision: null,
       },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
 
@@ -162,7 +182,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: null, canConfigure: false, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture(), [SKILL_STORE as symbol]: skillStoreFixture() } },
     })
     await flushPromises()
 

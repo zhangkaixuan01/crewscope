@@ -144,6 +144,46 @@ describe('AgentConfigurationPreferencesSection', () => {
     await wrapper.get('#preference-maximumOutputTokens').setValue('')
     expect(wrapper.get('#preference-maximumOutputTokens').attributes('aria-invalid')).toBe('false')
   })
+
+  it('offers the Team catalog keys beside the template keys for the coding template only', () => {
+    // The server widens the immutable ceiling with published keys for the coding template alone;
+    // anywhere else the team group would be a false entrance to a 422.
+    const coding = mount(AgentConfigurationPreferencesSection, {
+      props: { ...props(), template: { ...template(), key: 'coding' }, teamSkills: ['coding-baseline', 'deploy-runbook'] },
+    })
+    expect(coding.text()).toContain('内置 Skill（模板提供）')
+    expect(coding.text()).toContain('团队 Skill（目录已发布）')
+    // A catalog key that shadows a template key is offered once, in the template group.
+    expect(coding.text()).toContain('deploy-runbook')
+    expect(coding.findAll('.skill-picker__group')[1]!.text()).not.toContain('coding-baseline')
+
+    const other = mount(AgentConfigurationPreferencesSection, { props: props() })
+    expect(other.text()).toContain('内置 Skill（模板提供）')
+    expect(other.text()).not.toContain('团队 Skill（目录已发布）')
+  })
+
+  it('degrades to template keys alone while the Team catalog is unavailable', () => {
+    const wrapper = mount(AgentConfigurationPreferencesSection, {
+      props: { ...props(), template: { ...template(), key: 'coding' }, teamSkills: ['deploy-runbook'], teamSkillsUnavailable: true },
+    })
+
+    expect(wrapper.text()).toContain('团队 Skill 目录暂不可用，这里只呈现模板 Skill；保存时服务端会再次校验。')
+    expect(wrapper.text()).not.toContain('deploy-runbook')
+  })
+
+  it('keeps withdrawn keys visible with the reason, and unchecking removes them', async () => {
+    const wrapper = mount(AgentConfigurationPreferencesSection, {
+      props: { ...props(), template: { ...template(), key: 'coding' }, teamSkills: ['deploy-runbook'], preferences: { ...preferences(), approvedSkillKeys: ['legacy-key'] } },
+    })
+
+    expect(wrapper.text()).toContain('已不在当前可选范围；保存时服务端会拒绝，请先取消勾选。')
+    const withdrawn = wrapper.findAll('.skill-picker__group')[2]!
+    expect(withdrawn.get('input[type="checkbox"]').attributes('checked')).toBeDefined()
+
+    // Unchecking asks the container to drop the key; once it leaves approvedSkillKeys the row is gone.
+    await withdrawn.findAll('input[type="checkbox"]')[0]!.setValue(false)
+    expect(wrapper.emitted('toggleSkill')).toEqual([['legacy-key']])
+  })
 })
 
 function props() {
@@ -153,6 +193,8 @@ function props() {
     preferences: preferences(),
     slotAvailable: () => true,
     memberSlot: () => true,
+    teamSkills: [] as string[],
+    teamSkillsUnavailable: false,
   }
 }
 

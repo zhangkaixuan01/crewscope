@@ -129,6 +129,12 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'knowledge', title: '索引作业', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'source', 'status'] },
       },
       {
+        path: '/skills',
+        name: 'skill-catalog',
+        component: () => import('../pages/SkillsPage.vue'),
+        meta: { mode: 'control', section: 'skills', title: 'Skill 目录', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'status', 'skill', 'skillKey', 'revision', 'tab'], tabValues: ['draft', 'versions'] },
+      },
+      {
         path: '/operations',
         name: 'operations',
         component: () => import('../pages/OperationsPage.vue'),

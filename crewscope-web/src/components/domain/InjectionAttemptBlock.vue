@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { RouterLink, useRoute, type RouteLocationRaw } from 'vue-router'
 import {
   injectionDegradationLabel,
   injectionReferenceTypeLabels,
   injectionTrimLayerLabel,
   injectionTrimReasonLabel,
 } from '../../domains/injection/labels'
+import { SKILL_KEY_PATTERN } from '../../domains/skill/types'
 import type {
   InjectionAttempt,
   InjectionFeedbackInput,
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   mark: [reference: InjectionFeedbackInput]
 }>()
 
+const route = useRoute()
 const injected = computed(() => props.attempt.references.filter(row => row.stage === 'INJECTED'))
 const candidates = computed(() => props.attempt.references.filter(row => row.stage === 'CANDIDATE'))
 
@@ -39,6 +42,27 @@ function pendingFor(row: InjectionReference): boolean {
 
 function toInput(row: InjectionReference): InjectionFeedbackInput {
   return { type: row.type, sourceId: row.sourceId, version: row.version, contentHash: row.contentHash }
+}
+
+/**
+ * Manifest rows carry skillKey·revision, never a skill id (F02 D5). Team rows deep-link into the
+ * catalog's version tab and let the page resolve the key itself. The built-in bundle's row is
+ * also SKILL_INSTRUCTION but carries its own skill id shape (`name_source`, with an underscore —
+ * outside the skill key alphabet), so it stays plain: linking it into the catalog would only land
+ * on the miss note.
+ */
+function isTeamSkillRow(row: Pick<InjectionReference, 'type' | 'sourceId'>): boolean {
+  return row.type === 'SKILL_INSTRUCTION' && SKILL_KEY_PATTERN.test(row.sourceId)
+}
+
+function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'version'>): RouteLocationRaw | null {
+  if (!isTeamSkillRow(row)) return null
+  const query: Record<string, string> = {}
+  for (const key of ['team', 'project'] as const) {
+    const value = route.query[key]
+    if (typeof value === 'string' && value) query[key] = value
+  }
+  return { name: 'skill-catalog', query: { ...query, skillKey: row.sourceId, revision: String(row.version), tab: 'versions' } }
 }
 </script>
 
@@ -80,7 +104,8 @@ function toInput(row: InjectionReference): InjectionFeedbackInput {
       <ul v-else class="attempt-block__references">
         <li v-for="row in injected" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="info">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
-          <span class="mono attempt-block__source">{{ row.sourceId }} · v{{ row.version }}</span>
+          <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
+          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
           <BaseButton
             v-if="!row.notApplicable"
@@ -102,7 +127,8 @@ function toInput(row: InjectionReference): InjectionFeedbackInput {
       <ul class="attempt-block__references">
         <li v-for="row in candidates" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="neutral">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
-          <span class="mono attempt-block__source">{{ row.sourceId }} · v{{ row.version }}</span>
+          <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
+          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
         </li>
       </ul>
@@ -116,7 +142,8 @@ function toInput(row: InjectionReference): InjectionFeedbackInput {
       <ul v-else class="attempt-block__references">
         <li v-for="row in attempt.claimed" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="success">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
-          <span class="mono attempt-block__source">{{ row.sourceId }} · v{{ row.version }}</span>
+          <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
+          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
         </li>
       </ul>
@@ -143,6 +170,8 @@ function toInput(row: InjectionReference): InjectionFeedbackInput {
 .attempt-block__references { display: flex; margin: 0; padding: 0; flex-direction: column; gap: var(--cs-space-8); list-style: none; }
 .attempt-block__references li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }
 .attempt-block__source { min-width: 0; overflow-wrap: anywhere; font-size: var(--cs-text-xs); }
+.attempt-block__source a { color: var(--cs-text-brand); }
+.attempt-block__team { flex: 0 0 auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .attempt-block__hash { flex: 0 0 auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .attempt-block__marked { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .attempt-block__empty, .attempt-block__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }

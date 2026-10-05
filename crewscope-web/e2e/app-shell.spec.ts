@@ -61,6 +61,9 @@ const ids = {
   knowledgeEntry: '00000000-0000-1000-8000-000000002301',
   knowledgeDraftEntry: '00000000-0000-1000-8000-000000002302',
   knowledgeIndexJob: '00000000-0000-1000-8000-000000002401',
+  // M10-F02 skill ids follow the same `uuidQuery` guard as the knowledge entries above.
+  skillPublished: '00000000-0000-1000-8000-000000002501',
+  skillDraft: '00000000-0000-1000-8000-000000002502',
 }
 let codingPatchOverride: string | null = null
 
@@ -243,6 +246,41 @@ test.beforeEach(async ({ page }) => {
     // visual and WCAG frames only read.
     if (request.method() === 'GET' && path.endsWith('/knowledge/index/jobs')) {
       await fulfillJson(route, { items: knowledgeIndexJobs(), nextAfter: null })
+      return
+    }
+    // M10-F02 skill reads mirror the A03 contract: the listing cursor is `nextAfter` (skillKey),
+    // the head ETag is the numeric version, version ETags are content hashes, and an unproduced
+    // effective version answers the shared 404 envelope — null is an answer, not an error.
+    if (request.method() === 'GET' && path.endsWith('/skills')) {
+      const status = new URL(request.url()).searchParams.get('status')
+      const items = skillRecords().filter(item => !status || item.status === status)
+      await fulfillJson(route, { items, nextAfter: null })
+      return
+    }
+    const skillMatch = path.match(/\/skills\/([^/]+)$/)
+    if (request.method() === 'GET' && skillMatch) {
+      const skill = skillRecords().find(item => item.id === skillMatch[1])
+      if (!skill) return fulfillError(route, 404, 'aggregate_not_found', 'Skill 不存在')
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${skill.version}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(skill) })
+      return
+    }
+    const skillVersionListMatch = path.match(/\/skills\/([^/]+)\/versions$/)
+    if (request.method() === 'GET' && skillVersionListMatch) {
+      await fulfillJson(route, { items: skillRecords().find(item => item.id === skillVersionListMatch[1])?.status === 'PUBLISHED' ? [skillVersionRow(1)] : [], nextAfter: null })
+      return
+    }
+    const skillVersionMatch = path.match(/\/skills\/([^/]+)\/versions\/([^/]+)$/)
+    if (request.method() === 'GET' && skillVersionMatch) {
+      const row = skillVersionRow(Number(skillVersionMatch[2]))
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${row.contentHash}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(row) })
+      return
+    }
+    const skillEffectiveMatch = path.match(/\/skills\/([^/]+)\/effective-version$/)
+    if (request.method() === 'GET' && skillEffectiveMatch) {
+      const skill = skillRecords().find(item => item.id === skillEffectiveMatch[1])
+      if (!skill || skill.effectiveRevision == null) return fulfillError(route, 404, 'aggregate_not_found', '当前没有生效版本')
+      const row = skillVersionRow(skill.effectiveRevision)
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${row.contentHash}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(row) })
       return
     }
     if (request.method() === 'GET' && path.endsWith('/members')) {
@@ -3443,6 +3481,14 @@ test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
 
   await page.locator(`.agent-card[href*="agent=${ids.agentCoding}"]`).click()
   await expect(page.locator('.agent-configuration').getByRole('heading', { name: 'CrewScope Coding Agent' })).toBeVisible()
+  // F02 D4: the picker splits its provenance — template keys and the Team catalog's published
+  // keys each carry their own group, asserted before the freeze so a green frame can never hide
+  // a picker that collapsed the two sources into one undifferentiated list.
+  const picker = page.locator('.agent-configuration .skill-picker')
+  await expect(picker.getByText('内置 Skill（模板提供）')).toBeVisible()
+  await expect(picker.getByText('团队 Skill（目录已发布）')).toBeVisible()
+  await expect(picker.getByText('coding-baseline', { exact: true })).toBeVisible()
+  await expect(picker.getByText('code-review', { exact: true })).toBeVisible()
   await expect(page).toHaveScreenshot(`agent-configuration-${testInfo.project.name}.png`, { fullPage: true })
 })
 
@@ -3470,6 +3516,22 @@ test('M10-F01b knowledge index jobs visual baseline', async ({ page }, testInfo)
   await page.getByRole('button', { name: '展开详情' }).nth(1).click()
   await expect(page.getByText('持有租约')).toBeVisible()
   await expect(page).toHaveScreenshot(`knowledge-index-detail-${testInfo.project.name}.png`, { fullPage: true })
+})
+
+test('M10-F02 skills visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/skills?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByRole('region', { name: 'Skill 目录列表' })).toBeVisible()
+  // The provenance line keeps built-in skills out of this catalog (acceptance: 来源明确).
+  await expect(page.getByText('内置 Coding Skill（如 java-spring-v1）随模板提供')).toBeVisible()
+  await expect(page.getByRole('button', { name: /api-conventions/ })).toBeVisible()
+  await expect(page).toHaveScreenshot(`skills-list-${testInfo.project.name}.png`, { fullPage: true })
+
+  // The DRAFT skill is the manager frame: action nav, prefilled draft editor and the folded
+  // audit block share the same aside, next to the version tab that stays one click away.
+  await page.goto(`/skills?team=${ids.team}&project=${ids.project}&skill=${ids.skillDraft}`)
+  await expect(page.getByRole('complementary', { name: 'Skill 详情' })).toBeVisible()
+  await expect(page.getByLabel('草稿全文（frontmatter + 正文）')).toHaveValue(/所有写命令必须携带 If-Match 与幂等键。/)
+  await expect(page).toHaveScreenshot(`skills-detail-${testInfo.project.name}.png`, { fullPage: true })
 })
 
 test('M10-F01c drawer injection evidence renders the sealed assembly and both receipt states', async ({ page }) => {
@@ -3727,7 +3789,7 @@ function modelConnection(id: string, ownerType: string, ownerId: string, healthS
 function agentDirectory() {
   return [
     agentProfile(ids.agentProfile, '张凯旋的 Personal Agent', 'USER', 'PERSONAL', 'personal-assistant', true, 'ACTIVE'),
-    agentProfile(ids.agentCoding, 'CrewScope Coding Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3),
+    agentProfile(ids.agentCoding, 'CrewScope Coding Agent', 'USER', 'CODING', 'coding', false, 'ACTIVE', 3),
     agentProfile(ids.agentReviewer, 'Architecture Reviewer', 'USER', 'REVIEWER', 'reviewer-specialist', false, 'DISABLED', 2),
     agentProfile(ids.agentTeam, 'Team Delivery Agent', 'TEAM', 'ORCHESTRATOR', 'team-orchestrator', false, 'ARCHIVED'),
     agentProfile(ids.agentObserver, 'Team Observer', 'TEAM', 'TEAM_COORDINATOR', 'team-observer', false, 'DISABLED'),
@@ -3748,7 +3810,7 @@ function agentProfile(id: string, displayName: string, ownershipType: string, ru
 function agentConfiguration(profileId: string, revision = 2) {
   const profile = agentDirectory().find(agent => agent.id === profileId)
     ?? (profileId === ids.agentCreated
-      ? agentProfile(ids.agentCreated, '我的 Java Coding Agent', 'USER', 'CODING', 'coding-specialist', false, 'ACTIVE', 3, revision)
+      ? agentProfile(ids.agentCreated, '我的 Java Coding Agent', 'USER', 'CODING', 'coding', false, 'ACTIVE', 3, revision)
       : undefined)
   const binding = (executionScope: string) => ({
     executionScope, kind: 'EXPLICIT',
@@ -3758,7 +3820,7 @@ function agentConfiguration(profileId: string, revision = 2) {
   const teamOwned = profileId === ids.agentTeam || profileId === ids.agentObserver
   return {
     revision, previousRevision: revision > 1 ? revision - 1 : null,
-    templateKey: profile?.templateKey ?? 'coding-specialist', templateVersion: profile?.templateVersion ?? 1,
+    templateKey: profile?.templateKey ?? 'coding', templateVersion: profile?.templateVersion ?? 1,
     templateContentHash: 'b'.repeat(64),
     personalBinding: teamOwned ? null : binding('PERSONAL'),
     teamBinding: profileId === ids.agentProfile ? null : binding('TEAM'),
@@ -3797,7 +3859,7 @@ function injectionReferences(taskId: string, executionId: string, marked = false
       degradations: [],
       trims: [{ layer: 'REPOSITORY_CHUNK', trimmedCount: 1, reason: 'layer budget exceeded' }],
       references: [
-        { type: 'SKILL_INSTRUCTION', sourceId: 'coding-baseline', version: 1, contentHash: '1'.repeat(64), stage: 'INJECTED', notApplicable: false },
+        { type: 'SKILL_INSTRUCTION', sourceId: 'java-spring-v1_crewscope-java-spring-v1', version: 1, contentHash: '1'.repeat(64), stage: 'INJECTED', notApplicable: false },
         { type: 'KNOWLEDGE_ENTRY', sourceId: 'deploy-runbook', version: 2, contentHash: '2'.repeat(64), stage: 'INJECTED', notApplicable: marked },
         { type: 'REPOSITORY_CHUNK', sourceId: 'crewscope/backend@2'.repeat(20).slice(0, 40), version: 1, contentHash: '3'.repeat(64), stage: 'CANDIDATE', notApplicable: false },
       ],
@@ -3829,7 +3891,9 @@ function agentTemplates(ownershipType: 'USER' | 'TEAM') {
     definition('team-observer', 1, 'TEAM_COORDINATOR', ['TEAM'], [], true),
   ]
   return [
-    definition('coding-specialist', 3, 'CODING', ['PERSONAL', 'TEAM'], ['coding-baseline']),
+    // 'coding' is the real catalog key — the server widens this template's skill ceiling with
+    // the Team's published keys and nothing else (AgentConfigurationApplicationService:319).
+    definition('coding', 3, 'CODING', ['PERSONAL', 'TEAM'], ['coding-baseline']),
     definition('reviewer-specialist', 2, 'REVIEWER', ['PERSONAL'], ['review-baseline']),
     definition('personal-assistant', 1, 'PERSONAL_ASSISTANT', ['PERSONAL', 'TEAM'], [], true),
   ]
@@ -4570,6 +4634,40 @@ function knowledgeVersionRow(revision: number) {
     entryId: ids.knowledgeEntry, revision, previousRevision: revision > 1 ? revision - 1 : null,
     title: '部署手册', content: '1. 拉取最新镜像\n2. 执行数据库迁移\n3. 依次重启服务并观察健康检查。',
     contentHash: '1'.repeat(64), indexStatus: 'INDEXED',
+    createdAt: '2026-08-08T02:00:00Z', createdBy: ids.principal,
+  }
+}
+
+/** M10-F02: one PUBLISHED skill (the config picker's team group reads it via status=PUBLISHED)
+ *  and one DRAFT skill (the management frame's prefilled editor), same shapes as A03. */
+function skillRecords() {
+  const skill = (
+    id: string,
+    skillKey: string,
+    status: string,
+    effectiveRevision: number | null,
+    version: number,
+    draft: { name: string, description: string, content: string } | null,
+  ) => ({
+    id, skillKey, status, effectiveRevision, latestRevision: effectiveRevision ?? 0,
+    draft, disableReason: null, version,
+    createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z',
+    createdBy: ids.principal, updatedBy: ids.principal, origin: null,
+  })
+  return [
+    skill(ids.skillDraft, 'api-conventions', 'DRAFT', null, 1, {
+      name: 'api-conventions', description: '接口约定',
+      content: '---\nname: api-conventions\ndescription: 接口约定\n---\n\n所有写命令必须携带 If-Match 与幂等键。',
+    }),
+    skill(ids.skillPublished, 'code-review', 'PUBLISHED', 1, 1, null),
+  ]
+}
+
+function skillVersionRow(revision: number) {
+  return {
+    skillId: ids.skillPublished, revision, previousRevision: revision > 1 ? revision - 1 : null,
+    content: '先写测试再实现；提交前跑全量回归。',
+    contentHash: '3'.repeat(64),
     createdAt: '2026-08-08T02:00:00Z', createdBy: ids.principal,
   }
 }

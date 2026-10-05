@@ -30,6 +30,7 @@ export const MENUS = [
   { path: '/team/observer', name: 'Team Observer' },
   { path: '/knowledge', name: '知识库' },
   { path: '/knowledge/index', name: '索引作业' },
+  { path: '/skills', name: 'Skill 目录' },
   { path: '/operations', name: '运维' },
   { path: '/audit', name: '审计' },
   { path: '/team/members', name: '成员' },
@@ -78,6 +79,8 @@ export async function mockApi(page: Page): Promise<void> {
     // Knowledge pages use `nextAfter` (entryKey/jobId cursor), not the generic `nextCursor` shape above.
     if (/\/knowledge\/entries$/.test(path)) return json(route, { items: [], nextAfter: null })
     if (/\/knowledge\/index\/jobs$/.test(path)) return json(route, { items: [], nextAfter: null })
+    // The skill catalog pages with the same `nextAfter` shape (skillKey cursor) — before the generic `s$` fallback.
+    if (/\/skills$/.test(path)) return json(route, { items: [], nextAfter: null })
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
 }

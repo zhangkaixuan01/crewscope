@@ -24,6 +24,7 @@ class BrowserPermissionProjectionTest {
             "repositories:manage",
             "responsibility:manage",
             "scope:read",
+            "skill:manage",
             "team:members:manage",
             "team:members:read",
             "team:roles:manage",

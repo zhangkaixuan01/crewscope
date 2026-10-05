@@ -8,6 +8,7 @@ import { fixtureAuthStore } from '../test/authFixtures'
 import { HttpAgentGateway } from '../domains/agent/gateway'
 import { AGENT_STORE, createAgentStore } from '../domains/agent/store'
 import { createAgentMemoryStore, AGENT_MEMORY_STORE } from '../domains/agent/memory-store'
+import { createSkillStore, SKILL_STORE } from '../domains/skill/store'
 import type { AgentSummary, CurrentAgentConfiguration } from '../domains/agent/types'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
@@ -134,6 +135,21 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
   const agentStore = createAgentStore(new HttpAgentGateway(new CrewScopeApiClient('/api/v1', agentFetcher(mode))))
   const memoryStore = createAgentMemoryStore(new HttpAgentGateway(new CrewScopeApiClient('/api/v1', agentFetcher(mode))))
+  // D4: the panel reads PUBLISHED team-skill keys through the shared skill store; an empty stub
+  // catalog keeps every existing assertion independent of skill fixtures.
+  const skillStore = createSkillStore({
+    async listSkills() { return { items: [], nextAfter: null } },
+    async getSkill(): Promise<never> { throw new Error('not stubbed') },
+    async listVersions(): Promise<never> { throw new Error('not stubbed') },
+    async getVersion(): Promise<never> { throw new Error('not stubbed') },
+    async getEffectiveVersion(): Promise<never> { throw new Error('not stubbed') },
+    async createSkill(): Promise<never> { throw new Error('not stubbed') },
+    async saveDraft(): Promise<never> { throw new Error('not stubbed') },
+    async publishSkill(): Promise<never> { throw new Error('not stubbed') },
+    async disableSkill(): Promise<never> { throw new Error('not stubbed') },
+    async rollbackSkill(): Promise<never> { throw new Error('not stubbed') },
+    async distill(): Promise<never> { throw new Error('not stubbed') },
+  })
   memoryStore.activateScope({ organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform })
   const selected = selectedAgentId ? `&agent=${selectedAgentId}` : ''
   await router.push(`/settings/agents?team=${fixtureIds.teamPlatform}${selected}`)
@@ -147,6 +163,7 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
         [SCOPE_STORE as symbol]: scopeStore,
         [AGENT_STORE as symbol]: agentStore,
         [AGENT_MEMORY_STORE as symbol]: memoryStore,
+        [SKILL_STORE as symbol]: skillStore,
       },
     },
   })

@@ -56,6 +56,7 @@ final class BrowserPermissionProjection {
     mappings.put(TeamPermission.AUDIT_READ, List.of("audit:read"));
     mappings.put(TeamPermission.GOVERNANCE_EXPORT, List.of("governance:export"));
     mappings.put(TeamPermission.KNOWLEDGE_MANAGE, List.of("knowledge:manage"));
+    mappings.put(TeamPermission.SKILL_MANAGE, List.of("skill:manage"));
     return Map.copyOf(mappings);
   }
 }

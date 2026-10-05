@@ -11,6 +11,7 @@ import AgentCreateDialog from '../components/domain/AgentCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useAgentMemoryStore } from '../domains/agent/memory-store'
+import { useSkillStore } from '../domains/skill/store'
 import { useAgentStore } from '../domains/agent/store'
 import type { AgentModelBindingSummary, AgentSummary, AgentTemplateSummary, CreateAgentInput } from '../domains/agent/types'
 import { useScopeStore } from '../domains/scope/store'
@@ -25,6 +26,7 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
 const agentMemoryStore = useAgentMemoryStore()
+const skillStore = useSkillStore()
 let activeTeamId: string | null = null
 const createOpen = ref(false)
 const createOwnership = ref<'USER' | 'TEAM'>('USER')
@@ -116,6 +118,8 @@ watch(
     agentStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
     // The memory section self-pulls under the configuration form; its store shares this Team scope.
     agentMemoryStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
+    // The configuration panel folds the Team's PUBLISHED skill keys out of this shared scope (F02 D4).
+    skillStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
     await Promise.all([loadAgentsAndConfigurations(), loadTemplates()])
   },
   { immediate: true },

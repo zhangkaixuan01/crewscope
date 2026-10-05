@@ -24,6 +24,9 @@ const props = defineProps<{
   preferences: PreferenceForm
   slotAvailable: (slot: string) => boolean
   memberSlot: (slot: string) => boolean
+  /** PUBLISHED keys of the Team catalog (D4); the panel pulls them, this section stays presentational. */
+  teamSkills: string[]
+  teamSkillsUnavailable: boolean
 }>()
 const emit = defineEmits<{ updatePreferences: [value: PreferenceForm], toggleSkill: [key: string] }>()
 const localPreferences = reactive<PreferenceForm>({ ...props.preferences, approvedSkillKeys: [...props.preferences.approvedSkillKeys] })
@@ -71,6 +74,30 @@ watch(advancedHasError, hasError => { if (hasError) advancedOpen.value = true })
 function syncToggle(event: Event): void {
   advancedOpen.value = (event.target as HTMLDetailsElement).open
 }
+
+/**
+ * The picker's full set is template.approvedSkillKeys ∪ teamSkills ∪ already-checked keys (D4).
+ *
+ * Only the Coding template's execution chain loads dynamic Team Skills — the server widens the
+ * immutable ceiling with published keys for that template alone, so the team group is a false
+ * entrance anywhere else. Keys approved by the current draft that neither source offers any more
+ * stay visible and unchecked-able: they cannot be re-checked, and the server's 422 remains the
+ * final authority when the member saves without unchecking them.
+ */
+const effectiveTeamSkills = computed(() => props.teamSkillsUnavailable ? [] : props.teamSkills)
+const catalogTeamKeys = computed(() => effectiveTeamSkills.value.filter(key => !props.template.approvedSkillKeys.includes(key)))
+const teamGroupVisible = computed(() => props.template.key === 'coding')
+const withdrawnKeys = computed(() => {
+  // While the catalog is unavailable its keys are not trustworthy either way: classifying by the
+  // template alone can over-mark a live team key, which only costs an unnecessary uncheck —
+  // under-marking would walk the member straight into the server's 422.
+  return localPreferences.approvedSkillKeys.filter(key =>
+    !props.template.approvedSkillKeys.includes(key) && !effectiveTeamSkills.value.includes(key))
+})
+
+function checked(key: string): boolean {
+  return localPreferences.approvedSkillKeys.includes(key)
+}
 </script>
 
 <template>
@@ -78,7 +105,24 @@ function syncToggle(event: Event): void {
     <header><div><p class="eyebrow">Template slots</p><h3>受控配置</h3><span>页面只呈现 Template 声明的可配置槽位，固定 Prompt、Tool 与 Schema 不进入表单。</span></div></header>
     <div class="preference-fields">
       <label v-if="memberSlot('SUPPLEMENTAL_INSTRUCTIONS')" class="wide"><span>补充指令 <small>{{ localPreferences.supplementalInstructions.length }}/16384</small></span><textarea v-model="localPreferences.supplementalInstructions" rows="5" maxlength="16384" placeholder="作为低优先级补充，不会覆盖系统策略或扩展 Tool 权限。" /></label>
-      <fieldset v-if="slotAvailable('APPROVED_SKILLS')" class="wide skill-picker"><legend>批准 Skill</legend><label v-for="key in template.approvedSkillKeys" :key="key"><input type="checkbox" :checked="localPreferences.approvedSkillKeys.includes(key)" @change="emit('toggleSkill', key)" /><span class="mono">{{ key }}</span></label><p v-if="template.approvedSkillKeys.length === 0">Template 没有公开可启用的 Skill。</p></fieldset>
+      <fieldset v-if="slotAvailable('APPROVED_SKILLS')" class="wide skill-picker">
+        <legend>批准 Skill</legend>
+        <div class="skill-picker__group">
+          <p class="skill-picker__group-title">内置 Skill（模板提供）</p>
+          <label v-for="key in template.approvedSkillKeys" :key="key"><input type="checkbox" :checked="checked(key)" @change="emit('toggleSkill', key)" /><span class="mono">{{ key }}</span></label>
+          <p v-if="template.approvedSkillKeys.length === 0" class="skill-picker__empty">Template 没有公开可启用的 Skill。</p>
+        </div>
+        <div v-if="teamGroupVisible" class="skill-picker__group">
+          <p class="skill-picker__group-title">团队 Skill（目录已发布）</p>
+          <label v-for="key in catalogTeamKeys" :key="key"><input type="checkbox" :checked="checked(key)" @change="emit('toggleSkill', key)" /><span class="mono">{{ key }}</span></label>
+          <p v-if="teamSkillsUnavailable" class="skill-picker__empty">团队 Skill 目录暂不可用，这里只呈现模板 Skill；保存时服务端会再次校验。</p>
+          <p v-else-if="catalogTeamKeys.length === 0" class="skill-picker__empty">目录暂无已发布的团队 Skill。</p>
+        </div>
+        <div v-if="withdrawnKeys.length > 0" class="skill-picker__group">
+          <p class="skill-picker__group-title">已不在当前可选范围</p>
+          <label v-for="key in withdrawnKeys" :key="key"><input type="checkbox" :checked="true" @change="emit('toggleSkill', key)" /><span class="mono">{{ key }}</span><small class="skill-picker__withdrawn">已不在当前可选范围；保存时服务端会拒绝，请先取消勾选。</small></label>
+        </div>
+      </fieldset>
       <details v-if="slotAvailable('OUTPUT_PREFERENCE')" class="advanced-preferences wide" :open="advancedOpen" @toggle="syncToggle">
         <summary>高级生成参数 <small>Temperature、采样与输出上限默认跟随模型；需要精确控制时再展开。</small></summary>
         <div class="preference-fields advanced-fields">
@@ -131,7 +175,7 @@ function syncToggle(event: Event): void {
 </template>
 
 <style scoped>
-.form-section { display: grid; gap: var(--cs-space-12); }.form-section > header h3 { margin: 0; }.form-section > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.preference-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.preference-fields label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.preference-fields .wide { grid-column: 1 / -1; }.preference-fields textarea,.preference-fields input,.preference-fields select { min-height: 36px; padding: var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }.preference-fields textarea { resize: vertical; }.skill-picker { display: grid; gap: var(--cs-space-8); margin: 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.skill-picker label { display: flex; align-items: center; gap: var(--cs-space-8); }.skill-picker p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.toggle { display: flex !important; align-items: center; }.policy-preservation { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); }.policy-preservation span { display: block; margin-top: var(--cs-space-4); }
+.form-section { display: grid; gap: var(--cs-space-12); }.form-section > header h3 { margin: 0; }.form-section > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.preference-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.preference-fields label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.preference-fields .wide { grid-column: 1 / -1; }.preference-fields textarea,.preference-fields input,.preference-fields select { min-height: 36px; padding: var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }.preference-fields textarea { resize: vertical; }.skill-picker { display: grid; gap: var(--cs-space-12); margin: 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.skill-picker label { display: flex; align-items: center; gap: var(--cs-space-8); }.skill-picker p { margin: 0; }.skill-picker__group { display: grid; gap: var(--cs-space-8); }.skill-picker__group-title { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .04em; }.skill-picker__empty { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.skill-picker__withdrawn { color: var(--cs-danger); font-size: var(--cs-text-xs); }.toggle { display: flex !important; align-items: center; }.policy-preservation { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); }.policy-preservation span { display: block; margin-top: var(--cs-space-4); }
 /* 高级参数折叠区（M9b-Q01）：summary 是常驻摘要行，展开后的字段沿用两列网格。 */
 .advanced-preferences { overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); }.advanced-preferences > summary { display: flex; align-items: baseline; gap: var(--cs-space-8); padding: var(--cs-space-12); cursor: pointer; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.advanced-preferences > summary small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }.advanced-preferences[open] > summary { border-bottom: 1px solid var(--cs-border); }.advanced-fields { padding: var(--cs-space-12); background: var(--cs-surface); }
 </style>

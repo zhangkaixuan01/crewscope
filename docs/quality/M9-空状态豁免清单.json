@@ -140,6 +140,24 @@
       "reason": "搜索框就在同屏上方的表单里，输入关键词正是这个空状态要求的动作，不需要再放一个跳转按钮。"
     },
     {
+      "file": "components/domain/SkillVersionHistory.vue",
+      "state": "empty",
+      "title": "尚未发布生效版本",
+      "reason": "产生第一个版本的出口是发布草稿，发布按钮与草稿页签就在同一详情面板的工具条上，与空状态同屏，不需要重复按钮；普通成员读面没有发布能力，版本历史本身只读。"
+    },
+    {
+      "file": "pages/SkillsPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
+      "file": "pages/SkillsPage.vue",
+      "state": "empty",
+      "title": null,
+      "reason": "注入清单回链未命中时的说明面板：深链参数已被清除，Skill 目录列表与状态筛选就在同一视口内，继续浏览目录本身就是出口；标题绑定 skillKey，无法静态匹配。"
+    },
+    {
       "file": "pages/TeamMembersPage.vue",
       "state": "empty",
       "title": "需要成员管理权限",

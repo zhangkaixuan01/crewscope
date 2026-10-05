@@ -7,6 +7,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { AUTH_PRINCIPAL, permissions } from '../../app/auth'
 import { useAgentStore } from '../../domains/agent/store'
 import { useScopeStore } from '../../domains/scope/store'
+import { useSkillStore } from '../../domains/skill/store'
 import type {
   AgentConfigurationInput,
   AgentExecutionScope,
@@ -57,6 +58,8 @@ const emit = defineEmits<{
 
 const store = useAgentStore()
 const scopeStore = useScopeStore()
+// D4: the panel pulls the Team's PUBLISHED skill keys for the picker; the section stays presentational.
+const skillStore = useSkillStore()
 const principal = inject(AUTH_PRINCIPAL)
 const route = useRoute()
 const panelRequests = usePageRequestScope(() => [props.agent.id, props.selectedRevision])
@@ -94,6 +97,9 @@ const dirtyForm = useDirtyForm(formSnapshot, { draftScope })
 const clipboard = useClipboard()
 const copiedHash = computed(() => clipboard.copied.value)
 const draftAvailable = ref(Boolean(dirtyForm.restoreDraft()))
+/** Degrades, never blocks: an unavailable catalog only hides the picker's team group. */
+const teamSkills = computed(() => skillStore.state.publishedKeys.keys)
+const teamSkillsUnavailable = computed(() => skillStore.state.publishedKeys.phase === 'error')
 
 // Scope switches update the same route component, so Vue Router does not invoke
 // onBeforeRouteLeave. Persist a dirty configuration before the selected Team changes so the
@@ -199,6 +205,7 @@ async function loadFacts(force = false): Promise<void> {
     props.agent.currentConfigurationRevision !== null
       ? store.loadCurrentConfiguration(props.agent.id, force)
       : Promise.resolve(),
+    skillStore.loadPublishedKeys(force),
   ])
   if (!owner.isCurrent()) return
   await loadHistoryUntilSelected()
@@ -499,6 +506,8 @@ function integerOrNull(value: PreferenceNumber): number | null {
               :preferences="preferences"
               :slot-available="slotAvailable"
               :member-slot="memberSlot"
+              :team-skills="teamSkills"
+              :team-skills-unavailable="teamSkillsUnavailable"
               @update-preferences="value => Object.assign(preferences, value)"
               @toggle-skill="toggleSkill"
             />

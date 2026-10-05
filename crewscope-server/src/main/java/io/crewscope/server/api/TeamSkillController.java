@@ -14,6 +14,7 @@ import io.crewscope.application.skill.TeamSkillVersionPageRequest;
 import io.crewscope.application.skill.UpdateTeamSkillDraftCommand;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.skill.TeamSkill;
@@ -449,6 +450,10 @@ public final class TeamSkillController {
     private static TeamSkillKey skillKey(String value) {
         try {
             return TeamSkillKey.parse(value);
+        } catch (DomainValidationException failure) {
+            // Contract §4: key-format and reserved-name rejections are domain validation and must
+            // surface as 422 invalid_value through the shared handler, never a transport 400.
+            throw failure;
         } catch (RuntimeException failure) {
             throw invalidField("skillKey");
         }

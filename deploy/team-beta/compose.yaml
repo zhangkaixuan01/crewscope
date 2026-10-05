@@ -62,6 +62,9 @@ services:
       # stacked demo can hold jobs in QUEUED for cancel exercises.
       CREWSCOPE_KNOWLEDGE_INDEX_ENABLED: ${CREWSCOPE_KNOWLEDGE_INDEX_ENABLED:-false}
       CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED:-false}
+      # M10-F02: the Team skill catalog's write gate. Reads stay 200 with the gate closed;
+      # the five write commands answer 422 skill_disabled before permissions (A03 §9).
+      CREWSCOPE_SKILL_ENABLED: ${CREWSCOPE_SKILL_ENABLED:-false}
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
       CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"

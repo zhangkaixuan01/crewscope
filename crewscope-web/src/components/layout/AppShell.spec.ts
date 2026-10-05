@@ -16,7 +16,7 @@ async function harness() {
   const navigationNames = ['access-denied', 'account', 'activity', 'agent-settings', 'audit',
     'conversation', 'github-settings', 'inbox', 'invite', 'knowledge-base', 'knowledge-index', 'lark-settings', 'login',
     'model-settings', 'not-found', 'onboarding', 'operations', 'register', 'repository-settings', 'search',
-    'setup', 'team-members', 'team-observer', 'today', 'work']
+    'setup', 'skill-catalog', 'team-members', 'team-observer', 'today', 'work']
   const router = createRouter({
     history: createMemoryHistory(),
     routes: navigationNames.map(name => ({

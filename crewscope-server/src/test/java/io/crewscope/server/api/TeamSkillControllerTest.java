@@ -171,11 +171,20 @@ class TeamSkillControllerTest {
     client.post().uri(root()).contentType(MediaType.APPLICATION_JSON)
         .bodyValue("{\"skillKey\":\"deploy-runbook-v2\",\"content\":\"x\"}")
         .exchange().expectStatus().isBadRequest();
+    // Contract §4: key-format and reserved-name rejections are domain validation — 422
+    // invalid_value, never a transport-level 400.
     client.post().uri(root()).header(ApiHeaders.IDEMPOTENCY_KEY, "bad-key-case")
         .contentType(MediaType.APPLICATION_JSON)
         .bodyValue("{\"skillKey\":\"Deploy_Runbook\",\"content\":\"x\"}")
-        .exchange().expectStatus().isBadRequest()
-        .expectBody().jsonPath("$.code").isEqualTo("invalid_request");
+        .exchange().expectStatus().isEqualTo(422)
+        .expectBody().jsonPath("$.code").isEqualTo("invalid_value")
+        .jsonPath("$.details.field").isEqualTo("teamSkill.skillKey");
+    client.post().uri(root()).header(ApiHeaders.IDEMPOTENCY_KEY, "reserved-key")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"skillKey\":\"java-spring-v1\",\"content\":\"x\"}")
+        .exchange().expectStatus().isEqualTo(422)
+        .expectBody().jsonPath("$.code").isEqualTo("invalid_value")
+        .jsonPath("$.details.field").isEqualTo("teamSkill.skillKey");
     client.post().uri(root()).header(ApiHeaders.IDEMPOTENCY_KEY, "blank-content")
         .contentType(MediaType.APPLICATION_JSON)
         .bodyValue("{\"skillKey\":\"deploy-runbook-v2\",\"content\":\"\"}")
@@ -642,10 +651,12 @@ class TeamSkillControllerTest {
         .bodyValue(distillBody(executionId.value().toString(), "NOT_A_KEY"))
         .exchange()
         .expectStatus()
-        .isBadRequest()
+        .isEqualTo(422)
         .expectBody()
+        .jsonPath("$.code")
+        .isEqualTo("invalid_value")
         .jsonPath("$.details.field")
-        .isEqualTo("skillKey");
+        .isEqualTo("teamSkill.skillKey");
   }
 
   @Test
