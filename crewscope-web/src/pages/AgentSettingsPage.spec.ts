@@ -7,6 +7,7 @@ import { createCrewScopeRouter } from '../app/router'
 import { fixtureAuthStore } from '../test/authFixtures'
 import { HttpAgentGateway } from '../domains/agent/gateway'
 import { AGENT_STORE, createAgentStore } from '../domains/agent/store'
+import { createAgentMemoryStore, AGENT_MEMORY_STORE } from '../domains/agent/memory-store'
 import type { AgentSummary, CurrentAgentConfiguration } from '../domains/agent/types'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
@@ -132,6 +133,8 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
   const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
   const agentStore = createAgentStore(new HttpAgentGateway(new CrewScopeApiClient('/api/v1', agentFetcher(mode))))
+  const memoryStore = createAgentMemoryStore(new HttpAgentGateway(new CrewScopeApiClient('/api/v1', agentFetcher(mode))))
+  memoryStore.activateScope({ organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform })
   const selected = selectedAgentId ? `&agent=${selectedAgentId}` : ''
   await router.push(`/settings/agents?team=${fixtureIds.teamPlatform}${selected}`)
   await router.isReady()
@@ -143,6 +146,7 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
         [AUTH_PRINCIPAL as symbol]: principal,
         [SCOPE_STORE as symbol]: scopeStore,
         [AGENT_STORE as symbol]: agentStore,
+        [AGENT_MEMORY_STORE as symbol]: memoryStore,
       },
     },
   })
@@ -166,6 +170,19 @@ function agentFetcher(mode: FixtureMode): typeof fetch {
       if (mode === 'forbidden') return apiError(403, 'policy_denied', 'Agent directory forbidden')
       if (mode === 'error') return apiError(503, 'agent_directory_unavailable', 'Agent 目录暂时不可用')
       return json({ items: mode === 'without-team' ? agents().filter(agent => agent.ownershipType !== 'TEAM') : agents() })
+    }
+    if (url.pathname.endsWith('/memory')) {
+      return json({
+        policyReference: { policyId: '7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20', version: 1 },
+        policy: { policyId: '7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20', version: 1, ttlDays: 90, maxEntriesPerOwner: 100, valueMaxBytes: 1024 },
+        degraded: null, clearanceGeneration: 3,
+        entries: [{
+          memoryKey: 'reply-language', value: '简体中文', version: 2,
+          expiresAt: '2026-12-01T00:00:00Z', createdAt: '2026-08-04T09:00:00Z',
+          updatedAt: '2026-09-04T09:00:00Z', createdBy: principal.id, updatedBy: principal.id,
+        }],
+        entryCount: 1,
+      })
     }
     const configurationMatch = url.pathname.match(/\/agent-profiles\/([^/]+)\/configurations\/current$/)
     if (configurationMatch) {

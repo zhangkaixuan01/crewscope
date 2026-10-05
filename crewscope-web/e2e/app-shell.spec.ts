@@ -56,8 +56,22 @@ const ids = {
   pullRequestAction: '00000000-0000-0000-0000-000000002206',
   pushDispatch: '00000000-0000-0000-0000-000000002207',
   pullRequestDispatch: '00000000-0000-0000-0000-000000002208',
+  // Knowledge entry ids must satisfy the page's `uuidQuery` guard (version nibble 1-5, variant
+  // nibble 8-b) or the `entry` deep link is discarded as malformed.
+  knowledgeEntry: '00000000-0000-1000-8000-000000002301',
+  knowledgeDraftEntry: '00000000-0000-1000-8000-000000002302',
+  knowledgeIndexJob: '00000000-0000-1000-8000-000000002401',
 }
 let codingPatchOverride: string | null = null
+
+// M10-F01c injection evidence mock state: the GET answers sealed/empty/missing shapes and the
+// POST feedback is structurally idempotent — the own-mark flag rides the next GET truthfully.
+// Module level because the F01c cases read the counters and flip the modes mid-test.
+let injectionEvidenceMode: 'sealed' | 'empty' | 'missing'
+let injectionFeedbackMode: 'ok' | 'outside'
+let injectionOwnMarked: boolean
+let injectionListReads: number
+let injectionFeedbackPosts: Array<{ body: unknown, idempotencyKey: string | undefined, ifMatch: string | undefined }>
 
 test.beforeEach(async ({ page }) => {
   // Keep Today and date rendering deterministic so visual diffs represent UI changes instead of wall-clock drift.
@@ -78,6 +92,11 @@ test.beforeEach(async ({ page }) => {
     responsibility('00000000-0000-0000-0000-000000000903', 'REVIEWER', ids.specialistAgent, 'SPECIALIST_AGENT', 'Architecture Reviewer'),
   ]
   const tasks = [task(ids.task, ids.workItem, '完成 Agent Task 列表与委托入口', 'WAITING', 'WAITING', 'RUNTIME', 2)]
+  injectionEvidenceMode = 'sealed'
+  injectionFeedbackMode = 'ok'
+  injectionOwnMarked = false
+  injectionListReads = 0
+  injectionFeedbackPosts = []
   const conversationTaskIds = new Set([ids.task])
   const acceptedTaskKeys = new Map<string, string>()
   const acceptedTaskCommandKeys = new Set<string>()
@@ -188,6 +207,42 @@ test.beforeEach(async ({ page }) => {
     // state would pass forever while saying nothing about the page it is supposed to freeze.
     if (request.method() === 'GET' && path.endsWith('/work-desk')) {
       await fulfillJson(route, workDesk())
+      return
+    }
+    // M10 knowledge reads mirror the A02 contract (§7): the listing cursor is `nextAfter`
+    // (entryKey), the head ETag is the numeric version, and version ETags are content hashes.
+    if (request.method() === 'GET' && path.endsWith('/knowledge/entries')) {
+      await fulfillJson(route, { items: knowledgeEntries(), nextAfter: null })
+      return
+    }
+    const knowledgeEntryMatch = path.match(/\/knowledge\/entries\/([^/]+)$/)
+    if (request.method() === 'GET' && knowledgeEntryMatch) {
+      const entry = knowledgeEntries().find(item => item.id === knowledgeEntryMatch[1])
+      if (!entry) return fulfillError(route, 404, 'knowledge_entry_not_found', 'Knowledge Entry 不存在')
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${entry.version}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(entry) })
+      return
+    }
+    const knowledgeVersionListMatch = path.match(/\/knowledge\/entries\/([^/]+)\/versions$/)
+    if (request.method() === 'GET' && knowledgeVersionListMatch) {
+      await fulfillJson(route, { items: [knowledgeVersionRow(1)], nextAfter: null })
+      return
+    }
+    const knowledgeVersionMatch = path.match(/\/knowledge\/entries\/([^/]+)\/versions\/([^/]+)$/)
+    if (request.method() === 'GET' && knowledgeVersionMatch) {
+      const row = knowledgeVersionRow(1)
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${row.contentHash}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(row) })
+      return
+    }
+    const knowledgeEffectiveMatch = path.match(/\/knowledge\/entries\/([^/]+)\/effective-version$/)
+    if (request.method() === 'GET' && knowledgeEffectiveMatch) {
+      const row = knowledgeVersionRow(1)
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${row.contentHash}"`, 'Cache-Control': 'no-store' }, body: JSON.stringify(row) })
+      return
+    }
+    // M10-F01b: the I01c job listing (jobId keyset cursor); commands stay unmocked here — the
+    // visual and WCAG frames only read.
+    if (request.method() === 'GET' && path.endsWith('/knowledge/index/jobs')) {
+      await fulfillJson(route, { items: knowledgeIndexJobs(), nextAfter: null })
       return
     }
     if (request.method() === 'GET' && path.endsWith('/members')) {
@@ -319,6 +374,12 @@ test.beforeEach(async ({ page }) => {
     const agentModelCatalogMatch = path.match(/\/agent-profiles\/([^/]+)\/model-catalog$/)
     if (request.method() === 'GET' && agentModelCatalogMatch) {
       await fulfillJson(route, { items: selectableAgentModels(url.searchParams.get('executionScope') ?? 'PERSONAL') })
+      return
+    }
+    // M10-F01c: the agent settings panel reads this member's own memory view.
+    const agentMemoryMatch = path.match(/\/agent-profiles\/([^/]+)\/memory$/)
+    if (request.method() === 'GET' && agentMemoryMatch) {
+      await fulfillJson(route, agentMemoryView())
       return
     }
     const agentConfigurationAppendMatch = path.match(/\/agent-profiles\/([^/]+)\/configurations$/)
@@ -761,6 +822,32 @@ test.beforeEach(async ({ page }) => {
       const selected = tasks.find(item => item.id === taskRuntimeFactsMatch[1])
       if (!selected) return fulfillError(route, 404, 'task_not_found', 'Task not found')
       await fulfillJson(route, taskRuntimeFacts(selected, taskRuntimeFactsMatch[2]!))
+      return
+    }
+    // M10-F01c: the drawer's sixth section reads the sealed injection evidence of the execution.
+    const injectionReferenceMatch = path.match(/\/tasks\/([^/]+)\/attempts\/([^/]+)\/injection-references$/)
+    if (injectionReferenceMatch && request.method() === 'GET') {
+      injectionListReads += 1
+      if (injectionEvidenceMode === 'missing') {
+        return fulfillError(route, 404, 'aggregate_not_found', 'Task 或执行不存在')
+      }
+      if (injectionEvidenceMode === 'empty') {
+        await fulfillJson(route, { taskId: injectionReferenceMatch[1]!, executionId: injectionReferenceMatch[2]!, attempts: [] })
+        return
+      }
+      await fulfillJson(route, injectionReferences(injectionReferenceMatch[1]!, injectionReferenceMatch[2]!, injectionOwnMarked))
+      return
+    }
+    // Contract §3: the feedback POST is idempotent on (execution × quadruple × member) — no
+    // Idempotency-Key, no If-Match; the request serialises version as a string.
+    if (request.method() === 'POST' && path.endsWith('/injection-references/feedback')) {
+      const body = request.postDataJSON() as { type: string, sourceId: string, version: string, contentHash: string }
+      injectionFeedbackPosts.push({ body, idempotencyKey: request.headers()['idempotency-key'], ifMatch: request.headers()['if-match'] })
+      if (injectionFeedbackMode === 'outside') {
+        return fulfillError(route, 422, 'feedback_reference_outside_manifest', 'Reference outside the injected union')
+      }
+      injectionOwnMarked = true
+      await fulfillJson(route, { ...body, version: Number(body.version) })
       return
     }
     if (path.endsWith('/runtime-health') && request.method() === 'GET') {
@@ -3359,6 +3446,114 @@ test('M5 Agent Center visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`agent-configuration-${testInfo.project.name}.png`, { fullPage: true })
 })
 
+test('M10 Knowledge visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/knowledge?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByRole('region', { name: '知识条目列表' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'deploy-runbook' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`knowledge-list-${testInfo.project.name}.png`, { fullPage: true })
+
+  // The draft entry is the representative management frame: toolbar, prefilled draft editor
+  // and the folded audit block all land in the same aside.
+  await page.goto(`/knowledge?team=${ids.team}&project=${ids.project}&entry=${ids.knowledgeDraftEntry}`)
+  await expect(page.getByRole('complementary', { name: '知识条目详情' })).toBeVisible()
+  await expect(page.getByLabel('标题')).toHaveValue('未发布的接口约定草稿')
+  await expect(page).toHaveScreenshot(`knowledge-detail-${testInfo.project.name}.png`, { fullPage: true })
+})
+
+test('M10-F01b knowledge index jobs visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/knowledge/index?team=${ids.team}&project=${ids.project}`)
+  await expect(page.getByRole('region', { name: '索引作业列表' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '取消作业' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`knowledge-index-list-${testInfo.project.name}.png`, { fullPage: true })
+
+  // The expanded technical block is the manager frame: lease, index key and the cancel control.
+  await page.getByRole('button', { name: '展开详情' }).nth(1).click()
+  await expect(page.getByText('持有租约')).toBeVisible()
+  await expect(page).toHaveScreenshot(`knowledge-index-detail-${testInfo.project.name}.png`, { fullPage: true })
+})
+
+test('M10-F01c drawer injection evidence renders the sealed assembly and both receipt states', async ({ page }) => {
+  // The sixth section assembles per selected execution: the current manifest shows all three
+  // zones and a zero-claim receipt, the historical one has no receipt yet (null ≠ []).
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&taskExecution=${ids.taskExecution}`)
+  const drawer = page.getByRole('dialog', { name: /Task 详情/ })
+  const injection = drawer.locator('#ws-injection')
+
+  const current = injection.getByRole('article', { name: '第 2 次尝试的注入清单' })
+  await expect(current).toBeVisible()
+  await expect(current.getByText('8,192 token')).toBeVisible()
+  await expect(current.getByRole('table', { name: '预算裁剪记录' })).toContainText('仓库片段')
+  await expect(current.getByText('已注入（2）')).toBeVisible()
+  await expect(current.getByText('候选（预算裁剪，1）')).toBeVisible()
+  await expect(current.getByText('从未送入模型')).toBeVisible()
+  await expect(current.getByText('已提交回执：零声明')).toBeVisible()
+  // Mark entries exist only on the injected rows — the candidate never reached the model.
+  await expect(current.getByRole('button', { name: '标记不适用' })).toHaveCount(2)
+
+  await drawer.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
+  const historical = injection.getByRole('article', { name: '第 1 次尝试的注入清单' })
+  await expect(historical).toBeVisible()
+  await expect(historical.getByText('模型尚未提交引用回执')).toBeVisible()
+  await expect(injection.getByText('已提交回执：零声明')).toBeHidden()
+})
+
+test('M10-F01c injection feedback marks in place, replays from the server, and separates 422 from 404 and empty', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&taskExecution=${ids.taskExecution}`)
+  const drawer = page.getByRole('dialog', { name: /Task 详情/ })
+  const injection = drawer.locator('#ws-injection')
+  const runbookRow = injection.locator('li').filter({ hasText: 'deploy-runbook' })
+
+  // The mark posts the bare quadruple — version as a string, no kind, no Idempotency-Key, no If-Match.
+  await runbookRow.getByRole('button', { name: '标记不适用' }).click()
+  await expect(runbookRow.getByText('你已标记不适用（不可撤销）')).toBeVisible()
+  await expect(injection.locator('.injection-banner')).toHaveAttribute('role', 'status')
+  expect(injectionFeedbackPosts).toHaveLength(1)
+  expect(injectionFeedbackPosts[0]!.body).toEqual({ type: 'KNOWLEDGE_ENTRY', sourceId: 'deploy-runbook', version: '2', contentHash: '2'.repeat(64) })
+  expect(injectionFeedbackPosts[0]!.idempotencyKey).toBeUndefined()
+  expect(injectionFeedbackPosts[0]!.ifMatch).toBeUndefined()
+
+  // A full reload re-reads the server's own-member truth: the mark survived, worded as final.
+  await page.reload()
+  await expect(drawer.locator('#ws-injection').locator('li').filter({ hasText: 'deploy-runbook' }).getByText('你已标记不适用（不可撤销）')).toBeVisible()
+  expect(injectionListReads).toBe(2)
+
+  // An outside quadruple answers 422 with the union wording, as an alert.
+  injectionFeedbackMode = 'outside'
+  await injection.getByRole('button', { name: '标记不适用' }).click()
+  const banner = injection.locator('.injection-banner')
+  await expect(banner).toHaveAttribute('role', 'alert')
+  await expect(banner).toContainText('不在本次执行任何 attempt 的已注入并集')
+
+  // A cross-tenant-shaped 404 is an error state, not the no-manifest empty state; the retry after
+  // the mode flips proves the two shapes never blur into each other.
+  injectionEvidenceMode = 'missing'
+  await drawer.locator('.attempt-list button').filter({ hasText: 'Attempt 1' }).click()
+  await expect(injection.getByText('Task 或执行不存在')).toBeVisible()
+  await expect(injection.getByText('该执行没有注入清单')).toBeHidden()
+  injectionEvidenceMode = 'empty'
+  await injection.getByRole('button', { name: '刷新事实' }).click()
+  await expect(injection.getByText('该执行没有注入清单')).toBeVisible()
+})
+
+test('M10-F01c injection evidence and agent memory visual baseline', async ({ page }, testInfo) => {
+  // The sixth drawer section with the selected execution's sealed evidence: both stages, the
+  // trim record and the zero-claim receipt, next to the review it feeds.
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}&taskExecution=${ids.taskExecution}`)
+  const drawer = page.getByRole('dialog', { name: /Task 详情/ })
+  await expect(drawer.locator('#ws-injection')).toBeVisible()
+  await expect(drawer.getByText('已提交回执：零声明')).toBeVisible()
+  await expect(drawer.getByRole('button', { name: '标记不适用' }).first()).toBeVisible()
+  await expect(page).toHaveScreenshot(`task-injection-${testInfo.project.name}.png`, { fullPage: true })
+
+  // The member's own memory view under the agent configuration form: policy digest, entry
+  // table and the confirmation-gated clear entry.
+  await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}`)
+  await expect(page.getByRole('region', { name: '辅助记忆' })).toBeVisible()
+  await expect(page.getByText('reply-language')).toBeVisible()
+  await expect(page.getByRole('button', { name: '清除我的辅助记忆' })).toBeVisible()
+  await expect(page).toHaveScreenshot(`agent-memory-${testInfo.project.name}.png`, { fullPage: true })
+})
+
 test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ page }) => {
   // This gate intentionally visits every primary page and several dialogs in one browser context.
   test.setTimeout(90_000)
@@ -3377,6 +3572,8 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
     { path: `/settings/repositories?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'CrewScope 仓库设置' }) },
     { path: `/settings/agents?team=${ids.team}&agent=${ids.agentCoding}`, ready: () => page.getByRole('heading', { name: '我的 Specialist' }) },
     { path: `/settings/models?team=${ids.team}&provider=deepseek&ownerType=TEAM&connection=${ids.teamModelConnection}`, ready: () => page.getByRole('heading', { name: '模型连接详情' }) },
+    { path: `/knowledge?team=${ids.team}&project=${ids.project}&entry=${ids.knowledgeEntry}`, ready: () => page.getByRole('complementary', { name: '知识条目详情' }) },
+    { path: `/knowledge/index?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('region', { name: '索引作业列表' }) },
   ]
 
   for (const route of routes) {
@@ -3568,6 +3765,44 @@ function agentConfiguration(profileId: string, revision = 2) {
     supplementalInstructions: null, approvedSkillKeys: [], memoryPolicy: null, budgetPolicy: null,
     generateOptions: { temperature: null, topP: null, maximumOutputTokens: 120000, reasoningMode: 'DEFAULT', cacheEnabled: true, parallelToolCalls: true, seed: null, maximumAttempts: 2 },
     policyPackId: 'default', policyPackVersion: 1, configurationHash: 'c'.repeat(64), createdAt: '2026-08-08T04:00:00Z',
+  }
+}
+
+/** M10-F01c I02a read shape: the healthy default policy with one live entry. */
+function agentMemoryView() {
+  const policyId = '7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20'
+  return {
+    policyReference: { policyId, version: 1 },
+    policy: { policyId, version: 1, ttlDays: 90, maxEntriesPerOwner: 100, valueMaxBytes: 1024 },
+    degraded: null, clearanceGeneration: 3,
+    entries: [{
+      memoryKey: 'reply-language', value: '简体中文', version: 2,
+      expiresAt: '2026-11-08T04:00:00Z', createdAt: '2026-08-08T04:00:00Z',
+      updatedAt: '2026-09-08T04:00:00Z', createdBy: ids.principal, updatedBy: ids.principal,
+    }],
+    entryCount: 1,
+  }
+}
+
+/** M10-F01c I02c read shape: one sealed attempt with both stages — the current execution has a
+ *  zero-claim receipt while the historical one has none yet (contract §2 keeps null and [] apart). */
+function injectionReferences(taskId: string, executionId: string, marked = false) {
+  const historical = executionId === ids.previousTaskExecution
+  return {
+    taskId, executionId,
+    attempts: [{
+      manifestId: historical ? '00000000-0000-1000-8000-000000001810' : '00000000-0000-1000-8000-000000001811',
+      attempt: historical ? 1 : 2, createdAt: historical ? '2026-08-07T06:20:00Z' : '2026-08-08T03:40:00Z',
+      budget: { totalTokens: 8192, knowledgeTokens: 3072, chunkTokens: 4096, memoryTokens: 1024 },
+      degradations: [],
+      trims: [{ layer: 'REPOSITORY_CHUNK', trimmedCount: 1, reason: 'layer budget exceeded' }],
+      references: [
+        { type: 'SKILL_INSTRUCTION', sourceId: 'coding-baseline', version: 1, contentHash: '1'.repeat(64), stage: 'INJECTED', notApplicable: false },
+        { type: 'KNOWLEDGE_ENTRY', sourceId: 'deploy-runbook', version: 2, contentHash: '2'.repeat(64), stage: 'INJECTED', notApplicable: marked },
+        { type: 'REPOSITORY_CHUNK', sourceId: 'crewscope/backend@2'.repeat(20).slice(0, 40), version: 1, contentHash: '3'.repeat(64), stage: 'CANDIDATE', notApplicable: false },
+      ],
+      claimed: historical ? null : [],
+    }],
   }
 }
 
@@ -4306,6 +4541,58 @@ function setupReadiness() {
       capability('TEAM_OBSERVER', false, 'UNAVAILABLE', 'RUNTIME_UNAVAILABLE', false, 'Platform Operator', null),
     ],
   }
+}
+
+/** M10 knowledge fixtures: one published entry with an effective version, one drafted entry. */
+function knowledgeEntries() {
+  const entry = (
+    id: string,
+    entryKey: string,
+    category: string,
+    status: string,
+    effectiveRevision: number | null,
+    version: number,
+    draft: { title: string, content: string } | null,
+  ) => ({
+    id, entryKey, category, status, indexStatus: 'INDEXED',
+    effectiveRevision, latestRevision: effectiveRevision ?? 0, draft,
+    version, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z',
+    createdBy: ids.principal, updatedBy: ids.principal, origin: null,
+  })
+  return [
+    entry(ids.knowledgeEntry, 'deploy-runbook', 'RUNBOOK', 'PUBLISHED', 1, 3, null),
+    entry(ids.knowledgeDraftEntry, 'api-conventions', 'CONVENTION', 'DRAFT', null, 1, { title: '未发布的接口约定草稿', content: '所有写命令必须携带 If-Match 与幂等键。' }),
+  ]
+}
+
+function knowledgeVersionRow(revision: number) {
+  return {
+    entryId: ids.knowledgeEntry, revision, previousRevision: revision > 1 ? revision - 1 : null,
+    title: '部署手册', content: '1. 拉取最新镜像\n2. 执行数据库迁移\n3. 依次重启服务并观察健康检查。',
+    contentHash: '1'.repeat(64), indexStatus: 'INDEXED',
+    createdAt: '2026-08-08T02:00:00Z', createdBy: ids.principal,
+  }
+}
+
+/** M10-F01b: one job per source — a QUEUED entry rebuild and an in-flight repository build. */
+function knowledgeIndexJobs() {
+  return [
+    {
+      id: ids.knowledgeIndexJob, source: 'KNOWLEDGE_ENTRY', status: 'QUEUED',
+      entryId: ids.knowledgeEntry, projectId: null, indexKey: null,
+      attempt: 0, chunksDone: 0, chunksTotal: 0, failureCode: null, generationBuildSequence: 2,
+      claimedBy: null, leaseExpiresAt: null, createdBy: ids.principal,
+      createdAt: '2026-08-08T03:30:00Z', updatedAt: '2026-08-08T03:30:00Z',
+    },
+    {
+      id: '00000000-0000-1000-8000-000000002402', source: 'REPOSITORY', status: 'EMBEDDING',
+      entryId: null, projectId: ids.project,
+      indexKey: { bindingId: ids.githubBinding, commit: '2'.repeat(40), chunkPolicyHash: '3'.repeat(64), modelKey: 'text-embedding-v4', modelRevision: 3 },
+      attempt: 1, chunksDone: 128, chunksTotal: 512, failureCode: null, generationBuildSequence: 1,
+      claimedBy: 'knowledge-index-worker-1', leaseExpiresAt: '2026-08-08T04:02:00Z', createdBy: ids.principal,
+      createdAt: '2026-08-08T03:20:00Z', updatedAt: '2026-08-08T03:55:00Z',
+    },
+  ]
 }
 
 /** A06 configuration health: the four components the Setup page must render in member language. */

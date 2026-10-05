@@ -2,9 +2,23 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AGENT_STORE, type AgentStore, type AgentStoreState } from '../../domains/agent/store'
+import { createAgentMemoryStore, AGENT_MEMORY_STORE } from '../../domains/agent/memory-store'
+import type { AgentMemoryView } from '../../domains/agent/types'
 import { SCOPE_STORE, type ScopeStore } from '../../domains/scope/store'
 import type { AgentConfigurationInput, AgentSummary, AgentTemplateSummary, SelectableAgentModel } from '../../domains/agent/types'
 import AgentConfigurationPanel from './AgentConfigurationPanel.vue'
+
+/** The panel now hosts the member's own memory section; it reads as unconfigured by default. */
+function memoryStoreFixture() {
+  const store = createAgentMemoryStore({
+    async getMemory(): Promise<AgentMemoryView> {
+      return { policyReference: null, policy: null, degraded: null, clearanceGeneration: 1, entries: [], entryCount: 0 }
+    },
+    async clearMemory(): Promise<never> { throw new Error('not stubbed') },
+  })
+  store.activateScope({ organizationId: 'org-1', teamId: 'team-1' })
+  return store
+}
 
 // 只读状态的动作是跳转到权限说明页，因此路由表里要有这个具名路由。
 const testRouter = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }, { path: '/access-denied', name: 'access-denied', component: { template: '<div />' } }] })
@@ -19,7 +33,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, appendConfiguration } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
     const selects = wrapper.findAll('.binding-editor select')
@@ -53,7 +67,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, appendConfiguration } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: template('TEAM'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('继承已发布的 Team/Organization 默认')
@@ -72,7 +86,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore } = fixtureStore('PERSONAL', true)
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(2), template: template('PERSONAL'), canConfigure: true, selectedRevision: 1 },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('历史版本不可编辑')
@@ -84,7 +98,7 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore, transitionAgent } = fixtureStore('PERSONAL')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null), template: template('PERSONAL'), canConfigure: true, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
     const disable = wrapper.findAll('button').find(button => button.text() === '禁用')!
@@ -118,7 +132,7 @@ describe('AgentConfigurationPanel', () => {
         canConfigure: true,
         selectedRevision: null,
       },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
 
@@ -148,12 +162,15 @@ describe('AgentConfigurationPanel', () => {
     const { store, scopeStore } = fixtureStore('TEAM')
     const wrapper = mount(AgentConfigurationPanel, {
       props: { agent: agent(null, 'TEAM'), template: null, canConfigure: false, selectedRevision: null },
-      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore } },
+      global: { plugins: [testRouter], provide: { [AGENT_STORE as symbol]: store, [SCOPE_STORE as symbol]: scopeStore, [AGENT_MEMORY_STORE as symbol]: memoryStoreFixture() } },
     })
     await flushPromises()
 
     expect(wrapper.text()).toContain('只读 Agent')
     expect(wrapper.text()).not.toContain('Template 元数据不可用')
+    // The member's own memory view is runtime state: it reads for any viewer, gated on nothing.
+    expect(wrapper.text()).toContain('辅助记忆')
+    expect(wrapper.text()).toContain('未启用辅助记忆')
   })
 })
 

@@ -28,6 +28,7 @@ import AgentConfigurationRevisionView from './AgentConfigurationRevisionView.vue
 import AgentConfigurationModelBindingSection from './AgentConfigurationModelBindingSection.vue'
 import AgentConfigurationPreferencesSection from './AgentConfigurationPreferencesSection.vue'
 import AgentConfigurationLifecycleSection from './AgentConfigurationLifecycleSection.vue'
+import AgentMemorySection from './AgentMemorySection.vue'
 import { generateOptionFields, withinGenerateOptionLimit, withinSeedBound } from '../../domains/agent/limits'
 import { useClipboard } from '../../composables/useClipboard'
 import { useDirtyForm } from '../../composables/useDirtyForm'
@@ -511,6 +512,10 @@ function integerOrNull(value: PreferenceNumber): number | null {
             <p v-if="agent.status === 'ARCHIVED'" id="agent-config-archived-reason" class="sr-only">Agent 已归档，需要先恢复为可用状态才能保存配置变更。</p>
             <footer class="save-actions"><span>“保存并预检”在服务端提交事务内先验证候选 Binding；失败不会追加 Revision。</span><BaseButton type="submit" :loading="saving" :disabled="!formValid || agent.status === 'ARCHIVED'" :aria-describedby="agent.status === 'ARCHIVED' ? 'agent-config-archived-reason' : undefined"><Save :size="14" />{{ commandForAgent?.retryable ? '使用原请求重试' : '保存并预检' }}</BaseButton></footer>
           </form>
+
+          <!-- The member's own memory view is runtime state, not configuration history: it reads
+               for any viewer of the panel and is deliberately outside the canConfigure gate. -->
+          <AgentMemorySection :profile-id="agent.id" />
 
           <AgentConfigurationLifecycleSection
             :visible="canConfigure"

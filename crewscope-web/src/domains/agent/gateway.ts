@@ -6,6 +6,10 @@ import type {
   AgentConfigurationInput,
   AgentExecutionScope,
   AgentLifecycleTransition,
+  AgentMemoryClearance,
+  AgentMemoryEntry,
+  AgentMemoryPolicySummary,
+  AgentMemoryView,
   AgentModelBindingSummary,
   AgentModelPreflight,
   AgentModelSelectionSummary,
@@ -33,6 +37,8 @@ export interface AgentGateway {
   transitionAgent(scope: SettingsScope, profileId: string, transition: AgentLifecycleTransition, etag: string, idempotencyKey: string): Promise<AgentCommandReceipt>
   appendConfiguration(scope: SettingsScope, profileId: string, input: AgentConfigurationInput, etag: string, idempotencyKey: string): Promise<AgentCommandReceipt>
   refreshConversationConfiguration(scope: SettingsScope, conversationId: string, etag: string, idempotencyKey: string): Promise<AgentCommandReceipt>
+  getMemory(scope: SettingsScope, profileId: string, signal?: AbortSignal): Promise<AgentMemoryView>
+  clearMemory(scope: SettingsScope, profileId: string): Promise<AgentMemoryClearance>
 }
 
 /** A02-A03 HTTP adapter that admits only public Agent and Configuration fields. */
@@ -201,6 +207,26 @@ export class HttpAgentGateway implements AgentGateway {
       { expectedVersion: etagVersion(etag), idempotencyKey },
     )
     return mapReceipt(value)
+  }
+
+  async getMemory(
+    scope: SettingsScope,
+    profileId: string,
+    signal?: AbortSignal,
+  ): Promise<AgentMemoryView> {
+    const value = await this.client.get<AgentMemoryViewPayload>(
+      `${profileRoot(scope, profileId)}/memory`,
+      { signal },
+    )
+    return mapMemoryView(value)
+  }
+
+  async clearMemory(scope: SettingsScope, profileId: string): Promise<AgentMemoryClearance> {
+    // Contract §4: structurally idempotent on the owner's clearance generation — no
+    // Idempotency-Key, no If-Match. The DELETE answers a synchronous receipt; repeating it
+    // reports zero entries and advances the generation again (the I01c cancel precedent).
+    const response = await this.client.open(`${profileRoot(scope, profileId)}/memory`, { method: 'DELETE' })
+    return mapMemoryClearance(await response.json() as AgentMemoryClearance)
   }
 }
 
@@ -402,6 +428,40 @@ function bindingBody(value: AgentConfigurationInput['personalModelBinding']) {
 
 function mapReceipt(value: AgentCommandReceipt): AgentCommandReceipt {
   return { ...pick(value, ['commandId', 'domainEventId', 'committedVersion', 'correlationId']) }
+}
+
+/** The I02a wire shape: the reference travels as `policyId`, mapped onto `AgentPolicyReference.id`. */
+interface AgentMemoryViewPayload {
+  policyReference: { policyId: string, version: number } | null
+  policy: AgentMemoryPolicySummary | null
+  degraded: string | null
+  clearanceGeneration: number
+  entries: AgentMemoryEntry[]
+  entryCount: number
+}
+
+function mapMemoryView(value: AgentMemoryViewPayload): AgentMemoryView {
+  return {
+    policyReference: value.policyReference ? { id: value.policyReference.policyId, version: value.policyReference.version } : null,
+    policy: value.policy ? { ...pick(value.policy, ['policyId', 'version', 'ttlDays', 'maxEntriesPerOwner', 'valueMaxBytes']) } : null,
+    degraded: memoryDegraded(value.degraded),
+    clearanceGeneration: value.clearanceGeneration,
+    entries: value.entries.map(entry => ({ ...pick(entry, [
+      'memoryKey', 'value', 'version', 'expiresAt', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy',
+    ]) })),
+    entryCount: value.entryCount,
+  }
+}
+
+function mapMemoryClearance(value: AgentMemoryClearance): AgentMemoryClearance {
+  return { ...pick(value, ['clearedCount', 'clearanceGeneration']) }
+}
+
+/** Fail-closed: the view carries exactly one degradation today; an unknown code is a wire break. */
+function memoryDegraded(value: string | null): string | null {
+  if (value === null) return null
+  if (value === 'POLICY_UNAVAILABLE') return value
+  throw new TypeError('Agent memory degradation is invalid')
 }
 
 function ownershipType(value: string): AgentOwnershipType {

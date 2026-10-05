@@ -68,6 +68,7 @@ import { useCodingStore } from '../domains/coding/store'
 import { reviewAttemptKey, reviewDetailKey, useReviewStore } from '../domains/review/store'
 import type { ReviewDecisionInput } from '../domains/review/types'
 import { deliveryAttemptKey, deliveryBundleKey, useDeliveryStore } from '../domains/delivery/store'
+import { useInjectionStore, viewKey } from '../domains/injection/store'
 import { useTeamOpsStore, workItemActivityCacheKey } from '../domains/teamops/store'
 import type { WorkItemActivityRoute } from '../domains/teamops/types'
 import type { CodingScope } from '../domains/coding/types'
@@ -136,6 +137,7 @@ const taskStore = useTaskStore()
 const codingStore = useCodingStore()
 const reviewStore = useReviewStore()
 const deliveryStore = useDeliveryStore()
+const injectionStore = useInjectionStore()
 const teamOpsStore = useTeamOpsStore()
 const isOnline = useNetworkStatus()
 const toast = useToast()
@@ -379,6 +381,12 @@ const selectedCodingArtifactErrorStatuses = computed(() => {
     .filter(([key]) => key.startsWith(prefix))
     .map(([, resource]) => resource.errorStatus)
 })
+const selectedInjectionErrorStatus = computed(() => {
+  const taskId = taskStore.state.selectedTaskId
+  const executionId = codingStore.state.selectedExecutionId
+  if (!taskId || !executionId) return null
+  return injectionStore.state.views[viewKey(taskId, executionId)]?.errorStatus ?? null
+})
 const taskForbidden = computed(() => [
   taskStore.state.errorStatus,
   taskStore.state.detailErrorStatus,
@@ -400,6 +408,7 @@ const taskForbidden = computed(() => [
   selectedDeliveryListResource.value?.errorStatus,
   selectedDeliveryDetailResource.value?.errorStatus,
   deliveryStore.state.command.errorStatus,
+  selectedInjectionErrorStatus.value,
   ...selectedCodingArtifactErrorStatuses.value,
   ...Object.values(taskStore.state.associationPages).map(resource => resource.errorStatus),
 ].some(status => status === 403))
@@ -749,6 +758,8 @@ watch(
       return
     }
     void scopeStore.loadMembers()
+    // The drawer's injection panel self-pulls per execution; its store only needs the Team scope.
+    injectionStore.activateScope({ organizationId: principal.organizationId, teamId })
     void taskStore.synchronize(
       { organizationId: principal.organizationId, teamId },
       {

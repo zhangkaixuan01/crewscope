@@ -28,6 +28,7 @@ import { installCodingStore } from './domains/coding/store'
 import { HttpModelGateway } from './domains/model/gateway'
 import { installModelStore } from './domains/model/store'
 import { HttpAgentGateway } from './domains/agent/gateway'
+import { installAgentMemoryStore } from './domains/agent/memory-store'
 import { installAgentStore } from './domains/agent/store'
 import { HttpReviewGateway } from './domains/review/gateway'
 import { installReviewStore } from './domains/review/store'
@@ -38,6 +39,11 @@ import { installTeamOpsStore } from './domains/teamops/store'
 import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
 import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
 import { installTeamObserverStore } from './domains/teamobserver/store'
+import { HttpKnowledgeGateway } from './domains/knowledge/gateway'
+import { installKnowledgeIndexStore } from './domains/knowledge/index-store'
+import { installKnowledgeStore } from './domains/knowledge/store'
+import { HttpInjectionGateway } from './domains/injection/gateway'
+import { installInjectionStore } from './domains/injection/store'
 import { HttpSetupGateway } from './domains/setup/gateway'
 import { installSetupStore } from './domains/setup/store'
 import { HttpIdentityGateway, installIdentityGateway } from './domains/identity/gateway'
@@ -84,13 +90,20 @@ const workItemStore = installWorkItemStore(app, new HttpWorkItemGateway())
 const taskStore = installTaskStore(app, new HttpTaskGateway())
 const codingStore = installCodingStore(app, new HttpCodingGateway())
 const modelStore = installModelStore(app, new HttpModelGateway())
-const agentStore = installAgentStore(app, new HttpAgentGateway())
+// Same-domain second store (F01b precedent): both agent stores share one gateway instance.
+const agentGateway = new HttpAgentGateway()
+const agentStore = installAgentStore(app, agentGateway)
+const agentMemoryStore = installAgentMemoryStore(app, agentGateway)
 const reviewStore = installReviewStore(app, new HttpReviewGateway())
 const deliveryStore = installDeliveryStore(app, new HttpDeliveryGateway())
 const teamOpsGateway = new HttpTeamOpsGateway()
 const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
 const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
 const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
+const knowledgeGateway = new HttpKnowledgeGateway()
+const knowledgeStore = installKnowledgeStore(app, knowledgeGateway)
+const knowledgeIndexStore = installKnowledgeIndexStore(app, knowledgeGateway)
+const injectionStore = installInjectionStore(app, new HttpInjectionGateway())
 const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
 subscribeSessionBoundary(authStore, reason => {
@@ -110,10 +123,14 @@ subscribeSessionBoundary(authStore, reason => {
   codingStore.reset()
   modelStore.reset()
   agentStore.reset()
+  agentMemoryStore.reset()
   reviewStore.reset()
   deliveryStore.reset()
   teamOpsStore.reset()
   teamObserverStore.reset()
+  knowledgeStore.reset()
+  knowledgeIndexStore.reset()
+  injectionStore.reset()
   setupStore.reset()
   workDeskStore.reset()
   searchStore.reset()

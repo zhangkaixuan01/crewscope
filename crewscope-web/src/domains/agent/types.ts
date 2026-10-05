@@ -240,3 +240,56 @@ export interface AgentConfigurationInput {
 }
 
 export type AgentCommandReceipt = CommandReceipt
+
+/** M10-I02a: the resolved policy a member's memory view runs under. */
+export interface AgentMemoryPolicySummary {
+  policyId: string
+  version: number
+  ttlDays: number
+  maxEntriesPerOwner: number
+  valueMaxBytes: number
+}
+
+/** One frozen-preference entry; `value` is bounded by the policy's `valueMaxBytes`. */
+export interface AgentMemoryEntry {
+  memoryKey: string
+  value: string
+  version: number
+  expiresAt: string
+  createdAt: string
+  updatedAt: string
+  createdBy: string | null
+  updatedBy: string | null
+}
+
+/**
+ * The member's own view of one Agent's memory. Three states the UI must keep apart (S01 §3.6):
+ * `policyReference === null` = not configured; both present = healthy; reference without policy
+ * = the referenced version is unresolvable and the view degrades — never a disguised empty list.
+ */
+export interface AgentMemoryView {
+  policyReference: AgentPolicyReference | null
+  policy: AgentMemoryPolicySummary | null
+  degraded: string | null
+  clearanceGeneration: number
+  entries: AgentMemoryEntry[]
+  entryCount: number
+}
+
+/** Synchronous clear receipt: how many entries went and the new clearance generation. */
+export interface AgentMemoryClearance {
+  clearedCount: number
+  clearanceGeneration: number
+}
+
+/** The three view states as the memory section renders them. */
+export type AgentMemoryState =
+  | { kind: 'unconfigured' }
+  | { kind: 'healthy', view: AgentMemoryView }
+  | { kind: 'degraded', view: AgentMemoryView }
+
+export function agentMemoryStateOf(view: AgentMemoryView): AgentMemoryState {
+  if (!view.policyReference) return { kind: 'unconfigured' }
+  if (view.policy) return { kind: 'healthy', view }
+  return { kind: 'degraded', view }
+}

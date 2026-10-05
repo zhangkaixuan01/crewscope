@@ -10,6 +10,7 @@ import AgentConfigurationPanel from '../components/domain/AgentConfigurationPane
 import AgentCreateDialog from '../components/domain/AgentCreateDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
+import { useAgentMemoryStore } from '../domains/agent/memory-store'
 import { useAgentStore } from '../domains/agent/store'
 import type { AgentModelBindingSummary, AgentSummary, AgentTemplateSummary, CreateAgentInput } from '../domains/agent/types'
 import { useScopeStore } from '../domains/scope/store'
@@ -23,6 +24,7 @@ const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
+const agentMemoryStore = useAgentMemoryStore()
 let activeTeamId: string | null = null
 const createOpen = ref(false)
 const createOwnership = ref<'USER' | 'TEAM'>('USER')
@@ -112,6 +114,8 @@ watch(
       if (!pageOwner.isCurrent()) return
     }
     agentStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
+    // The memory section self-pulls under the configuration form; its store shares this Team scope.
+    agentMemoryStore.activateScope({ organizationId: team.value?.organizationId ?? '', teamId })
     await Promise.all([loadAgentsAndConfigurations(), loadTemplates()])
   },
   { immediate: true },

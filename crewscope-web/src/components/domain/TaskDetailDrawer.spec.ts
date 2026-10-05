@@ -9,11 +9,29 @@ import {
   taskIds,
 } from '../../test/taskFixtures'
 import type { RuntimeFleetSummary } from '../../domains/task/types'
+import { createInjectionStore, INJECTION_STORE } from '../../domains/injection/store'
+import type { InjectionReferences } from '../../domains/injection/types'
 import TaskDetailDrawer from './TaskDetailDrawer.vue'
+
+/** The drawer hosts the self-pulling injection panel, so every mount provides its store. */
+function mountDrawer(propsValue: ReturnType<typeof props>, options: { attachTo?: boolean } = {}) {
+  const store = createInjectionStore({
+    async list(): Promise<InjectionReferences> {
+      return { executionId: taskIds.execution, taskId: taskIds.first, attempts: [] }
+    },
+    async submitFeedback(): Promise<never> { throw new Error('not stubbed') },
+  })
+  store.activateScope({ organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform })
+  return mount(TaskDetailDrawer, {
+    props: propsValue,
+    attachTo: options.attachTo === true ? document.body : undefined,
+    global: { provide: { [INJECTION_STORE as symbol]: store } },
+  })
+}
 
 describe('TaskDetailDrawer', () => {
   it('shows responsibility, current plan, step progress and only member-safe Runtime facts', () => {
-    const wrapper = mount(TaskDetailDrawer, { props: props() })
+    const wrapper = mountDrawer(props())
     const text = wrapper.text()
 
     expect(text).toContain('完成 Task Gateway')
@@ -35,7 +53,7 @@ describe('TaskDetailDrawer', () => {
 
   it('switches PlanVersion and delegates historical attempt selection without mixing facts', async () => {
     const onSelectAttempt = vi.fn()
-    const wrapper = mount(TaskDetailDrawer, { props: props({ onSelectAttempt }) })
+    const wrapper = mountDrawer(props({ onSelectAttempt }))
 
     await wrapper.get<HTMLSelectElement>('.plan-selector select').setValue(taskIds.previousPlan)
     expect(wrapper.text()).toContain('先建立公开契约，再实现详情视图。')
@@ -49,11 +67,11 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('keeps the §4.1 workspace order in the semantic DOM and exposes fleet degradation', () => {
-    const wrapper = mount(TaskDetailDrawer, { props: props() })
-    // DOM order equals reading order: header block, then the five sections in contract order —
+    const wrapper = mountDrawer(props())
+    // DOM order equals reading order: header block, then the six sections in contract order —
     // narrow widths are a single column in exactly this sequence, with no CSS order overrides.
     const ordered = [
-      '.workspace-header', '#ws-overview', '#ws-discussion', '#ws-execution', '#ws-changes', '#ws-review',
+      '.workspace-header', '#ws-overview', '#ws-discussion', '#ws-execution', '#ws-changes', '#ws-injection', '#ws-review',
     ].map(selector => wrapper.get(selector).element)
     const overviewCards = ['.task-hero', '.responsibility-card', '.attempt-card', '.fleet-card']
       .map(selector => wrapper.get(selector).element)
@@ -74,21 +92,19 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('renders the primary action strip from the nine-level verdict and fires RESUME directly', async () => {
-    const wrapper = mount(TaskDetailDrawer, { props: props() })
+    const wrapper = mountDrawer(props())
 
     expect(wrapper.get('.workspace-action').attributes('data-action-state')).toBe('EXECUTING')
     expect(wrapper.get('.workspace-action').text()).toContain('执行等待中')
     wrapper.unmount()
 
     const onCommand = vi.fn()
-    const paused = mount(TaskDetailDrawer, {
-      props: props({
-        workspaceAction: {
-          state: 'IDLE', headline: '执行已暂停', detail: null, operation: 'RESUME', anchor: 'ws-execution',
-        },
-        onCommand,
-      }),
-    })
+    const paused = mountDrawer(props({
+      workspaceAction: {
+        state: 'IDLE', headline: '执行已暂停', detail: null, operation: 'RESUME', anchor: 'ws-execution',
+      },
+      onCommand,
+    }))
     await paused.get('.workspace-action button').trigger('click')
     expect(onCommand).toHaveBeenCalledWith('RESUME')
     paused.unmount()
@@ -96,12 +112,10 @@ describe('TaskDetailDrawer', () => {
 
   it('surfaces an execution coordinate conflict through the explicit chooser before any write', async () => {
     const onResolveExecutionConflict = vi.fn()
-    const wrapper = mount(TaskDetailDrawer, {
-      props: props({
-        executionConflict: { unified: 'exec-unified', alias: 'exec-alias' },
-        onResolveExecutionConflict,
-      }),
-    })
+    const wrapper = mountDrawer(props({
+      executionConflict: { unified: 'exec-unified', alias: 'exec-alias' },
+      onResolveExecutionConflict,
+    }))
 
     expect(wrapper.get('.execution-conflict').attributes('role')).toBe('alert')
     expect(wrapper.text()).toContain('写动作已禁止')
@@ -115,9 +129,7 @@ describe('TaskDetailDrawer', () => {
 
   it('marks a stale URL selection as history view and returns to the current execution', async () => {
     const onSelectAttempt = vi.fn()
-    const wrapper = mount(TaskDetailDrawer, {
-      props: props({ selectedExecutionId: 'gone-execution', onSelectAttempt }),
-    })
+    const wrapper = mountDrawer(props({ selectedExecutionId: 'gone-execution', onSelectAttempt }))
 
     expect(wrapper.get('.execution-history').attributes('role')).toBe('status')
     await wrapper.get('.execution-history button').trigger('click')
@@ -126,7 +138,7 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('opens only member-visible associated Conversations from the durable association projection', async () => {
-    const wrapper = mount(TaskDetailDrawer, { props: props() })
+    const wrapper = mountDrawer(props())
 
     await wrapper.get('.task-conversation-links button').trigger('click')
 
@@ -136,7 +148,7 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('focuses the close action, closes with Escape and keeps the WorkItem handoff explicit', async () => {
-    const wrapper = mount(TaskDetailDrawer, { attachTo: document.body, props: props() })
+    const wrapper = mountDrawer(props(), { attachTo: true })
     await flushPromises()
 
     expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭 Task 详情')
@@ -151,19 +163,17 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('renders isolated detail, Runtime and fleet loading and failure states', async () => {
-    const loading = mount(TaskDetailDrawer, { props: props({ phase: 'loading', details: null }) })
+    const loading = mountDrawer(props({ phase: 'loading', details: null }))
     expect(loading.text()).toContain('正在加载 Task 详情')
     loading.unmount()
 
     const onRetryRuntime = vi.fn()
     const onRetryFleet = vi.fn()
-    const failed = mount(TaskDetailDrawer, {
-      props: props({
-        runtimePhase: 'error', runtimeFacts: null, runtimeErrorMessage: 'Runtime 读取失败',
-        fleetPhase: 'error', fleet: null, fleetErrorMessage: 'Fleet 读取失败',
-        onRetryRuntime, onRetryFleet,
-      }),
-    })
+    const failed = mountDrawer(props({
+      runtimePhase: 'error', runtimeFacts: null, runtimeErrorMessage: 'Runtime 读取失败',
+      fleetPhase: 'error', fleet: null, fleetErrorMessage: 'Fleet 读取失败',
+      onRetryRuntime, onRetryFleet,
+    }))
     expect(failed.text()).toContain('Runtime 读取失败')
     expect(failed.text()).toContain('Fleet 读取失败')
     const retryButtons = failed.findAll('button').filter(button => button.text().includes('刷新事实'))
@@ -175,17 +185,13 @@ describe('TaskDetailDrawer', () => {
   })
 
   it('retains stale details while refreshing and makes a cancelled terminal state explicit', async () => {
-    const refreshing = mount(TaskDetailDrawer, {
-      props: props({ phase: 'loading' }),
-    })
+    const refreshing = mountDrawer(props({ phase: 'loading' }))
     expect(refreshing.text()).toContain('正在刷新 Task 事实')
     expect(refreshing.text()).toContain('完成 Task Gateway')
     refreshing.unmount()
 
     const onRetry = vi.fn()
-    const staleError = mount(TaskDetailDrawer, {
-      props: props({ phase: 'error', errorMessage: '最新版本读取失败', onRetry }),
-    })
+    const staleError = mountDrawer(props({ phase: 'error', errorMessage: '最新版本读取失败', onRetry }))
     await staleError.get('.detail-sync-state button').trigger('click')
     expect(staleError.text()).toContain('完成 Task Gateway')
     expect(onRetry).toHaveBeenCalled()
@@ -196,9 +202,7 @@ describe('TaskDetailDrawer', () => {
     const cancelledAttempts = structuredClone(cancelledProps.attempts)
     cancelledDetails.status = 'CANCELLED'
     cancelledAttempts[0]!.status = 'CANCELLED'
-    const cancelled = mount(TaskDetailDrawer, {
-      props: { ...cancelledProps, details: cancelledDetails, attempts: cancelledAttempts },
-    })
+    const cancelled = mountDrawer({ ...cancelledProps, details: cancelledDetails, attempts: cancelledAttempts })
     expect(cancelled.get('.task-lifecycle-state').text()).toContain('Task 已取消')
     expect(cancelled.get('.task-lifecycle-state').attributes('role')).toBe('status')
     cancelled.unmount()

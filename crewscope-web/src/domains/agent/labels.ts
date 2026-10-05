@@ -46,6 +46,14 @@ export const agentBindingSourceLabels: Record<AgentBindingSource, string> = {
   ORGANIZATION_DEFAULT: '继承 Organization 默认',
 }
 
+/**
+ * M10-I02a memory view degradation. The gateway fail-closes unknown codes, so this map is
+ * exhaustive in practice — the wording must never let a degraded view read as an empty list.
+ */
+export const agentMemoryDegradedLabels: Record<string, string> = {
+  POLICY_UNAVAILABLE: '引用的记忆策略暂不可用',
+}
+
 /** `{displayName} · 个人 Specialist` — the one-line identity used in every Agent picker. */
 export function agentIdentityLabel(agent: {
   displayName: string

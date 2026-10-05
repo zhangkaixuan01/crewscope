@@ -150,6 +150,16 @@
       "file": "pages/RepositorySettingsPage.vue",
       "expression": "catalogReason || draftPreflightReason",
       "reason": "两个本地 computed 的兜底组合，两段都是中文说明。"
+    },
+    {
+      "file": "components/domain/KnowledgeDraftEditor.vue",
+      "expression": "saveDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句。"
+    },
+    {
+      "file": "components/domain/KnowledgeEntryDetail.vue",
+      "expression": "disabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句。"
     }
   ]
 }

@@ -192,6 +192,11 @@ class FixtureAgentGateway implements AgentGateway {
     this.seenEtag = etag
     return receipt()
   }
+
+  // The I02a memory face belongs to the same-domain memory store; the agent store fixture
+  // only satisfies the widened interface.
+  async getMemory(): Promise<never> { throw new Error('not stubbed') }
+  async clearMemory(): Promise<never> { throw new Error('not stubbed') }
 }
 
 function template(scope: SettingsScope): AgentTemplateSummary {

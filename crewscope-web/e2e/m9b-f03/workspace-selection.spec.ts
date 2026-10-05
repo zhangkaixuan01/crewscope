@@ -91,12 +91,13 @@ test('reports the executing verdict with one primary control and no synthesized 
   await expect(new URL(page.url()).searchParams.get('taskExecution')).toBe(f03Ids.currentExecution)
   expect(world.taskCommandPosts).toEqual([])
 
-  // §4.1 分区顺序：五个锚分区按概览 → 讨论 → 执行 → 变更与测试 → 审查与交付排布。
+  // §4.1 分区顺序：六个锚分区按概览 → 讨论 → 执行 → 变更与测试 → 注入与引用 → 审查与交付排布。
   const sections = dialog.locator('.workspace-section')
-  await expect(sections).toHaveCount(5)
+  await expect(sections).toHaveCount(6)
   await expect(sections.nth(0)).toHaveAttribute('aria-label', '概览')
   await expect(sections.nth(1)).toHaveAttribute('aria-label', '讨论')
   await expect(sections.nth(2)).toHaveAttribute('aria-label', '执行')
   await expect(sections.nth(3)).toHaveAttribute('aria-label', '变更与测试')
-  await expect(sections.nth(4)).toHaveAttribute('aria-label', '审查与交付')
+  await expect(sections.nth(4)).toHaveAttribute('aria-label', '注入与引用')
+  await expect(sections.nth(5)).toHaveAttribute('aria-label', '审查与交付')
 })

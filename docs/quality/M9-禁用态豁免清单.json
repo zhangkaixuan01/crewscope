@@ -105,6 +105,26 @@
       "file": "components/domain/SavedViewsControl.vue",
       "expression": "!nameDraft.trim()",
       "reason": "保存视图的提交按钮由命名输入框是否填写决定，成因就是输入框自身的取值——空名称没有可保存的视图，输入框（placeholder 与 aria-label 已在字段上）是该状态的唯一载体，与 SearchPage 空关键词同一形态。"
+    },
+    {
+      "file": "components/domain/KnowledgeCreateDialog.vue",
+      "expression": "!valid",
+      "reason": "创建知识条目的提交按钮由 entryKey 格式（小写字母数字连字符）与标题必填是否满足决定，成因完全落在同一表单的字段校验上（:aria-invalid 与计数已分别在字段上）。"
+    },
+    {
+      "file": "components/domain/KnowledgeDistillationDialog.vue",
+      "expression": "!valid",
+      "reason": "开始蒸馏的提交按钮由 taskExecutionId 是否为合法 UUID 与 entryKey 格式决定，成因完全落在同一表单的字段校验上（:aria-invalid 已在两个字段上）。"
+    },
+    {
+      "file": "components/domain/RepositoryBuildDialog.vue",
+      "expression": "!valid",
+      "reason": "构建仓库索引的提交按钮由项目、仓库绑定与提交 SHA（40/64 位十六进制）是否满足决定，成因完全落在同一表单的级联选择与字段校验上（:aria-invalid 与内联提示已在字段上）。"
+    },
+    {
+      "file": "pages/KnowledgeBasePage.vue",
+      "expression": "!deleteConfirmed",
+      "reason": "删除确认按钮由同一 alertdialog 内的确认复选框是否勾选决定——复选框本身（及其旁的影响说明）就是该禁用态的唯一载体，不涉及权限或服务端前置条件。"
     }
   ]
 }

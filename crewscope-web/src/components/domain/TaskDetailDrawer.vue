@@ -53,6 +53,7 @@ import TaskControlPanel from './TaskControlPanel.vue'
 import TaskTimelinePanel from './TaskTimelinePanel.vue'
 import ReviewWorkbench from './ReviewWorkbench.vue'
 import ActionDeliveryWorkbench from './ActionDeliveryWorkbench.vue'
+import InjectionReferencesPanel from './InjectionReferencesPanel.vue'
 import TaskAttemptHistoryPanel from './TaskAttemptHistoryPanel.vue'
 import TaskRuntimeFactsPanel from './TaskRuntimeFactsPanel.vue'
 
@@ -151,7 +152,7 @@ const reviewLocation = ref<ReviewFindingEvidence | null>(null)
 let previousBodyOverflow = ''
 
 /**
- * The five workspace sections in contract §4.1 order. DOM order equals reading order equals the
+ * The six workspace sections in contract §4.1 order. DOM order equals reading order equals the
  * contract order — on narrow widths the drawer is a single column in exactly this sequence, and the
  * section ids are anchor targets only, never URL parameters (the S01 query whitelist is frozen).
  */
@@ -160,6 +161,7 @@ const workspaceSections: Array<{ id: string, label: string }> = [
   { id: 'ws-discussion', label: '讨论' },
   { id: 'ws-execution', label: '执行' },
   { id: 'ws-changes', label: '变更与测试' },
+  { id: 'ws-injection', label: '注入与引用' },
   { id: 'ws-review', label: '审查与交付' },
 ]
 
@@ -514,6 +516,15 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                 :on-load-tests-more="onLoadCodingTestsMore"
                 :on-load-command-log="onLoadCodingCommandLog"
                 :on-load-test-report="onLoadCodingTestReport"
+              />
+            </section>
+
+            <section id="ws-injection" class="workspace-section" tabindex="-1" aria-label="注入与引用">
+              <!-- Evidence of what the assembly fed the model, before the reader judges the work itself. -->
+              <InjectionReferencesPanel
+                :task-id="details.id"
+                :execution-id="selectedExecutionId"
+                :online="online"
               />
             </section>
 

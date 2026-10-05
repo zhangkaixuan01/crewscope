@@ -58,6 +58,11 @@ export async function mockF03App(page: Page): Promise<F03World> {
     execution: executionRow(f03Ids.currentExecution, 2, 'RUNNING'),
     planVersions: [], steps: [], sessions: [], agentRuns: [], interrupts: [], snapshots: [], leases: [],
   }))
+  // M10-F01c: the drawer's sixth section reads the sealed injection evidence — this non-coding
+  // Task produced no manifest, and the empty attempt list is the honest factual answer.
+  await page.route(new RegExp(`/tasks/${f03Ids.task}/attempts/[^/]+/injection-references$`), route => json(route, {
+    taskId: f03Ids.task, executionId: new URL(route.request().url()).pathname.split('/').at(-2)!, attempts: [],
+  }))
   // The F03 Task is not a coding Task: every coding endpoint answers with explicit summaries
   // (coding=false) instead of a 404, so the Execution Studio restores into its honest empty state
   // rather than an error while execution coordinates are being selected.

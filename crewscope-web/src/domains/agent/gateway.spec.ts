@@ -94,6 +94,42 @@ describe('HttpAgentGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json(agentPayload(), 200, { ETag: 'W/"5"' })))
     await expect(gateway.getAgent(scope, profileId)).rejects.toThrow('strong ETag')
   })
+
+  it('whitelists the memory view and the clear receipt without internal fields', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(init?.method).toUpperCase() === 'DELETE'
+        ? json({ clearedCount: 2, clearanceGeneration: 4, internalPayload: 'private' })
+        : json(memoryPayload({ internalPayload: 'private' })))
+    const gateway = gatewayWith(fetcher)
+
+    const view = await gateway.getMemory(scope, profileId)
+    const clearance = await gateway.clearMemory(scope, profileId)
+
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(`/agent-profiles/${profileId}/memory`)
+    expect(view.policy?.ttlDays).toBe(90)
+    expect(view.entries[0]?.memoryKey).toBe('reply-language')
+    expect(view.degraded).toBeNull()
+    expect(clearance).toEqual({ clearedCount: 2, clearanceGeneration: 4 })
+    // The clear is structurally idempotent (contract §4): no Idempotency-Key, no If-Match.
+    const headers = new Headers(fetcher.mock.calls[1]?.[1]?.headers)
+    expect(headers.get('Idempotency-Key')).toBeNull()
+    expect(headers.get('If-Match')).toBeNull()
+    expect(JSON.stringify({ view, clearance })).not.toContain('private')
+  })
+
+  it('keeps the degraded view honest and fail-closes unknown degradation codes', async () => {
+    const degraded = gatewayWith(vi.fn(async () => json(memoryPayload({
+      policy: null, degraded: 'POLICY_UNAVAILABLE', entries: [],
+    }))))
+    const view = await degraded.getMemory(scope, profileId)
+    // Degraded is never a disguised empty list: the dangling reference stays visible.
+    expect(view.policyReference?.version).toBe(1)
+    expect(view.policy).toBeNull()
+    expect(view.degraded).toBe('POLICY_UNAVAILABLE')
+
+    const broken = gatewayWith(vi.fn(async () => json(memoryPayload({ degraded: 'SOMETHING_ELSE' }))))
+    await expect(broken.getMemory(scope, profileId)).rejects.toThrow('degradation is invalid')
+  })
 })
 
 function gatewayWith(fetcher: ReturnType<typeof vi.fn>): HttpAgentGateway {
@@ -197,6 +233,24 @@ function conversationPayload(extra: Record<string, unknown> = {}) {
     pinnedConfigurationRevision: 2, pinnedConfigurationHash: 'd'.repeat(64),
     currentConfigurationRevision: 3, currentConfigurationHash: 'b'.repeat(64),
     refreshRequired: true, ...extra,
+  }
+}
+
+function memoryPayload(extra: Record<string, unknown> = {}) {
+  return {
+    policyReference: { policyId: '7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20', version: 1 },
+    policy: {
+      policyId: '7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20', version: 1,
+      ttlDays: 90, maxEntriesPerOwner: 100, valueMaxBytes: 1024,
+    },
+    degraded: null,
+    clearanceGeneration: 3,
+    entries: [{
+      memoryKey: 'reply-language', value: '简体中文', version: 2,
+      expiresAt: '2026-12-01T00:00:00Z', createdAt: '2026-08-04T09:00:00Z',
+      updatedAt: '2026-09-04T09:00:00Z', createdBy: fixtureIds.principal, updatedBy: fixtureIds.principal,
+    }],
+    entryCount: 1, ...extra,
   }
 }
 
