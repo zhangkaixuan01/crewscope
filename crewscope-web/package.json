@@ -18,6 +18,7 @@
     "test:e2e:m9b-f05": "pnpm build && playwright test --config playwright.m9b-f05.config.ts",
     "test:e2e:m7-q03": "playwright test --config playwright.m7-q03.config.ts",
     "test:e2e:m7-q04-profiles": "playwright test --config playwright.m7-q04.config.ts",
+    "test:e2e:m10-real": "pnpm build && playwright test --config playwright.m10-real.config.ts",
     "test:e2e:update": "playwright test --update-snapshots",
     "lint": "vue-tsc --noEmit",
     "lint:eslint": "eslint src",

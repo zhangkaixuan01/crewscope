@@ -57,6 +57,11 @@ services:
       # M10-I01a: together with compose.pgvector.yaml this enables the optional
       # knowledge vector store; the process flag and the image must switch together.
       CREWSCOPE_PGVECTOR_ENABLED: ${CREWSCOPE_PGVECTOR_ENABLED:-false}
+      # M10-I01c: the unified knowledge index control plane. The gate is independent of
+      # pgvector (reads stay 200 with the gate closed); the worker stays opt-in so a
+      # stacked demo can hold jobs in QUEUED for cancel exercises.
+      CREWSCOPE_KNOWLEDGE_INDEX_ENABLED: ${CREWSCOPE_KNOWLEDGE_INDEX_ENABLED:-false}
+      CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED: ${CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED:-false}
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
       CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"
