@@ -17,6 +17,7 @@ import io.crewscope.application.operations.OperationsRecoveryTarget;
 import io.crewscope.application.operations.OutboxDeadLetterRecoveryTarget;
 import io.crewscope.application.operations.ProjectionDeadLetterRecoveryTarget;
 import io.crewscope.application.operations.ProjectionHealthDiagnostic;
+import io.crewscope.application.observability.ModelUsageRollupService;
 import io.crewscope.application.projection.ProjectionAdministrationAction;
 import io.crewscope.application.projection.ProjectionAdministrationCommandId;
 import io.crewscope.application.projection.ProjectionAdministrationResult;
@@ -35,6 +36,7 @@ import io.crewscope.domain.projection.ProjectionFailureCode;
 import io.crewscope.domain.projection.ProjectionGeneration;
 import io.crewscope.domain.projection.ProjectionName;
 import io.crewscope.domain.projection.ProjectionRebuildJobId;
+import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import java.util.List;
@@ -70,16 +72,19 @@ public final class OperationsController {
     private final OperationsHealthService health;
     private final OperationsRecoveryService recovery;
     private final ProjectionAdministrationService projections;
+    private final ModelUsageRollupService rollups;
     private final TeamRequestIdentityResolver identities;
 
     public OperationsController(
             OperationsHealthService health,
             OperationsRecoveryService recovery,
             ProjectionAdministrationService projections,
+            ModelUsageRollupService rollups,
             TeamRequestIdentityResolver identities) {
         this.health = Objects.requireNonNull(health, "health");
         this.recovery = Objects.requireNonNull(recovery, "recovery");
         this.projections = Objects.requireNonNull(projections, "projections");
+        this.rollups = Objects.requireNonNull(rollups, "rollups");
         this.identities = Objects.requireNonNull(identities, "identities");
     }
 
@@ -389,6 +394,31 @@ public final class OperationsController {
         });
     }
 
+    /**
+     * Recomputes the monthly usage rollup from the canonical event log (M10-F03).
+     * Platform administrators only: the delete-and-replay sweep is an operations-plane
+     * action, never a Team member surface. Synchronous by design — the rebuild replays
+     * every persisted usage fact (the sweep grows with the event log) and returns the
+     * projected count. Unlike the neighboring recovery endpoints this needs no
+     * confirmation phrase: the rebuild is structurally idempotent, so rerunning it
+     * converges to the same table.
+     */
+    @PostMapping(ORGANIZATION_ROUTE + "/model-usage-rollup/rebuilds")
+    public Mono<ResponseEntity<RollupRebuildResponse>> rebuildUsageRollup(
+            @PathVariable String organizationId,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        OrganizationId organization = organizationId(organizationId);
+        return resolve(authentication, organization, exchange)
+                .flatMap(access -> blocking(() -> {
+                    if (!access.platformAdministrator()) {
+                        throw new PolicyDeniedException("rebuild the usage rollup projection");
+                    }
+                    return RollupRebuildResponse.completed(rollups.rebuildAll());
+                }))
+                .map(OperationsController::ok);
+    }
+
     private Mono<ResponseEntity<ProjectionCommandResponse>> projectionCommand(
             Authentication authentication,
             OrganizationId organizationId,
@@ -692,6 +722,13 @@ public final class OperationsController {
                     value.targetReferenceHash(),
                     value.status().name(),
                     value.acceptedAt().toString());
+        }
+    }
+
+    public record RollupRebuildResponse(String status, long projectedFacts) {
+
+        static RollupRebuildResponse completed(long projectedFacts) {
+            return new RollupRebuildResponse("COMPLETED", projectedFacts);
         }
     }
 

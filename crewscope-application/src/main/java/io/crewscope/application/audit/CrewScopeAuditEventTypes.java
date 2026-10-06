@@ -64,6 +64,7 @@ import io.crewscope.domain.knowledge.event.KnowledgeVersionPublished;
 import io.crewscope.domain.knowledge.event.KnowledgeVersionRetired;
 import io.crewscope.domain.team.event.MemberRoleGranted;
 import io.crewscope.domain.team.event.MemberRoleRevoked;
+import io.crewscope.domain.team.event.TeamBudgetAlertRecorded;
 import io.crewscope.domain.team.event.TeamCreated;
 import io.crewscope.domain.team.event.TeamInitializationCompleted;
 import io.crewscope.domain.team.event.TeamInvitationAccepted;
@@ -802,6 +803,19 @@ public final class CrewScopeAuditEventTypes {
                 required("attempt"),
                 required("providerKey", "providerKey.value"),
                 required("modelId", "modelId.value"));
+        register(
+                target,
+                List.of("TEAM_BUDGET_ALERT_RECORDED"),
+                List.of(SchemaVersion.V1),
+                TeamBudgetAlertRecorded.class,
+                AuditEventCategory.MODEL,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("alertId"),
+                required("teamId"),
+                required("usageMonth"),
+                required("kind"),
+                required("level"));
     }
 
     private static void registerReviewEvents(List<AuditEventTypeDefinition> target) {

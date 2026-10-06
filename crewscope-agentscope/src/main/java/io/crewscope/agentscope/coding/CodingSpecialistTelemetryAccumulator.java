@@ -1,6 +1,7 @@
 package io.crewscope.agentscope.coding;
 
 import io.agentscope.core.model.ChatUsage;
+import io.crewscope.domain.model.ModelCallAttribution;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -12,8 +13,8 @@ final class CodingSpecialistTelemetryAccumulator {
     private final List<String> toolNames = new ArrayList<>();
     private final AtomicBoolean structuredOutputRequired = new AtomicBoolean();
 
-    synchronized void recordModel(ChatUsage usage) {
-        modelUsages.add(CodingSpecialistModelUsage.from(usage));
+    synchronized void recordModel(ChatUsage usage, ModelCallAttribution attribution) {
+        modelUsages.add(CodingSpecialistModelUsage.from(usage, attribution));
     }
 
     synchronized void recordTools(List<String> names) {

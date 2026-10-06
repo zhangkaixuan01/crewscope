@@ -48,8 +48,11 @@ import io.crewscope.application.execution.TaskAgentStateRuntime;
 import io.crewscope.application.execution.TaskAgentStateSafePoint;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.execution.TaskApprovalInterruptTokens;
+import io.crewscope.application.execution.RealtimeUsageFactEmitter;
 import io.crewscope.agentscope.TaskAgentCallObservationScope;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
+import io.crewscope.domain.model.ModelCallAttribution;
+import io.crewscope.domain.model.ModelTokenUsage;
 import io.crewscope.domain.runtime.RuntimeCapabilities;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.AgentRunId;
@@ -77,6 +80,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.adapter.JdkFlowAdapter;
 import reactor.core.Disposable;
 import reactor.core.publisher.BaseSubscriber;
@@ -87,6 +92,7 @@ import reactor.core.publisher.Sinks;
 public final class AgentScopeTaskRuntime
         implements TaskExecutionRuntime, TaskAgentStateRuntime, AutoCloseable {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AgentScopeTaskRuntime.class);
     private static final int EVENT_BUFFER_LIMIT = 10_000;
     private static final Set<String> ALLOWED_RUNTIME_TOOLS;
 
@@ -104,6 +110,7 @@ public final class AgentScopeTaskRuntime
     private final TaskPlanPublisher taskPlanPublisher;
     private final TaskAgentStateSnapshotService stateSnapshotService;
     private final Clock clock;
+    private final RealtimeUsageFactEmitter usageFacts;
     private final ConcurrentMap<AgentScopeExecutionKey, AgentScopeTaskExecutionState> executions = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -129,6 +136,24 @@ public final class AgentScopeTaskRuntime
             TaskPlanPublisher taskPlanPublisher,
             TaskAgentStateSnapshotService stateSnapshotService,
             Clock clock) {
+        this(
+                agentFactory,
+                planningSnapshotMapper,
+                taskPlanAdapter,
+                taskPlanPublisher,
+                stateSnapshotService,
+                clock,
+                RealtimeUsageFactEmitter.disabled());
+    }
+
+    public AgentScopeTaskRuntime(
+            TaskAgentFactory agentFactory,
+            AgentScopeTaskPlanningSnapshotMapper planningSnapshotMapper,
+            AgentScopeTaskPlanAdapter taskPlanAdapter,
+            TaskPlanPublisher taskPlanPublisher,
+            TaskAgentStateSnapshotService stateSnapshotService,
+            Clock clock,
+            RealtimeUsageFactEmitter usageFacts) {
         this.agentFactory = Objects.requireNonNull(agentFactory, "agentFactory");
         this.planningSnapshotMapper = Objects.requireNonNull(
                 planningSnapshotMapper, "planningSnapshotMapper");
@@ -137,6 +162,7 @@ public final class AgentScopeTaskRuntime
         this.stateSnapshotService = Objects.requireNonNull(
                 stateSnapshotService, "stateSnapshotService");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.usageFacts = Objects.requireNonNull(usageFacts, "usageFacts");
     }
 
     @Override
@@ -275,7 +301,8 @@ public final class AgentScopeTaskRuntime
                     : agent.streamEvents(input, context)
                             .timeout(remainingDuration)
                             .contextWrite(TaskAgentCallObservationScope.install(
-                                    state::observeModelTransition));
+                                    state::observeModelTransition,
+                                    state::observeModelAttribution));
             Flux<TaskExecutionEvent> source = Flux.concat(
                             Flux.just(
                                     state.event(new TaskExecutionEventPayload.Started(
@@ -336,6 +363,39 @@ public final class AgentScopeTaskRuntime
         return CompletableFuture.completedFuture(state.control(required));
     }
 
+    /**
+     * Emits one realtime usage fact for the model call that just ended (M10-F03). The
+     * deterministic call coordinates make a replayed stream append nothing the second time,
+     * and a projection hiccup must never take the execution down with it — failures are
+     * logged and the durable UsageReported stream carries the same counters regardless.
+     */
+    private void emitUsageFact(
+            AgentScopeTaskExecutionState state, ChatUsage usage, TaskExecutionEvent usageEvent) {
+        Optional<ModelCallAttribution> attribution = state.currentAttribution();
+        if (attribution.isEmpty()) {
+            return;
+        }
+        try {
+            usageFacts.emit(
+                    state.facts(),
+                    attribution.orElseThrow(),
+                    new ModelTokenUsage(
+                            usage.getInputTokens(),
+                            usage.getOutputTokens(),
+                            usage.getCachedTokens(),
+                            Math.addExact(usage.getInputTokens(), usage.getOutputTokens())),
+                    usageEvent.segmentSequence(),
+                    usageEvent.sequence());
+        } catch (RuntimeException failure) {
+            LOGGER.warn(
+                    "Model usage fact emission failed for execution {} event {}/{}",
+                    usageEvent.taskExecutionId().value(),
+                    usageEvent.segmentSequence(),
+                    usageEvent.sequence(),
+                    failure);
+        }
+    }
+
     private List<TaskExecutionEvent> mapEvent(AgentScopeTaskExecutionState state, AgentEvent event) {
         if (state.segmentTerminal()) {
             return List.of();
@@ -355,6 +415,7 @@ public final class AgentScopeTaskRuntime
                 return List.of();
             }
             TaskExecutionEvent usageEvent = state.usageEvent(usage);
+            emitUsageFact(state, usage, usageEvent);
             if (state.totalTokens() > budget.maxTokens()) {
                 state.interrupt();
                 return List.of(

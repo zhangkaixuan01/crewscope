@@ -22,7 +22,8 @@ public final class FixedNotificationTemplateRenderer {
             "execution-assigned", "CrewScope execution assignment",
             "review-required", "CrewScope review required",
             "confirmation-required", "CrewScope confirmation required",
-            "exception-alert", "CrewScope execution alert");
+            "exception-alert", "CrewScope execution alert",
+            "team-budget-alert", "CrewScope budget alert");
     private static final Map<String, String> LABELS;
 
     static {

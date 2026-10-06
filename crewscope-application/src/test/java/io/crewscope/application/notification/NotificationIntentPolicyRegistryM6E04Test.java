@@ -14,11 +14,14 @@ import org.junit.jupiter.api.Test;
 class NotificationIntentPolicyRegistryM6E04Test {
 
     @Test
-    void fixedRegistryCoversFiveViewsButRejectsNotificationFailureRecursion() {
+    void fixedRegistryCoversEveryViewButRejectsNotificationFailureRecursion() {
         NotificationIntentPolicyRegistry registry =
                 CrewScopeNotificationIntentPolicies.fixedRegistry();
 
-        assertEquals(5, registry.size());
+        assertEquals(6, registry.size());
+        assertEquals("team-budget-alert", registry.find(
+                InboxItemType.EXCEPTION, InboxSourceType.BUDGET)
+                .orElseThrow().serverTemplateKey());
         assertEquals("review-required", registry.find(
                 InboxItemType.REVIEW, InboxSourceType.REVIEW_REQUEST)
                 .orElseThrow().serverTemplateKey());

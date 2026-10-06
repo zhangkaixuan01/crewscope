@@ -6,6 +6,7 @@ import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
+import io.crewscope.domain.model.ModelCallAttribution;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -23,19 +24,34 @@ public final class ObservableAgentScopeModel implements Model {
     private final Model delegate;
     private final AgentModelRole role;
     private final ExecutionConfig platformDefaults;
+    private final ModelCallAttribution attribution;
 
     public ObservableAgentScopeModel(Model delegate, AgentModelRole role) {
-        this(delegate, role, null);
+        this(delegate, role, null, null);
     }
 
     public ObservableAgentScopeModel(
             Model delegate, AgentModelRole role, ExecutionConfig platformDefaults) {
+        this(delegate, role, platformDefaults, null);
+    }
+
+    /**
+     * Full construction with usage-fact coordinates (M10-F03). The attribution lives on the
+     * cached instance, so every execution reusing it reports the same coordinates; env-slot
+     * models keep {@code null} and their realtime usage is reported without a fact.
+     */
+    public ObservableAgentScopeModel(
+            Model delegate,
+            AgentModelRole role,
+            ExecutionConfig platformDefaults,
+            ModelCallAttribution attribution) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         if (role != AgentModelRole.PRIMARY && role != AgentModelRole.FALLBACK) {
             throw new IllegalArgumentException("observable model role must be PRIMARY or FALLBACK");
         }
         this.role = role;
         this.platformDefaults = platformDefaults;
+        this.attribution = attribution;
     }
 
     @Override
@@ -69,6 +85,11 @@ public final class ObservableAgentScopeModel implements Model {
         GenerateOptions singleAttemptOptions = singleAttemptOptions(options);
         if (invocationScope != null) {
             invocationScope.modelSelected(role);
+        }
+        if (taskScope != null) {
+            // Announce the serving instance's coordinates before any token flows: the Task
+            // runtime attributes the next cumulative UsageReported to this stream (M10-F03).
+            taskScope.modelAttribution(attribution);
         }
         if (role == AgentModelRole.FALLBACK) {
             if (invocationScope != null) {

@@ -1,5 +1,6 @@
 package io.crewscope.agentscope;
 
+import io.crewscope.domain.model.ModelCallAttribution;
 import io.crewscope.application.execution.TaskExecutionEventPayload;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,20 +16,35 @@ public final class TaskAgentCallObservationScope {
             TaskAgentCallObservationScope.class;
 
     private final Consumer<TaskExecutionEventPayload.ModelTransition> observer;
+    private final Consumer<Optional<ModelCallAttribution>> attributionObserver;
 
     private TaskAgentCallObservationScope(
-            Consumer<TaskExecutionEventPayload.ModelTransition> observer) {
+            Consumer<TaskExecutionEventPayload.ModelTransition> observer,
+            Consumer<Optional<ModelCallAttribution>> attributionObserver) {
         this.observer = Objects.requireNonNull(observer, "observer");
+        this.attributionObserver = Objects.requireNonNull(attributionObserver, "attributionObserver");
     }
 
     public static Function<Context, Context> install(
             Consumer<TaskExecutionEventPayload.ModelTransition> observer) {
-        TaskAgentCallObservationScope scope = new TaskAgentCallObservationScope(observer);
+        return install(observer, ignored -> { });
+    }
+
+    public static Function<Context, Context> install(
+            Consumer<TaskExecutionEventPayload.ModelTransition> observer,
+            Consumer<Optional<ModelCallAttribution>> attributionObserver) {
+        TaskAgentCallObservationScope scope =
+                new TaskAgentCallObservationScope(observer, attributionObserver);
         return context -> context.put(KEY, scope);
     }
 
     static Optional<TaskAgentCallObservationScope> find(ContextView contextView) {
         return contextView.getOrEmpty(KEY);
+    }
+
+    /** Coordinates of the instance now serving a call; empty for env-slot resolution. */
+    void modelAttribution(ModelCallAttribution attribution) {
+        attributionObserver.accept(Optional.ofNullable(attribution));
     }
 
     void retrying(AgentModelRole role, int attempt, int maxAttempts) {

@@ -195,6 +195,7 @@ public class InboxEventProjector implements GenerationAwareProjectionHandler {
                     event, payload, replay,
                     Optional.of(InboxCloseReason.EXCEPTION_RESOLVED)));
             case ACTION_DELIVERY_REFRESHED -> actionDelivery(event, payload, replay);
+            case BUDGET_ALERT_OPENED -> budgetAlert(event, payload);
         };
     }
 
@@ -444,6 +445,57 @@ public class InboxEventProjector implements GenerationAwareProjectionHandler {
         return List.of(ACTION_EXCEPTION_RESOLVED.contains(eventStatus)
                 ? mutation.closeOnly()
                 : mutation);
+    }
+
+    /**
+     * A budget crossing opens one EXCEPTION item per current team OWNER and ADMIN
+     * (M10-F03). Unlike the single-authority lanes, the recipients are a set; a team
+     * holding no eligible OWNER/ADMIN simply produces no items — the alert already
+     * lives in the team_budget_alert ledger either way.
+     */
+    private List<InboxMutation> budgetAlert(ProjectionEvent event, JsonNode payload) {
+        UUID alertId = uuid(payload, "alertId", true).orElseThrow();
+        UUID teamId = uuid(payload, "teamId", true).orElseThrow();
+        requireTeam(event, teamId);
+        List<AuthorityRow> recipients = jdbc.query(
+                """
+                SELECT member.team_id, member.id AS member_id,
+                       MIN(role.role_key) AS kind, member.status,
+                       member.updated_at AS opened_at,
+                       member.updated_at AS terminal_at,
+                       member.status AS member_status, member.updated_at AS member_updated_at,
+                       0::BIGINT AS source_revision
+                FROM crewscope.team_member member
+                JOIN crewscope.team_member_role member_grant
+                  ON member_grant.organization_id = member.organization_id
+                 AND member_grant.team_id = member.team_id
+                 AND member_grant.team_member_id = member.id
+                 AND member_grant.scope_type = 'TEAM'
+                 AND member_grant.status = 'ACTIVE'
+                 AND member_grant.valid_from <= now()
+                 AND member_grant.revoked_at IS NULL
+                 AND (member_grant.expires_at IS NULL OR member_grant.expires_at > now())
+                JOIN crewscope.team_role role
+                  ON role.organization_id = member_grant.organization_id
+                 AND role.team_id = member_grant.team_id
+                 AND role.id = member_grant.team_role_id
+                 AND role.scope_type = 'TEAM'
+                 AND role.status = 'ACTIVE'
+                 AND role.role_key IN ('TEAM_OWNER', 'TEAM_ADMIN')
+                WHERE member.organization_id = ? AND member.team_id = ?
+                  AND member.status = 'ACTIVE'
+                GROUP BY member.team_id, member.id, member.status, member.updated_at
+                """,
+                (row, ignored) -> authority(row),
+                event.organizationId(), teamId);
+        List<InboxMutation> result = new ArrayList<>();
+        for (AuthorityRow recipient : recipients) {
+            result.add(mutation(event, recipient.withOpenedAt(event.occurredAt()),
+                    InboxItemType.EXCEPTION, InboxSourceType.BUDGET, alertId,
+                    InboxSourceRevision.INITIAL, InboxPriority.HIGH,
+                    Optional.empty(), Optional.empty()));
+        }
+        return List.copyOf(result);
     }
 
     private InboxMutation mutation(

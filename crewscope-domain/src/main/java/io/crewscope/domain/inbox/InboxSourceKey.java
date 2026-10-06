@@ -44,7 +44,8 @@ public record InboxSourceKey(
             case CONFIRMATION -> sourceType == InboxSourceType.ACTION_CONFIRMATION;
             case EXCEPTION -> sourceType == InboxSourceType.TASK_EXECUTION
                     || sourceType == InboxSourceType.ACTION_DELIVERY
-                    || sourceType == InboxSourceType.NOTIFICATION_DELIVERY;
+                    || sourceType == InboxSourceType.NOTIFICATION_DELIVERY
+                    || sourceType == InboxSourceType.BUDGET;
         };
         if (!compatible) {
             throw new IllegalArgumentException(

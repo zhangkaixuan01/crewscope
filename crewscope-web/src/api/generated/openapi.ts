@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 0222579bf4aec840461bb0680d993bd935ff84e58d6b457fbcc7427879579fd9
+// Controller source SHA-256: 297935fe2eddc0cd6ea68f21f34ad105a023e8948fe5122e518914acb26f4841
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -338,6 +338,14 @@ export const openApiDocument = {
     "/api/v1/organizations/{organizationId}/operations/diagnostics": {
       "get": {
         "operationId": "OperationsController_diagnostics",
+        "tags": [
+          "OperationsController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/operations/model-usage-rollup/rebuilds": {
+      "post": {
+        "operationId": "OperationsController_rebuildUsageRollup",
         "tags": [
           "OperationsController"
         ]
@@ -1206,6 +1214,30 @@ export const openApiDocument = {
         "operationId": "MemberSelfNotificationPreferenceController_updatePreference",
         "tags": [
           "MemberSelfNotificationPreferenceController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/cost/months": {
+      "get": {
+        "operationId": "TeamObservabilityController_costMonths",
+        "tags": [
+          "TeamObservabilityController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/cost/months/{month}": {
+      "get": {
+        "operationId": "TeamObservabilityController_costMonth",
+        "tags": [
+          "TeamObservabilityController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/quality/months/{month}": {
+      "get": {
+        "operationId": "TeamObservabilityController_qualityMonth",
+        "tags": [
+          "TeamObservabilityController"
         ]
       }
     },
@@ -2377,6 +2409,12 @@ export const openApiOperations = [
   },
   {
     "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/operations/model-usage-rollup/rebuilds",
+    "operationId": "OperationsController_rebuildUsageRollup",
+    "controller": "OperationsController"
+  },
+  {
+    "method": "post",
     "path": "/api/v1/organizations/{organizationId}/operations/projections/{projectionName}/generations/{generation}/rebuilds/{rebuildJobId}/cancel",
     "operationId": "OperationsController_cancelRebuild",
     "controller": "OperationsController"
@@ -3052,6 +3090,24 @@ export const openApiOperations = [
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/members/me/notification-preference",
     "operationId": "MemberSelfNotificationPreferenceController_updatePreference",
     "controller": "MemberSelfNotificationPreferenceController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/cost/months",
+    "operationId": "TeamObservabilityController_costMonths",
+    "controller": "TeamObservabilityController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/cost/months/{month}",
+    "operationId": "TeamObservabilityController_costMonth",
+    "controller": "TeamObservabilityController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/quality/months/{month}",
+    "operationId": "TeamObservabilityController_qualityMonth",
+    "controller": "TeamObservabilityController"
   },
   {
     "method": "get",
@@ -3768,4 +3824,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 273 as const
+export const openApiOperationCount = 277 as const

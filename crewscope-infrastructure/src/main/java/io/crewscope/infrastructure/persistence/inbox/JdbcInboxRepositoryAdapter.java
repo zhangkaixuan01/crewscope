@@ -364,6 +364,8 @@ public class JdbcInboxRepositoryAdapter
                     item,
                     sourceId);
             case NOTIFICATION_DELIVERY -> notificationTarget(item, memberId, sourceId);
+            // A budget alert is its own message: no work item, task or action to navigate to.
+            case BUDGET -> Optional.empty();
         };
     }
 
@@ -605,6 +607,11 @@ public class JdbcInboxRepositoryAdapter
             case TASK_EXECUTION -> "TASK";
             case ACTION_CONFIRMATION, ACTION_DELIVERY -> "ACTION";
             case NOTIFICATION_DELIVERY -> "NOTIFICATION";
+            // A BUDGET row joins no source facts, so sourceContext returns before
+            // reaching here; Kind has no BUDGET value, so reaching here anyway is a
+            // join regression that must fail loudly instead of emitting a dead kind.
+            case BUDGET -> throw new IllegalStateException(
+                    "a BUDGET row never carries a source context");
         };
     }
 

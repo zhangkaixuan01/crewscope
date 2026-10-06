@@ -31,6 +31,7 @@ export const MENUS = [
   { path: '/knowledge', name: '知识库' },
   { path: '/knowledge/index', name: '索引作业' },
   { path: '/skills', name: 'Skill 目录' },
+  { path: '/observability', name: '成本质量' },
   { path: '/operations', name: '运维' },
   { path: '/audit', name: '审计' },
   { path: '/team/members', name: '成员' },
@@ -81,6 +82,9 @@ export async function mockApi(page: Page): Promise<void> {
     if (/\/knowledge\/index\/jobs$/.test(path)) return json(route, { items: [], nextAfter: null })
     // The skill catalog pages with the same `nextAfter` shape (skillKey cursor) — before the generic `s$` fallback.
     if (/\/skills$/.test(path)) return json(route, { items: [], nextAfter: null })
+    // The observability month listing carries `months` + a month cursor, so the generic fallback
+    // shape would not parse — before the generic `s$` fallback.
+    if (/\/observability\/cost\/months$/.test(path)) return json(route, { months: [], nextAfter: null })
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
 }

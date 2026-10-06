@@ -14,9 +14,11 @@ import io.crewscope.agentscope.coding.DurableCodingSpecialistExecutionStore;
 import io.crewscope.application.coding.CodingCheckpointRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventExistenceCheck;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
+import io.crewscope.application.execution.RealtimeUsageFactEmitter;
 import io.crewscope.application.execution.TaskAgentStateSnapshotService;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.runtime.RuntimeMaintenanceService;
@@ -303,7 +305,11 @@ class TaskWorkerConfigurationM3I09Test {
                         () -> mock(io.crewscope.infrastructure.runtime.TaskTokenCurrentAuthorization.class))
                 .withBean(DurableTaskExecutionEventService.class,
                         () -> mock(DurableTaskExecutionEventService.class))
+                .withBean(RealtimeUsageFactEmitter.class,
+                        () -> mock(RealtimeUsageFactEmitter.class))
                 .withBean(DomainEventStore.class, () -> mock(DomainEventStore.class))
+                .withBean(DomainEventExistenceCheck.class,
+                        () -> mock(DomainEventExistenceCheck.class))
                 .withBean(OutboxRepository.class, () -> mock(OutboxRepository.class))
                 .withBean(CommandReceiptStore.class, () -> mock(CommandReceiptStore.class))
                 .withBean(TaskAgentStateSnapshotService.class,

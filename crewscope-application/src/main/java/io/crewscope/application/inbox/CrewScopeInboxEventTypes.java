@@ -58,6 +58,10 @@ public final class CrewScopeInboxEventTypes {
         add(definitions, "ACTION_RECEIPT_RECORDED",
                 InboxProjectionOperation.ACTION_DELIVERY_REFRESHED,
                 "plannedActionId", "result");
+
+        add(definitions, "TEAM_BUDGET_ALERT_RECORDED",
+                InboxProjectionOperation.BUDGET_ALERT_OPENED,
+                "alertId", "teamId", "usageMonth", "kind", "level");
         return new InboxEventTypeRegistry(definitions);
     }
 

@@ -12,6 +12,8 @@ import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.ToolChoice;
 import io.agentscope.core.model.transport.HttpTransportException;
+import io.crewscope.domain.model.ModelCallAttribution;
+import io.crewscope.agentscope.model.ModelCallAttributionRegistry;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,6 +33,12 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
         if (collector == null) {
             return next.apply(input);
         }
+        // The forced-choice recovery below rebuilds inputs around the same model instance, so
+        // the attribution is resolved once here and every retry of this logical call lands on
+        // one usage record with stable coordinates.
+        ModelCallAttributionRegistry attributions =
+                runtimeContext.get(ModelCallAttributionRegistry.class);
+        ModelCallAttribution attribution = attribution(input, attributions);
         if (collector.structuredOutputRequired()
                 && input.tools().stream().anyMatch(tool ->
                         "generate_response".equals(tool.getName()))) {
@@ -45,20 +53,22 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
                     input.options());
             ModelCallInput effective = new ModelCallInput(
                     input.messages(), input.tools(), options, input.model());
-            return observed(next.apply(effective), collector)
+            return observed(next.apply(effective), collector, attribution)
                     // Defect 11 (M9b-Q02): thinking-mode models (deepseek-flash) reject a forced
                     // tool_choice with 400, killing the whole delivery after the tool loop already
                     // succeeded. Degrade once to the unforced request — the delivery prompt plus the
                     // generate_response schema still steer the structured answer.
                     .onErrorResume(error -> forcedToolChoiceRejected(error)
-                            ? observed(next.apply(input), collector)
+                            ? observed(next.apply(input), collector, attribution)
                             : Flux.error(error));
         }
-        return observed(next.apply(input), collector);
+        return observed(next.apply(input), collector, attribution);
     }
 
     private static Flux<AgentEvent> observed(
-            Flux<AgentEvent> events, CodingSpecialistTelemetryAccumulator collector) {
+            Flux<AgentEvent> events,
+            CodingSpecialistTelemetryAccumulator collector,
+            ModelCallAttribution attribution) {
         AtomicReference<ChatUsage> usage = new AtomicReference<>();
         AtomicBoolean recorded = new AtomicBoolean();
         return events
@@ -67,9 +77,17 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
                         usage.set(ended.getUsage());
                     }
                 })
-                .doOnComplete(() -> recordModel(collector, usage.get(), recorded))
-                .doOnError(ignored -> recordModel(collector, usage.get(), recorded))
-                .doOnCancel(() -> recordModel(collector, usage.get(), recorded));
+                .doOnComplete(() -> recordModel(collector, usage.get(), attribution, recorded))
+                .doOnError(ignored -> recordModel(collector, usage.get(), attribution, recorded))
+                .doOnCancel(() -> recordModel(collector, usage.get(), attribution, recorded));
+    }
+
+    /** Null when the call served an env-slot model or an instance this call never pinned. */
+    private static ModelCallAttribution attribution(
+            ModelCallInput input, ModelCallAttributionRegistry attributions) {
+        return attributions == null
+                ? null
+                : attributions.resolve(input.model()).orElse(null);
     }
 
     /**
@@ -112,11 +130,12 @@ final class CodingSpecialistTelemetryMiddleware implements MiddlewareBase {
     private static void recordModel(
             CodingSpecialistTelemetryAccumulator collector,
             ChatUsage usage,
+            ModelCallAttribution attribution,
             AtomicBoolean recorded) {
         if (recorded.compareAndSet(false, true)) {
             // A failed logical call remains a real model call even when the Provider cannot return
             // token counters; zero usage is explicit, not estimated.
-            collector.recordModel(usage);
+            collector.recordModel(usage, attribution);
         }
     }
 }

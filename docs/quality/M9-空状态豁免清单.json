@@ -62,6 +62,12 @@
       "reason": "Projection 定义由平台侧部署时注册，成员在运维工作台内没有注册或修改定义的出口。"
     },
     {
+      "file": "components/domain/SkillVersionHistory.vue",
+      "state": "empty",
+      "title": "尚未发布生效版本",
+      "reason": "产生第一个版本的出口是发布草稿，发布按钮与草稿页签就在同一详情面板的工具条上，与空状态同屏，不需要重复按钮；普通成员读面没有发布能力，版本历史本身只读。"
+    },
+    {
       "file": "pages/ActivityPage.vue",
       "state": "empty",
       "title": "请选择 Team",
@@ -128,6 +134,24 @@
       "reason": "下一步是改选同屏连接列表中的另一个 Provider，出口已在同一视口内，详情面板内不需要重复按钮。"
     },
     {
+      "file": "pages/ObservabilityPage.vue",
+      "state": "empty",
+      "title": "本月还没有模型用量事实",
+      "reason": "用量事实由执行任务、知识嵌入与提炼产生，入口分布在对话、工作项与知识库页面，观测页本身不发起任何产生用量的调用；跨页跳转没有单一出口，因此面板内不放按钮。"
+    },
+    {
+      "file": "pages/ObservabilityPage.vue",
+      "state": "empty",
+      "title": "该角色本月没有用量行",
+      "reason": "出口是同屏的「角色筛选」下拉本身——把筛选改回「全部角色」即恢复整月明细，面板内不需要等效按钮。"
+    },
+    {
+      "file": "pages/ObservabilityPage.vue",
+      "state": "empty",
+      "title": "请选择 Team",
+      "reason": "Team 切换器（ScopeSwitcher）固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
+    },
+    {
       "file": "pages/OperationsPage.vue",
       "state": "empty",
       "title": "请选择 Team",
@@ -140,22 +164,16 @@
       "reason": "搜索框就在同屏上方的表单里，输入关键词正是这个空状态要求的动作，不需要再放一个跳转按钮。"
     },
     {
-      "file": "components/domain/SkillVersionHistory.vue",
+      "file": "pages/SkillsPage.vue",
       "state": "empty",
-      "title": "尚未发布生效版本",
-      "reason": "产生第一个版本的出口是发布草稿，发布按钮与草稿页签就在同一详情面板的工具条上，与空状态同屏，不需要重复按钮；普通成员读面没有发布能力，版本历史本身只读。"
+      "title": null,
+      "reason": "注入清单回链未命中时的说明面板：深链参数已被清除，Skill 目录列表与状态筛选就在同一视口内，继续浏览目录本身就是出口；标题绑定 skillKey，无法静态匹配。"
     },
     {
       "file": "pages/SkillsPage.vue",
       "state": "empty",
       "title": "请选择 Team",
       "reason": "Team 切换器固定显示在页面外壳侧栏，与空状态同屏，选择 Team 即为出口。"
-    },
-    {
-      "file": "pages/SkillsPage.vue",
-      "state": "empty",
-      "title": null,
-      "reason": "注入清单回链未命中时的说明面板：深链参数已被清除，Skill 目录列表与状态筛选就在同一视口内，继续浏览目录本身就是出口；标题绑定 skillKey，无法静态匹配。"
     },
     {
       "file": "pages/TeamMembersPage.vue",

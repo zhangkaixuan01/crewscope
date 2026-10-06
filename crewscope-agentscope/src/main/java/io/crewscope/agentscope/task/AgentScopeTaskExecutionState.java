@@ -63,6 +63,13 @@ final class AgentScopeTaskExecutionState {
     private io.crewscope.domain.task.TaskFactHash publishedContentHash;
     private final ConcurrentLinkedQueue<TaskExecutionEventPayload.ModelTransition>
             modelTransitions = new ConcurrentLinkedQueue<>();
+    /**
+     * Coordinates of the model instance serving the current stream (M10-F03). Announced per
+     * stream start by the observable model and retained until the next stream announces its
+     * own; empty before the first announcement and for env-slot resolution.
+     */
+    private Optional<io.crewscope.domain.model.ModelCallAttribution> currentAttribution =
+            Optional.empty();
 
     AgentScopeTaskExecutionState(
             AgentScopeExecutionKey key,
@@ -282,6 +289,17 @@ final class AgentScopeTaskExecutionState {
 
     void observeModelTransition(TaskExecutionEventPayload.ModelTransition transition) {
         modelTransitions.add(Objects.requireNonNull(transition, "transition"));
+    }
+
+    synchronized void observeModelAttribution(
+            Optional<io.crewscope.domain.model.ModelCallAttribution> attribution) {
+        currentAttribution = Objects.requireNonNull(attribution, "attribution");
+    }
+
+    /** Coordinates the currently serving model instance announced for this stream. */
+    synchronized Optional<io.crewscope.domain.model.ModelCallAttribution>
+            currentAttribution() {
+        return currentAttribution;
     }
 
     synchronized List<TaskExecutionEvent> drainModelTransitions() {

@@ -230,6 +230,7 @@ class ResolvedAgentScopeModelFactoryM5I05Test {
         when(catalog.providerKey()).thenReturn(providerKey);
         when(catalog.providerDefinitionHash()).thenReturn(providerHash);
         when(catalog.contentHash()).thenReturn(catalogHash);
+        when(catalog.modelId()).thenReturn(coordinate.modelId());
         when(catalog.modelRevision()).thenReturn(modelRevision);
         when(catalog.status()).thenReturn(ModelRegistryStatus.ACTIVE);
 

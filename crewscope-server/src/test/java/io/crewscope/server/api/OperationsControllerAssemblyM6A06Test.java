@@ -4,6 +4,7 @@ import static org.mockito.Mockito.mock;
 
 import io.crewscope.application.operations.OperationsHealthService;
 import io.crewscope.application.operations.OperationsRecoveryService;
+import io.crewscope.application.observability.ModelUsageRollupService;
 import io.crewscope.application.projection.ProjectionAdministrationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -28,6 +29,9 @@ class OperationsControllerAssemblyM6A06Test {
                 .withBean(
                         ProjectionAdministrationService.class,
                         () -> mock(ProjectionAdministrationService.class))
+                .withBean(
+                        ModelUsageRollupService.class,
+                        () -> mock(ModelUsageRollupService.class))
                 .withBean(
                         TeamRequestIdentityResolver.class,
                         () -> mock(TeamRequestIdentityResolver.class))

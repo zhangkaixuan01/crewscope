@@ -22,6 +22,7 @@ import io.crewscope.application.operations.OperationsRecoveryResult;
 import io.crewscope.application.operations.OperationsRecoveryService;
 import io.crewscope.application.operations.OperationsRecoveryStatus;
 import io.crewscope.application.operations.ProjectionHealthDiagnostic;
+import io.crewscope.application.observability.ModelUsageRollupService;
 import io.crewscope.application.projection.ProjectionAdministrationResult;
 import io.crewscope.application.projection.ProjectionAdministrationService;
 import io.crewscope.application.projection.RetryProjectionRebuildCommand;
@@ -93,7 +94,9 @@ class OperationsControllerM6A06Test {
         when(identities.resolve(any(), eq(ORGANIZATION_ID), any()))
                 .thenReturn(Mono.just(access));
         client = WebTestClient.bindToController(
-                        new OperationsController(health, recovery, projections, identities))
+                        new OperationsController(
+                                health, recovery, projections,
+                                mock(ModelUsageRollupService.class), identities))
                 .controllerAdvice(new ApiExceptionHandler())
                 .build();
     }

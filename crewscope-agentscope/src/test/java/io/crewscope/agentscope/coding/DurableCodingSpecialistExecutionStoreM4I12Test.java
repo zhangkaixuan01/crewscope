@@ -120,7 +120,10 @@ class DurableCodingSpecialistExecutionStoreM4I12Test {
                                     transactionActive.get(),
                                     "authoritative time must be read inside REQUIRED transaction");
                             return UtcTimestamp.parse("2026-08-19T12:00:00Z");
-                        });
+                        },
+                        mock(io.crewscope.application.event.DomainEventStore.class),
+                        mock(io.crewscope.application.event.DomainEventExistenceCheck.class),
+                        mock(io.crewscope.application.event.OutboxRepository.class));
         TaskExecutionRuntimeFacts facts = facts();
         CodingSpecialistCheckpointCommand command = new CodingSpecialistCheckpointCommand(
                 facts,
@@ -156,7 +159,10 @@ class DurableCodingSpecialistExecutionStoreM4I12Test {
                 mock(CodingCheckpointRepository.class),
                 mock(StepExecutionRepository.class),
                 transactions,
-                () -> UtcTimestamp.parse("2026-08-19T12:00:00Z"));
+                () -> UtcTimestamp.parse("2026-08-19T12:00:00Z"),
+                mock(io.crewscope.application.event.DomainEventStore.class),
+                mock(io.crewscope.application.event.DomainEventExistenceCheck.class),
+                mock(io.crewscope.application.event.OutboxRepository.class));
     }
 
     private static TaskExecutionRuntimeFacts facts() {

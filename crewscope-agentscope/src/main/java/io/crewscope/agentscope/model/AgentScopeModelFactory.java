@@ -5,6 +5,7 @@ import io.crewscope.agentscope.AgentModelRole;
 import io.crewscope.agentscope.ObservableAgentScopeModel;
 import io.crewscope.application.model.ProviderCredentialHandle;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
+import io.crewscope.domain.model.ModelCallAttribution;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -107,7 +108,13 @@ public final class AgentScopeModelFactory {
             Model observed = new ObservableAgentScopeModel(
                     created,
                     AgentModelRole.valueOf(trusted.role().name()),
-                    safeOptions.getExecutionConfig());
+                    safeOptions.getExecutionConfig(),
+                    ModelCallAttribution.chat(
+                            trusted.providerKey(),
+                            trusted.catalogCoordinate().modelId(),
+                            trusted.connectionId(),
+                            trusted.connectionVersion(),
+                            trusted.role()));
             Model bound = new ConnectionBoundAgentScopeModel(observed, safeOptions);
             synchronized (cacheLock) {
                 evictExpired(now);

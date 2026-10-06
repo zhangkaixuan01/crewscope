@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 273 = 272 + 1 team skill distillation endpoint (M10-A03b).
-if (operationCount !== 273) {
-  console.error(`OpenAPI operation baseline changed: expected 273, found ${operationCount}`)
+// 277 = 273 + 1 model-usage rollup rebuild (M10-F03a) + 3 team observability reads (M10-F03b).
+if (operationCount !== 277) {
+  console.error(`OpenAPI operation baseline changed: expected 277, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

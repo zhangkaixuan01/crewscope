@@ -135,6 +135,13 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'skills', title: 'Skill 目录', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'project', 'status', 'skill', 'skillKey', 'revision', 'tab'], tabValues: ['draft', 'versions'] },
       },
       {
+        path: '/observability',
+        name: 'observability',
+        component: () => import('../pages/ObservabilityPage.vue'),
+        // The month and role filters are the page's whole URL surface (contract §8).
+        meta: { mode: 'control', section: 'observability', title: '成本质量', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'month', 'role'] },
+      },
+      {
         path: '/operations',
         name: 'operations',
         component: () => import('../pages/OperationsPage.vue'),

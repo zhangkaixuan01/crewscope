@@ -26,6 +26,7 @@ import io.crewscope.application.coding.CodingCheckpointRepository;
 import io.crewscope.application.coding.TestEvidenceRepository;
 import io.crewscope.application.coding.output.CodingOutputValidator;
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.event.DomainEventExistenceCheck;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.execution.DurableTaskExecutionEventService;
@@ -186,14 +187,16 @@ public class TaskWorkerConfiguration {
             TaskAgentFactory factory,
             ControlledTaskPlanParser parser,
             ApplicationTaskPlanPublisher publisher,
-            TaskAgentStateSnapshotService snapshotService) {
+            TaskAgentStateSnapshotService snapshotService,
+            io.crewscope.application.execution.RealtimeUsageFactEmitter usageFacts) {
         return new AgentScopeTaskRuntime(
                 factory,
                 new AgentScopeTaskPlanningSnapshotMapper(),
                 new AgentScopeTaskPlanAdapter(parser),
                 publisher,
                 snapshotService,
-                Clock.systemUTC());
+                Clock.systemUTC(),
+                usageFacts);
     }
 
     @Bean
@@ -258,7 +261,10 @@ public class TaskWorkerConfiguration {
             CodingCheckpointRepository checkpointRepository,
             StepExecutionRepository stepRepository,
             TransactionExecutor transactionExecutor,
-            AuthoritativeTimeProvider timeProvider) {
+            AuthoritativeTimeProvider timeProvider,
+            DomainEventStore events,
+            DomainEventExistenceCheck existence,
+            OutboxRepository outbox) {
         return new DurableCodingSpecialistExecutionStore(
                 eventService,
                 snapshotService,
@@ -266,7 +272,10 @@ public class TaskWorkerConfiguration {
                 checkpointRepository,
                 stepRepository,
                 transactionExecutor,
-                timeProvider);
+                timeProvider,
+                events,
+                existence,
+                outbox);
     }
 
     @Bean

@@ -9,6 +9,7 @@ import io.crewscope.application.model.OpenProviderCredentialHandleRequest;
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.agent.ResolvedModelSelection;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
+import io.crewscope.domain.model.ModelCallAttribution;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelProviderDefinition;
@@ -61,24 +62,28 @@ public final class ResolvedAgentScopeModelFactory {
         if (!resolved.ownership().organizationId().equals(organization)) {
             throw invalidRequest();
         }
-        Model primary = buildSelection(
+        BuiltSelection primary = buildSelection(
                 organization,
                 resolved.primary(),
                 options,
                 resolved.configurationHash(),
                 requestingPrincipal,
                 correlation);
-        Optional<Model> fallback = resolved.fallback().map(selection -> buildSelection(
+        Optional<BuiltSelection> fallback = resolved.fallback().map(selection -> buildSelection(
                 organization,
                 selection,
                 options,
                 resolved.configurationHash(),
                 requestingPrincipal,
                 correlation));
-        return new ResolvedAgentScopeModels(primary, fallback);
+        return new ResolvedAgentScopeModels(
+                primary.model(),
+                fallback.map(BuiltSelection::model),
+                Optional.of(primary.attribution()),
+                fallback.map(BuiltSelection::attribution));
     }
 
-    private Model buildSelection(
+    private BuiltSelection buildSelection(
             OrganizationId organizationId,
             ResolvedModelSelection selection,
             SafeModelGenerateOptions generateOptions,
@@ -111,16 +116,18 @@ public final class ResolvedAgentScopeModelFactory {
                 compatibility.structuredOutput(),
                 generateOptions,
                 compatibilityHash);
-        return models.build(
-                request,
-                credentials.openHandle(new OpenProviderCredentialHandleRequest(
-                        organizationId,
-                        selection.connectionId(),
-                        selection.connectionVersion(),
-                        selection.credentialVersion(),
-                        actor,
-                        "model:agent-template:" + selection.role().name().toLowerCase(java.util.Locale.ROOT),
-                        correlationId)));
+        return new BuiltSelection(
+                models.build(
+                        request,
+                        credentials.openHandle(new OpenProviderCredentialHandleRequest(
+                                organizationId,
+                                selection.connectionId(),
+                                selection.connectionVersion(),
+                                selection.credentialVersion(),
+                                actor,
+                                "model:agent-template:" + selection.role().name().toLowerCase(java.util.Locale.ROOT),
+                                correlationId))),
+                ModelCallAttribution.fromSelection(selection, catalog.modelId()));
     }
 
     private static void requireExactCoordinate(
@@ -176,6 +183,9 @@ public final class ResolvedAgentScopeModelFactory {
         return new AgentScopeModelBuildException(
                 AgentScopeModelBuildException.Code.INVALID_TRUSTED_REQUEST);
     }
+
+    /** One built instance plus the usage-fact coordinates it must be attributed to. */
+    private record BuiltSelection(Model model, ModelCallAttribution attribution) {}
 
     private record Compatibility(
             AgentScopeFormatterPolicy formatter,

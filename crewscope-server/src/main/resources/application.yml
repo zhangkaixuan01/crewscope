@@ -363,6 +363,17 @@ crewscope:
     enabled: ${CREWSCOPE_MEMORY_ENABLED:false}
     sweep:
       poll-interval: ${CREWSCOPE_MEMORY_SWEEP_POLL_INTERVAL:1h}
+  observability:
+    # M10-F03 usage rollup: the zone that owns monthly grouping (S01 §3.9). The code
+    # default stays UTC; deployments pin their reporting timezone here.
+    reporting-zone: ${CREWSCOPE_OBSERVABILITY_REPORTING_ZONE:Asia/Shanghai}
+    budget:
+      # M10-F03 soft budget reminders — a reminder, never a quota. Off until an
+      # operator sets a budget; amount budgets are per ISO 4217 code (never converted).
+      enabled: ${CREWSCOPE_BUDGET_ALERT_ENABLED:false}
+      scan-fixed-delay: ${CREWSCOPE_BUDGET_SCAN_FIXED_DELAY:300s}
+      monthly-token-budget: ${CREWSCOPE_BUDGET_MONTHLY_TOKENS:0}
+      warning-threshold: ${CREWSCOPE_BUDGET_WARNING_THRESHOLD:0.8}
   model:
     embedding:
       # Embeddings transport budgets (S01 §3.2): request timeout floor 1s, attempts 1..5.

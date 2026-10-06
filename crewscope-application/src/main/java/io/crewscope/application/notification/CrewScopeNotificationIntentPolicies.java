@@ -25,7 +25,9 @@ public final class CrewScopeNotificationIntentPolicies {
                 policy(InboxItemType.CONFIRMATION, "confirmation-required",
                         InboxSourceType.ACTION_CONFIRMATION),
                 policy(InboxItemType.EXCEPTION, "exception-alert",
-                        InboxSourceType.TASK_EXECUTION, InboxSourceType.ACTION_DELIVERY)));
+                        InboxSourceType.TASK_EXECUTION, InboxSourceType.ACTION_DELIVERY),
+                policy(InboxItemType.EXCEPTION, "team-budget-alert",
+                        InboxSourceType.BUDGET)));
     }
 
     private static NotificationIntentPolicy policy(

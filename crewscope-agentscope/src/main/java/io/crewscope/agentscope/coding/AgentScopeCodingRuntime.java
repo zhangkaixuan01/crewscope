@@ -12,6 +12,7 @@ import io.agentscope.harness.agent.filesystem.model.ReadResult;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.core.ReActAgent;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
+import io.crewscope.agentscope.model.ModelCallAttributionRegistry;
 import io.crewscope.agentscope.model.ResolvedAgentScopeModels;
 import io.crewscope.agentscope.model.TaskResolvedModelSource;
 import io.crewscope.application.coding.output.CodeChangeResultV1;
@@ -82,9 +83,13 @@ public final class AgentScopeCodingRuntime {
     public Mono<CodingSpecialistRunResult> execute(CodingSpecialistRequest request) {
         CodingSpecialistRequest required = Objects.requireNonNull(request, "request");
         AgentScopeSessionKey key = required.runtimeSession().agentScopeKey();
+        // Session-scoped by design: the shared model cache reuses instances across executions
+        // and its key carries no role, so usage attribution must follow the exact pair this
+        // call pinned (M10-F03). Env-slot resolution registers nothing and stays unattributed.
+        ModelCallAttributionRegistry attributions = new ModelCallAttributionRegistry();
         return Mono.using(
-                () -> register(required, key),
-                agent -> execute(agent, required),
+                () -> register(required, key, attributions),
+                agent -> execute(agent, required, attributions),
                 agent -> {
                     activeCalls.remove(key, agent);
                     agent.close();
@@ -124,13 +129,15 @@ public final class AgentScopeCodingRuntime {
         if (activeCalls.containsKey(key)) {
             throw new IllegalStateException("Coding Specialist call has not reached a safe point");
         }
-        try (HarnessAgent agent = createAgent(required)) {
+        try (HarnessAgent agent = createAgent(required, new ModelCallAttributionRegistry())) {
             return stateSnapshot(agent, key);
         }
     }
 
     private Mono<CodingSpecialistRunResult> execute(
-            HarnessAgent agent, CodingSpecialistRequest request) {
+            HarnessAgent agent,
+            CodingSpecialistRequest request,
+            ModelCallAttributionRegistry attributions) {
         AgentScopeSessionKey key = request.runtimeSession().agentScopeKey();
         RuntimeContext context = RuntimeContext.builder()
                 .userId(key.userId())
@@ -139,13 +146,14 @@ public final class AgentScopeCodingRuntime {
         CodingSpecialistTelemetryAccumulator telemetry =
                 new CodingSpecialistTelemetryAccumulator();
         context.put(CodingSpecialistTelemetryAccumulator.class, telemetry);
+        context.put(ModelCallAttributionRegistry.class, attributions);
         JsonNode schema = JsonUtils.getJsonCodec().convertValue(
                 CodingStructuredOutputSpecs.CODING_DELIVERY_SUMMARY
                         .strictJsonSchema()
                         .orElseThrow(),
                 JsonNode.class);
         enterInitialPlanMode(agent, context, key);
-        return executeOnce(agent, request, schema, context, telemetry, key)
+        return executeOnce(agent, request, schema, context, telemetry, attributions, key)
                 // One logical recovery turn absorbs malformed provider output, an invalid native
                 // safe point without creating an unbounded retry loop. A malformed delivery
                 // summary is recovered inside callForStructuredResult and must never repeat
@@ -163,6 +171,7 @@ public final class AgentScopeCodingRuntime {
                                 schema,
                                 context,
                                 telemetry,
+                                attributions,
                                 key))
                 .onErrorMap(failure -> failure instanceof CodingSpecialistExecutionException
                         ? failure
@@ -188,8 +197,9 @@ public final class AgentScopeCodingRuntime {
             JsonNode schema,
             RuntimeContext context,
             CodingSpecialistTelemetryAccumulator telemetry,
+            ModelCallAttributionRegistry attributions,
             AgentScopeSessionKey key) {
-        return callForStructuredResult(agent, request, schema, context, telemetry)
+        return callForStructuredResult(agent, request, schema, context, telemetry, attributions)
                 .map(result -> completedResult(agent, key, result, telemetry));
     }
 
@@ -198,14 +208,15 @@ public final class AgentScopeCodingRuntime {
             CodingSpecialistRequest request,
             JsonNode schema,
             RuntimeContext context,
-            CodingSpecialistTelemetryAccumulator telemetry) {
+            CodingSpecialistTelemetryAccumulator telemetry,
+            ModelCallAttributionRegistry attributions) {
         return agent.call(List.of(new UserMessage(request.instruction())), schema, context)
                 .flatMap(result -> {
                     if (validStructuredDelivery(result)) {
                         return Mono.just(result);
                     }
                     telemetry.requireStructuredOutput();
-                    return callStructuredResultAgent(request, schema, context)
+                    return callStructuredResultAgent(request, schema, context, attributions)
                             .flatMap(recovered -> validStructuredDelivery(recovered)
                                     ? Mono.just(recovered)
                                     : Mono.error(new StructuredDeliveryException()));
@@ -229,10 +240,16 @@ public final class AgentScopeCodingRuntime {
     }
 
     private Mono<Msg> callStructuredResultAgent(
-            CodingSpecialistRequest request, JsonNode schema, RuntimeContext context) {
+            CodingSpecialistRequest request,
+            JsonNode schema,
+            RuntimeContext context,
+            ModelCallAttributionRegistry attributions) {
+        Optional<ResolvedAgentScopeModels> models = pinnedModels(request);
+        // The recovery agent rebuilds the pair — a model-cache miss would hand out fresh
+        // instances — so teach the session registry the new pair before the call starts.
+        models.ifPresent(attributions::registerAll);
         return Mono.using(
-                () -> factory.createStructuredResultAgent(
-                        request.runtimeSession(), pinnedModels(request)),
+                () -> factory.createStructuredResultAgent(request.runtimeSession(), models),
                 resultAgent -> resultAgent.call(
                         List.of(new UserMessage(STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION.formatted(
                                 request.instruction()))),
@@ -243,8 +260,10 @@ public final class AgentScopeCodingRuntime {
     }
 
     private HarnessAgent register(
-            CodingSpecialistRequest request, AgentScopeSessionKey key) {
-        HarnessAgent agent = createAgent(request);
+            CodingSpecialistRequest request,
+            AgentScopeSessionKey key,
+            ModelCallAttributionRegistry attributions) {
+        HarnessAgent agent = createAgent(request, attributions);
         HarnessAgent existing = activeCalls.putIfAbsent(key, agent);
         if (existing != null) {
             agent.close();
@@ -259,9 +278,11 @@ public final class AgentScopeCodingRuntime {
      * deployment's slot semantics. The factory short-caches nothing per call, so every round
      * rebuilds from the pinned coordinates and credential rotation takes effect immediately.
      */
-    private HarnessAgent createAgent(CodingSpecialistRequest request) {
+    private HarnessAgent createAgent(
+            CodingSpecialistRequest request, ModelCallAttributionRegistry attributions) {
         Optional<ResolvedAgentScopeModels> models = pinnedModels(request);
         if (models.isPresent()) {
+            attributions.registerAll(models.get());
             return request.dynamicTeamSkills().isEmpty()
                     ? factory.createPinned(
                             request.runtimeSession(), request.toolkit(), models.get())

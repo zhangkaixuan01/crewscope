@@ -7,7 +7,7 @@ import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.event.SchemaVersion;
 import org.junit.jupiter.api.Test;
 
-/** Locks the exact reviewed event coordinates behind all five M6 Inbox source families. */
+/** Locks the exact reviewed event coordinates behind the M6 Inbox source families. */
 class InboxEventTypeRegistryM6E03Test {
 
     private final InboxEventTypeRegistry registry = CrewScopeInboxEventTypes.reviewedRegistry();
@@ -21,11 +21,13 @@ class InboxEventTypeRegistryM6E03Test {
         assertOperation("WORKER_TASK_FAIL_ACCEPTED", InboxProjectionOperation.TASK_EXCEPTION_OPENED);
         assertOperation("ACTION_DISPATCH_TRANSITIONED",
                 InboxProjectionOperation.ACTION_DELIVERY_REFRESHED);
+        assertOperation("TEAM_BUDGET_ALERT_RECORDED",
+                InboxProjectionOperation.BUDGET_ALERT_OPENED);
     }
 
     @Test
     void matchesSchemaCoordinatesExactlyAndReviewsTaskRetryV1AndV2() {
-        assertEquals(16, registry.size());
+        assertEquals(17, registry.size());
         assertTrue(registry.find(
                 EventType.from("MEMBER_TASK_RETRY_ACCEPTED"), SchemaVersion.V1).isPresent());
         assertTrue(registry.find(

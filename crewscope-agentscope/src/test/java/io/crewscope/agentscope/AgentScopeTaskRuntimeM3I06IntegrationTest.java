@@ -31,10 +31,16 @@ import io.crewscope.application.execution.TaskExecutionEvent;
 import io.crewscope.application.execution.TaskExecutionEventPayload;
 import io.crewscope.application.execution.TaskExecutionHandle;
 import io.crewscope.application.execution.TaskExecutionRequest;
+import io.crewscope.application.execution.RealtimeUsageFactEmitter;
 import io.crewscope.application.execution.TaskExecutionRuntimeFacts;
 import io.crewscope.application.task.TaskTokenExecutionContext;
 import io.crewscope.application.execution.TaskExecutionTerminalStatus;
+import io.crewscope.domain.agent.ResolvedModelRole;
 import io.crewscope.domain.conversation.AgentScopeSessionKey;
+import io.crewscope.domain.model.ModelCallAttribution;
+import io.crewscope.domain.model.ModelConnectionId;
+import io.crewscope.domain.model.ModelId;
+import io.crewscope.domain.model.ModelProviderKey;
 import io.crewscope.domain.runtime.RuntimeCapability;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.AgentRun;
@@ -68,8 +74,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -204,6 +212,55 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
     }
 
     @Test
+    void emitsRealtimeUsageFactsForAttributedCallsAndSurvivesEmitterHiccups() throws Exception {
+        ScriptedModel scripted = new ScriptedModel(
+                toolResponse("enter", "plan_enter", Map.of()),
+                toolResponse("write", "plan_write", Map.of("content", VALID_PLAN)),
+                toolResponse("exit", "plan_exit", Map.of("summary", "Controlled plan ready")));
+        ModelCallAttribution attribution = ModelCallAttribution.chat(
+                new ModelProviderKey("deepseek"),
+                new ModelId("deepseek-v4-flash"),
+                ModelConnectionId.generate(),
+                4L,
+                ResolvedModelRole.PRIMARY);
+        RuntimeFixture fixture = RuntimeFixture.create(
+                new ObservableAgentScopeModel(scripted, AgentModelRole.PRIMARY, null, attribution),
+                new PolicyBudget(10_000, 20, 20, 30));
+        List<String> emissions = new CopyOnWriteArrayList<>();
+        AtomicInteger served = new AtomicInteger();
+        RealtimeUsageFactEmitter emitter = (facts, pinned, usage, segmentSequence, sequence) -> {
+            if (served.getAndIncrement() == 0) {
+                // A projection hiccup on the first call must never take the execution down.
+                throw new IllegalStateException("projection unavailable");
+            }
+            assertEquals(attribution, pinned);
+            emissions.add(segmentSequence + ":" + sequence + ":" + usage.totalTokens());
+            return true;
+        };
+        AtomicReference<AgentScopeTaskPlanAdapter.Candidate> published = new AtomicReference<>();
+        try (AgentScopeTaskRuntime runtime = runtime(fixture, candidate -> {
+            published.set(candidate);
+            return PlanVersionId.generate();
+        }, emitter)) {
+            List<TaskExecutionEvent> planning = collect(runtime.executeTask(
+                    fixture.request(AgentRunSegmentKind.INVOKE, 1, Optional.empty())));
+
+            assertEquals(TaskExecutionTerminalStatus.INTERRUPTED,
+                    planning.get(planning.size() - 1).payload().terminalStatus().orElseThrow());
+            assertTrue(published.get() != null, "the hiccup must not kill the planning flow");
+        }
+        // Remaining attributed calls each emitted one fact at their durable event slot: the
+        // scripted responses carry 10 input + 4 output tokens and the fact recomputes total.
+        assertTrue(emissions.size() >= 1);
+        assertTrue(emissions.stream().allMatch(value -> value.endsWith(":14")));
+        assertEquals(1L, Long.parseLong(emissions.get(0).split(":")[0]));
+        List<Long> slots = emissions.stream()
+                .map(value -> Long.parseLong(value.split(":")[1]))
+                .toList();
+        assertEquals(slots.stream().sorted().toList(), slots);
+    }
+
+    @Test
     void enforcesModelBudgetBeforeAnUnboundedAgentLoop() throws Exception {
         ScriptedModel model = new ScriptedModel(
                 toolResponse("enter", "plan_enter", Map.of()),
@@ -301,6 +358,34 @@ class AgentScopeTaskRuntimeM3I06IntegrationTest {
                 new AgentScopeTaskPlanAdapter(parser),
                 (facts, candidate) -> publisher.apply(candidate),
                 CLOCK);
+    }
+
+    private AgentScopeTaskRuntime runtime(
+            RuntimeFixture fixture,
+            java.util.function.Function<AgentScopeTaskPlanAdapter.Candidate, PlanVersionId> publisher,
+            RealtimeUsageFactEmitter usageFacts) {
+        ControlledTaskPlanParser parser = new ControlledTaskPlanParser();
+        TaskAgentFactory factory = new TaskAgentFactory(
+                (id, version) -> new TaskAgentConfiguration(
+                        id,
+                        version,
+                        "scripted",
+                        Optional.empty(),
+                        "Use controlled plans, Todo cognition and Fixture Tools only.",
+                        30,
+                        1),
+                ignored -> fixture.model,
+                fixture.stateStore,
+                new ControlledTaskToolkitFactory(parser),
+                runtimeRoot.resolve(UUID.randomUUID().toString()));
+        return new AgentScopeTaskRuntime(
+                factory,
+                new AgentScopeTaskPlanningSnapshotMapper(),
+                new AgentScopeTaskPlanAdapter(parser),
+                (facts, candidate) -> publisher.apply(candidate),
+                mock(io.crewscope.application.execution.TaskAgentStateSnapshotService.class),
+                CLOCK,
+                usageFacts);
     }
 
     private static List<TaskExecutionEvent> collect(TaskExecutionHandle handle) throws Exception {

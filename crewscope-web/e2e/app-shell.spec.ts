@@ -291,6 +291,22 @@ test.beforeEach(async ({ page }) => {
       ])
       return
     }
+    // M10-F03 observability reads mirror the cost contract: the month listing carries `months`
+    // plus a month cursor, and the detail and quality endpoints answer per requested month.
+    if (request.method() === 'GET' && path.endsWith('/observability/cost/months')) {
+      await fulfillJson(route, observabilityCostMonths())
+      return
+    }
+    const observabilityDetailMatch = path.match(/\/observability\/cost\/months\/(\d{4}-\d{2})$/)
+    if (request.method() === 'GET' && observabilityDetailMatch) {
+      await fulfillJson(route, observabilityCostMonthDetail(observabilityDetailMatch[1]!))
+      return
+    }
+    const observabilityQualityMatch = path.match(/\/observability\/quality\/months\/(\d{4}-\d{2})$/)
+    if (request.method() === 'GET' && observabilityQualityMatch) {
+      await fulfillJson(route, observabilityQualityMonth(observabilityQualityMatch[1]!))
+      return
+    }
     if (request.method() === 'GET' && path.endsWith('/model-providers')) {
       await fulfillJson(route, { items: [modelProvider()] })
       return
@@ -3534,6 +3550,15 @@ test('M10-F02 skills visual baseline', async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`skills-detail-${testInfo.project.name}.png`, { fullPage: true })
 })
 
+test('M10-F03 observability cost and quality visual baseline', async ({ page }, testInfo) => {
+  await page.goto(`/observability?team=${ids.team}`)
+  await expect(page.getByRole('heading', { name: '2026-09 成本概览' })).toBeVisible()
+  // The unpriced lane is the acceptance-critical frame: XXX tokens render as unpriced, never 0.
+  await expect(page.getByText('存在未能解析价格的用量')).toBeVisible()
+  await expect(page.getByText('未计价')).toBeVisible()
+  await expect(page).toHaveScreenshot(`observability-${testInfo.project.name}.png`, { fullPage: true })
+})
+
 test('M10-F01c drawer injection evidence renders the sealed assembly and both receipt states', async ({ page }) => {
   // The sixth section assembles per selected execution: the current manifest shows all three
   // zones and a zero-claim receipt, the historical one has no receipt yet (null ≠ []).
@@ -3636,6 +3661,7 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
     { path: `/settings/models?team=${ids.team}&provider=deepseek&ownerType=TEAM&connection=${ids.teamModelConnection}`, ready: () => page.getByRole('heading', { name: '模型连接详情' }) },
     { path: `/knowledge?team=${ids.team}&project=${ids.project}&entry=${ids.knowledgeEntry}`, ready: () => page.getByRole('complementary', { name: '知识条目详情' }) },
     { path: `/knowledge/index?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('region', { name: '索引作业列表' }) },
+    { path: `/observability?team=${ids.team}`, ready: () => page.getByRole('heading', { name: '2026-09 成本概览' }) },
   ]
 
   for (const route of routes) {
@@ -4669,6 +4695,55 @@ function skillVersionRow(revision: number) {
     content: '先写测试再实现；提交前跑全量回归。',
     contentHash: '3'.repeat(64),
     createdAt: '2026-08-08T02:00:00Z', createdBy: ids.principal,
+  }
+}
+
+/** M10-F03: two months with both currencies and the unpriced lane visible on the newest one. */
+function observabilityCostMonths() {
+  const month = (usageMonth: string, unpricedTokens: number) => ({
+    month: usageMonth,
+    roles: {
+      EXECUTION: { inputTokens: 1_200_000, outputTokens: 60_000, cachedTokens: 40_000, factCount: 40 },
+      EMBEDDING: { inputTokens: 100_000, outputTokens: 0, cachedTokens: 0, factCount: 2 },
+      DISTILLATION: { inputTokens: 20_000, outputTokens: 8_000, cachedTokens: 0, factCount: 1 },
+    },
+    currencies: [
+      { currency: 'CNY', inputCost: '0.050000000000', outputCost: '0', cachedInputCost: '0' },
+      { currency: 'USD', inputCost: '0.528000000000', outputCost: '0.105600000000', cachedInputCost: '0' },
+    ],
+    unpricedTokens,
+    totalFactCount: 43,
+  })
+  return { months: [month('2026-09', 300_000), month('2026-08', 0)], nextAfter: null }
+}
+
+function observabilityCostMonthDetail(usageMonth: string) {
+  return {
+    month: usageMonth,
+    rows: [
+      {
+        role: 'CHAT_PRIMARY', providerKey: 'dashscope', modelId: 'deepseek-v3', currencyCode: 'USD',
+        catalogRevision: 2, priceRevision: 3, attempt: 1,
+        inputTokens: 1_000_000, outputTokens: 50_000, cachedTokens: 10_000,
+        inputCost: '0.528000000000', outputCost: '0.066000000000', cachedInputCost: '0',
+        factCount: 30, unreportedFactCount: 2, costStatus: 'PRICED',
+      },
+      {
+        role: 'EMBEDDING', providerKey: 'dashscope', modelId: 'text-embedding-v4', currencyCode: 'XXX',
+        catalogRevision: null, priceRevision: null, attempt: 2,
+        inputTokens: 300_000, outputTokens: 0, cachedTokens: 0,
+        inputCost: null, outputCost: null, cachedInputCost: null,
+        factCount: 4, unreportedFactCount: 0, costStatus: 'UNPRICED',
+      },
+    ],
+  }
+}
+
+function observabilityQualityMonth(usageMonth: string) {
+  return {
+    month: usageMonth,
+    executionAttempts: { total: 20, completed: 15, failed: 4, cancelled: 1, successRate: 0.75 },
+    reviewFirstPass: { enteredReview: 8, firstPassApproved: 6, firstPassRate: 0.75 },
   }
 }
 

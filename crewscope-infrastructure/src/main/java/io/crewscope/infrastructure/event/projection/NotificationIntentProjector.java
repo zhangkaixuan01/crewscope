@@ -716,6 +716,8 @@ public class NotificationIntentProjector
                     WHERE source.organization_id = ? AND source.id = ?
                     """;
             case NOTIFICATION_DELIVERY -> null;
+            // The budget alert itself carries the message; there is no work item title to lift.
+            case BUDGET -> null;
         };
         if (sql == null) {
             return Optional.empty();
