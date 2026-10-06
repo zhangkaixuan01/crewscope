@@ -360,7 +360,7 @@ API/端口契约：
 4. 检索 Top-K/排序/去重、Prompt Token 总预算和知识/记忆/Skill 优先级；可选上下文超预算如何裁剪，硬授权/业务预算何时失败关闭。
 5. 标注集、Recall@K/无答案/版本准确性阈值、真实任务对照、重复次数，以及硬件/模型/文件数/片段数/并发的测量口径。
 6. 辅助记忆所有者、允许内容、TTL/容量、清除防复活与成员撤权；哪些已有 MemoryPolicy/Session 能复用。
-7. 注入清单的持久化/调用关联、恢复/重试协议、内容保留/删除和反馈语义；是否提供检索预览 HTTP。（内容保留已随 I02c 冻结：清单/反馈/回执无 TTL 无主动清理，随 `task_execution` 的 `ON DELETE RESTRICT` 生存期存续，清理策略留 F03/Q01。）
+7. 注入清单的持久化/调用关联、恢复/重试协议、内容保留/删除和反馈语义；是否提供检索预览 HTTP。（内容保留已随 I02c 冻结：清单/反馈/回执无 TTL 无主动清理，随 `task_execution` 的 `ON DELETE RESTRICT` 生存期存续；Q01 裁定（2026-10-06）维持冻结——不引入清理作业，主动清理策略留 M12，见 [M10-Q01 矩阵](../testing/M10-Q01-跨包硬化与收口矩阵.md) §3 第 1 条。）
 8. Team Skill 提炼、受众审批、固定 Factory 扩展、版本/哈希、每次执行授权及内置兼容。
 9. 现有用量事实的缺口与保留/重建策略、价格/币种/分母/重试、软预算提醒渠道和去重。
 10. 扩展库兼容性、权限枚举/动作可用性、开关有效组合与 Readiness、各切片负责人/规模/证据入口。扩展库复核的已知输入（M9b-Q02 实测，见其 Release Gate §3 缺陷 10/18）：agentscope 2.0.0 OpenAI 兼容适配器存在孤儿 tool 消息两条产生路径（CrewScope 侧已以发送面 middleware 修复，库内根因未修）、thinking 模式拒绝任何强制 tool_choice、`GenerateOptions.additionalBodyParams` 不透传使 `Builder.httpTransport` 成为唯一请求体定制点——I01 的 embedding 适配与 I02/A03 的 Prompt 组装若需非标准请求体参数都会撞同一堵墙；且内置模型目录唯一 Provider DeepSeek 无 embedding 端点，embedding Provider 的目录条目、凭据与数据策略是 S01 必须回答的现实约束，不得假设现有 chat-completions 连接可直接复用。

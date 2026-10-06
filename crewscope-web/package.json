@@ -26,7 +26,7 @@
     "format:check": "node ../scripts/check-web-quality.mjs",
     "check:sensitive": "node ../scripts/check-web-sensitive-fields.mjs",
     "check:enum-labels": "node ../scripts/check-web-enum-labels.mjs",
-    "check:q01": "node ../scripts/check-m9-q01.mjs && node ../scripts/check-empty-states.mjs && node ../scripts/check-route-metadata.mjs && node ../scripts/check-disabled-reasons.mjs && node ../scripts/check-web-pagination.mjs && node ../scripts/check-dialog-focus.mjs && node ../scripts/check-config-form-tokens.mjs && node ../scripts/check-m9b-q01-matrix.mjs",
+    "check:q01": "node ../scripts/check-m9-q01.mjs && node ../scripts/check-empty-states.mjs && node ../scripts/check-route-metadata.mjs && node ../scripts/check-disabled-reasons.mjs && node ../scripts/check-web-pagination.mjs && node ../scripts/check-dialog-focus.mjs && node ../scripts/check-config-form-tokens.mjs && node ../scripts/check-m9b-q01-matrix.mjs && node ../scripts/check-m10-q01-matrix.mjs",
     "check:bundle": "node ../scripts/check-web-bundle-budget.mjs",
     "check:quality": "pnpm lint && pnpm lint:eslint && pnpm lint:style && pnpm format:check",
     "story": "histoire dev",

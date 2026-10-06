@@ -36,10 +36,11 @@ export default defineConfig({
       thresholds: {
         // Q01 baseline: all production modules are measured. Raise these ratchets
         // as page-level characterization tests are added; never lower them silently.
-        statements: 65,
-        branches: 60,
-        functions: 65,
-        lines: 70,
+        // M10-Q01 close-out ratchet: measured 72.75/66.41/75.34/77.23 on 2026-10-06.
+        statements: 72,
+        branches: 66,
+        functions: 75,
+        lines: 77,
       },
     },
   },
