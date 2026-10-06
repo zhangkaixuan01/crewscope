@@ -65,6 +65,20 @@ services:
       # M10-F02: the Team skill catalog's write gate. Reads stay 200 with the gate closed;
       # the five write commands answer 422 skill_disabled before permissions (A03 §9).
       CREWSCOPE_SKILL_ENABLED: ${CREWSCOPE_SKILL_ENABLED:-false}
+      # M10-A01: the unified retrieval switch. Closed answers empty candidates with an
+      # explicit degraded code (200, never an error); opened requires pgvector + an
+      # active index generation.
+      CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED: ${CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED:-false}
+      # M10-I02b: prompt injection assembly. Off = no assembly, no sealed manifest and no
+      # prompt budget spent; execution continues without the injection panel evidence.
+      CREWSCOPE_KNOWLEDGE_INJECTION_ENABLED: ${CREWSCOPE_KNOWLEDGE_INJECTION_ENABLED:-false}
+      # M10-I02a: agent assistant memory. Off = no new model-facing writes (existing rows
+      # stay readable and clearable through the member-facing API).
+      CREWSCOPE_MEMORY_ENABLED: ${CREWSCOPE_MEMORY_ENABLED:-false}
+      # M10-F03: soft budget reminders (a reminder, never a quota). The reporting zone
+      # groups usage facts into months; the shipped default is Asia/Shanghai.
+      CREWSCOPE_BUDGET_ALERT_ENABLED: ${CREWSCOPE_BUDGET_ALERT_ENABLED:-false}
+      CREWSCOPE_OBSERVABILITY_REPORTING_ZONE: ${CREWSCOPE_OBSERVABILITY_REPORTING_ZONE:-Asia/Shanghai}
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
       CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"

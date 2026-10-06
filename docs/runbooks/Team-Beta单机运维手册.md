@@ -56,6 +56,15 @@ PAT 需要 target 仓库的读写权限（验证一步会做真实身份发现�
 | `CREWSCOPE_SESSION_COOKIE_SECURE` | `false`；使用 HTTPS 时可选 `true` |
 | `CREWSCOPE_HSTS_ENABLED` | `false`；确认长期使用 HTTPS 后可选 `true` |
 | `CREWSCOPE_PGVECTOR_ENABLED` | `false`；启用可选知识向量存储（pgvector），见下方小节 |
+| `CREWSCOPE_KNOWLEDGE_INDEX_ENABLED` | `false`；知识索引控制面（读恒 200，关态触发命令回 `enqueued:0`） |
+| `CREWSCOPE_KNOWLEDGE_INDEX_WORKER_ENABLED` | `false`；索引 Worker。关态作业停在 QUEUED，便于演练取消 |
+| `CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED` | `false`；统一检索。关态检索以显式降级码应答（200，非错误） |
+| `CREWSCOPE_KNOWLEDGE_INJECTION_ENABLED` | `false`；Prompt 注入组装。关态不组装、不封存清单、不占预算 |
+| `CREWSCOPE_SKILL_ENABLED` | `false`；Team Skill 目录写闸。读 200，五条写命令回 422 `skill_disabled` |
+| `CREWSCOPE_MEMORY_ENABLED` | `false`；辅助记忆。关态不再写模型可见记忆，既有条目仍可查看/清除 |
+| `CREWSCOPE_BUDGET_ALERT_ENABLED` | `false`；软预算提醒（提醒不配额），配合下两行使用 |
+| `CREWSCOPE_BUDGET_MONTHLY_TOKENS` | `0`（不启用）；月 token 预算阈值 |
+| `CREWSCOPE_OBSERVABILITY_REPORTING_ZONE` | `Asia/Shanghai`；用量事实归组的月份时区 |
 
 数据库密码、凭据加密、游标、邀请、Task Token 和登录防护 HMAC 密钥自动生成，重启不轮换。登录防护保持启用，不需要手动提供密钥。保管好 `.runtime/.env`：仅备份数据库而丢失加密密钥，不能恢复模型等已保存凭据。不要将运行目录提交 Git，也不要直接修改已有数据库密码来“重置密码”。
 
@@ -96,6 +105,22 @@ M10-I01a 起知识条目嵌入支持可选 pgvector 存储，默认关闭；关�
 关闭流程：把 env 改回 `CREWSCOPE_PGVECTOR_ENABLED=false` 后 `up`。关闭只停用检索，**不换回镜像**：quickstart 一旦叠加过 pgvector 叠层就会在 `.runtime/pgvector-installed` 留下标记并持续叠加（安装状态与检索开关分离，ADR-030 §5）——数据卷上已安装的扩展引用的 .so 只在 Debian 基底镜像里存在，换回 Alpine 会使向量链在启动校验时失败。已安装的向量表与 `flyway_vector_history` 会保留，应用每次启动仍会校验并升级该链（这是有意设计：装过就不静默漂移）；要彻底移除需恢复到启用前的快照，或 `reset`（连卷一起删）后重新初始化。嵌入向量可随时由知识条目内容重建，属可再生数据；`knowledge_entry`/`knowledge_entry_version` 是权威数据，不可丢。
 
 健康检查：启用后 Actuator `/actuator/health` 出现 `knowledgeVector` 组件——迁移已应用为 UP；若为 DOWN 会带原因（例如镜像未随开关更换），按原因排查后再重启。
+
+### 开关组合与降级
+
+M10 的九个功能开关（上表 pgvector 至 reporting-zone）相互独立、默认全关；每种组合都有定义好的行为，不存在「开关半开导致隐式报错」的形态。组合语义速查（M10 计划 §10.7 必测组合的运行手册面）：
+
+| 组合 | 行为 |
+| --- | --- |
+| 全部关闭 | 纯 PostgreSQL 栈：知识条目 CRUD 照常可用；检索/注入以显式降级码应答；Skill 读 200、写 422；记忆只读可清除；观测空结构 200 |
+| 索引开、检索关 | 索引作业照常构建与治理；检索预览返回 200 + 降级码（`RETRIEVAL_DISABLED` 类），不是错误 |
+| 索引关、检索开（有历史有效代） | 既有 ACTIVE 代继续服务检索；无代则降级为「无活跃索引」 |
+| 记忆关、知识开 | 检索与知识库正常；辅助记忆停止新写入，既有条目可查看/清除 |
+| 检索关、Team Skill 开 | Skill 目录完整可用（发布/审批/回滚），不依赖检索 |
+| 已安装 pgvector 后关闭增强再升级 | pgvector 镜像与 `flyway_vector_history` 保留（粘性标记），仅功能关闭；在其上执行 `git pull → build → up` 升级安全 |
+| 索引开、pgvector 关 | **唯一非法组合**：health `knowledgeVector`/`knowledgeIndex` DOWN，先启用 pgvector 再开索引 |
+
+降级与失败的边界：检索类降级（开关关、无代、embedding 失败）一律 200 + 显式降级码，绝不让执行失败；知识作业失败 fail-closed 落 FAILED 带失败码（见「作业故障恢复」）；权限拒绝永远是 403/404，不与降级混同。注入预算（总 8K/知识 3K/仓库 4K/记忆 1K，硬上限 32K）在任何组合下不会被降级绕过。
 
 ## 状态、日志与停止
 
@@ -153,6 +178,7 @@ M10-I01a 起知识条目嵌入支持可选 pgvector 存储，默认关闭；关�
 ## 从上一版迁移
 
 - 上一版四服务部署：保留原 `.runtime/.env` 和数据卷；新版初始化补充 Task Token、登录防护 HMAC 和执行目录配置，原有加密密钥不会改变。启动时修复之前创建的 root-owned Agent 卷根目录。
+- 升级到 M10（含 Q01 收口）：迁移链自动前移到当前 tip（普通 PostgreSQL 链与向量链分别校验）。曾启用过 pgvector 的栈在关闭全部增强开关后升级也是安全的——pgvector 镜像与 `flyway_vector_history` 随粘性标记保留，只有功能关闭；升级后按需在 `.runtime/.env` 重新打开各开关。M10 新增的九个功能开关（见「配置」表）在旧 env 中缺失时按关闭默认值生效，`init` 不会替你打开它们。
 - 曾使用独立 `local-demo` 项目：显式设置 `CREWSCOPE_LOCAL_DEMO_PROJECT_NAME=crewscope-local-demo` 和原运行目录再调用 `deploy/local-demo.sh`；默认别名现在与 Team Beta 共用项目，切换别名不会自动迁移旧数据。
 - 旧七/十服务部署：先完整备份旧数据库、Redis、Artifact 和外部密钥。旧挂载路径与密钥格式不同，不能直接用新随机配置启动原数据库；应单独进行数据和密钥迁移，历史恢复材料见 [M6-I10](../testing/M6-I10-Team-Beta备份恢复与Runbook.md)。
 - 若第一次启动曾报 `monitoring_password: unbound variable`：旧脚本可能留下只有两个字段的 `.env`。新版会明确报缺失字段；无业务数据时将该文件移走后重新 `init`，已有数据时从备份恢复原密钥，不能随意重新生成。
