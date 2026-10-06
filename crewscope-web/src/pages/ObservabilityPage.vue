@@ -290,7 +290,7 @@ function queryText(value: unknown): string | null {
 .quality-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--cs-space-12); }
 .quality-card { display: grid; gap: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); padding: var(--cs-space-16); }
 .quality-card h3 { margin: 0; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.quality-card__rate { margin: 0; font-size: 1.75rem; font-weight: var(--cs-weight-semibold); }
+.quality-card__rate { margin: 0; font-size: var(--cs-text-2xl); font-weight: var(--cs-weight-semibold); }
 .quality-card__denominator { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .quality-card dl { display: flex; gap: var(--cs-space-16); margin: 0; }
 .quality-card dl div { display: grid; gap: var(--cs-space-2); }
