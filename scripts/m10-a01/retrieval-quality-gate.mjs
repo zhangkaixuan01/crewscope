@@ -14,8 +14,14 @@
  *   CREWSCOPE_KNOWLEDGE_RETRIEVAL_ENABLED=true CREWSCOPE_KNOWLEDGE_VECTOR_ENABLED=true \
  *   ./mvnw -pl crewscope-server -am spring-boot:run   (or the deployed BASE_URL)
  *
+ * Authentication is member-level session cookie + CSRF (the product has no bearer
+ * face outside the internal worker routes — TaskTokenWebFilter only matches
+ * /api/internal/v1/worker/). The caller logs in and passes the session material;
+ * the gate never handles credentials itself.
+ *
  * Usage:
- *   BASE_URL=http://127.0.0.1:8080 ORG=<uuid> TEAM=<uuid> TOKEN=<bearer> \
+ *   BASE_URL=http://127.0.0.1:8080 ORG=<uuid> TEAM=<uuid> \
+ *   COOKIE_HEADER='CREWSCOPE_SESSION=…; XSRF-TOKEN=…' CSRF_HEADER='X-XSRF-TOKEN' CSRF_TOKEN='…' \
  *   [RETRIEVAL_PROJECT_ID=<uuid> RETRIEVAL_BINDING_ID=<uuid> RETRIEVAL_COMMIT=<40/64hex>] \
  *   node scripts/m10-a01/retrieval-quality-gate.mjs
  *
@@ -30,8 +36,10 @@ import { readFileSync } from 'node:fs';
 const BASE_URL = process.env.BASE_URL;
 const ORG = process.env.ORG;
 const TEAM = process.env.TEAM;
-const TOKEN = process.env.TOKEN;
-const missing = ['BASE_URL', 'ORG', 'TEAM', 'TOKEN'].filter((n) => !process.env[n]);
+const COOKIE_HEADER = process.env.COOKIE_HEADER;
+const CSRF_HEADER = process.env.CSRF_HEADER || 'X-XSRF-TOKEN';
+const CSRF_TOKEN = process.env.CSRF_TOKEN;
+const missing = ['BASE_URL', 'ORG', 'TEAM', 'COOKIE_HEADER', 'CSRF_TOKEN'].filter((n) => !process.env[n]);
 if (missing.length) {
   console.error(`missing ${missing.join(', ')} — see the header comment for usage`);
   process.exit(2);
@@ -58,7 +66,11 @@ async function preview(body) {
   const started = performance.now();
   const res = await fetch(previewUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    headers: {
+      Cookie: COOKIE_HEADER,
+      [CSRF_HEADER]: CSRF_TOKEN,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(body),
   });
   const latencyMs = performance.now() - started;
