@@ -37,7 +37,7 @@
     "dompurify": "^3.4.16",
     "markdown-it": "^15.0.2",
     "prismjs": "^1.30.0",
-    "vue": "^3.5.22",
+    "vue": "^3.5.43",
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
