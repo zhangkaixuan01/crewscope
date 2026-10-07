@@ -1,0 +1,90 @@
+{
+  "corpusId": "m10-q02-lab-knowledge",
+  "description": "java-spring-lab 实验室编码规范（M10-Q02 对照实验知识语料）。每条重述该实验室的公开验收语义与规范要求，不包含任何任务的修复代码；发布后经团队知识检索注入，作为『知识入库→检索→注入』闭环的团队显式约定语料。",
+  "entries": [
+    {
+      "entryKey": "lab-username-normalization-rules",
+      "title": "用户名规范化规则：NFKC、空白折叠与 Locale.ROOT",
+      "category": "CONVENTION",
+      "content": "本实验室所有用户名/人名展示前的规范化必须遵循统一规则：先拒绝 null 与纯空白输入（抛 IllegalArgumentException）；使用 Unicode NFKC 规范化分解组合字符（例如带附加符的字母必须先规范形）；将任意连续 Unicode 空白（含制表符、换行）折叠为单个半角空格；小写转换必须使用 Locale.ROOT（禁止依赖默认 locale，土耳其语环境会把 I 映射为 ı 造成跨环境不一致）；首尾空白折叠后去除。"
+    },
+    {
+      "entryKey": "lab-retry-backoff-rules",
+      "title": "重试退避参数约束与溢出安全",
+      "category": "CONVENTION",
+      "content": "重试退避组件的构造参数有合法区间：初始延迟与最大延迟必须为正且初始不超过最大（违反即 IllegalArgumentException）。延迟计算按尝试次数指数增长并以最大延迟封顶；实现必须使用不会整数溢出的写法（先以长整型放大再取 min，而不是先乘后封顶），尝试次数极大（例如 62）时结果恰好等于最大延迟而非负数。attempt 参数必须非负。"
+    },
+    {
+      "entryKey": "lab-secret-redaction-forms",
+      "title": "日志秘密脱敏的覆盖形态",
+      "category": "RUNBOOK",
+      "content": "对外输出（日志、错误消息、响应体）必须先经过秘密脱敏：常见凭据形态（api key/token 前缀对、basic auth、bearer、connection-string 风格 key=value 对）要不区分大小写地匹配并整体替换为 [REDACTED]，同一输出中命中多处的要全部替换；普通文本（如测试统计行）必须原样保留、不得误伤。"
+    },
+    {
+      "entryKey": "lab-stable-ordering-convention",
+      "title": "任务列表稳定排序约定",
+      "category": "CONVENTION",
+      "content": "任务/工作项列表的排序键固定为：优先级降序，其次创建时间升序，最后按 id 的码点序决出严格全序——三者必须依次比较，任何两个字段都相同的行也要有确定性顺序。排序实现不得修改调用方传入的列表（必须防御性拷贝或流式收集）。"
+    },
+    {
+      "entryKey": "lab-opaque-cursor-rules",
+      "title": "分页游标必须不透明且绑定工作区",
+      "category": "DECISION",
+      "content": "分页游标必须编码所属工作区（workspace）并做完整性保护：同一游标只能在编码时的工作区解码成功，跨工作区解码必须抛 IllegalArgumentException；被篡改的或格式非法的游标（如非 Base64URL、校验不符、%%% 之类乱码）同样必须抛 IllegalArgumentException 而不是返回任意结果。"
+    },
+    {
+      "entryKey": "lab-repository-path-policy",
+      "title": "仓库路径解析必须拒绝穿越与符号链接逃逸",
+      "category": "DECISION",
+      "content": "以仓库根为界的路径解析必须：接受根内真实存在的文件并以 toRealPath 归一后返回；拒绝词法穿越（../）、绝对路径、以及经符号链接指向根外目标的路径——全部抛 IllegalArgumentException。仅做字符串前缀检查不够，必须先真实化（realPath）再比较。"
+    },
+    {
+      "entryKey": "lab-member-controller-conventions",
+      "title": "成员控制器：@Valid 入参与 201 响应",
+      "category": "GUIDE",
+      "content": "本实验室 Spring 控制器的写法约定：请求体参数必须标注 @Valid 触发 Bean Validation；创建类端点成功返回 201 CREATED 并携带响应体；校验失败走统一错误信封（见错误信封规范），不向客户端回显原始异常文本。"
+    },
+    {
+      "entryKey": "lab-safe-error-envelope",
+      "title": "统一错误信封：稳定 code 与脱敏 message",
+      "category": "CONVENTION",
+      "content": "所有错误响应使用统一信封：稳定的大写蛇形 code（如 VALIDATION_FAILED）+ 固定的人类可读 message（如 Request validation failed）。信封与整个响应中不得出现原始异常文本或内部细节（如堆栈、SQL、内部密钥字样）；同种错误两次响应的信封字段逐字稳定，便于客户端按 code 分支。"
+    },
+    {
+      "entryKey": "lab-cache-key-scope",
+      "title": "缓存键必须包含全部租户与资源坐标",
+      "category": "CONVENTION",
+      "content": "团队级缓存的键必须编入完整坐标链 organization:team:resourceId（形如 org-a:team-a:work-1）；任何一个坐标不同都必须得到不同的键，防止跨租户/跨团队命中。任一坐标为空白即抛 IllegalArgumentException，不得静默拼出部分键。"
+    },
+    {
+      "entryKey": "lab-idempotency-rules",
+      "title": "幂等执行服务：并发去重且不缓存失败",
+      "category": "CONVENTION",
+      "content": "幂等服务语义：相同 key 的并发调用只执行一次动作，所有调用方拿到同一结果；key 为空白拒绝执行；动作抛出的异常必须原样传播且不得缓存失败——随后同 key 的再次调用会真正重新执行动作并可能成功（失败不是结果，成功才是）。"
+    },
+    {
+      "entryKey": "lab-request-id-filter-rules",
+      "title": "请求 ID 过滤器：受信透传与重新生成",
+      "category": "CONVENTION",
+      "content": "入站请求 ID 过滤器：客户端携带且符合受信格式（如 req_ 加 32 位十六进制）的标识原样透传并回写到响应头 X-Request-Id；缺失或不符合受信格式的输入一律丢弃并生成新的 req_[0-9a-f]{32} 标识——绝不透传不可信的任意字符串。"
+    },
+    {
+      "entryKey": "lab-coding-properties-rules",
+      "title": "沙箱配置属性：闭环网络与归一相对路径",
+      "category": "CONVENTION",
+      "content": "执行沙箱的配置属性校验约定：允许的网络域必须是闭环列表（拒绝通配开放形态）；允许路径必须是归一化的相对路径（拒绝绝对路径、空段与穿越段）；paths 列表必须防御性拷贝后返回不可变视图，调用方修改构造时传入的列表不得影响属性实例。违反任一约束在构造/绑定期抛异常，不进入运行时。"
+    },
+    {
+      "entryKey": "lab-test-selector-convention",
+      "title": "验收测试选择器约定（tests 定向运行）",
+      "category": "RUNBOOK",
+      "content": "本仓库的集成测试需要 Docker 等容器环境，执行沙箱内不可用。任务验收与回归时必须通过 tests 选择器只定向运行与交付物相关的单元测试（例如 mvn -Dtest=<X>Test test），禁止全量运行测试套件；全量套件在沙箱内必然失败且不代表交付质量。"
+    },
+    {
+      "entryKey": "lab-change-scope-discipline",
+      "title": "变更范围纪律：单文件交付",
+      "category": "CONVENTION",
+      "content": "实验室任务交付的变更范围有硬性纪律：每个任务只允许改动任务声明的允许路径（通常为单个源文件）；新增无关文件、越出允许路径、或交付零变更均判为路径违规。修复必须自包含在允许路径内完成。"
+    }
+  ]
+}
