@@ -198,7 +198,7 @@ async function createTask(itemRoot, task, rep, marker) {
     agentConfigurationRevision: comparisonConfig.revision,
     executorAssignment: { agentProfileId: coordinates.executorAgentProfileId },
     conversationSource: null,
-    providerBindingIds: [coordinates.providerBindingGrantId],
+    providerBindingIds: coordinates.providerBindingGrantId ? [coordinates.providerBindingGrantId] : [],
     codingTarget: {
       repositoryBindingId: target.bindingId,
       baselineRef: target.baselineRef,
