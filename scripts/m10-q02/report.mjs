@@ -75,6 +75,9 @@ function verdictLine(off, on) {
   if (!comparable) {
     return { comparable: false, passed: false, checks: [{ name: 'both arms have runs', ok: false, detail: `off=${off.total} on=${on.total}` }] }
   }
+  // A fatal run never reached the model, so it is an invalid comparison sample, not a
+  // zero-cost one: without this gate a pair of all-fatal arms would pass "not degraded".
+  checks.push({ name: 'no fatal (invalid) runs in either arm', ok: off.fatals === 0 && on.fatals === 0, detail: `off=${off.fatals} on=${on.fatals}` })
   if (off.judgePassRate !== null && on.judgePassRate !== null) {
     checks.push({ name: 'judge correctness not degraded', ok: on.judgePassRate >= off.judgePassRate, detail: `on=${on.judgePassRate.toFixed(3)} off=${off.judgePassRate.toFixed(3)}` })
   }

@@ -79,10 +79,11 @@ let identifierB = ''
 let userConnectionId = ''
 let teamChatConnectionId = ''
 let teamEmbeddingConnectionId = ''
-let personalProfileId = ''
+let codingProfileId = ''
 let reviewerProfileId = ''
 let reviewerPrincipalId = ''
 let buildProfile: Record<string, unknown> = {}
+let chatModel = { providerKey: '', catalogEntryId: '', catalogRevision: 0 }
 
 // Ingestion facts resolved in t2/t3 (the injection assertions in t5 pin exact versions).
 let labBindingId = ''
@@ -154,7 +155,7 @@ async function createVerifiedConnection(body: Record<string, unknown>, descripti
 const knowledgeRoot = () => teamPath(sessionA, teamId, 'knowledge/entries')
 const indexRoot = () => teamPath(sessionA, teamId, 'knowledge/index')
 const agentsRoot = () => teamPath(sessionA, teamId, 'agent-profiles')
-const profileConfigRoot = () => `${agentsRoot()}/${personalProfileId}`
+const profileConfigRoot = () => `${agentsRoot()}/${codingProfileId}`
 const tasksRoot = () => teamPath(sessionA, teamId, 'tasks')
 const reviewsRoot = (taskId: string, executionId: string) =>
   `${tasksRoot()}/${taskId}/attempts/${executionId}/reviews`
@@ -245,25 +246,44 @@ test('t1 bootstrap: accounts, project, three verified connections, profiles, sea
     apiKey: dashscopeKey, credentialExpiresAt: null,
   }, 'the TEAM DashScope embedding connection')
 
-  // The seeded personal coding agent, bound DIRECT to the flash catalog entry.
-  const agentProfiles = await getJson<{ items: Array<{ id: string, runtimeRole: string }> }>(pageA, agentsRoot())
-  const personal = agentProfiles.items.find(profile => profile.runtimeRole === 'PERSONAL_ASSISTANT')!
-  expect(personal, 'the seeded personal agent profile exists').toBeTruthy()
-  personalProfileId = personal.id
+  // The loop's executor is a dedicated TEAM coding agent (template coding@1): only the
+  // Coding template's execution chain loads dynamic Team Skills and only its saves accept
+  // the published-key ceiling extension (A03b) — the seeded personal-assistant profile
+  // carries an empty template skill ceiling and would reject the t8 append.
   const modelCatalog = await getJson<{ items: Array<{ id: string, providerKey: string, catalogRevision: number }> }>(
     pageA, `${orgRoot}/model-providers/${encodeURIComponent(deepseek.key)}/catalog`)
-  const flashEntry = (modelCatalog.items ?? []).find(item => item.id.toLowerCase().includes('flash'))!
-  expect(flashEntry, 'the DeepSeek catalog carries the flash entry').toBeTruthy()
-  const profileDetail = await pageA.request.get(profileConfigRoot())
-  const profileEtag = profileDetail.headers()['etag']
-  const bound = await pageA.request.post(`${profileConfigRoot()}/configurations`, {
+  expect((modelCatalog.items ?? []).length, 'the DeepSeek catalog carries entries').toBeGreaterThan(0)
+  // The live catalog names its chat tier directly (no "flash" suffix — m9b-q02 precedent):
+  // prefer a flash-named entry, else bind the first entry and record it in the coordinates.
+  const flashEntry = (modelCatalog.items ?? []).find(item => item.id.toLowerCase().includes('flash'))
+    ?? (modelCatalog.items ?? [])[0]!
+  chatModel = { providerKey: deepseek.key, catalogEntryId: flashEntry.id, catalogRevision: flashEntry.catalogRevision }
+  const directBinding = {
+    kind: 'DIRECT',
+    primary: { connectionId: teamChatConnectionId, catalogEntryId: flashEntry.id, catalogRevision: flashEntry.catalogRevision },
+    fallback: null,
+  }
+  await command(pageA, sessionA, agentsRoot(), {
+    publisherType: 'ORGANIZATION',
+    templateKey: 'coding',
+    templateVersion: 1,
+    ownershipType: 'TEAM',
+    displayName: `Q02 Loop Coding ${suffix}`.slice(0, 96),
+  })
+  codingProfileId = await waitFor('the coding executor profile to appear', async () => {
+    const page = await getJson<{ items: Array<{ id: string, displayName: string, status: string }> }>(
+      pageA, `${agentsRoot()}?limit=50`)
+    return (page.items ?? []).find(item => item.displayName.startsWith('Q02 Loop Coding'))?.id ?? null
+  })
+  const codingRow = (await getJson<{ items: Array<{ id: string, status: string }> }>(
+    pageA, `${agentsRoot()}?limit=50`)).items.find(item => item.id === codingProfileId)!
+  expect(codingRow.status, 'the coding executor agent is active').toBe('ACTIVE')
+  const codingDetail = await pageA.request.get(`${agentsRoot()}/${codingProfileId}`)
+  const codingEtag = codingDetail.headers()['etag']
+  const codingBound = await pageA.request.post(`${agentsRoot()}/${codingProfileId}/configurations`, {
     data: {
-      personalModelBinding: {
-        kind: 'DIRECT',
-        primary: { connectionId: userConnectionId, catalogEntryId: flashEntry.id, catalogRevision: flashEntry.catalogRevision },
-        fallback: null,
-      },
-      teamModelBinding: null,
+      personalModelBinding: directBinding,
+      teamModelBinding: directBinding,
       supplementalInstructions: null,
       approvedSkillKeys: [],
       memoryPolicy: null,
@@ -273,14 +293,17 @@ test('t1 bootstrap: accounts, project, three verified connections, profiles, sea
     headers: {
       [sessionA.csrf.headerName]: sessionA.csrf.token,
       'Idempotency-Key': crypto.randomUUID(),
-      'If-Match': profileEtag!,
+      'If-Match': codingEtag!,
     },
   })
-  expect(bound.status, `executor binding failed: ${await bound.text()}`).toBe(202)
-  await waitFor('the executor binding to land', async () => {
-    const current = await getJson<{ personalModelBinding: { primary: { connectionId: string } } | null }>(
+  expect(codingBound.status(), `coding executor binding failed: ${await codingBound.text()}`).toBe(202)
+  await waitFor('the coding executor binding to land', async () => {
+    // The current-configuration projection names the fields personalBinding/teamBinding
+    // (AgentConfigurationController.CurrentConfigurationResponse); only the POST body uses
+    // personalModelBinding/teamModelBinding.
+    const current = await getJson<{ teamBinding: { primary: { connectionId: string } } | null }>(
       pageA, `${profileConfigRoot()}/configurations/current`)
-    return current.personalModelBinding?.primary?.connectionId === userConnectionId ? true : null
+    return current.teamBinding?.primary?.connectionId === teamChatConnectionId ? true : null
   })
 
   // The reviewer agent (template v1) with a TEAM binding, plus its advisory seat on the
@@ -296,7 +319,7 @@ test('t1 bootstrap: accounts, project, three verified connections, profiles, sea
   reviewerProfileId = await waitFor('the reviewer profile to appear', async () => {
     const page = await getJson<{ items: Array<{ id: string, displayName: string, principalId: string, status: string }> }>(
       pageA, `${agentsRoot()}?limit=50`)
-    const found = (page.items ?? []).find(item => item.displayName.includes(suffix))
+    const found = (page.items ?? []).find(item => item.displayName.startsWith('Q02 Loop Reviewer'))
     return found?.id ?? null
   })
   const reviewerRow = (await getJson<{ items: Array<{ id: string, displayName: string, principalId: string, status: string }> }>(
@@ -329,7 +352,7 @@ test('t1 bootstrap: accounts, project, three verified connections, profiles, sea
       'If-Match': reviewerEtag!,
     },
   })
-  expect(reviewerBound.status, `reviewer binding failed: ${await reviewerBound.text()}`).toBe(202)
+  expect(reviewerBound.status(), `reviewer binding failed: ${await reviewerBound.text()}`).toBe(202)
   await command(pageA, sessionA, `${itemRoot}/responsibilities/advisory-reviewers`, { actorPrincipalId: reviewerPrincipalId })
   await command(pageA, sessionA, `${itemRoot}/responsibilities/gate-reviewers`, { actorPrincipalId: sessionB.principal?.principalId })
 
@@ -370,23 +393,24 @@ test('t2 knowledge ingestion: publish the corpus, rebuild the index, land INDEXE
         'If-Match': `"${head.version}"`,
       },
     })
-    expect(published.status, `publish failed for ${entry.entryKey}: ${await published.text()}`).toBe(202)
+    expect(published.status(), `publish failed for ${entry.entryKey}: ${await published.text()}`).toBe(202)
     if (entry.lab) publishedLabEntries.push({ entryKey: entry.entryKey, entryId: head.id, version: 1 })
   }
   expect(publishedLabEntries.length, 'the lab corpus is fully published').toBe(LAB_CORPUS.entries.length)
 
   // One rebuild covers every published entry; the worker is on in this stack, so the job
-  // must run to SUCCEEDED with real embeddings (DashScope) behind it.
+  // must run to READY with real embeddings (DashScope) behind it (terminal states per
+  // KnowledgeIndexJobStatus: READY / FAILED / CANCELLED — live ones stay claimable).
   const rebuild = await pageA.request.post(`${indexRoot()}/rebuilds`, {
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token, 'Idempotency-Key': crypto.randomUUID() },
   })
-  expect(rebuild.status, `rebuild failed: ${await rebuild.text()}`).toBe(202)
-  const job = await waitFor('the knowledge rebuild to succeed', async () => {
+  expect(rebuild.status(), `rebuild failed: ${await rebuild.text()}`).toBe(202)
+  const job = await waitFor('the knowledge rebuild to reach a terminal state', async () => {
     const page = await getJson<{ items: Array<{ id: string, status: string, failureCode: string | null }> }>(
-      pageA, `${indexRoot()}/jobs?source=KNOWLEDGE&limit=10`)
-    return (page.items ?? []).find(item => item.status !== 'QUEUED' && item.status !== 'RUNNING') ?? null
+      pageA, `${indexRoot()}/jobs?source=KNOWLEDGE_ENTRY&limit=10`)
+    return (page.items ?? []).find(item => ['READY', 'FAILED', 'CANCELLED'].includes(item.status)) ?? null
   }, 600_000)
-  expect(job.status, `knowledge rebuild ended ${job.status} (${job.failureCode})`).toBe('SUCCEEDED')
+  expect(job.status, `knowledge rebuild ended ${job.status} (${job.failureCode})`).toBe('READY')
 
   await expect.poll(async () => {
     const page = await getJson<{ items: Array<{ entryKey: string, indexStatus: string }> }>(
@@ -406,7 +430,7 @@ test('t3 repository indexing: preflight the frozen commit, build the index, reco
     data: { repositoryKey: 'java-spring-lab', defaultBranch: 'main' },
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token },
   })
-  expect(preflight.status, `preflight failed: ${await preflight.text()}`).toBe(200)
+  expect(preflight.status(), `preflight failed: ${await preflight.text()}`).toBe(200)
   const preflightBody = await preflight.json() as { ready: boolean, baselineCommit: string }
   expect(preflightBody.ready).toBe(true)
   expect(preflightBody.baselineCommit, 'the lab mirror HEAD is exactly the frozen baseline').toBe(BASELINE_COMMIT)
@@ -427,7 +451,7 @@ test('t3 repository indexing: preflight the frozen commit, build the index, reco
         'If-Match': `"${bindingRow.version}"`,
       },
     })
-    expect(activated.status, `activate failed: ${await activated.text()}`).toBe(202)
+    expect(activated.status(), `activate failed: ${await activated.text()}`).toBe(202)
     await expect.poll(async () => {
       const detail = await getJson<{ status: string }>(pageA, `${bindingRoot}/${labBindingId}`)
       return detail.status
@@ -438,16 +462,16 @@ test('t3 repository indexing: preflight the frozen commit, build the index, reco
     data: { projectId, bindingId: labBindingId, commit: BASELINE_COMMIT },
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token, 'Idempotency-Key': crypto.randomUUID() },
   })
-  expect(built.status, `repository build failed: ${await built.text()}`).toBe(202)
-  const accepted = await built.json() as { accepted: number, job: { id: string } | null }
-  expect(accepted.accepted, 'the repository build was accepted').toBe(1)
+  expect(built.status(), `repository build failed: ${await built.text()}`).toBe(202)
+  const accepted = await built.json() as { enqueued: number, job: { id: string } | null }
+  expect(accepted.enqueued, 'the repository build was accepted').toBe(1)
   expect(accepted.job, 'the build acceptance carries the job handle').toBeTruthy()
   const jobId = accepted.job!.id
   const buildJob = await waitFor('the repository build to reach a terminal state', async () => {
     const job = await getJson<{ status: string, failureCode: string | null }>(pageA, `${indexRoot()}/jobs/${jobId}`)
-    return job.status !== 'QUEUED' && job.status !== 'RUNNING' ? job : null
+    return ['READY', 'FAILED', 'CANCELLED'].includes(job.status) ? job : null
   }, 600_000)
-  expect(buildJob.status, `repository build ended ${buildJob.status} (${buildJob.failureCode})`).toBe('SUCCEEDED')
+  expect(buildJob.status, `repository build ended ${buildJob.status} (${buildJob.failureCode})`).toBe('READY')
   const jobDetail = await getJson<{
     generationBuildSequence: number,
     indexKey: { bindingId: string, commit: string, chunkPolicyHash: string, modelKey: string, modelRevision: number },
@@ -463,7 +487,7 @@ test('t3 repository indexing: preflight the frozen commit, build the index, reco
     data: { repositoryKey: 'crewscope-java', defaultBranch: 'main' },
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token },
   })
-  expect(crewPreflight.status, `crewscope-java preflight failed: ${await crewPreflight.text()}`).toBe(200)
+  expect(crewPreflight.status(), `crewscope-java preflight failed: ${await crewPreflight.text()}`).toBe(200)
   const crewHead = await crewPreflight.json() as { ready: boolean, baselineCommit: string }
   expect(crewHead.ready, 'the crewscope-java mirror is resolvable').toBe(true)
   await command(pageA, sessionA, bindingRoot, { repositoryKey: 'crewscope-java', defaultBranch: 'main' })
@@ -482,13 +506,13 @@ test('t3 repository indexing: preflight the frozen commit, build the index, reco
         'If-Match': `"${crewRow.version}"`,
       },
     })
-    expect([200, 202]).toContain(activated.status)
+    expect([200, 202]).toContain(activated.status())
   }
   const enqueued = await pageA.request.post(`${indexRoot()}/repository-builds`, {
     data: { projectId, bindingId: crewBindingId, commit: crewHead.baselineCommit },
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token, 'Idempotency-Key': crypto.randomUUID() },
   })
-  expect([200, 202]).toContain(enqueued.status)
+  expect([200, 202]).toContain(enqueued.status())
   const crewCoordinates = { bindingId: crewBindingId, commit: crewHead.baselineCommit }
   ;(globalThis as unknown as Record<string, unknown>).__q02CrewBinding = crewCoordinates
 })
@@ -560,18 +584,18 @@ async function runCodingTask(task: { id: string, instruction: string, allowedPat
       objective: `[${marker}] ${task.instruction}`,
       acceptanceCriteria: [
         task.instruction,
-        `改动仅限这些路径内的文件：${task.allowedPaths.join('、')}；不要改动其它文件。`,
-        '本仓库的集成测试需要 Docker 等容器环境，执行沙箱内不可用；验收测试请通过 tests 选择器只定向运行与交付物相关的单元测试，不要全量运行测试套件',
+        `改动仅限这些路径内的文件：${task.allowedPaths.join('、')}，以及 src/test/java 下为本任务自建的定向单元测试；不要改动其它文件。`,
+        '仓库当前没有任何测试：请在 src/test/java 下为交付物自建一个针对性的 JUnit 单元测试，并通过 tests 选择器只运行该自建测试完成验证；不要全量运行测试套件，也不要尝试需要容器环境的集成测试。',
       ],
-      executorAgentProfileId: personalProfileId,
+      executorAgentProfileId: codingProfileId,
       agentConfigurationRevision: current.revision,
-      executorAssignment: { agentProfileId: personalProfileId },
+      executorAssignment: { agentProfileId: codingProfileId },
       conversationSource: null,
       providerBindingIds: [],
       codingTarget: {
         repositoryBindingId: labBindingId,
         baselineRef: 'main',
-        allowedPaths: task.allowedPaths,
+        allowedPaths: [...task.allowedPaths, 'src/test/java'],
         buildProfile,
       },
     },
@@ -581,7 +605,7 @@ async function runCodingTask(task: { id: string, instruction: string, allowedPat
       'If-Match': '"0"',
     },
   })
-  expect(created.status, `task create failed: ${await created.text()}`).toBe(202)
+  expect(created.status(), `task create failed: ${await created.text()}`).toBe(202)
   const executionId = await waitFor(`execution for ${marker}`, async () => {
     const page = await getJson<{ items: Array<{ id: string, objective: string, currentExecutionId: string | null }> }>(
       pageA, `${tasksRoot()}?projectId=${projectId}&limit=50`)
@@ -592,7 +616,10 @@ async function runCodingTask(task: { id: string, instruction: string, allowedPat
 
   let resumedOnce = false
   let settled = ''
-  const deadline = Date.now() + 1_500_000
+  // 45 minutes: the real-model transport hiccups (MODEL_TRANSPORT_ERROR retry chains)
+  // can stretch one execution well past the 25-minute m9b settle norm without it being
+  // stuck — the loop below still exits the moment a terminal state lands.
+  const deadline = Date.now() + 2_700_000
   while (Date.now() < deadline) {
     const attempts = await getJson<Array<{ id: string, status: string, version: number, waiting?: { reason: string } | null }>>(
       pageA, `${tasksRoot()}/${taskRow.id}/attempts`)
@@ -620,6 +647,37 @@ async function runCodingTask(task: { id: string, instruction: string, allowedPat
     await pageA.waitForTimeout(15_000)
   }
   expect(['COMPLETED', 'FAILED'], `the attempt settled as ${settled}`).toContain(settled)
+
+  // Failure forensics: on a non-completed settle, capture the executor's own command and
+  // test evidence plus the last failing report excerpt as annotations — the §3 defect log
+  // needs the real reason even though the gate's trap has already torn the stack down.
+  if (settled !== 'COMPLETED') {
+    const commands = await getJson<{ items: Array<{ commandKind: string, termination: string, exitCode: number | null, summary: string | null }> }>(
+      pageA, `${tasksRoot()}/${taskRow.id}/attempts/${executionId}/coding/commands?limit=20`)
+    for (const item of commands.items ?? []) {
+      test.info().annotations.push({
+        type: 'note',
+        description: `cmd ${item.commandKind} exit=${item.exitCode ?? item.termination}: ${(item.summary ?? '').slice(0, 160)}`,
+      })
+    }
+    const tests = await getJson<{ items: Array<{ id: string, total: number, passed: number, failed: number, errors: number, summary: string | null, failureClassification: string | null }> }>(
+      pageA, `${tasksRoot()}/${taskRow.id}/attempts/${executionId}/coding/test-evidence?limit=20`)
+    for (const item of tests.items ?? []) {
+      test.info().annotations.push({
+        type: 'note',
+        description: `test ${item.passed}/${item.total} passed (failed=${item.failed} errors=${item.errors} class=${item.failureClassification ?? '-'}): ${(item.summary ?? '').slice(0, 200)}`,
+      })
+    }
+    const lastFailing = (tests.items ?? []).slice().reverse().find(item => item.failed > 0 || item.errors > 0)
+    if (lastFailing) {
+      const report = await pageA.request.get(
+        `${tasksRoot()}/${taskRow.id}/attempts/${executionId}/coding/test-evidence/${lastFailing.id}/report?offset=0&limit=4000`)
+      if (report.ok()) {
+        test.info().annotations.push({ type: 'note', description: `last failing report excerpt: ${(await report.text()).slice(0, 1200)}` })
+      }
+    }
+  }
+
   const codingView = await getJson<{
     coding: boolean, executionStatus: string,
     details: { diffManifest: unknown, commandEvidenceCount: number, testEvidenceCount: number } | null,
@@ -685,17 +743,21 @@ test('t6 review: the real reviewer executes and member B records the gate decisi
     data: {},
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token, 'Idempotency-Key': crypto.randomUUID() },
   })
-  expect(created.status, `review create failed: ${await created.text()}`).toBe(202)
+  expect(created.status(), `review create failed: ${await created.text()}`).toBe(202)
   const reviewId = await waitFor('the review request to appear', async () => {
     const page = await getJson<{ items: Array<{ id: string }> }>(pageA, reviewsPath)
     return (page.items ?? [])[0]?.id ?? null
   })
-  const reviewRow = await waitFor('the review to leave OPEN', async () => {
+  // OPEN is the executable state (ReviewRequestStatus: OPEN → IN_PROGRESS → COMPLETED) —
+  // the execute command itself drives the transition; nothing moves it on its own.
+  const reviewRow = await waitFor('the review row to carry its version', async () => {
     const page = await getJson<{ items: Array<{ id: string, status: string, version: number }> }>(pageA, reviewsPath)
     const row = (page.items ?? []).find(item => item.id === reviewId)
-    return row && row.status !== 'OPEN' ? row : null
+    return row && row.status === 'OPEN' && row.version >= 0 ? row : null
   }, 120_000)
   const executed = await pageA.request.post(`${reviewsPath}/${reviewId}/execute`, {
+    // The execute command runs the reviewer model synchronously inside the HTTP call.
+    timeout: 300_000,
     headers: {
       [sessionA.csrf.headerName]: sessionA.csrf.token,
       'Idempotency-Key': crypto.randomUUID(),
@@ -730,7 +792,7 @@ test('t7 distillation: the creator distils the completed attempt and publishes r
     data: { taskExecutionId: firstExecutionId, skillKey: publishedSkill.skillKey },
     headers: { [sessionA.csrf.headerName]: sessionA.csrf.token, 'Idempotency-Key': crypto.randomUUID() },
   })
-  expect(distilled.status, `distillation failed: ${await distilled.text()}`).toBe(202)
+  expect(distilled.status(), `distillation failed: ${await distilled.text()}`).toBe(202)
   const receipt = await distilled.json() as { skillId: string, status: string }
   publishedSkill.skillId = receipt.skillId
   expect(receipt.status).toBe('DRAFT')
@@ -749,7 +811,7 @@ test('t7 distillation: the creator distils the completed attempt and publishes r
       'If-Match': `"${skillHead.version}"`,
     },
   })
-  expect(published.status, `skill publish failed: ${await published.text()}`).toBe(202)
+  expect(published.status(), `skill publish failed: ${await published.text()}`).toBe(202)
   const publishedHead = await getJson<{ status: string, effectiveRevision: number | null, version: number }>(
     pageA, `${skillsRoot()}/${publishedSkill.skillId}`)
   expect(publishedHead.status).toBe('PUBLISHED')
@@ -766,13 +828,13 @@ test('t8 second execution: the approved Skill loads at the published revision', 
   test.setTimeout(1_800_000)
   const before = await getJson<{
     revision: number, approvedSkillKeys: string[],
-    personalModelBinding: unknown, teamModelBinding: unknown, supplementalInstructions: string | null,
+    personalBinding: unknown, teamBinding: unknown, supplementalInstructions: string | null,
     memoryPolicy: unknown, budgetPolicy: unknown, generateOptions: unknown,
   }>(pageA, `${profileConfigRoot()}/configurations/current`)
   const appended = await pageA.request.post(`${profileConfigRoot()}/configurations`, {
     data: {
-      personalModelBinding: before.personalModelBinding,
-      teamModelBinding: before.teamModelBinding,
+      personalModelBinding: before.personalBinding,
+      teamModelBinding: before.teamBinding,
       supplementalInstructions: before.supplementalInstructions,
       approvedSkillKeys: [...before.approvedSkillKeys, publishedSkill.skillKey],
       memoryPolicy: before.memoryPolicy,
@@ -785,7 +847,7 @@ test('t8 second execution: the approved Skill loads at the published revision', 
       'If-Match': `"${before.revision}"`,
     },
   })
-  expect(appended.status, `configuration append failed: ${await appended.text()}`).toBe(202)
+  expect(appended.status(), `configuration append failed: ${await appended.text()}`).toBe(202)
   await waitFor('the approved skill key to land in the current configuration', async () => {
     const current = await getJson<{ approvedSkillKeys: string[] }>(
       pageA, `${profileConfigRoot()}/configurations/current`)
@@ -798,13 +860,16 @@ test('t8 second execution: the approved Skill loads at the published revision', 
 
   const references = await injectionReferences(run.taskId, run.executionId)
   const injected = references.attempts.flatMap(attempt => attempt.references.filter(ref => ref.stage === 'INJECTED'))
-  // The built-in Coding Skill's source id is excluded from dynamic references
-  // (TeamSkillExecutionSource contract), so every SKILL_INSTRUCTION reference must be the
-  // published team skill itself, at the exact published coordinates.
-  const skillRefs = injected.filter(ref => ref.type === 'SKILL_INSTRUCTION')
-  expect(skillRefs.length, 'the execution loaded a SKILL_INSTRUCTION reference').toBeGreaterThan(0)
+  // The manifest seals the built-in Coding Skill instruction on every assembly
+  // (PromptInjectionService hard-retains its constructor-injected reference), and the
+  // TeamSkillExecutionSource's built-in exclusion only guards the pinned-recovery side —
+  // so the built-in reference legitimately coexists with the dynamic ones. The loop proof
+  // is existential: the published team skill itself must appear as an INJECTED
+  // SKILL_INSTRUCTION reference at the exact published coordinates.
+  const skillRefs = injected.filter(
+    ref => ref.type === 'SKILL_INSTRUCTION' && ref.sourceId === publishedSkill.skillKey)
+  expect(skillRefs.length, 'the execution loaded the published team skill').toBeGreaterThan(0)
   for (const ref of skillRefs) {
-    expect(ref.sourceId, 'the loaded skill is the published team skill key').toBe(publishedSkill.skillKey)
     expect(ref.version, 'the loaded skill revision == the published revision R').toBe(publishedSkill.revision)
     expect(ref.contentHash, 'the loaded skill hash == the published content hash').toBe(publishedSkill.contentHash)
   }
@@ -816,14 +881,16 @@ test('t8 second execution: the approved Skill loads at the published revision', 
 
 test('t9 observability and coordinates: three-source costs and the driver coordinates file', async () => {
   const month = new Date().toISOString().slice(0, 7)
-  const costMonths = await getJson<{ months: Array<{ month: string }> }>(
-    pageA, teamPath(sessionA, teamId, `observability/cost/months`))
-  expect((costMonths.months ?? []).some(entry => entry.month === month), 'the loop month shows up in cost months').toBe(true)
-  const costDetail = await getJson<{ rows: Array<{ role: string, inputTokens: number, outputTokens: number }> }>(
-    pageA, teamPath(sessionA, teamId, `observability/cost/months/${month}`))
-  const byRole = (costDetail.rows ?? []).reduce((accumulator, row) => ({
-    ...accumulator, [row.role]: (accumulator[row.role] ?? 0) + row.inputTokens + row.outputTokens,
-  }), {} as Record<string, number>)
+  const costMonths = await getJson<{
+    months: Array<{ month: string, roles: Record<string, { inputTokens: number, outputTokens: number }> }>,
+  }>(pageA, teamPath(sessionA, teamId, `observability/cost/months`))
+  const monthEntry = (costMonths.months ?? []).find(entry => entry.month === month)
+  expect(monthEntry, 'the loop month shows up in cost months').toBeTruthy()
+  // The summary roles already speak the contract's three cost sources (the chat runtime
+  // roles fold into EXECUTION server-side); the detail rows would instead speak the five
+  // persisted usage roles, which never include EXECUTION itself.
+  const byRole = Object.fromEntries(Object.entries(monthEntry?.roles ?? {}).map(
+    ([source, subtotal]) => [source, subtotal.inputTokens + subtotal.outputTokens]))
   test.info().annotations.push({ type: 'note', description: `cost by role: ${JSON.stringify(byRole)}` })
   expect(byRole.EMBEDDING ?? 0, 'real embedding usage was recorded').toBeGreaterThan(0)
   expect(byRole.EXECUTION ?? 0, 'real execution usage was recorded').toBeGreaterThan(0)
@@ -840,7 +907,7 @@ test('t9 observability and coordinates: three-source costs and the driver coordi
     teamId,
     projectId,
     codingWorkItemId: workItemId,
-    executorAgentProfileId: personalProfileId,
+    executorAgentProfileId: codingProfileId,
     reviewerAgentProfileId: reviewerProfileId,
     memberA: { principalId: sessionA.principal?.principalId, identifier: identifierA, password: passwordA },
     memberB: { principalId: sessionB.principal?.principalId, identifier: identifierB, password: passwordB },
@@ -854,6 +921,7 @@ test('t9 observability and coordinates: three-source costs and the driver coordi
       chunkPolicyHash: indexKey?.chunkPolicyHash, buildSequence: indexKey?.buildSequence,
     },
     crewscopeJavaBinding: crewBinding ?? null,
+    chatModel,
     publishedSkill: { skillId: publishedSkill.skillId, skillKey: publishedSkill.skillKey, revision: publishedSkill.revision, contentHash: publishedSkill.contentHash },
     publishedKnowledgeCount: publishedLabEntries.length,
     firstLoop: { taskId: firstTaskId, executionId: firstExecutionId },

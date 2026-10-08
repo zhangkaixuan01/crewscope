@@ -44,9 +44,10 @@ const TASK_FILTER = process.env.CREWSCOPE_M10Q02_TASKS ? process.env.CREWSCOPE_M
 
 const args = process.argv.slice(2)
 const listOnly = args.includes('--list')
+const backfillOnly = args.includes('--backfill-reviews')
 const arm = args.includes('--arm') ? args[args.indexOf('--arm') + 1] : null
 if (!listOnly && !['off', 'on'].includes(arm)) {
-  console.error('usage: run-comparison.mjs --arm off|on | --list')
+  console.error('usage: run-comparison.mjs --arm off|on [--backfill-reviews] | --list')
   process.exit(2)
 }
 const armsToList = listOnly ? (arm ? [arm] : ['off', 'on']) : [arm]
@@ -92,7 +93,6 @@ const agentsPath = `${teamRoot}/agent-profiles`
 
 const client = new ApiClient(BASE_URL, coordinates.memberA)
 const clientB = new ApiClient(BASE_URL, coordinates.memberB)
-await client.ensureSession()
 
 function log(entry) {
   console.error(`[${new Date().toISOString()}] [${arm}] ${typeof entry === 'string' ? entry : JSON.stringify(entry)}`)
@@ -140,8 +140,10 @@ async function resolveComparisonConfiguration() {
   const current = await client.getJson(`${profileRoot}/configurations/current`)
   if (!current.approvedSkillKeys?.length) return { revision: current.revision, resetApplied: false }
   const saved = await client.command(`${profileRoot}/configurations`, {
-    personalModelBinding: current.personalModelBinding,
-    teamModelBinding: current.teamModelBinding,
+    // Projection names the fields personalBinding/teamBinding; the command body re-posts them
+    // under personalModelBinding/teamModelBinding (AgentConfigurationController DTO pair).
+    personalModelBinding: current.personalBinding,
+    teamModelBinding: current.teamBinding,
     supplementalInstructions: current.supplementalInstructions ?? null,
     approvedSkillKeys: [],
     memoryPolicy: current.memoryPolicy ?? null,
@@ -176,13 +178,21 @@ async function ensureCarrierItem(task) {
   throw new Error(`carrier work item did not appear: ${title}`)
 }
 
-async function attachGateSeat(itemRoot) {
-  // Idempotent by intent: a 409 means the seat is already held.
+/** Seat attach that tolerates the seat being already held: 409, or 422 invalid_value with
+ *  an "already has an active … assignment" message when the carrier survived an earlier
+ *  interrupted run (gate and advisory seats share the error shape). */
+async function attachSeat(itemRoot, seat, principalId) {
   try {
-    await client.command(`${itemRoot}/responsibilities/gate-reviewers`, { actorPrincipalId: coordinates.memberB.principalId })
+    await client.command(`${itemRoot}/responsibilities/${seat}`, { actorPrincipalId: principalId })
   } catch (error) {
-    if (error.status !== 409) throw error
+    const alreadyHeld = error.status === 409
+      || (error.status === 422 && String(error.body?.message ?? '').includes('already has an active'))
+    if (!alreadyHeld) throw error
   }
+}
+
+async function attachGateSeat(itemRoot) {
+  await attachSeat(itemRoot, 'gate-reviewers', coordinates.memberB.principalId)
 }
 
 async function createTask(itemRoot, task, rep, marker) {
@@ -191,8 +201,8 @@ async function createTask(itemRoot, task, rep, marker) {
     objective: `[${marker}] ${task.instruction}`,
     acceptanceCriteria: [
       task.instruction,
-      `改动仅限这些路径内的文件：${task.allowedPaths.join('、')}；不要改动其它文件。`,
-      '本仓库的集成测试需要 Docker 等容器环境，执行沙箱内不可用；验收测试请通过 tests 选择器只定向运行与交付物相关的单元测试，不要全量运行测试套件',
+      `改动仅限这些路径内的文件：${task.allowedPaths.join('、')}，以及 src/test/java 下为本任务自建的定向单元测试；不要改动其它文件。`,
+      '仓库当前没有任何测试：请在 src/test/java 下为交付物自建一个针对性的 JUnit 单元测试，并通过 tests 选择器只运行该自建测试完成验证；不要全量运行测试套件，也不要尝试需要容器环境的集成测试。',
     ],
     executorAgentProfileId: coordinates.executorAgentProfileId,
     agentConfigurationRevision: comparisonConfig.revision,
@@ -202,7 +212,7 @@ async function createTask(itemRoot, task, rep, marker) {
     codingTarget: {
       repositoryBindingId: target.bindingId,
       baselineRef: target.baselineRef,
-      allowedPaths: task.allowedPaths,
+      allowedPaths: [...task.allowedPaths, 'src/test/java'],
       buildProfile: target.buildProfile,
     },
   }, { ifMatch: 0 })
@@ -299,11 +309,68 @@ async function runReview(taskId, executionId) {
   return review
 }
 
+/** Repairs the status/productOutcome columns the pre-fix driver recorded as null (the
+ *  attempt.settled typo) and runs the review + gate decision that same typo skipped on
+ *  every COMPLETED execution. The arms themselves must not be re-executed just to
+ *  re-collect their verdicts: settle evidence, patches and judge outcomes are already
+ *  sealed in the JSONL, only the live-API verdicts need a second pass. */
+async function backfillReviews() {
+  await client.ensureSession()
+  // Review create demands an advisory Reviewer Agent seat on the carrier item. The loop
+  // spec's carrier got one in t1, but the comparison carriers only ever held the member-B
+  // gate seat — the settled typo meant review create never ran during the arms, so the
+  // gap surfaces only here. Resolve the loop's reviewer agent principal once.
+  const profiles = await client.getJson(`${agentsPath}?limit=50`)
+  const reviewerPrincipal = (profiles.items ?? [])
+    .find(item => item.id === coordinates.reviewerAgentProfileId)?.principalId
+  if (!reviewerPrincipal) throw new Error('reviewer agent profile not found on the coordinates team')
+  const lines = existsSync(jsonlPath) ? readFileSync(jsonlPath, 'utf8').split('\n').filter(Boolean) : []
+  const repaired = []
+  for (const line of lines) {
+    const record = JSON.parse(line)
+    if (record.executionId && record.status == null) {
+      // A 404 here means the task no longer lives on this stack — the record is a stale
+      // smoke leftover (same JSONL key, pre-reset stack) and carries no live verdict.
+      let attempts = null
+      try {
+        attempts = await client.getJson(`${tasksPath}/${record.taskId}/attempts`)
+      } catch (error) {
+        if (error.status !== 404) throw error
+        record.notes.push('task not found on this stack — stale record, no live status to backfill')
+      }
+      const live = attempts?.find(item => item.id === record.executionId)?.status ?? null
+      if (live) {
+        record.status = live
+        record.notes.push(`status backfilled from live attempts API: ${live}`)
+        const evidenceCount = (record.evidence?.commandEvidenceCount ?? 0)
+          + (record.evidence?.testEvidenceCount ?? 0)
+        record.productOutcome = (live === 'COMPLETED' && evidenceCount > 0 && record.evidence?.hasDiffManifest)
+          ? 'PASS' : 'FAIL'
+      }
+    }
+    if (record.status === 'COMPLETED' && record.review?.opened !== true) {
+      const itemId = await ensureCarrierItem({ id: record.task })
+      const itemRoot = `${projectsPath}/${coordinates.projectId}/work-items/${itemId}`
+      await attachSeat(itemRoot, 'advisory-reviewers', reviewerPrincipal)
+      record.review = await runReview(record.taskId, record.executionId)
+    }
+    repaired.push(record)
+    log({ backfilled: record.key, status: record.status ?? 'UNKNOWN', review: record.review?.opened === true ? 'opened' : (record.review?.unavailable ?? 'opened') })
+  }
+  writeFileSync(jsonlPath, repaired.map(entry => JSON.stringify(entry)).join('\n') + '\n')
+  log({ backfillFinished: { arm, records: repaired.length } })
+}
+
 // ---- boot ----
 log({ boot: { baseUrl: BASE_URL, tasks: tasks.length, reps: reps.length, doneKeys: doneKeys.size, jsonl: jsonlPath } })
 if (coordinates.repositoryBinding.baselineCommit !== BASELINE_COMMIT) {
   console.error(`coordinates baselineCommit ${coordinates.repositoryBinding.baselineCommit} != frozen ${BASELINE_COMMIT}`)
   process.exit(2)
+}
+
+if (backfillOnly) {
+  await backfillReviews()
+  process.exit(0)
 }
 
 if (!process.env.CREWSCOPE_M10Q02_SKIP_WARM && !judgeVolumeReady()) {
@@ -312,6 +379,11 @@ if (!process.env.CREWSCOPE_M10Q02_SKIP_WARM && !judgeVolumeReady()) {
   log({ warm: warmed.outcome, durationMs: warmed.durationMs })
   if (!warmed.ok) process.exit(2)
 }
+
+// Login after the (minutes-long) warm: a session established earlier would hold a
+// keep-alive connection idle through it, and undici reusing a socket the server has
+// since closed fails the next request with UND_ERR_SOCKET ("other side closed").
+await client.ensureSession()
 
 const comparisonConfig = await resolveComparisonConfiguration()
 log({ comparisonConfiguration: comparisonConfig })
@@ -352,7 +424,6 @@ for (const entry of runKeys) {
       const created = await createTask(itemRoot, task, rep, marker)
       const settled = await awaitTerminal(client, {
         taskId: created.taskId, executionId: created.executionId, tasksPath,
-        deadlineMs: Date.now() + 1_500_000,
       })
       const wallMs = Date.now() - wallStart
       const codingView = await captureCodingView(created.taskId, created.executionId)
@@ -371,7 +442,8 @@ for (const entry of runKeys) {
     }
 
     const costAfter = await costSnapshot()
-    record.status = attempt.settled
+    // awaitTerminal returns { status, ... }; the spread named it status on the attempt.
+    record.status = attempt.status
     record.taskId = attempt.taskId
     record.executionId = attempt.executionId
     record.wallMs = attempt.wallMs
@@ -381,7 +453,7 @@ for (const entry of runKeys) {
       testEvidenceCount: attempt.codingView.details?.testEvidenceCount ?? 0,
       hasDiffManifest: attempt.hasDiff,
     }
-    record.productOutcome = (attempt.settled === 'COMPLETED' && attempt.evidenceCount > 0 && attempt.hasDiff) ? 'PASS' : 'FAIL'
+    record.productOutcome = (attempt.status === 'COMPLETED' && attempt.evidenceCount > 0 && attempt.hasDiff) ? 'PASS' : 'FAIL'
     record.tokens = costDiff(attempt.costBefore, costAfter)
 
     const patch = await fetchPatch(attempt.taskId, attempt.executionId)
@@ -392,10 +464,10 @@ for (const entry of runKeys) {
     }
 
     record.injection = await captureInjection(attempt.taskId, attempt.executionId)
-    if (attempt.settled === 'COMPLETED') {
+    if (attempt.status === 'COMPLETED') {
       record.review = await runReview(attempt.taskId, attempt.executionId)
     } else {
-      record.review = { opened: false, firstPass: null, unavailable: `attempt-${attempt.settled}` }
+      record.review = { opened: false, firstPass: null, unavailable: `attempt-${attempt.status}` }
     }
   } catch (error) {
     record.fatal = `${error.status ?? ''} ${error.message}`.slice(0, 400)

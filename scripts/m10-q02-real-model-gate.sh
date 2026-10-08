@@ -109,13 +109,15 @@ vector_history_rows() {
 
 # run_specs_q02 <base-url> <spec paths...> — Desktop project only: the Narrow twin would
 # re-drive the same real-model flows and double the provider cost for no extra evidence.
+# The spec filters must precede --project: playwright's --project is a greedy array option
+# and swallows any positional argument that follows it.
 run_specs_q02() {
   base_url="$1"
   shift
   cd "$REPOSITORY_ROOT/crewscope-web"
   CREWSCOPE_REAL_BASE_URL="$base_url" \
     pnpm exec playwright test --config playwright.m10-real.config.ts \
-      --project 'M10 Real Desktop' "$@"
+      "$@" --project='M10 Real Desktop'
   cd "$REPOSITORY_ROOT"
 }
 
@@ -138,7 +140,8 @@ place_bare_mirror() {
 }
 
 # Polls the whole-repo crewscope-java index job to a terminal state through the public API.
-# Exit 0 = SUCCEEDED; 3 = FAILED (failureCode on stderr); 4 = wait budget exhausted.
+# Job terminal states are READY/FAILED/CANCELLED (KnowledgeIndexJobStatus — there is no
+# SUCCEEDED). Exit 0 = READY; 3 = FAILED/CANCELLED (failureCode on stderr); 4 = budget hit.
 wait_crew_index() {
   node --input-type=module -e '
     const { ApiClient } = await import("./scripts/m10-q02/lib/api.mjs")
@@ -152,10 +155,10 @@ wait_crew_index() {
     for (;;) {
       const jobs = await client.getJson(`${teamRoot}/knowledge/index/jobs?source=REPOSITORY&limit=100`)
       const mine = (jobs.items ?? []).filter(job => job.indexKey?.bindingId === crew.bindingId)
-      const terminal = mine.find(job => job.status === "SUCCEEDED" || job.status === "FAILED")
+      const terminal = mine.find(job => ["READY", "FAILED", "CANCELLED"].includes(job.status))
       if (terminal) {
         console.error(`crewscope-java index job ${terminal.status}${terminal.failureCode ? ` (${terminal.failureCode})` : ""}`)
-        process.exit(terminal.status === "SUCCEEDED" ? 0 : 3)
+        process.exit(terminal.status === "READY" ? 0 : 3)
       }
       if (Date.now() > deadline) {
         console.error("crewscope-java index did not reach a terminal state within the wait budget")
@@ -181,7 +184,7 @@ retrieval_coords() {
 }
 
 # Session bootstrap (member-level cookie + CSRF, never echoed) + A01 mjs with the repo
-# target: whole-repo when its index SUCCEEDED, otherwise the authorized lab fallback with
+# target: whole-repo when its index reached READY, otherwise the authorized lab fallback with
 # the whole-repo conclusion recorded as 待执行 (user ruling 2026-10-07).
 run_a01_gate() {
   crew_wait=0
@@ -226,7 +229,10 @@ if has_phase s1; then
 
   # Deterministic lab fixture at the frozen baseline (evaluate.mjs materialize), and the
   # live repository itself as the whole-repo corpus, both as worker-owned bare mirrors.
+  # materialize refuses a non-empty output directory, so clear the previous smoke's tree
+  # first — s1 must stay re-runnable.
   mkdir -p "$MIRROR_SRC"
+  rm -rf "$MIRROR_SRC/java-spring-lab"
   node "$REPOSITORY_ROOT/evaluation/m4/coding-v1/scripts/evaluate.mjs" materialize \
     --output "$MIRROR_SRC/java-spring-lab"
   place_bare_mirror java-spring-lab "$MIRROR_SRC/java-spring-lab"
@@ -268,9 +274,12 @@ if has_phase s6; then
     echo "gate: S01B_DASHSCOPE_KEY_FILE is not a readable file" >&2
     exit 1
   }
-  # Single Maven session discipline; frozen S01 thresholds never regress.
+  # Single Maven session discipline; frozen S01 thresholds never regress. The -am
+  # reactor includes domain/application, which have no test by this name — surefire
+  # turns that into a failure unless failIfNoSpecifiedTests is cleared.
   S01B_DASHSCOPE_KEY_FILE="$S01B_DASHSCOPE_KEY_FILE" \
-    ./mvnw test -pl crewscope-infrastructure -am -Dtest=KnowledgeRetrievalQualityGateTest
+    ./mvnw test -pl crewscope-infrastructure -am -Dtest=KnowledgeRetrievalQualityGateTest \
+      -Dsurefire.failIfNoSpecifiedTests=false
 fi
 
 if has_phase s7; then

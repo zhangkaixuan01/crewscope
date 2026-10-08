@@ -94,16 +94,17 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
   const profileConfigRoot = `${agentsRoot()}/${coordinates!.executorAgentProfileId}`
   const before = await getJson<{
     revision: number, approvedSkillKeys: string[],
-    personalModelBinding: unknown, teamModelBinding: unknown, supplementalInstructions: string | null,
+    personalBinding: unknown, teamBinding: unknown, supplementalInstructions: string | null,
     memoryPolicy: unknown, budgetPolicy: unknown, generateOptions: unknown,
   }>(page, `${profileConfigRoot}/configurations/current`)
   if (!before.approvedSkillKeys.includes(coordinates!.publishedSkill.skillKey)) {
     // The comparison driver (s3/s4) resets the approved list for arm purity; re-approve the
-    // loop's skill for this recheck run.
+    // loop's skill for this recheck run. Projection fields are personalBinding/teamBinding;
+    // the POST body keys are personalModelBinding/teamModelBinding.
     const appended = await page.request.post(`${profileConfigRoot}/configurations`, {
       data: {
-        personalModelBinding: before.personalModelBinding,
-        teamModelBinding: before.teamModelBinding,
+        personalModelBinding: before.personalBinding,
+        teamModelBinding: before.teamBinding,
         supplementalInstructions: before.supplementalInstructions,
         approvedSkillKeys: [...before.approvedSkillKeys, coordinates!.publishedSkill.skillKey],
         memoryPolicy: before.memoryPolicy,
@@ -116,7 +117,7 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
         'If-Match': `"${before.revision}"`,
       },
     })
-    expect(appended.status, `configuration append failed: ${await appended.text()}`).toBe(202)
+    expect(appended.status(), `configuration append failed: ${await appended.text()}`).toBe(202)
     await expect.poll(async () => {
       const current = await getJson<{ approvedSkillKeys: string[] }>(page, `${profileConfigRoot}/configurations/current`)
       return current.approvedSkillKeys.includes(coordinates!.publishedSkill.skillKey)
@@ -143,8 +144,8 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
       objective: `[${marker}] ${RECHECK_TASK.instruction}`,
       acceptanceCriteria: [
         RECHECK_TASK.instruction,
-        `改动仅限这些路径内的文件：${RECHECK_TASK.allowedPaths.join('、')}；不要改动其它文件。`,
-        '本仓库的集成测试需要 Docker 等容器环境，执行沙箱内不可用；验收测试请通过 tests 选择器只定向运行与交付物相关的单元测试，不要全量运行测试套件',
+        `改动仅限这些路径内的文件：${RECHECK_TASK.allowedPaths.join('、')}，以及 src/test/java 下为本任务自建的定向单元测试；不要改动其它文件。`,
+        '仓库当前没有任何测试：请在 src/test/java 下为交付物自建一个针对性的 JUnit 单元测试，并通过 tests 选择器只运行该自建测试完成验证；不要全量运行测试套件，也不要尝试需要容器环境的集成测试。',
       ],
       executorAgentProfileId: coordinates!.executorAgentProfileId,
       agentConfigurationRevision: pinnedRevision.revision,
@@ -154,7 +155,7 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
       codingTarget: {
         repositoryBindingId: coordinates!.repositoryBinding.bindingId,
         baselineRef: coordinates!.repositoryBinding.baselineRef,
-        allowedPaths: RECHECK_TASK.allowedPaths,
+        allowedPaths: [...RECHECK_TASK.allowedPaths, 'src/test/java'],
         buildProfile: coordinates!.repositoryBinding.buildProfile,
       },
     },
@@ -164,7 +165,7 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
       'If-Match': '"0"',
     },
   })
-  expect(created.status, `task create failed: ${await created.text()}`).toBe(202)
+  expect(created.status(), `task create failed: ${await created.text()}`).toBe(202)
   let executionId = ''
   let taskId = ''
   const deadlineAppear = Date.now() + 90_000
@@ -179,7 +180,10 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
 
   let resumedOnce = false
   let settled = ''
-  const deadline = Date.now() + 1_500_000
+  // 45 minutes: the real-model transport hiccups (MODEL_TRANSPORT_ERROR retry chains) can
+  // stretch one execution past the 25-minute m9b settle norm without it being stuck — the
+  // loop below still exits the moment a terminal state lands (loop-spec precedent).
+  const deadline = Date.now() + 2_700_000
   while (Date.now() < deadline) {
     const attempts = await getJson<Array<{ id: string, status: string, version: number, waiting?: { reason: string } | null }>>(
       page, `${tasksRoot()}/${taskId}/attempts`)
@@ -206,6 +210,25 @@ test('u2 the published Skill still loads into a fresh execution at the recorded 
     await page.waitForTimeout(15_000)
   }
   test.info().annotations.push({ type: 'note', description: `recheck execution settled ${settled}` })
+  // Failure forensics, mirroring the loop spec's runCodingTask dump.
+  if (settled !== 'COMPLETED') {
+    const tests = await getJson<{ items: Array<{ id: string, total: number, passed: number, failed: number, errors: number, summary: string | null, failureClassification: string | null }> }>(
+      page, `${tasksRoot()}/${taskId}/attempts/${executionId}/coding/test-evidence?limit=20`)
+    for (const item of tests.items ?? []) {
+      test.info().annotations.push({
+        type: 'note',
+        description: `test ${item.passed}/${item.total} passed (failed=${item.failed} errors=${item.errors} class=${item.failureClassification ?? '-'}): ${(item.summary ?? '').slice(0, 200)}`,
+      })
+    }
+    const lastFailing = (tests.items ?? []).slice().reverse().find(item => item.failed > 0 || item.errors > 0)
+    if (lastFailing) {
+      const report = await page.request.get(
+        `${tasksRoot()}/${taskId}/attempts/${executionId}/coding/test-evidence/${lastFailing.id}/report?offset=0&limit=4000`)
+      if (report.ok()) {
+        test.info().annotations.push({ type: 'note', description: `last failing report excerpt: ${(await report.text()).slice(0, 1200)}` })
+      }
+    }
+  }
   expect(settled, 'the recheck execution completes on the real model').toBe('COMPLETED')
 
   const references = await getJson<{ attempts: Array<{ references: Array<{ stage: string, type: string, sourceId: string, version: number, contentHash: string }> }> }>(

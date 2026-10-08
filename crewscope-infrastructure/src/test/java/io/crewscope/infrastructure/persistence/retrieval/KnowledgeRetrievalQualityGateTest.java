@@ -248,12 +248,14 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
             assertTrue(result.degradations().isEmpty(), "the knowledge route must be healthy");
             List<RetrievalCandidate> candidates = result.candidates();
             UUID expectedId = entryIdsByTeam.get(evaluated).get(q.get("expectKey").asText());
+            // entryId() is the KnowledgeEntryId value object — compare against its UUID
+            // value, never the wrapper (UUID.equals(KnowledgeEntryId) is silently false).
             if (candidates.stream().limit(5)
-                    .anyMatch(c -> expectedId.equals(c.entry().entryId()))) {
+                    .anyMatch(c -> expectedId.equals(c.entry().entryId().value()))) {
                 recall5++;
             }
             Optional<RetrievalCandidate> hit = candidates.stream()
-                    .filter(c -> expectedId.equals(c.entry().entryId())).findFirst();
+                    .filter(c -> expectedId.equals(c.entry().entryId().value())).findFirst();
             if (hit.isPresent()) {
                 recall10++;
                 if (hit.get().entry().revision().value() == q.get("expectVersion").asLong()) {
@@ -263,7 +265,11 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
                             + hit.get().entry().revision().value());
                 }
             } else {
-                knowledgeMisses.add(q.get("id").asText() + ": key absent from top-10");
+                knowledgeMisses.add(q.get("id").asText() + " expect=" + expectedId + ": key absent from top-10; top="
+                        + candidates.stream().limit(3)
+                                .map(c -> c.entry().entryId() + "@" + c.entry().revision().value()
+                                        + ":" + c.score())
+                                .collect(Collectors.joining(",")));
             }
         }
         double knowledgeN = knowledgeQueries.size();
@@ -496,8 +502,11 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
                 cache.put(cacheKey(batch.get(i)), vector);
             }
             Thread.sleep(150);
+            // Persist after every batch, not only past the loop: a mid-corpus delivery
+            // failure must not discard the batches already paid for — the rerun then
+            // embeds only the missing texts instead of the whole corpus again.
+            json.writer().writeValue(CACHE.toFile(), cache);
         }
-        json.writer().writeValue(CACHE.toFile(), cache);
         System.out.println("[gate] embedded " + missing.size() + " texts ("
                 + (distinct.size() - missing.size()) + " served from cache)");
         return vectors;
@@ -702,16 +711,22 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
     }
 
     private void seedTenant(OrganizationId org, TeamId team, PrincipalId owner) {
+        // The two isolation teams share one organization and one owner principal, and team
+        // names are unique per organization (uk_team_organization_name), so the team row
+        // carries the team id as its distinguishing suffix. This gate is the first real
+        // execution of the A01 isolation proof, and the second ingest round re-seeds the
+        // shared rows — conflict-nothing keeps the shared inserts idempotent.
         jdbc.update(
-                "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Gate Org', 'ACTIVE')",
+                "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Gate Org', 'ACTIVE') ON CONFLICT (id) DO NOTHING",
                 org.value());
         jdbc.update(
-                "INSERT INTO crewscope.team (id, organization_id, name, status) VALUES (?, ?, 'Gate Team', 'ACTIVE')",
-                team.value(), org.value());
+                "INSERT INTO crewscope.team (id, organization_id, name, status) "
+                        + "VALUES (?, ?, 'Gate Team ' || ?, 'ACTIVE') ON CONFLICT (id) DO NOTHING",
+                team.value(), org.value(), team.value());
         jdbc.update(
                 """
                 INSERT INTO crewscope.principal (id, organization_id, principal_type, display_name, status)
-                VALUES (?, ?, 'USER', 'Gate owner', 'ACTIVE')
+                VALUES (?, ?, 'USER', 'Gate owner', 'ACTIVE') ON CONFLICT (id) DO NOTHING
                 """,
                 owner.value(), org.value());
     }

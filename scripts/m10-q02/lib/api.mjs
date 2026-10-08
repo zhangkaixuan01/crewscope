@@ -41,10 +41,13 @@ export class ApiClient {
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     if (ifMatch !== undefined) headers['If-Match'] = `"${ifMatch}"`
     if (idempotency) headers['Idempotency-Key'] = randomUUID()
+    // Reviewer execute and settle polls are single long HTTP calls (the reviewer model runs
+    // inside the request); undici's 5-minute default would cut the slow tail short.
     const response = await fetch(`${this.baseURL}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(600_000),
     })
     this.absorbCookies(response)
     return response
@@ -83,7 +86,9 @@ export class ApiClient {
       response = await this.request(path)
     }
     if (!response.ok) {
-      throw new Error(`GET ${path} -> ${response.status}: ${(await response.text()).slice(0, 300)}`)
+      const error = new Error(`GET ${path} -> ${response.status}: ${(await response.text()).slice(0, 300)}`)
+      error.status = response.status
+      throw error
     }
     return response.json()
   }
@@ -96,7 +101,9 @@ export class ApiClient {
   async command(path, body, { ifMatch, expected = 202 } = {}) {
     const send = () => this.request(path, {
       method: 'POST',
-      body: body ?? {},
+      // A bodyless command (resume, review execute) must stay bodyless: the server
+      // rejects request bodies on those endpoints with 400 invalid_request.
+      body,
       ifMatch,
       idempotency: true,
     })
@@ -135,7 +142,7 @@ export class ApiClient {
  *
  * @returns {Promise<{ status: string, taskId: string, executionId: string, resumedConfirmation: boolean }>}
  */
-export async function awaitTerminal(client, { taskId, executionId, tasksPath, deadlineMs = 1_500_000 }) {
+export async function awaitTerminal(client, { taskId, executionId, tasksPath, deadlineMs = 2_700_000 }) {
   let resumedConfirmation = false
   let status = 'MISSING'
   while (Date.now() < deadlineMs) {
