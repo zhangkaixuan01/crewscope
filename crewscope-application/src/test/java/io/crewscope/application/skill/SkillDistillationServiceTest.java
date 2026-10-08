@@ -271,6 +271,37 @@ final class SkillDistillationServiceTest {
     }
 
     @Test
+    void multiAttemptUsageFactsCarryDistinctEventIdempotencyKeys() {
+        // A provider retry makes one command append one usage fact per attempt; the event
+        // store enforces one event per (organization, idempotency key), so a command-keyed
+        // event dies on the second attempt (the first real multi-attempt distillation hit
+        // exactly that — M10-Q02 real-stack finding).
+        port.nextResult = draft("Description", "Body");
+        port.nextAttribution = new SkillDistillationPort.CallAttribution(
+                new ModelProviderKey("openai"),
+                new ModelId("gpt-5"),
+                ModelConnectionId.generate(),
+                3,
+                List.of(
+                        new SkillDistillationPort.AttemptUsage(
+                                1, new ModelTokenUsage(1200, 80, 900, 1280)),
+                        new SkillDistillationPort.AttemptUsage(
+                                2, new ModelTokenUsage(1332, 2279, 128, 3611))));
+
+        service.distill(context("distill-two-attempts"), teamId, command())
+                .toCompletableFuture().join();
+
+        List<DomainEventEnvelope<? extends DomainEvent>> usage =
+                eventsOf("MODEL_USAGE_FACT_RECORDED");
+        assertEquals(2, usage.size());
+        assertEquals(
+                List.of("distill-two-attempts#usage-1", "distill-two-attempts#usage-2"),
+                usage.stream()
+                        .map(event -> event.idempotencyKey().orElseThrow())
+                        .toList());
+    }
+
+    @Test
     void nonCompletedExecutionIsRejectedBeforeTheModelCall() {
         tasks.executionStatus = TaskExecutionStatus.RUNNING;
         port.nextResult = draft("Nope", "Body");
@@ -448,6 +479,7 @@ final class SkillDistillationServiceTest {
         Optional<SkillDistillationPort.SkillDistillationRequest> lastRequest =
                 Optional.empty();
         SkillDistillationPort.DistilledSkillDraft nextResult;
+        SkillDistillationPort.CallAttribution nextAttribution = fixedAttribution();
         RuntimeException nextFailure;
 
         @Override
@@ -459,7 +491,7 @@ final class SkillDistillationServiceTest {
                 return CompletableFuture.failedFuture(nextFailure);
             }
             return CompletableFuture.completedFuture(
-                    new SkillDistillationResult(nextResult, fixedAttribution()));
+                    new SkillDistillationResult(nextResult, nextAttribution));
         }
     }
 

@@ -136,6 +136,29 @@ class TaskAgentRuntimeSessionTest {
     }
 
     @Test
+    void allowsTheCodingSpecialistIdentityToOrchestrateTheWholeTask() {
+        // The Coding specialist executes a delegated coding Task end-to-end with no Step
+        // decomposition, so its worker prepare builds a TASK-purpose session; the type gate
+        // used to reject SPECIALIST there and the execution died in recovery (M10-Q02).
+        RuntimeFixture fixture = new RuntimeFixture();
+        Principal codingSpecialist = fixture.specialist();
+        AgentProfile codingProfile = fixture.profile(
+                codingSpecialist, AgentProfileType.SPECIALIST, 1);
+
+        TaskAgentRuntimeSession session = TaskAgentRuntimeSession.initializeTask(
+                fixture.planning.task,
+                fixture.graph.execution(),
+                codingProfile,
+                codingSpecialist,
+                TaskPlanningFixture.STEP_AT);
+
+        assertEquals(TaskAgentSessionPurpose.TASK, session.purpose());
+        assertEquals(codingSpecialist.id(), session.agentPrincipalId());
+        assertTrue(session.stepExecutionId().isEmpty());
+        assertEquals(codingProfile.id(), session.agentProfileId());
+    }
+
+    @Test
     void allowsAPersonalAgentToOrchestrateAndOwnAnIsolatedSpecialistRole() {
         RuntimeFixture fixture = new RuntimeFixture();
         Principal personalAgent = fixture.personalAgent();

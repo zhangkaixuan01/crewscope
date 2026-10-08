@@ -461,10 +461,16 @@ public final class TaskAgentRuntimeSession {
             AgentProfileType profileType,
             PrincipalType principalType) {
         return switch (purpose) {
+            // A delegated coding Task may run end-to-end under the Coding specialist identity
+            // (template-level executor admission stays in the application layer), so its
+            // orchestrator session takes the TASK shape exactly like a Personal or Team
+            // executor's (M10-Q02 real-stack finding).
             case TASK -> (profileType == AgentProfileType.PERSONAL
                             && principalType == PrincipalType.PERSONAL_AGENT)
                     || (profileType == AgentProfileType.TEAM
-                            && principalType == PrincipalType.TEAM_AGENT);
+                            && principalType == PrincipalType.TEAM_AGENT)
+                    || (profileType == AgentProfileType.SPECIALIST
+                            && principalType == PrincipalType.SPECIALIST_AGENT);
             case STEP -> profileType == AgentProfileType.TEAM
                     && principalType == PrincipalType.TEAM_AGENT;
             // A Specialist is an execution role with an isolated AgentScope Session. It may run

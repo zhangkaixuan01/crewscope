@@ -41,7 +41,7 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
         if (writtenBytesLowerBound < 0) {
             throw new IllegalArgumentException("writtenBytesLowerBound must not be negative");
         }
-        requireCurrentActiveWorkspace(workspace, policy);
+        requireCurrentExecutionSurface(workspace, policy);
         jdbc.update(
                 """
                 INSERT INTO crewscope.workspace_write_budget_usage (
@@ -77,7 +77,7 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
         if (writtenBytes < 0) {
             throw new IllegalArgumentException("writtenBytes must not be negative");
         }
-        requireCurrentActiveWorkspace(workspace, policy);
+        requireCurrentExecutionSurface(workspace, policy);
         WorkspaceWriteBudgetSnapshot current = lock(workspace, policy);
         Set<String> paths = union(current.changedPaths(), changedPaths);
         try {
@@ -93,7 +93,7 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
         }
     }
 
-    private void requireCurrentActiveWorkspace(
+    private void requireCurrentExecutionSurface(
             ExecutionWorkspace workspace, WorkspacePolicy policy) {
         var ownership = workspace.ownership();
         Integer count = jdbc.queryForObject(
@@ -106,7 +106,7 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
                    AND policy.attempt = workspace.attempt
                    AND policy.policy_hash = :policyHash
                  WHERE workspace.id = :workspaceId
-                   AND workspace.status = :status
+                   AND workspace.status IN (:lifecycleStatuses)
                    AND workspace.runtime_environment = :environment
                    AND workspace.runtime_id = :runtimeId
                    AND workspace.worker_id = :workerId
@@ -115,7 +115,15 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
                    AND workspace.workspace_fingerprint = :fingerprint
                 """,
                 parameters(workspace, policy)
-                        .addValue("status", ExecutionWorkspaceStatus.ACTIVE.name())
+                        // The M4-I10 FINALIZING crash-boundary recovery rebuilds the mutable
+                        // execution surface (worktree + budget lower bounds) under the same
+                        // lease and fencing epoch, so the lifecycle gate must admit it; every
+                        // ownership fact below stays pinned, keeping stale surfaces rejected
+                        // (M10-Q02 real-stack finding: the ACTIVE-only gate dead-locked every
+                        // FINALIZING recovery).
+                        .addValue("lifecycleStatuses", List.of(
+                                ExecutionWorkspaceStatus.ACTIVE.name(),
+                                ExecutionWorkspaceStatus.FINALIZING.name()))
                         .addValue("environment", ownership.environment().value())
                         .addValue("runtimeId", ownership.runtimeId().value())
                         .addValue("workerId", ownership.workerId().value())
@@ -125,7 +133,7 @@ public class JdbcWorkspaceWriteBudgetStore implements WorkspaceWriteBudgetStore 
                 Integer.class);
         if (count == null || count != 1) {
             throw new WorkspaceWriteBudgetContextException(
-                    "Workspace write budget rejected stale lifecycle or fencing facts");
+                    "Workspace write budget rejected a stale or closed execution surface");
         }
     }
 

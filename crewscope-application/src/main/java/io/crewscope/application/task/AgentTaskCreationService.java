@@ -80,7 +80,6 @@ import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.AgentProfileStatus;
-import io.crewscope.domain.workspace.AgentProfileType;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
@@ -309,10 +308,10 @@ public final class AgentTaskCreationService {
         Principal executor = principalRepository
                 .findById(organizationId, profile.agentPrincipalId())
                 .filter(Principal::canAct)
-                .filter(value -> isTaskOrchestrator(profile.type(), value.type()))
+                .filter(value -> isTaskOrchestrator(profile, value.type()))
                 .orElseThrow(() -> new DomainValidationException(
                         "agentTask.executorAssignment.agentProfileId",
-                        "must reference the active Personal or Team Agent Profile Principal"));
+                        "must reference the active Personal, Team or Coding Agent Profile Principal"));
         boolean sameExecutorActive = assignments.stream()
                 .filter(ResponsibilityAssignment::isActive)
                 .filter(value -> value.role() == ResponsibilityRole.EXECUTOR)
@@ -573,10 +572,10 @@ public final class AgentTaskCreationService {
         Principal executor = principalRepository
                 .findById(organizationId, profile.agentPrincipalId())
                 .filter(Principal::canAct)
-                .filter(value -> isTaskOrchestrator(profile.type(), value.type()))
+                .filter(value -> isTaskOrchestrator(profile, value.type()))
                 .orElseThrow(() -> new DomainValidationException(
                         "agentTask.executorAssignment.agentProfileId",
-                        "must reference the active Personal or Team Agent Profile Principal"));
+                        "must reference the active Personal, Team or Coding Agent Profile Principal"));
         boolean sameExecutorActive = assignments.stream()
                 .filter(ResponsibilityAssignment::isActive)
                 .filter(value -> value.role() == ResponsibilityRole.EXECUTOR)
@@ -676,10 +675,10 @@ public final class AgentTaskCreationService {
         Principal executor = principalRepository.findById(
                         organizationId, profile.agentPrincipalId())
                 .filter(Principal::canAct)
-                .filter(value -> isTaskOrchestrator(profile.type(), value.type()))
+                .filter(value -> isTaskOrchestrator(profile, value.type()))
                 .orElseThrow(() -> new DomainValidationException(
                         "agentTask.executorPrincipalId",
-                        "must reference the active Personal or Team Agent Profile Principal"));
+                        "must reference the active Personal, Team or Coding Agent Profile Principal"));
         boolean assigned = assignments.stream()
                 .filter(ResponsibilityAssignment::isActive)
                 .filter(value -> value.role() == ResponsibilityRole.EXECUTOR)
@@ -694,12 +693,17 @@ public final class AgentTaskCreationService {
         return executor;
     }
 
-    private static boolean isTaskOrchestrator(
-            AgentProfileType profileType, PrincipalType principalType) {
-        return (profileType == AgentProfileType.PERSONAL
-                        && principalType == PrincipalType.PERSONAL_AGENT)
-                || (profileType == AgentProfileType.TEAM
-                        && principalType == PrincipalType.TEAM_AGENT);
+    private static boolean isTaskOrchestrator(AgentProfile profile, PrincipalType principalType) {
+        return switch (profile.type()) {
+            case PERSONAL -> principalType == PrincipalType.PERSONAL_AGENT;
+            case TEAM -> principalType == PrincipalType.TEAM_AGENT;
+            // The Coding specialist is the one built-in Specialist that executes delegated
+            // coding Tasks end-to-end; A03b's dynamic Team Skills ride exactly this
+            // profile's pinned configuration, so its executor admission is the closed
+            // loop's executor surface (M10-Q02 real-stack finding).
+            case SPECIALIST -> principalType == PrincipalType.SPECIALIST_AGENT
+                    && "coding".equals(profile.templateVersion().key().value());
+        };
     }
 
     private Set<ProviderBindingId> requireCurrentBindings(

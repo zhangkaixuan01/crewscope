@@ -110,6 +110,9 @@ import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.task.TaskStatus;
 import io.crewscope.domain.task.event.TaskDelegatedToAgent;
 import io.crewscope.domain.team.TeamMemberId;
+import io.crewscope.domain.agent.AgentOwnership;
+import io.crewscope.domain.agent.AgentRuntimeRole;
+import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.workspace.AgentProfile;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.domain.workspace.AgentProfileStatus;
@@ -374,7 +377,57 @@ class AgentTaskCreationServiceM3A01Test {
     }
 
     @Test
-    void rejectsASpecialistProfileAsTheTaskLevelOrchestrator() {
+    void rejectsANonCodingSpecialistProfileAsTheTaskExecutor() {
+        Principal specialist = Principal.create(
+                PrincipalId.generate(),
+                PrincipalScope.team(organizationId, teamId),
+                PrincipalType.SPECIALIST_AGENT,
+                Optional.of(owner.id()),
+                "Reviewer specialist",
+                Optional.empty(),
+                PrincipalVisibility.TEAM,
+                NOW);
+        AgentProfile reviewerProfile = AgentProfile.reconstituteTemplateInstance(
+                AgentProfileId.generate(),
+                WorkspaceScope.team(organizationId, teamId),
+                workspaceId,
+                specialist.id(),
+                AgentOwnership.team(organizationId, teamId),
+                AgentRuntimeRole.SPECIALIST,
+                AgentTemplateVersion.of("reviewer", 1),
+                AgentProfileType.SPECIALIST,
+                false,
+                AgentProfileStatus.ACTIVE,
+                1,
+                AuditMetadata.createdBy(owner.id(), NOW));
+        ResponsibilityAssignment specialistAssignment = assignment(
+                ResponsibilityRole.EXECUTOR, specialist, Optional.empty());
+        when(assignments.findActiveByWorkItem(organizationId, workItem.id()))
+                .thenReturn(List.of(ownerAssignment, specialistAssignment));
+        when(profiles.findById(organizationId, reviewerProfile.id()))
+                .thenReturn(Optional.of(reviewerProfile));
+        when(principals.findById(organizationId, specialist.id()))
+                .thenReturn(Optional.of(specialist));
+        CreateAgentTaskCommand specialistCommand = new CreateAgentTaskCommand(
+                command().brief(), reviewerProfile.id(), Optional.empty(), Set.of(), 7);
+
+        assertThrows(
+                DomainValidationException.class,
+                () -> service.create(
+                        context(owner, "delegate-agent-specialist"),
+                        teamId,
+                        projectId,
+                        workItem.id(),
+                        specialistCommand));
+
+        verifyNoInteractions(tasks, executions, policies, overlays, events, outbox);
+    }
+
+    @Test
+    void admitsTheCodingSpecialistProfileAsTheTaskExecutor() {
+        // A03b's dynamic Team Skills ride the coding profile's pinned configuration, so the
+        // coding specialist (legacy SPECIALIST template == coding@1) is executor-eligible
+        // (M10-Q02 real-stack finding: the closed loop is otherwise unreachable).
         Principal specialist = Principal.create(
                 PrincipalId.generate(),
                 PrincipalScope.team(organizationId, teamId),
@@ -384,7 +437,7 @@ class AgentTaskCreationServiceM3A01Test {
                 Optional.empty(),
                 PrincipalVisibility.TEAM,
                 NOW);
-        AgentProfile specialistProfile = AgentProfile.reconstitute(
+        AgentProfile codingProfile = AgentProfile.reconstitute(
                 AgentProfileId.generate(),
                 WorkspaceScope.team(organizationId, teamId),
                 workspaceId,
@@ -399,23 +452,22 @@ class AgentTaskCreationServiceM3A01Test {
                 ResponsibilityRole.EXECUTOR, specialist, Optional.empty());
         when(assignments.findActiveByWorkItem(organizationId, workItem.id()))
                 .thenReturn(List.of(ownerAssignment, specialistAssignment));
-        when(profiles.findById(organizationId, specialistProfile.id()))
-                .thenReturn(Optional.of(specialistProfile));
+        when(profiles.findById(organizationId, codingProfile.id()))
+                .thenReturn(Optional.of(codingProfile));
         when(principals.findById(organizationId, specialist.id()))
                 .thenReturn(Optional.of(specialist));
         CreateAgentTaskCommand specialistCommand = new CreateAgentTaskCommand(
-                command().brief(), specialistProfile.id(), Optional.empty(), Set.of(), 7);
+                command().brief(), codingProfile.id(), Optional.empty(), Set.of(), 7);
 
-        assertThrows(
-                DomainValidationException.class,
-                () -> service.create(
-                        context(owner, "delegate-agent-specialist"),
-                        teamId,
-                        projectId,
-                        workItem.id(),
-                        specialistCommand));
+        CommandExecution<AgentTaskCreationResult> execution = service.create(
+                context(owner, "delegate-agent-coding-specialist"),
+                teamId,
+                projectId,
+                workItem.id(),
+                specialistCommand);
 
-        verifyNoInteractions(tasks, executions, policies, overlays, events, outbox);
+        assertEquals(TaskExecutionStatus.READY,
+                execution.result().orElseThrow().execution().status());
     }
 
     @Test

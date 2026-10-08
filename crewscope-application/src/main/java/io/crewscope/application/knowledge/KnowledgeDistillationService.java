@@ -282,7 +282,13 @@ public final class KnowledgeDistillationService {
                                     EventActorType.USER, context.access().actor().id()),
                             context.correlationId(),
                             context.causationId(),
-                            Optional.of(context.idempotencyKey().value()),
+                            // One command legitimately appends one usage fact per provider
+                            // attempt, so the store's one-event-per-key contract needs the
+                            // attempt suffix — the command key alone collides on the second
+                            // attempt (M10-Q02 real-stack finding; '#' cannot appear in a
+                            // client command key).
+                            Optional.of(context.idempotencyKey().value()
+                                    + "#usage-" + attemptUsage.attempt()),
                             now,
                             payload);
             events.append(event);

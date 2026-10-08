@@ -41,6 +41,7 @@ import io.crewscope.domain.coding.DiffFileEntry;
 import io.crewscope.domain.coding.DiffFileKind;
 import io.crewscope.domain.coding.DiffManifest;
 import io.crewscope.domain.coding.DiffPath;
+import io.crewscope.domain.coding.ExecutionWorkspaceCompletionReason;
 import io.crewscope.domain.coding.EvidenceArtifactKind;
 import io.crewscope.domain.coding.EvidenceArtifactReference;
 import io.crewscope.domain.coding.EvidenceSequence;
@@ -679,6 +680,53 @@ class M4D09CodingPersistenceIntegrationTest
                 WorkspaceWriteBudgetContextException.class,
                 () -> writeBudgets.reserve(
                         graph.activeWorkspace, graph.policy, Set.of("src/Stale.java"), 1));
+    }
+
+    @Test
+    void admitsWriteBudgetOnAFinalizingWorkspaceRecoveryAndStillRejectsStaleSurfaces() {
+        CodingPersistenceGraph graph = persistGraph("finalizing-budget");
+
+        TaskExecution completingExecution = mock(TaskExecution.class);
+        when(completingExecution.scope()).thenReturn(graph.fixture.workItemScope());
+        when(completingExecution.taskId()).thenReturn(graph.taskId);
+        when(completingExecution.id()).thenReturn(graph.taskExecutionId);
+        when(completingExecution.attempt()).thenReturn(1);
+        when(completingExecution.status()).thenReturn(TaskExecutionStatus.COMPLETED);
+        when(completingExecution.lastFencingToken()).thenReturn(Optional.of(FencingToken.initial()));
+        var finalizing = workspaces.update(graph.activeWorkspace.beginFinalizing(
+                ExecutionWorkspaceCompletionReason.SUCCEEDED,
+                completingExecution,
+                graph.activeWorkspace.version(),
+                graph.fixture.actor(),
+                UtcTimestamp.parse("2026-08-18T01:21:00Z")));
+
+        // The M4-I10 crash-boundary recovery re-opens the FINALIZING surface under the same
+        // lease and fencing epoch: the measured lower bounds must re-enter the ledger.
+        var restored = writeBudgets.initialize(
+                finalizing, graph.policy, Set.of("src/Delivered.java"), 100);
+        assertEquals(Set.of("src/Delivered.java"), restored.changedPaths());
+        var resumed = writeBudgets.reserve(
+                finalizing, graph.policy, Set.of("src/Resumed.java"), 20);
+        assertEquals(2, resumed.writeOperations());
+        assertEquals(120, resumed.writtenBytes());
+
+        // A surface without the current lease stays rejected: RECOVERING loses the epoch.
+        TaskExecution staleExecution = mock(TaskExecution.class);
+        when(staleExecution.scope()).thenReturn(graph.fixture.workItemScope());
+        when(staleExecution.taskId()).thenReturn(graph.taskId);
+        when(staleExecution.id()).thenReturn(graph.taskExecutionId);
+        when(staleExecution.attempt()).thenReturn(1);
+        when(staleExecution.status()).thenReturn(TaskExecutionStatus.RECOVERING);
+        when(staleExecution.lastFencingToken()).thenReturn(Optional.of(FencingToken.initial()));
+        workspaces.update(finalizing.beginRecovery(
+                staleExecution,
+                finalizing.version(),
+                graph.fixture.actor(),
+                UtcTimestamp.parse("2026-08-18T01:22:00Z")));
+        assertThrows(
+                WorkspaceWriteBudgetContextException.class,
+                () -> writeBudgets.reserve(
+                        finalizing, graph.policy, Set.of("src/Stale.java"), 1));
     }
 
     @Test

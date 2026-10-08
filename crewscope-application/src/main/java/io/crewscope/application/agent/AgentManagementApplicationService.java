@@ -45,6 +45,7 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.skill.distiller.SkillDistillerTemplate;
 import io.crewscope.domain.team.MemberRoleStatus;
 import io.crewscope.domain.team.RoleScope;
 import io.crewscope.domain.team.Team;
@@ -204,6 +205,11 @@ public final class AgentManagementApplicationService {
                         "agentProfile.templateVersion",
                         "the built-in Knowledge Distiller is provisioned only by distillation readiness");
             }
+            if (SkillDistillerTemplate.isTemplateVersion(template.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Skill Distiller is provisioned only by distillation readiness");
+            }
             if (template.runtimeRole() == AgentRuntimeRole.PERSONAL_ASSISTANT) {
                 throw new DomainValidationException(
                         "agentProfile.runtimeRole",
@@ -351,6 +357,11 @@ public final class AgentManagementApplicationService {
                 throw new DomainValidationException(
                         "agentProfile.templateVersion",
                         "the built-in Knowledge Distiller lifecycle is managed by its provisioning service");
+            }
+            if (SkillDistillerTemplate.isTemplateVersion(current.templateVersion())) {
+                throw new DomainValidationException(
+                        "agentProfile.templateVersion",
+                        "the built-in Skill Distiller lifecycle is managed by its provisioning service");
             }
             if (current.version() != expectedVersion) {
                 throw new OptimisticLockConflictException(

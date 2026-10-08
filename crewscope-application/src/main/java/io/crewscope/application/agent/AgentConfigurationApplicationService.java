@@ -38,6 +38,7 @@ import io.crewscope.domain.agent.AgentTemplatePublisherScope;
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
+import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerTemplate;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionOwner;
@@ -55,6 +56,7 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.skill.distiller.SkillDistillerTemplate;
 import io.crewscope.domain.team.MemberRoleStatus;
 import io.crewscope.domain.team.RoleScope;
 import io.crewscope.domain.team.Team;
@@ -427,12 +429,22 @@ public final class AgentConfigurationApplicationService {
         return AgentModelSelection.capture(connection, catalog);
     }
 
+    /**
+     * Built-ins whose only provisioning path is a lazy readiness service: the first
+     * configuration append happens while the durable pair is still DISABLED (activation
+     * requires a current configuration), so Preflight evaluates them as pending-ACTIVE.
+     */
+    private static boolean lazilyProvisionedBuiltin(AgentProfile profile) {
+        return TeamObserverTemplate.isTemplateVersion(profile.templateVersion())
+                || KnowledgeDistillerTemplate.isTemplateVersion(profile.templateVersion())
+                || SkillDistillerTemplate.isTemplateVersion(profile.templateVersion());
+    }
+
     private void preflightCandidate(
             ManagementFacts facts, AgentConfigurationVersion configuration) {
         AgentProfile preflightProfile = facts.profile();
         if (preflightProfile.status() == AgentProfileStatus.DISABLED
-                && TeamObserverTemplate.isTemplateVersion(
-                        preflightProfile.templateVersion())) {
+                && lazilyProvisionedBuiltin(preflightProfile)) {
             // Activation Preflight must evaluate the exact version that will be committed, while
             // the durable pair remains DISABLED until every model check succeeds.
             preflightProfile = preflightProfile.activate(facts.actor().id(), facts.now());
