@@ -48,6 +48,9 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-031](ADR-031-Skill沉淀与多Agent协同拓扑.md) | M10 Team Skill 发布/执行双授权、Factory 四扩展点、内置兼容；拓扑部分待 E01 选入 | Skill 部分 ACCEPTED（设计，待 A03 实现）；拓扑 PROPOSED-待选入 |
 | [ADR-032](ADR-032-实时协作通道与在场模型.md) | M11 WebSocket/SSE 分工与降级、握手复用 Session、在场 Redis 键与 TTL、撤权三层、容量上限 | ACCEPTED（设计，待 I01/A01 实现） |
 | [ADR-033](ADR-033-WorkGraph关系模型.md) | M11 三类关系语义与方向规范化、环检测双层与项目锁协议、SPLIT_FROM 森林、关键路径口径、图阈值 | ACCEPTED（设计，待 D01/A02 实现） |
+| [ADR-034](ADR-034-MCP双向接入与工具授权.md) | M11 可选 MCP Client/Server 边界、工具双重治理（含 extensions-protocol 不存在的事实修正） | 已登记（选入前不生效） |
+| [ADR-040](ADR-040-国际化分层与文案治理.md) | M11 可选 i18n：中文源语言、labels 并入、门禁与格式化归属 | 已登记（选入前不生效） |
+| [ADR-041](ADR-041-桌面认证与更新信任链.md) | M11 可选桌面：Tauri 纯包装、Cookie/CSRF/同源适配、更新信任链、TASK/FEATURE 判定 | 已登记（选入前不生效） |
 | [ADR-038](ADR-038-团队成员生命周期与责任转移.md) | M9b 成员撤权、最后 Owner、持续授权与耐久责任交接；M11 只增新通道 | ACCEPTED（设计，待 A07 实现） |
 
 ## ADR 内容要求
