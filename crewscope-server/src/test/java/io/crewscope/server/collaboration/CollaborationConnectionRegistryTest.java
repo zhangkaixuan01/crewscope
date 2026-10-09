@@ -22,79 +22,79 @@ class CollaborationConnectionRegistryTest {
   @Test
   void admitsWithinPerPrincipalBudgetAndRejectsTheNext() {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(2, 10, 20);
-    UUID account = UUID.randomUUID();
+    String principal = "account-" + UUID.randomUUID();
 
-    assertThat(registry.admit("c1", account)).isEqualTo(new Admission.Accepted(false));
-    assertThat(registry.admit("c2", account)).isEqualTo(new Admission.Accepted(false));
-    assertThat(registry.admit("c3", account))
+    assertThat(registry.admit("c1", principal)).isEqualTo(new Admission.Accepted(false));
+    assertThat(registry.admit("c2", principal)).isEqualTo(new Admission.Accepted(false));
+    assertThat(registry.admit("c3", principal))
         .isEqualTo(new Admission.Rejected(Reason.PRINCIPAL_LIMIT));
 
-    assertThat(registry.connectionsFor(account)).isEqualTo(2);
+    assertThat(registry.connectionsFor(principal)).isEqualTo(2);
     assertThat(registry.totalConnections()).isEqualTo(2);
   }
 
   @Test
-  void releasingAConnectionReturnsItsSlotToTheSameAccount() {
+  void releasingAConnectionReturnsItsSlotToTheSamePrincipal() {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(1, 10, 20);
-    UUID account = UUID.randomUUID();
+    String principal = "account-" + UUID.randomUUID();
 
-    assertThat(registry.admit("c1", account)).isEqualTo(new Admission.Accepted(false));
+    assertThat(registry.admit("c1", principal)).isEqualTo(new Admission.Accepted(false));
     assertThat(registry.release("c1")).isTrue();
     assertThat(registry.release("c1")).isFalse();
     assertThat(registry.totalConnections()).isZero();
 
-    assertThat(registry.admit("c2", account)).isEqualTo(new Admission.Accepted(false));
+    assertThat(registry.admit("c2", principal)).isEqualTo(new Admission.Accepted(false));
   }
 
   @Test
-  void nodeHardLimitRejectsRegardlessOfAccountAndSoftBudgetOnlyFlags() {
+  void nodeHardLimitRejectsRegardlessOfPrincipalAndSoftBudgetOnlyFlags() {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(10, 1, 2);
 
-    assertThat(registry.admit("c1", UUID.randomUUID()))
+    assertThat(registry.admit("c1", "account-" + UUID.randomUUID()))
         .isEqualTo(new Admission.Accepted(false));
     // Second connection is within the hard limit but over the soft budget: flagged, admitted.
-    assertThat(registry.admit("c2", UUID.randomUUID()))
+    assertThat(registry.admit("c2", "account-" + UUID.randomUUID()))
         .isEqualTo(new Admission.Accepted(true));
-    assertThat(registry.admit("c3", UUID.randomUUID()))
+    assertThat(registry.admit("c3", "account-" + UUID.randomUUID()))
         .isEqualTo(new Admission.Rejected(Reason.NODE_LIMIT));
   }
 
   @Test
   void duplicateConnectionIdIsRejectedWithoutSideEffects() {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(5, 10, 20);
-    UUID account = UUID.randomUUID();
+    String principal = "account-" + UUID.randomUUID();
 
-    assertThat(registry.admit("c1", account)).isEqualTo(new Admission.Accepted(false));
-    assertThat(registry.admit("c1", UUID.randomUUID()))
+    assertThat(registry.admit("c1", principal)).isEqualTo(new Admission.Accepted(false));
+    assertThat(registry.admit("c1", "account-" + UUID.randomUUID()))
         .isEqualTo(new Admission.Rejected(Reason.DUPLICATE_CONNECTION_ID));
     assertThat(registry.totalConnections()).isEqualTo(1);
-    assertThat(registry.connectionsFor(account)).isEqualTo(1);
+    assertThat(registry.connectionsFor(principal)).isEqualTo(1);
   }
 
   @Test
   void snapshotReflectsRegisteredConnectionsAndIgnoresLaterMutation() {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(5, 10, 20);
-    UUID account = UUID.randomUUID();
-    registry.admit("c1", account);
+    String principal = "account-" + UUID.randomUUID();
+    registry.admit("c1", principal);
 
     var snapshot = registry.snapshot();
     assertThat(snapshot).hasSize(1);
     var connection = snapshot.iterator().next();
     assertThat(connection.connectionId()).isEqualTo("c1");
-    assertThat(connection.accountId()).isEqualTo(account);
+    assertThat(connection.principalKey()).isEqualTo(principal);
     assertThatThrownBy(() -> snapshot.add(null)).isInstanceOf(UnsupportedOperationException.class);
   }
 
   @Test
-  void concurrentAdmissionToOneAccountNeverExceedsThePerPrincipalCap() throws Exception {
+  void concurrentAdmissionToOnePrincipalNeverExceedsThePerPrincipalCap() throws Exception {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(4, 100, 200);
-    UUID sharedAccount = UUID.randomUUID();
+    String sharedPrincipal = "account-" + UUID.randomUUID();
     int contenders = 16;
 
     List<Callable<Admission>> attempts = new ArrayList<>();
     for (int i = 0; i < contenders; i++) {
       String id = "race-" + i;
-      attempts.add(() -> registry.admit(id, sharedAccount));
+      attempts.add(() -> registry.admit(id, sharedPrincipal));
     }
     List<Admission> results = runConcurrently(attempts);
 
@@ -106,19 +106,19 @@ class CollaborationConnectionRegistryTest {
             .count();
     assertThat(admitted).isEqualTo(4);
     assertThat(rejected).isEqualTo(contenders - 4);
-    assertThat(registry.connectionsFor(sharedAccount)).isEqualTo(4);
+    assertThat(registry.connectionsFor(sharedPrincipal)).isEqualTo(4);
   }
 
   @Test
-  void concurrentAdmissionAcrossAccountsRespectsTheNodeHardLimit() throws Exception {
+  void concurrentAdmissionAcrossPrincipalsRespectsTheNodeHardLimit() throws Exception {
     CollaborationConnectionRegistry registry = new CollaborationConnectionRegistry(100, 4, 8);
     int contenders = 16;
 
     List<Callable<Admission>> attempts = new ArrayList<>();
     for (int i = 0; i < contenders; i++) {
       String id = "node-" + i;
-      UUID account = UUID.randomUUID();
-      attempts.add(() -> registry.admit(id, account));
+      String principal = "account-" + UUID.randomUUID();
+      attempts.add(() -> registry.admit(id, principal));
     }
     List<Admission> results = runConcurrently(attempts);
 

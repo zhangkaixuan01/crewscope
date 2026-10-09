@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -30,15 +29,19 @@ public final class CollaborationConnectionRegistry {
     DUPLICATE_CONNECTION_ID
   }
 
-  /** Immutable live-connection record; connection lifetime state stays in the handler. */
-  public record LiveConnection(String connectionId, UUID accountId, Instant connectedAt) {}
+  /**
+   * Immutable live-connection record; connection lifetime state stays in the handler. The
+   * principal key is a stable string identity (account session subjects use the account id)
+   * so future external-authenticated principals count under the same limits.
+   */
+  public record LiveConnection(String connectionId, String principalKey, Instant connectedAt) {}
 
   private final int maxConnectionsPerPrincipal;
   private final int softConnectionBudget;
   private final int hardConnectionLimit;
 
   private final Map<String, LiveConnection> connections = new ConcurrentHashMap<>();
-  private final Map<UUID, Set<String>> connectionsByAccount = new ConcurrentHashMap<>();
+  private final Map<String, Set<String>> connectionsByPrincipal = new ConcurrentHashMap<>();
   private final Object admissionLock = new Object();
 
   public CollaborationConnectionRegistry(
@@ -58,22 +61,22 @@ public final class CollaborationConnectionRegistry {
    * Atomically admits one connection. Check-and-insert runs under the admission lock because
    * connection setup is a low-frequency human-scale event; steady-state reads stay lock-free.
    */
-  public Admission admit(String connectionId, UUID accountId) {
+  public Admission admit(String connectionId, String principalKey) {
     synchronized (admissionLock) {
       if (connections.containsKey(connectionId)) {
         return new Admission.Rejected(Reason.DUPLICATE_CONNECTION_ID);
       }
-      Set<String> existing = connectionsByAccount.get(accountId);
+      Set<String> existing = connectionsByPrincipal.get(principalKey);
       if (existing != null && existing.size() >= maxConnectionsPerPrincipal) {
         return new Admission.Rejected(Reason.PRINCIPAL_LIMIT);
       }
       if (connections.size() >= hardConnectionLimit) {
         return new Admission.Rejected(Reason.NODE_LIMIT);
       }
-      LiveConnection connection = new LiveConnection(connectionId, accountId, Instant.now());
+      LiveConnection connection = new LiveConnection(connectionId, principalKey, Instant.now());
       connections.put(connectionId, connection);
-      connectionsByAccount
-          .computeIfAbsent(accountId, key -> ConcurrentHashMap.newKeySet())
+      connectionsByPrincipal
+          .computeIfAbsent(principalKey, key -> ConcurrentHashMap.newKeySet())
           .add(connectionId);
       return new Admission.Accepted(connections.size() > softConnectionBudget);
     }
@@ -85,17 +88,17 @@ public final class CollaborationConnectionRegistry {
     if (connection == null) {
       return false;
     }
-    connectionsByAccount.computeIfPresent(
-        connection.accountId(),
-        (accountId, ids) -> {
+    connectionsByPrincipal.computeIfPresent(
+        connection.principalKey(),
+        (principalKey, ids) -> {
           ids.remove(connectionId);
           return ids.isEmpty() ? null : ids;
         });
     return true;
   }
 
-  public int connectionsFor(UUID accountId) {
-    Set<String> ids = connectionsByAccount.get(accountId);
+  public int connectionsFor(String principalKey) {
+    Set<String> ids = connectionsByPrincipal.get(principalKey);
     return ids == null ? 0 : ids.size();
   }
 
