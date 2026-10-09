@@ -103,6 +103,19 @@ class CollaborationSubscriptionRegistryTest {
   }
 
   @Test
+  void scopeKeysOfListsTheConnectionsActiveScopesOnly() {
+    CollaborationSubscriptionRegistry registry = new CollaborationSubscriptionRegistry(3);
+    registry.add(CONNECTION, "scope:a");
+    registry.add(CONNECTION, "scope:b");
+
+    assertThat(registry.scopeKeysOf(CONNECTION)).containsExactlyInAnyOrder("scope:a", "scope:b");
+    assertThat(registry.scopeKeysOf("conn-unknown")).isEmpty();
+
+    registry.remove(CONNECTION, registry.subscriptionId(CONNECTION, "scope:a").orElseThrow());
+    assertThat(registry.scopeKeysOf(CONNECTION)).containsExactly("scope:b");
+  }
+
+  @Test
   void constructorRejectsOutOfRangeLimits() {
     assertThatThrownBy(() -> new CollaborationSubscriptionRegistry(0))
         .isInstanceOf(IllegalArgumentException.class);

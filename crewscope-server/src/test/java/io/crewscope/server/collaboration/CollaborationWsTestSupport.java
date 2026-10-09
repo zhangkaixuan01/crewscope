@@ -1,13 +1,23 @@
 package io.crewscope.server.collaboration;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.crewscope.domain.shared.id.TeamId;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.crewscope.server.security.ApiSecurityResponseWriter;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
 import io.crewscope.server.security.SameOriginWebFilter;
 import io.crewscope.server.security.session.BrowserSessionPrincipal;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -33,7 +43,10 @@ import org.springframework.security.web.server.context.WebSessionServerSecurityC
 import org.springframework.security.web.server.util.matcher.PathPatternParserServerWebExchangeMatcher;
 import org.springframework.session.data.redis.config.annotation.web.server.EnableRedisIndexedWebSession;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+import reactor.netty.http.client.HttpClient;
 
 /**
  * Minimal bootstrap context for the collaboration WebSocket tests: a real Redis-backed browser
@@ -57,9 +70,17 @@ final class CollaborationWsTestSupport {
   static final String WS_PATH = "/api/v1/collaboration/ws";
   static final String SESSION_COOKIE = "CREWSCOPE_SESSION";
   static final UUID ALICE_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+  static final UUID BOB_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
+
+  /** Fixture organization and the team coordinates the fake authorizer reasons about. */
+  static final UUID ORGANIZATION_ID = UUID.fromString("00000000-0000-0000-0000-000000000011");
+  static final UUID ALICE_TEAM_1 = UUID.fromString("00000000-0000-0000-0000-000000000012");
+  static final UUID ALICE_TEAM_2 = UUID.fromString("00000000-0000-0000-0000-000000000013");
+  static final UUID BOB_TEAM = UUID.fromString("00000000-0000-0000-0000-000000000014");
 
   private static final int MAX_LOGIN_BODY_BYTES = 8 * 1024;
   private static final ObjectMapper JSON = new ObjectMapper();
+  private static final TypeReference<Map<String, Object>> FRAME_TYPE = new TypeReference<>() {};
   private static final Map<String, String> PASSWORDS =
       Map.of("alice", "alice-password", "bob", "bob-password");
   private static final Map<String, UUID> ACCOUNTS =
@@ -78,8 +99,47 @@ final class CollaborationWsTestSupport {
         org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration.class,
         org.springframework.boot.session.data.redis.autoconfigure.SessionDataRedisAutoConfiguration.class
       })
-  @Import({CollaborationWsTestSupport.SecurityFixture.class, CollaborationWebSocketConfiguration.class})
+  @Import({
+    CollaborationWsTestSupport.SecurityFixture.class,
+    CollaborationWsTestSupport.SubscriptionFixture.class,
+    CollaborationWebSocketConfiguration.class
+  })
   static class SpikeApplication {}
+
+  /**
+   * Fake subscription authorization (I01b evidence honesty): the real policy behaviors have
+   * their own tests, and the cross-team / revocation attack sets belong to Q01's product-level
+   * verification — what the protocol tests need is a deterministic principal-to-team table so
+   * forbidden_scope, subscription_limit, and the presence lifecycle can be observed. It never
+   * checks resource granularity: the fake answers team membership only.
+   */
+  @Profile(FIXTURE_PROFILE)
+  @Configuration(proxyBeanMethods = false)
+  static class SubscriptionFixture {
+
+    @Bean
+    CollaborationSubscriptionAuthorizer collaborationSubscriptionAuthorizer() {
+      Map<UUID, Set<TeamId>> allowedTeams =
+          Map.of(
+              ALICE_ACCOUNT_ID, Set.of(new TeamId(ALICE_TEAM_1), new TeamId(ALICE_TEAM_2)),
+              BOB_ACCOUNT_ID, Set.of(new TeamId(BOB_TEAM)));
+      return (authentication, scope) ->
+          Mono.fromSupplier(
+              () -> {
+                if (!(authentication.getPrincipal() instanceof BrowserSessionPrincipal session)) {
+                  return CollaborationSubscriptionAuthorizer.Decision.DENIED;
+                }
+                if (!scope.organizationId().value().equals(ORGANIZATION_ID)) {
+                  return CollaborationSubscriptionAuthorizer.Decision.DENIED;
+                }
+                return allowedTeams
+                        .getOrDefault(session.accountId(), Set.of())
+                        .contains(scope.teamId())
+                    ? CollaborationSubscriptionAuthorizer.Decision.ALLOWED
+                    : CollaborationSubscriptionAuthorizer.Decision.DENIED;
+              });
+    }
+  }
 
   @Profile(FIXTURE_PROFILE)
   @Configuration(proxyBeanMethods = false)
@@ -210,4 +270,98 @@ final class CollaborationWsTestSupport {
   }
 
   record LoginRequest(String username, String password) {}
+
+  /** One real reactor-netty WebSocket client connection with frame and close-code accessors. */
+  static final class WsConnection implements AutoCloseable {
+
+    private final LinkedBlockingQueue<String> frames = new LinkedBlockingQueue<>();
+    private final Sinks.Many<String> toSend = Sinks.many().unicast().onBackpressureBuffer();
+    private final CompletableFuture<Integer> closeCode = new CompletableFuture<>();
+    private final Disposable connection;
+
+    /**
+     * The handle lambda captures this before the constructor finishes, but only the three
+     * already-initialized sinks above — the connection disposable itself is never touched
+     * inside it, so the escape is safe.
+     */
+    private WsConnection(int port, String sessionCookieValue) {
+      this.connection =
+          HttpClient.create()
+              .headers(
+                  headers ->
+                      headers.set(
+                          "Cookie",
+                          CollaborationWsTestSupport.SESSION_COOKIE + "=" + sessionCookieValue))
+              .websocket()
+              .uri("ws://127.0.0.1:" + port + CollaborationWsTestSupport.WS_PATH)
+              .handle(
+                  (inbound, outbound) -> {
+                    Mono<Void> receiving =
+                        inbound
+                            .receiveFrames()
+                            .doOnNext(
+                                frame -> {
+                                  if (frame instanceof TextWebSocketFrame text) {
+                                    frames.add(text.text());
+                                  }
+                                })
+                            .then();
+                    Mono<Void> closing =
+                        inbound
+                            .receiveCloseStatus()
+                            .doOnNext(status -> closeCode.complete(status.code()))
+                            .then()
+                            .onErrorResume(
+                                error -> {
+                                  closeCode.complete(-1);
+                                  return Mono.empty();
+                                });
+                    Mono<Void> sending =
+                        outbound
+                            .sendString(toSend.asFlux(), StandardCharsets.UTF_8)
+                            .then();
+                    return sending.and(receiving).and(closing);
+                  })
+              .subscribe();
+    }
+
+    static WsConnection open(int port, String sessionCookieValue) {
+      return new WsConnection(port, sessionCookieValue);
+    }
+
+    Map<String, Object> nextFrameJson(Duration timeout) throws Exception {
+      return JSON.readValue(nextFrame(timeout), FRAME_TYPE);
+    }
+
+    String nextFrame(Duration timeout) {
+      String frame;
+      try {
+        frame = frames.poll(timeout.toMillis(), TimeUnit.MILLISECONDS);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("interrupted while waiting for a frame");
+      }
+      if (frame == null) {
+        throw new IllegalStateException("no frame arrived within " + timeout);
+      }
+      return frame;
+    }
+
+    void sendText(String frame) {
+      toSend.tryEmitNext(frame);
+    }
+
+    int awaitCloseCode(Duration timeout) throws Exception {
+      try {
+        return closeCode.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+      } catch (TimeoutException timeoutException) {
+        throw new IllegalStateException("connection not closed within " + timeout);
+      }
+    }
+
+    @Override
+    public void close() {
+      connection.dispose();
+    }
+  }
 }

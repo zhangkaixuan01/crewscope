@@ -113,7 +113,8 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
     store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
     clock.advance(Duration.ofSeconds(15));
 
-    store.refresh("conn-1", List.of(itemScope, teamScope)).block(REDIS_TIMEOUT);
+    store.refresh("conn-1", List.of(keyspace.scopeKey(itemScope), keyspace.scopeKey(teamScope)))
+        .block(REDIS_TIMEOUT);
 
     assertThat(
             redis.opsForZSet().score(keyspace.scopeKey(itemScope), "conn-1").block(REDIS_TIMEOUT))
@@ -130,7 +131,8 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
     store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
     store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
 
-    store.removeConnection("conn-1", List.of(itemScope, teamScope)).block(REDIS_TIMEOUT);
+    store.removeConnection("conn-1", List.of(keyspace.scopeKey(itemScope), keyspace.scopeKey(teamScope)))
+        .block(REDIS_TIMEOUT);
 
     assertThat(redis.hasKey(keyspace.connectionKey("conn-1")).block(REDIS_TIMEOUT)).isFalse();
     assertThat(
@@ -145,7 +147,7 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
     store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
     store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
 
-    store.removeScope("conn-1", itemScope).block(REDIS_TIMEOUT);
+    store.removeScope("conn-1", keyspace.scopeKey(itemScope)).block(REDIS_TIMEOUT);
 
     assertThat(
             redis.opsForZSet().size(keyspace.scopeKey(itemScope)).block(REDIS_TIMEOUT))

@@ -3,11 +3,13 @@ package io.crewscope.server.collaboration;
 import io.crewscope.server.config.application.CollaborationRealtimeProperties;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.security.web.server.context.WebSessionServerSecurityContextRepository;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
@@ -55,17 +57,57 @@ public class CollaborationWebSocketConfiguration {
   }
 
   @Bean
+  CollaborationSubscriptionRegistry collaborationSubscriptionRegistry(
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationSubscriptionRegistry(
+        properties.getMaxSubscriptionsPerConnection());
+  }
+
+  @Bean
+  CollaborationPresenceKeyspace collaborationPresenceKeyspace(
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationPresenceKeyspace(properties.getEnvironment());
+  }
+
+  @Bean
+  CollaborationPresenceStore collaborationPresenceStore(
+      ReactiveStringRedisTemplate redisTemplate,
+      CollaborationPresenceKeyspace keyspace,
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationPresenceStore(
+        redisTemplate, keyspace, properties.getPresenceTtl(), Clock.systemUTC());
+  }
+
+  @Bean
+  CollaborationPresenceSweeper collaborationPresenceSweeper(
+      ReactiveStringRedisTemplate redisTemplate,
+      CollaborationPresenceKeyspace keyspace,
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationPresenceSweeper(
+        redisTemplate, keyspace, properties.getPresenceSweepInterval(), Clock.systemUTC());
+  }
+
+  @Bean
   CollaborationConnectionHandler collaborationConnectionHandler(
       CollaborationRealtimeProperties properties,
       CollaborationConnectionRegistry registry,
       CollaborationConnectionMetrics metrics,
-      AuthenticationSubjectExtractor subjectExtractor) {
+      AuthenticationSubjectExtractor subjectExtractor,
+      CollaborationSubscriptionRegistry subscriptions,
+      CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
+      CollaborationPresenceKeyspace presenceKeyspace,
+      CollaborationPresenceStore presenceStore) {
     return new CollaborationConnectionHandler(
         registry,
         metrics,
         subjectExtractor,
+        subscriptions,
+        subscriptionAuthorizer,
+        presenceKeyspace,
+        presenceStore,
         properties.getHeartbeatInterval(),
         properties.getInboundIdleTimeout(),
+        properties.getPresenceTtl(),
         properties.getOutboundFrameBufferLimit());
   }
 

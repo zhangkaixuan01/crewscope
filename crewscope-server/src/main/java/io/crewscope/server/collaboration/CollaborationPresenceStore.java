@@ -80,37 +80,35 @@ public final class CollaborationPresenceStore {
         .then();
   }
 
-  /** Heartbeat refresh: the conn TTL and every active scope's ZSET score slide forward. */
-  public Mono<Void> refresh(String connectionId, Collection<CollaborationResourceScope> scopes) {
-    if (scopes.isEmpty()) {
+  /**
+   * Heartbeat refresh: the conn TTL and every active scope's ZSET score slide forward. Takes
+   * pre-rendered scope keys — the caller's subscription registry only tracks those strings.
+   */
+  public Mono<Void> refresh(String connectionId, Collection<String> scopeKeys) {
+    if (scopeKeys.isEmpty()) {
       return Mono.empty();
     }
     return redis
         .expire(keyspace.connectionKey(connectionId), presenceTtl)
         .thenMany(
-            Flux.fromIterable(scopes)
-                .concatMap(
-                    scope ->
-                        redis.opsForZSet().add(keyspace.scopeKey(scope), connectionId, expiryScore())))
+            Flux.fromIterable(scopeKeys)
+                .concatMap(scopeKey -> redis.opsForZSet().add(scopeKey, connectionId, expiryScore())))
         .then();
   }
 
   /** Removes a connection and all its scope index entries on disconnect or revocation. */
-  public Mono<Void> removeConnection(
-      String connectionId, Collection<CollaborationResourceScope> scopes) {
+  public Mono<Void> removeConnection(String connectionId, Collection<String> scopeKeys) {
     return redis
         .delete(keyspace.connectionKey(connectionId))
         .thenMany(
-            Flux.fromIterable(scopes)
-                .concatMap(
-                    scope ->
-                        redis.opsForZSet().remove(keyspace.scopeKey(scope), connectionId)))
+            Flux.fromIterable(scopeKeys)
+                .concatMap(scopeKey -> redis.opsForZSet().remove(scopeKey, connectionId)))
         .then();
   }
 
   /** Drops one scope entry on unsubscribe; the conn hash stays until disconnect. */
-  public Mono<Void> removeScope(String connectionId, CollaborationResourceScope scope) {
-    return redis.opsForZSet().remove(keyspace.scopeKey(scope), connectionId).then();
+  public Mono<Void> removeScope(String connectionId, String scopeKey) {
+    return redis.opsForZSet().remove(scopeKey, connectionId).then();
   }
 
   /**

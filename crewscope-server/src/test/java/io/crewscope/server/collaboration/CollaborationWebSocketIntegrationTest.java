@@ -2,17 +2,10 @@ package io.crewscope.server.collaboration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
-import java.nio.charset.StandardCharsets;
+import io.crewscope.server.collaboration.CollaborationWsTestSupport.WsConnection;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -31,10 +24,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-import reactor.core.Disposable;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
-import reactor.netty.http.client.HttpClient;
 
 /**
  * I01a acceptance over the real server port: unauthenticated and cross-origin upgrades are
@@ -68,8 +57,6 @@ import reactor.netty.http.client.HttpClient;
 class CollaborationWebSocketIntegrationTest {
 
   private static final int REDIS_PORT = 6379;
-  private static final ObjectMapper JSON = new ObjectMapper();
-  private static final TypeReference<Map<String, Object>> FRAME_TYPE = new TypeReference<>() {};
 
   @Container
   private static final GenericContainer<?> REDIS =
@@ -198,100 +185,5 @@ class CollaborationWebSocketIntegrationTest {
         result.getResponseCookies().get(CollaborationWsTestSupport.SESSION_COOKIE);
     assertThat(cookies).isNotEmpty();
     return cookies.get(cookies.size() - 1).getValue();
-  }
-
-  /** One real reactor-netty WebSocket client connection with frame and close-code accessors. */
-  private static final class WsConnection implements AutoCloseable {
-
-    private final LinkedBlockingQueue<String> frames = new LinkedBlockingQueue<>();
-    private final Sinks.Many<String> toSend = Sinks.many().unicast().onBackpressureBuffer();
-    private final CompletableFuture<Integer> closeCode = new CompletableFuture<>();
-    private final Disposable connection;
-
-    /**
-     * The handle lambda captures this before the constructor finishes, but only the three
-     * already-initialized sinks above — the connection disposable itself is never touched
-     * inside it, so the escape is safe.
-     */
-    private WsConnection(int port, String sessionCookieValue) {
-      this.connection =
-          HttpClient.create()
-              .headers(
-                  headers ->
-                      headers.set(
-                          "Cookie",
-                          CollaborationWsTestSupport.SESSION_COOKIE + "=" + sessionCookieValue))
-              .websocket()
-              .uri("ws://127.0.0.1:" + port + CollaborationWsTestSupport.WS_PATH)
-              .handle(
-                  (inbound, outbound) -> {
-                    Mono<Void> receiving =
-                        inbound
-                            .receiveFrames()
-                            .doOnNext(
-                                frame -> {
-                                  if (frame instanceof TextWebSocketFrame text) {
-                                    frames.add(text.text());
-                                  }
-                                })
-                            .then();
-                    Mono<Void> closing =
-                        inbound
-                            .receiveCloseStatus()
-                            .doOnNext(status -> closeCode.complete(status.code()))
-                            .then()
-                            .onErrorResume(
-                                error -> {
-                                  closeCode.complete(-1);
-                                  return Mono.empty();
-                                });
-                    Mono<Void> sending =
-                        outbound
-                            .sendString(toSend.asFlux(), StandardCharsets.UTF_8)
-                            .then();
-                    return sending.and(receiving).and(closing);
-                  })
-              .subscribe();
-    }
-
-    static WsConnection open(int port, String sessionCookieValue) {
-      return new WsConnection(port, sessionCookieValue);
-    }
-
-    Map<String, Object> nextFrameJson(Duration timeout) throws Exception {
-      String frame = nextFrame(timeout);
-      return JSON.readValue(frame, FRAME_TYPE);
-    }
-
-    String nextFrame(Duration timeout) {
-      String frame;
-      try {
-        frame = frames.poll(timeout.toMillis(), TimeUnit.MILLISECONDS);
-      } catch (InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("interrupted while waiting for a frame");
-      }
-      if (frame == null) {
-        throw new IllegalStateException("no frame arrived within " + timeout);
-      }
-      return frame;
-    }
-
-    void sendText(String frame) {
-      toSend.tryEmitNext(frame);
-    }
-
-    int awaitCloseCode(Duration timeout) throws Exception {
-      try {
-        return closeCode.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-      } catch (TimeoutException timeoutException) {
-        throw new IllegalStateException("connection not closed within " + timeout);
-      }
-    }
-
-    @Override
-    public void close() {
-      connection.dispose();
-    }
   }
 }

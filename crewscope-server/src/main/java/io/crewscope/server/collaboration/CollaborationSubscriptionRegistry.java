@@ -119,6 +119,15 @@ public final class CollaborationSubscriptionRegistry {
     return Collections.unmodifiableSet(scopeKeys);
   }
 
+  /**
+   * The scope keys a connection currently holds — the heartbeat's presence refresh set. The
+   * set is a snapshot; concurrent subscribes/unsubscribes are reconciled by the next tick.
+   */
+  public synchronized Set<String> scopeKeysOf(String connectionId) {
+    Map<String, String> subscriptions = subscriptionsByConnection.get(connectionId);
+    return subscriptions == null ? Set.of() : Set.copyOf(subscriptions.keySet());
+  }
+
   /** Connections currently holding a subscription to the scope — the fanout set. */
   public Set<String> connectionsFor(String scopeKey) {
     Set<String> connections = connectionsByScope.get(scopeKey);
