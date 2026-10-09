@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      M11-S01 isolated WebSocket collaboration probe (SPIKE artifact).
+
+      NOT part of the main reactor: build it with the repo-root wrapper and
+      never in parallel with a main build:
+        ./mvnw -f scripts/m11-s01/ws-probe/pom.xml verify
+
+      Dependency decisions frozen by ADR-032:
+      - spring-websocket directly (NOT spring-boot-starter-websocket: that
+        starter pulls spring-boot-starter-web / Tomcat / MVC and conflicts
+        with the WebFlux + Reactor Netty stack);
+      - the spring-framework-bom 7.0.9 import below overrides the parent's
+        managed baseline the same way the repo root pom does, keeping the
+        probe on the patched framework line (CVE-2026-47890/47892).
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.crewscope</groupId>
+    <artifactId>crewscope-m11-s01-ws-probe</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>CrewScope M11-S01 WebSocket Probe</name>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring-framework.version>7.0.9</spring-framework.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-framework-bom</artifactId>
+                <version>${spring-framework.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-websocket</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-session-data-redis</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

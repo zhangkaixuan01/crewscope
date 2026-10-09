@@ -34,3 +34,6 @@ logs/
 var/
 deploy/team-beta/.runtime/
 deploy/local-demo/.runtime/
+
+# M11-S01 spike probe build output
+scripts/m11-s01/ws-probe/target/

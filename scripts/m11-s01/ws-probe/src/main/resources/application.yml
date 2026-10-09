@@ -1,0 +1,22 @@
+server:
+  port: 18095
+
+spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+  session:
+    # Isolated key space: the probe never touches product session keys
+    # (crewscope:session) and never issues FLUSH/DEL outside its namespace.
+    redis:
+      namespace: crewscope:probe:m11s01:session
+    timeout: 12h
+
+# Probe-owned constants frozen by ADR-032 / ADR-038 section 3.1.
+probe:
+  heartbeat-interval: 15s
+  inbound-idle-limit: 30s
+  presence-ttl: 45s
+  revalidation-cache: 5s
+  outbound-buffer: 64

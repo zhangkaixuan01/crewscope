@@ -79,18 +79,18 @@
 
 ## 4. 资源预算与阈值（公式冻结；实测数字 S01b 回填）
 
-| 预算项 | 冻结公式 / 阈值 | S01b 实测（待回填） |
+| 预算项 | 冻结公式 / 阈值 | S01b 实测（2026-10-09，darwin arm64） |
 | --- | --- | --- |
-| 50 人同屏入站 | ≈ 50 × (1/15 心跳 + typing 5s 窗口 2 帧 + 2/min 迁移) ≈ 22 msg/s 峰值 | 待回填 |
-| Redis 在场写 | ≈ 3.3 writes/s 稳态（心跳刷新） | 待回填 |
-| 单节点连接 | 软预算 200 / 硬上限 500；每 principal 16；每 Team 300 | 200 连接堆增量：待回填 |
-| 握手 | 200 并发握手 P95 | 待回填 |
-| 心跳 | ping→pong P95 | 待回填 |
-| fanout | 1 条变更 → 50 订阅者 P95 | 待回填 |
-| 撤权 | revoke → 全连接关闭 + Redis 清理时延 | 待回填 |
-| 在场 TTL | 45s 过期 + ZSET 惰性清理 | 待回填 |
-| 邻接查询 | P95 ≤ 100ms | 待回填 |
-| 5000 节点阻塞链 CTE | P95 ≤ 500ms（深度 32 截断；长链截断行为显式呈现） | 待回填 |
+| 50 人同屏入站 | ≈ 50 × (1/15 心跳 + typing 5s 窗口 2 帧 + 2/min 迁移) ≈ 22 msg/s 峰值 | 未单独打流；steady 200 连接全程心跳+pong 无积压（framesIn=1608/framesOut=3208 over 120s，无 backpressure 迹象），50 人 22 msg/s 远低于该水位 |
+| Redis 在场写 | ≈ 3.3 writes/s 稳态（心跳刷新） | 未单独计数（probe 写路径 fire-and-forget）；steady 200 conn × 1/15s 心跳刷新 ≈ 13.3 writes/s 无异常（Redis 同机 docker，日志无慢查询） |
+| 单节点连接 | 软预算 200 / 硬上限 500；每 principal 16；每 Team 300 | storm 200 并发全部建立（connections=200/200，零失败）；堆增量 ≈90KB/conn（含 GC 噪声），500 conn 外推 ≈45MB 单实例可承受 |
+| 握手 | 200 并发握手 P95 | **P50=152.7ms / P95=177.4ms / P99=186.1ms**（upgrade→welcome，200 路并发；login 串行前置不计入） |
+| 心跳 | ping→pong P95 | **P95=1.7ms**（本机 loopback，应用层 text 帧，n=20） |
+| fanout | 1 条变更 → 50 订阅者 P95 | **POST 12.8ms；到达 P50=8.7ms / P95=10.8ms / P99=10.8ms**（50/50 送达） |
+| 撤权 | revoke → 全连接关闭 + Redis 清理时延 | **layer1 12ms**（4403 + presence 即删）；layer2 9ms（revoke 即时清缓存；无事件上界 = 5s 缓存 + 一次出站 emit，revoke 场景实测上界内） |
+| 在场 TTL | 45s 过期 + ZSET 惰性清理 | 种孤儿键 50s 后 conn 键 `EXISTS`=0（TTL 硬上界成立）；ZSET 残留成员在下一次 presence 读被 `ZREMRANGEBYSCORE` 清除；clean close 与 RST 均 ≤2s 即清（详见 presence-ttl.md §1） |
+| 邻接查询 | P95 ≤ 100ms | C4 回填（cycle-race.sql / cte-depth.sql） |
+| 5000 节点阻塞链 CTE | P95 ≤ 500ms（深度 32 截断；长链截断行为显式呈现） | C4 回填 |
 
 度量口径：darwin arm64 本机、单 API 进程（记录 JVM 参数与堆）、Redis 本机 docker、直连不过 Nginx。产品级（过 Nginx、真实权限过滤、进程重启重连潮、Prometheus 指标）归 I01/Q01，本文不冒充。
 
@@ -108,15 +108,20 @@
 
 **证据不冒充声明**：ws-probe 用独立 Spring Session namespace（`crewscope:probe:m11s01:session`）验证机制保真度（cookie → 握手 → attributes → 复验），不是产品 session 存储的字节级一致；产品级一致归 I01 集成测试。SQL 原型在独立 schema `m11s01` 上验证事务协议，不是 D01 迁移与聚合的验收。
 
-## 6. S01b 原型清单与结果（待执行回填）
+## 6. S01b 原型清单与结果（WS 部分 2026-10-09 实测；SQL 部分 C4 回填）
 
 | 入口 | 场景 | 结果摘要 |
 | --- | --- | --- |
-| `scripts/m11-s01/ws-probe/` | 独立 Maven 小应用（Boot 4.0.6 + WebFlux + spring-websocket 7.0.9 + reactive Redis + Spring Session），端口 18095 | 待回填（构建 + 启动 + 场景通过情况） |
-| `scripts/m11-s01/load-ws.mjs` | storm / steady / slow / fanout / revoke / ttl / multitab 七场景 | 待回填 |
-| `scripts/m11-s01/presence-ttl.md` | TTL 到期、close vs 自然过期、惰性清理、去重示例、内存占用 | 待回填 |
-| `scripts/m11-s01/cycle-race.sql` | S1 相反边 / S2 diamond race（含端点锁否证）/ S3 SPLIT_FROM 祖先环 | 待回填 |
-| `scripts/m11-s01/cte-depth.sql` | 5000 节点阻塞链 CTE P50/P95/P99 + 邻接基准 | 待回填 |
+| `scripts/m11-s01/ws-probe/` | 独立 Maven 小应用（Boot 4.0.6 + WebFlux + spring-websocket 7.0.9 + reactive Redis + Spring Session），端口 18095 | `./mvnw verify` BUILD SUCCESS；Netty 启动 1.3s；未认证 upgrade→401、Origin 校验、login→session→握手链路全通 |
+| `scripts/m11-s01/load-ws.mjs` | storm / steady / slow / fanout / revoke / ttl / multitab / crossteam 八场景 | **全部通过**：storm 200 并发握手 P95=177ms 零失败；steady 200×120s 心跳维持 CPU 1.2% 单核、RTT P95=1.7ms；slow 静默 30s 断（code 1000）+ 健康连接隔离；fanout 50/50 P95=10.8ms；revoke layer1 12ms/layer2 9ms（4403）；ttl 三退出路径 + 惰性清理；multitab 3 连接去重 1 principal；crossteam 拒绝 + 计数 |
+| `scripts/m11-s01/presence-ttl.md` | TTL 到期、close vs 自然过期、惰性清理、去重示例、内存占用 | 已交付（含半开连接本机不可模拟的诚实注记与 I01a 义务移交） |
+| `scripts/m11-s01/cycle-race.sql` | S1 相反边 / S2 diamond race（含端点锁否证）/ S3 SPLIT_FROM 祖先环 | C4 回填 |
+| `scripts/m11-s01/cte-depth.sql` | 5000 节点阻塞链 CTE P50/P95/P99 + 邻接基准 | C4 回填 |
+
+S01b 过程中发现并修正的两个**承重事实**（产品实现必须带走）：
+
+1. **Spring Framework 7 的 `WebSocketSession.getAttributes()` 不再是 6.x 的 exchange attributes**。`HandshakeWebSocketService.initAttributes` 只有在设置了 `sessionAttributePredicate` 时才从 `WebSession` attributes 过滤拷贝（默认空 map）——握手鉴权链（filter 校验 401 + handler 读 principal）必须显式配置该 predicate（probe 见 `WebSocketConfiguration`）。ADR-032 §握手鉴权的机制描述以此为准。
+2. **Reactor Netty 的 WebSocket `send` 路径不把 channel writability 反馈为上游消费停滞**（framesOut 实测全量成功）。慢客户端防护不能依赖「bounded sink + 库背压」隐式生效：真实网络的带宽延迟积会让 channel 不可写、sink 溢出、1013 生效，但应用层出站配额（未确认出站字节/帧上限，超限即关）是显式可测的等价物——已登记为 I01a 义务（presence-ttl.md §4）。
 
 ## 7. I01 切片卡与可选包指引
 
