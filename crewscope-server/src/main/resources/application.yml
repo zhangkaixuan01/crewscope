@@ -278,6 +278,17 @@ crewscope:
       reconcile-interval: ${CREWSCOPE_CODING_DIFF_RECONCILE_INTERVAL:15s}
       # Override in shared/production deployments; it must remain stable across Worker restarts.
       cursor-secret: ${CREWSCOPE_CODING_DIFF_CURSOR_SECRET:crewscope-development-diff-cursor-key-v1}
+  collaboration-realtime:
+    # M11-I01a: bidirectional collaboration channel. Stays disabled until I01b delivers the
+    # subscription protocol, so unenabled deployments expose no endpoint at all.
+    enabled: ${CREWSCOPE_COLLABORATION_REALTIME_ENABLED:false}
+    heartbeat-interval: ${CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL:15s}
+    inbound-idle-timeout: ${CREWSCOPE_COLLABORATION_REALTIME_INBOUND_IDLE_TIMEOUT:30s}
+    max-connections-per-principal: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_CONNECTIONS_PER_PRINCIPAL:16}
+    soft-connection-budget: ${CREWSCOPE_COLLABORATION_REALTIME_SOFT_CONNECTION_BUDGET:200}
+    hard-connection-limit: ${CREWSCOPE_COLLABORATION_REALTIME_HARD_CONNECTION_LIMIT:500}
+    outbound-frame-buffer-limit: ${CREWSCOPE_COLLABORATION_REALTIME_OUTBOUND_FRAME_BUFFER_LIMIT:256}
+    max-inbound-frame-size: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_INBOUND_FRAME_SIZE:8KB}
   conversation-events:
     poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
