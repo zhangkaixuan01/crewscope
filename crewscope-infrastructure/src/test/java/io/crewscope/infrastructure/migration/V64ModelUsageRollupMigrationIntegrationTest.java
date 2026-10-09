@@ -27,8 +27,8 @@ import org.junit.jupiter.api.Test;
 class V64ModelUsageRollupMigrationIntegrationTest
         extends AbstractPostgresRedisContainerIntegrationTest {
 
-    // The chain tip this test rides (V65 lands with the budget chain in F03b).
-    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("65");
+    // The chain tip this test rides (M10-Q02 added V66 on top of the budget chain).
+    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("66");
     private static final String NOW = "TIMESTAMPTZ '2026-10-05 09:00:00+00'";
 
     /** Unpriced pricing shape: 'XXX' sentinel, all three costs and the triple NULL. */
@@ -53,7 +53,7 @@ class V64ModelUsageRollupMigrationIntegrationTest
 
         assertTrue(target.migrate().migrationsExecuted >= 63);
         target.validate();
-        assertEquals("65", target.info().current().getVersion().getVersion());
+        assertEquals("66", target.info().current().getVersion().getVersion());
         assertEquals(0L, longScalar(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'"));
     }

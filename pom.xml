@@ -57,6 +57,15 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Override Spring Boot's Framework baseline with the patched 7.0.9 line
+                 (CVE-2026-47890 / CVE-2026-47892 in spring-webflux 7.0.7). -->
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-framework-bom</artifactId>
+                <version>7.0.9</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>

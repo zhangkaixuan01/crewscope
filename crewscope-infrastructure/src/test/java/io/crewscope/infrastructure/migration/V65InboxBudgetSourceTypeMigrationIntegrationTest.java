@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 class V65InboxBudgetSourceTypeMigrationIntegrationTest
         extends AbstractPostgresRedisContainerIntegrationTest {
 
-    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("65");
+    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("66");
     private static final String NOW = "TIMESTAMPTZ '2026-10-05 09:00:00+00'";
     private static final UUID TEMPLATE_ID = UUID.fromString(
             "88460269-6f59-5eac-9f8e-ad1c71201c6f");
@@ -52,7 +52,7 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
 
         assertTrue(target.migrate().migrationsExecuted >= 64);
         target.validate();
-        assertEquals("65", target.info().current().getVersion().getVersion());
+        assertEquals("66", target.info().current().getVersion().getVersion());
     }
 
     @Test

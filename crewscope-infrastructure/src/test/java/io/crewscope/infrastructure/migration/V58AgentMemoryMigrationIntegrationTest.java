@@ -26,8 +26,8 @@ import org.junit.jupiter.api.Test;
 class V58AgentMemoryMigrationIntegrationTest
         extends AbstractPostgresRedisContainerIntegrationTest {
 
-    // The chain tip this test rides (F03a added V64 on top of the V58 tables).
-    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("65");
+    // The chain tip this test rides (M10-Q02 added V66 on top of the V58 tables).
+    private static final MigrationVersion VERSION_TIP = MigrationVersion.fromVersion("66");
     private static final String NOW = "TIMESTAMPTZ '2026-10-04 09:00:00+00'";
     private static final UUID POLICY_ID = UUID.fromString(
             "7f2c9d64-5b1a-4f0e-9a3d-2c8b1e6f4a20");
@@ -49,7 +49,7 @@ class V58AgentMemoryMigrationIntegrationTest
 
         assertTrue(target.migrate().migrationsExecuted >= 60);
         target.validate();
-        assertEquals("65", target.info().current().getVersion().getVersion());
+        assertEquals("66", target.info().current().getVersion().getVersion());
         // The default chain stays pure PostgreSQL: no vector extension may appear.
         assertEquals(0L, longScalar(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'vector'"));
