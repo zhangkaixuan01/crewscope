@@ -1,7 +1,7 @@
 # M11-S01：实时协作与 WorkGraph 合同冻结
 
 > 日期：2026-10-09；源码基线：`b0a2099`（M10-Q02 收官，CI 全绿）。<br>
-> 状态：S01a 合同已冻结（本文 §1–§3、§5、§7）；S01b 隔离原型实测待执行（§4 数字、§6 结果、§9 闭合待回填）。不是 M11 功能完成报告。<br>
+> 状态：**S01 已完成**（S01a 合同冻结 + S01b 隔离原型实测全回填，§9 已闭合）。不是 M11 功能完成报告。<br>
 > 本轮只交付设计、源码核对与隔离原型：不写产品代码、不写迁移（基线 tip = V66，D01 从 V67 顺延）、不启动产品服务、不调用真实模型。原型验证机制保真度，不冒充 I01/D01 的产品验收。
 
 ## 1. 阅读与放行规则
@@ -89,8 +89,8 @@
 | fanout | 1 条变更 → 50 订阅者 P95 | **POST 12.8ms；到达 P50=8.7ms / P95=10.8ms / P99=10.8ms**（50/50 送达） |
 | 撤权 | revoke → 全连接关闭 + Redis 清理时延 | **layer1 12ms**（4403 + presence 即删）；layer2 9ms（revoke 即时清缓存；无事件上界 = 5s 缓存 + 一次出站 emit，revoke 场景实测上界内） |
 | 在场 TTL | 45s 过期 + ZSET 惰性清理 | 种孤儿键 50s 后 conn 键 `EXISTS`=0（TTL 硬上界成立）；ZSET 残留成员在下一次 presence 读被 `ZREMRANGEBYSCORE` 清除；clean close 与 RST 均 ≤2s 即清（详见 presence-ttl.md §1） |
-| 邻接查询 | P95 ≤ 100ms | C4 回填（cycle-race.sql / cte-depth.sql） |
-| 5000 节点阻塞链 CTE | P95 ≤ 500ms（深度 32 截断；长链截断行为显式呈现） | C4 回填 |
+| 邻接查询 | P95 ≤ 100ms | **P50=0.047 / P95=0.069 / P99=0.083 / max=0.098 ms**（链/hub/leaf 混合，n=33，EXPLAIN ANALYZE；cte-depth.sql） |
+| 5000 节点阻塞链 CTE | P95 ≤ 500ms（深度 32 截断；长链截断行为显式呈现） | **单向上游链 P50=0.134 / P95=0.161 / P99=0.162 ms**（链底/链中/hub 混合，n=33，深度截断在 32 行如设计）；**多父菱形网格最坏形态（60×60、4 上游边/节点）UNION 版 P50=0.626 / P95=1.292 / max=11.665 ms**（n=12，max 为冷缓存首跑）。新增实现红线：递归 CTE 一律 UNION 去重（见 §6 第 3 条） |
 
 度量口径：darwin arm64 本机、单 API 进程（记录 JVM 参数与堆）、Redis 本机 docker、直连不过 Nginx。产品级（过 Nginx、真实权限过滤、进程重启重连潮、Prometheus 指标）归 I01/Q01，本文不冒充。
 
@@ -108,20 +108,21 @@
 
 **证据不冒充声明**：ws-probe 用独立 Spring Session namespace（`crewscope:probe:m11s01:session`）验证机制保真度（cookie → 握手 → attributes → 复验），不是产品 session 存储的字节级一致；产品级一致归 I01 集成测试。SQL 原型在独立 schema `m11s01` 上验证事务协议，不是 D01 迁移与聚合的验收。
 
-## 6. S01b 原型清单与结果（WS 部分 2026-10-09 实测；SQL 部分 C4 回填）
+## 6. S01b 原型清单与结果（2026-10-09 实测，WS 八场景 + SQL 三场景全通过）
 
 | 入口 | 场景 | 结果摘要 |
 | --- | --- | --- |
 | `scripts/m11-s01/ws-probe/` | 独立 Maven 小应用（Boot 4.0.6 + WebFlux + spring-websocket 7.0.9 + reactive Redis + Spring Session），端口 18095 | `./mvnw verify` BUILD SUCCESS；Netty 启动 1.3s；未认证 upgrade→401、Origin 校验、login→session→握手链路全通 |
 | `scripts/m11-s01/load-ws.mjs` | storm / steady / slow / fanout / revoke / ttl / multitab / crossteam 八场景 | **全部通过**：storm 200 并发握手 P95=177ms 零失败；steady 200×120s 心跳维持 CPU 1.2% 单核、RTT P95=1.7ms；slow 静默 30s 断（code 1000）+ 健康连接隔离；fanout 50/50 P95=10.8ms；revoke layer1 12ms/layer2 9ms（4403）；ttl 三退出路径 + 惰性清理；multitab 3 连接去重 1 principal；crossteam 拒绝 + 计数 |
 | `scripts/m11-s01/presence-ttl.md` | TTL 到期、close vs 自然过期、惰性清理、去重示例、内存占用 | 已交付（含半开连接本机不可模拟的诚实注记与 I01a 义务移交） |
-| `scripts/m11-s01/cycle-race.sql` | S1 相反边 / S2 diamond race（含端点锁否证）/ S3 SPLIT_FROM 祖先环 | C4 回填 |
-| `scripts/m11-s01/cte-depth.sql` | 5000 节点阻塞链 CTE P50/P95/P99 + 邻接基准 | C4 回填 |
+| `scripts/m11-s01/cycle-race.sql` | S1 相反边 / S2 diamond race（含端点锁否证）/ S3 SPLIT_FROM 祖先环 | **三场景全部按预期**（真实 PG 容器两会话交错，断言输出留档 /tmp 会话记录）：S1 T2 锁等待 2.68s → 读到已提交 A→B → 探测 true 拒绝；无锁对照命中 uq_dep_reverse；S2a 端点锁方案 T1/T2 双双提交且 cycle_present=t（否证成立——端点不相交互不阻塞、双唯一索引对 diamond 组合不兜底）；S2b 协议版 T2 锁等待 1.66s → 探测 true 拒绝 → 图无环；S3 祖先链 X 的祖先={Y,Z}，Z 在其中 → 拒绝成祖先环 |
+| `scripts/m11-s01/cte-depth.sql` | 5000 节点阻塞链 CTE P50/P95/P99 + 邻接基准 | 邻接 P95=0.069ms（阈值 100ms）；CTE P95=0.161ms（阈值 500ms）；多父菱形网格最坏形态 UNION 版 P95=1.292ms；长链深度截断在 32 行如设计。**过程中实证 UNION ALL 红线**（见下第 3 条） |
 
-S01b 过程中发现并修正的两个**承重事实**（产品实现必须带走）：
+S01b 过程中发现并修正的三个**承重事实**（产品实现必须带走）：
 
 1. **Spring Framework 7 的 `WebSocketSession.getAttributes()` 不再是 6.x 的 exchange attributes**。`HandshakeWebSocketService.initAttributes` 只有在设置了 `sessionAttributePredicate` 时才从 `WebSession` attributes 过滤拷贝（默认空 map）——握手鉴权链（filter 校验 401 + handler 读 principal）必须显式配置该 predicate（probe 见 `WebSocketConfiguration`）。ADR-032 §握手鉴权的机制描述以此为准。
 2. **Reactor Netty 的 WebSocket `send` 路径不把 channel writability 反馈为上游消费停滞**（framesOut 实测全量成功）。慢客户端防护不能依赖「bounded sink + 库背压」隐式生效：真实网络的带宽延迟积会让 channel 不可写、sink 溢出、1013 生效，但应用层出站配额（未确认出站字节/帧上限，超限即关）是显式可测的等价物——已登记为 I01a 义务（presence-ttl.md §4）。
+3. **BLOCKS 图上的递归 CTE 必须用 `UNION`（去重），`UNION ALL` 会指数爆炸**。多父汇聚 DAG 的路径数随深度指数膨胀（60×60 菱形网格、每节点 4 条上游边 = 理论 4^32 中间行），且外层 LIMIT 不阻止递归项物化——实测 UNION ALL 版把本机 PG backend 直接打崩（连带 Docker Desktop VM 重启）。UNION 把工作集钳制在节点数上界，实测最坏形态 P95=1.292ms 达标。SPLIT_FROM 是单 parent 森林、路径唯一，两种写法语义等价，仍统一 UNION 防复制扩散。红线已固化进 cte-depth.sql 文件头、cycle-race.sql 模板与 ADR-033「阻塞链」小节。
 
 ## 7. I01 切片卡与可选包指引
 
@@ -149,6 +150,21 @@ S01b 过程中发现并修正的两个**承重事实**（产品实现必须带�
 | 迁移基线（V67 顺延） | §2 事实行 | — | D01 |
 | 可选 ADR 登记 | ADR-034/040/041 | — | 选入时细化 |
 
-## 9. 决定闭合（S01b 完成后回填）
+## 9. 决定闭合（2026-10-09 S01b 实测后）
 
-待回填：十项中主线六项逐项闭合声明、实测迫使冻结值调整的显式记录（如有）、S01 关闭与 I01a 可开工声明、M11 主计划状态行回填。
+主线六项逐项闭合声明：
+
+| # | 开放项 | 闭合声明 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 通道共存与降级 | 冻结生效（ADR-032 分工表）；WS 降级=功能显式不可用，耐久流零改动 | §3.1；产品验收归 I01c |
+| 2 | 在场模型/TTL/预算 | 冻结生效（连接键 TTL 45s + scope ZSET）；八场景实测 TTL 三退出路径、去重、200 连接预算 | §3.2/§4/presence-ttl.md |
+| 3 | WorkGraph 规模与降级 | 冻结生效（500/32/5000/100ms/500ms）；实测全部达标且余量两个数量级 | §3.4/§4；UNION 红线见下 |
+| 6 | D02 撤权事件消费 | 冻结生效（三层协议 + 无持久化坐标裁定）；revoke 实测 layer1 12ms/layer2 9ms | §3.3；ADR-038 增补 |
+| 7 | WS 重连复用 M9b 鉴权 | 冻结生效（握手过 filter 链 + sessionAttributePredicate）；401/403/重握手实测 | §3.5；承重事实 §6-1 |
+| 10 | I01 拆分 | 冻结生效（I01a/I01b/I01c 切片卡，§7） | — |
+
+**实测迫使冻结值调整的显式记录：无**。全部阈值（邻接 100ms、CTE 500ms、连接 200、握手/心跳/fanout/撤权/TTL 各预算）实测达标，未发生被迫改值。**新增实现红线一条**（非阈值调整）：递归 CTE 一律 UNION 去重，UNION ALL 在多父汇聚 DAG 上指数爆炸打崩 PG（§6-3，已固化进 cte-depth.sql / cycle-race.sql / ADR-033）。
+
+可选项（4/5/8/9）维持薄登记不闭合，主线未等待。
+
+**S01 关闭，I01a 即刻可领取**（切片卡 §7）；D01 迁移从 V67 顺延不受影响。M11 主计划状态行已回填「S01 已完成」。
