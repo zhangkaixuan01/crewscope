@@ -279,8 +279,9 @@ crewscope:
       # Override in shared/production deployments; it must remain stable across Worker restarts.
       cursor-secret: ${CREWSCOPE_CODING_DIFF_CURSOR_SECRET:crewscope-development-diff-cursor-key-v1}
   collaboration-realtime:
-    # M11-I01a: bidirectional collaboration channel. Stays disabled until I01b delivers the
-    # subscription protocol, so unenabled deployments expose no endpoint at all.
+    # M11-I01a/I01b: bidirectional collaboration channel with subscription topology and
+    # Redis presence. Stays disabled until a deployment opts in; unenabled deployments
+    # expose no endpoint at all. Presence TTL = 3 x heartbeat (ADR-032).
     enabled: ${CREWSCOPE_COLLABORATION_REALTIME_ENABLED:false}
     heartbeat-interval: ${CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL:15s}
     inbound-idle-timeout: ${CREWSCOPE_COLLABORATION_REALTIME_INBOUND_IDLE_TIMEOUT:30s}
@@ -289,6 +290,10 @@ crewscope:
     hard-connection-limit: ${CREWSCOPE_COLLABORATION_REALTIME_HARD_CONNECTION_LIMIT:500}
     outbound-frame-buffer-limit: ${CREWSCOPE_COLLABORATION_REALTIME_OUTBOUND_FRAME_BUFFER_LIMIT:256}
     max-inbound-frame-size: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_INBOUND_FRAME_SIZE:8KB}
+    max-subscriptions-per-connection: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_SUBSCRIPTIONS:32}
+    presence-ttl: ${CREWSCOPE_COLLABORATION_REALTIME_PRESENCE_TTL:45s}
+    presence-sweep-interval: ${CREWSCOPE_COLLABORATION_REALTIME_PRESENCE_SWEEP_INTERVAL:60s}
+    environment: ${CREWSCOPE_ENVIRONMENT:development}
   conversation-events:
     poll-interval: ${CREWSCOPE_CONVERSATION_EVENT_POLL_INTERVAL:500ms}
     batch-size: ${CREWSCOPE_CONVERSATION_EVENT_BATCH_SIZE:100}
