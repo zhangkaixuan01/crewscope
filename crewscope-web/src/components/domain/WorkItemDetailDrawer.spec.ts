@@ -4,6 +4,8 @@ import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import { readWorkItemCommentDraft } from '../../domains/workitem/commentDraft'
 import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails } from '../../test/workItemFixtures'
 import { fixtureConversationWorkItemAssociation } from '../../test/conversationWorkItemFixtures'
+import { COLLABORATION_STORE } from '../../domains/collaboration/store'
+import { createScriptedCollaborationStore } from '../../test/collaborationFixtures'
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
 import type { WorkItemAvailableTransition } from '../../domains/workitem/types'
 
@@ -347,6 +349,55 @@ describe('WorkItemDetailDrawer', () => {
     expect(readWorkItemCommentDraft(draftScope, fixtureWorkItemDetails.workItem.id, principal)).toBeNull()
     second.unmount()
     clearF05UserData()
+  })
+
+  it('turns remote work-item changes into a banner while editing and a silent re-read otherwise', async () => {
+    const { store, gateway } = createScriptedCollaborationStore()
+    const onRetry = vi.fn()
+    const wrapper = mount(WorkItemDetailDrawer, {
+      global: { ...global, provide: { [COLLABORATION_STORE as symbol]: store } },
+      props: props({ onRetry }),
+    })
+    await flushPromises()
+
+    // Open the channel exactly like the server would: welcome, subscribe ack, then signals.
+    const scope = {
+      organization: '00000000-0000-0000-0000-000000000001',
+      team: '00000000-0000-0000-0000-000000000201',
+      resourceType: 'work_item' as const,
+      resourceId: fixtureWorkItemDetails.workItem.id,
+    }
+    gateway.deliver({ type: 'welcome', connectionId: 'conn-1', principalId: 'account:alice', typingWindowSeconds: 600, maxInboundSignalsPerSecond: 30 })
+    gateway.deliver({ type: 'subscribed', subscriptionId: 'handle-1', scope })
+    await flushPromises()
+
+    // Presence and typing render off the same work-item subscription.
+    gateway.deliver({ type: 'presence_delta', subscriptionId: 'handle-1', scope, action: 'enter', principalId: 'account:bob', displayName: 'Bob', connections: 1 })
+    gateway.deliver({ type: 'typing', subscriptionId: 'handle-1', scope, principalId: 'account:bob', displayName: 'Bob', state: 'started' })
+    await flushPromises()
+    expect(wrapper.get('.presence-group').attributes('aria-label')).toBe('在场：Bob')
+    expect(wrapper.get('.typing-indicator').text()).toContain('Bob 正在输入…')
+
+    // A clean drawer re-reads the changed facts silently — no banner (fixture item is v0).
+    gateway.deliver({ type: 'resource_changed', subscriptionId: 'handle-1', scope, version: 1 })
+    await flushPromises()
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.change-banner').exists()).toBe(false)
+
+    // A dirty editor is never overwritten: the change becomes a banner until the member
+    // chooses to refresh (ADR-032 — the interruption red line).
+    await wrapper.get('.content-editor button').trigger('click')
+    await wrapper.findAll('.content-editor input')[0]!.setValue('标题被并行修改时的本地输入')
+    gateway.deliver({ type: 'resource_changed', subscriptionId: 'handle-1', scope, version: 2 })
+    await flushPromises()
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.change-banner').text()).toContain('该工作项已被更新')
+    expect(wrapper.findAll<HTMLInputElement>('.content-editor input')[0]!.element.value).toBe('标题被并行修改时的本地输入')
+
+    await wrapper.get('.change-banner button').trigger('click')
+    expect(onRetry).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.change-banner').exists()).toBe(false)
+    wrapper.unmount()
   })
 })
 

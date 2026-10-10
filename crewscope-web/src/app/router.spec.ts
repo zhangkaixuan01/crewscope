@@ -25,6 +25,8 @@ import type { WorkDeskScope } from '../domains/workdesk/types'
 import type { WorkDeskGateway } from '../domains/workdesk/gateway'
 import { createTeamObserverStore, TEAM_OBSERVER_STORE } from '../domains/teamobserver/store'
 import type { TeamObserverGateway } from '../domains/teamobserver/gateway'
+import { COLLABORATION_STORE } from '../domains/collaboration/store'
+import { createFixtureCollaborationStore } from '../test/collaborationFixtures'
 import type { ConversationMessagePage } from '../domains/conversation/types'
 import { AUTH_STORE } from '../domains/identity/store'
 import { fixtureAuthStore } from '../test/authFixtures'
@@ -221,6 +223,7 @@ describe('application routing', () => {
           // it the page cannot be mounted at all rather than quietly rendering read-only cards.
           [WORK_ITEM_STORE as symbol]: createWorkItemStore(new FixtureWorkItemGateway()),
           [WORKDESK_STORE as symbol]: createWorkDeskStore(emptyWorkDeskGateway),
+          [COLLABORATION_STORE as symbol]: createFixtureCollaborationStore(),
         },
       },
     })
@@ -276,6 +279,7 @@ describe('application routing', () => {
           [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: linkStore,
           [TASK_STORE as symbol]: taskStore,
           [TEAM_OBSERVER_STORE as symbol]: observerStore,
+          [COLLABORATION_STORE as symbol]: createFixtureCollaborationStore(),
         },
       },
     })

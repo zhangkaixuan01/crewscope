@@ -31,6 +31,8 @@ import ConversationWorkItemLinks from '../components/domain/ConversationWorkItem
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
 import ConversationParticipantsPanel from '../components/domain/ConversationParticipantsPanel.vue'
+import PresenceAvatarGroup from '../components/domain/PresenceAvatarGroup.vue'
+import TypingIndicator from '../components/domain/TypingIndicator.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import { useScopedUserState } from '../composables/useScopedUserState'
 import { useResizablePane } from '../composables/useResizablePane'
@@ -52,6 +54,9 @@ import type {
   TaskIntentRevisionInput,
 } from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
+import { useCollaborationStore } from '../domains/collaboration/store'
+import { collaborationScopeKey, type CollaborationScope } from '../domains/collaboration/types'
+import { presenceLabels } from '../domains/collaboration/labels'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
@@ -72,6 +77,7 @@ const taskIntentStore = useTaskIntentStore()
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
 const isOnline = useNetworkStatus()
+const collaborationStore = useCollaborationStore()
 const createOpen = ref(false)
 useCreationEntry('conversation', () => scopeStore.state.phase === 'ready'
   ? scopeStore.state.selectedTeamId : null, openCreate)
@@ -136,6 +142,44 @@ const selected = computed(() => conversationStore.state.details?.conversation ??
 const activeParticipants = computed(
   () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
 )
+// M11-F01: presence and typing ride the collaboration signal channel for the selected
+// conversation. Acquire follows the selection; the last release drops the subscription.
+const conversationCollabScope = computed<CollaborationScope | null>(() => {
+  const conversation = selected.value
+  const teamId = scopeStore.state.selectedTeamId
+  if (!conversation || !principal || !teamId) return null
+  return {
+    organization: principal.organizationId,
+    team: teamId,
+    resourceType: 'conversation',
+    resourceId: conversation.id,
+  }
+})
+const conversationCollabKey = computed(() => {
+  const scope = conversationCollabScope.value
+  return scope ? collaborationScopeKey(scope) : null
+})
+const conversationPresence = computed(() => {
+  const key = conversationCollabKey.value
+  return key ? collaborationStore.state.presenceByScope[key] ?? [] : []
+})
+const conversationTypers = computed(() => {
+  const key = conversationCollabKey.value
+  return key ? collaborationStore.state.typingByScope[key] ?? [] : []
+})
+const conversationDegraded = computed(() => collaborationStore.state.phase === 'degraded')
+// REST participant ids are bare UUIDs while the signal channel prefixes `account:`.
+const presentParticipantIds = computed(
+  () => new Set(conversationPresence.value.map(entry => entry.principalId.replace(/^account:/, ''))))
+watch(conversationCollabScope, (next, previous) => {
+  const changed = !previous || !next || collaborationScopeKey(previous) !== collaborationScopeKey(next)
+  if (previous && changed) collaborationStore.release(previous)
+  if (next && changed) collaborationStore.acquire(next)
+}, { immediate: true })
+onUnmounted(() => {
+  const scope = conversationCollabScope.value
+  if (scope) collaborationStore.release(scope)
+})
 const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
 // Subject pickers search the Team directory, so they need the Team scope without the conversation.
 const principalScope = computed<PrincipalScope | null>(() => principal && scopeStore.state.selectedTeamId
@@ -180,6 +224,14 @@ const canPostMessages = computed(() => Boolean(
   && activeParticipants.value.some(participant => participant.principalId === principal.id && participant.role !== 'AGENT'),
 ))
 const canInvokeAgent = computed(() => Boolean(canPostMessages.value && selected.value?.ownerPrincipalId === principal?.id))
+// The composer stays untouched: typing rides the draft value itself, so the anchor
+// window lives in the store and a restore-into-draft cannot double-fire.
+watch(currentDraft, (next, previous) => {
+  const scope = conversationCollabScope.value
+  if (!scope) return
+  if (next.trim() && next !== previous) collaborationStore.signalTyping(scope, true)
+  else if (!next.trim()) collaborationStore.signalTyping(scope, false)
+})
 const agentBusy = computed(() => ['connecting', 'running', 'reconnecting', 'cancelling'].includes(realtimeStore.state.invocationPhase))
 const agentNeedsRecovery = computed(() => realtimeStore.state.invocationPhase === 'error' && realtimeStore.state.retryable)
 const agentAwaitingClarification = computed(() => realtimeStore.state.invocationPhase === 'interrupted')
@@ -1250,6 +1302,16 @@ function prefersReducedMotion(): boolean {
               <button type="button" @click="jumpToLatest()">跳到最新</button>
             </div>
           </div>
+          <div v-if="conversationDegraded" class="collaboration-strip collaboration-strip--degraded">
+            {{ presenceLabels.unavailable }}
+          </div>
+          <div
+            v-else-if="conversationPresence.length > 0 || conversationTypers.length > 0"
+            class="collaboration-strip"
+          >
+            <PresenceAvatarGroup :entries="conversationPresence" />
+            <TypingIndicator :typers="conversationTypers" />
+          </div>
           <ConversationComposer
             ref="composer"
             v-model="currentDraft"
@@ -1291,6 +1353,7 @@ function prefersReducedMotion(): boolean {
         :selected="Boolean(selected)"
         :collapsed="rightPaneCollapsed"
         :participants="activeParticipants"
+        :present-principal-ids="presentParticipantIds"
         :participant-name="participantName"
         :participant-role="participantRole"
         :participant-kind="participantKind"
@@ -1385,4 +1448,6 @@ function prefersReducedMotion(): boolean {
 .empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }
 .empty-actions__secondary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-decoration: underline; text-underline-offset: 3px; }
 .empty-actions__secondary:hover, .empty-actions__secondary:focus-visible { color: var(--cs-text-brand); }
+.collaboration-strip { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-4) var(--cs-space-8) 0; }
+.collaboration-strip--degraded { justify-content: flex-start; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

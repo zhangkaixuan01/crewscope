@@ -12,6 +12,8 @@ import type { TaskIntent, VersionedTaskIntentConfirmationPreview } from '../doma
 import type { ConversationWorkItemLinkGateway } from '../domains/conversation/workItemLinkGateway'
 import { CONVERSATION_WORK_ITEM_LINK_STORE, createConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { SCOPE_STORE, createScopeStore } from '../domains/scope/store'
+import { COLLABORATION_STORE } from '../domains/collaboration/store'
+import { createFixtureCollaborationStore } from '../test/collaborationFixtures'
 import { TASK_STORE, createTaskStore } from '../domains/task/store'
 import { bootstrapPrincipal } from '../test/authFixtures'
 import { conversationIds, FixtureConversationGateway } from '../test/conversationFixtures'
@@ -86,6 +88,7 @@ async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: Return
         [TASK_INTENT_STORE as symbol]: taskIntentStore,
         [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: createConversationWorkItemLinkStore(new FixtureWorkItemLinkGateway()),
         [TASK_STORE as symbol]: createTaskStore(new FixtureTaskGateway()),
+        [COLLABORATION_STORE as symbol]: createFixtureCollaborationStore(),
         [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal,
       },
     },

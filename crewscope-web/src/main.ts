@@ -23,6 +23,8 @@ import { HttpWorkItemGateway } from './domains/workitem/gateway'
 import { installWorkItemStore } from './domains/workitem/store'
 import { HttpTaskGateway } from './domains/task/gateway'
 import { installTaskStore } from './domains/task/store'
+import { createCollaborationGateway } from './domains/collaboration/gateway'
+import { installCollaborationStore } from './domains/collaboration/store'
 import { HttpCodingGateway } from './domains/coding/gateway'
 import { installCodingStore } from './domains/coding/store'
 import { HttpModelGateway } from './domains/model/gateway'
@@ -103,6 +105,7 @@ const deliveryStore = installDeliveryStore(app, new HttpDeliveryGateway())
 const teamOpsGateway = new HttpTeamOpsGateway()
 const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
 const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
+const collaborationStore = installCollaborationStore(app, createCollaborationGateway())
 const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
 const knowledgeGateway = new HttpKnowledgeGateway()
 const knowledgeStore = installKnowledgeStore(app, knowledgeGateway)
@@ -114,6 +117,7 @@ const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
 subscribeSessionBoundary(authStore, reason => {
   activityRealtimeStore.stop()
+  collaborationStore.stop()
   onboardingStore.reset()
   accountStore.reset()
   invitationStore.resetManagement()

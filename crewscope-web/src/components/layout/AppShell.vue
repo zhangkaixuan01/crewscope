@@ -32,6 +32,8 @@ import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
 import { IDENTITY_GATEWAY } from '../../domains/identity/gateway'
 import { AUTH_STORE } from '../../domains/identity/store'
+import { COLLABORATION_STORE } from '../../domains/collaboration/store'
+import { collaborationPhaseLabels } from '../../domains/collaboration/labels'
 import { CrewScopeApiError } from '../../api/client'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
@@ -58,6 +60,13 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = inject(SCOPE_STORE)
 const identityGateway = inject(IDENTITY_GATEWAY, null)
 const authStore = inject(AUTH_STORE, null)
+// M11-F01: the collaboration channel state rides the topbar as a quiet pill — live is a
+// dot, reconnecting pulses, degraded becomes the retry affordance. connecting and idle
+// stay unlabeled to avoid a flash on every startup. The store is optional so story and
+// spec mounts of the shell render without it.
+const collaborationStore = inject(COLLABORATION_STORE, null)
+const collaborationPhase = computed(() => collaborationStore?.state.phase ?? 'idle')
+const collaborationLabel = computed(() => collaborationPhaseLabels[collaborationPhase.value])
 const activeMode = computed(() => route.meta.mode)
 const activeSection = computed(() => route.meta.section)
 const modeTarget = (name: 'conversation' | 'today') => ({ name, query: route.query })
@@ -287,7 +296,14 @@ async function signOut(): Promise<void> {
         <button class="command-search" type="button" aria-label="打开命令面板，搜索工作、成员或 Agent" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" @click="requestCommandPalette()">
           <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
         </button>
-        <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
+        <div class="topbar-actions">
+          <span v-if="collaborationLabel" class="collab-pill" :class="`collab-pill--${collaborationPhase}`" role="status" aria-live="polite">
+            <span class="collab-pill__dot" aria-hidden="true" />
+            <button v-if="collaborationPhase === 'degraded'" type="button" class="collab-pill__retry" @click="collaborationStore?.retry()">{{ collaborationLabel }}</button>
+            <template v-else>{{ collaborationLabel }}</template>
+          </span>
+          <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
+        </div>
         <UserAccountMenu
           class="mobile-profile"
           compact
@@ -369,6 +385,14 @@ async function signOut(): Promise<void> {
 .mode-switcher a.active { background: var(--cs-surface); box-shadow: var(--cs-shadow-hairline); color: var(--cs-text); }
 .command-search { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 34px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }
 .command-search kbd { display: flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-2) var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 5px; background: var(--cs-surface); font: var(--cs-text-xs) var(--cs-font-sans); }
+.topbar-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
+.collab-pill { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); white-space: nowrap; }
+.collab-pill__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cs-success); }
+.collab-pill--reconnecting .collab-pill__dot { background: var(--cs-warning); animation: collab-pulse var(--cs-motion-slow) var(--cs-ease-in-out) infinite alternate; }
+.collab-pill--degraded .collab-pill__dot { background: var(--cs-text-muted); }
+.collab-pill__retry { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.collab-pill__retry:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); border-radius: 4px; }
+@keyframes collab-pulse { from { opacity: .35; } to { opacity: 1; } }
 .icon-button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); flex: 0 0 var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }

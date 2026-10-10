@@ -25,6 +25,8 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
+import { useCollaborationStore } from '../domains/collaboration/store'
+import { collaborationScopeKey, type CollaborationScope } from '../domains/collaboration/types'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
@@ -255,6 +257,36 @@ const codingScope = computed<CodingScope | null>(() => principal && team.value &
 const principalScope = computed<PrincipalScope | null>(() => principal && team.value
   ? { organizationId: principal.organizationId, teamId: team.value.id }
   : null)
+// M11-F01: board presence rides the project scope of the collaboration channel. The
+// subscription follows the board view itself — the list view costs no signal traffic.
+const collaborationStore = useCollaborationStore()
+const boardCollabScope = computed<CollaborationScope | null>(() => {
+  if (view.value !== 'board' || !principal || !team.value || !project.value) return null
+  return {
+    organization: principal.organizationId,
+    team: team.value.id,
+    resourceType: 'work_project',
+    resourceId: project.value.id,
+  }
+})
+const boardCollabKey = computed(() => {
+  const scope = boardCollabScope.value
+  return scope ? collaborationScopeKey(scope) : null
+})
+const boardPresence = computed(() => {
+  const key = boardCollabKey.value
+  return key ? collaborationStore.state.presenceByScope[key] ?? [] : []
+})
+const collaborationDegraded = computed(() => collaborationStore.state.phase === 'degraded')
+watch(boardCollabScope, (next, previous) => {
+  const changed = !previous || !next || collaborationScopeKey(previous) !== collaborationScopeKey(next)
+  if (previous && changed) collaborationStore.release(previous)
+  if (next && changed) collaborationStore.acquire(next)
+}, { immediate: true })
+onUnmounted(() => {
+  const scope = boardCollabScope.value
+  if (scope) collaborationStore.release(scope)
+})
 const showCreate = ref(false)
 useCreationEntry('work', () => canCreate.value && scopeStore.state.phase === 'ready'
   ? project.value?.id ?? null : null, openCreate)
@@ -1721,6 +1753,8 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :view="view"
         :board-statuses="boardStatuses"
         :status-labels="statusLabels"
+        :board-presence="boardPresence"
+        :collaboration-degraded="collaborationDegraded"
         :next-cursor="workStore.state.nextCursor"
         :loading-more="workStore.state.loadingMore"
         :can-create="canCreate"

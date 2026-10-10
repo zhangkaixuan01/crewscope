@@ -61,6 +61,11 @@ import WorkItemResponsibilityPanel, { type ResponsibilityAgentCandidate, type Re
 import WorkItemTimeline from './WorkItemTimeline.vue'
 import WorkItemContentEditor from './WorkItemContentEditor.vue'
 import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
+import PresenceAvatarGroup from './PresenceAvatarGroup.vue'
+import ResourceChangeBanner from './ResourceChangeBanner.vue'
+import TypingIndicator from './TypingIndicator.vue'
+import { COLLABORATION_STORE } from '../../domains/collaboration/store'
+import { collaborationScopeKey, type CollaborationScope } from '../../domains/collaboration/types'
 import type { PrincipalScope } from '../../domains/principal/types'
 import type { ConversationWorkItemAssociation } from '../../domains/conversation/workItemLinkGateway'
 import type { ConversationWorkItemLinkPhase } from '../../domains/conversation/workItemLinkStore'
@@ -160,6 +165,77 @@ watch(comment, value => {
   if (value.trim()) writeWorkItemCommentDraft(commentDraftScope.value, item.value.id, item.value.version, value, principal)
   else clearWorkItemCommentDraft(commentDraftScope.value, item.value.id, principal)
 })
+
+// M11-F01: presence, typing and remote-change notices for the open work item ride the
+// collaboration signal channel. The drawer is a props-driven domain component that also
+// mounts standalone in specs, so the store is optional — without it every effect below
+// stays inert and the collaboration UI renders nothing.
+const collaborationStore = inject(COLLABORATION_STORE, null)
+const workItemCollabScope = computed<CollaborationScope | null>(() => {
+  const workItem = item.value
+  if (!workItem || !props.scope) return null
+  return {
+    organization: props.scope.organizationId,
+    team: props.scope.teamId,
+    resourceType: 'work_item',
+    resourceId: workItem.id,
+  }
+})
+const workItemCollabKey = computed(() => {
+  const scope = workItemCollabScope.value
+  return scope ? collaborationScopeKey(scope) : null
+})
+const workItemPresence = computed(() => {
+  const key = workItemCollabKey.value
+  return key ? collaborationStore?.state.presenceByScope[key] ?? [] : []
+})
+const workItemTypers = computed(() => {
+  const key = workItemCollabKey.value
+  return key ? collaborationStore?.state.typingByScope[key] ?? [] : []
+})
+const collaborationDegraded = computed(() => collaborationStore?.state.phase === 'degraded')
+watch(workItemCollabScope, (next, previous) => {
+  if (!collaborationStore) return
+  const changed = !previous || !next || collaborationScopeKey(previous) !== collaborationScopeKey(next)
+  if (previous && changed) collaborationStore.release(previous)
+  if (next && changed) collaborationStore.acquire(next)
+}, { immediate: true })
+onBeforeUnmount(() => {
+  const scope = workItemCollabScope.value
+  if (collaborationStore && scope) collaborationStore.release(scope)
+})
+// Typing rides the comment draft value, same as the conversation composer: the anchor
+// window lives in the store, so restoring a persisted draft can only re-arm it.
+watch(comment, (next, previous) => {
+  const scope = workItemCollabScope.value
+  if (!collaborationStore || !scope) return
+  if (next.trim() && next !== previous) collaborationStore.signalTyping(scope, true)
+  else if (!next.trim()) collaborationStore.signalTyping(scope, false)
+})
+
+// A remote change (ADR-032) carries a version only. A dirty editor keeps its local input
+// and gets the banner; otherwise the drawer re-reads the details silently. The refreshed
+// version is acknowledged, so the store drops our own REST write echo.
+const editorDirty = ref(false)
+const changeBannerVisible = ref(false)
+const workItemChangeNotice = computed(() => {
+  const key = workItemCollabKey.value
+  return key ? collaborationStore?.state.changeByScope[key] ?? null : null
+})
+watch(item, value => {
+  if (collaborationStore && value) collaborationStore.acknowledgeVersion('work_item', value.id, value.version)
+})
+watch(workItemChangeNotice, notice => {
+  const workItem = item.value
+  if (!collaborationStore || !notice || !workItem) return
+  if (notice.version <= workItem.version) return
+  if (editorDirty.value) changeBannerVisible.value = true
+  else props.onRetry()
+})
+function refreshAfterRemoteChange(): void {
+  changeBannerVisible.value = false
+  props.onRetry()
+}
 
 /**
  * The action list is whatever the server returned, never wider.
@@ -322,7 +398,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
 
       <div v-else-if="details && item" class="detail-content">
         <section class="detail-hero">
-          <div class="detail-hero__status"><StatusBadge :tone="statusTone(item.status)" dot>{{ workItemStatusLabels[item.status] }}</StatusBadge><span class="mono">v{{ item.version }}</span></div>
+          <div class="detail-hero__status"><StatusBadge :tone="statusTone(item.status)" dot>{{ workItemStatusLabels[item.status] }}</StatusBadge><PresenceAvatarGroup :entries="workItemPresence" :degraded="collaborationDegraded" /><span class="mono">v{{ item.version }}</span></div>
           <h2>{{ item.title }}</h2>
           <!-- R40: the work description renders through the same shared safe Markdown pipeline as chat and comments. -->
           <SafeMarkdown v-if="item.description" class="detail-description" :content="item.description" />
@@ -335,7 +411,10 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
           />
         </section>
 
-        <WorkItemContentEditor :key="item.id" :item="item" :can-participate="canParticipate" @saved="onContentSaved ? onContentSaved() : onRetry()" />
+        <!-- M11-F01: the banner sits between the hero and the editor — visible only while the
+             member must choose to refresh; a dirty editor is never touched from under them. -->
+        <ResourceChangeBanner :visible="changeBannerVisible" @refresh="refreshAfterRemoteChange" />
+        <WorkItemContentEditor :key="item.id" :item="item" :can-participate="canParticipate" @dirty="editorDirty = $event" @saved="onContentSaved ? onContentSaved() : onRetry()" />
         <section v-if="versionConflict" class="conflict-panel" role="alert">
           <RefreshCw :size="17" /><div><strong>检测到并发更新</strong><span>提交基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。详情已刷新。</span></div>
         </section>
@@ -442,6 +521,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
             <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><SafeMarkdown class="comment-body" :content="entry.content" /></div></article>
           </div>
           <p v-else class="section-note">还没有评论。</p>
+          <TypingIndicator :typers="workItemTypers" />
           <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea v-if="!commentPreviewing" id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项；@ 成员或 Agent 不会自动触发执行" :aria-invalid="commentSubmitted && !comment.trim()" /><div v-else class="comment-preview" :aria-label="`评论预览`"><SafeMarkdown v-if="comment.trim()" :content="comment" /><p v-else>暂无内容，回到编辑继续输入。</p></div><div class="comment-actions"><button type="button" class="comment-preview-toggle" :aria-pressed="commentPreviewing" @click="commentPreviewing = !commentPreviewing">{{ commentPreviewing ? '编辑' : '预览' }}</button><BaseButton v-if="canDelegate" type="button" variant="secondary" size="small" :disabled="!comment.trim()" title="以这条评论为执行目标发起委托确认；评论本身仍需单独发布才会留档" @click="emit('delegate', comment.trim())"><Bot :size="13" />让 Agent 处理</BaseButton><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="13" />发布评论</BaseButton></div><p class="comment-note">评论仅记录讨论，不会启动执行；要让 Agent 按这条内容行动，用「让 Agent 处理」单独确认委托。</p></form>
         </section>
 
@@ -479,7 +559,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
 </template>
 
 <style scoped>
-.detail-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); backdrop-filter: blur(2px); }.detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(560px, 92vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: var(--cs-shadow-drawer); }.detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-12) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.detail-header p, .detail-header strong { display: block; margin: 0; }.detail-header p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.detail-header strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.detail-content { overflow-y: auto; padding: var(--cs-space-12); }.detail-hero, .detail-section, .conflict-panel { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.detail-hero { padding: var(--cs-space-20); }.detail-hero__status { display: flex; align-items: center; justify-content: space-between; }.detail-hero__status > .mono { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-hero h2 { margin: var(--cs-space-12) 0 var(--cs-space-8); font-size: var(--cs-text-lg); line-height: var(--cs-leading-tight); }.detail-hero > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.detail-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); backdrop-filter: blur(2px); }.detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(560px, 92vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: var(--cs-shadow-drawer); }.detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-12) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.detail-header p, .detail-header strong { display: block; margin: 0; }.detail-header p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.detail-header strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.detail-content { overflow-y: auto; padding: var(--cs-space-12); }.detail-hero, .detail-section, .conflict-panel { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.detail-hero { padding: var(--cs-space-20); }.detail-hero__status { display: flex; align-items: center; justify-content: space-between; }.detail-hero__status > .mono { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-hero__status .presence-group { margin-left: auto; }.detail-hero__status .presence-group + .mono { margin-left: var(--cs-space-8); }.detail-hero h2 { margin: var(--cs-space-12) 0 var(--cs-space-8); font-size: var(--cs-text-lg); line-height: var(--cs-leading-tight); }.detail-hero > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .detail-description { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.detail-tags { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }.detail-tags > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-section { margin-top: var(--cs-space-12); padding: var(--cs-space-16); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.transition-control { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-8); }.transition-control select, .comment-form textarea, .resource-form input, .resource-form select { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.facts-section dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0; }.facts-section dl div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.facts-section dl div:nth-last-child(-n+2) { border-bottom: 0; }.facts-section dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.facts-section dd { display: flex; align-items: center; gap: var(--cs-space-4); margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.section-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list, .resource-list { display: grid; gap: var(--cs-space-8); }.comment-list article { display: grid; grid-template-columns: 28px 1fr; gap: var(--cs-space-8); }.comment-list article > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); }.comment-list header { display: flex; justify-content: space-between; gap: var(--cs-space-8); }.comment-list header strong, .comment-list header time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.comment-list p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.comment-form { display: grid; justify-items: end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.comment-form label { justify-self: start; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.comment-form textarea { width: 100%; min-height: 68px; padding-block: var(--cs-space-8); resize: vertical; }.comment-form textarea[aria-invalid="true"], .resource-form input[aria-invalid="true"] { border-color: var(--cs-danger); }
 .comment-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--cs-space-8); width: 100%; }
 .comment-preview-toggle { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: 44px; margin-right: auto; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }

@@ -18,7 +18,7 @@ import { workItemPriorityLabels } from '../../domains/workitem/labels'
 import BaseButton from '../base/BaseButton.vue'
 
 const props = defineProps<{ item: WorkItemSummary; canParticipate: boolean }>()
-const emit = defineEmits<{ saved: [] }>()
+const emit = defineEmits<{ saved: [], dirty: [value: boolean] }>()
 const editing = ref(false)
 const pending = ref(false)
 const message = ref('')
@@ -39,6 +39,9 @@ let alive = true
 let baseline = ''
 const contentDraftScope = computed(() => ({ organizationId: props.item.organizationId, teamId: props.item.teamId, projectId: props.item.projectId }))
 const dirty = computed(() => editing.value && JSON.stringify(form.value) !== baseline)
+// M11-F01: the drawer's remote-change banner must not interrupt a dirty editor, so the
+// dirty flag rides up as an event — immediate, and re-fired by the :key remount per item.
+watch(dirty, value => emit('dirty', value), { immediate: true })
 const titleInput = ref<HTMLInputElement | null>(null)
 const reasonId = `${useId()}-save-reason`
 const saveHint = computed(() => !allowed.value ? '当前无编辑权限，或工作项已归档。'

@@ -13,6 +13,17 @@ const localApiProxy: ProxyOptions = {
   },
 }
 
+// The collaboration signal channel upgrades to WebSocket — http-proxy needs its own
+// entry (ws target) listed before /api, or the longer /api prefix wins the match.
+const localCollaborationWsProxy: ProxyOptions = {
+  target: 'ws://localhost:8080',
+  ws: true,
+  changeOrigin: true,
+  configure(proxy) {
+    proxy.on('proxyReq', request => request.setHeader('Origin', 'http://localhost:8080'))
+  },
+}
+
 export default defineConfig({
   plugins: [vue()],
   test: {
@@ -47,6 +58,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/api/v1/collaboration/ws': localCollaborationWsProxy,
       '/api': localApiProxy,
       '/actuator': localApiProxy,
     },

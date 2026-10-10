@@ -81,4 +81,23 @@ describe('WorkItemsWorkspace', () => {
     await checkbox.setValue(true)
     expect(onToggleSelect).toHaveBeenCalledWith(item)
   })
+
+  it('shows one presence row for the whole board, and none without a channel', () => {
+    // 看板在场只认 project 粒度订阅——逐列重复同一份名单只会是噪音（M11-F01）。
+    const present = mountWorkspace({
+      view: 'board',
+      boardPresence: [{ principalId: 'account:bob', displayName: 'Bob', connections: 1 }],
+    })
+    expect(present.get('.board-presence .presence-group').attributes('aria-label')).toBe('在场：Bob')
+    expect(present.findAll('.board-column .presence-group').length).toBe(0)
+    present.unmount()
+
+    const degraded = mountWorkspace({ view: 'board', collaborationDegraded: true })
+    expect(degraded.get('.board-presence').text()).toBe('实时协作暂不可用')
+    degraded.unmount()
+
+    const silent = mountWorkspace({ view: 'board' })
+    expect(silent.find('.board-presence').exists()).toBe(false)
+    silent.unmount()
+  })
 })
