@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import BaseAvatar from './BaseAvatar.vue'
 import BaseButton from './BaseButton.vue'
 import StatusBadge from './StatusBadge.vue'
 import BaseInput from './BaseInput.vue'
@@ -11,6 +12,18 @@ import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/useConfirm'
 
 describe('foundation components', () => {
+  it('renders the avatar initial as a decorative marker in both sizes', () => {
+    const medium = mount(BaseAvatar, { props: { displayName: '张晓萌' } })
+    const small = mount(BaseAvatar, { props: { displayName: 'Bob', size: 'sm' } })
+    const fallback = mount(BaseAvatar, { props: { displayName: '  ' } })
+
+    expect(medium.text()).toBe('张')
+    expect(medium.attributes('aria-hidden')).toBe('true')
+    expect(small.classes()).toContain('base-avatar--sm')
+    expect(small.text()).toBe('B')
+    expect(fallback.text()).toBe('?')
+  })
+
   it('exposes loading state and prevents duplicate button commands', () => {
     const wrapper = mount(BaseButton, { props: { loading: true }, slots: { default: '保存' } })
 
