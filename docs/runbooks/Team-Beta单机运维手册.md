@@ -65,6 +65,8 @@ PAT 需要 target 仓库的读写权限（验证一步会做真实身份发现�
 | `CREWSCOPE_BUDGET_ALERT_ENABLED` | `false`；软预算提醒（提醒不配额），配合下两行使用 |
 | `CREWSCOPE_BUDGET_MONTHLY_TOKENS` | `0`（不启用）；月 token 预算阈值 |
 | `CREWSCOPE_OBSERVABILITY_REPORTING_ZONE` | `Asia/Shanghai`；用量事实归组的月份时区 |
+| `CREWSCOPE_COLLABORATION_REALTIME_ENABLED` | `false`；实时协作 WebSocket 通道（在场/正在输入），见下方小节 |
+| `CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL` | `15s`；通道心跳周期，仅慢客户端演练需要压缩 |
 
 数据库密码、凭据加密、游标、邀请、Task Token 和登录防护 HMAC 密钥自动生成，重启不轮换。登录防护保持启用，不需要手动提供密钥。保管好 `.runtime/.env`：仅备份数据库而丢失加密密钥，不能恢复模型等已保存凭据。不要将运行目录提交 Git，也不要直接修改已有数据库密码来“重置密码”。
 
@@ -121,6 +123,14 @@ M10 的九个功能开关（上表 pgvector 至 reporting-zone）相互独立、
 | 索引开、pgvector 关 | **唯一非法组合**：health `knowledgeVector`/`knowledgeIndex` DOWN，先启用 pgvector 再开索引 |
 
 降级与失败的边界：检索类降级（开关关、无代、embedding 失败）一律 200 + 显式降级码，绝不让执行失败；知识作业失败 fail-closed 落 FAILED 带失败码（见「作业故障恢复」）；权限拒绝永远是 403/404，不与降级混同。注入预算（总 8K/知识 3K/仓库 4K/记忆 1K，硬上限 32K）在任何组合下不会被降级绕过。
+
+### 实时协作通道（WebSocket 在场）
+
+M11-I01c 起内置 Web 支持 WebSocket 升级（Upgrade/Connection 透传随 web 镜像交付，无需额外 Nginx 配置）。通道默认关闭：关闭时 `/api/v1/collaboration/ws` 返回 404，在场/正在输入显式不可用，而权威更新与恢复继续走既有的 Team Activity SSE 流——这不是故障，是 ADR-032 定义的降级形态。
+
+启用：在 `.runtime/.env` 写入 `CREWSCOPE_COLLABORATION_REALTIME_ENABLED=true` 后 `up`。容量上限（超过即拒绝新连接）：单节点软预算 200 连接、硬上限 500；每账号 16 连接（多标签页合计）；每连接 32 个订阅。在场数据只存 Redis 且带 TTL（45s，心跳续期），断连与进程重启都会自然清理，不影响业务数据。
+
+演练与基线复跑：`scripts/m11-i01c-real-stack-gate.sh` 会起一套隔离的验证栈（不碰本部署），跑真实浏览器 e2e、200 连接风暴/稳态/重连/慢客户端（1013）与订阅泄漏断言；基线数字与解释见 `docs/testing/M11-I01c-实时通道部署与降级e2e.md`。慢客户端演练需要把 `CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL` 压到 `1s` 加速观察，演练完改回 `15s`。
 
 ## 状态、日志与停止
 
