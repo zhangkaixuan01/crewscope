@@ -39,7 +39,6 @@ import io.crewscope.domain.task.TaskAgentSessionPurpose;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -217,6 +216,7 @@ public final class ReviewerExecutionApplicationService {
                     "ReviewRequest", current.id(), expectedRequestVersion, current.version());
         }
         UtcTimestamp now = timeProvider.now();
+        UUID commandId = UUID.randomUUID();
         ReviewRequest acceptedRequest;
         UUID eventId;
         if (current.status() == ReviewRequestStatus.OPEN) {
@@ -229,12 +229,18 @@ public final class ReviewerExecutionApplicationService {
                     context.correlationId());
         } else if (current.status() == ReviewRequestStatus.IN_PROGRESS) {
             acceptedRequest = current;
-            eventId = stableStartedEventId(current.id(), current.version());
+            // Defect 8 (M10-Q02): the first execute's receipt already anchors the
+            // deterministic started-event id, and ux_command_receipt_domain_event is
+            // one-receipt-per-event, so a retry receipt re-anchored on the same derived id
+            // deterministically collided with DuplicateKeyException. Anchor the retry on its
+            // own command id instead — the V63 zero-event shape KnowledgeCommandService
+            // updateDraft uses — unique per command, so accept succeeds and the reviewer
+            // genuinely re-runs.
+            eventId = commandId;
         } else {
             throw new DomainValidationException(
                     "reviewRequest.status", "only OPEN or IN_PROGRESS requests can execute");
         }
-        UUID commandId = UUID.randomUUID();
         CommandReservation reservation = receipts.reserve(new CommandReservationRequest(
                 organizationId, context.idempotencyKey(), EXECUTE, hash,
                 commandId, context.correlationId(), now));
@@ -313,11 +319,6 @@ public final class ReviewerExecutionApplicationService {
             }
         });
         return profile;
-    }
-
-    private static UUID stableStartedEventId(ReviewRequestId id, long version) {
-        String source = "crewscope:review:REVIEW_REQUEST_STARTED:" + id + ':' + version;
-        return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8));
     }
 
     private record Accepted(

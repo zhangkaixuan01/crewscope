@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.ChatUsage;
@@ -21,6 +22,7 @@ import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.crewscope.agentscope.SafeModelExecutionException;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
 import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
 import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
@@ -154,6 +156,69 @@ class ReviewerSpecialistRuntimeM5I06Test {
         assertThrows(IllegalArgumentException.class, fixture::runtimeRequest);
     }
 
+    @Test
+    void recoversOnceWhenTheFirstDeliveryLacksStructuredOutput() {
+        // Defect 7 (M10-Q02): a 200 answer with plain text instead of the structured tool
+        // call is a normal DeepSeek occurrence — the transport retry never sees it, so the
+        // runtime itself must re-ask once and succeed on the second, structured delivery.
+        Fixture fixture = new Fixture();
+        ReviewFindingBatchRecorder recorder = mock(ReviewFindingBatchRecorder.class);
+        ReviewFindingBatchResult recorded = new ReviewFindingBatchResult(
+                List.of(), List.of(), List.of(), ReviewRepairRequestSummary.from(
+                        fixture.request, fixture.context, List.of()));
+        when(recorder.record(any(), any(), anyList(), anyLong(), any(), any()))
+                .thenReturn(recorded);
+        UnstructuredThenStructuredModel model = new UnstructuredThenStructuredModel(1);
+        ReviewerSpecialistRuntime runtime = new ReviewerSpecialistRuntime(
+                agentProvider(model), recorder, Duration.ofSeconds(5));
+
+        ReviewFindingBatchResult result = runtime.review(fixture.runtimeRequest()).block();
+
+        assertEquals(recorded, result);
+        assertEquals(2, model.calls.get());
+        assertTrue(model.prompts.get(1).contains("Call generate_response exactly once"));
+    }
+
+    @Test
+    void sanitizesWhenStructuredOutputNeverArrives() {
+        // Both the call and its bounded recovery stay unstructured: a terminal model
+        // failure with a bounded code, not a raw IllegalArgumentException (defect 7).
+        Fixture fixture = new Fixture();
+        UnstructuredThenStructuredModel model = new UnstructuredThenStructuredModel(2);
+        ReviewerSpecialistRuntime runtime = new ReviewerSpecialistRuntime(
+                agentProvider(model), mock(ReviewFindingBatchRecorder.class),
+                Duration.ofSeconds(5));
+
+        SafeModelExecutionException failure = assertThrows(
+                SafeModelExecutionException.class,
+                () -> runtime.review(fixture.runtimeRequest()).block());
+
+        assertEquals("MODEL_EXECUTION_FAILED", failure.safeCode());
+        assertEquals(2, model.calls.get());
+    }
+
+    private ReviewerAgentProvider agentProvider(Model model) {
+        return ignored -> HarnessAgent.builder()
+                .name("crewscope-m5-i06-reviewer")
+                .agentId("crewscope-m5-i06-reviewer")
+                .sysPrompt("Return only ReviewFindingListV1 advisory findings. Never emit Gate decisions.")
+                .model(model)
+                .toolkit(new Toolkit())
+                .stateStore(new InMemoryAgentStateStore())
+                .workspace(workspace)
+                .disableFilesystemTools()
+                .disableShellTool()
+                .disableSubagents()
+                .disableMemoryTools()
+                .disableMemoryHooks()
+                .disableDynamicSkills()
+                .disableDefaultWorkspaceSkills()
+                .disableWorkspaceContext()
+                .disableAtPathExpansion()
+                .disableToolsConfig()
+                .build();
+    }
+
     private static final class FixtureModel implements Model {
         private final AtomicInteger calls = new AtomicInteger();
         private String lastPrompt = "";
@@ -165,20 +230,62 @@ class ReviewerSpecialistRuntimeM5I06Test {
             lastPrompt = messages.stream().map(Msg::getTextContent)
                     .reduce("", (left, right) -> left + '\n' + right);
             assertTrue(tools.stream().anyMatch(tool -> "generate_response".equals(tool.getName())));
-            Map<String, Object> response = Map.of("schemaVersion", "1", "findings", List.of());
-            Map<String, Object> input = Map.of("response", response);
             return Flux.just(ChatResponse.builder()
                     .content(List.of(ToolUseBlock.builder()
                             .id("review-output")
                             .name("generate_response")
-                            .input(input)
-                            .content(JsonUtils.getJsonCodec().toJson(input))
+                            .input(validFindings())
+                            .content(JsonUtils.getJsonCodec().toJson(validFindings()))
                             .build()))
                     .usage(new ChatUsage(20, 5, 0.01))
                     .build());
         }
 
         @Override public String getModelName() { return "m5-i06-fixture"; }
+    }
+
+    /** Answers with plain text for the first {@code plainTextCalls} calls, then complies. */
+    private static final class UnstructuredThenStructuredModel implements Model {
+        private final AtomicInteger calls = new AtomicInteger();
+        private final List<String> prompts =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
+        private final int plainTextCalls;
+
+        private UnstructuredThenStructuredModel(int plainTextCalls) {
+            this.plainTextCalls = plainTextCalls;
+        }
+
+        @Override
+        public Flux<ChatResponse> stream(
+                List<Msg> messages, List<ToolSchema> tools, GenerateOptions options) {
+            int call = calls.incrementAndGet();
+            prompts.add(messages.stream().map(Msg::getTextContent)
+                    .reduce("", (left, right) -> left + '\n' + right));
+            if (call <= plainTextCalls) {
+                return Flux.just(ChatResponse.builder()
+                        .content(List.of(TextBlock.builder()
+                                .text("The change looks fine; no findings.")
+                                .build()))
+                        .usage(new ChatUsage(20, 5, 0.01))
+                        .build());
+            }
+            return Flux.just(ChatResponse.builder()
+                    .content(List.of(ToolUseBlock.builder()
+                            .id("review-output-" + call)
+                            .name("generate_response")
+                            .input(validFindings())
+                            .content(JsonUtils.getJsonCodec().toJson(validFindings()))
+                            .build()))
+                    .usage(new ChatUsage(20, 5, 0.01))
+                    .build());
+        }
+
+        @Override public String getModelName() { return "m10-q02-defect7-fixture"; }
+    }
+
+    private static Map<String, Object> validFindings() {
+        Map<String, Object> response = Map.of("schemaVersion", "1", "findings", List.of());
+        return Map.of("response", response);
     }
 
     private static final class Fixture {

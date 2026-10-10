@@ -1,8 +1,13 @@
 package io.crewscope.application.review;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -10,6 +15,8 @@ import static org.mockito.Mockito.when;
 
 import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
+import io.crewscope.application.command.CommandReservation;
+import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.task.PolicySnapshotRepository;
@@ -58,11 +65,14 @@ import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemScope;
 import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.workitem.WorkProjectId;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /** M5-A05 Reviewer execution authorization, ETag and Receipt replay tests. */
 class ReviewerExecutionApplicationServiceM5A05Test {
@@ -113,6 +123,51 @@ class ReviewerExecutionApplicationServiceM5A05Test {
         verify(fixture.runtime, never()).execute(any());
     }
 
+    @Test
+    void anchorsAnInProgressRetryReceiptOnItsOwnCommandId() throws Exception {
+        // Defect 8 (M10-Q02): after a failed first execute the request stays IN_PROGRESS
+        // and its receipt already anchors the deterministic started-event id — the
+        // one-receipt-per-event unique index then made every retry collide. The retry
+        // must anchor its receipt on its own command id (the V63 zero-event shape) and
+        // genuinely re-run the reviewer instead of replaying.
+        Fixture fixture = new Fixture(true);
+        when(fixture.receipts.findCompleted(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(fixture.receipts.reserve(any()))
+                .thenReturn(CommandReservation.newlyAcquired());
+        when(fixture.runtime.execute(any()))
+                .thenReturn(CompletableFuture.completedFuture(List.of()));
+        ReviewFindingBatchResult batch = mock(ReviewFindingBatchResult.class);
+        when(batch.insertedFindings()).thenReturn(List.of());
+        when(batch.duplicateObservations()).thenReturn(List.of());
+        when(fixture.recorder.record(any(), any(), anyList(), anyLong(), any(), any()))
+                .thenReturn(batch);
+        when(fixture.request.complete(any(), anyLong(), any(), any()))
+                .thenReturn(fixture.request);
+
+        ReviewerExecutionResult result = fixture.service.execute(
+                        fixture.commandContext(), fixture.teamId, fixture.taskId,
+                        fixture.executionId, fixture.requestId, 1)
+                .toCompletableFuture().get();
+
+        assertFalse(result.replayed());
+        verify(fixture.runtime).execute(any());
+        ArgumentCaptor<CommandReservationRequest> reserved =
+                ArgumentCaptor.forClass(CommandReservationRequest.class);
+        verify(fixture.receipts).reserve(reserved.capture());
+        ArgumentCaptor<CommandReceipt> completed =
+                ArgumentCaptor.forClass(CommandReceipt.class);
+        verify(fixture.receipts).complete(any(), any(), completed.capture(), any());
+        CommandReceipt receipt = completed.getValue();
+        assertEquals(reserved.getValue().commandId(), receipt.commandId());
+        assertEquals(receipt.commandId(), receipt.domainEventId());
+        UUID startedEventId = UUID.nameUUIDFromBytes(
+                ("crewscope:review:REVIEW_REQUEST_STARTED:"
+                        + fixture.requestId + ':' + 1).getBytes(StandardCharsets.UTF_8));
+        assertNotEquals(startedEventId, receipt.domainEventId());
+        verify(fixture.events, never()).requestStarted(any(), any(), any());
+    }
+
     private static final class Fixture {
         private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-08-24T16:30:00Z");
 
@@ -141,6 +196,7 @@ class ReviewerExecutionApplicationServiceM5A05Test {
         private final TaskRepository tasks = mock(TaskRepository.class);
         private final TaskExecutionRepository executions = mock(TaskExecutionRepository.class);
         private final ReviewRequestRepository requests = mock(ReviewRequestRepository.class);
+        private final ReviewRequest request = mock(ReviewRequest.class);
         private final ContextPackageRepository contexts = mock(ContextPackageRepository.class);
         private final PolicySnapshotRepository policies = mock(PolicySnapshotRepository.class);
         private final PrincipalRepository principals = mock(PrincipalRepository.class);
@@ -179,7 +235,7 @@ class ReviewerExecutionApplicationServiceM5A05Test {
             when(executions.findById(organizationId, executionId))
                     .thenReturn(Optional.of(execution));
 
-            ReviewRequest request = mock(ReviewRequest.class);
+            ReviewRequest request = this.request;
             when(request.id()).thenReturn(requestId);
             when(request.scope()).thenReturn(scope);
             when(request.taskId()).thenReturn(taskId);
