@@ -159,9 +159,9 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void listPresentDeduplicatesConnectionsByPrincipal() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
-    store.register("conn-2", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
-    store.register("conn-3", "account:bob", itemScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
+    store.register("conn-2", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
+    store.register("conn-3", "account:bob", itemScope, "", START).block(REDIS_TIMEOUT);
 
     List<CollaborationPresenceStore.PresentPrincipal> present =
         store.listPresent(itemScope).block(REDIS_TIMEOUT);
@@ -169,9 +169,9 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
     assertThat(present)
         .containsExactlyInAnyOrder(
             new CollaborationPresenceStore.PresentPrincipal(
-                "account:alice", TEAM.toString(), "work_item", WORK_ITEM.toString(), 2),
+                "account:alice", "Alice", TEAM.toString(), "work_item", WORK_ITEM.toString(), 2),
             new CollaborationPresenceStore.PresentPrincipal(
-                "account:bob", TEAM.toString(), "work_item", WORK_ITEM.toString(), 1));
+                "account:bob", "", TEAM.toString(), "work_item", WORK_ITEM.toString(), 1));
   }
 
   @Test

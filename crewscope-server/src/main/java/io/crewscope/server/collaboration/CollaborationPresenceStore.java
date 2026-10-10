@@ -26,14 +26,15 @@ import reactor.core.publisher.Mono;
  * the whole active subscription set, and {@link #removeConnection} on disconnect. The hash's
  * resourceType/resourceId fields mirror the most recently active subscription — the ADR
  * freezes them for a single-scope design — while the ZSET indexes carry the complete
- * multi-subscription truth. displayName stays empty until a later slice has a presentable
- * name; the field exists to keep the ADR hash shape.</p>
+ * multi-subscription truth. Since A01 the hash also carries the signal display name
+ * (empty when the resolver fell back); the field keeps the ADR hash shape.</p>
  */
 public final class CollaborationPresenceStore {
 
   /** One deduplicated entry per principal, carrying the raw connection count. */
   public record PresentPrincipal(
       String principalId,
+      String displayName,
       String teamId,
       String resourceType,
       String resourceId,
@@ -55,17 +56,30 @@ public final class CollaborationPresenceStore {
     this.clock = clock;
   }
 
-  /** Registers (or re-scopes) a connection: conn hash with TTL plus the scope ZSET entry. */
+  /** Registers (or re-scopes) a connection without a display name (empty hash field). */
   public Mono<Void> register(
       String connectionId,
       String principalId,
       CollaborationResourceScope scope,
       Instant connectedAt) {
+    return register(connectionId, principalId, scope, "", connectedAt);
+  }
+
+  /**
+   * Registers (or re-scopes) a connection: conn hash with TTL (including the signal
+   * display name) plus the scope ZSET entry.
+   */
+  public Mono<Void> register(
+      String connectionId,
+      String principalId,
+      CollaborationResourceScope scope,
+      String displayName,
+      Instant connectedAt) {
     Map<String, String> fields = new LinkedHashMap<>();
     fields.put("organizationId", scope.organizationId().value().toString());
     fields.put("teamId", scope.teamId().value().toString());
     fields.put("principalId", principalId);
-    fields.put("displayName", "");
+    fields.put("displayName", displayName == null ? "" : displayName);
     fields.put("resourceType", keyspace.resourceTypeSegment(scope));
     fields.put("resourceId", keyspace.resourceIdSegment(scope));
     fields.put("connectedAt", Long.toString(connectedAt.toEpochMilli()));
@@ -148,6 +162,7 @@ public final class CollaborationPresenceStore {
                                                 principalId,
                                                 new PresentPrincipal(
                                                     principalId,
+                                                    hash.getOrDefault("displayName", ""),
                                                     hash.get("teamId"),
                                                     hash.get("resourceType"),
                                                     hash.get("resourceId"),
@@ -155,6 +170,7 @@ public final class CollaborationPresenceStore {
                                                 (a, b) ->
                                                     new PresentPrincipal(
                                                         a.principalId(),
+                                                        a.displayName(),
                                                         a.teamId(),
                                                         a.resourceType(),
                                                         a.resourceId(),

@@ -23,6 +23,9 @@ public class CollaborationRealtimeProperties {
   private int outboundFrameBufferLimit = 256;
   private DataSize maxInboundFrameSize = DataSize.ofKilobytes(8);
   private int maxSubscriptionsPerConnection = 32;
+  private int maxInboundSignalsPerSecond = 30;
+  private Duration revalidationInterval = Duration.ofSeconds(5);
+  private Duration typingWindow = Duration.ofSeconds(5);
   private Duration presenceTtl = Duration.ofSeconds(45);
   private Duration presenceSweepInterval = Duration.ofSeconds(60);
   private String environment = "development";
@@ -122,6 +125,34 @@ public class CollaborationRealtimeProperties {
       throw new IllegalArgumentException("maxSubscriptionsPerConnection must be between 1 and 256");
     }
     this.maxSubscriptionsPerConnection = maxSubscriptionsPerConnection;
+  }
+
+  public int getMaxInboundSignalsPerSecond() {
+    return maxInboundSignalsPerSecond;
+  }
+
+  public void setMaxInboundSignalsPerSecond(int maxInboundSignalsPerSecond) {
+    if (maxInboundSignalsPerSecond < 5 || maxInboundSignalsPerSecond > 120) {
+      throw new IllegalArgumentException("maxInboundSignalsPerSecond must be between 5 and 120");
+    }
+    this.maxInboundSignalsPerSecond = maxInboundSignalsPerSecond;
+  }
+
+  public Duration getRevalidationInterval() {
+    return revalidationInterval;
+  }
+
+  public void setRevalidationInterval(Duration revalidationInterval) {
+    this.revalidationInterval =
+        requirePositive(revalidationInterval, "revalidationInterval", Duration.ofSeconds(60));
+  }
+
+  public Duration getTypingWindow() {
+    return typingWindow;
+  }
+
+  public void setTypingWindow(Duration typingWindow) {
+    this.typingWindow = requirePositive(typingWindow, "typingWindow", Duration.ofSeconds(30));
   }
 
   public Duration getPresenceTtl() {

@@ -86,4 +86,48 @@ class CollaborationPresenceKeyspaceTest {
     assertThat(keyspace.scopePattern())
         .isEqualTo("crewscope:dev:collaboration:v1:presence:scope:*");
   }
+
+  @Test
+  void parseScopeKeyInvertsEveryGranularity() {
+    CollaborationPresenceKeyspace keyspace = new CollaborationPresenceKeyspace("dev");
+    OrganizationId organizationId = new OrganizationId(ORG);
+    TeamId teamId = new TeamId(TEAM);
+    UUID projectId = UUID.fromString("00000000-0000-0000-0000-0000000000c3");
+    UUID itemId = UUID.fromString("00000000-0000-0000-0000-0000000000d4");
+
+    assertThat(keyspace.parseScopeKey(
+            keyspace.scopeKey(new TeamScope(organizationId, teamId))))
+        .contains(new TeamScope(organizationId, teamId));
+    assertThat(keyspace.parseScopeKey(keyspace.scopeKey(
+            new WorkProjectScope(organizationId, teamId, new WorkProjectId(projectId)))))
+        .contains(new WorkProjectScope(organizationId, teamId, new WorkProjectId(projectId)));
+    assertThat(keyspace.parseScopeKey(keyspace.scopeKey(new ResourceScope(
+            organizationId, teamId, CollaborationResourceType.CONVERSATION, itemId))))
+        .contains(new ResourceScope(
+            organizationId, teamId, CollaborationResourceType.CONVERSATION, itemId));
+  }
+
+  @Test
+  void parseScopeKeyRejectsForeignAndMalformedKeys() {
+    CollaborationPresenceKeyspace dev = new CollaborationPresenceKeyspace("dev");
+    CollaborationPresenceKeyspace prod = new CollaborationPresenceKeyspace("prod");
+
+    assertThat(dev.parseScopeKey(prod.scopeKey(new TeamScope(
+            new OrganizationId(ORG), new TeamId(TEAM)))))
+        .isEmpty();
+    assertThat(dev.parseScopeKey("crewscope:dev:collaboration:v1:presence:scope:only-two"))
+        .isEmpty();
+    assertThat(dev.parseScopeKey(
+            "crewscope:dev:collaboration:v1:presence:scope:" + ORG + ":" + TEAM
+                + ":team:not-the-sentinel"))
+        .isEmpty();
+    assertThat(dev.parseScopeKey(
+            "crewscope:dev:collaboration:v1:presence:scope:" + ORG + ":" + TEAM
+                + ":work_item:not-a-uuid"))
+        .isEmpty();
+    assertThat(dev.parseScopeKey(
+            "crewscope:dev:collaboration:v1:presence:scope:" + ORG + ":" + TEAM
+                + ":unknown_type:" + ORG))
+        .isEmpty();
+  }
 }

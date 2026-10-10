@@ -77,6 +77,24 @@ public final class CollaborationSubscriptionRegistry {
   }
 
   /**
+   * Resolves the scope key behind one subscription handle of one connection — the inbound
+   * typing signal addresses the sender's own handle, and the fanout needs the scope to
+   * find (and label the frames of) the other subscribers. Unknown handles return empty.
+   */
+  public synchronized Optional<String> scopeKeyOf(String connectionId, String subscriptionId) {
+    Map<String, String> subscriptions = subscriptionsByConnection.get(connectionId);
+    if (subscriptions == null) {
+      return Optional.empty();
+    }
+    for (Map.Entry<String, String> entry : subscriptions.entrySet()) {
+      if (entry.getValue().equals(subscriptionId)) {
+        return Optional.of(entry.getKey());
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
    * Removes one subscription by handle. Returns the scope key it occupied so the caller can
    * drop the matching Redis presence entry; unknown handles leave everything untouched.
    */

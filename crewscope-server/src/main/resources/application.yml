@@ -291,6 +291,11 @@ crewscope:
     outbound-frame-buffer-limit: ${CREWSCOPE_COLLABORATION_REALTIME_OUTBOUND_FRAME_BUFFER_LIMIT:256}
     max-inbound-frame-size: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_INBOUND_FRAME_SIZE:8KB}
     max-subscriptions-per-connection: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_SUBSCRIPTIONS:32}
+    # A01: inbound signal budget (30/s > the ADR-032 22/s peak), the revocation
+    # revalidation cache window, and the anchored typing forward window.
+    max-inbound-signals-per-second: ${CREWSCOPE_COLLABORATION_REALTIME_MAX_INBOUND_SIGNALS_PER_SECOND:30}
+    revalidation-interval: ${CREWSCOPE_COLLABORATION_REALTIME_REVALIDATION_INTERVAL:5s}
+    typing-window: ${CREWSCOPE_COLLABORATION_REALTIME_TYPING_WINDOW:5s}
     presence-ttl: ${CREWSCOPE_COLLABORATION_REALTIME_PRESENCE_TTL:45s}
     presence-sweep-interval: ${CREWSCOPE_COLLABORATION_REALTIME_PRESENCE_SWEEP_INTERVAL:60s}
     environment: ${CREWSCOPE_ENVIRONMENT:development}

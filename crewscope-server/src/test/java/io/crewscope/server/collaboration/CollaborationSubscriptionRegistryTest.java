@@ -116,6 +116,20 @@ class CollaborationSubscriptionRegistryTest {
   }
 
   @Test
+  void scopeKeyOfResolvesTheScopeBehindAHandle() {
+    CollaborationSubscriptionRegistry registry = new CollaborationSubscriptionRegistry(3);
+    registry.add(CONNECTION, "scope:a");
+    String handle = registry.subscriptionId(CONNECTION, "scope:a").orElseThrow();
+
+    assertThat(registry.scopeKeyOf(CONNECTION, handle)).contains("scope:a");
+    assertThat(registry.scopeKeyOf(CONNECTION, UUID.randomUUID().toString())).isEmpty();
+    assertThat(registry.scopeKeyOf("conn-unknown", handle)).isEmpty();
+
+    registry.remove(CONNECTION, handle);
+    assertThat(registry.scopeKeyOf(CONNECTION, handle)).isEmpty();
+  }
+
+  @Test
   void constructorRejectsOutOfRangeLimits() {
     assertThatThrownBy(() -> new CollaborationSubscriptionRegistry(0))
         .isInstanceOf(IllegalArgumentException.class);

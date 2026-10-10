@@ -1,11 +1,17 @@
 package io.crewscope.server.collaboration;
 
 import io.crewscope.domain.collaboration.CollaborationResourceScope;
+import io.crewscope.domain.collaboration.CollaborationResourceType;
 import io.crewscope.domain.collaboration.ResourceScope;
 import io.crewscope.domain.collaboration.TeamScope;
 import io.crewscope.domain.collaboration.WorkProjectScope;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -83,5 +89,45 @@ public final class CollaborationPresenceKeyspace {
       return resource.resourceId().toString();
     }
     throw new IllegalArgumentException("unknown scope granularity: " + scope);
+  }
+
+  /**
+   * Inverse of {@link #scopeKey(CollaborationResourceScope)}: parses a scope key back into
+   * its scope value, so the fanout can render frames from the registry's string keys
+   * without keeping a second mapping. Keys of another environment or malformed shape are
+   * rejected with an empty result rather than an exception.
+   */
+  public Optional<CollaborationResourceScope> parseScopeKey(String key) {
+    String scopePrefix = prefix + "presence:scope:";
+    if (!Objects.requireNonNull(key, "key").startsWith(scopePrefix)) {
+      return Optional.empty();
+    }
+    String[] segments = key.substring(scopePrefix.length()).split(":", -1);
+    if (segments.length != 4) {
+      return Optional.empty();
+    }
+    try {
+      OrganizationId organizationId = OrganizationId.from(segments[0]);
+      TeamId teamId = TeamId.from(segments[1]);
+      return Optional.of(scopeOf(organizationId, teamId, segments[2], segments[3]));
+    } catch (RuntimeException malformed) {
+      return Optional.empty();
+    }
+  }
+
+  private static CollaborationResourceScope scopeOf(
+      OrganizationId organizationId, TeamId teamId, String resourceType, String resourceId) {
+    if (TEAM_RESOURCE_TYPE.equals(resourceType)) {
+      if (!TEAM_RESOURCE_ID.equals(resourceId)) {
+        throw new IllegalArgumentException("team scope must use the sentinel resource id");
+      }
+      return new TeamScope(organizationId, teamId);
+    }
+    if (WORK_PROJECT_RESOURCE_TYPE.equals(resourceType)) {
+      return new WorkProjectScope(organizationId, teamId, WorkProjectId.from(resourceId));
+    }
+    CollaborationResourceType type =
+        CollaborationResourceType.valueOf(resourceType.toUpperCase(Locale.ROOT));
+    return new ResourceScope(organizationId, teamId, type, UUID.fromString(resourceId));
   }
 }
