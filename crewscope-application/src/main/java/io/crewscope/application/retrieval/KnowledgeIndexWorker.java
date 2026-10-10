@@ -155,33 +155,36 @@ public final class KnowledgeIndexWorker {
         Optional<KnowledgeIndexJob> claimed =
                 jobs.claimNext(workerId, timeProvider.now(), leaseDuration);
         if (claimed.isEmpty()) {
-            return new KnowledgeIndexWorkerRunResult(0, 0, 0);
+            return new KnowledgeIndexWorkerRunResult(0, 0, 0, 0);
         }
         KnowledgeIndexJob job = claimed.get();
         Observation observation = telemetry.start(Request.knowledgeIndex());
         try {
-            KnowledgeIndexJob done = switch (job.source()) {
-                case KNOWLEDGE_ENTRY -> runKnowledgeEntry(job);
+            FinishedJob finished = switch (job.source()) {
+                case KNOWLEDGE_ENTRY -> new FinishedJob(runKnowledgeEntry(job), 0);
                 case REPOSITORY -> runRepository(job);
             };
             observation.succeed();
             return new KnowledgeIndexWorkerRunResult(
-                    1, done.status() == KnowledgeIndexJobStatus.FAILED ? 1 : 0, 0);
+                    1,
+                    finished.job().status() == KnowledgeIndexJobStatus.FAILED ? 1 : 0,
+                    0,
+                    finished.skippedFiles());
         } catch (JobFailedException failure) {
             failClaimed(job, failure.code());
             observation.complete(Outcome.FAILURE, errorCodeOf(failure.code()));
-            return new KnowledgeIndexWorkerRunResult(1, 1, 0);
+            return new KnowledgeIndexWorkerRunResult(1, 1, 0, 0);
         } catch (FencedWriteException fenced) {
             observation.complete(Outcome.DEGRADED, ErrorCode.FENCED);
-            return new KnowledgeIndexWorkerRunResult(1, 0, 1);
+            return new KnowledgeIndexWorkerRunResult(1, 0, 1, 0);
         } catch (RepositoryContentFailure contentFailure) {
             failClaimed(job, contentFailure.failureCode());
             observation.complete(Outcome.FAILURE, errorCodeOf(contentFailure.failureCode()));
-            return new KnowledgeIndexWorkerRunResult(1, 1, 0);
+            return new KnowledgeIndexWorkerRunResult(1, 1, 0, 0);
         } catch (RuntimeException unexpected) {
             failClaimed(job, INTERNAL);
             observation.complete(Outcome.FAILURE, ErrorCode.UNKNOWN);
-            return new KnowledgeIndexWorkerRunResult(1, 1, 0);
+            return new KnowledgeIndexWorkerRunResult(1, 1, 0, 0);
         }
     }
 
@@ -239,11 +242,13 @@ public final class KnowledgeIndexWorker {
 
     // ---------------------------------------------------------------- repository builds
 
-    private KnowledgeIndexJob runRepository(KnowledgeIndexJob job) {
+    private FinishedJob runRepository(KnowledgeIndexJob job) {
         RepositoryIndexKey indexKey = job.indexKey().orElseThrow();
         RepositoryGeneration opened = null;
         try {
-            List<SourceChunk> chunks = chunkRepository(indexKey);
+            RepositoryChunking chunking = chunkRepository(indexKey);
+            List<SourceChunk> chunks = chunking.chunks();
+            int skippedFiles = chunking.skippedFiles();
             if (chunks.size() > maxChunksPerGeneration) {
                 throw new JobFailedException(CHUNK_LIMIT_EXCEEDED);
             }
@@ -273,7 +278,7 @@ public final class KnowledgeIndexWorker {
             if (!generations.activate(generationKey, retentionPolicy, job.createdBy())) {
                 throw new JobFailedException(GENERATION_CONFLICT);
             }
-            return commit(job.ready(timeProvider.now()));
+            return new FinishedJob(commit(job.ready(timeProvider.now())), skippedFiles);
         } catch (JobFailedException failure) {
             discardAttempt(opened);
             throw failure;
@@ -308,13 +313,25 @@ public final class KnowledgeIndexWorker {
         }
     }
 
-    private List<SourceChunk> chunkRepository(RepositoryIndexKey indexKey) {
+    /**
+     * Collects the repository's chunks under the frozen policy. M10-Q02 follow-up: a file
+     * whose chunking yields a chunk over {@link EmbeddingClient#MAX_INPUT_CHARS} is skipped
+     * whole — the line and heading chunkers never split a single line, so a 33k+-character
+     * line (minified JS, a long markdown table row) makes the file un-embeddable at any
+     * window. Skipping is per file and counted through the run result, never silent (S01's
+     * no-silent-truncation rule); the application layer owns no logger and the job row
+     * stays closed-field, so per-file detail is not persisted — the count is the observable.
+     * The entry path stays fail-closed and the per-generation chunk budget stays a
+     * job-level failure.
+     */
+    private RepositoryChunking chunkRepository(RepositoryIndexKey indexKey) {
         List<RepositoryFileRef> files = repositoryContent.listFiles(
                 indexKey.organizationId(),
                 indexKey.teamId(),
                 indexKey.repositoryBindingId(),
                 indexKey.sourceCommit());
         List<SourceChunk> chunks = new ArrayList<>();
+        int skippedFiles = 0;
         for (RepositoryFileRef file : files) {
             if (excludedByPolicy(file)) {
                 continue;
@@ -325,14 +342,16 @@ public final class KnowledgeIndexWorker {
                     indexKey.repositoryBindingId(),
                     indexKey.sourceCommit(),
                     file.path());
-            for (SourceChunk chunk : chunkFile(file.path(), content.content())) {
-                if (chunk.content().length() > EmbeddingClient.MAX_INPUT_CHARS) {
-                    throw new JobFailedException(CHUNK_TOO_LARGE);
-                }
-                chunks.add(chunk);
+            List<SourceChunk> fileChunks = chunkFile(file.path(), content.content());
+            boolean oversized = fileChunks.stream().anyMatch(
+                    chunk -> chunk.content().length() > EmbeddingClient.MAX_INPUT_CHARS);
+            if (oversized) {
+                skippedFiles++;
+                continue;
             }
+            chunks.addAll(fileChunks);
         }
-        return chunks;
+        return new RepositoryChunking(chunks, skippedFiles);
     }
 
     private boolean excludedByPolicy(RepositoryFileRef file) {
@@ -486,4 +505,10 @@ public final class KnowledgeIndexWorker {
             super("knowledge index claim was fenced");
         }
     }
+
+    /** A repository's collectable chunks plus how many files were skipped as oversized. */
+    private record RepositoryChunking(List<SourceChunk> chunks, int skippedFiles) {}
+
+    /** A finished job plus how many repository files it skipped (zero for entry jobs). */
+    private record FinishedJob(KnowledgeIndexJob job, int skippedFiles) {}
 }

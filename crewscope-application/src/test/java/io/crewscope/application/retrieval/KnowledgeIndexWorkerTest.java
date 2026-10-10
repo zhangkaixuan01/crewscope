@@ -277,6 +277,35 @@ final class KnowledgeIndexWorkerTest {
     }
 
     @Test
+    void aRepositoryBuildSkipsOversizedFilesWholeAndStillReachesReady() {
+        // M10-Q02 §2.1: the line chunker never splits a single line, so a file holding a
+        // 33k+-character line is un-embeddable at any window — it must no longer fail the
+        // whole build. The file is skipped whole and counted through the run result,
+        // never silent (S01's no-silent-truncation rule); the healthy files still index
+        // and the job reaches READY. The entry path stays fail-closed (see the test above).
+        content.files.add(new RepositoryFileRef("README.md", 12));
+        content.contents.put("README.md", "# Title\nbody");
+        content.files.add(new RepositoryFileRef("src/bundle.js", 33001));
+        content.contents.put("src/bundle.js",
+                "x".repeat(EmbeddingClient.MAX_INPUT_CHARS + 1));
+        content.files.add(new RepositoryFileRef("src/Main.java", 24));
+        content.contents.put("src/Main.java", "class Main {\n}\n");
+        jobs.create(KnowledgeIndexJob.repositoryBuild(
+                UUID.randomUUID(), organizationId, teamId, projectId, indexKey(), actor, NOW));
+
+        KnowledgeIndexWorkerRunResult result = worker(20000).runOnce();
+
+        assertEquals(new KnowledgeIndexWorkerRunResult(1, 0, 0, 1), result);
+        assertEquals(List.of("open", "replaceBatch:1", "activate:1"), trace);
+        assertEquals(2, chunkStore.written.size());
+        assertTrue(chunkStore.written.stream().noneMatch(
+                vector -> vector.path().equals("src/bundle.js")));
+        KnowledgeIndexJob done = jobs.stored();
+        assertEquals(KnowledgeIndexJobStatus.READY, done.status());
+        assertEquals(2, done.chunksTotal());
+    }
+
+    @Test
     void aReclaimedRepositoryBuildResumesAfterTheCommittedBatchTail() {
         // Twelve one-chunk files make two embedding batches (MAX_BATCH = 10). The prior
         // attempt committed the first batch's checkpoint before its lease expired, so the

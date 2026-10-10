@@ -36,6 +36,8 @@
 | 对照纯度 | 驱动器每臂起点把 coding profile 的 approvedSkillKeys 重置为 []（闭环 spec t8 的 append 不污染对照）；配置命令七字段白名单+If-Match=当前 revision |
 
 > **整仓索引降级注（用户授权 2026-10-07④）**：s5 轮询 crewscope-java 整仓索引 job 终态为 `FAILED (CHUNK_TOO_LARGE)`——根因在 `KnowledgeIndexWorker`（:329）：任一分片超过 `EmbeddingClient.MAX_INPUT_CHARS`（33 000 字符）即**作业级**硬失败（80/70 行窗口下超长单行或超长 markdown 节必然触发），而非文件级跳过；lab 夹具全小文件从未暴露。处置=授权降级：A01 mjs 三坐标指向 lab 语料（15 问全 200 非降级，p50 413.6/p95 928.2 ms），failureCode 入档，**整仓检索结论记「待执行」**；文件级跳过策略留待后续包（不触 S01 冻结阈值）。
+>
+> **后续包回填（2026-10-10）**：文件级跳过已实现（`chunkRepository` 对含超限分片的文件整文件跳过+计数，条目路径与 `CHUNK_LIMIT_EXCEEDED` 作业级语义不动；计数经 `KnowledgeIndexWorkerRunResult.skippedFiles` 暴露，不静默），单测覆盖（`KnowledgeIndexWorkerTest.aRepositoryBuildSkipsOversizedFilesWholeAndStillReachesReady`）。整仓重跑留待下次 release gate，「待执行」结论保留但根因已除。
 
 ### 2.2 预冻结验收界限（B2，终跑前不可调）
 

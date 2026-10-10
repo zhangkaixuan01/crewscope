@@ -152,7 +152,7 @@ M11-I01c 起内置 Web 支持 WebSocket 升级（Upgrade/Connection 透传随 we
 
 1. **先看健康与作业列表**：`/actuator/health` 的 `knowledgeIndex`/`knowledgeVector` 组件（DOWN 会带 reason）；`GET /api/v1/organizations/{org}/teams/{team}/knowledge/index/jobs?status=FAILED`（可加 `&source=REPOSITORY` 只看仓库作业）；`GET …/jobs/{jobId}` 看详情的 `failureCode`/`attempt`/`chunksDone`。
 
-2. **FAILED 重试**：条目类→`POST …/knowledge/index/rebuilds`（幂等坍缩到活作业，可安全重复）；仓库类→修复根因后 `POST …/knowledge/index/repository-builds`（体 `{projectId, bindingId, commit}`）。失败码速查：`REPOSITORY_UNAVAILABLE`/`REPOSITORY_READ_FAILED`→查受管 mirror 与 GitHub 导入状态；`MODEL_DRIFT`/模型连接类→查模型连接健康与 embedding 治理链；`CHUNK_TOO_LARGE`/`CHUNK_LIMIT_EXCEEDED`→修内容或调 `max-file-bytes`（注意改分片值即换策略哈希=新 Generation，属预期行为）。
+2. **FAILED 重试**：条目类→`POST …/knowledge/index/rebuilds`（幂等坍缩到活作业，可安全重复）；仓库类→修复根因后 `POST …/knowledge/index/repository-builds`（体 `{projectId, bindingId, commit}`）。失败码速查：`REPOSITORY_UNAVAILABLE`/`REPOSITORY_READ_FAILED`→查受管 mirror 与 GitHub 导入状态；`MODEL_DRIFT`/模型连接类→查模型连接健康与 embedding 治理链；仓库类 `CHUNK_TOO_LARGE`→2026-10-10 起不再出现（worker 对含超 33 000 字符分片的文件自动整文件跳过，跳过数经 run result 的 `skippedFiles` 计数暴露，不静默；若仍见此码必为条目类）；条目类 `CHUNK_TOO_LARGE`→修条目内容（单条整片超限，fail-closed 不截断）；`CHUNK_LIMIT_EXCEEDED`→精简仓库或调 `max-chunks-per-generation`（注意：不是 `max-file-bytes`——后者是文件排除阈值，管不到分片总数；调任何分片旋钮即换策略哈希=新 Generation，属预期行为）。
 
 3. **卡死作业**：租约默认 30 分钟（`CREWSCOPE_KNOWLEDGE_INDEX_WORKER_LEASE`，5s–1h），过期由 claim 自动重领，`claimToken` 单调递增使旧 Worker 写显式失败（日志/遥测可见 FENCED）——**不要重启数据库或手改作业行**；checkpoint 保证重领后从批尾续传，不重复嵌入。
 
