@@ -130,6 +130,10 @@ M11-I01c 起内置 Web 支持 WebSocket 升级（Upgrade/Connection 透传随 we
 
 启用：在 `.runtime/.env` 写入 `CREWSCOPE_COLLABORATION_REALTIME_ENABLED=true` 后 `up`。容量上限（超过即拒绝新连接）：单节点软预算 200 连接、硬上限 500；每账号 16 连接（多标签页合计）；每连接 32 个订阅。在场数据只存 Redis 且带 TTL（45s，心跳续期），断连与进程重启都会自然清理，不影响业务数据。
 
+M11-A01 起通道承载协作信号（在场/正在输入/实时变更通知，帧协议与错误码见《[M11-协作信号API契约](../api/M11-协作信号API契约.md)》）。三个信号旋钮（均带默认，一般不动）：`CREWSCOPE_COLLABORATION_REALTIME_MAX_INBOUND_SIGNALS_PER_SECOND`（每连接入站信号预算，默认 30/s，超限先答 `rate_limited`，10s 窗口内第 3 次超限以 1013 `signal budget exceeded` 断开）、`CREWSCOPE_COLLABORATION_REALTIME_REVALIDATION_INTERVAL`（成员资格复验缓存窗，默认 5s，与心跳共同决定撤权切断时窗）、`CREWSCOPE_COLLABORATION_REALTIME_TYPING_WINDOW`（正在输入锚定窗口，默认 5s，仅测试加速时调窄）。新指标：`crewscope.collaboration.signal.emitted`（按 frame_type 分标签）、`signal.rate-limited`、`connection.closed.revoked`、`connection.closed.rate-limited`。
+
+信号面运维要点：close 4403 `authorization revoked` 表示复验层切断（成员资格失效或鉴权链故障，fail-closed 设计——`closed.revoked` 突增而无成员变更操作时优先查 PostgreSQL/鉴权链健康，客户端退避重连即恢复，属预期副作用）；变更通知帧只含坐标+版本，收到后由前端重新拉取权威读面；Redis 故障只降级在场呈现（订阅与变更通知不受影响），不产生错误形态。
+
 演练与基线复跑：`scripts/m11-i01c-real-stack-gate.sh` 会起一套隔离的验证栈（不碰本部署），跑真实浏览器 e2e、200 连接风暴/稳态/重连/慢客户端（1013）与订阅泄漏断言；基线数字与解释见 `docs/testing/M11-I01c-实时通道部署与降级e2e.md`。慢客户端演练需要把 `CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL` 压到 `1s` 加速观察，演练完改回 `15s`。
 
 ## 状态、日志与停止
