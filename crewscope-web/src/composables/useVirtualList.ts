@@ -307,8 +307,18 @@ export function useVirtualList<T>(
     // A resize is not a scroll: the anchor keeps describing where the member *was*, so it is
     // restored against the reflowed layout instead of re-derived from it — re-deriving would
     // adopt whatever drift the resize itself introduced and call that the reading position.
+    // A follower is the opposite contract: "following" means glued to the end, so a viewport
+    // shrink (the collaboration strip mounting above the composer, a pane drag) re-glues to
+    // the exact bottom instead of stranding the newest message a strip-height short until
+    // the next one arrives. Shrinks larger than the follow threshold flip isFollowing in
+    // readMetrics and take the anchor path, exactly like any other layout shift.
     readMetrics()
-    if (!isFollowing.value) restoreAnchor()
+    if (isFollowing.value) {
+      const element = container.value
+      if (element) element.scrollTop = element.scrollHeight
+    } else {
+      restoreAnchor()
+    }
   }) : null
 
   /** Observes rendered rows (browser) or measures them synchronously (jsdom fallback). */

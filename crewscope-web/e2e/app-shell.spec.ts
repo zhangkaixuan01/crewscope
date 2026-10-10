@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Route } from '@playwright/test'
+import { expect, test, type Locator, type Route, type WebSocketRoute } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { createHash } from 'node:crypto'
 import { authenticatedSession } from './auth-session'
@@ -3371,6 +3371,99 @@ test('M4 Repository and Execution Studio visual baseline', async ({ page }, test
   await expect(studio.getByRole('heading', { name: 'Execution Studio' })).toBeVisible()
   await studio.scrollIntoViewIfNeeded()
   await expect(page).toHaveScreenshot(`execution-studio-${testInfo.project.name}.png`)
+})
+
+test('M11 collaboration signal states ride the surfaces without touching the silent baselines', async ({ page }, testInfo) => {
+  // The mock tier's channel is the inert handshake (vite.config.ts e2eDevServer): page.route
+  // cannot mock a WebSocket upgrade, and a failing one would flip the store to degraded
+  // mid-screenshot. routeWebSocket can — this test alone drives the real store through
+  // welcome → subscribe → presence/typing so the F01 surfaces render their live states for
+  // the visual and axe gates. Every other test keeps the inert silence, so the pre-F01
+  // baselines keep their shape.
+  let activeSocket: WebSocketRoute | null = null
+  let handleSeq = 0
+  let workItemHandle: string | null = null
+  await page.routeWebSocket(/\/api\/v1\/collaboration\/ws$/, ws => {
+    activeSocket = ws
+    ws.send(JSON.stringify({
+      type: 'welcome', connectionId: 'spec-conn', principalId: `account:${ids.principal}`,
+      typingWindowSeconds: 600, maxInboundSignalsPerSecond: 30,
+    }))
+    ws.onMessage(message => {
+      const frame = JSON.parse(String(message)) as { type: string, scope?: { resourceType?: string } }
+      if (frame.type !== 'subscribe' || !frame.scope) return
+      handleSeq += 1
+      const subscriptionId = `spec-handle-${handleSeq}`
+      const scope = frame.scope
+      ws.send(JSON.stringify({ type: 'subscribed', subscriptionId, scope }))
+      const signal = (payload: Record<string, unknown>) =>
+        ws.send(JSON.stringify({ ...payload, subscriptionId, scope }))
+      if (scope.resourceType === 'conversation') {
+        signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', connections: 1 })
+        signal({ type: 'typing', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', state: 'started' })
+      } else if (scope.resourceType === 'work_project') {
+        signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', connections: 1 })
+        signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.thirdPrincipal}`, displayName: '王睿', connections: 2 })
+      } else if (scope.resourceType === 'work_item') {
+        workItemHandle = subscriptionId
+        signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', connections: 1 })
+      }
+    })
+  })
+
+  // SSE 保活（与 AppShell visual baseline 同因）：兜底空流的退避重连会让 latest-jump
+  // pill 闪进截图；非 SSE 的历史请求 fallback 回全局兜底。
+  await page.route(/\/(conversations\/[^/]+|tasks\/[^/]+)\/events(?:\?.*)?$/, (route: Route) => {
+    if (route.request().headers().accept?.includes('text/event-stream')) {
+      return new Promise<void>(() => {})
+    }
+    return route.fallback()
+  })
+
+  // Conversation: the strip above the composer carries presence and typing.
+  await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
+  await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
+  await expect(page.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', '在场：林晨')
+  await expect(page.locator('.typing-indicator')).toContainText('林晨 正在输入…')
+  await expect(page.locator('.collab-pill')).toContainText('实时协作在线')
+  await expect.poll(async () => page.evaluate(() => {
+    const history = document.querySelector('.message-history')
+    return history ? Math.abs(history.scrollHeight - history.clientHeight - history.scrollTop) < 4 : false
+  }), { message: '消息历史应完成阅读位置恢复并停在底部' }).toBe(true)
+  await expect(page).toHaveScreenshot(`conversation-collaboration-${testInfo.project.name}.png`, { fullPage: true })
+
+  const conversationAxe = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(conversationAxe.violations, formatAxeViolations(conversationAxe.violations)).toEqual([])
+
+  // Board: one presence row for the whole board (the project-granularity subscription).
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=all&priority=all`)
+  await expect(page.locator('.board-presence .presence-group')).toHaveAttribute('aria-label', '在场：林晨、王睿')
+  await expect(page.locator('.collab-pill')).toContainText('实时协作在线')
+  await expect(page).toHaveScreenshot(`work-board-collaboration-${testInfo.project.name}.png`, { fullPage: true })
+
+  // Drawer: hero presence, and a remote change that banners a dirty editor without
+  // touching it (ADR-032's interruption red line) — CRW-18 sits at v0 in this world.
+  await page.getByLabel('进行中').getByRole('button', { name: /打开 CRW-18/ }).click()
+  const drawer = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(drawer.locator('.detail-hero__status .presence-group')).toHaveAttribute('aria-label', '在场：林晨')
+  await drawer.getByRole('button', { name: '编辑内容' }).click()
+  const title = drawer.getByLabel('标题', { exact: true })
+  await title.fill('并行修改期间的本地标题')
+  activeSocket!.send(JSON.stringify({
+    type: 'resource_changed', subscriptionId: workItemHandle,
+    scope: { organization: ids.organization, team: ids.team, resourceType: 'work_item', resourceId: ids.workItem },
+    version: 1,
+  }))
+  await expect(drawer.locator('.change-banner')).toContainText('该工作项已被更新')
+  await expect(title).toHaveValue('并行修改期间的本地标题')
+  const drawerAxe = await new AxeBuilder({ page })
+    .include('.detail-drawer')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze()
+  expect(drawerAxe.violations, formatAxeViolations(drawerAxe.violations)).toEqual([])
+  await expect(page).toHaveScreenshot(`work-drawer-collaboration-${testInfo.project.name}.png`, { fullPage: true })
 })
 
 test('M5 Agent creation and configuration preserve server-owned boundaries', async ({ page }) => {

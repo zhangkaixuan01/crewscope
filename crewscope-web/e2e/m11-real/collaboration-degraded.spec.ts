@@ -133,6 +133,39 @@ test('the SSE flow keeps delivering authoritative updates without the channel', 
   })
 })
 
+test('the UI names the degraded channel plainly while the conversation keeps working', async () => {
+  // A conversation to sit in: the page subscribes its scope, the channel answers the
+  // upgrade with 404 → 1006, and the store fails its way to degraded (~3.5s of
+  // backoff, ADR-032). What the member sees must state that fact, not hide it.
+  const suffix = `i01cd-${Date.now()}`.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const conversationsPath = teamPath(session, teamId, 'conversations')
+  await command(page, session, conversationsPath, { title: `I01c 降级对话 ${suffix}`.slice(0, 96), visibility: 'TEAM' })
+  const conversationId = await waitForItem(page, conversationsPath, suffix)
+
+  await page.goto(`/conversation?team=${teamId}&conversation=${conversationId}`)
+  await expect(page.getByLabel('发送消息')).toBeVisible()
+
+  // The pill names the state and carries the manual retry exit.
+  const pill = page.locator('.collab-pill--degraded')
+  await expect(pill).toContainText('实时协作不可用')
+  // The conversation strip says the same thing in place of the presence row.
+  await expect(page.locator('.collaboration-strip--degraded')).toHaveText('实时协作暂不可用')
+
+  // The retry exit re-enters the cycle: connecting renders nothing (no flicker),
+  // then three failures land back on degraded.
+  await pill.getByRole('button', { name: '实时协作不可用' }).click()
+  await expect(pill).toBeHidden()
+  await expect(pill).toBeVisible()
+
+  // The main flow never depended on the channel: a message sent through the composer
+  // arrives in the transcript over the HTTP plane.
+  const message = `降级通道下的消息 ${suffix}`
+  await expect(page.getByLabel('消息内容')).toBeEnabled()
+  await page.getByLabel('消息内容').fill(message)
+  await page.getByRole('button', { name: '发送' }).click()
+  await expect(page.locator('.message-list')).toContainText(message)
+})
+
 async function waitForItem(page: Page, listPath: string, suffix: string): Promise<string> {
   const deadline = Date.now() + 30_000
   for (;;) {

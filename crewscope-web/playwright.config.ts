@@ -7,7 +7,7 @@ export default defineConfig({
   // Q03/Q04 own full production stacks and explicit configs, and the m9b-a01 recovery scenario is
   // driven by A01BrowserIntegrationTest through a real test JVM (A01_TEST_* env). The ordinary
   // browser matrix uses the Vite test server and must not discover those specifications.
-  testIgnore: ['m7-two-user-real.spec.ts', 'm7-registration-profiles-real.spec.ts', '**/m9b-f01/**', '**/m9b-a01/**', '**/m9b-q01/**', '**/m9b-q02/**', '**/m10-real/**'],
+  testIgnore: ['m7-two-user-real.spec.ts', 'm7-registration-profiles-real.spec.ts', '**/m9b-f01/**', '**/m9b-a01/**', '**/m9b-q01/**', '**/m9b-q02/**', '**/m10-real/**', '**/m11-real/**'],
   // Text rasterization differs materially between macOS and the Linux amd64 release host.
   // Keep reviewed baselines per OS instead of weakening the visual regression threshold.
   snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-${snapshotPlatform}{ext}`,
@@ -45,5 +45,9 @@ export default defineConfig({
     command: 'pnpm dev --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
+    // Marks the mock-tier dev server so vite.config.ts swaps the collaboration WS
+    // proxy for the inert handshake channel (M11-F01): page.route cannot mock a
+    // WebSocket upgrade, and a failing one would degrade the store mid-screenshot.
+    env: { CREWSCOPE_E2E_DEV: '1' },
   },
 })

@@ -143,6 +143,41 @@ describe('useVirtualList', () => {
     expect(active.isFollowing.value).toBe(false)
   })
 
+  it('re-glues a follower to the exact bottom when the viewport shrinks under it', async () => {
+    // The collaboration strip mounting above the composer takes 26px off the message-history
+    // viewport after the initial scroll-to-bottom: a follower still inside the 80px threshold
+    // must be re-glued to the new bottom, or the newest message strands a strip-height short
+    // of it (the M11-F01 e2e catch). jsdom has no ResizeObserver, so one is stubbed in for
+    // this test only and its container callback is fired by hand.
+    class FakeResizeObserver {
+      static readonly instances: FakeResizeObserver[] = []
+      readonly targets = new Set<Element>()
+      constructor(private readonly callback: ResizeObserverCallback) {
+        FakeResizeObserver.instances.push(this)
+      }
+      observe(target: Element): void { this.targets.add(target) }
+      unobserve(target: Element): void { this.targets.delete(target) }
+      disconnect(): void { this.targets.clear() }
+      fire(): void { this.callback([], this as unknown as ResizeObserver) }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    try {
+      const { element } = await mountHost(rows(100), { scrollTop: 9600, clientHeight: 400, scrollHeight: 10000 })
+      expect(active.isFollowing.value).toBe(true)
+
+      // The strip appears: the viewport loses 26px while scrollTop stays where it was —
+      // 26px short of the bottom, yet still comfortably inside the follow threshold.
+      mockScrollMetrics(element, { scrollTop: 9600, clientHeight: 374, scrollHeight: 10000 })
+      const observer = FakeResizeObserver.instances.find(instance => instance.targets.has(element))
+      expect(observer, 'the container observer watches the scroll container').toBeTruthy()
+      observer!.fire()
+
+      expect(element.scrollTop).toBe(10000)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('exposes the current anchor and restores to a persisted one', async () => {
     const items = rows(100)
     await mountHost(items, { scrollTop: 2300, clientHeight: 400, scrollHeight: 10000 })

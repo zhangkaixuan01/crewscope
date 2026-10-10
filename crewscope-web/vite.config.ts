@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto'
+import type { Duplex } from 'node:stream'
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
-import type { ProxyOptions } from 'vite'
+import type { Plugin, ProxyOptions } from 'vite'
+import type { IncomingMessage } from 'node:http'
 
 // The API enforces same-origin requests. During local development Vite proxies browser calls
 // to localhost:8080, so rewrite Origin to the proxy target instead of making the API relax its
@@ -24,8 +27,43 @@ const localCollaborationWsProxy: ProxyOptions = {
   },
 }
 
+// The default Playwright tier runs `pnpm dev` with page-route mocks and no backend. A
+// WebSocket handshake cannot be mocked by page.route, and the failed upgrade would push
+// the collaboration store to `degraded` on the third retry (~3.5s in) — flipping the
+// status pill and the degraded placeholders into screenshots mid-test. The e2e dev
+// server (CREWSCOPE_E2E_DEV=1, set by playwright.config.ts) instead completes the
+// upgrade and stays silent: with no welcome frame the store never leaves `connecting`,
+// so every collaboration affordance stays hidden and the visual baselines keep their
+// pre-F01 shape. Local dev keeps the real proxy and the honest degraded stance.
+const e2eDevServer = process.env.CREWSCOPE_E2E_DEV === '1'
+
+function inertCollaborationChannelPlugin(): Plugin {
+  const WEBSOCKET_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+  return {
+    name: 'crewscope-e2e-inert-collaboration-channel',
+    configureServer(server) {
+      server.httpServer?.on('upgrade', (request: IncomingMessage, socket: Duplex) => {
+        if (!request.url?.startsWith('/api/v1/collaboration/ws')) return
+        const key = request.headers['sec-websocket-key']
+        if (typeof key !== 'string') {
+          socket.destroy()
+          return
+        }
+        const accept = createHash('sha1').update(`${key}${WEBSOCKET_GUID}`).digest('base64')
+        socket.write(
+          'HTTP/1.1 101 Switching Protocols\r\n'
+          + 'Upgrade: websocket\r\n'
+          + 'Connection: Upgrade\r\n'
+          + `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+        )
+        socket.on('error', () => socket.destroy())
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: e2eDevServer ? [vue(), inertCollaborationChannelPlugin()] : [vue()],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -57,10 +95,17 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
-      '/api/v1/collaboration/ws': localCollaborationWsProxy,
-      '/api': localApiProxy,
-      '/actuator': localApiProxy,
-    },
+    proxy: e2eDevServer
+      ? {
+        // The inert plugin owns the collaboration upgrade in the e2e tier; a ws:true
+        // entry here would race it with a proxy attempt against the absent backend.
+        '/api': localApiProxy,
+        '/actuator': localApiProxy,
+      }
+      : {
+        '/api/v1/collaboration/ws': localCollaborationWsProxy,
+        '/api': localApiProxy,
+        '/actuator': localApiProxy,
+      },
   },
 })
