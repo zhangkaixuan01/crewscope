@@ -56,15 +56,6 @@ public final class CollaborationPresenceStore {
     this.clock = clock;
   }
 
-  /** Registers (or re-scopes) a connection without a display name (empty hash field). */
-  public Mono<Void> register(
-      String connectionId,
-      String principalId,
-      CollaborationResourceScope scope,
-      Instant connectedAt) {
-    return register(connectionId, principalId, scope, "", connectedAt);
-  }
-
   /**
    * Registers (or re-scopes) a connection: conn hash with TTL (including the signal
    * display name) plus the scope ZSET entry.

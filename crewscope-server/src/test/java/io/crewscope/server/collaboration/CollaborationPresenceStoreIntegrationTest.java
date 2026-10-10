@@ -55,7 +55,7 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void registerWritesTheAdrHashShapeWithTtlAndTheScopeEntry() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
 
     Map<String, String> hash =
         redis
@@ -67,7 +67,7 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
         .containsEntry("organizationId", ORG.toString())
         .containsEntry("teamId", TEAM.toString())
         .containsEntry("principalId", "account:alice")
-        .containsEntry("displayName", "")
+        .containsEntry("displayName", "Alice")
         .containsEntry("resourceType", "work_item")
         .containsEntry("resourceId", WORK_ITEM.toString())
         .containsEntry("connectedAt", Long.toString(START.toEpochMilli()))
@@ -86,10 +86,10 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void registerOnAScopeChangeRewritesTheHashButKeepsEveryScopeEntry() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
     clock.advance(Duration.ofSeconds(5));
 
-    store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", teamScope, "Alice", START).block(REDIS_TIMEOUT);
 
     // The hash mirrors the most recently active subscription (ADR single-scope fields)...
     String resourceType =
@@ -109,8 +109,8 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void refreshSlidesTheConnTtlAndEveryActiveScopeScoreForward() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
-    store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", teamScope, "Alice", START).block(REDIS_TIMEOUT);
     clock.advance(Duration.ofSeconds(15));
 
     store.refresh("conn-1", List.of(keyspace.scopeKey(itemScope), keyspace.scopeKey(teamScope)))
@@ -128,8 +128,8 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void removeConnectionDeletesTheHashAndEveryScopeEntry() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
-    store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", teamScope, "Alice", START).block(REDIS_TIMEOUT);
 
     store.removeConnection("conn-1", List.of(keyspace.scopeKey(itemScope), keyspace.scopeKey(teamScope)))
         .block(REDIS_TIMEOUT);
@@ -144,8 +144,8 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
 
   @Test
   void removeScopeDropsOneEntryButKeepsTheConnectionHash() {
-    store.register("conn-1", "account:alice", itemScope, START).block(REDIS_TIMEOUT);
-    store.register("conn-1", "account:alice", teamScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", itemScope, "Alice", START).block(REDIS_TIMEOUT);
+    store.register("conn-1", "account:alice", teamScope, "Alice", START).block(REDIS_TIMEOUT);
 
     store.removeScope("conn-1", keyspace.scopeKey(itemScope)).block(REDIS_TIMEOUT);
 
@@ -182,7 +182,7 @@ class CollaborationPresenceStoreIntegrationTest extends AbstractCollaborationPre
         .add(keyspace.scopeKey(projectScope), "ghost-conn", START.toEpochMilli() - 1_000.0)
         .block(REDIS_TIMEOUT);
     // A live connection whose entry is still valid.
-    store.register("conn-live", "account:alice", projectScope, START).block(REDIS_TIMEOUT);
+    store.register("conn-live", "account:alice", projectScope, "Alice", START).block(REDIS_TIMEOUT);
 
     List<CollaborationPresenceStore.PresentPrincipal> present =
         store.listPresent(projectScope).block(REDIS_TIMEOUT);

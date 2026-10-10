@@ -9,7 +9,9 @@ import reactor.core.publisher.Mono;
  * identity with the durable authorization facts. A Mono port living in server (not the
  * application module) follows the {@code TeamRequestIdentityResolver} convention — the product
  * implementation bridges blocking JPA adjudication onto a scheduler; test fixtures provide
- * fakes. Outbound-frame revalidation and the 4403 close belong to D02, not this port.
+ * fakes. The A01 revocation revalidation layer ({@link CollaborationRevocationRevalidator})
+ * probes this same port asynchronously for live connections — there is no second rulebook —
+ * while the event-driven 4403 on membership lifecycle events belongs to D02.
  */
 public interface CollaborationSubscriptionAuthorizer {
 

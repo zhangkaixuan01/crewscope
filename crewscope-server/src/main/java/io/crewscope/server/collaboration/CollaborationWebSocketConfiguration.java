@@ -88,6 +88,37 @@ public class CollaborationWebSocketConfiguration {
   }
 
   @Bean
+  CollaborationRevocationRevalidator collaborationRevocationRevalidator(
+      CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationRevocationRevalidator(
+        subscriptionAuthorizer, properties.getRevalidationInterval(), Clock.systemUTC());
+  }
+
+  /**
+   * The in-memory {@link io.crewscope.application.collaboration.CollaborationSignalSink}: the
+   * outbox consumer (assembled by the signal configuration under the same switch) pushes change
+   * facts here while the handler registers live connections into it.
+   */
+  @Bean
+  CollaborationSignalFanout collaborationSignalFanout(
+      CollaborationSubscriptionRegistry subscriptions,
+      CollaborationPresenceKeyspace keyspace,
+      CollaborationPresenceStore presenceStore,
+      CollaborationConnectionMetrics metrics,
+      CollaborationRevocationRevalidator revalidator,
+      CollaborationRealtimeProperties properties) {
+    return new CollaborationSignalFanout(
+        subscriptions,
+        keyspace,
+        presenceStore,
+        metrics,
+        revalidator,
+        properties.getTypingWindow(),
+        Clock.systemUTC());
+  }
+
+  @Bean
   CollaborationConnectionHandler collaborationConnectionHandler(
       CollaborationRealtimeProperties properties,
       CollaborationConnectionRegistry registry,
@@ -96,7 +127,9 @@ public class CollaborationWebSocketConfiguration {
       CollaborationSubscriptionRegistry subscriptions,
       CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
       CollaborationPresenceKeyspace presenceKeyspace,
-      CollaborationPresenceStore presenceStore) {
+      CollaborationPresenceStore presenceStore,
+      CollaborationSignalFanout signalFanout,
+      CollaborationDisplayNameResolver displayNameResolver) {
     return new CollaborationConnectionHandler(
         registry,
         metrics,
@@ -105,10 +138,14 @@ public class CollaborationWebSocketConfiguration {
         subscriptionAuthorizer,
         presenceKeyspace,
         presenceStore,
+        signalFanout,
+        displayNameResolver,
         properties.getHeartbeatInterval(),
         properties.getInboundIdleTimeout(),
         properties.getPresenceTtl(),
-        properties.getOutboundFrameBufferLimit());
+        properties.getOutboundFrameBufferLimit(),
+        properties.getMaxInboundSignalsPerSecond(),
+        properties.getTypingWindow());
   }
 
   @Bean

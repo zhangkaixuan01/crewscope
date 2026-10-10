@@ -14,6 +14,7 @@ import io.crewscope.server.collaboration.CollaborationConnectionMetrics.DenialRe
 import io.crewscope.server.collaboration.CollaborationConnectionMetrics.RejectionReason;
 import io.crewscope.server.collaboration.CollaborationConnectionRegistry.Admission;
 import io.crewscope.server.collaboration.CollaborationConnectionRegistry.Reason;
+import io.crewscope.server.collaboration.CollaborationInboundRateLimiter.Verdict;
 import io.crewscope.server.collaboration.CollaborationSubscriptionAuthorizer.Decision;
 import io.crewscope.server.collaboration.CollaborationSubscriptionRegistry.Added;
 import io.crewscope.server.collaboration.CollaborationSubscriptionRegistry.AlreadySubscribed;
@@ -22,6 +23,7 @@ import io.crewscope.server.security.AccountSessionSubject;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
 import io.crewscope.server.security.AuthenticatedSubject;
 import io.crewscope.server.security.ExternalAuthenticatedSubject;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -42,27 +44,26 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Connection-level half of the collaboration transport (M11-I01a/I01b). The filter chain has
- * already authenticated the upgrade request and the handshake service copied exactly the
- * security-context attribute into {@link WebSocketSession#getAttributes()} — this handler reuses
- * that session identity (no second authentication) and enforces the ADR-032 connection
- * constants: 15s server ping, 30s inbound-idle disconnect, per-principal and node admission
- * limits, and a per-connection outbound budget that closes a slow client (1013) instead of
- * growing node memory.
+ * Connection-level half of the collaboration transport (M11-I01a/I01b + A01 signals). The
+ * filter chain has already authenticated the upgrade request and the handshake service copied
+ * exactly the security-context attribute into {@link WebSocketSession#getAttributes()} — this
+ * handler reuses that session identity (no second authentication) and enforces the ADR-032
+ * connection constants: 15s server ping, 30s inbound-idle disconnect, per-principal and node
+ * admission limits, and a per-connection outbound budget that closes a slow client (1013)
+ * instead of growing node memory.
  *
- * <p>I01b adds the subscription protocol on top: {@code subscribe}/{@code unsubscribe} frames
+ * <p>I01b adds the subscription protocol: {@code subscribe}/{@code unsubscribe} frames
  * carrying a scope, per-subscription authorization through {@link
- * CollaborationSubscriptionAuthorizer} (every subscribe re-intersects the identity with durable
- * authorization), the per-connection subscription cap, and the Redis presence writes — conn hash
- * with TTL plus scope ZSET entries — refreshed by the heartbeat and torn down on disconnect.
- * Presence stays fire-and-forget: losing it degrades presentation, never business (the I01b
- * acceptance line). Authorization frames never disclose whether a resource exists;
- * forbidden, missing, and infrastructure failures all answer {@code forbidden_scope}.</p>
- *
- * <p>Protocol until A01 formalizes the contract: text frames carrying {@code {"type":...}} JSON.
- * The server sends {@code welcome} then periodic {@code ping}; the client answers {@code pong}.
- * Unknown or unparseable frames get an {@code error} reply without disconnecting — the frame-size
- * cap and the idle timeout bound abuse on their own.</p>
+ * CollaborationSubscriptionAuthorizer}, the per-connection subscription cap, and the Redis
+ * presence writes. A01 wires the signal fanout into the same lifecycle: the display name
+ * resolves once per connection before the fanout registers it (before any inbound frame is
+ * processed), {@code typing} frames forward through the anchored window, every subscription
+ * completion announces presence and hands over a snapshot, and the heartbeat tick refreshes
+ * the revocation cache. Inbound business frames pass a per-connection token bucket —
+ * {@code pong} stays free, a burst answers {@code rate_limited}, and sustained abuse
+ * escalates to a 1013 close (ADR-032 rate limits). The teardown order is fixed: registry
+ * removal first, then the leave deltas (so the remaining-connection counts are already
+ * correct), then the Redis presence cleanup.</p>
  */
 public final class CollaborationConnectionHandler implements WebSocketHandler {
 
@@ -86,10 +87,14 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
   private final CollaborationSubscriptionAuthorizer subscriptionAuthorizer;
   private final CollaborationPresenceKeyspace presenceKeyspace;
   private final CollaborationPresenceStore presence;
+  private final CollaborationSignalFanout signalFanout;
+  private final CollaborationDisplayNameResolver displayNameResolver;
   private final Duration heartbeatInterval;
   private final Duration inboundIdleTimeout;
   private final Duration presenceTtl;
   private final int outboundFrameBufferLimit;
+  private final int maxInboundSignalsPerSecond;
+  private final Duration typingWindow;
 
   public CollaborationConnectionHandler(
       CollaborationConnectionRegistry registry,
@@ -99,10 +104,14 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
       CollaborationPresenceKeyspace presenceKeyspace,
       CollaborationPresenceStore presence,
+      CollaborationSignalFanout signalFanout,
+      CollaborationDisplayNameResolver displayNameResolver,
       Duration heartbeatInterval,
       Duration inboundIdleTimeout,
       Duration presenceTtl,
-      int outboundFrameBufferLimit) {
+      int outboundFrameBufferLimit,
+      int maxInboundSignalsPerSecond,
+      Duration typingWindow) {
     this.registry = registry;
     this.metrics = metrics;
     this.subjectExtractor = subjectExtractor;
@@ -110,10 +119,14 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
     this.subscriptionAuthorizer = subscriptionAuthorizer;
     this.presenceKeyspace = presenceKeyspace;
     this.presence = presence;
+    this.signalFanout = signalFanout;
+    this.displayNameResolver = displayNameResolver;
     this.heartbeatInterval = heartbeatInterval;
     this.inboundIdleTimeout = inboundIdleTimeout;
     this.presenceTtl = presenceTtl;
     this.outboundFrameBufferLimit = outboundFrameBufferLimit;
+    this.maxInboundSignalsPerSecond = maxInboundSignalsPerSecond;
+    this.typingWindow = typingWindow;
   }
 
   @Override
@@ -136,24 +149,49 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
     CollaborationOutboundChannel outbound =
         new CollaborationOutboundChannel(outboundFrameBufferLimit);
     AtomicReference<Instant> lastInbound = new AtomicReference<>(Instant.now());
-    offer(session, outbound, welcomeFrame(session.getId()));
+    AtomicReference<String> displayName = new AtomicReference<>("");
+    CollaborationInboundRateLimiter inboundRateLimiter =
+        new CollaborationInboundRateLimiter(maxInboundSignalsPerSecond, Instant.now());
+    offer(session, outbound, welcomeFrame(session.getId(), principalKey));
+
+    // The fanout registration must complete before any inbound frame is processed, and the
+    // welcome must already be queued: the client may answer signals the instant it sees one.
+    Mono<Void> startup =
+        displayNameResolver
+            .resolve(authentication)
+            .defaultIfEmpty("")
+            .doOnNext(
+                name -> {
+                  displayName.set(name);
+                  signalFanout.register(
+                      session.getId(),
+                      authentication,
+                      principalKey,
+                      name,
+                      outbound,
+                      status -> session.close(status).subscribe());
+                })
+            .then();
 
     Mono<Void> inbound =
-        session
-            .receive()
-            .map(message -> message.getPayloadAsText())
-            .concatMap(
-                text ->
-                    Mono.defer(
-                        () -> {
-                          // Any inbound frame refreshes activity, before protocol handling:
-                          // the idle disconnect must never fire on a chatty client, and an
-                          // authorization wait must not count as idleness.
-                          lastInbound.set(Instant.now());
-                          return acceptInboundFrame(session, outbound, authentication, principalKey, text);
-                        }))
-            .doOnComplete(outbound::close)
-            .then();
+        startup.then(
+            session
+                .receive()
+                .map(message -> message.getPayloadAsText())
+                .concatMap(
+                    text ->
+                        Mono.defer(
+                            () -> {
+                              // Any inbound frame refreshes activity, before protocol handling:
+                              // the idle disconnect must never fire on a chatty client, and an
+                              // authorization wait must not count as idleness.
+                              lastInbound.set(Instant.now());
+                              return acceptInboundFrame(
+                                  session, outbound, inboundRateLimiter,
+                                  authentication, principalKey, displayName, text);
+                            }))
+                .doOnComplete(outbound::close)
+                .then());
     Mono<Void> outboundSend = session.send(outbound.stream().map(session::textMessage));
     Mono<Void> heartbeat = heartbeatLoop(session, outbound, lastInbound);
 
@@ -162,13 +200,18 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
         .doFinally(signal -> {
           outbound.close();
           registry.release(session.getId());
-          releasePresence(session.getId());
+          // Registry removal first: the leave deltas then observe the remaining connections,
+          // and the revocation path re-runs these same idempotent steps.
+          Set<String> scopeKeys = subscriptions.removeAll(session.getId());
+          signalFanout.disconnected(session.getId(), scopeKeys);
+          releasePresence(session.getId(), scopeKeys);
         });
   }
 
   /** Independent ticks: ping at the heartbeat interval, idle checks at 1s resolution. */
   private Mono<Void> heartbeatLoop(
-      WebSocketSession session, CollaborationOutboundChannel outbound,
+      WebSocketSession session,
+      CollaborationOutboundChannel outbound,
       AtomicReference<Instant> lastInbound) {
     return Flux.merge(
             Flux.interval(heartbeatInterval).map(tick -> true),
@@ -179,6 +222,7 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
               if (isPing) {
                 offer(session, outbound, PING_FRAME);
                 refreshPresence(session.getId());
+                signalFanout.heartbeatTouch(session.getId());
                 return;
               }
               if (Duration.between(lastInbound.get(), Instant.now()).compareTo(inboundIdleTimeout)
@@ -189,29 +233,49 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
         .then();
   }
 
-  /** Pong keeps the connection alive; subscribe/unsubscribe are the I01b protocol verbs. */
+  /**
+   * Frame dispatch after the rate limiter: {@code pong} stays free (it is the client's half
+   * of the heartbeat contract), every other frame — parseable or not — spends a token. A
+   * limited burst answers {@code rate_limited} without disconnecting; the third violation in
+   * the limiter's window escalates to a 1013 close.
+   */
   private Mono<Void> acceptInboundFrame(
       WebSocketSession session,
       CollaborationOutboundChannel outbound,
+      CollaborationInboundRateLimiter inboundRateLimiter,
       Authentication authentication,
       String principalKey,
+      AtomicReference<String> displayName,
       String text) {
-    Map<String, Object> frame;
-    try {
-      frame = JSON.readValue(text, FRAME_TYPE);
-    } catch (Exception exception) {
+    Map<String, Object> frame = parseFrame(text);
+    if (frame != null && "pong".equals(frame.get("type"))) {
+      return Mono.empty();
+    }
+    Verdict verdict = inboundRateLimiter.acquire(Instant.now());
+    if (verdict == Verdict.LIMITED) {
+      metrics.recordSignalRateLimited();
+      offer(session, outbound, CollaborationSignalFrames.rateLimited());
+      return Mono.empty();
+    }
+    if (verdict == Verdict.ESCALATE) {
+      metrics.recordClosedRateLimited();
+      session.close(CollaborationSignalFanout.CLOSE_SIGNAL_SLOW).subscribe();
+      return Mono.empty();
+    }
+    if (frame == null) {
       offer(session, outbound, "{\"type\":\"error\",\"code\":\"invalid_json\"}");
       return Mono.empty();
     }
     String type = String.valueOf(frame.get("type"));
-    if ("pong".equals(type)) {
-      return Mono.empty();
-    }
     if ("subscribe".equals(type)) {
-      return handleSubscribe(session, outbound, authentication, principalKey, frame);
+      return handleSubscribe(session, outbound, authentication, principalKey, displayName, frame);
     }
     if ("unsubscribe".equals(type)) {
       handleUnsubscribe(session, outbound, frame);
+      return Mono.empty();
+    }
+    if ("typing".equals(type)) {
+      handleTyping(session, outbound, frame);
       return Mono.empty();
     }
     offer(session, outbound, errorFrame("unsupported-frame", type));
@@ -223,6 +287,7 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       CollaborationOutboundChannel outbound,
       Authentication authentication,
       String principalKey,
+      AtomicReference<String> displayName,
       Map<String, Object> frame) {
     Object scopeEcho = frame.get("scope");
     CollaborationResourceScope scope = parseScope(scopeEcho);
@@ -245,7 +310,8 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
             offer(session, outbound, scopeErrorFrame("forbidden_scope", scopeEcho));
             return Mono.empty();
           }
-          return acknowledgeSubscription(session, outbound, principalKey, scope, scopeEcho);
+          return acknowledgeSubscription(
+              session, outbound, principalKey, displayName.get(), scope, scopeEcho);
         });
   }
 
@@ -253,9 +319,11 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       WebSocketSession session,
       CollaborationOutboundChannel outbound,
       String principalKey,
+      String displayName,
       CollaborationResourceScope scope,
       Object scopeEcho) {
-    var addition = subscriptions.add(session.getId(), presenceKeyspace.scopeKey(scope));
+    String scopeKey = presenceKeyspace.scopeKey(scope);
+    var addition = subscriptions.add(session.getId(), scopeKey);
     if (addition instanceof AtLimit limit) {
       metrics.recordSubscriptionDenied(DenialReason.LIMIT);
       offer(session, outbound, scopeErrorFrame("subscription_limit", scopeEcho));
@@ -267,9 +335,11 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
             : ((AlreadySubscribed) addition).subscriptionId();
     if (addition instanceof Added) {
       // Presence is lossy by contract: a failed Redis write still acks the subscription —
-      // losing presence degrades presentation, never business.
+      // losing presence degrades presentation, never business. The ack precedes the fanout
+      // completion so the subscribed frame stays the direct answer to the subscribe frame;
+      // the enter deltas and the newcomer's snapshot follow on the same channel.
       return presence
-          .register(session.getId(), principalKey, scope, Instant.now())
+          .register(session.getId(), principalKey, scope, displayName, Instant.now())
           .onErrorResume(
               failure -> {
                 log.warn(
@@ -279,8 +349,9 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
                     failure);
                 return Mono.empty();
               })
-          .doOnSuccess(
-              ignored -> offer(session, outbound, subscribedFrame(subscriptionId, scopeEcho)));
+          .then(Mono.fromRunnable(
+              () -> offer(session, outbound, subscribedFrame(subscriptionId, scopeEcho))))
+          .then(signalFanout.subscribed(session.getId(), scopeKey));
     }
     // Idempotent re-subscribe: the original handle stays, presence keeps riding the heartbeat.
     offer(session, outbound, subscribedFrame(subscriptionId, scopeEcho));
@@ -291,9 +362,29 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       WebSocketSession session, CollaborationOutboundChannel outbound, Map<String, Object> frame) {
     String subscriptionId = String.valueOf(frame.get("subscriptionId"));
     Optional<String> scopeKey = subscriptions.remove(session.getId(), subscriptionId);
-    scopeKey.ifPresent(key -> presence.removeScope(session.getId(), key).subscribe());
+    scopeKey.ifPresent(key -> {
+      presence.removeScope(session.getId(), key).subscribe();
+      signalFanout.unsubscribed(session.getId(), key);
+    });
     // Idempotent: an unknown handle still acks, so a lost ack never wedges the client.
     offer(session, outbound, unsubscribedFrame(subscriptionId));
+  }
+
+  /**
+   * Typing frames carry the sender's own subscription handle; the registry resolves it back
+   * to the scope. An unknown handle answers {@code unknown_subscription} — the anchored
+   * window itself lives in the fanout, so a re-subscribed handle starts a fresh window.
+   */
+  private void handleTyping(
+      WebSocketSession session, CollaborationOutboundChannel outbound, Map<String, Object> frame) {
+    String subscriptionId = String.valueOf(frame.get("subscriptionId"));
+    Optional<String> scopeKey = subscriptions.scopeKeyOf(session.getId(), subscriptionId);
+    if (scopeKey.isEmpty()) {
+      offer(session, outbound, CollaborationSignalFrames.unknownSubscription(subscriptionId));
+      return;
+    }
+    boolean started = "started".equals(String.valueOf(frame.get("state")));
+    signalFanout.typing(session.getId(), scopeKey.get(), started);
   }
 
   /**
@@ -335,6 +426,15 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
     }
   }
 
+  /** Null on unparseable input — the caller decides what that frame costs. */
+  private static Map<String, Object> parseFrame(String text) {
+    try {
+      return JSON.readValue(text, FRAME_TYPE);
+    } catch (Exception exception) {
+      return null;
+    }
+  }
+
   /** Heartbeat tick: slide the conn TTL and every active scope score forward, fire-and-forget. */
   private void refreshPresence(String connectionId) {
     Set<String> scopeKeys = subscriptions.scopeKeysOf(connectionId);
@@ -351,9 +451,11 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
         .subscribe();
   }
 
-  /** Disconnect cleanup: drop the topology and the presence entries, fire-and-forget. */
-  private void releasePresence(String connectionId) {
-    Set<String> scopeKeys = subscriptions.removeAll(connectionId);
+  /**
+   * Disconnect cleanup after the registry removal and the leave deltas: drop the Redis
+   * presence entries, fire-and-forget. The revocation path re-runs all of this idempotently.
+   */
+  private void releasePresence(String connectionId, Set<String> scopeKeys) {
     if (scopeKeys.isEmpty()) {
       return;
     }
@@ -426,13 +528,16 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
     }
   }
 
-  private String welcomeFrame(String connectionId) {
+  private String welcomeFrame(String connectionId, String principalKey) {
     Map<String, Object> frame = new LinkedHashMap<>();
     frame.put("type", "welcome");
     frame.put("connectionId", connectionId);
+    frame.put("principalId", principalKey);
     frame.put("heartbeatIntervalSeconds", heartbeatInterval.toSeconds());
     frame.put("inboundIdleTimeoutSeconds", inboundIdleTimeout.toSeconds());
     frame.put("presenceTtlSeconds", presenceTtl.toSeconds());
+    frame.put("typingWindowSeconds", typingWindow.toSeconds());
+    frame.put("maxInboundSignalsPerSecond", maxInboundSignalsPerSecond);
     return writeFrame(frame);
   }
 

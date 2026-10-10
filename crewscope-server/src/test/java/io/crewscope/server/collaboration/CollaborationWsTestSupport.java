@@ -10,10 +10,12 @@ import io.crewscope.server.security.SameOriginWebFilter;
 import io.crewscope.server.security.session.BrowserSessionPrincipal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -111,18 +113,41 @@ final class CollaborationWsTestSupport {
    * their own tests, and the cross-team / revocation attack sets belong to Q01's product-level
    * verification — what the protocol tests need is a deterministic principal-to-team table so
    * forbidden_scope, subscription_limit, and the presence lifecycle can be observed. It never
-   * checks resource granularity: the fake answers team membership only.
+   * checks resource granularity: the fake answers team membership only. The table is mutable
+   * so an A01 scenario can revoke a team mid-session and watch the revalidation layer react.
    */
   @Profile(FIXTURE_PROFILE)
   @Configuration(proxyBeanMethods = false)
   static class SubscriptionFixture {
 
+    /** Deterministic principal-to-team table; mutable for revocation scenarios. */
+    static final Map<UUID, Set<TeamId>> ALLOWED_TEAMS = new ConcurrentHashMap<>();
+
+    static {
+      resetTeams();
+    }
+
+    /** Restores the default membership table — every scenario starts from a clean slate. */
+    static void resetTeams() {
+      ALLOWED_TEAMS.clear();
+      ALLOWED_TEAMS.put(
+          ALICE_ACCOUNT_ID, Set.of(new TeamId(ALICE_TEAM_1), new TeamId(ALICE_TEAM_2)));
+      ALLOWED_TEAMS.put(BOB_ACCOUNT_ID, Set.of(new TeamId(BOB_TEAM)));
+    }
+
+    /** Revokes one team from one account — the A01 revocation-scenario lever. */
+    static void revokeTeam(UUID accountId, UUID teamId) {
+      ALLOWED_TEAMS.computeIfPresent(
+          accountId,
+          (id, teams) -> {
+            Set<TeamId> remaining = new HashSet<>(teams);
+            remaining.remove(new TeamId(teamId));
+            return Set.copyOf(remaining);
+          });
+    }
+
     @Bean
     CollaborationSubscriptionAuthorizer collaborationSubscriptionAuthorizer() {
-      Map<UUID, Set<TeamId>> allowedTeams =
-          Map.of(
-              ALICE_ACCOUNT_ID, Set.of(new TeamId(ALICE_TEAM_1), new TeamId(ALICE_TEAM_2)),
-              BOB_ACCOUNT_ID, Set.of(new TeamId(BOB_TEAM)));
       return (authentication, scope) ->
           Mono.fromSupplier(
               () -> {
@@ -132,12 +157,27 @@ final class CollaborationWsTestSupport {
                 if (!scope.organizationId().value().equals(ORGANIZATION_ID)) {
                   return CollaborationSubscriptionAuthorizer.Decision.DENIED;
                 }
-                return allowedTeams
+                return ALLOWED_TEAMS
                         .getOrDefault(session.accountId(), Set.of())
                         .contains(scope.teamId())
                     ? CollaborationSubscriptionAuthorizer.Decision.ALLOWED
                     : CollaborationSubscriptionAuthorizer.Decision.DENIED;
               });
+    }
+
+    /**
+     * The production display-name resolver needs the JPA account snapshot reader this fixture
+     * excludes; a stable per-account table serves the signal frames just as well.
+     */
+    @Bean
+    CollaborationDisplayNameResolver collaborationDisplayNameResolver() {
+      return authentication -> {
+        if (!(authentication.getPrincipal() instanceof BrowserSessionPrincipal session)) {
+          return Mono.just("");
+        }
+        return Mono.just(
+            session.accountId().equals(ALICE_ACCOUNT_ID) ? "Alice" : "Bob");
+      };
     }
   }
 
