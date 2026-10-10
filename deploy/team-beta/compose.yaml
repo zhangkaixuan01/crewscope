@@ -79,6 +79,13 @@ services:
       # groups usage facts into months; the shipped default is Asia/Shanghai.
       CREWSCOPE_BUDGET_ALERT_ENABLED: ${CREWSCOPE_BUDGET_ALERT_ENABLED:-false}
       CREWSCOPE_OBSERVABILITY_REPORTING_ZONE: ${CREWSCOPE_OBSERVABILITY_REPORTING_ZONE:-Asia/Shanghai}
+      # M11-I01c: the collaboration WebSocket channel (presence/typing/change notices).
+      # Closed = the endpoint answers 404 and the durable Team Activity SSE flow keeps
+      # carrying authoritative updates; opened rides the Nginx upgrade routing that ships
+      # in this deployment's web image. The heartbeat interval is exposed for the slow
+      # 1013 drill (a compressed cycle makes the outbound budget observable in minutes).
+      CREWSCOPE_COLLABORATION_REALTIME_ENABLED: ${CREWSCOPE_COLLABORATION_REALTIME_ENABLED:-false}
+      CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL: ${CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL:-15s}
       CREWSCOPE_AGENT_EXECUTION_INSTANCE_ID: team-beta-api
       CREWSCOPE_AGENT_EXECUTION_OWNERSHIP_SCOPE: team-beta
       CREWSCOPE_AGENT_STATE_REDIS_ENABLED: "true"
