@@ -219,11 +219,14 @@ class CollaborationSignalFanoutTest {
     fanout.resourceChanged(new CollaborationResourceChanged(
         itemScope, 12, Set.of(itemScope, projectScope, teamScope)));
 
+    // Every granularity sees the changed resource's own coordinates — never its
+    // subscription scope — so the client dedup rule applies uniformly.
     assertResourceChanged(itemClient, itemClient.handleOf(itemScope),
         "work_item", itemScope.resourceId().toString(), 12);
     assertResourceChanged(projectClient, projectClient.handleOf(projectScope),
-        "work_project", projectScope.projectId().value().toString(), 12);
-    assertResourceChanged(teamClient, teamClient.handleOf(teamScope), null, null, 12);
+        "work_item", itemScope.resourceId().toString(), 12);
+    assertResourceChanged(teamClient, teamClient.handleOf(teamScope),
+        "work_item", itemScope.resourceId().toString(), 12);
     assertTrue(foreignClient.received.isEmpty(),
         "a foreign team's scope key is a different subscription space");
   }
@@ -363,12 +366,8 @@ class CollaborationSignalFanoutTest {
     JsonNode scope = frame.path("scope");
     assertEquals(organizationId.value().toString(), scope.path("organization").asText());
     assertEquals(teamId.value().toString(), scope.path("team").asText());
-    if (resourceType == null) {
-      assertTrue(scope.path("resourceType").isMissingNode(), "team scope carries no resource id");
-    } else {
-      assertEquals(resourceType, scope.path("resourceType").asText());
-      assertEquals(resourceId, scope.path("resourceId").asText());
-    }
+    assertEquals(resourceType, scope.path("resourceType").asText());
+    assertEquals(resourceId, scope.path("resourceId").asText());
   }
 
   private static JsonNode frame(Client client, int index) {

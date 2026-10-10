@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -211,21 +212,28 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
     }
   }
 
-  /** {@link CollaborationSignalSink}: fans one change fact out to every audience scope. */
+  /**
+   * {@link CollaborationSignalSink}: fans one change fact out to every audience scope. The
+   * frame names the changed resource — never the receiver's subscription granularity: a
+   * Team- or project-granularity subscriber must still learn which concrete resource moved
+   * and at what version, or the contract's client dedup rule (max version per resourceType,
+   * resourceId) could not apply on those granularities.
+   */
   @Override
   public void resourceChanged(CollaborationResourceChanged change) {
     try {
       Objects.requireNonNull(change, "change");
-      for (CollaborationResourceScope scope : change.audience()) {
-        String scopeKey = keyspace.scopeKey(scope);
+      CollaborationResourceScope resource = change.resource();
+      for (CollaborationResourceScope audienceScope : change.audience()) {
+        String scopeKey = keyspace.scopeKey(audienceScope);
         for (String connectionId : subscriptions.connectionsFor(scopeKey)) {
           RegisteredConnection receiver = connections.get(connectionId);
           String handle = scopeKeyHandle(connectionId, scopeKey);
           if (receiver == null || handle == null) {
             continue;
           }
-          deliver(receiver, scope,
-              CollaborationSignalFrames.resourceChanged(handle, scope, change.version()),
+          deliver(receiver, resource,
+              CollaborationSignalFrames.resourceChanged(handle, resource, change.version()),
               SignalFrameType.RESOURCE_CHANGED);
         }
       }
@@ -272,7 +280,7 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
       String scopeKey,
       String excludeConnectionId,
       SignalFrameType frameType,
-      java.util.function.UnaryOperator<String> frameForHandle) {
+      UnaryOperator<String> frameForHandle) {
     for (String connectionId : subscriptions.connectionsFor(scopeKey)) {
       if (connectionId.equals(excludeConnectionId)) {
         continue;
@@ -307,6 +315,10 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
     if (delivery == Delivery.OVER_BUDGET) {
       metrics.recordClosedSlow();
       receiver.control().close(CLOSE_SIGNAL_SLOW);
+      return;
+    }
+    if (delivery == Delivery.CLOSED) {
+      // The channel is already tearing down; probing it now is wasted work.
       return;
     }
     if (delivery == Delivery.EMITTED) {

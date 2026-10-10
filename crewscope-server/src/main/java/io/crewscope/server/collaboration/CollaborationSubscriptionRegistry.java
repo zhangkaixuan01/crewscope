@@ -70,8 +70,12 @@ public final class CollaborationSubscriptionRegistry {
     return new Added(subscriptionId);
   }
 
-  /** Returns the handle for an active subscription, if the connection holds one. */
-  public Optional<String> subscriptionId(String connectionId, String scopeKey) {
+  /**
+   * Returns the handle for an active subscription, if the connection holds one. Synchronized
+   * like every other reader: the per-connection map is a plain HashMap, so an unlocked read
+   * could race a locked {@link #add} (the fanout calls this on every frame emission).
+   */
+  public synchronized Optional<String> subscriptionId(String connectionId, String scopeKey) {
     Map<String, String> subscriptions = subscriptionsByConnection.get(connectionId);
     return subscriptions == null ? Optional.empty() : Optional.ofNullable(subscriptions.get(scopeKey));
   }

@@ -288,14 +288,19 @@ class CollaborationSignalIntegrationTest {
           .containsEntry("subscriptionId", itemHandle)
           .containsEntry("version", 12)
           .containsEntry("scope", itemScope(CollaborationWsTestSupport.ALICE_TEAM_1));
+      // Coarser subscribers still see the changed resource's own coordinates — the frame
+      // must never name their subscription scope, or the max(version) dedup rule per
+      // (resourceType, resourceId) could not apply on these granularities.
       assertThat(nextNonPingFrame(projectConn, Duration.ofSeconds(5)))
           .containsEntry("type", "resource_changed")
           .containsEntry("subscriptionId", projectHandle)
-          .containsEntry("version", 12);
+          .containsEntry("version", 12)
+          .containsEntry("scope", itemScope(CollaborationWsTestSupport.ALICE_TEAM_1));
       assertThat(nextNonPingFrame(teamConn, Duration.ofSeconds(5)))
           .containsEntry("type", "resource_changed")
           .containsEntry("subscriptionId", teamHandle)
-          .containsEntry("version", 12);
+          .containsEntry("version", 12)
+          .containsEntry("scope", itemScope(CollaborationWsTestSupport.ALICE_TEAM_1));
 
       // A foreign team's scope key is a different subscription space: zero frames.
       expectNoNonPingFrame(foreignConn, Duration.ofMillis(500));
