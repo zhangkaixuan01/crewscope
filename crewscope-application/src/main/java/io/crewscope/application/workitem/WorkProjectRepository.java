@@ -5,6 +5,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkProject;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workitem.WorkProjectKey;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,16 @@ public interface WorkProjectRepository {
     default Optional<WorkProject> lockById(
             OrganizationId organizationId, WorkProjectId id) {
         throw new UnsupportedOperationException("WorkProject lock is not implemented");
+    }
+
+    /**
+     * Locks several project rows in ascending id order — the serialization point for WorkItem
+     * relation creation (ADR-033: one {@code IN (:p1,:p2) ORDER BY id FOR UPDATE} protocol for
+     * both single- and cross-WorkProject edges, no second lock ordering).
+     */
+    default List<WorkProjectId> lockByIds(
+            OrganizationId organizationId, Collection<WorkProjectId> ids) {
+        throw new UnsupportedOperationException("WorkProject multi-lock is not implemented");
     }
 
     Optional<WorkProject> findByKey(

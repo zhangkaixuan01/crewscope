@@ -35,6 +35,10 @@ public enum DomainErrorCode {
       "coding_checkpoint_sequence_conflict", DomainErrorCategory.CONFLICT),
   WORK_PROJECT_KEY_CONFLICT("work_project_key_conflict", DomainErrorCategory.CONFLICT),
   WORK_ITEM_KEY_CONFLICT("work_item_key_conflict", DomainErrorCategory.CONFLICT),
+  WORK_ITEM_RELATION_CYCLE("work_item_relation_cycle", DomainErrorCategory.CONFLICT),
+  WORK_ITEM_RELATION_DUPLICATE("work_item_relation_duplicate", DomainErrorCategory.CONFLICT),
+  WORK_ITEM_RELATION_SPLIT_SOURCE_CONFLICT(
+      "work_item_relation_split_source_conflict", DomainErrorCategory.CONFLICT),
   KNOWLEDGE_ENTRY_KEY_CONFLICT("knowledge_entry_key_conflict", DomainErrorCategory.CONFLICT),
   KNOWLEDGE_VERSION_CONTENT_CONFLICT(
       "knowledge_version_content_conflict", DomainErrorCategory.CONFLICT),

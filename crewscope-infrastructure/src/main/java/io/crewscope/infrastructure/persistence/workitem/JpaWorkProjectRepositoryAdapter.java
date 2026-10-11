@@ -22,8 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /** Tenant-scoped JPA adapter for WorkProject lifecycle. */
 @Repository
@@ -118,6 +120,42 @@ public class JpaWorkProjectRepositoryAdapter implements WorkProjectRepository {
                 .getResultStream()
                 .findFirst()
                 .map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public List<WorkProjectId> lockByIds(
+            OrganizationId organizationId, Collection<WorkProjectId> ids) {
+        List<UUID> distinct = Objects.requireNonNull(ids, "ids").stream()
+                .map(WorkProjectId::value)
+                .distinct()
+                .sorted()
+                .toList();
+        if (distinct.isEmpty()) {
+            return List.of();
+        }
+        // Native SQL on purpose: JPQL has no FOR UPDATE ... ORDER BY projection, and the
+        // ascending PK order is the ADR-033/ADR-038 lock-ordering discipline that serializes
+        // relation creation across both single- and cross-WorkProject edges.
+        @SuppressWarnings("unchecked")
+        List<UUID> locked = entityManager
+                .createNativeQuery(
+                        """
+                        SELECT id FROM crewscope.work_project
+                        WHERE organization_id = :organizationId AND id IN (:ids)
+                        ORDER BY id FOR UPDATE
+                        """)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("ids", distinct)
+                .getResultList();
+        if (locked.size() != distinct.size()) {
+            UUID missing = distinct.stream()
+                    .filter(candidate -> !locked.contains(candidate))
+                    .findFirst()
+                    .orElseThrow();
+            throw new AggregateNotFoundException("WorkProject", new WorkProjectId(missing));
+        }
+        return locked.stream().map(WorkProjectId::new).toList();
     }
 
     @Override
