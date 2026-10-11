@@ -4,6 +4,7 @@ import io.crewscope.application.collaboration.CollaborationSignalSink;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.event.publication.EventPublication;
+import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.domain.collaboration.CollaborationResourceChanged;
 import io.crewscope.domain.collaboration.CollaborationResourceScope;
 import io.crewscope.domain.collaboration.CollaborationResourceType;
@@ -15,6 +16,8 @@ import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.ConversationVisibility;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.workitem.WorkItem;
+import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
 import java.util.LinkedHashSet;
 import java.util.Objects;
@@ -50,6 +53,8 @@ public class CollaborationResourceChangeConsumer implements DomainEventConsumer 
     static final String WORK_ITEM_CONTENT_UPDATED = "WORK_ITEM_CONTENT_UPDATED";
     static final String WORK_ITEM_STATUS_CHANGED = "WORK_ITEM_STATUS_CHANGED";
     static final String WORK_PROJECT_CREATED = "WORK_PROJECT_CREATED";
+    static final String WORK_ITEM_RELATION_CREATED = "WORK_ITEM_RELATION_CREATED";
+    static final String WORK_ITEM_RELATION_REMOVED = "WORK_ITEM_RELATION_REMOVED";
     static final String CONVERSATION_CREATED = "CONVERSATION_CREATED";
     static final String CONVERSATION_MESSAGE_POSTED = "CONVERSATION_MESSAGE_POSTED";
 
@@ -59,14 +64,17 @@ public class CollaborationResourceChangeConsumer implements DomainEventConsumer 
     private final ObjectMapper objectMapper;
     private final CollaborationSignalSink sink;
     private final ConversationRepository conversations;
+    private final WorkItemRepository workItems;
 
     public CollaborationResourceChangeConsumer(
             ObjectMapper objectMapper,
             CollaborationSignalSink sink,
-            ConversationRepository conversations) {
+            ConversationRepository conversations,
+            WorkItemRepository workItems) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.sink = Objects.requireNonNull(sink, "sink");
         this.conversations = Objects.requireNonNull(conversations, "conversations");
+        this.workItems = Objects.requireNonNull(workItems, "workItems");
     }
 
     @Override
@@ -91,6 +99,8 @@ public class CollaborationResourceChangeConsumer implements DomainEventConsumer 
         switch (root.path("eventType").asText()) {
             case WORK_ITEM_CREATED, WORK_ITEM_CONTENT_UPDATED, WORK_ITEM_STATUS_CHANGED ->
                 workItemChanged(root);
+            case WORK_ITEM_RELATION_CREATED, WORK_ITEM_RELATION_REMOVED ->
+                relationEndpointsChanged(root);
             case WORK_PROJECT_CREATED -> workProjectCreated(root);
             case CONVERSATION_CREATED -> conversationChanged(
                     root, visibilityFromPayload(root));
@@ -115,6 +125,39 @@ public class CollaborationResourceChangeConsumer implements DomainEventConsumer 
                 new WorkProjectId(requiredUuid(root.path("payload"), "projectId"))));
         audience.add(new TeamScope(organizationId(root), teamId));
         publish(item, version(root), audience);
+    }
+
+    /**
+     * One relation change touches both endpoint WorkItems (M11-A02): each endpoint signals at
+     * its own current aggregate version — the relation envelope's version 0 is a fact about the
+     * edge, not about either endpoint, so it can never order a WorkItem frame.
+     */
+    private void relationEndpointsChanged(JsonNode root) {
+        TeamId teamId = requiredTeamId(root);
+        JsonNode payload = root.path("payload");
+        fanOutEndpoint(root, teamId, requiredUuid(payload, "srcWorkItemId"),
+                requiredUuid(payload, "srcProjectId"));
+        fanOutEndpoint(root, teamId, requiredUuid(payload, "dstWorkItemId"),
+                requiredUuid(payload, "dstProjectId"));
+    }
+
+    private void fanOutEndpoint(
+            JsonNode root, TeamId teamId, UUID endpointId, UUID projectId) {
+        Optional<WorkItem> endpoint =
+                workItems.findById(organizationId(root), new WorkItemId(endpointId));
+        if (endpoint.isEmpty()) {
+            // Defensive only: nothing deletes WorkItems today (ARCHIVED carries that), and the
+            // removal event of a cascade describes edges, not the endpoints' existence.
+            return;
+        }
+        ResourceScope item = new ResourceScope(
+                organizationId(root), teamId, CollaborationResourceType.WORK_ITEM, endpointId);
+        Set<CollaborationResourceScope> audience = new LinkedHashSet<>();
+        audience.add(item);
+        audience.add(new WorkProjectScope(
+                organizationId(root), teamId, new WorkProjectId(projectId)));
+        audience.add(new TeamScope(organizationId(root), teamId));
+        publish(item, endpoint.orElseThrow().version(), audience);
     }
 
     private void workProjectCreated(JsonNode root) {

@@ -16,6 +16,8 @@ public final class ApiPagination {
     public static final int DIRECTORY_MAX_LIMIT = 200;
     public static final int WORK_DESK_SECTION_DEFAULT_LIMIT = 20;
     public static final int WORK_DESK_SECTION_MAX_LIMIT = 100;
+    public static final int WORK_GRAPH_DEFAULT_LIMIT = 20;
+    public static final int WORK_GRAPH_MAX_LIMIT = 100;
 
     private ApiPagination() {}
 
@@ -43,6 +45,11 @@ public final class ApiPagination {
     public static int workDeskSectionLimit(Integer requestedLimit) {
         return boundedLimit(
                 requestedLimit, WORK_DESK_SECTION_DEFAULT_LIMIT, WORK_DESK_SECTION_MAX_LIMIT);
+    }
+
+    /** Pages of the WorkGraph blocked-work aggregation (M11-A02): every row carries its blocker window. */
+    public static int workGraphLimit(Integer requestedLimit) {
+        return boundedLimit(requestedLimit, WORK_GRAPH_DEFAULT_LIMIT, WORK_GRAPH_MAX_LIMIT);
     }
 
     private static int boundedLimit(Integer requestedLimit, int defaultLimit, int maxLimit) {

@@ -52,7 +52,6 @@ import io.crewscope.domain.workgraph.event.WorkItemRelationRemoved;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -253,6 +252,7 @@ public final class WorkItemRelationCommandService {
                 relation.dst().scope().projectId(),
                 occurredAt,
                 "relate WorkItems in the target WorkProject");
+        requireCollaboratingEndpoints(fromItem, toItem);
         requireEdgeAbsent(organizationId, relation);
         requireAcyclic(organizationId, relation);
         relationRepository.create(relation);
@@ -314,6 +314,19 @@ public final class WorkItemRelationCommandService {
                 EventType.from("WORK_ITEM_RELATION_REMOVED"),
                 WorkItemRelationRemoved.from(removed),
                 occurredAt);
+    }
+
+    /**
+     * New edges may not touch an ARCHIVED endpoint (M11-A02): archived WorkItems stop
+     * accepting relations the way they stop accepting comments. Checked after the permission
+     * protocol so a non-participant cannot probe endpoint states, and only on create — an
+     * existing edge stays visible and removable after an endpoint is archived.
+     */
+    private static void requireCollaboratingEndpoints(WorkItem from, WorkItem to) {
+        if (!from.acceptsCollaboration() || !to.acceptsCollaboration()) {
+            throw new DomainValidationException(
+                    "workItemRelation.endpoints", "must not reference an archived WorkItem");
+        }
     }
 
     /** Same-direction duplicates and second SPLIT_FROM sources are rejected before probing. */

@@ -10,7 +10,9 @@ import static org.mockito.Mockito.when;
 import io.crewscope.application.collaboration.CollaborationSignalSink;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.event.publication.EventPublication;
+import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.domain.collaboration.CollaborationResourceChanged;
+import io.crewscope.domain.collaboration.CollaborationResourceType;
 import io.crewscope.domain.collaboration.ResourceScope;
 import io.crewscope.domain.collaboration.TeamScope;
 import io.crewscope.domain.collaboration.WorkProjectScope;
@@ -20,6 +22,8 @@ import io.crewscope.domain.conversation.ConversationVisibility;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
+import io.crewscope.domain.workitem.WorkItem;
+import io.crewscope.domain.workitem.WorkItemId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +35,8 @@ import tools.jackson.databind.json.JsonMapper;
  * Consumer contract of the A01 change signal (M11-A01): the whitelisted aggregates map
  * onto coordinates plus a version, a PRIVATE conversation never widens to the Team
  * scope, unrelated or malformed events never throw (the receipt transaction must not
- * roll back), and a throwing sink is swallowed.
+ * roll back), and a throwing sink is swallowed. Since M11-A02 a relation change fans
+ * out to both endpoint WorkItems at their own current versions.
  */
 class CollaborationResourceChangeConsumerTest {
 
@@ -41,6 +46,7 @@ class CollaborationResourceChangeConsumerTest {
     private final TeamId teamId = TeamId.generate();
     private final RecordingSink sink = new RecordingSink();
     private final ConversationRepository conversations = mock(ConversationRepository.class);
+    private final WorkItemRepository workItems = mock(WorkItemRepository.class);
 
     // ------------------------------------------------------------------ work items
 
@@ -198,7 +204,7 @@ class CollaborationResourceChangeConsumerTest {
         CollaborationResourceChangeConsumer throwing = new CollaborationResourceChangeConsumer(
                 JsonMapper.builder().findAndAddModules().build(),
                 change -> { throw new IllegalStateException("boom"); },
-                conversations);
+                conversations, workItems);
 
         assertDoesNotThrow(() -> throwing.consume(publication(event(
                 CollaborationResourceChangeConsumer.WORK_ITEM_CREATED,
@@ -206,11 +212,80 @@ class CollaborationResourceChangeConsumerTest {
                 "{\"projectId\":\"" + UUID.randomUUID() + "\"}"))));
     }
 
+    // ------------------------------------------------------------------ relations (M11-A02)
+
+    @Test
+    void relationEventsFanOutToBothEndpointsAtTheirCurrentVersions() {
+        for (String eventType : List.of(
+                CollaborationResourceChangeConsumer.WORK_ITEM_RELATION_CREATED,
+                CollaborationResourceChangeConsumer.WORK_ITEM_RELATION_REMOVED)) {
+            sink.changes.clear();
+            UUID srcId = UUID.randomUUID();
+            UUID dstId = UUID.randomUUID();
+            UUID srcProject = UUID.randomUUID();
+            UUID dstProject = UUID.randomUUID();
+            // Built before the stubbing: opening a mock inside thenReturn's argument
+            // breaks Mockito's state machine (UnfinishedStubbing).
+            WorkItem srcEndpoint = endpoint(11);
+            WorkItem dstEndpoint = endpoint(4);
+            when(workItems.findById(organizationId, new WorkItemId(srcId)))
+                    .thenReturn(Optional.of(srcEndpoint));
+            when(workItems.findById(organizationId, new WorkItemId(dstId)))
+                    .thenReturn(Optional.of(dstEndpoint));
+
+            consumer().consume(publication(event(
+                    eventType, UUID.randomUUID(), 0,
+                    "{\"relationId\":\"" + UUID.randomUUID() + "\","
+                            + "\"srcWorkItemId\":\"" + srcId + "\","
+                            + "\"dstWorkItemId\":\"" + dstId + "\","
+                            + "\"kind\":\"BLOCKS\","
+                            + "\"srcProjectId\":\"" + srcProject + "\","
+                            + "\"dstProjectId\":\"" + dstProject + "\"}")));
+
+            // the envelope's version 0 is a fact about the edge; each endpoint signals its own
+            // current aggregate version (the A02 fanout decision)
+            assertEquals(2, sink.changes.size(), eventType);
+            ResourceScope srcResource = new ResourceScope(
+                    organizationId, teamId, CollaborationResourceType.WORK_ITEM, srcId);
+            ResourceScope dstResource = new ResourceScope(
+                    organizationId, teamId, CollaborationResourceType.WORK_ITEM, dstId);
+            assertTrue(sink.changes.stream().anyMatch(change ->
+                    change.resource().equals(srcResource) && change.version() == 11));
+            assertTrue(sink.changes.stream().anyMatch(change ->
+                    change.resource().equals(dstResource) && change.version() == 4));
+            for (CollaborationResourceChanged change : sink.changes) {
+                assertEquals(3, change.audience().size(), eventType);
+                assertTrue(change.audience().contains(new TeamScope(organizationId, teamId)));
+            }
+        }
+    }
+
+    @Test
+    void aVanishedRelationEndpointIsSkippedSilently() {
+        when(workItems.findById(any(), any())).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(() -> consumer().consume(publication(event(
+                CollaborationResourceChangeConsumer.WORK_ITEM_RELATION_CREATED,
+                UUID.randomUUID(), 0,
+                "{\"srcWorkItemId\":\"" + UUID.randomUUID() + "\","
+                        + "\"dstWorkItemId\":\"" + UUID.randomUUID() + "\","
+                        + "\"srcProjectId\":\"" + UUID.randomUUID() + "\","
+                        + "\"dstProjectId\":\"" + UUID.randomUUID() + "\"}"))));
+
+        assertTrue(sink.changes.isEmpty());
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private CollaborationResourceChangeConsumer consumer() {
         return new CollaborationResourceChangeConsumer(
-                JsonMapper.builder().findAndAddModules().build(), sink, conversations);
+                JsonMapper.builder().findAndAddModules().build(), sink, conversations, workItems);
+    }
+
+    private static WorkItem endpoint(long version) {
+        WorkItem item = mock(WorkItem.class);
+        when(item.version()).thenReturn(version);
+        return item;
     }
 
     private static Conversation visibility(ConversationVisibility visibility) {

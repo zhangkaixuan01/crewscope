@@ -4,6 +4,7 @@ import io.crewscope.application.collaboration.CollaborationSignalSink;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.identity.CurrentAccountSnapshotReader;
+import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.infrastructure.persistence.collaboration.CollaborationResourceChangeConsumer;
 import io.crewscope.server.collaboration.CollaborationDisplayNameResolver;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
@@ -41,11 +42,19 @@ public class CollaborationSignalConfiguration {
    * in-memory fanout declared by the WebSocket configuration under the same switch — with the
    * channel off there is neither a consumer nor a sink, and no receipt rows are ever written.
    */
+  /**
+   * The outbox half of the signal pipeline. The {@link CollaborationSignalSink} is the
+   * in-memory fanout declared by the WebSocket configuration under the same switch — with the
+   * channel off there is neither a consumer nor a sink, and no receipt rows are ever written.
+   * The WorkItem repository resolves relation endpoints at their current aggregate version
+   * (M11-A02): the relation envelope's version 0 describes the edge, not either endpoint.
+   */
   @Bean
   DomainEventConsumer collaborationResourceChangeConsumer(
       ObjectMapper objectMapper,
       CollaborationSignalSink sink,
-      ConversationRepository conversations) {
-    return new CollaborationResourceChangeConsumer(objectMapper, sink, conversations);
+      ConversationRepository conversations,
+      WorkItemRepository workItems) {
+    return new CollaborationResourceChangeConsumer(objectMapper, sink, conversations, workItems);
   }
 }

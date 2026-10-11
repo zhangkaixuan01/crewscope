@@ -354,6 +354,70 @@ class WorkItemRelationCommandIntegrationTest
         assertEquals(0, relationCount());
     }
 
+    /** Archived endpoints stop accepting new edges (M11-A02), in both directions. */
+    @Test
+    void rejectsNewEdgesTouchingArchivedEndpoints() {
+        WorkItemId active = fixture.workItem("CRW");
+        WorkItemId archivedSrc = fixture.workItem("CRW");
+        WorkItemId archivedDst = fixture.workItem("CRW");
+        jdbcTemplate.update(
+                "UPDATE crewscope.work_item SET status = 'ARCHIVED' WHERE id IN (?, ?)",
+                archivedSrc.value(), archivedDst.value());
+
+        DomainValidationException srcSide =
+                assertThrows(
+                        DomainValidationException.class,
+                        () -> service()
+                                .create(
+                                        fixture.context(fixture.ownerId(), "archived-src-1"),
+                                        fixture.teamId(),
+                                        new CreateWorkItemRelationCommand(
+                                                WorkItemRelationType.BLOCKS, archivedSrc, active)));
+        assertEquals(
+                "workItemRelation.endpoints", srcSide.error().details().get("field"));
+        DomainValidationException dstSide =
+                assertThrows(
+                        DomainValidationException.class,
+                        () -> service()
+                                .create(
+                                        fixture.context(fixture.ownerId(), "archived-dst-1"),
+                                        fixture.teamId(),
+                                        new CreateWorkItemRelationCommand(
+                                                WorkItemRelationType.BLOCKS, active, archivedDst)));
+        assertEquals(
+                "workItemRelation.endpoints", dstSide.error().details().get("field"));
+        assertEquals(0, relationCount());
+    }
+
+    /** The guard applies to create only: an existing edge stays visible and removable. */
+    @Test
+    void anArchivedEndpointsExistingEdgeMayStillBeRemoved() {
+        WorkItemId itemA = fixture.workItem("CRW");
+        WorkItemId itemB = fixture.workItem("CRW");
+        WorkItemRelationCommandService service = service();
+        WorkItemRelation created =
+                service
+                        .create(
+                                fixture.context(fixture.ownerId(), "archive-remove-1"),
+                                fixture.teamId(),
+                                new CreateWorkItemRelationCommand(
+                                        WorkItemRelationType.BLOCKS, itemA, itemB))
+                        .result()
+                        .orElseThrow();
+        jdbcTemplate.update(
+                "UPDATE crewscope.work_item SET status = 'ARCHIVED' WHERE id = ?",
+                itemA.value());
+
+        CommandExecution<WorkItemRelation> removal =
+                service.remove(
+                        fixture.context(fixture.ownerId(), "archive-remove-2"),
+                        fixture.teamId(),
+                        new RemoveWorkItemRelationCommand(created.id()));
+
+        assertEquals(created.id(), removal.result().orElseThrow().id());
+        assertEquals(0, relationCount());
+    }
+
     @Test
     void replaysTheSameCreateCommandIdempotently() {
         WorkItemId itemA = fixture.workItem("CRW");

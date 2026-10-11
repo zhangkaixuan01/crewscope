@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 297935fe2eddc0cd6ea68f21f34ad105a023e8948fe5122e518914acb26f4841
+// Controller source SHA-256: 0f9bfc61eff9df6e7c0f35d0db2aef49178171757e3b0634a76ed9b520422d00
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1789,6 +1789,30 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-graph/blocked-work-items": {
+      "get": {
+        "operationId": "WorkGraphQueryController_blockedWorkItems",
+        "tags": [
+          "WorkGraphQueryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-item-relations": {
+      "post": {
+        "operationId": "WorkGraphController_create",
+        "tags": [
+          "WorkGraphController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-item-relations/{relationId}": {
+      "delete": {
+        "operationId": "WorkGraphController_remove",
+        "tags": [
+          "WorkGraphController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects": {
       "get": {
         "operationId": "WorkProjectController_list",
@@ -1979,6 +2003,14 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/blocking-chain": {
+      "get": {
+        "operationId": "WorkGraphQueryController_blockingChain",
+        "tags": [
+          "WorkGraphQueryController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/coding-target/build-profiles": {
       "get": {
         "operationId": "CodingTargetController_listBuildProfiles",
@@ -2017,11 +2049,27 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/critical-path": {
+      "get": {
+        "operationId": "WorkGraphQueryController_criticalPath",
+        "tags": [
+          "WorkGraphQueryController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/delegation-context": {
       "get": {
         "operationId": "DelegationContextController_get",
         "tags": [
           "DelegationContextController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/relations": {
+      "get": {
+        "operationId": "WorkGraphQueryController_relations",
+        "tags": [
+          "WorkGraphQueryController"
         ]
       }
     },
@@ -3537,6 +3585,24 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-graph/blocked-work-items",
+    "operationId": "WorkGraphQueryController_blockedWorkItems",
+    "controller": "WorkGraphQueryController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-item-relations",
+    "operationId": "WorkGraphController_create",
+    "controller": "WorkGraphController"
+  },
+  {
+    "method": "delete",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-item-relations/{relationId}",
+    "operationId": "WorkGraphController_remove",
+    "controller": "WorkGraphController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects",
     "operationId": "WorkProjectController_list",
     "controller": "WorkProjectController"
@@ -3687,6 +3753,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/blocking-chain",
+    "operationId": "WorkGraphQueryController_blockingChain",
+    "controller": "WorkGraphQueryController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/coding-target/build-profiles",
     "operationId": "CodingTargetController_listBuildProfiles",
     "controller": "CodingTargetController"
@@ -3717,9 +3789,21 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/critical-path",
+    "operationId": "WorkGraphQueryController_criticalPath",
+    "controller": "WorkGraphQueryController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/delegation-context",
     "operationId": "DelegationContextController_get",
     "controller": "DelegationContextController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/work-projects/{projectId}/work-items/{workItemId}/relations",
+    "operationId": "WorkGraphQueryController_relations",
+    "controller": "WorkGraphQueryController"
   },
   {
     "method": "get",
@@ -3824,4 +3908,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 277 as const
+export const openApiOperationCount = 283 as const
