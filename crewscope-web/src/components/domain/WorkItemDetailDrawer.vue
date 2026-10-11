@@ -48,6 +48,7 @@ import {
   workItemResourceTypeLabels,
   workItemSourceLabels,
   workItemStatusLabels,
+  workItemStatusTone,
   workItemTransitionVariants,
   workItemTypeLabels,
 } from '../../domains/workitem/labels'
@@ -61,6 +62,7 @@ import WorkItemResponsibilityPanel, { type ResponsibilityAgentCandidate, type Re
 import WorkItemTimeline from './WorkItemTimeline.vue'
 import WorkItemContentEditor from './WorkItemContentEditor.vue'
 import ConversationWorkItemLinks from './ConversationWorkItemLinks.vue'
+import WorkItemRelationsPanel from './WorkItemRelationsPanel.vue'
 import PresenceAvatarGroup from './PresenceAvatarGroup.vue'
 import ResourceChangeBanner from './ResourceChangeBanner.vue'
 import TypingIndicator from './TypingIndicator.vue'
@@ -365,14 +367,6 @@ function taskStatusTone(status: TaskStatus): SemanticTone {
   return status === 'ACTIVE' ? 'agent' : 'neutral'
 }
 
-function statusTone(status: WorkItemStatus): SemanticTone {
-  if (status === 'BLOCKED') return 'danger'
-  if (status === 'DONE') return 'success'
-  if (status === 'IN_PROGRESS') return 'info'
-  if (status === 'IN_REVIEW') return 'warning'
-  return 'neutral'
-}
-
 function resourceHref(resource: WorkItemResourceLink): string | undefined {
   if (resource.resourceType !== 'EXTERNAL_URL') return undefined
   try {
@@ -398,7 +392,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
 
       <div v-else-if="details && item" class="detail-content">
         <section class="detail-hero">
-          <div class="detail-hero__status"><StatusBadge :tone="statusTone(item.status)" dot>{{ workItemStatusLabels[item.status] }}</StatusBadge><PresenceAvatarGroup :entries="workItemPresence" :degraded="collaborationDegraded" /><span class="mono">v{{ item.version }}</span></div>
+          <div class="detail-hero__status"><StatusBadge :tone="workItemStatusTone[item.status]" dot>{{ workItemStatusLabels[item.status] }}</StatusBadge><PresenceAvatarGroup :entries="workItemPresence" :degraded="collaborationDegraded" /><span class="mono">v{{ item.version }}</span></div>
           <h2>{{ item.title }}</h2>
           <!-- R40: the work description renders through the same shared safe Markdown pipeline as chat and comments. -->
           <SafeMarkdown v-if="item.description" class="detail-description" :content="item.description" />
@@ -514,6 +508,12 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
             :on-load-more-agents="onLoadMoreResponsibilityAgents"
           />
         </section>
+
+        <!-- M11-F02: relations sit between accountability and the discussion — the edges this item
+             participates in are part of "who owes whom", before the talk about them. The panel
+             pulls its own facts from the WorkGraph and WorkItem stores (optional injection,
+             collaboration-store precedent), so this section stays one line and specs stay trivial. -->
+        <WorkItemRelationsPanel :scope="scope" :item="item" :can-participate="canParticipate" />
 
         <section class="detail-section comments-section">
           <div class="section-heading"><div><p>Discussion</p><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>

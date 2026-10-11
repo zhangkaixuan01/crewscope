@@ -32,6 +32,9 @@ defineProps<{
   confirmingTarget: WorkItemStatus | null
   /** The one item with a command in flight; every other card stays executable. */
   busyItemId: string | null
+  /** M11-F02: the blocker count of one item (0 = no badge). A function prop like itemsFor — the
+      counts live in the WorkGraph store, this component stays presentational. */
+  blockedCountOf: (id: string) => number
   allowDrop: (status: WorkItemStatus) => boolean
   itemsFor: (status: WorkItemStatus) => WorkItemSummary[]
   /** Offers the batch checkbox on list rows. The board has no selection, so it stays off there. */
@@ -60,7 +63,7 @@ defineProps<{
     <StatePanel v-else-if="phase === 'empty' && hasAppliedFilters" state="empty" title="没有符合筛选条件的工作项" description="调整类型或优先级筛选即可恢复结果。"><template #action><BaseButton variant="secondary" @click="onClearFilters"><Filter :size="15" />清除筛选</BaseButton></template></StatePanel>
     <StatePanel v-else-if="phase === 'empty'" state="empty" title="当前范围还没有工作项" description="创建第一个 WorkItem，让团队目标进入可追踪的执行流。"><template #action><BaseButton v-if="canCreate" @click="onCreate"><Plus :size="15" />新建工作项</BaseButton></template></StatePanel>
     <div v-else-if="view === 'list'" class="work-list" aria-label="工作项列表">
-      <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :selectable="selectable" :selected="selectable && isSelected(item.id)" @select="onSelect" @action="onAction(item, $event)" @toggle-select="onToggleSelect" />
+      <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :selectable="selectable" :selected="selectable && isSelected(item.id)" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @toggle-select="onToggleSelect" />
     </div>
     <div v-else class="work-board-wrap" aria-label="工作项看板" @keydown="onBoardKeydown">
       <!-- M11-F01: one presence row for the whole board — the subscription is the project
@@ -72,7 +75,7 @@ defineProps<{
         <section v-for="status in boardStatuses" :key="status" class="board-column" :class="{ 'drop-target': dragOverStatus === status, 'drop-rejected': draggedWorkItem && !allowDrop(status) }" :aria-label="statusLabels[status]" @dragover.prevent="onDragOver(status)" @dragleave="onDragLeave" @drop.prevent="onDrop(status)">
           <header><span>{{ statusLabels[status] }}</span><StatusBadge>{{ itemsFor(status).length }}</StatusBadge></header>
           <div class="board-column__items">
-            <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" @select="onSelect" @action="onAction(item, $event)" @drag-start="onDragStart" @drag-end="onDragEnd" />
+            <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @drag-start="onDragStart" @drag-end="onDragEnd" />
             <p v-if="itemsFor(status).length === 0">暂无工作项</p>
           </div>
         </section>

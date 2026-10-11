@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { CalendarClock, CircleAlert, Tag } from '@lucide/vue'
+import { CalendarClock, CircleAlert, CircleSlash, Tag } from '@lucide/vue'
 import { computed } from 'vue'
 import type { SemanticTone } from '../base/types'
 import type { WorkItemAvailableTransition, WorkItemStatus, WorkItemSummary } from '../../domains/workitem/types'
-import { workItemPriorityLabels, workItemStatusLabels, workItemTypeLabels } from '../../domains/workitem/labels'
+import { workItemPriorityLabels, workItemStatusLabels, workItemStatusTone, workItemTypeLabels } from '../../domains/workitem/labels'
 import RelativeTime from '../base/RelativeTime.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatusTransitionMenu from '../action/StatusTransitionMenu.vue'
@@ -24,6 +24,11 @@ const props = withDefaults(defineProps<{
   confirmingTarget?: WorkItemStatus | null
   /** A command is in flight for this item. */
   busy?: boolean
+  /**
+   * How many still-executing items block this one (M11-F02 blocked aggregate). Zero or absent
+   * renders nothing: no blocker facts means no badge to show, never a loud zero.
+   */
+  blockedCount?: number
   /** Offers the row's batch checkbox. The board has no selection, so it is never set there. */
   selectable?: boolean
   selected?: boolean
@@ -31,6 +36,7 @@ const props = withDefaults(defineProps<{
   layout: 'list',
   confirmingTarget: null,
   busy: false,
+  blockedCount: 0,
   selectable: false,
   selected: false,
 })
@@ -43,15 +49,6 @@ const emit = defineEmits<{
   'drag-end': []
 }>()
 
-const statusTones: Partial<Record<WorkItemSummary['status'], SemanticTone>> = {
-  BLOCKED: 'danger',
-  DONE: 'success',
-  IN_PROGRESS: 'info',
-  IN_REVIEW: 'warning',
-  CANCELLED: 'neutral',
-  ARCHIVED: 'neutral',
-}
-
 const priorityTones: Record<WorkItemSummary['priority'], SemanticTone> = {
   URGENT: 'danger',
   HIGH: 'warning',
@@ -59,7 +56,7 @@ const priorityTones: Record<WorkItemSummary['priority'], SemanticTone> = {
   LOW: 'neutral',
 }
 
-const statusTone = computed<SemanticTone>(() => statusTones[props.item.status] ?? 'neutral')
+const statusTone = computed<SemanticTone>(() => workItemStatusTone[props.item.status])
 const priorityTone = computed<SemanticTone>(() => priorityTones[props.item.priority])
 const labelBudget = computed(() => (props.layout === 'list' ? 3 : 2))
 const overdue = computed(() => Boolean(props.item.dueAt && new Date(props.item.dueAt).getTime() < Date.now()))
@@ -120,6 +117,9 @@ function openFromCard(event: MouseEvent): void {
     </button>
     <div class="work-item-card__metadata">
       <StatusBadge :tone="priorityTone"><CircleAlert :size="11" />{{ workItemPriorityLabels[item.priority] }}</StatusBadge>
+      <!-- Being blocked is a fact about the work, not decoration: the count is the aggregate's
+           authoritative blockerCount, shown wherever the list or board renders this item. -->
+      <span v-if="blockedCount > 0" class="work-item-card__blocked" :title="`被 ${blockedCount} 个进行中的工作项阻塞`"><CircleSlash :size="11" aria-hidden="true" />被 {{ blockedCount }} 项阻塞</span>
       <span>{{ workItemTypeLabels[item.type] }}</span>
       <!-- Every time on the card is relative with the exact instant one keystroke away: a list of
            "2026/09/12 14:03:27" makes the member do the subtraction the page already knows how to
@@ -144,6 +144,7 @@ function openFromCard(event: MouseEvent): void {
 .work-item-card__metadata { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); }
 .work-item-card__metadata > span { display: inline-flex; min-height: 22px; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-2) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-subtle); font-size: var(--cs-text-xs); white-space: nowrap; }
 .work-item-card__metadata > span.overdue { background: var(--cs-danger-soft); color: var(--cs-danger); }
+.work-item-card__blocked { background: var(--cs-danger-soft); color: var(--cs-danger); font-weight: var(--cs-weight-semibold); }
 /* The selection checkbox belongs to the row, not to the identity cell's content: it keeps the key
    and the status badge on the same 12px rhythm whether or not selection is on offer. */
 .work-item-card__select { flex: 0 0 auto; width: 16px; height: 16px; margin: 0 var(--cs-space-4) 0 0; accent-color: var(--cs-focus); cursor: pointer; }

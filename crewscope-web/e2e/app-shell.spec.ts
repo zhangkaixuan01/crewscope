@@ -86,6 +86,10 @@ test.beforeEach(async ({ page }) => {
     workItem('00000000-0000-0000-0000-000000000604', 'CRW-21', '审核协作入口', 'FEATURE', 'IN_REVIEW', 'HIGH'),
     workItem('00000000-0000-0000-0000-000000000605', 'CRW-22', '归档测试证据', 'TASK', 'DONE', 'LOW'),
   ]
+  // M11 WorkGraph: the accepted relation set — one truth per test, mutated only by the two
+  // command endpoints. Adjacency, blocked rows and the list badges are all derived from it, so an
+  // accepted command changes what the re-reads say, exactly like the server would.
+  const workGraphRelations: Array<{ id: string, type: string, fromWorkItemId: string, toWorkItemId: string, createdAt: string }> = []
   const comments = [{ id: '00000000-0000-0000-0000-000000000701', workItemId: ids.workItem, authorPrincipalId: ids.principal, content: '已确认交付范围。', source: 'CREWSCOPE', externalId: null, createdAt: '2026-08-08T03:00:00Z' }]
   const resources: Array<{ id: string; workItemId: string; resourceType: string; resourceReference: string; label: string | null; createdAt: string; createdByPrincipalId: string }> = [{ id: '00000000-0000-0000-0000-000000000801', workItemId: ids.workItem, resourceType: 'REPOSITORY', resourceReference: 'crewscope-java', label: '主仓库', createdAt: '2026-08-08T03:10:00Z', createdByPrincipalId: ids.principal }]
   let responsibilities = [
@@ -170,6 +174,64 @@ test.beforeEach(async ({ page }) => {
     } : null
     return value
   }
+  // M11 WorkGraph derivations (A02 contract §3–§4): a row is blocked while a non-terminal blocker
+  // BLOCKS it; adjacency projects both views of one stored edge. Derived here so the two command
+  // endpoints below are the only writers, and every read stays consistent with them.
+  const workGraphBlockedRows = () => {
+    const TERMINAL = ['DONE', 'CANCELLED', 'ARCHIVED']
+    const blockersByItem = new Map<string, typeof workGraphRelations>()
+    for (const edge of workGraphRelations) {
+      if (edge.type !== 'BLOCKS') continue
+      const blocker = workItems.find(item => item.id === edge.fromWorkItemId)
+      if (!blocker || TERMINAL.includes(blocker.status)) continue
+      const window = blockersByItem.get(edge.toWorkItemId) ?? []
+      window.push(edge)
+      blockersByItem.set(edge.toWorkItemId, window)
+    }
+    return [...blockersByItem.entries()].map(([blockedId, blockers]) => {
+      const item = workItems.find(row => row.id === blockedId)
+      return {
+        workItemId: blockedId,
+        itemKey: item?.key ?? 'CRW-??',
+        title: item?.title ?? '未知工作项',
+        status: item?.status ?? 'IN_PROGRESS',
+        projectId: ids.project,
+        blockedSince: '2026-08-08T03:00:00Z',
+        blockerCount: blockers.length,
+        crossesProject: false,
+        blockers: blockers.map(edge => {
+          const blocker = workItems.find(row => row.id === edge.fromWorkItemId)!
+          return { workItemId: blocker.id, title: blocker.title, status: blocker.status, projectId: ids.project }
+        }),
+      }
+    })
+  }
+  const workGraphAdjacency = (anchor: string) => ({
+    anchor,
+    truncatedByRows: false,
+    edges: workGraphRelations
+      .filter(edge => edge.fromWorkItemId === anchor || edge.toWorkItemId === anchor)
+      .map(edge => {
+        const outgoing = edge.fromWorkItemId === anchor
+        return {
+          relationId: edge.id,
+          direction: outgoing ? 'OUTGOING' : 'INCOMING',
+          otherWorkItemId: outgoing ? edge.toWorkItemId : edge.fromWorkItemId,
+          otherProjectId: ids.project,
+          crossProject: false,
+          views: edge.type === 'BLOCKS'
+            ? [
+                { type: 'BLOCKS', fromWorkItemId: edge.fromWorkItemId, toWorkItemId: edge.toWorkItemId },
+                { type: 'DEPENDS_ON', fromWorkItemId: edge.toWorkItemId, toWorkItemId: edge.fromWorkItemId },
+              ]
+            : [
+                { type: 'SPLIT_FROM', fromWorkItemId: edge.fromWorkItemId, toWorkItemId: edge.toWorkItemId },
+                { type: 'SPLIT_FROM', fromWorkItemId: edge.toWorkItemId, toWorkItemId: edge.fromWorkItemId },
+              ],
+          createdAt: edge.createdAt,
+        }
+      }),
+  })
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -1129,6 +1191,45 @@ test.beforeEach(async ({ page }) => {
       const input = request.postDataJSON() as { resourceType: string; resourceReference: string; label: string | null }
       resources.push({ id: crypto.randomUUID(), workItemId: resourceMatch[1]!, ...input, createdAt: '2026-08-08T04:10:00Z', createdByPrincipalId: ids.principal })
       await fulfillReceipt(route, 0)
+      return
+    }
+    // M11 WorkGraph reads (A02 contract §1, §3–§4). Commands below answer with a bare 202 receipt —
+    // the relation envelope is not a versioned aggregate, so there is no If-Match to check.
+    if (request.method() === 'GET' && path.endsWith('/work-graph/blocked-work-items')) {
+      await fulfillJson(route, { items: workGraphBlockedRows(), nextCursor: null })
+      return
+    }
+    const graphRelationsMatch = path.match(/\/work-items\/([^/]+)\/relations$/)
+    if (graphRelationsMatch && request.method() === 'GET') {
+      await fulfillJson(route, workGraphAdjacency(graphRelationsMatch[1]!))
+      return
+    }
+    const blockingChainMatch = path.match(/\/work-items\/([^/]+)\/blocking-chain$/)
+    if (blockingChainMatch && request.method() === 'GET') {
+      const anchor = blockingChainMatch[1]!
+      await fulfillJson(route, { anchor, steps: [{ workItemId: anchor, depth: 0 }], truncatedByDepth: false, truncatedByRows: false })
+      return
+    }
+    const criticalPathMatch = path.match(/\/work-items\/([^/]+)\/critical-path$/)
+    if (criticalPathMatch && request.method() === 'GET') {
+      await fulfillJson(route, { chain: [criticalPathMatch[1]!], truncatedByDepth: false, truncatedByRows: false })
+      return
+    }
+    if (path.endsWith('/work-item-relations') && request.method() === 'POST') {
+      const input = request.postDataJSON() as { type: string, fromWorkItemId: string, toWorkItemId: string }
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      // The client never submits DEPENDS_ON (it says BLOCKS directly); the mock holds the same line.
+      expect(['BLOCKS', 'SPLIT_FROM']).toContain(input.type)
+      workGraphRelations.push({ id: crypto.randomUUID(), ...input, createdAt: '2026-08-08T04:00:00Z' })
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 0, correlationId: crypto.randomUUID() }) })
+      return
+    }
+    const relationDeleteMatch = path.match(/\/work-item-relations\/([^/]+)$/)
+    if (relationDeleteMatch && request.method() === 'DELETE') {
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      const index = workGraphRelations.findIndex(edge => edge.id === relationDeleteMatch[1])
+      if (index >= 0) workGraphRelations.splice(index, 1)
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ commandId: crypto.randomUUID(), domainEventId: crypto.randomUUID(), committedVersion: 0, correlationId: crypto.randomUUID() }) })
       return
     }
     const delegationContextMatch = path.match(/\/work-projects\/([^/]+)\/work-items\/([^/]+)\/delegation-context$/)
@@ -3466,6 +3567,132 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
     .analyze()
   expect(drawerAxe.violations, formatAxeViolations(drawerAxe.violations)).toEqual([])
   await expect(page).toHaveScreenshot(`work-drawer-collaboration-${testInfo.project.name}.png`, { fullPage: true })
+})
+
+test('M11 WorkGraph renders the blocking DAG with zoom, node facts and the phone list form', async ({ page }, testInfo) => {
+  // 三节点链:CRW-19 阻塞 CRW-18,CRW-18 阻塞 CRW-20 —— 深度为 3 的活跃阻塞 DAG。
+  await page.route(/\/work-graph\/blocked-work-items(?:\?.*)?$/, route => fulfillJson(route, {
+    items: [
+      { workItemId: ids.workItem, itemKey: 'CRW-18', title: '共享范围与筛选状态', status: 'IN_PROGRESS', projectId: ids.project, blockedSince: '2026-08-08T03:00:00Z', blockerCount: 1, crossesProject: false, blockers: [{ workItemId: '00000000-0000-0000-0000-000000000602', title: '修复工作项游标', status: 'READY', projectId: ids.project }] },
+      { workItemId: '00000000-0000-0000-0000-000000000603', itemKey: 'CRW-20', title: '准备阶段发布', status: 'BACKLOG', projectId: ids.project, blockedSince: '2026-08-08T03:10:00Z', blockerCount: 1, crossesProject: false, blockers: [{ workItemId: ids.workItem, title: '共享范围与筛选状态', status: 'IN_PROGRESS', projectId: ids.project }] },
+    ],
+    nextCursor: null,
+  }))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=graph`)
+
+  if (testInfo.project.name === 'narrow-chromium') {
+    // 390px:同一事实的列表形态——图形永远不是唯一表达(验收:非图形等价表达+窄屏降级)。
+    await expect(page.getByLabel('依赖关系分层列表')).toBeVisible()
+    await expect(page.locator('.graph-canvas').first()).toHaveCount(0)
+    await expect(page).toHaveScreenshot(`work-graph-${testInfo.project.name}.png`, { fullPage: true })
+    const narrowAxe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(narrowAxe.violations, formatAxeViolations(narrowAxe.violations)).toEqual([])
+    return
+  }
+
+  const canvas = page.getByRole('group', { name: '阻塞依赖图,共 3 个工作项、2 条阻塞关系' })
+  await expect(canvas).toBeVisible()
+  // The non-graph equivalent rides along under the picture: every node's facts, one line each.
+  await expect(page.getByLabel('依赖图节点清单')).toContainText('共享范围与筛选状态,进行中,被 1 项阻塞')
+
+  await page.getByLabel('放大依赖图').click()
+  await expect(page.locator('.graph-canvas__zoom')).toHaveText('110%')
+  await page.getByLabel('重置缩放').click()
+  await expect(page).toHaveScreenshot(`work-graph-${testInfo.project.name}.png`, { fullPage: true })
+
+  // 选中节点 → 详情栏(状态、被阻塞事实、阻塞来源、入口),不离开图。DOM 顺序即数据顺序,
+  // 第一个节点是 CRW-18 —— 既被阻塞也阻塞别人的中间节点,详情栏两个事实都在。
+  await page.locator('.graph-node').first().click()
+  const detail = page.getByLabel('选中节点:共享范围与筛选状态')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText('被 1 项阻塞')).toBeVisible()
+  await expect(detail.getByText('阻塞来源:修复工作项游标')).toBeVisible()
+  await expect(page).toHaveScreenshot(`work-graph-node-detail-${testInfo.project.name}.png`, { fullPage: true })
+
+  // 图上的节点直通详情抽屉:URL 只写 workItem 键,载入事实的是详情读链。
+  await detail.getByRole('button', { name: '打开工作项' }).click()
+  const drawer = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(drawer).toBeVisible()
+  await drawer.getByLabel('关闭工作项详情').click()
+  await expect(drawer).toHaveCount(0)
+
+  const desktopAxe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
+  expect(desktopAxe.violations, formatAxeViolations(desktopAxe.violations)).toEqual([])
+})
+
+test('M11 WorkGraph degrades beyond 500 nodes and refocuses a subgraph from a row', async ({ page }, testInfo) => {
+  // 501 个被阻塞项共享一个 blocker:502 节点,超过 ADR-033 的 500 交互上限。脚本生成而非
+  // 手写 JSON(计划 §7:>500 mock 数据构造必须脚本化)。
+  const oversized = Array.from({ length: 501 }, (_, index) => ({
+    workItemId: `graph-node-${String(index).padStart(3, '0')}`,
+    itemKey: `GRW-${String(index).padStart(3, '0')}`,
+    title: `阻塞项 ${String(index).padStart(3, '0')}`,
+    status: 'IN_PROGRESS',
+    projectId: ids.project,
+    blockedSince: '2026-08-08T03:00:00Z',
+    blockerCount: 1,
+    crossesProject: false,
+    blockers: [{ workItemId: 'graph-blocker-root', title: '共同上游', status: 'READY', projectId: ids.project }],
+  }))
+  await page.route(/\/work-graph\/blocked-work-items(?:\?.*)?$/, route => fulfillJson(route, { items: oversized, nextCursor: null }))
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=graph`)
+
+  await expect(page.getByText('图超过 500 个工作项，已切换为分层列表；选择任意一项可聚焦它的邻域子图。')).toBeVisible()
+  await expect(page.getByLabel('依赖关系分层列表')).toBeVisible()
+  await expect(page.locator('.graph-canvas').first()).toHaveCount(0)
+  if (testInfo.project.name === 'desktop-chromium') {
+    await expect(page).toHaveScreenshot(`work-graph-degraded-${testInfo.project.name}.png`, { fullPage: true })
+  }
+
+  // 任意一行都能进入聚焦子图(深度≤2,规模上限 200,ADR-033)。桌面回到图形态;手机仍是
+  // 列表——图形不是手机的交互面,但「聚焦的是哪一段」由「返回全图」如实说出。
+  await page.getByLabel('依赖关系分层列表').locator('button').first().click()
+  if (testInfo.project.name === 'desktop-chromium') {
+    await expect(page.getByRole('group', { name: /阻塞依赖图,共 \d+ 个工作项、\d+ 条阻塞关系/ })).toBeVisible()
+  }
+  await expect(page.getByRole('button', { name: '返回全图' })).toBeVisible()
+  await page.getByRole('button', { name: '返回全图' }).click()
+  await expect(page.getByLabel('依赖关系分层列表')).toBeVisible()
+})
+
+test('M11 WorkGraph adds a blocking relation from the drawer and the list badge follows', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&workItem=${ids.workItem}`)
+  const drawer = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByText('阻塞与拆分')).toBeVisible()
+  // 无阻塞事实时不渲染徽标:缺席即「未被阻塞」。
+  await expect(page.getByText('被 1 项阻塞')).toHaveCount(0)
+
+  await drawer.getByLabel('目标工作项').selectOption({ label: 'CRW-19 · 修复工作项游标' })
+  await drawer.getByRole('button', { name: '添加关系' }).click()
+
+  // 202 receipt 后回读:句子按三句式渲染,列表徽标与图同源。
+  await expect(drawer.getByText('「修复工作项游标」阻塞本项')).toBeVisible()
+  await drawer.getByLabel('关闭工作项详情').click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByText('被 1 项阻塞')).toBeVisible()
+})
+
+test('M11 WorkGraph removes a relation with the two-step confirm and the badge leaves with it', async ({ page }) => {
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&workItem=${ids.workItem}`)
+  const drawer = page.getByRole('dialog', { name: 'CRW-18 工作项详情' })
+  await expect(drawer).toBeVisible()
+
+  await drawer.getByLabel('目标工作项').selectOption({ label: 'CRW-19 · 修复工作项游标' })
+  await drawer.getByRole('button', { name: '添加关系' }).click()
+  await expect(drawer.getByText('「修复工作项游标」阻塞本项')).toBeVisible()
+
+  // 两击确认在行内完成(第一次武装、第二次执行),blur 即解除。按 class 定位:武装态按钮文本
+  // 变为「确认移除」,按名字重新查询会找不到同一元素。
+  const remove = drawer.locator('.relations-remove')
+  await remove.click()
+  await expect(remove).toHaveText('确认移除')
+  await remove.click()
+
+  await expect(drawer.getByText('还没有阻塞或拆分关系。')).toBeVisible()
+  await drawer.getByLabel('关闭工作项详情').click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByText('被 1 项阻塞')).toHaveCount(0)
 })
 
 test('M5 Agent creation and configuration preserve server-owned boundaries', async ({ page }) => {

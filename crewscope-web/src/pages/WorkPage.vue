@@ -18,6 +18,7 @@ import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialo
 import WorkItemCreateDialog from '../components/domain/WorkItemCreateDialog.vue'
 import WorkItemsWorkspace from '../components/domain/WorkItemsWorkspace.vue'
 import WorkItemsToolbar from '../components/domain/WorkItemsToolbar.vue'
+import WorkGraphWorkspace from '../components/domain/WorkGraphWorkspace.vue'
 import PinnedProjects from '../components/domain/PinnedProjects.vue'
 import SavedViewsControl from '../components/domain/SavedViewsControl.vue'
 import WorkItemsBulkBar from '../components/domain/WorkItemsBulkBar.vue'
@@ -32,6 +33,7 @@ import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreat
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
 import { useConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { useWorkItemStore } from '../domains/workitem/store'
+import { useWorkGraphStore } from '../domains/workgraph/store'
 import { clearWorkItemCreateDraft } from '../domains/workitem/createDraft'
 import { useUndoOffer } from '../domains/workitem/useUndoOffer'
 import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
@@ -97,7 +99,8 @@ import {
 } from '../domains/workitem/types'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
-type WorkView = 'list' | 'board'
+/** M11-F02: the third view is the blocking graph — same route, same scope, its own shell. */
+type WorkView = 'list' | 'board' | 'graph'
 type FilterValue<T extends string> = T | 'all'
 
 /**
@@ -124,6 +127,9 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const agentStore = useAgentStore()
 const workStore = useWorkItemStore()
+// M11-F02: the blocking aggregate backs the「被 N 项阻塞」badges in list/board and the whole
+// graph view. The page loads it; the detail drawer's relations panel pulls its own anchor.
+const graphStore = useWorkGraphStore()
 const { offerUndo, undoTransition } = useUndoOffer(workStore)
 // The command in flight is the Store's own flag, not a page-local one: the drawer and the card run
 // the same command, so a card that tracked its own pending state would let a member fire the same
@@ -185,7 +191,10 @@ const responsibilityAgentCandidates = computed(() => (agentStore.state.agents.va
     ownershipType: agent.ownershipType,
     runtimeRole: agent.runtimeRole,
   })))
-const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board'] as const, 'list'))
+const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board', 'graph'] as const, 'list'))
+/** The toolbar and workspace only ever see the two collection views (M11-F02): the graph branch
+    renders its own shell, so narrowing here keeps their prop types honest. */
+const collectionView = computed<'list' | 'board'>(() => (view.value === 'graph' ? 'list' : view.value))
 
 // --- R41 saved views: the member's own filter definitions for this list, on this machine --
 
@@ -866,6 +875,19 @@ watch(
   resetTransition,
 )
 
+// M11-F02: the blocking aggregate is team+project scoped, so it rides its own watch — a filter or
+// sort change does not mint a new scope, and the store skips an identical re-entry. Outside the
+// graph view a failure stays silent: an absent badge reads as「not blocked」, and the graph shell
+// surfaces its own error state with a retry.
+watch(
+  () => [scopeStore.state.phase, scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId] as const,
+  ([phase, teamId, projectId]) => {
+    if (phase !== 'ready' || !teamId || !projectId || !principal) return
+    void graphStore.loadBlockedGraph({ organizationId: principal.organizationId, teamId }, projectId)
+  },
+  { immediate: true },
+)
+
 // The association Store is shared with Conversation Mode. Do not retain a WorkItem-scoped
 // response after this route leaves the tree; the next entry must read current server facts.
 onUnmounted(() => {
@@ -879,6 +901,20 @@ onUnmounted(() => {
 
 function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: string): void {
   void router.replace({ query: { ...route.query, [name]: value } })
+}
+
+/**
+ * M11-F02: a graph node asks for its drawer. The detail watch below loads by the query key alone,
+ * so this is a plain query write — a node that exists only as a blocker (not in the loaded list)
+ * still opens, because the drawer's facts come from loadDetails, not from the list.
+ */
+function openGraphItem(workItemId: string): void {
+  void router.replace({ query: { ...route.query, workItem: workItemId } })
+}
+
+/** M11-F02: the badge count one card shows (0 = no badge). The graph store owns the number. */
+function blockedCountOf(workItemId: string): number {
+  return graphStore.blockedCountOf(workItemId)
 }
 
 /** A pinned entry hands the member to that project's list; the scope follows the URL (R41). */
@@ -1691,11 +1727,24 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
     </StatePanel>
 
     <div v-else class="work-page page-shell">
+      <!-- M11-F02: the third view. The graph owns the whole column — no filters (the aggregate is
+           the blocking DAG; filtering it would hide a blocker behind the filter), no bulk bar, no
+           task panel. Its shell carries the tri-state switcher back to the collection views. -->
+      <WorkGraphWorkspace
+        v-if="view === 'graph'"
+        :team-name="team?.name"
+        :project-key="project.key"
+        :scope="workScope"
+        @switch-view="next => updateQuery('view', next)"
+        @open-item="openGraphItem"
+      />
+
+      <template v-else>
       <WorkItemsToolbar
         :team-name="team?.name"
         :project-key="project.key"
         :result-count="filteredItems.length"
-        :view="view"
+        :view="collectionView"
         :status="statusFilter"
         :type="typeFilter"
         :priority="priorityFilter"
@@ -1750,7 +1799,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :error-message="workStore.state.errorMessage"
         :filtered-items="filteredItems"
         :has-applied-filters="statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all'"
-        :view="view"
+        :view="collectionView"
         :board-statuses="boardStatuses"
         :status-labels="statusLabels"
         :board-presence="boardPresence"
@@ -1764,6 +1813,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :pending-item-id="confirmingSubject"
         :confirming-target="confirmingTarget"
         :busy-item-id="workStore.state.rowActionItemId"
+        :blocked-count-of="blockedCountOf"
         :allow-drop="allowDrop"
         :items-for="itemsFor"
         :selectable="selectionEnabled"
@@ -1800,6 +1850,7 @@ function oneOf<const T extends readonly string[]>(value: unknown, options: T, fa
         :on-retry="retryTasks"
         :on-load-more="taskStore.loadMore"
       />
+      </template>
 
       <section class="scope-rule"><ShieldCheck :size="16" /><span>URL 保存 Team、WorkProject、视图和筛选状态；服务端仍逐次校验 Membership 与完整 Scope，前端筛选不构成授权边界。</span></section>
     </div>

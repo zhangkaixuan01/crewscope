@@ -1,4 +1,4 @@
-import { CalendarDays, Gauge, Inbox, LayoutDashboard, MessageSquare, Search, Settings2, UsersRound, Bot, KeyRound, GitFork, ScanSearch, ShieldCheck } from '@lucide/vue'
+import { CalendarDays, Gauge, Inbox, LayoutDashboard, MessageSquare, Network, Search, Settings2, UsersRound, Bot, KeyRound, GitFork, ScanSearch, ShieldCheck } from '@lucide/vue'
 import type { Router } from 'vue-router'
 import type { AuthenticatedPrincipal } from './auth'
 import { permissions } from './auth'
@@ -25,19 +25,22 @@ export function registerDefaultActions(registry: ActionRegistry, router: Router,
     action('view.today', '切换到今日视图', '查看个人工作摘要', '视图', 'v t', CalendarDays, 'today', permissions.scopeRead),
     action('view.conversation', '切换到对话视图', '查看对话与 Agent 参与者', '视图', 'v c', MessageSquare, 'conversation', permissions.conversationUse),
     action('view.work', '切换到工作视图', '查看 WorkProject 工作项', '视图', 'v w', LayoutDashboard, 'work', permissions.workRead),
+    // M11-F02: the third Work view — same route and scope, the blocking DAG shell.
+    action('view.work-graph', '切换到依赖图视图', '查看工作项阻塞依赖图', '视图', 'v g', Network, 'work', permissions.workRead, { view: 'graph' }),
     action('execution.operations', '打开执行控制', '查看运行与发布状态', '执行控制', 'x o', Gauge, 'operations', permissions.scopeRead),
   ]
   const cleanups = definitions.map(definition => registry.register(definition))
   return () => cleanups.forEach(cleanup => cleanup())
 
-  function action(id: string, label: string, description: string, group: ActionDefinition['group'], shortcut: string, icon: typeof CalendarDays, routeName: string, requiredPermission: string): ActionDefinition {
+  function action(id: string, label: string, description: string, group: ActionDefinition['group'], shortcut: string, icon: typeof CalendarDays, routeName: string, requiredPermission: string, extraQuery: Record<string, string> = {}): ActionDefinition {
     return {
       id, label, description, group, shortcut, icon, requiredPermission,
       keywords: [label, description],
       execute: async ({ router: currentRouter, route }) => {
         await currentRouter.push({ name: routeName, query: { team: route.query.team,
           project: routeName === 'work' ? route.query.project : undefined,
-          create: id.startsWith('create.') ? '1' : undefined } })
+          create: id.startsWith('create.') ? '1' : undefined,
+          ...extraQuery } })
       },
       visible: context => context.principal?.id === principal.id,
     }

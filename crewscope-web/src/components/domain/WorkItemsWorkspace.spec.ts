@@ -19,7 +19,7 @@ function mountWorkspace(overrides: Record<string, unknown> = {}) {
     props: {
       phase: 'ready', errorMessage: null, filteredItems: [item], hasAppliedFilters: false, view: 'list', boardStatuses: ['READY'], statusLabels: { READY: '就绪' },
       nextCursor: null, loadingMore: false, canCreate: true, draggedWorkItem: null, dragOverStatus: null, boardAnnouncement: '',
-      pendingItemId: null, confirmingTarget: null, busyItemId: null,
+      pendingItemId: null, confirmingTarget: null, busyItemId: null, blockedCountOf: () => 0,
       allowDrop: () => true, itemsFor: () => [item], selectable: false, isSelected: () => false,
       onCreate: () => undefined, onRetry: () => undefined, onClearFilters: () => undefined,
       onLoadMore: () => undefined, onSelect: () => undefined, onToggleSelect: () => undefined, onAction: () => undefined, onDragStart: () => undefined, onDragEnd: () => undefined,

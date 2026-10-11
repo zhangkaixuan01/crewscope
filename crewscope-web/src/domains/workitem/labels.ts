@@ -91,3 +91,21 @@ export const workItemSourceLabels: Record<string, string> = {
   GITHUB: 'GitHub',
   LARK: '飞书',
 }
+
+/**
+ * One status→tone rule for every WorkItem surface (list card, drawer, graph node). The return
+ * union is a subset of the design-system SemanticTone, so callers assign it without a cast.
+ *
+ * The WorkDesk board card keeps its own map on purpose: its rows mix WorkItem and Task statuses
+ * (COMPLETED, WAITING), which this closed WorkItemStatus map must not claim to know.
+ */
+export const workItemStatusTone: Record<WorkItemStatus, 'danger' | 'success' | 'info' | 'warning' | 'neutral'> = {
+  BLOCKED: 'danger',
+  DONE: 'success',
+  IN_PROGRESS: 'info',
+  IN_REVIEW: 'warning',
+  CANCELLED: 'neutral',
+  ARCHIVED: 'neutral',
+  BACKLOG: 'neutral',
+  READY: 'neutral',
+}

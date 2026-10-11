@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Columns3, List, Plus, SlidersHorizontal } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Columns3, List, Network, Plus, SlidersHorizontal } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import {
   unsortableWorkItemField,
@@ -97,6 +97,9 @@ const filterToggleLabel = computed(() => {
     <div class="view-switcher" aria-label="工作项视图">
       <button type="button" :class="{ active: view === 'list' }" aria-label="列表视图" @click="emit('updateQuery', 'view', 'list')"><List :size="15" />List</button>
       <button type="button" :class="{ active: view === 'board' }" aria-label="看板视图" @click="emit('updateQuery', 'view', 'board')"><Columns3 :size="15" />Board</button>
+      <!-- M11-F02: the third view entry. The graph shell renders its own switcher, so this button
+           never carries the active state — it only promises the view exists and navigates to it. -->
+      <button type="button" aria-label="依赖图视图" @click="emit('updateQuery', 'view', 'graph')"><Network :size="15" />Graph</button>
     </div>
     <div class="sort-control" role="group" aria-label="排序">
       <span class="sort-control__label">排序</span>
