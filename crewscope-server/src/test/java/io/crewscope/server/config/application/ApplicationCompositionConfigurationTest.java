@@ -94,6 +94,7 @@ import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
 import io.crewscope.application.workgraph.WorkItemRelationGraphRepository;
 import io.crewscope.application.workgraph.WorkItemRelationRepository;
+import io.crewscope.application.workgraph.WorkGraphQueryService;
 import io.crewscope.application.workitem.WorkItemTimelineService;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectRepository;
@@ -302,6 +303,7 @@ class ApplicationCompositionConfigurationTest {
           assertThat(context).hasSingleBean(WorkItemCommandService.class);
           assertThat(context).hasSingleBean(WorkItemAccessPolicy.class);
           assertThat(context).hasSingleBean(WorkItemQueryService.class);
+          assertThat(context).hasSingleBean(WorkGraphQueryService.class);
           assertThat(context).hasSingleBean(WorkItemTimelineService.class);
           assertThat(context).hasSingleBean(WorkItemCollaborationService.class);
           assertThat(context).hasSingleBean(ResponsibilityAssignmentService.class);

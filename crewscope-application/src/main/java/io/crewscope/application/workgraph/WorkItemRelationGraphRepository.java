@@ -1,16 +1,20 @@
 package io.crewscope.application.workgraph;
 
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workgraph.BlockingChain;
 import io.crewscope.domain.workitem.WorkItemId;
+import java.util.Optional;
 
 /**
- * Persistence Port for the recursive-CTE WorkGraph probes (ADR-033).
+ * Persistence Port for the recursive-CTE WorkGraph probes and derived reads (ADR-033).
  *
  * <p>Stored edges read {@code (src blocks dst)}; the split forest reads {@code (child, source)}.
- * The probes must run inside the WorkProject row locks held by the relation command protocol.
- * Their CTEs are written with {@code UNION} — never {@code UNION ALL} — and, being correctness
- * mechanisms, carry no depth or row bound.
+ * The two reachability probes must run inside the WorkProject row locks held by the relation
+ * command protocol; their CTEs are written with {@code UNION} — never {@code UNION ALL} — and,
+ * being correctness mechanisms, carry no depth or row bound. The presentation reads below apply
+ * the frozen depth 32 / row 5000 bounds and report truncation explicitly instead.
  */
 public interface WorkItemRelationGraphRepository {
 
@@ -36,4 +40,25 @@ public interface WorkItemRelationGraphRepository {
      * explicitly instead of silently dropped.
      */
     BlockingChain upstreamChain(OrganizationId organizationId, WorkItemId node);
+
+    /**
+     * Bounded upstream blocking closure of {@code node} shaped as CriticalPath adjacency: every
+     * stored BLOCKS edge within the same depth/row bounds, truncation reported explicitly. A
+     * presentation mechanism, not a correctness one — the cycle probes above stay unbounded.
+     */
+    BlockedUpstreamClosure upstreamClosure(OrganizationId organizationId, WorkItemId node);
+
+    /**
+     * One keyset page of the derived "currently blocked" aggregation (ADR-033): the Team's
+     * WorkItems with at least one BLOCKS in-edge whose src is still executing, ordered by
+     * {@code (blockedSince DESC, workItemId DESC)}. The optional project filter restricts the
+     * blocked side; blockers may come from any project of the Team. The page query and its
+     * blocker window must observe one database snapshot.
+     */
+    BlockedWorkItemPage findCurrentlyBlocked(
+            OrganizationId organizationId,
+            TeamId teamId,
+            Optional<WorkProjectId> projectId,
+            Optional<BlockedItemPosition> after,
+            int limit);
 }

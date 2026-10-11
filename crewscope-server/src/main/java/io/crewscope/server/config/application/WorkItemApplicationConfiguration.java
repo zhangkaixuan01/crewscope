@@ -37,6 +37,7 @@ import io.crewscope.application.workitem.WorkProjectRepository;
 import io.crewscope.application.workgraph.WorkItemRelationCommandService;
 import io.crewscope.application.workgraph.WorkItemRelationGraphRepository;
 import io.crewscope.application.workgraph.WorkItemRelationRepository;
+import io.crewscope.application.workgraph.WorkGraphQueryService;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.responsibility.ReviewerEligibilityPolicy;
 import org.springframework.context.annotation.Bean;
@@ -292,6 +293,19 @@ public class WorkItemApplicationConfiguration {
         commandReceiptStore,
         transactionExecutor,
         timeProvider);
+  }
+
+  @Bean
+  WorkGraphQueryService workGraphQueryService(
+      WorkItemRelationRepository workItemRelationRepository,
+      WorkItemRelationGraphRepository workItemRelationGraphRepository,
+      WorkItemAccessPolicy workItemAccessPolicy,
+      TransactionExecutor transactionExecutor) {
+    return new WorkGraphQueryService(
+        workItemRelationRepository,
+        workItemRelationGraphRepository,
+        workItemAccessPolicy,
+        transactionExecutor);
   }
 
   @Bean
