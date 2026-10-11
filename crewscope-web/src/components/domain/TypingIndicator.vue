@@ -23,7 +23,7 @@ const label = computed(() => typingIndicatorLabel(props.typers.map(entry => entr
 
 <style scoped>
 .typing-indicator { display: inline-flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.typing-indicator__dots { display: inline-flex; gap: 3px; }
+.typing-indicator__dots { display: inline-flex; gap: var(--cs-space-2); }
 .typing-indicator__dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: typing-pulse var(--cs-motion-slow) var(--cs-ease-in-out) infinite alternate; }
 .typing-indicator__dots i:nth-child(2) { animation-delay: 120ms; }
 .typing-indicator__dots i:nth-child(3) { animation-delay: 240ms; }

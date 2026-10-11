@@ -64,6 +64,17 @@ function inertCollaborationChannelPlugin(): Plugin {
 
 export default defineConfig({
   plugins: e2eDevServer ? [vue(), inertCollaborationChannelPlugin()] : [vue()],
+  build: {
+    rollupOptions: {
+      output: {
+        // The framework runtime (vue + vue-router) is a stable, always-loaded slice of
+        // the initial payload. Splitting it into its own chunk keeps the app chunk
+        // under the M9-Q01 single-chunk budget without changing what the browser
+        // downloads up front — the same bytes ship as two parallel requests.
+        manualChunks: { vendor: ['vue', 'vue-router'] },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

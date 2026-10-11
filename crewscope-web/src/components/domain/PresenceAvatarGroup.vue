@@ -42,7 +42,7 @@ const summary = computed(() => presenceLabels.summary(props.entries.map(entry =>
 .presence-group__avatar:first-child { margin-left: 0; }
 .presence-group__avatar :deep(.base-avatar) { border: 2px solid var(--cs-canvas); transition: border-color var(--cs-motion-fast) var(--cs-ease-out); }
 .presence-group__avatar:hover :deep(.base-avatar) { border-color: var(--cs-border-accent-strong); }
-.presence-group__badge { position: absolute; right: -4px; bottom: -4px; min-width: 14px; padding: 0 3px; border-radius: 7px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: 10px; font-weight: var(--cs-weight-semibold); line-height: 14px; text-align: center; }
+.presence-group__badge { position: absolute; right: -4px; bottom: -4px; min-width: 14px; padding: 0 var(--cs-space-2); border-radius: 7px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); line-height: var(--cs-leading-tight); text-align: center; }
 .presence-group__more { margin-left: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .presence-group--degraded { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>
