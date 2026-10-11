@@ -34,6 +34,9 @@ import io.crewscope.application.workitem.WorkItemTransitionAvailabilityProjector
 import io.crewscope.application.workitem.WorkItemTransitionAvailabilityQueryService;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectRepository;
+import io.crewscope.application.workgraph.WorkItemRelationCommandService;
+import io.crewscope.application.workgraph.WorkItemRelationGraphRepository;
+import io.crewscope.application.workgraph.WorkItemRelationRepository;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.responsibility.ReviewerEligibilityPolicy;
 import org.springframework.context.annotation.Bean;
@@ -258,6 +261,37 @@ public class WorkItemApplicationConfiguration {
         transactionExecutor,
         timeProvider,
         workItemAccessPolicy);
+  }
+
+  @Bean
+  WorkItemRelationCommandService workItemRelationCommandService(
+      WorkItemRelationRepository workItemRelationRepository,
+      WorkItemRelationGraphRepository workItemRelationGraphRepository,
+      WorkItemRepository workItemRepository,
+      WorkProjectRepository workProjectRepository,
+      TeamRepository teamRepository,
+      TeamMembershipQuery teamMembershipQuery,
+      TeamRoleRepository teamRoleRepository,
+      MemberRoleRepository memberRoleRepository,
+      DomainEventStore domainEventStore,
+      OutboxRepository outboxRepository,
+      CommandReceiptStore commandReceiptStore,
+      TransactionExecutor transactionExecutor,
+      TimeProvider timeProvider) {
+    return new WorkItemRelationCommandService(
+        workItemRelationRepository,
+        workItemRelationGraphRepository,
+        workItemRepository,
+        workProjectRepository,
+        teamRepository,
+        teamMembershipQuery,
+        teamRoleRepository,
+        memberRoleRepository,
+        domainEventStore,
+        outboxRepository,
+        commandReceiptStore,
+        transactionExecutor,
+        timeProvider);
   }
 
   @Bean

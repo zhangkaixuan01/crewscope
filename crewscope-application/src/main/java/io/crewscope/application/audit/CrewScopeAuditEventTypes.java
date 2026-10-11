@@ -81,6 +81,8 @@ import io.crewscope.domain.workitem.event.WorkItemCreated;
 import io.crewscope.domain.workitem.event.WorkItemResourceLinked;
 import io.crewscope.domain.workitem.event.WorkItemStatusChanged;
 import io.crewscope.domain.workitem.event.WorkProjectCreated;
+import io.crewscope.domain.workgraph.event.WorkItemRelationCreated;
+import io.crewscope.domain.workgraph.event.WorkItemRelationRemoved;
 import io.crewscope.domain.workspace.event.AgentConfigurationChanged;
 import io.crewscope.domain.workspace.event.AgentProfileChanged;
 import java.lang.reflect.RecordComponent;
@@ -404,6 +406,28 @@ public final class CrewScopeAuditEventTypes {
                 required("itemKey"),
                 required("previousStatus"),
                 required("status"));
+        register(
+                target,
+                List.of("WORK_ITEM_RELATION_CREATED"),
+                List.of(SchemaVersion.V1),
+                WorkItemRelationCreated.class,
+                AuditEventCategory.WORK,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("kind"),
+                required("srcWorkItemId"),
+                required("dstWorkItemId"));
+        register(
+                target,
+                List.of("WORK_ITEM_RELATION_REMOVED"),
+                List.of(SchemaVersion.V1),
+                WorkItemRelationRemoved.class,
+                AuditEventCategory.WORK,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.STANDARD,
+                required("kind"),
+                required("srcWorkItemId"),
+                required("dstWorkItemId"));
         register(
                 target,
                 List.of("WORK_ITEM_COMMENT_ADDED"),
