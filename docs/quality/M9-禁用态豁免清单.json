@@ -140,6 +140,16 @@
       "file": "components/domain/SkillActionConfirmDialog.vue",
       "expression": "confirmDisabled",
       "reason": "确认按钮的禁用成因只有提交中的瞬时锁与禁用原因超长（≤200 字）；超长时同表单的字段计数已变红并阻止提交，控件本身不表达任何权限或业务前置条件。"
+    },
+    {
+      "file": "components/domain/WorkItemRelationsPanel.vue",
+      "expression": "!selection",
+      "reason": "添加关系的提交按钮由目标工作项是否选择决定；同一表单的目标选择器即是原因的承载（未选时占位项「选择工作项…」与提交前 aria-invalid 都已在控件上）。"
+    },
+    {
+      "file": "components/domain/WorkItemRelationsPanel.vue",
+      "expression": "splitSourceTaken",
+      "reason": "拆分来源选项的禁用成因是「一项只能拆分自一个来源」的业务前置，但 option 的显示文本在禁用时本身翻转为「本项已有拆分来源」，原因已在控件文本内，再加提示属冗余。"
     }
   ]
 }

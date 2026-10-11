@@ -135,7 +135,11 @@ function exitFocus(): void {
 
     <StatePanel v-if="blocked?.phase === 'loading' || blocked?.phase === 'idle'" state="loading" description="正在加载阻塞关系" />
     <StatePanel v-else-if="blocked?.phase === 'error'" state="error" :description="blocked.errorMessage ?? undefined" @retry="scope && graphStore?.loadBlockedGraph({ organizationId: scope.organizationId, teamId: scope.teamId }, scope.projectId, true)" />
-    <StatePanel v-else-if="blocked?.phase === 'empty'" state="empty" title="当前没有阻塞中的工作项" description="当有进行中的工作项阻塞其他工作项时，这里会呈现依赖图。" />
+    <!-- An empty graph is a door back to the work itself, not a dead end: the M9-Q01 empty-state
+         contract wants the next member step right here. -->
+    <StatePanel v-else-if="blocked?.phase === 'empty'" state="empty" title="当前没有阻塞中的工作项" description="当有进行中的工作项阻塞其他工作项时，这里会呈现依赖图。">
+      <template #action><BaseButton variant="secondary" @click="emit('switch-view', 'list')"><List :size="15" />回到列表视图</BaseButton></template>
+    </StatePanel>
     <template v-else>
       <p v-if="truncationNote" class="graph-workspace__note" role="status">{{ truncationNote }}</p>
       <p v-if="exceedsLimit" class="graph-workspace__note" role="status">图超过 500 个工作项，已切换为分层列表；选择任意一项可聚焦它的邻域子图。</p>
