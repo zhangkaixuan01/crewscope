@@ -21,6 +21,8 @@ import { HttpScopeGateway } from './domains/scope/gateway'
 import { installScopeStore } from './domains/scope/store'
 import { HttpWorkItemGateway } from './domains/workitem/gateway'
 import { installWorkItemStore } from './domains/workitem/store'
+import { HttpWorkGraphGateway } from './domains/workgraph/gateway'
+import { installWorkGraphStore } from './domains/workgraph/store'
 import { HttpTaskGateway } from './domains/task/gateway'
 import { installTaskStore } from './domains/task/store'
 import { createCollaborationGateway } from './domains/collaboration/gateway'
@@ -93,6 +95,9 @@ const conversationRealtimeStore = installConversationRealtimeStore(app, new Http
 const taskIntentStore = installTaskIntentStore(app, new HttpTaskIntentGateway())
 const conversationWorkItemLinkStore = installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
 const workItemStore = installWorkItemStore(app, new HttpWorkItemGateway())
+// F02: one gateway, two stores' worth of consumers — the DAG feeds both the graph view and the
+// blocked badges on list/board cards, so it loads with the WorkPage regardless of active view.
+const workGraphStore = installWorkGraphStore(app, new HttpWorkGraphGateway())
 const taskStore = installTaskStore(app, new HttpTaskGateway())
 const codingStore = installCodingStore(app, new HttpCodingGateway())
 const modelStore = installModelStore(app, new HttpModelGateway())
@@ -129,6 +134,7 @@ subscribeSessionBoundary(authStore, reason => {
   taskIntentStore.reset()
   conversationWorkItemLinkStore.reset()
   workItemStore.reset()
+  workGraphStore.reset()
   taskStore.reset()
   codingStore.reset()
   modelStore.reset()
