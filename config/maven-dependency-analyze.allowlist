@@ -28,6 +28,24 @@ non|io.projectreactor.netty:reactor-netty-http
 non|jakarta.persistence:jakarta.persistence-api
 non|org.springframework:spring-orm
 non|org.springframework:spring-tx
+# M11 collaboration surfaces (I01/A01) widened the same pattern: the WebSocket
+# integration tests boot the real JVM application, which exercises the Hibernate
+# ORM, JDBC and Redis-session wiring that production server code only receives
+# through its runtime starters, and the Netty HTTP codec arrives transitively
+# through reactor-netty. `org.springframework.data.domain.Range` in the presence
+# store is the one main-code use: spring-data-commons reaches the server via
+# spring-data-redis. The servlet-scoped spring-websocket coordinate declared in
+# I01 referenced zero classes (reactive server support lives in spring-webflux
+# on Spring Framework 7) and was removed from the server pom instead.
+used|org.springframework.data:spring-data-commons
+used|io.netty:netty-codec-http
+used|org.springframework.boot:spring-boot-hibernate
+used|org.springframework.boot:spring-boot-jdbc
+used|org.springframework.boot:spring-boot-session-data-redis
+non|io.netty:netty-codec-http
+non|org.springframework.boot:spring-boot-hibernate
+non|org.springframework.boot:spring-boot-jdbc
+non|org.springframework.boot:spring-boot-session-data-redis
 unused|io.agentscope:agentscope-extensions-redis
 unused|io.agentscope:agentscope-openai-spring-boot-starter
 unused|io.micrometer:micrometer-registry-prometheus

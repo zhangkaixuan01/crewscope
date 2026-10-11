@@ -66,12 +66,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-        <dependency>
-            <!-- Reactive WebSocket support on the existing Reactor Netty stack. The boot
-                 starter is deliberately avoided: it would drag in the servlet web server. -->
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-websocket</artifactId>
-        </dependency>
+        <!-- No spring-websocket here: the collaboration channel rides the reactive stack,
+             whose server-side WebSocket support (HandshakeWebSocketService,
+             WebSocketHandlerAdapter, ReactorNettyRequestUpgradeStrategy) ships inside
+             spring-webflux on Spring Framework 7. The servlet-scoped spring-websocket jar
+             was declared in I01 with zero referenced classes and is removed. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
