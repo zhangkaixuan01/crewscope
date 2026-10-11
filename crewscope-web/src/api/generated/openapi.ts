@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: d17f461ba566c277b87b06a5ae955b312b91be5062d6446e79d07b57355294e5
+// Controller source SHA-256: 87cedf56e6c947b06ada88b6f3d5ab96fbbe930c8f80f269ffc786f8fafdc2ab
 
 export interface OpenApiOperation {
   readonly operationId: string

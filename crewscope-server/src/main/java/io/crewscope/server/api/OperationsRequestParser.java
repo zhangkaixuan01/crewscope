@@ -69,7 +69,7 @@ final class OperationsRequestParser {
         return value;
     }
 
-    private static ApiRequestException invalid(String field) {
+    static ApiRequestException invalid(String field) {
         return new ApiRequestException(
                 HttpStatus.BAD_REQUEST,
                 "invalid_request",
