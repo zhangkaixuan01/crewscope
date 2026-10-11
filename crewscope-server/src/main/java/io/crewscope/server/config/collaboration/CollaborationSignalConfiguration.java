@@ -41,11 +41,6 @@ public class CollaborationSignalConfiguration {
    * The outbox half of the signal pipeline. The {@link CollaborationSignalSink} is the
    * in-memory fanout declared by the WebSocket configuration under the same switch — with the
    * channel off there is neither a consumer nor a sink, and no receipt rows are ever written.
-   */
-  /**
-   * The outbox half of the signal pipeline. The {@link CollaborationSignalSink} is the
-   * in-memory fanout declared by the WebSocket configuration under the same switch — with the
-   * channel off there is neither a consumer nor a sink, and no receipt rows are ever written.
    * The WorkItem repository resolves relation endpoints at their current aggregate version
    * (M11-A02): the relation envelope's version 0 describes the edge, not either endpoint.
    */
