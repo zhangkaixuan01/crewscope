@@ -92,6 +92,8 @@ import io.crewscope.application.workitem.WorkItemRepository;
 import io.crewscope.application.workitem.WorkItemSummaryRepository;
 import io.crewscope.application.workitem.WorkItemResourceLinkRepository;
 import io.crewscope.application.workitem.WorkItemTimelineRepository;
+import io.crewscope.application.workgraph.WorkItemRelationGraphRepository;
+import io.crewscope.application.workgraph.WorkItemRelationRepository;
 import io.crewscope.application.workitem.WorkItemTimelineService;
 import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectRepository;
@@ -202,6 +204,11 @@ class ApplicationCompositionConfigurationTest {
               DefaultPersonalAgentRepository.class,
               () -> mock(DefaultPersonalAgentRepository.class))
           .withBean(WorkItemRepository.class, () -> mock(WorkItemRepository.class))
+          .withBean(
+              WorkItemRelationRepository.class, () -> mock(WorkItemRelationRepository.class))
+          .withBean(
+              WorkItemRelationGraphRepository.class,
+              () -> mock(WorkItemRelationGraphRepository.class))
           .withBean(
               WorkItemCommentRepository.class, () -> mock(WorkItemCommentRepository.class))
           .withBean(
