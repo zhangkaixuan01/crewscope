@@ -149,28 +149,35 @@ class GitHubConnectionApplicationServiceM5A06Test {
                 GitHubConnectionApplicationService.CONNECTOR_KEY,
                 "1.0.0",
                 GitHubConnectionApplicationService.DELIVERY_CAPABILITIES);
+        GitHubConnectionPolicySettings policySettings =
+                new GitHubConnectionPolicySettings(Set.of("crewscope"), true, false, true, false);
+        GitHubConnectionAuthorizationService authorization =
+                new GitHubConnectionAuthorizationService(
+                        connections, teams, memberships, roles, memberRoles);
+        GitHubConnectionCommandJournal journal =
+                new GitHubConnectionCommandJournal(receipts, eventStore, outbox);
+        GitHubProviderFoundationService foundationService =
+                new GitHubProviderFoundationService(
+                        bootstrapLock, definitions, implementations, registration);
+        GitHubConnectionAccessService access =
+                new GitHubConnectionAccessService(
+                        grants, githubRepository, definitions, implementations,
+                        () -> NOW, policySettings, authorization);
         service = new GitHubConnectionApplicationService(
                 connections,
                 grants,
                 credentials,
                 githubRepository,
                 provider,
-                teams,
-                memberships,
-                roles,
-                memberRoles,
                 workspaces,
-                definitions,
-                implementations,
                 bindings,
-                bootstrapLock,
-                registration,
-                eventStore,
-                outbox,
-                receipts,
                 transactions,
                 () -> NOW,
-                new GitHubConnectionPolicySettings(Set.of("crewscope"), true, false, true, false));
+                policySettings,
+                authorization,
+                journal,
+                foundationService,
+                access);
     }
 
     @Test

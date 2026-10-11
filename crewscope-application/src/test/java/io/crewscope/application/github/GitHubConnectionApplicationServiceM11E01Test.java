@@ -181,29 +181,35 @@ class GitHubConnectionApplicationServiceM11E01Test {
     }
 
     private GitHubConnectionApplicationService service(boolean webhookReceiverConfigured) {
+        GitHubConnectionPolicySettings policySettings = new GitHubConnectionPolicySettings(
+                Set.of("crewscope"), true, false, true, webhookReceiverConfigured);
+        GitHubConnectionAuthorizationService authorization =
+                new GitHubConnectionAuthorizationService(
+                        connections, teams, memberships, roles, memberRoles);
+        GitHubConnectionCommandJournal journal =
+                new GitHubConnectionCommandJournal(receipts, eventStore, outbox);
+        GitHubProviderFoundationService foundationService =
+                new GitHubProviderFoundationService(
+                        bootstrapLock, definitions, implementations, registration);
+        GitHubConnectionAccessService access =
+                new GitHubConnectionAccessService(
+                        grants, githubRepository, definitions, implementations,
+                        () -> NOW, policySettings, authorization);
         return new GitHubConnectionApplicationService(
                 connections,
                 grants,
                 credentials,
                 githubRepository,
                 provider,
-                teams,
-                memberships,
-                roles,
-                memberRoles,
                 workspaces,
-                definitions,
-                implementations,
                 bindings,
-                bootstrapLock,
-                registration,
-                eventStore,
-                outbox,
-                receipts,
                 transactions(),
                 () -> NOW,
-                new GitHubConnectionPolicySettings(
-                        Set.of("crewscope"), true, false, true, webhookReceiverConfigured));
+                policySettings,
+                authorization,
+                journal,
+                foundationService,
+                access);
     }
 
     private GitHubConnectionApplicationService service() {

@@ -8,7 +8,11 @@ import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.github.GitHubDraftPullRequestPort;
 import io.crewscope.application.github.GitHubConnectionApplicationService;
+import io.crewscope.application.github.GitHubConnectionAuthorizationService;
+import io.crewscope.application.github.GitHubConnectionAccessService;
+import io.crewscope.application.github.GitHubConnectionCommandJournal;
 import io.crewscope.application.github.GitHubConnectionPolicySettings;
+import io.crewscope.application.github.GitHubProviderFoundationService;
 import io.crewscope.application.github.GitHubProviderPort;
 import io.crewscope.application.github.GitHubPullRequestWebhookPort;
 import io.crewscope.application.github.GitHubPushPort;
@@ -98,28 +102,38 @@ public class GitHubProviderApplicationConfiguration {
                 descriptor.implementationId(),
                 "1.0.0",
                 sourceCodeProvider.capabilities());
+        // Collaborators are composed inside this method instead of as separate
+        // conditional beans: the @ConditionalOnBean list above is a deployment
+        // contract for the whole read boundary, and independently conditioned
+        // component beans would turn a missing dependency into a silent
+        // partial wiring instead of a startup failure.
+        GitHubConnectionAuthorizationService authorization =
+                new GitHubConnectionAuthorizationService(
+                        connections, teams, memberships, roles, memberRoles);
+        GitHubConnectionCommandJournal journal =
+                new GitHubConnectionCommandJournal(receipts, eventStore, outbox);
+        GitHubProviderFoundationService foundationService =
+                new GitHubProviderFoundationService(
+                        providerBootstrapLock, definitions, implementations, registration);
+        GitHubConnectionAccessService accessService =
+                new GitHubConnectionAccessService(
+                        grants, githubRepository, definitions, implementations,
+                        timeProvider, settings, authorization);
         return new GitHubConnectionApplicationService(
                 connections,
                 grants,
                 credentials,
                 githubRepository,
                 provider,
-                teams,
-                memberships,
-                roles,
-                memberRoles,
                 workspaces,
-                definitions,
-                implementations,
                 bindings,
-                providerBootstrapLock,
-                registration,
-                eventStore,
-                outbox,
-                receipts,
                 transactions,
                 timeProvider,
-                settings);
+                settings,
+                authorization,
+                journal,
+                foundationService,
+                accessService);
     }
 
     @Bean
