@@ -145,7 +145,13 @@ fi
 
 if has_phase degraded; then
   degraded reset
-  degraded up
+  # The explicit false is load-bearing: under POSIX sh a prefix assignment before a
+  # function call (CREWSCOPE_COLLABORATION_REALTIME_ENABLED=true main up above) keeps the
+  # variable exported in this shell after the function returns, so a bare `degraded up`
+  # would interpolate the leaked true into the degraded stack and the channel would come
+  # up hot. bash/zsh scope the prefix away, but this gate runs under sh.
+  CREWSCOPE_COLLABORATION_REALTIME_ENABLED=false \
+    degraded up
   run_specs "http://127.0.0.1:$DEGRADED_PORT" e2e/m11-real/collaboration-degraded.spec.ts
   degraded reset
 fi
