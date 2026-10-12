@@ -238,6 +238,74 @@ class TeamActivityStreamRevocationTest {
         .requireTeamAccess(access, ORGANIZATION_ID, TEAM_ID);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void reconnectWithLastEventIdAfterRevocationIsDeniedAtTheDoor() {
+    ActivityApplicationService service = mock(ActivityApplicationService.class);
+    TeamAccessContext access = mock(TeamAccessContext.class);
+    ActivityEvent visible = event(3, ActivityVisibility.TEAM_MEMBERS);
+    when(service.canViewNow(access, ORGANIZATION_ID, TEAM_ID, visible)).thenReturn(true);
+
+    TeamActivityRealtimeStream stream = mock(TeamActivityRealtimeStream.class);
+    // The live connection delivers its position frame and completes cleanly — the member
+    // walks away holding a legitimate resume coordinate.
+    Flux<ServerSentEvent<TeamActivityStreamEvent>> frames = Flux
+        .just(
+            ServerSentEvent.<TeamActivityStreamEvent>builder(
+                    TeamActivityStreamEvent.from(visible))
+                .id("last-position")
+                .event(visible.eventType().value())
+                .build());
+    when(stream.open(any(), eq(Optional.empty())))
+        .thenReturn(Mono.just(new TeamActivitySseSession(scope(), frames)));
+
+    TeamRequestIdentityResolver resolver = mock(TeamRequestIdentityResolver.class);
+    // Live on the first request; revoked before the reconnect. The denial must land at the
+    // door — an old Last-Event-ID is a resume hint, never a grant.
+    when(resolver.resolve(any(), eq(ORGANIZATION_ID), any()))
+        .thenReturn(Mono.just(access))
+        .thenReturn(Mono.error(new PolicyDeniedException("access this Team")));
+    ObjectProvider<TeamActivityCursorCodec> codecs = mock(ObjectProvider.class);
+    ObjectProvider<TeamActivityRealtimeStream> streams = mock(ObjectProvider.class);
+    when(codecs.getIfAvailable()).thenReturn(codec());
+    when(streams.getIfAvailable()).thenReturn(stream);
+    WebTestClient client =
+        WebTestClient.bindToController(
+                new TeamActivityController(service, resolver, codecs, streams))
+            .controllerAdvice(new ApiExceptionHandler())
+            .build();
+
+    FluxExchangeResult<String> live =
+        client
+            .get()
+            .uri(route())
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .returnResult(String.class);
+    String position = live.getResponseBody().blockFirst(Duration.ofSeconds(5));
+    assertNotNull(position);
+    assertTrue(position.contains("CS-3"), "the live session delivers its position frame");
+
+    client
+        .get()
+        .uri(route())
+        .header(ApiHeaders.LAST_EVENT_ID, "last-position")
+        .accept(MediaType.TEXT_EVENT_STREAM)
+        .exchange()
+        .expectStatus()
+        .isForbidden()
+        // The endpoint negotiated text/event-stream, so even the JSON error envelope is
+        // delivered as an SSE data line — assert on the raw body instead of a JSON path.
+        .expectBody(String.class)
+        .value(
+            body -> {
+              assertTrue(body.contains("policy_denied"), "denied with the policy code, body was: " + body);
+              assertTrue(!body.contains("CS-3"), "no event frame may leak past the denial");
+            });
+  }
+
   private static TeamActivityCursorCodec codec() {
     return new TeamActivityCursorCodec(
         new TeamActivityCursorKeyRing("k1", Map.of("k1", encodedKey())),
