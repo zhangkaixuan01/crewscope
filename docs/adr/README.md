@@ -52,6 +52,9 @@ PROPOSED -> ACCEPTED -> SUPERSEDED
 | [ADR-040](ADR-040-国际化分层与文案治理.md) | M11 可选 i18n：中文源语言、labels 并入、门禁与格式化归属 | 已登记（选入前不生效） |
 | [ADR-041](ADR-041-桌面认证与更新信任链.md) | M11 可选桌面：Tauri 纯包装、Cookie/CSRF/同源适配、更新信任链、TASK/FEATURE 判定 | 已登记（选入前不生效） |
 | [ADR-038](ADR-038-团队成员生命周期与责任转移.md) | M9b 成员撤权、最后 Owner、持续授权与耐久责任交接；M11 只增新通道 | ACCEPTED（设计，待 A07 实现） |
+| [ADR-035](ADR-035-多租户隔离方案与迁移路径.md) | M12 单机合同（应用层单防线显式接受）、159 表归属盘点基线、Organization 聚合零新增列口径、托管三候选比较框架（不裁定）、迁移路径与不漂移断言 | 单机 ACCEPTED；托管候选 PROPOSED（选入后闭合） |
+| [ADR-036](ADR-036-企业身份联邦与会话策略.md) | M12 OIDC（含「骨架已在仓库」基线修正：SecurityMode 三态/oauth2Login/login_identity 底座）、(provider,subject) 受信键、策略叠加维度、落点 server/security/oidc+零新增依赖、会话枚举与救援 | ACCEPTED（设计，待 I01/F03 实现） |
+| [ADR-037](ADR-037-配额计量与SLO治理.md) | M12 预占挂 AgentTaskCreationService 受理事务、两先例仲裁形态选型、结算对账与上界诚实性、SLI 六指标口径与初值（I03 校准） | ACCEPTED（设计，待 A02/I03/F02 实现） |
 
 ## ADR 内容要求
 
