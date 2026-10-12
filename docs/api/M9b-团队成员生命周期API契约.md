@@ -122,3 +122,15 @@ job 形状（创建与 process/get/cancel 一致）：
 | Task 执行 | Worker heartbeat（15s 窗口）/事件提交前/token 认证点 `TaskTokenCurrentAuthorization.requireCurrentMembership`；沙箱工具链本身校验 lease/fencing/身份，成员事实由其持的 token 在认证边界复验；快照携带 `memberAuthorizationVersion` 附加维度（旧快照缺维度可读历史，下一副作用边界拒绝） | 即时（heartbeat ≤15s） |
 | GitHub dispatch | `CurrentActionAuthorityFactsResolver` 按成员事实解析，失效 → unavailable（claim 与适配器前重验） | 即时 |
 | Notification 投递 | 发送前复验成员 `status='ACTIVE'` | 发送前 |
+| WebSocket/在场（M11-D02） | 事件层：成员生命周期事件消费即断开 4403 + 清在场键；复验层：每帧交付前复验（≤5s 缓存 + 心跳强制刷新，fail-closed）；TTL 层：在场键 45s、连接 30s 无入站断开（ADR-038 §3.1） | 事件秒级；最坏 5s + 心跳；45s 封顶 |
+
+## M11 实时通道撤权（WebSocket/在场）
+
+协作信号通道（ADR-032 协议、ADR-038 §3.1 三层协议）对成员撤权的接入合同，由 M11-D02 交付：
+
+- **断开事件集（四类）**：`TEAM_MEMBER_SUSPENDED` / `TEAM_MEMBER_REMOVED` / `TEAM_MEMBER_LEFT` / `MEMBER_ROLE_REVOKED`（降权=M9b 角色撤销路径）→ 以应用关闭码 **4403** 断开该成员在该 Team 的全部连接（多标签逐连接、互不代偿），并删除其在该 Team 作用域的在场 Redis 键；同 Team 其他在场订阅者收到 leave delta（撤权强断走与正常拆线相同的清理路径）。`TEAM_MEMBER_ACTIVATED` / `MEMBER_ROLE_GRANTED` 只增权限、不断开。
+- **`TEAM_OWNERSHIP_TRANSFERRED` 不触发**：让出方仍是 ACTIVE 成员，订阅授权按资源可见性裁决、与 OWNER 角色无关，断开无安全增益只添闪断（且该事件载荷无 `userPrincipalId`）。
+- **实现链**：Outbox 事件 → `CollaborationMemberRevocationConsumer`（`collaboration-member-revocation-v1`，消费回执事务内永不抛）→ `CollaborationMemberRevocationSink`（fanout 实现）→ 按 subscribe 入场时解析的成员 Principal 反查 `CollaborationRevocationIndex` → `revoke(4403)`。
+- **旧游标与重连不能恢复权限**：重连一律走完整重新握手 + 逐订阅重新授权（复用 Session cookie，不新增 token）；被撤成员的旧订阅句柄不迁移、不复活，重新 subscribe 将收到 `forbidden_scope`。在场/输入信号在断开时清空。
+- **误伤边界**：断开只命中「该成员在该 Team 持有订阅的连接」（索引键含组织 + Team）；其他 Team 的连接与其他成员的连接不受影响（集成测试断言）。
+- **通道关闭时零足迹**：consumer 与 sink 同 `crewscope.collaboration-realtime.enabled` 开关，关闭时不写任何消费回执。

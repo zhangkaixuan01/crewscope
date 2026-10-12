@@ -358,6 +358,28 @@ describe('CollaborationStore', () => {
     expect(connections).toHaveLength(1)
   })
 
+  it('treats a revocation cut (4403) as reconnectable, not degraded: signals clear and the backoff fires (§10, M11-D02)', () => {
+    const { store, connections, latest, openLive } = harness()
+    openLive()
+    latest().handlers.onMessage(ackSubscribe('handle-1'))
+    // A live presence signal exists before the member revocation sweep cuts the socket.
+    latest().handlers.onMessage(presenceDelta('handle-1', 'enter', 1))
+
+    latest().handlers.onClose(4403, 'authorization revoked')
+
+    // 4403 is not an explicit refusal: the channel itself stays reconnectable (PG-blip
+    // tolerance), while permission enforcement lives server-side — a resubscribe for a
+    // revoked membership answers forbidden_scope, never a revived old handle.
+    expect(store.state.phase).toBe('reconnecting')
+    expect(store.state.presenceByScope[itemKey]).toBeUndefined()
+    expect(store.state.typingByScope).toEqual({})
+    vi.advanceTimersByTime(499)
+    expect(connections).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(connections).toHaveLength(2)
+    expect(store.state.reconnectAttempt).toBe(1)
+  })
+
   it('leaves degraded through an explicit retry and through a fresh page acquire', () => {
     const { store, connections, latest } = harness()
     store.acquire(itemScope)
