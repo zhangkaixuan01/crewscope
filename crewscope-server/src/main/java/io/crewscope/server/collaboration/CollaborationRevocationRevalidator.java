@@ -79,6 +79,16 @@ public final class CollaborationRevocationRevalidator {
                 .cache());
   }
 
+  /**
+   * Drops the cached verdict for one principal-in-team (the D02 event sweep calls this for
+   * every connection it closes). An in-flight probe may still repopulate a stale positive
+   * afterwards — harmless: its connection is already gone, and a fresh subscription runs
+   * the real rulebook, never this cache.
+   */
+  public void invalidate(String principalKey, OrganizationId org, TeamId team) {
+    cache.remove(cacheKey(principalKey, org, team));
+  }
+
   private void store(String key, boolean member) {
     if (cache.size() > CACHE_RESET_THRESHOLD) {
       // A blip-shaped full reset beats an unbounded map; the next probes repopulate.

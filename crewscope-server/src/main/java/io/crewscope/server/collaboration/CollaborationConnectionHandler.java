@@ -7,6 +7,7 @@ import io.crewscope.domain.collaboration.CollaborationResourceType;
 import io.crewscope.domain.collaboration.ResourceScope;
 import io.crewscope.domain.collaboration.TeamScope;
 import io.crewscope.domain.collaboration.WorkProjectScope;
+import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkProjectId;
@@ -15,7 +16,6 @@ import io.crewscope.server.collaboration.CollaborationConnectionMetrics.Rejectio
 import io.crewscope.server.collaboration.CollaborationConnectionRegistry.Admission;
 import io.crewscope.server.collaboration.CollaborationConnectionRegistry.Reason;
 import io.crewscope.server.collaboration.CollaborationInboundRateLimiter.Verdict;
-import io.crewscope.server.collaboration.CollaborationSubscriptionAuthorizer.Decision;
 import io.crewscope.server.collaboration.CollaborationSubscriptionRegistry.Added;
 import io.crewscope.server.collaboration.CollaborationSubscriptionRegistry.AlreadySubscribed;
 import io.crewscope.server.collaboration.CollaborationSubscriptionRegistry.AtLimit;
@@ -85,6 +85,7 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
   private final AuthenticationSubjectExtractor subjectExtractor;
   private final CollaborationSubscriptionRegistry subscriptions;
   private final CollaborationSubscriptionAuthorizer subscriptionAuthorizer;
+  private final CollaborationRevocationIndex revocationIndex;
   private final CollaborationPresenceKeyspace presenceKeyspace;
   private final CollaborationPresenceStore presence;
   private final CollaborationSignalFanout signalFanout;
@@ -102,6 +103,7 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       AuthenticationSubjectExtractor subjectExtractor,
       CollaborationSubscriptionRegistry subscriptions,
       CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
+      CollaborationRevocationIndex revocationIndex,
       CollaborationPresenceKeyspace presenceKeyspace,
       CollaborationPresenceStore presence,
       CollaborationSignalFanout signalFanout,
@@ -117,6 +119,7 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
     this.subjectExtractor = subjectExtractor;
     this.subscriptions = subscriptions;
     this.subscriptionAuthorizer = subscriptionAuthorizer;
+    this.revocationIndex = revocationIndex;
     this.presenceKeyspace = presenceKeyspace;
     this.presence = presence;
     this.signalFanout = signalFanout;
@@ -297,9 +300,9 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
       return Mono.empty();
     }
     return subscriptionAuthorizer
-        .authorize(authentication, scope)
-        .flatMap(decision -> {
-          if (decision == Decision.DENIED) {
+        .admit(authentication, scope)
+        .flatMap(admission -> {
+          if (!admission.allowed()) {
             // The I01b acceptance line: denials are recorded (never with a resource title —
             // the scope echo below is the client's own request bounced back).
             metrics.recordSubscriptionDenied(DenialReason.FORBIDDEN);
@@ -310,9 +313,27 @@ public final class CollaborationConnectionHandler implements WebSocketHandler {
             offer(session, outbound, scopeErrorFrame("forbidden_scope", scopeEcho));
             return Mono.empty();
           }
+          recordRevocationMember(admission, scope, session.getId());
           return acknowledgeSubscription(
               session, outbound, principalKey, displayName.get(), scope, scopeEcho);
         });
+  }
+
+  /**
+   * Bridges the admission into the D02 revocation index: the durable member identity the
+   * rulebook resolved is the only key the member lifecycle events can name. A null
+   * principal (fakes, defensive) simply skips indexing — the revalidation and TTL layers
+   * still bound the revocation window.
+   */
+  private void recordRevocationMember(
+      CollaborationSubscriptionAuthorizer.Admission admission,
+      CollaborationResourceScope scope,
+      String connectionId) {
+    Principal principal = admission.principal();
+    if (principal != null) {
+      revocationIndex.record(
+          principal.id().value(), scope.organizationId(), scope.teamId(), connectionId);
+    }
   }
 
   private Mono<Void> acknowledgeSubscription(

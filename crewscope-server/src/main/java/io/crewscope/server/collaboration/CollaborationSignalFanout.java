@@ -1,9 +1,12 @@
 package io.crewscope.server.collaboration;
 
+import io.crewscope.application.collaboration.CollaborationMemberRevocationSink;
 import io.crewscope.application.collaboration.CollaborationSignalSink;
 import io.crewscope.domain.collaboration.CollaborationResourceChanged;
 import io.crewscope.domain.collaboration.CollaborationResourceScope;
 import io.crewscope.domain.collaboration.TeamScope;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.server.collaboration.CollaborationConnectionMetrics.SignalFrameType;
 import io.crewscope.server.collaboration.CollaborationOutboundChannel.Delivery;
 import java.time.Clock;
@@ -13,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
@@ -23,10 +27,11 @@ import org.springframework.web.reactive.socket.CloseStatus;
 import reactor.core.publisher.Mono;
 
 /**
- * The A01 signal fanout (M11-A01, ADR-032): the in-memory half of {@link
- * CollaborationSignalSink}. The outbox consumer pushes coordinate-plus-version facts
- * here; this class resolves the audience scopes through the subscription registry and
- * emits one frame per receiving subscription, labeled with the receiver's own handle.
+ * The A01 signal fanout (M11-A01/D02, ADR-032): the in-memory half of {@link
+ * CollaborationSignalSink} and {@link CollaborationMemberRevocationSink}. The outbox
+ * consumers push coordinate-plus-version facts here; this class resolves the audience
+ * scopes through the subscription registry and emits one frame per receiving
+ * subscription, labeled with the receiver's own handle.
  *
  * <p>Every emission path runs <em>deliver first, revalidate after</em>: frames carry
  * coordinates and versions only, so an out-of-order delivery is harmless, while the
@@ -42,7 +47,8 @@ import reactor.core.publisher.Mono;
  * are dropped without moving the anchor — a continuously typing user keeps producing
  * one forwarded frame per window instead of starving the indicator or flooding it.</p>
  */
-public final class CollaborationSignalFanout implements CollaborationSignalSink {
+public final class CollaborationSignalFanout
+    implements CollaborationSignalSink, CollaborationMemberRevocationSink {
 
   static final CloseStatus CLOSE_REVOKED = new CloseStatus(4403, "authorization revoked");
   static final CloseStatus CLOSE_SIGNAL_SLOW = new CloseStatus(1013, "signal budget exceeded");
@@ -61,6 +67,7 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
       ConcurrentHashMap<String, Instant> typingAnchors) {}
 
   private final CollaborationSubscriptionRegistry subscriptions;
+  private final CollaborationRevocationIndex revocationIndex;
   private final CollaborationPresenceKeyspace keyspace;
   private final CollaborationPresenceStore presence;
   private final CollaborationConnectionMetrics metrics;
@@ -71,6 +78,7 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
 
   public CollaborationSignalFanout(
       CollaborationSubscriptionRegistry subscriptions,
+      CollaborationRevocationIndex revocationIndex,
       CollaborationPresenceKeyspace keyspace,
       CollaborationPresenceStore presence,
       CollaborationConnectionMetrics metrics,
@@ -78,6 +86,7 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
       Duration typingWindow,
       Clock clock) {
     this.subscriptions = Objects.requireNonNull(subscriptions, "subscriptions");
+    this.revocationIndex = Objects.requireNonNull(revocationIndex, "revocationIndex");
     this.keyspace = Objects.requireNonNull(keyspace, "keyspace");
     this.presence = Objects.requireNonNull(presence, "presence");
     this.metrics = Objects.requireNonNull(metrics, "metrics");
@@ -110,10 +119,12 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
   /**
    * Disconnect teardown: drops the fanout entry first, then announces the leave on every
    * scope the connection held (the registry removal happened before this call, so the
-   * remaining-connection count is already correct).
+   * remaining-connection count is already correct). The revocation index entry goes with
+   * it — normal teardown and the D02 sweep share this path.
    */
   public void disconnected(String connectionId, Set<String> scopeKeys) {
     RegisteredConnection subject = connections.remove(connectionId);
+    revocationIndex.forget(connectionId);
     if (subject == null) {
       return;
     }
@@ -240,6 +251,37 @@ public final class CollaborationSignalFanout implements CollaborationSignalSink 
     } catch (RuntimeException dropped) {
       // The sink contract: never throw back into the receipt transaction.
       log.warn("collaboration fanout dropped a resource change: {}", dropped.toString());
+    }
+  }
+
+  /**
+   * {@link CollaborationMemberRevocationSink}: the D02 event-driven sweep (ADR-038 §3.1
+   * layer 1). Cuts every live connection of the member in that Team with the same
+   * idempotent 4403 chain the revalidation layer uses, and drops the revalidation cache
+   * so an in-flight frame cannot ride a stale positive verdict. Never throws — the sink
+   * contract runs inside the outbox receipt transaction.
+   */
+  @Override
+  public void memberAuthorizationRevoked(
+      UUID userPrincipalId, OrganizationId organizationId, TeamId team) {
+    try {
+      for (String connectionId :
+          revocationIndex.connectionsOf(userPrincipalId, organizationId, team)) {
+        RegisteredConnection connection = connections.get(connectionId);
+        if (connection == null) {
+          continue;
+        }
+        revalidator.invalidate(connection.principalKey(), organizationId, team);
+        revoke(connection);
+      }
+    } catch (RuntimeException dropped) {
+      // The sink contract: never throw back into the receipt transaction. The
+      // revalidation and TTL layers still bound the window for anything missed here.
+      log.warn(
+          "collaboration revocation sweep dropped a failure for member {} in team {}: {}",
+          userPrincipalId,
+          team.value(),
+          dropped.toString());
     }
   }
 

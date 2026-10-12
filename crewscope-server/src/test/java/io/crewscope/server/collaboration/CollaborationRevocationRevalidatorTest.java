@@ -101,13 +101,13 @@ class CollaborationRevocationRevalidatorTest {
     private RuntimeException failure;
 
     @Override
-    public Mono<CollaborationSubscriptionAuthorizer.Decision> authorize(
+    public Mono<CollaborationSubscriptionAuthorizer.Admission> admit(
         Authentication subject, CollaborationResourceScope scope) {
       probes.incrementAndGet();
       if (failure != null) {
         return Mono.error(failure);
       }
-      return Mono.just(decision);
+      return Mono.just(new CollaborationSubscriptionAuthorizer.Admission(decision, null));
     }
   }
 

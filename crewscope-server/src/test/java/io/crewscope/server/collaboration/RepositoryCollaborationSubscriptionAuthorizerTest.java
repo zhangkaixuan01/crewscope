@@ -180,6 +180,29 @@ class RepositoryCollaborationSubscriptionAuthorizerTest {
         .isEqualTo(CollaborationSubscriptionAuthorizer.Decision.DENIED);
   }
 
+  @Test
+  void admitCarriesTheResolvedPrincipalOnAllowAndNothingOnDeny() {
+    io.crewscope.domain.identity.Principal actor = mock(io.crewscope.domain.identity.Principal.class);
+    when(actor.id()).thenReturn(new io.crewscope.domain.shared.id.PrincipalId(ITEM));
+    TeamAccessContext context = new TeamAccessContext(actor, false);
+    TeamScope scope = new TeamScope(new OrganizationId(ORG), new TeamId(TEAM));
+    RepositoryCollaborationSubscriptionAuthorizer authorizer =
+        authorizer((authentication, organizationId, correlationId) -> Mono.just(context));
+
+    CollaborationSubscriptionAuthorizer.Admission allowed =
+        authorizer.admit(authentication(), scope).block(BLOCK);
+    assertThat(allowed.allowed()).isTrue();
+    assertThat(allowed.principal()).isSameAs(actor);
+
+    doThrow(new PolicyDeniedException("access this Team's WorkItems"))
+        .when(workItemAccessPolicy)
+        .requireVisibleTeam(context, scope.organizationId(), scope.teamId());
+    CollaborationSubscriptionAuthorizer.Admission denied =
+        authorizer.admit(authentication(), scope).block(BLOCK);
+    assertThat(denied.allowed()).isFalse();
+    assertThat(denied.principal()).isNull();
+  }
+
   private RepositoryCollaborationSubscriptionAuthorizer authorizer(
       TeamRequestIdentityResolver resolver) {
     return new RepositoryCollaborationSubscriptionAuthorizer(

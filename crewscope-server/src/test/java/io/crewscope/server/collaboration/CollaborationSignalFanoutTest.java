@@ -60,11 +60,12 @@ class CollaborationSignalFanoutTest {
   private final FakeAuthorizer authorizer = new FakeAuthorizer();
   private final CollaborationSubscriptionRegistry subscriptions =
       new CollaborationSubscriptionRegistry(32);
+  private final CollaborationRevocationIndex revocationIndex = new CollaborationRevocationIndex();
   private final CollaborationPresenceKeyspace keyspace = new CollaborationPresenceKeyspace("test");
   private final CollaborationPresenceStore presence = mock(CollaborationPresenceStore.class);
   private final CollaborationConnectionMetrics metrics = mock(CollaborationConnectionMetrics.class);
   private final CollaborationSignalFanout fanout = new CollaborationSignalFanout(
-      subscriptions, keyspace, presence, metrics,
+      subscriptions, revocationIndex, keyspace, presence, metrics,
       new CollaborationRevocationRevalidator(authorizer, Duration.ofSeconds(5), clock),
       Duration.ofSeconds(5), clock);
 
@@ -325,6 +326,52 @@ class CollaborationSignalFanoutTest {
     assertEquals(1, alice.received.size());
   }
 
+  // ------------------------------------------------------------------ D02 member revocation sweep
+
+  @Test
+  void theMemberRevocationSweepCutsEveryConnectionOfThatMemberInThatTeam() {
+    // The handler fills the index at subscribe admission with the durable principal the
+    // rulebook resolved; this test drives the index directly to isolate the fanout half.
+    UUID member = UUID.randomUUID();
+    Client tabOne = connected("conn-a", "account:alice", "Alice");
+    subscribe(tabOne, teamScope);
+    Client tabTwo = connected("conn-a2", "account:alice", "Alice");
+    subscribe(tabTwo, teamScope);
+    Client bob = connected("conn-b", "account:bob", "Bob");
+    subscribe(bob, teamScope);
+    Client aliceForeign = connected("conn-a-foreign", "account:alice", "Alice");
+    subscribe(aliceForeign, foreignTeamScope);
+    revocationIndex.record(member, organizationId, teamId, "conn-a");
+    revocationIndex.record(member, organizationId, teamId, "conn-a2");
+    revocationIndex.record(member, organizationId, otherTeamId, "conn-a-foreign");
+    bob.received.clear();
+    List.of(tabOne, tabTwo, aliceForeign).forEach(client -> client.received.clear());
+
+    fanout.memberAuthorizationRevoked(member, organizationId, teamId);
+
+    // Every tab of the member in that Team is cut with 4403 and fully cleaned up.
+    assertEquals(List.of(CollaborationSignalFanout.CLOSE_REVOKED), tabOne.closes);
+    assertEquals(List.of(CollaborationSignalFanout.CLOSE_REVOKED), tabTwo.closes);
+    assertTrue(subscriptions.scopeKeysOf("conn-a").isEmpty());
+    assertTrue(subscriptions.scopeKeysOf("conn-a2").isEmpty());
+    verify(presence).removeConnection(eq("conn-a"), anyCollection());
+    verify(presence).removeConnection(eq("conn-a2"), anyCollection());
+    verify(metrics, org.mockito.Mockito.times(2)).recordClosedRevoked();
+
+    // Bob sees one leave delta per revoked tab — the sweep rides the normal teardown path.
+    assertEquals(2, bob.received.size());
+    assertTrue(bob.received.stream().allMatch(text -> text.contains("\"leave\"")));
+
+    // The member's other-Team connection and the unindexed subscriber stay untouched.
+    assertTrue(aliceForeign.closes.isEmpty());
+    assertTrue(aliceForeign.received.isEmpty());
+    assertTrue(bob.closes.isEmpty());
+
+    // At-least-once redelivery sweeps again and finds nothing left to close.
+    fanout.memberAuthorizationRevoked(member, organizationId, teamId);
+    assertEquals(1, tabOne.closes.size(), "the revoked flag makes the repeat sweep a no-op");
+  }
+
   // ------------------------------------------------------------------ fixtures
 
   private Client connected(String connectionId, String principalKey, String displayName) {
@@ -403,12 +450,14 @@ class CollaborationSignalFanoutTest {
     private int probes;
 
     @Override
-    public Mono<CollaborationSubscriptionAuthorizer.Decision> authorize(
+    public Mono<CollaborationSubscriptionAuthorizer.Admission> admit(
         Authentication subject, CollaborationResourceScope scope) {
       probes++;
-      return Mono.just(denied.contains(subject.getName())
-          ? CollaborationSubscriptionAuthorizer.Decision.DENIED
-          : CollaborationSubscriptionAuthorizer.Decision.ALLOWED);
+      return Mono.just(new CollaborationSubscriptionAuthorizer.Admission(
+          denied.contains(subject.getName())
+              ? CollaborationSubscriptionAuthorizer.Decision.DENIED
+              : CollaborationSubscriptionAuthorizer.Decision.ALLOWED,
+          null));
     }
   }
 

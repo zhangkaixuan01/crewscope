@@ -1,10 +1,12 @@
 package io.crewscope.server.config.collaboration;
 
+import io.crewscope.application.collaboration.CollaborationMemberRevocationSink;
 import io.crewscope.application.collaboration.CollaborationSignalSink;
 import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.identity.CurrentAccountSnapshotReader;
 import io.crewscope.application.workitem.WorkItemRepository;
+import io.crewscope.infrastructure.persistence.collaboration.CollaborationMemberRevocationConsumer;
 import io.crewscope.infrastructure.persistence.collaboration.CollaborationResourceChangeConsumer;
 import io.crewscope.server.collaboration.CollaborationDisplayNameResolver;
 import io.crewscope.server.security.AuthenticationSubjectExtractor;
@@ -51,5 +53,16 @@ public class CollaborationSignalConfiguration {
       ConversationRepository conversations,
       WorkItemRepository workItems) {
     return new CollaborationResourceChangeConsumer(objectMapper, sink, conversations, workItems);
+  }
+
+  /**
+   * The outbox half of the D02 revocation sweep: member lifecycle events (ADR-038 §3.1
+   * layer 1) cut the member's live connections in that Team. Same zero-footprint rule —
+   * with the channel off there is no consumer, so no receipt rows for its name.
+   */
+  @Bean
+  DomainEventConsumer collaborationMemberRevocationConsumer(
+      ObjectMapper objectMapper, CollaborationMemberRevocationSink sink) {
+    return new CollaborationMemberRevocationConsumer(objectMapper, sink);
   }
 }

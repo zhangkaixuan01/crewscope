@@ -72,19 +72,20 @@ public final class RepositoryCollaborationSubscriptionAuthorizer
   }
 
   @Override
-  public Mono<Decision> authorize(Authentication authentication, CollaborationResourceScope scope) {
+  public Mono<Admission> admit(Authentication authentication, CollaborationResourceScope scope) {
     return identityResolver
         .resolve(authentication, scope.organizationId(), UUID.randomUUID())
         .flatMap(
             context ->
-                Mono.fromCallable(() -> decide(context, scope)).subscribeOn(blockingBridge))
-        .map(allowed -> Decision.ALLOWED)
+                Mono.fromCallable(() -> decide(context, scope))
+                    .subscribeOn(blockingBridge)
+                    .map(allowed -> new Admission(Decision.ALLOWED, context.actor())))
         .onErrorResume(
             failure -> {
               // Policy denials are expected traffic; only the cause matters for forensics.
               log.debug(
                   "collaboration subscription denied for scope {}", scope, failure);
-              return Mono.just(Decision.DENIED);
+              return Mono.just(new Admission(Decision.DENIED, null));
             });
   }
 

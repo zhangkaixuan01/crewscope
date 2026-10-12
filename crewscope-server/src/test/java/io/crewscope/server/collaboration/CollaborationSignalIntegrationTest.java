@@ -3,8 +3,9 @@ package io.crewscope.server.collaboration;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.crewscope.application.collaboration.CollaborationMemberRevocationSink;
 import io.crewscope.application.collaboration.CollaborationSignalSink;
-import io.crewscope.application.collaboration.CollaborationSignalSink;
+import io.crewscope.application.event.publication.EventPublication;
 import io.crewscope.domain.collaboration.CollaborationResourceChanged;
 import io.crewscope.domain.collaboration.CollaborationResourceScope;
 import io.crewscope.domain.collaboration.CollaborationResourceType;
@@ -13,7 +14,9 @@ import io.crewscope.domain.collaboration.TeamScope;
 import io.crewscope.domain.collaboration.WorkProjectScope;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
+import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.infrastructure.persistence.collaboration.CollaborationMemberRevocationConsumer;
 import io.crewscope.server.collaboration.CollaborationWsTestSupport.SubscriptionFixture;
 import io.crewscope.server.collaboration.CollaborationWsTestSupport.WsConnection;
 import java.time.Duration;
@@ -44,13 +47,16 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A01 signal acceptance over the real server port: presence snapshots and deltas, the typing
  * window, the three-level resource-change fanout with per-receiver handles, the inbound rate
  * limit, and the revocation revalidation that cuts a live connection with 4403 and cleans the
- * Redis presence. Authorization and display names run the fixture fakes (deterministic
- * tables); the real policies and the product-level attack sets belong to Q01.
+ * Redis presence. The D02 member lifecycle sweep rides the same real stack: a member event
+ * through the production consumer cuts every tab of that member in that Team. Authorization
+ * and display names run the fixture fakes (deterministic tables); the real policies and the
+ * product-level attack sets belong to Q01.
  */
 @Tag("integration")
 @Testcontainers(disabledWithoutDocker = true)
@@ -111,6 +117,7 @@ class CollaborationSignalIntegrationTest {
 
   @Autowired ReactiveStringRedisTemplate redisTemplate;
   @Autowired CollaborationSignalSink signalSink;
+  @Autowired CollaborationMemberRevocationSink memberRevocationSink;
 
   CollaborationSignalIntegrationTest(@LocalServerPort int port) {
     this.client = WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).build();
@@ -386,6 +393,133 @@ class CollaborationSignalIntegrationTest {
     }
   }
 
+  // ------------------------------------------------------------------ D02 member revocation sweep
+
+  @Test
+  void aMemberLifecycleEventCutsEveryTabOfThatTeamWhilePeersAndOtherTeamsStayLive()
+      throws Exception {
+    // A second member of ALICE_TEAM_1 watches the swept tabs leave and keeps his own
+    // connection — the fixture table grants him the seat for this scenario only.
+    SubscriptionFixture.grantTeam(
+        CollaborationWsTestSupport.BOB_ACCOUNT_ID, CollaborationWsTestSupport.ALICE_TEAM_1);
+    String aliceCookie = login();
+    String bobCookie = login("bob", "bob-password");
+
+    try (WsConnection tabOne = WsConnection.open(port, aliceCookie);
+        WsConnection tabTwo = WsConnection.open(port, aliceCookie);
+        WsConnection otherTeam = WsConnection.open(port, aliceCookie);
+        WsConnection bob = WsConnection.open(port, bobCookie)) {
+      String tabOneId = awaitWelcomeFrame(tabOne);
+      String tabTwoId = awaitWelcomeFrame(tabTwo);
+      String otherTeamId = awaitWelcomeFrame(otherTeam);
+      String bobId = awaitWelcomeFrame(bob);
+      Map<String, Object> sweptScope = teamScope(CollaborationWsTestSupport.ALICE_TEAM_1);
+
+      subscribe(tabOne, sweptScope);
+      // The previous scenario's denied revalidation verdict (1s TTL in this class's
+      // properties) must age out before more subscribers join: an enter delta delivered
+      // against a fresh cached DENIED cuts the receiver with 4403 — fail-closed by
+      // contract, but the fixture table here is restored and the verdict is stale. Two
+      // heartbeat ticks guarantee the entry expired and the first probe re-admitted alice.
+      awaitPing(tabOne, Duration.ofSeconds(5));
+      awaitPing(tabOne, Duration.ofSeconds(5));
+      subscribe(tabTwo, sweptScope);
+      subscribe(otherTeam, teamScope(CollaborationWsTestSupport.ALICE_TEAM_2));
+      subscribe(bob, sweptScope);
+      // Team-granularity scopes track presence without snapshots, and the ack trails the
+      // Redis write, so every score below is already materialized here.
+
+      // The D02 event layer over the production mapping: a real consumer instance reads a
+      // real-shaped suspension event and drives the autowired sweep sink. (The outbox
+      // dispatch and the command that produced this event belong to Q01's full stack.)
+      CollaborationMemberRevocationConsumer consumer =
+          new CollaborationMemberRevocationConsumer(
+              JsonMapper.builder().findAndAddModules().build(), memberRevocationSink);
+      EventPublication suspension =
+          new EventPublication(
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              "crewscope.events",
+              "partition",
+              1,
+              UtcTimestamp.parse("2026-10-12T08:00:00Z"),
+              """
+              {"eventId":"%s","eventType":"TEAM_MEMBER_SUSPENDED","schemaVersion":"1",
+               "organizationId":"%s","teamId":"%s","workspaceId":null,
+               "aggregateType":"TEAM_MEMBER","aggregateId":"%s","aggregateVersion":2,
+               "actorType":"USER","actorId":"%s","correlationId":"%s","causationId":null,
+               "idempotencyKey":null,"occurredAt":"2026-10-12T08:00:00Z",
+               "payload":{"memberId":"%s","userPrincipalId":"%s",
+                          "authorizationVersionAfter":2}}
+              """
+                  .formatted(
+                      UUID.randomUUID(),
+                      CollaborationWsTestSupport.ORGANIZATION_ID,
+                      CollaborationWsTestSupport.ALICE_TEAM_1,
+                      UUID.randomUUID(),
+                      UUID.randomUUID(),
+                      UUID.randomUUID(),
+                      UUID.randomUUID(),
+                      CollaborationWsTestSupport.ALICE_MEMBER_PRINCIPAL_ID));
+
+      consumer.consume(suspension);
+
+      // Every tab of the member in that Team is cut with 4403...
+      assertThat(tabOne.awaitCloseCode(Duration.ofSeconds(10))).isEqualTo(4403);
+      assertThat(tabTwo.awaitCloseCode(Duration.ofSeconds(10))).isEqualTo(4403);
+
+      // ...while the surviving peer reads one leave per swept tab and stays connected.
+      Map<String, Object> firstLeave = nextNonPingFrame(bob, Duration.ofSeconds(5));
+      Map<String, Object> secondLeave = nextNonPingFrame(bob, Duration.ofSeconds(5));
+      assertThat(firstLeave)
+          .containsEntry("type", "presence_delta")
+          .containsEntry("action", "leave")
+          .containsEntry("principalId", ALICE_KEY);
+      assertThat(secondLeave).containsEntry("action", "leave");
+      assertThat(List.of(firstLeave.get("connections"), secondLeave.get("connections")))
+          .containsExactlyInAnyOrder(1, 0);
+
+      // Redis is fully cleaned for the swept tabs and fully intact for the survivors.
+      String sweptScopeKey =
+          keyspace.scopeKey(teamScopeDomain(CollaborationWsTestSupport.ALICE_TEAM_1));
+      String survivingScopeKey =
+          keyspace.scopeKey(teamScopeDomain(CollaborationWsTestSupport.ALICE_TEAM_2));
+      awaitUntil(
+          Duration.ofSeconds(5),
+          () ->
+              redisTemplate.opsForZSet().score(sweptScopeKey, tabOneId).block(REDIS_TIMEOUT)
+                      == null
+                  && redisTemplate.opsForZSet().score(sweptScopeKey, tabTwoId)
+                          .block(REDIS_TIMEOUT)
+                      == null
+                  && Boolean.FALSE.equals(
+                      redisTemplate.hasKey(keyspace.connectionKey(tabOneId)).block(REDIS_TIMEOUT))
+                  && Boolean.FALSE.equals(
+                      redisTemplate
+                          .hasKey(keyspace.connectionKey(tabTwoId))
+                          .block(REDIS_TIMEOUT)));
+      assertThat(
+              redisTemplate.opsForZSet().score(sweptScopeKey, bobId).block(REDIS_TIMEOUT))
+          .isNotNull();
+      assertThat(redisTemplate.hasKey(keyspace.connectionKey(bobId)).block(REDIS_TIMEOUT))
+          .isTrue();
+      assertThat(
+              redisTemplate
+                  .opsForZSet()
+                  .score(survivingScopeKey, otherTeamId)
+                  .block(REDIS_TIMEOUT))
+          .isNotNull();
+
+      // The member's other-Team tab was never a target: silent, and still serving.
+      expectNoNonPingFrame(otherTeam, Duration.ofMillis(500));
+      subscribe(otherTeam, teamScope(CollaborationWsTestSupport.ALICE_TEAM_2));
+
+      // At-least-once redelivery sweeps again and finds everything already down.
+      consumer.consume(suspension);
+      expectNoNonPingFrame(bob, Duration.ofMillis(500));
+    }
+  }
+
   // ------------------------------------------------------------------ subscription cleanup
 
   @Test
@@ -529,6 +663,14 @@ class CollaborationSignalIntegrationTest {
       frame = ws.nextFrameJson(timeout);
     } while ("ping".equals(frame.get("type")));
     return frame;
+  }
+
+  /** Reads the next heartbeat ping — one tick of the server's clock for boundary waits. */
+  private static void awaitPing(WsConnection ws, Duration timeout) throws Exception {
+    Map<String, Object> frame;
+    do {
+      frame = ws.nextFrameJson(timeout);
+    } while (!"ping".equals(frame.get("type")));
   }
 
   /** Fails when any non-ping frame arrives within the quiet window. */

@@ -96,13 +96,26 @@ public class CollaborationWebSocketConfiguration {
   }
 
   /**
-   * The in-memory {@link io.crewscope.application.collaboration.CollaborationSignalSink}: the
-   * outbox consumer (assembled by the signal configuration under the same switch) pushes change
-   * facts here while the handler registers live connections into it.
+   * The D02 member-to-connections reverse index: filled at subscribe admission with the
+   * durable principal the rulebook resolved, drained at connection teardown, queried by
+   * the event-driven revocation sweep.
+   */
+  @Bean
+  CollaborationRevocationIndex collaborationRevocationIndex() {
+    return new CollaborationRevocationIndex();
+  }
+
+  /**
+   * The in-memory {@link io.crewscope.application.collaboration.CollaborationSignalSink}
+   * and {@link io.crewscope.application.collaboration.CollaborationMemberRevocationSink}:
+   * the outbox consumers (assembled by the signal configuration under the same switch)
+   * push change facts and member revocations here while the handler registers live
+   * connections into it.
    */
   @Bean
   CollaborationSignalFanout collaborationSignalFanout(
       CollaborationSubscriptionRegistry subscriptions,
+      CollaborationRevocationIndex revocationIndex,
       CollaborationPresenceKeyspace keyspace,
       CollaborationPresenceStore presenceStore,
       CollaborationConnectionMetrics metrics,
@@ -110,6 +123,7 @@ public class CollaborationWebSocketConfiguration {
       CollaborationRealtimeProperties properties) {
     return new CollaborationSignalFanout(
         subscriptions,
+        revocationIndex,
         keyspace,
         presenceStore,
         metrics,
@@ -126,6 +140,7 @@ public class CollaborationWebSocketConfiguration {
       AuthenticationSubjectExtractor subjectExtractor,
       CollaborationSubscriptionRegistry subscriptions,
       CollaborationSubscriptionAuthorizer subscriptionAuthorizer,
+      CollaborationRevocationIndex revocationIndex,
       CollaborationPresenceKeyspace presenceKeyspace,
       CollaborationPresenceStore presenceStore,
       CollaborationSignalFanout signalFanout,
@@ -136,6 +151,7 @@ public class CollaborationWebSocketConfiguration {
         subjectExtractor,
         subscriptions,
         subscriptionAuthorizer,
+        revocationIndex,
         presenceKeyspace,
         presenceStore,
         signalFanout,

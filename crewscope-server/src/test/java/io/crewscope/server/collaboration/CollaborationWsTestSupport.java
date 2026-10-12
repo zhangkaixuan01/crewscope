@@ -80,6 +80,34 @@ final class CollaborationWsTestSupport {
   static final UUID ALICE_TEAM_2 = UUID.fromString("00000000-0000-0000-0000-000000000013");
   static final UUID BOB_TEAM = UUID.fromString("00000000-0000-0000-0000-000000000014");
 
+  /**
+   * Durable member principals the admit fake resolves, one per fixture account — the D02
+   * revocation sweep names these ids in the member lifecycle event payloads.
+   */
+  static final UUID ALICE_MEMBER_PRINCIPAL_ID =
+      UUID.fromString("00000000-0000-0000-0000-0000000001a1");
+  static final UUID BOB_MEMBER_PRINCIPAL_ID =
+      UUID.fromString("00000000-0000-0000-0000-0000000001b2");
+
+  private static final Map<UUID, io.crewscope.domain.identity.Principal> MEMBER_PRINCIPALS =
+      Map.of(
+          ALICE_ACCOUNT_ID, memberPrincipal(ALICE_MEMBER_PRINCIPAL_ID, "Alice"),
+          BOB_ACCOUNT_ID, memberPrincipal(BOB_MEMBER_PRINCIPAL_ID, "Bob"));
+
+  private static io.crewscope.domain.identity.Principal memberPrincipal(
+      UUID principalId, String displayName) {
+    return io.crewscope.domain.identity.Principal.create(
+        new io.crewscope.domain.shared.id.PrincipalId(principalId),
+        io.crewscope.domain.identity.PrincipalScope.organization(
+            new io.crewscope.domain.shared.id.OrganizationId(ORGANIZATION_ID)),
+        io.crewscope.domain.identity.PrincipalType.USER,
+        java.util.Optional.empty(),
+        displayName,
+        java.util.Optional.empty(),
+        io.crewscope.domain.identity.PrincipalVisibility.ORGANIZATION,
+        io.crewscope.domain.shared.time.UtcTimestamp.parse("2026-10-10T08:00:00Z"));
+  }
+
   private static final int MAX_LOGIN_BODY_BYTES = 8 * 1024;
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final TypeReference<Map<String, Object>> FRAME_TYPE = new TypeReference<>() {};
@@ -135,6 +163,17 @@ final class CollaborationWsTestSupport {
       ALLOWED_TEAMS.put(BOB_ACCOUNT_ID, Set.of(new TeamId(BOB_TEAM)));
     }
 
+    /** Grants one extra team to one account — the D02 sweep scenario's spectator seat. */
+    static void grantTeam(UUID accountId, UUID teamId) {
+      ALLOWED_TEAMS.computeIfPresent(
+          accountId,
+          (id, teams) -> {
+            Set<TeamId> widened = new HashSet<>(teams);
+            widened.add(new TeamId(teamId));
+            return Set.copyOf(widened);
+          });
+    }
+
     /** Revokes one team from one account — the A01 revocation-scenario lever. */
     static void revokeTeam(UUID accountId, UUID teamId) {
       ALLOWED_TEAMS.computeIfPresent(
@@ -152,16 +191,21 @@ final class CollaborationWsTestSupport {
           Mono.fromSupplier(
               () -> {
                 if (!(authentication.getPrincipal() instanceof BrowserSessionPrincipal session)) {
-                  return CollaborationSubscriptionAuthorizer.Decision.DENIED;
+                  return new CollaborationSubscriptionAuthorizer.Admission(
+                      CollaborationSubscriptionAuthorizer.Decision.DENIED, null);
                 }
                 if (!scope.organizationId().value().equals(ORGANIZATION_ID)) {
-                  return CollaborationSubscriptionAuthorizer.Decision.DENIED;
+                  return new CollaborationSubscriptionAuthorizer.Admission(
+                      CollaborationSubscriptionAuthorizer.Decision.DENIED, null);
                 }
                 return ALLOWED_TEAMS
                         .getOrDefault(session.accountId(), Set.of())
                         .contains(scope.teamId())
-                    ? CollaborationSubscriptionAuthorizer.Decision.ALLOWED
-                    : CollaborationSubscriptionAuthorizer.Decision.DENIED;
+                    ? new CollaborationSubscriptionAuthorizer.Admission(
+                        CollaborationSubscriptionAuthorizer.Decision.ALLOWED,
+                        MEMBER_PRINCIPALS.get(session.accountId()))
+                    : new CollaborationSubscriptionAuthorizer.Admission(
+                        CollaborationSubscriptionAuthorizer.Decision.DENIED, null);
               });
     }
 
