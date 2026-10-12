@@ -89,6 +89,43 @@ describe('ActivityRealtimeStore', () => {
     expect(teamOps.state.teamActivity.value).toBeNull()
     realtime.stop()
   })
+
+  it('treats a severed stream as a transport cut and lands on the fresh handshake\'s verdict', async () => {
+    // The frozen server contract (TeamActivityStreamRevocationTest) terminates a live stream
+    // by aborting the connection after the 200 is committed — the idle-probe revocation
+    // recheck — so the browser's body reader rejects with a bare TypeError. The cut must
+    // drive a reconnect, and the fresh handshake's 403 settles the phase on forbidden
+    // instead of stranding the store on the terminal error phase.
+    const cursors = createThreeStreamCursorStore(localStorage)
+    let openings = 0
+    const gateway = streamGateway(async () => {
+      openings += 1
+      if (openings === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new TypeError('network error'))
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        )
+      }
+      throw new CrewScopeApiError(403, {
+        code: 'policy_denied', message: '策略拒绝', correlationId: 'corr-3',
+        retryable: false, currentVersion: null, details: {},
+      })
+    })
+    const teamOps = createTeamOpsStore({} as TeamOpsGateway)
+    teamOps.activateScope(platform)
+    const realtime = createActivityRealtimeStore(gateway, teamOps, cursors)
+
+    realtime.start(platform, 'snapshot-cursor')
+    await within(() => realtime.state.phase === 'forbidden', 5_000)
+
+    expect(openings).toBe(2)
+    expect(teamOps.state.teamActivity.value).toBeNull()
+    realtime.stop()
+  })
 })
 
 function streamGateway(open: (scope: TeamOpsScope) => Promise<Response>): TeamOpsGateway {
@@ -115,6 +152,16 @@ async function eventually(predicate: () => boolean): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   throw new Error('Condition was not reached')
+}
+
+/** Like eventually, but sized for reconnect ladders (the 500ms backoff floor). */
+async function within(verify: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (verify()) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error('Condition was not reached in time')
 }
 
 function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {

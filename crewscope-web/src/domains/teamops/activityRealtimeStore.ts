@@ -1,5 +1,5 @@
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
-import { parseServerSentEvents } from '../../api/sse'
+import { parseServerSentEvents, type ServerSentEventFrame } from '../../api/sse'
 import { createThreeStreamCursorStore, type ThreeStreamCursorStore } from '../realtime/cursorStore'
 import { isAbort, teamOpsError, type TeamOpsErrorState } from './errors'
 import { mapPublicActivity, type TeamOpsGateway } from './gateway'
@@ -115,18 +115,46 @@ export function createActivityRealtimeStore(
       if (!response.body) throw new TypeError('Team Activity stream response has no body')
       state.phase = 'live'
       state.reconnectAttempt = 0
-      for await (const frame of parseServerSentEvents(response.body)) {
-        if (!current(connectionGeneration, request)) return
-        if (frame.event === 'heartbeat' || !frame.data.trim()) {
-          commitCursor(scope, frame.id)
-          continue
+      // Manual iteration (instead of for-await) splits the two failure dimensions the outer
+      // catch would otherwise conflate: a rejection from the iterator itself is a transport
+      // cut, while a throw from the loop body is a malformed payload.
+      const frames = parseServerSentEvents(response.body)
+      try {
+        for (;;) {
+          let pending: IteratorResult<ServerSentEventFrame, void>
+          try {
+            pending = await frames.next()
+          } catch (cause) {
+            if (isAbort(cause) || !current(connectionGeneration, request)) return
+            // The frozen server contract (TeamActivityStreamRevocationTest: an idle-probe
+            // denial must terminate the stream) aborts the connection after the 200 is
+            // committed — e.g. the revocation recheck — which the browser surfaces as the
+            // body reader rejecting with a bare TypeError. That is a cut, not a malformed
+            // payload: reconnect on the backoff ladder and let the fresh handshake's status
+            // carry the authoritative verdict, so a revoked member's 403 lands on forbidden
+            // instead of stranding the badge on a terminal error.
+            scheduleReconnect(connectionGeneration, reconnectDelay(state.reconnectAttempt))
+            return
+          }
+          if (pending.done) break
+          const frame = pending.value
+          if (!current(connectionGeneration, request)) return
+          if (frame.event === 'heartbeat' || !frame.data.trim()) {
+            commitCursor(scope, frame.id)
+            continue
+          }
+          const payload = JSON.parse(frame.data) as unknown
+          const item = mapPublicActivity(payload)
+          if (teamOps.ingestTeamActivity(scope, item, frame.id)) {
+            // A malformed frame must never advance the durable recovery boundary.
+            commitCursor(scope, frame.id)
+            state.lastEventAt = item.occurredAt
+          }
         }
-        const item = mapPublicActivity(JSON.parse(frame.data) as unknown)
-        if (teamOps.ingestTeamActivity(scope, item, frame.id)) {
-          // A malformed frame must never advance the durable recovery boundary.
-          commitCursor(scope, frame.id)
-          state.lastEventAt = item.occurredAt
-        }
+      } finally {
+        // for-await closes its iterator on every early exit; hand-rolled iteration must do
+        // the same or the abandoned generator keeps the HTTP body buffering.
+        await frames.return(undefined)
       }
       if (current(connectionGeneration, request)) scheduleReconnect(connectionGeneration, 5_000)
     } catch (error) {
