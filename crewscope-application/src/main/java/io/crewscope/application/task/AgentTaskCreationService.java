@@ -24,6 +24,7 @@ import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.provider.ProviderBindingCandidate;
 import io.crewscope.application.provider.ProviderBindingResolver;
+import io.crewscope.application.quota.OrganizationQuotaAdmissionService;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -124,6 +125,7 @@ public final class AgentTaskCreationService {
     private final Optional<TaskAgentSelectionService> agentSelectionService;
     private final Optional<ResolvedAgentPolicySnapshotService> resolvedPolicyService;
     private final Optional<ResponsibilityAssignmentService> responsibilityAssignmentService;
+    private final Optional<OrganizationQuotaAdmissionService> quotaAdmission;
 
     public AgentTaskCreationService(
             WorkItemAccessPolicy accessPolicy,
@@ -177,6 +179,7 @@ public final class AgentTaskCreationService {
                 creationPolicy,
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -208,7 +211,8 @@ public final class AgentTaskCreationService {
             TaskCreationPolicySpec creationPolicy,
             TaskAgentSelectionService agentSelectionService,
             ResolvedAgentPolicySnapshotService resolvedPolicyService,
-            ResponsibilityAssignmentService responsibilityAssignmentService) {
+            ResponsibilityAssignmentService responsibilityAssignmentService,
+            OrganizationQuotaAdmissionService quotaAdmissionService) {
         this.accessPolicy = Objects.requireNonNull(accessPolicy, "accessPolicy");
         this.workItemRepository = Objects.requireNonNull(workItemRepository, "workItemRepository");
         this.assignmentRepository = Objects.requireNonNull(
@@ -244,6 +248,7 @@ public final class AgentTaskCreationService {
         this.agentSelectionService = Optional.ofNullable(agentSelectionService);
         this.resolvedPolicyService = Optional.ofNullable(resolvedPolicyService);
         this.responsibilityAssignmentService = Optional.ofNullable(responsibilityAssignmentService);
+        this.quotaAdmission = Optional.ofNullable(quotaAdmissionService);
     }
 
     /**
@@ -428,6 +433,11 @@ public final class AgentTaskCreationService {
         Optional<ResolvedCodingTarget> codingTarget = command.codingTarget()
                 .map(target -> resolveCodingTarget(organizationId, workItem, target));
 
+        // M12-A02 quota admission runs after every input check resolves and before the first
+        // write effect: a denial (403) never leaves a task row behind, and the reservation
+        // shares this transaction so a later failure rolls it back (no orphan to reconcile).
+        requireQuotaAdmission(organizationId, actor, occurredAt);
+
         Task createdTask = taskRepository.create(Task.create(
                 TaskId.generate(),
                 workItem,
@@ -524,6 +534,17 @@ public final class AgentTaskCreationService {
         AgentTaskCreationResult result = new AgentTaskCreationResult(
                 activeTask, ready, policy, overlay);
         return completed(context, commandId, result, profile, sourceMessage, occurredAt);
+    }
+
+    /** Admits the creation against the organization quota; unwired or unconfigured orgs pass. */
+    private void requireQuotaAdmission(
+            OrganizationId organizationId, Principal actor, UtcTimestamp occurredAt) {
+        quotaAdmission.ifPresent(service -> service.requireAdmission(
+                new OrganizationQuotaAdmissionService.OrganizationQuotaAdmissionRequest(
+                        organizationId,
+                        actor.id(),
+                        creationPolicy.budget().maxTokens(),
+                        occurredAt)));
     }
 
     private WorkItem requireLockedWorkItem(

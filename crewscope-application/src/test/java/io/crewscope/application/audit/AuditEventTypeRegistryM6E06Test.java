@@ -21,13 +21,17 @@ class AuditEventTypeRegistryM6E06Test {
 
     @Test
     void registersTheReviewedM3ToM7Coordinates() {
-        assertEquals(139, registry.size());
+        assertEquals(140, registry.size());
         assertCategory(
                 "ORGANIZATION_ROLE_GRANTED", SchemaVersion.V1, AuditEventCategory.SECURITY);
         assertCategory(
                 "ORGANIZATION_ROLE_REVOKED", SchemaVersion.V1, AuditEventCategory.SECURITY);
         assertCategory(
                 "ORGANIZATION_SETTING_CHANGED", SchemaVersion.V1, AuditEventCategory.SECURITY);
+        assertCategory(
+                "ORGANIZATION_QUOTA_CONFIGURATION_CHANGED",
+                SchemaVersion.V1,
+                AuditEventCategory.SECURITY);
         assertCategory(
                 "ORGANIZATION_DATA_EXPORT_CREATED", SchemaVersion.V1, AuditEventCategory.SECURITY);
         assertCategory(

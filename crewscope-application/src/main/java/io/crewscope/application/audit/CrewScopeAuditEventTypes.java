@@ -145,6 +145,16 @@ public final class CrewScopeAuditEventTypes {
                 AuditOutcome.SUCCEEDED,
                 AuditRetentionLevel.EXTENDED,
                 required("auditEventRetentionDaysAfter"));
+        register(
+                target,
+                List.of("ORGANIZATION_QUOTA_CONFIGURATION_CHANGED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.quota.event.OrganizationQuotaConfigurationChanged.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("monthlyTaskIntakeLimitAfter"),
+                required("monthlyTokenBudgetAfter"));
     }
 
     /** Governance job lifecycle facts (M12-A01): the export/deletion workflows themselves. */

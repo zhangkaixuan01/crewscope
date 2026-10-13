@@ -29,6 +29,7 @@ import io.crewscope.application.model.ModelConnectionAvailabilityVerifier;
 import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.provider.ProviderBindingResolver;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentRepository;
+import io.crewscope.application.quota.OrganizationQuotaAdmissionService;
 import io.crewscope.application.responsibility.ResponsibilityAssignmentService;
 import io.crewscope.application.responsibility.ResponsibilityQueryService;
 import io.crewscope.application.runtime.RuntimeObservationRepository;
@@ -255,7 +256,8 @@ public class TaskApplicationConfiguration {
             TaskCreationPolicySpec taskCreationPolicySpec,
             TaskAgentSelectionService taskAgentSelectionService,
             ResolvedAgentPolicySnapshotService resolvedAgentPolicySnapshotService,
-            ResponsibilityAssignmentService responsibilityAssignmentService) {
+            ResponsibilityAssignmentService responsibilityAssignmentService,
+            ObjectProvider<OrganizationQuotaAdmissionService> quotaAdmissionServices) {
         RepositoryBindingPreflightPort repositoryPreflight =
                 repositoryPreflightPorts.getIfAvailable(() -> (binding, baselineRef) -> {
                     throw new RepositoryBindingPreflightException(
@@ -289,7 +291,8 @@ public class TaskApplicationConfiguration {
                 taskCreationPolicySpec,
                 taskAgentSelectionService,
                 resolvedAgentPolicySnapshotService,
-                responsibilityAssignmentService);
+                responsibilityAssignmentService,
+                quotaAdmissionServices.getIfAvailable());
     }
 
     @Bean

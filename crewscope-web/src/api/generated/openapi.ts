@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 310b13a0c29b4f69105ecfc155fc8a05b3e60e175c3f661388fce65e4b94b0dc
+// Controller source SHA-256: 23e565ee01f8bcb7f594436ebaa0812ff2cd5f3dd30beef1f19797b7f95ec769
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -500,6 +500,20 @@ export const openApiDocument = {
         "operationId": "OperationsController_recover",
         "tags": [
           "OperationsController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/quota": {
+      "get": {
+        "operationId": "OrganizationQuotaController_getQuota",
+        "tags": [
+          "OrganizationQuotaController"
+        ]
+      },
+      "put": {
+        "operationId": "OrganizationQuotaController_changeQuota",
+        "tags": [
+          "OrganizationQuotaController"
         ]
       }
     },
@@ -2709,6 +2723,18 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/quota",
+    "operationId": "OrganizationQuotaController_getQuota",
+    "controller": "OrganizationQuotaController"
+  },
+  {
+    "method": "put",
+    "path": "/api/v1/organizations/{organizationId}/quota",
+    "operationId": "OrganizationQuotaController_changeQuota",
+    "controller": "OrganizationQuotaController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/role-grants",
     "operationId": "OrganizationRoleController_listGrants",
     "controller": "OrganizationRoleController"
@@ -4142,4 +4168,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 300 as const
+export const openApiOperationCount = 302 as const
