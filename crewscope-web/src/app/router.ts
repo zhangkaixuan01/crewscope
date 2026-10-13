@@ -167,7 +167,7 @@ export function createCrewScopeRouter(
         // Not permission-gated on purpose: every active member reads the organization card,
         // and a pure ORG_* role holder has no team capability at all — the org:* vocabulary
         // renders the settings surfaces progressively inside the page (M12-F01).
-        meta: { mode: 'control', section: 'organization', title: '组织设置', queryWhitelist: ['tab'], tabValues: ['general'] },
+        meta: { mode: 'control', section: 'organization', title: '组织设置', queryWhitelist: ['tab'], tabValues: ['general', 'roles'] },
       },
       {
         path: '/settings/repositories',

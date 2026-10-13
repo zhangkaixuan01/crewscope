@@ -2,7 +2,13 @@ import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import { createCommandGateway } from '../../api/commandGateway'
 import type { OrganizationGateway } from './gateway'
-import type { OrganizationCommandReceipt, OrganizationProfile, OrganizationSettings } from './types'
+import type {
+  OrganizationCommandReceipt,
+  OrganizationProfile,
+  OrganizationRole,
+  OrganizationRoleGrant,
+  OrganizationSettings,
+} from './types'
 
 /**
  * M12-F01 organization store. Resources are org-grain (no Team scope): the page passes the
@@ -19,7 +25,7 @@ export interface OrganizationResource<T> {
 
 export interface OrganizationCommandState {
   phase: 'idle' | 'pending' | 'success' | 'error'
-  operation: 'update-settings' | null
+  operation: 'update-settings' | 'grant-role' | 'revoke-role' | null
   receipt: OrganizationCommandReceipt | null
   errorMessage: string | null
   errorStatus: number | null
@@ -29,27 +35,45 @@ export interface OrganizationCommandState {
 export interface OrganizationStoreState {
   profile: OrganizationResource<OrganizationProfile>
   settings: OrganizationResource<OrganizationSettings>
+  roleGrants: OrganizationResource<OrganizationRoleGrant[]>
   settingsCommand: OrganizationCommandState
+  roleCommand: OrganizationCommandState
 }
 
 export interface OrganizationStore {
   state: Readonly<OrganizationStoreState>
   loadProfile(organizationId: string, force?: boolean): Promise<void>
   loadSettings(organizationId: string, force?: boolean): Promise<void>
+  loadRoleGrants(organizationId: string, force?: boolean): Promise<void>
   updateSettings(
     organizationId: string,
     input: { auditEventRetentionDays: number | null },
     expectedVersion: number,
     idempotencyKey: string,
   ): Promise<boolean>
-  clearCommand(): void
+  grantRole(
+    organizationId: string,
+    input: { principalId: string, role: OrganizationRole, reason?: string },
+    idempotencyKey: string,
+  ): Promise<boolean>
+  revokeRoleGrant(
+    organizationId: string,
+    grantId: string,
+    input: { reason?: string },
+    expectedVersion: number,
+    idempotencyKey: string,
+  ): Promise<boolean>
+  clearSettingsCommand(): void
+  clearRoleCommand(): void
   reset(): void
 }
 
 export const ORGANIZATION_STORE: InjectionKey<OrganizationStore> = Symbol('crewscope-organization-store')
 
 export function createOrganizationStore(gateway: OrganizationGateway): OrganizationStore {
-  const commandIntents = createCommandGateway(gateway, { updateSettings: 3 })
+  // The numbers are the idempotencyKey parameter index of each gateway method — the
+  // commandInventory gate verifies them against the interface signatures by AST.
+  const commandIntents = createCommandGateway(gateway, { updateSettings: 3, grantRole: 2, revokeRoleGrant: 4 })
   gateway = commandIntents.gateway
   const state = reactive<OrganizationStoreState>(initialState())
   // One generation counter per resource: the page loads profile for every member but settings
@@ -57,8 +81,10 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
   // profile load void the in-flight settings response (or vice versa) and strand it loading.
   let profileGeneration = 0
   let settingsGeneration = 0
+  let roleGrantsGeneration = 0
   let profileController: AbortController | null = null
   let settingsController: AbortController | null = null
+  let roleGrantsController: AbortController | null = null
 
   async function loadProfile(organizationId: string, force = false): Promise<void> {
     if (!force && state.profile.phase === 'ready') return
@@ -123,10 +149,7 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
       await loadSettingsResource(organizationId, true, ++settingsGeneration)
       return true
     } catch (error) {
-      state.settingsCommand.phase = 'error'
-      state.settingsCommand.errorMessage = messageOf(error)
-      state.settingsCommand.errorStatus = error instanceof CrewScopeApiError ? error.status : null
-      state.settingsCommand.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
+      recordCommandFailure(state.settingsCommand, error)
       if (error instanceof CrewScopeApiError && error.status === 409) {
         await loadSettingsResource(organizationId, true, ++settingsGeneration)
       }
@@ -134,15 +157,91 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
     }
   }
 
-  function clearCommand(): void {
+  async function loadRoleGrants(organizationId: string, force = false): Promise<void> {
+    if (!force && state.roleGrants.phase === 'ready') return
+    const current = ++roleGrantsGeneration
+    roleGrantsController?.abort()
+    const controller = new AbortController()
+    roleGrantsController = controller
+    state.roleGrants.phase = 'loading'
+    state.roleGrants.errorMessage = null
+    try {
+      const value = await gateway.roleGrants(organizationId, controller.signal)
+      if (current !== roleGrantsGeneration || controller.signal.aborted) return
+      state.roleGrants.phase = 'ready'
+      state.roleGrants.value = value
+    } catch (error) {
+      if (current !== roleGrantsGeneration || controller.signal.aborted) return
+      state.roleGrants.phase = phaseOf(error)
+      state.roleGrants.errorMessage = messageOf(error)
+    }
+  }
+
+  async function grantRole(
+    organizationId: string,
+    input: { principalId: string, role: OrganizationRole, reason?: string },
+    idempotencyKey: string,
+  ): Promise<boolean> {
+    return runRoleCommand('grant-role', organizationId,
+      () => gateway.grantRole(organizationId, input, idempotencyKey))
+  }
+
+  async function revokeRoleGrant(
+    organizationId: string,
+    grantId: string,
+    input: { reason?: string },
+    expectedVersion: number,
+    idempotencyKey: string,
+  ): Promise<boolean> {
+    return runRoleCommand('revoke-role', organizationId,
+      () => gateway.revokeRoleGrant(organizationId, grantId, input, expectedVersion, idempotencyKey))
+  }
+
+  /**
+   * Grants are re-read after the receipt (and after a 409: the last-owner protection and the
+   * optimistic-lock conflict both leave the list authoritative for the next attempt). The page
+   * refreshes the session on success so a self-revoked role converges immediately (D2).
+   */
+  async function runRoleCommand(
+    operation: 'grant-role' | 'revoke-role',
+    organizationId: string,
+    dispatch: () => Promise<OrganizationCommandReceipt>,
+  ): Promise<boolean> {
+    state.roleCommand.phase = 'pending'
+    state.roleCommand.operation = operation
+    state.roleCommand.errorMessage = null
+    state.roleCommand.errorStatus = null
+    state.roleCommand.errorCode = null
+    try {
+      const receipt = await dispatch()
+      state.roleCommand.phase = 'success'
+      state.roleCommand.receipt = receipt
+      await loadRoleGrants(organizationId, true)
+      return true
+    } catch (error) {
+      recordCommandFailure(state.roleCommand, error)
+      if (error instanceof CrewScopeApiError && error.status === 409) {
+        await loadRoleGrants(organizationId, true)
+      }
+      return false
+    }
+  }
+
+  function clearSettingsCommand(): void {
     state.settingsCommand = commandState()
+  }
+
+  function clearRoleCommand(): void {
+    state.roleCommand = commandState()
   }
 
   function reset(): void {
     profileGeneration += 1
     settingsGeneration += 1
+    roleGrantsGeneration += 1
     profileController?.abort()
     settingsController?.abort()
+    roleGrantsController?.abort()
     commandIntents.clear()
     Object.assign(state, initialState())
   }
@@ -151,17 +250,30 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
     state: readonly(state) as Readonly<OrganizationStoreState>,
     loadProfile,
     loadSettings,
+    loadRoleGrants,
     updateSettings,
-    clearCommand,
+    grantRole,
+    revokeRoleGrant,
+    clearSettingsCommand,
+    clearRoleCommand,
     reset,
   }
+}
+
+function recordCommandFailure(command: OrganizationCommandState, error: unknown): void {
+  command.phase = 'error'
+  command.errorMessage = messageOf(error)
+  command.errorStatus = error instanceof CrewScopeApiError ? error.status : null
+  command.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
 }
 
 function initialState(): OrganizationStoreState {
   return {
     profile: resource(),
     settings: resource(),
+    roleGrants: resource(),
     settingsCommand: commandState(),
+    roleCommand: commandState(),
   }
 }
 

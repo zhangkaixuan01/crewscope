@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { Building2, ShieldCheck } from '@lucide/vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseBadge from '../components/base/BaseBadge.vue'
 import BaseButton from '../components/base/BaseButton.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
+import OrganizationRoleGrants from '../components/domain/OrganizationRoleGrants.vue'
 import { createFormCommandKeys } from '../api/formCommandKeys'
 import { useDirtyForm } from '../composables/useDirtyForm'
 import { organizationStatusLabels } from '../domains/organization/labels'
@@ -21,8 +22,12 @@ import { enumLabel } from '../domains/shared/labels'
  * so a team permission would lock auditors out of the page).
  */
 const principal = inject(AUTH_PRINCIPAL)
+const route = useRoute()
 const router = useRouter()
 const store = useOrganizationStore()
+
+/** `?tab=general|roles` — anything else falls back to the general tab. */
+const tab = computed<'general' | 'roles'>(() => (route.query.tab === 'roles' ? 'roles' : 'general'))
 const organizationId = computed(() => principal?.organizationId ?? '')
 const canReadSettings = computed(() => Boolean(principal && can(principal, permissions.orgAuditRead)))
 const canWriteSettings = computed(() => Boolean(principal && can(principal, permissions.orgManageSettings)))
@@ -84,7 +89,7 @@ function startEditing(): void {
   submitted.value = false
   // Entering the editor retires the previous save's status line so it cannot read as if the
   // untouched form had just been saved.
-  store.clearCommand()
+  store.clearSettingsCommand()
   const current = settingsValue.value?.auditEventRetentionDays ?? null
   retentionChoice.value = current === null ? 'forever' : 'limited'
   retentionDaysInput.value = current === null ? '' : String(current)
@@ -123,6 +128,24 @@ function retentionText(days: number | null): string {
 <template>
   <SettingsShell title="组织设置">
     <div class="org-settings">
+      <nav class="org-tabs" aria-label="组织设置视图">
+        <RouterLink
+          :to="{ query: { ...route.query, tab: 'general' } }"
+          class="org-tabs__tab"
+          :class="{ 'org-tabs__tab--active': tab === 'general' }"
+          :aria-current="tab === 'general' ? 'page' : undefined"
+          replace
+        >常规</RouterLink>
+        <RouterLink
+          :to="{ query: { ...route.query, tab: 'roles' } }"
+          class="org-tabs__tab"
+          :class="{ 'org-tabs__tab--active': tab === 'roles' }"
+          :aria-current="tab === 'roles' ? 'page' : undefined"
+          replace
+        >组织角色</RouterLink>
+      </nav>
+
+      <template v-if="tab === 'general'">
       <section class="org-card" aria-labelledby="org-profile-heading">
         <h2 id="org-profile-heading"><Building2 :size="16" aria-hidden="true" />组织信息</h2>
         <StatePanel v-if="profile.phase === 'loading'" state="loading" />
@@ -231,12 +254,32 @@ function retentionText(days: number | null): string {
           <RouterLink to="/audit">审计中心</RouterLink>按团队查询。
         </p>
       </section>
+      </template>
+
+      <section v-else-if="tab === 'roles'" class="org-card" aria-labelledby="org-roles-heading">
+        <h2 id="org-roles-heading">组织角色</h2>
+        <OrganizationRoleGrants v-if="canReadSettings" :organization-id="organizationId" />
+        <StatePanel
+          v-else
+          state="forbidden"
+          title="需要组织审计角色"
+          description="组织 Owner、组织管理员或组织审计员可以查看与管理组织角色。"
+        >
+          <template #action>
+            <BaseButton variant="secondary" size="small" @click="router.push({ name: 'access-denied', query: { requiredPermission: permissions.orgAuditRead } })">查看权限说明</BaseButton>
+          </template>
+        </StatePanel>
+      </section>
     </div>
   </SettingsShell>
 </template>
 
 <style scoped>
 .org-settings { display: grid; gap: var(--cs-space-16); }
+.org-tabs { display: inline-flex; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface); width: fit-content; }
+.org-tabs__tab { display: inline-flex; align-items: center; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-16); border-radius: 8px; color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-decoration: none; }
+.org-tabs__tab:hover, .org-tabs__tab:focus-visible { color: var(--cs-text-brand); }
+.org-tabs__tab--active { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 .org-card { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
 .org-card h2 { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-md); color: var(--cs-text); }
 .org-facts { display: grid; gap: var(--cs-space-8); margin: 0; }

@@ -90,6 +90,8 @@ export async function mockApi(page: Page): Promise<void> {
     // the generic fallback would hand the page a pagination envelope — explicit shapes instead.
     if (/\/organizations\/[^/]+$/.test(path)) return json(route, organizationProfile())
     if (/\/organizations\/[^/]+\/settings$/.test(path)) return json(route, { auditEventRetentionDays: null, version: 0 })
+    // The role-grant listing is a bare array, not the generic items envelope.
+    if (/\/organizations\/[^/]+\/role-grants$/.test(path)) return json(route, [])
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
 }

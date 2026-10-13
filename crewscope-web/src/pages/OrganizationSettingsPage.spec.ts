@@ -108,12 +108,21 @@ describe('OrganizationSettingsPage', () => {
 
     expect(wrapper.find('a[href="/audit"]').exists()).toBe(true)
   })
+
+  it('renders the roles tab for audit-read holders and gates it for plain members', async () => {
+    const { wrapper } = await mountPage(auditor, fakeGateway(), '?tab=roles')
+    expect(wrapper.text()).toContain('组织角色')
+
+    const plain = await mountPage(plainMember, fakeGateway(), '?tab=roles')
+    expect(plain.wrapper.text()).toContain('需要组织审计角色')
+    expect(plain.wrapper.text()).toContain('组织 Owner、组织管理员或组织审计员可以查看与管理组织角色。')
+  })
 })
 
-async function mountPage(principal: AuthenticatedPrincipal, gateway: OrganizationGateway = fakeGateway()) {
+async function mountPage(principal: AuthenticatedPrincipal, gateway: OrganizationGateway = fakeGateway(), query = '') {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const store = createOrganizationStore(gateway)
-  await router.push('/settings/organization')
+  await router.push(`/settings/organization${query}`)
   await router.isReady()
   const wrapper = mount(OrganizationSettingsPage, {
     global: {
@@ -133,6 +142,7 @@ async function mountPage(principal: AuthenticatedPrincipal, gateway: Organizatio
 function fakeGateway(): OrganizationGateway & {
   settings: ReturnType<typeof vi.fn>
   updateSettings: ReturnType<typeof vi.fn>
+  roleGrants: ReturnType<typeof vi.fn>
 } {
   return {
     profile: vi.fn(async () => ({ organizationId, name: 'CrewScope Organization', status: 'ACTIVE' as const, version: 1 })),
@@ -140,6 +150,15 @@ function fakeGateway(): OrganizationGateway & {
     updateSettings: vi.fn(async () => ({
       commandId: 'command-1', domainEventId: 'event-1', committedVersion: 1,
       correlationId: 'c-1', replayed: false,
+    })),
+    roleGrants: vi.fn(async () => []),
+    grantRole: vi.fn(async () => ({
+      commandId: 'command-2', domainEventId: 'event-2', committedVersion: 1,
+      correlationId: 'c-2', replayed: false,
+    })),
+    revokeRoleGrant: vi.fn(async () => ({
+      commandId: 'command-3', domainEventId: 'event-3', committedVersion: 2,
+      correlationId: 'c-3', replayed: false,
     })),
   }
 }
