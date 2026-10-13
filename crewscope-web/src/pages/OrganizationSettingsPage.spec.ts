@@ -1,11 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { AUTH_PRINCIPAL, permissions, type AuthenticatedPrincipal } from '../app/auth'
+import { AUTH_STORE } from '../domains/identity/store'
 import { createCrewScopeRouter } from '../app/router'
 import { fixtureAuthStore } from '../test/authFixtures'
 import { CrewScopeApiError } from '../api/client'
 import type { OrganizationGateway } from '../domains/organization/gateway'
 import { ORGANIZATION_STORE, createOrganizationStore } from '../domains/organization/store'
+import type { DeletionJob, ExportJob } from '../domains/organization/types'
 import OrganizationSettingsPage from './OrganizationSettingsPage.vue'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
@@ -22,7 +24,7 @@ const auditor: AuthenticatedPrincipal = {
 }
 const admin: AuthenticatedPrincipal = {
   ...plainMember, id: 'p-admin', displayName: '组织管理员', role: 'ORG_ADMIN',
-  permissions: new Set([permissions.orgAuditRead, permissions.orgManageSettings]),
+  permissions: new Set([permissions.orgAuditRead, permissions.orgManageSettings, permissions.orgGovern]),
 }
 
 describe('OrganizationSettingsPage', () => {
@@ -117,10 +119,47 @@ describe('OrganizationSettingsPage', () => {
     expect(plain.wrapper.text()).toContain('需要组织审计角色')
     expect(plain.wrapper.text()).toContain('组织 Owner、组织管理员或组织审计员可以查看与管理组织角色。')
   })
+
+  it('gates the governance tab behind org:govern and the deletion panel behind the owner role', async () => {
+    const auditorView = await mountPage(auditor, fakeGateway(), '?tab=governance')
+    expect(auditorView.wrapper.text()).toContain('需要治理角色')
+    expect(auditorView.wrapper.text()).toContain('仅组织 Owner 与组织管理员可以执行组织级治理（数据导出与账号删除）。')
+
+    // An admin sees the export workflow but the deletion entry stays unrendered.
+    const adminView = await mountPage(admin, fakeGateway(), '?tab=governance')
+    expect(adminView.wrapper.text()).toContain('组织数据导出')
+    expect(adminView.wrapper.text()).toContain('发起数据导出')
+    expect(adminView.wrapper.text()).toContain('账号删除仅限组织 Owner 执行')
+    expect(adminView.wrapper.text()).not.toContain('第一步：删除预检')
+
+    // The owner session renders both workflows.
+    const ownerView = await mountPage(admin, fakeGateway(), '?tab=governance', 'ORG_OWNER')
+    expect(ownerView.wrapper.text()).toContain('发起数据导出')
+    expect(ownerView.wrapper.text()).toContain('第一步：删除预检')
+    expect(ownerView.wrapper.text()).toContain('治理作业没有列表端点')
+  })
 })
 
-async function mountPage(principal: AuthenticatedPrincipal, gateway: OrganizationGateway = fakeGateway(), query = '') {
-  const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
+async function mountPage(
+  principal: AuthenticatedPrincipal,
+  gateway: OrganizationGateway = fakeGateway(),
+  query = '',
+  sessionRole: 'ORG_ADMIN' | 'ORG_OWNER' = 'ORG_ADMIN',
+) {
+  const authStore = fixtureAuthStore(principal)
+  if (sessionRole) {
+    ;(authStore as { state: unknown }).state = {
+      phase: 'authenticated', activeTeamId: null, errorCode: null, errorMessage: null,
+      session: {
+        authenticated: true, registrationMode: 'OPEN' as const,
+        csrf: { headerName: 'X-XSRF-TOKEN' as const, parameterName: '_csrf' as const, token: 'csrf-page' },
+        account: null, principal: null,
+        organization: { organizationId, name: 'CrewScope Organization', role: sessionRole },
+        teams: [], permissions: [],
+      },
+    }
+  }
+  const router = createCrewScopeRouter(createMemoryHistory(), authStore)
   const store = createOrganizationStore(gateway)
   await router.push(`/settings/organization${query}`)
   await router.isReady()
@@ -129,6 +168,7 @@ async function mountPage(principal: AuthenticatedPrincipal, gateway: Organizatio
       plugins: [router],
       provide: {
         [AUTH_PRINCIPAL as symbol]: principal,
+        [AUTH_STORE as symbol]: authStore,
         [ORGANIZATION_STORE as symbol]: store,
       },
       stubs: { AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
@@ -160,6 +200,38 @@ function fakeGateway(): OrganizationGateway & {
       commandId: 'command-3', domainEventId: 'event-3', committedVersion: 2,
       correlationId: 'c-3', replayed: false,
     })),
+    // The page-level governance tests only assert entry visibility; the workflows'
+    // own specs exercise these methods.
+    exportJob: vi.fn(async () => exportJobFixture()),
+    createExport: vi.fn(async () => ({ job: exportJobFixture(), receipt: null, replayed: false })),
+    processExport: vi.fn(async () => exportJobFixture()),
+    cancelExport: vi.fn(async () => exportJobFixture()),
+    openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
+    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
+    createDeletion: vi.fn(async () => ({ job: deletionJobFixture(), receipt: null, replayed: false })),
+    deletionJob: vi.fn(async () => deletionJobFixture()),
+    confirmDeletion: vi.fn(async () => deletionJobFixture()),
+    processDeletion: vi.fn(async () => deletionJobFixture()),
+    cancelDeletion: vi.fn(async () => deletionJobFixture()),
+  }
+}
+
+function exportJobFixture(): ExportJob {
+  return {
+    id: 'job-e1', organizationId, requestedByPrincipalId: 'p-1', status: 'PENDING',
+    includeVectors: false, manifest: null, version: 1,
+    createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
+  }
+}
+
+function deletionJobFixture(): DeletionJob {
+  return {
+    id: 'job-d1', organizationId, accountId: 'account-1', targetPrincipalId: 'p-2',
+    reason: '离职账号清理，含满足最短长度要求的完整说明。',
+    status: 'PENDING_CONFIRMATION',
+    reservationCheck: '{"inFlightTaskExecutions":0,"activeResponsibilities":0,"openReservations":null,"checkedAt":"2026-10-13T08:00:00Z"}',
+    backupRetentionStatement: '备份保留声明：每日快照 7 天、每周快照 4 周。',
+    version: 1, createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
   }
 }
 

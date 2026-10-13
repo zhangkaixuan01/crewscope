@@ -3,6 +3,11 @@ import { CrewScopeApiError } from '../../api/client'
 import { createCommandGateway } from '../../api/commandGateway'
 import type { OrganizationGateway } from './gateway'
 import type {
+  CreationResult,
+  DeletionJob,
+  DeletionPrecheck,
+  ExportArtifacts,
+  ExportJob,
   OrganizationCommandReceipt,
   OrganizationProfile,
   OrganizationRole,
@@ -32,12 +37,34 @@ export interface OrganizationCommandState {
   errorCode: string | null
 }
 
+/**
+ * The in-session state of one governance job panel: jobs have no list endpoint, so the panel
+ * tracks the single job this browser session created or re-loaded. The process response IS
+ * the terminal state (the server settles every PENDING item within the request), so every
+ * step replaces the job wholesale; there is no polling and no SSE.
+ */
+export interface OrganizationFlowState<T> {
+  job: T | null
+  busy: 'create' | 'process' | 'cancel' | 'confirm' | 'load' | 'download' | null
+  replayed: boolean
+  notice: string | null
+  errorMessage: string | null
+  errorStatus: number | null
+  errorCode: string | null
+}
+
+export type ExportFlowState = OrganizationFlowState<ExportJob>
+export type DeletionFlowState = OrganizationFlowState<DeletionJob>
+
 export interface OrganizationStoreState {
   profile: OrganizationResource<OrganizationProfile>
   settings: OrganizationResource<OrganizationSettings>
   roleGrants: OrganizationResource<OrganizationRoleGrant[]>
+  deletionPrecheck: OrganizationResource<DeletionPrecheck>
   settingsCommand: OrganizationCommandState
   roleCommand: OrganizationCommandState
+  exportFlow: ExportFlowState
+  deletionFlow: DeletionFlowState
 }
 
 export interface OrganizationStore {
@@ -63,8 +90,30 @@ export interface OrganizationStore {
     expectedVersion: number,
     idempotencyKey: string,
   ): Promise<boolean>
+  createExport(
+    organizationId: string,
+    input: { includeVectors: boolean },
+    idempotencyKey: string,
+  ): Promise<boolean>
+  loadExportJob(organizationId: string, jobId?: string): Promise<void>
+  /** Audit-bearing read of the frozen artifacts document (server audits every download). */
+  fetchExportArtifacts(organizationId: string): Promise<ExportArtifacts | null>
+  processExport(organizationId: string): Promise<boolean>
+  cancelExport(organizationId: string): Promise<boolean>
+  precheckDeletion(organizationId: string, accountId: string, force?: boolean): Promise<void>
+  createDeletion(
+    organizationId: string,
+    input: { accountId: string, reason: string },
+    idempotencyKey: string,
+  ): Promise<boolean>
+  loadDeletionJob(organizationId: string, jobId?: string): Promise<void>
+  confirmDeletion(organizationId: string, confirmationToken: string): Promise<boolean>
+  processDeletion(organizationId: string): Promise<boolean>
+  cancelDeletion(organizationId: string): Promise<boolean>
   clearSettingsCommand(): void
   clearRoleCommand(): void
+  clearExportFlow(): void
+  clearDeletionFlow(): void
   reset(): void
 }
 
@@ -73,7 +122,13 @@ export const ORGANIZATION_STORE: InjectionKey<OrganizationStore> = Symbol('crews
 export function createOrganizationStore(gateway: OrganizationGateway): OrganizationStore {
   // The numbers are the idempotencyKey parameter index of each gateway method — the
   // commandInventory gate verifies them against the interface signatures by AST.
-  const commandIntents = createCommandGateway(gateway, { updateSettings: 3, grantRole: 2, revokeRoleGrant: 4 })
+  const commandIntents = createCommandGateway(gateway, {
+    updateSettings: 3,
+    grantRole: 2,
+    revokeRoleGrant: 4,
+    createExport: 2,
+    createDeletion: 2,
+  })
   gateway = commandIntents.gateway
   const state = reactive<OrganizationStoreState>(initialState())
   // One generation counter per resource: the page loads profile for every member but settings
@@ -82,9 +137,11 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
   let profileGeneration = 0
   let settingsGeneration = 0
   let roleGrantsGeneration = 0
+  let precheckGeneration = 0
   let profileController: AbortController | null = null
   let settingsController: AbortController | null = null
   let roleGrantsController: AbortController | null = null
+  let precheckController: AbortController | null = null
 
   async function loadProfile(organizationId: string, force = false): Promise<void> {
     if (!force && state.profile.phase === 'ready') return
@@ -197,6 +254,199 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
       () => gateway.revokeRoleGrant(organizationId, grantId, input, expectedVersion, idempotencyKey))
   }
 
+  async function createExport(
+    organizationId: string,
+    input: { includeVectors: boolean },
+    idempotencyKey: string,
+  ): Promise<boolean> {
+    return runCreation(state.exportFlow, 'create', async () => {
+      const result = await gateway.createExport(organizationId, input, idempotencyKey)
+      return afterCreation(state.exportFlow, result)
+    })
+  }
+
+  async function loadExportJob(organizationId: string, jobId?: string): Promise<void> {
+    const id = jobId ?? state.exportFlow.job?.id
+    if (!id) return
+    await runJobStep(state.exportFlow, 'load',
+      () => gateway.exportJob(organizationId, id),
+      same => gateway.exportJob(organizationId, same))
+  }
+
+  async function fetchExportArtifacts(organizationId: string): Promise<ExportArtifacts | null> {
+    const id = state.exportFlow.job?.id
+    if (!id) return null
+    state.exportFlow.busy = 'download'
+    state.exportFlow.errorMessage = null
+    state.exportFlow.errorStatus = null
+    state.exportFlow.errorCode = null
+    try {
+      return await gateway.openExportArtifacts(organizationId, id)
+    } catch (error) {
+      recordFlowFailure(state.exportFlow, error)
+      return null
+    }
+  }
+
+  async function processExport(organizationId: string): Promise<boolean> {
+    const id = state.exportFlow.job?.id
+    if (!id) return false
+    return runJobStep(state.exportFlow, 'process',
+      () => gateway.processExport(organizationId, id),
+      same => gateway.exportJob(organizationId, same))
+  }
+
+  async function cancelExport(organizationId: string): Promise<boolean> {
+    const id = state.exportFlow.job?.id
+    if (!id) return false
+    return runJobStep(state.exportFlow, 'cancel',
+      () => gateway.cancelExport(organizationId, id),
+      same => gateway.exportJob(organizationId, same))
+  }
+
+  async function precheckDeletion(organizationId: string, accountId: string, force = false): Promise<void> {
+    if (!force && state.deletionPrecheck.phase === 'ready'
+      && state.deletionPrecheck.value?.accountId === accountId) return
+    const current = ++precheckGeneration
+    precheckController?.abort()
+    const controller = new AbortController()
+    precheckController = controller
+    state.deletionPrecheck.phase = 'loading'
+    state.deletionPrecheck.errorMessage = null
+    try {
+      const value = await gateway.deletionPrecheck(organizationId, accountId, controller.signal)
+      if (current !== precheckGeneration || controller.signal.aborted) return
+      state.deletionPrecheck.phase = 'ready'
+      state.deletionPrecheck.value = value
+    } catch (error) {
+      if (current !== precheckGeneration || controller.signal.aborted) return
+      state.deletionPrecheck.phase = phaseOf(error)
+      state.deletionPrecheck.errorMessage = messageOf(error)
+    }
+  }
+
+  async function createDeletion(
+    organizationId: string,
+    input: { accountId: string, reason: string },
+    idempotencyKey: string,
+  ): Promise<boolean> {
+    return runCreation(state.deletionFlow, 'create', async () => {
+      const result = await gateway.createDeletion(organizationId, input, idempotencyKey)
+      return afterCreation(state.deletionFlow, result)
+    })
+  }
+
+  async function loadDeletionJob(organizationId: string, jobId?: string): Promise<void> {
+    const id = jobId ?? state.deletionFlow.job?.id
+    if (!id) return
+    await runJobStep(state.deletionFlow, 'load',
+      () => gateway.deletionJob(organizationId, id),
+      same => gateway.deletionJob(organizationId, same))
+  }
+
+  async function confirmDeletion(organizationId: string, confirmationToken: string): Promise<boolean> {
+    const job = state.deletionFlow.job
+    if (!job) return false
+    return runJobStep(state.deletionFlow, 'confirm',
+      () => gateway.confirmDeletion(organizationId, job.id, confirmationToken, job.version),
+      same => gateway.deletionJob(organizationId, same))
+  }
+
+  async function processDeletion(organizationId: string): Promise<boolean> {
+    const id = state.deletionFlow.job?.id
+    if (!id) return false
+    return runJobStep(state.deletionFlow, 'process',
+      () => gateway.processDeletion(organizationId, id),
+      same => gateway.deletionJob(organizationId, same))
+  }
+
+  async function cancelDeletion(organizationId: string): Promise<boolean> {
+    const id = state.deletionFlow.job?.id
+    if (!id) return false
+    return runJobStep(state.deletionFlow, 'cancel',
+      () => gateway.cancelDeletion(organizationId, id),
+      same => gateway.deletionJob(organizationId, same))
+  }
+
+  /**
+   * A create replay carries no job body (the original 202 job was answered to an earlier
+   * request): surface the receipt notice and keep the previous job (or none) — the audit
+   * center remains the authoritative history.
+   */
+  async function afterCreation<T>(flow: OrganizationFlowState<T>, result: CreationResult<T>): Promise<T | null> {
+    flow.replayed = result.replayed
+    flow.notice = result.replayed
+      ? '该命令此前已受理（幂等重放），本次未返回作业详情。作业历史以审计中心为准。'
+      : null
+    if (result.job) flow.job = result.job
+    return result.job
+  }
+
+  async function runCreation<T>(
+    flow: OrganizationFlowState<T>,
+    operation: 'create',
+    dispatch: () => Promise<T | null>,
+  ): Promise<boolean> {
+    flow.busy = operation
+    flow.notice = null
+    flow.errorMessage = null
+    flow.errorStatus = null
+    flow.errorCode = null
+    try {
+      await dispatch()
+      flow.busy = null
+      return true
+    } catch (error) {
+      recordFlowFailure(flow, error)
+      return false
+    }
+  }
+
+  /**
+   * Every step answer replaces the job wholesale (the process response settles all items).
+   * A 409 means the moved machine disagrees with the panel: re-read so the panel catches up.
+   */
+  async function runJobStep<T>(
+    flow: OrganizationFlowState<T>,
+    operation: OrganizationFlowState<T>['busy'],
+    dispatch: () => Promise<T>,
+    reload: (jobId: string) => Promise<T>,
+  ): Promise<boolean> {
+    if (!operation) return false
+    flow.busy = operation
+    flow.notice = null
+    flow.errorMessage = null
+    flow.errorStatus = null
+    flow.errorCode = null
+    try {
+      const job = await dispatch()
+      flow.job = job
+      flow.busy = null
+      return true
+    } catch (error) {
+      recordFlowFailure(flow, error)
+      const jobId = (flow.job as { id: string } | null)?.id
+      if (error instanceof CrewScopeApiError && error.status === 409 && jobId) {
+        flow.busy = 'load'
+        try {
+          flow.job = await reload(jobId)
+        } catch {
+          // Best effort: the recorded 409 coordinates already explain the failure.
+        } finally {
+          flow.busy = null
+        }
+      }
+      return false
+    }
+  }
+
+  function recordFlowFailure<T>(flow: OrganizationFlowState<T>, error: unknown): void {
+    flow.busy = null
+    flow.errorMessage = messageOf(error)
+    flow.errorStatus = error instanceof CrewScopeApiError ? error.status : null
+    flow.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
+  }
+
   /**
    * Grants are re-read after the receipt (and after a 409: the last-owner protection and the
    * optimistic-lock conflict both leave the list authoritative for the next attempt). The page
@@ -235,13 +485,23 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
     state.roleCommand = commandState()
   }
 
+  function clearExportFlow(): void {
+    state.exportFlow = flowState()
+  }
+
+  function clearDeletionFlow(): void {
+    state.deletionFlow = flowState()
+  }
+
   function reset(): void {
     profileGeneration += 1
     settingsGeneration += 1
     roleGrantsGeneration += 1
+    precheckGeneration += 1
     profileController?.abort()
     settingsController?.abort()
     roleGrantsController?.abort()
+    precheckController?.abort()
     commandIntents.clear()
     Object.assign(state, initialState())
   }
@@ -254,8 +514,21 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
     updateSettings,
     grantRole,
     revokeRoleGrant,
+    createExport,
+    loadExportJob,
+    fetchExportArtifacts,
+    processExport,
+    cancelExport,
+    precheckDeletion,
+    createDeletion,
+    loadDeletionJob,
+    confirmDeletion,
+    processDeletion,
+    cancelDeletion,
     clearSettingsCommand,
     clearRoleCommand,
+    clearExportFlow,
+    clearDeletionFlow,
     reset,
   }
 }
@@ -272,13 +545,20 @@ function initialState(): OrganizationStoreState {
     profile: resource(),
     settings: resource(),
     roleGrants: resource(),
+    deletionPrecheck: resource(),
     settingsCommand: commandState(),
     roleCommand: commandState(),
+    exportFlow: flowState(),
+    deletionFlow: flowState(),
   }
 }
 
 function resource<T>(): OrganizationResource<T> {
   return { phase: 'idle', value: null, errorMessage: null }
+}
+
+function flowState<T>(): OrganizationFlowState<T> {
+  return { job: null, busy: null, replayed: false, notice: null, errorMessage: null, errorStatus: null, errorCode: null }
 }
 
 function commandState(): OrganizationCommandState {

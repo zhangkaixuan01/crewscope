@@ -3,11 +3,14 @@ import { Building2, ShieldCheck } from '@lucide/vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
+import { AUTH_STORE } from '../domains/identity/store'
 import BaseBadge from '../components/base/BaseBadge.vue'
 import BaseButton from '../components/base/BaseButton.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import OrganizationRoleGrants from '../components/domain/OrganizationRoleGrants.vue'
+import OrganizationDeletionWorkflow from '../components/domain/OrganizationDeletionWorkflow.vue'
+import OrganizationExportWorkflow from '../components/domain/OrganizationExportWorkflow.vue'
 import { createFormCommandKeys } from '../api/formCommandKeys'
 import { useDirtyForm } from '../composables/useDirtyForm'
 import { organizationStatusLabels } from '../domains/organization/labels'
@@ -22,15 +25,23 @@ import { enumLabel } from '../domains/shared/labels'
  * so a team permission would lock auditors out of the page).
  */
 const principal = inject(AUTH_PRINCIPAL)
+const authStore = inject(AUTH_STORE)
 const route = useRoute()
 const router = useRouter()
 const store = useOrganizationStore()
 
-/** `?tab=general|roles` — anything else falls back to the general tab. */
-const tab = computed<'general' | 'roles'>(() => (route.query.tab === 'roles' ? 'roles' : 'general'))
+/** `?tab=general|roles|governance` — anything else falls back to the general tab. */
+const tab = computed<'general' | 'roles' | 'governance'>(() => {
+  if (route.query.tab === 'roles') return 'roles'
+  return route.query.tab === 'governance' ? 'governance' : 'general'
+})
 const organizationId = computed(() => principal?.organizationId ?? '')
 const canReadSettings = computed(() => Boolean(principal && can(principal, permissions.orgAuditRead)))
 const canWriteSettings = computed(() => Boolean(principal && can(principal, permissions.orgManageSettings)))
+const canGovern = computed(() => Boolean(principal && can(principal, permissions.orgGovern)))
+// The deletion entry is the owner's alone: the permission vocabulary cannot tell ADMIN from
+// OWNER, so the session role is the only client-side signal (server still enforces).
+const sessionOwner = computed(() => authStore?.state.session?.organization?.role === 'ORG_OWNER')
 const profile = computed(() => store.state.profile)
 
 const intentKeys = createFormCommandKeys()
@@ -143,6 +154,13 @@ function retentionText(days: number | null): string {
           :aria-current="tab === 'roles' ? 'page' : undefined"
           replace
         >组织角色</RouterLink>
+        <RouterLink
+          :to="{ query: { ...route.query, tab: 'governance' } }"
+          class="org-tabs__tab"
+          :class="{ 'org-tabs__tab--active': tab === 'governance' }"
+          :aria-current="tab === 'governance' ? 'page' : undefined"
+          replace
+        >治理</RouterLink>
       </nav>
 
       <template v-if="tab === 'general'">
@@ -270,6 +288,42 @@ function retentionText(days: number | null): string {
           </template>
         </StatePanel>
       </section>
+
+      <template v-else>
+        <section class="org-card" aria-labelledby="org-governance-heading">
+          <h2 id="org-governance-heading">治理</h2>
+          <template v-if="canGovern">
+            <section class="org-governance-block" aria-labelledby="org-export-heading">
+              <h3 id="org-export-heading">组织数据导出</h3>
+              <p class="org-note">导出组织全量数据用于迁移或对账；产物含对账清单，每次下载均记录审计。</p>
+              <OrganizationExportWorkflow :organization-id="organizationId" />
+            </section>
+            <section class="org-governance-block" aria-labelledby="org-deletion-heading">
+              <h3 id="org-deletion-heading">账号删除</h3>
+              <!-- The entry stays unrendered for non-owners: a rendered-then-denied attempt
+                writes ORG_GOVERNANCE_DENIED audit noise the owner never needed to make. -->
+              <OrganizationDeletionWorkflow v-if="sessionOwner" :organization-id="organizationId" />
+              <p v-else class="org-note">
+                账号删除仅限组织 Owner 执行。如需删除账号，请联系组织 Owner；当前会话角色为组织管理员。
+              </p>
+            </section>
+          </template>
+          <StatePanel
+            v-else
+            state="forbidden"
+            title="需要治理角色"
+            description="仅组织 Owner 与组织管理员可以执行组织级治理（数据导出与账号删除）。"
+          >
+            <template #action>
+              <BaseButton variant="secondary" size="small" @click="router.push({ name: 'access-denied', query: { requiredPermission: permissions.orgGovern } })">查看权限说明</BaseButton>
+            </template>
+          </StatePanel>
+          <p class="org-note org-deviation">
+            治理作业没有列表端点：本页只跟踪本会话创建的作业，历史作业请在
+            <RouterLink to="/audit">审计中心</RouterLink>查询 SECURITY 审计事件。
+          </p>
+        </section>
+      </template>
     </div>
   </SettingsShell>
 </template>
@@ -282,6 +336,9 @@ function retentionText(days: number | null): string {
 .org-tabs__tab--active { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 .org-card { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
 .org-card h2 { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-md); color: var(--cs-text); }
+.org-governance-block { display: grid; gap: var(--cs-space-12); padding-top: var(--cs-space-12); border-top: 1px solid var(--cs-border); }
+.org-governance-block h3 { margin: 0; font-size: var(--cs-text-md); color: var(--cs-text); }
+.org-deviation { border-left: 2px solid var(--cs-border); padding-left: var(--cs-space-12); }
 .org-facts { display: grid; gap: var(--cs-space-8); margin: 0; }
 .org-fact { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--cs-space-8); align-items: center; }
 .org-fact dt { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }

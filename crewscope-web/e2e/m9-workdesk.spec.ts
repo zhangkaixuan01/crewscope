@@ -149,6 +149,9 @@ test.describe('personal workbench', () => {
     const limited = [permissions.scopeRead, permissions.workProjectsRead, permissions.workRead]
     session.permissions = limited
     session.teams[0]!.permissions = limited
+    // The org:* vocabulary and the organization projection travel together (mapSession rejects
+    // one without the other), so a team-only permission set must drop the projection too.
+    session.organization = null
     const world: World = {
       ...defaultWorld(),
       session,

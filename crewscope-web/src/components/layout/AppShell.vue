@@ -141,7 +141,13 @@ watch(
     else delete nextQuery.project
 
     const leftTeam = previousTeamId !== null && previousTeamId !== selection.teamId
-    const teamChanged = queryValue(route.query.team) !== selection.teamId
+    // A route whose query whitelist cannot carry `team` (the org-grain organization settings,
+    // M12-F01) can never hold the selection id: reading its bare URL as a team mismatch would
+    // canonicalize on every cold load — deleting the page's own `tab` parameter and bouncing a
+    // deep link back to the default view. Such routes keep their query untouched.
+    const carriesTeamScope = !(Array.isArray(route.meta.queryWhitelist)
+      && !route.meta.queryWhitelist.includes('team'))
+    const teamChanged = carriesTeamScope && queryValue(route.query.team) !== selection.teamId
     // A URL that carries no explicit project gets the default project filled in — that alone is
     // canonicalization, not a member-driven scope switch. Deep-link coordinates (conversation,
     // focus, workItem) were authored against the Team as a whole and survive the fill-in; they

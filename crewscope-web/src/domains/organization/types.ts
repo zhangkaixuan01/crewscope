@@ -134,9 +134,9 @@ export interface ExportJob {
 export interface ExportManifestFamily {
   family: string
   itemCount: number
-  rowCount: number
+  pinnedRowCount: number
   checksum: string
-  skipped: unknown[]
+  skipped: string[]
 }
 
 export interface ExportManifest {

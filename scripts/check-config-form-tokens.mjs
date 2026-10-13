@@ -14,6 +14,8 @@ const files = [
   'components/domain/AgentCreateDialog.vue',
   'components/domain/ModelCredentialDialog.vue',
   'components/domain/WorkProjectCreateDialog.vue',
+  // M12-F01: the governance deletion form is a configuration surface (reason/token field text).
+  'components/domain/OrganizationDeletionWorkflow.vue',
   'pages/AgentSettingsPage.vue',
   'pages/ModelSettingsPage.vue',
   'pages/RepositorySettingsPage.vue',

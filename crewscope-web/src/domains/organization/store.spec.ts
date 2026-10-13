@@ -1,6 +1,6 @@
 import { CrewScopeApiError } from '../../api/client'
 import type { OrganizationGateway } from './gateway'
-import type { OrganizationRoleGrant } from './types'
+import type { CreationResult, DeletionJob, DeletionJobStatus, ExportJob, ExportJobStatus, OrganizationRoleGrant } from './types'
 import { createOrganizationStore } from './store'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
@@ -140,6 +140,80 @@ describe('OrganizationStore', () => {
     })
     expect(gateway.roleGrants).toHaveBeenCalledTimes(2)
   })
+
+  it('keeps the export job of the first create and folds a replay into a notice', async () => {
+    const gateway = fakeGateway()
+    gateway.createExport
+      .mockResolvedValueOnce(creation(exportJobFixture('RUNNING')))
+      .mockResolvedValueOnce({ job: null, receipt: commandReceipt(), replayed: true })
+    const store = createOrganizationStore(gateway)
+
+    expect(await store.createExport(organizationId, { includeVectors: false }, 'export-1')).toBe(true)
+    expect(store.state.exportFlow).toMatchObject({ job: { id: 'job-e1' }, busy: null, replayed: false })
+
+    expect(await store.createExport(organizationId, { includeVectors: false }, 'export-2')).toBe(true)
+    // The replay carries the original receipt and no job body: the panel keeps what it had.
+    expect(store.state.exportFlow.job).toMatchObject({ id: 'job-e1' })
+    expect(store.state.exportFlow.replayed).toBe(true)
+    expect(store.state.exportFlow.notice).toContain('幂等重放')
+  })
+
+  it('replaces the export job with each step answer and re-reads after a 409', async () => {
+    const gateway = fakeGateway()
+    gateway.createExport.mockResolvedValueOnce(creation(exportJobFixture('PENDING')))
+    gateway.processExport.mockResolvedValueOnce(exportJobFixture('COMPLETED'))
+    gateway.cancelExport.mockRejectedValueOnce(apiError(409, 'job_already_terminal'))
+    gateway.exportJob.mockResolvedValueOnce(exportJobFixture('CANCELLED'))
+    const store = createOrganizationStore(gateway)
+    await store.createExport(organizationId, { includeVectors: true }, 'export-1')
+
+    expect(await store.processExport(organizationId)).toBe(true)
+    expect(store.state.exportFlow.job).toMatchObject({ status: 'COMPLETED' })
+
+    expect(await store.cancelExport(organizationId)).toBe(false)
+    expect(store.state.exportFlow).toMatchObject({
+      busy: null, errorStatus: 409, errorCode: 'job_already_terminal',
+    })
+    expect(gateway.exportJob).toHaveBeenCalledWith(organizationId, 'job-e1')
+    expect(store.state.exportFlow.job).toMatchObject({ status: 'CANCELLED' })
+  })
+
+  it('caches the precheck per account and forces a re-read for a different account', async () => {
+    const gateway = fakeGateway()
+    const store = createOrganizationStore(gateway)
+
+    await store.precheckDeletion(organizationId, 'account-1')
+    await store.precheckDeletion(organizationId, 'account-1')
+    expect(gateway.deletionPrecheck).toHaveBeenCalledOnce()
+
+    await store.precheckDeletion(organizationId, 'account-2')
+    expect(gateway.deletionPrecheck).toHaveBeenCalledTimes(2)
+    expect(store.state.deletionPrecheck).toMatchObject({
+      phase: 'ready', value: { accountId: 'account-2', inFlightTaskExecutions: 0 },
+    })
+  })
+
+  it('runs the deletion workflow through confirm and process, re-reading after a confirm 409', async () => {
+    const gateway = fakeGateway()
+    gateway.createDeletion.mockResolvedValueOnce(creation(deletionJobFixture('PENDING_CONFIRMATION')))
+    gateway.confirmDeletion
+      .mockRejectedValueOnce(apiError(409, 'optimistic_lock_conflict'))
+      .mockResolvedValueOnce(deletionJobFixture('CONFIRMED'))
+    gateway.deletionJob.mockResolvedValueOnce(deletionJobFixture('CONFIRMED'))
+    gateway.processDeletion.mockResolvedValueOnce(deletionJobFixture('COMPLETED'))
+    const store = createOrganizationStore(gateway)
+    await store.createDeletion(organizationId, { accountId: 'account-1', reason: 'x'.repeat(20) }, 'deletion-1')
+    expect(store.state.deletionFlow.job).toMatchObject({ status: 'PENDING_CONFIRMATION' })
+
+    expect(await store.confirmDeletion(organizationId, 'e2e-member')).toBe(false)
+    expect(gateway.deletionJob).toHaveBeenCalledWith(organizationId, 'job-d1')
+    expect(store.state.deletionFlow).toMatchObject({ busy: null, errorStatus: 409 })
+
+    expect(await store.confirmDeletion(organizationId, 'e2e-member')).toBe(true)
+    expect(gateway.confirmDeletion).toHaveBeenCalledWith(organizationId, 'job-d1', 'e2e-member', 1)
+    expect(await store.processDeletion(organizationId)).toBe(true)
+    expect(store.state.deletionFlow.job).toMatchObject({ status: 'COMPLETED' })
+  })
 })
 
 function grant(id: string, status: 'ACTIVE' | 'REVOKED'): OrganizationRoleGrant {
@@ -150,6 +224,36 @@ function grant(id: string, status: 'ACTIVE' | 'REVOKED'): OrganizationRoleGrant 
   }
 }
 
+function exportJobFixture(status: ExportJobStatus): ExportJob {
+  return {
+    id: 'job-e1', organizationId, requestedByPrincipalId: 'principal-1', status,
+    includeVectors: false, manifest: null, version: 1,
+    createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
+  }
+}
+
+function deletionJobFixture(status: DeletionJobStatus): DeletionJob {
+  return {
+    id: 'job-d1', organizationId, accountId: 'account-1', targetPrincipalId: 'principal-2',
+    reason: '离职账号清理，含满足最短长度要求的完整说明。',
+    status,
+    reservationCheck: '{"inFlightTaskExecutions":0,"activeResponsibilities":0,"openReservations":null,"checkedAt":"2026-10-13T08:00:00Z"}',
+    backupRetentionStatement: '备份保留声明：每日快照 7 天、每周快照 4 周。',
+    version: 1, createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
+  }
+}
+
+function creation<T extends ExportJob | DeletionJob>(job: T): CreationResult<T> {
+  return { job, receipt: null, replayed: false }
+}
+
+function commandReceipt() {
+  return {
+    commandId: 'command-9', domainEventId: 'event-9', committedVersion: 1,
+    correlationId: 'c-9', replayed: true,
+  }
+}
+
 function fakeGateway(): OrganizationGateway & {
   profile: ReturnType<typeof vi.fn>
   settings: ReturnType<typeof vi.fn>
@@ -157,6 +261,16 @@ function fakeGateway(): OrganizationGateway & {
   roleGrants: ReturnType<typeof vi.fn>
   grantRole: ReturnType<typeof vi.fn>
   revokeRoleGrant: ReturnType<typeof vi.fn>
+  exportJob: ReturnType<typeof vi.fn>
+  createExport: ReturnType<typeof vi.fn>
+  processExport: ReturnType<typeof vi.fn>
+  cancelExport: ReturnType<typeof vi.fn>
+  deletionPrecheck: ReturnType<typeof vi.fn>
+  createDeletion: ReturnType<typeof vi.fn>
+  deletionJob: ReturnType<typeof vi.fn>
+  confirmDeletion: ReturnType<typeof vi.fn>
+  processDeletion: ReturnType<typeof vi.fn>
+  cancelDeletion: ReturnType<typeof vi.fn>
 } {
   return {
     profile: vi.fn(async () => ({ organizationId, name: 'CrewScope Organization', status: 'ACTIVE' as const, version: 1 })),
@@ -174,6 +288,19 @@ function fakeGateway(): OrganizationGateway & {
       commandId: 'command-3', domainEventId: 'event-3', committedVersion: 2,
       correlationId: 'c-3', replayed: false,
     })),
+    exportJob: vi.fn(async () => exportJobFixture('PENDING')),
+    createExport: vi.fn(async () => creation(exportJobFixture('PENDING'))),
+    processExport: vi.fn(async () => exportJobFixture('COMPLETED')),
+    cancelExport: vi.fn(async () => exportJobFixture('CANCELLED')),
+    openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
+    deletionPrecheck: vi.fn(async (_organizationId: string, accountId: string) => ({
+      accountId, inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
+    })),
+    createDeletion: vi.fn(async () => creation(deletionJobFixture('PENDING_CONFIRMATION'))),
+    deletionJob: vi.fn(async () => deletionJobFixture('PENDING_CONFIRMATION')),
+    confirmDeletion: vi.fn(async () => deletionJobFixture('CONFIRMED')),
+    processDeletion: vi.fn(async () => deletionJobFixture('COMPLETED')),
+    cancelDeletion: vi.fn(async () => deletionJobFixture('CANCELLED')),
   }
 }
 

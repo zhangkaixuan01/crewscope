@@ -5,7 +5,7 @@ import { fixtureAuthStore } from '../../test/authFixtures'
 import { CrewScopeApiError } from '../../api/client'
 import type { OrganizationGateway } from '../../domains/organization/gateway'
 import { ORGANIZATION_STORE, createOrganizationStore } from '../../domains/organization/store'
-import type { OrganizationRoleGrant } from '../../domains/organization/types'
+import type { DeletionJob, ExportJob, OrganizationRoleGrant } from '../../domains/organization/types'
 import OrganizationRoleGrants from './OrganizationRoleGrants.vue'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
@@ -149,6 +149,37 @@ function fakeGateway(): OrganizationGateway & {
     roleGrants: vi.fn(async () => []),
     grantRole: vi.fn(async () => receipt('c-2')),
     revokeRoleGrant: vi.fn(async () => receipt('c-3')),
+    // The roles tab never exercises governance; the methods exist to satisfy the interface.
+    exportJob: vi.fn(async () => exportJobFixture()),
+    createExport: vi.fn(async () => ({ job: exportJobFixture(), receipt: null, replayed: false })),
+    processExport: vi.fn(async () => exportJobFixture()),
+    cancelExport: vi.fn(async () => exportJobFixture()),
+    openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
+    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
+    createDeletion: vi.fn(async () => ({ job: deletionJobFixture(), receipt: null, replayed: false })),
+    deletionJob: vi.fn(async () => deletionJobFixture()),
+    confirmDeletion: vi.fn(async () => deletionJobFixture()),
+    processDeletion: vi.fn(async () => deletionJobFixture()),
+    cancelDeletion: vi.fn(async () => deletionJobFixture()),
+  }
+}
+
+function exportJobFixture(): ExportJob {
+  return {
+    id: 'job-e1', organizationId, requestedByPrincipalId: 'p-1', status: 'PENDING',
+    includeVectors: false, manifest: null, version: 1,
+    createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
+  }
+}
+
+function deletionJobFixture(): DeletionJob {
+  return {
+    id: 'job-d1', organizationId, accountId: 'account-1', targetPrincipalId: 'p-2',
+    reason: '离职账号清理，含满足最短长度要求的完整说明。',
+    status: 'PENDING_CONFIRMATION',
+    reservationCheck: '{"inFlightTaskExecutions":0,"activeResponsibilities":0,"openReservations":null,"checkedAt":"2026-10-13T08:00:00Z"}',
+    backupRetentionStatement: '备份保留声明：每日快照 7 天、每周快照 4 周。',
+    version: 1, createdAt: '2026-10-13T08:00:00Z', updatedAt: '2026-10-13T08:00:00Z', items: [],
   }
 }
 

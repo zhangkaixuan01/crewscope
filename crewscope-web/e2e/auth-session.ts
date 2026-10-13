@@ -12,8 +12,10 @@ export function authenticatedSession(organizationId: string, principalId: string
     },
     principal: { principalId, organizationId },
     // The full permission bundle includes org:*, and mapSession rejects an org:* vocabulary
-    // without the organization projection — so the fixture carries an ORG_OWNER session.
-    organization: { organizationId, name: 'Test Organization', role: 'ORG_OWNER' },
+    // without the organization projection — so the fixture carries an ORG_OWNER session. Specs
+    // that narrow permissions to a team-only set null this field (the pair travels together).
+    organization: { organizationId, name: 'Test Organization', role: 'ORG_OWNER' } as
+      { organizationId: string, name: string, role: string } | null,
     teams: teamId
       ? [{ teamId, name: 'Platform Engineering', memberId: '00000000-0000-4000-8000-000000000301', permissions: granted }]
       : [],

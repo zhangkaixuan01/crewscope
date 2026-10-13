@@ -197,6 +197,9 @@ test.describe('work item list capabilities', () => {
     const readOnly = [permissions.scopeRead, permissions.workProjectsRead, permissions.workRead]
     session.permissions = readOnly
     session.teams[0]!.permissions = readOnly
+    // org:* 词汇与 organization 投影同进退（mapSession 的一致性防御）：裁掉词汇就要裁掉投影，
+    // 否则会话恢复直接失败，断言会在错误态页面上「真空通过」。
+    session.organization = null
     const state = { ...world([row()]), session }
     await mockApi(page, state)
 
