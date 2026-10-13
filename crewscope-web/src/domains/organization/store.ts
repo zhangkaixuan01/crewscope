@@ -281,7 +281,11 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
     state.exportFlow.errorStatus = null
     state.exportFlow.errorCode = null
     try {
-      return await gateway.openExportArtifacts(organizationId, id)
+      const artifacts = await gateway.openExportArtifacts(organizationId, id)
+      // The download is a read: success must hand the panel back its buttons, or one
+      // download would leave every export action disabled for the rest of the session.
+      state.exportFlow.busy = null
+      return artifacts
     } catch (error) {
       recordFlowFailure(state.exportFlow, error)
       return null

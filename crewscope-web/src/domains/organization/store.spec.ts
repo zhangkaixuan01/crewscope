@@ -158,6 +158,22 @@ describe('OrganizationStore', () => {
     expect(store.state.exportFlow.notice).toContain('幂等重放')
   })
 
+  it('returns the export panel its buttons after a successful download', async () => {
+    const gateway = fakeGateway()
+    gateway.createExport.mockResolvedValueOnce(creation(exportJobFixture('COMPLETED')))
+    gateway.openExportArtifacts.mockResolvedValueOnce({ manifest: null, artifacts: [] })
+    const store = createOrganizationStore(gateway)
+    await store.createExport(organizationId, { includeVectors: false }, 'export-1')
+
+    expect(await store.fetchExportArtifacts(organizationId)).toEqual({ manifest: null, artifacts: [] })
+    // busy is the panel's only disable signal: a completed read must not strand it.
+    expect(store.state.exportFlow.busy).toBeNull()
+
+    gateway.openExportArtifacts.mockRejectedValueOnce(apiError(409, 'export_not_ready'))
+    expect(await store.fetchExportArtifacts(organizationId)).toBeNull()
+    expect(store.state.exportFlow).toMatchObject({ busy: null, errorStatus: 409, errorCode: 'export_not_ready' })
+  })
+
   it('replaces the export job with each step answer and re-reads after a 409', async () => {
     const gateway = fakeGateway()
     gateway.createExport.mockResolvedValueOnce(creation(exportJobFixture('PENDING')))
@@ -265,6 +281,7 @@ function fakeGateway(): OrganizationGateway & {
   createExport: ReturnType<typeof vi.fn>
   processExport: ReturnType<typeof vi.fn>
   cancelExport: ReturnType<typeof vi.fn>
+  openExportArtifacts: ReturnType<typeof vi.fn>
   deletionPrecheck: ReturnType<typeof vi.fn>
   createDeletion: ReturnType<typeof vi.fn>
   deletionJob: ReturnType<typeof vi.fn>
