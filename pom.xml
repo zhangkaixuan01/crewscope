@@ -40,6 +40,9 @@
         <!-- Keep the cryptographic provider patched for CVE-2025-14813 and CVE-2026-8763. -->
         <bouncycastle.version>1.85</bouncycastle.version>
         <testcontainers.version>2.0.4</testcontainers.version>
+        <!-- Docker client coordinate that Testcontainers resolves transitively; server tests
+             reference the DockerClient type directly, so its version stays pinned here. -->
+        <docker-java.version>3.7.1</docker-java.version>
         <!-- Springdoc 3.x is the Boot 4 compatible OpenAPI 3.1 generator. -->
         <springdoc.version>3.1.1</springdoc.version>
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
@@ -86,6 +89,11 @@
                 <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.github.docker-java</groupId>
+                <artifactId>docker-java-api</artifactId>
+                <version>${docker-java.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
