@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 289 = 283 + 6 organization management routes (M12-A01: profile, settings, role grants).
-if (operationCount !== 289) {
-  console.error(`OpenAPI operation baseline changed: expected 289, found ${operationCount}`)
+// 300 = 289 + 11 governance workflow routes (M12-A01: data exports, account deletions).
+if (operationCount !== 300) {
+  console.error(`OpenAPI operation baseline changed: expected 300, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

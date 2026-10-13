@@ -306,6 +306,15 @@ class GateReviewerAssignmentServiceTest {
                 new LinkedHashMap<>();
         private int lockCalls;
 
+        @Override
+        public long countActiveByPrincipal(
+                OrganizationId organizationId, PrincipalId actorPrincipalId) {
+            return values.values().stream()
+                    .filter(assignment -> assignment.actorPrincipalId().equals(actorPrincipalId)
+                            && assignment.isActive())
+                    .count();
+        }
+
         private void seed(ResponsibilityAssignment assignment) {
             values.put(assignment.id(), assignment);
         }

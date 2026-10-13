@@ -634,6 +634,17 @@ final class KnowledgeRetrievalServiceTest {
         private List<ScoredKnowledgeEmbedding> hits = List.of();
 
         @Override
+        public List<KnowledgeEmbeddingVector> pageByOrganization(
+                OrganizationId organizationId, String afterCursor, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
+
+        @Override
         public void replace(KnowledgeEmbeddingVector vector) {
             throw new UnsupportedOperationException("retrieval never writes");
         }
@@ -663,6 +674,17 @@ final class KnowledgeRetrievalServiceTest {
     private static final class FakeChunkVectorStore implements RepositoryChunkVectorStore {
         private final List<RepositoryChunkEmbeddingQuery> queries = new ArrayList<>();
         private List<ScoredRepositoryChunk> hits = List.of();
+
+        @Override
+        public List<RepositoryChunkEmbeddingExportRow> pageByOrganization(
+                OrganizationId organizationId, String afterCursor, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
 
         @Override
         public void replaceBatch(

@@ -49,4 +49,10 @@ public interface ResponsibilityAssignmentRepository {
      */
     List<ResponsibilityAssignment> findActiveByActorMember(
             OrganizationId organizationId, TeamId teamId, TeamMemberId memberId);
+
+    /**
+     * Counts every active responsibility the principal still holds organization-wide — the
+     * hard deletion precondition that steers callers through the handover job first.
+     */
+    long countActiveByPrincipal(OrganizationId organizationId, PrincipalId actorPrincipalId);
 }

@@ -1,9 +1,11 @@
 package io.crewscope.application.task;
 
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,4 +36,11 @@ public interface TaskExecutionRepository {
      * <p>The caller must keep an outer transaction open through orphan cleanup and requeue.
      */
     List<TaskExecution> findRecoveringForUpdate(OrganizationId organizationId, int limit);
+
+    /**
+     * Counts the principals' attempts that are still in flight (any non-terminal status) — the
+     * hard deletion precondition of the account-governance workflow.
+     */
+    long countInFlightByPrincipals(
+            OrganizationId organizationId, Collection<PrincipalId> principalIds);
 }

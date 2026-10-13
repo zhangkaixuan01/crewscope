@@ -2,10 +2,12 @@ package io.crewscope.application.task;
 
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskCredentialGrant;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskTokenJtiHash;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,4 +49,11 @@ public interface TaskCredentialGrantRepository {
             RuntimeEnvironment environment,
             UtcTimestamp authoritativeNow,
             int limit);
+
+    /**
+     * Lists ACTIVE grants issued to any of the principals — both the deletion precondition face
+     * and the revoke-input face of the account-governance workflow.
+     */
+    List<TaskCredentialGrant> findActiveByPrincipals(
+            OrganizationId organizationId, Collection<PrincipalId> principalIds);
 }

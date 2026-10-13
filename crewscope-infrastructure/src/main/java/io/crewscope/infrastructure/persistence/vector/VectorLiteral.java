@@ -25,4 +25,19 @@ public final class VectorLiteral {
         }
         return literal.append(']').toString();
     }
+
+    /** Parses the pgvector text form {@code [c0,c1,...]} back into produced geometry. */
+    public static float[] parse(String literal) {
+        String required = Objects.requireNonNull(literal, "literal");
+        String inner = required.substring(1, required.length() - 1);
+        if (inner.isBlank()) {
+            return new float[0];
+        }
+        String[] components = inner.split(",");
+        float[] values = new float[components.length];
+        for (int i = 0; i < components.length; i++) {
+            values[i] = Float.parseFloat(components[i]);
+        }
+        return values;
+    }
 }

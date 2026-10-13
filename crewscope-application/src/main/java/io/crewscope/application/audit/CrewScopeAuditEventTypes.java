@@ -110,6 +110,7 @@ public final class CrewScopeAuditEventTypes {
         registerM7IdentityEvents(definitions);
         registerKnowledgeEvents(definitions);
         registerOrganizationRoleAndSettingEvents(definitions);
+        registerOrganizationGovernanceEvents(definitions);
         return new AuditEventTypeRegistry(definitions);
     }
 
@@ -144,6 +145,79 @@ public final class CrewScopeAuditEventTypes {
                 AuditOutcome.SUCCEEDED,
                 AuditRetentionLevel.EXTENDED,
                 required("auditEventRetentionDaysAfter"));
+    }
+
+    /** Governance job lifecycle facts (M12-A01): the export/deletion workflows themselves. */
+    private static void registerOrganizationGovernanceEvents(List<AuditEventTypeDefinition> target) {
+        register(
+                target,
+                List.of("ORGANIZATION_DATA_EXPORT_CREATED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationDataExportCreated.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"),
+                required("includeVectors"),
+                required("itemCount"));
+        register(
+                target,
+                List.of("ORGANIZATION_DATA_EXPORT_COMPLETED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationDataExportCompleted.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"),
+                required("manifestChecksum"),
+                required("itemCount"));
+        register(
+                target,
+                List.of("ORGANIZATION_DATA_EXPORT_CANCELLED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationDataExportCancelled.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"));
+        register(
+                target,
+                List.of("ORGANIZATION_ACCOUNT_DELETION_REQUESTED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationAccountDeletionRequested.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"),
+                required("accountId"),
+                required("targetPrincipalId"));
+        register(
+                target,
+                List.of("ORGANIZATION_ACCOUNT_DELETION_CONFIRMED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationAccountDeletionConfirmed.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"));
+        register(
+                target,
+                List.of("ORGANIZATION_ACCOUNT_DELETION_COMPLETED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationAccountDeletionCompleted.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"));
+        register(
+                target,
+                List.of("ORGANIZATION_ACCOUNT_DELETION_CANCELLED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.governance.event.OrganizationAccountDeletionCancelled.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("jobId"));
     }
 
     private static void registerKnowledgeEvents(List<AuditEventTypeDefinition> target) {

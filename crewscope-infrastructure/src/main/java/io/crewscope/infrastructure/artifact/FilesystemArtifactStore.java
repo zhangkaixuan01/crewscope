@@ -14,6 +14,7 @@ import io.crewscope.application.artifact.ArtifactTombstoneReason;
 import io.crewscope.application.artifact.ArtifactWriteRequest;
 import io.crewscope.application.artifact.Sha256Hash;
 import io.crewscope.domain.shared.id.ArtifactId;
+import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -206,6 +207,35 @@ public class FilesystemArtifactStore implements ArtifactStore {
             }
         }
         return List.copyOf(removed);
+    }
+
+    @Override
+    public List<ArtifactDescriptor> listDescriptorsByOrganization(
+            OrganizationId organizationId, Optional<ArtifactId> after, int limit) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        Objects.requireNonNull(after, "after");
+        if (limit <= 0) {
+            return List.of();
+        }
+        // Reference paths sort by artifact id (shard prefix then file name), so one ordered walk
+        // gives the keyset scan: skip everything at or before the cursor, keep the organization's
+        // descriptors until the limit is full.
+        List<ArtifactDescriptor> matches = new ArrayList<>();
+        String cursor = after.map(ArtifactId::toString).orElse(null);
+        for (Path candidate : listReferenceFiles()) {
+            if (matches.size() >= limit) {
+                break;
+            }
+            ArtifactDescriptor snapshot = readDescriptor(candidate);
+            if (!snapshot.scope().organizationId().equals(organizationId)) {
+                continue;
+            }
+            if (cursor != null && snapshot.artifactId().toString().compareTo(cursor) <= 0) {
+                continue;
+            }
+            matches.add(snapshot);
+        }
+        return List.copyOf(matches);
     }
 
     private boolean purgeOne(ArtifactId artifactId, ArtifactPurgeRequest request) throws IOException {

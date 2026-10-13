@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 337dfa894711fad3e79178644f9716a59ec02274b80290237ce6231a287f11cc
+// Controller source SHA-256: 310b13a0c29b4f69105ecfc155fc8a05b3e60e175c3f661388fce65e4b94b0dc
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -173,11 +173,99 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/account-deletions": {
+      "post": {
+        "operationId": "OrganizationDeletionController_create",
+        "tags": [
+          "OrganizationDeletionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/account-deletions/{jobId}": {
+      "get": {
+        "operationId": "OrganizationDeletionController_get",
+        "tags": [
+          "OrganizationDeletionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/cancel": {
+      "post": {
+        "operationId": "OrganizationDeletionController_cancel",
+        "tags": [
+          "OrganizationDeletionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/confirm": {
+      "post": {
+        "operationId": "OrganizationDeletionController_confirm",
+        "tags": [
+          "OrganizationDeletionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/process": {
+      "post": {
+        "operationId": "OrganizationDeletionController_process",
+        "tags": [
+          "OrganizationDeletionController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/command-results": {
       "get": {
         "operationId": "CommandResultController_get",
         "tags": [
           "CommandResultController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/data-exports": {
+      "post": {
+        "operationId": "OrganizationExportController_create",
+        "tags": [
+          "OrganizationExportController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/data-exports/{jobId}": {
+      "get": {
+        "operationId": "OrganizationExportController_get",
+        "tags": [
+          "OrganizationExportController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/data-exports/{jobId}/artifacts": {
+      "get": {
+        "operationId": "OrganizationExportController_artifacts",
+        "tags": [
+          "OrganizationExportController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/data-exports/{jobId}/cancel": {
+      "post": {
+        "operationId": "OrganizationExportController_cancel",
+        "tags": [
+          "OrganizationExportController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/data-exports/{jobId}/process": {
+      "post": {
+        "operationId": "OrganizationExportController_process",
+        "tags": [
+          "OrganizationExportController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/deletion-precheck": {
+      "get": {
+        "operationId": "OrganizationDeletionController_precheck",
+        "tags": [
+          "OrganizationDeletionController"
         ]
       }
     },
@@ -2368,10 +2456,76 @@ export const openApiOperations = [
     "controller": "OrganizationProfileController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/account-deletions",
+    "operationId": "OrganizationDeletionController_create",
+    "controller": "OrganizationDeletionController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/account-deletions/{jobId}",
+    "operationId": "OrganizationDeletionController_get",
+    "controller": "OrganizationDeletionController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/cancel",
+    "operationId": "OrganizationDeletionController_cancel",
+    "controller": "OrganizationDeletionController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/confirm",
+    "operationId": "OrganizationDeletionController_confirm",
+    "controller": "OrganizationDeletionController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/account-deletions/{jobId}/process",
+    "operationId": "OrganizationDeletionController_process",
+    "controller": "OrganizationDeletionController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/command-results",
     "operationId": "CommandResultController_get",
     "controller": "CommandResultController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/data-exports",
+    "operationId": "OrganizationExportController_create",
+    "controller": "OrganizationExportController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/data-exports/{jobId}",
+    "operationId": "OrganizationExportController_get",
+    "controller": "OrganizationExportController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/data-exports/{jobId}/artifacts",
+    "operationId": "OrganizationExportController_artifacts",
+    "controller": "OrganizationExportController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/data-exports/{jobId}/cancel",
+    "operationId": "OrganizationExportController_cancel",
+    "controller": "OrganizationExportController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/data-exports/{jobId}/process",
+    "operationId": "OrganizationExportController_process",
+    "controller": "OrganizationExportController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/deletion-precheck",
+    "operationId": "OrganizationDeletionController_precheck",
+    "controller": "OrganizationDeletionController"
   },
   {
     "method": "get",
@@ -3988,4 +4142,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 289 as const
+export const openApiOperationCount = 300 as const

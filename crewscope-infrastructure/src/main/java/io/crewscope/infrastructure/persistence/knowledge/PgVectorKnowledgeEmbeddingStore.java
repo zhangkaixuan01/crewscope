@@ -95,8 +95,7 @@ public final class PgVectorKnowledgeEmbeddingStore implements KnowledgeEmbedding
     }
 
     @Override
-    public List<ScoredKnowledgeEmbedding> nearest(KnowledgeEmbeddingQuery query) {
-        KnowledgeEmbeddingQuery value = Objects.requireNonNull(query, "query");
+    public List<ScoredKnowledgeEmbedding> nearest(KnowledgeEmbeddingQuery query) {        KnowledgeEmbeddingQuery value = Objects.requireNonNull(query, "query");
         String literal = VectorLiteral.of(value.queryVector());
         return jdbc.query(
                 """
@@ -130,5 +129,78 @@ public final class PgVectorKnowledgeEmbeddingStore implements KnowledgeEmbedding
                 value.model().revision(),
                 literal,
                 value.topK());
+    }
+
+    @Override
+    public boolean isEnabled() {
+        // The vector chain is a separate Flyway history: probe the table instead of assuming it.
+        try {
+            return Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT to_regclass('crewscope.knowledge_entry_embedding') IS NOT NULL",
+                    Boolean.class));
+        } catch (org.springframework.dao.DataAccessException unreachable) {
+            return false;
+        }
+    }
+
+    @Override
+    public List<KnowledgeEmbeddingVector> pageByOrganization(
+            OrganizationId organizationId, String afterCursor, int limit) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        if (limit <= 0) {
+            return List.of();
+        }
+        // Keyset cursor "entryId|revision|modelKey|dimension" over the row order below.
+        if (afterCursor == null || afterCursor.isBlank()) {
+            return jdbc.query(
+                    """
+                    SELECT team_id, entry_id, revision, model_key, dimension, model_revision,
+                           content_hash, embedding::text
+                      FROM crewscope.knowledge_entry_embedding
+                     WHERE organization_id = ?
+                     ORDER BY entry_id, revision, model_key, dimension
+                     LIMIT ?
+                    """,
+                    (rs, rowNum) -> rowOf(organizationId, rs),
+                    organizationId.value(),
+                    limit);
+        }
+        String[] cursor = afterCursor.split("\\|", 4);
+        if (cursor.length != 4) {
+            throw new IllegalArgumentException("Malformed embedding page cursor");
+        }
+        return jdbc.query(
+                """
+                SELECT team_id, entry_id, revision, model_key, dimension, model_revision,
+                       content_hash, embedding::text
+                  FROM crewscope.knowledge_entry_embedding
+                 WHERE organization_id = ?
+                   AND (entry_id, revision, model_key, dimension)
+                       > (?::uuid, ?::bigint, ?, ?::int)
+                 ORDER BY entry_id, revision, model_key, dimension
+                 LIMIT ?
+                """,
+                (rs, rowNum) -> rowOf(organizationId, rs),
+                organizationId.value(),
+                cursor[0],
+                Long.parseLong(cursor[1]),
+                cursor[2],
+                Integer.parseInt(cursor[3]),
+                limit);
+    }
+
+    private static KnowledgeEmbeddingVector rowOf(
+            OrganizationId organizationId, java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new KnowledgeEmbeddingVector(
+                organizationId,
+                new TeamId(rs.getObject("team_id", java.util.UUID.class)),
+                new KnowledgeEntryId(rs.getObject("entry_id", java.util.UUID.class)),
+                new KnowledgeEntryRevision(rs.getLong("revision")),
+                new io.crewscope.domain.retrieval.EmbeddingModelRevision(
+                        rs.getString("model_key"),
+                        rs.getInt("dimension"),
+                        rs.getLong("model_revision")),
+                rs.getString("content_hash"),
+                VectorLiteral.parse(rs.getString("embedding")));
     }
 }

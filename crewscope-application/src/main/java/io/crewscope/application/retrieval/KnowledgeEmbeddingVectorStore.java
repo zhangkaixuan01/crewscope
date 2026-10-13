@@ -38,4 +38,16 @@ public interface KnowledgeEmbeddingVectorStore {
 
     /** Bounded nearest neighbors within one Team's published, in-force knowledge. */
     List<ScoredKnowledgeEmbedding> nearest(KnowledgeEmbeddingQuery query);
+
+    /**
+     * Whether the pgvector store is deployed and readable — the governance export settles the
+     * vector families as SKIPPED/VECTOR_STORE_DISABLED instead of failing the job when not.
+     */
+    boolean isEnabled();
+
+    /**
+     * Bounded keyset page of one organization's vector rows ordered by (team_id, entry_id) —
+     * the governance export face; positioning columns travel with each row.
+     */
+    List<KnowledgeEmbeddingVector> pageByOrganization(OrganizationId organizationId, String afterCursor, int limit);
 }

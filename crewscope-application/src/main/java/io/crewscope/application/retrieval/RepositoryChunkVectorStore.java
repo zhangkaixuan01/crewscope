@@ -1,6 +1,7 @@
 package io.crewscope.application.retrieval;
 
 import io.crewscope.domain.retrieval.RepositoryGenerationKey;
+import io.crewscope.domain.shared.id.OrganizationId;
 import java.util.List;
 
 /**
@@ -26,4 +27,18 @@ public interface RepositoryChunkVectorStore {
      * caller can widen a search beyond the activated generation it was handed.
      */
     List<ScoredRepositoryChunk> nearest(RepositoryChunkEmbeddingQuery query);
+
+    /**
+     * Whether the pgvector store is deployed and readable — mirrors the knowledge store face
+     * the governance export consults before settling vector families as SKIPPED.
+     */
+    boolean isEnabled();
+
+    /**
+     * Bounded keyset page of one organization's chunk vector rows ordered by
+     * (index_key, build_sequence, chunk_seq) — the governance export face. The projection
+     * carries raw columns because the stored index coordinate is a one-way hash.
+     */
+    List<RepositoryChunkEmbeddingExportRow> pageByOrganization(
+            OrganizationId organizationId, String afterCursor, int limit);
 }

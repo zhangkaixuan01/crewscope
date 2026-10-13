@@ -764,6 +764,15 @@ class ResponsibilityHandoverApplicationServiceTest {
     final Map<String, ReceiptEntry> receipts = new HashMap<>();
 
     @Override
+    public long countActiveByPrincipal(
+        OrganizationId organizationId, PrincipalId actorPrincipalId) {
+      return assignments.values().stream()
+          .filter(assignment -> assignment.actorPrincipalId().equals(actorPrincipalId)
+              && assignment.isActive())
+          .count();
+    }
+
+    @Override
     public ResponsibilityHandoverJob createJob(
         ResponsibilityHandoverJob job, List<ResponsibilityHandoverItem> queued) {
       jobs.put(job.id(), job);

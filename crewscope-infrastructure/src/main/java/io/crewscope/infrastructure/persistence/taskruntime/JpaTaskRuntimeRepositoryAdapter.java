@@ -54,6 +54,7 @@ import io.crewscope.domain.workitem.WorkProjectId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -345,6 +346,29 @@ public class JpaTaskRuntimeRepositoryAdapter implements
                 .setParameter("organizationId", required(organizationId).value())
                 .setParameter("workItemId", required(workItemId).value())
                 .getResultList().stream().map(this::toTaskDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countInFlightByPrincipals(
+            OrganizationId organizationId, Collection<PrincipalId> principalIds) {
+        Objects.requireNonNull(principalIds, "principalIds");
+        if (principalIds.isEmpty()) {
+            return 0L;
+        }
+        // In-flight mirrors the work-desk vocabulary: every status that is not terminal.
+        return entityManager.createQuery(
+                        """
+                        SELECT COUNT(execution) FROM TaskExecutionEntity execution
+                        WHERE execution.organizationId = :organizationId
+                          AND execution.executionPrincipalId IN :principalIds
+                          AND execution.status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                        """,
+                        Long.class)
+                .setParameter("organizationId", required(organizationId).value())
+                .setParameter("principalIds", principalIds.stream()
+                        .map(PrincipalId::value).toList())
+                .getSingleResult();
     }
 
     @Override

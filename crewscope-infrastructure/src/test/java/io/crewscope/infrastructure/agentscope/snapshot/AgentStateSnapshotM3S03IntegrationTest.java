@@ -512,6 +512,12 @@ class AgentStateSnapshotM3S03IntegrationTest {
     private record FailingArtifactStore(ArtifactStore delegate) implements ArtifactStore {
 
         @Override
+        public List<ArtifactDescriptor> listDescriptorsByOrganization(
+                OrganizationId organizationId, Optional<ArtifactId> after, int limit) {
+            return delegate.listDescriptorsByOrganization(organizationId, after, limit);
+        }
+
+        @Override
         public io.crewscope.application.artifact.ArtifactDescriptor put(
                 io.crewscope.application.artifact.ArtifactWriteRequest request,
                 java.io.InputStream content) {
@@ -554,6 +560,12 @@ class AgentStateSnapshotM3S03IntegrationTest {
     /** Returns a mismatched ID to prove that publication metadata is validated by the Adapter. */
     private record InconsistentDescriptorArtifactStore(ArtifactStore delegate)
             implements ArtifactStore {
+
+        @Override
+        public List<ArtifactDescriptor> listDescriptorsByOrganization(
+                OrganizationId organizationId, Optional<ArtifactId> after, int limit) {
+            return delegate.listDescriptorsByOrganization(organizationId, after, limit);
+        }
 
         @Override
         public ArtifactDescriptor put(ArtifactWriteRequest request, InputStream content) {
@@ -604,6 +616,12 @@ class AgentStateSnapshotM3S03IntegrationTest {
 
     /** Bypasses the Store's normal read verification to test the Adapter's defense in depth. */
     private record UnverifiedContentArtifactStore(ArtifactStore delegate) implements ArtifactStore {
+
+        @Override
+        public List<ArtifactDescriptor> listDescriptorsByOrganization(
+                OrganizationId organizationId, Optional<ArtifactId> after, int limit) {
+            return delegate.listDescriptorsByOrganization(organizationId, after, limit);
+        }
 
         @Override
         public ArtifactDescriptor put(ArtifactWriteRequest request, InputStream content) {

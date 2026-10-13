@@ -543,6 +543,17 @@ final class KnowledgeIndexWorkerTest {
         private final Set<KnowledgeEntryRevision> committed = new LinkedHashSet<>();
 
         @Override
+        public List<KnowledgeEmbeddingVector> pageByOrganization(
+                OrganizationId organizationId, String afterCursor, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
+
+        @Override
         public void replace(KnowledgeEmbeddingVector vector) {
             replaced.add(vector);
             committed.add(vector.revision());
@@ -604,6 +615,16 @@ final class KnowledgeIndexWorkerTest {
             this.trace = trace;
         }
 
+        @Override
+        public List<RepositoryChunkEmbeddingExportRow> pageByOrganization(
+                OrganizationId organizationId, String afterCursor, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
         @Override
         public void replaceBatch(
                 RepositoryGenerationKey generation, List<RepositoryChunkVector> vectors) {

@@ -400,6 +400,15 @@ class ResponsibilityAssignmentServiceTest {
         private int lockCalls;
 
         @Override
+        public long countActiveByPrincipal(
+                OrganizationId organizationId, PrincipalId actorPrincipalId) {
+            return values.values().stream()
+                    .filter(assignment -> assignment.actorPrincipalId().equals(actorPrincipalId)
+                            && assignment.isActive())
+                    .count();
+        }
+
+        @Override
         public void lockResponsibilityChain(
                 OrganizationId organizationId, WorkItemId workItemId) {
             lockCalls++;

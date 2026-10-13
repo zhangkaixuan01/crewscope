@@ -160,8 +160,10 @@ public final class OrganizationSettingApplicationService {
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
         SettingView view = new SettingView(
                 stored.auditEventRetentionDays().orElse(null), stored.version(), true);
-        return CommandExecution.completed(
-                view, new CommandReceipt(commandId, eventId, stored.version(), context.correlationId()));
+        CommandReceipt receipt =
+                new CommandReceipt(commandId, eventId, stored.version(), context.correlationId());
+        receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
+        return CommandExecution.completed(view, receipt);
     }
 
     /**

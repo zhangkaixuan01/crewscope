@@ -50,6 +50,15 @@ public class JdbcOrganizationSettingRepositoryAdapter implements OrganizationSet
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationSetting> findMaterialized() {
+        return jdbc.query(
+                "SELECT " + SELECT_COLUMNS + " FROM crewscope.organization_setting"
+                        + " ORDER BY organization_id",
+                JdbcOrganizationSettingRepositoryAdapter::mapRow);
+    }
+
+    @Override
     @Transactional
     public OrganizationSetting insert(OrganizationSetting setting) {
         Objects.requireNonNull(setting, "setting");

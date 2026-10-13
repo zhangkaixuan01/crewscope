@@ -227,6 +227,15 @@ final class WorkItemCommandTestSupport {
     final Map<String, io.crewscope.application.command.CommandResult> results = new HashMap<>();
 
     @Override
+    public long countActiveByPrincipal(
+        OrganizationId organizationId, PrincipalId actorPrincipalId) {
+      return assignments.values().stream()
+          .filter(assignment -> assignment.actorPrincipalId().equals(actorPrincipalId)
+              && assignment.isActive())
+          .count();
+    }
+
+    @Override
     public void saveResult(io.crewscope.application.command.CommandResult result) {
       results.put(result.organizationId() + ":" + result.idempotencyKey(), result);
     }

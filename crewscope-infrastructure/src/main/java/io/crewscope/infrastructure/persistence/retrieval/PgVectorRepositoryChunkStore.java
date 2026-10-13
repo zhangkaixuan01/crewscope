@@ -1,10 +1,13 @@
 package io.crewscope.infrastructure.persistence.retrieval;
 
+import io.crewscope.application.retrieval.RepositoryChunkEmbeddingExportRow;
 import io.crewscope.application.retrieval.RepositoryChunkEmbeddingQuery;
 import io.crewscope.application.retrieval.RepositoryChunkVector;
 import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.application.retrieval.ScoredRepositoryChunk;
 import io.crewscope.domain.retrieval.RepositoryGenerationKey;
+import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.infrastructure.persistence.vector.VectorLiteral;
 import java.util.List;
 import java.util.Objects;
@@ -127,5 +130,84 @@ public final class PgVectorRepositoryChunkStore implements RepositoryChunkVector
                 coordinate.indexKey().embeddingModelRevision().revision(),
                 literal,
                 value.topK());
+    }
+
+    @Override
+    public boolean isEnabled() {
+        // The vector chain is a separate Flyway history: probe the table instead of assuming it.
+        try {
+            return Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT to_regclass('crewscope.repository_chunk_embedding') IS NOT NULL",
+                    Boolean.class));
+        } catch (org.springframework.dao.DataAccessException unreachable) {
+            return false;
+        }
+    }
+
+    @Override
+    public List<RepositoryChunkEmbeddingExportRow> pageByOrganization(
+            OrganizationId organizationId, String afterCursor, int limit) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        if (limit <= 0) {
+            return List.of();
+        }
+        // Keyset cursor "indexKey|buildSequence|chunkSeq" over the row order below.
+        if (afterCursor == null || afterCursor.isBlank()) {
+            return jdbc.query(
+                    """
+                    SELECT index_key, build_sequence, chunk_seq, team_id, repository_binding_id,
+                           path, language, start_line, end_line, content_hash, model_key,
+                           model_revision, embedding::text
+                      FROM crewscope.repository_chunk_embedding
+                     WHERE organization_id = ?
+                     ORDER BY index_key, build_sequence, chunk_seq
+                     LIMIT ?
+                    """,
+                    (rs, rowNum) -> rowOf(rs),
+                    organizationId.value(),
+                    limit);
+        }
+        String[] cursor = afterCursor.split("\\|", 3);
+        if (cursor.length != 3) {
+            throw new IllegalArgumentException("Malformed chunk page cursor");
+        }
+        return jdbc.query(
+                """
+                SELECT index_key, build_sequence, chunk_seq, team_id, repository_binding_id,
+                       path, language, start_line, end_line, content_hash, model_key,
+                       model_revision, embedding::text
+                  FROM crewscope.repository_chunk_embedding
+                 WHERE organization_id = ?
+                   AND (index_key, build_sequence, chunk_seq) > (?, ?::bigint, ?::int)
+                 ORDER BY index_key, build_sequence, chunk_seq
+                 LIMIT ?
+                """,
+                (rs, rowNum) -> rowOf(rs),
+                organizationId.value(),
+                cursor[0],
+                Long.parseLong(cursor[1]),
+                Integer.parseInt(cursor[2]),
+                limit);
+    }
+
+    private static RepositoryChunkEmbeddingExportRow rowOf(java.sql.ResultSet rs)
+            throws java.sql.SQLException {
+        float[] embedding = VectorLiteral.parse(rs.getString("embedding"));
+        return new RepositoryChunkEmbeddingExportRow(
+                rs.getString("index_key"),
+                rs.getLong("build_sequence"),
+                rs.getInt("chunk_seq"),
+                new TeamId(rs.getObject("team_id", java.util.UUID.class)),
+                new io.crewscope.domain.coding.RepositoryBindingId(
+                        rs.getObject("repository_binding_id", java.util.UUID.class)),
+                rs.getString("path"),
+                rs.getString("language"),
+                rs.getInt("start_line"),
+                rs.getInt("end_line"),
+                rs.getString("content_hash"),
+                rs.getString("model_key"),
+                rs.getLong("model_revision"),
+                embedding.length,
+                embedding);
     }
 }

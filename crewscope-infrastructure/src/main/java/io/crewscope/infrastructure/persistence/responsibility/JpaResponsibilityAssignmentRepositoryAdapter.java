@@ -239,6 +239,25 @@ public class JpaResponsibilityAssignmentRepositoryAdapter
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public long countActiveByPrincipal(
+            OrganizationId organizationId, PrincipalId actorPrincipalId) {
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT COUNT(value) FROM ResponsibilityAssignmentEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.actorPrincipalId = :actorPrincipalId
+                          AND value.status = 'ACTIVE'
+                        """,
+                        Long.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter(
+                        "actorPrincipalId", Objects.requireNonNull(actorPrincipalId).value())
+                .getSingleResult();
+    }
+
     private void verifyUpdate(int affected, ResponsibilityAssignment value, long expected) {
         if (affected != 0) {
             return;

@@ -232,8 +232,10 @@ public final class OrganizationRoleApplicationService {
                         principalId.value(),
                         role.name(),
                         stored.version()));
-        return CommandExecution.completed(
-                stored, new CommandReceipt(commandId, eventId, stored.version(), context.correlationId()));
+        CommandReceipt receipt =
+                new CommandReceipt(commandId, eventId, stored.version(), context.correlationId());
+        receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
+        return CommandExecution.completed(stored, receipt);
     }
 
     private CommandExecution<OrganizationRoleGrant> executeRevoke(
@@ -281,8 +283,10 @@ public final class OrganizationRoleApplicationService {
                         stored.role().name(),
                         reason,
                         stored.version()));
-        return CommandExecution.completed(
-                stored, new CommandReceipt(commandId, eventId, stored.version(), context.correlationId()));
+        CommandReceipt receipt =
+                new CommandReceipt(commandId, eventId, stored.version(), context.correlationId());
+        receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
+        return CommandExecution.completed(stored, receipt);
     }
 
     private UUID appendFact(

@@ -4,11 +4,13 @@ import io.crewscope.application.task.TaskCredentialGrantRepository;
 import io.crewscope.domain.runtime.RuntimeEnvironment;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskCredentialGrant;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.domain.task.TaskProviderAuthorization;
 import io.crewscope.domain.task.TaskTokenJtiHash;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +103,30 @@ public class JpaTaskCredentialGrantRepositoryAdapter implements TaskCredentialGr
                 .setParameter("environment", environment.value())
                 .setParameter("executionId", taskExecutionId.value())
                 .getResultStream().findFirst().map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TaskCredentialGrant> findActiveByPrincipals(
+            OrganizationId organizationId, Collection<PrincipalId> principalIds) {
+        Objects.requireNonNull(principalIds, "principalIds");
+        if (principalIds.isEmpty()) {
+            return List.of();
+        }
+        return support.entityManager.createQuery(
+                        """
+                        SELECT row FROM TaskCredentialGrantEntity row
+                        WHERE row.organizationId = :organizationId
+                          AND row.executionPrincipalId IN :principalIds
+                          AND row.status = 'ACTIVE'
+                        ORDER BY row.id
+                        """,
+                        TaskCredentialGrantEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(
+                        organizationId, "organizationId").value())
+                .setParameter("principalIds", principalIds.stream()
+                        .map(PrincipalId::value).toList())
+                .getResultStream().map(this::toDomain).toList();
     }
 
     @Override

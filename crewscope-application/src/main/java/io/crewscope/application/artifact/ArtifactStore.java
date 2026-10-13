@@ -1,6 +1,7 @@
 package io.crewscope.application.artifact;
 
 import io.crewscope.domain.shared.id.ArtifactId;
+import io.crewscope.domain.shared.id.OrganizationId;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Objects;
@@ -67,4 +68,12 @@ public interface ArtifactStore {
      * and reconcile retained references.
      */
     List<ArtifactId> purgeTombstoned(ArtifactPurgeRequest request);
+
+    /**
+     * Bounded keyset scan of descriptors (never content) under one organization, ordered by
+     * artifact id after the cursor — the account-deletion tombstone step filters producers from
+     * this walk before applying governance decisions, with no visibility filtering.
+     */
+    List<ArtifactDescriptor> listDescriptorsByOrganization(
+            OrganizationId organizationId, Optional<ArtifactId> after, int limit);
 }

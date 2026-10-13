@@ -1592,6 +1592,12 @@ class M3TaskRuntimePersistenceIntegrationTest
         }
 
         @Override
+        public List<ArtifactDescriptor> listDescriptorsByOrganization(
+                OrganizationId organizationId, Optional<ArtifactId> after, int limit) {
+            return delegate.listDescriptorsByOrganization(organizationId, after, limit);
+        }
+
+        @Override
         public ArtifactDescriptor put(ArtifactWriteRequest request, java.io.InputStream content) {
             ArtifactDescriptor descriptor = delegate.put(request, content);
             publishedArtifactIds.add(descriptor.artifactId());

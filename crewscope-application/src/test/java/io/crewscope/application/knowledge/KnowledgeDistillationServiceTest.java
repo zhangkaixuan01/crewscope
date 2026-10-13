@@ -468,6 +468,13 @@ final class KnowledgeDistillationServiceTest {
 
     /** Task/TaskExecution view with toggleable validation failures. */
     private final class FakeTaskStore implements TaskRepository, TaskExecutionRepository {
+        @Override
+        public long countInFlightByPrincipals(
+                OrganizationId organizationId, java.util.Collection<PrincipalId> principalIds) {
+            // Distillation fakes never model in-flight work; governance reads stay out of scope.
+            return 0L;
+        }
+
         final WorkItemScope scope = new WorkItemScope(
                 organizationId, teamId, WorkspaceId.generate(), WorkProjectId.generate());
         final WorkItemId workItemId = WorkItemId.generate();
