@@ -354,7 +354,7 @@ function retentionText(days: number | null): string {
 .org-days label { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .org-days input { max-width: 160px; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.org-error { margin: 0; color: var(--cs-text-danger, #b3261e); font-size: var(--cs-text-sm); }
+.org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-actions { display: flex; gap: var(--cs-space-8); }
 </style>

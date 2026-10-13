@@ -214,7 +214,8 @@ class AgentTaskCreationServiceA05Test {
                 policySpec,
                 null,
                 null,
-                new ResponsibilityAssignmentService(assignments, transactions, () -> NOW));
+                new ResponsibilityAssignmentService(assignments, transactions, () -> NOW),
+                null);
     }
 
     @Test
@@ -313,7 +314,8 @@ class AgentTaskCreationServiceA05Test {
                 null,
                 null,
                 new ResponsibilityAssignmentService(
-                        assignments, transactions, () -> UtcTimestamp.parse("2026-09-25T08:00:01Z")));
+                        assignments, transactions, () -> UtcTimestamp.parse("2026-09-25T08:00:01Z")),
+                null);
 
         CommandExecution<AgentTaskCreationResult> execution = realClockService.create(
                 context(owner, "assign-and-start-clock"),
@@ -573,7 +575,8 @@ class AgentTaskCreationServiceA05Test {
                 policySpec,
                 selection,
                 null,
-                new ResponsibilityAssignmentService(assignments, transactions, () -> NOW));
+                new ResponsibilityAssignmentService(assignments, transactions, () -> NOW),
+                null);
     }
 
     private TeamCommandContext context(Principal actor, String key) {

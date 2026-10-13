@@ -170,6 +170,36 @@
       "file": "components/domain/SkillDraftEditor.vue",
       "expression": "saveDisabledReason",
       "reason": "本地 computed，返回的已经是中文原因句（权限/空正文/越界/文档校验）。"
+    },
+    {
+      "file": "components/domain/OrganizationDeletionWorkflow.vue",
+      "expression": "precheckDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句（UUID 格式/预检进行中）。"
+    },
+    {
+      "file": "components/domain/OrganizationDeletionWorkflow.vue",
+      "expression": "createDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句（账号/理由长度校验）。"
+    },
+    {
+      "file": "components/domain/OrganizationDeletionWorkflow.vue",
+      "expression": "job.reason",
+      "reason": "删除作业的 reason 是发起人填写的 20-500 字自由文本（M12-A01 契约），不是服务端枚举。"
+    },
+    {
+      "file": "components/domain/OrganizationDeletionWorkflow.vue",
+      "expression": "confirmDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句（提交中/确认令牌缺失）。"
+    },
+    {
+      "file": "components/domain/OrganizationRoleGrants.vue",
+      "expression": "grantDisabledReason",
+      "reason": "本地 computed，返回的已经是中文原因句（UUID/原因长度/提交中）。"
+    },
+    {
+      "file": "pages/OrganizationSettingsPage.vue",
+      "expression": "savingReason",
+      "reason": "本地 computed，返回的已经是中文原因句（保留期下限/读取中/保存中）。"
     }
   ]
 }

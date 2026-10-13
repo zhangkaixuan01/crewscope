@@ -287,7 +287,7 @@ function timeText(value: string | null): string {
 .org-deletion-form input, .org-deletion-form textarea, .org-confirm input { min-height: var(--cs-density-control-height); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
 .org-deletion-form textarea { resize: vertical; }
 .org-precheck-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--cs-space-8); margin: 0; padding: var(--cs-space-8); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent-soft, transparent); }
-.org-precheck-blocked { border: 1px solid var(--cs-danger-border, #b3261e); }
+.org-precheck-blocked { border: 1px solid var(--cs-danger-border); }
 .org-precheck-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .org-precheck-facts dd { margin: 0; font-size: var(--cs-text-md); color: var(--cs-text); }
 .org-job { gap: var(--cs-space-12); }
@@ -299,7 +299,7 @@ function timeText(value: string | null): string {
 .org-backup-text { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-mono { font-family: var(--cs-font-mono, monospace); font-size: var(--cs-text-sm); }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.org-error { margin: 0; color: var(--cs-text-danger, #b3261e); font-size: var(--cs-text-sm); }
+.org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 </style>

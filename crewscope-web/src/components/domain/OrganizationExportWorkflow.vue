@@ -215,7 +215,7 @@ function familyLabel(family: string): string {
 .org-manifest { display: grid; gap: var(--cs-space-8); }
 .org-mono { font-family: var(--cs-font-mono, monospace); font-size: var(--cs-text-sm); }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.org-error { margin: 0; color: var(--cs-text-danger, #b3261e); font-size: var(--cs-text-sm); }
+.org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 </style>

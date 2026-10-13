@@ -154,7 +154,10 @@ public final class CrewScopeAuditEventTypes {
                 AuditOutcome.SUCCEEDED,
                 AuditRetentionLevel.EXTENDED,
                 required("monthlyTaskIntakeLimitAfter"),
-                required("monthlyTokenBudgetAfter"));
+                // The summary field name cannot carry the "token" fragment (the Audit summary
+                // boundary rejects sensitive field names), so the projection renames it while
+                // the source path keeps the event's own field ("mailChanged" precedent).
+                required("monthlyBudgetAfter", "monthlyTokenBudgetAfter"));
     }
 
     /** Governance job lifecycle facts (M12-A01): the export/deletion workflows themselves. */

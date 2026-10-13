@@ -8,6 +8,7 @@ import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainer
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -58,6 +59,9 @@ class OrganizationQuotaHttpM12A02IntegrationTest
 
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
     private static final String CSRF_HEADER = "X-XSRF-TOKEN";
+
+    /** The domain event the quota command emits; one command, one event, one reviewed fact. */
+    private static final String QUOTA_EVENT_TYPE = "ORGANIZATION_QUOTA_CONFIGURATION_CHANGED";
 
     @TempDir
     static Path artifactRoot;
@@ -162,7 +166,7 @@ class OrganizationQuotaHttpM12A02IntegrationTest
         CookieJar outsider = new CookieJar();
         login(outsider, outsiderUsername, PASSWORD);
 
-        int eventsBefore = auditCount("ORGANIZATION_QUOTA_CONFIGURATION_CHANGED");
+        int eventsBefore = domainEventCount(QUOTA_EVENT_TYPE);
         getWithCookies(quotaUri, outsider)
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.FORBIDDEN.value());
@@ -172,9 +176,11 @@ class OrganizationQuotaHttpM12A02IntegrationTest
                 .bodyValue(Map.of("monthlyTaskIntakeLimit", 5))
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.FORBIDDEN.value());
-        // The denial leaves no configuration row and no reviewed fact behind.
+        // The denial leaves no configuration row and no reviewed fact behind: an event never
+        // written to the store cannot become an audit fact, and the event store commits with
+        // the command, so the read stays synchronous.
         assertThat(quotaRowCount()).isZero();
-        assertThat(auditCount("ORGANIZATION_QUOTA_CONFIGURATION_CHANGED")).isEqualTo(eventsBefore);
+        assertThat(domainEventCount(QUOTA_EVENT_TYPE)).isEqualTo(eventsBefore);
     }
 
     @Test
@@ -196,19 +202,20 @@ class OrganizationQuotaHttpM12A02IntegrationTest
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.CONFLICT.value());
 
-        // Zero is a configuration error, not "block everything".
+        // Zero is a configuration error, not "block everything" — the domain rejection maps to
+        // 422 like every other M12 domain validation (A01 process-before-confirm precedent).
         putJson(quotaUri, operator)
                 .header(ApiHeaders.IDEMPOTENCY_KEY, "m12a02-zero-intake-" + UUID.randomUUID())
                 .header(ApiHeaders.IF_MATCH, "\"0\"")
                 .bodyValue(Map.of("monthlyTaskIntakeLimit", 0))
                 .exchange()
-                .expectStatus().isEqualTo(HttpStatus.BAD_REQUEST.value());
+                .expectStatus().isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.value());
         putJson(quotaUri, operator)
                 .header(ApiHeaders.IDEMPOTENCY_KEY, "m12a02-zero-budget-" + UUID.randomUUID())
                 .header(ApiHeaders.IF_MATCH, "\"0\"")
                 .bodyValue(Map.of("monthlyTokenBudget", 0L))
                 .exchange()
-                .expectStatus().isEqualTo(HttpStatus.BAD_REQUEST.value());
+                .expectStatus().isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.value());
 
         JsonNode unchanged = getJson(quotaUri, operator);
         assertThat(unchanged.path("monthlyTaskIntakeLimit").asInt()).isEqualTo(5);
@@ -220,7 +227,7 @@ class OrganizationQuotaHttpM12A02IntegrationTest
         CookieJar operator = loginOperator();
         resetQuota();
         String idempotencyKey = "m12a02-replay-" + UUID.randomUUID();
-        int eventsBefore = auditCount("ORGANIZATION_QUOTA_CONFIGURATION_CHANGED");
+        int eventsBefore = domainEventCount(QUOTA_EVENT_TYPE);
 
         JsonNode first = bodyOf(
                 putJson(quotaUri, operator)
@@ -242,18 +249,22 @@ class OrganizationQuotaHttpM12A02IntegrationTest
         assertThat(readTree(replay.getResponseBody()).path("commandId").asText())
                 .isEqualTo(first.path("commandId").asText());
 
-        // Exactly one reviewed fact, carrying both after-values at its payload.
-        assertThat(auditCount("ORGANIZATION_QUOTA_CONFIGURATION_CHANGED"))
+        // The command's domain event commits atomically with the 202 and the replay adds
+        // none, so exactly-one-event reads synchronously off the event store — immune to the
+        // audit projection's poll-loop latency.
+        assertThat(domainEventCount(QUOTA_EVENT_TYPE))
                 .isEqualTo(eventsBefore + 1);
-        String payload = jdbc.queryForObject(
-                "SELECT payload::text FROM crewscope.audit_event"
-                        + " WHERE organization_id = ? AND event_type = ?"
-                        + " ORDER BY occurred_at DESC LIMIT 1",
-                String.class, UUID.fromString(ORGANIZATION_ID),
-                "ORGANIZATION_QUOTA_CONFIGURATION_CHANGED");
-        JsonNode audited = readTree(payload);
+
+        // The audit fact lands through the outbox publisher's ~1s poll loop (which may stall
+        // on transport retries), so it is awaited by its payload fingerprint — the values are
+        // unique to this test, keeping earlier tests' interleaved facts out of the match.
+        List<JsonNode> facts = awaitReviewedQuotaFacts();
+        assertThat(facts).hasSize(1);
+        JsonNode audited = facts.get(0);
         assertThat(audited.path("monthlyTaskIntakeLimitAfter").asInt()).isEqualTo(3);
-        assertThat(audited.path("monthlyTokenBudgetAfter").asLong()).isEqualTo(2_000_000L);
+        // The summary field is renamed away from the "token" fragment (see the registration).
+        assertThat(audited.path("monthlyBudgetAfter").asLong()).isEqualTo(2_000_000L);
+        assertThat(quotaAuditClassification()).isEqualTo("REVIEWED");
     }
 
     @Test
@@ -506,11 +517,47 @@ class OrganizationQuotaHttpM12A02IntegrationTest
                 ownerPrincipalId);
     }
 
-    private int auditCount(String eventType) {
+    private int domainEventCount(String eventType) {
         return jdbc.queryForObject(
-                "SELECT COUNT(*) FROM crewscope.audit_event"
+                "SELECT COUNT(*) FROM crewscope.domain_event"
                         + " WHERE organization_id = ? AND event_type = ?",
                 Integer.class, UUID.fromString(ORGANIZATION_ID), eventType);
+    }
+
+    /**
+     * Polls bounded for this command's audit facts, matched by payload fingerprint (the
+     * values are unique to the replay test). The outbox publisher's poll loop — which may
+     * stall on transport retries — makes a fact's landing time unbounded, so an instant
+     * count is racy; the fingerprint keeps earlier tests' interleaved facts out.
+     */
+    private List<JsonNode> awaitReviewedQuotaFacts() {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            List<String> payloads = jdbc.queryForList(
+                    "SELECT payload::text FROM crewscope.audit_event"
+                            + " WHERE organization_id = ? AND event_type = ?"
+                            + " AND payload->>'monthlyTaskIntakeLimitAfter' = '3'"
+                            + " AND payload->>'monthlyBudgetAfter' = '2000000'",
+                    String.class, UUID.fromString(ORGANIZATION_ID), QUOTA_EVENT_TYPE);
+            if (!payloads.isEmpty()) {
+                return payloads.stream().map(this::readTree).toList();
+            }
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "interrupted while awaiting the audit projection", interrupted);
+            }
+        }
+        throw new AssertionError("the reviewed quota fact did not land within the bounded wait");
+    }
+
+    private String quotaAuditClassification() {
+        return jdbc.queryForObject(
+                "SELECT authorization_context->>'classification' FROM crewscope.audit_event"
+                        + " WHERE organization_id = ? AND event_type = ?"
+                        + " AND payload->>'monthlyTaskIntakeLimitAfter' = '3'",
+                String.class, UUID.fromString(ORGANIZATION_ID), QUOTA_EVENT_TYPE);
     }
 
     /** WebTestClient keeps no cookie jar; the login dance and every guarded call share one. */

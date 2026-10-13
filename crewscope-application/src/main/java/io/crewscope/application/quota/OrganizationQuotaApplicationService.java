@@ -29,6 +29,7 @@ import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -74,7 +75,7 @@ public final class OrganizationQuotaApplicationService {
         return configurations.findByOrganization(organizationId)
                 .map(configuration -> new QuotaConfigurationView(
                         configuration.monthlyTaskIntakeLimit().orElse(null),
-                        configuration.monthlyTokenBudget().orElse(null),
+                        boxedTokenBudget(configuration.monthlyTokenBudget()),
                         configuration.version(),
                         true))
                 .orElseGet(() -> new QuotaConfigurationView(null, null, 0, false));
@@ -166,19 +167,24 @@ public final class OrganizationQuotaApplicationService {
                 new OrganizationQuotaConfigurationChanged(
                         organizationId.value(),
                         stored.monthlyTaskIntakeLimit().orElse(null),
-                        stored.monthlyTokenBudget().orElse(null),
+                        boxedTokenBudget(stored.monthlyTokenBudget()),
                         stored.version()));
         eventStore.append(event);
         outboxRepository.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
         QuotaConfigurationView view = new QuotaConfigurationView(
                 stored.monthlyTaskIntakeLimit().orElse(null),
-                stored.monthlyTokenBudget().orElse(null),
+                boxedTokenBudget(stored.monthlyTokenBudget()),
                 stored.version(),
                 true);
         CommandReceipt receipt =
                 new CommandReceipt(commandId, eventId, stored.version(), context.correlationId());
         receipts.complete(organizationId, context.idempotencyKey(), receipt, now);
         return CommandExecution.completed(view, receipt);
+    }
+
+    /** The token dimension is a primitive optional on the aggregate; views carry null for "unset". */
+    private static Long boxedTokenBudget(OptionalLong budget) {
+        return budget.isPresent() ? budget.getAsLong() : null;
     }
 
     /**

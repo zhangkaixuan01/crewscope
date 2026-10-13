@@ -293,10 +293,10 @@ function dateText(value: string | null): string {
 .org-grant-fields label { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .org-grant-fields input, .org-grant-fields select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.org-error { margin: 0; color: var(--cs-text-danger, #b3261e); font-size: var(--cs-text-sm); }
+.org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-actions { display: flex; gap: var(--cs-space-8); }
-.org-revoke-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--cs-space-16); background: var(--cs-scrim, rgba(0, 0, 0, 0.4)); z-index: 60; }
+.org-revoke-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--cs-space-16); background: var(--cs-scrim); z-index: var(--cs-z-dialog); }
 .org-revoke-dialog { display: grid; gap: var(--cs-space-12); width: min(480px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
 .org-revoke-dialog header { display: flex; align-items: center; justify-content: space-between; }
 .org-revoke-dialog h2 { margin: 0; font-size: var(--cs-text-md); }
