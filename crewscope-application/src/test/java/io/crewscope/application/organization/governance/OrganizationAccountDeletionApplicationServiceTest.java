@@ -41,11 +41,13 @@ import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.shared.audit.LifecycleMetadata;
 import io.crewscope.domain.organization.governance.AccountDeletionItem;
 import io.crewscope.domain.organization.governance.AccountDeletionJob;
+import io.crewscope.domain.organization.governance.AccountDeletionJobId;
 import io.crewscope.domain.organization.governance.AccountDeletionJobStatus;
 import io.crewscope.domain.organization.role.OrganizationRole;
 import io.crewscope.domain.organization.role.OrganizationRoleGrant;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
+import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -88,6 +90,7 @@ class OrganizationAccountDeletionApplicationServiceTest {
     private TaskExecutionRepository taskExecutions;
     private ResponsibilityAssignmentRepository responsibilities;
     private GovernanceAuditRecorder governanceAudit;
+    private CommandReceiptStore receipts;
     private OrganizationAccountDeletionApplicationService service;
 
     private final AtomicReference<AccountDeletionJob> storedJob = new AtomicReference<>();
@@ -105,7 +108,7 @@ class OrganizationAccountDeletionApplicationServiceTest {
         taskExecutions = mock(TaskExecutionRepository.class);
         responsibilities = mock(ResponsibilityAssignmentRepository.class);
         governanceAudit = mock(GovernanceAuditRecorder.class);
-        CommandReceiptStore receipts = mock(CommandReceiptStore.class);
+        receipts = mock(CommandReceiptStore.class);
         when(receipts.reserve(any())).thenReturn(CommandReservation.newlyAcquired());
         when(receipts.findCompleted(any(), any(), any(), any())).thenReturn(Optional.empty());
         AccountOrganizationBindingRepository bindings =
@@ -333,6 +336,70 @@ class OrganizationAccountDeletionApplicationServiceTest {
                 () -> service.cancel(
                         access(), organizationId, storedJob.get().id(), UUID.randomUUID()));
         verify(steps, never()).executeStep(any(), any(), any(), any());
+    }
+
+    @Test
+    void deniedWriteCommandsAreAuditedAsGovernanceDenials() {
+        // Denials surface before any job/binding lookup, so bare mocks carry the walk home.
+        service = new OrganizationAccountDeletionApplicationService(
+                jobs,
+                denialAuthorization(),
+                steps,
+                mock(AccountOrganizationBindingRepository.class),
+                mock(UserAccountRepository.class),
+                taskExecutions,
+                responsibilities,
+                receipts,
+                mock(DomainEventStore.class),
+                mock(OutboxRepository.class),
+                governanceAudit,
+                straightThrough(),
+                () -> NOW,
+                new ObjectMapper());
+
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.create(command(), organizationId, accountId, deliberateReason()));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.confirm(
+                        access(), organizationId, AccountDeletionJobId.generate(),
+                        "operator-echo", 0L, UUID.randomUUID()));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.process(
+                        access(), organizationId, AccountDeletionJobId.generate(),
+                        UUID.randomUUID()));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.cancel(
+                        access(), organizationId, AccountDeletionJobId.generate(),
+                        UUID.randomUUID()));
+
+        ArgumentCaptor<GovernanceAuditRecord> recorded =
+                ArgumentCaptor.forClass(GovernanceAuditRecord.class);
+        verify(governanceAudit, times(4)).record(recorded.capture());
+        assertTrue(recorded.getAllValues().stream().allMatch(record ->
+                record.operation() == GovernanceAuditRecord.Operation.GOVERNANCE_DENIED
+                        && record.outcome() == AuditOutcome.DENIED
+                        && "GOVERNANCE_DELETION".equals(record.targetRef())
+                        && record.rowCount() == 0
+                        && record.detail() != null));
+        // Read faces stay silent: denied precheck/GET record nothing beyond the four writes.
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.precheck(access(), organizationId, accountId));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.get(
+                        access(), organizationId, AccountDeletionJobId.generate()));
+        verify(governanceAudit, times(4)).record(any());
+    }
+
+    private OrganizationAuthorization denialAuthorization() {
+        OrganizationRoleGrantRepository empty = mock(OrganizationRoleGrantRepository.class);
+        when(empty.findActiveByPrincipal(any(), any())).thenReturn(List.of());
+        return new OrganizationAuthorization(empty);
     }
 
     private void rebuildWithReceipts(CommandReceiptStore receipts) {

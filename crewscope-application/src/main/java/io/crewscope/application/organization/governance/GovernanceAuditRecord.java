@@ -9,10 +9,11 @@ import java.util.UUID;
 
 /**
  * Safe append-only fact describing one governance-plane action: artifact downloads (including
- * denials) and deletion step settlements. Transport- and runtime-security facts (the
- * JdbcAuditAccessRecorder positioning) — they never ride the DomainEvent chain because there is
- * no aggregate behind a download or a step settlement. Retention sweeps self-evidence inside the
- * retention gateway's own transaction instead.
+ * denials), deletion step settlements, and write-face authorization denials. Transport- and
+ * runtime-security facts (the JdbcAuditAccessRecorder positioning) — they never ride the
+ * DomainEvent chain because there is no aggregate behind a download, a step settlement or a
+ * refused capability. Retention sweeps self-evidence inside the retention gateway's own
+ * transaction instead.
  */
 public record GovernanceAuditRecord(
         Operation operation,
@@ -27,7 +28,8 @@ public record GovernanceAuditRecord(
 
     public enum Operation {
         EXPORT_DOWNLOAD,
-        DELETION_STEP
+        DELETION_STEP,
+        GOVERNANCE_DENIED
     }
 
     public GovernanceAuditRecord {

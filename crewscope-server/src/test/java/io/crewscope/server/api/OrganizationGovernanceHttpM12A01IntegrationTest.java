@@ -213,6 +213,14 @@ class OrganizationGovernanceHttpM12A01IntegrationTest
                 .bodyValue(Map.of("auditEventRetentionDays", 90))
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.FORBIDDEN.value());
+
+        // Governance write denials are SECURITY facts: the 403 leaves an audit row behind.
+        postJson("/api/v1/organizations/" + ORGANIZATION_ID + "/data-exports", teamOwner)
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "m12a01-export-" + UUID.randomUUID())
+                .bodyValue(Map.of("includeVectors", false))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(auditCount("ORG_GOVERNANCE_DENIED")).isEqualTo(1);
     }
 
     @Test

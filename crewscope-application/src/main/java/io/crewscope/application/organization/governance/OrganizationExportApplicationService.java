@@ -104,8 +104,9 @@ public final class OrganizationExportApplicationService {
     public CommandExecution<ExportJobView> create(
             OrganizationCommandContext context, OrganizationId organizationId, boolean includeVectors) {
         Objects.requireNonNull(context, "context");
-        authorization.requireCapability(
-                context.access(), organizationId, OrganizationCapability.GOVERNANCE_EXPORT);
+        authorize(
+                context.access(), organizationId, OrganizationCapability.GOVERNANCE_EXPORT,
+                context.correlationId());
         CommandRequestHash hash = CommandRequestHash.sha256(
                 CREATE_COMMAND_TYPE, organizationId.toString(), Boolean.toString(includeVectors));
         Optional<CommandReceipt> completed =
@@ -129,8 +130,7 @@ public final class OrganizationExportApplicationService {
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(correlationId, "correlationId");
-        authorization.requireCapability(
-                access, organizationId, OrganizationCapability.GOVERNANCE_EXPORT);
+        authorize(access, organizationId, OrganizationCapability.GOVERNANCE_EXPORT, correlationId);
         DataExportJob job = transactions.required(
                 () -> {
                     DataExportJob locked = requireJob(organizationId, jobId);
@@ -184,8 +184,7 @@ public final class OrganizationExportApplicationService {
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(correlationId, "correlationId");
-        authorization.requireCapability(
-                access, organizationId, OrganizationCapability.GOVERNANCE_EXPORT);
+        authorize(access, organizationId, OrganizationCapability.GOVERNANCE_EXPORT, correlationId);
         return transactions.required(
                 () -> {
                     DataExportJob job = requireJob(organizationId, jobId);
@@ -472,6 +471,36 @@ public final class OrganizationExportApplicationService {
     private DataExportJob requireJob(OrganizationId organizationId, DataExportJobId jobId) {
         return jobs.lockJobById(organizationId, jobId)
                 .orElseThrow(() -> new AggregateNotFoundException(AGGREGATE_TYPE, jobId));
+    }
+
+    /**
+     * Write-face authorization that leaves a SECURITY fact on denial (S01 freeze 3.4): record,
+     * then rethrow. Read faces stay silent — a 403 on a query is observability, not audit.
+     */
+    private void authorize(
+            OrganizationAccessContext access,
+            OrganizationId organizationId,
+            OrganizationCapability capability,
+            UUID correlationId) {
+        try {
+            authorization.requireCapability(access, organizationId, capability);
+        } catch (PolicyDeniedException denied) {
+            try {
+                governanceAudit.record(new GovernanceAuditRecord(
+                        GovernanceAuditRecord.Operation.GOVERNANCE_DENIED,
+                        organizationId,
+                        access.actor(),
+                        correlationId,
+                        AuditOutcome.DENIED,
+                        capability.name(),
+                        0,
+                        denied.getMessage(),
+                        timeProvider.now()));
+            } catch (RuntimeException recordingFailure) {
+                denied.addSuppressed(recordingFailure);
+            }
+            throw denied;
+        }
     }
 
     private UUID appendFact(

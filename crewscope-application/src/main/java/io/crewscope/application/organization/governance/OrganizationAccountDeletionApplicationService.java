@@ -36,6 +36,7 @@ import io.crewscope.domain.shared.DomainEvent;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
+import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.event.AggregateReference;
 import io.crewscope.domain.shared.event.DomainEventEnvelope;
 import io.crewscope.domain.shared.event.EventActor;
@@ -148,8 +149,9 @@ public final class OrganizationAccountDeletionApplicationService {
             String reason) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(accountId, "accountId");
-        authorization.requireCapability(
-                context.access(), organizationId, OrganizationCapability.GOVERNANCE_DELETION);
+        authorize(
+                context.access(), organizationId, OrganizationCapability.GOVERNANCE_DELETION,
+                context.correlationId());
         CommandRequestHash hash = CommandRequestHash.sha256(
                 CREATE_COMMAND_TYPE, organizationId.toString(), accountId.toString(), reason);
         Optional<CommandReceipt> completed =
@@ -176,8 +178,7 @@ public final class OrganizationAccountDeletionApplicationService {
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(confirmationToken, "confirmationToken");
         Objects.requireNonNull(correlationId, "correlationId");
-        authorization.requireCapability(
-                access, organizationId, OrganizationCapability.GOVERNANCE_DELETION);
+        authorize(access, organizationId, OrganizationCapability.GOVERNANCE_DELETION, correlationId);
         return transactions.required(
                 () -> {
                     AccountDeletionJob job = requireJob(organizationId, jobId);
@@ -215,8 +216,7 @@ public final class OrganizationAccountDeletionApplicationService {
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(correlationId, "correlationId");
-        authorization.requireCapability(
-                access, organizationId, OrganizationCapability.GOVERNANCE_DELETION);
+        authorize(access, organizationId, OrganizationCapability.GOVERNANCE_DELETION, correlationId);
         AccountDeletionJob job = transactions.required(
                 () -> {
                     AccountDeletionJob locked = requireJob(organizationId, jobId);
@@ -281,8 +281,7 @@ public final class OrganizationAccountDeletionApplicationService {
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(jobId, "jobId");
         Objects.requireNonNull(correlationId, "correlationId");
-        authorization.requireCapability(
-                access, organizationId, OrganizationCapability.GOVERNANCE_DELETION);
+        authorize(access, organizationId, OrganizationCapability.GOVERNANCE_DELETION, correlationId);
         return transactions.required(
                 () -> {
                     AccountDeletionJob job = requireJob(organizationId, jobId);
@@ -517,6 +516,36 @@ public final class OrganizationAccountDeletionApplicationService {
     private AccountDeletionJob requireJob(OrganizationId organizationId, AccountDeletionJobId jobId) {
         return jobs.lockJobById(organizationId, jobId)
                 .orElseThrow(() -> new AggregateNotFoundException(AGGREGATE_TYPE, jobId));
+    }
+
+    /**
+     * Write-face authorization that leaves a SECURITY fact on denial (S01 freeze 3.4): record,
+     * then rethrow. Read faces stay silent — a 403 on a query is observability, not audit.
+     */
+    private void authorize(
+            OrganizationAccessContext access,
+            OrganizationId organizationId,
+            OrganizationCapability capability,
+            UUID correlationId) {
+        try {
+            authorization.requireCapability(access, organizationId, capability);
+        } catch (PolicyDeniedException denied) {
+            try {
+                governanceAudit.record(new GovernanceAuditRecord(
+                        GovernanceAuditRecord.Operation.GOVERNANCE_DENIED,
+                        organizationId,
+                        access.actor(),
+                        correlationId,
+                        AuditOutcome.DENIED,
+                        capability.name(),
+                        0,
+                        denied.getMessage(),
+                        timeProvider.now()));
+            } catch (RuntimeException recordingFailure) {
+                denied.addSuppressed(recordingFailure);
+            }
+            throw denied;
+        }
     }
 
     private UUID appendFact(

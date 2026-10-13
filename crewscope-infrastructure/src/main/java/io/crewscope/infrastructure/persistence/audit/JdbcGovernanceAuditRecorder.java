@@ -13,9 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Appends governance-plane facts (artifact downloads, deletion step settlements) as direct
- * SECURITY audit rows — the JdbcAuditAccessRecorder positioning: transport and runtime security
- * facts that never ride the DomainEvent chain because no aggregate stands behind them.
+ * Appends governance-plane facts (artifact downloads, deletion step settlements, write-face
+ * authorization denials) as direct SECURITY audit rows — the JdbcAuditAccessRecorder
+ * positioning: transport and runtime security facts that never ride the DomainEvent chain
+ * because no aggregate stands behind them.
  */
 @Repository
 public class JdbcGovernanceAuditRecorder implements GovernanceAuditRecorder {
@@ -38,6 +39,7 @@ public class JdbcGovernanceAuditRecorder implements GovernanceAuditRecorder {
         String eventType = switch (value.operation()) {
             case EXPORT_DOWNLOAD -> "ORG_EXPORT_DOWNLOADED";
             case DELETION_STEP -> "ORG_DELETION_STEP_EXECUTED";
+            case GOVERNANCE_DENIED -> "ORG_GOVERNANCE_DENIED";
         };
         boolean userActor = value.actor().type() == PrincipalType.USER;
         Object initiatorId = userActor ? value.actor().id().value() : null;

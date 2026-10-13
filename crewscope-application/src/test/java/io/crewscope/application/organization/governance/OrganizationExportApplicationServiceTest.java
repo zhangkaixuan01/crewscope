@@ -315,6 +315,48 @@ class OrganizationExportApplicationServiceTest {
     }
 
     @Test
+    void deniedWriteCommandsAreAuditedAsGovernanceDenials() {
+        service = new OrganizationExportApplicationService(
+                jobs,
+                denialAuthorization(),
+                reader,
+                receipts,
+                eventStore,
+                mock(OutboxRepository.class),
+                governanceAudit,
+                straightThrough(),
+                () -> NOW,
+                new ObjectMapper());
+
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.create(command(), organizationId, false));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.process(
+                        access(), organizationId, DataExportJobId.generate(), UUID.randomUUID()));
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.cancel(
+                        access(), organizationId, DataExportJobId.generate(), UUID.randomUUID()));
+
+        ArgumentCaptor<GovernanceAuditRecord> recorded =
+                ArgumentCaptor.forClass(GovernanceAuditRecord.class);
+        verify(governanceAudit, times(3)).record(recorded.capture());
+        assertTrue(recorded.getAllValues().stream().allMatch(record ->
+                record.operation() == GovernanceAuditRecord.Operation.GOVERNANCE_DENIED
+                        && record.outcome() == AuditOutcome.DENIED
+                        && "GOVERNANCE_EXPORT".equals(record.targetRef())
+                        && record.rowCount() == 0
+                        && record.detail() != null));
+        // Read faces stay silent: a denied GET records nothing beyond the three write denials.
+        assertThrows(
+                PolicyDeniedException.class,
+                () -> service.get(access(), organizationId, DataExportJobId.generate()));
+        verify(governanceAudit, times(3)).record(any());
+    }
+
+    @Test
     void readersWithoutTheExportCapabilityAreDenied() {
         service = new OrganizationExportApplicationService(
                 jobs,

@@ -103,7 +103,8 @@ CREATE TABLE crewscope.organization_data_export_artifact (
     byte_size INT NOT NULL,
     checksum CHAR(64) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by_principal_id UUID NOT NULL,    CONSTRAINT fk_organization_data_export_artifact_job
+    created_by_principal_id UUID NOT NULL,
+    CONSTRAINT fk_organization_data_export_artifact_job
         FOREIGN KEY (job_id) REFERENCES crewscope.organization_data_export_job (id)
         ON DELETE RESTRICT,
     CONSTRAINT fk_organization_data_export_artifact_item

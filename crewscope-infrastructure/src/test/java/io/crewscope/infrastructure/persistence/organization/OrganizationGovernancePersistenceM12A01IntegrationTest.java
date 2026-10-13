@@ -367,6 +367,16 @@ class OrganizationGovernancePersistenceM12A01IntegrationTest
                 2,
                 null,
                 NOW));
+        governanceAudit.record(new GovernanceAuditRecord(
+                GovernanceAuditRecord.Operation.GOVERNANCE_DENIED,
+                organizationId,
+                actor,
+                UUID.randomUUID(),
+                AuditOutcome.DENIED,
+                "GOVERNANCE_EXPORT",
+                0,
+                "capability denied",
+                NOW));
 
         Map<String, Object> row = jdbc.queryForMap(
                 "SELECT event_type, event_category, subject_type, outcome, retention_level"
@@ -375,6 +385,11 @@ class OrganizationGovernancePersistenceM12A01IntegrationTest
         assertEquals("EXTENDED", row.get("retention_level"));
         assertEquals("ORGANIZATION", row.get("subject_type"));
         assertEquals("SUCCEEDED", row.get("outcome"));
+        Map<String, Object> denial = jdbc.queryForMap(
+                "SELECT event_category, outcome FROM crewscope.audit_event"
+                        + " WHERE event_type = 'ORG_GOVERNANCE_DENIED'");
+        assertEquals("SECURITY", denial.get("event_category"));
+        assertEquals("DENIED", denial.get("outcome"));
     }
 
     /** Inserts one ACTIVE account with a binding to this test's principal and a local hash. */

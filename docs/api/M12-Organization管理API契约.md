@@ -205,9 +205,10 @@ POST …/{jobId}/cancel      // 200 CANCELLED；已 COMPLETED→409
 | 导出拉取 | ORG_EXPORT_DOWNLOADED（含 DENIED） | SECURITY | GovernanceAuditRecorder 直写 |
 | 删除逐步 | ORG_DELETION_STEP_EXECUTED | SECURITY | 直写（step_key/target_ref/result_count/error_code） |
 | 保留清扫 | ORG_RETENTION_SWEEP_COMPLETED | SECURITY | 直写（同事务自证） |
+| 治理写面拒绝 | ORG_GOVERNANCE_DENIED | SECURITY | 直写（targetRef=capability 名；仅写面 8 点——export create/process/cancel + deletion create/confirm/process/cancel；读面 precheck/get 与拉取面 403 不记，查询拒绝属观测噪音，拉取拒绝已由 ORG_EXPORT_DOWNLOADED DENIED 覆盖） |
 
 导出三层闭环=发起（事件）+完成（事件）+拉取（直写）。
 
 ## 8. 事件清单（CrewScopeAuditEventTypes.registerOrganizationGovernanceEvents）
 
-8 条域事件（§7 上半表）+4 条直写字面量（下半表）；全部 SchemaVersion.V1、retention=EXTENDED。
+10 条域事件（§7 上半表）+4 条直写字面量（下半表）；全部 SchemaVersion.V1、retention=EXTENDED。
