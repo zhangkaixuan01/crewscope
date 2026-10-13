@@ -221,7 +221,9 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     principal.displayName = session.account.displayName
     principal.role = session.account.platformRole === 'OPERATOR' ? 'Operator' : 'Team Member'
     principal.organizationId = session.principal.organizationId
-    principal.organization = 'CrewScope Organization'
+    // Single source is the session organization projection (M12-A01 §3.5); members without an
+    // ORG_* role get no projection, so the display name stays empty rather than a placeholder.
+    principal.organization = session.organization?.name ?? ''
     // One-time cleanup of pre-F05 keys that cannot prove identity ownership, then open the
     // scoped namespace for this account (an account switch bumps the epoch and invalidates
     // every record written by the previous identity).

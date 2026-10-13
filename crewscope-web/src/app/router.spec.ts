@@ -471,6 +471,10 @@ function authSession(authenticated: boolean): AuthSession {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
     } : null,
     principal: authenticated ? { principalId: principal.id, organizationId: principal.organizationId } : null,
+    // Mirrors mapSession's consistency rule: the org:* vocabulary travels with the projection.
+    organization: authenticated && [...principal.permissions].some(value => value.startsWith('org:'))
+      ? { organizationId: principal.organizationId, name: 'CrewScope Organization', role: 'ORG_OWNER' }
+      : null,
     teams: authenticated ? [{ teamId: fixtureIds.teamPlatform, name: 'Platform', memberId: 'member-1', permissions: [...principal.permissions] }] : [],
     permissions: authenticated ? [...principal.permissions] : [],
   }

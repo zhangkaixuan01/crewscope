@@ -86,7 +86,7 @@ function authStore(): AuthStore {
         authenticated: true, registrationMode: 'OPEN',
         csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-manager' },
         account: { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1 },
-        principal: { principalId: 'principal-1', organizationId: 'organization-1' }, teams: [], permissions: [],
+        principal: { principalId: 'principal-1', organizationId: 'organization-1' }, organization: null, teams: [], permissions: [],
       },
     },
     principal: { id: 'principal-1', accountId: 'account-1', displayName: 'Alice', role: 'Owner', organizationId: 'organization-1', organization: 'CrewScope', permissions: new Set() },

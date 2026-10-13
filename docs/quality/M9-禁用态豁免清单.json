@@ -150,6 +150,11 @@
       "file": "components/domain/WorkItemRelationsPanel.vue",
       "expression": "splitSourceTaken",
       "reason": "拆分来源选项的禁用成因是「一项只能拆分自一个来源」的业务前置，但 option 的显示文本在禁用时本身翻转为「本项已有拆分来源」，原因已在控件文本内，再加提示属冗余。"
+    },
+    {
+      "file": "pages/OrganizationSettingsPage.vue",
+      "expression": "Boolean(savingReason) || command.phase === 'pending'",
+      "reason": "审计保留策略的保存按钮由表单自身校验决定：savingReason 同时是紧邻提交按钮、aria-live=polite 的原因段落（期限至少 30 天、正在读取、正在保存），禁用原因已在表单内承载，控件不表达权限或额外业务前置条件。"
     }
   ]
 }

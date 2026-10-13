@@ -24,6 +24,7 @@ describe('HttpIdentityGateway', () => {
       csrf,
       account: null,
       principal: null,
+      organization: null,
       teams: [],
       permissions: [],
     })
@@ -137,6 +138,47 @@ describe('HttpIdentityGateway', () => {
     expect(session.authenticated).toBe(true)
     expect(session.account?.username).toBe('alice')
     expect(session.teams[0]?.permissions).toEqual(['scope:read'])
+    expect(session.organization).toBeNull()
+  })
+
+  it('maps the organization projection alongside the org vocabulary', async () => {
+    const gateway = gatewayWith(vi.fn(async () => json({
+      authenticated: true,
+      registrationMode: 'INVITE_ONLY',
+      csrf,
+      account: account(),
+      principal: { principalId: 'principal-1', organizationId: 'org-1' },
+      organization: { organizationId: 'org-1', name: 'CrewScope Organization', role: 'ORG_OWNER' },
+      teams: [],
+      permissions: ['org:audit-read', 'org:govern'],
+    })))
+
+    const session = await gateway.session()
+
+    expect(session.organization).toEqual({
+      organizationId: 'org-1', name: 'CrewScope Organization', role: 'ORG_OWNER',
+    })
+  })
+
+  // The org settings page gates its surfaces on the org:* vocabulary while the deletion entry
+  // additionally reads session.organization.role — a Session carrying one without the other
+  // would silently mis-render, so mapSession fails closed instead of guessing.
+  it.each([
+    { organization: null, permissions: ['org:govern'] },
+    { organization: { organizationId: 'org-1', name: 'CrewScope Organization', role: 'ORG_OWNER' }, permissions: [] },
+  ])('fails closed when the org vocabulary and the organization projection disagree (%#)', async ({ organization, permissions: granted }) => {
+    const gateway = gatewayWith(vi.fn(async () => json({
+      authenticated: true,
+      registrationMode: 'INVITE_ONLY',
+      csrf,
+      account: account(),
+      principal: { principalId: 'principal-1', organizationId: 'org-1' },
+      organization,
+      teams: [],
+      permissions: granted,
+    })))
+
+    await expect(gateway.session()).rejects.toThrow(TypeError)
   })
 })
 

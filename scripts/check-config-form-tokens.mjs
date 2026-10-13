@@ -17,6 +17,7 @@ const files = [
   'pages/AgentSettingsPage.vue',
   'pages/ModelSettingsPage.vue',
   'pages/RepositorySettingsPage.vue',
+  'pages/OrganizationSettingsPage.vue',
 ]
 const offenders = []
 for (const name of files) {

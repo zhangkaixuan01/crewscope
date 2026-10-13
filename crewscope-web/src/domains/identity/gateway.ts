@@ -1,10 +1,11 @@
 import { inject, type App, type InjectionKey } from 'vue'
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
-import { registrationModes } from './types'
+import { organizationRoleNames, registrationModes } from './types'
 import type {
   AuthCsrfCoordinate,
   AuthSession,
   AuthSessionAccount,
+  AuthSessionOrganization,
   AuthSessionPrincipal,
   AuthSessionTeam,
   LoginCredentials,
@@ -94,13 +95,22 @@ function mapSession(input: unknown): AuthSession {
   const authenticated = boolean(value.authenticated)
   const account = nullable(value.account, mapAccount)
   const principal = nullable(value.principal, mapPrincipal)
+  // The organization projection is absent (not null) on deployments without ORG roles —
+  // nullable() only special-cases null, so the missing key maps to null explicitly.
+  const organization = value.organization === undefined ? null : nullable(value.organization, mapOrganization)
   const teams = array(value.teams).map(mapTeam)
   const permissions = array(value.permissions).map(nonEmptyString)
   if ((authenticated && (!account || !principal)) || (!authenticated && (account !== null || principal !== null))) {
     throw new TypeError('Authentication session identity is inconsistent')
   }
-  if (!authenticated && (teams.length > 0 || permissions.length > 0)) {
+  if (!authenticated && (teams.length > 0 || permissions.length > 0 || organization !== null)) {
     throw new TypeError('Anonymous session must not contain authorization facts')
+  }
+  // The org:* vocabulary is only projected together with the organization fact (M12-A01 §3.5);
+  // one without the other means the backend contract drifted, which must fail loudly.
+  const hasOrgPermission = permissions.some(permission => permission.startsWith('org:'))
+  if (hasOrgPermission !== (organization !== null)) {
+    throw new TypeError('Authentication session organization projection is inconsistent')
   }
   return {
     authenticated,
@@ -108,6 +118,7 @@ function mapSession(input: unknown): AuthSession {
     csrf: mapCsrf(value.csrf),
     account,
     principal,
+    organization,
     teams,
     permissions,
   }
@@ -140,6 +151,15 @@ function mapPrincipal(input: unknown): AuthSessionPrincipal {
   return {
     principalId: nonEmptyString(value.principalId),
     organizationId: nonEmptyString(value.organizationId),
+  }
+}
+
+function mapOrganization(input: unknown): AuthSessionOrganization {
+  const value = record(input)
+  return {
+    organizationId: nonEmptyString(value.organizationId),
+    name: nonEmptyString(value.name),
+    role: oneOf(value.role, organizationRoleNames),
   }
 }
 

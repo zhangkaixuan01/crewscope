@@ -20,6 +20,21 @@ describe('AuthStore', () => {
     expect(sessionStorage).toHaveLength(0)
   })
 
+  // M12-F01: the principal's organization label used to be a hardcoded string; the session
+  // organization projection is now its single source — a Session without the projection (no
+  // ORG role) renders the empty label rather than a name the backend never sent.
+  it('derives the principal organization label from the session projection', async () => {
+    const orgSession = session(true)
+    orgSession.organization = { organizationId: 'organization-1', name: 'CrewScope Organization', role: 'ORG_ADMIN' }
+    const orgStore = createAuthStore(gateway(async () => orgSession), { channelFactory: () => null })
+    await orgStore.ensureRestored()
+    expect(orgStore.principal.organization).toBe('CrewScope Organization')
+
+    const plainStore = createAuthStore(gateway(async () => session(true)), { channelFactory: () => null })
+    await plainStore.ensureRestored()
+    expect(plainStore.principal.organization).toBe('')
+  })
+
   it('clears scoped user data before notifying listeners on sign-out', async () => {
     localStorage.clear()
     const store = createAuthStore(gateway(async () => session(true)), { channelFactory: () => null })
@@ -194,6 +209,7 @@ function session(authenticated: boolean): AuthSession {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
+    organization: null,
     teams: authenticated ? [{
       teamId: 'team-1',
       name: 'Platform',

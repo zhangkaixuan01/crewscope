@@ -206,6 +206,7 @@ function session(authenticated = false): AuthSession {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'org-1' } : null,
+    organization: null,
     teams: authenticated ? [{ teamId: 'team-1', name: 'Platform', memberId: 'member-1', permissions: ['scope:read', 'conversation:use'] }] : [],
     permissions: authenticated ? ['scope:read', 'conversation:use'] : [],
   }

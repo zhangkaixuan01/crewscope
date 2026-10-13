@@ -28,12 +28,23 @@ export interface AuthSessionTeam {
   permissions: string[]
 }
 
+/** Highest active ORG_* role of the signed-in account; projected only when one exists (M12-A01 §3.5). */
+export const organizationRoleNames = ['ORG_OWNER', 'ORG_ADMIN', 'ORG_AUDITOR'] as const
+export type OrganizationRoleName = typeof organizationRoleNames[number]
+
+export interface AuthSessionOrganization {
+  organizationId: string
+  name: string
+  role: OrganizationRoleName
+}
+
 export interface AuthSession {
   authenticated: boolean
   registrationMode: RegistrationMode
   csrf: AuthCsrfCoordinate
   account: AuthSessionAccount | null
   principal: AuthSessionPrincipal | null
+  organization: AuthSessionOrganization | null
   teams: AuthSessionTeam[]
   permissions: string[]
 }

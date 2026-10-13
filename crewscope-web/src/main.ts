@@ -41,6 +41,8 @@ import { installDeliveryStore } from './domains/delivery/store'
 import { HttpTeamOpsGateway } from './domains/teamops/gateway'
 import { installTeamOpsStore } from './domains/teamops/store'
 import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
+import { HttpOrganizationGateway } from './domains/organization/gateway'
+import { installOrganizationStore } from './domains/organization/store'
 import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
 import { installTeamObserverStore } from './domains/teamobserver/store'
 import { HttpKnowledgeGateway } from './domains/knowledge/gateway'
@@ -109,6 +111,7 @@ const reviewStore = installReviewStore(app, new HttpReviewGateway())
 const deliveryStore = installDeliveryStore(app, new HttpDeliveryGateway())
 const teamOpsGateway = new HttpTeamOpsGateway()
 const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
+const organizationStore = installOrganizationStore(app, new HttpOrganizationGateway())
 const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
 const collaborationStore = installCollaborationStore(app, createCollaborationGateway())
 const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
@@ -143,6 +146,7 @@ subscribeSessionBoundary(authStore, reason => {
   reviewStore.reset()
   deliveryStore.reset()
   teamOpsStore.reset()
+  organizationStore.reset()
   teamObserverStore.reset()
   knowledgeStore.reset()
   knowledgeIndexStore.reset()

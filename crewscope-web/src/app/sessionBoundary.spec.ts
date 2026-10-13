@@ -7,7 +7,7 @@ function fixture() {
     authenticated: true, registrationMode: 'OPEN',
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'test-only' },
     account: { accountId: 'account', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 0 },
-    principal: { principalId: 'principal', organizationId: 'org' }, teams: [], permissions: [],
+    principal: { principalId: 'principal', organizationId: 'org' }, organization: null, teams: [], permissions: [],
   }
   const store = createAuthStore({ session: async () => structuredClone(current), login: vi.fn(), logout: vi.fn(), register: vi.fn() }, { channelFactory: () => null })
   const reset = vi.fn()

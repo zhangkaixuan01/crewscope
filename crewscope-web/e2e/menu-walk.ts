@@ -35,6 +35,7 @@ export const MENUS = [
   { path: '/operations', name: '运维' },
   { path: '/audit', name: '审计' },
   { path: '/team/members', name: '成员' },
+  { path: '/settings/organization', name: '组织设置' },
   { path: '/settings/repositories', name: '仓库设置' },
   { path: '/settings/agents', name: 'Agent 设置' },
   { path: '/settings/models', name: '模型设置' },
@@ -85,8 +86,17 @@ export async function mockApi(page: Page): Promise<void> {
     // The observability month listing carries `months` + a month cursor, so the generic fallback
     // shape would not parse — before the generic `s$` fallback.
     if (/\/observability\/cost\/months$/.test(path)) return json(route, { months: [], nextAfter: null })
+    // Organization settings: both endpoints answer objects, and `/settings` even ends in `s` so
+    // the generic fallback would hand the page a pagination envelope — explicit shapes instead.
+    if (/\/organizations\/[^/]+$/.test(path)) return json(route, organizationProfile())
+    if (/\/organizations\/[^/]+\/settings$/.test(path)) return json(route, { auditEventRetentionDays: null, version: 0 })
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
+}
+
+/** The organization profile answers `organizationId` (not `id`) — the allowlist mapper's shape. */
+function organizationProfile() {
+  return { organizationId: ids.organization, name: 'CrewScope Organization', status: 'ACTIVE', version: 1 }
 }
 
 function team() {

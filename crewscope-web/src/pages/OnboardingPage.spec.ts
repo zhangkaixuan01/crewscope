@@ -164,6 +164,7 @@ function session(hasTeam: boolean): AuthSession {
       platformRole: 'USER', securityVersion: 1, version: 1,
     },
     principal: { principalId: fixtureIds.principal, organizationId: fixtureIds.organization },
+    organization: { organizationId: fixtureIds.organization, name: 'CrewScope Organization', role: 'ORG_OWNER' },
     teams: hasTeam ? [{
       teamId: fixtureIds.teamPlatform, name: 'Platform Engineering', memberId: fixtureIds.memberOwner,
       permissions: granted,
