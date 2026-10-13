@@ -37,7 +37,9 @@ export function workUrl(extra: Record<string, string> = {}): string {
 }
 
 export function sessionFor() {
-  const granted = Object.values(permissions)
+  // The org:* vocabulary is projected only together with the organization fact (M12-A01);
+  // this mock world has no ORG role face, so those words stay out of the team session.
+  const granted = Object.values(permissions).filter(value => !value.startsWith('org:'))
   return {
     authenticated: true,
     registrationMode: 'OPEN',

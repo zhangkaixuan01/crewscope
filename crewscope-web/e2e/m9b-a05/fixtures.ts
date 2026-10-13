@@ -44,7 +44,10 @@ export function workUrl(extra: Record<string, string> = {}): string {
 
 /** 权限可裁剪的会话：scenario「无 responsibility:manage」在 goto 前换掉 world.session。 */
 export function sessionFor(without: string[] = []) {
-  const granted = Object.values(permissions).filter(value => !without.includes(value))
+  // The org:* vocabulary is projected only together with the organization fact (M12-A01);
+  // this mock world has no ORG role face, so those words stay out of the team session.
+  const granted = Object.values(permissions)
+    .filter(value => !without.includes(value) && !value.startsWith('org:'))
   return {
     authenticated: true,
     registrationMode: 'OPEN',

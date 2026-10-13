@@ -37,7 +37,9 @@ export function workUrl(teamId: string = ids.teamA): string {
 
 /** Both fixture accounts belong to both Teams; the isolating dimension is the account itself. */
 export function sessionFor(account: 'A' | 'B') {
-  const granted = Object.values(permissions)
+  // The org:* vocabulary is projected only together with the organization fact (M12-A01);
+  // this mock world has no ORG role face, so those words stay out of the team session.
+  const granted = Object.values(permissions).filter(value => !value.startsWith('org:'))
   const accountId = account === 'A' ? ids.accountA : ids.accountB
   const principalId = account === 'A' ? ids.principalA : ids.principalB
   const memberId = account === 'A' ? ids.memberA : ids.memberB
