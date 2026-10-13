@@ -10,6 +10,7 @@ import io.crewscope.application.identity.CurrentAccountSnapshotReader;
 import io.crewscope.application.identity.CurrentAccountApplicationService;
 import io.crewscope.application.identity.IdentityMappingService;
 import io.crewscope.application.identity.IdentityPersistenceCapacityException;
+import io.crewscope.application.identity.InitialOrganizationOwnerProvisioner;
 import io.crewscope.application.identity.LocalAccountRegistrationService;
 import io.crewscope.application.identity.LocalAccountLoginService;
 import io.crewscope.application.identity.LocalCredentialStore;
@@ -115,6 +116,8 @@ public class IdentityApplicationConfiguration {
       DefaultPersonalAgentService defaultPersonalAgents,
       TeamInvitationAcceptanceService invitationAcceptance,
       ObjectProvider<InvitationTokenDigester> invitationDigester,
+      org.springframework.beans.factory.ObjectProvider<InitialOrganizationOwnerProvisioner>
+          initialOwnerProvisioner,
       LocalPasswordAuthentication passwords,
       DomainEventStore events,
       OutboxRepository outbox,
@@ -137,6 +140,7 @@ public class IdentityApplicationConfiguration {
         defaultPersonalAgents,
         invitationAcceptance,
         Optional.ofNullable(invitationDigester.getIfAvailable()),
+        initialOwnerProvisioner.getIfAvailable(() -> (organizationId, principalId) -> { }),
         passwords,
         events,
         outbox,

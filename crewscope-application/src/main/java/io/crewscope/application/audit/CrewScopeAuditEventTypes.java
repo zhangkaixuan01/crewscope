@@ -109,7 +109,41 @@ public final class CrewScopeAuditEventTypes {
         registerM6SecurityEvents(definitions);
         registerM7IdentityEvents(definitions);
         registerKnowledgeEvents(definitions);
+        registerOrganizationRoleAndSettingEvents(definitions);
         return new AuditEventTypeRegistry(definitions);
+    }
+
+    private static void registerOrganizationRoleAndSettingEvents(
+            List<AuditEventTypeDefinition> target) {
+        register(
+                target,
+                List.of("ORGANIZATION_ROLE_GRANTED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.role.event.OrganizationRoleGranted.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("role"),
+                required("principalId"));
+        register(
+                target,
+                List.of("ORGANIZATION_ROLE_REVOKED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.role.event.OrganizationRoleRevoked.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("role"),
+                required("principalId"));
+        register(
+                target,
+                List.of("ORGANIZATION_SETTING_CHANGED"),
+                List.of(SchemaVersion.V1),
+                io.crewscope.domain.organization.setting.event.OrganizationSettingChanged.class,
+                AuditEventCategory.SECURITY,
+                AuditOutcome.SUCCEEDED,
+                AuditRetentionLevel.EXTENDED,
+                required("auditEventRetentionDaysAfter"));
     }
 
     private static void registerKnowledgeEvents(List<AuditEventTypeDefinition> target) {

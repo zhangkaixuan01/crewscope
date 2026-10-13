@@ -41,6 +41,7 @@ public final class BootstrapOperatorProvisioningService {
     private final LocalCredentialStore credentials;
     private final AccountOrganizationBindingRepository bindings;
     private final BootstrapOperatorPasswordHasher passwordHasher;
+    private final InitialOrganizationOwnerProvisioner initialOwnerProvisioner;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
 
@@ -52,6 +53,7 @@ public final class BootstrapOperatorProvisioningService {
             LocalCredentialStore credentials,
             AccountOrganizationBindingRepository bindings,
             BootstrapOperatorPasswordHasher passwordHasher,
+            InitialOrganizationOwnerProvisioner initialOwnerProvisioner,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
         this.bootstrapLock = Objects.requireNonNull(bootstrapLock, "bootstrapLock");
@@ -61,6 +63,8 @@ public final class BootstrapOperatorProvisioningService {
         this.credentials = Objects.requireNonNull(credentials, "credentials");
         this.bindings = Objects.requireNonNull(bindings, "bindings");
         this.passwordHasher = Objects.requireNonNull(passwordHasher, "passwordHasher");
+        this.initialOwnerProvisioner =
+                Objects.requireNonNull(initialOwnerProvisioner, "initialOwnerProvisioner");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
     }
@@ -146,6 +150,9 @@ public final class BootstrapOperatorProvisioningService {
                 provisioning.organizationId(),
                 principal,
                 now));
+        // The bootstrap account is this organization's first account on fresh installs, so the
+        // initial ORG_OWNER lands here (the V68 backfill covers databases that already had one).
+        initialOwnerProvisioner.ensureInitialOwner(provisioning.organizationId(), principal.id());
         return result(
                 account,
                 identity,

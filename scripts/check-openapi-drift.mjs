@@ -38,9 +38,9 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 283 = 277 + 2 WorkGraph relation commands + 4 WorkGraph queries (M11-A02).
-if (operationCount !== 283) {
-  console.error(`OpenAPI operation baseline changed: expected 283, found ${operationCount}`)
+// 289 = 283 + 6 organization management routes (M12-A01: profile, settings, role grants).
+if (operationCount !== 289) {
+  console.error(`OpenAPI operation baseline changed: expected 289, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {
@@ -52,7 +52,7 @@ const stateMachinePath = resolve(root, 'crewscope-web/src/api/generated/state-ma
 const stateMachines = await readFile(stateMachinePath, 'utf8').catch(() => '')
 const aggregateCount = (stateMachines.match(/^  "[^"]+": \{$/gm) ?? []).length
 if (aggregateCount !== 18) {
-  console.error(`State-machine aggregate baseline changed: expected 17, found ${aggregateCount}`)
+  console.error(`State-machine aggregate baseline changed: expected 18, found ${aggregateCount}`)
   process.exit(1)
 }
 const workItemBlock = stateMachines.match(/"WorkItem": \{([\s\S]*?)\n  \}\n\} as const/)

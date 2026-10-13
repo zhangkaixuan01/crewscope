@@ -95,6 +95,7 @@ public final class LocalAccountRegistrationService {
     private final DefaultPersonalAgentService defaultPersonalAgents;
     private final TeamInvitationAcceptanceService invitationAcceptance;
     private final Optional<InvitationTokenDigester> invitationDigester;
+    private final InitialOrganizationOwnerProvisioner initialOwnerProvisioner;
     private final LocalPasswordAuthentication passwords;
     private final DomainEventStore events;
     private final OutboxRepository outbox;
@@ -118,6 +119,7 @@ public final class LocalAccountRegistrationService {
             DefaultPersonalAgentService defaultPersonalAgents,
             TeamInvitationAcceptanceService invitationAcceptance,
             Optional<InvitationTokenDigester> invitationDigester,
+            InitialOrganizationOwnerProvisioner initialOwnerProvisioner,
             LocalPasswordAuthentication passwords,
             DomainEventStore events,
             OutboxRepository outbox,
@@ -142,6 +144,8 @@ public final class LocalAccountRegistrationService {
                 invitationAcceptance, "invitationAcceptance");
         this.invitationDigester = Objects.requireNonNull(
                 invitationDigester, "invitationDigester");
+        this.initialOwnerProvisioner = Objects.requireNonNull(
+                initialOwnerProvisioner, "initialOwnerProvisioner");
         this.passwords = Objects.requireNonNull(passwords, "passwords");
         this.events = Objects.requireNonNull(events, "events");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
@@ -283,6 +287,9 @@ public final class LocalAccountRegistrationService {
                 context.organizationId(),
                 principal,
                 now));
+        // First registrant of an organization without an active ORG_OWNER becomes its initial
+        // owner (no-op when the migration backfill or an earlier account already provided one).
+        initialOwnerProvisioner.ensureInitialOwner(context.organizationId(), principal.id());
 
         Optional<InvitationAcceptance> acceptance = lockedInvitation.map(invitation ->
                 acceptInvitation(invitation, attempt.invitationDigest().orElseThrow(), account,

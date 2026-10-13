@@ -1,6 +1,7 @@
 package io.crewscope.server.api;
 
 import io.crewscope.domain.identity.PlatformRole;
+import io.crewscope.domain.organization.role.OrganizationRole;
 import io.crewscope.domain.team.TeamPermission;
 import java.util.Collection;
 import java.util.EnumMap;
@@ -37,6 +38,22 @@ final class BrowserPermissionProjection {
     TreeSet<String> projected = new TreeSet<>();
     if (Objects.requireNonNull(platformRole, "platformRole") == PlatformRole.OPERATOR) {
       projected.add("operations:manage");
+    }
+    return List.copyOf(projected);
+  }
+
+  /**
+   * Returns organization-level affordances (M12-A01); a principal without an active ORG_* grant
+   * projects nothing — organization authority never leaks into team capability keys.
+   */
+  static List<String> organization(OrganizationRole role) {
+    TreeSet<String> projected = new TreeSet<>();
+    if (role != null) {
+      projected.add("org:audit-read");
+      if (role != OrganizationRole.ORG_AUDITOR) {
+        projected.add("org:govern");
+        projected.add("org:manage-settings");
+      }
     }
     return List.copyOf(projected);
   }

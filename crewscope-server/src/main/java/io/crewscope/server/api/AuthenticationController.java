@@ -9,12 +9,16 @@ import io.crewscope.application.identity.LocalAccountLoginService;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.LoginDefenseRequest;
 import io.crewscope.application.identity.LoginIdentifierResource;
+import io.crewscope.application.organization.OrganizationAuthorization;
+import io.crewscope.application.organization.OrganizationRepository;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.domain.identity.RegistrationMode;
 import io.crewscope.domain.identity.UserAccount;
+import io.crewscope.domain.organization.Organization;
+import io.crewscope.domain.organization.role.OrganizationRole;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.team.Team;
@@ -34,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -66,6 +71,8 @@ public class AuthenticationController {
   private final TeamMemberRepository members;
   private final MemberRoleRepository memberRoles;
   private final TeamRoleRepository roles;
+  private final OrganizationAuthorization organizationAuthorization;
+  private final OrganizationRepository organizations;
   private final RegistrationProperties registration;
   private final TimeProvider timeProvider;
 
@@ -79,6 +86,8 @@ public class AuthenticationController {
       TeamMemberRepository members,
       MemberRoleRepository memberRoles,
       TeamRoleRepository roles,
+      OrganizationAuthorization organizationAuthorization,
+      OrganizationRepository organizations,
       RegistrationProperties registration,
       TimeProvider timeProvider) {
     this.logins = logins;
@@ -90,6 +99,8 @@ public class AuthenticationController {
     this.members = members;
     this.memberRoles = memberRoles;
     this.roles = roles;
+    this.organizationAuthorization = organizationAuthorization;
+    this.organizations = organizations;
     this.registration = registration;
     this.timeProvider = timeProvider;
   }
@@ -176,7 +187,17 @@ public class AuthenticationController {
         .map(team -> teamView(team, resolution))
         .sorted(Comparator.comparing(TeamSessionView::name).thenComparing(TeamSessionView::teamId))
         .toList();
-    List<String> permissions = BrowserPermissionProjection.account(account.platformRole());
+    Optional<OrganizationRole> organizationRole =
+        organizationAuthorization.roleOf(organizationId, resolution.principal().id());
+    Optional<OrganizationSessionView> organizationView = organizationRole.map(
+        role -> new OrganizationSessionView(
+            organizationId.value(),
+            organizations.findById(organizationId)
+                .map(Organization::name)
+                .orElseThrow(AuthenticationController::unavailable),
+            role.name()));
+    TreeSet<String> projected = new TreeSet<>(BrowserPermissionProjection.account(account.platformRole()));
+    projected.addAll(BrowserPermissionProjection.organization(organizationRole.orElse(null)));
     return new SessionResponse(
         true,
         registration.getMode(),
@@ -191,7 +212,8 @@ public class AuthenticationController {
         Optional.of(new PrincipalSessionView(
             resolution.principal().id().value(), organizationId.value())),
         teamViews,
-        permissions);
+        organizationView,
+        List.copyOf(projected));
   }
 
   private TeamSessionView teamView(Team team, AccountOrganizationResolution resolution) {
@@ -229,6 +251,7 @@ public class AuthenticationController {
         Optional.empty(),
         Optional.empty(),
         List.of(),
+        Optional.empty(),
         List.of());
   }
 
@@ -299,6 +322,10 @@ public class AuthenticationController {
   public record TeamSessionView(
       UUID teamId, String name, UUID memberId, List<String> permissions) {}
 
+  /** Organization-level projection; {@code role} is the highest active ORG_* grant. */
+  public record OrganizationSessionView(
+      UUID organizationId, String name, String role) {}
+
   public record SessionResponse(
       boolean authenticated,
       RegistrationMode registrationMode,
@@ -306,5 +333,6 @@ public class AuthenticationController {
       Optional<AccountSessionView> account,
       Optional<PrincipalSessionView> principal,
       List<TeamSessionView> teams,
+      Optional<OrganizationSessionView> organization,
       List<String> permissions) {}
 }

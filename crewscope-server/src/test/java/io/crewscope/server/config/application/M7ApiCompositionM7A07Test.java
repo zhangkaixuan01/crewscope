@@ -60,6 +60,12 @@ class M7ApiCompositionM7A07Test {
             .withBean(
                     AuthenticatedAccountOrganizationResolver.class,
                     () -> mock(AuthenticatedAccountOrganizationResolver.class))
+            .withBean(
+                    io.crewscope.application.organization.OrganizationAuthorization.class,
+                    () -> mock(io.crewscope.application.organization.OrganizationAuthorization.class))
+            .withBean(
+                    io.crewscope.application.organization.OrganizationRepository.class,
+                    () -> mock(io.crewscope.application.organization.OrganizationRepository.class))
             .withBean(TeamRepository.class, () -> mock(TeamRepository.class))
             .withBean(TeamMemberRepository.class, () -> mock(TeamMemberRepository.class))
             .withBean(MemberRoleRepository.class, () -> mock(MemberRoleRepository.class))

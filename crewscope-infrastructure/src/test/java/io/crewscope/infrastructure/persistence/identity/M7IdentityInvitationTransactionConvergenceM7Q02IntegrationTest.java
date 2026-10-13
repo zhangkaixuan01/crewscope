@@ -338,6 +338,7 @@ class M7IdentityInvitationTransactionConvergenceM7Q02IntegrationTest
                 new DefaultPersonalAgentService(personalAgents, transactions, () -> NOW),
                 new TeamInvitationAcceptanceService(),
                 digester,
+                (ignoredOrganization, ignoredPrincipal) -> { },
                 passwordAuthentication(),
                 eventPort,
                 outbox,

@@ -143,6 +143,7 @@ class LocalAccountRegistrationServiceM7A01Test {
                 mock(DefaultPersonalAgentService.class),
                 new TeamInvitationAcceptanceService(),
                 Optional.of(ignored -> digest),
+                (ignoredOrganization, ignoredPrincipal) -> { },
                 passwords,
                 events,
                 outbox,

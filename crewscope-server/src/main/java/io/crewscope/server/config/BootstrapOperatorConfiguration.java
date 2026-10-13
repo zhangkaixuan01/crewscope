@@ -5,6 +5,7 @@ import io.crewscope.application.identity.BootstrapOperatorLock;
 import io.crewscope.application.identity.BootstrapOperatorPasswordHasher;
 import io.crewscope.application.identity.BootstrapOperatorProvisioning;
 import io.crewscope.application.identity.BootstrapOperatorProvisioningService;
+import io.crewscope.application.identity.InitialOrganizationOwnerProvisioner;
 import io.crewscope.application.identity.LocalCredentialStore;
 import io.crewscope.application.identity.LoginIdentityRepository;
 import io.crewscope.application.identity.PrincipalRepository;
@@ -36,6 +37,8 @@ public class BootstrapOperatorConfiguration {
             LocalCredentialStore credentials,
             AccountOrganizationBindingRepository bindings,
             BootstrapOperatorPasswordHasher passwordHasher,
+            org.springframework.beans.factory.ObjectProvider<InitialOrganizationOwnerProvisioner>
+                    initialOwnerProvisioner,
             TransactionExecutor transactions,
             TimeProvider timeProvider) {
         return new BootstrapOperatorProvisioningService(
@@ -46,6 +49,10 @@ public class BootstrapOperatorConfiguration {
                 credentials,
                 bindings,
                 passwordHasher,
+                // Partial test contexts may assemble the operator chain without the organization
+                // application configuration; missing there means nothing to provision.
+                initialOwnerProvisioner.getIfAvailable(
+                        () -> (organizationId, principalId) -> { }),
                 transactions,
                 timeProvider);
     }

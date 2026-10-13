@@ -12,6 +12,8 @@ import io.crewscope.application.identity.LocalAccountLoginException;
 import io.crewscope.application.identity.LocalAccountLoginService;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.LoginResourceAdmission;
+import io.crewscope.application.organization.OrganizationAuthorization;
+import io.crewscope.application.organization.OrganizationRepository;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
@@ -97,6 +99,8 @@ class AuthenticationControllerM7A02Test {
         members,
         memberRoles,
         roles,
+        mock(OrganizationAuthorization.class),
+        mock(OrganizationRepository.class),
         registration,
         timeProvider);
     client = WebTestClient.bindToController(controller)

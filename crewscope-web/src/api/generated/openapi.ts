@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 276f63e9bc7fa4818fffb02a28a347a693bd5994658b243e94b9552d361f8f33
+// Controller source SHA-256: 337dfa894711fad3e79178644f9716a59ec02274b80290237ce6231a287f11cc
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -162,6 +162,14 @@ export const openApiDocument = {
         "operationId": "OnboardingController_createFirstTeam",
         "tags": [
           "OnboardingController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}": {
+      "get": {
+        "operationId": "OrganizationProfileController_getOrganization",
+        "tags": [
+          "OrganizationProfileController"
         ]
       }
     },
@@ -407,6 +415,28 @@ export const openApiDocument = {
         ]
       }
     },
+    "/api/v1/organizations/{organizationId}/role-grants": {
+      "get": {
+        "operationId": "OrganizationRoleController_listGrants",
+        "tags": [
+          "OrganizationRoleController"
+        ]
+      },
+      "post": {
+        "operationId": "OrganizationRoleController_grantRole",
+        "tags": [
+          "OrganizationRoleController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/role-grants/{grantId}/revoke": {
+      "post": {
+        "operationId": "OrganizationRoleController_revokeRole",
+        "tags": [
+          "OrganizationRoleController"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/runtime-health/operations/archive": {
       "post": {
         "operationId": "RuntimeMaintenanceController_archive",
@@ -420,6 +450,20 @@ export const openApiDocument = {
         "operationId": "RuntimeMaintenanceController_reconcile",
         "tags": [
           "RuntimeMaintenanceController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/settings": {
+      "get": {
+        "operationId": "OrganizationProfileController_getSettings",
+        "tags": [
+          "OrganizationProfileController"
+        ]
+      },
+      "put": {
+        "operationId": "OrganizationProfileController_changeSettings",
+        "tags": [
+          "OrganizationProfileController"
         ]
       }
     },
@@ -2319,6 +2363,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}",
+    "operationId": "OrganizationProfileController_getOrganization",
+    "controller": "OrganizationProfileController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/command-results",
     "operationId": "CommandResultController_get",
     "controller": "CommandResultController"
@@ -2504,6 +2554,24 @@ export const openApiOperations = [
     "controller": "OperationsController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/role-grants",
+    "operationId": "OrganizationRoleController_listGrants",
+    "controller": "OrganizationRoleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/role-grants",
+    "operationId": "OrganizationRoleController_grantRole",
+    "controller": "OrganizationRoleController"
+  },
+  {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/role-grants/{grantId}/revoke",
+    "operationId": "OrganizationRoleController_revokeRole",
+    "controller": "OrganizationRoleController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/organizations/{organizationId}/runtime-health/operations/archive",
     "operationId": "RuntimeMaintenanceController_archive",
@@ -2514,6 +2582,18 @@ export const openApiOperations = [
     "path": "/api/v1/organizations/{organizationId}/runtime-health/operations/reconcile",
     "operationId": "RuntimeMaintenanceController_reconcile",
     "controller": "RuntimeMaintenanceController"
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/settings",
+    "operationId": "OrganizationProfileController_getSettings",
+    "controller": "OrganizationProfileController"
+  },
+  {
+    "method": "put",
+    "path": "/api/v1/organizations/{organizationId}/settings",
+    "operationId": "OrganizationProfileController_changeSettings",
+    "controller": "OrganizationProfileController"
   },
   {
     "method": "get",
@@ -3908,4 +3988,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 283 as const
+export const openApiOperationCount = 289 as const
