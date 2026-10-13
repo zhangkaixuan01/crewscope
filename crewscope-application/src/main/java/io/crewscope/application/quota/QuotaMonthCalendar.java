@@ -23,11 +23,16 @@ public final class QuotaMonthCalendar {
 
     public static MonthWindow monthOf(UtcTimestamp occurredAt, ZoneId reportingZone) {
         Objects.requireNonNull(occurredAt, "occurredAt");
+        return windowOf(
+                ModelUsageMonthKey.of(occurredAt, reportingZone).value(), reportingZone);
+    }
+
+    /** Projects an already-validated month key into its [start, end) UTC instants. */
+    public static MonthWindow windowOf(String usageMonth, ZoneId reportingZone) {
         Objects.requireNonNull(reportingZone, "reportingZone");
-        String usageMonth = ModelUsageMonthKey.of(occurredAt, reportingZone).value();
-        YearMonth month = YearMonth.parse(usageMonth);
+        YearMonth month = YearMonth.parse(ModelUsageMonthKey.formatChecked(usageMonth));
         return new MonthWindow(
-                usageMonth,
+                month.toString(),
                 month.atDay(1).atStartOfDay(reportingZone).toInstant(),
                 month.plusMonths(1).atDay(1).atStartOfDay(reportingZone).toInstant());
     }

@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 23e565ee01f8bcb7f594436ebaa0812ff2cd5f3dd30beef1f19797b7f95ec769
+// Controller source SHA-256: a4bebcdb12d767d94c02994df375b0a3a6cdf8f10ee59ce01194088f22bb743d
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -512,6 +512,14 @@ export const openApiDocument = {
       },
       "put": {
         "operationId": "OrganizationQuotaController_changeQuota",
+        "tags": [
+          "OrganizationQuotaController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/quota/usage": {
+      "get": {
+        "operationId": "OrganizationQuotaController_getQuotaUsage",
         "tags": [
           "OrganizationQuotaController"
         ]
@@ -2735,6 +2743,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/quota/usage",
+    "operationId": "OrganizationQuotaController_getQuotaUsage",
+    "controller": "OrganizationQuotaController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/role-grants",
     "operationId": "OrganizationRoleController_listGrants",
     "controller": "OrganizationRoleController"
@@ -4168,4 +4182,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 302 as const
+export const openApiOperationCount = 303 as const

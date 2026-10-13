@@ -257,6 +257,45 @@ class OrganizationQuotaHttpM12A02IntegrationTest
     }
 
     @Test
+    void quotaUsagePresentsTheCurrentMonthAndRejectsFutureOnes() {
+        CookieJar operator = loginOperator();
+        resetQuota();
+
+        // Unconfigured: the view still resolves the month and states its zero facts.
+        JsonNode empty = getJson(quotaUri + "/usage", operator);
+        assertThat(empty.path("month").asText()).isNotBlank();
+        assertThat(empty.path("materialized").asBoolean()).isFalse();
+        assertThat(absent(empty.path("monthlyTaskIntake"), "limit")).isTrue();
+        assertThat(empty.path("monthlyTaskIntake").path("count").asLong()).isZero();
+        assertThat(absent(empty.path("monthlyTokenBudget"), "limit")).isTrue();
+        assertThat(empty.path("monthlyTokenBudget").path("reservedTokens").asLong()).isZero();
+        assertThat(empty.path("monthlyTokenBudget").path("actualTokens").path("total").asLong())
+                .isZero();
+
+        putJson(quotaUri, operator)
+                .header(ApiHeaders.IDEMPOTENCY_KEY, "m12a02-usage-seed-" + UUID.randomUUID())
+                .header(ApiHeaders.IF_MATCH, "\"0\"")
+                .bodyValue(Map.of("monthlyTaskIntakeLimit", 5, "monthlyTokenBudget", 1_000_000L))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.ACCEPTED.value());
+        JsonNode configured = getJson(quotaUri + "/usage", operator);
+        assertThat(configured.path("materialized").asBoolean()).isTrue();
+        assertThat(configured.path("monthlyTaskIntake").path("limit").asInt()).isEqualTo(5);
+        assertThat(configured.path("monthlyTokenBudget").path("limit").asLong())
+                .isEqualTo(1_000_000L);
+
+        // Malformed and future months are one 400 field error; past months resolve their own view.
+        getWithCookies(quotaUri + "/usage?month=2099-01", operator)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.BAD_REQUEST.value());
+        getWithCookies(quotaUri + "/usage?month=2026-13", operator)
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.BAD_REQUEST.value());
+        JsonNode past = getJson(quotaUri + "/usage?month=2020-01", operator);
+        assertThat(past.path("month").asText()).isEqualTo("2020-01");
+    }
+
+    @Test
     void clearingBothDimensionsReturnsTheConfiguredRowToUnconfigured() {
         CookieJar operator = loginOperator();
         resetQuota();

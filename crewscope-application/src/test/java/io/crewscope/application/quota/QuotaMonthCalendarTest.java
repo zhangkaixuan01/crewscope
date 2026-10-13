@@ -47,4 +47,22 @@ class QuotaMonthCalendarTest {
         assertEquals(Instant.parse("2026-12-31T16:00:00Z"), window.startInclusive());
         assertEquals(Instant.parse("2027-01-31T16:00:00Z"), window.endExclusive());
     }
+
+    @Test
+    void windowOfProjectsAValidatedMonthKeyIntoTheSameEdges() {
+        QuotaMonthCalendar.MonthWindow fromKey =
+                QuotaMonthCalendar.windowOf("2026-10", SHANGHAI);
+        QuotaMonthCalendar.MonthWindow fromInstant =
+                QuotaMonthCalendar.monthOf(UtcTimestamp.parse("2026-10-13T01:00:00Z"), SHANGHAI);
+
+        assertEquals(fromInstant, fromKey);
+        assertEquals(Instant.parse("2026-09-30T16:00:00Z"), fromKey.startInclusive());
+        assertEquals(Instant.parse("2026-10-31T16:00:00Z"), fromKey.endExclusive());
+    }
+
+    @Test
+    void windowOfRejectsAMalformedKey() {
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class, () -> QuotaMonthCalendar.windowOf("2026-1", UTC));
+    }
 }

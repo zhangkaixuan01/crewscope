@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.application.quota.OrganizationQuotaConfigurationRepository;
+import io.crewscope.application.quota.OrganizationQuotaUsageQueryRepository;
 import io.crewscope.application.quota.OrganizationTaskIntakeQuotaCounter;
 import io.crewscope.application.quota.OrganizationTokenBudgetLedger;
 import io.crewscope.domain.organization.quota.OrganizationQuotaConfiguration;
@@ -56,6 +57,7 @@ class JdbcOrganizationQuotaPersistenceM12A02IntegrationTest
     @Autowired private OrganizationQuotaConfigurationRepository configurations;
     @Autowired private OrganizationTaskIntakeQuotaCounter intakeCounter;
     @Autowired private OrganizationTokenBudgetLedger tokenLedger;
+    @Autowired private OrganizationQuotaUsageQueryRepository usageFacts;
     @Autowired private SpringTransactionExecutor transactions;
     @Autowired private JdbcTemplate jdbc;
 
@@ -237,6 +239,37 @@ class JdbcOrganizationQuotaPersistenceM12A02IntegrationTest
     }
 
     @Test
+    void usageFoldsIntakeLedgerAndOrgGrainActualsForOneMonth() {
+        // Intake counts stay window-scoped: two in-month tasks, one last-month task.
+        seedTask(WINDOW_START.plusSeconds(3_600));
+        seedTask(WINDOW_START.plusSeconds(7_200));
+        seedTask(WINDOW_START.minusSeconds(86_400));
+        // The ledger view reads the month's single row.
+        transactions.required(() -> tokenLedger.reserve(reservation("2026-10", 250L, 1_000L)));
+        // Actual usage folds the rollup at organization grain: team-scoped rows, team-less
+        // rows and other months all coexist — only org+month scope decides.
+        seedRollupRow(UUID.randomUUID(), "2026-10", 100L, 40L, 10L);
+        seedRollupRow(null, "2026-10", 200L, 60L, 30L);
+        seedRollupRow(UUID.randomUUID(), "2026-09", 999L, 999L, 999L);
+
+        assertEquals(
+                2L,
+                usageFacts.countTasksCreatedIn(organizationId, WINDOW_START, WINDOW_END));
+        assertEquals(
+                250L,
+                usageFacts.findTokenLedger(organizationId, "2026-10").orElseThrow()
+                        .reservedTokens());
+        assertTrue(usageFacts.findTokenLedger(organizationId, "2026-09").isEmpty());
+
+        OrganizationQuotaUsageQueryRepository.ActualTokenUsage actual =
+                usageFacts.sumActualTokens(organizationId, "2026-10");
+        assertEquals(300L, actual.inputTokens());
+        assertEquals(100L, actual.outputTokens());
+        assertEquals(40L, actual.cachedInputTokens());
+        assertEquals(440L, actual.totalTokens());
+    }
+
+    @Test
     void concurrentReservationsSerializeWithoutLosingUpdates() throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
@@ -271,6 +304,22 @@ class JdbcOrganizationQuotaPersistenceM12A02IntegrationTest
     private OrganizationTaskIntakeQuotaCounter.QuotaQuery query(int intakeLimit) {
         return new OrganizationTaskIntakeQuotaCounter.QuotaQuery(
                 organizationId, WINDOW_START, WINDOW_END, intakeLimit);
+    }
+
+    /** One unpriced rollup row ('XXX' sentinel shape) at whatever team grain is requested. */
+    private void seedRollupRow(
+            UUID teamId, String usageMonth, long input, long output, long cached) {
+        jdbc.update(
+                """
+                INSERT INTO crewscope.model_usage_monthly_rollup (
+                    organization_id, team_id, usage_month, role, provider_key, model_id,
+                    currency_code, attempt, input_tokens, output_tokens, cached_input_tokens,
+                    fact_count, unreported_fact_count, first_fact_at, last_fact_at
+                ) VALUES (?, ?, ?, 'CHAT_PRIMARY', 'openai', 'gpt-test', 'XXX', 1, ?, ?, ?,
+                          1, 0, ?, ?)
+                """,
+                organizationId.value(), teamId, usageMonth, input, output, cached,
+                java.sql.Timestamp.from(WINDOW_START), java.sql.Timestamp.from(WINDOW_START));
     }
 
     private OrganizationTokenBudgetLedger.ReservationRequest reservation(
@@ -323,6 +372,7 @@ class JdbcOrganizationQuotaPersistenceM12A02IntegrationTest
         JdbcOrganizationQuotaConfigurationRepositoryAdapter.class,
         JdbcOrganizationTaskIntakeQuotaCounterAdapter.class,
         JdbcOrganizationTokenBudgetLedgerAdapter.class,
+        JdbcOrganizationQuotaUsageQueryRepositoryAdapter.class,
         SpringTransactionExecutor.class
     })
     static class TestApplication {}

@@ -7,6 +7,8 @@ import io.crewscope.application.organization.OrganizationAuthorization;
 import io.crewscope.application.quota.OrganizationQuotaAdmissionService;
 import io.crewscope.application.quota.OrganizationQuotaApplicationService;
 import io.crewscope.application.quota.OrganizationQuotaConfigurationRepository;
+import io.crewscope.application.quota.OrganizationQuotaUsageQueryRepository;
+import io.crewscope.application.quota.OrganizationQuotaUsageQueryService;
 import io.crewscope.application.quota.OrganizationTaskIntakeQuotaCounter;
 import io.crewscope.application.quota.OrganizationTokenBudgetLedger;
 import io.crewscope.application.transaction.TransactionExecutor;
@@ -54,5 +56,20 @@ public class QuotaApplicationConfiguration {
         outboxRepository,
         transactionExecutor,
         timeProvider);
+  }
+
+  @Bean
+  OrganizationQuotaUsageQueryService organizationQuotaUsageQueryService(
+      OrganizationQuotaConfigurationRepository organizationQuotaConfigurations,
+      OrganizationQuotaUsageQueryRepository organizationQuotaUsageFacts,
+      OrganizationAuthorization organizationAuthorization,
+      TimeProvider timeProvider,
+      @Value("${crewscope.observability.reporting-zone:UTC}") String reportingZone) {
+    return new OrganizationQuotaUsageQueryService(
+        organizationQuotaConfigurations,
+        organizationQuotaUsageFacts,
+        organizationAuthorization,
+        timeProvider,
+        ZoneId.of(reportingZone));
   }
 }
