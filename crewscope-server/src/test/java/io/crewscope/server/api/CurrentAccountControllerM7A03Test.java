@@ -69,7 +69,7 @@ class CurrentAccountControllerM7A03Test {
     AccountOrganizationResolution resolution = mock(AccountOrganizationResolution.class);
     when(resolution.account()).thenReturn(account);
     when(resolution.principal()).thenReturn(principal);
-    when(resolver.resolveSession(any(), any(), any())).thenReturn(Optional.of(resolution));
+    when(resolver.resolveSession(any(), any(), any(), any())).thenReturn(Optional.of(resolution));
     when(accounts.current(any())).thenReturn(account);
     CurrentAccountController controller = new CurrentAccountController(
         accounts, resolver, provider(sessions), registration);

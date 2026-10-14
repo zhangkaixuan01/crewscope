@@ -1,6 +1,7 @@
 package io.crewscope.server.security;
 
 import io.crewscope.domain.identity.ExternalIdentity;
+import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.SecurityVersion;
 import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
@@ -36,7 +37,8 @@ public final class AuthenticationSubjectExtractor {
         && trusted.getPrincipal() instanceof BrowserSessionPrincipal sessionPrincipal) {
       return new AccountSessionSubject(
           new UserAccountId(sessionPrincipal.accountId()),
-          new SecurityVersion(sessionPrincipal.securityVersion()));
+          new SecurityVersion(sessionPrincipal.securityVersion()),
+          new IdentityProviderKey(sessionPrincipal.identityProvider()));
     }
     if (trusted instanceof UsernamePasswordAuthenticationToken) {
       return new ExternalAuthenticatedSubject(

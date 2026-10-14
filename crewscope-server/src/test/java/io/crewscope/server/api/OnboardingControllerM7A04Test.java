@@ -70,7 +70,7 @@ class OnboardingControllerM7A04Test {
     AccountOrganizationResolution resolution = mock(AccountOrganizationResolution.class);
     when(resolution.account()).thenReturn(account);
     when(resolution.principal()).thenReturn(principal);
-    when(resolver.resolveSession(any(), any(), any())).thenReturn(Optional.of(resolution));
+    when(resolver.resolveSession(any(), any(), any(), any())).thenReturn(Optional.of(resolution));
     RegistrationProperties registration = new RegistrationProperties();
     registration.setMode(RegistrationMode.OPEN);
     registration.setOrganizationId(organizationId.toString());
@@ -168,7 +168,7 @@ class OnboardingControllerM7A04Test {
 
   @Test
   void staleOrRevokedSessionCannotReadOnboarding() {
-    when(resolver.resolveSession(any(), any(), any())).thenReturn(Optional.empty());
+    when(resolver.resolveSession(any(), any(), any(), any())).thenReturn(Optional.empty());
 
     client.get()
         .uri("/api/v1/onboarding")

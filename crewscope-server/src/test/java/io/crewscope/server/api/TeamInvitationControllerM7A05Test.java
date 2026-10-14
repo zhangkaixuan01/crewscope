@@ -123,7 +123,7 @@ class TeamInvitationControllerM7A05Test {
                 NOW);
         when(teamIdentities.resolve(any(), eq(organizationId), any()))
                 .thenReturn(Mono.just(new TeamAccessContext(inviter, false)));
-        when(accountResolver.resolveSession(any(), any(), eq(organizationId)))
+        when(accountResolver.resolveSession(any(), any(), any(), eq(organizationId)))
                 .thenReturn(Optional.of(resolution));
         RegistrationProperties registration = new RegistrationProperties();
         registration.setOrganizationId(organizationId.toString());

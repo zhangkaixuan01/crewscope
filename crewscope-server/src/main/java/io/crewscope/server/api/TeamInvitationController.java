@@ -18,6 +18,7 @@ import io.crewscope.application.team.TeamInvitationCursor;
 import io.crewscope.application.team.TeamInvitationIssueResult;
 import io.crewscope.application.team.TeamInvitationPage;
 import io.crewscope.application.team.TeamInvitationPreview;
+import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.NormalizedEmail;
 import io.crewscope.domain.identity.SecurityVersion;
 import io.crewscope.domain.identity.UserAccountId;
@@ -227,6 +228,7 @@ public final class TeamInvitationController {
                 .resolveSession(
                         new UserAccountId(sessionPrincipal.accountId()),
                         new SecurityVersion(sessionPrincipal.securityVersion()),
+                        new IdentityProviderKey(sessionPrincipal.identityProvider()),
                         configuredOrganization())
                 .orElseThrow(TeamInvitationController::unauthenticated));
     }

@@ -10,7 +10,9 @@ import io.crewscope.application.identity.LoginDefenseRequest;
 import io.crewscope.application.identity.LoginIdentifierResource;
 import io.crewscope.application.identity.LocalAccountRegistrationService;
 import io.crewscope.application.team.InvitationToken;
+import io.crewscope.domain.identity.IdentityPolicy;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.server.config.BrowserOrganizationAnchor;
 import io.crewscope.server.config.RegistrationProperties;
 import io.crewscope.server.security.login.ControlledNetworkSourceResolver;
 import io.crewscope.server.security.session.BrowserSessionLifecycle;
@@ -45,18 +47,24 @@ public class RegistrationController {
   private final ObjectProvider<LoginDefense> loginDefense;
   private final ObjectProvider<ControlledNetworkSourceResolver> networkResolver;
   private final ObjectProvider<BrowserSessionLifecycle> sessions;
+  private final BrowserOrganizationAnchor organizationAnchor;
+  private final IdentityPolicy identityPolicy;
 
   public RegistrationController(
       LocalAccountRegistrationService registrations,
       RegistrationProperties properties,
       ObjectProvider<LoginDefense> loginDefense,
       ObjectProvider<ControlledNetworkSourceResolver> networkResolver,
-      ObjectProvider<BrowserSessionLifecycle> sessions) {
+      ObjectProvider<BrowserSessionLifecycle> sessions,
+      BrowserOrganizationAnchor organizationAnchor,
+      IdentityPolicy identityPolicy) {
     this.registrations = registrations;
     this.properties = properties;
     this.loginDefense = loginDefense;
     this.networkResolver = networkResolver;
     this.sessions = sessions;
+    this.organizationAnchor = organizationAnchor;
+    this.identityPolicy = identityPolicy;
   }
 
   /** Creates only a USER identity chain; tenant, role and Principal coordinates are server-owned. */
@@ -66,6 +74,9 @@ public class RegistrationController {
       @RequestHeader(value = ApiHeaders.IDEMPOTENCY_KEY, required = false)
           List<String> idempotencyKeys,
       ServerWebExchange exchange) {
+    if (!identityPolicy.allowsLocalPasswordRegistration()) {
+      return Mono.error(localRegistrationDisabled());
+    }
     UUID correlationId = ApiCorrelationIds.resolve(exchange);
     OrganizationId organizationId = registrationOrganization();
     LoginDefense defense = required(loginDefense.getIfAvailable());
@@ -102,15 +113,8 @@ public class RegistrationController {
   }
 
   private OrganizationId registrationOrganization() {
-    String value = properties.getOrganizationId();
-    if (value == null || value.isBlank()) {
-      throw unavailable();
-    }
-    try {
-      return OrganizationId.from(value.strip());
-    } catch (RuntimeException invalid) {
-      throw unavailable();
-    }
+    return organizationAnchor.browserOrganizationId()
+        .orElseThrow(RegistrationController::unavailable);
   }
 
   private static Optional<InvitationToken> invitationToken(Optional<String> value) {
@@ -161,6 +165,14 @@ public class RegistrationController {
         HttpStatus.TOO_MANY_REQUESTS,
         "too_many_requests",
         "Registration is temporarily unavailable",
+        Map.of());
+  }
+
+  private static ApiRequestException localRegistrationDisabled() {
+    return new ApiRequestException(
+        HttpStatus.FORBIDDEN,
+        "local_registration_disabled",
+        "Local registration is disabled by the identity policy",
         Map.of());
   }
 

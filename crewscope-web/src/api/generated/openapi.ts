@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: a4bebcdb12d767d94c02994df375b0a3a6cdf8f10ee59ce01194088f22bb743d
+// Controller source SHA-256: 19bba9dc43d9624dce06f3aadf076164f07a678158883a9e52d87e50ae73905e
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -130,6 +130,22 @@ export const openApiDocument = {
         "operationId": "AuthenticationController_session",
         "tags": [
           "AuthenticationController"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions": {
+      "get": {
+        "operationId": "AuthenticationSessionController_list",
+        "tags": [
+          "AuthenticationSessionController"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "AuthenticationSessionController_delete",
+        "tags": [
+          "AuthenticationSessionController"
         ]
       }
     },
@@ -2448,6 +2464,18 @@ export const openApiOperations = [
     "controller": "AuthenticationController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/auth/sessions",
+    "operationId": "AuthenticationSessionController_list",
+    "controller": "AuthenticationSessionController"
+  },
+  {
+    "method": "delete",
+    "path": "/api/v1/auth/sessions/{sessionId}",
+    "operationId": "AuthenticationSessionController_delete",
+    "controller": "AuthenticationSessionController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/invitations/accept",
     "operationId": "TeamInvitationController_accept",
@@ -4182,4 +4210,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 303 as const
+export const openApiOperationCount = 305 as const

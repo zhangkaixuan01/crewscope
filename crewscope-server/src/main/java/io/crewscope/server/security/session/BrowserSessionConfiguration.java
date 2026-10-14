@@ -22,9 +22,11 @@ import org.springframework.security.web.server.context.WebSessionServerSecurityC
 import org.springframework.session.SaveMode;
 import org.springframework.session.config.ReactiveSessionRepositoryCustomizer;
 import org.springframework.session.data.redis.ReactiveRedisIndexedSessionRepository;
+import org.springframework.session.data.redis.RedisSessionMapper;
 import org.springframework.session.data.redis.config.annotation.web.server.EnableRedisIndexedWebSession;
 import org.springframework.session.security.SpringSessionBackedReactiveSessionRegistry;
 import org.springframework.session.web.server.session.SpringSessionWebSessionStore;
+import reactor.core.publisher.Mono;
 import tools.jackson.databind.JacksonModule;
 import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 
@@ -51,6 +53,15 @@ public class BrowserSessionConfiguration {
             repository.setDefaultMaxInactiveInterval(properties.getTtl());
             repository.setRedisKeyNamespace(properties.getNamespace());
             repository.setSaveMode(SaveMode.ON_SET_ATTRIBUTE);
+            // A Session deleted by another request can still be committed as a partial remnant
+            // by its own in-flight device; loading such a remnant must read as "no Session"
+            // instead of failing the request.
+            RedisSessionMapper mapper = new RedisSessionMapper();
+            repository.setRedisSessionMapper(
+                    (id, map) ->
+                            Mono.fromCallable(() -> mapper.apply(id, map))
+                                    .onErrorResume(
+                                            IllegalStateException.class, ignored -> Mono.empty()));
         };
     }
 
@@ -82,9 +93,10 @@ public class BrowserSessionConfiguration {
             WebSessionServerSecurityContextRepository securityContexts,
             ReactiveSessionRegistry registry,
             ConcurrentSessionControlServerAuthenticationSuccessHandler concurrentSessions,
-            RegisterSessionServerAuthenticationSuccessHandler sessionRegistration) {
+            RegisterSessionServerAuthenticationSuccessHandler sessionRegistration,
+            ReactiveRedisIndexedSessionRepository sessions) {
         return new BrowserSessionLifecycle(
-                securityContexts, registry, concurrentSessions, sessionRegistration);
+                securityContexts, registry, concurrentSessions, sessionRegistration, sessions);
     }
 
     /** Spring Session discovers this exact bean name when constructing its Redis template. */

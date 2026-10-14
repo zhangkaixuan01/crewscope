@@ -18,6 +18,7 @@ import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.domain.identity.IdentityPolicy;
 import io.crewscope.domain.identity.RegistrationMode;
 import io.crewscope.domain.identity.PlatformRole;
 import io.crewscope.domain.identity.SecurityVersion;
@@ -35,8 +36,11 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
+import io.crewscope.server.config.BrowserOrganizationAnchor;
 import io.crewscope.server.config.RegistrationProperties;
+import io.crewscope.server.config.SecurityMode;
 import io.crewscope.server.security.login.ControlledNetworkSourceResolver;
+import io.crewscope.server.security.oidc.OidcLoginEntry;
 import io.crewscope.server.security.session.BrowserSessionLifecycle;
 import io.crewscope.server.security.session.BrowserSessionPrincipal;
 import java.util.List;
@@ -102,7 +106,11 @@ class AuthenticationControllerM7A02Test {
         mock(OrganizationAuthorization.class),
         mock(OrganizationRepository.class),
         registration,
-        timeProvider);
+        timeProvider,
+        BrowserOrganizationAnchor.from(
+            SecurityMode.LOCAL, registration.getOrganizationId(), ""),
+        IdentityPolicy.COEXIST,
+        new OidcLoginEntry(provider(null)));
     client = WebTestClient.bindToController(controller)
         .controllerAdvice(new ApiExceptionHandler())
         .webFilter(csrf())
@@ -170,7 +178,7 @@ class AuthenticationControllerM7A02Test {
   @Test
   void staleSessionIsInvalidatedWhenCurrentAccountFactsNoLongerResolve() {
     UUID accountId = UUID.randomUUID();
-    when(accountResolver.resolveSession(any(), any(), any())).thenReturn(Optional.empty());
+    when(accountResolver.resolveSession(any(), any(), any(), any())).thenReturn(Optional.empty());
     when(sessions.invalidateCurrent(any())).thenReturn(Mono.empty());
     var authentication = UsernamePasswordAuthenticationToken.authenticated(
         new BrowserSessionPrincipal(accountId, 3),
@@ -211,7 +219,7 @@ class AuthenticationControllerM7A02Test {
     AccountOrganizationResolution resolution = mock(AccountOrganizationResolution.class);
     when(resolution.account()).thenReturn(account);
     when(resolution.principal()).thenReturn(principal);
-    when(accountResolver.resolveSession(any(), any(), any()))
+    when(accountResolver.resolveSession(any(), any(), any(), any()))
         .thenReturn(Optional.of(resolution));
 
     Team team = mock(Team.class);

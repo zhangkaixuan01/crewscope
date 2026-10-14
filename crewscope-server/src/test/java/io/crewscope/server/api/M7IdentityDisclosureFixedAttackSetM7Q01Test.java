@@ -28,6 +28,13 @@ class M7IdentityDisclosureFixedAttackSetM7Q01Test {
             "cookie",
             "authorization",
             "secret");
+    /**
+     * M12-I01 reviewed exception: the SSO entry field carries the public framework login path
+     * (/oauth2/authorization/{registrationId}), not credential material; the ADR-036-frozen
+     * field name is the rendering contract consumed by the browser shell.
+     */
+    private static final Set<String> REVIEWED_RESPONSE_FIELDS = Set.of(
+            "SessionResponse.ssoauthorizationurl");
 
     @TestFactory
     Stream<DynamicTest> blocksResponseAndLogLeakageAttacks() {
@@ -58,10 +65,16 @@ class M7IdentityDisclosureFixedAttackSetM7Q01Test {
             Arrays.stream(responseType.getRecordComponents())
                     .map(RecordComponent::getName)
                     .map(name -> name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", ""))
-                    .forEach(field -> assertThat(FORBIDDEN_RESPONSE_FIELDS.stream()
-                                    .noneMatch(field::contains))
-                            .as(responseType.getSimpleName() + "." + field)
-                            .isTrue());
+                    .forEach(field -> {
+                        if (REVIEWED_RESPONSE_FIELDS.contains(
+                                responseType.getSimpleName() + "." + field)) {
+                            return;
+                        }
+                        assertThat(FORBIDDEN_RESPONSE_FIELDS.stream()
+                                        .noneMatch(field::contains))
+                                .as(responseType.getSimpleName() + "." + field)
+                                .isTrue();
+                    });
 
             var exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post("/api/v1/auth/login"));

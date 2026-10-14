@@ -38,10 +38,11 @@ if (!openApi.includes('openapi: \'3.1.0\'')) {
   process.exit(1)
 }
 const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1] ?? 0)
-// 303 = 289 + 11 governance workflow routes (M12-A01: data exports, account deletions)
-// + 3 quota routes (M12-A02: GET/PUT organization quota, GET quota usage).
-if (operationCount !== 303) {
-  console.error(`OpenAPI operation baseline changed: expected 303, found ${operationCount}`)
+// 305 = 289 + 11 governance workflow routes (M12-A01: data exports, account deletions)
+// + 3 quota routes (M12-A02: GET/PUT organization quota, GET quota usage)
+// + 2 session routes (M12-I01: GET/DELETE browser sessions).
+if (operationCount !== 305) {
+  console.error(`OpenAPI operation baseline changed: expected 305, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

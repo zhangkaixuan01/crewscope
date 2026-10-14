@@ -61,6 +61,7 @@ public final class RepositoryTeamRequestIdentityResolver implements TeamRequestI
                         .resolveSession(
                             accountSession.accountId(),
                             accountSession.securityVersion(),
+                            accountSession.identityProvider(),
                             requiredOrganization)
                         .orElseThrow(RepositoryTeamRequestIdentityResolver::denied);
                 return new TeamAccessContext(

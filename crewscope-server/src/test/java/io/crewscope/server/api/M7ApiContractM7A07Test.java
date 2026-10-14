@@ -301,12 +301,20 @@ class M7ApiContractM7A07Test {
                 "cookie",
                 "authorization",
                 "secret");
+        // M12-I01 reviewed exception: ssoAuthorizationUrl carries the public framework login
+        // path (/oauth2/authorization/{registrationId}), not credential material; the
+        // ADR-036-frozen field name is the rendering contract consumed by the browser shell.
+        Set<String> reviewedFields = Set.of("SessionResponse.ssoAuthorizationUrl");
 
-        responseTypes.forEach(type -> componentNames(type).forEach(field ->
-                assertThat(forbiddenFragments.stream()
-                                .noneMatch(field.toLowerCase(java.util.Locale.ROOT)::contains))
-                        .as(type.getSimpleName() + "." + field)
-                        .isTrue()));
+        responseTypes.forEach(type -> componentNames(type).forEach(field -> {
+            if (reviewedFields.contains(type.getSimpleName() + "." + field)) {
+                return;
+            }
+            assertThat(forbiddenFragments.stream()
+                            .noneMatch(field.toLowerCase(java.util.Locale.ROOT)::contains))
+                    .as(type.getSimpleName() + "." + field)
+                    .isTrue();
+        }));
         assertThat(componentNames(TeamInvitationController.InvitationCreationResponse.class))
                 .containsExactlyInAnyOrder("command", "invitation", "token")
                 .doesNotContain("tokenDigest");

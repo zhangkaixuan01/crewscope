@@ -9,6 +9,7 @@ import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolve
 import io.crewscope.application.identity.CurrentAccountApplicationService;
 import io.crewscope.application.identity.CurrentAccountCommandContext;
 import io.crewscope.application.identity.CurrentAccountMutationResult;
+import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.SecurityVersion;
 import io.crewscope.domain.identity.UserAccount;
 import io.crewscope.domain.identity.UserAccountId;
@@ -134,6 +135,7 @@ public class CurrentAccountController {
         .resolveSession(
             new UserAccountId(sessionPrincipal.accountId()),
             new SecurityVersion(sessionPrincipal.securityVersion()),
+            new IdentityProviderKey(sessionPrincipal.identityProvider()),
             organizationId)
         .orElseThrow(CurrentAccountController::unauthenticated);
     return new ResolvedCurrentAccount(

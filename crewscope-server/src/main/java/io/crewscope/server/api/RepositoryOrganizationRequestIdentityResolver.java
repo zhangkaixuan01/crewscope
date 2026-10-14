@@ -63,6 +63,7 @@ public final class RepositoryOrganizationRequestIdentityResolver
                                                 .resolveSession(
                                                         accountSession.accountId(),
                                                         accountSession.securityVersion(),
+                                                        accountSession.identityProvider(),
                                                         requiredOrganization)
                                                 .orElseThrow(
                                                         RepositoryOrganizationRequestIdentityResolver

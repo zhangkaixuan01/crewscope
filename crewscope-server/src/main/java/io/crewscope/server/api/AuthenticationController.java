@@ -15,6 +15,7 @@ import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
+import io.crewscope.domain.identity.IdentityPolicy;
 import io.crewscope.domain.identity.RegistrationMode;
 import io.crewscope.domain.identity.UserAccount;
 import io.crewscope.domain.organization.Organization;
@@ -25,13 +26,16 @@ import io.crewscope.domain.team.Team;
 import io.crewscope.domain.team.TeamPermission;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamRoleId;
+import io.crewscope.server.config.BrowserOrganizationAnchor;
 import io.crewscope.server.config.RegistrationProperties;
 import io.crewscope.server.security.login.ControlledNetworkSourceResolver;
+import io.crewscope.server.security.oidc.OidcLoginEntry;
 import io.crewscope.server.security.session.BrowserSessionLifecycle;
 import io.crewscope.server.security.session.BrowserSessionPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -75,6 +79,9 @@ public class AuthenticationController {
   private final OrganizationRepository organizations;
   private final RegistrationProperties registration;
   private final TimeProvider timeProvider;
+  private final BrowserOrganizationAnchor organizationAnchor;
+  private final IdentityPolicy identityPolicy;
+  private final OidcLoginEntry oidcEntry;
 
   public AuthenticationController(
       ObjectProvider<LocalAccountLoginService> logins,
@@ -89,7 +96,10 @@ public class AuthenticationController {
       OrganizationAuthorization organizationAuthorization,
       OrganizationRepository organizations,
       RegistrationProperties registration,
-      TimeProvider timeProvider) {
+      TimeProvider timeProvider,
+      BrowserOrganizationAnchor organizationAnchor,
+      IdentityPolicy identityPolicy,
+      OidcLoginEntry oidcEntry) {
     this.logins = logins;
     this.loginDefense = loginDefense;
     this.networkResolver = networkResolver;
@@ -103,12 +113,18 @@ public class AuthenticationController {
     this.organizations = organizations;
     this.registration = registration;
     this.timeProvider = timeProvider;
+    this.organizationAnchor = organizationAnchor;
+    this.identityPolicy = identityPolicy;
+    this.oidcEntry = oidcEntry;
   }
 
   /** Authenticates through the fixed defense and rotates into a credential-free Redis Session. */
   @PostMapping("/login")
   public Mono<ResponseEntity<LoginResponse>> login(
       @Valid @RequestBody LoginRequest request, ServerWebExchange exchange) {
+    if (!identityPolicy.allowsLocalPasswordLogin()) {
+      return Mono.error(localLoginDisabled());
+    }
     LocalAccountLoginService service = required(logins.getIfAvailable());
     LoginDefense defense = required(loginDefense.getIfAvailable());
     ControlledNetworkSourceResolver networks = required(networkResolver.getIfAvailable());
@@ -146,40 +162,55 @@ public class AuthenticationController {
     if (csrf == null) {
       return Mono.error(unavailable());
     }
-    return Mono.zip(exchange.getSession(), csrf).flatMap(tuple -> {
+    return Mono.zip(exchange.getSession(), csrf, ssoAuthorizationUrl()).flatMap(tuple -> {
       tuple.getT1().start();
       CsrfCoordinates coordinates = new CsrfCoordinates(
           tuple.getT2().getHeaderName(), tuple.getT2().getParameterName(), tuple.getT2().getToken());
+      Optional<String> ssoAuthorizationUrl = tuple.getT3();
       if (authentication == null
           || !authentication.isAuthenticated()
           || !(authentication.getPrincipal() instanceof BrowserSessionPrincipal principal)) {
-        return Mono.just(response(anonymous(coordinates)));
+        return Mono.just(response(anonymous(coordinates, ssoAuthorizationUrl)));
       }
-      return Mono.fromCallable(() -> authenticated(principal, coordinates))
+      return Mono.fromCallable(() -> authenticated(principal, coordinates, ssoAuthorizationUrl))
           .subscribeOn(Schedulers.boundedElastic())
           .flatMap(projected -> projected
               .map(value -> Mono.just(response(value)))
               .orElseGet(() -> required(sessions.getIfAvailable())
                   .invalidateCurrent(exchange)
-                  .thenReturn(response(anonymous(coordinates)))));
+                  .thenReturn(response(anonymous(coordinates, ssoAuthorizationUrl)))));
     });
   }
 
+  /** The browser SSO entry point, projected for anonymous and authenticated sessions alike. */
+  private Mono<Optional<String>> ssoAuthorizationUrl() {
+    return oidcEntry
+        .authorizationPath()
+        .map(Optional::of)
+        .defaultIfEmpty(Optional.empty());
+  }
+
   private Optional<SessionResponse> authenticated(
-      BrowserSessionPrincipal sessionPrincipal, CsrfCoordinates csrf) {
+      BrowserSessionPrincipal sessionPrincipal,
+      CsrfCoordinates csrf,
+      Optional<String> ssoAuthorizationUrl) {
     OrganizationId organizationId = organizationId();
     return accountResolver
         .resolveSession(
             new io.crewscope.domain.identity.UserAccountId(sessionPrincipal.accountId()),
             new io.crewscope.domain.identity.SecurityVersion(sessionPrincipal.securityVersion()),
+            new io.crewscope.domain.identity.IdentityProviderKey(
+                sessionPrincipal.identityProvider()),
             organizationId)
-        .map(resolution -> authenticatedResponse(resolution, organizationId, csrf));
+        .map(resolution ->
+            authenticatedResponse(resolution, organizationId, csrf, ssoAuthorizationUrl));
   }
 
   private SessionResponse authenticatedResponse(
       AccountOrganizationResolution resolution,
       OrganizationId organizationId,
-      CsrfCoordinates csrf) {
+      CsrfCoordinates csrf,
+      Optional<String> ssoAuthorizationUrl) {
     UserAccount account = resolution.account();
     List<TeamSessionView> teamViews = teams
         .findActiveByMember(organizationId, resolution.principal().id())
@@ -201,6 +232,8 @@ public class AuthenticationController {
     return new SessionResponse(
         true,
         registration.getMode(),
+        identityPolicy.configuredValue(),
+        ssoAuthorizationUrl,
         csrf,
         Optional.of(new AccountSessionView(
             account.id().value(),
@@ -208,12 +241,24 @@ public class AuthenticationController {
             account.displayName(),
             account.platformRole().name(),
             account.securityVersion().value(),
-            account.version())),
+            account.version(),
+            loginIdentityViews(resolution))),
         Optional.of(new PrincipalSessionView(
             resolution.principal().id().value(), organizationId.value())),
         teamViews,
         organizationView,
         List.copyOf(projected));
+  }
+
+  /** Owner-facing provider set of the account; subjects never leave the server. */
+  private static List<LoginIdentityView> loginIdentityViews(
+      AccountOrganizationResolution resolution) {
+    return resolution.loginIdentities().stream()
+        .map(identity -> new LoginIdentityView(
+            identity.provider().toString(),
+            identity.status().name(),
+            identity.lastAuthenticatedAt().map(value -> value.value())))
+        .toList();
   }
 
   private TeamSessionView teamView(Team team, AccountOrganizationResolution resolution) {
@@ -243,10 +288,12 @@ public class AuthenticationController {
         BrowserPermissionProjection.team(permissions));
   }
 
-  private SessionResponse anonymous(CsrfCoordinates csrf) {
+  private SessionResponse anonymous(CsrfCoordinates csrf, Optional<String> ssoAuthorizationUrl) {
     return new SessionResponse(
         false,
         registration.getMode(),
+        identityPolicy.configuredValue(),
+        ssoAuthorizationUrl,
         csrf,
         Optional.empty(),
         Optional.empty(),
@@ -256,15 +303,8 @@ public class AuthenticationController {
   }
 
   private OrganizationId organizationId() {
-    String configured = registration.getOrganizationId();
-    if (configured == null || configured.isBlank()) {
-      throw unavailable();
-    }
-    try {
-      return OrganizationId.from(configured.strip());
-    } catch (RuntimeException invalid) {
-      throw unavailable();
-    }
+    return organizationAnchor.browserOrganizationId()
+        .orElseThrow(AuthenticationController::unavailable);
   }
 
   private static ResponseEntity<SessionResponse> response(SessionResponse value) {
@@ -283,6 +323,14 @@ public class AuthenticationController {
         HttpStatus.TOO_MANY_REQUESTS,
         "too_many_requests",
         "Authentication is temporarily unavailable",
+        Map.of());
+  }
+
+  private static ApiRequestException localLoginDisabled() {
+    return new ApiRequestException(
+        HttpStatus.FORBIDDEN,
+        "local_login_disabled",
+        "Local password login is disabled by the identity policy",
         Map.of());
   }
 
@@ -315,7 +363,12 @@ public class AuthenticationController {
       String displayName,
       String platformRole,
       long securityVersion,
-      long version) {}
+      long version,
+      List<LoginIdentityView> loginIdentities) {}
+
+  /** Provider-scoped credential status; the subject value stays internal. */
+  public record LoginIdentityView(
+      String provider, String status, Optional<Instant> lastAuthenticatedAt) {}
 
   public record PrincipalSessionView(UUID principalId, UUID organizationId) {}
 
@@ -329,6 +382,8 @@ public class AuthenticationController {
   public record SessionResponse(
       boolean authenticated,
       RegistrationMode registrationMode,
+      String identityPolicy,
+      Optional<String> ssoAuthorizationUrl,
       CsrfCoordinates csrf,
       Optional<AccountSessionView> account,
       Optional<PrincipalSessionView> principal,

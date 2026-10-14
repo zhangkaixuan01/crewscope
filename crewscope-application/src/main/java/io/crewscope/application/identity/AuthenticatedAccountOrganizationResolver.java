@@ -3,7 +3,6 @@ package io.crewscope.application.identity;
 import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.LoginIdentity;
 import io.crewscope.domain.identity.LoginIdentityKey;
-import io.crewscope.domain.identity.LoginIdentitySubject;
 import io.crewscope.domain.identity.SecurityVersion;
 import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
@@ -29,14 +28,22 @@ public final class AuthenticatedAccountOrganizationResolver {
     this.principalResolver = Objects.requireNonNull(principalResolver, "principalResolver");
   }
 
-  /** Resolves a browser Session only when its security version and local identity remain current. */
+  /**
+   * Resolves a browser Session only when its security version and the identity of the provider
+   * that established it remain current. The provider comes from the Session principal, so an
+   * {@code oidc/*} Session keeps resolving against its external identity (M12-I01) while a local
+   * Session keeps requiring its unique usable local identity.
+   */
   public Optional<AccountOrganizationResolution> resolveSession(
       UserAccountId accountId,
       SecurityVersion sessionSecurityVersion,
+      IdentityProviderKey expectedProvider,
       OrganizationId organizationId) {
     UserAccountId requiredAccountId = Objects.requireNonNull(accountId, "accountId");
     SecurityVersion requiredVersion =
         Objects.requireNonNull(sessionSecurityVersion, "sessionSecurityVersion");
+    IdentityProviderKey requiredProvider =
+        Objects.requireNonNull(expectedProvider, "expectedProvider");
     OrganizationId requiredOrganization =
         Objects.requireNonNull(organizationId, "organizationId");
     return snapshotReader
@@ -44,11 +51,12 @@ public final class AuthenticatedAccountOrganizationResolver {
         .filter(snapshot -> snapshot.account().securityVersion().equals(requiredVersion))
         .flatMap(
             snapshot ->
-                uniqueUsableLocalIdentity(snapshot)
+                uniqueUsableIdentity(snapshot, requiredProvider)
                     .flatMap(
                         identity ->
                             principalResolver.resolveExisting(
-                                snapshot.account(), identity, requiredOrganization)));
+                                snapshot.account(), identity, requiredOrganization))
+                    .map(resolution -> resolution.withLoginIdentities(snapshot.loginIdentities())));
   }
 
   /**
@@ -80,16 +88,21 @@ public final class AuthenticatedAccountOrganizationResolver {
                                 principalResolver.resolveExisting(
                                     snapshot.account(),
                                     currentIdentity,
-                                    requiredOrganization)))
+                                    requiredOrganization))
+                        .map(resolution ->
+                            resolution.withLoginIdentities(snapshot.loginIdentities())))
             .orElseThrow(AuthenticatedAccountOrganizationResolver::denied));
   }
 
-  private static Optional<LoginIdentity> uniqueUsableLocalIdentity(
-      CurrentAccountSnapshot snapshot) {
-    LoginIdentityKey expected =
-        new LoginIdentityKey(
-            IdentityProviderKey.local(), LoginIdentitySubject.local(snapshot.account().id()));
-    return uniqueMatchingIdentity(snapshot, expected);
+  private static Optional<LoginIdentity> uniqueUsableIdentity(
+      CurrentAccountSnapshot snapshot, IdentityProviderKey provider) {
+    // (account_id, provider) is unique, so a single usable identity is the only healthy shape.
+    List<LoginIdentity> matches =
+        snapshot.loginIdentities().stream()
+            .filter(LoginIdentity::isUsable)
+            .filter(identity -> identity.identityKey().provider().equals(provider))
+            .toList();
+    return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
   }
 
   private static Optional<LoginIdentity> uniqueMatchingIdentity(

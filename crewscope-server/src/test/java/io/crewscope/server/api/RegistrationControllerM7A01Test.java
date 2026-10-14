@@ -12,13 +12,16 @@ import io.crewscope.application.identity.LocalAccountRegistrationResult;
 import io.crewscope.application.identity.LocalAccountRegistrationService;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.LoginResourceAdmission;
+import io.crewscope.domain.identity.IdentityPolicy;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.UserAccount;
 import io.crewscope.domain.identity.RegistrationMode;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.identity.UserAccountId;
+import io.crewscope.server.config.BrowserOrganizationAnchor;
 import io.crewscope.server.config.RegistrationProperties;
+import io.crewscope.server.config.SecurityMode;
 import io.crewscope.server.security.login.ControlledNetworkSourceResolver;
 import io.crewscope.server.security.session.BrowserSessionLifecycle;
 import java.util.Optional;
@@ -54,7 +57,10 @@ class RegistrationControllerM7A01Test {
             properties,
             provider(defense),
             provider(networks),
-            provider(sessions)))
+            provider(sessions),
+            BrowserOrganizationAnchor.from(
+                SecurityMode.LOCAL, properties.getOrganizationId(), ""),
+            IdentityPolicy.COEXIST))
         .controllerAdvice(new ApiExceptionHandler())
         .build();
   }

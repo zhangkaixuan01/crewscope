@@ -47,7 +47,10 @@ class AuthenticatedAccountOrganizationResolverTest {
 
     var result =
         resolver.resolveSession(
-            fixture.account.id(), fixture.account.securityVersion(), fixture.organizationId);
+            fixture.account.id(),
+            fixture.account.securityVersion(),
+            IdentityProviderKey.local(),
+            fixture.organizationId);
 
     assertTrue(result.isPresent());
     assertEquals(fixture.principal, result.orElseThrow().principal());
@@ -72,6 +75,7 @@ class AuthenticatedAccountOrganizationResolverTest {
         resolver.resolveSession(
             fixture.account.id(),
             new SecurityVersion(fixture.account.securityVersion().value() + 1),
+            IdentityProviderKey.local(),
             fixture.organizationId);
 
     assertTrue(result.isEmpty());
@@ -115,9 +119,92 @@ class AuthenticatedAccountOrganizationResolverTest {
 
     var result =
         resolver.resolveSession(
-            fixture.account.id(), fixture.account.securityVersion(), OrganizationId.generate());
+            fixture.account.id(),
+            fixture.account.securityVersion(),
+            IdentityProviderKey.local(),
+            OrganizationId.generate());
 
     assertTrue(result.isEmpty());
+  }
+
+  @Test
+  void resolvesAnOidcSessionAgainstItsExternalIdentityWithoutALocalOne() {
+    Fixture base = fixture();
+    IdentityProviderKey provider = new IdentityProviderKey("oidc/company");
+    LoginIdentity external =
+        LoginIdentity.external(
+            LoginIdentityId.generate(),
+            base.account.id(),
+            provider,
+            new LoginIdentitySubject("stable-subject"),
+            NOW);
+    Fixture federated = base.withIdentity(external);
+    CurrentAccountSnapshotReader snapshots = mock(CurrentAccountSnapshotReader.class);
+    when(snapshots.findByAccountId(federated.account.id()))
+        .thenReturn(Optional.of(federated.snapshot()));
+    AuthenticatedAccountOrganizationResolver resolver = resolver(federated, snapshots);
+
+    var resolved =
+        resolver.resolveSession(
+            federated.account.id(), federated.account.securityVersion(), provider,
+            federated.organizationId);
+
+    assertTrue(resolved.isPresent());
+    assertEquals(federated.principal, resolved.orElseThrow().principal());
+  }
+
+  @Test
+  void rejectsAnOidcOnlyAccountWhenTheSessionClaimsTheLocalProvider() {
+    Fixture base = fixture();
+    IdentityProviderKey provider = new IdentityProviderKey("oidc/company");
+    LoginIdentity external =
+        LoginIdentity.external(
+            LoginIdentityId.generate(),
+            base.account.id(),
+            provider,
+            new LoginIdentitySubject("stable-subject"),
+            NOW);
+    Fixture federated = base.withIdentity(external);
+    CurrentAccountSnapshotReader snapshots = mock(CurrentAccountSnapshotReader.class);
+    when(snapshots.findByAccountId(federated.account.id()))
+        .thenReturn(Optional.of(federated.snapshot()));
+    AuthenticatedAccountOrganizationResolver resolver = resolver(federated, snapshots);
+
+    var resolved =
+        resolver.resolveSession(
+            federated.account.id(),
+            federated.account.securityVersion(),
+            IdentityProviderKey.local(),
+            federated.organizationId);
+
+    assertTrue(resolved.isEmpty());
+  }
+
+  @Test
+  void rejectsWhenTheSessionProviderNamesADifferentRegistration() {
+    Fixture base = fixture();
+    IdentityProviderKey provider = new IdentityProviderKey("oidc/company");
+    LoginIdentity external =
+        LoginIdentity.external(
+            LoginIdentityId.generate(),
+            base.account.id(),
+            provider,
+            new LoginIdentitySubject("stable-subject"),
+            NOW);
+    Fixture federated = base.withIdentity(external);
+    CurrentAccountSnapshotReader snapshots = mock(CurrentAccountSnapshotReader.class);
+    when(snapshots.findByAccountId(federated.account.id()))
+        .thenReturn(Optional.of(federated.snapshot()));
+    AuthenticatedAccountOrganizationResolver resolver = resolver(federated, snapshots);
+
+    var resolved =
+        resolver.resolveSession(
+            federated.account.id(),
+            federated.account.securityVersion(),
+            new IdentityProviderKey("oidc/other"),
+            federated.organizationId);
+
+    assertTrue(resolved.isEmpty());
   }
 
   @Test
@@ -181,7 +268,10 @@ class AuthenticatedAccountOrganizationResolverTest {
         .thenReturn(Optional.of(fixture.snapshot()));
     AuthenticatedAccountOrganizationResolver resolver = resolver(fixture, snapshots);
     return resolver.resolveSession(
-        fixture.account.id(), fixture.account.securityVersion(), fixture.organizationId);
+        fixture.account.id(),
+        fixture.account.securityVersion(),
+        IdentityProviderKey.local(),
+        fixture.organizationId);
   }
 
   private static AuthenticatedAccountOrganizationResolver resolver(

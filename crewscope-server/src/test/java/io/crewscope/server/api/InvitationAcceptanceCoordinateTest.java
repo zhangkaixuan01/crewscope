@@ -121,7 +121,7 @@ class InvitationAcceptanceCoordinateTest {
                 NOW);
         membership = team.acceptInvitedMember(
                 TeamMemberId.generate(), accountPrincipal, inviter.id(), NOW);
-        when(accountResolver.resolveSession(any(), any(), eq(organizationId)))
+        when(accountResolver.resolveSession(any(), any(), any(), eq(organizationId)))
                 .thenReturn(Optional.of(resolution));
         RegistrationProperties registration = new RegistrationProperties();
         registration.setOrganizationId(organizationId.toString());

@@ -24,9 +24,13 @@ import io.crewscope.server.api.OnboardingController;
 import io.crewscope.server.api.RegistrationController;
 import io.crewscope.server.api.TeamInvitationController;
 import io.crewscope.server.api.TeamRequestIdentityResolver;
+import io.crewscope.server.config.BrowserOrganizationAnchor;
 import io.crewscope.server.config.RegistrationProperties;
+import io.crewscope.server.config.SecurityMode;
 import io.crewscope.server.security.login.ControlledNetworkSourceResolver;
+import io.crewscope.server.security.oidc.OidcLoginConfiguration;
 import io.crewscope.server.security.session.BrowserSessionLifecycle;
+import io.crewscope.domain.identity.IdentityPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
@@ -75,7 +79,13 @@ class M7ApiCompositionM7A07Test {
                     TeamRequestIdentityResolver.class,
                     () -> mock(TeamRequestIdentityResolver.class))
             .withBean(TimeProvider.class, () -> mock(TimeProvider.class))
-            .withBean(RegistrationProperties.class, M7ApiCompositionM7A07Test::registration);
+            .withBean(RegistrationProperties.class, M7ApiCompositionM7A07Test::registration)
+            .withUserConfiguration(OidcLoginConfiguration.class)
+            .withBean(
+                    BrowserOrganizationAnchor.class,
+                    () -> BrowserOrganizationAnchor.from(
+                            SecurityMode.LOCAL, registration().getOrganizationId(), ""))
+            .withBean(IdentityPolicy.class, () -> IdentityPolicy.COEXIST);
 
     @Test
     void createsEachM7ControllerAndApplicationServiceExactlyOnce() {

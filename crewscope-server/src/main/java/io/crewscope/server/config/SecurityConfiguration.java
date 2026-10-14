@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
@@ -39,12 +40,26 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 
 @Configuration
 @EnableWebFluxSecurity
+@EnableConfigurationProperties(RegistrationProperties.class)
 public class SecurityConfiguration {
+
+  /** Single source for the browser Organization anchor; inconsistent keys refuse startup. */
+  @Bean
+  BrowserOrganizationAnchor browserOrganizationAnchor(
+      @Value("${crewscope.security.mode:bootstrap}") String configuredMode,
+      RegistrationProperties registration,
+      @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId) {
+    return BrowserOrganizationAnchor.from(
+        SecurityMode.from(configuredMode),
+        registration.getOrganizationId(),
+        oidcOrganizationId);
+  }
 
   @Bean
   AuthenticationSubjectExtractor authenticationSubjectExtractor(
-      @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId) {
-    return new AuthenticationSubjectExtractor(oidcOrganizationId);
+      BrowserOrganizationAnchor organizationAnchor) {
+    return new AuthenticationSubjectExtractor(
+        organizationAnchor.oidcOrganizationId().map(OrganizationId::toString).orElse(""));
   }
 
   @Bean("bootstrapPasswordEncoder")
@@ -132,10 +147,9 @@ public class SecurityConfiguration {
           ReactiveAuthenticationManager authenticationManager,
       ObjectProvider<TaskTokenWebFilter> taskTokenFilter,
       ObjectProvider<WebSessionServerSecurityContextRepository> browserSecurityContexts,
-      @Value("${crewscope.security.mode:bootstrap}") String configuredMode,
-      @Value("${crewscope.security.oidc.organization-id:}") String oidcOrganizationId,
+      BrowserOrganizationAnchor organizationAnchor,
       @Value("${crewscope.security.hsts.enabled:false}") boolean hstsEnabled) {
-    SecurityMode mode = SecurityMode.from(configuredMode);
+    SecurityMode mode = organizationAnchor.mode();
     ApiSecurityResponseWriter securityResponses = new ApiSecurityResponseWriter();
     http.authorizeExchange(
             exchange ->
@@ -234,7 +248,6 @@ public class SecurityConfiguration {
           .requestCache(cache -> cache.requestCache(NoOpServerRequestCache.getInstance()))
           .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable);
     } else {
-      requireOidcOrganizationId(oidcOrganizationId);
       WebSessionServerSecurityContextRepository browserSecurityContextRepository =
           requiredBrowserSecurityContexts(browserSecurityContexts, "oidc");
       CookieServerCsrfTokenRepository csrfRepository =
@@ -260,13 +273,5 @@ public class SecurityConfiguration {
       throw new IllegalStateException(
           "browser Session SecurityContext repository is required in " + mode + " mode");
     });
-  }
-
-  private static OrganizationId requireOidcOrganizationId(String value) {
-    if (value == null || value.isBlank()) {
-      throw new IllegalArgumentException(
-          "crewscope.security.oidc.organization-id is required in oidc mode");
-    }
-    return OrganizationId.from(value.strip());
   }
 }

@@ -17,6 +17,7 @@ import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.domain.identity.AccountOrganizationBinding;
 import io.crewscope.domain.identity.AccountOrganizationBindingId;
 import io.crewscope.domain.identity.ExternalIdentity;
+import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.LoginIdentity;
 import io.crewscope.domain.identity.LoginIdentityId;
 import io.crewscope.domain.identity.PlatformRole;
@@ -51,7 +52,10 @@ class RepositoryTeamRequestIdentityResolverTest {
     AuthenticatedAccountOrganizationResolver accounts =
         mock(AuthenticatedAccountOrganizationResolver.class);
     when(accounts.resolveSession(
-            fixture.account.id(), fixture.account.securityVersion(), fixture.organizationId))
+            fixture.account.id(),
+            fixture.account.securityVersion(),
+            IdentityProviderKey.local(),
+            fixture.organizationId))
         .thenReturn(Optional.of(fixture.resolution()));
     PrincipalRepository principals = mock(PrincipalRepository.class);
     RepositoryTeamRequestIdentityResolver resolver = resolver(accounts, principals);
@@ -76,7 +80,10 @@ class RepositoryTeamRequestIdentityResolverTest {
     AuthenticatedAccountOrganizationResolver accounts =
         mock(AuthenticatedAccountOrganizationResolver.class);
     when(accounts.resolveSession(
-            fixture.account.id(), fixture.account.securityVersion(), fixture.organizationId))
+            fixture.account.id(),
+            fixture.account.securityVersion(),
+            IdentityProviderKey.local(),
+            fixture.organizationId))
         .thenReturn(Optional.of(fixture.resolution()));
     RepositoryTeamRequestIdentityResolver resolver =
         resolver(accounts, mock(PrincipalRepository.class));
@@ -98,7 +105,7 @@ class RepositoryTeamRequestIdentityResolverTest {
     Fixture fixture = fixture(PlatformRole.USER);
     AuthenticatedAccountOrganizationResolver accounts =
         mock(AuthenticatedAccountOrganizationResolver.class);
-    when(accounts.resolveSession(any(), any(), any())).thenReturn(Optional.empty());
+    when(accounts.resolveSession(any(), any(), any(), any())).thenReturn(Optional.empty());
     PrincipalRepository principals = mock(PrincipalRepository.class);
     RepositoryTeamRequestIdentityResolver resolver = resolver(accounts, principals);
     var authentication =

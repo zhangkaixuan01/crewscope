@@ -10,6 +10,7 @@ import io.crewscope.application.team.OnboardingApplicationService;
 import io.crewscope.application.team.OnboardingStatus;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
+import io.crewscope.domain.identity.IdentityProviderKey;
 import io.crewscope.domain.identity.SecurityVersion;
 import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -103,6 +104,7 @@ public class OnboardingController {
         .resolveSession(
             new UserAccountId(sessionPrincipal.accountId()),
             new SecurityVersion(sessionPrincipal.securityVersion()),
+            new IdentityProviderKey(sessionPrincipal.identityProvider()),
             organizationId)
         .orElseThrow(OnboardingController::unauthenticated);
     TeamAccessContext access = new TeamAccessContext(
