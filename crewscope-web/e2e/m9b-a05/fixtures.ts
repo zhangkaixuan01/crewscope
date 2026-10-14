@@ -118,6 +118,8 @@ export interface A05World {
   commandResults: Map<string, { receipt: Record<string, unknown>, result: Record<string, unknown> }>
   /** 创建命令的人为延迟，让「双击提交」有一个真实的在途窗口。 */
   createLatencyMs: number
+  /** 注入一次创建拒绝（M12-F02：403 policy_denied 携带 details.action 的线缆形态）。 */
+  createDenial: { status: number, code: string, message: string, details: Record<string, string> } | null
   unexpected: string[]
 }
 
@@ -133,6 +135,7 @@ export async function mockA05App(page: Page): Promise<A05World> {
     commentPosts: [],
     commandResults: new Map(),
     createLatencyMs: 0,
+    createDenial: null,
     unexpected: [],
   }
   await page.route('**/*', async route => {
@@ -304,6 +307,12 @@ async function handleApi(route: Route, world: A05World, url: URL): Promise<void>
     const key = request.headers()['idempotency-key'] ?? ''
     if (!key) return json(route, envelope404(), 404)
     if (world.createLatencyMs) await new Promise(resolve => setTimeout(resolve, world.createLatencyMs))
+    if (world.createDenial) {
+      return json(route, {
+        code: world.createDenial.code, message: world.createDenial.message, correlationId: 'a05-fixture',
+        retryable: false, currentVersion: null, details: world.createDenial.details,
+      }, world.createDenial.status)
+    }
     if (world.commandResults.has(key)) return receipt(route, 0)
 
     const input = request.postDataJSON() as {

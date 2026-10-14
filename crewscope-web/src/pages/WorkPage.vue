@@ -60,6 +60,7 @@ import { parseExecutionSelection, resolveExecutionSelection } from '../domains/t
 import { resolveWorkspaceAction } from '../domains/task/workspaceAction'
 import type { WorkspaceAction } from '../domains/task/workspaceAction'
 import type { ResultReference } from '../domains/workitem/outcome'
+import { quotaAdmissionProblem } from '../domains/quota/presentation'
 import { clearCodingTargetDraft } from '../domains/coding/draft'
 import {
   codingRouteMatchesScope,
@@ -428,10 +429,21 @@ const selectedInjectionErrorStatus = computed(() => {
   if (!taskId || !executionId) return null
   return injectionStore.state.views[viewKey(taskId, executionId)]?.errorStatus ?? null
 })
+/** A quota admission denial (403 policy_denied with a known admission action) is a business
+ *  answer shown inside the delegation dialog, not a revoked permission — it must not eject
+ *  the whole page to access-denied (M12-F02). */
+const quotaAdjustedCreateErrorStatus = computed(() => {
+  const status = taskStore.state.createErrorStatus
+  if (status !== 403) return status
+  return taskStore.state.createErrorCode === 'policy_denied'
+    && quotaAdmissionProblem(taskStore.state.createErrorDetails.action) !== null
+    ? null
+    : status
+})
 const taskForbidden = computed(() => [
   taskStore.state.errorStatus,
   taskStore.state.detailErrorStatus,
-  taskStore.state.createErrorStatus,
+  quotaAdjustedCreateErrorStatus.value,
   taskStore.state.commandErrorStatus,
   selectedRuntimeResource.value?.errorStatus,
   runtimeHealthResource.value?.errorStatus,

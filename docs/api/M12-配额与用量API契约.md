@@ -21,7 +21,7 @@ v1 交付两个配额维度与一个用量视图；**异步计量、SLI 与前�
 | # | 方法/路径 | 权限 | 头/参数 | 成功 | 主要错误 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | GET `/api/v1/organizations/{orgId}/quota` | SETTINGS_READ | — | 200 `{monthlyTaskIntakeLimit, monthlyTokenBudget, version}` +ETag=version | 400/401/403/404 |
-| 2 | PUT `/api/v1/organizations/{orgId}/quota` | SETTINGS_WRITE | Idempotency-Key+If-Match 必填；body 两值（null/缺省=清除该维度） | 202 CommandReceipt（幂等重放同 receipt） | 400（limit<1）/409（If-Match）/401/403/404 |
+| 2 | PUT `/api/v1/organizations/{orgId}/quota` | SETTINGS_WRITE | Idempotency-Key+If-Match 必填；body 两值（null/缺省=清除该维度） | 202 CommandReceipt（幂等重放同 receipt） | 422 invalid_value（limit<1）/409（If-Match）/401/403/404 |
 | 3 | GET `/api/v1/organizations/{orgId}/quota/usage?month=YYYY-MM` | SETTINGS_READ | month 可选（缺省=报表月） | 200 QuotaUsageView | 400 `field=month`（非法/未来月）/401/403/404 |
 
 无行默认态：GET 返回 `{null, null, version:0}`；usage `materialized:false`、limit null、计数为 0。
@@ -73,7 +73,7 @@ v1 交付两个配额维度与一个用量视图；**异步计量、SLI 与前�
 | HTTP | code | 场景 |
 | --- | --- | --- |
 | 400 | `invalid_request` | 路径 orgId 非法（field=organizationId）/month 非法或未来（field=month） |
-| 400 | `DOMAIN_VALIDATION`（域映射） | limit 0/负数（域 `requireLimit`） |
+| 422 | `INVALID_VALUE`（域映射，线缆 snake_case `invalid_value`） | limit 0/负数（域 `requireLimit`；集成测试实证 422，本表原写 400 系陈旧表述） |
 | 403 | `POLICY_DENIED` | 无 SETTINGS_READ/WRITE；受理准入拒绝（`details.action` 见 §3.4） |
 | 409 | `OPTIMISTIC_LOCK_CONFLICT` | If-Match 版本错配 |
 | 5xx | — | 准入存储故障（fail-closed，受理回滚） |

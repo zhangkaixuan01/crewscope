@@ -89,6 +89,10 @@ interface TaskState {
   createPhase: 'idle' | 'submitting' | 'error' | 'success'
   createErrorMessage: string | null
   createErrorStatus: number | null
+  /** Structured denial facts (e.g. quota admission's details.action) for tailored copy. */
+  createErrorDetails: Record<string, string>
+  /** Wire error code: policy_denied needs page-level handling distinct from revoked permission. */
+  createErrorCode: string | null
   createRetryable: boolean
   createdTaskId: string | null
   commandPending: MemberTaskCommandOperation | null
@@ -171,6 +175,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     createPhase: 'idle',
     createErrorMessage: null,
     createErrorStatus: null,
+    createErrorDetails: {},
+    createErrorCode: null,
     createRetryable: false,
     createdTaskId: null,
     commandPending: null,
@@ -687,6 +693,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.createPhase = 'submitting'
     state.createErrorMessage = null
     state.createErrorStatus = null
+    state.createErrorDetails = {}
+    state.createErrorCode = null
     state.createRetryable = false
     state.createdTaskId = null
     const associationKey = `work-item:${pending.command.projectId}:${pending.command.workItemId}`
@@ -700,6 +708,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
       state.createPhase = 'error'
       state.createErrorMessage = presentError(error, '暂时无法创建 Task，请使用相同请求重试')
       state.createErrorStatus = statusOf(error)
+      state.createErrorDetails = error instanceof CrewScopeApiError ? { ...error.envelope.details } : {}
+      state.createErrorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
       state.createRetryable = error instanceof CrewScopeApiError && error.envelope.retryable
       if (!state.createRetryable) pendingCreate = null
       throw error
@@ -731,6 +741,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.createPhase = 'success'
     state.createErrorMessage = null
     state.createErrorStatus = null
+    state.createErrorDetails = {}
+    state.createErrorCode = null
     state.createRetryable = false
     pendingCreate = null
     return state.createdTaskId
@@ -742,6 +754,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.createPhase = 'idle'
     state.createErrorMessage = null
     state.createErrorStatus = null
+    state.createErrorDetails = {}
+    state.createErrorCode = null
     state.createRetryable = false
     state.createdTaskId = null
   }
@@ -945,6 +959,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.createPhase = 'idle'
     state.createErrorMessage = null
     state.createErrorStatus = null
+    state.createErrorDetails = {}
+    state.createErrorCode = null
     state.createRetryable = false
     state.createdTaskId = null
     pendingCreate = null
@@ -1011,6 +1027,8 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     state.createPhase = 'idle'
     state.createErrorMessage = null
     state.createErrorStatus = null
+    state.createErrorDetails = {}
+    state.createErrorCode = null
     state.createRetryable = false
     state.createdTaskId = null
     state.commandPending = null

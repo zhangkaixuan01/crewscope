@@ -248,6 +248,39 @@ describe('DelegateToAgentDialog', () => {
     expect(onRetry).toHaveBeenCalled()
   })
 
+  it('renders the tailored Chinese guidance for a quota admission denial (details.action)', async () => {
+    // The wire contract verbatim (OrganizationQuotaAdmissionService.java:19-23).
+    const intakeAction = 'create more agent tasks this month (organization monthly task intake limit reached)'
+    const wrapper = mountDialog({
+      retryable: true,
+      errorMessage: intakeAction,
+      createErrorDetails: { action: intakeAction },
+    })
+    await flushPromises()
+
+    const alert = wrapper.get('.delegate-error')
+    expect(alert.attributes('role')).toBe('alert')
+    expect(alert.text()).toContain('本月组织任务受理数已达上限')
+    expect(alert.text()).toContain('组织设置 → 配额与用量')
+    // The raw English constant is guidance input, never user-facing copy.
+    expect(alert.text()).not.toContain('create more agent tasks')
+  })
+
+  it('keeps the raw message when the denial carries no known quota action', async () => {
+    const raw = '模型连接暂不可用'
+    const plain = mountDialog({ retryable: true, errorMessage: raw })
+    await flushPromises()
+    expect(plain.get('.delegate-error').text()).toBe(raw)
+
+    const unknownAction = mountDialog({
+      retryable: true,
+      errorMessage: raw,
+      createErrorDetails: { action: 'some future admission vocabulary' },
+    })
+    await flushPromises()
+    expect(unknownAction.get('.delegate-error').text()).toBe(raw)
+  })
+
   it('keeps keyboard focus inside the topmost delegation Modal and closes only that layer', async () => {
     const wrapper = mountDialog({}, { attachTo: document.body })
     await flushPromises()
@@ -380,7 +413,7 @@ function mountDialog(
 ) {
   const delegationContext = (overrides.context as DelegationContext | undefined) ?? context()
   const agentStore = fakeAgentStore([personalProfileId, teamProfileId])
-  const taskStore = fakeTaskStore(delegationContext)
+  const taskStore = fakeTaskStore(delegationContext, overrides.createErrorDetails as Record<string, string> | undefined)
   return mount(DelegateToAgentDialog, {
     ...options,
     props: props(overrides),
@@ -426,13 +459,16 @@ function fakeAgentStore(profileIds: string[]): AgentStore {
   } as unknown as AgentStore
 }
 
-function fakeTaskStore(delegationContext: DelegationContext): TaskStore {
+function fakeTaskStore(
+  delegationContext: DelegationContext,
+  createErrorDetails: Record<string, string> = {},
+): TaskStore {
   // The dialog reads the context through the reactive store state, so the fake must be reactive
   // too — a plain object would never notify the computed after the load resolves.
   const delegationPreflights: Record<string, { phase: 'ready', value: TaskDelegationPreflight, errorMessage: null, errorStatus: null }> = reactive({})
   const delegationContexts: Record<string, unknown> = reactive({})
   return {
-    state: { delegationPreflights, delegationContexts },
+    state: { delegationPreflights, delegationContexts, createErrorDetails },
     activateScope: vi.fn(),
     clearDelegationPreflight: vi.fn(),
     clearDelegationContext: vi.fn(),

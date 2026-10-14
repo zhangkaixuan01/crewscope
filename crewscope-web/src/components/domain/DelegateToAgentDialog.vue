@@ -14,6 +14,7 @@ import {
 import { useAgentStore } from '../../domains/agent/store'
 import { ownerTypeLabels } from '../../domains/settings/labels'
 import { enumLabel } from '../../domains/shared/labels'
+import { quotaAdmissionProblem } from '../../domains/quota/presentation'
 import type { CodingScope, CodingTargetSelection } from '../../domains/coding/types'
 import { readTaskDelegationDraft, writeTaskDelegationDraft } from '../../domains/task/delegationDraft'
 import { delegationPreflightKey, useTaskStore } from '../../domains/task/store'
@@ -129,6 +130,13 @@ const preflightCurrent = computed(() => Boolean(
     || approvedPreflight.value.configurationRevision === selectedRevision.value),
 ))
 const criteria = computed(() => form.acceptanceCriteria.split('\n').map(value => value.trim()).filter(Boolean))
+/**
+ * A quota denial (403 policy_denied) carries details.action on the task-create path; its
+ * tailored Chinese guidance outranks the raw prop message. Everything else — including the
+ * responsibility-command half of the prop — renders unchanged.
+ */
+const createErrorCopy = computed(() =>
+  quotaAdmissionProblem(taskStore.state.createErrorDetails.action) ?? props.errorMessage)
 
 /** Project defaults the coding section starts from; unavailable ones fall back inside the section. */
 const codingInitial = computed<CodingTargetInitialDefaults>(() => ({
@@ -492,7 +500,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
       </section>
       <p v-if="!selectable.length" class="delegate-unavailable">当前没有可分配的 Agent 候选。请先由 Agent Owner 启用 Agent，或让团队成员创建个人 Agent。</p>
       </template>
-      <p v-if="errorMessage" class="delegate-error" role="alert">{{ errorMessage }}</p>
+      <p v-if="createErrorCopy" class="delegate-error" role="alert">{{ createErrorCopy }}</p>
       <div class="dialog-footer"><BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton><BaseButton v-if="retryable" type="button" :loading="submitting" @click="onRetry">使用原请求重试</BaseButton><BaseButton v-else type="submit" :loading="submitting" :disabled="!valid">{{ submitLabel }}</BaseButton></div>
       </form>
     </div>

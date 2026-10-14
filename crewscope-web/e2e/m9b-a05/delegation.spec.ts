@@ -72,6 +72,32 @@ test('Assign-only saves the responsibility through the existing executor command
   expect(world.executorAssignments[0]!.body.actorPrincipalId).toBe(ids.agentPersonalPrincipal)
 })
 
+test('A quota admission denial renders the tailored Chinese guidance, not the raw action', async ({ page }) => {
+  // M12-F02 承接 A02 偏差：403 policy_denied 的 details.action 是线缆契约逐字（Java
+  // OrganizationQuotaAdmissionService:19-23），对话框把它译成中文指引而非透传英文常量。
+  const intakeAction = 'create more agent tasks this month (organization monthly task intake limit reached)'
+  world.createDenial = { status: 403, code: 'policy_denied', message: intakeAction, details: { action: intakeAction } }
+  await page.goto(workUrl())
+  const drawer = page.getByRole('dialog', { name: 'A05-1 工作项详情' })
+  await expect(drawer).toBeVisible()
+  await drawer.getByRole('button', { name: '交给 Agent 处理' }).click()
+  const delegate = page.getByRole('dialog', { name: '交给 Agent 处理' })
+
+  await delegate.getByLabel('执行目标').fill('受理上限已满的月份委托')
+  await delegate.getByRole('button', { name: '验证 Ref' }).click()
+  await expect(delegate.getByText('PolicySnapshot Preflight 通过')).toBeVisible()
+  await delegate.getByRole('button', { name: '分配并启动' }).click()
+
+  const alert = delegate.locator('.delegate-error')
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('本月组织任务受理数已达上限')
+  await expect(alert).toContainText('组织设置 → 配额与用量')
+  await expect(alert).not.toContainText('create more agent tasks')
+  // The denial is a fact, not a retry candidate: nothing was created.
+  expect(world.tasks).toEqual([])
+  expect(world.taskCreates).toEqual([])
+})
+
 test('A double submit inside the create window produces exactly one Task command', async ({ page }) => {
   world.createLatencyMs = 400
   await page.goto(workUrl())
