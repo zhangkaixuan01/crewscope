@@ -20,6 +20,8 @@ const files = [
   'pages/ModelSettingsPage.vue',
   'pages/RepositorySettingsPage.vue',
   'pages/OrganizationSettingsPage.vue',
+  // M12-F02: the quota limits editor is a configuration surface (field text sizes).
+  'pages/QuotaSettingsPage.vue',
 ]
 const offenders = []
 for (const name of files) {

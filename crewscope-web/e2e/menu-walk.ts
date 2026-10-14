@@ -36,6 +36,7 @@ export const MENUS = [
   { path: '/audit', name: '审计' },
   { path: '/team/members', name: '成员' },
   { path: '/settings/organization', name: '组织设置' },
+  { path: '/settings/quota', name: '配额与用量' },
   { path: '/settings/repositories', name: '仓库设置' },
   { path: '/settings/agents', name: 'Agent 设置' },
   { path: '/settings/models', name: '模型设置' },
@@ -92,6 +93,15 @@ export async function mockApi(page: Page): Promise<void> {
     if (/\/organizations\/[^/]+\/settings$/.test(path)) return json(route, { auditEventRetentionDays: null, version: 0 })
     // The role-grant listing is a bare array, not the generic items envelope.
     if (/\/organizations\/[^/]+\/role-grants$/.test(path)) return json(route, [])
+    // Quota surfaces (M12-F02): both answer objects — an unconfigured default view plus an
+    // empty usage month, exactly the shapes the allowlist mappers demand.
+    if (/\/organizations\/[^/]+\/quota\/usage$/.test(path)) {
+      const month = new URL(request.url()).searchParams.get('month') ?? '2026-10'
+      return json(route, quotaUsage(month))
+    }
+    if (/\/organizations\/[^/]+\/quota$/.test(path)) {
+      return json(route, { monthlyTaskIntakeLimit: null, monthlyTokenBudget: null, version: 0 })
+    }
     return json(route, /\/(items|events|list|search|history|revisions)$|s$/.test(path) ? { items: [], nextCursor: null } : {})
   })
 }
@@ -99,6 +109,19 @@ export async function mockApi(page: Page): Promise<void> {
 /** The organization profile answers `organizationId` (not `id`) — the allowlist mapper's shape. */
 function organizationProfile() {
   return { organizationId: ids.organization, name: 'CrewScope Organization', status: 'ACTIVE', version: 1 }
+}
+
+/** Unconfigured-dimension usage: limits null, every counter zero, rollup not caught up. */
+function quotaUsage(month: string) {
+  return {
+    month,
+    monthlyTaskIntake: { limit: null, count: 0 },
+    monthlyTokenBudget: {
+      limit: null, reservedTokens: 0,
+      actualTokens: { input: 0, output: 0, cachedInput: 0, total: 0 },
+    },
+    materialized: false,
+  }
 }
 
 function team() {

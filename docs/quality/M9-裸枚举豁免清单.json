@@ -200,6 +200,11 @@
       "file": "pages/OrganizationSettingsPage.vue",
       "expression": "savingReason",
       "reason": "本地 computed，返回的已经是中文原因句（保留期下限/读取中/保存中）。"
+    },
+    {
+      "file": "pages/QuotaSettingsPage.vue",
+      "expression": "savingReason",
+      "reason": "本地 computed，返回的已经是中文原因句（限额下限/读取中/保存中）。"
     }
   ]
 }

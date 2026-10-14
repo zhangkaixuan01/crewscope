@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<{ title: string; eyebrow?: string; items?
   eyebrow: 'Settings · 配置中心',
   items: () => [
     { key: 'organization', label: '组织', route: '/settings/organization' },
+    { key: 'quota', label: '配额与用量', route: '/settings/quota' },
     { key: 'agents', label: 'Agent 配置', route: '/settings/agents' },
     { key: 'models', label: '模型与凭证', route: '/settings/models' },
     { key: 'repositories', label: '受管仓库', route: '/settings/repositories' },

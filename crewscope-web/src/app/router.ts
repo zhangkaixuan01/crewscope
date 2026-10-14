@@ -170,6 +170,15 @@ export function createCrewScopeRouter(
         meta: { mode: 'control', section: 'organization', title: '组织设置', queryWhitelist: ['tab'], tabValues: ['general', 'roles', 'governance'] },
       },
       {
+        path: '/settings/quota',
+        name: 'quota-settings',
+        component: () => import('../pages/QuotaSettingsPage.vue'),
+        // Same ungated reasoning as organization-settings (M12-F01): the page gates itself
+        // on org:audit-read without dispatching, so a member sees the local notice and a
+        // pure ORG auditor reaches the read-only surfaces (M12-F02).
+        meta: { mode: 'control', section: 'organization', title: '配额与用量', queryWhitelist: ['month'] },
+      },
+      {
         path: '/settings/repositories',
         name: 'repository-settings',
         component: () => import('../pages/RepositorySettingsPage.vue'),
