@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class AuthenticationMetricPolicyM7I08Test {
 
     @Test
-    void acceptsTheFixedDefenseCounterWithinA64SeriesBudget() {
+    void acceptsTheFixedDefenseCounterWithinTheEnumSeriesBudget() {
         SimpleMeterRegistry registry = registry();
         LoginDefenseMetrics metrics = new LoginDefenseMetrics(registry);
 
@@ -23,7 +23,9 @@ class AuthenticationMetricPolicyM7I08Test {
                 LoginDefenseTelemetry.Operation.RESOURCE_ADMISSION,
                 LoginDefenseTelemetry.Outcome.ALLOWED);
 
-        assertThat(AuthenticationMetricPolicy.MAXIMUM_TOTAL_SERIES).isEqualTo(64);
+        // Two flows (LOGIN, OIDC) times the operation/outcome enums; the budget stays a
+        // fixed enum product, not a growth permit for dynamic dimensions.
+        assertThat(AuthenticationMetricPolicy.MAXIMUM_TOTAL_SERIES).isEqualTo(96);
         assertThat(registry.getMeters()).hasSize(1);
     }
 

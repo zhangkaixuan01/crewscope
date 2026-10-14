@@ -28,7 +28,6 @@ import io.crewscope.domain.identity.event.AccountProfileChanged;
 import io.crewscope.domain.identity.event.AccountTemporarilyLocked;
 import io.crewscope.domain.identity.event.AuthenticationFailuresAggregated;
 import io.crewscope.domain.identity.event.AuthenticationSucceeded;
-import io.crewscope.domain.identity.event.UserIdentityMapped;
 import io.crewscope.domain.identity.event.UserAccountRegistered;
 import io.crewscope.domain.inbox.event.InboxDispositionChanged;
 import io.crewscope.domain.model.event.ModelConnectionCredentialChanged;
@@ -383,15 +382,6 @@ public final class CrewScopeAuditEventTypes {
     }
 
     private static void registerFoundationEvents(List<AuditEventTypeDefinition> target) {
-        register(
-                target,
-                List.of("USER_IDENTITY_MAPPED"),
-                List.of(SchemaVersion.V1),
-                UserIdentityMapped.class,
-                AuditEventCategory.IDENTITY,
-                AuditOutcome.SUCCEEDED,
-                AuditRetentionLevel.EXTENDED,
-                required("provider"));
         register(
                 target,
                 List.of("TEAM_CREATED"),

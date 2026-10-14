@@ -1,11 +1,11 @@
 # M12 企业身份与会话 API 契约
 
-> 模块：M12-I01（OIDC 接入与企业身份）　状态：C1 已交付（2026-10-14，会话同构底座+身份策略+会话枚举）；C2 OIDC 核心流 / C3 攻击集与收口后续切片<br>
+> 模块：M12-I01（OIDC 接入与企业身份）　状态：C1 已交付（2026-10-14）；C2 OIDC 核心流已交付（2026-10-15，§6）；C3 攻击集与收口后续切片<br>
 > 依据：[ADR-036](../adr/ADR-036-企业身份与OIDC接入.md)、[S01 冻结记录](../spikes/M12-S01-现状盘点与合同冻结.md)、[主计划](../plans/M12-企业化与多租户治理.md) §6 I01
 
 ## 0. 本轮边界与偏差声明（先读）
 
-C1 交付**与 provider 无关的底座**：会话主体带 `identityProvider`、会话枚举/单设备撤销 API、身份策略维度（配置矩阵+本地登录/注册 fail-closed）、组织锚点单源、`/auth/session` 响应面扩展。**OIDC 授权码流本身（首登开通/绑定、PKCE、内嵌 IdP、防护衔接、攻击集）归 C2/C3**，不在本契约版本。
+C1 交付**与 provider 无关的底座**（会话主体带 `identityProvider`、会话枚举/单设备撤销 API、身份策略维度、组织锚点单源、`/auth/session` 响应面扩展）；C2 交付 **OIDC 授权码流本体**（§6：PKCE、首登开通/再认证、防护衔接、内嵌测试 IdP）。**协议攻击集、撤销延迟钉死与 runbook 归 C3**。
 
 ### 偏差声明（相对 S01 冻结卡与主计划）
 
@@ -67,17 +67,65 @@ C1 交付**与 provider 无关的底座**：会话主体带 `identityProvider`�
 
 `BrowserSessionPrincipal` 新增第三字段 `identityProvider`（`local` 或 `oidc/{registrationId}`）；**存量 Redis 会话缺字段反序列化为 null → 归一为 `local`**，升级部署无迁移、旧会话按 local 复检继续通过。会话复检（`resolveSession`）现在按「建立会话的那个 provider 的唯一 usable 身份」解析：OIDC-only 账号（无 local 身份）的会话不再被 local 强制误杀；local 会话在账号只剩 OIDC 身份时正确拒绝。
 
-## 6. 撤销延迟（诚实上限，C3 测试钉死）
+## 6. OIDC 授权码登录流（C2 交付）
+
+`crewscope.security.mode=oidc` 时浏览器 SSO 登录走标准授权码+PKCE 流：
+
+```
+浏览器 → GET /oauth2/authorization/{registrationId}          （CrewScope：start gate → 302 IdP）
+       → GET {issuer}/authorize?...（code_challenge S256）    （IdP：302 回 redirect_uri）
+       → GET /login/oauth2/code/{registrationId}?code&state   （CrewScope：换 ID token、
+                                                               首登开通或再认证、建立会话 → 302 /）
+```
+
+### 6.1 产品红线
+
+- **PKCE（S256）无条件强制**（`OidcPkceAuthorizationRequestResolver`，无配置开关）：confidential client 同样携带 `code_challenge`；不带 challenge 的流在 C3 攻击集 fail-closed。
+- **establish 后不持有、不转发任何 IdP 令牌**：code 交换得来的 access/refresh token 即弃——授权码流与 CrewScope 会话是两个不相交的信任域（撤销延迟上限见第 7 章）。
+- **无 CommandReceipt**：`(provider, subject)` 行即幂等事实。并发首登在 `findByIdentityKeyForUpdate` 行锁+唯一索引（`uk_login_identity_provider_subject`）上收敛——恰一个事务开通，另一个事务换锁后转入再认证；账号/身份唯一冲突按确定性 attempt(1..3) 重推导，耗尽 fail-closed（不引入随机熵）。
+
+### 6.2 首登开通（仅 registrationMode=OPEN）
+
+每次 OIDC 首登在**单事务**内开通四件套并复检 outbox：`user_account`（source=SSO）→ `login_identity`（provider=`oidc/{registrationId}`，subject=sub claim）→ `principal`（**不带外部身份列**，联邦真值唯一存 login_identity）→ `account_organization_binding`；调用 `ensureInitialOwner`（operator-bootstrap 部署为 no-op）；发 `USER_ACCOUNT_REGISTERED`（source=SSO）+`AUTHENTICATION_SUCCEEDED` 两域事件入 outbox。INVITE_ONLY/DISABLED 部署首登拒绝（`sso_error=registration_blocked`），无任何账号副作用。
+
+身份派生（ADR-036 冻结，域类 `ExternalAccountIdentity`）：
+
+| 字段 | 规则 |
+| --- | --- |
+| displayName | claims `name→preferred_username→email→sub` 首个非空（全空 fail-closed） |
+| email | 仅 `email_verified=true` 采纳；否则合成 `{username}@sso.oidc.invalid`（RFC2606 保留域，永不与真实邮箱冲突） |
+| username | 优先 `preferred_username`（非法/缺失→`sso-{sha256("oidc/{regId}|{sub}") 前 12 hex}`）；冲突按 attempt(1..3) 确定性重推导 |
+
+### 6.3 登录结果重定向（302，错误码固定枚举）
+
+| 场景 | Location |
+| --- | --- |
+| 成功（首登或再认证） | `/`（会话 cookie 随响应轮换下发） |
+| 身份/账号/绑定不可用 | `/login?sso_error=denied` |
+| 已知账号被防护锁定 | `/login?sso_error=locked` |
+| 部署拒绝首登 | `/login?sso_error=registration_blocked` |
+| 基础设施故障（泛化） | `/login?sso_error=unavailable` |
+| 协议级失败（state/nonce/签名/redirect_uri 验证，含 C3 攻击集全部行） | `/login?sso_error=denied`（异常文本留服务端，不回显） |
+
+错误码只描述部署状态，永不携带 subject/claims 内容。
+
+### 6.4 LoginDefense 衔接
+
+- **start gate**（`OidcAuthorizationStartDefenseWebFilter`，先于授权重定向）：GET `/oauth2/authorization/*` 消耗**独立 OIDC 网络窗口**（`admitNetwork`，不与密码登录共享双键桶——OIDC 无用户输入 identifier）；限流→429 `too_many_requests`；防护存储不可达→503 `login_defense_unavailable`（不可达的限流器绝不退化为不限流）。
+- **已知账号**：再认证先 `observeAccount`——锁定→`recordFailure`+拒绝建立会话；成功路径 establish 后 `recordSuccess` 清算账号失败窗口。
+- **首登**：新账号无失败历史，仅消耗网络窗口。
+
+## 7. 撤销延迟（诚实上限，C3 测试钉死）
 
 - **账号级禁用/密码轮换/全量撤销**：即时——既有 `securityVersion` 复检（下一请求即匿名）+ `invalidateAll`（Redis 会话键即刻消失）。
 - **IdP 侧令牌失效**：上限=会话 TTL（12h）。CrewScope 在 establish 后**不持有、不刷新** IdP 令牌，故无法提前感知 IdP 侧撤销；此为架构性上限而非实现延迟，不承诺「下次令牌刷新」。
 
-## 7. 已知限制（声明不改）
+## 8. 已知限制（声明不改）
 
 1. **OIDC-only 账号不可用 `/account/sessions/revoke`、`/account/password`、PATCH `/account`**（均要求 `currentPassword`，M7 冻结契约）——账号级撤销=逐会话 DELETE（本片新增）或运维救援（C3 runbook）。
 2. **INVITE_ONLY 部署无 SSO 账号预置通道**（C2 细化：首登仅 OPEN 放行）——本地注册+OIDC 首登会建两个账号，是「禁止邮箱相同自动合并」红线的直接推论。
 3. `ssoAuthorizationUrl` 目前仅指向**首个** registration（多 IdP 部署入口选择归后续里程碑）。
 
-## 8. OpenAPI
+## 9. OpenAPI
 
 操作基线 303→305（GET/DELETE sessions）；`crewscope-web/src/api/generated/openapi.ts` 与 state-machines 指纹随本片同笔再生成。前端消费归 M12-F03。

@@ -12,7 +12,7 @@ import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
-import io.crewscope.application.identity.IdentityMappingService;
+import io.crewscope.application.identity.OidcAccountAuthenticationService;
 import io.crewscope.application.conversation.AgentRuntimeSessionRepository;
 import io.crewscope.application.conversation.AgentRuntimeSessionService;
 import io.crewscope.application.conversation.ConversationParticipantRepository;
@@ -251,7 +251,7 @@ class ApplicationCompositionConfigurationTest {
         context -> {
           assertThat(context).hasNotFailed();
           assertThat(context).hasSingleBean(TimeProvider.class);
-          assertThat(context).hasSingleBean(IdentityMappingService.class);
+          assertThat(context).hasSingleBean(OidcAccountAuthenticationService.class);
           assertThat(context).hasSingleBean(AccountOrganizationPrincipalResolver.class);
           assertThat(context).hasSingleBean(AuthenticatedAccountOrganizationResolver.class);
           assertThat(context).hasSingleBean(LocalAccountRegistrationService.class);

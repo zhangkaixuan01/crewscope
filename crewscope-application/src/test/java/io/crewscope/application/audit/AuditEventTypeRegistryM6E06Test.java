@@ -21,7 +21,7 @@ class AuditEventTypeRegistryM6E06Test {
 
     @Test
     void registersTheReviewedM3ToM7Coordinates() {
-        assertEquals(140, registry.size());
+        assertEquals(139, registry.size());
         assertCategory(
                 "ORGANIZATION_ROLE_GRANTED", SchemaVersion.V1, AuditEventCategory.SECURITY);
         assertCategory(

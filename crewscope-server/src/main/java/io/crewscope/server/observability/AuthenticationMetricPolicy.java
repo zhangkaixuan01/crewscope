@@ -12,7 +12,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Freezes authentication metrics to enum-only coordinates with a 64-series upper bound. */
+/**
+ * Freezes authentication metrics to enum-only coordinates; the series upper bound is the
+ * flow/operation/outcome enum product (fixed by declaration, never grown by data).
+ */
 public final class AuthenticationMetricPolicy {
 
     public static final int MAXIMUM_TOTAL_SERIES = AuthenticationFlow.values().length

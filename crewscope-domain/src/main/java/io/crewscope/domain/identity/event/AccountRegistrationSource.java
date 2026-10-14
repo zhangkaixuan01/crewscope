@@ -4,5 +4,6 @@ package io.crewscope.domain.identity.event;
 public enum AccountRegistrationSource {
     OPEN,
     INVITATION,
-    BOOTSTRAP
+    BOOTSTRAP,
+    SSO
 }

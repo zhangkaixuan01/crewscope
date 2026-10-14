@@ -111,6 +111,37 @@ class RedisLoginDefenseM7I04IntegrationTest {
 
     @Test
     @Order(2)
+    void admitNetworkEnforcesOnlyTheNetworkWindowAndIsolatesTheOidcBucket() throws Exception {
+        // Exhaust the password-login network window first: the OIDC start gate keys its own
+        // flow segment, so one shared office network never couples the two admission budgets.
+        for (int attempt = 0; attempt < 60; attempt++) {
+            assertThat(await(defense.admit(request(
+                            AuthenticationFlow.LOGIN, "user-" + attempt, "net-oidc"))))
+                    .isEqualTo(LoginResourceAdmission.ALLOWED);
+        }
+        assertThat(await(defense.admit(request(
+                        AuthenticationFlow.LOGIN, "user-60", "net-oidc"))))
+                .isEqualTo(LoginResourceAdmission.NETWORK_RATE_LIMITED);
+
+        ControlledNetworkResource network = ControlledNetworkResource.ofCanonical("203.0.113.7");
+        for (int attempt = 0; attempt < 59; attempt++) {
+            assertThat(await(defense.admitNetwork(AuthenticationFlow.OIDC, network)))
+                    .isEqualTo(LoginResourceAdmission.ALLOWED);
+        }
+        assertThat(await(defense.admitNetwork(AuthenticationFlow.OIDC, network)))
+                .isEqualTo(LoginResourceAdmission.ALLOWED);
+        assertThat(await(defense.admitNetwork(AuthenticationFlow.OIDC, network)))
+                .isEqualTo(LoginResourceAdmission.NETWORK_RATE_LIMITED);
+
+        // A different network is a different bucket: isolation is per canonical network, not
+        // a global emergency stop.
+        assertThat(await(defense.admitNetwork(
+                        AuthenticationFlow.OIDC, ControlledNetworkResource.ofCanonical("198.51.100.4"))))
+                .isEqualTo(LoginResourceAdmission.ALLOWED);
+    }
+
+    @Test
+    @Order(2)
     void releasesTheExactWindowFloorAndRejectsMateriallyBackwardTime() throws Exception {
         LoginDefenseRequest request = request(AuthenticationFlow.LOGIN, "window-user", "net-window");
         for (int attempt = 0; attempt < 10; attempt++) {

@@ -8,8 +8,8 @@ import io.crewscope.application.identity.AccountOrganizationPrincipalResolver;
 import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
 import io.crewscope.application.identity.CurrentAccountSnapshotReader;
 import io.crewscope.application.identity.CurrentAccountApplicationService;
-import io.crewscope.application.identity.IdentityMappingService;
 import io.crewscope.application.identity.IdentityPersistenceCapacityException;
+import io.crewscope.application.identity.OidcAccountAuthenticationService;
 import io.crewscope.application.identity.InitialOrganizationOwnerProvisioner;
 import io.crewscope.application.identity.LocalAccountRegistrationService;
 import io.crewscope.application.identity.LocalAccountLoginService;
@@ -64,14 +64,36 @@ public class IdentityApplicationConfiguration {
   }
 
   @Bean
-  IdentityMappingService identityMappingService(
-      PrincipalRepository principalRepository,
+  @ConditionalOnProperty(
+      name = "crewscope.security.login-defense.enabled",
+      havingValue = "true")
+  OidcAccountAuthenticationService oidcAccountAuthenticationService(
+      LoginIdentityRepository loginIdentities,
+      UserAccountRepository accounts,
+      PrincipalRepository principals,
+      AccountOrganizationBindingRepository bindings,
+      AuthenticatedAccountOrganizationResolver resolver,
       DomainEventStore domainEventStore,
       OutboxRepository outboxRepository,
       TransactionExecutor transactionExecutor,
-      TimeProvider timeProvider) {
-    return new IdentityMappingService(
-        principalRepository, domainEventStore, outboxRepository, transactionExecutor, timeProvider);
+      TimeProvider timeProvider,
+      LoginDefense defense,
+      org.springframework.beans.factory.ObjectProvider<InitialOrganizationOwnerProvisioner>
+          initialOwnerProvisioner,
+      @Qualifier("localRegistrationPersistenceExecutor") ExecutorService persistenceExecutor) {
+    return new OidcAccountAuthenticationService(
+        loginIdentities,
+        accounts,
+        principals,
+        bindings,
+        initialOwnerProvisioner.getIfAvailable(() -> (organizationId, principalId) -> { }),
+        resolver,
+        domainEventStore,
+        outboxRepository,
+        transactionExecutor,
+        defense,
+        timeProvider,
+        persistenceExecutor);
   }
 
   @Bean

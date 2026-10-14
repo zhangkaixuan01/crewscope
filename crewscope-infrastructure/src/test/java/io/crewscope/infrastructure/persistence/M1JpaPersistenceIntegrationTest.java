@@ -4,14 +4,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
-import io.crewscope.application.identity.IdentityMappingRequest;
-import io.crewscope.application.identity.IdentityMappingResult;
-import io.crewscope.application.identity.IdentityMappingService;
+import io.crewscope.application.identity.AccountLoginDefenseState;
+import io.crewscope.application.identity.AccountOrganizationBindingRepository;
+import io.crewscope.application.identity.AuthenticatedAccountOrganizationResolver;
+import io.crewscope.application.identity.LoginDefense;
+import io.crewscope.application.identity.LoginIdentityRepository;
+import io.crewscope.application.identity.OidcAccountAuthenticationService;
+import io.crewscope.application.identity.OidcAuthenticationCommand;
+import io.crewscope.application.identity.OidcAuthenticationException;
+import io.crewscope.application.identity.OidcAuthenticationResult;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.provider.BuiltInProviderInitializationService;
@@ -68,11 +77,12 @@ import io.crewscope.application.workitem.WorkProjectApplicationService;
 import io.crewscope.application.workitem.WorkProjectPage;
 import io.crewscope.application.workitem.WorkProjectQuery;
 import io.crewscope.application.workitem.WorkProjectRepository;
-import io.crewscope.domain.identity.ExternalIdentity;
+import io.crewscope.domain.identity.ExternalAccountIdentity;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
+import io.crewscope.domain.identity.RegistrationMode;
 import io.crewscope.domain.identity.UserAccount;
 import io.crewscope.domain.identity.UserAccountId;
 import io.crewscope.domain.provider.ProviderCapabilities;
@@ -124,6 +134,8 @@ import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
 import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
 import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
 import io.crewscope.infrastructure.persistence.identity.IdentityPersistenceMapper;
+import io.crewscope.infrastructure.persistence.identity.JdbcAccountOrganizationBindingRepositoryAdapter;
+import io.crewscope.infrastructure.persistence.identity.JdbcLoginIdentityRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.identity.JdbcUserAccountRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.provider.JpaProviderRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.provider.ProviderPersistenceMapper;
@@ -152,6 +164,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -198,6 +211,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   @Autowired private TransactionExecutor transactionExecutor;
   @Autowired private PrincipalRepository principalRepository;
   @Autowired private UserAccountRepository userAccountRepository;
+  @Autowired private LoginIdentityRepository loginIdentityRepository;
+  @Autowired private AccountOrganizationBindingRepository bindingRepository;
   @Autowired private DomainEventStore domainEventStore;
   @Autowired private OutboxRepository outboxRepository;
   @Autowired private CommandReceiptStore commandReceiptStore;
@@ -886,29 +901,55 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
   }
 
   @Test
-  void atomicallyMapsAConcurrentExternalSubjectWithoutInferringTeamMembership() throws Exception {
+  void atomicallyProvisionsOneAccountForAConcurrentFirstOidcLogin() throws Exception {
     OrganizationId organizationId = OrganizationId.generate();
     jdbcTemplate.update(
         "INSERT INTO crewscope.organization (id, name, status) VALUES (?, 'Identity', 'ACTIVE')",
         organizationId.value());
-    IdentityMappingService service =
-        new IdentityMappingService(
+    LoginDefense defense = mock(LoginDefense.class);
+    AccountLoginDefenseState unlocked = new AccountLoginDefenseState(0, Optional.empty(), NOW);
+    when(defense.observeAccount(any()))
+        .thenReturn(CompletableFuture.completedFuture(unlocked));
+    OidcAccountAuthenticationService service =
+        new OidcAccountAuthenticationService(
+            loginIdentityRepository,
+            userAccountRepository,
             principalRepository,
+            bindingRepository,
+            (organization, principal) -> { },
+            mock(AuthenticatedAccountOrganizationResolver.class),
             domainEventStore,
             outboxRepository,
             transactionExecutor,
-            () -> NOW);
+            defense,
+            () -> NOW,
+            Runnable::run);
     CountDownLatch start = new CountDownLatch(1);
     var executor = Executors.newFixedThreadPool(2);
     try {
-      var first = executor.submit(() -> mapIdentity(service, organizationId, start));
-      var second = executor.submit(() -> mapIdentity(service, organizationId, start));
+      var first = executor.submit(() -> authenticateFirstLogin(service, organizationId, start));
+      var second = executor.submit(() -> authenticateFirstLogin(service, organizationId, start));
       start.countDown();
 
-      IdentityMappingResult firstResult = first.get(10, TimeUnit.SECONDS);
-      IdentityMappingResult secondResult = second.get(10, TimeUnit.SECONDS);
-      assertEquals(firstResult.principal().id(), secondResult.principal().id());
-      assertEquals(1, (firstResult.created() ? 1 : 0) + (secondResult.created() ? 1 : 0));
+      Object firstOutcome = first.get(10, TimeUnit.SECONDS);
+      Object secondOutcome = second.get(10, TimeUnit.SECONDS);
+      int provisioned = 0;
+      int denied = 0;
+      for (Object outcome : List.of(firstOutcome, secondOutcome)) {
+        if (outcome instanceof OidcAuthenticationResult result && result.firstLogin()) {
+          provisioned++;
+        }
+        if (outcome instanceof OidcAuthenticationException exception
+            && exception.failure() == OidcAuthenticationException.Failure.DENIED) {
+          denied++;
+        }
+      }
+      // One winner provisions; the loser converges on the locked lookup and is denied by the
+      // mocked resolver — either ordering leaves exactly one account set behind.
+      assertEquals(
+          1, provisioned, () -> "outcomes: first=" + firstOutcome + " second=" + secondOutcome);
+      assertEquals(
+          1, denied, () -> "outcomes: first=" + firstOutcome + " second=" + secondOutcome);
     } finally {
       executor.shutdownNow();
       executor.awaitTermination(10, TimeUnit.SECONDS);
@@ -917,32 +958,79 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     assertEquals(
         1,
         jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM crewscope.user_account WHERE email LIKE '%@sso.oidc.invalid'",
+            Integer.class));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.login_identity
+            WHERE provider = 'oidc/company' AND subject = 'private-concurrent-subject'
+            """,
+            Integer.class));
+    // ADR-036: the federated truth lives only in login_identity, so the provisioned principal
+    // carries no external-identity coordinates of its own.
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
             """
             SELECT COUNT(*) FROM crewscope.principal
-            WHERE organization_id = ? AND identity_provider = 'oidc/company'
-              AND external_subject = 'private-concurrent-subject'
+            WHERE organization_id = ?
+              AND identity_provider IS NULL AND external_subject IS NULL
             """,
             Integer.class,
             organizationId.value()));
     assertEquals(
         1,
         jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM crewscope.domain_event WHERE event_type = 'USER_IDENTITY_MAPPED'",
-            Integer.class));
+            "SELECT COUNT(*) FROM crewscope.account_organization_binding WHERE organization_id = ?",
+            Integer.class,
+            organizationId.value()));
     assertEquals(
         1,
-        jdbcTemplate.queryForObject("SELECT COUNT(*) FROM crewscope.outbox_event", Integer.class));
-    assertEquals(
-        0,
-        jdbcTemplate.queryForObject("SELECT COUNT(*) FROM crewscope.team_member", Integer.class));
-    String payload =
         jdbcTemplate.queryForObject(
             """
-            SELECT payload::text FROM crewscope.domain_event
-            WHERE event_type = 'USER_IDENTITY_MAPPED'
+            SELECT COUNT(*) FROM crewscope.domain_event
+            WHERE organization_id = ? AND event_type = 'USER_ACCOUNT_REGISTERED'
             """,
-            String.class);
-    assertFalse(payload.contains("private-concurrent-subject"));
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        1,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.domain_event
+            WHERE organization_id = ? AND event_type = 'AUTHENTICATION_SUCCEEDED'
+            """,
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        2,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.outbox_event o
+            JOIN crewscope.domain_event e ON e.event_id = o.domain_event_id
+            WHERE e.organization_id = ?
+            """,
+            Integer.class,
+            organizationId.value()));
+    assertEquals(
+        0,
+        jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*) FROM crewscope.team_member m
+            JOIN crewscope.team t ON t.id = m.team_id
+            WHERE t.organization_id = ?
+            """,
+            Integer.class,
+            organizationId.value()));
+    List<String> payloads =
+        jdbcTemplate.queryForList(
+            "SELECT payload::text FROM crewscope.domain_event WHERE organization_id = ?",
+            String.class,
+            organizationId.value());
+    assertTrue(
+        payloads.stream().noneMatch(payload -> payload.contains("private-concurrent-subject")));
   }
 
   @Test
@@ -2377,15 +2465,33 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
         Optional.empty());
   }
 
-  private static IdentityMappingResult mapIdentity(
-      IdentityMappingService service, OrganizationId organizationId, CountDownLatch start) {
+  private static Object authenticateFirstLogin(
+      OidcAccountAuthenticationService service,
+      OrganizationId organizationId,
+      CountDownLatch start) {
     await(start);
-    return service.map(
-        new IdentityMappingRequest(
-            organizationId,
-            new ExternalIdentity("oidc/company", "private-concurrent-subject"),
-            "Concurrent User",
-            UUID.randomUUID()));
+    try {
+      return service.authenticate(
+              new OidcAuthenticationCommand(
+                  new ExternalAccountIdentity(
+                      "company",
+                      "private-concurrent-subject",
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      false),
+                  RegistrationMode.OPEN,
+                  organizationId,
+                  UUID.randomUUID(),
+                  Optional.empty()))
+          .toCompletableFuture()
+          .get(10, TimeUnit.SECONDS);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return interrupted;
+    } catch (Exception failure) {
+      return failure.getCause() != null ? failure.getCause() : failure;
+    }
   }
 
   private Principal createUser(OrganizationId organizationId, String displayName) {
@@ -2484,6 +2590,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     JpaProviderRepositoryAdapter.class,
     IdentityPersistenceMapper.class,
     JdbcUserAccountRepositoryAdapter.class,
+    JdbcLoginIdentityRepositoryAdapter.class,
+    JdbcAccountOrganizationBindingRepositoryAdapter.class,
     SpringTransactionExecutor.class
   })
   static class TestApplication {}

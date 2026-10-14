@@ -51,6 +51,24 @@ public final class ApiSecurityResponseWriter {
         "The request body exceeds the allowed size");
   }
 
+  /** Login-defense admission refused the SSO authorization start (M12-I01). */
+  public Mono<Void> loginDefenseRateLimited(ServerWebExchange exchange) {
+    return write(
+        exchange,
+        HttpStatus.TOO_MANY_REQUESTS,
+        "too_many_requests",
+        "Authentication is temporarily unavailable");
+  }
+
+  /** The login-defense store itself is unreachable: refuse the start instead of bypassing it. */
+  public Mono<Void> loginDefenseUnavailable(ServerWebExchange exchange) {
+    return write(
+        exchange,
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "login_defense_unavailable",
+        "Authentication is temporarily unavailable");
+  }
+
   private static Mono<Void> write(
       ServerWebExchange exchange, HttpStatus status, String code, String message) {
     if (exchange.getResponse().isCommitted()) {

@@ -2,6 +2,7 @@ package io.crewscope.server.security.login;
 
 import io.crewscope.application.identity.AccountLoginDefenseState;
 import io.crewscope.application.identity.AuthenticationFlow;
+import io.crewscope.application.identity.ControlledNetworkResource;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.application.identity.LoginDefenseRequest;
 import io.crewscope.application.identity.LoginDefenseTelemetry;
@@ -97,6 +98,25 @@ public final class RedisLoginDefense implements LoginDefense {
             return state .. '|' .. effective .. '|' .. lock_until .. '|' .. table.concat(scores, ',')
             """,
             String.class);
+    private static final RedisScript<String> NETWORK_SCRIPT = new DefaultRedisScript<>(
+            """
+            local now = tonumber(ARGV[1])
+            local tolerance = tonumber(ARGV[2])
+            local item = redis.call('zrange', KEYS[1], -1, -1, 'WITHSCORES')
+            local last = 0
+            if #item > 0 then last = tonumber(item[2]) end
+            if now + tolerance < last then return 'TIME' end
+            local effective = math.max(now, last)
+            local network_window = tonumber(ARGV[3])
+            redis.call('zremrangebyscore', KEYS[1], '-inf', effective - network_window)
+            if redis.call('zcard', KEYS[1]) >= tonumber(ARGV[4]) then
+              return 'NETWORK|' .. effective
+            end
+            redis.call('zadd', KEYS[1], effective, ARGV[5])
+            redis.call('pexpire', KEYS[1], network_window + tolerance + 1000)
+            return 'ALLOWED|' .. effective
+            """,
+            String.class);
 
     private final ReactiveStringRedisTemplate redis;
     private final LoginDefenseResourceHasher hasher;
@@ -147,6 +167,34 @@ public final class RedisLoginDefense implements LoginDefense {
                         admissionOutcome(result)))
                 .doOnError(ignored -> record(
                         required.flow(),
+                        LoginDefenseTelemetry.Operation.RESOURCE_ADMISSION,
+                        LoginDefenseTelemetry.Outcome.UNAVAILABLE))
+                .toFuture();
+    }
+
+    @Override
+    public CompletionStage<LoginResourceAdmission> admitNetwork(
+            AuthenticationFlow flow, ControlledNetworkResource controlledNetwork) {
+        AuthenticationFlow requiredFlow = Objects.requireNonNull(flow, "flow");
+        ControlledNetworkResource requiredNetwork =
+                Objects.requireNonNull(controlledNetwork, "controlledNetwork");
+        String flowKey = requiredFlow.name().toLowerCase(Locale.ROOT);
+        String networkDigest = hasher.digest(flowKey + ":network", requiredNetwork.canonicalValue());
+        List<String> keys = List.of(keyspace.network(flowKey, networkDigest));
+        List<String> args = List.of(
+                Long.toString(clock.millis()),
+                Long.toString(TIME_REORDER_TOLERANCE_MILLIS),
+                Long.toString(policy.controlledNetworkWindow().toMillis()),
+                Integer.toString(policy.controlledNetworkAttemptLimit()),
+                UUID.randomUUID().toString());
+        return execute(NETWORK_SCRIPT, keys, args)
+                .map(this::parseNetworkAdmission)
+                .doOnSuccess(result -> record(
+                        requiredFlow,
+                        LoginDefenseTelemetry.Operation.RESOURCE_ADMISSION,
+                        networkOutcome(result)))
+                .doOnError(ignored -> record(
+                        requiredFlow,
                         LoginDefenseTelemetry.Operation.RESOURCE_ADMISSION,
                         LoginDefenseTelemetry.Outcome.UNAVAILABLE))
                 .toFuture();
@@ -229,6 +277,16 @@ public final class RedisLoginDefense implements LoginDefense {
         };
     }
 
+    LoginResourceAdmission parseNetworkAdmission(String response) {
+        String[] fields = requireResponse(response, 2);
+        requireMillis(fields[1]);
+        return switch (fields[0]) {
+            case "ALLOWED" -> LoginResourceAdmission.ALLOWED;
+            case "NETWORK" -> LoginResourceAdmission.NETWORK_RATE_LIMITED;
+            default -> throw new LoginDefenseUnavailableException();
+        };
+    }
+
     AccountLoginDefenseState parseAccountState(String response) {
         String[] fields = requireResponse(response, 4);
         long observedMillis = requireMillis(fields[1]);
@@ -293,6 +351,12 @@ public final class RedisLoginDefense implements LoginDefense {
             case NETWORK_RATE_LIMITED -> LoginDefenseTelemetry.Outcome.NETWORK_LIMITED;
             case IDENTIFIER_AND_NETWORK_RATE_LIMITED -> LoginDefenseTelemetry.Outcome.BOTH_LIMITED;
         };
+    }
+
+    private static LoginDefenseTelemetry.Outcome networkOutcome(LoginResourceAdmission result) {
+        return result == LoginResourceAdmission.ALLOWED
+                ? LoginDefenseTelemetry.Outcome.ALLOWED
+                : LoginDefenseTelemetry.Outcome.NETWORK_LIMITED;
     }
 
     private void record(

@@ -6,6 +6,9 @@ import io.crewscope.server.security.ApiSecurityResponseWriter;
 import io.crewscope.server.security.AuthenticationRequestBodyLimitWebFilter;
 import io.crewscope.server.security.SameOriginWebFilter;
 import io.crewscope.server.security.TaskTokenWebFilter;
+import io.crewscope.server.security.oidc.OidcAuthenticationFailureHandler;
+import io.crewscope.server.security.oidc.OidcAuthenticationSuccessHandler;
+import io.crewscope.server.security.oidc.OidcPkceAuthorizationRequestResolver;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -147,6 +150,9 @@ public class SecurityConfiguration {
           ReactiveAuthenticationManager authenticationManager,
       ObjectProvider<TaskTokenWebFilter> taskTokenFilter,
       ObjectProvider<WebSessionServerSecurityContextRepository> browserSecurityContexts,
+      ObjectProvider<OidcAuthenticationSuccessHandler> oidcSuccessHandler,
+      ObjectProvider<OidcAuthenticationFailureHandler> oidcFailureHandler,
+      ObjectProvider<OidcPkceAuthorizationRequestResolver> oidcAuthorizationRequestResolver,
       BrowserOrganizationAnchor organizationAnchor,
       @Value("${crewscope.security.hsts.enabled:false}") boolean hstsEnabled) {
     SecurityMode mode = organizationAnchor.mode();
@@ -262,7 +268,17 @@ public class SecurityConfiguration {
                       securityResponses.csrfRejected(exchange)))
           .securityContextRepository(browserSecurityContextRepository)
           .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
-          .oauth2Login(Customizer.withDefaults());
+          .oauth2Login(oauth2 -> {
+            // M12-I01: the OIDC profile supplies PKCE and the Session-establishing handlers.
+            // An absent provider keeps the bare framework flow, which only
+            // SecurityConfigurationTest relies on; production oidc deployments resolve the
+            // beans from OidcLoginConfiguration or fail fast. The defense start gate is a
+            // plain WebFilter registered ahead of this chain (see OidcLoginConfiguration).
+            oidcAuthorizationRequestResolver.ifAvailable(
+                oauth2::authorizationRequestResolver);
+            oidcSuccessHandler.ifAvailable(oauth2::authenticationSuccessHandler);
+            oidcFailureHandler.ifAvailable(oauth2::authenticationFailureHandler);
+          });
     }
     return http.build();
   }

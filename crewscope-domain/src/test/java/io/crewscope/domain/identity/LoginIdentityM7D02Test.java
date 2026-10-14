@@ -132,6 +132,8 @@ class LoginIdentityM7D02Test {
                 CREATED_AT);
 
         assertEquals("Subject-42", identity.subject().value());
+        // The provisioning round is itself a completed federated authentication.
+        assertEquals(Optional.of(CREATED_AT), identity.lastAuthenticatedAt());
         assertThrows(
                 DomainValidationException.class,
                 () -> LoginIdentity.external(

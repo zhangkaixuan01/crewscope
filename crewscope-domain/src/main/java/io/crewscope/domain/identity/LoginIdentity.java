@@ -61,7 +61,11 @@ public final class LoginIdentity {
                 occurredAt);
     }
 
-    /** Links a future OIDC or social subject without using mutable profile claims. */
+    /**
+     * Links a federated subject without using mutable profile claims. The provisioning round is
+     * itself a completed authentication, so unlike the local factory it stamps
+     * {@code lastAuthenticatedAt}: a federated first login is registration and sign-in at once.
+     */
     public static LoginIdentity external(
             LoginIdentityId id,
             UserAccountId accountId,
@@ -73,7 +77,15 @@ public final class LoginIdentity {
             throw new DomainValidationException(
                     "loginIdentity.provider", "local identities must use the local factory");
         }
-        return create(id, accountId, requiredProvider, subject, occurredAt);
+        return new LoginIdentity(
+                id,
+                accountId,
+                requiredProvider,
+                subject,
+                LoginIdentityStatus.ACTIVE,
+                Optional.of(occurredAt),
+                0,
+                LifecycleMetadata.createdAt(occurredAt));
     }
 
     /** Reconstitutes a committed identity while rechecking the local subject invariant. */
