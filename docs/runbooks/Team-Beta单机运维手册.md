@@ -134,6 +134,35 @@ M11-A01 起通道承载协作信号（在场/正在输入/实时变更通知，�
 
 信号面运维要点：close 4403 `authorization revoked` 表示复验层切断（成员资格失效或鉴权链故障，fail-closed 设计——`closed.revoked` 突增而无成员变更操作时优先查 PostgreSQL/鉴权链健康，客户端退避重连即恢复，属预期副作用）；变更通知帧只含坐标+版本，收到后由前端重新拉取权威读面；Redis 故障只降级在场呈现（订阅与变更通知不受影响），不产生错误形态。
 
+### 企业身份（security.mode 与 identity-policy）
+
+M12-I01 起登录入口由两个叠加维度决定：`crewscope.security.mode`（经 `.env` 的 `CREWSCOPE_SECURITY_MODE`，默认部署 `local`）选择认证通道，`crewscope.security.identity-policy`（默认 `coexist`，无独立 env 占位、经 `SPRING_APPLICATION_JSON` 或系统属性设置）决定本地密码与 SSO 能否并存。
+
+三种 mode 的配置面：
+
+| mode | 本地密码登录 | OIDC SSO | 需要的额外配置 |
+| --- | --- | --- | --- |
+| `local`（当前部署） | ✅ | ❌ | 无 |
+| `bootstrap`（兼容模式） | ❌（引导操作通道） | ❌ | `CREWSCOPE_BOOTSTRAP_PASSWORD` |
+| `oidc` | ✅（除非 sso-only） | ✅ | `CREWSCOPE_OIDC_ORGANIZATION_ID`（必填，须与既有组织一致）+ `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_COMPANY_CLIENT_ID/CLIENT_SECRET` + `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_COMPANY_ISSUER_URI`（IdP 发现端点）；PKCE S256 由产品强制，无需配置 |
+
+identity-policy 与 mode 的组合矩阵（非法组合**拒绝启动**，不降级运行）：
+
+| mode \ policy | coexist | local-only | sso-only |
+| --- | --- | --- | --- |
+| local | ✅ | ✅ | ❌ |
+| oidc | ✅ | ❌ | ✅（本地登录/注册 403 `local_login_disabled`/`local_registration_disabled`） |
+| bootstrap | ✅ | ❌ | ❌ |
+
+**sso-only 救援步骤**：sso-only 下 IdP 不可达不是故障降级场景，本地密码入口**有意**保持 403（ADR-036 红线：不静默退回本地密码，避免 IdP 故障被当成攻击面切换入口）。救援动作：
+
+1. 停机或经配置变更窗口把 `identity-policy` 临时改回 `coexist` 并 `up`，用本地密码账号登录修复 IdP 配置（issuer/client secret/网络可达）；完成后改回 `sso-only`。
+2. 修复期间已建立的 SSO 会话不受影响（establish 后不持有 IdP 令牌，会话存活只依赖自身 TTL，上限 `CREWSCOPE_SESSION_TTL`，默认 12h）。
+3. **Audit 提醒**：OIDC 首登/再认证在审计流留 `USER_ACCOUNT_REGISTERED`（source=SSO）与 `AUTHENTICATION_SUCCEEDED`（provider=oidc/{registrationId}）；但策略切换与直接 SQL 运维动作不产生域事件——救援完成后在运维记录里补登记（谁、何时、为什么放开本地入口）。审计注册表总数随 IdentityMapping 退役为 139（原 140）。
+4. 紧急切断某个 SSO 账号：`UPDATE crewscope.user_account SET status='DISABLED', security_version=security_version+1 WHERE id=...`——该账号全部会话（本地与 SSO 同构）下一请求即匿名、Redis 会话键即刻消失，无需等待 TTL。OIDC-only 账号没有本地密码，`/account/password`、`/account/sessions/revoke`、PATCH `/account`（均要求 currentPassword）对它不可用：撤销走逐会话 DELETE（`DELETE /api/v1/auth/sessions/{sessionId}`）或上面的 SQL 禁用。
+
+**升级注记（存量会话兼容）**：M12-I01 给会话主体（`BrowserSessionPrincipal`）新增 `identityProvider` 字段。升级部署**无迁移**：旧 Redis 会话缺该字段反序列化为 null 后归一为 `local`，按 local 身份复检继续通过，不强制重新登录。跨版本回退同理（新字段被旧代码忽略）。
+
 演练与基线复跑：`scripts/m11-i01c-real-stack-gate.sh` 会起一套隔离的验证栈（不碰本部署），跑真实浏览器 e2e、200 连接风暴/稳态/重连/慢客户端（1013）与订阅泄漏断言；基线数字与解释见 `docs/testing/M11-I01c-实时通道部署与降级e2e.md`。慢客户端演练需要把 `CREWSCOPE_COLLABORATION_REALTIME_HEARTBEAT_INTERVAL` 压到 `1s` 加速观察，演练完改回 `15s`。
 
 ## 状态、日志与停止

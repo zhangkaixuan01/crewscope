@@ -1,11 +1,11 @@
 # M12 企业身份与会话 API 契约
 
-> 模块：M12-I01（OIDC 接入与企业身份）　状态：C1 已交付（2026-10-14）；C2 OIDC 核心流已交付（2026-10-15，§6）；C3 攻击集与收口后续切片<br>
+> 模块：M12-I01（OIDC 接入与企业身份）　状态：C1 已交付（2026-10-14）；C2 OIDC 核心流已交付（2026-10-15，§6）；C3 协议攻击集、撤销延迟钉死与文档收口已交付（2026-10-15，§6.5/§7/§9）<br>
 > 依据：[ADR-036](../adr/ADR-036-企业身份与OIDC接入.md)、[S01 冻结记录](../spikes/M12-S01-现状盘点与合同冻结.md)、[主计划](../plans/M12-企业化与多租户治理.md) §6 I01
 
 ## 0. 本轮边界与偏差声明（先读）
 
-C1 交付**与 provider 无关的底座**（会话主体带 `identityProvider`、会话枚举/单设备撤销 API、身份策略维度、组织锚点单源、`/auth/session` 响应面扩展）；C2 交付 **OIDC 授权码流本体**（§6：PKCE、首登开通/再认证、防护衔接、内嵌测试 IdP）。**协议攻击集、撤销延迟钉死与 runbook 归 C3**。
+C1 交付**与 provider 无关的底座**（会话主体带 `identityProvider`、会话枚举/单设备撤销 API、身份策略维度、组织锚点单源、`/auth/session` 响应面扩展）；C2 交付 **OIDC 授权码流本体**（§6：PKCE、首登开通/再认证、防护衔接、内嵌测试 IdP）；C3 交付**协议攻击集、撤销延迟钉死与收口**（§6.5 攻击矩阵、§7 测试证据、§9 错误码总表、runbook 企业身份章节）。
 
 ### 偏差声明（相对 S01 冻结卡与主计划）
 
@@ -115,17 +115,53 @@ C1 交付**与 provider 无关的底座**（会话主体带 `identityProvider`�
 - **已知账号**：再认证先 `observeAccount`——锁定→`recordFailure`+拒绝建立会话；成功路径 establish 后 `recordSuccess` 清算账号失败窗口。
 - **首登**：新账号无失败历史，仅消耗网络窗口。
 
+### 6.5 协议攻击集（C3 交付，`OidcProtocolAttackM12I01IntegrationTest` 九行矩阵）
+
+每行经真实三跳（或直连 IdP——攻击信号从未到达 CrewScope 时）注入敌意信号，统一断言**拒绝 + 无会话 + 无账号副作用**：
+
+| # | 攻击行 | 注入点 | 结论 |
+| --- | --- | --- | --- |
+| 1 | ID token 用非 JWKS 发布的密钥签名 | IdP 旋钮 `WRONG_KEY` | 验签失败 → `sso_error=denied`，无副作用 |
+| 2 | `alg=none` 无签名 token | IdP 旋钮 `ALG_NONE` | 框架仅接受 RS256 → `denied` |
+| 3 | `iss` claim 换成攻击者 issuer | IdP 旋钮 `tamperIssuer` | issuer 校验拒绝 → `denied` |
+| 4 | `aud` claim 指向其他 RP | IdP 旋钮 `tamperAudience` | audience 校验拒绝 → `denied` |
+| 5 | `nonce` 与授权请求不一致 | IdP 旋钮 `tamperNonce` | nonce 校验拒绝 → `denied` |
+| 6 | callback 的 `state` 被改写 | 篡改 consent Location | 存档授权请求不匹配 → `denied`（token 交换前拒绝） |
+| 7 | 授权码重放（同一 callback URL 二次访问 + IdP 二次兑换） | 浏览器重放 + 直连 `/token` | 端到端重放 `denied` 且原合法会话不受扰；IdP 侧单次使用，二次兑换 `invalid_grant` |
+| 8 | `redirect_uri` 篡改（攻击者回调路径 + 兑换时调包） | 直连 IdP authorize/token | authorize 400 `invalid_request` **且无重定向**（无开放重定向）；兑换时调包 `invalid_grant` |
+| 9 | PKCE verifier 错误 / 无 challenge 的流 | 直连 IdP（自建 challenge） | 产品 start 真携带 `code_challenge`+`method=S256`；错 verifier 与无 challenge 的兑换均 `invalid_grant` |
+
+全部拒绝路径的异常文本留在服务端，浏览器只见固定 `sso_error=denied`。
+
 ## 7. 撤销延迟（诚实上限，C3 测试钉死）
 
-- **账号级禁用/密码轮换/全量撤销**：即时——既有 `securityVersion` 复检（下一请求即匿名）+ `invalidateAll`（Redis 会话键即刻消失）。
-- **IdP 侧令牌失效**：上限=会话 TTL（12h）。CrewScope 在 establish 后**不持有、不刷新** IdP 令牌，故无法提前感知 IdP 侧撤销；此为架构性上限而非实现延迟，不承诺「下次令牌刷新」。
+- **账号级禁用/密码轮换/全量撤销**：即时——既有 `securityVersion` 复检（下一请求即匿名）+ `invalidateAll`（Redis 会话键即刻消失）。`OidcRevocationDelayM12I01IntegrationTest` 钉死：合规 UPDATE（`status='DISABLED'`+`security_version+1`）后，既有 OIDC 会话的**下一请求**即匿名且 Redis 键消失（双设备都断，设备列表回到 401 守卫）。
+- **IdP 侧令牌失效**：上限=会话 TTL（12h，`CREWSCOPE_SESSION_TTL`，测试断言部署值与 Redis 会话携带的 `maxInactiveInterval` 同为 12h）。CrewScope 在 establish 后**不持有、不刷新** IdP 令牌，故无法提前感知 IdP 侧撤销；此为架构性上限而非实现延迟，不承诺「下次令牌刷新」。
+- 审计事实：本模块退役 `IdentityMappingService`/`USER_IDENTITY_MAPPED` 后审计注册表 140→139（M6E06/M7D06 计数门禁同步）。
 
 ## 8. 已知限制（声明不改）
 
-1. **OIDC-only 账号不可用 `/account/sessions/revoke`、`/account/password`、PATCH `/account`**（均要求 `currentPassword`，M7 冻结契约）——账号级撤销=逐会话 DELETE（本片新增）或运维救援（C3 runbook）。
+1. **OIDC-only 账号不可用 `/account/sessions/revoke`、`/account/password`、PATCH `/account`**（均要求 `currentPassword`，M7 冻结契约）——账号级撤销=逐会话 DELETE（本片新增）或运维救援（runbook「企业身份」章节）。
 2. **INVITE_ONLY 部署无 SSO 账号预置通道**（C2 细化：首登仅 OPEN 放行）——本地注册+OIDC 首登会建两个账号，是「禁止邮箱相同自动合并」红线的直接推论。
 3. `ssoAuthorizationUrl` 目前仅指向**首个** registration（多 IdP 部署入口选择归后续里程碑）。
+4. **框架二次 convert 的 `authorization_request_not_found` 日志噪音**：成功 callback 后框架对已消费授权请求的第二次转换在服务端日志留一条 not_found（失败处理器已做 `isCommitted` 防御，不影响浏览器收到的首个 302）。属 Spring Security oauth2Login 已知交互形态，不入错误码面。
+5. GET `/api/v1/auth/session` 的 CSRF lazy cookie 在响应 commit 后的二次写入会在服务端日志留 IllegalStateException 痕迹（客户端无感，响应已正确送达；观测层给该 200 记 errorCode=internal_error）。C1 遗留，后续切片处理。
 
-## 9. OpenAPI
+## 9. 错误码总表（本模块全量）
 
-操作基线 303→305（GET/DELETE sessions）；`crewscope-web/src/api/generated/openapi.ts` 与 state-machines 指纹随本片同笔再生成。前端消费归 M12-F03。
+**浏览器 302 `Location` 的 `sso_error` 枚举**（§6.3）：`denied` / `locked` / `registration_blocked` / `unavailable`。
+
+**API JSON 错误码**：
+
+| 端点 | 状态码 / `code` | 触发条件 |
+| --- | --- | --- |
+| POST `/api/v1/auth/login` | 403 `local_login_disabled` | `sso-only` 部署的本地登录（先于防护准入） |
+| POST `/api/v1/auth/register` | 403 `local_registration_disabled` | `sso-only` 部署的本地注册（同上） |
+| GET `/oauth2/authorization/*` | 429 `too_many_requests` | OIDC 网络窗口耗尽（start gate） |
+| GET `/oauth2/authorization/*` | 503 `login_defense_unavailable` | 防护存储不可达（fail-closed） |
+| GET `/api/v1/auth/sessions` | 401 / 503 | 未认证 / 基础设施故障 |
+| DELETE `/api/v1/auth/sessions/{id}` | 401（缺 CSRF 令牌时 403）/ 404 `session_not_found`（含他属）/ 503 | 同左 |
+
+## 10. OpenAPI
+
+操作基线 303→305（GET/DELETE sessions，C1 定稿）；C2/C3 无 controller 路径变更，基线不动。`crewscope-web/src/api/generated/openapi.ts` 与 state-machines 指纹随 C1 同笔再生成。前端消费归 M12-F03。
