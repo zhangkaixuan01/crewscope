@@ -155,6 +155,16 @@
       "file": "pages/OrganizationSettingsPage.vue",
       "expression": "Boolean(savingReason) || command.phase === 'pending'",
       "reason": "审计保留策略的保存按钮由表单自身校验决定：savingReason 同时是紧邻提交按钮、aria-live=polite 的原因段落（期限至少 30 天、正在读取、正在保存），禁用原因已在表单内承载，控件不表达权限或额外业务前置条件。"
+    },
+    {
+      "file": "components/account/AccountWorkspace.vue",
+      "expression": "!online || deletingSessionId !== null",
+      "reason": "会话行撤销按钮：deletingSessionId 是单飞 DELETE 的互斥锁（另一行的撤销在途时禁用其余行），属于瞬态提交防护而非本行业务前置条件——正在删除的那一行由自身 :loading 表达状态，离线态由全局网络横幅承载。"
+    },
+    {
+      "file": "components/account/AccountWorkspace.vue",
+      "expression": "deletingSessionId !== null",
+      "reason": "退出本设备确认对话框的取消按钮：删除请求在途时禁用取消，防止确认框在 DELETE 完成与登出路由之间被拆除；同对话框的确认按钮此时 :loading 已表达进行中。"
     }
   ]
 }
