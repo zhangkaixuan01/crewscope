@@ -27,7 +27,8 @@ public interface OperationalTelemetry {
         PROVIDER,
         AGENT,
         OPERATIONS,
-        KNOWLEDGE_INDEX
+        KNOWLEDGE_INDEX,
+        KNOWLEDGE_RETRIEVAL
     }
 
     enum Operation {
@@ -191,6 +192,11 @@ public interface OperationalTelemetry {
             return basic(Type.KNOWLEDGE_INDEX, Operation.RECONCILE, WorkerRole.WORKER);
         }
 
+        /** One unified knowledge retrieval: the embedding chain plus both vector searches. */
+        public static Request knowledgeRetrieval() {
+            return basic(Type.KNOWLEDGE_RETRIEVAL, Operation.QUERY, WorkerRole.API);
+        }
+
         private static Request basic(Type type, Operation operation, WorkerRole workerRole) {
             return new Request(
                     type,
@@ -232,6 +238,7 @@ public interface OperationalTelemetry {
                 case AGENT -> operation == Operation.SUMMARIZE;
                 case OPERATIONS -> false;
                 case KNOWLEDGE_INDEX -> operation == Operation.RECONCILE;
+                case KNOWLEDGE_RETRIEVAL -> operation == Operation.QUERY;
             };
             if (!allowed) {
                 throw new IllegalArgumentException("operation does not match telemetry type");

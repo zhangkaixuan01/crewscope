@@ -14,6 +14,7 @@ import io.crewscope.application.knowledge.KnowledgeEntryPageRequest;
 import io.crewscope.application.knowledge.KnowledgeEntryVersionPage;
 import io.crewscope.application.knowledge.KnowledgeRepository;
 import io.crewscope.application.knowledge.KnowledgeVersionPageRequest;
+import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -368,6 +369,56 @@ final class KnowledgeRetrievalServiceTest {
         assertTrue(result.candidates().isEmpty());
         assertTrue(result.degradations().isEmpty(),
                 "a genuinely empty search is not a degradation");
+    }
+
+    // ------------------------------------------------------------------ telemetry
+
+    @Test
+    void telemetryObservesEveryRetrievalPathWithItsOutcome() {
+        List<OperationalTelemetry.Request> started = new ArrayList<>();
+        List<String> completions = new ArrayList<>();
+        OperationalTelemetry recording = request -> {
+            started.add(request);
+            return (outcome, errorCode) ->
+                    completions.add(outcome.name() + ":" + errorCode.name());
+        };
+        KnowledgeRetrievalService observed = new KnowledgeRetrievalService(
+                embeddings, generations, knowledgeVectors, chunkVectors,
+                knowledge, bindings, store, store, ChunkingPolicy.defaults(),
+                true, recording);
+
+        // A successful search completes with SUCCESS/NONE.
+        knowledgeVectors.hits = List.of(hit(entrySeed(1, 1, "Runbook", "step one"), 0.9));
+        KnowledgeRetrievalResult result = observed.retrieve(
+                access(), organizationId, teamId, knowledgeOnly("runbook"));
+        assertEquals(1, result.candidates().size());
+        assertEquals("SUCCESS:NONE", completions.get(completions.size() - 1));
+
+        // The closed switch still counts — off must stay distinguishable from slow.
+        KnowledgeRetrievalService closed = new KnowledgeRetrievalService(
+                embeddings, generations, knowledgeVectors, chunkVectors,
+                knowledge, bindings, store, store, ChunkingPolicy.defaults(),
+                false, recording);
+        closed.retrieve(access(), organizationId, teamId, knowledgeOnly("anything"));
+        assertEquals("DEGRADED:UNAVAILABLE", completions.get(completions.size() - 1));
+
+        // A merely narrowed search (no active generation) degrades without an error code.
+        generations.snapshot = Optional.empty();
+        observed.retrieve(access(), organizationId, teamId, bothSources(8));
+        assertEquals("DEGRADED:NONE", completions.get(completions.size() - 1));
+
+        // Guard rejections propagate to the caller and complete rejected.
+        generations.snapshot = Optional.of(new GenerationSnapshot(
+                new RepositoryGenerationKey(indexKey(), 7L),
+                AuditMetadata.createdBy(actor.id(), NOW)));
+        store.members = List.of();
+        assertThrows(PolicyDeniedException.class, () -> observed.retrieve(
+                access(), organizationId, teamId, knowledgeOnly("anything")));
+        assertEquals("REJECTED:PERMISSION", completions.get(completions.size() - 1));
+
+        assertEquals(
+                List.of(OperationalTelemetry.Type.KNOWLEDGE_RETRIEVAL),
+                started.stream().map(OperationalTelemetry.Request::type).distinct().toList());
     }
 
     // ------------------------------------------------------------------ fixtures

@@ -3,6 +3,7 @@ package io.crewscope.server.config.application;
 import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.embedding.TeamEmbeddingService;
 import io.crewscope.application.knowledge.KnowledgeRepository;
+import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.retrieval.GenerationCatalog;
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
 import io.crewscope.application.retrieval.KnowledgeRetrievalService;
@@ -40,7 +41,8 @@ public class KnowledgeRetrievalConfiguration {
             RepositoryBindingRepository bindings,
             TeamRepository teams,
             TeamMembershipQuery memberships,
-            @Value("${crewscope.knowledge.retrieval.enabled:false}") boolean retrievalEnabled) {
+            @Value("${crewscope.knowledge.retrieval.enabled:false}") boolean retrievalEnabled,
+            OperationalTelemetry telemetry) {
         return new KnowledgeRetrievalService(
                 embeddings,
                 generations,
@@ -51,7 +53,8 @@ public class KnowledgeRetrievalConfiguration {
                 teams,
                 memberships,
                 ChunkingPolicy.defaults(),
-                retrievalEnabled);
+                retrievalEnabled,
+                telemetry);
     }
 
     @Bean

@@ -17,6 +17,8 @@ public final class AgentCallObservabilityMetrics {
     public static final String RETRIES = "crewscope.agent.model.retries";
     public static final String FALLBACKS = "crewscope.agent.model.fallbacks";
     public static final String ERRORS = "crewscope.agent.model.errors";
+    public static final String FIRST_TOKEN = "crewscope.agent.model.first.token";
+    public static final String APP_OVERHEAD = "crewscope.agent.model.app.overhead";
 
     private final MeterRegistry registry;
 
@@ -34,6 +36,25 @@ public final class AgentCallObservabilityMetrics {
         }
         if (required.event() == AgentCallObservationEvent.FALLBACK_SELECTED) {
             Counter.builder(FALLBACKS).register(registry).increment();
+            return;
+        }
+        // The two M12-I03 latency probes are non-terminal: they must record before the
+        // terminal-only gate below, or they would never appear. Both keep a histogram so a
+        // process-lifetime P95 exists without any external collector.
+        if (required.event() == AgentCallObservationEvent.FIRST_CHUNK) {
+            Timer.builder(FIRST_TOKEN)
+                    .description("Model call initiation to first response event")
+                    .publishPercentileHistogram(true)
+                    .register(registry)
+                    .record(Duration.ofMillis(required.latencyMillis()));
+            return;
+        }
+        if (required.event() == AgentCallObservationEvent.APPLICATION_OVERHEAD) {
+            Timer.builder(APP_OVERHEAD)
+                    .description("Invocation acceptance to first model call initiation")
+                    .publishPercentileHistogram(true)
+                    .register(registry)
+                    .record(Duration.ofMillis(required.latencyMillis()));
             return;
         }
         if (!isTerminal(required.event())) {

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import io.crewscope.application.coding.RepositoryBindingRepository;
 import io.crewscope.application.embedding.TeamEmbeddingService;
 import io.crewscope.application.knowledge.KnowledgeRepository;
+import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.retrieval.GenerationCatalog;
 import io.crewscope.application.retrieval.KnowledgeEmbeddingVectorStore;
 import io.crewscope.application.retrieval.KnowledgeRetrievalService;
@@ -33,7 +34,8 @@ class KnowledgeRetrievalConfigurationTest {
             .withBean(RepositoryBindingRepository.class,
                     () -> mock(RepositoryBindingRepository.class))
             .withBean(TeamRepository.class, () -> mock(TeamRepository.class))
-            .withBean(TeamMembershipQuery.class, () -> mock(TeamMembershipQuery.class));
+            .withBean(TeamMembershipQuery.class, () -> mock(TeamMembershipQuery.class))
+            .withBean(OperationalTelemetry.class, OperationalTelemetry::noop);
 
     @Test
     void theServiceAssemblesBehindNoSwitchAndDegradesInternally() {

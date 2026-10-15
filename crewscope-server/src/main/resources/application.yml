@@ -94,6 +94,18 @@ management:
       show-details: never
       probes:
         enabled: true
+  metrics:
+    distribution:
+      # M12-I03 SLI fact sources: per-meter histogram buckets so a process-lifetime P95
+      # exists in-process (bucket merge) and a 28-day P95 stays reachable through an
+      # external Prometheus histogram_quantile. The map values are plain booleans (no
+      # enabled sub-key); client-side percentiles are deliberately off (they cannot merge
+      # across series). The two agent first-token timers enable their histogram in code.
+      percentiles-histogram:
+        "[crewscope.api.requests]": true
+        "[crewscope.m6.outbox.duration]": true
+        "[crewscope.m6.projection.duration]": true
+        "[crewscope.m10.knowledge.retrieval.duration]": true
   tracing:
     sampling:
       probability: ${CREWSCOPE_TRACE_SAMPLING_PROBABILITY:1.0}

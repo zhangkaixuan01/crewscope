@@ -5,6 +5,7 @@ import io.crewscope.application.embedding.EmbeddingBatchResult;
 import io.crewscope.application.embedding.EmbeddingDeliveryException;
 import io.crewscope.application.embedding.TeamEmbeddingCommand;
 import io.crewscope.application.knowledge.KnowledgeRepository;
+import io.crewscope.application.observability.OperationalTelemetry;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -62,6 +63,7 @@ public final class KnowledgeRetrievalService {
     private final TeamMembershipQuery memberships;
     private final ChunkingPolicy policy;
     private final boolean retrievalEnabled;
+    private final OperationalTelemetry telemetry;
 
     public KnowledgeRetrievalService(
             KnowledgeEmbeddingExecutor embeddings,
@@ -74,6 +76,23 @@ public final class KnowledgeRetrievalService {
             TeamMembershipQuery memberships,
             ChunkingPolicy policy,
             boolean retrievalEnabled) {
+        this(embeddings, generations, knowledgeVectors, chunkVectors, knowledge, bindings,
+                teams, memberships, policy, retrievalEnabled, OperationalTelemetry.noop());
+    }
+
+    /** Full construction with the retrieval-latency telemetry sink (M12-I03). */
+    public KnowledgeRetrievalService(
+            KnowledgeEmbeddingExecutor embeddings,
+            GenerationCatalog generations,
+            KnowledgeEmbeddingVectorStore knowledgeVectors,
+            RepositoryChunkVectorStore chunkVectors,
+            KnowledgeRepository knowledge,
+            RepositoryBindingRepository bindings,
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            ChunkingPolicy policy,
+            boolean retrievalEnabled,
+            OperationalTelemetry telemetry) {
         this.embeddings = Objects.requireNonNull(embeddings, "embeddings");
         this.generations = Objects.requireNonNull(generations, "generations");
         // The two vector stores are deliberately nullable: on a vector-less deployment
@@ -86,14 +105,65 @@ public final class KnowledgeRetrievalService {
         this.memberships = Objects.requireNonNull(memberships, "memberships");
         this.policy = Objects.requireNonNull(policy, "policy");
         this.retrievalEnabled = retrievalEnabled;
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
     /**
-     * Runs one unified retrieval. Reads guard at Team-member level (the KnowledgeCommandService
-     * guard shape); a repository target is validated against the four-coordinate binding
-     * lookup before anything is searched, so one Team never reads another Team's mirror.
+     * Runs one unified retrieval under the retrieval-latency observation (M12-I03): every
+     * path is timed — guards that throw, the closed switch that degrades, and the full
+     * search — because "the feature is off" and "the search is slow" must stay distinct.
+     * Reads guard at Team-member level (the KnowledgeCommandService guard shape); a
+     * repository target is validated against the four-coordinate binding lookup before
+     * anything is searched, so one Team never reads another Team's mirror.
      */
     public KnowledgeRetrievalResult retrieve(
+            TeamAccessContext context,
+            OrganizationId organizationId,
+            TeamId teamId,
+            KnowledgeRetrievalQuery query) {
+        OperationalTelemetry.Observation observation =
+                telemetry.start(OperationalTelemetry.Request.knowledgeRetrieval());
+        try {
+            KnowledgeRetrievalResult result =
+                    retrieveObserved(context, organizationId, teamId, query);
+            observation.complete(outcome(result.degradations()), errorCode(result.degradations()));
+            return result;
+        } catch (PolicyDeniedException failure) {
+            observation.complete(OperationalTelemetry.Outcome.REJECTED,
+                    OperationalTelemetry.ErrorCode.PERMISSION);
+            throw failure;
+        } catch (DomainValidationException failure) {
+            observation.complete(OperationalTelemetry.Outcome.REJECTED,
+                    OperationalTelemetry.ErrorCode.INVALID_INPUT);
+            throw failure;
+        } catch (AggregateNotFoundException failure) {
+            observation.complete(OperationalTelemetry.Outcome.REJECTED,
+                    OperationalTelemetry.ErrorCode.NONE);
+            throw failure;
+        } catch (RuntimeException failure) {
+            observation.complete(OperationalTelemetry.Outcome.FAILURE,
+                    OperationalTelemetry.ErrorCode.INTERNAL);
+            throw failure;
+        }
+    }
+
+    private static OperationalTelemetry.Outcome outcome(List<DegradationReasonCode> degradations) {
+        return degradations.isEmpty()
+                ? OperationalTelemetry.Outcome.SUCCESS
+                : OperationalTelemetry.Outcome.DEGRADED;
+    }
+
+    private static OperationalTelemetry.ErrorCode errorCode(
+            List<DegradationReasonCode> degradations) {
+        // A skipped capability answers unavailable; a merely narrowed search (for example
+        // no active repository generation) is still a completed observation.
+        return degradations.contains(DegradationReasonCode.RETRIEVAL_DISABLED)
+                        || degradations.contains(DegradationReasonCode.EMBEDDING_PROVIDER_UNAVAILABLE)
+                ? OperationalTelemetry.ErrorCode.UNAVAILABLE
+                : OperationalTelemetry.ErrorCode.NONE;
+    }
+
+    private KnowledgeRetrievalResult retrieveObserved(
             TeamAccessContext context,
             OrganizationId organizationId,
             TeamId teamId,

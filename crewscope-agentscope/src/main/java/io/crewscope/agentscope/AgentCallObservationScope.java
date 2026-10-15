@@ -23,7 +23,9 @@ final class AgentCallObservationScope {
     private final Clock clock;
     private final Instant startedAt;
     private final AtomicInteger retryCount = new AtomicInteger();
+    private final AtomicInteger maxAttemptsStored = new AtomicInteger(1);
     private final AtomicBoolean fallbackUsed = new AtomicBoolean();
+    private final AtomicBoolean firstChunkRecorded = new AtomicBoolean();
     private final AtomicReference<AgentModelRole> activeModelRole =
             new AtomicReference<>(AgentModelRole.LOGICAL);
 
@@ -50,8 +52,34 @@ final class AgentCallObservationScope {
     }
 
     void started(String modelName, int maxAttempts) {
+        maxAttemptsStored.set(Math.max(1, maxAttempts));
         emit(AgentCallObservationEvent.STARTED, modelName, AgentModelRole.LOGICAL,
                 0, maxAttempts, AgentCallTokenUsage.none(), Optional.empty());
+    }
+
+    /**
+     * First response event of this model call (M12-I03 model-side first token). The scope's
+     * {@code startedAt} is the model-call initiation, so the record's latency is exactly
+     * "initiation to first byte"; the one-shot guard keeps a single record when a retried
+     * attempt re-emits or the stream emits many chunks.
+     */
+    void firstChunk(String modelName) {
+        if (firstChunkRecorded.compareAndSet(false, true)) {
+            emit(AgentCallObservationEvent.FIRST_CHUNK, modelName, activeModelRole.get(),
+                    retryCount.get() + 1, maxAttemptsStored.get(),
+                    AgentCallTokenUsage.none(), Optional.empty());
+        }
+    }
+
+    /**
+     * Invocation acceptance to this first model-call initiation (M12-I03 application
+     * overhead); the middleware computed the latency against its own clock and passes it
+     * explicitly because this scope's {@code startedAt} anchors a different interval.
+     */
+    void applicationOverhead(String modelName, long overheadMillis) {
+        emitWithLatency(AgentCallObservationEvent.APPLICATION_OVERHEAD, modelName,
+                AgentModelRole.LOGICAL, 0, 1, AgentCallTokenUsage.none(), Optional.empty(),
+                Math.max(0L, overheadMillis));
     }
 
     void retrying(String modelName, AgentModelRole role, int nextAttempt, int maxAttempts) {
@@ -90,7 +118,20 @@ final class AgentCallObservationScope {
             AgentCallTokenUsage usage,
             Optional<String> safeErrorCode) {
         Instant now = clock.instant();
-        long latencyMillis = Math.max(0L, Duration.between(startedAt, now).toMillis());
+        emitWithLatency(event, modelName, role, attempt, maxAttempts, usage, safeErrorCode,
+                Math.max(0L, Duration.between(startedAt, now).toMillis()));
+    }
+
+    private void emitWithLatency(
+            AgentCallObservationEvent event,
+            String modelName,
+            AgentModelRole role,
+            int attempt,
+            int maxAttempts,
+            AgentCallTokenUsage usage,
+            Optional<String> safeErrorCode,
+            long latencyMillis) {
+        Instant now = clock.instant();
         try {
             sink.record(AgentCallObservationRecord.from(
                     now,

@@ -125,6 +125,12 @@ public final class ObservableAgentScopeModel implements Model {
                     });
             attempts = attempts.retryWhen(retry);
         }
+        if (invocationScope != null) {
+            // Outside retryWhen: the first response event of the first successful attempt
+            // anchors the model-side first-token SLI, and the scope's one-shot guard keeps
+            // exactly one record across retried subscriptions and multi-chunk streams.
+            attempts = attempts.doOnNext(ignored -> invocationScope.firstChunk(getModelName()));
+        }
         return attempts.onErrorMap(failure -> {
             Throwable cause = AgentCallFailureClassifier.unwrap(failure);
             // Defect 20 observation (M9b-Q02): a reviewer call failed in ~49ms with no model

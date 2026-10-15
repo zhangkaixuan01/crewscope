@@ -64,6 +64,14 @@ class TeamBetaOperationalTelemetryM6I08Test {
             assertEquals(1, registry.get(TeamBetaOperationalTelemetry.OPERATIONS_HEALTH)
                     .tags("type", "projection", "status", "degraded")
                     .gauge().value());
+            // M12-I03: both knowledge timers must carry the outcome tag — the index timer
+            // previously fell through the recordMetric switch and recorded bare.
+            assertEquals(1, registry.get(TeamBetaOperationalTelemetry.KNOWLEDGE_INDEX_DURATION)
+                    .tag("outcome", "success")
+                    .timer().count());
+            assertEquals(1, registry.get(TeamBetaOperationalTelemetry.KNOWLEDGE_RETRIEVAL_DURATION)
+                    .tag("outcome", "success")
+                    .timer().count());
 
             for (Meter meter : registry.getMeters()) {
                 if (!meter.getId().getName().startsWith(TeamBetaMetricPolicy.PREFIX)) {
@@ -135,6 +143,49 @@ class TeamBetaOperationalTelemetryM6I08Test {
                     .health()
                     .getDetails()
                     .get("dropped"));
+        } finally {
+            registry.close();
+        }
+    }
+
+    @Test
+    void everyNonOperationsTelemetryTypeRecordsAnOutcomeTaggedTimer() {
+        // Guards the recordMetric switch against missing cases: a Type without a case
+        // records a bare timer with no outcome tag and silently escapes every assertion.
+        Map<OperationalTelemetry.Type, String> metricNames = Map.of(
+                OperationalTelemetry.Type.OUTBOX, TeamBetaOperationalTelemetry.OUTBOX_DURATION,
+                OperationalTelemetry.Type.PROJECTION,
+                        TeamBetaOperationalTelemetry.PROJECTION_DURATION,
+                OperationalTelemetry.Type.SSE, TeamBetaOperationalTelemetry.SSE_DURATION,
+                OperationalTelemetry.Type.INBOX, TeamBetaOperationalTelemetry.INBOX_DURATION,
+                OperationalTelemetry.Type.NOTIFICATION,
+                        TeamBetaOperationalTelemetry.NOTIFICATION_DURATION,
+                OperationalTelemetry.Type.PROVIDER, TeamBetaOperationalTelemetry.PROVIDER_DURATION,
+                OperationalTelemetry.Type.AGENT, TeamBetaOperationalTelemetry.TEAM_OBSERVER_DURATION,
+                OperationalTelemetry.Type.KNOWLEDGE_INDEX,
+                        TeamBetaOperationalTelemetry.KNOWLEDGE_INDEX_DURATION,
+                OperationalTelemetry.Type.KNOWLEDGE_RETRIEVAL,
+                        TeamBetaOperationalTelemetry.KNOWLEDGE_RETRIEVAL_DURATION);
+        assertEquals(
+                OperationalTelemetry.Type.values().length - 1, metricNames.size());
+
+        TeamBetaMetricPolicy policy = new TeamBetaMetricPolicy();
+        SimpleMeterRegistry registry = registry(policy);
+        try {
+            TeamBetaOperationalTelemetry telemetry = new TeamBetaOperationalTelemetry(
+                    registry, Tracer.NOOP, new TelemetryDegradationState());
+            observations().forEach(request -> telemetry.start(request).succeed());
+
+            metricNames.forEach((type, metricName) -> {
+                java.util.Collection<Timer> timers = registry.find(metricName).timers();
+                assertFalse(timers.isEmpty(), metricName + " recorded no timer");
+                for (Timer timer : timers) {
+                    assertTrue(
+                            timer.getId().getTags().stream()
+                                    .anyMatch(tag -> tag.getKey().equals("outcome")),
+                            metricName + " timer lacks the outcome tag");
+                }
+            });
         } finally {
             registry.close();
         }
@@ -217,7 +268,9 @@ class TeamBetaOperationalTelemetryM6I08Test {
                         OperationalTelemetry.Operation.REDELIVER),
                 OperationalTelemetry.Request.lark(OperationalTelemetry.Operation.QUERY),
                 OperationalTelemetry.Request.lark(OperationalTelemetry.Operation.DISPATCH),
-                OperationalTelemetry.Request.teamObserver());
+                OperationalTelemetry.Request.teamObserver(),
+                OperationalTelemetry.Request.knowledgeIndex(),
+                OperationalTelemetry.Request.knowledgeRetrieval());
     }
 
     private static OperationsMemberHealthSummary healthSummary() {

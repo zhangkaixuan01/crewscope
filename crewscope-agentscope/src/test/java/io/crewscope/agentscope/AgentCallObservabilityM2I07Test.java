@@ -20,6 +20,7 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ModelException;
 import io.agentscope.core.model.ToolSchema;
 import io.agentscope.core.model.transport.HttpTransportException;
+import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.ModelCallInput;
 import io.crewscope.application.execution.PlatformExecutionContext;
 import io.crewscope.application.execution.RuntimeInvocationId;
@@ -218,6 +219,106 @@ class AgentCallObservabilityM2I07Test {
                         && value.modelRole() == TaskExecutionEventPayload.ModelRole.FALLBACK));
     }
 
+    @Test
+    void recordsFirstChunkOnceAcrossMultiChunkStreamsAndRetries() {
+        Fixture fixture = Fixture.create();
+        List<AgentCallObservationRecord> records = new ArrayList<>();
+        AtomicInteger subscriptions = new AtomicInteger();
+        Model flaky = model("primary-model", () -> subscriptions.getAndIncrement() == 0
+                ? Flux.error(providerFailure(429))
+                // The successful attempt streams two chunks; only the first may record.
+                : Flux.just(response(4, 1, 0), response(4, 1, 0)));
+        Model observed = new ObservableAgentScopeModel(flaky, AgentModelRole.PRIMARY);
+
+        invoke(fixture, records, observed, options(2)).blockLast();
+
+        assertEquals(2, subscriptions.get());
+        List<AgentCallObservationRecord> firstChunks = records.stream()
+                .filter(record -> record.event() == AgentCallObservationEvent.FIRST_CHUNK)
+                .toList();
+        assertEquals(1, firstChunks.size());
+        assertEquals("primary-model", firstChunks.get(0).modelName());
+        assertEquals(AgentModelRole.PRIMARY, firstChunks.get(0).modelRole());
+        // The first attempt dies before any chunk; the first byte belongs to attempt 2.
+        assertEquals(2, firstChunks.get(0).attempt());
+        assertEquals(2, firstChunks.get(0).maxAttempts());
+    }
+
+    @Test
+    void recordsApplicationOverheadOnceAndFirstChunkLatencyFromScopeStart() {
+        Fixture fixture = Fixture.create();
+        List<AgentCallObservationRecord> records = new ArrayList<>();
+        MutableClock clock = new MutableClock(Instant.parse("2026-10-15T08:00:00Z"));
+        PlatformAuditMiddleware middleware = new PlatformAuditMiddleware(
+                ignored -> {}, records::add, () -> TRACE, clock);
+        Model first = new ObservableAgentScopeModel(
+                new SequenceModel("primary-model", Flux.just(response(3, 1, 0))),
+                AgentModelRole.PRIMARY);
+        Model second = new ObservableAgentScopeModel(
+                new SequenceModel("primary-model", Flux.just(response(3, 1, 0))),
+                AgentModelRole.PRIMARY);
+
+        // Acceptance happens at t0; the model call assembles 5s later (application
+        // overhead), and its stream emits the first chunk 2s after that.
+        middleware
+                .onAgent(
+                        null,
+                        fixture.runtimeContext,
+                        new AgentInput(List.of()),
+                        ignored -> {
+                            clock.advance(Duration.ofSeconds(5));
+                            return Flux.concat(
+                                    middleware.onModelCall(
+                                            null,
+                                            fixture.runtimeContext,
+                                            new ModelCallInput(List.of(), List.of(), options(1), first),
+                                            current -> streamEvents(clock, current)),
+                                    // A second model call inside the same invocation must
+                                    // not re-record the overhead (one-shot guard).
+                                    middleware.onModelCall(
+                                            null,
+                                            fixture.runtimeContext,
+                                            new ModelCallInput(List.of(), List.of(), options(1), second),
+                                            current -> streamEvents(clock, current)));
+                        })
+                .blockLast();
+
+        List<AgentCallObservationRecord> overheads = records.stream()
+                .filter(record -> record.event() == AgentCallObservationEvent.APPLICATION_OVERHEAD)
+                .toList();
+        assertEquals(1, overheads.size());
+        assertEquals(5000, overheads.get(0).latencyMillis());
+        assertEquals(AgentModelRole.LOGICAL, overheads.get(0).modelRole());
+
+        // Each model call still owns one FIRST_CHUNK whose latency anchors at that call's
+        // scope start (the model-call assembly), not at invocation acceptance.
+        List<AgentCallObservationRecord> firstChunks = records.stream()
+                .filter(record -> record.event() == AgentCallObservationEvent.FIRST_CHUNK)
+                .toList();
+        assertEquals(2, firstChunks.size());
+        assertEquals(2000, firstChunks.get(0).latencyMillis());
+
+        // A bare model call without the invocation middleware stays silent on overhead.
+        invoke(fixture, records, new ObservableAgentScopeModel(
+                new SequenceModel("primary-model", Flux.just(response(1, 1, 0))),
+                AgentModelRole.PRIMARY), options(1)).blockLast();
+        assertEquals(1, records.stream()
+                .filter(record -> record.event() == AgentCallObservationEvent.APPLICATION_OVERHEAD)
+                .count());
+    }
+
+    private static Flux<AgentEvent> streamEvents(MutableClock clock, ModelCallInput current) {
+        return Flux.concat(
+                Flux.just(new ModelCallStartEvent("reply")),
+                Flux.defer(() -> {
+                    clock.advance(Duration.ofSeconds(2));
+                    return current.model()
+                            .stream(current.messages(), current.tools(), current.options())
+                            .map(response -> (AgentEvent) new ModelCallEndEvent(
+                                    "reply", response.getUsage()));
+                }));
+    }
+
     private static Flux<AgentEvent> invoke(
             Fixture fixture,
             List<AgentCallObservationRecord> records,
@@ -281,6 +382,34 @@ class AgentCallObservabilityM2I07Test {
                 return currentName.get();
             }
         };
+    }
+
+    /** A controllable clock so latency assertions observe real elapsed milliseconds. */
+    private static final class MutableClock extends Clock {
+        private Instant now;
+
+        private MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 
     private record SequenceModel(String name, Flux<ChatResponse> responses) implements Model {

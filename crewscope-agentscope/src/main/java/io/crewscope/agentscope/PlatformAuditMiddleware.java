@@ -54,13 +54,39 @@ public final class PlatformAuditMiddleware implements MiddlewareBase {
             RuntimeContext runtimeContext,
             AgentInput input,
             Function<AgentInput, Flux<AgentEvent>> next) {
-        int messageCount = input.msgs() == null ? 0 : input.msgs().size();
-        return audited(
-                runtimeContext,
-                AgentExecutionAuditPhase.INVOCATION,
-                Set.of(),
-                messageCount,
-                () -> next.apply(input));
+        return Flux.defer(() -> {
+            PlatformExecutionContext context =
+                    PlatformRuntimeContextMiddleware.requireTrustedContext(runtimeContext);
+            int messageCount = input.msgs() == null ? 0 : input.msgs().size();
+            write(context, AgentExecutionAuditPhase.INVOCATION,
+                    AgentExecutionAuditOutcome.STARTED, Set.of(), messageCount, Optional.empty());
+            // The acceptance instant anchors the application-overhead SLI (M12-I03): the
+            // first nested model call reads it from the Reactor Context and reports the gap.
+            AgentInvocationOverhead overhead = new AgentInvocationOverhead(clock.instant());
+            return Flux.defer(() -> next.apply(input))
+                    .doOnComplete(() -> write(
+                            context,
+                            AgentExecutionAuditPhase.INVOCATION,
+                            AgentExecutionAuditOutcome.COMPLETED,
+                            Set.of(),
+                            messageCount,
+                            Optional.empty()))
+                    .doOnError(failure -> write(
+                            context,
+                            AgentExecutionAuditPhase.INVOCATION,
+                            AgentExecutionAuditOutcome.FAILED,
+                            Set.of(),
+                            messageCount,
+                            Optional.of(safeFailureType(failure))))
+                    .doOnCancel(() -> write(
+                            context,
+                            AgentExecutionAuditPhase.INVOCATION,
+                            AgentExecutionAuditOutcome.CANCELED,
+                            Set.of(),
+                            messageCount,
+                            Optional.empty()))
+                    .contextWrite(overhead::install);
+        });
     }
 
     @Override
@@ -69,7 +95,7 @@ public final class PlatformAuditMiddleware implements MiddlewareBase {
             RuntimeContext runtimeContext,
             ModelCallInput input,
             Function<ModelCallInput, Flux<AgentEvent>> next) {
-        return Flux.defer(() -> {
+        return Flux.deferContextual(contextView -> {
             PlatformExecutionContext context =
                     PlatformRuntimeContextMiddleware.requireTrustedContext(runtimeContext);
             int toolCount = input.tools() == null ? 0 : input.tools().size();
@@ -83,6 +109,12 @@ public final class PlatformAuditMiddleware implements MiddlewareBase {
             write(context, AgentExecutionAuditPhase.MODEL_CALL,
                     AgentExecutionAuditOutcome.STARTED, Set.of(), toolCount, Optional.empty());
             observation.started(initialModelName, maxAttempts);
+            AgentInvocationOverhead.find(contextView).ifPresent(overhead -> {
+                if (overhead.tryRecord()) {
+                    observation.applicationOverhead(
+                            modelName(input), overhead.elapsedMillis(clock));
+                }
+            });
 
             AtomicReference<AgentCallTokenUsage> usage =
                     new AtomicReference<>(AgentCallTokenUsage.none());
