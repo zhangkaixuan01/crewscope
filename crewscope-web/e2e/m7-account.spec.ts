@@ -111,6 +111,9 @@ async function installAccountApi(page: Page, options: { conflictFirstPatch?: boo
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (path === '/api/v1/auth/session') return route.fulfill(json(session(authenticated, profile)))
+    if (path === '/api/v1/auth/sessions' && request.method() === 'GET') {
+      return route.fulfill(json({ sessions: [] }))
+    }
     if (path === '/api/v1/auth/logout' && request.method() === 'POST') {
       logouts += 1
       authenticated = false
@@ -174,11 +177,12 @@ function accountProfile() {
 
 function session(authenticated: boolean, profile: ReturnType<typeof accountProfile>) {
   return {
-    authenticated, registrationMode: 'OPEN',
+    authenticated, registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-account-e2e' },
     account: authenticated ? {
       accountId: profile.accountId, username: profile.username, displayName: profile.displayName,
       platformRole: profile.platformRole, securityVersion: profile.securityVersion, version: profile.version,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
     teams: [], permissions: [],

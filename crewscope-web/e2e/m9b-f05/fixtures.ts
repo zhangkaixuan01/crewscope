@@ -45,12 +45,12 @@ export function sessionFor(account: 'A' | 'B') {
   const memberId = account === 'A' ? ids.memberA : ids.memberB
   return {
     authenticated: true,
-    registrationMode: 'OPEN',
+    registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: `csrf-f05-${account}` },
     account: {
       accountId, username: account === 'A' ? 'f05-member-a' : 'f05-member-b',
       displayName: account === 'A' ? 'fixture 成员甲' : 'fixture 成员乙',
-      platformRole: 'USER', securityVersion: 1, version: 1,
+      platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [],
     },
     principal: { principalId, organizationId: ids.organization },
     teams: [ids.teamA, ids.teamB].map(teamId => ({
@@ -148,7 +148,7 @@ async function handleApi(route: Route, world: F05World, url: URL): Promise<void>
   // fixture would bounce the login page straight back into the workspace.
   if (method === 'GET' && path === '/api/v1/auth/session') {
     return json(route, world.signedOut ? {
-      authenticated: false, registrationMode: 'OPEN',
+      authenticated: false, registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
       csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-f05-anonymous' },
       account: null, principal: null, teams: [], permissions: [],
     } : world.session)

@@ -75,6 +75,9 @@ export async function mockApi(page: Page): Promise<void> {
     const path = new URL(request.url()).pathname
     if (request.method() !== 'GET') return notFound(route)
     if (path === '/api/v1/auth/session') return json(route, authenticatedSession(ids.organization, ids.principal, ids.team))
+    // The account page lists browser sessions on mount (M12-F03); the generic `s$` fallback
+    // would answer an items envelope the sessions mapper rejects.
+    if (path === '/api/v1/auth/sessions') return json(route, { sessions: [] })
     if (path.endsWith('/teams')) return json(route, [team()])
     if (path.endsWith(`/${ids.team}/work-projects`)) return json(route, { items: [project()], nextCursor: null })
     if (path.endsWith('/members')) return json(route, [])

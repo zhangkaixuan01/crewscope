@@ -208,9 +208,9 @@ function session(authenticated: boolean, joined: boolean, canManage: boolean, re
     ...(canManage ? ['team:members:manage'] : []),
   ]
   return {
-    authenticated, registrationMode,
+    authenticated, registrationMode, identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-invitation-e2e' },
-    account: authenticated ? { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1 } : null,
+    account: authenticated ? { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [] } : null,
     principal: authenticated ? { principalId: ids.principal, organizationId: ids.organization } : null,
     teams: authenticated && joined ? [{ teamId: ids.team, name: 'Platform Engineering', memberId: ids.member, permissions }] : [],
     permissions: authenticated ? permissions : [],

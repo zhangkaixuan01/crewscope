@@ -50,11 +50,11 @@ export function sessionFor(without: string[] = []) {
     .filter(value => !without.includes(value) && !value.startsWith('org:'))
   return {
     authenticated: true,
-    registrationMode: 'OPEN',
+    registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-a05' },
     account: {
       accountId: '00000000-0000-0000-0000-0000000000a1', username: 'a05-owner',
-      displayName: '张凯旋', platformRole: 'USER', securityVersion: 1, version: 1,
+      displayName: '张凯旋', platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [],
     },
     principal: { principalId: ids.principal, organizationId: ids.organization },
     teams: [{

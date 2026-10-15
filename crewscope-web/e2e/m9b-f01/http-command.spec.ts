@@ -15,7 +15,7 @@ async function isolatedApp(page: Page) {
     if (url.origin !== origin) { unexpected.push(url.origin); return route.abort() }
     if (url.pathname === '/api/v1/auth/session' && request.method() === 'GET') {
       return route.fulfill({ json: {
-        authenticated: false, registrationMode: 'OPEN', account: null, principal: null, teams: [], permissions: [],
+        authenticated: false, registrationMode: 'OPEN', account: null, principal: null, teams: [], permissions: [], identityPolicy: 'coexist', ssoAuthorizationUrl: null,
         csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'isolated-fixture' },
       } })
     }

@@ -317,13 +317,13 @@ function sessionFor(world: A07World, viewer: Viewer) {
   const viewerPermissions = viewer === 'owner' ? ownerPermissions : memberPermissions
   return {
     authenticated: true,
-    registrationMode: 'OPEN',
+    registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: `csrf-a07-${viewer}` },
     account: {
       accountId: viewer === 'owner' ? '00000000-0000-4000-8000-000000000011' : '00000000-0000-4000-8000-000000000012',
       username: viewer === 'owner' ? 'a07-owner' : 'a07-member',
       displayName: viewer === 'owner' ? '张凯旋' : '林晨',
-      platformRole: 'USER', securityVersion: 1, version: 1,
+      platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [],
     },
     principal: { principalId, organizationId: ids.organization },
     teams: world.teams

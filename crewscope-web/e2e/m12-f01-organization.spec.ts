@@ -42,11 +42,11 @@ function sessionFor(role: SessionRole) {
   const teamPermissions = [permissions.scopeRead, permissions.workRead]
   return {
     authenticated: true,
-    registrationMode: 'OPEN' as const,
+    registrationMode: 'OPEN' as const, identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN' as const, parameterName: '_csrf' as const, token: 'csrf-org-e2e' },
     account: {
       accountId: '00000000-4000-8000-0000-000000000111', username: 'e2e-member', displayName: '张凯旋',
-      platformRole: 'USER' as const, securityVersion: 1, version: 1,
+      platformRole: 'USER' as const, securityVersion: 1, version: 1, loginIdentities: [],
     },
     principal: { principalId: ids.principal, organizationId: ids.organization },
     organization: role === 'MEMBER' ? null : { organizationId: ids.organization, name: 'Test Organization', role },

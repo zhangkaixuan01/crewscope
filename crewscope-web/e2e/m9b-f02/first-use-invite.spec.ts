@@ -146,11 +146,11 @@ async function installInviteWorld(
     // rejects a half-authenticated shape.
     return {
       authenticated,
-      registrationMode: 'OPEN' as const,
+      registrationMode: 'OPEN' as const, identityPolicy: 'coexist', ssoAuthorizationUrl: null,
       csrf: { headerName: 'X-XSRF-TOKEN' as const, parameterName: '_csrf' as const, token: 'csrf-invite-f02' },
       account: authenticated ? {
         accountId: 'account-1', username: 'f02-owner', displayName: '张凯旋',
-        platformRole: 'USER' as const, securityVersion: 1, version: 1,
+        platformRole: 'USER' as const, securityVersion: 1, version: 1, loginIdentities: [],
       } : null,
       principal: authenticated ? { principalId: ids.principal, organizationId: ids.organization } : null,
       teams: authenticated ? [

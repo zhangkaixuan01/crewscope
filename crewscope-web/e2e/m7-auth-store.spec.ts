@@ -102,7 +102,7 @@ async function installSessionApi(page: Page, session: () => ReturnType<typeof an
 function anonymousSession() {
   return {
     authenticated: false,
-    registrationMode: 'OPEN' as const,
+    registrationMode: 'OPEN' as const, identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-anonymous-e2e' },
     account: null,
     principal: null,

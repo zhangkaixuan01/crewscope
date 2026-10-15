@@ -128,10 +128,10 @@ async function installRegistrationApi(
 function sessionPayload(registrationMode: RegistrationMode, authenticated: boolean) {
   return {
     authenticated,
-    registrationMode,
+    registrationMode, identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-browser-only' },
     account: authenticated ? {
-      accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+      accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [],
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
     teams: authenticated ? [{ teamId: 'team-1', name: 'Platform', memberId: 'member-1', permissions: ['scope:read', 'conversation:use'] }] : [],

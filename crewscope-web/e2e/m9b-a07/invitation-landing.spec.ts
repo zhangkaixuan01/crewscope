@@ -75,11 +75,11 @@ async function installLandingApi(page: Page, options: { replayed?: boolean, neve
     if (method === 'GET' && path === '/api/v1/auth/session') {
       return json(route, {
         authenticated: true,
-        registrationMode: 'OPEN',
+        registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
         csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-a07-landing' },
         account: {
           accountId: '00000000-0000-4000-8000-000000000013', username: 'a07-joiner', displayName: '王新',
-          platformRole: 'USER', securityVersion: 1, version: 1,
+          platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [],
         },
         principal: { principalId: ids.principalJoiner, organizationId: ids.organization },
         teams: teams().map(team => ({ teamId: team.id, name: team.name, memberId: team.ownerMemberId, permissions: granted })),
