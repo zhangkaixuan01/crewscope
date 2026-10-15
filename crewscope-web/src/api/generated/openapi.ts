@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 19bba9dc43d9624dce06f3aadf076164f07a678158883a9e52d87e50ae73905e
+// Controller source SHA-256: 18a3e80c1ad86e882b33e5b71f0e8270bf0505c47e989a10adcaa6bf195ac550
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -590,6 +590,14 @@ export const openApiDocument = {
         "operationId": "OrganizationProfileController_changeSettings",
         "tags": [
           "OrganizationProfileController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/sli": {
+      "get": {
+        "operationId": "OrganizationSliController_getSli",
+        "tags": [
+          "OrganizationSliController"
         ]
       }
     },
@@ -2819,6 +2827,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/sli",
+    "operationId": "OrganizationSliController_getSli",
+    "controller": "OrganizationSliController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams",
     "operationId": "TeamController_listTeams",
     "controller": "TeamController"
@@ -4210,4 +4224,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 305 as const
+export const openApiOperationCount = 306 as const
