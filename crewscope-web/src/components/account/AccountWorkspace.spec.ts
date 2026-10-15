@@ -64,7 +64,9 @@ function mountWorkspace(overrides: Record<string, unknown> = {}) {
     attachTo: document.body,
     props: {
       profile: profile(), commandPhase: 'idle', operation: null, problem: null,
-      commandGeneration: 0, online: true, ...overrides,
+      commandGeneration: 0, online: true,
+      sessions: [], sessionsPhase: 'ready', deletingSessionId: null, sessionsProblem: null,
+      loginIdentities: [], ...overrides,
     },
   })
 }

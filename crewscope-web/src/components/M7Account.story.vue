@@ -13,9 +13,9 @@ const profile = {
 
 <template>
   <Story title="M7/Account settings" :layout="{ type: 'single', iframe: true, width: 1100 }">
-    <Variant title="Ready"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="idle" :operation="null" :problem="null" :command-generation="0" online /></main></Variant>
-    <Variant title="Offline"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="idle" :operation="null" :problem="null" :command-generation="0" :online="false" /></main></Variant>
-    <Variant title="Version conflict"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="error" operation="profile" :problem="{ code: 'optimistic_lock_conflict', title: '账号资料已在其他位置更新', message: '已重新读取最新资料，请确认后再次提交。', tone: 'warning', conflict: true }" :command-generation="1" online /></main></Variant>
+    <Variant title="Ready"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="idle" :operation="null" :problem="null" :command-generation="0" online :sessions="[]" sessions-phase="ready" :deleting-session-id="null" :sessions-problem="null" :login-identities="[]" /></main></Variant>
+    <Variant title="Offline"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="idle" :operation="null" :problem="null" :command-generation="0" :online="false" :sessions="[]" sessions-phase="ready" :deleting-session-id="null" :sessions-problem="null" :login-identities="[]" /></main></Variant>
+    <Variant title="Version conflict"><main class="story-stage"><AccountWorkspace :profile="profile" command-phase="error" operation="profile" :problem="{ code: 'optimistic_lock_conflict', title: '账号资料已在其他位置更新', message: '已重新读取最新资料，请确认后再次提交。', tone: 'warning', conflict: true }" :command-generation="1" online :sessions="[]" sessions-phase="ready" :deleting-session-id="null" :sessions-problem="null" :login-identities="[]" /></main></Variant>
   </Story>
 </template>
 

@@ -3,9 +3,18 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import type { AccountGateway } from '../domains/account/gateway'
 import { ACCOUNT_STORE, createAccountStore } from '../domains/account/store'
 import type { AccountProfile } from '../domains/account/types'
+import { IDENTITY_GATEWAY, type IdentityGateway } from '../domains/identity/gateway'
 import { AUTH_STORE } from '../domains/identity/store'
 import { fixtureAuthStore } from '../test/authFixtures'
 import AccountPage from './AccountPage.vue'
+
+/** Session-management surface stub: the page-level list tests live in m12-account-sessions.spec.ts. */
+function identityGateway(): IdentityGateway {
+  return {
+    session: vi.fn(), login: vi.fn(), logout: vi.fn(), register: vi.fn(),
+    sessions: vi.fn(async () => []), deleteSession: vi.fn(),
+  }
+}
 
 describe('AccountPage', () => {
   it('loads the current account on entry and clears it on exit', async () => {
@@ -27,6 +36,7 @@ describe('AccountPage', () => {
         provide: {
           [ACCOUNT_STORE as symbol]: accountStore,
           [AUTH_STORE as symbol]: fixtureAuthStore(),
+          [IDENTITY_GATEWAY as symbol]: identityGateway(),
         },
         stubs: {
           AppShell: { template: '<main><slot /></main>' },
@@ -67,6 +77,7 @@ describe('AccountPage', () => {
         provide: {
           [ACCOUNT_STORE as symbol]: createAccountStore(gateway),
           [AUTH_STORE as symbol]: fixtureAuthStore(),
+          [IDENTITY_GATEWAY as symbol]: identityGateway(),
         },
         stubs: {
           AppShell: { template: '<main><slot /></main>' },

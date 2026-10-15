@@ -8,10 +8,13 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell, { type SettingsNavItem } from '../components/settings/SettingsShell.vue'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
+import { CrewScopeApiError } from '../api/client'
 import { offlineAccountProblem, type AccountProblem } from '../domains/account/presentation'
 import { useAccountStore } from '../domains/account/store'
 import type { AccountPasswordChangeInput, AccountProfileUpdateInput, AccountSessionRevocationInput } from '../domains/account/types'
+import { useIdentityGateway } from '../domains/identity/gateway'
 import { useAuthStore } from '../domains/identity/store'
+import type { BrowserSessionSummary } from '../domains/identity/types'
 import { isDensityPreference, isThemePreference, usePreference } from '../app/preference'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
@@ -20,9 +23,17 @@ const pageRequests = usePageRequestScope()
 const principal = inject(AUTH_PRINCIPAL)
 const authStore = useAuthStore()
 const accountStore = useAccountStore()
+const identityGateway = useIdentityGateway()
 const online = useNetworkStatus()
 const sessionTeams = computed(() => authStore.state.session?.teams ?? [])
+const loginIdentities = computed(() => authStore.state.session?.account?.loginIdentities ?? [])
 const localProblem = ref<AccountProblem | null>(null)
+// Browser-session management (M12-F03 C2): page-scoped state, separate from the account
+// command machinery — the list is a projection, not a command target.
+const sessions = ref<BrowserSessionSummary[]>([])
+const sessionsPhase = ref<'loading' | 'ready' | 'error'>('loading')
+const deletingSessionId = ref<string | null>(null)
+const sessionsProblem = ref<string | null>(null)
 const themePreference = usePreference<'system' | 'light' | 'dark'>('cs.pref.device.theme.v1', 'system', { version: 1, validate: isThemePreference })
 const densityPreference = usePreference<'comfortable' | 'compact'>('cs.pref.device.density.v1', 'comfortable', { version: 1, validate: isDensityPreference })
 /*
@@ -36,8 +47,62 @@ const accountNav: SettingsNavItem[] = [
   { key: 'notifications', label: '通知偏好', route: '/account#notifications' },
 ]
 
-onMounted(() => accountStore.load())
+onMounted(() => {
+  accountStore.load()
+  void loadSessions()
+})
 onBeforeUnmount(() => accountStore.reset())
+
+async function loadSessions(): Promise<void> {
+  const owner = pageRequests.captureIdentity()
+  sessionsPhase.value = 'loading'
+  sessionsProblem.value = null
+  try {
+    const next = await identityGateway.sessions()
+    if (!owner.isCurrent()) return
+    sessions.value = next
+    sessionsPhase.value = 'ready'
+  } catch {
+    if (!owner.isCurrent()) return
+    sessionsPhase.value = 'error'
+  }
+}
+
+async function revokeSession(session: BrowserSessionSummary): Promise<void> {
+  if (deletingSessionId.value) return
+  const owner = pageRequests.captureIdentity()
+  const csrf = commandCsrf()
+  if (!csrf) return
+  deletingSessionId.value = session.sessionId
+  sessionsProblem.value = null
+  try {
+    await identityGateway.deleteSession(session.sessionId, csrf)
+    if (!owner.isCurrent()) return
+    if (session.current) {
+      // Deleting the current session is a logout equivalent (M12-I01 §2): the next request
+      // would be anonymous anyway, so finish the sign-out locally and route to the login page.
+      authStore.signOutLocally()
+      await router.replace({ name: 'login' })
+      return
+    }
+    await loadSessions()
+  } catch (error) {
+    if (!owner.isCurrent()) return
+    // A 404 means the session already ended elsewhere (or never belonged to this account —
+    // the server does not distinguish); refreshing the list shows the truth either way.
+    // The notice is set after the refresh because loadSessions resets it on entry.
+    if (error instanceof CrewScopeApiError && error.status === 404) {
+      await loadSessions()
+      if (owner.isCurrent()) sessionsProblem.value = '该会话已经不存在，列表已刷新。'
+      return
+    }
+    sessionsProblem.value = error instanceof CrewScopeApiError && error.envelope.code === 'network_unavailable'
+      ? '当前处于离线状态，恢复网络后重试。'
+      : '暂时无法撤销这个会话，请稍后重试。'
+  } finally {
+    if (owner.isCurrent()) deletingSessionId.value = null
+  }
+}
 
 async function saveProfile(input: AccountProfileUpdateInput): Promise<void> {
   const owner = pageRequests.captureIdentity()
@@ -104,9 +169,16 @@ function commandCsrf() {
         :problem="localProblem ?? accountStore.state.commandProblem"
         :command-generation="accountStore.state.commandGeneration"
         :online="online"
+        :sessions="sessions"
+        :sessions-phase="sessionsPhase"
+        :deleting-session-id="deletingSessionId"
+        :sessions-problem="sessionsProblem"
+        :login-identities="loginIdentities"
         @save-profile="saveProfile"
         @change-password="changePassword"
         @revoke-sessions="revokeSessions"
+        @revoke-session="revokeSession"
+        @retry-sessions="loadSessions"
       />
       <TeamNotificationPreferenceCard
         v-if="principal && sessionTeams.length"

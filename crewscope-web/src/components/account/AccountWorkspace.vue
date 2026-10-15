@@ -2,10 +2,13 @@
 import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, UserRound } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
+import StatePanel from '../feedback/StatePanel.vue'
 import type { AccountProblem } from '../../domains/account/presentation'
+import { loginIdentityProviderLabel, loginIdentityStatusLabels } from '../../domains/identity/labels'
 import { platformRoleLabels } from '../../domains/principal/labels'
 import { enumLabel } from '../../domains/shared/labels'
 import type { AccountOperation } from '../../domains/account/store'
+import type { AuthLoginIdentity, BrowserSessionSummary } from '../../domains/identity/types'
 import type {
   AccountPasswordChangeInput,
   AccountProfile,
@@ -20,12 +23,19 @@ const props = defineProps<{
   problem: AccountProblem | null
   commandGeneration: number
   online: boolean
+  sessions: BrowserSessionSummary[]
+  sessionsPhase: 'loading' | 'ready' | 'error'
+  deletingSessionId: string | null
+  sessionsProblem: string | null
+  loginIdentities: AuthLoginIdentity[]
 }>()
 
 const emit = defineEmits<{
   saveProfile: [input: AccountProfileUpdateInput]
   changePassword: [input: AccountPasswordChangeInput]
   revokeSessions: [input: AccountSessionRevocationInput]
+  revokeSession: [session: BrowserSessionSummary]
+  retrySessions: []
 }>()
 
 const editProfile = ref(false)
@@ -194,6 +204,59 @@ function trapDialog(event: KeyboardEvent): void {
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value))
 }
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+/** Deleting the current browser session is a logout equivalent (M12-I01 §2), so it asks first. */
+const signOutTarget = ref<BrowserSessionSummary | null>(null)
+const signOutDialog = ref<HTMLElement | null>(null)
+const signOutTrigger = ref<HTMLElement | null>(null)
+
+function sessionBusy(session: BrowserSessionSummary): boolean {
+  return props.deletingSessionId === session.sessionId
+}
+
+function askRevokeSession(event: MouseEvent, session: BrowserSessionSummary): void {
+  if (!session.current) {
+    emit('revokeSession', session)
+    return
+  }
+  if (event.currentTarget instanceof HTMLElement) signOutTrigger.value = event.currentTarget
+  signOutTarget.value = session
+  void nextTick(() => signOutDialog.value?.querySelector('button')?.focus())
+}
+
+function closeSignOut(): void {
+  if (props.deletingSessionId) return
+  signOutTarget.value = null
+  void nextTick(() => signOutTrigger.value?.focus())
+}
+
+function confirmSignOut(): void {
+  if (signOutTarget.value) emit('revokeSession', signOutTarget.value)
+}
+
+function trapSignOutDialog(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeSignOut()
+    return
+  }
+  if (event.key !== 'Tab' || !signOutDialog.value) return
+  const items = Array.from(signOutDialog.value.querySelectorAll<HTMLElement>('button:not(:disabled)'))
+  if (items.length === 0) return
+  const first = items[0]!
+  const last = items.at(-1)!
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 </script>
 
 <template>
@@ -249,11 +312,38 @@ function formatDate(value: string): string {
             <div class="form-actions"><BaseButton type="submit" :loading="pending && operation === 'password'" :disabled="!online">修改密码并重新登录</BaseButton><BaseButton variant="ghost" :disabled="pending" @click="cancelPassword">取消</BaseButton></div>
           </form>
           <p v-else class="section-fact"><ShieldCheck :size="16" />账号安全状态最近更新于 {{ formatDate(profile.updatedAt) }}</p>
+          <div v-if="loginIdentities.length" class="login-identities">
+            <h4>登录方式</h4>
+            <ul>
+              <li v-for="identity in loginIdentities" :key="identity.provider" :data-testid="`login-identity-${identity.provider}`">
+                <span class="login-identities__provider">{{ loginIdentityProviderLabel(identity.provider) }}</span>
+                <span :class="['login-identities__status', { 'login-identities__status--active': identity.status === 'ACTIVE' }]">{{ enumLabel(identity.status, loginIdentityStatusLabels) }}</span>
+                <span class="login-identities__time">{{ identity.lastAuthenticatedAt ? `最近登录 ${formatDateTime(identity.lastAuthenticatedAt)}` : '尚未在本部署登录' }}</span>
+              </li>
+            </ul>
+          </div>
         </section>
 
         <section id="sessions" class="account-panel" aria-labelledby="sessions-title">
-          <header><div><h3 id="sessions-title">登录会话</h3><p>退出全部设备会同时撤销当前浏览器和其他设备。</p></div><BaseButton variant="danger" size="small" :disabled="!online" @click="openRevoke"><template #icon><LogOut :size="15" /></template>退出全部设备</BaseButton></header>
-          <p class="section-fact"><MonitorSmartphone :size="16" />当前浏览器 Session · 活跃</p>
+          <header><div><h3 id="sessions-title">登录会话</h3><p>这里列出本账号的全部浏览器会话；撤销其他设备不会影响当前登录。</p></div><BaseButton variant="danger" size="small" :disabled="!online" @click="openRevoke"><template #icon><LogOut :size="15" /></template>退出全部设备</BaseButton></header>
+          <p v-if="sessionsProblem" class="account-alert account-alert--warning" role="alert"><strong>会话操作未完成</strong><span>{{ sessionsProblem }}</span></p>
+          <StatePanel v-if="sessionsPhase === 'loading'" state="loading" />
+          <StatePanel v-else-if="sessionsPhase === 'error'" state="error" description="暂时无法读取登录会话。" @retry="emit('retrySessions')" />
+          <p v-else-if="sessions.length === 0" class="section-fact"><MonitorSmartphone :size="16" />当前没有活跃的浏览器会话。</p>
+          <div v-else class="sessions-scroll">
+          <table class="sessions-table">
+            <caption class="sr-only">本账号的浏览器会话，最近活动在前</caption>
+            <thead><tr><th scope="col">设备</th><th scope="col">最近活动</th><th scope="col">登录时间</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
+            <tbody>
+              <tr v-for="session in sessions" :key="session.sessionId" :data-testid="`session-row-${session.current ? 'current' : 'other'}`">
+                <th scope="row"><span class="session-device"><MonitorSmartphone :size="15" aria-hidden="true" />{{ session.current ? '当前设备' : '其他设备' }}</span><span v-if="session.current" class="session-badge">本机</span></th>
+                <td>{{ formatDateTime(session.lastAccessedAt) }}</td>
+                <td>{{ formatDateTime(session.createdAt) }}</td>
+                <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession($event, session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
         </section>
       </div>
     </div>
@@ -265,6 +355,14 @@ function formatDate(value: string): string {
         <div v-if="fieldProblem || (operation === 'sessions' && problem)" ref="revokeError" class="account-alert" role="alert" tabindex="-1"><strong>{{ fieldProblem ? '请检查输入' : problem?.title }}</strong><span>{{ fieldProblem || problem?.message }}</span></div>
         <label>当前密码<input ref="revokeInput" v-model="revokePassword" name="revokeCurrentPassword" type="password" autocomplete="current-password" maxlength="512" :disabled="pending"></label>
         <div class="form-actions"><BaseButton variant="danger" :loading="pending && operation === 'sessions'" @click="submitRevoke">确认退出全部设备</BaseButton><BaseButton variant="ghost" :disabled="pending" @click="closeRevoke">取消</BaseButton></div>
+      </section>
+    </div>
+
+    <div v-if="signOutTarget" class="dialog-backdrop" @mousedown.self="closeSignOut">
+      <section ref="signOutDialog" class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="signout-title" @keydown="trapSignOutDialog">
+        <div class="confirmation-dialog__icon"><LogOut :size="20" /></div>
+        <div><p class="eyebrow">Session confirmation</p><h3 id="signout-title">退出本设备？</h3><p>撤销当前设备的会话等同于退出登录，之后需要重新登录。</p></div>
+        <div class="form-actions"><BaseButton variant="danger" :loading="deletingSessionId !== null" @click="confirmSignOut">退出本设备</BaseButton><BaseButton variant="ghost" :disabled="deletingSessionId !== null" @click="closeSignOut">取消</BaseButton></div>
       </section>
     </div>
   </div>
@@ -288,6 +386,21 @@ function formatDate(value: string): string {
 .profile-facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-16); padding-top: var(--cs-space-20); margin: var(--cs-space-20) 0 0; border-top: 1px solid var(--cs-border); }
 .profile-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.profile-facts dd { margin: var(--cs-space-4) 0 0; overflow-wrap: anywhere; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .section-fact { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-20) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.sessions-scroll { margin-top: var(--cs-space-20); overflow-x: auto; }
+.sessions-table { width: 100%; border-collapse: collapse; font-size: var(--cs-text-sm); }
+.sessions-table th, .sessions-table td { padding: var(--cs-space-12) var(--cs-space-8); border-bottom: 1px solid var(--cs-border); text-align: left; vertical-align: middle; }
+.sessions-table thead th { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+.sessions-table__actions { text-align: right; white-space: nowrap; }
+.session-device { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-weight: var(--cs-weight-semibold); }
+.session-badge { display: inline-flex; margin-left: var(--cs-space-8); padding: 0 var(--cs-space-8); border-radius: var(--cs-radius-pill); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+.login-identities { padding-top: var(--cs-space-20); margin-top: var(--cs-space-20); border-top: 1px solid var(--cs-border); }
+.login-identities h4 { margin: 0 0 var(--cs-space-12); font-size: var(--cs-text-sm); }
+.login-identities ul { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }
+.login-identities li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8) var(--cs-space-16); font-size: var(--cs-text-sm); }
+.login-identities__provider { font-weight: var(--cs-weight-semibold); }
+.login-identities__status { color: var(--cs-text-muted); }
+.login-identities__status--active { color: var(--cs-text-secondary); }
+.login-identities__time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .account-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-16); padding-top: var(--cs-space-20); margin-top: var(--cs-space-20); border-top: 1px solid var(--cs-border); }
 .account-form--password { grid-template-columns: 1fr; }
 .account-form label, .confirmation-dialog label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
