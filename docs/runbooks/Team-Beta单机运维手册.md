@@ -179,6 +179,34 @@ identity-policy 与 mode 的组合矩阵（非法组合**拒绝启动**，不降
 
 `down` 保留所有数据。仅清空测试环境时使用 `reset`：它删除当前项目的 PostgreSQL、Redis、Artifact 和四类 Agent 数据卷，保留配置及执行仓库/Worktree。它不是完整的数据擦除命令。
 
+## SLI 与错误预算
+
+六指标只读查询面（M12-I03）：`GET /api/v1/organizations/{org}/sli`，需组织审计读能力（ORG_OWNER/ORG_ADMIN/ORG_AUDITOR；团队角色 403）。会话登录后带 cookie 调用，或 API Token 走 `Authorization: Bearer`。口径、排除集与字段语义见[SLI 与容量报告 API 契约](../api/M12-SLI与容量报告API契约.md)。
+
+读法三条（不重复契约全文）：
+
+1. **诚实分层**：表类指标（`execution.success.rate`、`notification.delivery.rate`）的 `rolling_28d`/`current_day` 窗口是真实 SQL 事实；Timer 类指标（`api.latency.p95`、`agent.first.token`、`queueing.latency` 计时分量、`knowledge.retrieval.latency.p95`）只有 `process_lifetime` 窗口，其 `rolling_28d` 条目恒 `availability=degraded`、`value=null`——跨重启的 28 天百分位只有外部 Prometheus 能回答（note 里给了各自的 `_bucket` 系列折叠名）。
+2. **null 不是 0**：`value=null`+`availability=no_data` = 分母为空或无样本；排队 `snapshot` 窗口零积压是事实，恒 `ok`。
+3. **错误预算不自动动作**：`errorBudget.status=exhausted`（`consumedRatio>=1`）只触发本节的降级评审，不会自动限流或降级。
+
+错误预算烧尽的降级评审清单（人工按序）：
+
+1. 先看分母：窗口 `sampleCount` 很小（个位数）时单次失败即烧尽，属噪音，继续观察即可。
+2. API 5xx 预算（allowed 0.1%）烧尽 → `/actuator/health`、`quickstart.sh logs` 查 5xx 堆栈、DB/Redis 连接；确认是否单实例/单路由问题。
+3. 执行成功率跌破 95% → 用户取消与策略拒绝（POLICY_VIOLATION/AUTHORIZATION）已排除；看 note 里 agent_run 视角五状态计数定位是执行失败还是 agent 侧；DB 查 `task_execution.terminal_failure_code` 分布。
+4. 通知送达率跌破 99% → 收件人侧失效（RECIPIENT_UNAVAILABLE/AUTHORIZATION_REVOKED）与 INVALIDATED/CANCELLED 已排除；余下看 Provider 连接健康。
+5. 排队超 30s → `snapshot` note 给出 backlog 条数/最老年龄/投影滞后；计划内重建推高投影滞后**不过滤**（note 已注明），先对时间线再定性。
+6. 评审产出三选一：继续观察 / 人工下调 A02 配额限制新受理 / 回滚最近变更；决定与依据入 Audit，不在本系统内自动化。
+
+可选：外部 Prometheus 采集 28 天百分位。`deploy/team-beta/prometheus.yaml` 已含三 job（api/worker/backup，不进默认 compose），手动以该配置起 Prometheus 后：
+
+```promql
+histogram_quantile(0.95,
+  sum by (le) (rate(crewscope_api_requests_seconds_bucket[28d])))
+```
+
+其余指标把系列名换成响应 note 里各自的 `_seconds_bucket` 折叠名即可。
+
 ## 作业故障恢复
 
 知识索引作业仅在同时启用 pgvector 与知识索引（`crewscope.knowledge.vector.enabled=true` + `crewscope.knowledge.index.enabled=true`）后产生；作业查询面恒可用（含关闭态的历史数据）。以下 curl 以 `$TOKEN`（API Token）与 `{org}`/`{team}`（组织/Team id）占位。

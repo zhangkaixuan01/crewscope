@@ -1,6 +1,6 @@
 # ADR-037：配额计量与 SLO 治理
 
-> 状态：ACCEPTED（M12-A02 已交付 2026-10-13，§3 按承诺语义收窄，注记见该节；I03/F02 待实现）<br>
+> 状态：ACCEPTED（M12-A02 已交付 2026-10-13，§3 按承诺语义收窄，注记见该节；M12-I03 已交付 2026-10-15，§5 口径落定并经首个容量报告取数，注记见该节；F02 待实现）<br>
 > 日期：2026-10-12<br>
 > 归属：M12-S01 合同冻结；挂点与先例勘察 2026-10-12（§1/§2 为源码事实）<br>
 > 关联决策：[ADR-035](ADR-035-多租户隔离方案与迁移路径.md)（组织归属基线）、[ADR-025](ADR-025-本地密码与登录防护参数.md)（登录限流，非配额面）；[ADR-021](ADR-021-三流恢复与前端合并协议.md)（统计事件走既有事件管线）<br>
@@ -47,9 +47,11 @@ M12 主线交付原子配额与基础 SLI。现状：无硬配额——M10 `Team
 
 ### 5. SLI 六指标口径（初值目标由 I03 首个容量报告校准）
 
+> **M12-I03 交付注记（2026-10-15）**：查询面 `GET /api/v1/organizations/{org}/sli`（AUDIT_READ_ORG）已交付，六指标口径落定并经[首个容量报告](../testing/M12-I03-容量报告.md)实测取数。a. **首 Token 口径（B 方案）**：模型侧=模型调用发起→首个响应事件（FIRST_CHUNK，CAS 恰好一次、重试安全）；应用开销=invocation 受理→首次模型调用发起（Reactor Context 传递、每 invocation 一次）；非流式模型退化为首响应完成。b. **Timer 类 28 天窗**：进程内 registry 只能回答 processLifetime 窗口，28 天滚动条目恒 `availability=degraded`+`value=null`（响应 note 内置各指标 Prometheus `histogram_quantile` 折叠系列名）；默认四服务部署不含 Prometheus 属诚实降级，非缺陷。c. **排除集明确化**：执行=用户取消+`terminal_failure_class IN (POLICY_VIOLATION, AUTHORIZATION)`；通知=INVALIDATED/CANCELLED+`failure_code IN (RECIPIENT_UNAVAILABLE, AUTHORIZATION_REVOKED)`；agent_run 无策略拒绝枚举不排除，五状态计数在响应 note 并列呈现（视角差注记）。实测注记：空组织投影 checkpoint lag 随墙钟增长（无事件不推进），降级评审以 backlog 与 outbox 计时为准——见容量报告 §2。
+
 公共口径：时间窗滚动 28 天 + 当日快照双口径；排除项=维护窗口与已知故障注入演练期；错误预算=窗口内目标违反的允许占比，烧完触发降级评审（不自动限流，评审动作入 Runbook）。组织下钻一律走授权查询（低基数公共指标，organization_id 不进指标标签，§4.6 红线）。
 
-| 指标 | 定义与事实源 | 排除项 | 初值目标（I03 校准前占位，非已验证基线） |
+| 指标 | 定义与事实源 | 排除项 | 初值目标（2026-10-15 首个容量报告实测取数，未触发改值） |
 | --- | --- | --- | --- |
 | API P95 | `crewscope.api.requests` Timer（ApiObservabilityWebFilter 全路由） | 监控链 `/actuator/*`、文件下载流 | P95 < 800ms；错误预算 99.9%（5xx 占比） |
 | 首 Token 延迟 | AgentCallObservabilityMetrics 模型调用指标；口径=受理完成→首个模型响应字节，**应用开销与模型侧延迟拆分报告** | 客户端网络、模型供应商侧故障注入 | 应用开销 P95 < 1.5s；模型侧仅报告分布不设目标（供应商主导） |
