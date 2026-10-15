@@ -224,6 +224,8 @@ function gateway(options: {
     session: vi.fn(async () => session(authenticated, options.mode)),
     login: vi.fn(),
     logout: vi.fn(),
+    sessions: vi.fn(async () => []),
+    deleteSession: vi.fn(),
     register: vi.fn(async () => {
       if (options.registerError) throw options.registerError
       const result = await (options.registerPromise ?? registrationResult(Boolean(options.invited)))
@@ -237,9 +239,12 @@ function session(authenticated = false, mode: AuthSession['registrationMode'] = 
   return {
     authenticated,
     registrationMode: mode,
+    identityPolicy: 'coexist',
+    ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-memory-only' },
     account: authenticated ? {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
     organization: null,

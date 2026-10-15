@@ -28,6 +28,8 @@ export function presentLoginProblem(error: unknown): LoginProblem {
   switch (error.envelope.code) {
     case 'invalid_credentials':
       return problem('invalid_credentials', '无法登录', '登录信息无效，请检查后重试。', 'error')
+    case 'local_login_disabled':
+      return problem('local_login_disabled', '账号密码登录已停用', '本部署仅支持企业单点登录，请使用单点登录入口进入。', 'warning')
     case 'too_many_requests':
       return problem('too_many_requests', '暂时无法继续尝试', '请求过于频繁，请稍后再试。', 'warning')
     case 'network_unavailable':
@@ -100,6 +102,27 @@ export function offlineRegistrationProblem(): RegistrationProblem {
 
 export function offlineLoginProblem(): LoginProblem {
   return problem('network_unavailable', '当前处于离线状态', '恢复网络连接后即可继续登录。', 'warning')
+}
+
+export const ssoReturnErrorCodes = ['denied', 'locked', 'registration_blocked', 'unavailable'] as const
+export type SsoReturnErrorCode = typeof ssoReturnErrorCodes[number]
+
+/**
+ * Presents the fixed `sso_error` enum the backend redirects back with (M12-I01 §6.3): the codes
+ * describe deployment state only — the server never echoes subject/claims/protocol details, and
+ * neither does this copy. Unknown values fold into the generic denial, same as the server side.
+ */
+export function presentSsoReturnProblem(code: string): LoginProblem {
+  if (code === 'locked') {
+    return problem('sso_locked', '账号暂时无法登录', '这个账号已被登录防护暂时锁定，请联系管理员或稍后再试。', 'warning')
+  }
+  if (code === 'registration_blocked') {
+    return problem('sso_registration_blocked', '本部署未开放单点登录注册', '当前部署不接受新的单点登录账号，请联系管理员开通。', 'warning')
+  }
+  if (code === 'unavailable') {
+    return problem('sso_unavailable', '登录服务暂时不可用', '登录基础设施暂时不可用，请稍后重试；若持续失败请联系管理员。', 'error')
+  }
+  return problem('sso_denied', '单点登录未能完成', '身份提供方没有认可这次登录，请重试；若持续失败请联系管理员。', 'error')
 }
 
 function problem(code: string, title: string, message: string, tone: LoginProblem['tone']): LoginProblem {

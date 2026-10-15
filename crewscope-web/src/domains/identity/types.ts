@@ -1,10 +1,24 @@
 export const registrationModes = ['OPEN', 'INVITE_ONLY', 'DISABLED'] as const
 export type RegistrationMode = typeof registrationModes[number]
 
+/** Deployment-level identity policy (ADR-036): a dimension stacked on the security mode, not a fourth mode. */
+export const identityPolicies = ['local-only', 'sso-only', 'coexist'] as const
+export type IdentityPolicy = typeof identityPolicies[number]
+
 export interface AuthCsrfCoordinate {
   headerName: 'X-XSRF-TOKEN'
   parameterName: '_csrf'
   token: string
+}
+
+/** Owner-facing login identity of the account; the subject value never leaves the server (M12-I01 §1). */
+export const loginIdentityStatuses = ['ACTIVE', 'DISABLED', 'REVOKED'] as const
+export type LoginIdentityStatus = typeof loginIdentityStatuses[number]
+
+export interface AuthLoginIdentity {
+  provider: string
+  status: LoginIdentityStatus
+  lastAuthenticatedAt: string | null
 }
 
 export interface AuthSessionAccount {
@@ -14,6 +28,7 @@ export interface AuthSessionAccount {
   platformRole: 'USER' | 'OPERATOR'
   securityVersion: number
   version: number
+  loginIdentities: AuthLoginIdentity[]
 }
 
 export interface AuthSessionPrincipal {
@@ -41,6 +56,9 @@ export interface AuthSessionOrganization {
 export interface AuthSession {
   authenticated: boolean
   registrationMode: RegistrationMode
+  identityPolicy: IdentityPolicy
+  /** Framework SSO entry (`/oauth2/authorization/{registrationId}`) or null when no OIDC registration exists. */
+  ssoAuthorizationUrl: string | null
   csrf: AuthCsrfCoordinate
   account: AuthSessionAccount | null
   principal: AuthSessionPrincipal | null
@@ -81,4 +99,16 @@ export interface RegistrationResult {
   committedVersion: number
   correlationId: string
   replayed: boolean
+}
+
+/**
+ * One browser session of the signed-in account (GET /auth/sessions), newest activity first.
+ * This is the owner-facing session-management projection (M12-I01 §2) — the id is the handle
+ * for per-device revocation, not part of the anonymous-safe AuthSession projection above.
+ */
+export interface BrowserSessionSummary {
+  sessionId: string
+  createdAt: string
+  lastAccessedAt: string
+  current: boolean
 }

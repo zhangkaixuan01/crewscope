@@ -194,6 +194,8 @@ function gateway(options: {
     login,
     logout: vi.fn(),
     register: vi.fn(),
+    sessions: vi.fn(async () => []),
+    deleteSession: vi.fn(),
   }
 }
 
@@ -201,9 +203,12 @@ function session(authenticated = false): AuthSession {
   return {
     authenticated,
     registrationMode: 'OPEN',
+    identityPolicy: 'coexist',
+    ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-memory-only' },
     account: authenticated ? {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'org-1' } : null,
     organization: null,

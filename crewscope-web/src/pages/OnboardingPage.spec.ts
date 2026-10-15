@@ -104,6 +104,8 @@ async function mountPage(options: {
     login: vi.fn(),
     logout: vi.fn(),
     register: vi.fn(),
+    sessions: vi.fn(async () => []),
+    deleteSession: vi.fn(),
   }
   const onboarding: OnboardingGateway = {
     status: vi.fn(async (): Promise<OnboardingStatus> => teamCreated
@@ -158,10 +160,13 @@ function session(hasTeam: boolean): AuthSession {
   return {
     authenticated: true,
     registrationMode: 'OPEN',
+    identityPolicy: 'coexist',
+    ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-onboarding' },
     account: {
       accountId: 'account-1', username: 'alice', displayName: 'Alice',
       platformRole: 'USER', securityVersion: 1, version: 1,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     },
     principal: { principalId: fixtureIds.principal, organizationId: fixtureIds.organization },
     organization: { organizationId: fixtureIds.organization, name: 'CrewScope Organization', role: 'ORG_OWNER' },

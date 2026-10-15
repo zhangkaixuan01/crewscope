@@ -83,9 +83,9 @@ function authStore(): AuthStore {
     state: {
       phase: 'authenticated', activeTeamId: null, errorCode: null, errorMessage: null,
       session: {
-        authenticated: true, registrationMode: 'OPEN',
+        authenticated: true, registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
         csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-manager' },
-        account: { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1 },
+        account: { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1, loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }] },
         principal: { principalId: 'principal-1', organizationId: 'organization-1' }, organization: null, teams: [], permissions: [],
       },
     },

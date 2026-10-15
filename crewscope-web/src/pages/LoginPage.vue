@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, RefreshCw } from '@lucide/vue'
+import { ArrowRight, Building2, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AuthCard from '../components/auth/AuthCard.vue'
@@ -9,17 +9,18 @@ import AuthLayout from '../components/auth/AuthLayout.vue'
 import AuthPasswordField from '../components/auth/AuthPasswordField.vue'
 import BaseButton from '../components/base/BaseButton.vue'
 import { useNetworkStatus } from '../app/network'
-import { useIdentityGateway, registrationModeLabel } from '../domains/identity/gateway'
+import { useIdentityGateway, identityPolicyLabel, registrationModeLabel } from '../domains/identity/gateway'
 import { useAuthStore } from '../domains/identity/store'
 import {
   IdentityRequestTimeoutError,
   offlineLoginProblem,
   presentLoginProblem,
   presentSessionProblem,
+  presentSsoReturnProblem,
   type LoginProblem,
 } from '../domains/identity/presentation'
 import { safeLoginDestination } from '../domains/identity/route'
-import type { AuthCsrfCoordinate, RegistrationMode } from '../domains/identity/types'
+import type { AuthCsrfCoordinate, IdentityPolicy, RegistrationMode } from '../domains/identity/types'
 
 const props = withDefaults(defineProps<{
   sessionTimeoutMs?: number
@@ -44,15 +45,31 @@ const problem = ref<LoginProblem | null>(null)
 const problemFocusKey = ref(0)
 const csrf = ref<AuthCsrfCoordinate | null>(null)
 const registrationMode = ref<RegistrationMode | null>(null)
+const identityPolicy = ref<IdentityPolicy | null>(null)
+const ssoAuthorizationUrl = ref<string | null>(null)
+// The backend redirects back with a fixed `sso_error` enum (M12-I01 §6.3); unknown values fold
+// into the generic denial inside the presenter, so the raw query value never reaches the DOM.
+const ssoProblem = ref<LoginProblem | null>(null)
 const formVisible = computed(() => phase.value === 'ready' || phase.value === 'submitting')
 const submitting = computed(() => phase.value === 'submitting')
 const registrationMessage = computed(() => registrationMode.value ? registrationModeLabel(registrationMode.value) : null)
+const policyMessage = computed(() => identityPolicy.value ? identityPolicyLabel(identityPolicy.value) : null)
+const ssoOnly = computed(() => identityPolicy.value === 'sso-only')
+const passwordFormVisible = computed(() => formVisible.value && !ssoOnly.value)
 
 let activeController: AbortController | null = null
 let operationGeneration = 0
 let disposed = false
 
-onMounted(loadSession)
+onMounted(() => {
+  const returnedError = route.query.sso_error
+  if (typeof returnedError === 'string' && returnedError) {
+    ssoProblem.value = presentSsoReturnProblem(returnedError)
+    // Drop the code from the address bar so a refresh or a shared link does not replay the banner.
+    void router.replace({ query: { ...route.query, sso_error: undefined } })
+  }
+  void loadSession()
+})
 onBeforeUnmount(() => {
   disposed = true
   operationGeneration += 1
@@ -82,6 +99,8 @@ async function loadSession(): Promise<void> {
     if (!session) throw new Error('Authentication Session is unavailable')
     csrf.value = session.csrf
     registrationMode.value = session.registrationMode
+    identityPolicy.value = session.identityPolicy
+    ssoAuthorizationUrl.value = session.ssoAuthorizationUrl
     if (session.authenticated) {
       await router.replace(safeLoginDestination(route.query, router))
       return
@@ -198,9 +217,16 @@ function isAbort(error: unknown): boolean {
       v-else
       kicker="欢迎回来"
       title="继续你的团队工作"
-      description="使用用户名或邮箱进入 CrewScope。"
+      :description="ssoOnly ? (policyMessage ?? '使用企业身份进入 CrewScope。') : '使用用户名或邮箱进入 CrewScope。'"
       :busy="submitting"
     >
+      <AuthErrorSummary
+        v-if="ssoProblem"
+        :title="ssoProblem.title"
+        :messages="[ssoProblem.message]"
+        :tone="ssoProblem.tone"
+        :auto-focus="false"
+      />
       <AuthErrorSummary
         v-if="problem"
         :title="problem.title"
@@ -208,7 +234,18 @@ function isAbort(error: unknown): boolean {
         :tone="problem.tone"
         :focus-key="problemFocusKey"
       />
-      <form class="login-page__form" :aria-busy="submitting" @submit.prevent="submitLogin">
+      <!-- Framework SSO entry: a full-page navigation to /oauth2/authorization/{id}, not an SPA route. -->
+      <a
+        v-if="ssoAuthorizationUrl"
+        class="login-page__sso"
+        :href="ssoAuthorizationUrl"
+        data-testid="login-sso-entry"
+      >
+        <Building2 :size="16" aria-hidden="true" />
+        使用企业单点登录进入
+      </a>
+      <p v-if="ssoAuthorizationUrl && passwordFormVisible" class="login-page__divider">或使用账号密码</p>
+      <form v-if="passwordFormVisible" class="login-page__form" :aria-busy="submitting" @submit.prevent="submitLogin">
         <AuthField
           v-model="identifier"
           label="用户名或邮箱"
@@ -219,7 +256,7 @@ function isAbort(error: unknown): boolean {
           required
           :maxlength="1024"
           :error="identifierError"
-          :focus-on-mount="!problem"
+          :focus-on-mount="!problem && !ssoProblem && !ssoAuthorizationUrl"
           @input="identifierError = undefined"
         />
         <AuthPasswordField
@@ -241,10 +278,13 @@ function isAbort(error: unknown): boolean {
         </BaseButton>
       </form>
       <template #footer>
-        <div v-if="registrationMessage" class="login-page__registration">
+        <div v-if="registrationMessage && !ssoOnly" class="login-page__registration">
           <p>{{ registrationMessage }}</p>
           <RouterLink v-if="registrationMode === 'OPEN'" to="/register">创建账号</RouterLink>
         </div>
+        <p v-if="ssoOnly" class="login-page__registration login-page__rescue">
+          无法完成单点登录？请联系你的管理员恢复访问。
+        </p>
       </template>
     </AuthCard>
   </AuthLayout>
@@ -253,9 +293,13 @@ function isAbort(error: unknown): boolean {
 <style scoped>
 .login-page__form { display: grid; gap: var(--cs-space-16); }
 .login-page__primary { width: 100%; min-height: var(--cs-auth-control-height); }
+.login-page__sso { display: flex; width: 100%; min-height: var(--cs-auth-control-height); align-items: center; justify-content: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-16); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); text-decoration: none; }
+.login-page__sso:hover, .login-page__sso:focus-visible { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }
+.login-page__divider { margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }
 .login-page__status,
 .login-page__registration { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .login-page__registration { display: grid; justify-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-20); text-align: center; }
 .login-page__registration p { margin: 0; }
 .login-page__registration a { color: var(--cs-text-brand); font-weight: var(--cs-weight-semibold); }
+.login-page__rescue { margin-top: var(--cs-space-16); }
 </style>

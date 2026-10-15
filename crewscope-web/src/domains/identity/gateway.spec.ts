@@ -8,6 +8,8 @@ describe('HttpIdentityGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json({
       authenticated: false,
       registrationMode: 'OPEN',
+      identityPolicy: 'coexist',
+      ssoAuthorizationUrl: null,
       csrf: { ...csrf, cookieSecret: 'private' },
       account: null,
       principal: null,
@@ -21,6 +23,8 @@ describe('HttpIdentityGateway', () => {
     expect(session).toEqual({
       authenticated: false,
       registrationMode: 'OPEN',
+      identityPolicy: 'coexist',
+      ssoAuthorizationUrl: null,
       csrf,
       account: null,
       principal: null,
@@ -126,6 +130,8 @@ describe('HttpIdentityGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json({
       authenticated: true,
       registrationMode: 'INVITE_ONLY',
+      identityPolicy: 'coexist',
+      ssoAuthorizationUrl: null,
       csrf,
       account: account(),
       principal: { principalId: 'principal-1', organizationId: 'org-1' },
@@ -145,6 +151,8 @@ describe('HttpIdentityGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json({
       authenticated: true,
       registrationMode: 'INVITE_ONLY',
+      identityPolicy: 'coexist',
+      ssoAuthorizationUrl: null,
       csrf,
       account: account(),
       principal: { principalId: 'principal-1', organizationId: 'org-1' },
@@ -170,6 +178,8 @@ describe('HttpIdentityGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json({
       authenticated: true,
       registrationMode: 'INVITE_ONLY',
+      identityPolicy: 'coexist',
+      ssoAuthorizationUrl: null,
       csrf,
       account: account(),
       principal: { principalId: 'principal-1', organizationId: 'org-1' },
@@ -189,7 +199,7 @@ function gatewayWith(fetcher: ReturnType<typeof vi.fn>): HttpIdentityGateway {
 function account() {
   return {
     accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER',
-    securityVersion: 2, version: 4,
+    securityVersion: 2, version: 4, loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
   }
 }
 

@@ -197,6 +197,8 @@ function gateway(load: () => Promise<AuthSession>): IdentityGateway {
     login: vi.fn(),
     logout: vi.fn(),
     register: vi.fn(),
+    sessions: vi.fn(async () => []),
+    deleteSession: vi.fn(),
   }
 }
 
@@ -204,9 +206,12 @@ function session(authenticated: boolean): AuthSession {
   return {
     authenticated,
     registrationMode: 'OPEN',
+    identityPolicy: 'coexist',
+    ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: authenticated ? 'csrf-authenticated' : 'csrf-anonymous' },
     account: authenticated ? {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
     organization: null,

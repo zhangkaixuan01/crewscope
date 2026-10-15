@@ -157,9 +157,9 @@ function fixtureAuthStore(authenticated: boolean, joined = false): AuthStore {
 
 function session(authenticated: boolean, joined: boolean) {
   return {
-    authenticated, registrationMode: 'OPEN' as const,
+    authenticated, registrationMode: 'OPEN' as const, identityPolicy: 'coexist' as const, ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN' as const, parameterName: '_csrf' as const, token: 'csrf-invite-page' },
-    account: authenticated ? { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER' as const, securityVersion: 1, version: 1 } : null,
+    account: authenticated ? { accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER' as const, securityVersion: 1, version: 1, loginIdentities: [{ provider: 'local', status: 'ACTIVE' as const, lastAuthenticatedAt: null }] } : null,
     principal: authenticated ? { principalId: 'principal-1', organizationId: 'organization-1' } : null,
     organization: null,
     teams: authenticated ? [

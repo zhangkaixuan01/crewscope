@@ -4,12 +4,12 @@ import type { AuthSession } from '../domains/identity/types'
 
 function fixture() {
   const current: AuthSession = {
-    authenticated: true, registrationMode: 'OPEN',
+    authenticated: true, registrationMode: 'OPEN', identityPolicy: 'coexist', ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'test-only' },
-    account: { accountId: 'account', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 0 },
+    account: { accountId: 'account', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 0, loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }] },
     principal: { principalId: 'principal', organizationId: 'org' }, organization: null, teams: [], permissions: [],
   }
-  const store = createAuthStore({ session: async () => structuredClone(current), login: vi.fn(), logout: vi.fn(), register: vi.fn() }, { channelFactory: () => null })
+  const store = createAuthStore({ session: async () => structuredClone(current), login: vi.fn(), logout: vi.fn(), register: vi.fn(), sessions: vi.fn(async () => []), deleteSession: vi.fn() }, { channelFactory: () => null })
   const reset = vi.fn()
   subscribeSessionBoundary(store, reset)
   return { current, store, reset }

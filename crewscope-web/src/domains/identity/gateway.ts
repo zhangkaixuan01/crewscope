@@ -1,6 +1,6 @@
 import { inject, type App, type InjectionKey } from 'vue'
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
-import { organizationRoleNames, registrationModes } from './types'
+import { identityPolicies, loginIdentityStatuses, organizationRoleNames, registrationModes } from './types'
 import type {
   AuthCsrfCoordinate,
   AuthSession,
@@ -8,6 +8,8 @@ import type {
   AuthSessionOrganization,
   AuthSessionPrincipal,
   AuthSessionTeam,
+  BrowserSessionSummary,
+  IdentityPolicy,
   LoginCredentials,
   LoginResult,
   RegistrationInput,
@@ -25,6 +27,10 @@ export interface IdentityGateway {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<RegistrationResult>
+  /** Owner-scoped browser session list (M12-I01); newest activity first, no principal data. */
+  sessions(signal?: AbortSignal): Promise<BrowserSessionSummary[]>
+  /** Deletes one browser session; deleting the current session is a logout equivalent. */
+  deleteSession(sessionId: string, csrf: AuthCsrfCoordinate, signal?: AbortSignal): Promise<void>
 }
 
 export const IDENTITY_GATEWAY: InjectionKey<IdentityGateway> = Symbol('crewscope-identity-gateway')
@@ -78,6 +84,20 @@ export class HttpIdentityGateway implements IdentityGateway {
       headers: { [csrf.headerName]: csrf.token },
     }))
   }
+
+  async sessions(signal?: AbortSignal): Promise<BrowserSessionSummary[]> {
+    const response = record(await this.client.get('/auth/sessions', { signal }))
+    return array(response.sessions).map(mapSessionSummary)
+  }
+
+  async deleteSession(sessionId: string, csrf: AuthCsrfCoordinate, signal?: AbortSignal): Promise<void> {
+    const response = await this.client.open(`/auth/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+      signal,
+      headers: { [csrf.headerName]: csrf.token },
+    })
+    if (response.status !== 204) throw new TypeError('Session deletion response is invalid')
+  }
 }
 
 export function installIdentityGateway(app: App, gateway: IdentityGateway): void {
@@ -115,6 +135,8 @@ function mapSession(input: unknown): AuthSession {
   return {
     authenticated,
     registrationMode: oneOf(value.registrationMode, registrationModes),
+    identityPolicy: oneOf(value.identityPolicy, identityPolicies),
+    ssoAuthorizationUrl: optionalString(value.ssoAuthorizationUrl),
     csrf: mapCsrf(value.csrf),
     account,
     principal,
@@ -143,6 +165,26 @@ function mapAccount(input: unknown): AuthSessionAccount {
     platformRole: oneOf(value.platformRole, ['USER', 'OPERATOR'] as const),
     securityVersion: nonNegativeInteger(value.securityVersion),
     version: nonNegativeInteger(value.version),
+    loginIdentities: array(value.loginIdentities).map(mapLoginIdentity),
+  }
+}
+
+function mapLoginIdentity(input: unknown): AuthSessionAccount['loginIdentities'][number] {
+  const value = record(input)
+  return {
+    provider: nonEmptyString(value.provider),
+    status: oneOf(value.status, loginIdentityStatuses),
+    lastAuthenticatedAt: optionalString(value.lastAuthenticatedAt),
+  }
+}
+
+function mapSessionSummary(input: unknown): BrowserSessionSummary {
+  const value = record(input)
+  return {
+    sessionId: nonEmptyString(value.sessionId),
+    createdAt: nonEmptyString(value.createdAt),
+    lastAccessedAt: nonEmptyString(value.lastAccessedAt),
+    current: boolean(value.current),
   }
 }
 
@@ -253,4 +295,10 @@ export function registrationModeLabel(mode: RegistrationMode): string {
   if (mode === 'OPEN') return '当前部署支持自行创建账号'
   if (mode === 'INVITE_ONLY') return '新成员通过团队邀请加入'
   return '当前部署未开放新账号注册'
+}
+
+export function identityPolicyLabel(policy: IdentityPolicy): string {
+  if (policy === 'sso-only') return '本部署仅支持企业单点登录'
+  if (policy === 'local-only') return '本部署仅支持账号密码登录'
+  return '本部署支持账号密码与企业单点登录'
 }

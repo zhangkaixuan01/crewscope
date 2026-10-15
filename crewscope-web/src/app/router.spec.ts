@@ -459,16 +459,19 @@ function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
 }
 
 function identityGateway(load: () => Promise<AuthSession>): IdentityGateway {
-  return { session: vi.fn(load), login: vi.fn(), logout: vi.fn(), register: vi.fn() }
+  return { session: vi.fn(load), login: vi.fn(), logout: vi.fn(), register: vi.fn(), sessions: vi.fn(async () => []), deleteSession: vi.fn() }
 }
 
 function authSession(authenticated: boolean): AuthSession {
   return {
     authenticated,
     registrationMode: 'OPEN',
+    identityPolicy: 'coexist',
+    ssoAuthorizationUrl: null,
     csrf: { headerName: 'X-XSRF-TOKEN', parameterName: '_csrf', token: 'csrf-router' },
     account: authenticated ? {
       accountId: 'account-1', username: 'alice', displayName: 'Alice', platformRole: 'USER', securityVersion: 1, version: 1,
+      loginIdentities: [{ provider: 'local', status: 'ACTIVE', lastAuthenticatedAt: null }],
     } : null,
     principal: authenticated ? { principalId: principal.id, organizationId: principal.organizationId } : null,
     // Mirrors mapSession's consistency rule: the org:* vocabulary travels with the projection.

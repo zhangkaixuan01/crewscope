@@ -44,5 +44,5 @@ describe('App authentication boundary', () => {
 })
 
 function gateway(load: () => Promise<AuthSession>): IdentityGateway {
-  return { session: vi.fn(load), login: vi.fn(), logout: vi.fn(), register: vi.fn() }
+  return { session: vi.fn(load), login: vi.fn(), logout: vi.fn(), register: vi.fn(), sessions: vi.fn(async () => []), deleteSession: vi.fn() }
 }
