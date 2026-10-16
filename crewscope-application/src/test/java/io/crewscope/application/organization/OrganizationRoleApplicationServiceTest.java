@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 /**
  * Role-management guardrails: the OWNER-only bailouts, the last-owner protection, the initial
@@ -177,6 +179,25 @@ class OrganizationRoleApplicationServiceTest {
                 ArgumentCaptor.forClass(DomainEventEnvelope.class);
         verify(eventStore).append(envelope.capture());
         assertEquals("ORGANIZATION_ROLE_REVOKED", envelope.getValue().eventType().value());
+    }
+
+    @Test
+    void revokeTakesTheOrganizationLockBeforeAnyRowLockOrCount() {
+        asAdmin();
+        OrganizationRoleGrantId grantId = OrganizationRoleGrantId.generate();
+        OrganizationRoleGrant stored = OrganizationRoleGrant.grant(
+                organizationId, targetId, OrganizationRole.ORG_AUDITOR, actorId, null, NOW);
+        when(grants.findByIdForUpdate(organizationId, grantId)).thenReturn(Optional.of(stored));
+        when(grants.update(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.revoke(command(), organizationId, grantId, 0L, "rotation");
+
+        // The last-owner guard reads an unguarded count; without the organization lock taken
+        // FIRST, two concurrent revocations of different owner grants would both count two
+        // owners and both pass (2026-10-16 review fix — order is part of the contract).
+        InOrder order = inOrder(grants);
+        order.verify(grants).lockAuthorizationChanges(organizationId);
+        order.verify(grants).findByIdForUpdate(organizationId, grantId);
     }
 
     @Test

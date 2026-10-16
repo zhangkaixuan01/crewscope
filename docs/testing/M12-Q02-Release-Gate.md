@@ -54,6 +54,8 @@
 | 4 | 契约语义钉死 | **设置/配额行首写建行 version 停 0**：首写 PUT（If-Match `"0"`）insert 建行 version 仍 0，第二次写才是第一个版本化变更（V68 settings 与 V70 quota 同语义，契约 §2.1 未明说，t2/t3 实测钉死） | spec 断言按实测语义+注释；语义随本报告入档 |
 | 5 | 测试侧修正 | 导出 manifest `itemCount`=批次数、`pinnedRowCount`=行数（两个 work item 同批→itemCount 1 而 pinnedRowCount 2）；备份声明是**英文常量**（契约 §4.4 逐字），初版误断中文「保留」 | 断言改 `pinnedRowCount` 与英文原文片段——从契约推导不从记忆推导 |
 
+> **收官后整体 review 补录（2026-10-16，随修复笔提交）**：上表「零产品缺陷」仅指 gate 九轮迭代内的测试面事实。收官后对 M12 实现的整体代码 review 另发现一处 gate 与既有 IT 均未覆盖的并发缺陷，登记待修：**last-owner 保护存在并发双撤窗口**——`OrganizationRoleApplicationService` revoke 先 `findByIdForUpdate` 锁目标 grant 行、再以无锁 `countActiveOwners`（普通 COUNT）判定最后一张保护；并发撤两张**不同** owner grant 时行锁互不阻塞，双方 count 均读到 2→都通过→组织被撤空为 0 ACTIVE OWNER，绕过契约 §2.2 `last_owner_protection`。触发需两个 ROLE_REVOKE_OWNER 会话毫秒级窗口对齐（授权用户并发自伤，非越权）。修法=executeRevoke 在任何行锁之前先取 per-organization advisory 事务锁（`pg_advisory_xact_lock`，ClaimQuota 同款形态；不用 FOR UPDATE 聚合——它锁全部 owner 行，双撤互持对方目标行仍有互等死锁窗口，advisory 单锁零死锁）+并发双撤回归 IT。其余七面（正交性/导出白名单/配额台账并发/OIDC 首登收敛/ensureInitialOwner 幂等/SLI 合并数学/前端 tokenHash 白名单）人工核验为可靠。
+
 ## 4. 零回归复跑记录（§8-9）
 
 | 门禁 | 命令 | 结果 |

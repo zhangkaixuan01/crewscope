@@ -79,7 +79,7 @@ Idempotency-Key: <必填>    If-Match: "<grant version>"
 
 - grant 形状经 GET 回读：`{id, organizationId, principalId, role, status, grantedByPrincipalId, grantedAt, revokedAt, revokedByPrincipalId, reason, version}`；
 - 目标 principal 必须属于本组织（422）；OWNER 仅 OWNER 可授/撤（ADMIN 触 OWNER→403）；
-- **最后一张 ACTIVE OWNER 不可撤**→409 `last_owner_protection`（应用事务级保护，复用 LAST_OWNER_PROTECTION 域错误码）；
+- **最后一张 ACTIVE OWNER 不可撤**→409 `last_owner_protection`（应用事务级保护，复用 LAST_OWNER_PROTECTION 域错误码；撤销命令在任何行锁之前先取 per-organization advisory 事务锁串行化同组织并发撤销——两张不同 owner grant 的行锁互不相交，无组织锁时并发双撤可同时通过计数把组织撤空，2026-10-16 收官 review 修复并加并发回归 IT）；
 - REVOKED 留史（partial unique 只保 ACTIVE 唯一），列表回 active+revoked 全量。
 
 ### 2.3 POST data-exports

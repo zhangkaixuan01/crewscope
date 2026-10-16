@@ -258,6 +258,11 @@ public final class OrganizationRoleApplicationService {
         if (!reservation.acquired()) {
             return CommandExecution.replayed(reservation.receipt().orElseThrow());
         }
+        // Serialize same-organization revocations BEFORE any row lock: two concurrent
+        // revocations of different owner grants hold unrelated row locks, so without this
+        // guard both would count two ACTIVE owners and both pass, leaving the organization
+        // ownerless (the count itself is an unguarded aggregate read).
+        grants.lockAuthorizationChanges(organizationId);
         OrganizationRoleGrant grant = grants
                 .findByIdForUpdate(organizationId, grantId)
                 .orElseThrow(() -> new AggregateNotFoundException(AGGREGATE_TYPE, grantId));

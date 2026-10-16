@@ -17,6 +17,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -137,6 +138,20 @@ public class JdbcOrganizationRoleGrantRepositoryAdapter implements OrganizationR
                 new MapSqlParameterSource("organizationId", organizationId.value()),
                 Long.class);
         return count == null ? 0L : count;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockAuthorizationChanges(OrganizationId organizationId) {
+        Objects.requireNonNull(organizationId, "organizationId");
+        // Advisory transaction lock namespaced per repository: revocations of two DIFFERENT
+        // owner grants hold unrelated row locks, so only a per-organization lock makes the
+        // last-owner count read serialized (ClaimQuota precedent for the lock shape).
+        jdbc.queryForObject(
+                "SELECT 1::BIGINT FROM pg_advisory_xact_lock(hashtextextended("
+                        + "'organization-role-grant:' || CAST(:organizationId AS text), 0))",
+                new MapSqlParameterSource("organizationId", organizationId.value()),
+                Long.class);
     }
 
     @Override

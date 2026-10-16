@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.persistence.organization;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,9 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
 import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +29,8 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * PostgreSQL contract for the V68 adapters: per-request active-grant requery, the partial unique
@@ -51,6 +57,7 @@ class OrganizationPersistenceM12A01IntegrationTest
     @Autowired private OrganizationRoleGrantRepository grants;
     @Autowired private OrganizationSettingRepository settings;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private OrganizationId organizationId;
     private PrincipalId ownerId;
@@ -145,6 +152,72 @@ class OrganizationPersistenceM12A01IntegrationTest
                 .auditEventRetentionDays().isEmpty());
 
         assertThrows(OptimisticLockConflictException.class, () -> settings.update(changed));
+    }
+
+    /**
+     * Reproduction shape of the concurrent double-revocation window: two revocations of
+     * DIFFERENT owner grants hold unrelated row locks, so only the per-organization advisory
+     * lock serializes them. The second transaction must observe the first one's committed
+     * revocation (one remaining owner), never a pre-commit snapshot of two.
+     */
+    @Test
+    void concurrentOwnerRevocationsSerializeThroughTheAdvisoryLock() throws Exception {
+        PrincipalId second = PrincipalId.generate();
+        jdbc.update(
+                "INSERT INTO crewscope.principal (id, organization_id, principal_type,"
+                        + " display_name, status) VALUES (?, ?, 'USER', 'Second Owner', 'ACTIVE')",
+                second.value(), organizationId.value());
+        OrganizationRoleGrant firstGrant = grants.create(OrganizationRoleGrant.grant(
+                organizationId, ownerId, OrganizationRole.ORG_OWNER, ownerId, null, NOW));
+        OrganizationRoleGrant secondGrant = grants.create(OrganizationRoleGrant.grant(
+                organizationId, second, OrganizationRole.ORG_OWNER, ownerId, null, NOW));
+
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        CountDownLatch firstLocked = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondDone = new CountDownLatch(1);
+        AtomicLong secondCount = new AtomicLong(-1);
+
+        Thread first = new Thread(() -> transactions.executeWithoutResult(status -> {
+            grants.lockAuthorizationChanges(organizationId);
+            firstLocked.countDown();
+            try {
+                releaseFirst.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            grants.update(firstGrant.revoke(0, ownerId, "concurrent handover A", LATER));
+        }));
+        Thread secondThread = new Thread(() -> transactions.executeWithoutResult(status -> {
+            // Blocks on the advisory lock until the first transaction commits.
+            grants.lockAuthorizationChanges(organizationId);
+            secondCount.set(grants.countActiveOwners(organizationId));
+            status.setRollbackOnly();
+            secondDone.countDown();
+        }));
+
+        first.start();
+        assertTrue(firstLocked.await(10, TimeUnit.SECONDS), "first revocation never locked");
+        secondThread.start();
+        // Still blocked on the lock while the first transaction holds it open.
+        assertFalse(secondDone.await(500, TimeUnit.MILLISECONDS),
+                "second revocation read past a held authorization lock");
+        releaseFirst.countDown();
+        first.join(10_000);
+        secondThread.join(10_000);
+        assertFalse(first.isAlive());
+        assertFalse(secondThread.isAlive());
+
+        assertEquals(1, secondCount.get(),
+                "the serialized second count must see the committed first revocation");
+        assertEquals(1, grants.countActiveOwners(organizationId));
+        assertEquals(
+                OrganizationRoleGrant.GrantStatus.REVOKED,
+                grants.findByIdForUpdate(organizationId, firstGrant.id()).orElseThrow().status());
+        assertEquals(
+                OrganizationRoleGrant.GrantStatus.ACTIVE,
+                grants.findByIdForUpdate(organizationId, secondGrant.id()).orElseThrow().status());
     }
 
     @SpringBootConfiguration

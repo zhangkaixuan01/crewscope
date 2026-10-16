@@ -34,6 +34,15 @@ public interface OrganizationRoleGrantRepository {
     /** Number of ACTIVE ORG_OWNER grants; drives the last-owner protection. */
     long countActiveOwners(OrganizationId organizationId);
 
+    /**
+     * Serializes authorization changes of one organization on the caller's transaction. The
+     * last-owner guard reads an unguarded {@link #countActiveOwners}, so two concurrent
+     * revocations of <em>different</em> owner grants must not interleave (their per-row locks
+     * never meet). The default is a no-op for single-threaded fakes; the production JDBC
+     * adapter overrides it with a PostgreSQL advisory transaction lock and MUST keep doing so.
+     */
+    default void lockAuthorizationChanges(OrganizationId organizationId) {}
+
     /** Whether any ACTIVE ORG_OWNER exists; drives the initial-owner provisioning guard. */
     boolean hasActiveOwner(OrganizationId organizationId);
 
