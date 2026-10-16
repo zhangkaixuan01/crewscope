@@ -37,11 +37,13 @@ withDefaults(defineProps<{
   justify-content: center;
   gap: var(--cs-space-8);
   border: 1px solid transparent;
-  border-radius: var(--cs-radius-sm);
+  border-radius: var(--cs-radius-md);
   font-weight: var(--cs-weight-semibold);
   cursor: pointer;
-  transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), color var(--cs-motion-fast) var(--cs-ease-out);
+  transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out);
 }
+/* 按压回弹：点击瞬间缩到 .97、松手沿 ease-out 弹回——全站此前没有任何 :active 反馈。 */
+.base-button:active:not(:disabled) { transform: scale(.97); }
 .base-button--medium { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-16); }
 .base-button--small { min-height: calc(var(--cs-density-control-height) - var(--cs-space-4)); padding: 0 var(--cs-space-12); font-size: var(--cs-text-xs); }
 .base-button--primary { background: var(--cs-action-primary); color: var(--cs-action-primary-text); }
