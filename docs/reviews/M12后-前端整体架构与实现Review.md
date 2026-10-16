@@ -4,7 +4,8 @@
 > 评审范围：`crewscope-web/src` 全部 **424 个非测试源文件**（.ts/.vue，排除 `*.spec.ts` 与 `env.d.ts`）——`api` / `app` / `components` / `composables` / `design` / `domains` / `pages` / `spikes`，另覆盖 `e2e/` 结构、`scripts/` 前端门禁、`package.json` 依赖面<br>
 > 评审方式：三路并行——①主评审跑全量依赖图审计（自写脚本：可达性/孤儿/SCC 循环/跨层违规/composables 使用数）；②29 个页面 .vue 全文逐个通读（含 WorkPage 2080 行、ConversationPage 1453 行）；③components 约 200 个文件按六维模式（button/select/table/keydown/backdrop/role/props/emits）全扫 + 大文件精读。**两份子报告的关键断言已逐条经 grep/wc 抽查复核，本文数字以复核后为准**<br>
 > 微交互注记：评审基线之上已落一笔微交互包（`f45db0c`：BaseButton 按压回弹+圆角 md + BaseDialog/BaseDrawer 进出场动画，见 §5.4），本文其余发现不受其影响<br>
-> 评审角色：前端架构 + 组件库 + 交互工程<br>
+> 第二轮增补（2026-10-17）：§10 交互与样式设计走查（灵动视角）——23 个页面状态的基线截图视觉走查 + 灵动度量化审计，与第一轮代码层发现互补<br>
+> 评审角色：前端架构 + 组件库 + 交互工程；第二轮增补为交互/视觉设计视角<br>
 > 结论：**分层架构、类型卫生、设计系统 token 化已达 A 档；核心债务集中在一件事——「复制代替抽象」。模态外壳手写 25 份、下拉 6 套、查询工具 7 份、双胞胎组件 6 组、store 样板 28 份。修复是收敛的：接通 2 个已建成的死基础件、下沉 2 个 composable、抽 6 个泛型骨架，可一次性消化约 4000+ 行重复，并顺带消灭全部已知的键盘/层叠一致性缺陷。**
 
 ---
@@ -264,3 +265,104 @@ StatePanel 体系全覆盖、SearchPage stale-while-retry、SetupPage 状态机�
 - **口径与复核**：两份子报告（pages/components）的全部高严重度断言经主评审逐条 grep/wc 抽查复核，本文数字以复核后为准——手写陷阱 25 处/24 文件（精确）、BaseDialog 消费者 1（WorkProjectCreateDialog:6，带 .vue 后缀 import）、BaseDrawer 0、死基础件 6、裸 button 202 vs BaseButton 412（components+pages+App.vue 行级 grep）、`title="` 376、Transition 4、BaseSkeleton 生产 1 页、AuthCheckbox 生产 0。WorkPage 死样式经模板区逐类比对修正为 **6 个死类**（子报告记 4 个——.work-content/.work-list 同样零引用）。
 - **非债注记**：21 story+2 预览+5 spikes 属 Histoire/dev 工具（不入产物包）；openapi.ts 是 check-openapi-drift 金丝雀；check-empty-states 豁免清单是门禁设计的一部分。
 - **评审脚本**：依赖图审计脚本（Tarjan SCC+可达性）存于 job tmp（dep-audit.mjs），P5 的 check-front-boundaries 门禁可直接以其为母本。
+
+---
+
+## 10. 第二轮增补：交互与样式设计走查（灵动视角，2026-10-17）
+
+> 以交互/视觉设计视角（十年 B 端工作台设计经验）复审。素材：158 张 e2e 基线截图中选 24 张代表页——3 张单页走查 + 6 个 2×2 拼接网格（其中 1 网格图像工具解析失败弃用），实得 **23 个页面状态**的视觉走查；叠加灵动度量化审计（grep 口径同 §9，components+pages 的 .vue）与既有代码层发现。**所有视觉结论逐条回源码裁定，误报剔除见 §10.3.5。**
+
+### 10.1 设计记分卡（第二轮专项）
+
+| 维度 | 评 | 一句话依据 |
+|---|---|---|
+| 视觉层级 | B+ | 页面骨架清晰（eyebrow→H2→meta 的三段式全站贯彻），但工作台族普遍「区块等权、主操作不突出」 |
+| 排版与密度 | B | 知识族接近 Notion 品质；设置页过松（单屏密度低）、监控族偏紧，两端摆动 |
+| 色彩克制度 | B+ | 色板克制、语义色成系统；但橙黄系语义过载（评审中/等待中共用琥珀域） |
+| 组件形态一致性 | B- | base 层同构良好；域层 6 套下拉/4 种模态行为（§3/§4 已入档）在视觉上同样可见 |
+| 状态与反馈设计 | C | 加载态多为纯文字、骨架屏全站仅 1 页、空态质量参差（Observability 质量节无空态，§6） |
+| 微交互与灵动 | D+ | hover 盲区 54 文件、按压反馈几乎为零、动效词汇表基本未启用（§10.2） |
+| 暗色主题适配 | B- | 结构一致，但 diff 暗色格文字对比度可读性一般 |
+| 页面家族气质 | C+ | 设置页（白卡细边、疏朗）与工作台（深色区头、高密度）是两套气质，缺一个统一的「CrewScope 感」 |
+| 文案与提示 | B | 中文文案克制专业；`title=` 376 处原生提示是体验下限（§4 已入档） |
+
+**总评**：这是一个「静态有品质、动态近乎沉默」的界面。token 体系、色板克制度、信息架构都是好设计的底子；缺的是**对用户存在的回应**——鼠标悬停没有回声、按下没有手感、内容变化没有动线。灵动感不是加装饰，而是把已有的静态品质翻译成时间维度上的确认感。
+
+### 10.2 灵动度量化基线：三个结构性缺口
+
+| 指标 | 数量 | 口径 |
+|---|---|---|
+| `cursor: pointer` | 154 处 | 可点元素总量级 |
+| `:hover` | 76 处 | 悬停反馈规则 |
+| `:active` | 5 处 | 按压反馈（含微交互包 `f45db0c` 的 BaseButton） |
+| `transition:` | 29 处 / 22 文件 | 过渡声明 |
+| `@keyframes` / `animation:` | 18 处 / 9 文件 | 关键帧动画 |
+| `:focus-visible` | 45 处 / 30 文件 | 键盘焦点样式 |
+
+- **缺口一：hover 盲区（最重）**——154 处 `cursor:pointer` 对 76 处 `:hover`，**54 个文件声明了可点却无任何悬停反馈**，其中 8 个在 base 层：BaseTabs / BaseSwitch / BaseCheckbox / BaseRadio / BaseTag / BaseDialog / BaseDrawer / AuthCheckbox。这不是零散遗漏而是系统性缺口：连视图切换器（WorkItemsToolbar 的 List/Board/Graph）都只有 active 态无 hover 态。用户在屏幕上移动鼠标时，界面一半的「可点」不回应。
+- **缺口二：按压反馈几乎为零**——`:active` 全站 5 处。除微交互包的 BaseButton 外，其余按钮按下时视觉上纹丝不动（裸 button 202 处，§9）。
+- **缺口三：动效词汇表已建成、未启用**——tokens.css 备好了完整时长阶（`--cs-motion-fast: 120ms` / `base: 180ms` / `slow: 260ms`，tokens.css:243-245）且 `prefers-reduced-motion` 下全部归零（tokens.css:386-388），但全站仅 22 文件用到 transition、9 文件有关键帧；`Transition` 组件 4 处全在 base 层。**TypingIndicator 是全站唯一「活着」的组件**。动效合规成本为零（走 token 自动获得 reduced-motion 适配），低密度纯粹因为没人用。
+- 缺 `--cs-ease-in`（离开曲线）：token 表只有 `ease-out`（入场）与 `ease-in-out`；离开若复用 ease-out 会拖泥带水——建议补 `cubic-bezier(.4, 0, 1, 1)`。
+- 与 §5.4 互为闭环：动效缺位不会被视觉基线抓到（`maxDiffPixelRatio: 0.02` 盲区），**基线测不出「死」，正如测不出「活」**——灵动性守护只能靠 DOM 级断言（§8 P5 已列）。
+
+### 10.3 视觉走查发现（按主题，标注证据页）
+
+**10.3.1 层级与主操作**（工作台族普遍问题）
+1. 评审工作台（review-workbench）：**Approve 与 Reject 视觉权重相当**——一个是推进主操作、一个是终止操作，等权摆放让正确路径不显眼。建议 Approve 实心主色、Reject 降为 secondary/ghost（危险语义保留在 hover 态）。
+2. 执行工作台（execution-studio）：**状态双轨**——「DURABLE CONTROL 执行控制」区与中部「增量 Attempt 2 · 执行中」重复表达同一状态，用户需要自行对齐两处。建议合并为单一权威状态区，控制区只放操作不放状态复述。
+3. 工作详情（work-detail）：元信息网格过于均匀（等距等权的三列卡片），缺主次；右上操作按钮组权重相同，无主 CTA。
+4. 模型设置（model-settings）：分组标题字号差异过小，扫读依赖分隔线而非字号——层级应该先于线条被读到。
+
+**10.3.2 密度与排版**
+1. 设置族表单间距偏松，单屏信息密度低，长表单滚动成本高（model-settings / agent-configuration）。
+2. 会话页（conversation）：消息气泡行宽约 400px 偏窄，且右对齐气泡贴容器边缘；时间戳/序号建议统一弱化（12px、次级灰）。
+3. 依赖图（work-graph）：节点集中在画布左侧 1/3，右侧大面积留白，构图失衡——初始视口应居中或自动 fit。
+4. 筛选区三个 select 顶部对齐标签 12px（work-toolbar），标签与控件的视觉绑定偏弱。
+5. 交付工作台（action-delivery）右侧步骤导航 12px 偏小，建议 14px + 编号。
+
+**10.3.3 一致性**
+1. **设置页与工作台两套气质**：设置页白卡+细边+疏朗，工作台深色区头+高密度。治理入口（/settings/organization、/settings/quota）是 M12 新面，趁 P1 收敛时统一「区头 + 卡片」的语言。
+2. 会话页用户/Agent 仅靠色彩区分（绿/白气泡）——色觉障碍下无冗余线索，建议补头像或形状标记（与 §4 可访问性发现同源）。
+3. 暗色 diff（diff-highlight-dark）：文字对比度可读性一般，语义色在暗色域的亮度阶需要单独校准。
+
+**10.3.4 状态与反馈设计**
+1. 工作列表（work-list）：成功/失败状态色对比不醒目，语义色在浅底上饱和度不足。
+2. 骨架屏全站仅 1 页使用（§9）——加载态大多是「加载中…」文字。首屏与列表滚动是骨架屏的两个天然位置。
+3. 看板卡片徽章与正文断点不明（徽章字号与正文差太小），建议徽章降为 11px+大写字距（work-board）。
+
+**10.3.5 误报剔除（走查纪律的例证）**
+- 「+ 新建工作项按钮被状态筛选下拉遮挡/裁切」——**两次独立视觉走查报告，源码排除**：`.create-work-item { flex: 0 0 auto }`（WorkItemsToolbar.vue:130）不收缩，工具栏 grid 三列在 1440px 下无挤压，1050px 以下有专门折叠降级（:138）。AI 视觉走查把「按钮紧邻筛选区」误读为裁切——**本节所有发现均以此纪律处理**：视觉报告只立假设，源码与计算样式定谳。
+
+### 10.4 灵动路线图（动效设计规范）
+
+原则：**全部走既有 token**（时长阶 120/180/260ms + ease-out；reduced-motion 自动归零），不新造词汇；每处动效回答一个问题——「用户刚做了什么，界面如何确认」。
+
+**第一档：即时反馈层（低风险高回报，可与 P0 同批）**
+
+| 位置 | 动效 | 参数 |
+|---|---|---|
+| base 层 8 控件 hover（§10.2 缺口一名单） | 背景色/边框色过渡 | `background-color var(--cs-motion-fast) var(--cs-ease-out)` |
+| 视图切换器 List/Board/Graph（WorkItemsToolbar） | hover 补 `--cs-surface-accent` 背景 | 同上 |
+| 列表行（work-list / knowledge / skills / activity） | hover 背景条 + 左缘 2px 主色指示 | 120ms；指示条用 scaleY 展开 |
+| 看板卡片、知识卡片 | hover 升起：`translateY(-1px)` + shadow 从 hairline 升到 float | 120ms，禁用期间不累积（transition 只挂 transform/shadow） |
+| 全站按钮按压 | BaseButton 的 `scale(.97)` 模式推广到 icon button / 菜单项 | 已有 token（`f45db0c`） |
+
+**第二档：结构层动效（配合 P1/P2 收敛，组件迁移随迁）**
+1. 模态落场：BaseDialog 的 `scale(.96) translateY(10px)` 起身已是范本（`f45db0c`）——P1 迁移 24 份手写模态时**动效随组件自动获得**，这是「先收敛后灵动」的复利。
+2. 抽屉滑入：BaseDrawer 按停靠侧 translateX 已实现（`f45db0c`）；建议离开加速：补 `--cs-ease-in` token 后离开曲线换 ease-in，体感更利落。
+3. 下拉展开：P2 复活 BaseDropdown 时统一 `scale(.97)→1` + opacity，transform-origin 设在锚点侧。
+4. 页签切换：BaseTabs 内容区 120ms fade + 4px 上移，配 P0 的 roving tabindex 一起交付。
+
+**第三档：标志性瞬间（差异化体验，1–2 处足矣，勿多）**
+1. 依赖图节点拖拽：边跟随 + 松手后节点弹性归位（`--cs-motion-slow` 260ms + ease-out）——工作台族的记忆点。
+2. 会话流新消息：120ms fade + 8px 上移入场（TypingIndicator 已有伙伴感，补上到达感）。
+3. 执行进度条带：进行中的 attempt 加呼吸态（opacity .85↔1，900ms 循环，同 spin 周期）——「系统在干活」的持续信号。
+
+**守护**：以上全部走 token 即自动获得 reduced-motion 适配（tokens.css:386-388 已全局归零）；第一档完成后的回归面（hover 背景条/卡片升起）超出视觉基线敏感度（§5.4 盲区），须按 §8 P5 补 DOM 级断言（`getComputedStyle` 断言 transition 属性存在），而非依赖截图。
+
+### 10.5 与 §8 路线图的关系
+
+- §10.2 缺口一（54 文件 hover 盲区）并入 **P0/P1**：base 层 8 控件 hover 补齐是半天工作量，收益全站可见；域层随 P1/P2 组件迁移随迁。
+- §10.3.1 主操作层级（评审工作台 Approve/Reject 等 4 条）并入 **P1 尾部**：纯样式调整，趁 P1 触碰这些页面时一并做。
+- §10.4 第二档与 P1/P2 天然同批（动效随组件收敛自动获得）；第三档独立排期，建议 M13。
+- `--cs-ease-in` token 补齐与 keyframes spin 收敛（P5 已列）同批。
