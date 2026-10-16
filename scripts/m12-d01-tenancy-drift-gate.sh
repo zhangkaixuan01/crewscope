@@ -169,8 +169,9 @@ assert_snapshot_equals() {
 }
 
 # Ownership anchors re-asserted in every phase: the drilled organization row exists exactly
-# once, and the schema still carries exactly the 129 organization-scoped tables the S01
-# inventory froze (a live tripwire against silent column/schema drift).
+# once, and the schema still carries exactly the organization-scoped tables the S01 inventory
+# froze plus the nine M12 tables added on top (V68 role/setting ×2, V69 governance jobs ×5,
+# V70 quota ×2) — a live tripwire against silent column/schema drift.
 assert_ownership_anchors() {
   if [ ! -f "$SEED_COORDS" ]; then
     echo "gate: $SEED_COORDS missing — run the seed phase first" >&2
@@ -188,11 +189,11 @@ assert_ownership_anchors() {
     exit 1
   fi
   scoped_tables=$(psql_scalar "SELECT count(*) FROM information_schema.columns c JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE' WHERE c.table_schema = 'crewscope' AND c.column_name = 'organization_id'")
-  if [ "$scoped_tables" != "129" ]; then
-    echo "gate: organization-scoped table count is '$scoped_tables', expected 129 (S01 inventory)" >&2
+  if [ "$scoped_tables" != "138" ]; then
+    echo "gate: organization-scoped table count is '$scoped_tables', expected 138 (S01 inventory 129 + V68/V69/V70 ×9)" >&2
     exit 1
   fi
-  echo "gate: ownership anchors hold (organization = 1 row, drilled org bound, scoped tables = 129)"
+  echo "gate: ownership anchors hold (organization = 1 row, drilled org bound, scoped tables = 138)"
 }
 
 cleanup() {
