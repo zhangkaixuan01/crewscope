@@ -30,7 +30,7 @@
 | # | 方法 | 路径 | 权限（capability） | 幂等 |
 |---|---|---|---|---|
 | 1 | GET | `/api/v1/organizations/{orgId}` | 本组织 ACTIVE principal | — |
-| 2 | GET | `…/settings` | SETTINGS_READ（AUDITOR+） | — |
+| 2 | GET | `…/settings` | SETTINGS_READ（ADMIN+；auditor 词汇集无 SETTINGS_READ——Q01 家族矩阵裁定） | — |
 | 3 | PUT | `…/settings` | SETTINGS_WRITE（ADMIN+） | Idem-Key+If-Match |
 | 4 | GET | `…/role-grants` | AUDIT_READ_ORG（AUDITOR+） | — |
 | 5 | POST | `…/role-grants` | ROLE_ASSIGN；授 OWNER 需 ROLE_ASSIGN_OWNER | Idem-Key |
