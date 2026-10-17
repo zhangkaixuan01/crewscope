@@ -157,6 +157,7 @@ async function mountPage(mode: FixtureMode, selectedAgentId?: string, attachToDo
   const wrapper = mount(AgentSettingsPage, {
     attachTo: attachToDocument ? document.body : undefined,
     global: {
+      stubs: { teleport: true },
       plugins: [router],
       provide: {
         [AUTH_PRINCIPAL as symbol]: principal,

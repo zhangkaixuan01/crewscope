@@ -41,7 +41,9 @@ describe('LarkNotificationAdmin', () => {
     const opener = wrapper.findAll('button').find(button => button.text().includes('创建连接'))!
     ;(opener.element as HTMLButtonElement).focus()
     await opener.trigger('click')
-    expect(document.activeElement).toBe(wrapper.get('#credential-title').element)
+    // 单向密钥输入的初始焦点落在第一个输入框：打开即可输入，不需要先 Tab。
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(document.activeElement).toBe(dialog.findAll('input')[0]!.element)
 
     await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
     await flushPromises()
@@ -270,7 +272,7 @@ function mountAdmin(overrides: Record<string, unknown> = {}, attachToDocument = 
     deliveries: [], deliveryPhase: 'ready', deliveryError: null, deliveryNextCursor: null, deliveryLoadingMore: false,
     selectedDelivery: null, command: command('idle'), online: true, selectedTab: 'connection', mappingStatus: null,
     deliveryStatus: null, deliveryType: null, recipient: '', ...overrides,
-  } as never, attachTo: attachToDocument ? document.body : undefined })
+  } as never, global: { stubs: { teleport: true } }, attachTo: attachToDocument ? document.body : undefined })
 }
 
 function command(phase: TeamOpsCommandState['phase'], operation: string | null = null, domainEventId = uuid(8)): TeamOpsCommandState {

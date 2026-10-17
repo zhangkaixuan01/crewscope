@@ -43,11 +43,14 @@ describe('AccountWorkspace', () => {
     await wrapper.find('form.account-form--password').trigger('submit')
     expect(wrapper.get('[role="alert"]').text()).toContain('不一致')
 
-    await buttons.find(button => button.text().includes('退出全部设备'))!.trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('包括当前设备')
+    const revokeTrigger = buttons.find(button => button.text().includes('退出全部设备'))!
+    // jsdom 不会在 click 时移动焦点；真实浏览器里点击即聚焦，焦点恢复契约依赖这一事实。
+    revokeTrigger.element.focus()
+    await revokeTrigger.trigger('click')
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('包括当前设备')
     expect(document.activeElement).toBe(wrapper.get('input[name="revokeCurrentPassword"]').element)
-    await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
-    expect(document.activeElement).toBe(buttons.find(button => button.text().includes('退出全部设备'))!.element)
+    await wrapper.get('[role="alertdialog"]').trigger('keydown', { key: 'Escape' })
+    expect(document.activeElement).toBe(revokeTrigger.element)
   })
 
   it('explains offline protection and disables every account mutation', () => {
@@ -62,6 +65,7 @@ describe('AccountWorkspace', () => {
 function mountWorkspace(overrides: Record<string, unknown> = {}) {
   return mount(AccountWorkspace, {
     attachTo: document.body,
+    global: { stubs: { teleport: true } },
     props: {
       profile: profile(), commandPhase: 'idle', operation: null, problem: null,
       commandGeneration: 0, online: true,

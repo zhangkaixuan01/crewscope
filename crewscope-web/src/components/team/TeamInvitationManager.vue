@@ -7,6 +7,7 @@ import { offlineInvitationProblem } from '../../domains/invitation/presentation'
 import { useInvitationStore } from '../../domains/invitation/store'
 import type { InvitationRole, TeamInvitationSummary } from '../../domains/invitation/types'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 
@@ -28,8 +29,6 @@ const errorSummary = ref<HTMLElement | null>(null)
 const shareInput = ref<HTMLInputElement | null>(null)
 const managerHeading = ref<HTMLElement | null>(null)
 const revokeTarget = ref<TeamInvitationSummary | null>(null)
-const revokeTrigger = ref<HTMLElement | null>(null)
-const revokeDialog = ref<HTMLElement | null>(null)
 const revokeError = ref<HTMLElement | null>(null)
 
 const commandPending = computed(() => store.state.commandPhase === 'pending')
@@ -113,18 +112,17 @@ async function copyLink(): Promise<void> {
   }
 }
 
-async function openRevoke(invitation: TeamInvitationSummary, event: MouseEvent): Promise<void> {
-  if (event.currentTarget instanceof HTMLElement) revokeTrigger.value = event.currentTarget
+function openRevoke(invitation: TeamInvitationSummary): void {
   revokeTarget.value = invitation
   store.clearCommand()
-  await nextTick(() => revokeDialog.value?.querySelector<HTMLElement>('button')?.focus())
 }
 
 function closeRevoke(afterRemoval = false): void {
   if (commandPending.value) return
   revokeTarget.value = null
   store.clearCommand()
-  void nextTick(() => (afterRemoval ? managerHeading.value : revokeTrigger.value)?.focus())
+  // 确认撤销后触发它的行已被删除，opener 无法归还焦点——回到面板标题。
+  if (afterRemoval) void nextTick(() => managerHeading.value?.focus())
 }
 
 async function confirmRevoke(): Promise<void> {
@@ -135,24 +133,6 @@ async function confirmRevoke(): Promise<void> {
     closeRevoke(true)
   } else if (store.state.commandProblem?.code === 'invitation_not_pending') {
     await store.loadManagement(props.organizationId, props.teamId)
-  }
-}
-
-function trapDialog(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeRevoke()
-    return
-  }
-  if (event.key !== 'Tab' || !revokeDialog.value) return
-  const items = [...revokeDialog.value.querySelectorAll<HTMLElement>('button:not(:disabled)')]
-  if (!items.length) return
-  const first = items[0]!
-  const last = items.at(-1)!
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault(); last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault(); first.focus()
   }
 }
 
@@ -230,22 +210,32 @@ function formatDate(value: string): string {
         <div class="invitation-row__identity"><strong>{{ invitation.targetEmail ?? '不限邮箱' }}</strong><small>{{ roleLabel(invitation.targetRole) }} · 创建于 {{ formatDate(invitation.createdAt) }}</small></div>
         <div class="invitation-row__expiry"><Clock3 :size="13" /><span>{{ invitation.status === 'PENDING' ? `有效至 ${formatDate(invitation.expiresAt)}` : invitation.resolvedAt ? formatDate(invitation.resolvedAt) : '已结束' }}</span></div>
         <StatusBadge :tone="statusTone(invitation.status)" dot>{{ statusLabel(invitation.status) }}</StatusBadge>
-        <BaseButton v-if="invitation.status === 'PENDING'" variant="ghost" size="small" :disabled="!online" @click="openRevoke(invitation, $event)">撤销</BaseButton>
+        <BaseButton v-if="invitation.status === 'PENDING'" variant="ghost" size="small" :disabled="!online" @click="openRevoke(invitation)">撤销</BaseButton>
       </li>
       <BaseButton v-if="store.state.nextCursor" class="load-more" variant="secondary" :loading="store.state.managementPhase === 'loading'" @click="store.loadManagement(organizationId, teamId, true)">加载更多</BaseButton>
     </ul>
 
     <footer class="invitation-manager__note"><ShieldCheck :size="15" /><span>邀请链接只显示一次；列表和日志不保存明文 Token。</span></footer>
 
-    <div v-if="revokeTarget" class="dialog-backdrop" @mousedown.self="closeRevoke()">
-      <section ref="revokeDialog" class="revoke-dialog" role="dialog" aria-modal="true" aria-labelledby="revoke-invitation-title" @keydown="trapDialog">
-        <p class="eyebrow">Invitation control</p>
-        <h3 id="revoke-invitation-title">撤销这个邀请？</h3>
-        <p>{{ revokeTarget.targetEmail ?? '不限邮箱' }} 将不能再使用该链接加入 Team。这个操作不会移除已经加入的成员。</p>
+    <BaseDialog
+      :open="revokeTarget !== null"
+      title="撤销这个邀请？"
+      eyebrow="Invitation control"
+      width="min(420px, 100%)"
+      :close-disabled="commandPending"
+      close-label="关闭撤销邀请"
+      @close="closeRevoke()"
+    >
+      <div class="revoke-body">
+        <p>{{ revokeTarget?.targetEmail ?? '不限邮箱' }} 将不能再使用该链接加入 Team。这个操作不会移除已经加入的成员。</p>
         <div v-if="store.state.commandPhase === 'error'" ref="revokeError" class="invitation-alert" role="alert" tabindex="-1"><strong>{{ store.state.commandProblem?.title }}</strong><span>{{ store.state.commandProblem?.message }}</span></div>
-        <div class="revoke-dialog__actions"><BaseButton variant="ghost" :disabled="commandPending" @click="closeRevoke()">取消</BaseButton><BaseButton variant="danger" :loading="commandPending" :disabled="!online" @click="confirmRevoke">确认撤销</BaseButton></div>
-      </section>
-    </div>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="ghost" autofocus :disabled="commandPending" @click="closeRevoke()">取消</BaseButton>
+        <BaseButton variant="danger" :loading="commandPending" :disabled="!online" @click="confirmRevoke">确认撤销</BaseButton>
+      </template>
+    </BaseDialog>
   </section>
 </template>
 
@@ -255,9 +245,9 @@ function formatDate(value: string): string {
 .invitation-form { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(130px, .7fr) minmax(120px, .6fr); gap: var(--cs-space-16); padding: var(--cs-space-16); border: 1px solid var(--cs-border-accent); border-radius: 13px; background: var(--cs-surface-accent); }.invitation-form__title { display: grid; grid-column: 1 / -1; grid-template-columns: 36px 1fr 28px; gap: var(--cs-space-12); }.invitation-form__title > span { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; background: var(--cs-surface); color: var(--cs-text-brand); }.invitation-form__title h3 { margin-bottom: var(--cs-space-2); font-size: var(--cs-text-base); }.invitation-form__title p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.invitation-form__title > button { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: transparent; cursor: pointer; }.invitation-form label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.invitation-form input, .invitation-form select, .one-time-link input { width: 100%; min-width: 0; min-height: 38px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 8px; outline: 0; background: var(--cs-surface); font-size: var(--cs-text-base); }.invitation-form input:focus, .invitation-form select:focus, .one-time-link input:focus { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }.invitation-form__actions { display: flex; grid-column: 1 / -1; gap: var(--cs-space-8); }
 .one-time-link { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr auto; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: 10px; background: var(--cs-surface); }.one-time-link > div { display: flex; grid-column: 1 / -1; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); }.one-time-link span, .one-time-link strong, .one-time-link small { display: block; }.one-time-link strong { font-size: var(--cs-text-sm); }.one-time-link small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .invitation-list { display: grid; overflow: hidden; padding: 0; margin: 0; border: 1px solid var(--cs-border); border-radius: 11px; list-style: none; }.invitation-row { display: grid; min-height: 64px; grid-template-columns: 34px minmax(180px, 1.2fr) minmax(190px, 1fr) auto 60px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.invitation-row:last-of-type { border-bottom: 0; }.invitation-row__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.invitation-row__identity strong, .invitation-row__identity small { display: block; overflow-wrap: anywhere; }.invitation-row__identity strong { font-size: var(--cs-text-sm); }.invitation-row__identity small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.invitation-row__expiry { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.load-more { justify-self: center; margin: var(--cs-space-12); }.invitation-manager__note { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.dialog-backdrop { position: fixed; z-index: var(--cs-z-dialog); inset: 0; display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); }.revoke-dialog { display: grid; width: min(420px, 100%); gap: var(--cs-space-12); padding: var(--cs-space-24); border-radius: 15px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }.revoke-dialog h3 { font-size: var(--cs-text-lg); }.revoke-dialog > p:not(.eyebrow) { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.revoke-dialog__actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }
+.revoke-body { display: grid; gap: var(--cs-space-12); }.revoke-body > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 @media (max-width: 850px) { .invitation-row { grid-template-columns: 34px 1fr auto; }.invitation-row__expiry { grid-column: 2; }.invitation-row > :last-child { grid-column: 3; grid-row: 2; }.invitation-form { grid-template-columns: 1fr 1fr; }.invitation-form label:first-of-type { grid-column: 1 / -1; } }
-@media (max-width: 767px) { .invitation-manager { padding: var(--cs-space-16); }.invitation-manager__heading { align-items: stretch; flex-direction: column; }.invitation-manager__heading > button { width: 100%; }.invitation-form { grid-template-columns: 1fr; }.invitation-form label:first-of-type, .invitation-form__title, .invitation-form__actions, .one-time-link { grid-column: auto; }.one-time-link { grid-template-columns: 1fr; }.one-time-link > div { grid-column: auto; }.invitation-row { grid-template-columns: 32px minmax(0, 1fr) auto; padding-inline: var(--cs-space-12); }.invitation-row__expiry { grid-column: 2 / -1; }.revoke-dialog__actions { display: grid; grid-template-columns: 1fr; } }
+@media (max-width: 767px) { .invitation-manager { padding: var(--cs-space-16); }.invitation-manager__heading { align-items: stretch; flex-direction: column; }.invitation-manager__heading > button { width: 100%; }.invitation-form { grid-template-columns: 1fr; }.invitation-form label:first-of-type, .invitation-form__title, .invitation-form__actions, .one-time-link { grid-column: auto; }.one-time-link { grid-template-columns: 1fr; }.one-time-link > div { grid-column: auto; }.invitation-row { grid-template-columns: 32px minmax(0, 1fr) auto; padding-inline: var(--cs-space-12); }.invitation-row__expiry { grid-column: 2 / -1; } }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .invitation-form__title > button:hover:not(:disabled) { background: var(--cs-surface-accent); }

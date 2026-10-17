@@ -65,7 +65,7 @@ describe('RepositoryBuildDialog', () => {
 
   it('closes through the footer cancel control', async () => {
     const harness = mounted()
-    await harness.wrapper.get('footer button').trigger('click')
+    await harness.wrapper.get('.base-dialog__footer button').trigger('click')
     expect(harness.wrapper.emitted('close')).toHaveLength(1)
   })
 })
@@ -90,7 +90,7 @@ function mounted(commandOverrides: { errorMessage?: string, errorCode?: string |
       errorCode: commandOverrides.errorCode ?? null,
       errorStatus: commandOverrides.errorStatus ?? null,
     },
-    global: { provide: { [SCOPE_STORE as symbol]: scope, [CODING_STORE as symbol]: coding } },
+    global: { stubs: { teleport: true }, provide: { [SCOPE_STORE as symbol]: scope, [CODING_STORE as symbol]: coding } },
   })
   return { wrapper, scopeState, codingCalls }
 }

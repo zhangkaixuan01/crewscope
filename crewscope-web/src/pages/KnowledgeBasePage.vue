@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { secureId } from '../api/secureId'
 import { BookPlus, RefreshCw, Sparkles } from '@lucide/vue'
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
+import BaseDialog from '../components/base/BaseDialog.vue'
 import KnowledgeCreateDialog from '../components/domain/KnowledgeCreateDialog.vue'
 import KnowledgeDistillationDialog from '../components/domain/KnowledgeDistillationDialog.vue'
 import KnowledgeEntryDetail from '../components/domain/KnowledgeEntryDetail.vue'
@@ -41,6 +42,7 @@ const distillOpen = ref(false)
 const distillReceipt = ref(store.distillationReceipt())
 const deleteTarget = ref<string | null>(null)
 const deleteConfirmed = ref(false)
+const deleteImpactId = useId()
 /** Entry-scoped commands mint their key here; create/distill dialogs own their own keys. */
 const commandAttempt = ref<{ op: string, entryId: string, key: string } | null>(null)
 
@@ -415,18 +417,27 @@ function idleVersionPage(): KnowledgeVersionPageResource {
       />
     </div>
 
-    <div v-if="deleteTarget" class="knowledge-delete-backdrop" @click.self="cancelDelete">
-      <section class="knowledge-delete-dialog panel" role="alertdialog" aria-modal="true" aria-labelledby="knowledge-delete-title" aria-describedby="knowledge-delete-impact" tabindex="-1">
-        <header><h3 id="knowledge-delete-title">删除知识条目</h3></header>
-        <p id="knowledge-delete-impact">删除后条目进入删除墓碑状态：列表保留墓碑行，历史引用不会失效，已发布版本转为只读。此操作可通过服务端审计追溯，但界面不提供恢复入口。</p>
-        <label class="knowledge-delete-confirm"><input v-model="deleteConfirmed" type="checkbox" :disabled="deleting" />我确认删除此条目并保留墓碑</label>
+    <BaseDialog
+      :open="deleteTarget !== null"
+      role="alertdialog"
+      title="删除知识条目"
+      width="min(500px, 100%)"
+      :described-by="deleteImpactId"
+      :close-disabled="store.state.command.phase === 'pending'"
+      close-label="关闭删除确认"
+      @close="cancelDelete"
+    >
+      <div class="knowledge-delete-body">
+        <p :id="deleteImpactId">删除后条目进入删除墓碑状态：列表保留墓碑行，历史引用不会失效，已发布版本转为只读。此操作可通过服务端审计追溯，但界面不提供恢复入口。</p>
+        <label class="knowledge-delete-confirm"><input v-model="deleteConfirmed" type="checkbox" :disabled="store.state.command.phase === 'pending'" />我确认删除此条目并保留墓碑</label>
         <p v-if="commandForSelection?.phase === 'error' && commandForSelection.operation === 'delete'" class="knowledge-delete-error" role="alert">{{ commandForSelection.errorMessage }}</p>
-        <footer>
-          <BaseButton variant="ghost" :disabled="store.state.command.phase === 'pending'" @click="cancelDelete">取消</BaseButton>
-          <BaseButton variant="danger" :loading="deleting" :disabled="!deleteConfirmed" @click="confirmDelete">确认删除</BaseButton>
-        </footer>
-      </section>
-    </div>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="ghost" autofocus :disabled="store.state.command.phase === 'pending'" @click="cancelDelete">取消</BaseButton>
+        <BaseButton variant="danger" :loading="deleting" :disabled="!deleteConfirmed" @click="confirmDelete">确认删除</BaseButton>
+      </template>
+    </BaseDialog>
 
     <KnowledgeCreateDialog
       v-if="createOpen"
@@ -451,17 +462,11 @@ function idleVersionPage(): KnowledgeVersionPageResource {
 
 <style scoped>
 .knowledge-workspace { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: var(--cs-space-16); align-items: start; }
-.knowledge-delete-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }
-.knowledge-delete-dialog { width: min(500px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-danger-border); box-shadow: var(--cs-shadow-float); }
-.knowledge-delete-dialog h3 { margin: 0; font-size: var(--cs-text-md); }
-.knowledge-delete-dialog > p { margin: var(--cs-space-12) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
-.knowledge-delete-confirm { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.knowledge-delete-error { margin: var(--cs-space-12) 0 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
-.knowledge-delete-dialog footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }
+.knowledge-delete-body { display: grid; gap: var(--cs-space-12); }
+.knowledge-delete-body > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.knowledge-delete-confirm { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.knowledge-delete-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 @media (max-width: 767px) {
   .knowledge-workspace { grid-template-columns: 1fr; }
-  .knowledge-delete-backdrop { align-items: end; padding: 0; }
-  .knowledge-delete-dialog footer { display: grid; }
-  .knowledge-delete-dialog footer > * { width: 100%; }
 }
 </style>

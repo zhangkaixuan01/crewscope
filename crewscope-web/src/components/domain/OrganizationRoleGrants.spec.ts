@@ -89,7 +89,7 @@ describe('OrganizationRoleGrants', () => {
 
     await wrapper.findAll('button').find(button => button.text().includes('撤销'))!.trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
-    await wrapper.get('[role="dialog"]').trigger('submit')
+    await wrapper.get('.org-revoke-body').trigger('submit')
     await flushPromises()
 
     expect(gateway.revokeRoleGrant).toHaveBeenCalledWith(organizationId, 'g-1', {}, 2, expect.any(String))
@@ -115,6 +115,7 @@ async function mountComponent(principal: AuthenticatedPrincipal, gateway: Organi
   const wrapper = mount(OrganizationRoleGrants, {
     props: { organizationId },
     global: {
+      stubs: { teleport: true },
       provide: {
         [AUTH_PRINCIPAL as symbol]: principal,
         [AUTH_STORE as symbol]: authStore,

@@ -98,7 +98,13 @@ async function toggle(): Promise<void> {
 function choose(entry: Entry): void {
   open.value = false
   emit('action', entry.action)
-  void nextTick(() => trigger.value?.focus())
+  // 选中后若打开了模态（生命周期确认、责任交接），焦点必须交给模态的焦点陷阱——这里的
+  // 归还会在陷阱初始聚焦之后执行，把焦点抢回触发钮（M12b-F02 迁移后 MemberLifecycleDialog
+  // 实测失焦）。只有未开模态的选择才把焦点归还给触发钮。
+  void nextTick(() => {
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+    trigger.value?.focus()
+  })
 }
 
 function onKeydown(event: KeyboardEvent): void {

@@ -134,15 +134,15 @@ describe('KnowledgeBasePage', () => {
     const listsBefore = gateway.listCalls.length
 
     await wrapper.findAll('button').find(button => button.text().includes('创建条目'))!.trigger('click')
-    const inputs = wrapper.findAll('form.knowledge-dialog input[type="text"]')
+    const inputs = wrapper.findAll('.base-dialog form input[type="text"]')
     await inputs[0]!.setValue('release-notes')
     await inputs[1]!.setValue('发布说明')
-    await wrapper.get('form.knowledge-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form').trigger('submit')
     await flushPromises()
 
     expect(gateway.createInputs).toHaveLength(1)
     expect(gateway.createInputs[0]).toMatchObject({ entryKey: 'release-notes', title: '发布说明' })
-    expect(wrapper.find('.knowledge-dialog').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog form').exists()).toBe(false)
     expect(gateway.listCalls.length).toBeGreaterThan(listsBefore)
     wrapper.unmount()
   })
@@ -151,10 +151,10 @@ describe('KnowledgeBasePage', () => {
     const { wrapper, router } = await mountPage(manager, '')
 
     await wrapper.findAll('button').find(button => button.text().includes('从执行蒸馏'))!.trigger('click')
-    const inputs = wrapper.findAll('form.knowledge-dialog input[type="text"]')
+    const inputs = wrapper.findAll('.base-dialog form input[type="text"]')
     await inputs[0]!.setValue(executionId)
     await inputs[1]!.setValue('postmortem-cache')
-    await wrapper.get('form.knowledge-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form').trigger('submit')
     await flushPromises()
 
     const receipt = wrapper.get('section[aria-label="蒸馏回执"]')
@@ -164,7 +164,7 @@ describe('KnowledgeBasePage', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.query.entry).toBe(entryId)
-    expect(wrapper.find('.knowledge-dialog').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog form').exists()).toBe(false)
     wrapper.unmount()
   })
 })
@@ -185,7 +185,7 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, overr
         [SCOPE_STORE as symbol]: scopeStore,
         [KNOWLEDGE_STORE as symbol]: store,
       },
-      stubs: { AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
+      stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
     },
   })
   await flushPromises()

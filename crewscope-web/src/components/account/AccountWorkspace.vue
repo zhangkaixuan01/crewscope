@@ -2,6 +2,7 @@
 import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, UserRound } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import type { AccountProblem } from '../../domains/account/presentation'
 import { loginIdentityProviderLabel, loginIdentityStatusLabels } from '../../domains/identity/labels'
@@ -52,10 +53,7 @@ const revokePassword = ref('')
 const fieldProblem = ref('')
 const errorSummary = ref<HTMLElement | null>(null)
 const pageHeading = ref<HTMLElement | null>(null)
-const revokeDialog = ref<HTMLElement | null>(null)
-const revokeInput = ref<HTMLInputElement | null>(null)
 const revokeError = ref<HTMLElement | null>(null)
-const revokeTrigger = ref<HTMLElement | null>(null)
 
 const pending = computed(() => props.commandPhase === 'pending')
 const avatar = computed(() => Array.from(props.profile.displayName.trim())[0] ?? '?')
@@ -153,18 +151,15 @@ function cancelPassword(): void {
   editPassword.value = false
 }
 
-async function openRevoke(event: MouseEvent): Promise<void> {
+function openRevoke(): void {
   fieldProblem.value = ''
-  if (event.currentTarget instanceof HTMLElement) revokeTrigger.value = event.currentTarget
   revokeOpen.value = true
-  await nextTick(() => revokeInput.value?.focus())
 }
 
 function closeRevoke(): void {
   if (pending.value) return
   revokePassword.value = ''
   revokeOpen.value = false
-  void nextTick(() => revokeTrigger.value?.focus())
 }
 
 function submitRevoke(): void {
@@ -181,26 +176,6 @@ function invalid(message: string): void {
   void nextTick(() => (revokeOpen.value ? revokeError.value : errorSummary.value)?.focus())
 }
 
-function trapDialog(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeRevoke()
-    return
-  }
-  if (event.key !== 'Tab' || !revokeDialog.value) return
-  const items = Array.from(revokeDialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)'))
-  if (items.length === 0) return
-  const first = items[0]!
-  const last = items.at(-1)!
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
-
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value))
 }
@@ -211,51 +186,26 @@ function formatDateTime(value: string): string {
 
 /** Deleting the current browser session is a logout equivalent (M12-I01 §2), so it asks first. */
 const signOutTarget = ref<BrowserSessionSummary | null>(null)
-const signOutDialog = ref<HTMLElement | null>(null)
-const signOutTrigger = ref<HTMLElement | null>(null)
 
 function sessionBusy(session: BrowserSessionSummary): boolean {
   return props.deletingSessionId === session.sessionId
 }
 
-function askRevokeSession(event: MouseEvent, session: BrowserSessionSummary): void {
+function askRevokeSession(session: BrowserSessionSummary): void {
   if (!session.current) {
     emit('revokeSession', session)
     return
   }
-  if (event.currentTarget instanceof HTMLElement) signOutTrigger.value = event.currentTarget
   signOutTarget.value = session
-  void nextTick(() => signOutDialog.value?.querySelector('button')?.focus())
 }
 
 function closeSignOut(): void {
   if (props.deletingSessionId) return
   signOutTarget.value = null
-  void nextTick(() => signOutTrigger.value?.focus())
 }
 
 function confirmSignOut(): void {
   if (signOutTarget.value) emit('revokeSession', signOutTarget.value)
-}
-
-function trapSignOutDialog(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeSignOut()
-    return
-  }
-  if (event.key !== 'Tab' || !signOutDialog.value) return
-  const items = Array.from(signOutDialog.value.querySelectorAll<HTMLElement>('button:not(:disabled)'))
-  if (items.length === 0) return
-  const first = items[0]!
-  const last = items.at(-1)!
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 </script>
 
@@ -339,7 +289,7 @@ function trapSignOutDialog(event: KeyboardEvent): void {
                 <th scope="row"><span class="session-device"><MonitorSmartphone :size="15" aria-hidden="true" />{{ session.current ? '当前设备' : '其他设备' }}</span><span v-if="session.current" class="session-badge">本机</span></th>
                 <td>{{ formatDateTime(session.lastAccessedAt) }}</td>
                 <td>{{ formatDateTime(session.createdAt) }}</td>
-                <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession($event, session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>
+                <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession(session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>
               </tr>
             </tbody>
           </table>
@@ -348,23 +298,31 @@ function trapSignOutDialog(event: KeyboardEvent): void {
       </div>
     </div>
 
-    <div v-if="revokeOpen" class="dialog-backdrop" @mousedown.self="closeRevoke">
-      <section ref="revokeDialog" class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="revoke-title" @keydown="trapDialog">
-        <div class="confirmation-dialog__icon"><LogOut :size="20" /></div>
-        <div><p class="eyebrow">Security confirmation</p><h3 id="revoke-title">退出全部设备？</h3><p>所有浏览器 Session 都会失效，包括当前设备。之后需要重新登录。</p></div>
+    <BaseDialog :open="revokeOpen" role="alertdialog" title="退出全部设备？" eyebrow="Security confirmation" width="min(440px, 100%)" :close-disabled="pending" close-label="取消操作" @close="closeRevoke">
+      <template #icon><LogOut :size="20" /></template>
+      <div class="account-dialog__body">
+        <p class="account-dialog__description">所有浏览器 Session 都会失效，包括当前设备。之后需要重新登录。</p>
         <div v-if="fieldProblem || (operation === 'sessions' && problem)" ref="revokeError" class="account-alert" role="alert" tabindex="-1"><strong>{{ fieldProblem ? '请检查输入' : problem?.title }}</strong><span>{{ fieldProblem || problem?.message }}</span></div>
-        <label>当前密码<input ref="revokeInput" v-model="revokePassword" name="revokeCurrentPassword" type="password" autocomplete="current-password" maxlength="512" :disabled="pending"></label>
-        <div class="form-actions"><BaseButton variant="danger" :loading="pending && operation === 'sessions'" @click="submitRevoke">确认退出全部设备</BaseButton><BaseButton variant="ghost" :disabled="pending" @click="closeRevoke">取消</BaseButton></div>
-      </section>
-    </div>
+        <label>当前密码<input v-model="revokePassword" name="revokeCurrentPassword" type="password" autocomplete="current-password" maxlength="512" :disabled="pending" autofocus></label>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮；此框的可聚焦输入（密码）先于 footer，承接初始焦点。 -->
+        <BaseButton variant="ghost" :disabled="pending" @click="closeRevoke">取消</BaseButton>
+        <BaseButton variant="danger" :loading="pending && operation === 'sessions'" @click="submitRevoke">确认退出全部设备</BaseButton>
+      </template>
+    </BaseDialog>
 
-    <div v-if="signOutTarget" class="dialog-backdrop" @mousedown.self="closeSignOut">
-      <section ref="signOutDialog" class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="signout-title" @keydown="trapSignOutDialog">
-        <div class="confirmation-dialog__icon"><LogOut :size="20" /></div>
-        <div><p class="eyebrow">Session confirmation</p><h3 id="signout-title">退出本设备？</h3><p>撤销当前设备的会话等同于退出登录，之后需要重新登录。</p></div>
-        <div class="form-actions"><BaseButton variant="danger" :loading="deletingSessionId !== null" @click="confirmSignOut">退出本设备</BaseButton><BaseButton variant="ghost" :disabled="deletingSessionId !== null" @click="closeSignOut">取消</BaseButton></div>
-      </section>
-    </div>
+    <BaseDialog :open="signOutTarget !== null" role="alertdialog" title="退出本设备？" eyebrow="Session confirmation" width="min(440px, 100%)" :close-disabled="deletingSessionId !== null" close-label="取消操作" @close="closeSignOut">
+      <template #icon><LogOut :size="20" /></template>
+      <div class="account-dialog__body">
+        <p class="account-dialog__description">撤销当前设备的会话等同于退出登录，之后需要重新登录。</p>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="ghost" autofocus :disabled="deletingSessionId !== null" @click="closeSignOut">取消</BaseButton>
+        <BaseButton variant="danger" :loading="deletingSessionId !== null" @click="confirmSignOut">退出本设备</BaseButton>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
@@ -403,18 +361,16 @@ function trapSignOutDialog(event: KeyboardEvent): void {
 .login-identities__time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .account-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-16); padding-top: var(--cs-space-20); margin-top: var(--cs-space-20); border-top: 1px solid var(--cs-border); }
 .account-form--password { grid-template-columns: 1fr; }
-.account-form label, .confirmation-dialog label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.account-form input, .confirmation-dialog input { width: 100%; min-width: 0; min-height: 40px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 9px; outline: 0; background: var(--cs-surface); font-size: var(--cs-text-base); font-weight: var(--cs-weight-medium); }
-.account-form input:focus, .confirmation-dialog input:focus { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }
+.account-form label, .account-dialog__body label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.account-form input, .account-dialog__body input { width: 100%; min-width: 0; min-height: 40px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 9px; outline: 0; background: var(--cs-surface); font-size: var(--cs-text-base); font-weight: var(--cs-weight-medium); }
+.account-form input:focus, .account-dialog__body input:focus { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }
 .account-form small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .account-form__wide { grid-column: 1 / -1; }.form-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 .account-alert { display: grid; gap: var(--cs-space-2); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-danger-border); border-radius: 10px; background: var(--cs-danger-soft); color: var(--cs-danger); }
 .account-alert--warning { border-color: var(--cs-warning-border); background: var(--cs-warning-soft); color: var(--cs-warning); }
 .account-alert strong { font-size: var(--cs-text-sm); }.account-alert span { font-size: var(--cs-text-sm); }
-.dialog-backdrop { position: fixed; z-index: var(--cs-z-dialog); inset: 0; display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); }
-.confirmation-dialog { display: grid; width: min(440px, 100%); gap: var(--cs-space-16); padding: var(--cs-space-24); border-radius: 16px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
-.confirmation-dialog__icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-danger-soft); color: var(--cs-danger); }
-.confirmation-dialog h3 { margin-bottom: var(--cs-space-8); font-size: var(--cs-text-lg); }.confirmation-dialog p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.account-dialog__body { display: grid; gap: var(--cs-space-16); }
+.account-dialog__description { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 @media (max-width: 767px) {
   .account-heading { align-items: flex-start; padding-inline: var(--cs-space-2); }.account-heading h2 { font-size: var(--cs-text-xl); }.account-avatar { width: 46px; height: 46px; }
   .account-layout { grid-template-columns: 1fr; }.account-layout > nav { position: static; grid-template-columns: repeat(3, 1fr); overflow-x: auto; }

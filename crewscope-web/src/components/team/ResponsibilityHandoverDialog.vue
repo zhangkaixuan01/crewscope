@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ArrowLeftRight, RefreshCw, X } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { handoverCounts } from '../../domains/scope/types'
 import { enumLabel } from '../../domains/shared/labels'
-import { isTopmostModal } from '../../app/dialog'
 import { handoverErrorCodeLabels, handoverJobStatusLabels } from '../../domains/scope/labels'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
 /**
@@ -33,7 +33,6 @@ const emit = defineEmits<{
   cancelJob: []
 }>()
 
-const dialog = ref<HTMLElement | null>(null)
 const selectedRole = ref('OWNER')
 const selectedMemberId = ref('')
 /** `ResponsibilityRole` on the wire: OWNER / EXECUTOR / REVIEWER (gate vs advisory is server-routed). */
@@ -46,10 +45,9 @@ const itemStateLabels: Record<string, string> = { PENDING: '待处理', DONE: '�
 const target = computed(() => props.candidates.find(member => member.id === selectedMemberId.value) ?? null)
 const counts = computed(() => props.job ? handoverCounts(props.job) : null)
 
-watch(() => props.open, async open => {
+watch(() => props.open, open => {
   if (!open) return
   selectedMemberId.value = ''
-  await nextTick(() => dialog.value?.querySelector<HTMLElement>('select, button:not(:disabled)')?.focus())
 })
 
 watch(selectedRole, role => {
@@ -60,39 +58,23 @@ function close(): void {
   if (props.pending) return
   emit('close')
 }
-
-function trap(event: KeyboardEvent): void {
-  // 同 MemberLifecycleDialog：叠开时内层 Esc 不得穿透关闭外层（M12b-F01④）。
-  if (!isTopmostModal(dialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    close()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const items = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), select')]
-  if (!items.length) return
-  const first = items[0]!
-  const last = items.at(-1)!
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault(); last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault(); first.focus()
-  }
-}
 </script>
 
 <template>
-  <div v-if="open && source" class="dialog-backdrop" @mousedown.self="close()">
-    <section ref="dialog" class="handover-dialog" role="dialog" aria-modal="true" aria-labelledby="handover-dialog-title" tabindex="-1" @keydown="trap">
-      <p class="eyebrow">Responsibility handover</p>
-      <h3 id="handover-dialog-title">交接 {{ source.displayName }} 的责任</h3>
-
+  <BaseDialog
+    :open="open && source !== null"
+    :title="source ? `交接 ${source.displayName} 的责任` : ''"
+    eyebrow="Responsibility handover"
+    width="min(560px, 100%)"
+    :close-disabled="pending"
+    close-label="关闭责任交接"
+    @close="close()"
+  >
+    <div class="handover-body">
       <template v-if="!job">
         <p class="handover-dialog__hint">先选择要交接的责任角色，确认该角色的在途责任数量，再选择接手成员并创建交接。创建后可以逐项处理，冲突项会保留原状。</p>
         <label for="handover-role">责任角色</label>
-        <select id="handover-role" v-model="selectedRole">
+        <select id="handover-role" v-model="selectedRole" autofocus>
           <option v-for="role in handoverRoles" :key="role" :value="role">{{ roleLabels[role] }}</option>
         </select>
         <label for="handover-target">接手成员（须为 ACTIVE 成员）</label>
@@ -122,32 +104,29 @@ function trap(event: KeyboardEvent): void {
       </template>
 
       <div v-if="problem" class="handover-dialog__problem" role="alert">{{ problem }}</div>
-
-      <div class="handover-dialog__actions">
-        <BaseButton v-if="!job" variant="ghost" :disabled="pending" @click="close()">取消</BaseButton>
-        <BaseButton v-if="!job" :loading="pending" :disabled="!target || !selectedRole" @click="emit('create', target!.userPrincipalId, selectedRole)">
-          <ArrowLeftRight :size="14" />创建交接
+    </div>
+    <template #footer>
+      <BaseButton v-if="!job" variant="ghost" :disabled="pending" @click="close()">取消</BaseButton>
+      <BaseButton v-if="!job" :loading="pending" :disabled="!target || !selectedRole" @click="emit('create', target!.userPrincipalId, selectedRole)">
+        <ArrowLeftRight :size="14" />创建交接
+      </BaseButton>
+      <template v-else>
+        <BaseButton v-if="job.status === 'PENDING' || job.status === 'RUNNING'" variant="ghost" :disabled="pending" @click="emit('cancelJob')">取消剩余项</BaseButton>
+        <BaseButton v-if="job.status !== 'COMPLETED' && job.status !== 'CANCELLED'" :loading="pending" @click="emit('process')">
+          <RefreshCw :size="14" />处理交接
         </BaseButton>
-        <template v-else>
-          <BaseButton v-if="job.status === 'PENDING' || job.status === 'RUNNING'" variant="ghost" :disabled="pending" @click="emit('cancelJob')">取消剩余项</BaseButton>
-          <BaseButton v-if="job.status !== 'COMPLETED' && job.status !== 'CANCELLED'" :loading="pending" @click="emit('process')">
-            <RefreshCw :size="14" />处理交接
-          </BaseButton>
-          <BaseButton v-else variant="ghost" :disabled="pending" @click="close()"><X :size="14" />关闭</BaseButton>
-        </template>
-      </div>
-    </section>
-  </div>
+        <BaseButton v-else variant="ghost" :disabled="pending" @click="close()"><X :size="14" />关闭</BaseButton>
+      </template>
+    </template>
+  </BaseDialog>
 </template>
 
 <style scoped>
-.dialog-backdrop { position: fixed; z-index: var(--cs-z-dialog); inset: 0; display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); }
-.handover-dialog { display: grid; width: min(560px, 100%); max-height: min(80vh, 720px); overflow-y: auto; gap: var(--cs-space-12); padding: var(--cs-space-24); border-radius: 15px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
-.handover-dialog h3 { font-size: var(--cs-text-lg); }
+.handover-body { display: grid; gap: var(--cs-space-12); }
 .handover-dialog__hint, .handover-dialog__count { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .handover-dialog__count--muted { font-size: var(--cs-text-xs); }
-.handover-dialog label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.handover-dialog select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
+.handover-body label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.handover-body select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .handover-dialog__summary { display: flex; align-items: center; gap: var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .handover-dialog__items { display: grid; gap: var(--cs-space-4); max-height: 260px; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .handover-dialog__items li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; font-size: var(--cs-text-sm); }
@@ -156,5 +135,4 @@ function trap(event: KeyboardEvent): void {
 .handover-dialog__items li > small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .handover-dialog__note { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }
 .handover-dialog__problem { margin: 0; padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
-.handover-dialog__actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }
 </style>

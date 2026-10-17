@@ -21,7 +21,7 @@ const fixturePrincipal = {
 const scopeStore = { state: reactive({ selectedTeamId: '00000000-0000-0000-0000-000000000201', selectedProjectId: null }) } as unknown as ScopeStore
 
 function mountWorkbench(options: Record<string, unknown>) {
-  return mount(ReviewWorkbench, { ...options, global: { provide: { [SCOPE_STORE]: scopeStore, [AUTH_PRINCIPAL]: fixturePrincipal } } } as Parameters<typeof mount>[1])
+  return mount(ReviewWorkbench, { ...options, global: { provide: { [SCOPE_STORE]: scopeStore, [AUTH_PRINCIPAL]: fixturePrincipal }, stubs: { teleport: true } } } as Parameters<typeof mount>[1])
 }
 
 beforeEach(() => { clearF05UserData(); localStorage.clear(); activateF05Identity(fixtureAccount) })
@@ -49,9 +49,9 @@ describe('ReviewWorkbench', () => {
     const wrapper = mountWorkbench({ attachTo: document.body, props: props({ onRequestChanges, onDecide }) })
 
     await wrapper.get('.gate-actions button').trigger('click')
-    await wrapper.get('.gate-dialog button.decision-option--changes_requested').trigger('click')
-    await wrapper.get<HTMLTextAreaElement>('.gate-dialog textarea').setValue('补充配置为空时的回归测试')
-    await wrapper.get('.gate-dialog form').trigger('submit')
+    await wrapper.get('.base-dialog button.decision-option--changes_requested').trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('.base-dialog textarea').setValue('补充配置为空时的回归测试')
+    await wrapper.get('.base-dialog form').trigger('submit')
 
     expect(onRequestChanges).toHaveBeenCalledWith('补充配置为空时的回归测试')
     expect(onDecide).not.toHaveBeenCalled()
@@ -60,16 +60,19 @@ describe('ReviewWorkbench', () => {
 
   it('moves focus into the Gate dialog, traps it and restores the opener on Escape', async () => {
     const wrapper = mountWorkbench({ attachTo: document.body, props: props() })
-    const opener = wrapper.get('.gate-actions button')
+    const opener = wrapper.get<HTMLButtonElement>('.gate-actions button')
+    // jsdom 不会在 click 时移动焦点；真实浏览器里点击即聚焦，焦点恢复契约依赖这一事实。
+    opener.element.focus()
     await opener.trigger('click')
 
-    expect(document.activeElement).toBe(wrapper.get('.gate-dialog button[aria-pressed="true"]').element)
+    // 初始焦点落在当前选中的结论钮（COMMENTED），不落在背后的页面或 header 关闭钮。
+    expect(document.activeElement).toBe(wrapper.get('.base-dialog button[aria-pressed="true"]').element)
     const close = wrapper.get<HTMLButtonElement>('[aria-label="关闭 Gate Decision"]')
     close.element.focus()
     await close.trigger('keydown', { key: 'Tab', shiftKey: true })
-    expect(document.activeElement).toBe(wrapper.get<HTMLButtonElement>('.gate-dialog footer button:last-child').element)
-    await wrapper.get('.gate-dialog').trigger('keydown', { key: 'Escape' })
-    expect(wrapper.find('.gate-dialog').exists()).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get<HTMLButtonElement>('.base-dialog__footer button:last-child').element)
+    await wrapper.get('.base-dialog').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('.base-dialog').exists()).toBe(false)
     expect(document.activeElement).toBe(opener.element)
     wrapper.unmount()
   })

@@ -11,10 +11,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   TriangleAlert,
-  X,
 } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
-import { isTopmostModal } from '../../app/dialog'
+import { computed, ref, watch } from 'vue'
 import type { EtaggedReview } from '../../domains/review/types'
 import { deliveryAttemptKey, deliveryBundleKey, useDeliveryStore } from '../../domains/delivery/store'
 import type { ActionBundle, PlannedAction } from '../../domains/delivery/types'
@@ -35,6 +33,7 @@ import {
   repositoryVisibilityLabels,
 } from '../../domains/delivery/labels'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import type { SemanticTone } from '../base/types'
@@ -54,12 +53,8 @@ const body = ref('')
 const expectedRemoteHead = ref('')
 const confirmDialog = ref(false)
 const digestAcknowledged = ref(false)
-const confirmationDialog = ref<HTMLElement | null>(null)
-const confirmationTrigger = ref<HTMLElement | null>(null)
 const manualAction = ref<PlannedAction | null>(null)
 const manualExplanation = ref('')
-const manualDialog = ref<HTMLElement | null>(null)
-const manualTrigger = ref<HTMLElement | null>(null)
 
 const coordinates = computed(() => ({ taskId: props.taskId, executionId: props.executionId }))
 const connections = computed(() => store.state.connections.value ?? [])
@@ -135,12 +130,9 @@ async function plan(): Promise<void> {
   })
 }
 
-async function openConfirmation(event?: MouseEvent): Promise<void> {
-  if (event?.currentTarget instanceof HTMLElement) confirmationTrigger.value = event.currentTarget
+function openConfirmation(): void {
   digestAcknowledged.value = false
   confirmDialog.value = true
-  await nextTick()
-  confirmationDialog.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus()
 }
 
 async function confirm(): Promise<void> {
@@ -151,15 +143,11 @@ async function confirm(): Promise<void> {
 async function closeConfirmation(force = false): Promise<void> {
   if (commandPending.value && !force) return
   confirmDialog.value = false
-  await nextTick()
-  if (confirmationTrigger.value?.isConnected) confirmationTrigger.value.focus()
 }
 
-function openManual(action: PlannedAction, event?: MouseEvent): void {
-  if (event?.currentTarget instanceof HTMLElement) manualTrigger.value = event.currentTarget
+function openManual(action: PlannedAction): void {
   manualAction.value = action
   manualExplanation.value = ''
-  void nextTick(() => manualDialog.value?.querySelector<HTMLElement>('textarea')?.focus())
 }
 
 async function resolveFailure(): Promise<void> {
@@ -171,33 +159,6 @@ async function closeManual(force = false): Promise<void> {
   if (commandPending.value && !force) return
   manualAction.value = null
   manualExplanation.value = ''
-  await nextTick()
-  if (manualTrigger.value?.isConnected) manualTrigger.value.focus()
-}
-
-/** External-write dialogs retain focus inside the current topmost modal. */
-function trapDialogFocus(event: KeyboardEvent, dialog: HTMLElement | null, close: () => void): void {
-  if (!isTopmostModal(dialog)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    close()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog) return
-  const controls = [...dialog.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), textarea:not(:disabled)',
-  )]
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 
 function short(value: string | null | undefined, length = 10): string {
@@ -364,7 +325,7 @@ function stageDescription(action: PlannedAction): string {
                 <StatusBadge v-if="action.externalResult" :tone="statusTone(action.externalResult.status)">{{ label(action.externalResult.status, externalObjectStatusLabels) }}</StatusBadge>
               </div>
               <div v-if="['UNKNOWN', 'RECONCILING'].includes(action.dispatch?.status ?? '')" class="reconcile-note" role="status"><CircleDashed :size="15" /><div><strong>{{ label(action.dispatch?.status, actionDispatchStatusLabels) }}</strong><span>外部副作用结果尚不确定；系统只查询 GitHub 并对账，不会盲目重放写操作。第 {{ action.dispatch?.reconciliationAttempts }} 次对账。</span></div></div>
-              <div v-if="action.dispatch?.status === 'MANUAL_REVIEW'" class="manual-note"><CloudOff :size="15" /><div><strong>已进入人工队列</strong><span>自动对账已达到边界，Owner 可在核对 Provider 审计后终结为失败。</span></div><BaseButton size="small" variant="secondary" :disabled="!canConfirm || !online" aria-describedby="delivery-manual-reason" @click="openManual(action, $event)">人工终结</BaseButton></div>
+              <div v-if="action.dispatch?.status === 'MANUAL_REVIEW'" class="manual-note"><CloudOff :size="15" /><div><strong>已进入人工队列</strong><span>自动对账已达到边界，Owner 可在核对 Provider 审计后终结为失败。</span></div><BaseButton size="small" variant="secondary" :disabled="!canConfirm || !online" aria-describedby="delivery-manual-reason" @click="openManual(action)">人工终结</BaseButton></div>
             </div>
           </article>
         </div>
@@ -389,43 +350,57 @@ function stageDescription(action: PlannedAction): string {
     />
     <p v-else-if="store.state.command.phase === 'success'" class="command-success" role="status" aria-live="polite"><CheckCircle2 :size="14" />命令已提交并回读权威状态 · Correlation {{ short(store.state.command.correlationId) }}</p>
 
-    <div v-if="confirmDialog && bundle" class="dialog-backdrop" @click.self="closeConfirmation()">
-      <section ref="confirmationDialog" class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delivery-confirm-title" tabindex="-1" @keydown="trapDialogFocus($event, confirmationDialog, () => { void closeConfirmation() })">
-        <header><div><p>Human confirmation boundary</p><h3 id="delivery-confirm-title">确认执行 GitHub 写操作</h3></div><button type="button" aria-label="关闭确认对话框" :disabled="commandPending" @click="closeConfirmation()"><X :size="17" /></button></header>
-        <div class="confirm-content">
-          <p>本次确认将授权平台先 Push 受管分支，再在 Push 成功后创建 Draft PR。两个动作分别保留 Dispatch、Receipt 与 ExternalResult。</p>
-          <dl><div><dt>Repository</dt><dd>{{ bundle.repositoryKey }}</dd></div><div><dt>Version</dt><dd>v{{ bundle.version }}</dd></div><div><dt>Digest</dt><dd class="mono">{{ bundle.digest }}</dd></div></dl>
-          <label class="acknowledge"><input v-model="digestAcknowledged" type="checkbox" />我已逐项审查上方风险、依赖与参数，并确认当前完整 Digest。</label>
-        </div>
-        <footer><BaseButton variant="secondary" :disabled="commandPending" @click="closeConfirmation()">取消</BaseButton><BaseButton :loading="store.state.command.operation === 'confirm' && commandPending" :disabled="!digestAcknowledged || !online || !canConfirm" @click="confirm"><ShieldCheck :size="15" />精确确认</BaseButton></footer>
-      </section>
-    </div>
+    <BaseDialog
+      v-if="confirmDialog && bundle"
+      open
+      title="确认执行 GitHub 写操作"
+      eyebrow="Human confirmation boundary"
+      width="min(590px, 100%)"
+      :close-disabled="commandPending"
+      close-label="关闭确认对话框"
+      @close="closeConfirmation()"
+    >
+      <div class="confirm-content">
+        <p>本次确认将授权平台先 Push 受管分支，再在 Push 成功后创建 Draft PR。两个动作分别保留 Dispatch、Receipt 与 ExternalResult。</p>
+        <dl><div><dt>Repository</dt><dd>{{ bundle.repositoryKey }}</dd></div><div><dt>Version</dt><dd>v{{ bundle.version }}</dd></div><div><dt>Digest</dt><dd class="mono">{{ bundle.digest }}</dd></div></dl>
+        <label class="acknowledge"><input v-model="digestAcknowledged" type="checkbox" />我已逐项审查上方风险、依赖与参数，并确认当前完整 Digest。</label>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="secondary" :disabled="commandPending" autofocus @click="closeConfirmation()">取消</BaseButton><BaseButton :loading="store.state.command.operation === 'confirm' && commandPending" :disabled="!digestAcknowledged || !online || !canConfirm" @click="confirm"><ShieldCheck :size="15" />精确确认</BaseButton>
+      </template>
+    </BaseDialog>
 
-    <div v-if="manualAction" class="dialog-backdrop" @click.self="closeManual()">
-      <section ref="manualDialog" class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="manual-resolution-title" tabindex="-1" @keydown="trapDialogFocus($event, manualDialog, () => { void closeManual() })">
-        <header><div><p>Irreversible owner decision</p><h3 id="manual-resolution-title">人工终结为失败</h3></div><button type="button" aria-label="关闭人工终结对话框" :disabled="commandPending" @click="closeManual()"><X :size="17" /></button></header>
-        <div class="confirm-content"><p>仅在 Provider 审计已经证明没有外部对象时使用。该结论不可逆，不会触发 GitHub 写操作。</p><label>核验证据说明<textarea v-model="manualExplanation" rows="4" maxlength="2000" placeholder="至少 10 个字符，记录已核对的 Provider 审计证据。" /></label></div>
-        <footer><BaseButton variant="secondary" :disabled="commandPending" @click="closeManual()">取消</BaseButton><BaseButton variant="danger" :loading="store.state.command.operation === 'manual-resolution' && commandPending" :disabled="manualExplanation.trim().length < 10 || !online || !canConfirm" @click="resolveFailure">确认无外部对象</BaseButton></footer>
-      </section>
-    </div>
+    <BaseDialog
+      v-if="manualAction"
+      open
+      title="人工终结为失败"
+      eyebrow="Irreversible owner decision"
+      width="min(590px, 100%)"
+      :close-disabled="commandPending"
+      close-label="关闭人工终结对话框"
+      @close="closeManual()"
+    >
+      <div class="confirm-content"><p>仅在 Provider 审计已经证明没有外部对象时使用。该结论不可逆，不会触发 GitHub 写操作。</p><label>核验证据说明<textarea v-model="manualExplanation" rows="4" maxlength="2000" placeholder="至少 10 个字符，记录已核对的 Provider 审计证据。" autofocus /></label></div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="secondary" :disabled="commandPending" autofocus @click="closeManual()">取消</BaseButton><BaseButton variant="danger" :loading="store.state.command.operation === 'manual-resolution' && commandPending" :disabled="manualExplanation.trim().length < 10 || !online || !canConfirm" @click="resolveFailure">确认无外部对象</BaseButton>
+      </template>
+    </BaseDialog>
   </section>
 </template>
 
 <style scoped>
-.action-workbench { overflow: hidden; container: action-workbench / inline-size; }.action-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface)); }.action-heading p, .section-title p, .confirm-dialog header p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.action-heading h3, .section-title h4, .confirm-dialog h3 { margin: 0; }.action-heading h3 { font-size: var(--cs-text-md); }.heading-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
+.action-workbench { overflow: hidden; container: action-workbench / inline-size; }.action-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface)); }.action-heading p, .section-title p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.action-heading h3, .section-title h4 { margin: 0; }.action-heading h3 { font-size: var(--cs-text-md); }.heading-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .github-selection, .action-plan, .bundle-review { padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--cs-space-12); }.section-title h4 { font-size: var(--cs-text-base); }.section-title > svg { color: var(--cs-text-brand); }
 .selection-grid { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(150px, .8fr) minmax(210px, 1.2fr) auto; align-items: end; gap: var(--cs-space-8); }.selection-grid label, .plan-form label, .confirm-content > label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.selection-grid select, .plan-form input, .plan-form textarea, .confirm-content textarea { min-width: 0; min-height: 36px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.plan-form textarea, .confirm-content textarea { padding-block: var(--cs-space-8); resize: vertical; }.selection-actions { display: flex; gap: var(--cs-space-8); }.provider-facts { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-subtle); }.provider-facts span { min-width: 0; }.provider-facts small, .provider-facts strong { display: block; }.provider-facts small { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.provider-facts strong { overflow: hidden; font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.inline-result, .command-success, .webhook-note { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; font-size: var(--cs-text-xs); }.success, .command-success { color: var(--cs-success); }.error { color: var(--cs-danger); }
 .plan-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: var(--cs-space-12); }.plan-form .wide { grid-column: 1 / -1; }.plan-form textarea { min-height: 80px; }
 .stale-alert, .reconcile-note, .manual-note { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-12); border-radius: 9px; }.stale-alert { margin-bottom: var(--cs-space-12); background: var(--cs-danger-soft); color: var(--cs-danger); }.stale-alert strong, .stale-alert span, .reconcile-note strong, .reconcile-note span, .manual-note strong, .manual-note span { display: block; }.stale-alert span, .reconcile-note span, .manual-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }.bundle-facts { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: var(--cs-space-8); margin: 0 0 var(--cs-space-16); }.bundle-facts > div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-subtle); }.bundle-facts .digest { grid-column: 1 / -1; }.bundle-facts dt, .action-parameters dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.bundle-facts dd, .action-parameters dd { margin: var(--cs-space-4) 0 0; overflow-wrap: anywhere; font-size: var(--cs-text-xs); }
 .action-stages { display: grid; }.action-stage { display: grid; grid-template-columns: 28px 1fr; gap: var(--cs-space-8); }.stage-rail { display: grid; grid-template-rows: 27px 1fr; justify-items: center; }.stage-rail span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.stage-rail i { width: 1px; min-height: 20px; background: var(--cs-border-strong); }.stage-card { margin-bottom: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface); }.stage-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); }.stage-card > header strong, .stage-card > header span { display: block; }.stage-card > header strong { font-size: var(--cs-text-sm); }.stage-card > header span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); overflow-wrap: anywhere; }.stage-meta { display: flex; flex-wrap: wrap; gap: var(--cs-space-8) var(--cs-space-16); margin-top: var(--cs-space-8); padding-top: var(--cs-space-8); border-top: 1px dashed var(--cs-border); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.stage-meta b { color: var(--cs-text-secondary); }.action-parameters { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; }.action-parameters > div { min-width: 0; }.action-parameters .wide { grid-column: 1 / -1; }.pre-wrap { white-space: pre-wrap; }.result-strip { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-success-soft); color: var(--cs-success); }.result-strip > div { flex: 1; }.result-strip strong, .result-strip span { display: block; }.result-strip strong { font-size: var(--cs-text-xs); }.result-strip span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }.reconcile-note { margin-top: var(--cs-space-12); background: var(--cs-warning-soft); color: var(--cs-warning); }.manual-note { align-items: center; margin-top: var(--cs-space-12); background: var(--cs-surface-subtle); }.manual-note > div { flex: 1; }
 .confirmation-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); margin-top: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: 10px; background: var(--cs-surface-accent); }.confirmation-bar > div { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-brand-strong); }.confirmation-bar strong, .confirmation-bar span { display: block; }.confirmation-bar strong { font-size: var(--cs-text-sm); }.confirmation-bar span { font-size: var(--cs-text-xs); }.webhook-note { color: var(--cs-text-muted); }
-.command-success { padding: 0 var(--cs-space-20) var(--cs-space-16); }.dialog-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.confirm-dialog { width: min(590px, 100%); overflow: hidden; border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.confirm-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.confirm-dialog h3 { font-size: var(--cs-text-md); }.confirm-dialog header button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.confirm-content { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-20) var(--cs-space-20); }.confirm-content > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-relaxed); }.confirm-content dl { display: grid; gap: var(--cs-space-8); margin: 0; }.confirm-content dl div { display: grid; grid-template-columns: 85px 1fr; gap: var(--cs-space-8); }.confirm-content dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.confirm-content dd { margin: 0; overflow-wrap: anywhere; font-size: var(--cs-text-xs); }.acknowledge { grid-template-columns: 16px 1fr !important; align-items: flex-start; padding: var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); line-height: var(--cs-leading-normal); }.acknowledge input { margin: var(--cs-space-2) 0 0; }.confirm-dialog > footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); padding: 0 var(--cs-space-20) var(--cs-space-20); }
+.command-success { padding: 0 var(--cs-space-20) var(--cs-space-16); }.confirm-content { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-20) var(--cs-space-20); }.confirm-content > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-relaxed); }.confirm-content dl { display: grid; gap: var(--cs-space-8); margin: 0; }.confirm-content dl div { display: grid; grid-template-columns: 85px 1fr; gap: var(--cs-space-8); }.confirm-content dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.confirm-content dd { margin: 0; overflow-wrap: anywhere; font-size: var(--cs-text-xs); }.acknowledge { grid-template-columns: 16px 1fr !important; align-items: flex-start; padding: var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); line-height: var(--cs-leading-normal); }.acknowledge input { margin: var(--cs-space-2) 0 0; }
 @container action-workbench (max-width: 760px) { .selection-grid { grid-template-columns: 1fr 1fr; }.selection-actions { align-self: end; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 1000px) { .selection-grid { grid-template-columns: 1fr 1fr; }.selection-actions { align-self: end; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 767px) { .action-heading, .github-selection, .action-plan, .bundle-review { padding-inline: var(--cs-space-16); }.action-heading { align-items: flex-start; }.heading-actions { flex-direction: column; align-items: flex-end; }.selection-grid, .plan-form { grid-template-columns: 1fr; }.selection-actions { display: grid; grid-template-columns: 1fr 1fr; }.provider-facts { grid-template-columns: 1fr 1fr; }.plan-form .wide { grid-column: 1; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr; }.action-parameters .wide { grid-column: 1; }.confirmation-bar { align-items: stretch; flex-direction: column; }.dialog-backdrop { align-items: end; padding: 0; }.confirm-dialog { border-radius: 18px 18px 0 0; }.confirm-content dl div { grid-template-columns: 68px 1fr; } }
+@media (max-width: 767px) { .action-heading, .github-selection, .action-plan, .bundle-review { padding-inline: var(--cs-space-16); }.action-heading { align-items: flex-start; }.heading-actions { flex-direction: column; align-items: flex-end; }.selection-grid, .plan-form { grid-template-columns: 1fr; }.selection-actions { display: grid; grid-template-columns: 1fr 1fr; }.provider-facts { grid-template-columns: 1fr 1fr; }.plan-form .wide { grid-column: 1; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr; }.action-parameters .wide { grid-column: 1; }.confirmation-bar { align-items: stretch; flex-direction: column; }.confirm-content dl div { grid-template-columns: 68px 1fr; } }
 
-/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
-.confirm-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.confirm-dialog header button:active:not(:disabled) { transform: scale(.97); }
-.confirm-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

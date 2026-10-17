@@ -47,7 +47,7 @@ test('creates a handover from the preview and reports DONE and CONFLICT items', 
   await expect(dialog).toContainText('分派版本已变化，需人工处理')
   await expect(dialog).toContainText('有 1 项版本冲突、0 项被拒绝')
 
-  await dialog.getByRole('button', { name: '关闭' }).click()
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
   await expect(dialog).toHaveCount(0)
 })
 
@@ -63,7 +63,8 @@ test('cancels the remaining items without touching the queued assignments', asyn
   await dialog.getByRole('button', { name: '取消剩余项' }).click()
   await expect(dialog).toContainText('已取消')
   await expect(dialog.getByRole('button', { name: '处理交接' })).toHaveCount(0)
-  await expect(dialog.getByRole('button', { name: '关闭' })).toBeVisible()
+  // exact：header 还有 BaseDialog 的关闭钮（aria-label「关闭责任交接」），子串匹配会撞车。
+  await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toBeVisible()
 
   const job = Object.values(world.jobs)[0]!
   expect(job.status).toBe('CANCELLED')

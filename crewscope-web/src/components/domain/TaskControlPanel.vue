@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { CirclePause, CircleStop, Play, RotateCcw, ShieldCheck, TriangleAlert, WifiOff, X } from '@lucide/vue'
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
+import { CirclePause, CircleStop, Play, RotateCcw, ShieldCheck, TriangleAlert, WifiOff } from '@lucide/vue'
+import { computed, ref, useId, watch } from 'vue'
 import type {
   MemberTaskCommandOperation,
   TaskCommandVersionConflict,
@@ -8,6 +8,7 @@ import type {
 } from '../../domains/task/types'
 import { taskExecutionStatusLabels } from '../../domains/task/labels'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
 const props = defineProps<{
@@ -23,13 +24,12 @@ const props = defineProps<{
   onClearFeedback: () => void
 }>()
 
-const dialog = useTemplateRef<HTMLElement>('dialog')
-const reasonInput = useTemplateRef<HTMLTextAreaElement>('reasonInput')
+const commandFormId = useId()
+const impactId = useId()
 const operation = ref<MemberTaskCommandOperation | null>(null)
 const reason = ref('')
 const retryRevision = ref('')
 const submitted = ref(false)
-let trigger: HTMLElement | null = null
 
 const retryableFailureClasses = new Set([
   'TRANSIENT', 'RATE_LIMITED', 'TIMEOUT', 'RUNTIME_UNAVAILABLE', 'MODEL_UNAVAILABLE',
@@ -71,15 +71,14 @@ watch(
   },
 )
 
-function openDialog(next: MemberTaskCommandOperation, event: MouseEvent): void {
+function openDialog(next: MemberTaskCommandOperation): void {
   if (!availableOperations.value.includes(next) || props.pending) return
   props.onClearFeedback()
-  trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   operation.value = next
   reason.value = ''
   retryRevision.value = ''
   submitted.value = false
-  void nextTick(() => (needsReason.value ? reasonInput.value : dialog.value)?.focus())
+  // 初始焦点：需要原因的操作落在原因输入框、其余落在确认钮，均由 autofocus 交给 BaseDialog 的 trap 承接。
 }
 
 function closeDialog(): void {
@@ -88,9 +87,6 @@ function closeDialog(): void {
   reason.value = ''
   retryRevision.value = ''
   submitted.value = false
-  const returnTarget = trigger
-  trigger = null
-  void nextTick(() => returnTarget?.focus())
 }
 
 async function submit(): Promise<void> {
@@ -117,27 +113,7 @@ async function retryOriginal(): Promise<void> {
   }
 }
 
-function handleDialogKeydown(event: KeyboardEvent): void {
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeDialog()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')]
-    .filter(element => element.offsetParent !== null)
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
+const dialogOpen = computed(() => Boolean(operation.value && selectedDefinition.value))
 
 const definitions: Record<MemberTaskCommandOperation, {
   label: string
@@ -183,7 +159,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :disabled="Boolean(pending) || !online"
         :loading="pending === 'PAUSE'"
         aria-label="暂停当前 Task"
-        @click="openDialog('PAUSE', $event)"
+        @click="openDialog('PAUSE')"
       ><CirclePause :size="13" />暂停</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('RESUME')"
@@ -191,7 +167,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :disabled="Boolean(pending) || !online"
         :loading="pending === 'RESUME'"
         aria-label="恢复当前 Task"
-        @click="openDialog('RESUME', $event)"
+        @click="openDialog('RESUME')"
       ><Play :size="13" />恢复</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('RETRY')"
@@ -199,7 +175,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :disabled="Boolean(pending) || !online"
         :loading="pending === 'RETRY'"
         aria-label="重试当前 Task"
-        @click="openDialog('RETRY', $event)"
+        @click="openDialog('RETRY')"
       ><RotateCcw :size="13" />重试</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('CANCEL')"
@@ -208,7 +184,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :disabled="Boolean(pending) || !online"
         :loading="pending === 'CANCEL'"
         aria-label="取消当前 Task"
-        @click="openDialog('CANCEL', $event)"
+        @click="openDialog('CANCEL')"
       ><CircleStop :size="13" />取消</BaseButton>
     </div>
     <p v-else class="task-control-note">
@@ -224,34 +200,32 @@ const definitions: Record<MemberTaskCommandOperation, {
       <BaseButton v-if="retryable" size="small" variant="secondary" :disabled="!online" :loading="Boolean(pending)" @click="retryOriginal">使用原命令重试</BaseButton>
     </div>
 
-    <div v-if="operation && selectedDefinition" class="task-command-backdrop" @mousedown.self="closeDialog">
-      <form
-        ref="dialog"
-        class="task-command-dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="selectedDefinition.title"
-        tabindex="-1"
-        @submit.prevent="submit"
-        @keydown="handleDialogKeydown"
-      >
-        <header><div><p>Attempt {{ attempt?.attempt }} · v{{ attempt?.version }}</p><h4>{{ selectedDefinition.title }}</h4></div><button type="button" aria-label="关闭 Task 控制确认" :disabled="Boolean(pending)" @click="closeDialog"><X :size="17" /></button></header>
-        <p class="task-command-impact">{{ selectedDefinition.impact }}</p>
-        <label v-if="needsReason"><span>{{ operation === 'PAUSE' ? '暂停原因' : '取消原因' }}</span><textarea ref="reasonInput" v-model="reason" rows="4" maxlength="500" :disabled="Boolean(pending)" :aria-invalid="submitted && !reasonValid" placeholder="说明团队可见的控制原因" /></label>
+    <BaseDialog
+      :open="dialogOpen"
+      :title="selectedDefinition?.title ?? ''"
+      :eyebrow="`Attempt ${attempt?.attempt} · v${attempt?.version}`"
+      width="min(510px, 100%)"
+      :described-by="impactId"
+      :close-disabled="Boolean(pending)"
+      close-label="关闭 Task 控制确认"
+      @close="closeDialog"
+    >
+      <form :id="commandFormId" class="task-command-form" @submit.prevent="submit">
+        <p :id="impactId" class="task-command-impact">{{ selectedDefinition?.impact }}</p>
+        <label v-if="needsReason"><span>{{ operation === 'PAUSE' ? '暂停原因' : '取消原因' }}</span><textarea v-model="reason" rows="4" maxlength="500" autofocus :disabled="Boolean(pending)" :aria-invalid="submitted && !reasonValid" placeholder="说明团队可见的控制原因" /></label>
         <label v-if="operation === 'RETRY'"><span>切换 Configuration Revision <small>可选；留空沿用父 attempt</small></span><input v-model="retryRevision" type="number" min="1" step="1" inputmode="numeric" :disabled="Boolean(pending)" :aria-invalid="submitted && !retryRevisionValid" placeholder="例如 4"></label>
         <p v-if="submitted && !reasonValid" class="task-command-validation" role="alert">请输入 1–500 个不含控制字符的原因。</p>
         <p v-if="submitted && !retryRevisionValid" class="task-command-validation" role="alert">Configuration Revision 必须是大于等于 1 的整数。</p>
-        <footer><BaseButton type="button" variant="ghost" :disabled="Boolean(pending)" @click="closeDialog">返回</BaseButton><BaseButton type="submit" :variant="operation === 'CANCEL' ? 'danger' : 'primary'" :disabled="!online" :loading="pending === operation">确认{{ selectedDefinition.label }}</BaseButton></footer>
       </form>
-    </div>
+      <template #footer>
+        <BaseButton type="button" variant="ghost" :disabled="Boolean(pending)" @click="closeDialog">返回</BaseButton>
+        <BaseButton type="submit" :form="commandFormId" :variant="operation === 'CANCEL' ? 'danger' : 'primary'" :disabled="!online" :loading="pending === operation" autofocus>确认{{ selectedDefinition?.label }}</BaseButton>
+      </template>
+    </BaseDialog>
   </section>
 </template>
 
 <style scoped>
-.task-control-panel { padding: var(--cs-space-16); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-surface-accent), var(--cs-surface) 72%); }.task-control-heading, .task-control-current { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.task-control-heading p, .task-control-heading h3 { margin: 0; }.task-control-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.task-control-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.task-control-heading > svg { color: var(--cs-text-brand); }.task-control-current { padding: var(--cs-space-8) 0 var(--cs-space-8); margin-top: var(--cs-space-8); border-top: 1px solid var(--cs-border-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.task-control-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.task-control-actions :deep(.base-button:last-child) { margin-left: auto; }.task-control-note { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.task-control-offline { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-8) 0 0; color: var(--cs-warning); font-size: var(--cs-text-xs); }.task-control-conflict, .task-control-error { margin-top: var(--cs-space-8); border-radius: 8px; font-size: var(--cs-text-xs); }.task-control-conflict { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-8); background: var(--cs-warning-soft); color: var(--cs-warning); }.task-control-conflict svg { flex: 0 0 auto; }.task-control-conflict strong, .task-control-conflict span { display: block; }.task-control-conflict span { margin-top: var(--cs-space-2); color: var(--cs-text-secondary); line-height: var(--cs-leading-normal); }.task-control-error { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-8); background: var(--cs-danger-soft); color: var(--cs-danger); }.task-command-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.task-command-dialog { width: min(510px, 100%); overflow: hidden; border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.task-command-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.task-command-dialog header p, .task-command-dialog header h4 { margin: 0; }.task-command-dialog header p { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.task-command-dialog header h4 { margin-top: var(--cs-space-4); font-size: var(--cs-text-md); }.task-command-dialog header button { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.task-command-impact { margin: 0; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.task-command-dialog label { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-20) var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.task-command-dialog label small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.task-command-dialog textarea, .task-command-dialog input { width: 100%; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); resize: vertical; }.task-command-dialog [aria-invalid="true"] { border-color: var(--cs-danger); }.task-command-validation { margin: 0 var(--cs-space-20); color: var(--cs-danger); font-size: var(--cs-text-xs); }.task-command-dialog footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-16); }
-@media (max-width: 767px) { .task-control-actions { display: grid; grid-template-columns: 1fr 1fr; }.task-control-actions :deep(.base-button:last-child) { margin-left: 0; }.task-command-backdrop { align-items: end; padding: 0; }.task-command-dialog { width: 100%; border-radius: 16px 16px 0 0; }.task-command-dialog footer { display: grid; grid-template-columns: 1fr 1fr; }.task-control-error { align-items: stretch; flex-direction: column; } }
-/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
-.task-command-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.task-command-dialog header button:active:not(:disabled) { transform: scale(.97); }
-.task-command-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.task-control-panel { padding: var(--cs-space-16); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-surface-accent), var(--cs-surface) 72%); }.task-control-heading, .task-control-current { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.task-control-heading p, .task-control-heading h3 { margin: 0; }.task-control-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.task-control-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.task-control-heading > svg { color: var(--cs-text-brand); }.task-control-current { padding: var(--cs-space-8) 0 var(--cs-space-8); margin-top: var(--cs-space-8); border-top: 1px solid var(--cs-border-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.task-control-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.task-control-actions :deep(.base-button:last-child) { margin-left: auto; }.task-control-note { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.task-control-offline { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-8) 0 0; color: var(--cs-warning); font-size: var(--cs-text-xs); }.task-control-conflict, .task-control-error { margin-top: var(--cs-space-8); border-radius: 8px; font-size: var(--cs-text-xs); }.task-control-conflict { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-8); background: var(--cs-warning-soft); color: var(--cs-warning); }.task-control-conflict svg { flex: 0 0 auto; }.task-control-conflict strong, .task-control-conflict span { display: block; }.task-control-conflict span { margin-top: var(--cs-space-2); color: var(--cs-text-secondary); line-height: var(--cs-leading-normal); }.task-control-error { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-8); background: var(--cs-danger-soft); color: var(--cs-danger); }.task-command-form { display: grid; gap: var(--cs-space-8); }.task-command-impact { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.task-command-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.task-command-form label small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.task-command-form textarea, .task-command-form input { width: 100%; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); resize: vertical; }.task-command-form [aria-invalid="true"] { border-color: var(--cs-danger); }.task-command-validation { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }
+@media (max-width: 767px) { .task-control-actions { display: grid; grid-template-columns: 1fr 1fr; }.task-control-actions :deep(.base-button:last-child) { margin-left: 0; }.task-control-error { align-items: stretch; flex-direction: column; } }
 </style>

@@ -9,7 +9,7 @@ import { createScriptedCollaborationStore } from '../../test/collaborationFixtur
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
 import type { WorkItemAvailableTransition } from '../../domains/workitem/types'
 
-const global = { stubs: { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } } }
+const global = { stubs: { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' }, teleport: true } }
 
 describe('WorkItemDetailDrawer', () => {
   it('focuses the close action, exposes valid transitions and closes with Escape', async () => {
@@ -25,10 +25,11 @@ describe('WorkItemDetailDrawer', () => {
     expect(wrapper.get('.transition-control').text()).toContain('提交评审')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toBeTruthy()
-    expect(document.body.style.overflow).toBe('hidden')
+    // 滚动锁由 useFocusTrap 的 cs-modal-open 引用计数承担（F02 下沉），不再是 body 内联样式。
+    expect(document.body.classList.contains('cs-modal-open')).toBe(true)
 
     wrapper.unmount()
-    expect(document.body.style.overflow).toBe('')
+    expect(document.body.classList.contains('cs-modal-open')).toBe(false)
   })
 
   it('submits comments and ResourceLinks through the application callbacks', async () => {
@@ -57,9 +58,9 @@ describe('WorkItemDetailDrawer', () => {
   it('separates Personal Agent discussion from the durable Task delegation entry', async () => {
     const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
 
-    await wrapper.get('.detail-footer button:last-child').trigger('click')
+    await wrapper.get('.detail-footer__actions button:last-child').trigger('click')
     expect(wrapper.emitted('delegate')).toEqual([['']])
-    await wrapper.get('.detail-footer button:first-of-type').trigger('click')
+    await wrapper.get('.detail-footer__actions button:first-of-type').trigger('click')
     expect(wrapper.emitted('conversation')).toBeTruthy()
   })
 

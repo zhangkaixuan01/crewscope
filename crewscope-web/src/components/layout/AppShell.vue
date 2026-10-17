@@ -25,7 +25,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from '@lucide/vue'
-import { computed, inject, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useNetworkStatus } from '../../app/network'
@@ -41,7 +41,7 @@ import AppBreadcrumb from './AppBreadcrumb.vue'
 import UserAccountMenu from './UserAccountMenu.vue'
 import { usePreference } from '../../app/preference'
 import { requestCommandPalette } from '../../app/shortcuts'
-import { useFocusTrap } from '../../composables/useFocusTrap'
+import BaseDrawer from '../base/BaseDrawer.vue'
 
 defineProps<{
   title: string
@@ -78,10 +78,7 @@ const signOutError = ref<string | null>(null)
 const railCollapsed = usePreference('cs.pref.device.rail-collapsed.v1', false, { version: 1 })
 const railCollapsedValue = computed(() => railCollapsed.value.value)
 const mobileNavOpen = ref(false)
-const mobileNav = useTemplateRef<HTMLElement>('mobileNav')
-const mobileNavToggle = useTemplateRef<HTMLButtonElement>('mobileNavToggle')
 const mobileTouchStartX = ref<number | null>(null)
-useFocusTrap(mobileNav, mobileNavOpen)
 
 const navigationGroups = [
   { label: '工作', items: [
@@ -201,9 +198,9 @@ watch(
   { immediate: true },
 )
 
+// Esc、backdrop、关闭钮与焦点归还都由 BaseDrawer 的焦点陷阱承担（F02 收敛）。
 function closeMobileNav(): void {
   mobileNavOpen.value = false
-  void nextTick(() => mobileNavToggle.value?.focus())
 }
 function onMobileTouchStart(event: TouchEvent): void { mobileTouchStartX.value = event.changedTouches[0]?.clientX ?? null }
 function onMobileTouchEnd(event: TouchEvent): void {
@@ -212,14 +209,6 @@ function onMobileTouchEnd(event: TouchEvent): void {
   const end = event.changedTouches[0]?.clientX ?? start
   if (start !== null && end !== undefined && start - end > 56) closeMobileNav()
 }
-function onGlobalKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && mobileNavOpen.value) { event.preventDefault(); closeMobileNav() }
-}
-if (typeof window !== 'undefined') window.addEventListener('keydown', onGlobalKeydown)
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onGlobalKeydown)
-})
-watch(mobileNavOpen, async open => { if (open) await nextTick(() => mobileNav.value?.focus()) })
 
 function queryValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -289,7 +278,7 @@ async function signOut(): Promise<void> {
         <span aria-hidden="true">●</span>当前离线：已加载事实和草稿已保留，联网后可继续提交。
       </div>
       <div class="topbar" role="region" aria-label="全局工具栏">
-        <button ref="mobileNavToggle" class="mobile-menu-toggle" type="button" aria-label="打开主导航" :aria-expanded="mobileNavOpen" aria-controls="mobile-navigation" @click="mobileNavOpen = true"><PanelLeftOpen :size="18" aria-hidden="true" /></button>
+        <button class="mobile-menu-toggle" type="button" aria-label="打开主导航" :aria-expanded="mobileNavOpen" aria-controls="mobile-navigation" @click="mobileNavOpen = true"><PanelLeftOpen :size="18" aria-hidden="true" /></button>
         <div class="mode-switcher" aria-label="工作模式">
           <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
             <MessageSquare :size="16" aria-hidden="true" />对话
@@ -333,17 +322,14 @@ async function signOut(): Promise<void> {
       <main id="main-workspace" class="app-shell__workspace" :class="{ 'app-shell__workspace--fill': fill }" tabindex="-1"><slot /></main>
     </div>
 
-    <div v-if="mobileNavOpen" class="mobile-navigation-backdrop" @click.self="closeMobileNav">
-      <aside id="mobile-navigation" ref="mobileNav" class="mobile-navigation" aria-label="移动端主导航" role="dialog" aria-modal="true" tabindex="-1" @touchstart.passive="onMobileTouchStart" @touchend.passive="onMobileTouchEnd">
-        <header><strong>导航</strong><button type="button" aria-label="关闭主导航" @click="closeMobileNav"><PanelLeftClose :size="18" /></button></header>
-        <nav class="mobile-navigation__links">
-          <template v-for="group in visibleNavigationGroups" :key="group.label">
-            <p>{{ group.label }}</p>
-            <RouterLink v-for="item in group.items" :key="item.label" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined" @click="closeMobileNav"><component :is="item.icon" :size="17" aria-hidden="true" /><span>{{ item.label }}</span></RouterLink>
-          </template>
-        </nav>
-      </aside>
-    </div>
+    <BaseDrawer :open="mobileNavOpen" title="移动端主导航" side="left" width="min(300px, 86vw)" padding="var(--cs-space-16)" close-label="关闭主导航" @close="closeMobileNav">
+      <nav id="mobile-navigation" class="mobile-navigation__links" @touchstart.passive="onMobileTouchStart" @touchend.passive="onMobileTouchEnd">
+        <template v-for="group in visibleNavigationGroups" :key="group.label">
+          <p>{{ group.label }}</p>
+          <RouterLink v-for="item in group.items" :key="item.label" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined" @click="closeMobileNav"><component :is="item.icon" :size="17" aria-hidden="true" /><span>{{ item.label }}</span></RouterLink>
+        </template>
+      </nav>
+    </BaseDrawer>
 
     <nav class="mobile-mode" aria-label="移动端底部导航">
       <RouterLink :class="{ active: activeSection === 'today' }" :to="modeTarget('today')" :aria-current="activeSection === 'today' ? 'page' : undefined"><CalendarDays :size="18" />今日</RouterLink>
@@ -453,8 +439,5 @@ async function signOut(): Promise<void> {
   .network-banner { min-height: 40px; padding-inline: var(--cs-space-12); font-size: var(--cs-text-xs); }
 }
 .mobile-menu-toggle { display: none; width: var(--cs-touch-min); height: var(--cs-touch-min); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
-.mobile-navigation-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); }
-.mobile-navigation { width: min(300px, 86vw); height: 100%; padding: var(--cs-space-16); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); overflow-y: auto; }
-.mobile-navigation header { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--cs-space-12); border-bottom: 1px solid var(--cs-border); font-size: var(--cs-text-md); }.mobile-navigation header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); cursor: pointer; }
-.mobile-navigation__links { display: grid; gap: var(--cs-space-4); padding-top: var(--cs-space-12); }.mobile-navigation__links p { margin: var(--cs-space-12) var(--cs-space-8) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.mobile-navigation__links a { display: flex; min-height: 42px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-base); text-decoration: none; }.mobile-navigation__links a:hover, .mobile-navigation__links a[aria-current='page'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
+.mobile-navigation__links { display: grid; gap: var(--cs-space-4); padding-top: var(--cs-space-8); }.mobile-navigation__links p { margin: var(--cs-space-12) var(--cs-space-8) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.mobile-navigation__links a { display: flex; min-height: 42px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); color: var(--cs-text-secondary); font-size: var(--cs-text-base); text-decoration: none; }.mobile-navigation__links a:hover, .mobile-navigation__links a[aria-current='page'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
 </style>

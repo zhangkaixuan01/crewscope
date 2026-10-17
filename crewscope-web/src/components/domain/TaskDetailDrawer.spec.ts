@@ -25,7 +25,7 @@ function mountDrawer(propsValue: ReturnType<typeof props>, options: { attachTo?:
   return mount(TaskDetailDrawer, {
     props: propsValue,
     attachTo: options.attachTo === true ? document.body : undefined,
-    global: { provide: { [INJECTION_STORE as symbol]: store } },
+    global: { provide: { [INJECTION_STORE as symbol]: store }, stubs: { teleport: true } },
   })
 }
 
@@ -156,10 +156,11 @@ describe('TaskDetailDrawer', () => {
     expect(wrapper.emitted('openWorkItem')).toBeTruthy()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toBeTruthy()
-    expect(document.body.style.overflow).toBe('hidden')
+    // 滚动锁由 useFocusTrap 的 cs-modal-open 引用计数承担（F02 下沉），不再是 body 内联样式。
+    expect(document.body.classList.contains('cs-modal-open')).toBe(true)
 
     wrapper.unmount()
-    expect(document.body.style.overflow).toBe('')
+    expect(document.body.classList.contains('cs-modal-open')).toBe(false)
   })
 
   it('renders isolated detail, Runtime and fleet loading and failure states', async () => {

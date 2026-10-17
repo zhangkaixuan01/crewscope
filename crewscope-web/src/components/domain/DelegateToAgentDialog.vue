@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { Bot, CheckCircle2, Info, RefreshCw, ShieldCheck, TriangleAlert, X } from '@lucide/vue'
-import { computed, inject, nextTick, onMounted, reactive, ref, useTemplateRef, watch } from 'vue'
+import { Bot, CheckCircle2, Info, RefreshCw, ShieldCheck, TriangleAlert } from '@lucide/vue'
+import { computed, inject, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import { buildConfigureReturn } from '../../app/configureReturn'
-import { isTopmostModal } from '../../app/dialog'
 import {
   agentBindingSourceLabels,
   agentExecutionScopeLabels,
@@ -27,6 +26,7 @@ import type {
 } from '../../domains/task/types'
 import type { WorkItemSummary } from '../../domains/workitem/types'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import CodingTargetFormSection, { type CodingTargetInitialDefaults } from './CodingTargetFormSection.vue'
 
 type DelegationMode = 'assign-and-start' | 'assign-only' | 'start'
@@ -54,9 +54,9 @@ const emit = defineEmits<{ close: [] }>()
 const router = useRouter()
 const agentStore = useAgentStore()
 const taskStore = useTaskStore()
-const dialog = useTemplateRef<HTMLElement>('dialog')
 const principal = inject(AUTH_PRINCIPAL)
 const submitted = ref(false)
+const formId = useId()
 const codingSelection = ref<CodingTargetSelection | null>(null)
 const codingValid = ref(false)
 const selectedProfileId = ref('')
@@ -190,8 +190,6 @@ onMounted(async () => {
     await agentStore.loadConfigurationHistory(selectedProfileId.value)
     await runPreflight()
   }
-  // Focus the dialog container so narrow screens retain the Agent/preflight context at the top.
-  await nextTick(() => dialog.value?.focus())
 })
 
 /**
@@ -234,30 +232,6 @@ watch(() => [form.objective, form.acceptanceCriteria], persistDraft)
 
 function requestClose(): void {
   if (!props.submitting) emit('close')
-}
-
-function handleDialogKeydown(event: KeyboardEvent): void {
-  if (!isTopmostModal(dialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    requestClose()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)',
-  )]
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 
 async function runPreflight(): Promise<void> {
@@ -419,11 +393,18 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
 </script>
 
 <template>
-  <div class="delegate-backdrop" @click.self="requestClose">
-    <div ref="dialog" class="delegate-dialog panel" role="dialog" aria-modal="true" aria-labelledby="delegate-title" tabindex="-1" @keydown="handleDialogKeydown">
-      <form class="delegate-form" @submit.prevent="submit">
-      <div class="dialog-header"><span class="delegate-icon"><Bot :size="19" /></span><div><p class="eyebrow">Durable Task · {{ workItem.key }}</p><h2 id="delegate-title">交给 Agent 处理</h2><span>一次读取责任、候选与项目默认值；选定后预检并形成可恢复命令。</span></div><button type="button" aria-label="关闭交给 Agent 对话框" :disabled="submitting" @click="requestClose"><X :size="18" /></button></div>
-
+  <BaseDialog
+    open
+    title="交给 Agent 处理"
+    :eyebrow="`Durable Task · ${workItem.key}`"
+    subtitle="一次读取责任、候选与项目默认值；选定后预检并形成可恢复命令。"
+    width="min(780px, 100%)"
+    :close-disabled="submitting"
+    close-label="关闭交给 Agent 对话框"
+    @close="requestClose"
+  >
+    <template #icon><Bot :size="19" /></template>
+    <form :id="formId" class="delegate-form" @submit.prevent="submit">
       <div v-if="contextPhase === 'loading'" class="context-state" role="status" aria-live="polite"><RefreshCw class="spin" :size="15" />正在读取责任链、候选 Agent 与项目默认值…</div>
       <div v-else-if="contextPhase === 'error'" class="context-state error" role="alert"><TriangleAlert :size="15" /><span>{{ contextError ?? '暂时无法读取委托上下文' }}</span><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="taskStore.loadDelegationContext(codingScope.projectId, workItem.id, true)">重试</BaseButton></div>
 
@@ -501,30 +482,25 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
       <p v-if="!selectable.length" class="delegate-unavailable">当前没有可分配的 Agent 候选。请先由 Agent Owner 启用 Agent，或让团队成员创建个人 Agent。</p>
       </template>
       <p v-if="createErrorCopy" class="delegate-error" role="alert">{{ createErrorCopy }}</p>
-      <div class="dialog-footer"><BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton><BaseButton v-if="retryable" type="button" :loading="submitting" @click="onRetry">使用原请求重试</BaseButton><BaseButton v-else type="submit" :loading="submitting" :disabled="!valid">{{ submitLabel }}</BaseButton></div>
-      </form>
-    </div>
-  </div>
+    </form>
+
+    <template #footer>
+      <BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton>
+      <BaseButton v-if="retryable" type="button" :loading="submitting" @click="onRetry">使用原请求重试</BaseButton>
+      <BaseButton v-else type="submit" :form="formId" :loading="submitting" :disabled="!valid">{{ submitLabel }}</BaseButton>
+    </template>
+  </BaseDialog>
 </template>
 
 <style scoped>
-.delegate-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.delegate-dialog { width: min(780px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; box-shadow: var(--cs-shadow-float); }.delegate-dialog > header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: start; gap: var(--cs-space-12); padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.delegate-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-agent-soft); color: var(--cs-agent); }.delegate-dialog h2 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.delegate-dialog header div > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.delegate-dialog header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.responsibility-preview { display: flex; align-items: center; gap: var(--cs-space-12); margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-brand); }.responsibility-preview strong, .responsibility-preview span { display: block; }.responsibility-preview strong { font-size: var(--cs-text-sm); }.responsibility-preview span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-source-note { margin: var(--cs-space-8) var(--cs-space-20) 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); }
-.prefill-note { margin: 0 0 var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.agent-selection { margin: var(--cs-space-16) var(--cs-space-20) 0; overflow: hidden; border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-surface), var(--cs-surface-accent)); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-8); }.section-heading p, .section-heading h3 { margin: 0; }.section-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.section-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.section-heading > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.selection-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: var(--cs-space-12); padding: 0 var(--cs-space-12) var(--cs-space-12); }.selection-grid label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.selection-grid select { width: 100%; min-height: 36px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.agent-meta { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); padding: 0 var(--cs-space-12) var(--cs-space-12); }.agent-meta span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 999px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-shell { border-top: 1px solid var(--cs-border-accent); }.preflight-state { display: flex; min-height: 56px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.preflight-state.error { color: var(--cs-danger); }.preflight-state.error span { flex: 1; }.preflight-card { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-12); background: var(--cs-surface-glass); }.preflight-card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.preflight-card > header div { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-success); font-size: var(--cs-text-sm); }.preflight-card > header span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 999px; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-card > header span.personal { background: var(--cs-agent-soft); color: var(--cs-agent); }.preflight-card > header span.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.preflight-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-8) var(--cs-space-16); margin: var(--cs-space-12) 0 0; }.preflight-card dl div { min-width: 0; }.preflight-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-card dd { margin: var(--cs-space-2) 0 0; overflow-wrap: anywhere; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.preflight-card > p { margin: var(--cs-space-12) 0 0; padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); }.delegate-fields { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-4); }.delegate-fields label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.delegate-fields small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.delegate-fields input, .delegate-fields textarea { width: 100%; min-height: 36px; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.delegate-fields textarea { resize: vertical; }.delegate-fields [aria-invalid="true"] { border-color: var(--cs-danger); }.delegate-fields p, .delegate-unavailable { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.delegate-unavailable { margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-12); border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); color: var(--cs-warning); }.delegate-error { margin: var(--cs-space-12) var(--cs-space-20) 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.delegate-dialog > footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-20); }.spin { animation: spin var(--cs-motion-spin) linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 767px) { .delegate-backdrop { align-items: end; padding: 0; }.delegate-dialog { width: 100%; max-height: 94vh; border-radius: 18px 18px 0 0; }.delegate-dialog > header { padding: var(--cs-space-16) var(--cs-space-16); }.responsibility-preview, .conversation-source-note, .agent-selection { margin-inline: var(--cs-space-16); }.selection-grid, .preflight-card dl { grid-template-columns: 1fr; }.delegate-fields { padding-inline: var(--cs-space-16); }.delegate-dialog > footer { display: grid; padding-inline: var(--cs-space-16); }.delegate-dialog > footer > * { width: 100%; } }
-.dialog-header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: start; gap: var(--cs-space-12); padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.dialog-header div > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.dialog-header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.dialog-footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-20); }
+.delegate-form { display: grid; gap: var(--cs-space-16); }
+.responsibility-preview { display: flex; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-brand); }.responsibility-preview strong, .responsibility-preview span { display: block; }.responsibility-preview strong { font-size: var(--cs-text-sm); }.responsibility-preview span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-source-note { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); }
+.prefill-note { margin: 0 0 var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.agent-selection { overflow: hidden; border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: linear-gradient(145deg, var(--cs-surface), var(--cs-surface-accent)); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-8); }.section-heading p, .section-heading h3 { margin: 0; }.section-heading p { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.section-heading h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-base); }.section-heading > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.selection-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: var(--cs-space-12); padding: 0 var(--cs-space-12) var(--cs-space-12); }.selection-grid label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.selection-grid select { width: 100%; min-height: 36px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.agent-meta { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); padding: 0 var(--cs-space-12) var(--cs-space-12); }.agent-meta span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 999px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-shell { border-top: 1px solid var(--cs-border-accent); }.preflight-state { display: flex; min-height: 56px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.preflight-state.error { color: var(--cs-danger); }.preflight-state.error span { flex: 1; }.preflight-card { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-12); background: var(--cs-surface-glass); }.preflight-card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.preflight-card > header div { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-success); font-size: var(--cs-text-sm); }.preflight-card > header span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 999px; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-card > header span.personal { background: var(--cs-agent-soft); color: var(--cs-agent); }.preflight-card > header span.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.preflight-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-8) var(--cs-space-16); margin: var(--cs-space-12) 0 0; }.preflight-card dl div { min-width: 0; }.preflight-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-card dd { margin: var(--cs-space-2) 0 0; overflow-wrap: anywhere; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.preflight-card > p { margin: var(--cs-space-12) 0 0; padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); }.delegate-fields { display: grid; gap: var(--cs-space-12); }.delegate-fields label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.delegate-fields small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.delegate-fields input, .delegate-fields textarea { width: 100%; min-height: 36px; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }.delegate-fields textarea { resize: vertical; }.delegate-fields [aria-invalid="true"] { border-color: var(--cs-danger); }.delegate-fields p, .delegate-unavailable { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.delegate-unavailable { padding: var(--cs-space-12); border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); color: var(--cs-warning); }.delegate-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.spin { animation: spin var(--cs-motion-spin) linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 767px) { .selection-grid, .preflight-card dl { grid-template-columns: 1fr; } }
 .preflight-header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.preflight-header > div { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-success); font-size: var(--cs-text-sm); }.preflight-header > span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 999px; font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.preflight-header > span.personal { background: var(--cs-agent-soft); color: var(--cs-agent); }.preflight-header > span.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
-@media (max-width: 767px) { .dialog-header { padding: var(--cs-space-16) var(--cs-space-16); }.dialog-footer { display: grid; padding-inline: var(--cs-space-16); }.dialog-footer > * { width: 100%; } }
-.context-state { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-12); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.context-state.error { color: var(--cs-danger); }.context-state.error span { flex: 1; }
-.active-execution-note { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }
-.mode-choice { display: grid; gap: var(--cs-space-8); margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.mode-choice legend { padding: 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.mode-choice > label { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.mode-choice > label input { accent-color: var(--cs-focus); }.mode-choice > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
+.context-state { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.context-state.error { color: var(--cs-danger); }.context-state.error span { flex: 1; }
+.active-execution-note { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }
+.mode-choice { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.mode-choice legend { padding: 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.mode-choice > label { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.mode-choice > label input { accent-color: var(--cs-focus); }.mode-choice > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .blocked-candidates { display: grid; gap: var(--cs-space-4); margin: 0; padding: 0 var(--cs-space-12) var(--cs-space-12); list-style: none; }.blocked-candidates li { display: flex; align-items: baseline; gap: var(--cs-space-4); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
-.intent-confirm { margin: var(--cs-space-16) var(--cs-space-20) 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); }.intent-confirm h3 { margin: 0 0 var(--cs-space-8); font-size: var(--cs-text-sm); color: var(--cs-text-brand); }.intent-confirm ul { display: grid; gap: var(--cs-space-4); margin: 0; padding: 0; list-style: none; }.intent-confirm li { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.intent-confirm li.gap { display: flex; align-items: baseline; gap: var(--cs-space-4); color: var(--cs-warning); }.gap-action { align-items: center; }
-
-/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
-.delegate-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.delegate-dialog header button:active:not(:disabled) { transform: scale(.97); }
-.delegate-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
-.dialog-header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.dialog-header button:active:not(:disabled) { transform: scale(.97); }
-.dialog-header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.intent-confirm { padding: var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); }.intent-confirm h3 { margin: 0 0 var(--cs-space-8); font-size: var(--cs-text-sm); color: var(--cs-text-brand); }.intent-confirm ul { display: grid; gap: var(--cs-space-4); margin: 0; padding: 0; list-style: none; }.intent-confirm li { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.intent-confirm li.gap { display: flex; align-items: baseline; gap: var(--cs-space-4); color: var(--cs-warning); }.gap-action { align-items: center; }
 </style>

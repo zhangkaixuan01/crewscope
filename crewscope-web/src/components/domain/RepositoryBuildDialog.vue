@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { GitBranchPlus, X } from '@lucide/vue'
-import { computed, ref, useTemplateRef, watch } from 'vue'
-import { isTopmostModal } from '../../app/dialog'
+import { GitBranchPlus } from '@lucide/vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
 import { useCodingStore } from '../../domains/coding/store'
 import type { CodingScope } from '../../domains/coding/types'
@@ -9,6 +8,7 @@ import { COMMIT_PATTERN, type RepositoryBuildInput } from '../../domains/knowled
 import type { SettingsScope } from '../../domains/settings/types'
 import { useScopeStore } from '../../domains/scope/store'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import BaseSelect, { type BaseSelectOption } from '../base/BaseSelect.vue'
 
 const props = defineProps<{
@@ -24,13 +24,13 @@ const emit = defineEmits<{
   submit: [input: RepositoryBuildInput]
 }>()
 
-const dialog = useTemplateRef<HTMLElement>('dialog')
 const scopeStore = useScopeStore()
 const codingStore = useCodingStore()
 const projectId = ref('')
 const bindingId = ref('')
 const commit = ref('')
 const submitted = ref(false)
+const formId = useId()
 const formSnapshot = computed(() => ({ projectId: projectId.value, bindingId: bindingId.value, commit: commit.value }))
 const dirtyForm = useDirtyForm(formSnapshot)
 
@@ -90,113 +90,71 @@ function submit(): void {
 function reloadBindings(): void {
   if (projectScope.value) void codingStore.loadRepositories(projectScope.value, true)
 }
-
-function handleKeydown(event: KeyboardEvent): void {
-  if (!isTopmostModal(dialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    requestClose()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
-  )]
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
 </script>
 
 <template>
-  <div class="build-dialog-backdrop" @click.self="requestClose">
-    <form
-      ref="dialog"
-      class="build-dialog panel"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="repository-build-title"
-      tabindex="-1"
-      @submit.prevent="submit"
-      @keydown="handleKeydown"
-    >
-      <header>
-        <span class="dialog-icon"><GitBranchPlus :size="20" /></span>
-        <div>
-          <p class="eyebrow">Knowledge index</p>
-          <h2 id="repository-build-title">构建仓库索引</h2>
-          <span>选择项目与受管仓库绑定的提交，为该版本建立向量索引。</span>
-        </div>
-        <button type="button" aria-label="关闭构建仓库索引" :disabled="submitting" @click="requestClose"><X :size="18" /></button>
-      </header>
+  <BaseDialog
+    open
+    title="构建仓库索引"
+    eyebrow="Knowledge index"
+    subtitle="选择项目与受管仓库绑定的提交，为该版本建立向量索引。"
+    width="min(560px, 100%)"
+    :close-disabled="submitting"
+    close-label="关闭构建仓库索引"
+    @close="requestClose"
+  >
+    <template #icon><GitBranchPlus :size="20" /></template>
+    <form :id="formId" class="build-dialog__content" @submit.prevent="submit">
+      <label class="build-dialog__field">
+        <span>项目</span>
+        <BaseSelect v-model="projectId" :options="projectOptions" :disabled="submitting" aria-label="项目" />
+      </label>
 
-      <div class="build-dialog__content">
-        <label class="build-dialog__field">
-          <span>项目</span>
-          <BaseSelect v-model="projectId" :options="projectOptions" :disabled="submitting" aria-label="项目" />
-        </label>
+      <label class="build-dialog__field">
+        <span>仓库绑定</span>
+        <BaseSelect
+          v-model="bindingId"
+          :options="bindingOptions"
+          :disabled="submitting || !projectId"
+          aria-label="仓库绑定"
+          :aria-describedby="bindingsError ? 'repository-build-binding-error' : undefined"
+        />
+        <small v-if="bindingsError" id="repository-build-binding-error" class="build-dialog__error">
+          {{ bindingsError }}
+          <button type="button" class="build-dialog__retry" @click="reloadBindings">重试读取</button>
+        </small>
+        <small v-else-if="projectId" class="build-dialog__hint">仅列出 ACTIVE 的受管仓库绑定。</small>
+      </label>
 
-        <label class="build-dialog__field">
-          <span>仓库绑定</span>
-          <BaseSelect
-            v-model="bindingId"
-            :options="bindingOptions"
-            :disabled="submitting || !projectId"
-            aria-label="仓库绑定"
-            :aria-describedby="bindingsError ? 'repository-build-binding-error' : undefined"
-          />
-          <small v-if="bindingsError" id="repository-build-binding-error" class="build-dialog__error">
-            {{ bindingsError }}
-            <button type="button" class="build-dialog__retry" @click="reloadBindings">重试读取</button>
-          </small>
-          <small v-else-if="projectId" class="build-dialog__hint">仅列出 ACTIVE 的受管仓库绑定。</small>
-        </label>
+      <label class="build-dialog__field">
+        <span>提交（Commit）</span>
+        <input
+          v-model="commit"
+          class="build-dialog__mono-input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          :disabled="submitting"
+          :aria-invalid="submitted && !commitValid || undefined"
+          aria-describedby="repository-build-commit-hint"
+          required
+        >
+        <small id="repository-build-commit-hint" class="build-dialog__hint">要索引的提交，40 或 64 位十六进制字符。</small>
+        <small v-if="submitted && !commitValid" class="build-dialog__error">提交需为 40 或 64 位十六进制字符。</small>
+      </label>
 
-        <label class="build-dialog__field">
-          <span>提交（Commit）</span>
-          <input
-            v-model="commit"
-            class="build-dialog__mono-input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="submitting"
-            :aria-invalid="submitted && !commitValid || undefined"
-            aria-describedby="repository-build-commit-hint"
-            required
-          >
-          <small id="repository-build-commit-hint" class="build-dialog__hint">要索引的提交，40 或 64 位十六进制字符。</small>
-          <small v-if="submitted && !commitValid" class="build-dialog__error">提交需为 40 或 64 位十六进制字符。</small>
-        </label>
-
-        <p v-if="commandError" class="build-dialog__command-error" role="alert">{{ commandError }}</p>
-      </div>
-
-      <footer>
-        <BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton>
-        <BaseButton type="submit" :loading="submitting" :disabled="!valid">入队构建</BaseButton>
-      </footer>
+      <p v-if="commandError" class="build-dialog__command-error" role="alert">{{ commandError }}</p>
     </form>
-  </div>
+
+    <template #footer>
+      <BaseButton type="button" variant="ghost" :disabled="submitting" @click="requestClose">取消</BaseButton>
+      <BaseButton type="submit" :form="formId" :loading="submitting" :disabled="!valid">入队构建</BaseButton>
+    </template>
+  </BaseDialog>
 </template>
 
 <style scoped>
-.build-dialog-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }
-.build-dialog { display: flex; width: min(560px, 100%); max-height: calc(100dvh - 40px); flex-direction: column; overflow-y: auto; box-shadow: var(--cs-shadow-float); }
-.build-dialog > header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: start; gap: var(--cs-space-12); padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }
-.dialog-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
-.build-dialog h2 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-lg); }
-.build-dialog header div > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.build-dialog header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); color: var(--cs-text); cursor: pointer; }
-.build-dialog__content { display: grid; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20) var(--cs-space-4); }
+.build-dialog__content { display: grid; gap: var(--cs-space-16); }
 .build-dialog__field { display: grid; gap: var(--cs-space-4); }
 .build-dialog__field > span { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .build-dialog__field input { width: 100%; min-height: 40px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
@@ -205,18 +163,8 @@ function handleKeydown(event: KeyboardEvent): void {
 .build-dialog__error { color: var(--cs-danger); font-size: var(--cs-text-xs); }
 .build-dialog__retry { border: none; background: none; padding: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); cursor: pointer; text-decoration: underline; }
 .build-dialog__command-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
-.build-dialog > footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-20); }
-@media (max-width: 767px) {
-  .build-dialog-backdrop { align-items: end; padding: 0; }
-  .build-dialog { width: 100%; max-height: calc(100dvh - 12px); border-radius: 18px 18px 0 0; }
-  .build-dialog > footer { display: grid; }
-  .build-dialog > footer > * { width: 100%; }
-}
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
-.build-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.build-dialog header button:active:not(:disabled) { transform: scale(.97); }
-.build-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 .build-dialog__retry:hover:not(:disabled) { background: var(--cs-surface-accent); }
 .build-dialog__retry:active:not(:disabled) { transform: scale(.97); }
 .build-dialog__retry { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }

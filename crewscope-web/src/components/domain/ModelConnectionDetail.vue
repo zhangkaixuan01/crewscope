@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Activity, AlertTriangle, KeyRound, RefreshCw, RotateCw, ShieldCheck, X } from '@lucide/vue'
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
-import { isTopmostModal } from '../../app/dialog'
+import { computed, ref, useId, watch } from 'vue'
 import type { ModelCommandState, ModelResource } from '../../domains/model/store'
 import { modelConnectionRevocationReasons, type ModelConnectionSummary } from '../../domains/model/types'
 import { enumLabel } from '../../domains/shared/labels'
@@ -14,6 +13,7 @@ import {
 } from '../../domains/settings/labels'
 import type { Etagged } from '../../domains/settings/types'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 
@@ -34,11 +34,10 @@ const emit = defineEmits<{
 }>()
 
 const revokeOpen = ref(false)
-const revokeDialog = useTemplateRef<HTMLElement>('revokeDialog')
-const revokeTrigger = ref<HTMLElement | null>(null)
 const revokeReason = ref('OWNER_REQUESTED')
 const revocationReasons = modelConnectionRevocationReasons
 const revokeConfirmed = ref(false)
+const revokeImpactId = useId()
 const connection = computed(() => props.resource?.value?.value ?? null)
 const resourceState = computed(() => props.resource)
 const pending = computed(() => props.command.phase === 'pending' && props.command.connectionId === connection.value?.id)
@@ -49,46 +48,19 @@ watch(() => props.command.phase, phase => {
   if (phase === 'success') closeRevoke()
 })
 
-function openRevoke(event?: MouseEvent): void {
-  if (event?.currentTarget instanceof HTMLElement) revokeTrigger.value = event.currentTarget
+function openRevoke(): void {
   revokeOpen.value = true
-  void nextTick(() => revokeDialog.value?.focus())
 }
 
 function closeRevoke(): void {
   revokeOpen.value = false
   revokeReason.value = 'OWNER_REQUESTED'
   revokeConfirmed.value = false
-  void nextTick(() => revokeTrigger.value?.focus())
 }
 
 function confirmRevoke(): void {
   if (!connection.value || !revokeConfirmed.value) return
   emit('revoke', connection.value.id, revokeReason.value)
-}
-
-function handleRevokeKeydown(event: KeyboardEvent): void {
-  if (!isTopmostModal(revokeDialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeRevoke()
-    return
-  }
-  if (event.key !== 'Tab' || !revokeDialog.value) return
-  const controls = [...revokeDialog.value.querySelectorAll<HTMLElement>(
-    'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
-  )]
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 
 function healthTone(value: ModelConnectionSummary): 'success' | 'warning' | 'danger' | 'neutral' {
@@ -184,22 +156,36 @@ function formatTime(value: string | null): string {
       </section>
     </template>
 
-    <div v-if="revokeOpen && connection" class="revoke-backdrop" @click.self="closeRevoke">
-      <section ref="revokeDialog" class="revoke-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-title" aria-describedby="revoke-impact" tabindex="-1" @keydown="handleRevokeKeydown">
-        <header><AlertTriangle :size="20" /><div><p>Irreversible action</p><h3 id="revoke-title">永久撤销模型连接</h3></div></header>
-        <p id="revoke-impact">撤销会终止该 Connection 的凭证使用，且当前 API 不支持恢复。已引用此连接的新执行会失败关闭。</p>
+    <BaseDialog
+      :open="revokeOpen && connection !== null"
+      role="alertdialog"
+      title="永久撤销模型连接"
+      eyebrow="Irreversible action"
+      width="min(500px, 100%)"
+      :described-by="revokeImpactId"
+      :close-disabled="pending"
+      close-label="关闭撤销确认"
+      @close="closeRevoke"
+    >
+      <template #icon><AlertTriangle :size="20" /></template>
+      <div class="revoke-body">
+        <p :id="revokeImpactId">撤销会终止该 Connection 的凭证使用，且当前 API 不支持恢复。已引用此连接的新执行会失败关闭。</p>
         <label><span>稳定撤销原因</span><select v-model="revokeReason" :disabled="pending"><option v-for="reason in revocationReasons" :key="reason" :value="reason">{{ modelConnectionRevocationReasonLabels[reason] }}</option></select></label>
         <label class="confirm-check"><input v-model="revokeConfirmed" type="checkbox" :disabled="pending" />我确认永久撤销且无法恢复</label>
         <p v-if="commandApplies && (command.phase === 'error' || command.phase === 'conflict')" class="command-error" role="alert">{{ command.errorMessage }}</p>
-        <footer><BaseButton variant="ghost" :disabled="pending" @click="closeRevoke">取消</BaseButton><BaseButton variant="danger" :loading="pending && command.operation === 'revoke'" :disabled="!revokeConfirmed" @click="confirmRevoke">确认永久撤销</BaseButton></footer>
-      </section>
-    </div>
+      </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton variant="ghost" autofocus :disabled="pending" @click="closeRevoke">取消</BaseButton>
+        <BaseButton variant="danger" :loading="pending && command.operation === 'revoke'" :disabled="!revokeConfirmed" :aria-describedby="revokeImpactId" @click="confirmRevoke">确认永久撤销</BaseButton>
+      </template>
+    </BaseDialog>
   </section>
 </template>
 
 <style scoped>
-.connection-detail { overflow: hidden; }.detail-heading { display: grid; grid-template-columns: 40px minmax(0, 1fr) 32px; gap: var(--cs-space-12); align-items: start; padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface) 65%); }.detail-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.detail-heading h2 { margin: 0 0 var(--cs-space-2); font-size: var(--cs-text-md); }.detail-heading div > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-heading > button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface); cursor: pointer; }.detail-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-12); }.detail-summary p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.detail-summary h3 { margin: var(--cs-space-4) 0 var(--cs-space-2); font-size: var(--cs-text-md); }.detail-summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.summary-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--cs-space-8); }.detail-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cs-space-8); margin: 0; padding: 0 var(--cs-space-20) var(--cs-space-16); }.detail-facts div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-surface-subtle); }.detail-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }.detail-facts dd { overflow: hidden; margin-top: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.health-failure { display: flex; gap: var(--cs-space-8); margin: 0 var(--cs-space-20) var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-danger-soft); color: var(--cs-danger); }.health-failure svg { flex: 0 0 auto; }.health-failure strong, .health-failure span { display: block; }.health-failure strong { font-size: var(--cs-text-sm); }.health-failure span { margin-top: var(--cs-space-2); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.command-error { margin: 0 var(--cs-space-20) var(--cs-space-12); color: var(--cs-danger); font-size: var(--cs-text-sm); }.connection-actions { display: grid; gap: var(--cs-space-12); margin: 0 var(--cs-space-20) var(--cs-space-16); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.connection-actions h3 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-base); }.connection-actions > div > span, .terminal-note, .read-only-note, .recovery-note { display: block; margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.action-buttons { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.recovery-note { padding: var(--cs-space-8) var(--cs-space-8); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); }.audit-evidence { display: flex; gap: var(--cs-space-8); margin: 0 var(--cs-space-20) var(--cs-space-20); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); }.audit-evidence svg { flex: 0 0 auto; }.audit-evidence h3 { margin: 0; font-size: var(--cs-text-sm); }.audit-evidence p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.revoke-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.revoke-dialog { width: min(500px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }.revoke-dialog header { display: flex; gap: var(--cs-space-12); color: var(--cs-danger); }.revoke-dialog header p, .revoke-dialog header h3 { margin: 0; }.revoke-dialog header p { font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.revoke-dialog header h3 { margin-top: var(--cs-space-2); font-size: var(--cs-text-md); }.revoke-dialog > p { margin: var(--cs-space-12) 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.revoke-dialog > label:not(.confirm-check) { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.revoke-dialog select { min-height: 39px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.confirm-check { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.revoke-dialog .command-error { margin: var(--cs-space-12) 0 0; }.revoke-dialog footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }
-@media (max-width: 650px) { .detail-facts { grid-template-columns: 1fr 1fr; }.detail-summary { display: grid; }.summary-status { justify-content: flex-start; }.revoke-backdrop { align-items: end; padding: 0; }.revoke-dialog { border-radius: 18px 18px 0 0; }.revoke-dialog footer { display: grid; }.revoke-dialog footer > * { width: 100%; } }
+.connection-detail { overflow: hidden; }.detail-heading { display: grid; grid-template-columns: 40px minmax(0, 1fr) 32px; gap: var(--cs-space-12); align-items: start; padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface) 65%); }.detail-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.detail-heading h2 { margin: 0 0 var(--cs-space-2); font-size: var(--cs-text-md); }.detail-heading div > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.detail-heading > button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface); cursor: pointer; }.detail-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-12); }.detail-summary p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.detail-summary h3 { margin: var(--cs-space-4) 0 var(--cs-space-2); font-size: var(--cs-text-md); }.detail-summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.summary-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--cs-space-8); }.detail-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--cs-space-8); margin: 0; padding: 0 var(--cs-space-20) var(--cs-space-16); }.detail-facts div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-surface-subtle); }.detail-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }.detail-facts dd { overflow: hidden; margin-top: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.health-failure { display: flex; gap: var(--cs-space-8); margin: 0 var(--cs-space-20) var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-danger-soft); color: var(--cs-danger); }.health-failure svg { flex: 0 0 auto; }.health-failure strong, .health-failure span { display: block; }.health-failure strong { font-size: var(--cs-text-sm); }.health-failure span { margin-top: var(--cs-space-2); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.command-error { margin: 0 var(--cs-space-20) var(--cs-space-12); color: var(--cs-danger); font-size: var(--cs-text-sm); }.connection-actions { display: grid; gap: var(--cs-space-12); margin: 0 var(--cs-space-20) var(--cs-space-16); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }.connection-actions h3 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-base); }.connection-actions > div > span, .terminal-note, .read-only-note, .recovery-note { display: block; margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.action-buttons { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.recovery-note { padding: var(--cs-space-8) var(--cs-space-8); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); }.audit-evidence { display: flex; gap: var(--cs-space-8); margin: 0 var(--cs-space-20) var(--cs-space-20); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); }.audit-evidence svg { flex: 0 0 auto; }.audit-evidence h3 { margin: 0; font-size: var(--cs-text-sm); }.audit-evidence p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.revoke-body { display: grid; gap: var(--cs-space-12); }.revoke-body > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.revoke-body > label:not(.confirm-check) { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.revoke-body select { min-height: 39px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }.confirm-check { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.revoke-body .command-error { margin: 0; }
+@media (max-width: 650px) { .detail-facts { grid-template-columns: 1fr 1fr; }.detail-summary { display: grid; }.summary-status { justify-content: flex-start; } }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .detail-heading > button:hover:not(:disabled) { background: var(--cs-surface-accent); }

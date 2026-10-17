@@ -101,7 +101,7 @@ describe('KnowledgeIndexPage', () => {
     const { wrapper, gateway } = await mountPage(manager, '')
 
     await wrapper.findAll('button').find(button => button.text().includes('构建仓库索引'))!.trigger('click')
-    const dialog = wrapper.get('form.build-dialog')
+    const dialog = wrapper.get('form.build-dialog__content')
     await wrapper.findAll('select').at(-2)!.setValue(fixtureIds.projectCrewScope)
     await flushPromises()
     await wrapper.findAll('select').at(-1)!.setValue('binding-1')
@@ -110,7 +110,7 @@ describe('KnowledgeIndexPage', () => {
     await flushPromises()
 
     expect(gateway.buildInputs).toEqual([{ projectId: fixtureIds.projectCrewScope, bindingId: 'binding-1', commit: 'a'.repeat(40) }])
-    expect(wrapper.find('form.build-dialog').exists()).toBe(false)
+    expect(wrapper.find('form.build-dialog__content').exists()).toBe(false)
     expect(wrapper.text()).toContain('已入队仓库索引作业（00000000，状态：排队中）')
     wrapper.unmount()
   })
@@ -168,7 +168,7 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, overr
         [KNOWLEDGE_INDEX_STORE as symbol]: store,
         [CODING_STORE as symbol]: codingStore,
       },
-      stubs: { AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
+      stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
     },
   })
   await flushPromises()

@@ -72,7 +72,7 @@ async function mountManager() {
     global: { provide: {
       [INVITATION_STORE as symbol]: store,
       [AUTH_STORE as symbol]: authStore(),
-    } },
+    }, stubs: { teleport: true } },
   })
   await flushPromises()
   return { wrapper, store, gateway }

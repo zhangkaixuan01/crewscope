@@ -69,6 +69,7 @@ function mounted() {
   return mount(SkillDistillationDialog, {
     props: { teamId: 'team-1', submitting: false, errorMessage: null, receipt: null },
     attachTo: document.body,
+    global: { stubs: { teleport: true } },
   })
 }
 

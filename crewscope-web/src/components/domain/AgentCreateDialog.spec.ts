@@ -8,6 +8,7 @@ describe('AgentCreateDialog', () => {
     const wrapper = mount(AgentCreateDialog, {
       attachTo: document.body,
       props: defaults({ userTemplates: [template('coding-specialist', 'USER')] }),
+      global: { stubs: { teleport: true } },
     })
     await wrapper.get('input[placeholder*="Java Coding Agent"]').setValue('  我的 Java Agent  ')
     await wrapper.get('form').trigger('submit')
@@ -32,6 +33,7 @@ describe('AgentCreateDialog', () => {
         canManageTeamAgents: false,
         initialOwnershipType: 'TEAM',
       }),
+      global: { stubs: { teleport: true } },
     })
     const personalButton = wrapper.findAll('.ownership-picker button').find(button => button.text().includes('个人 Agent'))!
     const teamButton = wrapper.findAll('.ownership-picker button').find(button => button.text().includes('团队 Agent'))!
@@ -48,6 +50,7 @@ describe('AgentCreateDialog', () => {
         initialOwnershipType: 'TEAM',
         teamTemplates: [template('team-coordinator', 'TEAM')],
       }),
+      global: { stubs: { teleport: true } },
     })
     const ownershipButtons = wrapper.findAll('.ownership-picker button')
     const personalButton = ownershipButtons.find(button => button.text().includes('个人 Agent'))!
@@ -65,6 +68,7 @@ describe('AgentCreateDialog', () => {
         retryable: true,
         errorMessage: '创建暂时失败',
       }),
+      global: { stubs: { teleport: true } },
     })
     const input = wrapper.get('input[placeholder*="Java Coding Agent"]')
     expect(input.attributes('disabled')).toBeUndefined()
@@ -76,6 +80,7 @@ describe('AgentCreateDialog', () => {
   it('distinguishes a failed Template catalog from a valid empty catalog', async () => {
     const wrapper = mount(AgentCreateDialog, {
       props: defaults({ templateErrorMessage: 'Template Catalog 暂时不可用' }),
+      global: { stubs: { teleport: true } },
     })
     expect(wrapper.text()).toContain('批准模板暂时不可用')
     expect(wrapper.text()).not.toContain('没有可用模板')
@@ -95,6 +100,7 @@ describe('AgentCreateDialog', () => {
           template('team-coordinator', 'TEAM'),
         ],
       }),
+      global: { stubs: { teleport: true } },
     })
     expect(wrapper.get('.template-picker').text()).toContain('coding-specialist')
     expect(wrapper.get('.template-picker').text()).not.toContain('personal-assistant')

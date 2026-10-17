@@ -60,6 +60,8 @@ describe('ActionDeliveryWorkbench', () => {
   it('traps confirmation focus and restores the exact opener after Escape', async () => {
     const { wrapper } = await mountWorkbench(new ComponentDeliveryGateway(), approvedReview())
     const opener = wrapper.findAll('button').find(item => item.text().includes('审查并确认'))!
+    // jsdom 不会在 click 时移动焦点；真实浏览器里点击即聚焦，焦点恢复契约依赖这一事实。
+    opener.element.focus()
     await opener.trigger('click')
 
     const dialog = wrapper.get('[role="dialog"]')
@@ -83,7 +85,7 @@ describe('ActionDeliveryWorkbench', () => {
         taskId: coordinates.taskId, executionId: coordinates.executionId,
         objective: '完成精确 GitHub 交付', review: approvedReview(), online: false, canConfirm: true,
       },
-      global: { provide: { [DELIVERY_STORE as symbol]: store } },
+      global: { stubs: { teleport: true }, provide: { [DELIVERY_STORE as symbol]: store } },
     })
     await flushPromises()
 
@@ -102,7 +104,7 @@ async function mountWorkbench(gateway: ComponentDeliveryGateway, review: ReturnT
       taskId: coordinates.taskId, executionId: coordinates.executionId,
       objective: '完成精确 GitHub 交付', review, online: true, canConfirm: true,
     },
-    global: { provide: { [DELIVERY_STORE as symbol]: store } },
+    global: { stubs: { teleport: true }, provide: { [DELIVERY_STORE as symbol]: store } },
     attachTo: document.body,
   })
   await flushPromises()

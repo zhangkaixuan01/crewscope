@@ -32,6 +32,11 @@
       "reason": "Configuration Revision 下拉在未选执行 Agent 时没有可选项，禁用成因是外层「执行 Agent」下拉的取值，同一表单内可直达；「仅分配」模式不创建执行、没有可固定的 Revision，模式单选本身就在同一表单内说明该区别。不涉及权限或服务端前置条件。"
     },
     {
+      "file": "components/domain/DelegateToAgentDialog.vue",
+      "expression": "!valid",
+      "reason": "M12b-F02 把 footer 拆成多行后门禁才首次扫到该绑定（旧模板的 footer 单行写法让行级扫描只命中第一个 transient 绑定）。提交按钮由表单必填项是否满足决定，字段已用 :aria-invalid 与预检卡承载原因，与 AgentCreateDialog 等 8 处同类表单校验豁免同一性质。"
+    },
+    {
       "file": "components/domain/TeamObserverWorkspace.vue",
       "expression": "!online || !instruction.trim()",
       "reason": "只读摘要的生成按钮由只读指令是否填写决定，指令输入框自身承载该状态；同表达式中的 !online 是与其它控件共用的瞬时离线锁。"
@@ -83,7 +88,7 @@
     },
     {
       "file": "components/team/MemberLifecycleDialog.vue",
-      "expression": "!online || (copy(member, action, roleKey).selectable && !selectedRole)",
+      "expression": "!online || (current?.selectable && !selectedRole)",
       "reason": "确认按钮的两种禁用成因都不表达权限或服务端前置条件：!online 是与全局网络指示一致的瞬时离线锁；角色型操作未选角色时无可提交的命令，同对话框的角色下拉为空即是原因。"
     },
     {

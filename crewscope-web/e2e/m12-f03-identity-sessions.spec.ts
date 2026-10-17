@@ -163,7 +163,8 @@ test('deleting the current session is a logout equivalent routed to the login pa
 
   await page.goto('/account#sessions')
   await page.getByTestId('session-row-current').getByRole('button', { name: '退出本设备' }).click()
-  const dialog = page.getByRole('dialog')
+  // M12b-F02：退出本设备确认为危险确认（role=alertdialog），初始焦点合同不变（安全侧）。
+  const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText('退出本设备？')
   await dialog.getByRole('button', { name: '退出本设备', exact: true }).click()
 

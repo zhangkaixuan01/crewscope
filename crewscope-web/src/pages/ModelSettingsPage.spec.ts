@@ -32,7 +32,7 @@ describe('ModelSettingsPage', () => {
     const open = () => wrapper.findAll('button').find(button => button.text().includes('创建连接'))!
     await open().trigger('click')
     await wrapper.get('input[type="password"]').setValue('original-secret')
-    await wrapper.get('.credential-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form').trigger('submit')
     await scopeStore.synchronize(fixtureIds.teamSecurity, fixtureIds.projectRuntime)
     await flushPromises()
     await open().trigger('click')
@@ -73,13 +73,13 @@ describe('ModelSettingsPage', () => {
     const { wrapper, gateway, store, router } = await mountPage(manager, 'ownerType=USER&provider=deepseek')
     await wrapper.findAll('button').find(button => button.text().includes('创建连接'))!.trigger('click')
     await wrapper.get<HTMLInputElement>('input[type="password"]').setValue('one-way-secret')
-    await wrapper.get('.credential-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form').trigger('submit')
     await flushPromises()
 
     expect(gateway.seenApiKey).toBe('one-way-secret')
     expect(JSON.stringify(store.state)).not.toContain('one-way-secret')
     expect(router.currentRoute.value.fullPath).not.toContain('one-way-secret')
-    expect(wrapper.find('.credential-dialog').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog form').exists()).toBe(false)
   })
 
   it('reuses the same lifecycle idempotency key only while command coordinates remain unchanged', async () => {
@@ -122,7 +122,7 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, suspe
         [SCOPE_STORE as symbol]: scopeStore,
         [MODEL_STORE as symbol]: store,
       },
-      stubs: { AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
+      stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
     },
   })
   await flushPromises()

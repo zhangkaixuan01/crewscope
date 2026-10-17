@@ -86,7 +86,7 @@ describe('SkillsPage', () => {
     await wrapper.findAll('button').find(button => button.text() === '发布当前草稿')!.trigger('click')
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('无条件披露扫描')
 
-    await wrapper.get('form[role="alertdialog"]').trigger('submit')
+    await wrapper.get('[role="alertdialog"] form').trigger('submit')
     await flushPromises()
 
     expect(gateway.publishKeys).toHaveLength(1)
@@ -133,14 +133,14 @@ describe('SkillsPage', () => {
 
     await wrapper.findAll('button').find(button => button.text() === '创建 Skill')!.trigger('click')
     const content = '---\nname: release-notes\ndescription: 发布说明\n---\n\n每次发布后回填。'
-    await wrapper.get('form.skill-dialog input[type="text"]').setValue('release-notes')
-    await wrapper.get('form.skill-dialog textarea').setValue(content)
-    await wrapper.get('form.skill-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form input[type="text"]').setValue('release-notes')
+    await wrapper.get('.base-dialog form textarea').setValue(content)
+    await wrapper.get('.base-dialog form').trigger('submit')
     await flushPromises()
 
     expect(gateway.createInputs).toHaveLength(1)
     expect(gateway.createInputs[0]).toMatchObject({ skillKey: 'release-notes', content })
-    expect(wrapper.find('form.skill-dialog').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog form').exists()).toBe(false)
     expect(gateway.listCalls.length).toBeGreaterThan(listsBefore)
     wrapper.unmount()
   })
@@ -149,10 +149,10 @@ describe('SkillsPage', () => {
     const { wrapper, router } = await mountPage(manager, '')
 
     await wrapper.findAll('button').find(button => button.text().includes('从执行蒸馏'))!.trigger('click')
-    const inputs = wrapper.findAll('form.skill-dialog input[type="text"]')
+    const inputs = wrapper.findAll('.base-dialog form input[type="text"]')
     await inputs[0]!.setValue(executionId)
     await inputs[1]!.setValue('postmortem-cache')
-    await wrapper.get('form.skill-dialog').trigger('submit')
+    await wrapper.get('.base-dialog form').trigger('submit')
     await flushPromises()
 
     const receipt = wrapper.get('section[aria-label="蒸馏回执"]')
@@ -161,7 +161,7 @@ describe('SkillsPage', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.query.skill).toBe(skillId)
-    expect(wrapper.find('form.skill-dialog').exists()).toBe(false)
+    expect(wrapper.find('.base-dialog form').exists()).toBe(false)
     wrapper.unmount()
   })
 })
@@ -186,7 +186,7 @@ async function mountPage(
         [SCOPE_STORE as symbol]: scopeStore,
         [SKILL_STORE as symbol]: store,
       },
-      stubs: { AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
+      stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
     },
   })
   await flushPromises()

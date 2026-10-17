@@ -2,11 +2,12 @@
 import { secureId } from '../../api/secureId'
 import {
   Activity, CheckCircle2, CircleAlert, Gauge, History, Inbox,
-  RefreshCw, RotateCcw, Send, ShieldCheck, Siren, X,
+  RefreshCw, RotateCcw, Send, ShieldCheck, Siren,
 } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import type { TeamOpsCommandState, TeamOpsPhase } from '../../domains/teamops/store'
@@ -52,9 +53,6 @@ const pending = ref<PendingAction | null>(null)
 const confirmationInput = ref('')
 const failureCode = ref('OPERATOR_MARKED_FAILED')
 const idempotencyKey = ref('')
-const dialog = ref<HTMLElement | null>(null)
-const heading = ref<HTMLElement | null>(null)
-let opener: HTMLElement | null = null
 
 const summary = computed(() => props.health ?? props.diagnostics?.summary ?? null)
 const isInitialFailure = computed(() => props.phase === 'error' && !summary.value)
@@ -86,11 +84,11 @@ watch(() => props.command.phase, phase => {
   if (phase === 'success') closeDialog(true)
 })
 
-function openRecovery(candidate: RecoveryCandidate, event?: Event): void {
-  open({ kind: 'recovery', candidate, confirmation: candidate.confirmation, title: actionLabels[candidate.action] ?? candidate.action }, event)
+function openRecovery(candidate: RecoveryCandidate): void {
+  open({ kind: 'recovery', candidate, confirmation: candidate.confirmation, title: actionLabels[candidate.action] ?? candidate.action })
 }
 
-function openProjection(projection: ProjectionDiagnostic, operation: ProjectionOperation, event?: Event): void {
+function openProjection(projection: ProjectionDiagnostic, operation: ProjectionOperation): void {
   const phrases = {
     start: projection.startConfirmation,
     validate: projection.validateConfirmation,
@@ -101,18 +99,16 @@ function openProjection(projection: ProjectionDiagnostic, operation: ProjectionO
   const titles = { start: '启动影子重建', validate: '验证影子代际', switch: '切换活跃代际', cancel: '取消影子重建', fail: '标记重建失败' }
   const confirmation = phrases[operation]
   if (!confirmation) return
-  open({ kind: 'projection', operation, projection, confirmation, title: titles[operation] }, event)
+  open({ kind: 'projection', operation, projection, confirmation, title: titles[operation] })
 }
 
-function open(action: PendingAction, event?: Event): void {
+function open(action: PendingAction): void {
   emit('clearCommand')
-  opener = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : null
   pending.value = action
   confirmationInput.value = ''
   failureCode.value = 'OPERATOR_MARKED_FAILED'
   // Transport retries within this open dialog reuse one key; closing starts a new command intent.
   idempotencyKey.value = secureId()
-  void nextTick(() => heading.value?.focus())
 }
 
 function closeDialog(force = false): void {
@@ -121,9 +117,6 @@ function closeDialog(force = false): void {
   confirmationInput.value = ''
   failureCode.value = 'OPERATOR_MARKED_FAILED'
   idempotencyKey.value = ''
-  const target = opener
-  opener = null
-  void nextTick(() => target?.focus())
 }
 
 function submit(): void {
@@ -168,24 +161,6 @@ function projectionCommand(action: Extract<PendingAction, { kind: 'projection' }
     operation: 'cancel', projectionName: projection.projectionName,
     generation: projection.shadowGeneration, rebuildJobId: projection.rebuildJobId,
     body: { expectedGenerationVersion: projection.shadowGenerationVersion, expectedJobVersion: projection.rebuildJobVersion, confirmation },
-  }
-}
-
-function handleDialogKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeDialog()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const focusable = [...dialog.value.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-  const first = focusable[0]
-  const last = focusable.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === heading.value)) {
-    event.preventDefault(); last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault(); first.focus()
   }
 }
 
@@ -262,11 +237,11 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
           <dl class="projection-metrics"><div><dt>Gap</dt><dd>{{ projection.gapCount }}</dd></div><div><dt>Dead Letter</dt><dd>{{ projection.deadLetterCount }}</dd></div><div><dt>Failure</dt><dd>{{ projection.latestFailureCode ?? '—' }}</dd></div><div><dt>Job</dt><dd>{{ projection.rebuildJobId ? short(projection.rebuildJobId) : '—' }}</dd></div></dl>
           <div class="projection-actions">
             <p :id="`projection-reason-${projection.projectionName}`" class="sr-only">{{ projectionCommandReason(projection) }}</p>
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'start', $event)"><RotateCcw :size="13" />影子重建</BaseButton>
-            <BaseButton v-if="projection.validateConfirmation" size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'validate', $event)">验证</BaseButton>
-            <BaseButton v-if="projection.switchConfirmation" size="small" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'switch', $event)">切换</BaseButton>
-            <BaseButton v-if="projection.cancelConfirmation" size="small" variant="ghost" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'cancel', $event)">取消</BaseButton>
-            <BaseButton v-if="projection.failConfirmation" size="small" variant="danger" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'fail', $event)">标记失败</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'start')"><RotateCcw :size="13" />影子重建</BaseButton>
+            <BaseButton v-if="projection.validateConfirmation" size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'validate')">验证</BaseButton>
+            <BaseButton v-if="projection.switchConfirmation" size="small" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'switch')">切换</BaseButton>
+            <BaseButton v-if="projection.cancelConfirmation" size="small" variant="ghost" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'cancel')">取消</BaseButton>
+            <BaseButton v-if="projection.failConfirmation" size="small" variant="danger" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'fail')">标记失败</BaseButton>
           </div>
         </article>
         <StatePanel v-if="diagnostics.projections.length === 0" state="empty" title="暂无 Projection 定义" />
@@ -277,7 +252,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
         <ul v-if="diagnostics.recoveryCandidates.length">
           <li v-for="candidate in diagnostics.recoveryCandidates" :key="candidate.referenceHash">
             <div><strong>{{ actionLabels[candidate.action] }}</strong><small>{{ enumLabel(candidate.type, recoveryCandidateTypeLabels) }} · {{ short(candidate.referenceHash) }}</small></div>
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`recovery-reason-${candidate.referenceHash}`" @click="openRecovery(candidate, $event)"><History :size="13" />执行恢复</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`recovery-reason-${candidate.referenceHash}`" @click="openRecovery(candidate)"><History :size="13" />执行恢复</BaseButton>
             <p :id="`recovery-reason-${candidate.referenceHash}`" class="sr-only">{{ diagnosticsBlockedReason }}</p>
           </li>
         </ul>
@@ -292,17 +267,27 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
       <BaseButton size="small" variant="ghost" @click="emit('clearCommand')">关闭</BaseButton>
     </section>
 
-    <div v-if="pending" class="dialog-backdrop" @mousedown.self="closeDialog()">
-      <section ref="dialog" class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="operations-confirm-title" @keydown="handleDialogKeydown">
-        <header><div><p class="eyebrow">Strong confirmation</p><h2 id="operations-confirm-title" ref="heading" tabindex="-1">{{ pending.title }}</h2></div><button type="button" aria-label="关闭确认窗口" :disabled="commandPending" @click="closeDialog()"><X :size="18" /></button></header>
+    <BaseDialog
+      v-if="pending"
+      open
+      :title="pending.title"
+      eyebrow="Strong confirmation"
+      width="min(520px, 100%)"
+      :close-disabled="commandPending"
+      close-label="关闭确认窗口"
+      @close="closeDialog()"
+    >
+      <div class="confirmation-body">
         <p>该操作会写入审计并使用新的 Idempotency-Key。输入服务端生成的完整确认短语后才能执行。</p>
         <code>{{ pending.confirmation }}</code>
-        <label>确认短语<input v-model="confirmationInput" autocomplete="off" spellcheck="false" :disabled="commandPending"></label>
+        <label>确认短语<input v-model="confirmationInput" autocomplete="off" spellcheck="false" autofocus :disabled="commandPending"></label>
         <label v-if="pending.kind === 'projection' && pending.operation === 'fail'">失败码<input v-model.trim="failureCode" autocomplete="off" spellcheck="false" :aria-invalid="!failureCodeValid" :disabled="commandPending"><small>大写下划线诊断码，最多 80 字符。</small></label>
         <div v-if="command.phase === 'conflict' || command.phase === 'error'" class="dialog-error" role="alert">{{ command.error?.message }}。{{ command.phase === 'error' && command.error?.retryable ? '可以使用原 Idempotency-Key 重试同一输入。' : '请关闭并回读最新诊断，不会自动重放。' }}</div>
-        <footer><BaseButton variant="ghost" :disabled="commandPending" @click="closeDialog()">取消</BaseButton><BaseButton :variant="pending.kind === 'projection' && pending.operation === 'fail' ? 'danger' : 'primary'" :disabled="!canSubmit" @click="submit"><RefreshCw v-if="commandPending" class="spin" :size="14" />确认执行</BaseButton></footer>
-      </section>
-    </div>
+      </div>
+      <template #footer>
+        <BaseButton variant="ghost" :disabled="commandPending" @click="closeDialog()">取消</BaseButton><BaseButton :variant="pending.kind === 'projection' && pending.operation === 'fail' ? 'danger' : 'primary'" :disabled="!canSubmit" @click="submit"><RefreshCw v-if="commandPending" class="spin" :size="14" />确认执行</BaseButton>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
@@ -333,9 +318,9 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 .projection-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--cs-space-8); margin: 0; }.projection-metrics div { padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface); }.projection-metrics dd { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.projection-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
 .recovery-section { margin-top: var(--cs-space-20); padding-top: var(--cs-space-16); border-top: 1px solid var(--cs-border); }.recovery-section > header > div { display: flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); }.recovery-section ul { display: grid; gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; padding: 0; list-style: none; }.recovery-section li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; }.recovery-section li strong, .recovery-section li small { display: block; }.recovery-section li strong { font-size: var(--cs-text-sm); }.recovery-section li small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.empty-line { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .command-result { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-4) var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface); }.command-result > div { display: flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); }.command-result p { grid-column: 1; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-result.success { border-color: var(--cs-border-accent); }.command-result.conflict, .command-result.error { border-color: var(--cs-danger-border); }
-.dialog-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-dialog); display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); backdrop-filter: blur(3px); }.confirmation-dialog { width: min(520px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: 15px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }.confirmation-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; }.confirmation-dialog h2 { margin: 0; font-size: var(--cs-text-md); }.confirmation-dialog > header button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 7px; background: var(--cs-surface-subtle); cursor: pointer; }.confirmation-dialog > p { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.confirmation-dialog code { display: block; overflow-wrap: anywhere; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-accent); color: var(--cs-success); font-size: var(--cs-text-sm); }.confirmation-dialog label { display: grid; gap: var(--cs-space-8); margin-top: var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.confirmation-dialog input { min-height: 37px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 8px; font: var(--cs-text-base) var(--cs-font-sans); }.confirmation-dialog label small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.confirmation-dialog footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-16); }.dialog-error { margin-top: var(--cs-space-12); padding: var(--cs-space-8); border-radius: 7px; background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-xs); }.spin { animation: spin var(--cs-motion-spin) linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
+.confirmation-body { display: grid; gap: var(--cs-space-12); }.confirmation-body > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.confirmation-body code { display: block; overflow-wrap: anywhere; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-accent); color: var(--cs-success); font-size: var(--cs-text-sm); }.confirmation-body label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.confirmation-body input { min-height: 37px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 8px; font: var(--cs-text-base) var(--cs-font-sans); }.confirmation-body label small { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.dialog-error { margin-top: var(--cs-space-12); padding: var(--cs-space-8); border-radius: 7px; background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-xs); }.spin { animation: spin var(--cs-motion-spin) linear infinite; }@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(3, 1fr); }.evidence-links { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 767px) { .health-hero { align-items: flex-start; }.health-hero__status { justify-items: start; }.health-grid { grid-template-columns: 1fr 1fr; }.evidence-links { grid-template-columns: 1fr 1fr; }.projection-metrics { grid-template-columns: 1fr 1fr; }.generation-flow { grid-template-columns: 1fr; }.generation-flow > span { display: none; }.recovery-section li { align-items: flex-start; flex-direction: column; }.confirmation-dialog { max-height: calc(100vh - 28px); overflow: auto; } }
+@media (max-width: 767px) { .health-hero { align-items: flex-start; }.health-hero__status { justify-items: start; }.health-grid { grid-template-columns: 1fr 1fr; }.evidence-links { grid-template-columns: 1fr 1fr; }.projection-metrics { grid-template-columns: 1fr 1fr; }.generation-flow { grid-template-columns: 1fr; }.generation-flow > span { display: none; }.recovery-section li { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 430px) { .health-hero { flex-direction: column; }.health-grid, .evidence-links { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 </style>

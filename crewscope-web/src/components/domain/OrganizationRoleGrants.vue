@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue'
-import { computed, inject, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
-import { isTopmostModal } from '../../app/dialog'
+import { computed, inject, onMounted, ref, useId, watch } from 'vue'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { AUTH_STORE } from '../../domains/identity/store'
 import { createFormCommandKeys } from '../../api/formCommandKeys'
 import BaseBadge from '../base/BaseBadge.vue'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 import BaseTable from '../base/BaseTable.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import { organizationRoleLabels, roleGrantStatusLabels } from '../../domains/organization/labels'
@@ -57,9 +56,8 @@ const grantDisabledReason = computed(() => {
 
 const revoking = ref<OrganizationRoleGrant | null>(null)
 const revokeReason = ref('')
+const revokeFormId = useId()
 const revokeSubmitted = ref(false)
-const dialog = useTemplateRef<HTMLElement>('dialog')
-const revokeReasonInput = ref<HTMLInputElement | null>(null)
 
 onMounted(() => { void store.loadRoleGrants(props.organizationId) })
 
@@ -72,10 +70,6 @@ watch(() => roleCommand.value.phase, phase => {
   grantReason.value = ''
   grantSubmitted.value = false
   if (revoking.value) closeRevoke()
-})
-
-watch(revoking, grant => {
-  if (grant) void nextTick(() => (revokeReasonInput.value ?? dialog.value)?.focus())
 })
 
 async function submitGrant(): Promise<void> {
@@ -112,27 +106,6 @@ async function submitRevoke(): Promise<void> {
   }, grant.version, intentKeys.forInput([grant.id]))
 }
 
-function handleKeydown(event: KeyboardEvent): void {
-  if (!isTopmostModal(dialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeRevoke()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')]
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
 
 function dateText(value: string | null): string {
   return value ? new Date(value).toLocaleDateString('zh-CN') : '—'
@@ -239,21 +212,16 @@ function dateText(value: string | null): string {
       </div>
     </form>
 
-    <div v-if="revoking" class="org-revoke-backdrop" @click.self="closeRevoke">
-      <form
-        ref="dialog"
-        class="org-revoke-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="org-revoke-title"
-        tabindex="-1"
-        @submit.prevent="submitRevoke"
-        @keydown="handleKeydown"
-      >
-        <header>
-          <h2 id="org-revoke-title">撤销组织角色</h2>
-          <BaseButton variant="ghost" size="small" :disabled="roleCommand.phase === 'pending'" @click="closeRevoke"><X :size="14" aria-hidden="true" />关闭</BaseButton>
-        </header>
+    <BaseDialog
+      v-if="revoking"
+      open
+      title="撤销组织角色"
+      width="min(480px, 100%)"
+      :close-disabled="roleCommand.phase === 'pending'"
+      close-label="关闭撤销组织角色"
+      @close="closeRevoke"
+    >
+      <form :id="revokeFormId" class="org-revoke-body" @submit.prevent="submitRevoke">
         <p>
           将撤销 <span class="org-mono">{{ revoking.principalId }}</span> 的
           {{ enumLabel(revoking.role, organizationRoleLabels) }}（版本 {{ revoking.version }}）。
@@ -261,22 +229,23 @@ function dateText(value: string | null): string {
         <label for="org-revoke-reason">撤销原因（可选，最长 500 字）</label>
         <input
           id="org-revoke-reason"
-          ref="revokeReasonInput"
           v-model="revokeReason"
           type="text"
+          autofocus
           :aria-invalid="revokeSubmitted && revokeReason.trim().length > 500"
         />
         <p v-if="roleCommand.phase === 'error'" role="alert" class="org-error">
           {{ problem?.title ? `${problem.title}：${problem.message}` : roleCommand.errorMessage }}
         </p>
-        <div class="org-actions">
-          <BaseButton type="submit" :disabled="roleCommand.phase === 'pending'">
-            {{ roleCommand.phase === 'pending' ? '撤销中…' : '确认撤销' }}
-          </BaseButton>
-          <BaseButton variant="ghost" :disabled="roleCommand.phase === 'pending'" @click="closeRevoke">取消</BaseButton>
-        </div>
       </form>
-    </div>
+      <template #footer>
+        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+        <BaseButton type="submit" :form="revokeFormId" :disabled="roleCommand.phase === 'pending'">
+          {{ roleCommand.phase === 'pending' ? '撤销中…' : '确认撤销' }}
+        </BaseButton>
+        <BaseButton variant="ghost" :disabled="roleCommand.phase === 'pending'" autofocus @click="closeRevoke">取消</BaseButton>
+      </template>
+    </BaseDialog>
   </div>
 </template>
 
@@ -296,11 +265,8 @@ function dateText(value: string | null): string {
 .org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .org-actions { display: flex; gap: var(--cs-space-8); }
-.org-revoke-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--cs-space-16); background: var(--cs-scrim); z-index: var(--cs-z-dialog); }
-.org-revoke-dialog { display: grid; gap: var(--cs-space-12); width: min(480px, 100%); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
-.org-revoke-dialog header { display: flex; align-items: center; justify-content: space-between; }
-.org-revoke-dialog h2 { margin: 0; font-size: var(--cs-text-md); }
-.org-revoke-dialog p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
-.org-revoke-dialog label { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.org-revoke-dialog input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }
+.org-revoke-body { display: grid; gap: var(--cs-space-12); }
+.org-revoke-body p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.org-revoke-body label { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.org-revoke-body input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); }
 </style>

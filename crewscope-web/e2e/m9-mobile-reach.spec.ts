@@ -100,7 +100,8 @@ test('移动导航抽屉支持键盘唤出、焦点归还与 Esc 关闭', async 
 
   const navigation = page.locator('#mobile-navigation')
   await expect(navigation).toBeVisible()
-  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('mobile-navigation')
+  // BaseDrawer 的焦点合同：初始焦点落在 surface 内第一个可聚焦元素（header 关闭钮）。
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('关闭主导航')
   await page.keyboard.press('Escape')
   await expect(navigation).toBeHidden()
   await expect.poll(() => page.evaluate(() => document.activeElement?.className)).toContain('mobile-menu-toggle')

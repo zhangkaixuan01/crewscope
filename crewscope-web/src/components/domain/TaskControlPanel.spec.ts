@@ -6,7 +6,7 @@ import TaskControlPanel from './TaskControlPanel.vue'
 describe('TaskControlPanel', () => {
   it('explains Pause impact, validates the reason and submits only server command coordinates', async () => {
     const onCommand = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(TaskControlPanel, { props: props({ onCommand }) })
+    const wrapper = mount(TaskControlPanel, { props: props({ onCommand }), global: { stubs: { teleport: true } } })
 
     expect(wrapper.find('[aria-label="暂停当前 Task"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="取消当前 Task"]').exists()).toBe(true)
@@ -30,7 +30,7 @@ describe('TaskControlPanel', () => {
 
   it('discovers Resume and allows Retry to pin an explicitly switched configuration', async () => {
     const paused = executionWith({ status: 'PAUSED' })
-    const wrapper = mount(TaskControlPanel, { props: props({ attempt: paused }) })
+    const wrapper = mount(TaskControlPanel, { props: props({ attempt: paused }), global: { stubs: { teleport: true } } })
     expect(wrapper.find('[aria-label="恢复当前 Task"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="暂停当前 Task"]').exists()).toBe(false)
 
@@ -56,11 +56,11 @@ describe('TaskControlPanel', () => {
   })
 
   it('hides command controls from read-only members and disables submission while offline', async () => {
-    const readOnly = mount(TaskControlPanel, { props: props({ canControl: false }) })
+    const readOnly = mount(TaskControlPanel, { props: props({ canControl: false }), global: { stubs: { teleport: true } } })
     expect(readOnly.text()).toContain('没有这个 Task 的 Owner 或 Executor 控制责任')
     expect(readOnly.findAll('.task-control-actions button')).toHaveLength(0)
 
-    const offline = mount(TaskControlPanel, { props: props({ online: false }) })
+    const offline = mount(TaskControlPanel, { props: props({ online: false }), global: { stubs: { teleport: true } } })
     expect(offline.text()).toContain('当前离线')
     expect(offline.get('[aria-label="暂停当前 Task"]').attributes('disabled')).toBeDefined()
   })
@@ -74,6 +74,7 @@ describe('TaskControlPanel', () => {
         versionConflict: { operation: 'PAUSE', attemptedVersion: 2, currentVersion: 3 },
         onRetry,
       }),
+      global: { stubs: { teleport: true } },
     })
 
     expect(wrapper.text()).toContain('服务端当前版本为 v3')
@@ -82,8 +83,10 @@ describe('TaskControlPanel', () => {
   })
 
   it('restores focus to the Cancel trigger when confirmation is dismissed', async () => {
-    const wrapper = mount(TaskControlPanel, { attachTo: document.body, props: props() })
+    const wrapper = mount(TaskControlPanel, { attachTo: document.body, props: props(), global: { stubs: { teleport: true } } })
     const trigger = wrapper.get<HTMLButtonElement>('[aria-label="取消当前 Task"]')
+    // jsdom 不会在 click 时移动焦点；真实浏览器里点击即聚焦，焦点恢复契约依赖这一事实。
+    trigger.element.focus()
     await trigger.trigger('click')
     await wrapper.get('[aria-label="关闭 Task 控制确认"]').trigger('click')
     await flushPromises()

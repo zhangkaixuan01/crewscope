@@ -10,6 +10,7 @@ describe('ModelCredentialDialog', () => {
         canManageTeam: true, canManageOrganization: false, submitting: false,
         retryable: true, errorMessage: 'Provider 暂时不可用',
       },
+      global: { stubs: { teleport: true } },
     })
     const secret = wrapper.get<HTMLInputElement>('input[type="password"]')
     await secret.setValue('one-way-secret')
@@ -46,6 +47,7 @@ describe('ModelCredentialDialog', () => {
         canManageTeam: false, canManageOrganization: false, submitting: false,
         retryable: false, errorMessage: null,
       },
+      global: { stubs: { teleport: true } },
     })
 
     const team = wrapper.findAll('button').find(button => button.text().includes('团队连接'))!
@@ -60,6 +62,7 @@ describe('ModelCredentialDialog', () => {
         teamId: 'team-1', canManageTeam: true, canManageOrganization: false, submitting: false,
         retryable: false, errorMessage: null,
       },
+      global: { stubs: { teleport: true } },
     })
 
     const providerSelect = wrapper.get<HTMLSelectElement>('select[aria-label="Provider"]')

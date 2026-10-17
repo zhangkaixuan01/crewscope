@@ -2552,7 +2552,7 @@ test('Task delegation preflight remains accessible and visually stable', async (
   await expect(delegate.locator('.preflight-header').getByText('个人范围', { exact: true })).toBeVisible()
   await expect(delegate.getByText(/deepseek \/ deepseek-v4-flash/)).toBeVisible()
   await expect(delegate.getByText(/当前 Preflight API 不披露 Billing Subject/)).toBeVisible()
-  expect((await new AxeBuilder({ page }).include('.delegate-dialog').analyze()).violations).toEqual([])
+  expect((await new AxeBuilder({ page }).include('.base-dialog').analyze()).violations).toEqual([])
   await expect(delegate).toHaveScreenshot(`task-delegation-preflight-${testInfo.project.name}.png`, { animations: 'disabled' })
 })
 
@@ -3264,7 +3264,7 @@ test('Review Workbench binds Context, Diff, Test and Acceptance before Reviewer 
   const gate = page.getByRole('dialog', { name: '提交成员 Review 结论' })
   await expect(gate).toBeVisible()
   const gateAxe = await new AxeBuilder({ page })
-    .include('.gate-dialog')
+    .include('.base-dialog')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   expect(gateAxe.violations, formatAxeViolations(gateAxe.violations)).toEqual([])
@@ -3343,9 +3343,13 @@ test('M5 GitHub Delivery confirms an exact ActionBundle and reconciles partial d
   const confirmationOpener = workbench.getByRole('button', { name: '审查并确认' })
   await confirmationOpener.click()
   let confirm = page.getByRole('dialog', { name: '确认执行 GitHub 写操作' })
-  await expect(confirm.getByRole('button', { name: '关闭确认对话框' })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
+  // M12b-F02：危险确认的初始焦点落在安全侧（取消钮 autofocus）。反向 Tab 序即 DOM 序：
+  // 取消 ← 复选框 ← header 关闭钮，两步 Shift+Tab 验证焦点始终在陷阱内循环。
   await expect(confirm.getByRole('button', { name: '取消' })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(confirm.getByRole('checkbox')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(confirm.getByRole('button', { name: '关闭确认对话框' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(confirm).toBeHidden()
   await expect(confirmationOpener).toBeFocused()
@@ -3382,12 +3386,13 @@ test('M5 GitHub Delivery visual baseline', async ({ page }, testInfo) => {
   // Remove the fixed drawer clip so the baseline captures the complete responsive delivery graph.
   const viewport = page.viewportSize()!
   await page.setViewportSize({ width: viewport.width, height: 2600 })
-  await page.locator('.task-detail-header, .task-detail-footer, .skip-link').evaluateAll(elements => elements.forEach(element => element.remove()))
+  await page.locator('.base-drawer__header, .task-detail-footer, .skip-link').evaluateAll(elements => elements.forEach(element => element.remove()))
   await page.addStyleTag({ content: `
-    .task-detail-backdrop { position: absolute !important; min-height: 5000px !important; }
-    .task-detail-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
+    /* M12b-F02：Task 详情抽屉外壳收敛到 BaseDrawer，快照稳定化选择器随之外迁。 */
+    .base-drawer__backdrop { position: absolute !important; min-height: 5000px !important; }
+    .base-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
     .task-detail-content { overflow: visible !important; }
-    .task-detail-header, .task-detail-footer, .skip-link { display: none !important; }
+    .base-drawer__header, .task-detail-footer, .skip-link { display: none !important; }
   ` })
   await workbench.scrollIntoViewIfNeeded()
   await expect(workbench).toHaveScreenshot(`action-delivery-workbench-${testInfo.project.name}.png`)
@@ -3402,10 +3407,11 @@ test('M5 Review Workbench visual baseline', async ({ page }, testInfo) => {
     // Remove the drawer viewport clip so the baseline captures the entire responsive Workbench,
     // including its heading, revision selector and Gate section.
     await page.addStyleTag({ content: `
-      .task-detail-backdrop { position: absolute !important; min-height: 5000px !important; }
-      .task-detail-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
+      /* M12b-F02：Task 详情抽屉外壳收敛到 BaseDrawer，快照稳定化选择器随之外迁。 */
+      .base-drawer__backdrop { position: absolute !important; min-height: 5000px !important; }
+      .base-drawer { position: absolute !important; inset: 0 0 auto auto !important; display: block !important; }
       .task-detail-content { overflow: visible !important; }
-      .task-detail-header, .task-detail-footer { display: none !important; }
+      .base-drawer__header, .task-detail-footer { display: none !important; }
     ` })
   }
   await workbench.scrollIntoViewIfNeeded()
@@ -3562,7 +3568,8 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
   await expect(drawer.locator('.change-banner')).toContainText('该工作项已被更新')
   await expect(title).toHaveValue('并行修改期间的本地标题')
   const drawerAxe = await new AxeBuilder({ page })
-    .include('.detail-drawer')
+    // M12b-F02：详情抽屉外壳收敛到 BaseDrawer，断言面从实现类名改为基础件外壳。
+    .include('.base-drawer')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   expect(drawerAxe.violations, formatAxeViolations(drawerAxe.violations)).toEqual([])
@@ -3999,7 +4006,8 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
   await page.goto(`/settings/agents?team=${ids.team}`)
   await page.getByRole('button', { name: '创建个人 Agent' }).first().click()
   const createResult = await new AxeBuilder({ page })
-    .include('[role="dialog"][aria-labelledby="agent-create-title"]')
+    // M12b-F02：BaseDialog 以 aria-label（title）命名，旧 aria-labelledby 固定 id 已随外壳收敛消失。
+    .include('[role="dialog"][aria-modal="true"]')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   expect(createResult.violations, formatAxeViolations(createResult.violations)).toEqual([])
@@ -4007,7 +4015,8 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
   await page.goto(`/settings/models?team=${ids.team}`)
   await page.getByRole('button', { name: '创建连接' }).first().click()
   const credentialResult = await new AxeBuilder({ page })
-    .include('[role="dialog"][aria-labelledby="credential-create-title"]')
+    // M12b-F02：BaseDialog 以 aria-label 命名，固定 titled-by id 随手写外壳消失。
+    .include('[role="dialog"][aria-modal="true"]')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   expect(credentialResult.violations, formatAxeViolations(credentialResult.violations)).toEqual([])

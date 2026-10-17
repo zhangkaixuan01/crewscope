@@ -92,7 +92,7 @@ async function mounted(overrides: Record<string, unknown> = {}) {
   await router.isReady()
   return mount(KnowledgeDistillationDialog, {
     props: { teamId: 'team-1', submitting: false, errorMessage: null, receipt: null, ...overrides },
-    global: { plugins: [router] },
+    global: { plugins: [router], stubs: { teleport: true } },
     attachTo: document.body,
   })
 }

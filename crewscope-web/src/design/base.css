@@ -21,6 +21,14 @@ body {
   min-height: 100vh;
 }
 
+/*
+ * M12b-F02：模态滚动锁。useFocusTrap 按引用计数增删这个 class——层叠浮层全关之前页面
+ * 不会恢复滚动（按「保存值恢复」会在先关外层时错误解锁）。
+ */
+body.cs-modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea,

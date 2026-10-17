@@ -50,10 +50,12 @@ describe('AccountPage session management (M12-F03)', () => {
 
     await wrapper.get('[data-testid="session-row-current"] button').trigger('click')
     expect(identity.deleteSession).not.toHaveBeenCalled()
-    const dialog = wrapper.get('[role="dialog"]')
+    const dialog = wrapper.get('[role="alertdialog"]')
     expect(dialog.text()).toContain('退出本设备？')
 
-    await dialog.findAll('button')[0]!.trigger('click')
+    // 危险确认的主钮在 footer；header 还有 BaseDialog 的关闭钮，不能按位置取第一个。
+    const confirm = dialog.findAll('button').find(button => button.text() === '退出本设备')
+    await confirm!.trigger('click')
     await flushPromises()
 
     expect(identity.deleteSession).toHaveBeenCalledExactlyOnceWith('session-current', csrfCoordinate())
@@ -153,6 +155,7 @@ async function mountPage(options: {
       stubs: {
         TeamNotificationPreferenceCard: { template: '<section data-notification-card />' },
         RouterLink: { props: ['to'], template: '<a><slot /></a>' },
+        teleport: true,
       },
     },
   })

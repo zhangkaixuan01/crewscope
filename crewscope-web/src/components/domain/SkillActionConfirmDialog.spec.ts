@@ -5,7 +5,9 @@ describe('SkillActionConfirmDialog', () => {
   it('explains the unconditional disclosure scan before publishing', async () => {
     const wrapper = mounted({ kind: 'publish', skillKey: 'deploy-runbook-v2', nextRevision: 2 })
 
-    expect(wrapper.get('[aria-describedby="skill-confirm-impact"]').text()).toContain('披露扫描')
+    // 契约：alertdialog 的 aria-describedby 指向承载影响说明的元素（id 由 useId 生成，不断言具体值）。
+    const describedId = wrapper.get('[role="alertdialog"]').attributes('aria-describedby')
+    expect(wrapper.get(`[id="${describedId}"]`).text()).toContain('披露扫描')
     expect(wrapper.text()).toContain('r2')
 
     await wrapper.get('form').trigger('submit')
@@ -64,5 +66,6 @@ function mounted(intent: SkillActionIntent) {
   return mount(SkillActionConfirmDialog, {
     props: { intent, submitting: false, errorMessage: null },
     attachTo: document.body,
+    global: { stubs: { teleport: true } },
   })
 }

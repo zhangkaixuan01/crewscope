@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight, Command, Search, X } from '@lucide/vue'
+import { ArrowRight, Command, Search } from '@lucide/vue'
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import { ACTION_REGISTRY, type ActionContext, type ActionEntry, type ActionRegistry } from '../../app/actionRegistry'
 import { COMMAND_PALETTE_EVENT, SHORTCUT_HELP_EVENT, SHORTCUT_MANAGER, type ShortcutManager } from '../../app/shortcuts'
-import { useFocusTrap } from '../../composables/useFocusTrap'
+import BaseDialog from '../base/BaseDialog.vue'
 import { isImeComposition } from '../../composables/useImeGuard'
 import { SCOPE_STORE } from '../../domains/scope/store'
 import { PALETTE_SEARCH_STORE, type SearchStore } from '../../domains/search/store'
@@ -37,9 +37,9 @@ const open = ref(false)
 const helpOpen = ref(false)
 const query = ref('')
 const selectedIndex = ref(0)
-const surface = ref<HTMLElement | null>(null)
 const recent = ref<RecentItem[]>([])
-useFocusTrap(surface, open)
+// 焦点陷阱、滚动锁与 Escape 关闭都由 BaseDialog 承担（F02 收敛）。
+const paletteBody = ref<HTMLElement | null>(null)
 
 const context = computed<ActionContext>(() => ({ router, route, principal }))
 const entries = computed<ActionEntry[]>(() => registry?.list(context.value, true) ?? [])
@@ -77,13 +77,12 @@ function onOpen(): void {
   // R20: the palette owns its own session; clearing it on open never touches the search page.
   if (searchStore) void searchStore.search({ text: '' })
   refreshSavedViews()
-  void nextTick(() => surface.value?.querySelector<HTMLInputElement>('input')?.focus())
 }
 function onHelp(): void { open.value = true; helpOpen.value = true; query.value = ''; selectedIndex.value = 0 }
 function close(): void { open.value = false; helpOpen.value = false; shortcutManager?.closeHelp(); query.value = '' }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') { event.preventDefault(); close(); return }
+  // Escape 由 BaseDialog 的焦点陷阱关闭并归还焦点；这里只做列表导航。
   if (helpOpen.value || !hasResults.value || selectableCount.value === 0) return
   if (event.key === 'ArrowDown') { event.preventDefault(); selectedIndex.value = Math.min(selectedIndex.value + 1, selectableCount.value - 1); scrollSelectedIntoView(); return }
   if (event.key === 'ArrowUp') { event.preventDefault(); selectedIndex.value = Math.max(selectedIndex.value - 1, 0); scrollSelectedIntoView(); return }
@@ -97,7 +96,7 @@ function onKeydown(event: KeyboardEvent): void {
 // Keyboard order mirrors the rendered groups: saved views first, then actions, then objects —
 // a saved view must not be a mouse-only row inside an otherwise keyboard-driven palette (R27).
 const selectableCount = computed(() => savedViewItems.value.length + availableEntries.value.length + objectItems.value.length)
-function scrollSelectedIntoView(): void { void nextTick(() => surface.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })) }
+function scrollSelectedIntoView(): void { void nextTick(() => paletteBody.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })) }
 
 async function executeSelected(): Promise<void> {
   if (selectedIndex.value < savedViewItems.value.length) {
@@ -227,20 +226,17 @@ onBeforeUnmount(() => {
     <div v-if="!open && shortcutManager?.state.pending.length" class="command-palette__global-sequence" role="status" aria-live="polite">
       正在输入：<kbd>{{ shortcutManager.state.pending.join(' ') }}</kbd>
     </div>
-    <Transition name="command-palette-fade">
-      <div v-if="open && registry" class="command-palette__backdrop" @mousedown.self="close">
-        <section ref="surface" class="command-palette" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" tabindex="-1" @keydown="onKeydown">
-          <header class="command-palette__header">
-            <div><Command :size="17" aria-hidden="true" /><h2 id="command-palette-title">命令面板</h2></div>
-            <button type="button" aria-label="关闭命令面板" @click="close"><X :size="17" /></button>
-          </header>
-          <div v-if="helpOpen" class="command-palette__help">
+  </Teleport>
+  <BaseDialog :open="open && registry !== null" title="命令面板" width="min(680px, 100%)" anchor="top" padding="0" close-label="关闭命令面板" @close="close">
+    <template #icon><Command :size="18" aria-hidden="true" /></template>
+    <div ref="paletteBody" class="command-palette__main" @keydown="onKeydown">
+      <div v-if="helpOpen" class="command-palette__help">
             <p class="command-palette__hint">快捷键帮助</p>
             <ul><li v-for="entry in entries" :key="entry.action.id"><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd>{{ entry.action.shortcut ?? '—' }}</kbd></li></ul>
             <p class="command-palette__note">输入框、弹窗和抽屉打开时，序列快捷键会自动暂停。</p>
           </div>
           <template v-else>
-            <label class="command-palette__search"><Search :size="18" aria-hidden="true" /><input v-model="query" type="search" autocomplete="off" placeholder="搜索动作或对象…" aria-label="搜索动作或对象"><kbd><Command :size="11" /> K</kbd></label>
+            <label class="command-palette__search"><Search :size="18" aria-hidden="true" /><input v-model="query" type="search" autocomplete="off" placeholder="搜索动作或对象…" aria-label="搜索动作或对象" autofocus><kbd><Command :size="11" /> K</kbd></label>
             <div v-if="shortcutManager?.state.pending.length" class="command-palette__sequence" role="status">正在输入：{{ shortcutManager.state.pending.join(' ') }} …</div>
             <div class="command-palette__results" role="listbox" aria-label="命令面板结果">
               <section v-if="recentItems.length" class="command-palette__group"><h3>最近访问</h3><ul><li v-for="item in recentItems" :key="`${item.kind}:${item.id}`"><button type="button" :aria-label="item.label" @click="item.kind === 'action' && item.action ? executeAction(item.id) : openRecent(item)"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
@@ -257,19 +253,14 @@ onBeforeUnmount(() => {
               <section v-else-if="normalizedQuery && !hasResults && !objectSearchLoading && !objectSearchError && !objectSearchOffline" class="command-palette__state" role="status">没有找到匹配的动作或对象。</section>
               <section v-else-if="!normalizedQuery && !availableEntries.length" class="command-palette__state" role="status">当前范围暂无可用动作。</section>
             </div>
-          </template>
-        </section>
-      </div>
-    </Transition>
-  </Teleport>
+      </template>
+    </div>
+  </BaseDialog>
 </template>
 
 <style scoped>
-.command-palette__backdrop { position: fixed; z-index: var(--cs-z-dialog); inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 12vh var(--cs-space-20) var(--cs-space-24); background: var(--cs-scrim); }
-.command-palette { width: min(680px, 100%); max-height: min(680px, 76vh); overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); color: var(--cs-text); box-shadow: var(--cs-shadow-float); }
-.command-palette__header, .command-palette__search { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__header { justify-content: space-between; }.command-palette__header > div { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); }.command-palette h2 { margin: 0; color: var(--cs-text); font-size: var(--cs-text-base); }.command-palette__header button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text-muted); cursor: pointer; }.command-palette__header button:hover { background: var(--cs-surface-subtle); color: var(--cs-text); }
-.command-palette__search { border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); }.command-palette__search input { min-width: 0; flex: 1; min-height: 32px; border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.command-palette__search kbd, .command-palette li kbd { display: inline-flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font: var(--cs-text-sm) var(--cs-font-mono); }
+.command-palette__main { display: grid; }
+.command-palette__search { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); }.command-palette__search input { min-width: 0; flex: 1; min-height: 32px; border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.command-palette__search kbd, .command-palette li kbd { display: inline-flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font: var(--cs-text-sm) var(--cs-font-mono); }
 .command-palette__sequence { padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }.command-palette__results { max-height: calc(min(680px, 76vh) - 110px); overflow: auto; padding: var(--cs-space-8) 0 var(--cs-space-12); }.command-palette__group h3, .command-palette__hint { margin: var(--cs-space-8) var(--cs-space-16) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; text-transform: uppercase; }.command-palette__group ul { padding: 0; margin: 0; list-style: none; }.command-palette__group li button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 0; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.command-palette__group li button:hover, .command-palette__group li button[aria-selected='true'] { background: var(--cs-surface-accent); color: var(--cs-text); }.command-palette__group li button > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }.command-palette__group li strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.command-palette__group li small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.command-palette__state { padding: var(--cs-space-24) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.command-palette__state--forbidden { color: var(--cs-warning); }.command-palette__search-all { display: flex; width: 100%; align-items: center; justify-content: center; gap: var(--cs-space-8); margin-top: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-16); border: 0; border-top: 1px solid var(--cs-border); background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }.command-palette__search-all:hover, .command-palette__search-all:focus-visible { background: var(--cs-surface-accent); }.command-palette__help { max-height: calc(min(680px, 76vh) - 65px); overflow: auto; }.command-palette__help ul { padding: 0; margin: 0; list-style: none; }.command-palette__help li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__help li span { display: grid; gap: var(--cs-space-2); }.command-palette__help li strong { font-size: var(--cs-text-sm); }.command-palette__help li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-palette__note { margin: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .command-palette__global-sequence { position: fixed; z-index: var(--cs-z-toast); top: var(--cs-space-16); left: 50%; display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-raised); color: var(--cs-text-secondary); box-shadow: var(--cs-shadow-float); font-size: var(--cs-text-xs); transform: translateX(-50%); }.command-palette__global-sequence kbd { padding: var(--cs-space-2) var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 4px; font: var(--cs-text-sm) var(--cs-font-mono); }
-.command-palette-fade-enter-active, .command-palette-fade-leave-active { transition: opacity var(--cs-motion-base) var(--cs-ease-out); }.command-palette-fade-enter-from, .command-palette-fade-leave-to { opacity: 0; }
 </style>

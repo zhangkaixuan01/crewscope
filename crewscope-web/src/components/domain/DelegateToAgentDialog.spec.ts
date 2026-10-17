@@ -285,8 +285,10 @@ describe('DelegateToAgentDialog', () => {
     const wrapper = mountDialog({}, { attachTo: document.body })
     await flushPromises()
 
-    expect(document.activeElement).toBe(wrapper.get('[role="dialog"]').element)
-    const controls = wrapper.get('form').findAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')
+    const dialog = wrapper.get('[role="dialog"]')
+    // 初始焦点必须落在 Modal 内部（不落在背后的页面），具体落在哪个控件由基础件决定。
+    expect(dialog.element.contains(document.activeElement)).toBe(true)
+    const controls = dialog.findAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')
     const first = controls[0]!.element as HTMLElement
     const last = controls.at(-1)!.element as HTMLElement
     last.focus()
@@ -304,7 +306,7 @@ describe('DelegateToAgentDialog', () => {
     const wrapper = mountDialog({ context: context({ candidates: [] }) }, { attachTo: document.body })
     await flushPromises()
 
-    expect(document.activeElement).toBe(wrapper.get('[role="dialog"]').element)
+    expect(wrapper.get('[role="dialog"]').element.contains(document.activeElement)).toBe(true)
     wrapper.unmount()
   })
 })
@@ -424,6 +426,7 @@ function mountDialog(
         [AUTH_PRINCIPAL as symbol]: fixturePrincipal,
       },
       stubs: {
+        teleport: true,
         CodingTargetFormSection: defineComponent({
           emits: ['change'],
           setup(_, { emit }) {

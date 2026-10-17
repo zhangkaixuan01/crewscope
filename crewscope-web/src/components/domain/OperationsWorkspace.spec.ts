@@ -41,8 +41,9 @@ describe('OperationsWorkspace', () => {
     await validate.trigger('click')
 
     const dialog = wrapper.get('[role="dialog"]')
-    expect(document.activeElement).toBe(dialog.get('h2').element)
+    // 强确认的初始焦点落在确认短语输入框：不落在背后的页面，也不需要多余一次 Tab。
     const confirm = dialog.get('input')
+    expect(document.activeElement).toBe(confirm.element)
     await confirm.setValue('wrong')
     expect(dialog.findAll('button').at(-1)!.attributes('disabled')).toBeDefined()
     await confirm.setValue(projection.validateConfirmation!)
@@ -166,7 +167,7 @@ function mountWorkspace(overrides: Record<string, unknown> = {}, attach = false)
       canManage: true, online: true, ...overrides,
     } as never,
     global: {
-      stubs: { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } },
+      stubs: { teleport: true, RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' } },
       mocks: { $route: { query: { team: uuid(9) } } },
     },
     attachTo: attach ? document.body : undefined,

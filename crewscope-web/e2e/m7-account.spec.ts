@@ -58,7 +58,8 @@ test('confirms all-device revocation with focus containment and no Session coord
   await page.goto('/account')
   await page.getByRole('button', { name: '退出全部设备' }).click()
 
-  const dialog = page.getByRole('dialog', { name: '退出全部设备？' })
+  // M12b-F02：退出全部设备确认为危险确认（role=alertdialog）；密码输入框承接初始焦点。
+  const dialog = page.getByRole('alertdialog', { name: '退出全部设备？' })
   await expect(dialog).toContainText('包括当前设备')
   const password = page.locator('input[name="revokeCurrentPassword"]')
   await expect(password).toBeFocused()
@@ -91,7 +92,7 @@ test('keeps a failed all-device confirmation inside the dialog and clears its pa
   await password.fill('wrong-password')
   await page.getByRole('button', { name: '确认退出全部设备' }).click()
 
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('alertdialog')
   const alert = dialog.getByRole('alert')
   await expect(alert).toBeFocused()
   await expect(alert).toContainText('当前密码不正确')

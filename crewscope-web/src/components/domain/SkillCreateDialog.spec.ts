@@ -58,6 +58,7 @@ describe('SkillCreateDialog', () => {
     const wrapper = mount(SkillCreateDialog, {
       props: { teamId: 'team-1', submitting: false, errorMessage: 'skillKey 已存在' },
       attachTo: document.body,
+    global: { stubs: { teleport: true } },
     })
     await fillValidKey(wrapper, 'deploy-runbook-v2')
 
@@ -71,6 +72,7 @@ function mounted() {
   return mount(SkillCreateDialog, {
     props: { teamId: 'team-1', submitting: false, errorMessage: null },
     attachTo: document.body,
+    global: { stubs: { teleport: true } },
   })
 }
 

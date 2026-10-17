@@ -8,6 +8,7 @@ describe('ModelConnectionDetail', () => {
   it('shows sanitized health facts and keeps Team members read-only', () => {
     const wrapper = mount(ModelConnectionDetail, {
       props: { resource: ready({ healthStatus: 'UNHEALTHY', healthFailureCode: 'AUTHENTICATION_FAILED', consecutiveFailures: 2 }), canManage: false, command: idleCommand() },
+      global: { stubs: { teleport: true } },
     })
 
     expect(wrapper.text()).toContain('身份验证失败')
@@ -21,10 +22,14 @@ describe('ModelConnectionDetail', () => {
     const wrapper = mount(ModelConnectionDetail, {
       attachTo: document.body,
       props: { resource: ready(), canManage: true, command: idleCommand() },
+      global: { stubs: { teleport: true } },
     })
     const trigger = wrapper.findAll('button').find(button => button.text() === '永久撤销')!
+    // jsdom 不会在 click 时移动焦点；真实浏览器里点击即聚焦，焦点恢复契约依赖这一事实。
+    trigger.element.focus()
     await trigger.trigger('click')
-    expect(document.activeElement).toBe(wrapper.get('[role="alertdialog"]').element)
+    // 危险确认的初始焦点落在安全侧（取消钮），不落在破坏性主钮或背后的页面。
+    expect(document.activeElement).toBe(wrapper.findAll('button').find(button => button.text() === '取消')!.element)
     const confirm = wrapper.findAll('button').find(button => button.text() === '确认永久撤销')!
     expect(confirm.attributes('disabled')).toBeDefined()
     await wrapper.get('select').setValue('SECURITY_INCIDENT')
@@ -40,6 +45,7 @@ describe('ModelConnectionDetail', () => {
   it('offers re-enable only for a suspended connection with healthy current credentials', async () => {
     const healthy = mount(ModelConnectionDetail, {
       props: { resource: ready({ status: 'SUSPENDED', healthStatus: 'HEALTHY' }), canManage: true, command: idleCommand() },
+      global: { stubs: { teleport: true } },
     })
     const activate = healthy.findAll('button').find(button => button.text() === '重新启用')!
     expect(activate.attributes('disabled')).toBeUndefined()
@@ -49,6 +55,7 @@ describe('ModelConnectionDetail', () => {
 
     const unknown = mount(ModelConnectionDetail, {
       props: { resource: ready({ status: 'SUSPENDED', healthStatus: 'UNKNOWN' }), canManage: true, command: idleCommand() },
+      global: { stubs: { teleport: true } },
     })
     expect(unknown.findAll('button').some(button => button.text() === '验证健康')).toBe(true)
     expect(unknown.findAll('button').find(button => button.text() === '重新启用')!.attributes('disabled')).toBeDefined()

@@ -8,10 +8,8 @@ import {
   ServerCog,
   ShieldCheck,
   TriangleAlert,
-  X,
 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
-import { isTopmostModal } from '../../app/dialog'
+import { computed, nextTick, ref, useTemplateRef } from 'vue'
 import type { CodingPhase, CodingResource } from '../../domains/coding/store'
 import type { ArtifactTextDocument, CodingAttemptSummary, CodingPatchDocument, CommandEvidenceSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
 import type { SemanticTone } from '../base/types'
@@ -41,6 +39,7 @@ import {
 } from '../../domains/task/labels'
 import { conversationVisibilityLabels } from '../../domains/conversation/labels'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDrawer from '../base/BaseDrawer.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import TaskWorkspaceHeader from './TaskWorkspaceHeader.vue'
@@ -145,11 +144,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [], openWorkItem: [], openConversation: [conversationId: string] }>()
-const drawer = useTemplateRef<HTMLElement>('drawer')
 const content = useTemplateRef<HTMLElement>('content')
-const closeButton = useTemplateRef<HTMLButtonElement>('closeButton')
 const reviewLocation = ref<ReviewFindingEvidence | null>(null)
-let previousBodyOverflow = ''
 
 /**
  * The six workspace sections in contract §4.1 order. DOM order equals reading order equals the
@@ -186,39 +182,6 @@ const canCommentReview = computed(() => Boolean(
 const outcomeReviewAwaiting = computed(() => (props.reviews ?? []).filter(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS').length)
 const outcomeModificationRound = computed(() => (props.reviews ?? []).reduce((round, review) => Math.max(round, review.modificationRound), 0))
 const outcomeDispatchStatuses = computed(() => (props.deliveryActions ?? []).map(action => action.dispatch?.status ?? '').filter(Boolean))
-
-onMounted(() => {
-  document.addEventListener('keydown', handleKeydown)
-  previousBodyOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
-  void nextTick(() => closeButton.value?.focus())
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown)
-  document.body.style.overflow = previousBodyOverflow
-})
-
-function handleKeydown(event: KeyboardEvent): void {
-  if (!isTopmostModal(drawer.value)) return
-  if (event.key === 'Escape') {
-    emit('close')
-    return
-  }
-  if (event.key !== 'Tab' || !drawer.value) return
-  const controls = [...drawer.value.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), a[href]')]
-    .filter(element => element.offsetParent !== null)
-  const first = controls[0]
-  const last = controls.at(-1)
-  if (!first || !last) return
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
 
 function displayDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -264,7 +227,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
   reviewLocation.value = { ...location }
   if (props.codingPatchPhase === 'idle') props.onLoadCodingPatch()
   void nextTick(() => {
-    const explorer = drawer.value?.querySelector<HTMLElement>('#coding-diff-explorer')
+    const explorer = content.value?.querySelector<HTMLElement>('#coding-diff-explorer')
     explorer?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     explorer?.focus({ preventScroll: true })
   })
@@ -272,20 +235,18 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 </script>
 
 <template>
-  <div class="task-detail-backdrop" @mousedown.self="$emit('close')">
-    <aside ref="drawer" class="task-detail-drawer" role="dialog" aria-modal="true" tabindex="-1" :aria-label="details ? `${details.objective} Task 详情` : 'Task 详情'">
-      <header class="task-detail-header">
-        <div>
-          <p>Unified workspace</p>
-          <strong>Task 工作区</strong>
-        </div>
-        <button ref="closeButton" type="button" aria-label="关闭 Task 详情" @click="$emit('close')"><X :size="18" /></button>
-      </header>
+  <BaseDrawer open :title="details ? `${details.objective} Task 详情` : 'Task 详情'" width="min(1040px, 96vw)" padding="var(--cs-space-12)" close-label="关闭 Task 详情" @close="$emit('close')">
+    <template #header>
+      <div class="task-detail-header__text">
+        <p>Unified workspace</p>
+        <strong>Task 工作区</strong>
+      </div>
+    </template>
 
-      <StatePanel v-if="phase === 'loading' && !details" state="loading" title="正在加载 Task 详情" />
-      <StatePanel v-else-if="phase === 'error' && !details" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
+    <StatePanel v-if="phase === 'loading' && !details" state="loading" title="正在加载 Task 详情" />
+    <StatePanel v-else-if="phase === 'error' && !details" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
 
-      <div v-else-if="details" ref="content" class="task-detail-content">
+    <div v-else-if="details" ref="content" class="task-detail-content">
         <StatePanel
           v-if="phase === 'loading'"
           class="detail-sync-state"
@@ -569,18 +530,19 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
         </div>
       </div>
 
-      <footer class="task-detail-footer">
+    <template #footer>
+      <div class="task-detail-footer">
         <span><Clock3 :size="13" />详情来自耐久 Task Runtime 公开投影</span>
         <!-- M12b-F01 主操作层级：footer 唯一动作升为主 CTA，不再与周围说明文字等权。 -->
         <BaseButton size="small" @click="$emit('openWorkItem')">查看工作项</BaseButton>
-      </footer>
-    </aside>
-  </div>
+      </div>
+    </template>
+  </BaseDrawer>
 </template>
 
 <style scoped>
-.task-detail-backdrop { position: fixed; inset: 0; z-index: var(--cs-z-drawer); background: var(--cs-scrim); backdrop-filter: blur(2px); }.task-detail-drawer { position: absolute; inset: 0 0 0 auto; display: grid; width: min(1040px, 96vw); grid-template-rows: auto minmax(0, 1fr) auto; border-left: 1px solid var(--cs-border-strong); background: var(--cs-canvas); box-shadow: var(--cs-shadow-drawer); }.task-detail-header { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-12) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }.task-detail-header p, .task-detail-header strong { display: block; margin: 0; }.task-detail-header p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.task-detail-header strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.task-detail-header button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--cs-surface-subtle); cursor: pointer; }.task-detail-content { container: task-detail / inline-size; min-height: 0; overflow-y: auto; padding: var(--cs-space-12); }.detail-sync-state { margin-bottom: var(--cs-space-12); }.workspace-nav-anchor { position: sticky; top: calc(-1 * var(--cs-space-12)); z-index: 3; margin: 0 calc(-1 * var(--cs-space-12)); padding: var(--cs-space-4) var(--cs-space-12) var(--cs-space-4) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-canvas); }.task-detail-columns { display: grid; grid-template-columns: 1fr; align-items: start; gap: var(--cs-space-12); margin-top: var(--cs-space-12); }.task-detail-column { display: grid; gap: var(--cs-space-12); }.workspace-section { display: grid; gap: var(--cs-space-12); scroll-margin-top: var(--cs-space-8); outline: none; }.detail-card { min-width: 0; padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.task-hero { padding: var(--cs-space-20); }.acceptance { padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-accent); }.acceptance p { margin: 0 0 var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.acceptance ul { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }.acceptance li { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.acceptance li svg { flex: 0 0 auto; margin-top: var(--cs-space-2); color: var(--cs-success); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.compact-facts { display: grid; grid-template-columns: 1fr 1fr; margin: var(--cs-space-12) 0 0; }.task-hero .compact-facts { margin-top: var(--cs-space-12); }.compact-facts > div { min-width: 0; padding: var(--cs-space-8) 0; border-top: 1px solid var(--cs-border); }.compact-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.compact-facts dd { min-width: 0; margin: var(--cs-space-4) 0 0; overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list { display: grid; gap: var(--cs-space-8); }.responsibility-list article { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: 9px; background: var(--cs-surface-subtle); }.responsibility-list i { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.responsibility-list strong, .responsibility-list span { display: block; }.responsibility-list strong { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.fleet-overview { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-subtle); }.fleet-overview > div { display: flex; align-items: center; gap: var(--cs-space-8); }.fleet-overview small { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.fleet-overview > strong { font-size: var(--cs-text-lg); }.fleet-overview > strong span { margin-left: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.runtime-alert { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.runtime-alert svg { flex: 0 0 auto; }.runtime-alert span, .runtime-alert strong { display: block; }.runtime-alert span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.runtime-alert strong { margin-bottom: var(--cs-space-2); color: var(--cs-warning); font-size: var(--cs-text-xs); }.wait-causes { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); margin-top: var(--cs-space-8); }.wait-causes span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-warning-soft); color: var(--cs-warning); font: var(--cs-text-xs) var(--cs-font-mono); }.empty-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inline-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.inline-error button { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: inherit; text-decoration: underline; cursor: pointer; }.task-detail-footer { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }.task-detail-footer > span { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.task-detail-header__text p, .task-detail-header__text strong { display: block; margin: 0; }.task-detail-header__text p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.task-detail-header__text strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.task-detail-content { container: task-detail / inline-size; }.detail-sync-state { margin-bottom: var(--cs-space-12); }.workspace-nav-anchor { position: sticky; top: calc(-1 * var(--cs-space-12)); z-index: 3; margin: 0 calc(-1 * var(--cs-space-12)); padding: var(--cs-space-4) var(--cs-space-12) var(--cs-space-4) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-canvas); }.task-detail-columns { display: grid; grid-template-columns: 1fr; align-items: start; gap: var(--cs-space-12); margin-top: var(--cs-space-12); }.task-detail-column { display: grid; gap: var(--cs-space-12); }.workspace-section { display: grid; gap: var(--cs-space-12); scroll-margin-top: var(--cs-space-8); outline: none; }.detail-card { min-width: 0; padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.task-hero { padding: var(--cs-space-20); }.acceptance { padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-accent); }.acceptance p { margin: 0 0 var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.acceptance ul { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }.acceptance li { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.acceptance li svg { flex: 0 0 auto; margin-top: var(--cs-space-2); color: var(--cs-success); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.compact-facts { display: grid; grid-template-columns: 1fr 1fr; margin: var(--cs-space-12) 0 0; }.task-hero .compact-facts { margin-top: var(--cs-space-12); }.compact-facts > div { min-width: 0; padding: var(--cs-space-8) 0; border-top: 1px solid var(--cs-border); }.compact-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.compact-facts dd { min-width: 0; margin: var(--cs-space-4) 0 0; overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list { display: grid; gap: var(--cs-space-8); }.responsibility-list article { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: 9px; background: var(--cs-surface-subtle); }.responsibility-list i { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.responsibility-list strong, .responsibility-list span { display: block; }.responsibility-list strong { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.fleet-overview { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-subtle); }.fleet-overview > div { display: flex; align-items: center; gap: var(--cs-space-8); }.fleet-overview small { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.fleet-overview > strong { font-size: var(--cs-text-lg); }.fleet-overview > strong span { margin-left: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.runtime-alert { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.runtime-alert svg { flex: 0 0 auto; }.runtime-alert span, .runtime-alert strong { display: block; }.runtime-alert span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.runtime-alert strong { margin-bottom: var(--cs-space-2); color: var(--cs-warning); font-size: var(--cs-text-xs); }.wait-causes { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); margin-top: var(--cs-space-8); }.wait-causes span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-warning-soft); color: var(--cs-warning); font: var(--cs-text-xs) var(--cs-font-mono); }.empty-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inline-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.inline-error button { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: inherit; text-decoration: underline; cursor: pointer; }.task-detail-footer { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.task-detail-footer > span { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .task-conversation-links { display: grid; gap: var(--cs-space-8); }.task-conversation-links > button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); text-align: left; cursor: pointer; }.task-conversation-links > button:hover { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }.task-conversation-links span, .task-conversation-links strong, .task-conversation-links small { display: block; }.task-conversation-links strong { font-size: var(--cs-text-sm); }.task-conversation-links small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.task-conversation-links svg { flex: 0 0 auto; color: var(--cs-text-brand); }.associations-card :deep(.state-panel) { min-height: 100px; border: 0; }
 @container task-detail (min-width: 960px) { .task-detail-columns { grid-template-columns: minmax(310px, .78fr) minmax(430px, 1.22fr); } }
-@media (max-width: 767px) { .task-detail-drawer { width: 100%; }.task-detail-content { padding: var(--cs-space-8); }.workspace-nav-anchor { margin: 0 calc(-1 * var(--cs-space-8)); padding-left: var(--cs-space-12); }.task-detail-footer > span { display: none; }.task-detail-footer > :deep(button) { width: 100%; } }
+@media (max-width: 767px) { .workspace-nav-anchor { padding-left: var(--cs-space-12); }.task-detail-footer > span { display: none; }.task-detail-footer > :deep(button) { width: 100%; } }
 </style>

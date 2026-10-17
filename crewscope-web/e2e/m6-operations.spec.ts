@@ -30,7 +30,8 @@ test('shows bounded health, strongly confirms a generation command and passes th
   await validate.focus()
   await validate.click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: '验证影子代际' })).toBeFocused()
+  // M12b-F02：强确认框的初始焦点落在必须输入的确认短语字段（input autofocus），标题不再承接焦点。
+  await expect(dialog.getByLabel('确认短语')).toBeFocused()
   await dialog.getByLabel('确认短语').fill('wrong')
   await expect(dialog.getByRole('button', { name: '确认执行' })).toBeDisabled()
   await dialog.getByLabel('确认短语').fill('VALIDATE team-activity 5')

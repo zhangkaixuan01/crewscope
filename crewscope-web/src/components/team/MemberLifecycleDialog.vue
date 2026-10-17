@@ -8,12 +8,12 @@ export interface LifecycleDialogProblem {
 </script>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { teamRoleLabels } from '../../domains/scope/labels'
 import { enumLabel } from '../../domains/shared/labels'
-import { isTopmostModal } from '../../app/dialog'
 import BaseButton from '../base/BaseButton.vue'
+import BaseDialog from '../base/BaseDialog.vue'
 
 /**
  * ADR-038 lifecycle confirmation. Dangerous actions state their blast radius before the
@@ -33,39 +33,11 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-const dialog = ref<HTMLElement | null>(null)
 const selectedRole = ref('')
 
-watch(() => props.action, async action => {
+watch(() => props.action, action => {
   selectedRole.value = action?.type === 'grantRole' ? 'MEMBER' : ''
-  if (action) await nextTick(() => dialog.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus())
 })
-
-function cancel(): void {
-  if (props.pending) return
-  emit('cancel')
-}
-
-function trap(event: KeyboardEvent): void {
-  // 该确认框总是叠在其它浮层之上打开；无此判断，内层 Esc 会冒泡关闭外层（M12b-F01④）。
-  if (!isTopmostModal(dialog.value)) return
-  event.stopPropagation()
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    cancel()
-    return
-  }
-  if (event.key !== 'Tab' || !dialog.value) return
-  const items = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), select')]
-  if (!items.length) return
-  const first = items[0]!
-  const last = items.at(-1)!
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault(); last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault(); first.focus()
-  }
-}
 
 interface Copy {
   eyebrow: string
@@ -127,44 +99,52 @@ function copy(member: TeamMemberSummary, action: MemberAction, roleKey?: string)
       return { eyebrow: '', title: '', body: '', confirmLabel: '', danger: false, selectable: false }
   }
 }
+
+const current = computed(() => props.member && props.action ? copy(props.member, props.action, props.roleKey) : null)
 </script>
 
 <template>
-  <div v-if="member && action" class="dialog-backdrop" @mousedown.self="cancel()">
-    <section ref="dialog" class="lifecycle-dialog" role="dialog" aria-modal="true" aria-labelledby="lifecycle-dialog-title" tabindex="-1" @keydown="trap">
-      <p class="eyebrow">{{ copy(member, action, roleKey).eyebrow }}</p>
-      <h3 id="lifecycle-dialog-title">{{ copy(member, action, roleKey).title }}</h3>
-      <p>{{ copy(member, action, roleKey).body }}</p>
-      <label v-if="copy(member, action, roleKey).selectable" for="lifecycle-role">角色</label>
-      <select v-if="copy(member, action, roleKey).selectable" id="lifecycle-role" v-model="selectedRole">
-        <option v-for="role in grantableRoles" :key="role" :value="role">{{ enumLabel(role, teamRoleLabels) }}</option>
-      </select>
-      <div v-if="problem" class="lifecycle-dialog__problem" role="alert">
+  <BaseDialog
+    :open="current !== null"
+    :title="current?.title ?? ''"
+    :eyebrow="current?.eyebrow ?? ''"
+    width="min(460px, 100%)"
+    :close-disabled="pending"
+    close-label="关闭成员操作确认"
+    @close="emit('cancel')"
+  >
+    <div class="lifecycle-body">
+      <p class="lifecycle-copy">{{ current?.body }}</p>
+      <template v-if="current?.selectable">
+        <label for="lifecycle-role">角色</label>
+        <select id="lifecycle-role" v-model="selectedRole">
+          <option v-for="role in grantableRoles" :key="role" :value="role">{{ enumLabel(role, teamRoleLabels) }}</option>
+        </select>
+      </template>
+      <div v-if="problem" class="lifecycle-problem" role="alert">
         <strong>{{ problem.title }}</strong>
         <span>{{ problem.message }}</span>
       </div>
-      <div class="lifecycle-dialog__actions">
-        <BaseButton variant="ghost" :disabled="pending" @click="cancel()">取消</BaseButton>
-        <BaseButton
-          :variant="copy(member, action, roleKey).danger ? 'danger' : 'primary'"
-          :loading="pending"
-          :disabled="!online || (copy(member, action, roleKey).selectable && !selectedRole)"
-          @click="emit('confirm', selectedRole)"
-        >{{ copy(member, action, roleKey).confirmLabel }}</BaseButton>
-      </div>
-    </section>
-  </div>
+    </div>
+    <template #footer>
+      <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
+      <BaseButton variant="ghost" :disabled="pending" autofocus @click="emit('cancel')">取消</BaseButton>
+      <BaseButton
+        :variant="current?.danger ? 'danger' : 'primary'"
+        :loading="pending"
+        :disabled="!online || (current?.selectable && !selectedRole)"
+        @click="emit('confirm', selectedRole)"
+      >{{ current?.confirmLabel }}</BaseButton>
+    </template>
+  </BaseDialog>
 </template>
 
 <style scoped>
-.dialog-backdrop { position: fixed; z-index: var(--cs-z-dialog); inset: 0; display: grid; place-items: center; padding: var(--cs-space-20); background: var(--cs-scrim); }
-.lifecycle-dialog { display: grid; width: min(460px, 100%); gap: var(--cs-space-12); padding: var(--cs-space-24); border-radius: 15px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
-.lifecycle-dialog h3 { font-size: var(--cs-text-lg); }
-.lifecycle-dialog > p:not(.eyebrow) { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
-.lifecycle-dialog label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.lifecycle-dialog select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
-.lifecycle-dialog__problem { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }
-.lifecycle-dialog__problem strong { font-size: var(--cs-text-sm); }
-.lifecycle-dialog__problem span { font-size: var(--cs-text-xs); }
-.lifecycle-dialog__actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }
+.lifecycle-body { display: grid; gap: var(--cs-space-12); }
+.lifecycle-copy { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.lifecycle-body label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.lifecycle-body select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
+.lifecycle-problem { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }
+.lifecycle-problem strong { font-size: var(--cs-text-sm); }
+.lifecycle-problem span { font-size: var(--cs-text-xs); }
 </style>

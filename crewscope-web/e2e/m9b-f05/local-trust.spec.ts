@@ -74,7 +74,8 @@ test.describe('M9b-F05 local content trust', () => {
     // A successful submit navigates to the created item and discards the draft for good.
     world.createFail = false
     await page.getByRole('button', { name: '创建工作项', exact: true }).click()
-    await expect(page.locator('.detail-drawer')).toBeVisible()
+    // M12b-F02：详情抽屉外壳已收敛到 BaseDrawer，断言走可访问名而非实现类名。
+    await expect(page.getByRole('dialog', { name: /工作项详情/ })).toBeVisible()
     await expect(page).toHaveURL(new RegExp(`workItem=${ids.createdItem}`))
     await page.getByRole('button', { name: '关闭工作项详情' }).click()
     title = await openCreate()

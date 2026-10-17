@@ -124,7 +124,7 @@ async function mountPage(overrides: Partial<TeamOpsGateway>) {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   await router.push(`/settings/integrations/lark?team=${fixtureIds.teamPlatform}&tab=mapping&connection=${connection.connectionId}`)
   await router.isReady()
-  const wrapper = mount(LarkSettingsPage, { global: { plugins: [router], provide: {
+  const wrapper = mount(LarkSettingsPage, { global: { plugins: [router], stubs: { teleport: true }, provide: {
     [AUTH_PRINCIPAL as symbol]: principal, [SCOPE_STORE as symbol]: scopeStore, [TEAM_OPS_STORE as symbol]: store,
   } } })
   await flushPromises()

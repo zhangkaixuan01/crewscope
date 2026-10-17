@@ -48,7 +48,8 @@ test('restores an archived row one step at a time and archives only after confir
   // Archiving asks first, and cancelling never sends the command.
   await page.getByRole('button', { name: '归档', exact: true }).click()
   await expect(page.getByRole('alertdialog')).toContainText('从「归档」筛选恢复')
-  await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click()
+  // exact：header 关闭钮的 aria-label 是「取消操作」，子串匹配会同时命中两个按钮。
+  await page.getByRole('alertdialog').getByRole('button', { name: '取消', exact: true }).click()
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   expect(api.putCommands).toHaveLength(1)
 
