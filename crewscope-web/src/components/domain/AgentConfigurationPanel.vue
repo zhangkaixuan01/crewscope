@@ -569,4 +569,9 @@ function integerOrNull(value: PreferenceNumber): number | null {
 .current-hash { display: flex; align-items: center; gap: var(--cs-space-8); flex-wrap: wrap; margin-top: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 900px) { .configuration-layout { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .configuration-header { grid-template-columns: 38px minmax(0, 1fr) 30px; padding: var(--cs-space-16); }.configuration-icon { width: 38px; height: 38px; }.configuration-header > .status-badge { grid-column: 2; justify-self: start; }.configuration-header > button { grid-column: 3; grid-row: 1; }.configuration-main { padding: var(--cs-space-12); }.binding-fields, .preference-fields { grid-template-columns: 1fr; }.binding-mode, .preference-fields .wide { grid-column: 1; }.binding-fields select, .preference-fields select, .preference-fields input, .preference-fields textarea { font-size: var(--cs-text-md); }.save-actions { align-items: stretch; flex-direction: column; }.save-actions .base-button { width: 100%; } }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.copy-button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.copy-button:active:not(:disabled) { transform: scale(.97); }
+.copy-button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

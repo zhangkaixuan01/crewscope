@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import M7AuthStatePreview, { authPreviewStates } from '../../stories/M7AuthStatePreview.vue'
 import AuthCard from './AuthCard.vue'
-import AuthCheckbox from './AuthCheckbox.vue'
 import AuthErrorSummary from './AuthErrorSummary.vue'
 import AuthField from './AuthField.vue'
 import AuthLayout from './AuthLayout.vue'
@@ -123,23 +122,6 @@ describe('M7-F01 authentication foundation', () => {
     await nextTick()
     expect(document.activeElement).toBe(field.get('input').element)
     field.unmount()
-  })
-
-  it('provides a native checkbox target large enough for keyboard and touch interaction', async () => {
-    const wrapper = mount(AuthCheckbox, {
-      props: {
-        modelValue: false,
-        'onUpdate:modelValue': (value: boolean) => wrapper.setProps({ modelValue: value }),
-        id: 'remember-session',
-        label: '保持登录',
-        description: '仅用于受信设备',
-      },
-    })
-
-    expect(wrapper.get('label').attributes('for')).toBe('remember-session')
-    expect(wrapper.text()).toContain('仅用于受信设备')
-    await wrapper.get('input').setValue(true)
-    expect(wrapper.props('modelValue')).toBe(true)
   })
 
   it('renders every public authentication state in the desktop and narrow story contract', () => {

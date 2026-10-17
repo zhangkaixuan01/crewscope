@@ -73,4 +73,9 @@ const canCancel = computed(() => Boolean(
 .agent-live-status.error button { color: var(--cs-danger); }
 .agent-live-status.cancelled { border-color: var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); }
 .conversation-agent-action-region :deep(.clarification-card) { width: 100%; margin-bottom: 0; }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.agent-live-status button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.agent-live-status button:active:not(:disabled) { transform: scale(.97); }
+.agent-live-status button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

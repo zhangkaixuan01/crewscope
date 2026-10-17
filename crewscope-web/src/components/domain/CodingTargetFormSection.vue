@@ -251,4 +251,9 @@ function canonicalPath(path: string): boolean {
 .coding-header { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.coding-header > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 @media (max-width: 600px) { .coding-header { grid-template-columns: 34px minmax(0, 1fr); }.coding-header .coding-switch { grid-column: 2; } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.coding-switch:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.coding-switch:active:not(:disabled) { transform: scale(.97); }
+.coding-switch { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

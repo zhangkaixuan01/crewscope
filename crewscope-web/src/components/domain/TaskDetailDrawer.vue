@@ -571,7 +571,8 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 
       <footer class="task-detail-footer">
         <span><Clock3 :size="13" />详情来自耐久 Task Runtime 公开投影</span>
-        <BaseButton variant="secondary" size="small" @click="$emit('openWorkItem')">查看工作项</BaseButton>
+        <!-- M12b-F01 主操作层级：footer 唯一动作升为主 CTA，不再与周围说明文字等权。 -->
+        <BaseButton size="small" @click="$emit('openWorkItem')">查看工作项</BaseButton>
       </footer>
     </aside>
   </div>

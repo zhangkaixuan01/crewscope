@@ -240,7 +240,8 @@ function queryText(value: unknown): string | null {
           <h2 id="quality-heading" class="panel__title">{{ selectedMonth }} 质量统计</h2>
           <StatePanel v-if="store.state.quality.phase === 'loading'" state="loading" title="正在加载当月质量统计" />
           <StatePanel v-else-if="store.state.quality.phase === 'error'" state="error" :title="store.state.quality.errorMessage ?? '暂时无法加载当月质量统计'" />
-          <div v-else-if="store.state.quality.value" class="quality-grid">
+          <StatePanel v-else-if="!store.state.quality.value" state="empty" title="当月暂无质量统计" description="本月的执行与模型调用记录出现后，这里会给出成功率与质量指标。" />
+          <div v-else class="quality-grid">
             <div class="quality-card">
               <h3>执行成功率</h3>
               <p class="quality-card__rate">{{ formatRate(store.state.quality.value.executionAttempts.successRate) }}</p>
@@ -296,4 +297,8 @@ function queryText(value: unknown): string | null {
 .quality-card dl div { display: grid; gap: var(--cs-space-2); }
 .quality-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .quality-card dd { margin: 0; }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.month-nav__item:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }
+.month-nav__item { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

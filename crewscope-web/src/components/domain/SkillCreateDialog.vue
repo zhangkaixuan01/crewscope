@@ -191,4 +191,9 @@ function handleKeydown(event: KeyboardEvent): void {
   .skill-dialog > footer { display: grid; }
   .skill-dialog > footer > * { width: 100%; }
 }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.skill-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.skill-dialog header button:active:not(:disabled) { transform: scale(.97); }
+.skill-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

@@ -128,6 +128,3 @@ export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOpti
     clearDraft,
   }
 }
-
-/** Backwards-compatible name used by the design plan and existing consumers. */
-export const useDirtyGuard = useDirtyForm

@@ -21,7 +21,7 @@ import { ArrowRight, Bot, Check, Clock3, LoaderCircle, Mail, ShieldCheck, UserRo
 import { computed, ref } from 'vue'
 import BaseButton from '../components/base/BaseButton.vue'
 import AuthCard from '../components/auth/AuthCard.vue'
-import AuthCheckbox from '../components/auth/AuthCheckbox.vue'
+import BaseCheckbox from '../components/base/BaseCheckbox.vue'
 import AuthErrorSummary from '../components/auth/AuthErrorSummary.vue'
 import AuthField from '../components/auth/AuthField.vue'
 import AuthLayout from '../components/auth/AuthLayout.vue'
@@ -111,7 +111,7 @@ const registrationUnavailable = computed(() => ['registration-invite-only', 'reg
           placeholder="输入你的密码"
           :disabled="state === 'locked'"
         />
-        <AuthCheckbox v-model="remember" label="保持登录" :disabled="state === 'locked'" />
+        <BaseCheckbox v-model="remember" :disabled="state === 'locked'">保持登录</BaseCheckbox>
         <BaseButton class="auth-preview__primary" type="submit" :disabled="state === 'locked'">
           进入 CrewScope<template #icon><ArrowRight :size="16" /></template>
         </BaseButton>
@@ -266,4 +266,9 @@ const registrationUnavailable = computed(() => ['registration-invite-only', 'reg
   .auth-preview__facts div + div { border-top: 1px solid var(--cs-border); border-left: 0; }
   .auth-preview__actions { grid-template-columns: 1fr; }
 }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.auth-preview__switch button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.auth-preview__switch button:active:not(:disabled) { transform: scale(.97); }
+.auth-preview__switch button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

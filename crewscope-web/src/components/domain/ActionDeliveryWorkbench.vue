@@ -423,4 +423,9 @@ function stageDescription(action: PlannedAction): string {
 @container action-workbench (max-width: 760px) { .selection-grid { grid-template-columns: 1fr 1fr; }.selection-actions { align-self: end; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 1000px) { .selection-grid { grid-template-columns: 1fr 1fr; }.selection-actions { align-self: end; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 767px) { .action-heading, .github-selection, .action-plan, .bundle-review { padding-inline: var(--cs-space-16); }.action-heading { align-items: flex-start; }.heading-actions { flex-direction: column; align-items: flex-end; }.selection-grid, .plan-form { grid-template-columns: 1fr; }.selection-actions { display: grid; grid-template-columns: 1fr 1fr; }.provider-facts { grid-template-columns: 1fr 1fr; }.plan-form .wide { grid-column: 1; }.bundle-facts { grid-template-columns: 1fr 1fr; }.action-parameters { grid-template-columns: 1fr; }.action-parameters .wide { grid-column: 1; }.confirmation-bar { align-items: stretch; flex-direction: column; }.dialog-backdrop { align-items: end; padding: 0; }.confirm-dialog { border-radius: 18px 18px 0 0; }.confirm-content dl div { grid-template-columns: 68px 1fr; } }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.confirm-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.confirm-dialog header button:active:not(:disabled) { transform: scale(.97); }
+.confirm-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

@@ -436,6 +436,10 @@ function handleDecisionKeydown(event: KeyboardEvent): void {
 .decision-options > div { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 .decision-options button { min-height: 32px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .decision-options button.selected { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent-strong); color: var(--cs-text-brand-strong); }
-.decision-options button.decision-option--rejected { border-color: var(--cs-danger-border); color: var(--cs-danger); }
+/* M12b-F01 主操作层级：推进路径（通过）选中即主操作——实心主色；拒绝是终止操作，
+   常态不抢红，危险语义保留在 hover/选中交互态，而不是静止摆放时。 */
+.decision-options button.decision-option--approved.selected { border-color: var(--cs-action-primary); background: var(--cs-action-primary); color: var(--cs-action-primary-text); }
+.decision-options button.decision-option--rejected:hover:not(:disabled), .decision-options button.decision-option--rejected.selected { border-color: var(--cs-danger-border); color: var(--cs-danger); }
+.decision-options button.decision-option--rejected.selected { background: var(--cs-danger-soft); }
 .decision-options button:disabled { cursor: not-allowed; opacity: .55; }
 </style>

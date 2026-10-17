@@ -182,10 +182,13 @@ async function loadServerDraft(): Promise<void> {
         <span v-if="disabledReason" class="skill-detail__reason">{{ disabledReason }}</span>
       </nav>
 
-      <BaseTabs :model-value="tab" :tabs="tabs" @update:model-value="emit('changeTab', $event as 'draft' | 'versions')" />
+      <BaseTabs id="skill-detail-tabs" :model-value="tab" :tabs="tabs" @update:model-value="emit('changeTab', $event as 'draft' | 'versions')" />
 
       <SkillDraftEditor
         v-show="tab === 'draft'"
+        role="tabpanel"
+        aria-labelledby="skill-detail-tabs-tab-draft"
+        id="skill-detail-tabs-panel-draft"
         ref="editor"
         :skill="skill"
         :scope="scope"
@@ -196,6 +199,9 @@ async function loadServerDraft(): Promise<void> {
       />
       <SkillVersionHistory
         v-show="tab === 'versions'"
+        role="tabpanel"
+        aria-labelledby="skill-detail-tabs-tab-versions"
+        id="skill-detail-tabs-panel-versions"
         :history="history"
         :version-resource="versionResource"
         :effective="effective"
@@ -240,4 +246,12 @@ async function loadServerDraft(): Promise<void> {
 .skill-detail__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }
 .skill-detail__reason { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .skill-detail__receipt { margin: 0; padding: var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text); font-size: var(--cs-text-xs); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.skill-detail__head button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.skill-detail__head button:active:not(:disabled) { transform: scale(.97); }
+.skill-detail__head button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.skill-detail__audit summary:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.skill-detail__audit summary:active:not(:disabled) { transform: scale(.97); }
+.skill-detail__audit summary { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

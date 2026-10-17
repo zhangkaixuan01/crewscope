@@ -162,6 +162,16 @@ function queryMonth(): string | null {
   return value && isQuotaMonth(value) && (anchorMonth.value === null || value <= anchorMonth.value) ? value : null
 }
 
+// 无效深链不能只回退显示——URL 也要收敛，否则地址栏永远留着下一次刷新仍会被拒绝的
+// 月份（M12b-F01⑥）。仅在 anchor 就绪后裁决：anchor 未知时无从判定「未来月份」。
+watch([anchorMonth, () => route.query.month], ([anchor, month]) => {
+  if (anchor === null || typeof month !== 'string') return
+  if (isQuotaMonth(month) && month <= anchor) return
+  const rest = { ...route.query }
+  delete rest.month
+  void router.replace({ query: rest })
+})
+
 function limitText(limit: number | null): string {
   return limit === null ? '未配置' : formatTokens(limit)
 }
@@ -363,4 +373,8 @@ function formatTokens(value: number): string {
 .quota-metric dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .quota-metric dd { margin: 0; font-size: var(--cs-text-base); }
 .quota-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.quota-month-nav__item:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }
+.quota-month-nav__item { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

@@ -270,4 +270,9 @@ function queryValue(value: unknown): string | null {
 .auto-refresh { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .auto-refresh input { accent-color: var(--cs-focus); }
 .last-refreshed { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.index-banner button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.index-banner button:active:not(:disabled) { transform: scale(.97); }
+.index-banner button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

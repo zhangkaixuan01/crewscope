@@ -154,4 +154,12 @@ const filterToggleLabel = computed(() => {
   .view-switcher button { flex: 1; justify-content: center; }
   .sort-control__scope { margin-left: 0; }
 }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.view-switcher button:not(.active):hover:not(:disabled) { background: var(--cs-surface-accent); }
+.view-switcher button:not(.active):active:not(:disabled) { transform: scale(.97); }
+.view-switcher button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.filters-toggle:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.filters-toggle:active:not(:disabled) { transform: scale(.97); }
+.filters-toggle { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

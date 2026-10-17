@@ -142,6 +142,12 @@
     {
       "file": "pages/ObservabilityPage.vue",
       "state": "empty",
+      "title": "当月暂无质量统计",
+      "reason": "M12b-F01：质量统计（成功率、质量指标）由服务端从执行与模型调用记录聚合产生，观测页不发起产生事实的动作；出口分布与「本月还没有模型用量事实」同型，面板内不放装饰性按钮。"
+    },
+    {
+      "file": "pages/ObservabilityPage.vue",
+      "state": "empty",
       "title": "该角色本月没有用量行",
       "reason": "出口是同屏的「角色筛选」下拉本身——把筛选改回「全部角色」即恢复整月明细，面板内不需要等效按钮。"
     },

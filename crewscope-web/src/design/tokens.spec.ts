@@ -131,9 +131,11 @@ describe('design tokens', () => {
     // block must leave alone, because a zero-length cycle is a frozen spinner rather than a calmer one.
     expect(token('--cs-motion-spin')).toBe('900ms')
     expect(token('--cs-ease-out')).toBe('cubic-bezier(.2, .8, .2, 1)')
+    // M12b-F01：离场曲线（结尾无缓冲、加速离开）——与 ease-out 相对，F02 模态离场消费。
+    expect(token('--cs-ease-in')).toBe('cubic-bezier(.4, 0, 1, 1)')
     expect(token('--cs-ease-in-out')).toBe('cubic-bezier(.4, 0, .2, 1)')
     expect(prefixed('--cs-motion-').size).toBe(4)
-    expect(prefixed('--cs-ease-').size).toBe(2)
+    expect(prefixed('--cs-ease-').size).toBe(3)
 
     const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
     expect(reduced).toContain('--cs-motion-fast: 0ms')

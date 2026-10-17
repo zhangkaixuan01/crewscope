@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { handoverCounts } from '../../domains/scope/types'
 import { enumLabel } from '../../domains/shared/labels'
+import { isTopmostModal } from '../../app/dialog'
 import { handoverErrorCodeLabels, handoverJobStatusLabels } from '../../domains/scope/labels'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
@@ -61,6 +62,9 @@ function close(): void {
 }
 
 function trap(event: KeyboardEvent): void {
+  // 同 MemberLifecycleDialog：叠开时内层 Esc 不得穿透关闭外层（M12b-F01④）。
+  if (!isTopmostModal(dialog.value)) return
+  event.stopPropagation()
   if (event.key === 'Escape') {
     event.preventDefault()
     close()

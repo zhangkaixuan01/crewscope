@@ -213,4 +213,12 @@ function handleKeydown(event: KeyboardEvent): void {
 @media (max-width: 767px) { .credential-backdrop { align-items: end; padding: 0; }.credential-dialog { width: 100%; max-height: calc(100dvh - 12px); border-radius: 18px 18px 0 0; }.credential-dialog > header { padding: var(--cs-space-16) var(--cs-space-16); }.credential-content { padding-inline: var(--cs-space-16); }.owner-picker, .field-grid { grid-template-columns: 1fr; }.owner-picker legend, .field-grid label.wide { grid-column: 1; }.field-grid input, .field-grid select, .secret-field input { font-size: var(--cs-text-md); }.credential-dialog > footer { display: grid; padding-inline: var(--cs-space-16); }.credential-dialog > footer > * { width: 100%; } }
 .secret-hint, .field-error { margin: 0; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.secret-hint { color: var(--cs-text-muted); }.field-error { color: var(--cs-danger); }
 .field-grid label > span, .owner-picker legend, .secret-field > span { font-size: var(--cs-text-sm); }.field-grid input, .field-grid select { font-size: var(--cs-text-base); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.credential-dialog header button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.credential-dialog header button:active:not(:disabled) { transform: scale(.97); }
+.credential-dialog header button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.owner-picker button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.owner-picker button:active:not(:disabled) { transform: scale(.97); }
+.owner-picker button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

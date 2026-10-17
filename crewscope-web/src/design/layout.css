@@ -26,7 +26,9 @@
 .panel-heading h2,
 .panel-heading h3 {
   margin-bottom: var(--cs-space-4);
-  font-size: var(--cs-text-md);
+  /* M12b-F01（§10.3.1-4）：分组标题与正文只差一档（16/14px），扫读只能靠分隔线——
+     升到 lg 让层级先于线条被读到。 */
+  font-size: var(--cs-text-lg);
 }
 
 .panel-heading p {

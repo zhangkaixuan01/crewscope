@@ -382,8 +382,8 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
 
       <section class="connections-panel panel" aria-labelledby="connections-title">
         <header class="panel-heading"><div><p class="eyebrow">Owner-scoped credentials</p><h2 id="connections-title">模型连接</h2><p>普通成员管理自己的连接并查看 Team 安全投影；Team 管理操作由 Provider 权限控制。</p></div></header>
-        <div class="owner-tabs" role="tablist" aria-label="Connection 归属">
-          <button v-for="owner in ownerTypes" :key="owner" type="button" role="tab" :aria-selected="activeOwnerType === owner" :class="{ active: activeOwnerType === owner }" @click="switchOwner(owner)">{{ ownerLabel(owner) }}</button>
+        <div class="owner-tabs" role="group" aria-label="Connection 归属">
+          <button v-for="owner in ownerTypes" :key="owner" type="button" :aria-pressed="activeOwnerType === owner" :class="{ active: activeOwnerType === owner }" @click="switchOwner(owner)">{{ ownerLabel(owner) }}</button>
         </div>
         <StatePanel v-if="!connectionResource || connectionResource.phase === 'loading' || connectionResource.phase === 'idle'" state="loading" compact title="正在加载模型连接" />
         <StatePanel v-else-if="connectionResource.phase === 'error'" :state="connectionResource.errorStatus === 403 ? 'forbidden' : 'error'" compact :description="connectionResource.errorMessage ?? undefined" @retry="modelStore.loadConnections(activeOwnerType, false, true)" />

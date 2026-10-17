@@ -196,4 +196,9 @@ function exitFocus(): void {
 .graph-workspace__detail-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 @media (max-width: 1050px) { .graph-workspace__body--stacked { grid-template-columns: 1fr; } }
 @media (max-width: 767px) { .graph-workspace { padding: var(--cs-space-16); } .graph-workspace__header { flex-wrap: wrap; } }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.view-switcher button:not(.active):hover:not(:disabled) { background: var(--cs-surface-accent); }
+.view-switcher button:not(.active):active:not(:disabled) { transform: scale(.97); }
+.view-switcher button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

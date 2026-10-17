@@ -192,10 +192,13 @@ async function loadServerDraft(): Promise<void> {
           <span v-if="disabledReason" class="knowledge-detail__reason">{{ disabledReason }}</span>
         </nav>
 
-        <BaseTabs :model-value="tab" :tabs="tabs" @update:model-value="emit('changeTab', $event as 'draft' | 'versions')" />
+        <BaseTabs id="knowledge-entry-tabs" :model-value="tab" :tabs="tabs" @update:model-value="emit('changeTab', $event as 'draft' | 'versions')" />
 
         <KnowledgeDraftEditor
           v-show="tab === 'draft'"
+          role="tabpanel"
+          aria-labelledby="knowledge-entry-tabs-tab-draft"
+          id="knowledge-entry-tabs-panel-draft"
           ref="editor"
           :entry="entry"
           :scope="scope"
@@ -205,6 +208,9 @@ async function loadServerDraft(): Promise<void> {
         />
         <KnowledgeVersionHistory
           v-show="tab === 'versions'"
+          role="tabpanel"
+          aria-labelledby="knowledge-entry-tabs-tab-versions"
+          id="knowledge-entry-tabs-panel-versions"
           :history="history"
           :version-resource="versionResource"
           :effective="effective"
@@ -244,4 +250,12 @@ async function loadServerDraft(): Promise<void> {
 .knowledge-detail__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }
 .knowledge-detail__reason { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .knowledge-detail__receipt { margin: 0; padding: var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text); font-size: var(--cs-text-xs); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.knowledge-detail__head button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.knowledge-detail__head button:active:not(:disabled) { transform: scale(.97); }
+.knowledge-detail__head button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.knowledge-detail__audit summary:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.knowledge-detail__audit summary:active:not(:disabled) { transform: scale(.97); }
+.knowledge-detail__audit summary { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

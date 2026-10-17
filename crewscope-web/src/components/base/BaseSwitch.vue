@@ -12,4 +12,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 .base-switch button[aria-checked="true"] { background: var(--cs-action-primary); }
 .base-switch button[aria-checked="true"] span { transform: translateX(16px); }
 .base-switch button:disabled { cursor: not-allowed; opacity: .6; }
+
+/* M12b-F01：悬停反馈补齐——分态加深轨道，不与开态的 action-primary 底互相覆盖。 */
+.base-switch button:not([aria-checked="true"]):hover:not(:disabled) { background: var(--cs-text-muted); }
+.base-switch button[aria-checked="true"]:hover:not(:disabled) { background: var(--cs-action-primary-hover); }
 </style>

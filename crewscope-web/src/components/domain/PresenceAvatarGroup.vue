@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BaseAvatar } from '../base'
+import BaseAvatar from '../base/BaseAvatar.vue'
 import { presenceLabels } from '../../domains/collaboration/labels'
 import type { PresenceEntry } from '../../domains/collaboration/store'
 

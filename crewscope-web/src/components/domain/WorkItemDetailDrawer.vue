@@ -552,7 +552,8 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
       </div>
 
       <footer class="detail-footer">
-        <div><BaseButton variant="secondary" @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton v-if="canDelegate" variant="ghost" @click="$emit('delegate', '')"><Bot :size="14" />交给 Agent 处理</BaseButton></div>
+        <!-- M12b-F01 主操作层级：讨论是推进主路径（primary），委托是并行入口（secondary）。 -->
+        <div><BaseButton @click="$emit('conversation')"><MessageSquare :size="14" />与 Personal Agent 讨论</BaseButton><BaseButton v-if="canDelegate" variant="secondary" @click="$emit('delegate', '')"><Bot :size="14" />交给 Agent 处理</BaseButton></div>
       </footer>
     </aside>
   </div>

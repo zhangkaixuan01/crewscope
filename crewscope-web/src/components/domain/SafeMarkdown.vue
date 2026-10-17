@@ -87,4 +87,9 @@ function copyCode(event: MouseEvent): void {
 .safe-markdown :deep(th) { background: var(--cs-surface-subtle); font-weight: var(--cs-weight-semibold); }
 .safe-markdown :deep(.safe-markdown__code-copy) { position: absolute; top: var(--cs-space-8); right: var(--cs-space-8); min-height: 44px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-surface); color: var(--cs-text-muted); font-size: var(--cs-text-xs); cursor: pointer; }
 .safe-markdown :deep(.safe-markdown__code-copy--done) { color: var(--cs-success); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.safe-markdown :deep(.safe-markdown__code-copy):hover:not(:disabled) { background: var(--cs-surface-accent); }
+.safe-markdown :deep(.safe-markdown__code-copy):active:not(:disabled) { transform: scale(.97); }
+.safe-markdown :deep(.safe-markdown__code-copy) { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

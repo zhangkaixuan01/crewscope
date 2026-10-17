@@ -25,4 +25,9 @@ defineEmits<{ refresh: [] }>()
 .change-banner p { flex: 1; margin: 0; font-size: var(--cs-text-sm); }
 .change-banner button { border: 0; padding: 0; background: none; color: var(--cs-info); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-decoration: underline; cursor: pointer; }
 .change-banner button:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); border-radius: 4px; }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.change-banner button:hover:not(:disabled) { background: var(--cs-surface-accent); }
+.change-banner button:active:not(:disabled) { transform: scale(.97); }
+.change-banner button { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

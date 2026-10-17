@@ -60,4 +60,9 @@ async function confirm(entry: RecoveryEntry) {
 summary { cursor: pointer; }
 ul { display: grid; gap: var(--cs-space-8); padding-inline-start: var(--cs-space-16); max-height: 30dvh; overflow-y: auto; }
 li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-12); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+summary:hover:not(:disabled) { background: var(--cs-surface-accent); }
+summary:active:not(:disabled) { transform: scale(.97); }
+summary { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

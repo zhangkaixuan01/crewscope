@@ -132,4 +132,8 @@ function rollbackAllowed(revision: number): boolean {
 .version-history__content-head h4, .version-history__effective-card h4 { margin: 0; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .version-history__body { max-height: 24rem; margin: 0; overflow: auto; padding: var(--cs-space-8); border-radius: var(--cs-radius-sm, 4px); background: var(--cs-surface-inset, var(--cs-surface)); color: var(--cs-text); font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .version-history__no-effective { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.version-history__row-main:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }
+.version-history__row-main { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out); }
 </style>

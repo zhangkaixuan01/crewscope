@@ -256,6 +256,9 @@
   /* 循环动画（加载转圈）的唯一周期；不是过渡时长，所以单独一档。 */
   --cs-motion-spin: 900ms;
   --cs-ease-out: cubic-bezier(.2, .8, .2, 1);
+  /* M12b-F01：离场曲线——元素退出时加速离开（结尾无缓冲），与 ease-out（入场减速停靠）
+     相对。离开若复用 ease-out 会拖泥带水；F02 的模态离场动效将消费此 token。 */
+  --cs-ease-in: cubic-bezier(.4, 0, 1, 1);
   --cs-ease-in-out: cubic-bezier(.4, 0, .2, 1);
   --cs-bp-sm: 640px;
   --cs-bp-md: 768px;

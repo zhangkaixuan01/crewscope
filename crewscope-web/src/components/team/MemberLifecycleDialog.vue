@@ -12,6 +12,7 @@ import { nextTick, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { teamRoleLabels } from '../../domains/scope/labels'
 import { enumLabel } from '../../domains/shared/labels'
+import { isTopmostModal } from '../../app/dialog'
 import BaseButton from '../base/BaseButton.vue'
 
 /**
@@ -46,6 +47,9 @@ function cancel(): void {
 }
 
 function trap(event: KeyboardEvent): void {
+  // 该确认框总是叠在其它浮层之上打开；无此判断，内层 Esc 会冒泡关闭外层（M12b-F01④）。
+  if (!isTopmostModal(dialog.value)) return
+  event.stopPropagation()
   if (event.key === 'Escape') {
     event.preventDefault()
     cancel()

@@ -150,4 +150,8 @@ function edgePath(edge: GraphEdge): string {
 .graph-node__count { fill: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .graph-node--selected rect { stroke: var(--cs-focus); stroke-width: 3; }
 .graph-node:focus-visible rect { stroke: var(--cs-focus); stroke-width: 3; }
+
+/* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
+.graph-node:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }
+.graph-node { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out); }
 </style>
