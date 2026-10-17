@@ -47,8 +47,8 @@ withDefaults(defineProps<{
   left: 10px;
   padding: var(--cs-space-8) var(--cs-space-12);
   border-radius: 8px;
-  background: var(--cs-brand-950);
-  color: var(--cs-text-on-dark);
+  background: var(--cs-action-primary);
+  color: var(--cs-action-primary-text);
   transform: translateY(-160%);
   transition: transform var(--cs-auth-transition);
 }

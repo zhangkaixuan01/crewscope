@@ -15,7 +15,7 @@
   --cs-surface-subtle: #fafbf9;
   --cs-surface-raised: #ffffff;
   --cs-surface-selected: var(--cs-brand-50);
-  --cs-nav-active-text: var(--cs-brand-700);
+  --cs-nav-active-text: var(--cs-brand-600);
   --cs-border: #dce2dd;
   --cs-border-strong: #c7d0c9;
   --cs-text: #17202a;
@@ -68,8 +68,14 @@
   --cs-code-function: #2f5d8a;
   --cs-code-number: #0f6d63;
   --cs-code-type: #8a3d6b;
-  --cs-action-primary: var(--cs-brand-950);
-  --cs-action-primary-hover: var(--cs-brand-700);
+  /*
+   * 主操作提亮（2026-10-17 配色复审）：950 在浅色画布上就是一块「黑」，数百个主按钮
+   * 让整站视觉偏重；600 是色阶的中间调，近白前景对它 5.17:1（合同 4.5，按 5.0 选）。
+   * hover 跨两档到 800 而不是 700——下文有「600 与 700 肉眼分不出」的同一条理由，
+   * 悬停反馈必须可感知；方向仍是加深（800 对近白 11.21:1）。
+   */
+  --cs-action-primary: var(--cs-brand-600);
+  --cs-action-primary-hover: var(--cs-brand-800);
   /*
    * 主按钮的前景必须跟着主按钮的底走，不能借用 --cs-text-on-dark。暗色主题把
    * --cs-action-primary 换成了 brand-300（浅绿），配 #f3f7f4 的近白字只有 **1.59:1**，
@@ -117,8 +123,12 @@
    * 两档而不是四档：浅色下 brand-600(#3f7257) 与 brand-700(#315944) 肉眼分不出，
    * 合并不损失任何层次；而 800/950 那一档是真的更重（标题级强调），所以保留强弱之分。
    * 两个主题里「strong」的方向一致——浅色更深、暗色更亮，都是对比度更高的那一端。
+   *
+   * 2026-10-17 配色复审提亮一档：常规档 700→600（对 surface/subtle/canvas/accent 四底
+   * 5.10–5.59，仍守 ≥5.0 合同；accent-strong 上 4.92 只承载图标，AA 3:1 富余），
+   * strong 保持 800——常规与强调的档距从一档拉开到两档，强弱比原来更可分辨。
    */
-  --cs-text-brand: var(--cs-brand-700);
+  --cs-text-brand: var(--cs-brand-600);
   --cs-text-brand-strong: var(--cs-brand-800);
   --cs-focus: var(--cs-brand-600);
   --cs-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
