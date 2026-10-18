@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { ListPlus } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 import { validateSkillDocument, validateSkillKey } from '../../domains/skill/document'
 import { SKILL_CONTENT_MAX, type CreateSkillInput } from '../../domains/skill/types'
 import BaseButton from '../base/BaseButton.vue'
@@ -23,13 +23,17 @@ const emit = defineEmits<{
 const skillKey = ref('')
 const content = ref('')
 const submitted = ref(false)
-const submissionError = ref<string | null>(null)
 const formId = useId()
-let attemptKey = ''
-const intentKeys = createFormCommandKeys()
 const dirtyForm = useDirtyForm(computed(() => ({
   skillKey: skillKey.value, content: content.value,
 })))
+const { submissionError, keyFor, clearAttempt } = useIdempotentCommand(
+  () => [skillKey.value, content.value],
+  () => {
+    submitted.value = false
+    dirtyForm.markDirty()
+  },
+)
 
 const keyError = computed(() => validateSkillKey(skillKey.value))
 const documentError = computed(() => skillKey.value === '' ? null : validateSkillDocument(content.value, skillKey.value))
@@ -44,13 +48,6 @@ watch(skillKey, key => {
 })
 watch(content, value => {
   if (templateLive && value !== templateFor(skillKey.value)) templateLive = false
-})
-
-watch([skillKey, content], () => {
-  // Editing any command input creates a new logical request; an unchanged retry reuses its key.
-  attemptKey = ''
-  submitted.value = false
-  dirtyForm.markDirty()
 })
 
 function templateFor(key: string): string {
@@ -69,19 +66,9 @@ function submit(): void {
   submitted.value = true
   if (!valid.value || props.submitting) return
   dirtyForm.markClean()
-  submissionError.value = null
-  try {
-    attemptKey = intentKeys.forInput([props.teamId, skillKey.value, content.value])
-  } catch (error) {
-    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
-    return
-  }
+  const attemptKey = keyFor([props.teamId, skillKey.value, content.value])
+  if (attemptKey === null) return
   emit('create', { skillKey: skillKey.value, content: content.value }, attemptKey)
-}
-
-function clearAttempt(): void {
-  attemptKey = ''
-  intentKeys.clear()
 }
 </script>
 

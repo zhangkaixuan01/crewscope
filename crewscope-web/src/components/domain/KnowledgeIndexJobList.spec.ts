@@ -50,12 +50,12 @@ describe('KnowledgeIndexJobList', () => {
 
   it('continues keyset pages and disables continuation while offline', async () => {
     const paging = await mounted({ items: [job()], nextAfter: '00000000-0000-0000-0000-000000007401' })
-    await paging.get('.job-list__more button').trigger('click')
+    await paging.get('.base-list-shell__more button').trigger('click')
     expect(paging.emitted('loadMore')).toHaveLength(1)
 
     const offline = await mounted({ items: [job()], nextAfter: '00000000-0000-0000-0000-000000007401', online: false })
     expect(offline.text()).toContain('正在展示最近读取的索引作业')
-    expect(offline.get('.job-list__more button').attributes('disabled')).toBeDefined()
+    expect(offline.get('.base-list-shell__more button').attributes('disabled')).toBeDefined()
   })
 
   it('marks only the row the store command names while staying clickable elsewhere', async () => {

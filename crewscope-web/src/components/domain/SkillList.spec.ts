@@ -72,11 +72,11 @@ describe('SkillList', () => {
 
   it('keeps the load-more footer only while a skill-key cursor remains', async () => {
     const paging = await mounted({ items: [skill('deploy-runbook-v2')], nextAfter: 'deploy-runbook-v2' })
-    await paging.get('.skill-list__more button').trigger('click')
+    await paging.get('.base-list-shell__more button').trigger('click')
     expect(paging.emitted('loadMore')).toHaveLength(1)
 
     const done = await mounted({ items: [skill('deploy-runbook-v2')], nextAfter: null })
-    expect(done.find('.skill-list__more').exists()).toBe(false)
+    expect(done.find('.base-list-shell__more').exists()).toBe(false)
   })
 
   it('offers the permission explanation link on a 403', async () => {

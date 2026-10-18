@@ -152,9 +152,9 @@
       "reason": "两个本地 computed 的兜底组合，两段都是中文说明。"
     },
     {
-      "file": "components/domain/KnowledgeDraftEditor.vue",
+      "file": "components/shared/BaseDraftEditor.vue",
       "expression": "saveDisabledReason",
-      "reason": "本地 computed，返回的已经是中文原因句。"
+      "reason": "本地 computed，返回的已经是中文原因句（权限/空正文/越界/文档校验/只读锁；Skills 与 Knowledge 两域草稿编辑器合并入此骨架）。"
     },
     {
       "file": "components/domain/KnowledgeEntryDetail.vue",
@@ -165,11 +165,6 @@
       "file": "components/domain/SkillDetail.vue",
       "expression": "disabledReason",
       "reason": "本地 computed，返回的已经是中文原因句（离线管理锁）。"
-    },
-    {
-      "file": "components/domain/SkillDraftEditor.vue",
-      "expression": "saveDisabledReason",
-      "reason": "本地 computed，返回的已经是中文原因句（权限/空正文/越界/文档校验）。"
     },
     {
       "file": "components/domain/OrganizationDeletionWorkflow.vue",

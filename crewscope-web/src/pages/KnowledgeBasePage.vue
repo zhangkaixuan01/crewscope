@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { secureId } from '../api/secureId'
 import { BookPlus, RefreshCw, Sparkles } from '@lucide/vue'
-import { computed, inject, ref, useId, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { normalizeQuery, oneOf, queryValue, revisionQuery, uuidQuery } from '../utils/queryParams'
+import { computed, inject, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { oneOf, revisionQuery, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
-import BaseDialog from '../components/base/BaseDialog.vue'
 import KnowledgeCreateDialog from '../components/domain/KnowledgeCreateDialog.vue'
 import KnowledgeDistillationDialog from '../components/domain/KnowledgeDistillationDialog.vue'
 import KnowledgeEntryDetail from '../components/domain/KnowledgeEntryDetail.vue'
 import KnowledgeEntryList from '../components/domain/KnowledgeEntryList.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
+import ActionConfirmDialog from '../components/shared/ActionConfirmDialog.vue'
+import { idleVersionPage, useEntryLibraryPage } from '../composables/useEntryLibraryPage'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useKnowledgeStore } from '../domains/knowledge/store'
-import type { KnowledgeResource, KnowledgeVersionPageResource } from '../domains/knowledge/store'
+import type { KnowledgeVersionPageResource } from '../domains/knowledge/store'
 import type {
   CreateKnowledgeEntryInput,
   DistillKnowledgeInput,
@@ -32,7 +32,6 @@ import { useScopeStore } from '../domains/scope/store'
 const pageRequests = usePageRequestScope()
 
 const route = useRoute()
-const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const store = useKnowledgeStore()
@@ -42,10 +41,6 @@ const createOpen = ref(false)
 const distillOpen = ref(false)
 const distillReceipt = ref(store.distillationReceipt())
 const deleteTarget = ref<string | null>(null)
-const deleteConfirmed = ref(false)
-const deleteImpactId = useId()
-/** Entry-scoped commands mint their key here; create/distill dialogs own their own keys. */
-const commandAttempt = ref<{ op: string, entryId: string, key: string } | null>(null)
 
 const scope = computed<SettingsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -85,215 +80,85 @@ const distillError = computed(() => distillOpen.value && store.state.command.ope
 const createPending = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'create')
 const distillPending = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'distill')
 const deleting = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'delete' && store.state.command.resourceId === deleteTarget.value)
+const deleteError = computed(() => commandForSelection.value?.phase === 'error' && commandForSelection.value.operation === 'delete'
+  ? store.state.command.errorMessage
+  : null)
 const draftScope = computed(() => principal && scope.value
   ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId: scope.value.teamId }
   : null)
 
-watch(
-  () => [
+/** Shared library lifecycle (M12b-F04): catalog/selection loads, query coordination, commands. */
+const library = useEntryLibraryPage<string>({
+  pageRequests,
+  catalogSources: () => [
     scopeStore.state.phase,
     scope.value?.organizationId,
     scope.value?.teamId,
     statusFilter.value,
     categoryFilter.value,
   ] as const,
-  async ([phase]) => {
-    const pageOwner = pageRequests.capture()
-    if (phase !== 'ready' || !scope.value) return
-    store.activateScope(scope.value)
-    commandAttempt.value = null
-    store.clearCommand()
-    await store.loadEntries(filter.value, false, true)
-    if (!pageOwner.isCurrent()) return
+  scopePresent: () => Boolean(scope.value),
+  activateScope: () => store.activateScope(scope.value!),
+  queryKeys: { selected: 'entry' },
+  filters: [
+    { key: 'status', value: () => statusFilter.value, fallback: 'ALL' },
+    { key: 'category', value: () => categoryFilter.value, fallback: 'ALL' },
+  ],
+  scopeReady: () => scopeStore.state.phase === 'ready' && Boolean(scope.value),
+  teamId: () => scope.value?.teamId,
+  online: () => online.value,
+  selectedId: () => selectedEntryId.value,
+  selectedRevision: () => selectedRevision.value,
+  tab: () => tab.value,
+  clearCommand: () => store.clearCommand(),
+  commandPhase: () => store.state.command,
+  loadCatalog: force => store.loadEntries(filter.value, false, force),
+  loadDetail: (id, force) => store.loadEntry(id, force),
+  loadVersions: (id, more, force) => store.loadVersions(id, more, force),
+  loadVersion: (id, revision) => store.loadVersion(id, revision),
+  // Knowledge reads the effective version on the versions tab only (no editor baseline here).
+  loadEffective: (id, force) => store.loadEffectiveVersion(id, force),
+  effectiveOnDraftTab: false,
+  onEnterVersionsTab: id => {
+    void store.loadVersions(id)
+    void store.loadEffectiveVersion(id)
   },
-  { immediate: true },
-)
-
-watch(
-  () => [scopeStore.state.phase, route.query.status, route.query.category, route.query.entry, route.query.revision, route.query.tab] as const,
-  ([phase]) => {
-    if (phase !== 'ready') return
-    const query = { ...route.query }
-    let changed = false
-    changed = normalizeQuery(query, 'status', statusFilter.value, 'ALL') || changed
-    changed = normalizeQuery(query, 'category', categoryFilter.value, 'ALL') || changed
-    changed = normalizeQuery(query, 'tab', tab.value, 'draft') || changed
-    if (route.query.entry != null && !selectedEntryId.value) {
-      delete query.entry
-      changed = true
-    }
-    if (route.query.revision != null && !selectedRevision.value) {
-      delete query.revision
-      changed = true
-    }
-    if (changed) void router.replace({ query })
-  },
-  { immediate: true },
-)
-
-watch(
-  () => [scopeStore.state.phase, scope.value?.teamId, selectedEntryId.value, tab.value, selectedRevision.value] as const,
-  ([phase, _teamId, entryId, currentTab, revision]) => {
-    commandAttempt.value = null
-    store.clearCommand()
-    if (phase !== 'ready' || !scope.value || !entryId) return
-    void store.loadEntry(entryId)
-    if (currentTab === 'versions') {
-      void store.loadVersions(entryId)
-      void store.loadEffectiveVersion(entryId)
-      if (revision) void store.loadVersion(entryId, revision)
-    }
-  },
-  { immediate: true },
-)
-
-function selectEntry(entryId: string): void {
-  const query = { ...route.query } as Record<string, string>
-  delete query.revision
-  query.entry = entryId
-  void router.replace({ query })
-}
-
-function closeDetail(): void {
-  const query = { ...route.query }
-  delete query.entry
-  delete query.revision
-  void router.replace({ query })
-}
-
-function changeStatus(value: KnowledgeEntryStatus | 'ALL'): void {
-  replaceFilter('status', value, 'ALL')
-}
-
-function changeCategory(value: KnowledgeCategory | 'ALL'): void {
-  replaceFilter('category', value, 'ALL')
-}
-
-function replaceFilter(key: string, value: string, defaultValue: string): void {
-  const query = { ...route.query }
-  if (value === defaultValue) delete query[key]
-  else query[key] = value
-  delete query.entry
-  delete query.revision
-  void router.replace({ query })
-}
-
-function changeTab(next: 'draft' | 'versions'): void {
-  const query = { ...route.query }
-  if (next === 'draft') delete query.tab
-  else query.tab = next
-  if (next === 'versions' && selectedEntryId.value) {
-    void store.loadVersions(selectedEntryId.value)
-    void store.loadEffectiveVersion(selectedEntryId.value)
-  }
-  void router.replace({ query })
-}
-
-function selectRevision(revision: number): void {
-  void router.replace({ query: { ...route.query, revision: String(revision) } })
-}
+})
 
 function openDistill(): void {
   distillOpen.value = true
   distillReceipt.value = store.distillationReceipt()
 }
 
-async function reload(): Promise<void> {
-  const pageOwner = pageRequests.capture()
-  if (!scope.value || !online.value) return
-  await store.loadEntries(filter.value, false, true)
-  if (selectedEntryId.value) await store.loadEntry(selectedEntryId.value, true)
-  if (!pageOwner.isCurrent()) return
-}
-
-function retryDetail(): void {
-  if (selectedEntryId.value) void store.loadEntry(selectedEntryId.value, true)
-}
-
-function retryVersions(): void {
-  if (selectedEntryId.value) void store.loadVersions(selectedEntryId.value, false, true)
-}
-
 function loadMoreEntries(): void {
   void store.loadEntries(filter.value, true)
 }
 
-function loadMoreVersions(): void {
-  if (selectedEntryId.value) void store.loadVersions(selectedEntryId.value, true)
-}
-
-function attemptKeyFor(op: string, entryId: string): string {
-  const current = commandAttempt.value
-  if (current && current.op === op && current.entryId === entryId) return current.key
-  const next = { op, entryId, key: secureId() }
-  commandAttempt.value = next
-  return next.key
-}
-
 async function saveDraft(entryId: string, input: UpdateKnowledgeDraftInput): Promise<void> {
-  await runEntryCommand('save-draft', entryId, key => store.saveDraft(entryId, input, key))
+  await library.runCommand('save-draft', entryId, key => store.saveDraft(entryId, input, key))
 }
 
 async function publish(entryId: string): Promise<void> {
-  await runEntryCommand('publish', entryId, key => store.publishEntry(entryId, key))
+  await library.runCommand('publish', entryId, key => store.publishEntry(entryId, key))
 }
 
 async function retire(entryId: string): Promise<void> {
-  await runEntryCommand('retire', entryId, key => store.retireEntry(entryId, key))
+  await library.runCommand('retire', entryId, key => store.retireEntry(entryId, key))
 }
 
 function requestDelete(entryId: string): void {
   deleteTarget.value = entryId
-  deleteConfirmed.value = false
 }
 
 function cancelDelete(): void {
   deleteTarget.value = null
-  deleteConfirmed.value = false
 }
 
 async function confirmDelete(): Promise<void> {
   const entryId = deleteTarget.value
-  if (!entryId || !deleteConfirmed.value) return
-  const done = await runEntryCommand('delete', entryId, key => store.deleteEntry(entryId, key))
+  if (!entryId) return
+  const done = await library.runCommand('delete', entryId, key => store.deleteEntry(entryId, key))
   if (done) cancelDelete()
-}
-
-async function runEntryCommand(
-  op: 'save-draft' | 'publish' | 'retire' | 'delete',
-  entryId: string,
-  run: (key: string) => Promise<boolean>,
-): Promise<boolean> {
-  const pageOwner = pageRequests.captureSelection()
-  if (!online.value) return false
-  const success = await run(attemptKeyFor(op, entryId))
-  if (!pageOwner.isCurrent()) return success
-  if (success) {
-    commandAttempt.value = null
-    await refreshFacts(entryId)
-    return true
-  }
-  if (store.state.command.phase === 'conflict') {
-    // D4: drop the attempt key (the next submit is a new logical request) and reload facts
-    // without touching the editor.
-    commandAttempt.value = null
-    await Promise.all([
-      store.loadEntries(filter.value, false, true),
-      store.loadEntry(entryId, true),
-    ])
-  } else if (!store.state.command.retryable) {
-    commandAttempt.value = null
-  }
-  return false
-}
-
-async function refreshFacts(entryId: string): Promise<void> {
-  await Promise.all([
-    store.loadEntries(filter.value, false, true),
-    store.loadEntry(entryId, true),
-    store.loadVersions(entryId, false, true),
-    store.loadEffectiveVersion(entryId, true),
-  ])
 }
 
 async function createEntry(input: CreateKnowledgeEntryInput, idempotencyKey: string): Promise<void> {
@@ -324,18 +189,14 @@ function closeDistill(): void {
 
 function openDistilledEntry(entryId: string): void {
   closeDistill()
-  selectEntry(entryId)
-}
-
-function idleVersionPage(): KnowledgeVersionPageResource {
-  return { phase: 'idle', value: null, errorMessage: null, errorStatus: null, nextAfter: null, loadingMore: false }
+  library.select(entryId)
 }
 </script>
 
 <template>
   <AppShell title="知识库" eyebrow="团队 · 知识管理">
     <template #actions>
-      <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'knowledge-scope-reason' : undefined" @click="reload"><RefreshCw :size="14" />刷新</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'knowledge-scope-reason' : undefined" @click="library.reload"><RefreshCw :size="14" />刷新</BaseButton>
       <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="createOpen = true"><BookPlus :size="14" />创建条目</BaseButton>
       <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
     </template>
@@ -355,13 +216,13 @@ function idleVersionPage(): KnowledgeVersionPageResource {
         :category-filter="categoryFilter"
         :can-manage="canManage"
         :selected-entry-id="selectedEntryId"
-        @select="selectEntry"
-        @change-status="changeStatus"
-        @change-category="changeCategory"
+        @select="library.select"
+        @change-status="(value) => library.replaceFilter('status', value, 'ALL')"
+        @change-category="(value) => library.replaceFilter('category', value, 'ALL')"
         @load-more="loadMoreEntries"
         @create="createOpen = true"
         @distill="openDistill"
-        @retry="reload"
+        @retry="library.reload"
       />
 
       <KnowledgeEntryDetail
@@ -377,40 +238,34 @@ function idleVersionPage(): KnowledgeVersionPageResource {
         :scope="draftScope!"
         :can-manage="canManage"
         :online="online"
-        @close="closeDetail"
+        @close="library.closeDetail"
         @save="input => saveDraft(selectedEntryId!, input)"
         @publish="publish(selectedEntryId!)"
         @retire="retire(selectedEntryId!)"
         @delete="requestDelete(selectedEntryId!)"
-        @change-tab="changeTab"
-        @select-revision="selectRevision"
-        @load-more-versions="loadMoreVersions"
-        @retry-entry="retryDetail"
-        @retry-versions="retryVersions"
+        @change-tab="library.changeTab"
+        @select-revision="library.selectRevision"
+        @load-more-versions="library.loadMoreVersions"
+        @retry-entry="library.retryDetail"
+        @retry-versions="library.retryVersions"
       />
     </div>
 
-    <BaseDialog
-      :open="deleteTarget !== null"
-      role="alertdialog"
-      title="删除知识条目"
+    <ActionConfirmDialog
+      v-if="deleteTarget !== null"
+      heading="删除知识条目"
+      impact="删除后条目进入删除墓碑状态：列表保留墓碑行，历史引用不会失效，已发布版本转为只读。此操作可通过服务端审计追溯，但界面不提供恢复入口。"
+      mode="confirm"
+      confirm-checkbox-label="我确认删除此条目并保留墓碑"
+      confirm-label="确认删除"
+      variant="danger"
       width="min(500px, 100%)"
-      :described-by="deleteImpactId"
-      :close-disabled="store.state.command.phase === 'pending'"
       close-label="关闭删除确认"
-      @close="cancelDelete"
-    >
-      <div class="knowledge-delete-body">
-        <p :id="deleteImpactId">删除后条目进入删除墓碑状态：列表保留墓碑行，历史引用不会失效，已发布版本转为只读。此操作可通过服务端审计追溯，但界面不提供恢复入口。</p>
-        <label class="knowledge-delete-confirm"><input v-model="deleteConfirmed" type="checkbox" :disabled="store.state.command.phase === 'pending'" />我确认删除此条目并保留墓碑</label>
-        <p v-if="commandForSelection?.phase === 'error' && commandForSelection.operation === 'delete'" class="knowledge-delete-error" role="alert">{{ commandForSelection.errorMessage }}</p>
-      </div>
-      <template #footer>
-        <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
-        <BaseButton variant="ghost" autofocus :disabled="store.state.command.phase === 'pending'" @click="cancelDelete">取消</BaseButton>
-        <BaseButton variant="danger" :loading="deleting" :disabled="!deleteConfirmed" @click="confirmDelete">确认删除</BaseButton>
-      </template>
-    </BaseDialog>
+      :submitting="deleting"
+      :error-message="deleteError"
+      @cancel="cancelDelete"
+      @confirm="confirmDelete"
+    />
 
     <KnowledgeCreateDialog
       v-if="createOpen"
@@ -435,10 +290,6 @@ function idleVersionPage(): KnowledgeVersionPageResource {
 
 <style scoped>
 .knowledge-workspace { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: var(--cs-space-16); align-items: start; }
-.knowledge-delete-body { display: grid; gap: var(--cs-space-12); }
-.knowledge-delete-body > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
-.knowledge-delete-confirm { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.knowledge-delete-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 @media (max-width: 767px) {
   .knowledge-workspace { grid-template-columns: 1fr; }
 }

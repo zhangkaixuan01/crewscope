@@ -11,7 +11,8 @@ describe('KnowledgeVersionHistory', () => {
       effectiveRevision: 2,
     })
 
-    const rows = wrapper.findAll('button.version-history__row')
+    // M12b-F04：行结构统一到共享骨架的 row-main 形态（回滚兼容），选择器跟随。
+    const rows = wrapper.findAll('button.version-history__row-main')
     expect(rows).toHaveLength(2)
     expect(rows[0]!.text()).toContain('r1')
     expect(rows[0]!.text()).toContain('部署手册')

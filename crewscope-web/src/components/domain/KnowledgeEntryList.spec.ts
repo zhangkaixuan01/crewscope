@@ -81,12 +81,12 @@ describe('KnowledgeEntryList', () => {
 
   it('continues keyset pages and disables continuation while offline', async () => {
     const paging = await mounted({ items: [entry()], nextAfter: 'deploy-runbook' })
-    await paging.get('.knowledge-list__more button').trigger('click')
+    await paging.get('.base-list-shell__more button').trigger('click')
     expect(paging.emitted('loadMore')).toHaveLength(1)
 
     const offline = await mounted({ items: [entry()], nextAfter: 'deploy-runbook', online: false })
     expect(offline.text()).toContain('正在展示最近读取的知识条目')
-    expect(offline.get('.knowledge-list__more button').attributes('disabled')).toBeDefined()
+    expect(offline.get('.base-list-shell__more button').attributes('disabled')).toBeDefined()
   })
 })
 

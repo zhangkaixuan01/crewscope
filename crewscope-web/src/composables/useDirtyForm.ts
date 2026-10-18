@@ -31,7 +31,7 @@ export function useDirtyForm<T = unknown>(value?: Ref<T>, options: DirtyFormOpti
     try { return JSON.stringify(input) } catch { return String(input) }
   }
 
-  function markClean(nextValue?: T): void {
+  function markClean(nextValue?: T | null): void {
     baseline.value = nextValue === undefined && value ? serialize(value.value) : serialize(nextValue)
     dirty.value = false
   }

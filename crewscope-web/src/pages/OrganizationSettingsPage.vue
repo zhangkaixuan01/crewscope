@@ -11,8 +11,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import OrganizationRoleGrants from '../components/domain/OrganizationRoleGrants.vue'
 import OrganizationDeletionWorkflow from '../components/domain/OrganizationDeletionWorkflow.vue'
 import OrganizationExportWorkflow from '../components/domain/OrganizationExportWorkflow.vue'
-import { createFormCommandKeys } from '../api/formCommandKeys'
-import { useDirtyForm } from '../composables/useDirtyForm'
+import { useInlineSettingEditor } from '../composables/useInlineSettingEditor'
 import { organizationStatusLabels } from '../domains/organization/labels'
 import { organizationProblem } from '../domains/organization/presentation'
 import { useOrganizationStore } from '../domains/organization/store'
@@ -44,46 +43,45 @@ const canGovern = computed(() => Boolean(principal && can(principal, permissions
 const sessionOwner = computed(() => authStore?.state.session?.organization?.role === 'ORG_OWNER')
 const profile = computed(() => store.state.profile)
 
-const intentKeys = createFormCommandKeys()
-const attemptKey = ref('')
 /** Editor state: null keeps the field untouched, 'forever' maps to null retention days. */
 const retentionChoice = ref<'forever' | 'limited'>('forever')
 const retentionDaysInput = ref('')
-const editing = ref(false)
-const submitted = ref(false)
 const days = computed(() => Number.parseInt(retentionDaysInput.value, 10))
 const daysValid = computed(() => Number.isInteger(days.value) && days.value >= 30)
 const retentionPayload = computed(() => retentionChoice.value === 'forever' ? null : days.value)
-const dirtyForm = useDirtyForm(retentionPayload)
 const settings = computed(() => store.state.settings)
 const settingsValue = computed(() => settings.value.value)
 const command = computed(() => store.state.settingsCommand)
 const problem = computed(() => command.value.phase === 'error'
   ? organizationProblem(command.value.errorStatus, command.value.errorCode, 'retention') : null)
+
+// Inline editor lifecycle (M12b-F04): dirty tracking, idempotent save, success/reset watches.
+// The fingerprint includes the radio choice: forever→limited→forever with the same day count
+// is a new logical request even though the payload nulls out identically.
+const { editing, submitted, dirtyForm, startEditing, cancelEditing, submit: saveRetention } = useInlineSettingEditor<number | null>({
+  payload: () => retentionPayload.value,
+  serverValue: () => settingsValue.value?.auditEventRetentionDays ?? null,
+  applyServerValue: value => {
+    retentionChoice.value = value === null ? 'forever' : 'limited'
+    retentionDaysInput.value = value === null ? '' : String(value)
+  },
+  valid: () => retentionChoice.value === 'forever' || daysValid.value,
+  ready: () => settings.value.phase === 'ready',
+  phase: () => command.value.phase,
+  clearCommand: () => store.clearSettingsCommand(),
+  save: async key => store.updateSettings(
+    organizationId.value,
+    { auditEventRetentionDays: retentionPayload.value },
+    settingsValue.value?.version ?? 0,
+    key,
+  ),
+  fingerprint: () => [retentionChoice.value, retentionPayload.value],
+})
 const savingReason = computed(() => {
   if (settings.value.phase !== 'ready') return '正在读取当前保留策略。'
   if (retentionChoice.value === 'limited' && !daysValid.value) return '限期保留至少 30 天。'
   if (command.value.phase === 'pending') return '正在保存。'
   return ''
-})
-
-watch(retentionPayload, value => {
-  if (!editing.value) return
-  dirtyForm.sync(value)
-})
-
-watch(() => command.value.phase, phase => {
-  if (phase !== 'success') return
-  editing.value = false
-  submitted.value = false
-  dirtyForm.markClean(settingsValue.value?.auditEventRetentionDays ?? null)
-})
-
-watch(settingsValue, value => {
-  if (editing.value || !value) return
-  retentionChoice.value = value.auditEventRetentionDays === null ? 'forever' : 'limited'
-  retentionDaysInput.value = value.auditEventRetentionDays === null ? '' : String(value.auditEventRetentionDays)
-  dirtyForm.markClean(value.auditEventRetentionDays)
 })
 
 onMounted(() => {
@@ -94,42 +92,6 @@ watch([organizationId, canReadSettings], ([id, readable]) => {
   if (!id) return
   if (readable) void store.loadSettings(id)
 }, { immediate: true })
-
-function startEditing(): void {
-  editing.value = true
-  submitted.value = false
-  // Entering the editor retires the previous save's status line so it cannot read as if the
-  // untouched form had just been saved.
-  store.clearSettingsCommand()
-  const current = settingsValue.value?.auditEventRetentionDays ?? null
-  retentionChoice.value = current === null ? 'forever' : 'limited'
-  retentionDaysInput.value = current === null ? '' : String(current)
-  dirtyForm.markClean(current)
-}
-
-function cancelEditing(): void {
-  editing.value = false
-  submitted.value = false
-  const current = settingsValue.value?.auditEventRetentionDays ?? null
-  retentionChoice.value = current === null ? 'forever' : 'limited'
-  retentionDaysInput.value = current === null ? '' : String(current)
-  attemptKey.value = ''
-  dirtyForm.markClean(current)
-}
-
-async function saveRetention(): Promise<void> {
-  submitted.value = true
-  if (retentionChoice.value === 'limited' && !daysValid.value) return
-  if (settings.value.phase !== 'ready') return
-  attemptKey.value = intentKeys.forInput([retentionChoice.value, retentionPayload.value])
-  const ok = await store.updateSettings(
-    organizationId.value,
-    { auditEventRetentionDays: retentionPayload.value },
-    settingsValue.value?.version ?? 0,
-    attemptKey.value,
-  )
-  if (!ok) attemptKey.value = ''
-}
 
 function retentionText(days: number | null): string {
   return days === null ? '永久保留' : `保留 ${days} 天`

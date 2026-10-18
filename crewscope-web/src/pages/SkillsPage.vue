@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { secureId } from '../api/secureId'
 import { ListPlus, RefreshCw, Sparkles } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { normalizeQuery, oneOf, queryValue, revisionQuery, uuidQuery } from '../utils/queryParams'
+import { oneOf, queryValue, revisionQuery, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
-import SkillActionConfirmDialog, { type SkillActionIntent } from '../components/domain/SkillActionConfirmDialog.vue'
 import SkillCreateDialog from '../components/domain/SkillCreateDialog.vue'
 import SkillDetail from '../components/domain/SkillDetail.vue'
 import SkillDistillationDialog from '../components/domain/SkillDistillationDialog.vue'
 import SkillList from '../components/domain/SkillList.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
+import ActionConfirmDialog from '../components/shared/ActionConfirmDialog.vue'
+import { idleVersionPage, useEntryLibraryPage } from '../composables/useEntryLibraryPage'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useSkillStore } from '../domains/skill/store'
 import type { SkillVersionPageResource } from '../domains/skill/store'
@@ -24,12 +24,21 @@ import type {
   SkillStatus,
   UpdateSkillDraftInput,
 } from '../domains/skill/types'
-import { skillStatuses } from '../domains/skill/types'
+import { SKILL_DISABLE_REASON_MAX, skillStatuses } from '../domains/skill/types'
 import type { SettingsScope } from '../domains/settings/types'
 import { useScopeStore } from '../domains/scope/store'
 
 /** Injection-attempt deep links carry skillKey·revision·hash — never a skill id (F02 D5). */
 const DEEP_LINK_PAGE_CAP = 5
+
+/**
+ * One confirmation, three commands (F02 D3): publish, disable and rollback each carry
+ * contract-specific consequences that a bare "确定？" would hide.
+ */
+type SkillActionIntent =
+  | { kind: 'publish', skillKey: string, nextRevision: number }
+  | { kind: 'disable', skillKey: string }
+  | { kind: 'rollback', skillKey: string, toRevision: number, effectiveRevision: number }
 
 const pageRequests = usePageRequestScope()
 
@@ -46,8 +55,6 @@ const distillReceipt = ref(store.distillationReceipt())
 const actionIntent = ref<SkillActionIntent | null>(null)
 const deepLinkMiss = ref<string | null>(null)
 let deepLinkPages = 0
-/** Skill-scoped commands mint their key here; create/distill dialogs own their own keys. */
-const commandAttempt = ref<{ op: string, skillId: string, key: string } | null>(null)
 
 const scope = computed<SettingsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -97,28 +104,43 @@ const draftScope = computed(() => principal && scope.value
   ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId: scope.value.teamId }
   : null)
 
-// deepLinkKey is deliberately not a source here: the resolver watch clears it when it finishes,
-// and that cleanup must not reset the miss note or re-read the catalog.
-watch(
-  () => [
+/** Shared library lifecycle (M12b-F04): catalog/selection loads, query coordination, commands. */
+const library = useEntryLibraryPage<string>({
+  pageRequests,
+  catalogSources: () => [
     scopeStore.state.phase,
     scope.value?.organizationId,
     scope.value?.teamId,
     statusFilter.value,
   ] as const,
-  async ([phase]) => {
-    const pageOwner = pageRequests.capture()
-    if (phase !== 'ready' || !scope.value) return
-    store.activateScope(scope.value)
-    commandAttempt.value = null
+  scopePresent: () => Boolean(scope.value),
+  activateScope: () => store.activateScope(scope.value!),
+  // Deep-link paging state belongs to the catalog reset, not the selection.
+  onCatalogReset: () => {
     deepLinkMiss.value = null
     deepLinkPages = 0
-    store.clearCommand()
-    await store.loadSkills(filter.value, false, true)
-    if (!pageOwner.isCurrent()) return
   },
-  { immediate: true },
-)
+  queryKeys: { selected: 'skill' },
+  filters: [{ key: 'status', value: () => statusFilter.value, fallback: 'ALL' }],
+  // skillKey retriggers normalization (the deep-link resolver clears it when it settles).
+  extraQueryKeys: ['skillKey'],
+  scopeReady: () => scopeStore.state.phase === 'ready' && Boolean(scope.value),
+  teamId: () => scope.value?.teamId,
+  online: () => online.value,
+  selectedId: () => selectedSkillId.value,
+  selectedRevision: () => selectedRevision.value,
+  tab: () => tab.value,
+  clearCommand: () => store.clearCommand(),
+  commandPhase: () => store.state.command,
+  loadCatalog: force => store.loadSkills(filter.value, false, force),
+  loadDetail: (id, force) => store.loadSkill(id, force),
+  loadVersions: (id, more, force) => store.loadVersions(id, more, force),
+  loadVersion: (id, revision) => store.loadVersion(id, revision),
+  // The effective revision feeds the editor diff baseline, so it loads on both tabs.
+  loadEffective: (id, force) => store.loadEffectiveVersion(id, force),
+  effectiveOnDraftTab: true,
+  onEnterVersionsTab: id => { void store.loadVersions(id) },
+})
 
 // Resolves a skillKey deep link by paging the unfiltered skillKey-ascending catalog, then
 // rewrites the coordinate to the stable skill id. A miss is surfaced, never faked.
@@ -149,120 +171,17 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => [scopeStore.state.phase, route.query.status, route.query.skill, route.query.skillKey, route.query.revision, route.query.tab] as const,
-  ([phase]) => {
-    if (phase !== 'ready') return
-    const query = { ...route.query }
-    let changed = false
-    changed = normalizeQuery(query, 'status', statusFilter.value, 'ALL') || changed
-    changed = normalizeQuery(query, 'tab', tab.value, 'draft') || changed
-    if (route.query.skill != null && !selectedSkillId.value) {
-      delete query.skill
-      changed = true
-    }
-    if (route.query.revision != null && !selectedRevision.value) {
-      delete query.revision
-      changed = true
-    }
-    if (changed) void router.replace({ query })
-  },
-  { immediate: true },
-)
-
-watch(
-  () => [scopeStore.state.phase, scope.value?.teamId, selectedSkillId.value, tab.value, selectedRevision.value] as const,
-  ([phase, _teamId, skillId, currentTab, revision]) => {
-    commandAttempt.value = null
-    store.clearCommand()
-    if (phase !== 'ready' || !scope.value || !skillId) return
-    void store.loadSkill(skillId)
-    // The effective revision feeds the editor diff baseline, so it loads on both tabs.
-    void store.loadEffectiveVersion(skillId)
-    if (currentTab === 'versions') {
-      void store.loadVersions(skillId)
-      if (revision) void store.loadVersion(skillId, revision)
-    }
-  },
-  { immediate: true },
-)
-
-function selectSkill(skillId: string): void {
-  const query = { ...route.query } as Record<string, string>
-  delete query.revision
-  query.skill = skillId
-  void router.replace({ query })
-}
-
-function closeDetail(): void {
-  const query = { ...route.query }
-  delete query.skill
-  delete query.revision
-  void router.replace({ query })
-}
-
-function changeStatus(value: SkillStatus | 'ALL'): void {
-  const query = { ...route.query }
-  if (value === 'ALL') delete query.status
-  else query.status = value
-  delete query.skill
-  delete query.revision
-  void router.replace({ query })
-}
-
-function changeTab(next: 'draft' | 'versions'): void {
-  const query = { ...route.query }
-  if (next === 'draft') delete query.tab
-  else query.tab = next
-  if (next === 'versions' && selectedSkillId.value) {
-    void store.loadVersions(selectedSkillId.value)
-  }
-  void router.replace({ query })
-}
-
-function selectRevision(revision: number): void {
-  void router.replace({ query: { ...route.query, revision: String(revision) } })
-}
-
 function openDistill(): void {
   distillOpen.value = true
   distillReceipt.value = store.distillationReceipt()
-}
-
-async function reload(): Promise<void> {
-  const pageOwner = pageRequests.capture()
-  if (!scope.value || !online.value) return
-  await store.loadSkills(filter.value, false, true)
-  if (selectedSkillId.value) await store.loadSkill(selectedSkillId.value, true)
-  if (!pageOwner.isCurrent()) return
-}
-
-function retryDetail(): void {
-  if (selectedSkillId.value) void store.loadSkill(selectedSkillId.value, true)
-}
-
-function retryVersions(): void {
-  if (selectedSkillId.value) void store.loadVersions(selectedSkillId.value, false, true)
 }
 
 function loadMoreSkills(): void {
   void store.loadSkills(filter.value, true)
 }
 
-function loadMoreVersions(): void {
-  if (selectedSkillId.value) void store.loadVersions(selectedSkillId.value, true)
-}
-
-function attemptKeyFor(op: string, skillId: string): string {
-  const current = commandAttempt.value
-  if (current && current.op === op && current.skillId === skillId) return current.key
-  const next = { op, skillId, key: secureId() }
-  commandAttempt.value = next
-  return next.key
-}
-
 async function saveDraft(skillId: string, input: UpdateSkillDraftInput): Promise<void> {
-  await runSkillCommand('save-draft', skillId, key => store.saveDraft(skillId, input, key))
+  await library.runCommand('save-draft', skillId, key => store.saveDraft(skillId, input, key))
 }
 
 function requestPublish(): void {
@@ -289,54 +208,39 @@ function cancelAction(): void {
   actionIntent.value = null
 }
 
+const actionHeading = computed(() => {
+  const intent = actionIntent.value
+  if (!intent) return ''
+  if (intent.kind === 'publish') return '发布当前草稿？'
+  if (intent.kind === 'disable') return '禁用这个 Skill？'
+  return `回滚到 r${intent.toRevision}？`
+})
+const actionImpact = computed(() => {
+  const intent = actionIntent.value
+  if (!intent) return ''
+  if (intent.kind === 'publish') return `发布会产出新的不可变修订 r${intent.nextRevision} 并更新生效指针。服务端会对全部内容（frontmatter 与正文）执行无条件披露扫描——Skill 会注入未来任务的指令，审核标准比知识条目更严。发布后仍可回滚。`
+  if (intent.kind === 'disable') return '禁用即下线：后续任务不再装载这个 Skill，但目录与历史版本全部保留（没有删除操作）。修改草稿并再次发布即可产出新修订、恢复生效。'
+  return `回滚不是删除：会产出一个新的不可变修订，其内容与哈希与 r${intent.toRevision} 完全相同（相邻修订同哈希属正常形态），当前生效的 r${intent.effectiveRevision} 之后的中间修订全部保留在历史中。`
+})
+const actionConfirmLabel = computed(() => {
+  const intent = actionIntent.value
+  if (!intent) return ''
+  if (intent.kind === 'publish') return '确认发布'
+  if (intent.kind === 'disable') return '确认禁用'
+  return '确认回滚'
+})
+
 async function confirmAction(reason: string | null): Promise<void> {
   const intent = actionIntent.value
   const skillId = selectedSkillId.value
   if (!intent || !skillId) return
   const op = intent.kind
-  const done = await runSkillCommand(op, skillId, key => {
+  const done = await library.runCommand(op, skillId, key => {
     if (intent.kind === 'publish') return store.publishSkill(skillId, key)
     if (intent.kind === 'disable') return store.disableSkill(skillId, reason, key)
     return store.rollbackSkill(skillId, intent.toRevision, key)
   })
   if (done) actionIntent.value = null
-}
-
-async function runSkillCommand(
-  op: 'save-draft' | 'publish' | 'disable' | 'rollback',
-  skillId: string,
-  run: (key: string) => Promise<boolean>,
-): Promise<boolean> {
-  const pageOwner = pageRequests.captureSelection()
-  if (!online.value) return false
-  const success = await run(attemptKeyFor(op, skillId))
-  if (!pageOwner.isCurrent()) return success
-  if (success) {
-    commandAttempt.value = null
-    await refreshFacts(skillId)
-    return true
-  }
-  if (store.state.command.phase === 'conflict') {
-    // Drop the attempt key (the next submit is a new logical request) and reload facts
-    // without touching the editor.
-    commandAttempt.value = null
-    await Promise.all([
-      store.loadSkills(filter.value, false, true),
-      store.loadSkill(skillId, true),
-    ])
-  } else if (!store.state.command.retryable) {
-    commandAttempt.value = null
-  }
-  return false
-}
-
-async function refreshFacts(skillId: string): Promise<void> {
-  await Promise.all([
-    store.loadSkills(filter.value, false, true),
-    store.loadSkill(skillId, true),
-    store.loadVersions(skillId, false, true),
-    store.loadEffectiveVersion(skillId, true),
-  ])
 }
 
 async function createSkill(input: CreateSkillInput, idempotencyKey: string): Promise<void> {
@@ -367,18 +271,14 @@ function closeDistill(): void {
 
 function openDistilledSkill(skillId: string): void {
   closeDistill()
-  selectSkill(skillId)
-}
-
-function idleVersionPage(): SkillVersionPageResource {
-  return { phase: 'idle', value: null, errorMessage: null, errorStatus: null, nextAfter: null, loadingMore: false }
+  library.select(skillId)
 }
 </script>
 
 <template>
   <AppShell title="Skill 目录" eyebrow="团队 · Skill 管理">
     <template #actions>
-      <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'skills-scope-reason' : undefined" @click="reload"><RefreshCw :size="14" />刷新</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'skills-scope-reason' : undefined" @click="library.reload"><RefreshCw :size="14" />刷新</BaseButton>
       <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="createOpen = true"><ListPlus :size="14" />创建 Skill</BaseButton>
       <!-- Distillation stays for every member: the right belongs to the execution creator (§8). -->
       <BaseButton variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
@@ -399,12 +299,12 @@ function idleVersionPage(): SkillVersionPageResource {
         :status-filter="statusFilter"
         :can-manage="canManage"
         :selected-skill-id="selectedSkillId"
-        @select="selectSkill"
-        @change-status="changeStatus"
+        @select="library.select"
+        @change-status="(value) => library.replaceFilter('status', value, 'ALL')"
         @load-more="loadMoreSkills"
         @create="createOpen = true"
         @distill="openDistill"
-        @retry="reload"
+        @retry="library.reload"
       />
 
       <SkillDetail
@@ -421,22 +321,32 @@ function idleVersionPage(): SkillVersionPageResource {
         :can-manage="canManage"
         :online="online"
         :baseline-content="baselineContent"
-        @close="closeDetail"
+        @close="library.closeDetail"
         @save="input => saveDraft(selectedSkillId!, input)"
         @publish="requestPublish"
         @disable="requestDisable"
         @rollback="requestRollback"
-        @change-tab="changeTab"
-        @select-revision="selectRevision"
-        @load-more-versions="loadMoreVersions"
-        @retry-skill="retryDetail"
-        @retry-versions="retryVersions"
+        @change-tab="library.changeTab"
+        @select-revision="library.selectRevision"
+        @load-more-versions="library.loadMoreVersions"
+        @retry-skill="library.retryDetail"
+        @retry-versions="library.retryVersions"
       />
     </div>
 
-    <SkillActionConfirmDialog
+    <ActionConfirmDialog
       v-if="actionIntent"
-      :intent="actionIntent"
+      :heading="actionHeading"
+      eyebrow="Team skill"
+      :subtitle="actionIntent.skillKey"
+      :impact="actionImpact"
+      :mode="actionIntent.kind === 'disable' ? 'reason' : 'plain'"
+      :variant="actionIntent.kind === 'disable' ? 'danger' : 'primary'"
+      reason-label="禁用原因（可选）"
+      :reason-maxlength="SKILL_DISABLE_REASON_MAX"
+      reason-placeholder="会展示给 Team 全体成员。"
+      :confirm-label="actionConfirmLabel"
+      close-label="取消操作"
       :submitting="actionPending"
       :error-message="actionError"
       @cancel="cancelAction"

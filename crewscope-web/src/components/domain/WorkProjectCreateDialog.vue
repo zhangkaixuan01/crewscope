@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
-import { secureId } from '../../api/secureId'
+import { computed, ref, useId } from 'vue'
 import type { CreateWorkProjectInput } from '../../domains/scope/types'
 import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 
 const props = defineProps<{
   teamName: string
@@ -16,14 +16,13 @@ const emit = defineEmits<{ close: []; submit: [input: CreateWorkProjectInput, id
 const name = ref('')
 const formId = useId()
 const valid = computed(() => name.value.trim().length > 0 && name.value.trim().length <= 200)
-let attemptKey = ''
-watch(name, () => { attemptKey = ''; emit('inputChanged') })
-watch(() => [props.errorMessage, props.retryable], () => {
-  if (props.errorMessage && !props.retryable) attemptKey = ''
-})
+/** M12b-F04：统一到输入指纹幂等（原实现是 secureId 随机键的惰性变体——未改输入的显式重试
+ *  现在与其余表单命令 dialog 一样复用同一键；输入变更仍换新键并通知父级清空重试面）。 */
+const { keyFor } = useIdempotentCommand(() => [name.value], () => { emit('inputChanged') })
 function submit() {
   if (!valid.value || props.submitting) return
-  if (!attemptKey) attemptKey = secureId()
+  const attemptKey = keyFor([name.value.trim()])
+  if (attemptKey === null) return
   emit('submit', { name: name.value.trim() }, attemptKey)
 }
 </script>

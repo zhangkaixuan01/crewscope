@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayDate } from '../../utils/displayDate'
 import {
   Bot,
   Box,
@@ -127,10 +128,6 @@ function shortHash(value: string): string {
 
 function shortId(value: string): string {
   return value.length > 12 ? `${value.slice(0, 8)}…` : value
-}
-
-function displayDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
 function bytes(value: number): string {

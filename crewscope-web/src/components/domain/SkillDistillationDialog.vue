@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { Sparkles } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 import { validateSkillKey } from '../../domains/skill/document'
 import { skillStatusLabels } from '../../domains/skill/labels'
 import type { DistillSkillInput, SkillDistillationReceipt } from '../../domains/skill/types'
 import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
 import StatusBadge from '../base/StatusBadge.vue'
+import BaseReceiptPanel from '../shared/BaseReceiptPanel.vue'
 
 const props = defineProps<{
   teamId: string
@@ -26,13 +27,17 @@ const emit = defineEmits<{
 const taskExecutionId = ref('')
 const skillKey = ref('')
 const submitted = ref(false)
-const submissionError = ref<string | null>(null)
 const formId = useId()
-let attemptKey = ''
-const intentKeys = createFormCommandKeys()
 const dirtyForm = useDirtyForm(computed(() => ({
   taskExecutionId: taskExecutionId.value, skillKey: skillKey.value,
 })))
+const { submissionError, keyFor, clearAttempt } = useIdempotentCommand(
+  () => [taskExecutionId.value, skillKey.value],
+  () => {
+    submitted.value = false
+    dirtyForm.markDirty()
+  },
+)
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const executionValid = computed(() => uuidPattern.test(taskExecutionId.value.trim()))
@@ -43,13 +48,6 @@ const valid = computed(() => executionValid.value && keyValid.value)
 /** D3: the dialog stays open and turns into the receipt surface; the form comes back on demand. */
 const viewingReceipt = ref(props.receipt !== null)
 const receiptMode = computed(() => props.receipt !== null && viewingReceipt.value)
-
-watch([taskExecutionId, skillKey], () => {
-  // Editing any command input creates a new logical request; an unchanged retry reuses its key.
-  attemptKey = ''
-  submitted.value = false
-  dirtyForm.markDirty()
-})
 
 // A fresh receipt rules out a pending submission error from the same dialog session.
 watch(() => props.receipt, receipt => {
@@ -69,17 +67,12 @@ function submit(): void {
   submitted.value = true
   if (!valid.value || props.submitting) return
   dirtyForm.markClean()
-  submissionError.value = null
   const input: DistillSkillInput = {
     taskExecutionId: taskExecutionId.value.trim(),
     skillKey: skillKey.value,
   }
-  try {
-    attemptKey = intentKeys.forInput([props.teamId, input.taskExecutionId, input.skillKey])
-  } catch (error) {
-    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
-    return
-  }
+  const attemptKey = keyFor([props.teamId, input.taskExecutionId, input.skillKey])
+  if (attemptKey === null) return
   emit('distill', input, attemptKey)
 }
 
@@ -90,11 +83,6 @@ function distillAnother(): void {
   skillKey.value = ''
   submitted.value = false
   dirtyForm.markClean()
-}
-
-function clearAttempt(): void {
-  attemptKey = ''
-  intentKeys.clear()
 }
 </script>
 
@@ -150,18 +138,22 @@ function clearAttempt(): void {
         <p v-if="submissionError || errorMessage" class="skill-dialog__command-error" role="alert">{{ submissionError || errorMessage }}</p>
       </form>
 
-      <section v-else class="skill-dialog__receipt" aria-label="蒸馏回执">
-        <p v-if="receipt!.replayed" class="skill-dialog__replayed" role="status">此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。</p>
-        <dl>
-          <div><dt>skillKey</dt><dd class="skill-dialog__mono">{{ receipt!.skillKey }}</dd></div>
-          <div v-if="receipt!.origin"><dt>蒸馏来源</dt><dd class="skill-dialog__mono">执行 {{ receipt!.origin.taskExecutionId }} · 第 {{ receipt!.origin.attempt }} 次尝试</dd></div>
+      <BaseReceiptPanel
+        v-else
+        label="蒸馏回执"
+        :replayed="receipt!.replayed"
+        replayed-note="此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。"
+        open-label="打开 Skill"
+        :open-available="receipt!.skillId != null"
+        @open="emit('openSkill', receipt!.skillId!)"
+        @another="distillAnother"
+      >
+        <template #facts>
+          <div><dt>skillKey</dt><dd class="base-receipt__mono">{{ receipt!.skillKey }}</dd></div>
+          <div v-if="receipt!.origin"><dt>蒸馏来源</dt><dd class="base-receipt__mono">执行 {{ receipt!.origin.taskExecutionId }} · 第 {{ receipt!.origin.attempt }} 次尝试</dd></div>
           <div v-if="receipt!.status"><dt>状态</dt><dd><StatusBadge tone="neutral">{{ skillStatusLabels[receipt!.status] }}</StatusBadge></dd></div>
-        </dl>
-        <div class="skill-dialog__receipt-actions">
-          <BaseButton v-if="receipt!.skillId" type="button" variant="primary" size="small" @click="emit('openSkill', receipt!.skillId!)">打开 Skill</BaseButton>
-          <BaseButton type="button" variant="secondary" size="small" @click="distillAnother">再蒸馏一条</BaseButton>
-        </div>
-      </section>
+        </template>
+      </BaseReceiptPanel>
     </div>
     <template #footer>
       <template v-if="!receiptMode">
@@ -183,12 +175,5 @@ function clearAttempt(): void {
 .skill-dialog__hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .skill-dialog__error { color: var(--cs-danger); font-size: var(--cs-text-xs); }
 .skill-dialog__command-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
-.skill-dialog__receipt { display: flex; flex-direction: column; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); }
-.skill-dialog__replayed { margin: 0; color: var(--cs-text); font-size: var(--cs-text-sm); }
-.skill-dialog__receipt dl { display: flex; margin: 0; flex-direction: column; gap: var(--cs-space-8); }
-.skill-dialog__receipt dl div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }
-.skill-dialog__receipt dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.skill-dialog__receipt dd { margin: 0; font-size: var(--cs-text-sm); overflow-wrap: anywhere; }
-.skill-dialog__mono { font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-xs); }
-.skill-dialog__receipt-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
+
 </style>

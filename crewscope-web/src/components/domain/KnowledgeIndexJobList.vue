@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
-import { permissions } from '../../app/auth'
 import {
   knowledgeIndexJobSourceLabels,
   knowledgeIndexJobStatusLabels,
@@ -16,9 +14,10 @@ import {
 import type { KnowledgeIndexPhase } from '../../domains/knowledge/index-store'
 import BaseButton from '../base/BaseButton.vue'
 import BaseSelect, { type BaseSelectOption } from '../base/BaseSelect.vue'
-import StatePanel from '../feedback/StatePanel.vue'
+import BaseListShell from '../shared/BaseListShell.vue'
 import KnowledgeIndexJobItem from './KnowledgeIndexJobItem.vue'
 
+/** Index-jobs twin of the list shell: source/status filters and the cancellable job rows. */
 const props = defineProps<{
   phase: KnowledgeIndexPhase
   items: KnowledgeIndexJob[]
@@ -43,12 +42,6 @@ const emit = defineEmits<{
   retry: []
 }>()
 
-const initialLoading = computed(() => (props.phase === 'idle' || props.phase === 'loading') && props.items.length === 0)
-const hasItems = computed(() => props.items.length > 0)
-const forbidden = computed(() => props.phase === 'error' && props.errorStatus === 403)
-const hardError = computed(() => props.phase === 'error' && !forbidden.value)
-const offline = computed(() => !props.online)
-const hasFilter = computed(() => props.sourceFilter !== 'ALL' || props.statusFilter !== 'ALL')
 const cancelling = computed(() => props.cancellingJobId !== null)
 
 const sourceOptions: BaseSelectOption[] = [
@@ -67,73 +60,64 @@ function clearFilters(): void {
 </script>
 
 <template>
-  <section class="job-list panel" aria-label="索引作业列表">
-    <header class="job-list__filters">
-      <BaseSelect
-        :model-value="sourceFilter"
-        :options="sourceOptions"
-        aria-label="按来源筛选"
-        @update:model-value="emit('changeSource', $event as KnowledgeIndexJobSource | 'ALL')"
-      />
-      <BaseSelect
-        :model-value="statusFilter"
-        :options="statusOptions"
-        aria-label="按状态筛选"
-        @update:model-value="emit('changeStatus', $event as KnowledgeIndexJobStatus | 'ALL')"
-      />
-    </header>
-
-    <StatePanel v-if="initialLoading" state="loading" title="正在读取索引作业" description="正在读取当前 Team 的索引作业。" />
-    <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取索引作业" description="服务端没有为当前身份解析出这个 Team 的活动成员。">
-      <template #action>
-        <RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.scopeRead } }">
-          <BaseButton variant="secondary" size="small">查看权限说明</BaseButton>
-        </RouterLink>
-      </template>
-    </StatePanel>
-    <StatePanel v-else-if="offline && !hasItems" state="offline" title="离线时没有可用索引作业" description="联网后会回读当前 Team 的索引作业。" />
-    <StatePanel v-else-if="hardError && !hasItems" state="error" :description="errorMessage ?? undefined" @retry="emit('retry')" />
-    <StatePanel v-else-if="!hasItems" state="empty" title="暂无索引作业" description="知识条目发布与仓库索引构建的作业会出现在这里。">
-      <template #action>
-        <BaseButton v-if="hasFilter" variant="ghost" size="small" @click="clearFilters">清除筛选</BaseButton>
-      </template>
-    </StatePanel>
-
-    <template v-else>
-      <StatePanel v-if="offline" compact state="offline" title="正在展示最近读取的索引作业" description="离线期间控制命令保持关闭。" />
-      <StatePanel v-else-if="hardError" compact state="error" :description="errorMessage ?? undefined" @retry="emit('retry')" />
-
-      <ol class="job-list__items">
-        <KnowledgeIndexJobItem
-          v-for="job in items"
-          :key="job.id"
-          :job="job"
-          :can-manage="canManage"
-          :cancelling="cancelling && cancellingJobId === job.id"
-          @cancel="emit('cancel', $event)"
+  <BaseListShell
+    :phase="phase"
+    :items="items"
+    :next-after="nextAfter"
+    :loading-more="loadingMore"
+    :error-message="errorMessage"
+    :error-status="errorStatus"
+    :online="online"
+    label="索引作业列表"
+    loading-title="正在读取索引作业"
+    loading-description="正在读取当前 Team 的索引作业。"
+    forbidden-title="无权读取索引作业"
+    forbidden-description="服务端没有为当前身份解析出这个 Team 的活动成员。"
+    offline-empty-title="离线时没有可用索引作业"
+    offline-empty-description="联网后会回读当前 Team 的索引作业。"
+    empty-title="暂无索引作业"
+    empty-description="知识条目发布与仓库索引构建的作业会出现在这里。"
+    compact-offline-title="正在展示最近读取的索引作业"
+    compact-offline-description="离线期间控制命令保持关闭。"
+    load-more-label="读取更多作业"
+    @retry="emit('retry')"
+    @load-more="emit('loadMore')"
+  >
+    <template #filters>
+      <header class="job-list__filters">
+        <BaseSelect
+          :model-value="sourceFilter"
+          :options="sourceOptions"
+          aria-label="按来源筛选"
+          @update:model-value="emit('changeSource', $event as KnowledgeIndexJobSource | 'ALL')"
         />
-      </ol>
-
-      <footer v-if="nextAfter !== null" class="job-list__more">
-        <BaseButton
-          variant="secondary"
-          size="small"
-          :loading="loadingMore"
-          :disabled="offline"
-          :aria-describedby="offline ? 'job-load-more-reason' : undefined"
-          @click="emit('loadMore')"
-        >读取更多作业</BaseButton>
-        <p id="job-load-more-reason" class="job-list__reason">离线时续页读取保持关闭。</p>
-      </footer>
+        <BaseSelect
+          :model-value="statusFilter"
+          :options="statusOptions"
+          aria-label="按状态筛选"
+          @update:model-value="emit('changeStatus', $event as KnowledgeIndexJobStatus | 'ALL')"
+        />
+      </header>
     </template>
-  </section>
+
+    <template #empty-action>
+      <BaseButton v-if="sourceFilter !== 'ALL' || statusFilter !== 'ALL'" variant="ghost" size="small" @click="clearFilters">清除筛选</BaseButton>
+    </template>
+
+    <template #items>
+      <KnowledgeIndexJobItem
+        v-for="job in items"
+        :key="job.id"
+        :job="job"
+        :can-manage="canManage"
+        :cancelling="cancelling && cancellingJobId === job.id"
+        @cancel="emit('cancel', $event)"
+      />
+    </template>
+  </BaseListShell>
 </template>
 
 <style scoped>
-.job-list { display: flex; min-width: 0; flex-direction: column; gap: var(--cs-space-12); }
 .job-list__filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-8); }
-.job-list__items { display: flex; margin: 0; padding: 0; list-style: none; flex-direction: column; gap: var(--cs-space-8); }
-.job-list__more { display: grid; justify-items: center; gap: var(--cs-space-4); }
-.job-list__reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 767px) { .job-list__filters { grid-template-columns: 1fr; } }
 </style>

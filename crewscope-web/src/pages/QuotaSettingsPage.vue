@@ -9,8 +9,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import BaseTable from '../components/base/BaseTable.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import { createFormCommandKeys } from '../api/formCommandKeys'
-import { useDirtyForm } from '../composables/useDirtyForm'
+import { useInlineSettingEditor } from '../composables/useInlineSettingEditor'
 import { quotaTokenPartLabels } from '../domains/quota/labels'
 import { intakeTrendChart, quotaProblem, tokenCompositionChart, tokenTrendChart } from '../domains/quota/presentation'
 import { useQuotaStore } from '../domains/quota/store'
@@ -38,12 +37,8 @@ const problem = computed(() => command.value.phase === 'error'
   ? quotaProblem(command.value.errorStatus, command.value.errorCode) : null)
 
 // ── 配置编辑（F01 retention 编辑先例：空输入=清除该维度） ─────────────────────
-const intentKeys = createFormCommandKeys()
-const attemptKey = ref('')
 const intakeInput = ref('')
 const budgetInput = ref('')
-const editing = ref(false)
-const submitted = ref(false)
 // v-model on type=number inputs hands back numbers, so both refs hold string|number at runtime.
 const intakeNumber = computed(() => Number.parseInt(String(intakeInput.value), 10))
 const budgetNumber = computed(() => Number.parseInt(String(budgetInput.value), 10))
@@ -52,70 +47,37 @@ const intakePayload = computed(() => String(intakeInput.value).trim() === '' ? n
 const budgetPayload = computed(() => String(budgetInput.value).trim() === '' ? null : budgetNumber.value)
 const intakeValid = computed(() => intakePayload.value === null || (Number.isInteger(intakePayload.value) && intakePayload.value >= 1))
 const budgetValid = computed(() => budgetPayload.value === null || (Number.isInteger(budgetPayload.value) && budgetPayload.value >= 1))
-const payload = computed(() => [intakePayload.value, budgetPayload.value])
-const dirtyForm = useDirtyForm(payload)
-const savingReason = computed(() => {
-  if (configuration.value.phase !== 'ready') return '正在读取当前配额。'
-  if (!intakeValid.value || !budgetValid.value) return '两个限额都必须不小于 1。'
-  if (command.value.phase === 'pending') return '正在保存。'
-  return ''
-})
-
-watch(payload, value => {
-  if (!editing.value) return
-  dirtyForm.sync(value)
-})
-
-watch(() => command.value.phase, phase => {
-  if (phase !== 'success') return
-  editing.value = false
-  submitted.value = false
-  dirtyForm.markClean([configurationValue.value?.monthlyTaskIntakeLimit ?? null, configurationValue.value?.monthlyTokenBudget ?? null])
-})
-
-watch(configurationValue, value => {
-  if (editing.value || !value) return
-  syncInputs(value.monthlyTaskIntakeLimit, value.monthlyTokenBudget)
-  dirtyForm.markClean([value.monthlyTaskIntakeLimit, value.monthlyTokenBudget])
-})
+const payload = computed(() => [intakePayload.value, budgetPayload.value] as [number | null, number | null])
 
 function syncInputs(intake: number | null, budget: number | null): void {
   intakeInput.value = intake === null ? '' : String(intake)
   budgetInput.value = budget === null ? '' : String(budget)
 }
 
-function startEditing(): void {
-  editing.value = true
-  submitted.value = false
-  // Entering the editor retires the previous save's status line (F01 precedent).
-  store.clearCommand()
-  const current = configurationValue.value
-  syncInputs(current?.monthlyTaskIntakeLimit ?? null, current?.monthlyTokenBudget ?? null)
-  dirtyForm.markClean([current?.monthlyTaskIntakeLimit ?? null, current?.monthlyTokenBudget ?? null])
-}
-
-function cancelEditing(): void {
-  editing.value = false
-  submitted.value = false
-  const current = configurationValue.value
-  syncInputs(current?.monthlyTaskIntakeLimit ?? null, current?.monthlyTokenBudget ?? null)
-  attemptKey.value = ''
-  dirtyForm.markClean([current?.monthlyTaskIntakeLimit ?? null, current?.monthlyTokenBudget ?? null])
-}
-
-async function saveQuota(): Promise<void> {
-  submitted.value = true
-  if (!intakeValid.value || !budgetValid.value) return
-  if (configuration.value.phase !== 'ready') return
-  attemptKey.value = intentKeys.forInput(payload.value)
-  const ok = await store.updateQuota(
+// Inline editor lifecycle (M12b-F04): dirty tracking, idempotent save, success/reset watches.
+const { editing, submitted, dirtyForm, startEditing, cancelEditing, submit: saveQuota } = useInlineSettingEditor<[number | null, number | null]>({
+  payload: () => payload.value,
+  serverValue: () => configurationValue.value
+    ? [configurationValue.value.monthlyTaskIntakeLimit ?? null, configurationValue.value.monthlyTokenBudget ?? null]
+    : null,
+  applyServerValue: value => syncInputs(value?.[0] ?? null, value?.[1] ?? null),
+  valid: () => intakeValid.value && budgetValid.value,
+  ready: () => configuration.value.phase === 'ready',
+  phase: () => command.value.phase,
+  clearCommand: () => store.clearCommand(),
+  save: async key => store.updateQuota(
     organizationId.value,
     { monthlyTaskIntakeLimit: intakePayload.value, monthlyTokenBudget: budgetPayload.value },
     configurationValue.value?.version ?? 0,
-    attemptKey.value,
-  )
-  if (!ok) attemptKey.value = ''
-}
+    key,
+  ),
+})
+const savingReason = computed(() => {
+  if (configuration.value.phase !== 'ready') return '正在读取当前配额。'
+  if (!intakeValid.value || !budgetValid.value) return '两个限额都必须不小于 1。'
+  if (command.value.phase === 'pending') return '正在保存。'
+  return ''
+})
 
 // ── 用量与趋势（月份导航走 URL，watch 是唯一加载路径——ObservabilityPage 先例） ──
 const usage = computed(() => store.state.usage)

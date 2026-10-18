@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { BookPlus } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 import { knowledgeCategoryLabels } from '../../domains/knowledge/labels'
 import {
   knowledgeCategories,
@@ -32,13 +32,17 @@ const category = ref<KnowledgeCategory>('CONVENTION')
 const title = ref('')
 const content = ref('')
 const submitted = ref(false)
-const submissionError = ref<string | null>(null)
 const formId = useId()
-let attemptKey = ''
-const intentKeys = createFormCommandKeys()
 const dirtyForm = useDirtyForm(computed(() => ({
   entryKey: entryKey.value, category: category.value, title: title.value, content: content.value,
 })))
+const { submissionError, keyFor, clearAttempt } = useIdempotentCommand(
+  () => [entryKey.value, category.value, title.value, content.value],
+  () => {
+    submitted.value = false
+    dirtyForm.markDirty()
+  },
+)
 
 const categoryOptions: BaseSelectOption[] = knowledgeCategories.map(value => ({ label: knowledgeCategoryLabels[value], value }))
 
@@ -46,13 +50,6 @@ const entryKeyValid = computed(() => /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(en
 const titleValid = computed(() => title.value.trim() !== '' && title.value.length <= KNOWLEDGE_TITLE_MAX)
 const contentValid = computed(() => content.value.length <= KNOWLEDGE_CONTENT_MAX)
 const valid = computed(() => entryKeyValid.value && titleValid.value && contentValid.value)
-
-watch([entryKey, category, title, content], () => {
-  // Editing any command input creates a new logical request; an unchanged retry reuses its key.
-  attemptKey = ''
-  submitted.value = false
-  dirtyForm.markDirty()
-})
 
 async function requestClose(): Promise<void> {
   if (props.submitting) return
@@ -66,24 +63,14 @@ function submit(): void {
   submitted.value = true
   if (!valid.value || props.submitting) return
   dirtyForm.markClean()
-  submissionError.value = null
-  try {
-    attemptKey = intentKeys.forInput([props.teamId, entryKey.value, category.value, title.value, content.value])
-  } catch (error) {
-    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
-    return
-  }
+  const attemptKey = keyFor([props.teamId, entryKey.value, category.value, title.value, content.value])
+  if (attemptKey === null) return
   emit('create', {
     entryKey: entryKey.value,
     category: category.value,
     title: title.value,
     content: content.value,
   }, attemptKey)
-}
-
-function clearAttempt(): void {
-  attemptKey = ''
-  intentKeys.clear()
 }
 </script>
 

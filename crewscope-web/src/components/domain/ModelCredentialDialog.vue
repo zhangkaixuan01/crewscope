@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import BaseSelect from '../base/BaseSelect.vue'
-import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { Building2, KeyRound, RotateCw, ShieldCheck, UserRound } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import type {
@@ -13,6 +12,7 @@ import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
 import AuthPasswordField from '../auth/AuthPasswordField.vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 
 const props = defineProps<{
   mode: 'create' | 'rotate'
@@ -39,10 +39,7 @@ const region = ref('')
 const expiration = ref('')
 const apiKey = ref('')
 const submitted = ref(false)
-const submissionError = ref<string | null>(null)
 const formId = useId()
-let attemptKey = ''
-const intentKeys = createFormCommandKeys()
 const nowForDateTimeInput = computed(() => {
   const date = new Date(); date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
   return date.toISOString().slice(0, 16)
@@ -77,12 +74,15 @@ watch(availableRegions, regions => {
   if (!regions.includes(region.value)) region.value = regions[0] ?? ''
 }, { immediate: true })
 
-watch([ownerType, providerKey, region, expiration, apiKey], () => {
-  // Editing any command input creates a new logical request; an unchanged retry reuses its key.
-  attemptKey = ''
-  submitted.value = false
-  dirtyForm.markDirty()
-})
+// Registered after the catalog-immediate watchers above so their setup-time corrections
+// (empty catalog clearing providerKey/region) do not count as member edits.
+const { submissionError, keyFor, clearAttempt } = useIdempotentCommand(
+  () => [ownerType.value, providerKey.value, region.value, expiration.value, apiKey.value],
+  () => {
+    submitted.value = false
+    dirtyForm.markDirty()
+  },
+)
 
 watch(() => JSON.stringify([props.teamId, props.connection?.id, props.connection?.version, props.connection?.credentialVersion]), () => {
   clearSecret()
@@ -108,15 +108,10 @@ function submit(): void {
   apiKey.value = apiKey.value.trim()
   if (!valid.value || props.submitting) return
   dirtyForm.markClean()
-  submissionError.value = null
-  try {
-    attemptKey = intentKeys.forInput([props.mode, props.teamId, props.connection?.id ?? null,
-      props.connection?.version ?? null, props.connection?.credentialVersion ?? null,
-      ownerType.value, providerKey.value, region.value, expiration.value, apiKey.value])
-  } catch (error) {
-    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
-    return
-  }
+  const attemptKey = keyFor([props.mode, props.teamId, props.connection?.id ?? null,
+    props.connection?.version ?? null, props.connection?.credentialVersion ?? null,
+    ownerType.value, providerKey.value, region.value, expiration.value, apiKey.value])
+  if (attemptKey === null) return
   if (props.mode === 'rotate') {
     const connection = props.connection
     if (connection) emit('rotate', connection.id, connection.credentialVersion, apiKey.value, attemptKey, connection.version)
@@ -135,8 +130,7 @@ function submit(): void {
 function clearSecret(): void {
   // The API Key only exists in this component and is cleared on every exit path.
   apiKey.value = ''
-  attemptKey = ''
-  intentKeys.clear()
+  clearAttempt()
 }
 </script>
 

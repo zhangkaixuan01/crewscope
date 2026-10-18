@@ -69,11 +69,11 @@ describe('SkillDetail', () => {
 
   it('shows the audit block only to managers, including distillation origin', () => {
     const manager = mounted({ canManage: true, skillResource: ready(skill({ origin: { taskExecutionId: 'exec-1', attempt: 2 } })) })
-    expect(manager.get('.skill-detail__audit').text()).toContain('执行 exec-1')
-    expect(manager.get('.skill-detail__audit').text()).toContain('第 2 次尝试')
+    expect(manager.get('.detail-panel__audit').text()).toContain('执行 exec-1')
+    expect(manager.get('.detail-panel__audit').text()).toContain('第 2 次尝试')
 
     const member = mounted({ canManage: false })
-    expect(member.find('.skill-detail__audit').exists()).toBe(false)
+    expect(member.find('.detail-panel__audit').exists()).toBe(false)
   })
 
   it('renders the loading and error detail states', () => {

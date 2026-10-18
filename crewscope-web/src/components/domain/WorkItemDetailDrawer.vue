@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayDate } from '../../utils/displayDate'
 import BaseSelect from '../base/BaseSelect.vue'
 import {
   ArrowRight,
@@ -318,10 +319,6 @@ async function submitResource(): Promise<void> {
   } catch {
     // The Store keeps the draft and exposes a sanitized command error.
   }
-}
-
-function displayDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
 function taskStatusTone(status: TaskStatus): SemanticTone {

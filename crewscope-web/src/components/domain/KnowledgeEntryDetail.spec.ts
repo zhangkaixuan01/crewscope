@@ -104,8 +104,8 @@ describe('KnowledgeEntryDetail', () => {
       }),
     })
 
-    expect(wrapper.get('.knowledge-detail__receipt[role="status"]').text()).toContain('00000000')
-    expect(wrapper.get('.knowledge-detail__receipt[role="status"]').text()).toContain('v6')
+    expect(wrapper.get('.detail-panel__receipt[role="status"]').text()).toContain('00000000')
+    expect(wrapper.get('.detail-panel__receipt[role="status"]').text()).toContain('v6')
   })
 
   it('switches tabs and forwards revision selection to the page', async () => {
@@ -114,7 +114,7 @@ describe('KnowledgeEntryDetail', () => {
     await wrapper.findAll('[role="tab"]')[0]!.trigger('click')
     expect(wrapper.emitted('changeTab')?.[0]).toEqual(['draft'])
 
-    await wrapper.findAll('button.version-history__row')[0]!.trigger('click')
+    await wrapper.findAll('button.version-history__row-main')[0]!.trigger('click')
     expect(wrapper.emitted('selectRevision')?.[0]).toEqual([1])
   })
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { createFormCommandKeys } from '../../api/formCommandKeys'
 import { Sparkles } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
+import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 import { knowledgeCategoryLabels, knowledgeIndexStatusHints, knowledgeIndexStatusLabels } from '../../domains/knowledge/labels'
 import {
   knowledgeCategories,
@@ -14,6 +14,7 @@ import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
 import BaseSelect, { type BaseSelectOption } from '../base/BaseSelect.vue'
 import StatusBadge from '../base/StatusBadge.vue'
+import BaseReceiptPanel from '../shared/BaseReceiptPanel.vue'
 
 const props = defineProps<{
   teamId: string
@@ -32,13 +33,17 @@ const taskExecutionId = ref('')
 const entryKey = ref('')
 const category = ref<KnowledgeCategory | ''>('')
 const submitted = ref(false)
-const submissionError = ref<string | null>(null)
 const formId = useId()
-let attemptKey = ''
-const intentKeys = createFormCommandKeys()
 const dirtyForm = useDirtyForm(computed(() => ({
   taskExecutionId: taskExecutionId.value, entryKey: entryKey.value, category: category.value,
 })))
+const { submissionError, keyFor, clearAttempt } = useIdempotentCommand(
+  () => [taskExecutionId.value, entryKey.value, category.value],
+  () => {
+    submitted.value = false
+    dirtyForm.markDirty()
+  },
+)
 
 const categoryOptions: BaseSelectOption[] = [
   { label: '不指定（默认其他）', value: '' },
@@ -53,13 +58,6 @@ const valid = computed(() => executionValid.value && entryKeyValid.value)
 /** D3: the dialog stays open and turns into the receipt surface; the form comes back on demand. */
 const viewingReceipt = ref(props.receipt !== null)
 const receiptMode = computed(() => props.receipt !== null && viewingReceipt.value)
-
-watch([taskExecutionId, entryKey, category], () => {
-  // Editing any command input creates a new logical request; an unchanged retry reuses its key.
-  attemptKey = ''
-  submitted.value = false
-  dirtyForm.markDirty()
-})
 
 // A fresh receipt rules out a pending submission error from the same dialog session.
 watch(() => props.receipt, receipt => {
@@ -85,12 +83,8 @@ function submit(): void {
     entryKey: entryKey.value,
     ...(category.value === '' ? {} : { category: category.value }),
   }
-  try {
-    attemptKey = intentKeys.forInput([props.teamId, input.taskExecutionId, input.entryKey, input.category ?? null])
-  } catch (error) {
-    submissionError.value = error instanceof Error ? error.message : '无法生成安全操作标识，本次操作尚未发送。'
-    return
-  }
+  const attemptKey = keyFor([props.teamId, input.taskExecutionId, input.entryKey, input.category ?? null])
+  if (attemptKey === null) return
   emit('distill', input, attemptKey)
 }
 
@@ -102,11 +96,6 @@ function distillAnother(): void {
   category.value = ''
   submitted.value = false
   dirtyForm.markClean()
-}
-
-function clearAttempt(): void {
-  attemptKey = ''
-  intentKeys.clear()
 }
 </script>
 
@@ -167,19 +156,23 @@ function clearAttempt(): void {
         <p v-if="submissionError || errorMessage" class="knowledge-dialog__command-error" role="alert">{{ submissionError || errorMessage }}</p>
       </form>
 
-      <section v-else class="knowledge-dialog__receipt" aria-label="蒸馏回执">
-        <p v-if="receipt!.replayed" class="knowledge-dialog__replayed" role="status">此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。</p>
-        <dl>
-          <div><dt>条目 Key</dt><dd class="knowledge-dialog__mono">{{ receipt!.entryKey }}</dd></div>
-          <div v-if="receipt!.origin"><dt>蒸馏来源</dt><dd class="knowledge-dialog__mono">执行 {{ receipt!.origin.taskExecutionId }} · 第 {{ receipt!.origin.attempt }} 次尝试</dd></div>
+      <BaseReceiptPanel
+        v-else
+        label="蒸馏回执"
+        :replayed="receipt!.replayed"
+        replayed-note="此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。"
+        open-label="打开条目"
+        :open-available="receipt!.entryId != null"
+        :hint="receipt!.indexStatus ? (knowledgeIndexStatusHints[receipt!.indexStatus] || undefined) : undefined"
+        @open="emit('openEntry', receipt!.entryId!)"
+        @another="distillAnother"
+      >
+        <template #facts>
+          <div><dt>条目 Key</dt><dd class="base-receipt__mono">{{ receipt!.entryKey }}</dd></div>
+          <div v-if="receipt!.origin"><dt>蒸馏来源</dt><dd class="base-receipt__mono">执行 {{ receipt!.origin.taskExecutionId }} · 第 {{ receipt!.origin.attempt }} 次尝试</dd></div>
           <div v-if="receipt!.indexStatus"><dt>索引状态</dt><dd><StatusBadge :tone="receipt!.indexStatus === 'INDEXED' ? 'success' : receipt!.indexStatus === 'FAILED' ? 'warning' : 'neutral'">{{ knowledgeIndexStatusLabels[receipt!.indexStatus] }}</StatusBadge></dd></div>
-        </dl>
-        <p v-if="receipt!.indexStatus && knowledgeIndexStatusHints[receipt!.indexStatus]" class="knowledge-dialog__hint">{{ knowledgeIndexStatusHints[receipt!.indexStatus] }}</p>
-        <div class="knowledge-dialog__receipt-actions">
-          <BaseButton v-if="receipt!.entryId" type="button" variant="primary" size="small" @click="emit('openEntry', receipt!.entryId!)">打开条目</BaseButton>
-          <BaseButton type="button" variant="secondary" size="small" @click="distillAnother">再蒸馏一条</BaseButton>
-        </div>
-      </section>
+        </template>
+      </BaseReceiptPanel>
     </div>
     <template #footer>
       <template v-if="!receiptMode">
@@ -201,12 +194,4 @@ function clearAttempt(): void {
 .knowledge-dialog__hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .knowledge-dialog__error { color: var(--cs-danger); font-size: var(--cs-text-xs); }
 .knowledge-dialog__command-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
-.knowledge-dialog__receipt { display: flex; flex-direction: column; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); }
-.knowledge-dialog__replayed { margin: 0; color: var(--cs-text); font-size: var(--cs-text-sm); }
-.knowledge-dialog__receipt dl { display: flex; margin: 0; flex-direction: column; gap: var(--cs-space-8); }
-.knowledge-dialog__receipt dl div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }
-.knowledge-dialog__receipt dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.knowledge-dialog__receipt dd { margin: 0; font-size: var(--cs-text-sm); overflow-wrap: anywhere; }
-.knowledge-dialog__mono { font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-xs); }
-.knowledge-dialog__receipt-actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
 </style>

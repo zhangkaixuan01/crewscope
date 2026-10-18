@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayDate } from '../../utils/displayDate'
 import {
   CheckCircle2,
   CircleUserRound,
@@ -182,10 +183,6 @@ const canCommentReview = computed(() => Boolean(
 const outcomeReviewAwaiting = computed(() => (props.reviews ?? []).filter(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS').length)
 const outcomeModificationRound = computed(() => (props.reviews ?? []).reduce((round, review) => Math.max(round, review.modificationRound), 0))
 const outcomeDispatchStatuses = computed(() => (props.deliveryActions ?? []).map(action => action.dispatch?.status ?? '').filter(Boolean))
-
-function displayDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
 
 function principalName(principalId: string): string {
   return props.principals.find(item => item.principalId === principalId)?.displayName

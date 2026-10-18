@@ -127,11 +127,6 @@
       "reason": "构建仓库索引的提交按钮由项目、仓库绑定与提交 SHA（40/64 位十六进制）是否满足决定，成因完全落在同一表单的级联选择与字段校验上（:aria-invalid 与内联提示已在字段上）。"
     },
     {
-      "file": "pages/KnowledgeBasePage.vue",
-      "expression": "!deleteConfirmed",
-      "reason": "删除确认按钮由同一 alertdialog 内的确认复选框是否勾选决定——复选框本身（及其旁的影响说明）就是该禁用态的唯一载体，不涉及权限或服务端前置条件。"
-    },
-    {
       "file": "components/domain/SkillCreateDialog.vue",
       "expression": "!valid",
       "reason": "创建 Skill 的提交按钮由 skillKey 格式（含保留名拒绝）与文档 frontmatter 校验是否满足决定，成因完全落在同一表单的字段校验上（:aria-invalid 与内联错误已在字段上）。"
@@ -140,11 +135,6 @@
       "file": "components/domain/SkillDistillationDialog.vue",
       "expression": "!valid",
       "reason": "开始蒸馏的提交按钮由 taskExecutionId 是否为合法 UUID 与 skillKey 格式决定，成因完全落在同一表单的字段校验上（:aria-invalid 已在两个字段上）。"
-    },
-    {
-      "file": "components/domain/SkillActionConfirmDialog.vue",
-      "expression": "confirmDisabled",
-      "reason": "确认按钮的禁用成因只有提交中的瞬时锁与禁用原因超长（≤200 字）；超长时同表单的字段计数已变红并阻止提交，控件本身不表达任何权限或业务前置条件。"
     },
     {
       "file": "components/domain/WorkItemRelationsPanel.vue",
@@ -170,6 +160,11 @@
       "file": "components/account/AccountWorkspace.vue",
       "expression": "deletingSessionId !== null",
       "reason": "退出本设备确认对话框的取消按钮：删除请求在途时禁用取消，防止确认框在 DELETE 完成与登出路由之间被拆除；同对话框的确认按钮此时 :loading 已表达进行中。"
+    },
+    {
+      "file": "components/shared/ActionConfirmDialog.vue",
+      "expression": "confirmDisabled",
+      "reason": "确认按钮的禁用成因只有提交中的瞬时锁、禁用原因超长（同表单字段计数已变红）、或确认复选框未勾选（复选框及其旁的影响说明就是该禁用态的唯一载体）——不涉及权限或服务端前置条件。"
     }
   ]
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayDate } from '../../utils/displayDate'
 import { Activity, Bot, CircleCheck, Link2, MessageSquare, UserRound } from '@lucide/vue'
 import type { WorkItemPhase } from '../../domains/workitem/store'
 import type { WorkItemTimelineEvent } from '../../domains/workitem/types'
@@ -23,10 +24,6 @@ const eventLabels: Record<string, string> = {
   RESPONSIBILITY_ASSIGNED: '分配责任',
   RESPONSIBILITY_RELEASED: '释放责任',
   GATE_REVIEWER_ASSIGNED: '分配 Gate Reviewer',
-}
-
-function displayDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
 function eventLabel(event: WorkItemTimelineEvent): string {
