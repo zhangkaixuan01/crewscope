@@ -8,6 +8,7 @@ export interface LifecycleDialogProblem {
 </script>
 
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { teamRoleLabels } from '../../domains/scope/labels'
@@ -117,9 +118,9 @@ const current = computed(() => props.member && props.action ? copy(props.member,
       <p class="lifecycle-copy">{{ current?.body }}</p>
       <template v-if="current?.selectable">
         <label for="lifecycle-role">角色</label>
-        <select id="lifecycle-role" v-model="selectedRole">
+        <BaseSelect id="lifecycle-role" v-model="selectedRole">
           <option v-for="role in grantableRoles" :key="role" :value="role">{{ enumLabel(role, teamRoleLabels) }}</option>
-        </select>
+        </BaseSelect>
       </template>
       <div v-if="problem" class="lifecycle-problem" role="alert">
         <strong>{{ problem.title }}</strong>
@@ -143,7 +144,7 @@ const current = computed(() => props.member && props.action ? copy(props.member,
 .lifecycle-body { display: grid; gap: var(--cs-space-12); }
 .lifecycle-copy { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .lifecycle-body label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.lifecycle-body select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
+.lifecycle-body :deep(select) { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .lifecycle-problem { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }
 .lifecycle-problem strong { font-size: var(--cs-text-sm); }
 .lifecycle-problem span { font-size: var(--cs-text-xs); }

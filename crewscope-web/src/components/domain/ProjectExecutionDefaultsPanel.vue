@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import StatePanel from '../feedback/StatePanel.vue'
@@ -121,9 +122,9 @@ async function save(): Promise<void> {
         <div><strong>发现未保存的本地草稿</strong><span>此浏览器保留了上次未保存的默认执行配置修改。</span></div>
         <div><BaseButton type="button" variant="secondary" size="small" @click="restoreDraft">恢复草稿</BaseButton><BaseButton type="button" variant="ghost" size="small" @click="discardDraft">丢弃</BaseButton></div>
       </div>
-      <label>默认仓库<select v-model="repositoryBindingId"><option :value="null">不设置</option><option v-for="item in repositories" :key="item.id" :value="item.id">{{ item.repositoryKey }} · {{ item.defaultBranch }}</option></select></label>
+      <label>默认仓库<BaseSelect v-model="repositoryBindingId"><option :value="null">不设置</option><option v-for="item in repositories" :key="item.id" :value="item.id">{{ item.repositoryKey }} · {{ item.defaultBranch }}</option></BaseSelect></label>
       <label>默认分支<input v-model="branch" :disabled="!repositoryBindingId" aria-describedby="execution-defaults-branch-reason" placeholder="使用仓库默认分支" /></label>
-      <label>构建方案<select v-model="profileKey"><option value="">不设置</option><option v-for="profile in profiles" :key="`${profile.key}:${profile.version}`" :value="profile.key">{{ profile.key }} v{{ profile.version }}</option></select></label>
+      <label>构建方案<BaseSelect v-model="profileKey"><option value="">不设置</option><option v-for="profile in profiles" :key="`${profile.key}:${profile.version}`" :value="profile.key">{{ profile.key }} v{{ profile.version }}</option></BaseSelect></label>
       <div class="execution-defaults__actions"><BaseButton type="submit" :disabled="saving || !defaults" aria-describedby="execution-defaults-save-reason">{{ saving ? '保存中…' : '保存项目默认' }}</BaseButton><span v-if="saved" class="success">已保存</span></div>
       <p id="execution-defaults-branch-reason" class="sr-only">{{ repositoryBindingId ? '可填写项目默认分支。' : '请先选择默认仓库，才能设置分支。' }}</p>
       <p id="execution-defaults-save-reason" class="sr-only">{{ defaults ? (saving ? '正在保存项目默认配置。' : '保存当前项目默认配置。') : '项目默认配置尚未加载完成。' }}</p>
@@ -143,7 +144,7 @@ label { display: grid; gap: var(--cs-space-4); font-weight: var(--cs-weight-semi
 /* Control height comes from the density token, never a rem literal: the root font is 14px, so
    2.5rem measured 35px — under the 44px touch floor the narrow viewport enforces through the same
    token (48px there, so the small derived sizes stay compliant too). */
-input, select { min-height: var(--cs-density-control-height); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); color: var(--text-primary); }
+input, .execution-defaults :deep(select) { min-height: var(--cs-density-control-height); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); color: var(--text-primary); }
 .execution-defaults__actions { display: flex; align-items: center; gap: var(--cs-space-12); margin-top: var(--cs-space-4); }
 .muted { color: var(--text-secondary); font-size: var(--cs-text-base); }
 .success { color: var(--cs-success); }

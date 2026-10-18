@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, inject, onMounted, ref, useId, watch } from 'vue'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import type { CreateWorkItemInput, WorkItemPriority, WorkItemType } from '../../domains/workitem/types'
@@ -114,15 +115,15 @@ function submit(): void {
           <summary>更多选项 · {{ moreSummary }}</summary>
         <label>
           <span>类型</span>
-          <select v-model="form.type" :disabled="submitting">
+          <BaseSelect v-model="form.type" :disabled="submitting">
             <option v-for="itemType in workItemTypes" :key="itemType" :value="itemType">{{ workItemTypeLabels[itemType] }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <label>
           <span>优先级</span>
-          <select v-model="form.priority" :disabled="submitting">
+          <BaseSelect v-model="form.priority" :disabled="submitting">
             <option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ workItemPriorityLabels[priority] }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <label>
           <span>到期时间</span>
@@ -166,7 +167,7 @@ summary { cursor: pointer; font-size: var(--cs-text-sm); }
 }
 
 .form-grid input,
-.form-grid select,
+.form-grid :deep(select),
 .form-grid textarea {
   width: 100%;
   min-height: 34px;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, ref } from 'vue'
 import { X } from '@lucide/vue'
 import {
@@ -111,16 +112,16 @@ function runAssign(): void {
 
       <div v-if="canAssign" class="bulk-bar__assign" role="group" aria-label="批量指派">
         <label><span>责任角色</span>
-          <select v-model="assignRole">
+          <BaseSelect v-model="assignRole">
             <option value="EXECUTOR">{{ workItemResponsibilityRoleLabels.EXECUTOR }}</option>
             <option value="OWNER">{{ workItemResponsibilityRoleLabels.OWNER }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <label><span>指派给</span>
-          <select v-model="assignee">
+          <BaseSelect v-model="assignee">
             <option value="">选择成员</option>
             <option v-for="member in members" :key="member.principalId" :value="member.principalId">{{ member.displayName }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <BaseTooltip v-if="!assignee" text="先选择要指派的成员">
           <BaseButton size="small" disabled>指派</BaseButton>
@@ -155,7 +156,7 @@ function runAssign(): void {
 .bulk-bar__progress { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
 .bulk-bar__actions, .bulk-bar__assign { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--cs-space-8); }
 .bulk-bar__assign label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
-.bulk-bar__assign select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }
+.bulk-bar__assign :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }
 .bulk-results { display: grid; gap: var(--cs-space-8); padding-top: var(--cs-space-8); border-top: 1px solid var(--cs-border); }
 .bulk-results header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }
 .bulk-results h3 { margin: 0; font-size: var(--cs-text-sm); }

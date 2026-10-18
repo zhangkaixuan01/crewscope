@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ChevronDown } from '@lucide/vue'
-import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { SemanticTone } from '../base/types'
 import type { WorkItemAvailableTransition, WorkItemStatus } from '../../domains/workitem/types'
+import BaseMenu from '../base/BaseMenu.vue'
 import ActionMenu from './ActionMenu.vue'
 
 /**
@@ -11,8 +12,8 @@ import ActionMenu from './ActionMenu.vue'
  * Opening is an explicit state rather than a CSS `:focus-within`, because a menu that appears on
  * hover cannot be closed with Escape, cannot report whether it is open, and puts the keyboard user
  * on the item they were about to read instead of the one they can execute. The keyboard contract is
- * the menu pattern's: Enter or Space opens and focuses the first executable action, arrows move
- * inside, Escape closes and returns focus to this button, Tab closes and moves on.
+ * the menu pattern's——M12b-F03 起由 BaseMenu 全站单源实现：Enter/Space 或方向键打开并聚焦第一个
+ * 可执行动作，箭头在菜单内移动，Escape 关闭并把焦点还给徽章，Tab 关闭并继续。
  *
  * The badge renders the status it was given and nothing else — no action label is derived here, and
  * an action the server did not send cannot be reached from this control.
@@ -41,31 +42,13 @@ const emit = defineEmits<{
   dismissed: []
 }>()
 
-const trigger = useTemplateRef<HTMLButtonElement>('trigger')
 const open = ref(false)
-const triggerId = `status-transition-${useId()}`
 const executable = computed(() => props.actions.filter(action => action.enabled))
 
-function toggle(): void {
-  if (props.busy) return
-  open.value = !open.value
-}
-
-/**
- * Closing returns focus to the trigger.
- *
- * A menu that closes while focus is inside it leaves focus on a removed node, which drops the
- * keyboard user back to the top of the document — the failure that makes a popup unusable without a
- * mouse.
- */
-function close(restoreFocus = true): void {
-  if (!open.value) return
-  open.value = false
-  emit('dismissed')
-  // Restoring focus is skipped when the trigger is gone — executing an action can move the card to
-  // another column, and focusing a detached node silently leaves the member at the top of the page.
-  if (restoreFocus) void nextTick(() => { if (trigger.value?.isConnected) trigger.value.focus() })
-}
+// 任何关闭（Esc/Tab/外点/选中可逆动作）都算 dismissed——与旧 close() 的语义一致。
+watch(open, value => {
+  if (!value) emit('dismissed')
+})
 
 /**
  * A reversible action runs and the menu closes; an irreversible one stays open for its second click.
@@ -80,7 +63,7 @@ const awaitingConfirmation = ref(false)
 function choose(action: WorkItemAvailableTransition): void {
   if (action.reversible) {
     emit('select', action)
-    close()
+    open.value = false
     return
   }
   awaitingConfirmation.value = true
@@ -90,54 +73,46 @@ function choose(action: WorkItemAvailableTransition): void {
 watch(() => props.confirmingTarget, target => {
   if (!awaitingConfirmation.value || target !== null) return
   awaitingConfirmation.value = false
-  close()
+  open.value = false
 })
 </script>
 
 <template>
-  <span class="transition-menu">
-    <button
-      ref="trigger"
-      :id="triggerId"
-      type="button"
-      class="status-badge status-badge--interactive"
-      :class="`status-badge--${tone}`"
-      aria-haspopup="menu"
-      :aria-expanded="open"
-      :disabled="busy"
-      @click="toggle"
-    >
+  <BaseMenu
+    v-model:open="open"
+    class="transition-menu"
+    placement="bottom-start"
+    menu-class="transition-menu__panel"
+    :disabled="busy"
+    :trigger-class="['status-badge', 'status-badge--interactive', `status-badge--${tone}`]"
+  >
+    <template #trigger>
       <span v-if="dot" class="status-badge__dot" aria-hidden="true" />
       <slot />
       <ChevronDown v-if="!compact" :size="12" aria-hidden="true" />
-    </button>
-    <span v-if="open" class="transition-menu__popup">
-      <ActionMenu
-        :actions="actions"
-        :trigger-id="triggerId"
-        :confirming-target="confirmingTarget"
-        :busy="busy"
-        autofocus
-        @select="choose"
-        @close="close()"
-      />
-      <p v-if="!executable.length" class="transition-menu__empty">当前状态没有可执行的动作。</p>
-    </span>
-  </span>
+    </template>
+    <ActionMenu
+      :actions="actions"
+      :confirming-target="confirmingTarget"
+      :busy="busy"
+      @select="choose"
+    />
+    <p v-if="!executable.length" class="transition-menu__empty">当前状态没有可执行的动作。</p>
+  </BaseMenu>
 </template>
 
 <style scoped>
-.transition-menu { position: relative; display: inline-flex; }
-.transition-menu__popup { position: absolute; z-index: var(--cs-z-popover); top: calc(100% + var(--cs-space-4)); left: 0; }
-.transition-menu__empty { margin: 0; padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-raised); box-shadow: var(--cs-shadow-float); color: var(--cs-text-muted); font-size: var(--cs-text-xs); white-space: nowrap; }
+.transition-menu__empty { margin: 0; padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); white-space: nowrap; }
 /*
  * The interactive badge keeps the non-interactive badge's box exactly: the popup is positioned
  * against this element, so a padding difference would move every menu in the product.
  */
-.status-badge--interactive { cursor: pointer; }
+.transition-menu :deep(.status-badge--interactive) { cursor: pointer; }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
-.status-badge--interactive:hover:not(:disabled) { background: var(--cs-surface-accent); }
-.status-badge--interactive:active:not(:disabled) { transform: scale(.97); }
-.status-badge--interactive { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+.transition-menu :deep(.status-badge--interactive:hover:not(:disabled)) { background: var(--cs-surface-accent); }
+.transition-menu :deep(.status-badge--interactive:active:not(:disabled)) { transform: scale(.97); }
+.transition-menu :deep(.status-badge--interactive) { transition: background-color var(--cs-motion-fast) var(--cs-ease-out), border-color var(--cs-motion-fast) var(--cs-ease-out), transform var(--cs-motion-fast) var(--cs-ease-out); }
+/* 动作菜单沿用紧凑圆角与最小宽度（外壳其余观感由 BaseMenu 默认弹层承担）。 */
+.transition-menu :deep(.transition-menu__panel) { min-width: 208px; border-radius: var(--cs-radius-sm); }
 </style>

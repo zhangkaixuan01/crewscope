@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RefreshCw } from '@lucide/vue'
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -11,6 +11,7 @@ import SettingsShell from '../components/settings/SettingsShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ProjectionCommand, RecoveryCandidate, TeamOpsScope } from '../domains/teamops/types'
+import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
 const pageRequests = usePageRequestScope()
@@ -20,30 +21,33 @@ const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const online = useNetworkStatus()
 const autoRefresh = ref(true)
+const autoRefreshTimer = useAutoRefresh(() => void refresh(true), {
+  interval: 15_000,
+  // 离线保留已读事实、不开后台定时器制造失败流量。
+  active: () => Boolean(scope.value && online.value && autoRefresh.value),
+})
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
 const canManage = computed(() => Boolean(principal && can(principal, permissions.operationsManage)))
-let refreshTimer: number | null = null
 const lastRefreshedAt = ref<string | null>(null)
-const pageVisible = ref(typeof document === 'undefined' ? true : !document.hidden)
 
 watch(
   () => [scopeStore.state.phase, scope.value?.organizationId, scope.value?.teamId, canManage.value] as const,
   async ([phase]) => {
     const pageOwner = pageRequests.capture()
-    stopTimer()
+    autoRefreshTimer.stop()
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
     await refresh(true)
     if (!pageOwner.isCurrent()) return
-    startTimer()
+    autoRefreshTimer.start()
   },
   { immediate: true },
 )
 
-watch([online, autoRefresh], () => { stopTimer(); startTimer() })
-onBeforeUnmount(stopTimer)
+// 离线/关自动刷新即停，恢复即重启；页面隐藏的闸在 composable 里（M12b-F03）。
+watch([online, autoRefresh], () => autoRefreshTimer.start())
 
 async function refresh(force = false): Promise<void> {
   const pageOwner = pageRequests.capture()
@@ -73,25 +77,6 @@ async function runProjectionCommand(command: ProjectionCommand, idempotencyKey: 
   if (!pageOwner.isCurrent()) return
 }
 
-function startTimer(): void {
-  stopTimer()
-  // Offline mode retains the last facts and never lets a background timer create failing traffic.
-  if (!scope.value || !online.value || !autoRefresh.value || !pageVisible.value) return
-  refreshTimer = window.setInterval(() => { void refresh(true) }, 15_000)
-}
-function stopTimer(): void { if (refreshTimer !== null) window.clearInterval(refreshTimer); refreshTimer = null }
-
-function onVisibilityChange(): void {
-  pageVisible.value = !document.hidden
-  stopTimer()
-  if (pageVisible.value) {
-    void refresh(true)
-    startTimer()
-  }
-}
-
-onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
-onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 </script>
 
 <template>

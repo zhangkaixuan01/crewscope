@@ -7,6 +7,7 @@ import { agentMemoryDegradedLabels } from '../../domains/agent/labels'
 import { agentMemoryStateOf } from '../../domains/agent/types'
 import BaseButton from '../base/BaseButton.vue'
 import BaseCheckbox from '../base/BaseCheckbox.vue'
+import BaseTable from '../base/BaseTable.vue'
 import RelativeTime from '../base/RelativeTime.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
@@ -91,8 +92,7 @@ function clearMemory(): void {
           :role="clear?.phase === 'error' ? 'alert' : 'status'"
         >{{ clear?.errorMessage ?? clear?.message }}</p>
 
-        <table class="memory-section__entries">
-          <caption>记忆条目（{{ view?.entryCount }}）</caption>
+        <BaseTable bare caption-visible class="memory-section__entries" :caption="`记忆条目（${view?.entryCount}）`">
           <thead><tr><th scope="col">键</th><th scope="col">内容</th><th scope="col">版本</th><th scope="col">过期</th></tr></thead>
           <tbody>
             <tr v-for="entry in view?.entries ?? []" :key="entry.memoryKey">
@@ -105,7 +105,7 @@ function clearMemory(): void {
               <td colspan="4" class="memory-section__note">{{ memoryState.kind === 'degraded' ? '策略不可用期间无法读取条目。' : '还没有记忆条目。模型写入的偏好会出现在这里。' }}</td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
 
         <div class="memory-section__clear">
           <BaseCheckbox v-model="confirmed" :disabled="clear?.phase === 'pending'">我确认清除本人在此 Agent 上的全部记忆条目</BaseCheckbox>
@@ -136,8 +136,8 @@ function clearMemory(): void {
 .memory-section__policy div { display: flex; gap: var(--cs-space-4); }
 .memory-section__policy dt { margin: 0; }
 .memory-section__policy dd { margin: 0; color: var(--cs-text); }
-.memory-section__entries { width: 100%; font-size: var(--cs-text-xs); text-align: left; border-collapse: collapse; }
-.memory-section__entries caption { caption-side: top; padding-bottom: var(--cs-space-4); color: var(--cs-text-muted); text-align: left; }
+.memory-section__entries { font-size: var(--cs-text-xs); text-align: left; }
+.memory-section__entries :deep(caption) { padding-bottom: var(--cs-space-4); color: var(--cs-text-muted); text-align: left; }
 .memory-section__entries th, .memory-section__entries td { padding: var(--cs-space-4) var(--cs-space-8) var(--cs-space-4) 0; border-bottom: 1px solid var(--cs-border); font-weight: var(--cs-weight-regular); vertical-align: top; }
 .memory-section__entries th { color: var(--cs-text-muted); }
 .memory-section__value { max-width: 280px; overflow-wrap: anywhere; }

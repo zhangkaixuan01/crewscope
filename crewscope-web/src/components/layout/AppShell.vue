@@ -27,6 +27,7 @@ import {
 } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
+import { queryValue } from '../../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
@@ -208,10 +209,6 @@ function onMobileTouchEnd(event: TouchEvent): void {
   mobileTouchStartX.value = null
   const end = event.changedTouches[0]?.clientX ?? start
   if (start !== null && end !== undefined && start - end > 56) closeMobileNav()
-}
-
-function queryValue(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 async function signOut(): Promise<void> {

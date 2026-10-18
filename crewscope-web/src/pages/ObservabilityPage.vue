@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import { RefreshCw } from '@lucide/vue'
 import { computed, inject, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -179,8 +180,7 @@ function queryText(value: unknown): string | null {
               <dd>{{ selectedSummary.totalFactCount }} 条</dd>
             </div>
           </dl>
-          <table v-if="selectedSummary.currencies.length > 0" class="currency-table">
-            <caption class="sr-only">{{ selectedMonth }} 分币种费用</caption>
+          <BaseTable v-if="selectedSummary.currencies.length > 0" bare class="currency-table" :caption="`${selectedMonth} 分币种费用`">
             <thead>
               <tr><th scope="col">币种</th><th scope="col">输入费用</th><th scope="col">输出费用</th><th scope="col">缓存费用</th></tr>
             </thead>
@@ -192,7 +192,7 @@ function queryText(value: unknown): string | null {
                 <td>{{ currency.cachedInputCost ?? '—' }}</td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
           <p v-else class="panel__note">本月没有已计价的用量。</p>
         </section>
 
@@ -200,15 +200,15 @@ function queryText(value: unknown): string | null {
           <h2 id="detail-heading" class="panel__title">模型明细</h2>
           <label class="role-filter">
             角色筛选
-            <select :value="roleFilter" @change="changeRole(($event.target as HTMLSelectElement).value as ObservabilityUsageRole | 'ALL')">
+            <BaseSelect :model-value="roleFilter" @update:model-value="changeRole($event as ObservabilityUsageRole | 'ALL')">
               <option value="ALL">全部角色</option>
               <option v-for="role in observabilityUsageRoles" :key="role" :value="role">{{ observabilityUsageRoleLabels[role] }}</option>
-            </select>
+            </BaseSelect>
           </label>
           <StatePanel v-if="store.state.detail.phase === 'loading'" state="loading" title="正在加载当月成本明细" />
           <StatePanel v-else-if="store.state.detail.phase === 'error'" state="error" :title="store.state.detail.errorMessage ?? '暂时无法加载当月成本明细'" />
           <StatePanel v-else-if="detailRows.length === 0" state="empty" title="该角色本月没有用量行" />
-          <BaseTable v-else :caption="`${selectedMonth} 模型用量明细`">
+          <BaseTable v-else class="model-detail-table" :caption="`${selectedMonth} 模型用量明细`">
             <thead>
               <tr>
                 <th scope="col">角色</th><th scope="col">Provider / 模型</th><th scope="col">价格修订</th>
@@ -281,11 +281,12 @@ function queryText(value: unknown): string | null {
 .metric { display: grid; gap: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); padding: var(--cs-space-12); }
 .metric dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .metric dd { margin: 0; font-size: var(--cs-text-base); }
-.currency-table { width: 100%; border-collapse: collapse; font-size: var(--cs-text-sm); }
+.role-filter { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); justify-self: start; }
+/* 迁移 BaseTable 后走 bare 模式：边框/内距/字号逐属性重建原 .currency-table 紧凑皮肤（m10 快照钉死零漂移）。 */
+.currency-table { font-size: var(--cs-text-sm); }
 .currency-table th, .currency-table td { padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); text-align: left; }
 .currency-table thead th { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
-.role-filter { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); justify-self: start; }
-.role-filter select { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); padding: var(--cs-space-4) var(--cs-space-8); }
+.role-filter :deep(select) { min-height: 0; font-size: inherit; width: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); padding: var(--cs-space-4) var(--cs-space-8); }
 .price-revision { font-variant-numeric: tabular-nums; }
 .unreported { color: var(--cs-text-muted); }
 .quality-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--cs-space-12); }

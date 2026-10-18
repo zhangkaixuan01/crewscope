@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, inject, onMounted, ref, useId, watch } from 'vue'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { AUTH_STORE } from '../../domains/identity/store'
@@ -189,11 +190,11 @@ function dateText(value: string | null): string {
           {{ grantSubmitted && !principalValid ? '请输入有效的 Principal ID（UUID 格式）。' : '仅可授予本组织的 Principal；授予权限由服务端校验。' }}
         </p>
         <label for="org-grant-role">角色</label>
-        <select id="org-grant-role" v-model="grantRole">
+        <BaseSelect id="org-grant-role" v-model="grantRole">
           <option value="ORG_AUDITOR">组织审计员</option>
           <option value="ORG_ADMIN">组织管理员</option>
           <option v-if="sessionOwner" value="ORG_OWNER">组织 Owner</option>
-        </select>
+        </BaseSelect>
         <!-- The OWNER option is not merely hidden: a non-owner admin must see the move exists
           but is theirs not to make, so the rule stays auditable in the UI. -->
         <p v-if="!sessionOwner" class="org-reason">组织 Owner 角色只能由现任 Owner 授予。</p>
@@ -260,7 +261,7 @@ function dateText(value: string | null): string {
 .org-grant-form h3 { margin: 0; font-size: var(--cs-text-md); color: var(--cs-text); }
 .org-grant-fields { display: grid; gap: var(--cs-space-4); max-width: 480px; }
 .org-grant-fields label { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.org-grant-fields input, .org-grant-fields select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
+.org-grant-fields input, .org-grant-fields :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-base); }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }

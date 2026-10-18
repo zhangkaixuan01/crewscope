@@ -2,6 +2,7 @@
 import { RefreshCw } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { enumQuery, localDateQuery, queryValue, uuidQuery } from '../utils/queryParams'
 import type { LocationQueryRaw } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
@@ -42,15 +43,16 @@ const principalNames = computed(() => principalNameDirectory(scopeStore.state.me
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
+// 表单层的空值哨兵仍是 ''（input v-model 初值）；query 层统一 null，这里逐项落回。
 const filterForm = computed<AuditFilterForm>(() => {
   const subjectId = uuidQuery(route.query.subjectId)
-  const subjectType = subjectId ? queryValue(route.query.subjectType) : ''
+  const subjectType = subjectId ? queryValue(route.query.subjectType) : null
   return {
-    from: localDateQuery(route.query.from), to: localDateQuery(route.query.to),
-    category: enumQuery(route.query.category, auditEventCategories), outcome: enumQuery(route.query.outcome, auditOutcomes),
-    initiator: uuidQuery(route.query.initiator), actor: uuidQuery(route.query.actor), agent: uuidQuery(route.query.agent),
-    subjectType: subjectType && subjectId ? subjectType : '', subjectId: subjectType ? subjectId : '',
-    providerBinding: uuidQuery(route.query.providerBinding), correlation: uuidQuery(route.query.correlation),
+    from: localDateQuery(route.query.from) ?? '', to: localDateQuery(route.query.to) ?? '',
+    category: enumQuery(route.query.category, auditEventCategories) ?? '', outcome: enumQuery(route.query.outcome, auditOutcomes) ?? '',
+    initiator: uuidQuery(route.query.initiator) ?? '', actor: uuidQuery(route.query.actor) ?? '', agent: uuidQuery(route.query.agent) ?? '',
+    subjectType: subjectType && subjectId ? subjectType : '', subjectId: subjectType ? subjectId ?? '' : '',
+    providerBinding: uuidQuery(route.query.providerBinding) ?? '', correlation: uuidQuery(route.query.correlation) ?? '',
   }
 })
 const activeFilter = computed<AuditFilter>(() => toAuditFilter(filterForm.value))
@@ -192,19 +194,6 @@ function toAuditFilter(value: AuditFilterForm): AuditFilter {
   }
 }
 
-function queryValue(value: unknown): string { return typeof value === 'string' ? value : '' }
-function uuidQuery(value: unknown): string {
-  const parsed = queryValue(value)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed) ? parsed : ''
-}
-function localDateQuery(value: unknown): string {
-  const parsed = queryValue(value)
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(parsed) && Number.isFinite(new Date(parsed).getTime()) ? parsed : ''
-}
-function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T | '' {
-  const parsed = queryValue(value)
-  return choices.includes(parsed as T) ? parsed as T : ''
-}
 </script>
 
 <template>
@@ -218,7 +207,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
         :phase="store.state.audit.phase" :items="store.state.audit.value ?? []" :error="store.state.audit.error" :last-synced-at="lastSyncedAt"
         :next-cursor="store.state.audit.nextCursor" :loading-more="store.state.audit.loadingMore"
         :selected-event="selectedEvent" :missing-selected-event="missingSelectedEvent" :correlation="correlation" :initial-filter="filterForm"
-        :correlation-id="chainId"
+        :correlation-id="chainId ?? ''"
         :online="online" :can-export="canExport" :export-phase="store.state.auditExport.phase" :export-error="store.state.auditExport.error"
         :export-summary="exportSummary" :principal-names="principalNames" :principal-scope="scope"
         @apply-filter="applyFilter" @retry="store.loadAudit(activeFilter, false, true)" @load-more="store.loadAudit(activeFilter, true)"

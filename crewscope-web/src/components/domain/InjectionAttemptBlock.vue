@@ -14,6 +14,7 @@ import type {
   InjectionReference,
 } from '../../domains/injection/types'
 import BaseButton from '../base/BaseButton.vue'
+import BaseTable from '../base/BaseTable.vue'
 import RelativeTime from '../base/RelativeTime.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
@@ -86,8 +87,7 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
       <StatusBadge v-for="code in attempt.degradations" :key="code" tone="warning">{{ injectionDegradationLabel(code) }}</StatusBadge>
     </p>
 
-    <table v-if="attempt.trims.length" class="attempt-block__trims">
-      <caption>预算裁剪记录</caption>
+    <BaseTable v-if="attempt.trims.length" bare caption-visible class="attempt-block__trims" caption="预算裁剪记录">
       <thead><tr><th scope="col">层</th><th scope="col">裁掉条数</th><th scope="col">原因</th></tr></thead>
       <tbody>
         <tr v-for="(trim, index) in attempt.trims" :key="index">
@@ -96,7 +96,7 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
           <td>{{ injectionTrimReasonLabel(trim.reason) }}</td>
         </tr>
       </tbody>
-    </table>
+    </BaseTable>
 
     <div class="attempt-block__zone">
       <h5>已注入（{{ injected.length }}）</h5>
@@ -161,8 +161,8 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
 .attempt-block__budget dt { margin: 0; }
 .attempt-block__budget dd { margin: 0; color: var(--cs-text); }
 .attempt-block__degradations { display: flex; margin: 0; flex-wrap: wrap; gap: var(--cs-space-4); }
-.attempt-block__trims { width: 100%; font-size: var(--cs-text-xs); text-align: left; border-collapse: collapse; }
-.attempt-block__trims caption { caption-side: top; padding-bottom: var(--cs-space-4); color: var(--cs-text-muted); text-align: left; }
+.attempt-block__trims { font-size: var(--cs-text-xs); text-align: left; }
+.attempt-block__trims :deep(caption) { padding-bottom: var(--cs-space-4); color: var(--cs-text-muted); text-align: left; }
 .attempt-block__trims th, .attempt-block__trims td { padding: var(--cs-space-4) var(--cs-space-8) var(--cs-space-4) 0; border-bottom: 1px solid var(--cs-border); font-weight: var(--cs-weight-regular); }
 .attempt-block__trims th { color: var(--cs-text-muted); }
 .attempt-block__zone { display: flex; min-width: 0; flex-direction: column; gap: var(--cs-space-8); }

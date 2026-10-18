@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { GitBranchPlus, ListRestart, RefreshCw, X } from '@lucide/vue'
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { normalizeQuery, oneOf } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import AppShell from '../components/layout/AppShell.vue'
@@ -10,6 +11,7 @@ import RelativeTime from '../components/base/RelativeTime.vue'
 import RepositoryBuildDialog from '../components/domain/RepositoryBuildDialog.vue'
 import KnowledgeIndexJobList from '../components/domain/KnowledgeIndexJobList.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useKnowledgeIndexStore } from '../domains/knowledge/index-store'
 import {
@@ -34,9 +36,12 @@ const online = useNetworkStatus()
 
 const buildOpen = ref(false)
 const autoRefresh = ref(true)
+const autoRefreshTimer = useAutoRefresh(() => void refresh(), {
+  interval: 15_000,
+  // 离线保留已读事实、不开后台定时器制造失败流量。
+  active: () => Boolean(scope.value && online.value && autoRefresh.value),
+})
 const lastRefreshedAt = ref<string | null>(null)
-const pageVisible = ref(typeof document === 'undefined' ? true : !document.hidden)
-let refreshTimer: number | null = null
 
 const scope = computed<SettingsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -77,7 +82,7 @@ watch(
   ] as const,
   async ([phase]) => {
     const pageOwner = pageRequests.capture()
-    stopTimer()
+    autoRefreshTimer.stop()
     store.clearCommand()
     buildOpen.value = false
     if (phase !== 'ready' || !scope.value) return
@@ -85,7 +90,7 @@ watch(
     await store.loadJobs(filter.value, false, true)
     if (!pageOwner.isCurrent()) return
     lastRefreshedAt.value = new Date().toISOString()
-    startTimer()
+    autoRefreshTimer.start()
   },
   { immediate: true },
 )
@@ -103,8 +108,8 @@ watch(
   { immediate: true },
 )
 
-watch([online, autoRefresh], () => { stopTimer(); startTimer() })
-onBeforeUnmount(stopTimer)
+// 离线/关自动刷新即停，恢复即重启；页面隐藏的闸在 composable 里（M12b-F03）。
+watch([online, autoRefresh], () => autoRefreshTimer.start())
 
 function changeSource(value: KnowledgeIndexJobSource | 'ALL'): void {
   replaceFilter('source', value, 'ALL')
@@ -166,43 +171,6 @@ function closeBuild(): void {
   store.clearCommand()
 }
 
-function startTimer(): void {
-  stopTimer()
-  // Offline mode retains the last facts and never lets a background timer create failing traffic.
-  if (!scope.value || !online.value || !autoRefresh.value || !pageVisible.value) return
-  refreshTimer = window.setInterval(() => { void refresh() }, 15_000)
-}
-function stopTimer(): void { if (refreshTimer !== null) window.clearInterval(refreshTimer); refreshTimer = null }
-
-function onVisibilityChange(): void {
-  pageVisible.value = !document.hidden
-  stopTimer()
-  if (pageVisible.value) {
-    void refresh()
-    startTimer()
-  }
-}
-
-onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
-onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-
-function normalizeQuery(query: Record<string, unknown>, key: string, value: string, defaultValue: string): boolean {
-  const current = queryValue(query[key])
-  const expected = value === defaultValue ? null : value
-  if (current === expected) return false
-  if (expected) query[key] = expected
-  else delete query[key]
-  return true
-}
-
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  const parsed = queryValue(value)
-  return parsed && allowed.includes(parsed as T) ? parsed as T : fallback
-}
-
-function queryValue(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
-}
 </script>
 
 <template>

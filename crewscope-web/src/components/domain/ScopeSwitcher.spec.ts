@@ -30,8 +30,9 @@ describe('ScopeSwitcher', () => {
 
     await wrapper.get('.scope-switcher').trigger('click')
     expect(wrapper.get('.scope-switcher').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('.scope-switcher').attributes('aria-haspopup')).toBeUndefined()
-    expect(wrapper.get('.scope-menu').attributes('role')).toBeUndefined()
+    // M12b-F03 收敛：触发钮此前不声明 aria-haspopup、弹层无 role——键盘/读屏用户无从知道这是个菜单。
+    expect(wrapper.get('.scope-switcher').attributes('aria-haspopup')).toBe('menu')
+    expect(wrapper.get('.scope-menu').attributes('role')).toBe('menu')
     const securityTeam = wrapper.findAll('button').find(button => button.text().includes('Security Engineering'))
     await securityTeam!.trigger('click')
     await flushPromises()

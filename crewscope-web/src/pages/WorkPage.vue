@@ -2,6 +2,7 @@
 import { MessageSquare, Plus, ShieldCheck } from '@lucide/vue'
 import { computed, inject, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery, type LocationQueryRaw } from 'vue-router'
+import { oneOf, queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import { useToast } from '../composables/useToast'
@@ -1703,10 +1704,6 @@ function closeDelegate(): void {
   taskStore.clearCreate()
 }
 
-function queryValue(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
-}
-
 function itemsFor(status: WorkItemStatus): WorkItemSummary[] {
   return filteredItems.value.filter(item => item.status === status)
 }
@@ -1714,10 +1711,6 @@ function itemsFor(status: WorkItemStatus): WorkItemSummary[] {
 function retry(): void {
   if (!principal || !team.value || !project.value) return
   void workStore.load({ organizationId: principal.organizationId, teamId: team.value.id, projectId: project.value.id }, statusFilter.value === 'all' ? undefined : statusFilter.value, true)
-}
-
-function oneOf<const T extends readonly string[]>(value: unknown, options: T, fallback: T[number]): T[number] {
-  return typeof value === 'string' && (options as readonly string[]).includes(value) ? value as T[number] : fallback
 }
 
 </script>

@@ -3,6 +3,7 @@ import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, UserRound } from '@lu
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
+import BaseTable from '../base/BaseTable.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import type { AccountProblem } from '../../domains/account/presentation'
 import { loginIdentityProviderLabel, loginIdentityStatusLabels } from '../../domains/identity/labels'
@@ -280,9 +281,7 @@ function confirmSignOut(): void {
           <StatePanel v-if="sessionsPhase === 'loading'" state="loading" />
           <StatePanel v-else-if="sessionsPhase === 'error'" state="error" description="暂时无法读取登录会话。" @retry="emit('retrySessions')" />
           <p v-else-if="sessions.length === 0" class="section-fact"><MonitorSmartphone :size="16" />当前没有活跃的浏览器会话。</p>
-          <div v-else class="sessions-scroll">
-          <table class="sessions-table">
-            <caption class="sr-only">本账号的浏览器会话，最近活动在前</caption>
+          <BaseTable v-else bare class="sessions-table" caption="本账号的浏览器会话，最近活动在前">
             <thead><tr><th scope="col">设备</th><th scope="col">最近活动</th><th scope="col">登录时间</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
             <tbody>
               <tr v-for="session in sessions" :key="session.sessionId" :data-testid="`session-row-${session.current ? 'current' : 'other'}`">
@@ -292,8 +291,7 @@ function confirmSignOut(): void {
                 <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession(session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>
               </tr>
             </tbody>
-          </table>
-          </div>
+          </BaseTable>
         </section>
       </div>
     </div>
@@ -344,8 +342,8 @@ function confirmSignOut(): void {
 .profile-facts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-16); padding-top: var(--cs-space-20); margin: var(--cs-space-20) 0 0; border-top: 1px solid var(--cs-border); }
 .profile-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.profile-facts dd { margin: var(--cs-space-4) 0 0; overflow-wrap: anywhere; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .section-fact { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-20) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
-.sessions-scroll { margin-top: var(--cs-space-20); overflow-x: auto; }
-.sessions-table { width: 100%; border-collapse: collapse; font-size: var(--cs-text-sm); }
+/* sessions-table 类经 fallthrough 落在 BaseTable 的 wrap 上：overflow-x 与宽度归 wrap，字号随之继承。 */
+.sessions-table { margin-top: var(--cs-space-20); font-size: var(--cs-text-sm); }
 .sessions-table th, .sessions-table td { padding: var(--cs-space-12) var(--cs-space-8); border-bottom: 1px solid var(--cs-border); text-align: left; vertical-align: middle; }
 .sessions-table thead th { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .sessions-table__actions { text-align: right; white-space: nowrap; }

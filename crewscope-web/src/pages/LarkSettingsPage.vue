@@ -4,6 +4,7 @@ import { computed, inject, onBeforeUnmount, watch } from 'vue'
 import { createRequestScope } from '../api/requestScope'
 import { AUTH_STORE } from '../domains/identity/store'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { enumQuery, oneOf, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -28,11 +29,11 @@ const online = useNetworkStatus()
 const scope = computed<TeamOpsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
-const tab = computed(() => enumQuery(route.query.tab, ['connection', 'mapping', 'notification'] as const) || 'connection')
+const tab = computed(() => oneOf(route.query.tab, ['connection', 'mapping', 'notification'] as const, 'connection'))
 const connectionId = computed(() => uuidQuery(route.query.connection))
-const mappingStatus = computed(() => enumQuery(route.query.mappingStatus, larkMappingStatuses) || null)
-const deliveryStatus = computed(() => enumQuery(route.query.deliveryStatus, notificationDeliveryStatuses) || null)
-const deliveryType = computed(() => enumQuery(route.query.deliveryType, inboxItemTypes) || null)
+const mappingStatus = computed(() => enumQuery(route.query.mappingStatus, larkMappingStatuses))
+const deliveryStatus = computed(() => enumQuery(route.query.deliveryStatus, notificationDeliveryStatuses))
+const deliveryType = computed(() => enumQuery(route.query.deliveryType, inboxItemTypes))
 const recipient = computed(() => uuidQuery(route.query.recipient))
 const deliveryId = computed(() => uuidQuery(route.query.delivery))
 const connections = computed(() => store.state.larkConnections.value ?? [])
@@ -48,7 +49,7 @@ const selectedDelivery = computed(() => deliveryId.value ? store.state.notificat
 const deliveryFilter = computed(() => ({
   statuses: deliveryStatus.value ? [deliveryStatus.value] : undefined,
   itemTypes: deliveryType.value ? [deliveryType.value] : undefined,
-  recipientMemberId: recipient.value || null,
+  recipientMemberId: recipient.value,
 }))
 const pageCoordinate = () => JSON.stringify([authStore?.state.session?.account?.accountId,
   authStore?.state.session?.account?.securityVersion, principal?.id, scope.value, scopeStore.state.phase])
@@ -174,7 +175,7 @@ async function verifyMember(bindingId: string, version: number, memberId: string
   if (!owner.isCurrent()) { complete(null); return }
   const receipt = store.state.command.receipt
   complete(success && receipt && 'domainEventId' in receipt ? receipt.domainEventId : null)
-  if (!success) await refreshConflict(selected)
+  if (!success) await refreshConflict(selected ?? undefined)
 }
 
 async function confirmMapping(memberId: string, bindingId: string, proofId: string, key: string, complete: (committed: boolean) => void): Promise<void> {
@@ -253,15 +254,6 @@ function patchQuery(values: Record<string, string | null>): Promise<unknown> {
   return router.replace({ query })
 }
 
-function queryValue(value: unknown): string { return typeof value === 'string' ? value : '' }
-function uuidQuery(value: unknown): string {
-  const parsed = queryValue(value)
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed) ? parsed : ''
-}
-function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T | '' {
-  const parsed = queryValue(value)
-  return choices.includes(parsed as T) ? parsed as T : ''
-}
 </script>
 
 <template>
@@ -281,7 +273,7 @@ function enumQuery<T extends string>(value: unknown, choices: readonly T[]): T |
       :delivery-phase="store.state.notificationDeliveries.phase" :delivery-error="store.state.notificationDeliveries.error"
       :delivery-next-cursor="store.state.notificationDeliveries.nextCursor" :delivery-loading-more="store.state.notificationDeliveries.loadingMore"
       :selected-delivery="selectedDelivery" :command="store.state.command" :online="online" :selected-tab="tab"
-      :mapping-status="mappingStatus" :delivery-status="deliveryStatus" :delivery-type="deliveryType" :recipient="recipient"
+      :mapping-status="mappingStatus" :delivery-status="deliveryStatus" :delivery-type="deliveryType" :recipient="recipient ?? ''"
       @tab="setTab" @refresh="loadAll(true)" @read-original="readOriginal" @select-connection="selectConnection" @create-connection="createConnection"
       @rotate-connection="rotateConnection" @revoke-connection="revokeConnection"
       @preflight="(id, version) => store.loadLarkPreflight(id, version, true)" @health="id => store.loadLarkHealth(id, true)"

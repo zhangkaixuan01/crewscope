@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, ClipboardCheck, Pencil, X } from '@lucide/vue'
 import type { TaskIntent, TaskIntentRevisionInput } from '../../domains/conversation/types'
@@ -144,17 +145,17 @@ function principalName(principalId: string): string {
       <div class="field-grid">
         <label>
           <span>WorkProject</span>
-          <select v-model="form.workProjectId">
+          <BaseSelect v-model="form.workProjectId">
             <option value="">请选择 WorkProject</option>
             <option v-for="option in projectOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <label>
           <span>Owner</span>
-          <select v-model="form.ownerMemberId">
+          <BaseSelect v-model="form.ownerMemberId">
             <option value="">请选择 Owner</option>
             <option v-for="option in memberOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <PrincipalPicker
           v-if="scope"
@@ -164,13 +165,13 @@ function principalName(principalId: string): string {
           placeholder="按姓名搜索成员或 Agent"
           help-text="留空表示确认后再分配执行者。"
         />
-        <label v-else><span>Executor <small>可选</small></span><select v-model="form.executorPrincipalId"><option :value="null">确认后分配</option></select></label>
+        <label v-else><span>Executor <small>可选</small></span><BaseSelect v-model="form.executorPrincipalId"><option :value="null">确认后分配</option></BaseSelect></label>
         <label>
           <span>Gate Reviewer <small>可选</small></span>
-          <select v-model="form.gateReviewerMemberId">
+          <BaseSelect v-model="form.gateReviewerMemberId">
             <option value="">不设置 Gate Reviewer</option>
             <option v-for="option in memberOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
+          </BaseSelect>
         </label>
       </div>
       <p v-if="localError" class="error" role="alert">{{ localError }}</p>
@@ -213,7 +214,7 @@ function principalName(principalId: string): string {
 </template>
 
 <style scoped>
-.intent-card { max-width: 740px; padding: var(--cs-space-16); margin: 0 auto var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }.intent-card > header { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.intent-card > header > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.intent-card header p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .07em; text-transform: uppercase; }.intent-card h3 { margin: 0; font-size: var(--cs-text-base); }.objective, .criteria { padding: var(--cs-space-12); border-top: 1px solid var(--cs-border); }.objective > span, .criteria > span, .revision-form label > span, .reject-form label > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.objective p { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.criteria ol { display: grid; gap: var(--cs-space-4); padding-left: var(--cs-space-20); margin: var(--cs-space-8) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.intent-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-2); margin: 0; background: var(--cs-border); }.intent-card dl div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); background: var(--cs-surface-subtle); }.intent-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.intent-card dd { overflow: hidden; margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.intent-card > footer, .revision-form footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.notice { padding: var(--cs-space-8) var(--cs-space-12); margin: var(--cs-space-12) 0 0; border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.notice.coding-continuation { background: var(--cs-surface-accent); color: var(--cs-text-brand); }.notice.conflict { background: var(--cs-info-soft); color: var(--cs-info); }.error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.revision-form { display: grid; gap: var(--cs-space-12); }.revision-form label, .reject-form label { display: grid; gap: var(--cs-space-4); }.revision-form small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: none; }.revision-form textarea, .revision-form input, .revision-form select, .reject-form textarea { width: 100%; padding: var(--cs-space-8) var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }.revision-form textarea:focus, .revision-form input:focus, .revision-form select:focus, .reject-form textarea:focus { border-color: var(--cs-border-accent-strong); outline: 3px solid var(--cs-ring-brand); }.field-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--cs-space-8); }.reject-form { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); margin-top: var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-danger-soft); }.reject-form > div { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.decision { margin: var(--cs-space-12) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.intent-card { max-width: 740px; padding: var(--cs-space-16); margin: 0 auto var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }.intent-card > header { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.intent-card > header > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.intent-card header p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .07em; text-transform: uppercase; }.intent-card h3 { margin: 0; font-size: var(--cs-text-base); }.objective, .criteria { padding: var(--cs-space-12); border-top: 1px solid var(--cs-border); }.objective > span, .criteria > span, .revision-form label > span, .reject-form label > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.objective p { margin: var(--cs-space-4) 0 0; font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.criteria ol { display: grid; gap: var(--cs-space-4); padding-left: var(--cs-space-20); margin: var(--cs-space-8) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.intent-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-2); margin: 0; background: var(--cs-border); }.intent-card dl div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); background: var(--cs-surface-subtle); }.intent-card dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.intent-card dd { overflow: hidden; margin: var(--cs-space-4) 0 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.intent-card > footer, .revision-form footer { display: flex; justify-content: flex-end; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }.notice { padding: var(--cs-space-8) var(--cs-space-12); margin: var(--cs-space-12) 0 0; border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }.notice.coding-continuation { background: var(--cs-surface-accent); color: var(--cs-text-brand); }.notice.conflict { background: var(--cs-info-soft); color: var(--cs-info); }.error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.revision-form { display: grid; gap: var(--cs-space-12); }.revision-form label, .reject-form label { display: grid; gap: var(--cs-space-4); }.revision-form small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: none; }.revision-form textarea, .revision-form input, .revision-form :deep(select), .reject-form textarea { width: 100%; padding: var(--cs-space-8) var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }.revision-form textarea:focus, .revision-form input:focus, .revision-form select:focus, .reject-form textarea:focus { border-color: var(--cs-border-accent-strong); outline: 3px solid var(--cs-ring-brand); }.field-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: var(--cs-space-8); }.reject-form { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); margin-top: var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-danger-soft); }.reject-form > div { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.decision { margin: var(--cs-space-12) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 600px) { .field-grid, .intent-card dl { grid-template-columns: 1fr; }.intent-card > footer { flex-wrap: wrap; } }
 .intent-summary-footer { display: flex; justify-content: flex-end; margin-top: var(--cs-space-12); }
 </style>

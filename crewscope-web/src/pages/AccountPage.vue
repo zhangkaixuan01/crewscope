@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { inject } from 'vue'
@@ -156,8 +157,8 @@ function commandCsrf() {
 <template>
   <SettingsShell eyebrow="账号 · 身份安全" title="账号设置" :items="accountNav">
     <template #actions>
-      <label class="preference-control">主题<select v-model="themePreference.value.value"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-      <label class="preference-control">密度<select v-model="densityPreference.value.value"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+      <label class="preference-control">主题<BaseSelect v-model="themePreference.value.value"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></BaseSelect></label>
+      <label class="preference-control">密度<BaseSelect v-model="densityPreference.value.value"><option value="comfortable">舒适</option><option value="compact">紧凑</option></BaseSelect></label>
     </template>
     <StatePanel v-if="accountStore.state.phase === 'idle' || accountStore.state.phase === 'loading'" state="loading" />
     <StatePanel v-else-if="accountStore.state.phase === 'error'" state="error" :message="accountStore.state.problem?.message" @retry="accountStore.load(true)" />
@@ -191,5 +192,5 @@ function commandCsrf() {
 
 <style scoped>
 .preference-control { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.preference-control select { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
+.preference-control :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import {
   CheckCircle2,
   CircleOff,
@@ -39,7 +40,7 @@ const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const store = useCodingStore()
 const showCreate = ref(false)
-const createRepositorySelect = ref<HTMLSelectElement | null>(null)
+const createRepositorySelect = ref<InstanceType<typeof BaseSelect> | null>(null)
 const repositoryKey = ref('')
 const defaultBranch = ref('main')
 const submitted = ref(false)
@@ -308,12 +309,12 @@ function updatedAt(value: string): string {
         </div>
         <form class="binding-form" @submit.prevent="createBinding">
           <label>Repository Key
-            <select ref="createRepositorySelect" v-model="repositoryKey" :aria-invalid="submitted && !repositoryKey">
+            <BaseSelect ref="createRepositorySelect" v-model="repositoryKey" :aria-invalid="submitted && !repositoryKey">
               <option value="" disabled>选择受管本地仓库</option>
               <option v-for="item in availableCatalog" :key="item.repositoryKey" :value="item.repositoryKey">
                 {{ item.repositoryKey }}
               </option>
-            </select>
+            </BaseSelect>
           </label>
           <label>Default Branch
             <input v-model="defaultBranch" maxlength="255" autocomplete="off" placeholder="main" :aria-invalid="submitted && !defaultBranch.trim()">
@@ -417,7 +418,7 @@ function updatedAt(value: string): string {
 <style scoped>
 .repository-overview { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24); background: linear-gradient(135deg, var(--cs-surface), var(--cs-surface-accent)); }.repository-overview > i { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 15px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.repository-overview h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-lg); }.repository-overview p:last-child { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .source-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); }.source-note__icon { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: var(--cs-surface-accent); color: var(--cs-text-brand); }.source-note h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-base); }.source-note p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.source-note__hint { margin-top: var(--cs-space-4) !important; }.source-note > :last-child { margin-left: auto; flex: 0 0 auto; }
-.create-binding { overflow: hidden; }.panel-heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.binding-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); }.binding-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.binding-form select, .binding-form input { min-width: 0; min-height: 38px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.binding-form [aria-invalid="true"] { border-color: var(--cs-danger); }.form-actions { display: flex; gap: var(--cs-space-8); }.field-message { display: flex; grid-column: 1 / -1; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-sm); }.success { color: var(--cs-success); }.error { color: var(--cs-danger); }
+.create-binding { overflow: hidden; }.panel-heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.binding-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); }.binding-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.binding-form :deep(select), .binding-form input { min-width: 0; min-height: 38px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.binding-form [aria-invalid="true"] { border-color: var(--cs-danger); }.form-actions { display: flex; gap: var(--cs-space-8); }.field-message { display: flex; grid-column: 1 / -1; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-sm); }.success { color: var(--cs-success); }.error { color: var(--cs-danger); }
 .binding-directory { overflow: hidden; }.binding-list { display: grid; }.binding-card { display: grid; grid-template-columns: minmax(210px, .8fr) minmax(460px, 2fr) auto; align-items: center; gap: var(--cs-space-20); min-height: 92px; padding: var(--cs-space-16) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.binding-card:last-child { border-bottom: 0; }.binding-identity { display: flex; align-items: center; gap: var(--cs-space-12); min-width: 0; }.binding-identity > i { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--cs-surface-accent); color: var(--cs-text-brand); }.binding-identity strong, .binding-identity span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.binding-identity strong { font-size: var(--cs-text-sm); }.binding-identity span { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.binding-facts { display: grid; grid-template-columns: 100px 60px minmax(130px, 1fr) minmax(110px, 1fr); gap: var(--cs-space-12); }.binding-facts > span { min-width: 0; }.binding-facts small, .binding-facts strong { display: block; }.binding-facts small { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.binding-facts strong { overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.binding-actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.preflight-result { display: flex; grid-column: 2 / -1; align-items: center; gap: var(--cs-space-4); margin: calc(var(--cs-space-4) * -1) 0 0; font-size: var(--cs-text-xs); }
 .directory-actions { display: flex; gap: var(--cs-space-8); }
 /* 配置搜索的 `?binding=` 深链：只在参数存在时渲染，参数不存在时不产生任何节点。 */

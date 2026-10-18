@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { BriefcaseBusiness, Check, ChevronDown, Layers3, Plus, RefreshCw, UsersRound } from '@lucide/vue'
-import { computed, inject, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
 import { useScopeStore } from '../../domains/scope/store'
 import { createWorkProjectCreationFlow } from '../../domains/scope/workProjectCreation'
 import WorkProjectCreateDialog from './WorkProjectCreateDialog.vue'
+import BaseMenu from '../base/BaseMenu.vue'
 import BaseTooltip from '../base/BaseTooltip.vue'
 
+/**
+ * Team 与 WorkProject 的切换菜单。键盘合同（方向键/Home/End/Esc/Tab、外点关闭、开菜单聚焦
+ * 首项）由 BaseMenu 单源承担（M12b-F03）——迁移前触发钮连 aria-haspopup 都没有，键盘用户
+ * 只能一路 Tab。Team/项目条目是 menuitemradio（选中态由 aria-checked 表达），重载与新建是
+ * 普通命令（menuitem）。
+ */
 const route = useRoute()
 const router = useRouter()
 const store = useScopeStore()
 const principal = inject(AUTH_PRINCIPAL)
 const open = ref(false)
-const root = useTemplateRef<HTMLElement>('root')
 const canManageProjects = computed(() => Boolean(principal && can(principal, permissions.workProjectsManage)))
 const projectCreation = createWorkProjectCreationFlow(store, router, route, 'push')
 
@@ -42,47 +48,30 @@ function openProjectCreate(): void {
   open.value = false
   projectCreation.show()
 }
-
-function closeOnOutsideClick(event: MouseEvent): void {
-  if (open.value && root.value && !root.value.contains(event.target as Node)) open.value = false
-}
-
-function closeOnEscape(event: KeyboardEvent): void {
-  if (event.key === 'Escape') open.value = false
-}
-
-onMounted(() => {
-  document.addEventListener('click', closeOnOutsideClick)
-  document.addEventListener('keydown', closeOnEscape)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('click', closeOnOutsideClick)
-  document.removeEventListener('keydown', closeOnEscape)
-})
 </script>
 
 <template>
-  <div ref="root" class="scope-switcher-root">
-    <button
-      class="scope-switcher"
-      type="button"
-      aria-controls="scope-menu"
-      :aria-expanded="open"
-      @click="open = !open"
+  <div class="scope-switcher-root">
+    <BaseMenu
+      v-model:open="open"
+      placement="bottom-start"
+      menu-class="scope-menu"
+      label="切换团队和项目"
+      trigger-class="scope-switcher"
     >
-      <span class="scope-switcher__avatar">{{ teamInitial }}</span>
-      <!-- 省略后的名字要有地方看全（L02）：悬停或聚焦给出完整 Team/项目名，而不是截断成谜。 -->
-      <span class="scope-switcher__copy">
-        <BaseTooltip :text="scopeLabel" placement="bottom"><strong>{{ scopeLabel }}</strong></BaseTooltip>
-        <BaseTooltip :text="projectLabel" placement="bottom"><small>{{ projectLabel }}</small></BaseTooltip>
-      </span>
-      <ChevronDown :class="{ rotated: open }" :size="14" aria-hidden="true" />
-    </button>
+      <template #trigger>
+        <span class="scope-switcher__avatar">{{ teamInitial }}</span>
+        <!-- 省略后的名字要有地方看全（L02）：悬停或聚焦给出完整 Team/项目名，而不是截断成谜。 -->
+        <span class="scope-switcher__copy">
+          <BaseTooltip :text="scopeLabel" placement="bottom"><strong>{{ scopeLabel }}</strong></BaseTooltip>
+          <BaseTooltip :text="projectLabel" placement="bottom"><small>{{ projectLabel }}</small></BaseTooltip>
+        </span>
+        <ChevronDown :class="{ rotated: open }" :size="14" aria-hidden="true" />
+      </template>
 
-    <section v-if="open" id="scope-menu" class="scope-menu" aria-label="切换团队和项目">
       <header>
         <div><span>工作范围</span><strong>Team 与 WorkProject</strong></div>
-        <button type="button" aria-label="重新加载工作范围" @click="store.reload()"><RefreshCw :size="14" /></button>
+        <button type="button" role="menuitem" aria-label="重新加载工作范围" @click="store.reload()"><RefreshCw :size="14" /></button>
       </header>
 
       <div v-if="store.state.phase === 'loading'" class="scope-menu__state" role="status">正在读取可访问范围…</div>
@@ -97,7 +86,9 @@ onBeforeUnmount(() => {
             v-for="team in store.state.teams"
             :key="team.id"
             type="button"
+            role="menuitemradio"
             :class="{ selected: team.id === store.state.selectedTeamId }"
+            :aria-checked="team.id === store.state.selectedTeamId"
             @click="chooseTeam(team.id)"
           >
             <span :title="team.name">{{ team.name }}<small>{{ team.initializationStatus === 'READY' ? '团队工作区' : '等待初始化' }}</small></span>
@@ -108,14 +99,16 @@ onBeforeUnmount(() => {
         <div class="scope-menu__group scope-menu__projects">
           <div class="scope-menu__group-heading">
             <p><BriefcaseBusiness :size="13" />WorkProject</p>
-            <button v-if="canManageProjects" type="button" aria-label="创建 WorkProject" @click="openProjectCreate"><Plus :size="13" />新建</button>
+            <button v-if="canManageProjects" type="button" role="menuitem" aria-label="创建 WorkProject" @click="openProjectCreate"><Plus :size="13" />新建</button>
           </div>
           <div v-if="store.state.projects.length === 0" class="scope-menu__state">这个 Team 还没有 WorkProject。</div>
           <button
             v-for="project in store.state.projects"
             :key="project.id"
             type="button"
+            role="menuitemradio"
             :class="{ selected: project.id === store.state.selectedProjectId }"
+            :aria-checked="project.id === store.state.selectedProjectId"
             @click="chooseProject(project.id)"
           >
             <i>{{ project.key.slice(0, 2) }}</i>
@@ -126,7 +119,7 @@ onBeforeUnmount(() => {
       </template>
 
       <footer><Layers3 :size="13" />切换范围会保留当前入口，并清除不兼容的 Focus。</footer>
-    </section>
+    </BaseMenu>
 
     <WorkProjectCreateDialog
       v-if="projectCreation.open.value && store.selectedTeam.value"
@@ -144,14 +137,15 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .scope-switcher-root { position: relative; width: 100%; margin: var(--cs-space-24) 0 var(--cs-space-20); }
-.scope-switcher { display: grid; width: 100%; min-width: 0; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-glass-strong); text-align: left; cursor: pointer; }
+.scope-switcher-root :deep(.scope-switcher) { display: grid; width: 100%; min-width: 0; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-glass-strong); text-align: left; cursor: pointer; }
 .scope-switcher__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-brand-200); color: var(--cs-brand-950); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .scope-switcher__copy, .scope-switcher__copy strong, .scope-switcher__copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Tooltip 包裹层接管截断容器职责：ellipsis 落在它内部的目标行上。 */
 .scope-switcher__copy > :deep(.base-tooltip) { display: block; min-width: 0; }
 .scope-switcher__copy strong { font-size: var(--cs-text-base); }.scope-switcher__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
-.scope-switcher > svg { transition: transform var(--cs-motion-fast) var(--cs-ease-out); }.scope-switcher > svg.rotated { transform: rotate(180deg); }
-.scope-menu { position: absolute; z-index: var(--cs-z-popover); top: calc(100% + 8px); left: 0; width: 330px; max-height: min(620px, calc(100vh - 120px)); overflow: auto; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }
+.scope-switcher-root :deep(.scope-switcher > svg) { transition: transform var(--cs-motion-fast) var(--cs-ease-out); }.scope-switcher-root :deep(.scope-switcher > svg.rotated) { transform: rotate(180deg); }
+/* 弹层本体：保留旧的宽高/滚动/粘性头部几何（其余观感沿用 BaseMenu 默认弹层）。 */
+.scope-switcher-root :deep(.scope-menu) { display: block; width: 330px; max-height: min(620px, calc(100vh - 120px)); overflow: auto; border-color: var(--cs-border-strong); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }
 .scope-menu header { position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-16) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-glass-strong); }
 .scope-menu header span, .scope-menu header strong { display: block; }.scope-menu header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.scope-menu header strong { font-size: var(--cs-text-base); }.scope-menu header button { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); cursor: pointer; }
 .scope-menu__group { padding: var(--cs-space-8); border-bottom: 1px solid var(--cs-border); }.scope-menu__group p { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-4) var(--cs-space-8) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
@@ -161,14 +155,14 @@ onBeforeUnmount(() => {
 .scope-menu__state { padding: var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.scope-menu__state--error { color: var(--cs-danger); }
 .scope-menu footer { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 1100px) {
-  .scope-switcher-root { width: auto; }.scope-switcher { grid-template-columns: 30px; width: auto; padding: var(--cs-space-8); }.scope-switcher__copy, .scope-switcher > svg { display: none; }.scope-menu { position: fixed; top: 72px; left: 68px; }
+  .scope-switcher-root { width: auto; }.scope-switcher-root :deep(.scope-switcher) { grid-template-columns: 30px; width: auto; padding: var(--cs-space-8); }.scope-switcher__copy { display: none; }.scope-switcher-root :deep(.scope-switcher > svg) { display: none; }.scope-switcher-root :deep(.scope-menu) { position: fixed; top: 72px; left: 68px; }
 }
 @media (max-width: 767px) {
   /* 跟顶栏的 minmax(0,1fr) 列收缩（L02）：固定 250px 会盖住右侧的搜索/通知按钮，
      剩余宽度交给 copy 行自己的 ellipsis。 */
   .scope-switcher-root { width: 100%; min-width: 0; margin: 0; }
-  .scope-switcher { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 14px; padding: var(--cs-space-4) var(--cs-space-8); border-color: transparent; background: transparent; }
-  .scope-switcher__avatar { width: 28px; height: 28px; }.scope-switcher__copy, .scope-switcher > svg { display: block; }
-  .scope-menu { position: fixed; top: 50px; left: 8px; width: min(350px, calc(100vw - 16px)); max-height: calc(100vh - 122px); }
+  .scope-switcher-root :deep(.scope-switcher) { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 14px; padding: var(--cs-space-4) var(--cs-space-8); border-color: transparent; background: transparent; }
+  .scope-switcher__avatar { width: 28px; height: 28px; }.scope-switcher__copy, .scope-switcher-root :deep(.scope-switcher > svg) { display: block; }
+  .scope-switcher-root :deep(.scope-menu) { position: fixed; top: 50px; left: 8px; width: min(350px, calc(100vw - 16px)); max-height: calc(100vh - 122px); }
 }
 </style>

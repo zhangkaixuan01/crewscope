@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { ArrowLeftRight, RefreshCw, X } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
@@ -74,14 +75,14 @@ function close(): void {
       <template v-if="!job">
         <p class="handover-dialog__hint">先选择要交接的责任角色，确认该角色的在途责任数量，再选择接手成员并创建交接。创建后可以逐项处理，冲突项会保留原状。</p>
         <label for="handover-role">责任角色</label>
-        <select id="handover-role" v-model="selectedRole" autofocus>
+        <BaseSelect id="handover-role" v-model="selectedRole" autofocus>
           <option v-for="role in handoverRoles" :key="role" :value="role">{{ roleLabels[role] }}</option>
-        </select>
+        </BaseSelect>
         <label for="handover-target">接手成员（须为 ACTIVE 成员）</label>
-        <select id="handover-target" v-model="selectedMemberId">
+        <BaseSelect id="handover-target" v-model="selectedMemberId">
           <option value="">请选择接手成员</option>
           <option v-for="member in candidates" :key="member.id" :value="member.id">{{ member.displayName }}</option>
-        </select>
+        </BaseSelect>
         <p v-if="previewCount !== null" class="handover-dialog__count" role="status">该角色当前有 {{ previewCount }} 项在途责任，创建后会全部纳入交接。</p>
         <p v-else class="handover-dialog__count handover-dialog__count--muted">选择角色后显示在途责任数量。</p>
       </template>
@@ -126,7 +127,7 @@ function close(): void {
 .handover-dialog__hint, .handover-dialog__count { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .handover-dialog__count--muted { font-size: var(--cs-text-xs); }
 .handover-body label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.handover-body select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
+.handover-body :deep(select) { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .handover-dialog__summary { display: flex; align-items: center; gap: var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .handover-dialog__items { display: grid; gap: var(--cs-space-4); max-height: 260px; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .handover-dialog__items li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; font-size: var(--cs-text-sm); }

@@ -9,15 +9,19 @@ export type MemberAction =
 
 <script setup lang="ts">
 import { ArrowLeftRight, MoreHorizontal, ShieldOff, UserMinus, UserPlus, UserRoundCheck, UserRoundX, LogOut } from '@lucide/vue'
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { Component } from 'vue'
 import type { TeamMemberSummary } from '../../domains/scope/types'
 import { teamRoleLabels } from '../../domains/scope/labels'
 import { enumLabel } from '../../domains/shared/labels'
+import BaseMenu from '../base/BaseMenu.vue'
 
 /**
  * Row-level "more" menu. Visibility mirrors the server's own guards (membership status ×
  * viewer permissions); every entry still re-validates server side — this only shapes the UI.
+ *
+ * 开合/键盘/外点关闭/焦点归还（含选中后打开模态时把焦点让给模态陷阱的守卫）全部由
+ * BaseMenu 承担（M12b-F03）；这里只负责按成员状态与权限组装条目。
  */
 const props = defineProps<{
   member: TeamMemberSummary
@@ -31,8 +35,6 @@ const props = defineProps<{
 const emit = defineEmits<{ action: [action: MemberAction] }>()
 
 const open = ref(false)
-const trigger = ref<HTMLButtonElement | null>(null)
-const menu = ref<HTMLDivElement | null>(null)
 
 interface Entry {
   key: string
@@ -87,81 +89,48 @@ const entries = (): Entry[] => {
   return list
 }
 
-async function toggle(): Promise<void> {
-  open.value = !open.value
-  if (open.value) {
-    await nextTick()
-    menu.value?.querySelector<HTMLButtonElement>('button')?.focus()
-  }
-}
-
 function choose(entry: Entry): void {
   open.value = false
   emit('action', entry.action)
-  // 选中后若打开了模态（生命周期确认、责任交接），焦点必须交给模态的焦点陷阱——这里的
-  // 归还会在陷阱初始聚焦之后执行，把焦点抢回触发钮（M12b-F02 迁移后 MemberLifecycleDialog
-  // 实测失焦）。只有未开模态的选择才把焦点归还给触发钮。
-  void nextTick(() => {
-    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
-    trigger.value?.focus()
-  })
 }
 
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !open.value) return
-  event.preventDefault()
-  open.value = false
-  trigger.value?.focus()
-}
-
-function onPointerDown(event: PointerEvent): void {
-  if (!open.value) return
-  const target = event.target as Node
-  if (menu.value?.contains(target) || trigger.value?.contains(target)) return
-  open.value = false
-}
-
+// 换行即换菜单：旧成员的条目不能挂着继续显示。
 watch(() => props.member.id, () => { open.value = false })
-document.addEventListener('pointerdown', onPointerDown, true)
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown, true))
 </script>
 
 <template>
-  <div class="member-menu" @keydown="onKeydown">
+  <BaseMenu
+    v-model:open="open"
+    class="member-menu"
+    menu-class="member-menu__list"
+    :disabled="pending"
+    :trigger-label="`更多操作：${member.displayName}`"
+    :label="`${member.displayName} 的成员操作`"
+    trigger-class="member-menu__trigger"
+  >
+    <template #trigger><MoreHorizontal :size="15" /></template>
     <button
-      ref="trigger"
+      v-for="entry in entries()"
+      :key="entry.key"
       type="button"
-      class="member-menu__trigger"
-      :aria-label="`更多操作：${member.displayName}`"
-      :aria-expanded="open"
-      aria-haspopup="menu"
-      :disabled="pending"
-      @click="toggle"
-    ><MoreHorizontal :size="15" /></button>
-    <div v-if="open" ref="menu" class="member-menu__list" role="menu" :aria-label="`${member.displayName} 的成员操作`">
-      <button
-        v-for="entry in entries()"
-        :key="entry.key"
-        type="button"
-        role="menuitem"
-        class="member-menu__item"
-        :class="{ 'member-menu__item--danger': entry.danger }"
-        @click="choose(entry)"
-      >
-        <i><component :is="entry.icon" :size="14" /></i>
-        <span><strong>{{ entry.label }}</strong><small v-if="entry.description">{{ entry.description }}</small></span>
-      </button>
-      <p v-if="!entries().length" class="member-menu__empty">没有可用操作</p>
-    </div>
-  </div>
+      role="menuitem"
+      class="member-menu__item"
+      :class="{ 'member-menu__item--danger': entry.danger }"
+      @click="choose(entry)"
+    >
+      <i><component :is="entry.icon" :size="14" /></i>
+      <span><strong>{{ entry.label }}</strong><small v-if="entry.description">{{ entry.description }}</small></span>
+    </button>
+    <p v-if="!entries().length" class="member-menu__empty">没有可用操作</p>
+  </BaseMenu>
 </template>
 
 <style scoped>
-.member-menu { position: relative; justify-self: end; }
-.member-menu__trigger { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
-.member-menu__trigger:hover, .member-menu__trigger:focus-visible, .member-menu__trigger[aria-expanded="true"] { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
-.member-menu__trigger:disabled { opacity: .5; cursor: default; }
-.member-menu__list { position: absolute; top: calc(100% + 6px); right: 0; z-index: var(--cs-z-popover); display: grid; min-width: 250px; max-height: 340px; overflow-y: auto; padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
+.member-menu { justify-self: end; }
+.member-menu :deep(.member-menu__trigger) { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+.member-menu :deep(.member-menu__trigger:hover), .member-menu :deep(.member-menu__trigger:focus-visible), .member-menu :deep(.member-menu__trigger[aria-expanded="true"]) { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
+.member-menu :deep(.member-menu__trigger:disabled) { opacity: .5; cursor: default; }
+.member-menu :deep(.member-menu__list) { min-width: 250px; max-height: 340px; overflow-y: auto; border-radius: 11px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
 .member-menu__item { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
 .member-menu__item:hover, .member-menu__item:focus-visible { background: var(--cs-surface-accent); }
 .member-menu__item > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-style: normal; }

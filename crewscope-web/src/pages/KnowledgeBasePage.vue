@@ -3,6 +3,7 @@ import { secureId } from '../api/secureId'
 import { BookPlus, RefreshCw, Sparkles } from '@lucide/vue'
 import { computed, inject, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { normalizeQuery, oneOf, queryValue, revisionQuery, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -324,34 +325,6 @@ function closeDistill(): void {
 function openDistilledEntry(entryId: string): void {
   closeDistill()
   selectEntry(entryId)
-}
-
-function normalizeQuery(query: Record<string, unknown>, key: string, value: string, defaultValue: string): boolean {
-  const current = queryValue(query[key])
-  const expected = value === defaultValue ? null : value
-  if (current === expected) return false
-  if (expected) query[key] = expected
-  else delete query[key]
-  return true
-}
-
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  const parsed = queryValue(value)
-  return parsed && allowed.includes(parsed as T) ? parsed as T : fallback
-}
-
-function uuidQuery(value: unknown): string | null {
-  const parsed = queryValue(value)
-  return parsed && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed) ? parsed : null
-}
-
-function revisionQuery(value: unknown): number | null {
-  const parsed = queryValue(value)
-  return parsed && /^\d+$/.test(parsed) && Number(parsed) >= 1 ? Number(parsed) : null
-}
-
-function queryValue(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function idleVersionPage(): KnowledgeVersionPageResource {

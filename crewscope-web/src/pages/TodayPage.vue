@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import { ArrowRight, Inbox, Plus, Settings2, TriangleAlert } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -319,6 +320,7 @@ function handleBoardKeydown(event: KeyboardEvent): void {
   onBoardKeydown(event, target?.dataset.deskItemId)
 }
 
+// 与 utils/queryParams 的 queryValue 不同：重复参数取首个——本页深链形态依赖这个宽容度（M12b-F03 保留）。
 function queryValue(value: unknown): string | null {
   if (typeof value === 'string') return value
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
@@ -462,8 +464,8 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           </p>
         </div>
         <div class="desk-filters" aria-label="工作台筛选">
-          <label>项目<select :value="deskProject" @change="updateDeskQuery('deskProject', ($event.target as HTMLSelectElement).value)"><option value="all">全部项目</option><option v-for="item in scopeStore.state.projects" :key="item.id" :value="item.id">{{ item.key }} · {{ item.name }}</option></select></label>
-          <label>责任角色<select :value="deskRole" @change="updateDeskQuery('deskRole', ($event.target as HTMLSelectElement).value)"><option value="all">全部角色</option><option v-for="role in workDeskResponsibilityRoles" :key="role" :value="role">{{ workDeskResponsibilityRoleLabels[role] }}</option></select></label>
+          <label>项目<BaseSelect :model-value="deskProject" @update:model-value="updateDeskQuery('deskProject', String($event))"><option value="all">全部项目</option><option v-for="item in scopeStore.state.projects" :key="item.id" :value="item.id">{{ item.key }} · {{ item.name }}</option></BaseSelect></label>
+          <label>责任角色<BaseSelect :model-value="deskRole" @update:model-value="updateDeskQuery('deskRole', String($event))"><option value="all">全部角色</option><option v-for="role in workDeskResponsibilityRoles" :key="role" :value="role">{{ workDeskResponsibilityRoleLabels[role] }}</option></BaseSelect></label>
           <label class="desk-check"><input type="checkbox" :checked="deskOnlyAction" @change="updateDeskQuery('deskAction', ($event.target as HTMLInputElement).checked ? 'true' : 'false')"> 仅看需要我行动</label>
           <SavedViewsControl route-name="today" :filters="committedDeskFilters" :owner="savedViewsOwner" @apply="applySavedView" />
           <small v-if="workDeskStore.state.summary" class="desk-updated" :aria-busy="refreshing">
@@ -690,7 +692,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 .desk-filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }
 .today-pins { flex-basis: 100%; margin-top: calc(-1 * var(--cs-space-8)); }
 .desk-filters label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.desk-filters select { min-width: 160px; height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
+.desk-filters :deep(select) { min-width: 160px; height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 .desk-check { display: flex !important; min-height: var(--cs-density-control-height); align-items: center; font-weight: var(--cs-weight-semibold) !important; }
 .desk-check input { accent-color: var(--cs-focus); }
 .desk-updated { align-self: center; color: var(--cs-text-muted); font-size: var(--cs-text-sm); white-space: nowrap; }
@@ -744,7 +746,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 @media (max-width: 767px) {
   .today-head { align-items: stretch; flex-direction: column; }
   .desk-filters { align-items: stretch; flex-direction: column; }
-  .desk-filters select { width: 100%; }
+  .desk-filters :deep(select) { width: 100%; }
   .desk-board { grid-auto-columns: minmax(272px, 84vw); }
   .action-required__grid { grid-template-columns: 1fr; }
   .my-work__heading { align-items: stretch; flex-direction: column; }

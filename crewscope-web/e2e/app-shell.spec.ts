@@ -2060,7 +2060,8 @@ test('Conversation clears an incompatible deep link when switching Team Scope', 
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: /Platform Engineering/ }).click()
-  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+  // M12b-F03：ScopeSwitcher 弹层收敛到 BaseMenu，从无语义容器升为 role=menu（label 不变）。
+  await page.getByRole('menu', { name: '切换团队和项目' }).getByRole('menuitemradio', { name: /Security Engineering/ }).click()
 
   await expect(page).not.toHaveURL(/conversation=00000000-0000-0000-0000-000000001101/)
   await expect(page.getByRole('button', { name: /打开对话 检查 Runtime 身份边界/ })).toBeVisible()
@@ -2071,7 +2072,7 @@ test('Work restores URL scope and ScopeSwitcher changes the Team', async ({ page
   await expect(page.getByRole('heading', { name: 'Runtime Security', exact: true, level: 1 })).toBeVisible()
 
   await page.getByRole('button', { name: /Security Engineering/ }).click()
-  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.getByRole('menu', { name: '切换团队和项目' }).getByRole('menuitemradio', { name: /Platform Engineering/ }).click()
 
   await expect(page).toHaveURL(new RegExp(`/work\\?.*team=${ids.team}.*project=${ids.project}`))
   await expect(page.getByRole('heading', { name: 'CrewScope', exact: true, level: 1 })).toBeVisible()
@@ -2110,7 +2111,7 @@ test('Agent Center restores a deep link and remains keyboard-operable at desktop
   await expect(page.locator('body')).not.toContainText(/sk-|credential|system prompt/i)
 
   await page.getByRole('button', { name: /Platform Engineering/ }).click()
-  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+  await page.getByRole('menu', { name: '切换团队和项目' }).getByRole('menuitemradio', { name: /Security Engineering/ }).click()
   await expect(page).not.toHaveURL(/agent=/)
   expect(new URL(page.url()).searchParams.get('configurationRevision')).toBeNull()
   await expect(page.getByRole('heading', { name: 'Security Engineering · Agent 中心' })).toBeVisible()
@@ -2381,7 +2382,7 @@ test('Agent configuration protects dirty navigation and keeps a Team-switch draf
   await expect(configuration.getByLabel(/补充指令/)).toHaveValue('本地草稿：保留配置变更')
 
   await page.getByRole('button', { name: /Platform Engineering/ }).click()
-  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Security Engineering/ }).click()
+  await page.getByRole('menu', { name: '切换团队和项目' }).getByRole('menuitemradio', { name: /Security Engineering/ }).click()
   await expect(page).toHaveURL(/team=00000000-0000-0000-0000-000000000202/)
   // Configuration drafts live in the scoped F05 namespace (cs.user.v1:…:draft:<agentId>), keyed by
   // the full identity scope rather than the purged legacy flat key.
@@ -2393,7 +2394,7 @@ test('Agent configuration protects dirty navigation and keeps a Team-switch draf
   // The second Team has no shared Agent fixture; return to the original Team and verify the
   // persisted draft is offered when the selected Agent is opened again.
   await page.getByRole('button', { name: /Security Engineering/ }).click()
-  await page.getByRole('region', { name: '切换团队和项目' }).getByRole('button', { name: /Platform Engineering/ }).click()
+  await page.getByRole('menu', { name: '切换团队和项目' }).getByRole('menuitemradio', { name: /Platform Engineering/ }).click()
   await page.goto(`/settings/agents?team=${ids.team}&agent=${ids.agentCoding}&configurationRevision=2`)
   await expect(page.getByText('发现未保存的本地草稿')).toBeVisible()
   await page.getByRole('button', { name: '恢复草稿' }).click()

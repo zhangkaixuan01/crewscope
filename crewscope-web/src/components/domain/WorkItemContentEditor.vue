@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { computed, inject, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { CrewScopeApiError } from '../../api/client'
@@ -152,7 +153,7 @@ function rebase() {
       <p>编号 {{ item.key }}（只读） · 不修改状态、责任或历史执行。</p>
       <label>标题<input ref="titleInput" v-model="form.title" maxlength="240" :disabled="pending" /></label>
       <label>描述<textarea v-model="form.description" rows="5" :disabled="pending" /></label>
-      <label>优先级<select v-model="form.priority" :disabled="pending"><option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ workItemPriorityLabels[priority] }}</option></select></label>
+      <label>优先级<BaseSelect v-model="form.priority" :disabled="pending"><option v-for="priority in workItemPriorities" :key="priority" :value="priority">{{ workItemPriorityLabels[priority] }}</option></BaseSelect></label>
       <label>标签<input v-model="form.labels" placeholder="用逗号分隔" :disabled="pending" /></label>
       <label>到期时间<input v-model="form.dueAt" type="datetime-local" :disabled="pending" /><small>时区：{{ timezone }}；清空表示不设到期时间。</small></label>
       <section v-if="conflict" class="conflict" aria-label="当前版本与本地输入对照">
@@ -175,7 +176,7 @@ function rebase() {
 <style scoped>
 .content-editor, form, label { display: grid; gap: var(--cs-space-8); }
 .content-editor { padding: var(--cs-space-16); }
-input, textarea, select { min-width: 0; width: 100%; padding: var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-md); }
+input, textarea, .content-editor :deep(select) { min-width: 0; width: 100%; padding: var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-md); }
 p, small { font-size: var(--cs-text-sm); color: var(--cs-text-muted); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); justify-content: flex-end; }
 .conflict { padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); }

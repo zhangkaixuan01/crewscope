@@ -86,9 +86,9 @@ describe('ObservabilityPage', () => {
     // The filter is client-side over the loaded month; no second detail read.
     expect(gateway.monthCalls.length).toBe(1)
     // Only the EMBEDDING row stays in the table body — the CHAT_PRIMARY model is filtered out.
-    expect(wrapper.findAll('.base-table tbody tr')).toHaveLength(1)
-    expect(wrapper.get('.base-table tbody').text()).toContain('text-embedding-v4')
-    expect(wrapper.get('.base-table tbody').text()).not.toContain('deepseek-v3')
+    expect(wrapper.findAll('.model-detail-table tbody tr')).toHaveLength(1)
+    expect(wrapper.get('.model-detail-table tbody').text()).toContain('text-embedding-v4')
+    expect(wrapper.get('.model-detail-table tbody').text()).not.toContain('deepseek-v3')
     wrapper.unmount()
   })
 

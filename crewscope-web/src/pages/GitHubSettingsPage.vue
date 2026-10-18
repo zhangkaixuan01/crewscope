@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import { secureId } from '../api/secureId'
 import { createFormCommandKeys } from '../api/formCommandKeys'
 import { createCommandGateway } from '../api/commandGateway'
@@ -27,6 +28,7 @@ import {
   repositoryVisibilityLabels,
 } from '../domains/delivery/labels'
 import { useScopeStore } from '../domains/scope/store'
+import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { useConfirm } from '../composables/useConfirm'
 
 const principal = inject(AUTH_PRINCIPAL)
@@ -71,7 +73,6 @@ const importing = ref(false)
 const importCommandPending = ref(false)
 const bindingCommandPending = ref(false)
 const importReadUnknown = ref(false)
-let importPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectedId = ref<string | null>(null)
 const health = ref<GitHubAuthorizationHealth | null>(null)
 const loading = ref(false)
@@ -128,6 +129,20 @@ const pageRequests = createRequestScope(identityKey)
 const detailRequests = createRequestScope(() => JSON.stringify([identityKey(), selectedId.value]))
 const importRequests = createRequestScope(() => JSON.stringify([identityKey(), selectedId.value,
   scopeStore.state.selectedProjectId, importRepository.value?.externalRepositoryId]))
+
+/**
+ * 导入任务轮询（M12b-F03）：1200ms 一次，页面隐藏自动暂停；读到终态或读失败即停摆，
+ * 由下一次用户/命令路径的 pollImport() 重新武装。refreshImport 返回 false = 失败即停。
+ */
+const importPolling = useAutoRefresh(async () => {
+  const keepGoing = await refreshImport()
+  if (importJob.value && ['READY', 'FAILED', 'CANCELLED'].includes(importJob.value.status)) importing.value = false
+  return keepGoing
+}, {
+  interval: 1200,
+  active: () => Boolean(scope.value && scopeStore.state.selectedProjectId && importJob.value
+    && !importCommandPending.value && !['READY', 'FAILED', 'CANCELLED'].includes(importJob.value.status)),
+})
 let formEpoch = 0
 
 watch(identityKey, () => {
@@ -146,7 +161,7 @@ onBeforeUnmount(() => {
   pageRequests.dispose()
   detailRequests.dispose()
   importRequests.dispose()
-  stopImportPolling()
+  importPolling.stop()
   resetForm()
 })
 
@@ -221,13 +236,9 @@ function openImport(repository: GitHubRepository): void {
   importReadUnknown.value = false
   void syncImportRoute(repository.externalRepositoryId, null)
 }
-function stopImportPolling(): void {
-  if (importPollTimer) clearTimeout(importPollTimer)
-  importPollTimer = null
-}
 function closeImport(clearRoute = true): void {
   importRequests.invalidate()
-  stopImportPolling()
+  importPolling.stop()
   importRepository.value = null
   importJob.value = null
   importReadUnknown.value = false
@@ -320,7 +331,7 @@ async function cancelImport(): Promise<void> {
   const projectId = scopeStore.state.selectedProjectId
   const jobId = importJob.value.id
   importRequests.invalidate()
-  stopImportPolling()
+  importPolling.stop()
   const request = importRequests.begin('command')
   importCommandPending.value = true
   try {
@@ -357,17 +368,15 @@ async function retryImport(): Promise<void> {
   } finally { if (request.isCurrent()) importCommandPending.value = false; request.finish() }
 }
 function pollImport(): void {
-  stopImportPolling()
+  importPolling.stop()
   if (!scope.value || !scopeStore.state.selectedProjectId || !importJob.value) return
   if (['READY', 'FAILED', 'CANCELLED'].includes(importJob.value.status)) { importing.value = false; return }
-  const owner = importRequests.capture()
   importing.value = true
-  importPollTimer = setTimeout(() => { if (owner.isCurrent()) void refreshImport() }, 1200)
+  importPolling.start()
 }
 
-async function refreshImport(): Promise<void> {
+async function refreshImport(): Promise<boolean | void> {
   if (!scope.value || !scopeStore.state.selectedProjectId || !importJob.value || importCommandPending.value) return
-  stopImportPolling()
   const target = { ...scope.value }
   const projectId = scopeStore.state.selectedProjectId
   const jobId = importJob.value.id
@@ -377,9 +386,14 @@ async function refreshImport(): Promise<void> {
     if (!request.isCurrent() || importJob.value?.id !== jobId) return
     importJob.value = job
     errorMessage.value = null
-    pollImport()
   } catch {
-    if (request.isCurrent()) { importing.value = false; importReadUnknown.value = true; errorMessage.value = '导入状态暂时无法读取，原任务未被判定失败。请重新读取状态，不要重新创建。' }
+    if (request.isCurrent()) {
+      importing.value = false
+      importReadUnknown.value = true
+      errorMessage.value = '导入状态暂时无法读取，原任务未被判定失败。请重新读取状态，不要重新创建。'
+      // 读失败即停（不再制造失败流量）；恢复由用户重新读取或命令路径触发。
+      return false
+    }
   } finally { request.finish() }
 }
 
@@ -577,10 +591,10 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
         <div class="panel-heading"><div><p class="eyebrow">New provider connection</p><h2>创建 GitHub Connection</h2><p>Token 仅随本次请求发送，服务端只保存安全凭证引用和授权投影。</p></div></div>
         <form class="connection-form" @submit.prevent="createConnection">
           <label>认证方式
-            <select v-model="authenticationType">
+            <BaseSelect v-model="authenticationType">
               <option value="OAUTH_USER">OAuth User（个人执行）</option>
               <option value="APP_INSTALLATION">GitHub App Installation（团队执行）</option>
-            </select>
+            </BaseSelect>
           </label>
           <label>Access Token
             <input v-model="accessToken" required type="password" autocomplete="new-password" placeholder="只在提交时发送，不会回显">
@@ -651,7 +665,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
 .edit-hint { display: flex; align-items: center; gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .panel { padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); margin-bottom: var(--cs-space-16); }.panel-heading h2 { margin: var(--cs-space-4) 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.panel-heading p:not(.eyebrow) { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.eyebrow { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
-.connection-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.connection-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.connection-form label:nth-child(3), .connection-form label:nth-child(4), .connection-form label:nth-child(5), .form-hint, .form-actions, .field-message { grid-column: 1 / -1; }.connection-form input, .connection-form select, .connection-form textarea { width: 100%; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: inherit; padding: var(--cs-space-8) var(--cs-space-12); }.connection-form textarea { resize: vertical; }.form-hint { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.form-actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.field-message, .command-message { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.command-message { padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-success); }
+.connection-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.connection-form label { display: grid; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.connection-form label:nth-child(3), .connection-form label:nth-child(4), .connection-form label:nth-child(5), .form-hint, .form-actions, .field-message { grid-column: 1 / -1; }.connection-form input, .connection-form :deep(select), .connection-form textarea { width: 100%; border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font: inherit; padding: var(--cs-space-8) var(--cs-space-12); }.connection-form textarea { resize: vertical; }.form-hint { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.form-actions { display: flex; justify-content: flex-end; gap: var(--cs-space-8); }.field-message, .command-message { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.command-message { padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-success); }
 .advanced-connection-options { grid-column: 1 / -1; display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px dashed var(--cs-border); border-radius: var(--cs-radius-sm); }.advanced-connection-options summary { color: var(--cs-text-secondary); cursor: pointer; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.advanced-connection-options label { font-weight: var(--cs-weight-medium); }
 .connection-list { display: grid; gap: var(--cs-space-8); }.connection-card { display: flex; width: 100%; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: inherit; text-align: left; cursor: pointer; }.connection-card:hover, .connection-card.selected { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); }.connection-card__icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-accent); color: var(--cs-text-brand); }.connection-card__body { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-4); }.connection-card__body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--cs-text-base); }.connection-card__body small, .repository-list small { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .fact-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--cs-space-8); }.fact-grid > div { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }.fact-grid span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.fact-grid strong { font-size: var(--cs-text-sm); }.health-strip { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.health-strip span { flex: 1; }.catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-top: var(--cs-space-20); margin-bottom: var(--cs-space-8); }.catalog-heading h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-base); }.catalog-heading p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.repository-list { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }.repository-list li { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); }.repository-list li > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }

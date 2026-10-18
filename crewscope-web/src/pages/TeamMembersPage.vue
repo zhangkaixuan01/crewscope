@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../components/base/BaseSelect.vue'
 import { Check, Copy, Plus, ShieldCheck, UserRoundPlus, UsersRound, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -292,7 +293,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
         <form v-if="showAddMember && canManageMembers" class="add-member panel" @submit.prevent="addMember">
           <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>输入同一 Organization 下的 ACTIVE USER Principal ID。服务端会重新验证身份、Scope 与 MEMBER_MANAGE 权限。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
           <label for="principal-id">选择身份</label>
-          <div class="principal-input"><select id="principal-id" v-model="targetPrincipalId" :aria-invalid="submitted && !principalIdValid"><option value="">请选择待重新加入的身份</option><option v-for="member in rejoinCandidates" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }} · {{ memberStatusLabel(member.status) }}</option></select><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
+          <div class="principal-input"><BaseSelect id="principal-id" v-model="targetPrincipalId" :aria-invalid="submitted && !principalIdValid"><option value="">请选择待重新加入的身份</option><option v-for="member in rejoinCandidates" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }} · {{ memberStatusLabel(member.status) }}</option></BaseSelect><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
           <p v-if="!rejoinCandidates.length" class="field-hint">当前没有可重新加入的身份；新成员请切换到“加入邀请”创建一次性邀请链接。</p>
           <p v-if="submitted && !principalIdValid" class="field-error" role="alert">请选择一个身份。</p>
           <p v-if="store.state.membersErrorMessage" class="field-error" role="alert">{{ store.state.membersErrorMessage }}</p>

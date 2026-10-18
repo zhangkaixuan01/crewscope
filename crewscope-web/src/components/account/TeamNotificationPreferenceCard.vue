@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { BellRing, ShieldCheck } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
@@ -126,9 +127,9 @@ async function save(): Promise<void> {
 
     <div v-if="teams.length > 1" class="team-preference__team">
       <label for="team-preference-team">Team</label>
-      <select id="team-preference-team" v-model="selectedTeamId">
+      <BaseSelect id="team-preference-team" v-model="selectedTeamId">
         <option v-for="team in teams" :key="team.teamId" :value="team.teamId">{{ team.name }}</option>
-      </select>
+      </BaseSelect>
     </div>
 
     <p v-if="phase === 'loading'" class="team-preference__status" role="status">正在读取你在{{ selectedTeam?.name ?? '这个 Team' }}的通知偏好…</p>
@@ -171,7 +172,7 @@ async function save(): Promise<void> {
 .team-preference__heading p:last-child { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .team-preference__team { display: grid; gap: var(--cs-space-4); max-width: 360px; }
 .team-preference__team label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.team-preference__team select { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
+.team-preference__team :deep(select) { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .team-preference__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .team-preference__problem { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
 .team-preference__switch { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }

@@ -559,7 +559,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
    这里按「历史后置」的阅读顺序补回，列宽随断点语义取 300px）。 */
 .configuration-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
 /* F10 readable configuration baseline: desktop and narrow layouts share the same minimum size. */
-.configuration-main input, .configuration-main select, .configuration-main textarea { font-size: var(--cs-text-base); }
+.configuration-main input, .configuration-main :deep(select), .configuration-main textarea { font-size: var(--cs-text-base); }
 .configuration-main label, .configuration-main legend, .configuration-main .binding-heading strong { font-size: var(--cs-text-sm); }
 .configuration-main .field-warning, .configuration-main .field-error, .configuration-main .save-actions > span { font-size: var(--cs-text-xs); }
 .field-error { margin: 0; color: var(--cs-danger); font-weight: var(--cs-weight-medium); }
@@ -568,7 +568,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
 .draft-recovery { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-warning); border-radius: var(--cs-radius-md); background: var(--cs-warning-soft); }.draft-recovery strong, .draft-recovery span { display: block; }.draft-recovery strong { color: var(--cs-text); font-size: var(--cs-text-sm); }.draft-recovery span { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.draft-recovery > div:last-child { display: flex; gap: var(--cs-space-8); flex: 0 0 auto; }
 .current-hash { display: flex; align-items: center; gap: var(--cs-space-8); flex-wrap: wrap; margin-top: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 900px) { .configuration-layout { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .configuration-header { grid-template-columns: 38px minmax(0, 1fr) 30px; padding: var(--cs-space-16); }.configuration-icon { width: 38px; height: 38px; }.configuration-header > .status-badge { grid-column: 2; justify-self: start; }.configuration-header > button { grid-column: 3; grid-row: 1; }.configuration-main { padding: var(--cs-space-12); }.binding-fields, .preference-fields { grid-template-columns: 1fr; }.binding-mode, .preference-fields .wide { grid-column: 1; }.binding-fields select, .preference-fields select, .preference-fields input, .preference-fields textarea { font-size: var(--cs-text-md); }.save-actions { align-items: stretch; flex-direction: column; }.save-actions .base-button { width: 100%; } }
+@media (max-width: 600px) { .configuration-header { grid-template-columns: 38px minmax(0, 1fr) 30px; padding: var(--cs-space-16); }.configuration-icon { width: 38px; height: 38px; }.configuration-header > .status-badge { grid-column: 2; justify-self: start; }.configuration-header > button { grid-column: 3; grid-row: 1; }.configuration-main { padding: var(--cs-space-12); }.binding-fields, .preference-fields { grid-template-columns: 1fr; }.binding-mode, .preference-fields .wide { grid-column: 1; }.binding-fields :deep(select), .preference-fields :deep(select), .preference-fields input, .preference-fields textarea { font-size: var(--cs-text-md); }.save-actions { align-items: stretch; flex-direction: column; }.save-actions .base-button { width: 100%; } }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .copy-button:hover:not(:disabled) { background: var(--cs-surface-accent); }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Bookmark, BookmarkCheck, Pin, PinOff, RefreshCw, RotateCcw, Trash2 } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { secureId } from '../../api/secureId'
 import type { F05SavedView } from '../../app/f05Storage'
 import {
@@ -15,6 +15,7 @@ import {
   type SavedViewOwner,
   type SavedViewRouteName,
 } from '../../domains/views/savedViews'
+import BaseMenu from '../base/BaseMenu.vue'
 
 /**
  * R41 saved views: the member's own filter definitions, kept on this machine only.
@@ -23,6 +24,9 @@ import {
  * committed and asks the page to apply a definition back. Priority stays in the page: an
  * explicit URL always beats the stored default (契约 §4.6), so this control never rewrites a
  * query on its own.
+ *
+ * 开合/键盘（方向键/Home/End/Esc 在 document 捕获阶段消费、Tab 出菜单）/外点关闭由 BaseMenu
+ * 单源承担（M12b-F03）；命名表单里的方向键与 Tab 仍服务文本编辑，不被菜单劫持。
  */
 const props = defineProps<{
   routeName: SavedViewRouteName
@@ -51,46 +55,15 @@ function refresh(): void {
   views.value = props.owner ? listViews(props.owner, props.routeName) : []
 }
 
-function toggle(): void {
-  open.value = !open.value
-  if (open.value) { refresh(); notice.value = null }
-}
-
-function close(): void { open.value = false; nameDraft.value = '' }
-
-const root = ref<HTMLElement | null>(null)
-
-function onDocumentClick(event: MouseEvent): void {
-  if (!open.value) return
-  if (!(event.target instanceof Node) || !event.target.isConnected) return
-  if (root.value?.contains(event.target)) return
-  close()
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (!open.value || event.key !== 'Escape') return
-  // The closing key is consumed here; it must not bubble into a drawer behind the control.
-  event.stopPropagation()
-  close()
-}
+// 打开时重新读本机存储（另一处可能刚存了视图）并清掉上一轮的提示；关闭时清命名草稿。
 watch(open, value => {
-  if (typeof document === 'undefined') return
-  if (value) {
-    document.addEventListener('click', onDocumentClick)
-    document.addEventListener('keydown', onKeydown)
-  } else {
-    document.removeEventListener('click', onDocumentClick)
-    document.removeEventListener('keydown', onKeydown)
-  }
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocumentClick)
-  document.removeEventListener('keydown', onKeydown)
+  if (value) { refresh(); notice.value = null }
+  else nameDraft.value = ''
 })
 
 function applyView(view: F05SavedView | null): void {
   emit('apply', view)
-  close()
+  open.value = false
 }
 
 function saveNew(): void {
@@ -143,13 +116,18 @@ watch(() => props.owner, refresh)
 </script>
 
 <template>
-  <div v-if="owner" ref="root" class="saved-views">
-    <button type="button" class="saved-views__trigger" aria-haspopup="menu" :aria-expanded="open" @click="toggle">
-      <BookmarkCheck v-if="currentView" :size="13" aria-hidden="true" />
-      <Bookmark v-else :size="13" aria-hidden="true" />
-      视图
-    </button>
-    <div v-if="open" class="saved-views__menu" role="menu" aria-label="已保存视图">
+  <div v-if="owner" class="saved-views">
+    <BaseMenu
+      v-model:open="open"
+      menu-class="saved-views__menu"
+      label="已保存视图"
+      trigger-class="saved-views__trigger"
+    >
+      <template #trigger>
+        <BookmarkCheck v-if="currentView" :size="13" aria-hidden="true" />
+        <Bookmark v-else :size="13" aria-hidden="true" />
+        视图
+      </template>
       <p class="saved-views__storage">本机存储，不跨设备同步</p>
 
       <button type="button" role="menuitem" class="saved-views__default" @click="applyView(null)">
@@ -179,13 +157,13 @@ watch(() => props.owner, refresh)
         <button type="submit" :disabled="!nameDraft.trim()">保存当前筛选</button>
       </form>
       <p v-if="notice" class="saved-views__notice" role="alert">{{ notice }}</p>
-    </div>
+    </BaseMenu>
   </div>
 </template>
 
 <style scoped>
-.saved-views { position: relative; }.saved-views__trigger { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.saved-views__trigger:hover { color: var(--cs-text-brand); }.saved-views__trigger[aria-expanded="true"] { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
-.saved-views__menu { position: absolute; z-index: var(--cs-z-popover); top: calc(100% + var(--cs-space-8)); right: 0; display: grid; width: min(320px, calc(100vw - 32px)); gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-md); background: var(--cs-surface-raised); box-shadow: var(--cs-shadow-float); }
+.saved-views { position: relative; }.saved-views :deep(.saved-views__trigger) { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.saved-views :deep(.saved-views__trigger:hover) { color: var(--cs-text-brand); }.saved-views :deep(.saved-views__trigger[aria-expanded="true"]) { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
+.saved-views :deep(.saved-views__menu) { width: min(320px, calc(100vw - 32px)); gap: var(--cs-space-8); padding: var(--cs-space-12); border-color: var(--cs-border-strong); background: var(--cs-surface-raised); }
 .saved-views__storage { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .saved-views__default { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 0; border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text); font-size: var(--cs-text-sm); cursor: pointer; }.saved-views__default:hover { background: var(--cs-surface-subtle); }.saved-views__default small { margin-left: auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .saved-views__empty { margin: 0; padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); }

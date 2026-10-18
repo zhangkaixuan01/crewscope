@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseSelect from '../base/BaseSelect.vue'
 import { CircleSlash, Network } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { secureId } from '../../api/secureId'
@@ -148,17 +149,17 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
       <p class="relations-note">「{{ workItemRelationTypeLabels.DEPENDS_ON }}」关系与阻塞等价：建立「本项阻塞所选工作项」后，所选工作项即显示为依赖本项。</p>
       <form v-if="canParticipate" class="relations-form" @submit.prevent="submitRelation">
         <label><span>目标工作项</span>
-          <select v-model="selection" :aria-invalid="submitted && !selection">
+          <BaseSelect v-model="selection" :aria-invalid="submitted && !selection">
             <option value="">选择工作项…</option>
             <option v-for="candidate in candidates" :key="candidate.id" :value="candidate.id">{{ candidate.key }} · {{ candidate.title }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <label><span>关系</span>
-          <select v-model="sentenceKind">
+          <BaseSelect v-model="sentenceKind">
             <option value="incomingBlocker">{{ relationOptionLabels.incomingBlocker }}</option>
             <option value="outgoingBlocker">{{ relationOptionLabels.outgoingBlocker }}</option>
             <option value="splitFromSource" :disabled="splitSourceTaken">{{ splitSourceTaken ? '本项已有拆分来源' : relationOptionLabels.splitFromSource }}</option>
-          </select>
+          </BaseSelect>
         </label>
         <BaseButton type="submit" size="small" variant="secondary" :loading="pending" :disabled="!selection"><CircleSlash :size="13" />添加关系</BaseButton>
       </form>
@@ -179,7 +180,7 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
 .relations-note { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .relations-form { display: grid; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
 .relations-form label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
-.relations-form select { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }
+.relations-form :deep(select) { width: 100%; min-height: 34px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base) var(--cs-font-sans); }
 .relations-form select[aria-invalid="true"] { border-color: var(--cs-danger); }
 .relations-form > button { justify-self: end; }
 .relations-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }

@@ -15,6 +15,7 @@ import {
 } from '@lucide/vue'
 import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { subscribeF05Epoch } from '../app/f05Storage'
 import { clearConversationCreateDraft } from '../domains/conversation/createDraft'
@@ -891,10 +892,6 @@ function isForbidden(): boolean {
 
 async function redirectIfForbidden(): Promise<void> {
   if (isForbidden()) await router.replace({ name: 'access-denied', query: { from: route.fullPath } })
-}
-
-function queryValue(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
