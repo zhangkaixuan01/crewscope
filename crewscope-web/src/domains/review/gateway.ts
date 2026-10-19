@@ -193,4 +193,3 @@ function mapComment(value: ReviewLineComment): ReviewLineComment {
 function mapReceipt(value: CommandReceipt): CommandReceipt {
   return { ...pick(value, ['commandId', 'domainEventId', 'committedVersion', 'correlationId']) }
 }
-

@@ -134,4 +134,3 @@ async function* jsonEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Rea
 function root(scope: ConversationMessageScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/conversations/${segment(scope.conversationId)}`
 }
-

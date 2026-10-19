@@ -194,4 +194,3 @@ function setError(resource: { phase: ObservabilityPhase, errorMessage: string | 
   resource.errorMessage = error instanceof CrewScopeApiError ? error.envelope.message : fallback
   resource.errorStatus = error instanceof CrewScopeApiError ? error.status : null
 }
-

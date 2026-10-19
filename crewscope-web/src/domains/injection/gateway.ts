@@ -101,4 +101,3 @@ function referenceStage(value: string): InjectionReferenceStage {
   if ((injectionReferenceStages as readonly string[]).includes(value)) return value as InjectionReferenceStage
   throw new TypeError('Injection reference stage is invalid')
 }
-

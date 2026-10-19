@@ -308,6 +308,3 @@ function markFailed(pending: PendingConversationMessage, message: string): void 
   pending.status = 'failed'
   pending.errorMessage = message
 }
-
-
-

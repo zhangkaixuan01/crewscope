@@ -571,4 +571,3 @@ function mapAcceptance(value: AcceptanceEvidenceSummary): AcceptanceEvidenceSumm
     commandEvidenceIds: [...value.commandEvidenceIds],
   }
 }
-

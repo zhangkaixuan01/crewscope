@@ -254,5 +254,3 @@ function sameResponsibility(
       && left.principalType === right.principalType
       && left.teamMemberId === right.teamMemberId
 }
-
-

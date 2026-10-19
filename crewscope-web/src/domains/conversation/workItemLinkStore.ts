@@ -116,4 +116,3 @@ export function useConversationWorkItemLinkStore(): ConversationWorkItemLinkStor
   if (!store) throw new Error('CrewScope Conversation WorkItem Link Store is not installed')
   return store
 }
-

@@ -71,4 +71,3 @@ export class HttpConversationWorkItemLinkGateway implements ConversationWorkItem
     )
   }
 }
-

@@ -678,4 +678,3 @@ function mapAssociationPage(value: TaskAssociationPage): TaskAssociationPage {
     nextCursor: value.nextCursor,
   }
 }
-

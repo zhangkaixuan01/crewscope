@@ -315,6 +315,3 @@ export function useConversationStore(): ConversationStore {
 function scopeKey(scope: ConversationScope): string {
   return `${scope.organizationId}:${scope.teamId}`
 }
-
-
-

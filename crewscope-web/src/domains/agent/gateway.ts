@@ -479,5 +479,3 @@ function requireStrongEtag(response: Response, resource: string): string {
   }
   return etag
 }
-
-

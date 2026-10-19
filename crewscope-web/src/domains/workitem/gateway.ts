@@ -337,4 +337,3 @@ function text(value: unknown): string {
 function root(scope: WorkItemScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/work-projects/${segment(scope.projectId)}/work-items`
 }
-

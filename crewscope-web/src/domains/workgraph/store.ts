@@ -358,4 +358,3 @@ export function useWorkGraphStore(): WorkGraphStore {
   if (!store) throw new Error('CrewScope WorkGraph Store is not installed')
   return store
 }
-

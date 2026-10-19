@@ -236,4 +236,3 @@ function keepsIdempotencyKey(error: unknown): boolean {
   return error instanceof CrewScopeApiError
     && ['network_unavailable', 'onboarding_unavailable', 'csrf_rejected'].includes(error.envelope.code)
 }
-

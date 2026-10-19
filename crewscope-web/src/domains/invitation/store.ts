@@ -379,4 +379,3 @@ function unavailablePreview(): InvitationPreview {
     targetRole: null, expiresAt: null, targetRestricted: false,
   }
 }
-

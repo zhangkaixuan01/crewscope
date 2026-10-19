@@ -413,4 +413,3 @@ function setError(resource: ModelResource<unknown>, error: unknown, fallback: st
 function conflict(error: unknown): boolean {
   return error instanceof CrewScopeApiError && (error.status === 409 || error.status === 412)
 }
-

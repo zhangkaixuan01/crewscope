@@ -256,6 +256,3 @@ function setError(resource: KnowledgeIndexJobPageResource, error: unknown, fallb
   resource.errorMessage = presentError(error, fallback)
   resource.errorStatus = statusOf(error)
 }
-
-
-

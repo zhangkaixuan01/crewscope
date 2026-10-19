@@ -176,4 +176,3 @@ export function useAccountStore(): AccountStore {
   if (!store) throw new Error('CrewScope Account Store is not installed')
   return store
 }
-

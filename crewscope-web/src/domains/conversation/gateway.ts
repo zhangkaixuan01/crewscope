@@ -56,4 +56,3 @@ export class HttpConversationGateway implements ConversationGateway {
 function root(scope: ConversationScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/conversations`
 }
-
