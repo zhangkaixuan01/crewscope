@@ -33,6 +33,7 @@ import type {
   WorkItemVersionConflict,
   WorkItemListFilter,
 } from './types'
+import { presentError } from '../../api/errors'
 
 export type WorkItemPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type WorkItemDetailCommand = 'transition' | 'undo' | 'comment' | 'resource'
@@ -1137,10 +1138,6 @@ export function useWorkItemStore(): WorkItemStore {
   return store
 }
 
-function presentError(error: unknown, fallback: string): string {
-  if (error instanceof CrewScopeApiError) return error.envelope.message
-  return fallback
-}
 
 /**
  * One stable string per filter value set, so any change to any dimension restarts the page from its

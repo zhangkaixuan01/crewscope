@@ -23,6 +23,8 @@ import {
 } from '../domains/identity/presentation'
 import type { AuthCsrfCoordinate, RegistrationInput, RegistrationMode, RegistrationResult } from '../domains/identity/types'
 import { useOptionalInvitationStore } from '../domains/invitation/store'
+import { isAbort } from '../api/errors'
+import { createRequestScope } from '../api/requestScope'
 
 const props = withDefaults(defineProps<{
   sessionTimeoutMs?: number
@@ -67,18 +69,16 @@ const unavailableState = computed(() => {
   return { kicker: '需要团队邀请', title: '通过团队邀请加入 CrewScope', description: '请从团队管理员发送的完整邀请链接进入。' }
 })
 
-let activeController: AbortController | null = null
-let operationGeneration = 0
-let disposed = false
+// One channel per face (M12b-F05): a submit supersedes the previous submit and the session
+// restore rides its own channel — the controller + generation + disposed flags this replaces.
+const pageRequests = createRequestScope(() => 'register-page')
 const registerIntents = createCommandIntents<RegistrationInput, RegistrationResult>()
 const committedRegistration = ref<RegistrationResult | null>(null)
 const inputsLocked = computed(() => submitting.value || committedRegistration.value !== null)
 
 onMounted(initialize)
 onBeforeUnmount(() => {
-  disposed = true
-  operationGeneration += 1
-  activeController?.abort()
+  pageRequests.dispose()
   registerIntents.clear()
   committedRegistration.value = null
   password.value = ''
@@ -103,12 +103,13 @@ async function initialize(): Promise<void> {
   if (route.hash) {
     // Replace the current history entry so the invitation proof leaves the address bar and Router state.
     await router.replace({ name: 'register' })
-    if (disposed) return
   }
   await loadSession()
 }
 
 async function loadSession(): Promise<void> {
+  const request = pageRequests.begin('session')
+  if (!request.isCurrent()) return
   phase.value = 'loading'
   problem.value = null
   fieldErrors.value = {}
@@ -120,7 +121,7 @@ async function loadSession(): Promise<void> {
   try {
     if (authStore.state.phase === 'error') throw new Error('Authentication Session is unavailable')
     await authStore.ensureRestored()
-    if (disposed) return
+    if (!request.isCurrent()) return
     const session = authStore.state.session
     if (!session) throw new Error('Authentication Session is unavailable')
     csrf.value = session.csrf
@@ -131,9 +132,11 @@ async function loadSession(): Promise<void> {
     }
     phase.value = 'ready'
   } catch (error) {
-    if (disposed || isAbort(error)) return
+    if (!request.isCurrent() || isAbort(error)) return
     phase.value = 'session-error'
     setProblem(authStore.state.errorCode === 'network_unavailable' ? offlineRegistrationProblem() : presentSessionProblem(error))
+  } finally {
+    request.finish()
   }
 }
 
@@ -165,13 +168,15 @@ async function submitRegistration(): Promise<void> {
   }
 
   phase.value = 'submitting'
+  const request = pageRequests.begin('submit')
   try {
     const result = committedRegistration.value ?? await timedRequest(
       signal => registerIntents.execute({ commandType: 'REGISTER' }, input,
         (snapshot, key) => gateway.register(snapshot, csrf.value!, key, signal)),
+      request.signal,
       props.registrationTimeoutMs,
     )
-    if (disposed) return
+    if (!request.isCurrent()) return
     committedRegistration.value = result
     registerIntents.clear()
     password.value = ''
@@ -180,7 +185,7 @@ async function submitRegistration(): Promise<void> {
       code: 'registration_session_unavailable', message: 'Registered Session could not be restored',
       correlationId: 'unavailable', retryable: true, currentVersion: null, details: {},
     })
-    if (disposed) return
+    if (!request.isCurrent()) return
     registerIntents.clear()
     password.value = ''
     invitation.value = { kind: 'none' }
@@ -192,13 +197,15 @@ async function submitRegistration(): Promise<void> {
       await router.replace({ path: '/conversation', query: result.teamId ? { team: result.teamId } : {} })
     }
   } catch (error) {
-    if (disposed || isAbort(error)) return
+    if (!request.isCurrent() || isAbort(error)) return
     const nextProblem = presentRegistrationProblem(error)
     phase.value = 'ready'
     setProblem(committedRegistration.value ? {
       code: 'registration_session_unavailable', title: '账号已创建，登录会话尚未恢复',
       message: '点击“继续登录”重新检查会话，不会再次创建账号。', tone: 'warning',
     } : nextProblem)
+  } finally {
+    request.finish()
   }
 }
 
@@ -230,30 +237,29 @@ function setProblem(value: RegistrationProblem): void {
   void nextTick()
 }
 
-async function timedRequest<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
-  const generation = ++operationGeneration
-  activeController?.abort()
-  const controller = new AbortController()
-  activeController = controller
+/** Times an operation out, distinguishing timeout from page-scope cancellation. */
+async function timedRequest<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  upstream: AbortSignal,
+  timeoutMs: number,
+): Promise<T> {
+  const linked = new AbortController()
   let timedOut = false
-  const timeout = window.setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, timeoutMs)
+  const timeout = window.setTimeout(() => { timedOut = true; linked.abort() }, timeoutMs)
+  const linkUpstream = () => linked.abort()
+  if (upstream.aborted) linked.abort()
+  else upstream.addEventListener('abort', linkUpstream, { once: true })
   try {
-    return await operation(controller.signal)
+    return await operation(linked.signal)
   } catch (error) {
     if (timedOut) throw new IdentityRequestTimeoutError()
     throw error
   } finally {
     window.clearTimeout(timeout)
-    if (generation === operationGeneration) activeController = null
+    upstream.removeEventListener('abort', linkUpstream)
   }
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 </script>
 
 <template>

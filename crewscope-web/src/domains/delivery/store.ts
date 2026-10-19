@@ -16,6 +16,8 @@ import type {
   PlanActionBundleInput,
   PlannedAction,
 } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type DeliveryPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type DeliveryOperation = 'plan' | 'confirm' | 'cancel' | 'manual-resolution' | 'catalog-sync'
@@ -79,8 +81,7 @@ export interface DeliveryStore {
 
 export const DELIVERY_STORE: InjectionKey<DeliveryStore> = Symbol('crewscope-delivery-store')
 
-interface ActiveRequest { scopeKey: string, generation: number, controller: AbortController }
-interface PendingCommand { generation: number, operation: DeliveryOperation, run: () => Promise<{ correlationId?: string } | GitHubRepository[]> }
+interface PendingCommand { isCurrent: () => boolean, operation: DeliveryOperation, run: () => Promise<{ correlationId?: string } | GitHubRepository[]> }
 
 /** Scope-isolated state for GitHub selection and the exact ActionBundle confirmation boundary. */
 export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
@@ -89,8 +90,9 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   const state = reactive<DeliveryStoreState>(initialState())
   let activeScope: DeliveryScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, ActiveRequest>()
+  // Scope switches and selection clears advance the epoch (voiding captures) — the
+  // generation counter + ActiveRequest map this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
   let pendingCommand: PendingCommand | null = null
 
   async function synchronize(scope: DeliveryScope, coordinates: DeliveryCoordinates): Promise<void> {
@@ -112,8 +114,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     if (next === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = next
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     replaceState(initialState())
   }
@@ -121,19 +122,19 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   async function loadConnections(force = false): Promise<void> {
     const scope = requireScope()
     if (!force && ['loading', 'ready', 'empty'].includes(state.connections.phase)) return
-    const request = beginRequest('connections')
+    const request = requests.begin('connections')
     beginLoad(state.connections)
     try {
       const values = (await Promise.all([
-        gateway.listConnections(scope, 'TEAM', request.controller.signal),
-        gateway.listConnections(scope, 'USER', request.controller.signal),
+        gateway.listConnections(scope, 'TEAM', request.signal),
+        gateway.listConnections(scope, 'USER', request.signal),
       ])).flat()
-      if (!isCurrent('connections', request)) return
+      if (!request.isCurrent()) return
       state.connections.value = unique(values, item => item.id)
       state.connections.phase = values.length ? 'ready' : 'empty'
     } catch (error) {
-      if (!isAbort(error) && isCurrent('connections', request)) setError(state.connections, error, '暂时无法加载 GitHub Connection')
-    } finally { finishRequest('connections', request) }
+      if (!isAbort(error) && request.isCurrent()) setError(state.connections, error, '暂时无法加载 GitHub Connection')
+    } finally { request.finish() }
   }
 
   async function selectConnection(connectionId: string, force = false): Promise<void> {
@@ -179,16 +180,16 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     fallback: string,
   ): Promise<void> {
     if (!force && ['loading', 'ready', 'empty'].includes(resource.phase)) return
-    const request = beginRequest(key)
+    const request = requests.begin(key)
     beginLoad(resource)
     try {
-      const value = await loader(request.controller.signal)
-      if (!isCurrent(key, request)) return
+      const value = await loader(request.signal)
+      if (!request.isCurrent()) return
       resource.value = value
       resource.phase = Array.isArray(value) && !value.length ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(key, request)) setError(resource, error, fallback)
-    } finally { finishRequest(key, request) }
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, fallback)
+    } finally { request.finish() }
   }
 
   function selectBinding(bindingId: string): void {
@@ -204,8 +205,9 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   async function synchronizeCatalog(): Promise<boolean> {
     const connection = selectedConnection()
     if (!connection) return false
+    const owner = requests.capture()
     return runCommand({
-      generation, operation: 'catalog-sync',
+      isCurrent: owner.isCurrent, operation: 'catalog-sync',
       run: () => gateway.synchronizeRepositories(requireScope(), connection),
     }, result => applyCatalogResult(connection.id, result))
   }
@@ -235,19 +237,19 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     state.bundles[key] ??= idleResource<ActionBundle[]>()
     const resource = state.bundles[key]!
     if (!force && ['loading', 'ready', 'empty'].includes(resource.phase)) return
-    const request = beginRequest(`bundles:${key}`)
+    const request = requests.begin(`bundles:${key}`)
     beginLoad(resource)
     try {
-      const values = await gateway.listBundles(scope, coordinates, request.controller.signal)
-      if (!isCurrent(`bundles:${key}`, request) || !selectionMatches(coordinates)) return
+      const values = await gateway.listBundles(scope, coordinates, request.signal)
+      if (!request.isCurrent() || !selectionMatches(coordinates)) return
       resource.value = values
       resource.phase = values.length ? 'ready' : 'empty'
       const selected = values.find(item => item.id === state.selectedBundleId) ?? values[0]
       state.selectedBundleId = selected?.id ?? null
       if (selected) await selectBundle(coordinates, selected.id, force)
     } catch (error) {
-      if (!isAbort(error) && isCurrent(`bundles:${key}`, request)) setError(resource, error, '暂时无法加载 ActionBundle')
-    } finally { finishRequest(`bundles:${key}`, request) }
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载 ActionBundle')
+    } finally { request.finish() }
   }
 
   async function selectBundle(coordinates: DeliveryCoordinates, bundleId: string, force = false): Promise<void> {
@@ -257,26 +259,27 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     state.bundleDetails[key] ??= idleResource<EtaggedActionBundle>()
     const resource = state.bundleDetails[key]!
     if (!force && ['loading', 'ready'].includes(resource.phase)) return
-    const request = beginRequest(`bundle:${key}`)
+    const request = requests.begin(`bundle:${key}`)
     beginLoad(resource)
     try {
-      const value = await gateway.getBundle(requireScope(), coordinates, bundleId, request.controller.signal)
-      if (!isCurrent(`bundle:${key}`, request) || !selectionMatches(coordinates) || state.selectedBundleId !== bundleId) return
+      const value = await gateway.getBundle(requireScope(), coordinates, bundleId, request.signal)
+      if (!request.isCurrent() || !selectionMatches(coordinates) || state.selectedBundleId !== bundleId) return
       if (value.value.id !== bundleId || value.value.taskId !== coordinates.taskId || value.value.taskExecutionId !== coordinates.executionId) {
         throw new Error('ActionBundle response identity mismatch')
       }
       resource.value = value
       resource.phase = 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(`bundle:${key}`, request)) setError(resource, error, '暂时无法加载 ActionBundle 详情')
-    } finally { finishRequest(`bundle:${key}`, request) }
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载 ActionBundle 详情')
+    } finally { request.finish() }
   }
 
   async function plan(input: PlanActionBundleInput): Promise<boolean> {
     const context = commandCoordinates()
     if (!context || state.preflight.phase !== 'ready') return false
     const key = secureId()
-    return runCommand({ generation, operation: 'plan', run: () => gateway.plan(requireScope(), context, input, key) }, refresh)
+    const owner = requests.capture()
+    return runCommand({ isCurrent: owner.isCurrent, operation: 'plan', run: () => gateway.plan(requireScope(), context, input, key) }, refresh)
   }
 
   async function confirm(): Promise<boolean> {
@@ -284,7 +287,8 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     const bundle = selectedBundle()
     if (!context || !bundle || bundle.value.validity !== 'CURRENT' || bundle.value.confirmation) return false
     const key = secureId()
-    return runCommand({ generation, operation: 'confirm', run: () => gateway.confirm(requireScope(), context, bundle, key) }, refresh)
+    const owner = requests.capture()
+    return runCommand({ isCurrent: owner.isCurrent, operation: 'confirm', run: () => gateway.confirm(requireScope(), context, bundle, key) }, refresh)
   }
 
   async function cancel(): Promise<boolean> {
@@ -292,15 +296,17 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     const bundle = selectedBundle()
     if (!context || !bundle?.value.confirmation || bundle.value.confirmation.status !== 'ACTIVE') return false
     const key = secureId()
-    return runCommand({ generation, operation: 'cancel', run: () => gateway.cancel(requireScope(), context, bundle, 'MEMBER_CANCELLED', key) }, refresh)
+    const owner = requests.capture()
+    return runCommand({ isCurrent: owner.isCurrent, operation: 'cancel', run: () => gateway.cancel(requireScope(), context, bundle, 'MEMBER_CANCELLED', key) }, refresh)
   }
 
   async function resolveFailure(action: PlannedAction, explanation: string): Promise<boolean> {
     const context = commandCoordinates()
     if (!context || action.dispatch?.status !== 'MANUAL_REVIEW' || explanation.trim().length < 10) return false
     const key = secureId()
+    const owner = requests.capture()
     return runCommand({
-      generation, operation: 'manual-resolution',
+      isCurrent: owner.isCurrent, operation: 'manual-resolution',
       run: () => gateway.resolveFailure(requireScope(), context, action.dispatch!.id, action.dispatch!.version, explanation.trim(), key),
     }, refresh)
   }
@@ -311,14 +317,14 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     state.command = { ...idleCommand(), phase: 'pending', operation: command.operation }
     try {
       const result = await command.run()
-      if (command.generation !== generation || pendingCommand !== command) return false
+      if (!command.isCurrent() || pendingCommand !== command) return false
       state.command.phase = 'success'
       state.command.correlationId = Array.isArray(result) ? null : result.correlationId ?? null
       pendingCommand = null
       await onSuccess?.(result)
       return true
     } catch (error) {
-      if (command.generation !== generation || pendingCommand !== command) return false
+      if (!command.isCurrent() || pendingCommand !== command) return false
       const api = error instanceof CrewScopeApiError ? error : null
       const conflict = api?.status === 409 || api?.status === 412
       state.command.phase = conflict ? 'conflict' : 'error'
@@ -334,7 +340,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
 
   async function retryCommand(): Promise<boolean> {
     const command = pendingCommand
-    if (!command || !state.command.retryable || command.generation !== generation) return false
+    if (!command || !state.command.retryable || !command.isCurrent()) return false
     state.command = idleCommand()
     return runCommand(command, command.operation === 'catalog-sync'
       ? result => applyCatalogResult(state.selectedConnectionId, result)
@@ -382,8 +388,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
   }
 
   function clearSelection(): void {
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     state.selectedTaskId = null
     state.selectedExecutionId = null
@@ -393,8 +398,7 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
 
   function reset(): void {
     commandIntents.clear()
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     activeScope = null
     activeScopeKey = null
@@ -410,22 +414,6 @@ export function createDeliveryStore(gateway: DeliveryGateway): DeliveryStore {
     return { ...activeScope }
   }
 
-  function beginRequest(key: string): ActiveRequest {
-    requests.get(key)?.controller.abort()
-    const request = { scopeKey: activeScopeKey!, generation, controller: new AbortController() }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(key: string, request: ActiveRequest): boolean {
-    return requests.get(key) === request && request.scopeKey === activeScopeKey && request.generation === generation
-  }
-
-  function finishRequest(key: string, request: ActiveRequest): void {
-    if (requests.get(key) === request) requests.delete(key)
-  }
-
-  function abortRequests(): void { requests.forEach(item => item.controller.abort()); requests.clear() }
   function replaceState(value: DeliveryStoreState): void { Object.assign(state, value) }
 
   return {
@@ -472,7 +460,6 @@ function unique<T>(values: T[], key: (value: T) => string): T[] {
   return [...new Map(values.map(value => [key(value), value])).values()]
 }
 
-function isAbort(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError' }
 
 export function installDeliveryStore(app: App, gateway: DeliveryGateway): DeliveryStore {
   const store = createDeliveryStore(gateway)

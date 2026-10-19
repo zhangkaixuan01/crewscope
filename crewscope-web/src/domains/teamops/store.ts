@@ -1,7 +1,8 @@
 import { createCommandGateway } from '../../api/commandGateway'
 import { commandFailure, commandFailureMessage } from '../../api/commandIntent'
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
-import { isAbort, teamOpsError, type TeamOpsErrorState } from './errors'
+import { teamOpsError, type TeamOpsErrorState } from './errors'
+import { isAbort } from '../../api/errors'
 import type {
   ConfirmLarkMappingInput,
   CreateLarkConnectionInput,
@@ -39,6 +40,7 @@ import type {
   TeamOpsScope,
   WorkItemActivityRoute,
 } from './types'
+import { createRequestScope } from '../../api/requestScope'
 
 export type TeamOpsPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -137,14 +139,6 @@ export interface TeamOpsStore {
 export const TEAM_OPS_STORE: InjectionKey<TeamOpsStore> = Symbol('crewscope-team-ops-store')
 const PAGE_SIZE = 50
 
-interface ActiveRequest {
-  key: string
-  version: number
-  generation: number
-  scopeKey: string
-  controller: AbortController
-}
-
 /** Team collaboration data layer with abort plus generation guards against late Scope writes. */
 export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   const commandIntents = createCommandGateway(gateway, { changeInboxDisposition: 4, revokeLarkConnection: 4, confirmLarkMapping: 2, revokeLarkMapping: 4, updateNotificationPreference: 4, redeliverNotification: 3, recover: 3, projectionCommand: 2 })
@@ -152,22 +146,23 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   const state = reactive<TeamOpsStoreState>(initialState())
   let activeScope: TeamOpsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  let commandEpoch = 0
+  // Two epochs (M12b-F05): the read scope advances on Scope switches (changing its coordinate
+  // and voiding stragglers) — the generation + ActiveRequest map this replaces; the command
+  // epoch advances on every command-slot handover without touching in-flight reads.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
+  const commandEpochs = createRequestScope(() => 'teamops-command-epoch')
   let teamActivityFilterKey = ''
   let inboxFilterKey = ''
   let auditFilterKey = ''
   let mappingFilterKey = ''
   let deliveryFilterKey = ''
-  const requests = new Map<string, ActiveRequest>()
 
   function activateScope(scope: TeamOpsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     resetFilterKeys()
     replaceState(initialState())
   }
@@ -256,10 +251,10 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function changeInboxDisposition(itemId: string, status: string, idempotencyKey: string): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
-    const commandAt = commandEpoch
+    const owner = requests.capture()
+    const commandAt = commandEpochs.capture()
     if (state.inboxDetails[itemId]?.phase !== 'ready') await loadInboxDetail(itemId)
-    if (started !== generation || commandAt !== commandEpoch) return false
+    if (!owner.isCurrent() || !commandAt.isCurrent()) return false
     const detail = state.inboxDetails[itemId]?.value
     if (!detail) return false
     return runCommand('inbox-disposition', itemId, () => gateway.changeInboxDisposition(scope, itemId, status, detail.etag, idempotencyKey), () => {
@@ -299,27 +294,27 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
     const target = state.correlations[correlationId]!
     if (more && !target.nextCursor) return
     if (!more && !force && (target.phase === 'ready' || target.phase === 'empty')) return
-    const request = beginRequest(`correlation:${correlationId}`)
+    const request = requests.begin(`correlation:${correlationId}`)
     target.loadingMore = more
     if (!more) target.phase = 'loading'
     target.error = null
     try {
-      const page = await gateway.correlation(scope, correlationId, more ? target.nextCursor : null, PAGE_SIZE, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await gateway.correlation(scope, correlationId, more ? target.nextCursor : null, PAGE_SIZE, request.signal)
+      if (!request.isCurrent()) return
       if (page.correlationId !== correlationId) throw new TypeError('Correlation response escaped the requested graph')
       target.value = mergeCorrelation(more ? target.value : null, page)
       target.nextCursor = page.nextCursor
       target.phase = target.value.events.length === 0 && target.value.objects.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) {
+      if (!isAbort(error) && request.isCurrent()) {
         const classified = teamOpsError(error, '暂时无法加载 Correlation 链')
         if (classified.kind === 'cursor-expired') target.nextCursor = null
         target.error = classified
         target.phase = 'error'
       }
     } finally {
-      if (isCurrent(request)) target.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) target.loadingMore = false
+      request.finish()
     }
   }
 
@@ -349,11 +344,11 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function rotateLarkConnection(connectionId: string, input: RotateLarkConnectionInput, idempotencyKey: string, expectedVersion?: number): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
-    const commandAt = commandEpoch
+    const owner = requests.capture()
+    const commandAt = commandEpochs.capture()
     const snapshot = { ...input }
     if (state.larkConnectionDetails[connectionId]?.phase !== 'ready') await loadLarkConnection(connectionId)
-    if (started !== generation || commandAt !== commandEpoch) return false
+    if (!owner.isCurrent() || !commandAt.isCurrent()) return false
     const detail = state.larkConnectionDetails[connectionId]?.value
     if (!detail) return false
     // Preserve the dialog's observed version. The server rejects drift; never silently upgrade it.
@@ -363,10 +358,10 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function revokeLarkConnection(connectionId: string, reason: string, idempotencyKey: string): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
-    const commandAt = commandEpoch
+    const owner = requests.capture()
+    const commandAt = commandEpochs.capture()
     if (state.larkConnectionDetails[connectionId]?.phase !== 'ready') await loadLarkConnection(connectionId)
-    if (started !== generation || commandAt !== commandEpoch) return false
+    if (!owner.isCurrent() || !commandAt.isCurrent()) return false
     const detail = state.larkConnectionDetails[connectionId]?.value
     if (!detail) return false
     return runCommand('lark-revoke', connectionId, () => gateway.revokeLarkConnection(scope, connectionId, detail.etag, reason, idempotencyKey), invalidateLarkConnections)
@@ -406,11 +401,11 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function updateNotificationPreference(memberId: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
-    const commandAt = commandEpoch
+    const owner = requests.capture()
+    const commandAt = commandEpochs.capture()
     const snapshot = { ...input, enabledItemTypes: [...input.enabledItemTypes] }
     if (state.notificationPreferences[memberId]?.phase !== 'ready') await loadNotificationPreference(memberId)
-    if (started !== generation || commandAt !== commandEpoch) return false
+    if (!owner.isCurrent() || !commandAt.isCurrent()) return false
     const detail = state.notificationPreferences[memberId]?.value
     if (!detail) return false
     return runCommand('notification-preference', memberId, () => gateway.updateNotificationPreference(scope, memberId, detail.etag, snapshot, idempotencyKey), () => {
@@ -444,10 +439,10 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function redeliverNotification(deliveryId: string, idempotencyKey: string): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
-    const commandAt = commandEpoch
+    const owner = requests.capture()
+    const commandAt = commandEpochs.capture()
     if (state.notificationDeliveryDetails[deliveryId]?.phase !== 'ready') await loadNotificationDelivery(deliveryId)
-    if (started !== generation || commandAt !== commandEpoch) return false
+    if (!owner.isCurrent() || !commandAt.isCurrent()) return false
     const detail = state.notificationDeliveryDetails[deliveryId]?.value
     if (!detail) return false
     return runCommand('notification-redeliver', deliveryId, () => gateway.redeliverNotification(scope, deliveryId, detail.etag, idempotencyKey), invalidateDeliveries)
@@ -475,18 +470,18 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
 
   async function loadResource<T>(requestKey: string, target: TeamOpsResource<T>, force: boolean, loader: (signal: AbortSignal) => Promise<T>, fallback: string): Promise<void> {
     if (!force && (target.phase === 'ready' || target.phase === 'empty')) return
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     target.phase = 'loading'
     target.error = null
     try {
-      const value = await loader(request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await loader(request.signal)
+      if (!request.isCurrent()) return
       target.value = value
       target.phase = Array.isArray(value) && value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(target, error, fallback)
+      if (!isAbort(error) && request.isCurrent()) setError(target, error, fallback)
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
@@ -502,28 +497,28 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   ): Promise<void> {
     if (more && !target.nextCursor) return
     if (!more && !force && (target.phase === 'ready' || target.phase === 'empty')) return
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     target.loadingMore = more
     if (!more) target.phase = 'loading'
     target.error = null
     try {
-      const page = await loader(more ? target.nextCursor : null, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await loader(more ? target.nextCursor : null, request.signal)
+      if (!request.isCurrent()) return
       validate?.(page)
       target.value = merge(more ? target.value ?? [] : [], page.items, identity)
       target.nextCursor = page.nextCursor
       target.resumeCursor = resume?.(page) ?? target.resumeCursor
       target.phase = target.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) {
+      if (!isAbort(error) && request.isCurrent()) {
         const classified = teamOpsError(error, '暂时无法加载团队协作数据')
         if (classified.kind === 'cursor-expired') target.nextCursor = null
         target.error = classified
         target.phase = 'error'
       }
     } finally {
-      if (isCurrent(request)) target.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) target.loadingMore = false
+      request.finish()
     }
   }
 
@@ -535,19 +530,19 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   ): Promise<boolean> {
     // One shared receipt/error slot permits one in-flight command across all Team operations.
     if (state.command.phase === 'pending') return false
-    commandEpoch += 1
-    const commandGeneration = generation
+    commandEpochs.invalidate()
+    const commandOwner = requests.capture()
     state.command = { phase: 'pending', operation, targetId, receipt: null, error: null }
     const pending = state.command
     try {
       const receipt = await execute()
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       const classified = teamOpsError(error, '团队协作命令执行失败')
       if (commandFailure(error) === 'unknown') {
         classified.message = operation === 'lark-member-verify'
@@ -559,29 +554,6 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
       state.command.error = classified
       return false
     }
-  }
-
-  function beginRequest(key: string): ActiveRequest {
-    requests.get(key)?.controller.abort()
-    const request: ActiveRequest = {
-      key, version: (requests.get(key)?.version ?? 0) + 1, generation,
-      scopeKey: activeScopeKey!, controller: new AbortController(),
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: ActiveRequest): boolean {
-    return generation === request.generation && activeScopeKey === request.scopeKey && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: ActiveRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    requests.forEach(request => request.controller.abort())
-    requests.clear()
   }
 
   function requireScope(): TeamOpsScope {
@@ -609,14 +581,14 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 
   function clearCommand(): void {
-    commandEpoch += 1
+    commandEpochs.invalidate()
     state.command = commandState()
   }
 
   function reset(): void {
     commandIntents.clear()
-    generation += 1
-    abortRequests()
+    requests.invalidate()
+    commandEpochs.invalidate()
     activeScope = null
     activeScopeKey = null
     resetFilterKeys()

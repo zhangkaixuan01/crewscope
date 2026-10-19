@@ -12,6 +12,8 @@ import type {
   ReviewScope,
   ReviewSummary,
 } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type ReviewPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type ReviewOperation = 'execute' | 'decision' | 'modification' | 'create'
@@ -68,14 +70,8 @@ export interface ReviewStore {
 
 export const REVIEW_STORE: InjectionKey<ReviewStore> = Symbol('crewscope-review-store')
 
-interface ActiveRequest {
-  version: number
-  scopeKey: string
-  controller: AbortController
-}
-
 interface PendingCommand {
-  generation: number
+  isCurrent: () => boolean
   operation: ReviewOperation
   reviewRequestId: string
   idempotencyKey: string
@@ -89,8 +85,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   const state = reactive<ReviewStoreState>(initialState())
   let activeScope: ReviewScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, ActiveRequest>()
+  // Scope switches and selection clears advance the epoch (voiding captures) — the
+  // generation counter + ActiveRequest map this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
   let pendingCommand: PendingCommand | null = null
 
   function activateScope(scope: ReviewScope): void {
@@ -98,8 +95,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     if (activeScopeKey === next) return
     activeScope = { ...scope }
     activeScopeKey = next
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     replaceState(initialState())
   }
@@ -110,11 +106,11 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     reviewRequestId?: string | null,
   ): Promise<void> {
     activateScope(scope)
-    const expectedGeneration = generation
+    const owner = requests.capture()
     state.selectedTaskId = coordinates.taskId
     state.selectedExecutionId = coordinates.executionId
     await load(coordinates)
-    if (expectedGeneration !== generation || !selectionMatches(coordinates)) return
+    if (!owner.isCurrent() || !selectionMatches(coordinates)) return
     const values = state.lists[attemptKey(coordinates)]?.value ?? []
     const selected = reviewRequestId
       ?? [...values].sort((left, right) => right.revision - left.revision)[0]?.id
@@ -133,20 +129,20 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     // Several route facts converge during drawer restoration. Reuse the in-flight read so
     // equivalent synchronizations cannot continuously abort one another.
     if (!force && ['loading', 'ready', 'empty'].includes(resource.phase)) return
-    const request = beginRequest(`list:${key}`)
+    const request = requests.begin(`list:${key}`)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     resource.errorCode = null
     try {
-      const values = await gateway.list(scope, coordinates, request.controller.signal)
-      if (!isCurrent(request)) return
+      const values = await gateway.list(scope, coordinates, request.signal)
+      if (!request.isCurrent()) return
       resource.value = [...values].sort((left, right) => right.revision - left.revision)
       resource.phase = values.length ? 'ready' : 'empty'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载 Review 历史')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载 Review 历史')
     } finally {
-      finishRequest(`list:${key}`, request)
+      request.finish()
     }
   }
 
@@ -164,22 +160,22 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     // Deep-link, Coding and Task watchers may select the same Review concurrently.
     // Keep one authoritative request in flight instead of creating an abort loop.
     if (!force && ['loading', 'ready'].includes(resource.phase)) return
-    const request = beginRequest(`detail:${key}`)
+    const request = requests.begin(`detail:${key}`)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     resource.errorCode = null
     try {
-      const value = await gateway.get(scope, coordinates, reviewRequestId, request.controller.signal)
-      if (!isCurrent(request) || !selectionMatches(coordinates)) return
+      const value = await gateway.get(scope, coordinates, reviewRequestId, request.signal)
+      if (!request.isCurrent() || !selectionMatches(coordinates)) return
       if (value.value.id !== reviewRequestId) throw new Error('Review response identity mismatch')
       resource.value = value
       resource.phase = 'ready'
       await loadComments(coordinates, reviewRequestId)
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载 Review 详情')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载 Review 详情')
     } finally {
-      finishRequest(`detail:${key}`, request)
+      request.finish()
     }
   }
 
@@ -189,22 +185,22 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     state.comments[key] ??= idleResource<ReviewLineComment[]>()
     const resource = state.comments[key]!
     if (!force && ['loading', 'ready', 'empty'].includes(resource.phase)) return
-    const request = beginRequest(`comments:${key}`)
+    const request = requests.begin(`comments:${key}`)
     resource.phase = 'loading'; resource.errorMessage = null
     try {
-      const values = await gateway.listComments?.(scope, coordinates, reviewRequestId, request.controller.signal) ?? []
-      if (!isCurrent(request)) return
+      const values = await gateway.listComments?.(scope, coordinates, reviewRequestId, request.signal) ?? []
+      if (!request.isCurrent()) return
       resource.value = values; resource.phase = values.length ? 'ready' : 'empty'
-    } catch (error) { if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载行级评论') }
-    finally { finishRequest(`comments:${key}`, request) }
+    } catch (error) { if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载行级评论') }
+    finally { request.finish() }
   }
 
   async function addComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }): Promise<ReviewLineComment | null> {
     const scope = requireScope(); const coordinates = selectedCoordinates(); const reviewRequestId = state.selectedReviewRequestId
     if (!coordinates || !reviewRequestId || !gateway.addComment) return null
-    const started = generation
+    const owner = requests.capture()
     const value = await gateway.addComment(scope, coordinates, reviewRequestId, input, secureId())
-    if (started !== generation || !selectionMatches(coordinates) || state.selectedReviewRequestId !== reviewRequestId) return null
+    if (!owner.isCurrent() || !selectionMatches(coordinates) || state.selectedReviewRequestId !== reviewRequestId) return null
     const key = detailKey(coordinates, reviewRequestId)
     state.comments[key] ??= idleResource<ReviewLineComment[]>()
     state.comments[key]!.value = [...(state.comments[key]!.value ?? []), value]
@@ -221,18 +217,18 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     const coordinates = selectedCoordinates()
     if (!coordinates || !gateway.create) return false
     if (state.command.phase === 'pending') return false
-    const started = generation
+    const owner = requests.capture()
     state.command = { ...idleCommand(), phase: 'pending', operation: 'create' }
     try {
       const receipt = await gateway.create(scope, coordinates, secureId())
-      if (started !== generation) return false
+      if (!owner.isCurrent()) return false
       state.command.phase = 'success'
       state.command.receiptCorrelationId = receipt.correlationId
       invalidateAttempt(coordinates)
       await load(coordinates, true)
       return true
     } catch (error) {
-      if (started !== generation) return false
+      if (!owner.isCurrent()) return false
       const api = error instanceof CrewScopeApiError ? error : null
       const isConflict = api?.status === 409 || api?.status === 412
       state.command.phase = isConflict ? 'conflict' : 'error'
@@ -249,8 +245,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     const context = commandContext()
     if (!context) return false
     const key = secureId()
+    const owner = requests.capture()
     return runCommand({
-      generation,
+      isCurrent: owner.isCurrent,
       operation: 'execute',
       reviewRequestId: context.review.value.id,
       idempotencyKey: key,
@@ -265,8 +262,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     const context = commandContext()
     if (!context) return false
     const key = secureId()
+    const owner = requests.capture()
     return runCommand({
-      generation,
+      isCurrent: owner.isCurrent,
       operation: 'decision',
       reviewRequestId: context.review.value.id,
       idempotencyKey: key,
@@ -281,8 +279,9 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     const context = commandContext()
     if (!context) return false
     const key = secureId()
+    const owner = requests.capture()
     return runCommand({
-      generation,
+      isCurrent: owner.isCurrent,
       operation: 'modification',
       reviewRequestId: context.review.value.id,
       idempotencyKey: key,
@@ -302,7 +301,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     }
     try {
       const result = await command.run()
-      if (command.generation !== generation || pendingCommand !== command) return false
+      if (!command.isCurrent() || pendingCommand !== command) return false
       state.command.phase = 'success'
       if ('reviewRequestId' in result) {
         state.command.execution = result
@@ -314,7 +313,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
       await refreshSelected(command.reviewRequestId)
       return true
     } catch (error) {
-      if (command.generation !== generation || pendingCommand !== command) return false
+      if (!command.isCurrent() || pendingCommand !== command) return false
       const api = error instanceof CrewScopeApiError ? error : null
       const isConflict = api?.status === 409 || api?.status === 412
       state.command.phase = isConflict ? 'conflict' : 'error'
@@ -331,7 +330,7 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
 
   async function retryCommand(): Promise<boolean> {
     const command = pendingCommand
-    if (!command || !state.command.retryable || command.generation !== generation) return false
+    if (!command || !state.command.retryable || !command.isCurrent()) return false
     state.command.phase = 'idle'
     return runCommand(command)
   }
@@ -368,16 +367,14 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
     state.selectedTaskId = null
     state.selectedExecutionId = null
     state.selectedReviewRequestId = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     state.command = idleCommand()
   }
 
   function reset(): void {
     commandIntents.clear()
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     pendingCommand = null
     activeScope = null
     activeScopeKey = null
@@ -411,31 +408,6 @@ export function createReviewStore(gateway: ReviewGateway): ReviewStore {
   function requireScope(): ReviewScope {
     if (!activeScope) throw new Error('Review scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): ActiveRequest {
-    requests.get(key)?.controller.abort()
-    const request: ActiveRequest = {
-      version: (requests.get(key)?.version ?? 0) + 1,
-      scopeKey: activeScopeKey!,
-      controller: new AbortController(),
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: ActiveRequest): boolean {
-    return activeScopeKey === request.scopeKey
-      && [...requests.values()].some(current => current === request)
-  }
-
-  function finishRequest(key: string, request: ActiveRequest): void {
-    if (requests.get(key) === request) requests.delete(key)
-  }
-
-  function abortRequests(): void {
-    requests.forEach(request => request.controller.abort())
-    requests.clear()
   }
 
   function replaceState(value: ReviewStoreState): void {
@@ -495,9 +467,6 @@ function setError(resource: ReviewResource<unknown>, error: unknown, fallback: s
   resource.errorCode = api?.envelope.code ?? null
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
 export function installReviewStore(app: App, gateway: ReviewGateway): ReviewStore {
   const store = createReviewStore(gateway)

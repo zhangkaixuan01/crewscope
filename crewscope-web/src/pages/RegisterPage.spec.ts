@@ -191,6 +191,23 @@ describe('RegisterPage', () => {
     expect(vi.mocked(identity.register).mock.calls[1]?.[2]).toBe(firstKey)
     wrapper.unmount()
   })
+
+  it('aborts the in-flight registration on unmount and a late receipt writes nothing', async () => {
+    const pending = deferred<RegistrationResult>()
+    const identity = gateway({ registerPromise: pending.promise })
+    const { wrapper } = await mountPage(identity)
+    await fillValidForm(wrapper)
+    await wrapper.get('form').trigger('submit')
+    const sessionCalls = vi.mocked(identity.session).mock.calls.length
+
+    wrapper.unmount()
+    // Disposal aborts the request channel (M12b-F05): the linked transport signal is cancelled…
+    expect(vi.mocked(identity.register).mock.calls[0]?.[3]?.aborted).toBe(true)
+    // …and a late receipt cannot resume the flow — no session refresh runs for a dead page.
+    pending.resolve(registrationResult(false))
+    await flushPromises()
+    expect(identity.session).toHaveBeenCalledTimes(sessionCalls)
+  })
 })
 
 async function mountPage(identity: IdentityGateway, initialRoute = '/register') {

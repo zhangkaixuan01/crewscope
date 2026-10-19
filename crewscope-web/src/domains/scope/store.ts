@@ -1,5 +1,6 @@
 import { createCommandGateway } from '../../api/commandGateway'
 import { acknowledgeCreation } from '../../api/creationRecovery'
+import { presentError as sharedPresentError } from '../../api/errors'
 import { secureId } from '../../api/secureId'
 import {
   computed,
@@ -524,8 +525,7 @@ export function useScopeStore(): ScopeStore {
 }
 
 function presentError(error: unknown): string {
-  if (error instanceof CrewScopeApiError) return error.envelope.message
-  return '暂时无法加载团队范围，请稍后重试'
+  return sharedPresentError(error, '暂时无法加载团队范围，请稍后重试')
 }
 
 function retryable(error: unknown): boolean {

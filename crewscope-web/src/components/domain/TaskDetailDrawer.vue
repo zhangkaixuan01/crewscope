@@ -11,6 +11,10 @@ import {
   TriangleAlert,
 } from '@lucide/vue'
 import { computed, nextTick, ref, useTemplateRef } from 'vue'
+import { useNetworkStatus } from '../../app/network'
+import { useTaskStore } from '../../domains/task/store'
+import { useReviewStore } from '../../domains/review/store'
+import type { TaskWorkbench } from '../../composables/useWorkTaskWorkbench'
 import type { CodingPhase, CodingResource } from '../../domains/coding/store'
 import type { ArtifactTextDocument, CodingAttemptSummary, CodingPatchDocument, CommandEvidenceSummary, EvidencePage, TestEvidenceSummary } from '../../domains/coding/types'
 import type { SemanticTone } from '../base/types'
@@ -58,95 +62,110 @@ import TaskAttemptHistoryPanel from './TaskAttemptHistoryPanel.vue'
 import TaskRuntimeFactsPanel from './TaskRuntimeFactsPanel.vue'
 
 const props = defineProps<{
-  phase: TaskPhase
-  details: TaskDetails | null
-  attempts: TaskExecution[]
-  selectedExecutionId: string | null
-  errorMessage: string | null
-  runtimePhase: TaskPhase
-  runtimeFacts: TaskRuntimeFacts | null
-  runtimeErrorMessage: string | null
-  codingPhase: CodingPhase
-  codingAttempt: CodingAttemptSummary | null
-  codingErrorMessage: string | null
-  codingCommandsPhase: CodingPhase
-  codingCommands: EvidencePage<CommandEvidenceSummary> | null
-  codingCommandsErrorMessage: string | null
-  codingTestsPhase: CodingPhase
-  codingTests: EvidencePage<TestEvidenceSummary> | null
-  codingTestsErrorMessage: string | null
-  codingCommandLog: (evidenceId: string) => CodingResource<ArtifactTextDocument> | null
-  codingTestReport: (evidenceId: string) => CodingResource<ArtifactTextDocument> | null
-  codingPatchPhase: CodingPhase
-  codingPatch: CodingPatchDocument | null
-  codingPatchErrorMessage: string | null
-  fleetPhase: TaskPhase
-  fleet: RuntimeFleetSummary | null
-  fleetErrorMessage: string | null
-  associationPhase: TaskPhase
-  associations: TaskAssociations | null
-  associationErrorMessage: string | null
-  eventPhase: TaskPhase
-  eventPage: TaskEventPage | null
-  eventErrorMessage: string | null
-  liveState: TaskLiveState | null
-  reviewListPhase: ReviewPhase
-  reviews: ReviewSummary[] | null
-  /** Delivery actions of the selected execution — the first screen surfaces their dispatch attention. */
-  deliveryActions?: PlannedAction[]
-  selectedReviewRequestId: string | null
-  reviewDetailPhase: ReviewPhase
-  review: EtaggedReview | null
-  reviewListErrorMessage: string | null
-  reviewDetailErrorMessage: string | null
-  reviewComments?: ReviewLineComment[]
-  onAddReviewComment?: (input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }) => Promise<ReviewLineComment | null>
-  reviewCommand: ReviewCommandState
+  /**
+   * The page-owned workbench (M12b-F05): the selection state machine, the cross-store projections
+   * and the page-scoped command wrappers. Raw task/review state faces are subscribed to their
+   * stores directly below — the drawer reads this object, it never owns its watches.
+   */
+  workbench: TaskWorkbench
   canGateReview: boolean
   canConfirmDelivery: boolean
   principals: Array<{ principalId: string, displayName: string }>
   canControl: boolean
-  online: boolean
-  commandPending: MemberTaskCommandOperation | null
-  commandErrorMessage: string | null
-  commandRetryable: boolean
-  commandVersionConflict: TaskCommandVersionConflict | null
-  workspaceAction: WorkspaceAction
-  executionConflict: { unified: string, alias: string } | null
   /** Pinned by the WorkItem outcome jump; the Task workspace states a finalHash mismatch, never hides it. */
   pinnedResultReference?: ResultReference | null
-  onResolveExecutionConflict: (executionId: string) => void
-  onSelectAttempt: (executionId: string) => void
-  onRetry: () => void
-  onRetryRuntime: () => void
-  onRetryCoding: () => void
-  onLoadCodingPatch: () => void
-  onLoadCodingCommandsMore: () => void
-  onLoadCodingTestsMore: () => void
-  onLoadCodingCommandLog: (evidenceId: string, more?: boolean) => void
-  onLoadCodingTestReport: (evidenceId: string, more?: boolean) => void
-  onRetryFleet: () => void
-  onRetryAssociations: () => void
-  onLoadEventsMore: () => void
-  onRetryEvents: () => void
-  onSelectReview: (reviewRequestId: string) => void
-  onRetryReviews: () => void
-  onRetryReviewDetail: () => void
-  canCreateReview: boolean
-  onCreateReview: () => Promise<boolean>
-  onExecuteReviewer: () => Promise<boolean>
-  onDecideReview: (input: ReviewDecisionInput) => Promise<boolean>
-  onRequestReviewChanges: (rationale: string) => Promise<boolean>
-  onRetryReviewCommand: () => Promise<boolean>
-  onClearReviewCommand: () => void
-  onCommand: (operation: MemberTaskCommandOperation, reason?: string, agentConfigurationRevision?: number) => Promise<void>
-  onRetryCommand: () => Promise<void>
-  onClearCommand: () => void
 }>()
 
 const emit = defineEmits<{ close: [], openWorkItem: [], openConversation: [conversationId: string] }>()
 const content = useTemplateRef<HTMLElement>('content')
 const reviewLocation = ref<ReviewFindingEvidence | null>(null)
+
+// --- M12b-F05 subscriptions: raw state faces come from the stores, projections from the workbench.
+const taskStore = useTaskStore()
+const reviewStore = useReviewStore()
+const online = useNetworkStatus()
+
+const phase = computed<TaskPhase>(() => taskStore.state.detailPhase)
+const details = computed<TaskDetails | null>(() => taskStore.state.details)
+const attempts = computed<TaskExecution[]>(() => taskStore.state.attempts)
+const errorMessage = computed(() => taskStore.state.detailErrorMessage)
+const commandPending = computed<MemberTaskCommandOperation | null>(() => taskStore.state.commandPending)
+const commandErrorMessage = computed(() => taskStore.state.commandErrorMessage)
+const commandRetryable = computed(() => taskStore.state.commandRetryable)
+const commandVersionConflict = computed<TaskCommandVersionConflict | null>(() => taskStore.state.commandVersionConflict)
+const selectedReviewRequestId = computed(() => reviewStore.state.selectedReviewRequestId)
+const reviewCommand = computed<ReviewCommandState>(() => reviewStore.state.command)
+
+const selectedExecutionId = computed<string | null>(() => props.workbench.selectedTaskExecutionId.value)
+const runtimePhase = computed<TaskPhase>(() => props.workbench.selectedRuntimeResource.value?.phase ?? 'idle')
+const runtimeFacts = computed<TaskRuntimeFacts | null>(() => props.workbench.selectedRuntimeResource.value?.value ?? null)
+const runtimeErrorMessage = computed(() => props.workbench.selectedRuntimeResource.value?.errorMessage ?? null)
+const codingPhase = computed<CodingPhase>(() => props.workbench.codingStudioPhase.value)
+const codingErrorMessage = computed(() => props.workbench.codingStudioErrorMessage.value)
+const codingAttempt = computed<CodingAttemptSummary | null>(() => props.workbench.selectedCodingAttemptResource.value?.value ?? null)
+const codingCommandsPhase = computed<CodingPhase>(() => props.workbench.selectedCodingCommandsResource.value?.phase ?? 'idle')
+const codingCommands = computed<EvidencePage<CommandEvidenceSummary> | null>(() => props.workbench.selectedCodingCommandsResource.value?.value ?? null)
+const codingCommandsErrorMessage = computed(() => props.workbench.selectedCodingCommandsResource.value?.errorMessage ?? null)
+const codingTestsPhase = computed<CodingPhase>(() => props.workbench.selectedCodingTestsResource.value?.phase ?? 'idle')
+const codingTests = computed<EvidencePage<TestEvidenceSummary> | null>(() => props.workbench.selectedCodingTestsResource.value?.value ?? null)
+const codingTestsErrorMessage = computed(() => props.workbench.selectedCodingTestsResource.value?.errorMessage ?? null)
+const codingPatchPhase = computed<CodingPhase>(() => props.workbench.selectedCodingPatchResource.value?.phase ?? 'idle')
+const codingPatch = computed<CodingPatchDocument | null>(() => props.workbench.selectedCodingPatchResource.value?.value ?? null)
+const codingPatchErrorMessage = computed(() => props.workbench.selectedCodingPatchResource.value?.errorMessage ?? null)
+const fleetPhase = computed<TaskPhase>(() => props.workbench.runtimeHealthResource.value?.phase ?? 'idle')
+const fleet = computed<RuntimeFleetSummary | null>(() => props.workbench.runtimeHealthResource.value?.value ?? null)
+const fleetErrorMessage = computed(() => props.workbench.runtimeHealthResource.value?.errorMessage ?? null)
+const associationPhase = computed<TaskPhase>(() => props.workbench.taskAssociationResource.value?.phase ?? 'idle')
+const associations = computed<TaskAssociations | null>(() => props.workbench.taskAssociationResource.value?.value ?? null)
+const associationErrorMessage = computed(() => props.workbench.taskAssociationResource.value?.errorMessage ?? null)
+const eventPhase = computed<TaskPhase>(() => props.workbench.taskEventResource.value?.phase ?? 'idle')
+const eventPage = computed<TaskEventPage | null>(() => props.workbench.taskEventResource.value?.value ?? null)
+const eventErrorMessage = computed(() => props.workbench.taskEventResource.value?.errorMessage ?? null)
+const liveState = computed<TaskLiveState | null>(() => props.workbench.taskLiveState.value)
+const reviewListPhase = computed<ReviewPhase>(() => props.workbench.selectedReviewListResource.value?.phase ?? 'idle')
+const reviews = computed<ReviewSummary[] | null>(() => props.workbench.selectedReviewListResource.value?.value ?? null)
+const reviewListErrorMessage = computed(() => props.workbench.selectedReviewListResource.value?.errorMessage ?? null)
+const reviewDetailPhase = computed<ReviewPhase>(() => props.workbench.selectedReviewDetailResource.value?.phase ?? 'idle')
+const review = computed<EtaggedReview | null>(() => props.workbench.selectedReviewDetailResource.value?.value ?? null)
+const reviewDetailErrorMessage = computed(() => props.workbench.selectedReviewDetailResource.value?.errorMessage ?? null)
+const reviewComments = computed<ReviewLineComment[]>(() => props.workbench.selectedReviewCommentsResource.value?.value ?? [])
+/** Delivery actions of the selected execution — the first screen surfaces their dispatch attention. */
+const deliveryActions = computed<PlannedAction[]>(() => (props.workbench.selectedDeliveryListResource.value?.value ?? []).flatMap(bundle => bundle.actions ?? []))
+const workspaceAction = computed<WorkspaceAction>(() => props.workbench.workspaceTaskAction.value)
+const executionConflict = computed<{ unified: string, alias: string } | null>(() => props.workbench.executionConflict.value)
+const canCreateReview = computed<boolean>(() => props.workbench.canCreateReview.value)
+
+const codingCommandLog = (evidenceId: string): CodingResource<ArtifactTextDocument> | null => props.workbench.codingCommandLog(evidenceId)
+const codingTestReport = (evidenceId: string): CodingResource<ArtifactTextDocument> | null => props.workbench.codingTestReport(evidenceId)
+
+// Command wrappers keep their page continuations; the local aliases keep the template untouched.
+const onResolveExecutionConflict = (executionId: string): void => props.workbench.resolveExecutionConflict(executionId)
+const onSelectAttempt = (executionId: string): void => props.workbench.selectTaskAttempt(executionId)
+const onRetry = (): void => props.workbench.retryTaskDetails()
+const onRetryRuntime = (): void => props.workbench.retryTaskRuntime()
+const onRetryCoding = (): void => props.workbench.retryCodingStudio()
+const onLoadCodingPatch = (): void => props.workbench.loadCodingPatch()
+const onLoadCodingCommandsMore = (): void => props.workbench.loadCodingCommandsMore()
+const onLoadCodingTestsMore = (): void => props.workbench.loadCodingTestsMore()
+const onLoadCodingCommandLog = (...args: Parameters<TaskWorkbench['loadCodingCommandLog']>): void => props.workbench.loadCodingCommandLog(...args)
+const onLoadCodingTestReport = (...args: Parameters<TaskWorkbench['loadCodingTestReport']>): void => props.workbench.loadCodingTestReport(...args)
+const onRetryFleet = (): void => props.workbench.retryRuntimeHealth()
+const onRetryAssociations = (): void => props.workbench.retryTaskAssociations()
+const onLoadEventsMore = (): void => props.workbench.loadTaskEventsMore()
+const onRetryEvents = (): void => props.workbench.retryTaskEvents()
+const onSelectReview = (reviewRequestId: string): void => props.workbench.selectReview(reviewRequestId)
+const onRetryReviews = (): void => props.workbench.retryReviews()
+const onRetryReviewDetail = (): void => props.workbench.retryReviewDetail()
+const onCreateReview = (): Promise<boolean> => props.workbench.createReview()
+const onExecuteReviewer = (): Promise<boolean> => props.workbench.executeReviewer()
+const onDecideReview = (input: ReviewDecisionInput): Promise<boolean> => props.workbench.decideReview(input)
+const onRequestReviewChanges = (rationale: string): Promise<boolean> => props.workbench.requestReviewChanges(rationale)
+const onRetryReviewCommand = (): Promise<boolean> => props.workbench.retryReviewCommand()
+const onClearReviewCommand = (): void => reviewStore.clearCommand()
+const onAddReviewComment = (input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }): Promise<ReviewLineComment | null> => props.workbench.addReviewComment(input)
+const onCommand = (...args: Parameters<TaskWorkbench['commandTask']>): Promise<void> => props.workbench.commandTask(...args)
+const onRetryCommand = (): Promise<void> => props.workbench.retryTaskCommand()
+const onClearCommand = (): void => taskStore.clearTaskCommand()
 
 /**
  * The six workspace sections in contract §4.1 order. DOM order equals reading order equals the
@@ -162,27 +181,27 @@ const workspaceSections: Array<{ id: string, label: string }> = [
   { id: 'ws-review', label: '审查与交付' },
 ]
 
-const currentAttempt = computed(() => props.attempts.find(item => item.id === props.details?.currentExecutionId) ?? null)
-const selectedAttempt = computed(() => props.attempts.find(item => item.id === props.selectedExecutionId) ?? null)
-const selectedAttemptHasContinuityGap = computed(() => props.runtimeFacts?.agentRuns.some(run => Boolean(run.continuityGap)) ?? false)
+const currentAttempt = computed(() => attempts.value.find(item => item.id === details.value?.currentExecutionId) ?? null)
+const selectedAttempt = computed(() => attempts.value.find(item => item.id === selectedExecutionId.value) ?? null)
+const selectedAttemptHasContinuityGap = computed(() => runtimeFacts.value?.agentRuns.some(run => Boolean(run.continuityGap)) ?? false)
 /** The newest test evidence of the selected execution — the verdict shown on the first screen. */
 const latestTestEvidence = computed(() => {
-  const items = props.codingTests?.items ?? []
+  const items = codingTests.value?.items ?? []
   return items.reduce<TestEvidenceSummary | null>((latest, item) => !latest || item.sequence > latest.sequence ? item : latest, null)
 })
-const responsibilityLines = computed(() => props.details?.responsibilitySnapshot.map(entry => ({
+const responsibilityLines = computed(() => details.value?.responsibilitySnapshot.map(entry => ({
   role: entry.role,
   name: principalName(entry.principalId),
 })) ?? [])
 /** A line comment needs an open review to land in (M9b-F03/R23): the gate rides on the affordance. */
 const canCommentReview = computed(() => Boolean(
-  props.reviews?.some(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS')
-  || props.review !== null,
+  reviews.value?.some(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS')
+  || review.value !== null,
 ))
 /** First-screen decision facts (R11/R13): open reviews, modification rounds, dispatch attention. */
-const outcomeReviewAwaiting = computed(() => (props.reviews ?? []).filter(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS').length)
-const outcomeModificationRound = computed(() => (props.reviews ?? []).reduce((round, review) => Math.max(round, review.modificationRound), 0))
-const outcomeDispatchStatuses = computed(() => (props.deliveryActions ?? []).map(action => action.dispatch?.status ?? '').filter(Boolean))
+const outcomeReviewAwaiting = computed(() => (reviews.value ?? []).filter(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS').length)
+const outcomeModificationRound = computed(() => (reviews.value ?? []).reduce((round, review) => Math.max(round, review.modificationRound), 0))
+const outcomeDispatchStatuses = computed(() => deliveryActions.value.map(action => action.dispatch?.status ?? '').filter(Boolean))
 
 function principalName(principalId: string): string {
   return props.principals.find(item => item.principalId === principalId)?.displayName
@@ -222,7 +241,7 @@ function locateSection(sectionId: string): void {
 
 function locateReviewFinding(location: ReviewFindingEvidence): void {
   reviewLocation.value = { ...location }
-  if (props.codingPatchPhase === 'idle') props.onLoadCodingPatch()
+  if (codingPatchPhase.value === 'idle') onLoadCodingPatch()
   void nextTick(() => {
     const explorer = content.value?.querySelector<HTMLElement>('#coding-diff-explorer')
     explorer?.scrollIntoView({ behavior: 'smooth', block: 'start' })

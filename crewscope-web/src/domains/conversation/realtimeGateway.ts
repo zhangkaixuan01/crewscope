@@ -7,6 +7,7 @@ import type {
   ConversationMessageScope,
   RealtimeEventEnvelope,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface RealtimeConnection {
   invocationId: string | null
@@ -134,6 +135,3 @@ function root(scope: ConversationMessageScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/conversations/${segment(scope.conversationId)}`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

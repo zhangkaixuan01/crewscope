@@ -60,6 +60,7 @@ import type {
   TeamOpsScope,
   WorkItemActivityRoute,
 } from './types'
+import { segment, etagVersion } from '../../api/gatewayUtils'
 
 export interface TeamOpsGateway {
   teamActivity(scope: TeamOpsScope, filter: ActivityFilter, after?: string | null, limit?: number, signal?: AbortSignal): Promise<ActivityPage>
@@ -207,7 +208,7 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
 
   async changeInboxDisposition(scope: TeamOpsScope, itemId: string, status: string, etag: string, idempotencyKey: string): Promise<CommandReceipt> {
     return mapReceipt(await this.client.request(`${teamRoot(scope)}/inbox/${segment(itemId)}/disposition`, {
-      method: 'PUT', body: { status }, expectedVersion: etagVersion(etag), idempotencyKey,
+      method: 'PUT', body: { status }, expectedVersion: etagVersion(etag, 'Strong'), idempotencyKey,
     }))
   }
 
@@ -284,16 +285,16 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
   }
 
   rotateLarkConnection(scope: TeamOpsScope, connectionId: string, etag: string, input: RotateLarkConnectionInput, idempotencyKey: string): Promise<CommandReceipt> {
-    return this.command(`${teamRoot(scope)}/lark/connections/${segment(connectionId)}/rotate`, input, etagVersion(etag), idempotencyKey)
+    return this.command(`${teamRoot(scope)}/lark/connections/${segment(connectionId)}/rotate`, input, etagVersion(etag, 'Strong'), idempotencyKey)
   }
 
   revokeLarkConnection(scope: TeamOpsScope, connectionId: string, etag: string, reason: string, idempotencyKey: string): Promise<CommandReceipt> {
-    return this.command(`${teamRoot(scope)}/lark/connections/${segment(connectionId)}/revoke`, { reason }, etagVersion(etag), idempotencyKey)
+    return this.command(`${teamRoot(scope)}/lark/connections/${segment(connectionId)}/revoke`, { reason }, etagVersion(etag, 'Strong'), idempotencyKey)
   }
 
   async larkPreflight(scope: TeamOpsScope, bindingId: string, etag: string, signal?: AbortSignal): Promise<LarkPreflight> {
     const value = asRecord(await this.client.request(`${teamRoot(scope)}/lark/bindings/${segment(bindingId)}/preflight`, {
-      method: 'POST', expectedVersion: etagVersion(etag), signal,
+      method: 'POST', expectedVersion: etagVersion(etag, 'Strong'), signal,
     }))
     return { providerBindingId: string(value.providerBindingId), version: number(value.version), checkedAt: string(value.checkedAt) }
   }
@@ -308,7 +309,7 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
   }
 
   verifyLarkMember(scope: TeamOpsScope, bindingId: string, etag: string, openId: string, idempotencyKey: string): Promise<CommandReceipt> {
-    return this.command(`${teamRoot(scope)}/lark/member-verifications`, { providerBindingId: bindingId, openId }, etagVersion(etag), idempotencyKey)
+    return this.command(`${teamRoot(scope)}/lark/member-verifications`, { providerBindingId: bindingId, openId }, etagVersion(etag, 'Strong'), idempotencyKey)
   }
 
   confirmLarkMapping(scope: TeamOpsScope, input: ConfirmLarkMappingInput, idempotencyKey: string): Promise<CommandReceipt> {
@@ -338,7 +339,7 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
   }
 
   updateNotificationPreference(scope: TeamOpsScope, memberId: string, etag: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<CommandReceipt> {
-    return this.command(`${teamRoot(scope)}/lark/notification-preferences/${segment(memberId)}`, input, etagVersion(etag), idempotencyKey, 'PUT')
+    return this.command(`${teamRoot(scope)}/lark/notification-preferences/${segment(memberId)}`, input, etagVersion(etag, 'Strong'), idempotencyKey, 'PUT')
   }
 
   async selfNotificationPreference(scope: TeamOpsScope, signal?: AbortSignal): Promise<Etagged<NotificationPreference>> {
@@ -349,7 +350,7 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
 
   async updateSelfNotificationPreference(scope: TeamOpsScope, etag: string, input: NotificationPreferenceInput, idempotencyKey: string): Promise<Etagged<NotificationPreference>> {
     const response = await this.client.open(`${teamRoot(scope)}/members/me/notification-preference`, {
-      method: 'PUT', body: input, expectedVersion: etagVersion(etag), idempotencyKey,
+      method: 'PUT', body: input, expectedVersion: etagVersion(etag, 'Strong'), idempotencyKey,
     })
     const value = mapPreference(await response.json())
     return { value, etag: requireMatchingEtag(response, value.version) }
@@ -372,7 +373,7 @@ export class HttpTeamOpsGateway implements TeamOpsGateway {
   }
 
   redeliverNotification(scope: TeamOpsScope, deliveryId: string, etag: string, idempotencyKey: string): Promise<CommandReceipt> {
-    return this.command(`${teamRoot(scope)}/lark/notification-deliveries/${segment(deliveryId)}/redeliver`, undefined, etagVersion(etag), idempotencyKey)
+    return this.command(`${teamRoot(scope)}/lark/notification-deliveries/${segment(deliveryId)}/redeliver`, undefined, etagVersion(etag, 'Strong'), idempotencyKey)
   }
 
   async operationsHealth(scope: TeamOpsScope, signal?: AbortSignal): Promise<OperationsHealthSummary> {
@@ -446,7 +447,6 @@ function workItemActivityRoot(scope: TeamOpsScope, route: WorkItemActivityRoute)
   return `${teamRoot(scope)}/work-projects/${segment(route.projectId)}/work-items/${segment(route.workItemId)}/activity`
 }
 
-function segment(value: string): string { return encodeURIComponent(value) }
 
 function activitySearch(filter: ActivityFilter): URLSearchParams {
   const search = new URLSearchParams()
@@ -732,12 +732,6 @@ function requireMatchingEtag(response: Response, version: number, bodyEtag?: str
   return etag
 }
 
-function etagVersion(etag: string): number {
-  if (!/^"\d+"$/.test(etag)) throw new TypeError('Strong ETag is invalid')
-  const value = Number(etag.slice(1, -1))
-  if (!Number.isSafeInteger(value)) throw new TypeError('Strong ETag is invalid')
-  return value
-}
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Team operations response is invalid')

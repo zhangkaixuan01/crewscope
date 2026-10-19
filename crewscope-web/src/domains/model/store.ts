@@ -12,6 +12,8 @@ import type {
   ModelConnectionSummary,
   ModelProviderSummary,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type ModelResourcePhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -67,13 +69,6 @@ export const MODEL_STORE: InjectionKey<ModelStore> = Symbol('crewscope-model-sto
 
 const PAGE_SIZE = 50
 
-interface ModelRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Scope-partitioned model state. Secret command inputs never enter this reactive graph. */
 export function createModelStore(gateway: ModelGateway): ModelStore {
   const commandIntents = createCommandGateway(gateway, { verifyConnection: 3, activateConnection: 3, suspendConnection: 3, revokeConnection: 4 })
@@ -81,16 +76,16 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
   const state = reactive<ModelStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, ModelRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -152,20 +147,20 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     // Mutate the proxy retrieved from reactive state; mutating the pre-insertion raw object would
     // leave an already-mounted detail panel stuck in its loading projection.
     const resource = state.connectionDetails[connectionId]!
-    const request = beginRequest(`connection:${connectionId}`)
+    const request = requests.begin(`connection:${connectionId}`)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     try {
-      const value = await gateway.getConnection(scope.organizationId, connectionId, request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await gateway.getConnection(scope.organizationId, connectionId, request.signal)
+      if (!request.isCurrent()) return
       assertConnectionScope(value.value, scope)
       resource.value = value
       resource.phase = 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载模型连接')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载模型连接')
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
@@ -225,10 +220,10 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     command: (scope: SettingsScope, detail: Etagged<ModelConnectionSummary>) => Promise<ModelConnectionCommandReceipt>,
   ): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
+    const owner = requests.capture()
     const previous = state.command
     if (state.connectionDetails[connectionId]?.phase !== 'ready') await loadConnection(connectionId)
-    if (started !== generation || state.command !== previous) return false
+    if (!owner.isCurrent() || state.command !== previous) return false
     const detail = state.connectionDetails[connectionId]?.value
     if (!detail) return false
     return runCommand(
@@ -245,7 +240,7 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     action: () => Promise<ModelConnectionCommandReceipt>,
     onSuccess?: () => void,
   ): Promise<boolean> {
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, connectionId, receipt: null,
@@ -254,13 +249,13 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     const pending = state.command
     try {
       const receipt = await action()
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       state.command.phase = conflict(error) ? 'conflict' : 'error'
       state.command.errorMessage = commandFailureMessage(error, '模型连接命令执行失败')
       state.command.errorStatus = statusOf(error)
@@ -281,7 +276,7 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     if (more && (resource.nextOffset === null || resource.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(resource.phase)) return
     const offset = more ? resource.nextOffset ?? 0 : 0
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     if (more) resource.loadingMore = true
     else {
       resource.phase = 'loading'
@@ -290,17 +285,17 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
       if (force) resource.value = null
     }
     try {
-      const page = await load(offset, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await load(offset, request.signal)
+      if (!request.isCurrent()) return
       validate?.(page)
       resource.value = more ? merge(resource.value ?? [], page.items, identity) : page.items
       resource.nextOffset = page.nextOffset
       resource.phase = resource.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载模型设置')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载模型设置')
     } finally {
-      if (isCurrent(request)) resource.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) resource.loadingMore = false
+      request.finish()
     }
   }
 
@@ -318,36 +313,13 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
     commandIntents.clear()
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): SettingsScope {
     if (!activeScope) throw new Error('Model Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): ModelRequest {
-    requests.get(key)?.controller.abort()
-    const request = { key, version: generation, controller: new AbortController(), scopeKey: activeScopeKey }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: ModelRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: ModelRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: ModelStoreState): void {
@@ -436,18 +408,9 @@ function setError(resource: ModelResource<unknown>, error: unknown, fallback: st
   resource.errorStatus = statusOf(error)
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
 function conflict(error: unknown): boolean {
   return error instanceof CrewScopeApiError && (error.status === 409 || error.status === 412)
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

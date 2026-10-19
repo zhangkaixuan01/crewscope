@@ -3,6 +3,7 @@ import { CrewScopeApiError } from '../../api/client'
 import { commandFailure } from '../../api/commandIntent'
 import type { TeamObserverGateway } from './gateway'
 import type { TeamObserverEvidence, TeamObserverScope, TeamObserverSession, TeamSummary } from './types'
+import { isAbort } from '../../api/errors'
 
 export type TeamObserverPhase = 'idle' | 'creating-session' | 'connecting' | 'running' | 'reconnecting' | 'completed' | 'cancelling' | 'cancelled' | 'error'
 
@@ -287,7 +288,6 @@ function initialState(): TeamObserverState {
   return { phase: 'idle', session: null, invocationId: null, instruction: '', summary: null, lastSequence: -1, errorMessage: null, errorStatus: null, retryable: false }
 }
 function scopeKey(scope: TeamObserverScope): string { return `${scope.organizationId}:${scope.teamId}` }
-function isAbort(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError' }
 function transportRetryable(error: unknown): boolean {
   return error instanceof CrewScopeApiError
     ? error.status === 0 || error.status >= 500

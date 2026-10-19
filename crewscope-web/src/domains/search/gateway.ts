@@ -2,6 +2,7 @@ import { apiClient, type CrewScopeApiClient } from '../../api/client'
 import { safeRoute } from '../shared/route'
 import { searchObjectTypes, type SearchFilter, type SearchResultPage, type SearchScope } from './types'
 import type { SearchResultItem, SearchObjectType } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface SearchGateway { search(scope: SearchScope, filter: SearchFilter, signal?: AbortSignal): Promise<SearchResultPage> }
 /** Strict adapter for the six-type search contract; routes remain internal navigation coordinates. */
@@ -24,7 +25,6 @@ function mapItem(input: unknown): SearchResultItem {
   const route = string(value.route); if (!safeRoute(route)) throw new TypeError('Unsafe Search route')
   return { objectType: type, objectId: string(value.objectId), projectId: nullableString(value.projectId), title: string(value.title), subtitle: nullableString(value.subtitle), status: string(value.status), updatedAt: string(value.updatedAt), route, snippet: nullableString(value.snippet) }
 }
-function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid Search response'); return value as Record<string, unknown> }
 function array(value: unknown): unknown[] { if (!Array.isArray(value)) throw new TypeError('Invalid Search items'); return value }
 function string(value: unknown): string { if (typeof value !== 'string' || value.length === 0) throw new TypeError('Invalid Search text'); return value }

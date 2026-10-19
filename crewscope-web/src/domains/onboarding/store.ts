@@ -10,6 +10,8 @@ import {
   type OnboardingProblem,
 } from './presentation'
 import type { OnboardingReceipt, OnboardingStatus } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type OnboardingPhase = 'idle' | 'loading' | 'required' | 'submitting' | 'verifying' | 'complete' | 'error'
 
@@ -50,8 +52,9 @@ export function createOnboardingStore(
   })
   const statusTimeoutMs = options.statusTimeoutMs ?? 10_000
   const createTimeoutMs = options.createTimeoutMs ?? 20_000
-  let generation = 0
-  let controller: AbortController | null = null
+  // One channel (M12b-F05): every phase entry supersedes the previous logical operation —
+  // the generation counter + controller pair this replaces.
+  const requests = createRequestScope(() => 'onboarding')
   let retryKey: string | null = null
   let retryName: string | null = null
   const createKeys = new Map<string, string>()
@@ -61,18 +64,18 @@ export function createOnboardingStore(
     // A new route visit derives completion from current server facts, not a previous page receipt.
     state.receipt = null
     clearRetry()
-    const requestGeneration = begin('loading')
+    const request = begin('loading')
     try {
-      const status = await timed(signal => gateway.status(signal), statusTimeoutMs)
-      if (requestGeneration !== generation) return false
+      const status = await timed(signal => gateway.status(signal), request.signal, statusTimeoutMs)
+      if (!request.isCurrent()) return false
       applyStatus(status)
       return status.state === 'COMPLETE'
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       fail(presentOnboardingProblem(error))
       return false
     } finally {
-      finish(requestGeneration)
+      request.finish()
     }
   }
 
@@ -88,7 +91,7 @@ export function createOnboardingStore(
       retryKey = createKeys.get(normalizedName) ?? secureId()
       createKeys.set(normalizedName, retryKey)
     }
-    const requestGeneration = begin('submitting')
+    const request = begin('submitting')
     try {
       const receipt = await timed(
         signal => gateway.createFirstTeam({
@@ -96,17 +99,18 @@ export function createOnboardingStore(
           csrf,
           idempotencyKey: retryKey!,
         }, signal),
+        request.signal,
         createTimeoutMs,
       )
-      if (requestGeneration !== generation) return false
+      if (!request.isCurrent()) return false
       state.receipt = receipt
       state.phase = 'verifying'
-      return await verify(requestGeneration)
+      return await verify(request)
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       if (error instanceof CrewScopeApiError && error.envelope.code === 'onboarding_already_complete') {
         state.phase = 'verifying'
-        return await verify(requestGeneration)
+        return await verify(request)
       }
       if (keepsIdempotencyKey(error)) uncertainCreates.add(normalizedName)
       else if (!uncertainCreates.has(normalizedName)) {
@@ -116,27 +120,27 @@ export function createOnboardingStore(
       fail(presentOnboardingProblem(error))
       return false
     } finally {
-      finish(requestGeneration)
+      request.finish()
     }
   }
 
   async function retry(csrf: AuthCsrfCoordinate): Promise<boolean> {
     if (state.receipt) {
-      const requestGeneration = begin('verifying')
+      const request = begin('verifying')
       try {
-        return await verify(requestGeneration)
+        return await verify(request)
       } finally {
-        finish(requestGeneration)
+        request.finish()
       }
     }
     if (retryName && retryKey) return createFirstTeam(retryName, csrf)
     return load()
   }
 
-  async function verify(requestGeneration: number): Promise<boolean> {
+  async function verify(request: { isCurrent(): boolean, signal: AbortSignal }): Promise<boolean> {
     try {
-      const status = await timed(signal => gateway.status(signal), statusTimeoutMs)
-      if (requestGeneration !== generation) return false
+      const status = await timed(signal => gateway.status(signal), request.signal, statusTimeoutMs)
+      if (!request.isCurrent()) return false
       state.status = status
       if (status.state === 'COMPLETE') {
         state.phase = 'complete'
@@ -147,45 +151,41 @@ export function createOnboardingStore(
       fail(onboardingNotConvergedProblem())
       return false
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       fail(presentOnboardingProblem(error))
       return false
     }
   }
 
-  function begin(phase: OnboardingPhase): number {
-    generation += 1
-    controller?.abort()
-    controller = new AbortController()
+  function begin(phase: OnboardingPhase) {
+    const request = requests.begin('onboarding')
     state.phase = phase
     state.problem = null
-    return generation
+    return request
   }
 
-  function finish(requestGeneration: number): void {
-    if (requestGeneration === generation) controller = null
-  }
-
+  /** Times an operation out, distinguishing timeout from upstream cancellation. */
   async function timed<T>(
     operation: (signal: AbortSignal) => Promise<T>,
+    upstream: AbortSignal,
     timeoutMs: number,
   ): Promise<T> {
-    // begin() owns one controller for the whole logical operation. Reusing it across
-    // command and verification prevents an abandoned controller from surviving a retry.
-    const activeController = controller ?? new AbortController()
-    controller = activeController
+    // One request signal spans the whole logical operation. Linking it to the timeout prevents
+    // an abandoned controller from surviving a retry.
+    const linked = new AbortController()
     let timedOut = false
-    const timeout = window.setTimeout(() => {
-      timedOut = true
-      activeController.abort()
-    }, timeoutMs)
+    const timeout = window.setTimeout(() => { timedOut = true; linked.abort() }, timeoutMs)
+    const linkUpstream = () => linked.abort()
+    if (upstream.aborted) linked.abort()
+    else upstream.addEventListener('abort', linkUpstream, { once: true })
     try {
-      return await operation(activeController.signal)
+      return await operation(linked.signal)
     } catch (error) {
       if (timedOut) throw new OnboardingRequestTimeoutError()
       throw error
     } finally {
       window.clearTimeout(timeout)
+      upstream.removeEventListener('abort', linkUpstream)
     }
   }
 
@@ -209,9 +209,7 @@ export function createOnboardingStore(
   function reset(): void {
     createKeys.clear()
     uncertainCreates.clear()
-    generation += 1
-    controller?.abort()
-    controller = null
+    requests.invalidate()
     clearRetry()
     state.phase = 'idle'
     state.status = null
@@ -239,6 +237,3 @@ function keepsIdempotencyKey(error: unknown): boolean {
     && ['network_unavailable', 'onboarding_unavailable', 'csrf_rejected'].includes(error.envelope.code)
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

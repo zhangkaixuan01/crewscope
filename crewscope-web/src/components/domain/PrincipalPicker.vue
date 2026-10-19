@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Bot, Check, User, X } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 import { principalDirectoryGateway, type PrincipalDirectoryGateway } from '../../domains/principal/gateway'
 import { isImeComposition } from '../../composables/useImeGuard'
 import { principalKindLabels, principalStatusLabels } from '../../domains/principal/labels'
@@ -55,8 +57,9 @@ const loadingMore = ref(false)
 const loadMoreError = ref<string | null>(null)
 
 let searchTimer: number | undefined
-let searchVersion = 0
-let controller: AbortController | null = null
+// The Team scope is the coordinate (M12b-F05): switching it voids every in-flight search —
+// the version counter + controller this replaces.
+const requests = createRequestScope(() => JSON.stringify([props.scope.organizationId, props.scope.teamId]))
 
 const kindHint = computed(() => props.kind ? `仅显示${principalKindLabels[props.kind]}` : '成员与 Agent')
 const optionId = (index: number): string => `${domId}-option-${index}`
@@ -78,8 +81,7 @@ watch(query, () => {
 // Candidates belong to one Team scope; switching it must not leave another Team's names on screen.
 watch(() => [props.scope.organizationId, props.scope.teamId] as const, () => {
   window.clearTimeout(searchTimer)
-  controller?.abort()
-  searchVersion += 1
+  requests.invalidate()
   open.value = false
   replacing.value = false
   query.value = ''
@@ -93,7 +95,7 @@ watch(() => [props.scope.organizationId, props.scope.teamId] as const, () => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(searchTimer)
-  controller?.abort()
+  requests.dispose()
 })
 
 function focusInput(): void {
@@ -102,9 +104,7 @@ function focusInput(): void {
 }
 
 async function search(): Promise<void> {
-  const version = ++searchVersion
-  controller?.abort()
-  controller = new AbortController()
+  const request = requests.begin('search')
   phase.value = 'loading'
   errorMessage.value = null
   loadMoreError.value = null
@@ -113,41 +113,43 @@ async function search(): Promise<void> {
       // The kind filter rides the request so pagination walks the filtered set (R21),
       // not a client-side slice of an unfiltered page.
       { ...props.scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20 },
-      controller.signal,
+      request.signal,
     )
-    if (version !== searchVersion) return
+    if (!request.isCurrent()) return
     entries.value = page.items
     nextCursor.value = page.nextCursor
     activeIndex.value = page.items.length ? 0 : -1
     phase.value = page.items.length ? 'ready' : 'empty'
   } catch (error) {
-    if (version !== searchVersion || (error instanceof DOMException && error.name === 'AbortError')) return
+    if (!request.isCurrent() || isAbort(error)) return
     entries.value = []
     nextCursor.value = null
     activeIndex.value = -1
     phase.value = 'error'
     errorMessage.value = '暂时无法加载团队成员，请稍后重试'
+  } finally {
+    request.finish()
   }
 }
 
 /** Appends the next directory page for the same committed query; never resets the visible rows. */
 async function loadMore(): Promise<void> {
   if (!nextCursor.value || loadingMore.value) return
-  const version = searchVersion
+  const owner = requests.capture()
   loadingMore.value = true
   loadMoreError.value = null
   try {
     const page = await props.gateway.search(
       { ...props.scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20, after: nextCursor.value },
     )
-    if (version !== searchVersion) return
+    if (!owner.isCurrent()) return
     const known = new Set(entries.value.map(entry => entry.principalId))
     entries.value = [...entries.value, ...page.items.filter(entry => !known.has(entry.principalId))]
     nextCursor.value = page.nextCursor
   } catch {
     // The rows already on screen stay; only the continuation failed, so surface it beside the
     // button instead of throwing through the click handler or swapping the list for the error state.
-    if (version === searchVersion) loadMoreError.value = '暂时无法加载更多候选，请稍后重试'
+    if (owner.isCurrent()) loadMoreError.value = '暂时无法加载更多候选，请稍后重试'
   } finally {
     loadingMore.value = false
   }

@@ -28,22 +28,20 @@ import {
   browserStorage,
   defaultReconnectDelay,
   delegationPreflightKey,
-  isAbort,
   isEmpty,
   isTaskCommandConflict,
   liveCursorKey,
   mergeAssociationPages,
   mergeEventPages,
   mergeTaskAssociations,
-  presentError,
   queryKey,
   rememberBounded,
   safeGet,
   safeRemove,
   safeSet,
   scopeKey,
-  statusOf,
 } from './storeUtils'
+import { isAbort, presentError, statusOf } from '../../api/errors'
 
 export type TaskPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type TaskLivePhase = 'connecting' | 'connected' | 'reconnecting' | 'error'

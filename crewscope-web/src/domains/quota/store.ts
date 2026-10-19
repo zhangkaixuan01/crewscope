@@ -1,6 +1,7 @@
 import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import { createCommandGateway } from '../../api/commandGateway'
+import { createRequestScope } from '../../api/requestScope'
 import type { QuotaGateway } from './gateway'
 import type { OrganizationQuotaConfiguration, QuotaCommandReceipt, QuotaUsageView } from './types'
 import { isQuotaMonth, quotaMonthsBack } from './types'
@@ -81,30 +82,30 @@ export function createQuotaStore(gateway: QuotaGateway): QuotaStore {
   const commandIntents = createCommandGateway(gateway, { updateQuota: 3 })
   gateway = commandIntents.gateway
   const state = reactive<QuotaStoreState>(initialState())
-  let configurationGeneration = 0
-  let configurationController: AbortController | null = null
-  // One generation for the whole usage surface: a window reload invalidates every
-  // in-flight month (window or on-demand); a single on-demand month never voids another.
-  let usageGeneration = 0
-  const monthControllers = new Map<string, AbortController>()
+  // Two independent request scopes (M12b-F05): configuration and usage own their
+  // invalidation separately, exactly as the two generations they replace did.
+  const configurationRequests = createRequestScope(() => 'quota-configuration')
+  // One scope for the whole usage surface: a window reload invalidates every in-flight
+  // month (window or on-demand); a single on-demand month never voids another —
+  // months run as per-month channels, the anchor ride-along uses a plain capture.
+  const usageRequests = createRequestScope(() => 'quota-usage')
 
   async function loadConfiguration(organizationId: string, force = false): Promise<void> {
     if (!force && state.configuration.phase === 'ready') return
-    const current = ++configurationGeneration
-    configurationController?.abort()
-    const controller = new AbortController()
-    configurationController = controller
+    const request = configurationRequests.begin('configuration')
     state.configuration.phase = 'loading'
     state.configuration.errorMessage = null
     try {
-      const value = await gateway.quota(organizationId, controller.signal)
-      if (current !== configurationGeneration || controller.signal.aborted) return
+      const value = await gateway.quota(organizationId, request.signal)
+      if (!request.isCurrent()) return
       state.configuration.phase = 'ready'
       state.configuration.value = value
     } catch (error) {
-      if (current !== configurationGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.configuration.phase = phaseOf(error)
       state.configuration.errorMessage = messageOf(error)
+    } finally {
+      request.finish()
     }
   }
 
@@ -139,9 +140,10 @@ export function createQuotaStore(gateway: QuotaGateway): QuotaStore {
 
   async function loadUsageWindow(organizationId: string, force = false): Promise<void> {
     if (!force && state.usage.phase === 'ready') return
-    const current = ++usageGeneration
-    for (const controller of monthControllers.values()) controller.abort()
-    monthControllers.clear()
+    // Window reload voids every in-flight month request (the generation it replaces);
+    // the anchor owner captures only after the invalidation epoch has advanced.
+    usageRequests.invalidate()
+    const owner = usageRequests.capture()
     state.usage.phase = 'loading'
     state.usage.errorMessage = null
     let anchor: QuotaUsageView
@@ -149,12 +151,12 @@ export function createQuotaStore(gateway: QuotaGateway): QuotaStore {
       // Parameterless: the server names its current reporting month (single source).
       anchor = await gateway.usage(organizationId, null)
     } catch (error) {
-      if (current !== usageGeneration) return
+      if (!owner.isCurrent()) return
       state.usage.phase = phaseOf(error)
       state.usage.errorMessage = messageOf(error)
       return
     }
-    if (current !== usageGeneration) return
+    if (!owner.isCurrent()) return
     const windowMonths = quotaMonthsBack(anchor.month, USAGE_WINDOW_SIZE)
     state.usage.anchorMonth = anchor.month
     state.usage.windowMonths = windowMonths
@@ -176,18 +178,17 @@ export function createQuotaStore(gateway: QuotaGateway): QuotaStore {
     if (state.usage.anchorMonth === null) return
     if (state.usage.months[month]?.phase === 'ready') return
     if (month > state.usage.anchorMonth) return
-    const current = usageGeneration
-    monthControllers.get(month)?.abort()
-    const controller = new AbortController()
-    monthControllers.set(month, controller)
+    const request = usageRequests.begin(month)
     state.usage.months[month] = { phase: 'loading', value: null, errorMessage: null }
     try {
-      const value = await gateway.usage(organizationId, month, controller.signal)
-      if (current !== usageGeneration || controller.signal.aborted) return
+      const value = await gateway.usage(organizationId, month, request.signal)
+      if (!request.isCurrent()) return
       state.usage.months[month] = { phase: 'ready', value, errorMessage: null }
     } catch (error) {
-      if (current !== usageGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.usage.months[month] = { phase: 'error', value: null, errorMessage: messageOf(error) }
+    } finally {
+      request.finish()
     }
   }
 
@@ -196,11 +197,8 @@ export function createQuotaStore(gateway: QuotaGateway): QuotaStore {
   }
 
   function reset(): void {
-    configurationGeneration += 1
-    usageGeneration += 1
-    configurationController?.abort()
-    for (const controller of monthControllers.values()) controller.abort()
-    monthControllers.clear()
+    configurationRequests.invalidate()
+    usageRequests.invalidate()
     commandIntents.clear()
     Object.assign(state, initialState())
   }

@@ -1,6 +1,7 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
 import type { WorkItemScope } from '../workitem/types'
 import type { ConversationMessageScope } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export type ConversationWorkItemLinkOrigin =
   | 'TASK_INTENT_CONFIRMATION'
@@ -71,6 +72,3 @@ export class HttpConversationWorkItemLinkGateway implements ConversationWorkItem
   }
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

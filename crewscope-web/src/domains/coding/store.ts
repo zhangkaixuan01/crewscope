@@ -27,14 +27,12 @@ import {
   artifactKey,
   attemptKey,
   deleteByPrefix,
-  isAbort,
   isEmpty,
   mergeEvidencePages,
-  presentError,
   scopeKey,
   sha256,
-  statusOf,
 } from './storeUtils'
+import { isAbort, presentError, statusOf } from '../../api/errors'
 
 export type CodingPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 

@@ -11,6 +11,7 @@ import type {
   WorkProjectPage,
   WorkProjectSummary,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface CreateHandoverInput {
   sourceMemberId: string
@@ -213,9 +214,6 @@ export class HttpScopeGateway implements ScopeGateway {
   }
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapReceipt(input: unknown): CommandReceipt {
   const value = record(input)

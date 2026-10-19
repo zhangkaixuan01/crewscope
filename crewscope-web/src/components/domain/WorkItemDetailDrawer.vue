@@ -24,19 +24,18 @@ import {
   writeWorkItemCommentDraft,
 } from '../../domains/workitem/commentDraft'
 import type { SemanticTone } from '../base/types'
-import type { ResponsibilityCommand, WorkItemDetailCommand, WorkItemPhase } from '../../domains/workitem/store'
+import { useWorkItemStore } from '../../domains/workitem/store'
+import { useAgentStore } from '../../domains/agent/store'
+import { useConversationWorkItemLinkStore } from '../../domains/conversation/workItemLinkStore'
 import {
   workItemResourceTypes,
   type AddWorkItemCommentInput,
   type LinkWorkItemResourceInput,
   type ResponsibilityAssignment,
   type WorkItemAvailableTransition,
-  type WorkItemDetails,
   type WorkItemResourceLink,
   type WorkItemResourceType,
   type WorkItemStatus,
-  type WorkItemTimelineEvent,
-  type WorkItemVersionConflict,
 } from '../../domains/workitem/types'
 import { enumLabel } from '../../domains/shared/labels'
 import type { TaskStatus } from '../../domains/task/types'
@@ -71,55 +70,23 @@ import { COLLABORATION_STORE } from '../../domains/collaboration/store'
 import { collaborationScopeKey, type CollaborationScope } from '../../domains/collaboration/types'
 import type { PrincipalScope } from '../../domains/principal/types'
 import type { ConversationWorkItemAssociation } from '../../domains/conversation/workItemLinkGateway'
-import type { ConversationWorkItemLinkPhase } from '../../domains/conversation/workItemLinkStore'
 
+// M12b-F05: the drawer subscribes to the work-item/agent/link stores itself and calls the
+// work-item store's own commands directly; only page-owned verdicts (scope, permissions,
+// candidate rosters, parallel-Task handoff and the page retry/load orchestration) stay props.
 const props = defineProps<{
   scope: PrincipalScope | null
-  phase: WorkItemPhase
-  details: WorkItemDetails | null
-  errorMessage: string | null
-  commandPending: WorkItemDetailCommand | null
-  commandErrorMessage: string | null
-  versionConflict: WorkItemVersionConflict | null
-  availabilityPhase: WorkItemPhase
-  availableTransitions: WorkItemAvailableTransition[]
-  availabilityErrorMessage: string | null
   canParticipate: boolean
   canDelegate: boolean
   canManageResponsibility: boolean
-  responsibilityPhase: WorkItemPhase
-  responsibilities: ResponsibilityAssignment[]
   responsibilityCandidates: ResponsibilityCandidate[]
   responsibilityAgentCandidates: ResponsibilityAgentCandidate[]
-  responsibilityAgentPhase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
-  responsibilityAgentErrorMessage: string | null
-  responsibilityAgentLoadingMore: boolean
-  responsibilityAgentHasMore: boolean
-  responsibilityErrorMessage: string | null
-  responsibilityCommandPending: ResponsibilityCommand | null
-  responsibilityCommandErrorMessage: string | null
-  timelinePhase: WorkItemPhase
-  timeline: WorkItemTimelineEvent[]
-  timelineNextCursor: string | null
-  timelineLoadingMore: boolean
-  timelineErrorMessage: string | null
-  associationPhase: ConversationWorkItemLinkPhase
-  associations: ConversationWorkItemAssociation[]
-  associationErrorMessage: string | null
   onRetry: () => void
   onContentSaved?: () => void
   onTransition: (target: WorkItemStatus) => Promise<void>
   onRetryAvailability: () => void
-  onAddComment: (input: AddWorkItemCommentInput) => Promise<void>
-  onLinkResource: (input: LinkWorkItemResourceInput) => Promise<void>
-  onReplaceOwner: (actorPrincipalId: string) => Promise<void>
-  onAssignExecutor: (actorPrincipalId: string) => Promise<void>
-  onAssignGateReviewer: (actorPrincipalId: string) => Promise<void>
-  onAssignAdvisoryReviewer: (actorPrincipalId: string) => Promise<void>
-  onReleaseResponsibility: (assignment: ResponsibilityAssignment) => Promise<void>
   onRetryResponsibilityAgents: () => void
   onLoadMoreResponsibilityAgents: () => void
-  onLoadTimelineMore: () => Promise<void>
   onRetryAssociations: () => void
   /** §4.7 level 5: parallel Tasks with no chosen target — the real list, never a guess by order. */
   parallelTasks?: Array<{ id: string, objective: string, status: TaskStatus }>
@@ -128,6 +95,47 @@ const props = defineProps<{
   /** Opens the Task a delivered evidence reference provably belongs to (§4.1 outcome-first). */
   onOpenOutcomeReference?: (reference: ResultReference, taskId: string) => void
 }>()
+
+const workStore = useWorkItemStore()
+const agentStore = useAgentStore()
+const linkStore = useConversationWorkItemLinkStore()
+
+// Store-read aliases keep the historical prop names (and the template) untouched.
+const phase = computed(() => workStore.state.detailPhase)
+const details = computed(() => workStore.state.detail)
+const errorMessage = computed(() => workStore.state.detailErrorMessage)
+const commandPending = computed(() => workStore.state.detailCommandPending)
+const commandErrorMessage = computed(() => workStore.state.detailCommandErrorMessage)
+const versionConflict = computed(() => workStore.state.versionConflict)
+const availabilityPhase = computed(() => workStore.state.availabilityPhase)
+const availableTransitions = computed(() => workStore.state.availableTransitions)
+const availabilityErrorMessage = computed(() => workStore.state.availabilityErrorMessage)
+const responsibilityPhase = computed(() => workStore.state.responsibilityPhase)
+const responsibilities = computed(() => workStore.state.responsibilities)
+const responsibilityErrorMessage = computed(() => workStore.state.responsibilityErrorMessage)
+const responsibilityCommandPending = computed(() => workStore.state.responsibilityCommandPending)
+const responsibilityCommandErrorMessage = computed(() => workStore.state.responsibilityCommandErrorMessage)
+const timelinePhase = computed(() => workStore.state.timelinePhase)
+const timeline = computed(() => workStore.state.timeline)
+const timelineNextCursor = computed(() => workStore.state.timelineNextCursor)
+const timelineLoadingMore = computed(() => workStore.state.timelineLoadingMore)
+const timelineErrorMessage = computed(() => workStore.state.timelineErrorMessage)
+const responsibilityAgentPhase = computed(() => agentStore.state.agents.phase)
+const responsibilityAgentErrorMessage = computed(() => agentStore.state.agents.errorMessage)
+const responsibilityAgentLoadingMore = computed(() => agentStore.state.agents.loadingMore)
+const responsibilityAgentHasMore = computed(() => agentStore.state.agents.nextOffset !== null)
+const associationPhase = computed(() => linkStore.state.phase)
+const associations = computed(() => linkStore.state.associations)
+const associationErrorMessage = computed(() => linkStore.state.errorMessage)
+// Store command aliases: the page used to forward these one by one as props.
+const onAddComment = (input: AddWorkItemCommentInput) => workStore.addComment(input)
+const onLinkResource = (input: LinkWorkItemResourceInput) => workStore.linkResource(input)
+const onReplaceOwner = (actorPrincipalId: string) => workStore.replaceOwner(actorPrincipalId)
+const onAssignExecutor = (actorPrincipalId: string) => workStore.assignExecutor(actorPrincipalId)
+const onAssignGateReviewer = (actorPrincipalId: string) => workStore.assignGateReviewer(actorPrincipalId)
+const onAssignAdvisoryReviewer = (actorPrincipalId: string) => workStore.assignAdvisoryReviewer(actorPrincipalId)
+const onReleaseResponsibility = (assignment: ResponsibilityAssignment) => workStore.releaseResponsibility(assignment)
+const onLoadTimelineMore = () => workStore.loadTimelineMore()
 
 const emit = defineEmits<{
   close: []
@@ -145,7 +153,7 @@ const resourceLabel = ref('')
 const commentSubmitted = ref(false)
 const resourceSubmitted = ref(false)
 
-const item = computed(() => props.details?.workItem ?? null)
+const item = computed(() => details.value?.workItem ?? null)
 const commentDraftScope = computed(() => props.scope && item.value
   ? { organizationId: props.scope.organizationId, teamId: props.scope.teamId, projectId: item.value.projectId }
   : null)
@@ -245,9 +253,9 @@ function refreshAfterRemoteChange(): void {
  * machine still says which edges exist; only `availableTransitions` says which of them this
  * member may execute right now, so it is the only input here.
  */
-const transitions = computed(() => props.availableTransitions)
+const transitions = computed(() => availableTransitions.value)
 const hasActionableTransition = computed(() => transitions.value.some(transition => transition.enabled))
-const busyTransition = computed(() => props.commandPending === 'transition' || props.commandPending === 'undo')
+const busyTransition = computed(() => commandPending.value === 'transition' || commandPending.value === 'undo')
 const {
   confirmingTarget: confirmingTransition,
   submit: submitConfirmedTransition,
@@ -292,7 +300,7 @@ async function submitComment(): Promise<void> {
   const itemId = item.value?.id
   const itemVersion = item.value?.version
   try {
-    await props.onAddComment({ content })
+    await onAddComment({ content })
     // Clear the stored draft only when it still holds the version this submit read, so a
     // comment re-drafted against a newer version is never lost.
     if (draftScope && itemId && itemVersion !== undefined) clearWorkItemCommentDraftIfRevision(draftScope, itemId, itemVersion, principal)
@@ -308,7 +316,7 @@ async function submitResource(): Promise<void> {
   const reference = resourceReference.value.trim()
   if (!reference) return
   try {
-    await props.onLinkResource({
+    await onLinkResource({
       resourceType: resourceType.value,
       resourceReference: reference,
       label: resourceLabel.value.trim() || null,

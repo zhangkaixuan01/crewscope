@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { RefreshCw } from '@lucide/vue'
 import { computed, inject, onBeforeUnmount, watch } from 'vue'
-import { createRequestScope } from '../api/requestScope'
-import { AUTH_STORE } from '../domains/identity/store'
+import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { enumQuery, oneOf, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
@@ -22,7 +21,6 @@ import {
 const route = useRoute()
 const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
-const authStore = inject(AUTH_STORE, null)
 const scopeStore = useScopeStore()
 const store = useTeamOpsStore()
 const online = useNetworkStatus()
@@ -51,17 +49,16 @@ const deliveryFilter = computed(() => ({
   itemTypes: deliveryType.value ? [deliveryType.value] : undefined,
   recipientMemberId: recipient.value,
 }))
-const pageCoordinate = () => JSON.stringify([authStore?.state.session?.account?.accountId,
-  authStore?.state.session?.account?.securityVersion, principal?.id, scope.value, scopeStore.state.phase])
-const pageRequests = createRequestScope(pageCoordinate)
-const selectionRequests = createRequestScope(() => JSON.stringify([pageCoordinate(), connectionId.value]))
-onBeforeUnmount(() => { pageRequests.dispose(); selectionRequests.dispose(); store.clearCommand() })
+// Both faces ride the shared composable (M12b-F05): the phase term reloads on the
+// restoring→ready transition, and the connection-query whitelist keeps tab/filter query
+// writes from voiding in-flight command continuations.
+const pageRequests = usePageRequestScope(() => scopeStore.state.phase, () => connectionId.value)
+onBeforeUnmount(() => { store.clearCommand() })
 
+// Invalidation itself is the composable's sync watch; this callback only restarts the loads.
 watch(
-  pageCoordinate,
+  pageRequests.coordinate,
   async () => {
-    pageRequests.invalidate()
-    selectionRequests.invalidate()
     store.clearCommand()
     if (scopeStore.state.phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
@@ -74,7 +71,6 @@ watch(
 )
 
 watch(connectionId, async id => {
-  selectionRequests.invalidate()
   store.clearCommand()
   if (id && scope.value) await store.loadLarkConnection(id)
 }, { flush: 'sync' })
@@ -98,7 +94,7 @@ watch(() => [mappingStatus.value, deliveryStatus.value, deliveryType.value, reci
 async function loadAll(force = false): Promise<void> {
   if (!scope.value || scopeStore.state.phase !== 'ready') return
   const request = pageRequests.begin('load-all')
-  const selection = selectionRequests.capture()
+  const selection = pageRequests.captureSelection()
   try {
     await Promise.all([
       store.loadLarkConnections(force), store.loadLarkMappings(mappingStatus.value, false, force),
@@ -119,7 +115,7 @@ async function restoreConnection(): Promise<void> {
   if (!selected) return
   if (selected.connectionId !== requested) await patchQuery({ connection: selected.connectionId })
   if (!owner.isCurrent() || connectionId.value !== selected.connectionId) return
-  const selection = selectionRequests.capture()
+  const selection = pageRequests.captureSelection()
   await store.loadLarkConnection(selected.connectionId)
   if (!selection.isCurrent()) return
   if (selected.providerBindingId) await store.loadLarkHealth(selected.providerBindingId)
@@ -130,7 +126,7 @@ async function selectConnection(id: string): Promise<void> {
   store.clearCommand()
   await patchQuery({ connection: id })
   if (!owner.isCurrent() || connectionId.value !== id) return
-  const selection = selectionRequests.capture()
+  const selection = pageRequests.captureSelection()
   await store.loadLarkConnection(id, true)
   if (!selection.isCurrent()) return
   const connection = store.state.larkConnectionDetails[id]?.value?.value
@@ -138,7 +134,7 @@ async function selectConnection(id: string): Promise<void> {
 }
 
 async function createConnection(input: { tenantKey: string, appId: string, appSecret: string, expiresAt: string | null }, key: string): Promise<void> {
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   const before = new Set(connections.value.map(item => item.connectionId))
   const success = await store.createLarkConnection(0, input, key)
   if (!owner.isCurrent()) return
@@ -151,7 +147,7 @@ async function createConnection(input: { tenantKey: string, appId: string, appSe
 
 async function rotateConnection(id: string, input: { appId: string, appSecret: string }, key: string, expectedVersion: number): Promise<void> {
   if (connectionId.value !== id || selectedConnection.value?.version !== expectedVersion) return
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   const success = await store.rotateLarkConnection(id, input, key, expectedVersion)
   if (!owner.isCurrent()) return
   if (!success) return refreshConflict(id)
@@ -159,7 +155,7 @@ async function rotateConnection(id: string, input: { appId: string, appSecret: s
 }
 
 async function revokeConnection(id: string, reason: string, key: string): Promise<void> {
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   const success = await store.revokeLarkConnection(id, reason, key)
   if (!owner.isCurrent()) return
   if (!success) return refreshConflict(id)
@@ -167,7 +163,7 @@ async function revokeConnection(id: string, reason: string, key: string): Promis
 }
 
 async function verifyMember(bindingId: string, version: number, memberId: string, openId: string, key: string, complete: (proofId: string | null) => void): Promise<void> {
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   const selected = connectionId.value
   if (activeBinding.value !== bindingId || selectedConnection.value?.providerBindingVersion !== version
     || !scopeStore.state.members.some(member => member.id === memberId && member.status === 'ACTIVE')) { complete(null); return }
@@ -179,7 +175,7 @@ async function verifyMember(bindingId: string, version: number, memberId: string
 }
 
 async function confirmMapping(memberId: string, bindingId: string, proofId: string, key: string, complete: (committed: boolean) => void): Promise<void> {
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   if (activeBinding.value !== bindingId) { complete(false); return }
   const success = await store.confirmLarkMapping({ memberId, providerBindingId: bindingId, proofId }, key)
   complete(success && owner.isCurrent())
@@ -217,14 +213,14 @@ async function revokeMapping(id: string, version: number, reason: string, key: s
 
 async function refreshConflict(id?: string): Promise<void> {
   if (store.state.command.phase !== 'conflict') return
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   await store.loadLarkConnections(true)
   if (!owner.isCurrent()) return
   if (id) await store.loadLarkConnection(id, true)
 }
 
 async function readOriginal(id: string | null): Promise<void> {
-  const owner = selectionRequests.capture()
+  const owner = pageRequests.captureSelection()
   if (id && id !== connectionId.value) return
   await Promise.all([store.loadLarkConnections(true), id ? store.loadLarkConnection(id, true) : Promise.resolve()])
   if (!owner.isCurrent()) return
@@ -263,7 +259,7 @@ function patchQuery(values: Record<string, string | null>): Promise<unknown> {
     <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
     <LarkNotificationAdmin
       v-else
-      :key="pageCoordinate()"
+      :key="pageRequests.coordinate()"
       :phase="store.state.larkConnections.phase" :error="store.state.larkConnections.error" :connections="connections"
       :selected-connection="selectedConnection" :health="health" :mappings="store.state.larkMappings.value ?? []"
       :mapping-phase="store.state.larkMappings.phase" :mapping-error="store.state.larkMappings.error"

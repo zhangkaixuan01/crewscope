@@ -23,6 +23,7 @@ import type {
   SelectableAgentModel,
   SelectableModelPrice,
 } from './types'
+import { segment, pick, etagVersion } from '../../api/gatewayUtils'
 
 export interface AgentGateway {
   listTemplates(scope: SettingsScope, ownershipType: AgentOwnershipType, offset?: number, limit?: number, signal?: AbortSignal): Promise<OffsetPage<AgentTemplateSummary>>
@@ -175,7 +176,7 @@ export class HttpAgentGateway implements AgentGateway {
     const value = await this.client.post<AgentCommandReceipt>(
       `${agentRoot(scope)}/${segment(profileId)}/${transition}`,
       undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Agent'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -190,7 +191,7 @@ export class HttpAgentGateway implements AgentGateway {
     const value = await this.client.post<AgentCommandReceipt>(
       `${profileRoot(scope, profileId)}/configurations`,
       configurationBody(input),
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Agent'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -204,7 +205,7 @@ export class HttpAgentGateway implements AgentGateway {
     const value = await this.client.post<AgentCommandReceipt>(
       `${conversationRoot(scope)}/${segment(conversationId)}/agent-configuration-refresh`,
       undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Agent'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -254,9 +255,6 @@ function offsetPage<T>(items: T[], offset: number, limit: number): OffsetPage<T>
   return { items, nextOffset: items.length === limit ? offset + items.length : null }
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapTemplate(value: AgentTemplateSummary): AgentTemplateSummary {
   return {
@@ -482,13 +480,4 @@ function requireStrongEtag(response: Response, resource: string): string {
   return etag
 }
 
-function etagVersion(etag: string): number {
-  if (!/^"\d+"$/.test(etag)) throw new TypeError('Agent response ETag is invalid')
-  const version = Number(etag.slice(1, -1))
-  if (!Number.isSafeInteger(version)) throw new TypeError('Agent response ETag is invalid')
-  return version
-}
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

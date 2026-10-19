@@ -8,6 +8,8 @@ import {
   type ObservabilityQualityMonth,
   type ObservabilityScope,
 } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type ObservabilityPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -47,13 +49,6 @@ export const OBSERVABILITY_STORE: InjectionKey<ObservabilityStore> = Symbol('cre
 
 const PAGE_SIZE = 12
 
-interface ObservabilityRequest {
-  key: 'months' | 'detail' | 'quality'
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /**
  * Team-scoped read store for the cost and quality surface. The three resources are independent
  * so one failing month read never blanks the month navigation; `loadMonth` targets one month
@@ -63,16 +58,16 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
   const state = reactive<ObservabilityStoreState>(initialState())
   let activeScope: ObservabilityScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, ObservabilityRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: ObservabilityScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -81,7 +76,7 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     if (more && (state.months.nextAfter === null || state.months.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(state.months.phase)) return
     const after = more ? state.months.nextAfter : null
-    const request = beginRequest('months')
+    const request = requests.begin('months')
     if (more) state.months.loadingMore = true
     else {
       state.months.phase = 'loading'
@@ -90,24 +85,24 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
       if (force) state.months.value = null
     }
     try {
-      const page = await gateway.listCostMonths(scope, after, PAGE_SIZE, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await gateway.listCostMonths(scope, after, PAGE_SIZE, request.signal)
+      if (!request.isCurrent()) return
       state.months.value = more ? mergeMonths(state.months.value, page.months) : page.months
       state.months.nextAfter = page.nextAfter
       state.months.phase = (state.months.value ?? []).length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(state.months, error, '暂时无法加载用量月份')
+      if (!isAbort(error) && request.isCurrent()) setError(state.months, error, '暂时无法加载用量月份')
     } finally {
-      if (isCurrent(request)) state.months.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) state.months.loadingMore = false
+      request.finish()
     }
   }
 
   async function loadMonth(month: string): Promise<void> {
     const scope = requireScope()
     if (!isObservabilityMonth(month)) return
-    const detailRequest = beginRequest('detail')
-    const qualityRequest = beginRequest('quality')
+    const detailRequest = requests.begin('detail')
+    const qualityRequest = requests.begin('quality')
     for (const resource of [state.detail, state.quality]) {
       resource.phase = 'loading'
       resource.month = month
@@ -117,61 +112,36 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     state.detail.value = null
     state.quality.value = null
     const [detailOutcome, qualityOutcome] = await Promise.allSettled([
-      gateway.costMonth(scope, month, detailRequest.controller.signal),
-      gateway.qualityMonth(scope, month, qualityRequest.controller.signal),
+      gateway.costMonth(scope, month, detailRequest.signal),
+      gateway.qualityMonth(scope, month, qualityRequest.signal),
     ])
-    if (detailOutcome.status === 'fulfilled' && isCurrent(detailRequest)) {
+    if (detailOutcome.status === 'fulfilled' && detailRequest.isCurrent()) {
       state.detail.value = detailOutcome.value
       state.detail.phase = detailOutcome.value.rows.length === 0 ? 'empty' : 'ready'
-    } else if (detailOutcome.status === 'rejected' && !isAbort(detailOutcome.reason) && isCurrent(detailRequest)) {
+    } else if (detailOutcome.status === 'rejected' && !isAbort(detailOutcome.reason) && detailRequest.isCurrent()) {
       setError(state.detail, detailOutcome.reason, '暂时无法加载当月成本明细')
     }
-    if (qualityOutcome.status === 'fulfilled' && isCurrent(qualityRequest)) {
+    if (qualityOutcome.status === 'fulfilled' && qualityRequest.isCurrent()) {
       state.quality.value = qualityOutcome.value
       // Quality reads are structurally full: an all-zero month is a real answer, not empty.
       state.quality.phase = 'ready'
-    } else if (qualityOutcome.status === 'rejected' && !isAbort(qualityOutcome.reason) && isCurrent(qualityRequest)) {
+    } else if (qualityOutcome.status === 'rejected' && !isAbort(qualityOutcome.reason) && qualityRequest.isCurrent()) {
       setError(state.quality, qualityOutcome.reason, '暂时无法加载当月质量统计')
     }
-    finishRequest(detailRequest)
-    finishRequest(qualityRequest)
+    detailRequest.finish()
+    qualityRequest.finish()
   }
 
   function reset(): void {
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): ObservabilityScope {
     if (!activeScope) throw new Error('Observability Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: ObservabilityRequest['key']): ObservabilityRequest {
-    requests.get(key)?.controller.abort()
-    const request: ObservabilityRequest = {
-      key, version: generation, controller: new AbortController(), scopeKey: activeScopeKey,
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: ObservabilityRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: ObservabilityRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: ObservabilityStoreState): void {
@@ -225,6 +195,3 @@ function setError(resource: { phase: ObservabilityPhase, errorMessage: string | 
   resource.errorStatus = error instanceof CrewScopeApiError ? error.status : null
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

@@ -32,6 +32,7 @@ import type {
   RepositoryBuildInput,
   UpdateKnowledgeDraftInput,
 } from './types'
+import { segment, pick, etagVersion } from '../../api/gatewayUtils'
 
 export interface KnowledgeGateway {
   listEntries(scope: SettingsScope, filter: KnowledgeEntryFilter, after?: string | null, limit?: number, signal?: AbortSignal): Promise<KnowledgeEntryPage>
@@ -139,7 +140,7 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
   ): Promise<KnowledgeCommandReceipt> {
     const value = await this.client.request<KnowledgeCommandReceipt>(
       `${root(scope)}/${segment(entryId)}`,
-      { method: 'PATCH', body: draftBody(input), expectedVersion: etagVersion(etag), idempotencyKey },
+      { method: 'PATCH', body: draftBody(input), expectedVersion: etagVersion(etag, 'Knowledge'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -148,7 +149,7 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     const value = await this.client.post<KnowledgeCommandReceipt>(
       `${root(scope)}/${segment(entryId)}/publish`,
       undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Knowledge'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -157,7 +158,7 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     const value = await this.client.post<KnowledgeCommandReceipt>(
       `${root(scope)}/${segment(entryId)}/retire`,
       undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Knowledge'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -165,7 +166,7 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
   async deleteEntry(scope: SettingsScope, entryId: string, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
     const value = await this.client.request<KnowledgeCommandReceipt>(
       `${root(scope)}/${segment(entryId)}`,
-      { method: 'DELETE', expectedVersion: etagVersion(etag), idempotencyKey },
+      { method: 'DELETE', expectedVersion: etagVersion(etag, 'Knowledge'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -250,9 +251,6 @@ function indexRoot(scope: SettingsScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/knowledge/index`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function entryBody(input: CreateKnowledgeEntryInput): Record<string, unknown> {
   return { entryKey: input.entryKey, category: input.category, title: input.title, content: input.content }
@@ -349,13 +347,4 @@ function requireStrongEtag(response: Response, resource: string): string {
   return etag
 }
 
-function etagVersion(etag: string): number {
-  if (!/^"\d+"$/.test(etag)) throw new TypeError('Knowledge response ETag is invalid')
-  const version = Number(etag.slice(1, -1))
-  if (!Number.isSafeInteger(version)) throw new TypeError('Knowledge response ETag is invalid')
-  return version
-}
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

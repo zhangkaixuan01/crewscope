@@ -16,6 +16,7 @@ import {
   type ObservabilityScope,
   type ObservabilityUsageRole,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface ObservabilityGateway {
   /** Month-descending keyset page of usage summaries; `after` is a month cursor. */
@@ -78,9 +79,6 @@ function root(scope: ObservabilityScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/observability`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapCostMonth(input: unknown): ObservabilityCostMonth {
   const value = record(input)

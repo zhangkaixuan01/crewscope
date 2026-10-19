@@ -106,6 +106,24 @@ describe('LoginPage', () => {
     wrapper.unmount()
   })
 
+  it('aborts the in-flight login on unmount and a late resolution writes nothing', async () => {
+    const pending = deferred<{ authenticated: true, accountId: string, displayName: string }>()
+    const identity = gateway({ loginPromise: pending.promise })
+    const { wrapper } = await mountPage(identity)
+    await wrapper.get('input[name="identifier"]').setValue('alice')
+    await wrapper.get('input[name="password"]').setValue('password')
+    await wrapper.get('form').trigger('submit')
+    const sessionCalls = vi.mocked(identity.session).mock.calls.length
+
+    wrapper.unmount()
+    // Disposal aborts the request channel (M12b-F05): the linked transport signal is cancelled…
+    expect(vi.mocked(identity.login).mock.calls[0]?.[2]?.aborted).toBe(true)
+    // …and a late resolution cannot resume the flow — no session refresh runs for a dead page.
+    pending.resolve({ authenticated: true, accountId: 'account-1', displayName: 'Alice' })
+    await flushPromises()
+    expect(identity.session).toHaveBeenCalledTimes(sessionCalls)
+  })
+
   it('redirects an already authenticated Session without rendering the form', async () => {
     const identity = gateway({ authenticated: true })
     const { wrapper, router } = await mountPage(identity, '/login?returnTo=https://attacker.example/work')

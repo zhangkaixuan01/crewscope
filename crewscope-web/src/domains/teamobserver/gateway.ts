@@ -9,6 +9,7 @@ import type {
   TeamSummary,
   TeamSummaryEntry,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface TeamObserverConnection {
   invocationId: string
@@ -158,7 +159,6 @@ function target(path: string, query: Record<string, string>): string { return `$
 function root(scope: TeamObserverScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/team-observer`
 }
-function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid Team Observer response'); return value as Record<string, unknown> }
 function string(value: unknown): string { if (typeof value !== 'string') throw new TypeError('Invalid Team Observer text'); return value }
 function integer(value: unknown): number { if (!Number.isInteger(value) || Number(value) < 0) throw new TypeError('Invalid Team Observer number'); return Number(value) }

@@ -10,6 +10,7 @@ import type {
   ConversationMessageScope,
   RealtimeEventEnvelope,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
 
 export type AgentInvocationPhase =
   | 'idle'
@@ -792,21 +793,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
 function retryable(error: unknown): boolean {
   return error instanceof CrewScopeApiError ? error.envelope.retryable : true
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
 function readJson<T>(storage: Storage | null, key: string): T | null {
   const value = safeGet(storage, key)

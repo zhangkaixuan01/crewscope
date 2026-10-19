@@ -21,6 +21,8 @@ import {
 } from '../domains/identity/presentation'
 import { safeLoginDestination } from '../domains/identity/route'
 import type { AuthCsrfCoordinate, IdentityPolicy, RegistrationMode } from '../domains/identity/types'
+import { isAbort } from '../api/errors'
+import { createRequestScope } from '../api/requestScope'
 
 const props = withDefaults(defineProps<{
   sessionTimeoutMs?: number
@@ -57,9 +59,9 @@ const policyMessage = computed(() => identityPolicy.value ? identityPolicyLabel(
 const ssoOnly = computed(() => identityPolicy.value === 'sso-only')
 const passwordFormVisible = computed(() => formVisible.value && !ssoOnly.value)
 
-let activeController: AbortController | null = null
-let operationGeneration = 0
-let disposed = false
+// One channel per face (M12b-F05): a submit supersedes the previous submit and the session
+// restore rides its own channel — the controller + generation + disposed flags this replaces.
+const pageRequests = createRequestScope(() => 'login-page')
 
 onMounted(() => {
   const returnedError = route.query.sso_error
@@ -71,9 +73,7 @@ onMounted(() => {
   void loadSession()
 })
 onBeforeUnmount(() => {
-  disposed = true
-  operationGeneration += 1
-  activeController?.abort()
+  pageRequests.dispose()
   password.value = ''
   csrf.value = null
 })
@@ -83,6 +83,8 @@ watch(online, current => {
 })
 
 async function loadSession(): Promise<void> {
+  const request = pageRequests.begin('session')
+  if (!request.isCurrent()) return
   phase.value = 'loading'
   problem.value = null
   identifierError.value = undefined
@@ -94,7 +96,7 @@ async function loadSession(): Promise<void> {
   try {
     if (authStore.state.phase === 'error') throw new Error('Authentication Session is unavailable')
     await authStore.ensureRestored()
-    if (disposed) return
+    if (!request.isCurrent()) return
     const session = authStore.state.session
     if (!session) throw new Error('Authentication Session is unavailable')
     csrf.value = session.csrf
@@ -107,9 +109,11 @@ async function loadSession(): Promise<void> {
     }
     phase.value = 'ready'
   } catch (error) {
-    if (disposed || isAbort(error)) return
+    if (!request.isCurrent() || isAbort(error)) return
     phase.value = 'session-error'
     setProblem(authStore.state.errorCode === 'network_unavailable' ? offlineLoginProblem() : presentSessionProblem(error))
+  } finally {
+    request.finish()
   }
 }
 
@@ -134,19 +138,22 @@ async function submitLogin(): Promise<void> {
   }
 
   phase.value = 'submitting'
+  const request = pageRequests.begin('submit')
   try {
-    await timedRequest(signal => gateway.login({ identifier: normalizedIdentifier, password: password.value }, csrf.value!, signal), props.loginTimeoutMs)
-    if (disposed) return
+    await timedRequest(signal => gateway.login({ identifier: normalizedIdentifier, password: password.value }, csrf.value!, signal), request.signal, props.loginTimeoutMs)
+    if (!request.isCurrent()) return
     if (!await authStore.refresh()) throw new Error('Authenticated Session could not be restored')
-    if (disposed) return
+    if (!request.isCurrent()) return
     password.value = ''
     await router.replace(safeLoginDestination(route.query, router))
   } catch (error) {
-    if (disposed || isAbort(error)) return
+    if (!request.isCurrent() || isAbort(error)) return
     const nextProblem = presentLoginProblem(error)
     if (nextProblem.code === 'invalid_credentials') password.value = ''
     phase.value = 'ready'
     setProblem(nextProblem)
+  } finally {
+    request.finish()
   }
 }
 
@@ -155,30 +162,29 @@ function setProblem(value: LoginProblem): void {
   problemFocusKey.value += 1
 }
 
-async function timedRequest<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
-  const generation = ++operationGeneration
-  activeController?.abort()
-  const controller = new AbortController()
-  activeController = controller
+/** Times an operation out, distinguishing timeout from page-scope cancellation. */
+async function timedRequest<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  upstream: AbortSignal,
+  timeoutMs: number,
+): Promise<T> {
+  const linked = new AbortController()
   let timedOut = false
-  const timeout = window.setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, timeoutMs)
+  const timeout = window.setTimeout(() => { timedOut = true; linked.abort() }, timeoutMs)
+  const linkUpstream = () => linked.abort()
+  if (upstream.aborted) linked.abort()
+  else upstream.addEventListener('abort', linkUpstream, { once: true })
   try {
-    return await operation(controller.signal)
+    return await operation(linked.signal)
   } catch (error) {
     if (timedOut) throw new IdentityRequestTimeoutError()
     throw error
   } finally {
     window.clearTimeout(timeout)
-    if (generation === operationGeneration) activeController = null
+    upstream.removeEventListener('abort', linkUpstream)
   }
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 </script>
 
 <template>

@@ -6,6 +6,7 @@ import type {
   ConversationWorkItemAssociation,
   ConversationWorkItemLinkGateway,
 } from './workItemLinkGateway'
+import { presentError as sharedPresentError } from '../../api/errors'
 
 export type ConversationWorkItemLinkPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -77,7 +78,7 @@ export function createConversationWorkItemLinkStore(
     } catch (error) {
       if (version !== requestVersion || activeKey !== key || currentController.signal.aborted) return
       state.phase = 'error'
-      state.errorMessage = presentError(error)
+      state.errorMessage = sharedPresentError(error, '暂时无法加载对话与工作项的关联事实')
       state.errorStatus = error instanceof CrewScopeApiError ? error.status : null
     }
   }
@@ -116,8 +117,3 @@ export function useConversationWorkItemLinkStore(): ConversationWorkItemLinkStor
   return store
 }
 
-function presentError(error: unknown): string {
-  return error instanceof CrewScopeApiError
-    ? error.envelope.message
-    : '暂时无法加载对话与工作项的关联事实'
-}

@@ -7,6 +7,7 @@ import type {
   PrincipalPage,
   PrincipalStatus,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface PrincipalDirectoryGateway {
   search(query: PrincipalDirectoryQuery, signal?: AbortSignal): Promise<PrincipalPage>
@@ -73,7 +74,6 @@ function readEntry(input: unknown): PrincipalEntry {
   }
 }
 
-function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid Principal directory response')
   return value as Record<string, unknown>

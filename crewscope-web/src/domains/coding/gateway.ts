@@ -25,6 +25,7 @@ import type {
   RepositoryPreflight,
   TestEvidenceSummary,
 } from './types'
+import { segment, pick } from '../../api/gatewayUtils'
 
 export type RepositoryTransition = 'activate' | 'disable'
 
@@ -428,9 +429,6 @@ function pageSearch(after?: string, limit = 50): URLSearchParams {
   return search
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function parseContentRange(
   value: string | null,
@@ -574,6 +572,3 @@ function mapAcceptance(value: AcceptanceEvidenceSummary): AcceptanceEvidenceSumm
   }
 }
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

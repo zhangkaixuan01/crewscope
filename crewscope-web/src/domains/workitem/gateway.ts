@@ -19,6 +19,7 @@ import type {
   WorkItemSummary,
   WorkItemTimelinePage,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface WorkItemGateway {
   listWorkItems(query: WorkItemListQuery, signal?: AbortSignal): Promise<WorkItemPage>
@@ -337,6 +338,3 @@ function root(scope: WorkItemScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/work-projects/${segment(scope.projectId)}/work-items`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

@@ -3,6 +3,8 @@ import { CrewScopeApiError } from '../../api/client'
 import type { SettingsScope } from '../settings/types'
 import type { AgentGateway } from './gateway'
 import type { AgentMemoryView } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type AgentMemoryPhase = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -46,28 +48,21 @@ export const AGENT_MEMORY_STORE: InjectionKey<AgentMemoryStore> = Symbol('crewsc
 /** Same-domain second store (F01b precedent): consumes only the I02a memory face. */
 export type AgentMemoryGateway = Pick<AgentGateway, 'getMemory' | 'clearMemory'>
 
-interface MemoryRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Profile-keyed I02a memory views with generation checks in addition to AbortSignal cancellation. */
 export function createAgentMemoryStore(gateway: AgentMemoryGateway): AgentMemoryStore {
   const state = reactive<AgentMemoryStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, MemoryRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -75,30 +70,30 @@ export function createAgentMemoryStore(gateway: AgentMemoryGateway): AgentMemory
     const scope = requireScope()
     const current = state.views[profileId]
     if (!force && current && current.phase === 'ready') return
-    const request = beginRequest(profileId)
+    const request = requests.begin(profileId)
     state.views[profileId] = { phase: 'loading', value: null, errorMessage: null, errorStatus: null }
     try {
-      const value = await gateway.getMemory(scope, profileId, request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await gateway.getMemory(scope, profileId, request.signal)
+      if (!request.isCurrent()) return
       state.views[profileId] = { phase: 'ready', value, errorMessage: null, errorStatus: null }
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) {
+      if (!isAbort(error) && request.isCurrent()) {
         state.views[profileId] = { phase: 'error', value: null, errorMessage: presentError(error, '暂时无法加载辅助记忆'), errorStatus: statusOf(error) }
       }
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
   async function clearMemory(profileId: string): Promise<boolean> {
     const scope = requireScope()
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.clear.phase === 'pending') return false
     state.clear = { phase: 'pending', profileId, message: null, errorMessage: null, errorCode: null, errorStatus: null }
     const pending = state.clear
     try {
       const clearance = await gateway.clearMemory(scope, profileId)
-      if (commandGeneration !== generation || state.clear !== pending) return false
+      if (!commandOwner.isCurrent() || state.clear !== pending) return false
       state.clear.phase = 'success'
       state.clear.message = `已清除 ${clearance.clearedCount} 条记忆 · 清空代际 ${clearance.clearanceGeneration}`
       // The receipt is the fact, but the entry table must not survive it — re-read the view.
@@ -106,7 +101,7 @@ export function createAgentMemoryStore(gateway: AgentMemoryGateway): AgentMemory
       await load(profileId, true)
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.clear !== pending) return false
+      if (!commandOwner.isCurrent() || state.clear !== pending) return false
       state.clear.phase = 'error'
       state.clear.errorMessage = presentError(error, '清除辅助记忆失败')
       state.clear.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
@@ -122,36 +117,13 @@ export function createAgentMemoryStore(gateway: AgentMemoryGateway): AgentMemory
   function reset(): void {
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): SettingsScope {
     if (!activeScope) throw new Error('Agent Memory Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): MemoryRequest {
-    requests.get(key)?.controller.abort()
-    const request: MemoryRequest = { key, version: generation, controller: new AbortController(), scopeKey: activeScopeKey }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: MemoryRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: MemoryRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: AgentMemoryStoreState): void {
@@ -189,17 +161,8 @@ function clearState(): AgentMemoryClearState {
   return { phase: 'idle', profileId: null, message: null, errorMessage: null, errorCode: null, errorStatus: null }
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
 function scopeKey(scope: SettingsScope): string {
   return `${scope.organizationId}:${scope.teamId}`

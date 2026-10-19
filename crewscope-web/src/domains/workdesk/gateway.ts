@@ -3,6 +3,7 @@ import { safeRoute } from '../shared/route'
 import { readAvailableTransition } from '../workitem/availability'
 import type { WorkItemAvailableTransition } from '../workitem/types'
 import { workDeskResponsibilityRoles, type WorkDeskFilter, type WorkDeskItem, type WorkDeskRowSummary, type WorkDeskScope, type WorkDeskSection, type WorkDeskSummary, type WorkDeskWaitingOn } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface WorkDeskGateway {
   /**
@@ -145,7 +146,6 @@ function readActions(input: unknown): WorkItemAvailableTransition[] {
   })
 }
 
-function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid WorkDesk response'); return value as Record<string, unknown> }
 function array(value: unknown): unknown[] { if (!Array.isArray(value)) throw new TypeError('Invalid WorkDesk collection'); return value }
 function string(value: unknown): string { if (typeof value !== 'string' || value.length === 0) throw new TypeError('Invalid WorkDesk text'); return value }

@@ -6,6 +6,7 @@ import type {
   ConversationMessageScope,
   PostConversationMessageInput,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface ConversationMessageGateway {
   listMessages(query: ConversationMessageListQuery, signal?: AbortSignal): Promise<ConversationMessagePage>
@@ -41,6 +42,3 @@ function root(scope: ConversationMessageScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/conversations/${segment(scope.conversationId)}/messages`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

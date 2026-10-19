@@ -16,6 +16,7 @@ import type {
   SkillVersionPage,
   UpdateSkillDraftInput,
 } from './types'
+import { segment, pick, etagVersion } from '../../api/gatewayUtils'
 
 export interface SkillGateway {
   listSkills(scope: SettingsScope, filter: SkillFilter, after?: string | null, limit?: number, signal?: AbortSignal): Promise<SkillPage>
@@ -116,7 +117,7 @@ export class HttpSkillGateway implements SkillGateway {
   ): Promise<SkillCommandReceipt> {
     const value = await this.client.request<SkillCommandReceipt>(
       `${root(scope)}/${segment(skillId)}`,
-      { method: 'PATCH', body: { content: input.content }, expectedVersion: etagVersion(etag), idempotencyKey },
+      { method: 'PATCH', body: { content: input.content }, expectedVersion: etagVersion(etag, 'Skill'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -125,7 +126,7 @@ export class HttpSkillGateway implements SkillGateway {
     const value = await this.client.post<SkillCommandReceipt>(
       `${root(scope)}/${segment(skillId)}/publish`,
       undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Skill'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -141,7 +142,7 @@ export class HttpSkillGateway implements SkillGateway {
     const value = await this.client.post<SkillCommandReceipt>(
       `${root(scope)}/${segment(skillId)}/disable`,
       reason ? { reason } : undefined,
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Skill'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -156,7 +157,7 @@ export class HttpSkillGateway implements SkillGateway {
     const value = await this.client.post<SkillCommandReceipt>(
       `${root(scope)}/${segment(skillId)}/rollback`,
       { toRevision },
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Skill'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -194,9 +195,6 @@ function distillationsRoot(scope: SettingsScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/skills/distillations`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapSkill(value: unknown): SkillSummary {
   const skill = value as SkillSummary
@@ -246,13 +244,4 @@ function requireStrongEtag(response: Response, resource: string): string {
   return etag
 }
 
-function etagVersion(etag: string): number {
-  if (!/^"\d+"$/.test(etag)) throw new TypeError('Skill response ETag is invalid')
-  const version = Number(etag.slice(1, -1))
-  if (!Number.isSafeInteger(version)) throw new TypeError('Skill response ETag is invalid')
-  return version
-}
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

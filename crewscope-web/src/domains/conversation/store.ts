@@ -10,6 +10,7 @@ import type {
   ConversationSummary,
   CreateConversationInput,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
 
 export type ConversationPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type ConversationDetailPhase = 'idle' | 'loading' | 'ready' | 'error'
@@ -315,14 +316,5 @@ function scopeKey(scope: ConversationScope): string {
   return `${scope.organizationId}:${scope.teamId}`
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}

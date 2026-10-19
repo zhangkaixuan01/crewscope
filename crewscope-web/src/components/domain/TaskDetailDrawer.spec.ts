@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { computed, reactive } from 'vue'
 import { fixtureIds } from '../../test/scopeFixtures'
 import {
   details,
@@ -11,21 +12,24 @@ import {
 import type { RuntimeFleetSummary } from '../../domains/task/types'
 import { createInjectionStore, INJECTION_STORE } from '../../domains/injection/store'
 import type { InjectionReferences } from '../../domains/injection/types'
+import { TASK_STORE, type TaskStore } from '../../domains/task/store'
+import { REVIEW_STORE, type ReviewStore } from '../../domains/review/store'
+import type { TaskWorkbench } from '../../composables/useWorkTaskWorkbench'
 import TaskDetailDrawer from './TaskDetailDrawer.vue'
 
-/** The drawer hosts the self-pulling injection panel, so every mount provides its store. */
-function mountDrawer(propsValue: ReturnType<typeof props>, options: { attachTo?: boolean } = {}) {
-  const store = createInjectionStore({
-    async list(): Promise<InjectionReferences> {
-      return { executionId: taskIds.execution, taskId: taskIds.first, attempts: [] }
-    },
-    async submitFeedback(): Promise<never> { throw new Error('not stubbed') },
-  })
-  store.activateScope({ organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform })
+/** The drawer subscribes to the task/review stores and hosts the self-pulling injection panel. */
+function mountDrawer(fixture: ReturnType<typeof props>, options: { attachTo?: boolean } = {}) {
   return mount(TaskDetailDrawer, {
-    props: propsValue,
+    props: fixture.drawerProps,
     attachTo: options.attachTo === true ? document.body : undefined,
-    global: { provide: { [INJECTION_STORE as symbol]: store }, stubs: { teleport: true } },
+    global: {
+      provide: {
+        [TASK_STORE as symbol]: fixture.taskStore,
+        [REVIEW_STORE as symbol]: fixture.reviewStore,
+        [INJECTION_STORE as symbol]: fixture.injectionStore,
+      },
+      stubs: { teleport: true },
+    },
   })
 }
 
@@ -198,18 +202,23 @@ describe('TaskDetailDrawer', () => {
     expect(onRetry).toHaveBeenCalled()
     staleError.unmount()
 
-    const cancelledProps = props()
-    const cancelledDetails = structuredClone(cancelledProps.details)
-    const cancelledAttempts = structuredClone(cancelledProps.attempts)
+    const cancelledFixture = props()
+    const cancelledDetails = structuredClone(cancelledFixture.baseDetails)
+    const cancelledAttempts = structuredClone(cancelledFixture.baseAttempts)
     cancelledDetails.status = 'CANCELLED'
     cancelledAttempts[0]!.status = 'CANCELLED'
-    const cancelled = mountDrawer({ ...cancelledProps, details: cancelledDetails, attempts: cancelledAttempts })
+    const cancelled = mountDrawer(props({ details: cancelledDetails, attempts: cancelledAttempts }))
     expect(cancelled.get('.task-lifecycle-state').text()).toContain('Task 已取消')
     expect(cancelled.get('.task-lifecycle-state').attributes('role')).toBe('status')
     cancelled.unmount()
   })
 })
 
+/**
+ * Builds the drawer's three faces from one flat fixture (M12b-F05): raw task/review state lands in
+ * real stores, projections land in a workbench mock, and page-owned verdicts stay props. Overrides
+ * keep the historical flat prop names, so the cases read as before the migration.
+ */
 function props(overrides: Record<string, unknown> = {}) {
   const task = structuredClone(fixtureTasks[fixtureIds.teamPlatform]![0]!)
   const taskDetails = details(task)
@@ -227,7 +236,7 @@ function props(overrides: Record<string, unknown> = {}) {
   const facts = runtimeFacts()
   ;(facts as unknown as Record<string, unknown>).claimToken = 'must-not-render'
   ;(facts.execution as unknown as Record<string, unknown>).credential = 'secret-token-value'
-  return {
+  const flat = {
     phase: 'ready' as const,
     details: taskDetails,
     attempts: [current, historical],
@@ -283,6 +292,8 @@ function props(overrides: Record<string, unknown> = {}) {
     review: null,
     reviewListErrorMessage: null,
     reviewDetailErrorMessage: null,
+    reviewComments: null,
+    onAddReviewComment: vi.fn().mockResolvedValue(null),
     reviewCommand: {
       phase: 'idle' as const, operation: null, reviewRequestId: null,
       receiptCorrelationId: null, execution: null, errorMessage: null,
@@ -333,6 +344,104 @@ function props(overrides: Record<string, unknown> = {}) {
     onRetryCommand: vi.fn().mockResolvedValue(undefined),
     onClearCommand: vi.fn(),
     ...overrides,
+  }
+
+  // Raw state faces: the stores are readonly from the outside, so the fixture builds the exact
+  // slice the drawer subscribes to (state reads + the two clear commands) as plain reactives.
+  const taskStore = {
+    state: reactive({
+      detailPhase: flat.phase,
+      details: flat.details,
+      attempts: flat.attempts,
+      detailErrorMessage: flat.errorMessage,
+      commandPending: flat.commandPending,
+      commandErrorMessage: flat.commandErrorMessage,
+      commandRetryable: flat.commandRetryable,
+      commandVersionConflict: flat.commandVersionConflict,
+    }),
+    clearTaskCommand: flat.onClearCommand,
+  } as unknown as TaskStore
+  const reviewStore = {
+    state: reactive({
+      selectedReviewRequestId: flat.selectedReviewRequestId,
+      command: flat.reviewCommand,
+    }),
+    clearCommand: flat.onClearReviewCommand,
+  } as unknown as ReviewStore
+  const injectionStore = createInjectionStore({
+    async list(): Promise<InjectionReferences> {
+      return { executionId: taskIds.execution, taskId: taskIds.first, attempts: [] }
+    },
+    async submitFeedback(): Promise<never> { throw new Error('not stubbed') },
+  })
+  injectionStore.activateScope({ organizationId: fixtureIds.organization, teamId: fixtureIds.teamPlatform })
+
+  // Projection faces: a workbench mock carrying only what the drawer reads.
+  const resource = <V>(phase: unknown, value: V | null, errorMessage: string | null) =>
+    computed(() => ({ phase, value, errorMessage }))
+  const workbench = {
+    selectedTaskExecutionId: computed(() => flat.selectedExecutionId),
+    executionConflict: computed(() => flat.executionConflict),
+    selectedRuntimeResource: resource(flat.runtimePhase, flat.runtimeFacts, flat.runtimeErrorMessage),
+    codingStudioPhase: computed(() => flat.codingPhase),
+    codingStudioErrorMessage: computed(() => flat.codingErrorMessage),
+    selectedCodingAttemptResource: resource(flat.codingPhase, flat.codingAttempt, flat.codingErrorMessage),
+    selectedCodingCommandsResource: resource(flat.codingCommandsPhase, flat.codingCommands, flat.codingCommandsErrorMessage),
+    selectedCodingTestsResource: resource(flat.codingTestsPhase, flat.codingTests, flat.codingTestsErrorMessage),
+    selectedCodingPatchResource: resource(flat.codingPatchPhase, flat.codingPatch, flat.codingPatchErrorMessage),
+    selectedReviewListResource: resource(flat.reviewListPhase, flat.reviews, flat.reviewListErrorMessage),
+    selectedReviewDetailResource: resource(flat.reviewDetailPhase, flat.review, flat.reviewDetailErrorMessage),
+    selectedReviewCommentsResource: computed(() => flat.reviewComments),
+    selectedDeliveryListResource: computed(() => ({ phase: 'ready', value: [{ actions: [] }], errorMessage: null })),
+    runtimeHealthResource: resource(flat.fleetPhase, flat.fleet, flat.fleetErrorMessage),
+    taskAssociationResource: resource(flat.associationPhase, flat.associations, flat.associationErrorMessage),
+    taskEventResource: resource(flat.eventPhase, flat.eventPage, flat.eventErrorMessage),
+    taskLiveState: computed(() => flat.liveState),
+    workspaceTaskAction: computed(() => flat.workspaceAction),
+    canCreateReview: computed(() => flat.canCreateReview),
+    codingCommandLog: flat.codingCommandLog,
+    codingTestReport: flat.codingTestReport,
+    resolveExecutionConflict: flat.onResolveExecutionConflict,
+    selectTaskAttempt: flat.onSelectAttempt,
+    retryTaskDetails: flat.onRetry,
+    retryTaskRuntime: flat.onRetryRuntime,
+    retryCodingStudio: flat.onRetryCoding,
+    loadCodingPatch: flat.onLoadCodingPatch,
+    loadCodingCommandsMore: flat.onLoadCodingCommandsMore,
+    loadCodingTestsMore: flat.onLoadCodingTestsMore,
+    loadCodingCommandLog: flat.onLoadCodingCommandLog,
+    loadCodingTestReport: flat.onLoadCodingTestReport,
+    retryRuntimeHealth: flat.onRetryFleet,
+    retryTaskAssociations: flat.onRetryAssociations,
+    loadTaskEventsMore: flat.onLoadEventsMore,
+    retryTaskEvents: flat.onRetryEvents,
+    selectReview: flat.onSelectReview,
+    retryReviews: flat.onRetryReviews,
+    retryReviewDetail: flat.onRetryReviewDetail,
+    addReviewComment: flat.onAddReviewComment,
+    createReview: flat.onCreateReview,
+    executeReviewer: flat.onExecuteReviewer,
+    decideReview: flat.onDecideReview,
+    requestReviewChanges: flat.onRequestReviewChanges,
+    retryReviewCommand: flat.onRetryReviewCommand,
+    commandTask: flat.onCommand,
+    retryTaskCommand: flat.onRetryCommand,
+  } as unknown as TaskWorkbench
+
+  return {
+    taskStore,
+    reviewStore,
+    injectionStore,
+    drawerProps: {
+      workbench,
+      canGateReview: flat.canGateReview,
+      canConfirmDelivery: flat.canConfirmDelivery,
+      principals: flat.principals,
+      canControl: flat.canControl,
+      pinnedResultReference: null,
+    },
+    baseDetails: taskDetails,
+    baseAttempts: [current, historical],
   }
 }
 

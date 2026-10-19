@@ -29,6 +29,7 @@ import type {
   TaskDelegationPreflight,
   TaskDelegationSelection,
 } from './types'
+import { segment, pick } from '../../api/gatewayUtils'
 
 export interface TaskGateway {
   createTask(command: CreateTaskCommand, idempotencyKey: string): Promise<TaskCommandReceipt>
@@ -345,9 +346,6 @@ function pageSearch(after?: string, limit = 50): URLSearchParams {
   return search
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapTaskSummary(value: TaskSummary): TaskSummary {
   return { ...pick(value, [
@@ -681,6 +679,3 @@ function mapAssociationPage(value: TaskAssociationPage): TaskAssociationPage {
   }
 }
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

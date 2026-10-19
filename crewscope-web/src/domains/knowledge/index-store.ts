@@ -8,6 +8,8 @@ import type {
   KnowledgeIndexJobFilter,
   RepositoryBuildInput,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type KnowledgeIndexPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -62,28 +64,21 @@ export type KnowledgeIndexGateway = Pick<
 
 const PAGE_SIZE = 50
 
-interface IndexRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Team-scoped I01c job listing with generation checks in addition to AbortSignal cancellation. */
 export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): KnowledgeIndexStore {
   const state = reactive<KnowledgeIndexStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, IndexRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -92,7 +87,7 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
     if (more && (state.jobs.nextAfter === null || state.jobs.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(state.jobs.phase)) return
     const after = more ? state.jobs.nextAfter : null
-    const request = beginRequest('jobs')
+    const request = requests.begin('jobs')
     if (more) state.jobs.loadingMore = true
     else {
       state.jobs.phase = 'loading'
@@ -101,17 +96,17 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
       if (force) state.jobs.value = null
     }
     try {
-      const page = await gateway.listJobs(scope, filter, after, PAGE_SIZE, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await gateway.listJobs(scope, filter, after, PAGE_SIZE, request.signal)
+      if (!request.isCurrent()) return
       // The listing is (createdAt, id) ascending — append-only merging keeps that order intact.
       state.jobs.value = more ? mergeJobs(state.jobs.value ?? [], page.items) : page.items
       state.jobs.nextAfter = page.nextAfter
       state.jobs.phase = state.jobs.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(state.jobs, error, '暂时无法加载索引作业')
+      if (!isAbort(error) && request.isCurrent()) setError(state.jobs, error, '暂时无法加载索引作业')
     } finally {
-      if (isCurrent(request)) state.jobs.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) state.jobs.loadingMore = false
+      request.finish()
     }
   }
 
@@ -151,7 +146,7 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
     action: () => Promise<string>,
     onSuccess?: () => void,
   ): Promise<boolean> {
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, jobId, message: null, errorMessage: null, errorCode: null, errorStatus: null,
@@ -159,13 +154,13 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
     const pending = state.command
     try {
       const message = await action()
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.message = message
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       state.command.phase = 'error'
       state.command.errorMessage = presentError(error, '索引作业命令执行失败')
       state.command.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
@@ -197,41 +192,13 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
   function reset(): void {
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): SettingsScope {
     if (!activeScope) throw new Error('Knowledge Index Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): IndexRequest {
-    requests.get(key)?.controller.abort()
-    const request: IndexRequest = {
-      key,
-      version: generation,
-      controller: new AbortController(),
-      scopeKey: activeScopeKey,
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: IndexRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: IndexRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: KnowledgeIndexStoreState): void {
@@ -290,14 +257,5 @@ function setError(resource: KnowledgeIndexJobPageResource, error: unknown, fallb
   resource.errorStatus = statusOf(error)
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

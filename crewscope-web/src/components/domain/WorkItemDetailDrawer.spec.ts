@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import { activateF05Identity, clearF05UserData } from '../../app/f05Storage'
 import { readWorkItemCommentDraft } from '../../domains/workitem/commentDraft'
@@ -6,19 +7,40 @@ import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails } from
 import { fixtureConversationWorkItemAssociation } from '../../test/conversationWorkItemFixtures'
 import { COLLABORATION_STORE } from '../../domains/collaboration/store'
 import { createScriptedCollaborationStore } from '../../test/collaborationFixtures'
+import { WORK_ITEM_STORE, type WorkItemStore } from '../../domains/workitem/store'
+import { AGENT_STORE, type AgentStore } from '../../domains/agent/store'
+import { CONVERSATION_WORK_ITEM_LINK_STORE, type ConversationWorkItemLinkStore } from '../../domains/conversation/workItemLinkStore'
 import WorkItemDetailDrawer from './WorkItemDetailDrawer.vue'
 import type { WorkItemAvailableTransition } from '../../domains/workitem/types'
+import type { TaskStatus } from '../../domains/task/types'
 
 const global = { stubs: { RouterLink: { props: ['to'], template: '<a href="#"><slot /></a>' }, teleport: true } }
+
+/** The drawer subscribes to the work-item/agent/link stores itself (M12b-F05). */
+function mountDrawer(
+  fixture: ReturnType<typeof props>,
+  options: { attachTo?: boolean, provide?: Record<string, unknown>, slots?: Record<string, string> } = {},
+) {
+  return mount(WorkItemDetailDrawer, {
+    props: fixture.drawerProps,
+    attachTo: options.attachTo === true ? document.body : undefined,
+    slots: options.slots,
+    global: {
+      provide: {
+        [WORK_ITEM_STORE as symbol]: fixture.workItemStore,
+        [AGENT_STORE as symbol]: fixture.agentStore,
+        [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: fixture.linkStore,
+        ...options.provide,
+      },
+      stubs: global.stubs,
+    },
+  })
+}
 
 describe('WorkItemDetailDrawer', () => {
   it('focuses the close action, exposes valid transitions and closes with Escape', async () => {
     const onTransition = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(WorkItemDetailDrawer, {
-      attachTo: document.body,
-      global,
-      props: props({ onTransition }),
-    })
+    const wrapper = mountDrawer(props({ onTransition }), { attachTo: true })
     await flushPromises()
 
     expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭工作项详情')
@@ -35,10 +57,7 @@ describe('WorkItemDetailDrawer', () => {
   it('submits comments and ResourceLinks through the application callbacks', async () => {
     const onAddComment = vi.fn().mockResolvedValue(undefined)
     const onLinkResource = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(WorkItemDetailDrawer, {
-      global,
-      props: props({ onAddComment, onLinkResource }),
-    })
+    const wrapper = mountDrawer(props({ onAddComment, onLinkResource }))
 
     await wrapper.get('#work-item-comment').setValue('  新的协作结论  ')
     await wrapper.get('.comment-form').trigger('submit')
@@ -56,7 +75,7 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('separates Personal Agent discussion from the durable Task delegation entry', async () => {
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
+    const wrapper = mountDrawer(props())
 
     await wrapper.get('.detail-footer__actions button:last-child').trigger('click')
     expect(wrapper.emitted('delegate')).toEqual([['']])
@@ -67,7 +86,7 @@ describe('WorkItemDetailDrawer', () => {
   it('renders stored comments through the safe Markdown pipeline with table semantics intact', () => {
     const details = structuredClone(fixtureWorkItemDetails)
     details.comments[0]!.content = '结论 | 数量 |\n| --- | --- |\n| 接口已冻结 | 2 |'
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ details }) })
+    const wrapper = mountDrawer(props({ details }))
 
     // Semantic structure, not flattened text: th/td survive because the same SafeMarkdown
     // whitelist backs chat, comments and line-review contexts (R40).
@@ -78,7 +97,7 @@ describe('WorkItemDetailDrawer', () => {
 
   it('keeps “发布评论” and “让 Agent 处理” as two separate intents from the same draft', async () => {
     const onAddComment = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ onAddComment }) })
+    const wrapper = mountDrawer(props({ onAddComment }))
 
     await wrapper.get('#work-item-comment').setValue('按新接口契约补齐回调')
     await wrapper.get('.comment-actions button[title^="以这条评论为执行目标"]').trigger('click')
@@ -94,7 +113,7 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('previews the comment draft through SafeMarkdown and returns to editing without losing text', async () => {
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props() })
+    const wrapper = mountDrawer(props())
 
     await wrapper.get('#work-item-comment').setValue('**结论**先行')
     const toggle = wrapper.get('.comment-preview-toggle')
@@ -110,10 +129,7 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('shows visible source Conversations beside responsibility facts', async () => {
-    const wrapper = mount(WorkItemDetailDrawer, {
-      global,
-      props: props({ associationPhase: 'ready', associations: [fixtureConversationWorkItemAssociation] }),
-    })
+    const wrapper = mountDrawer(props({ associationPhase: 'ready', associations: [fixtureConversationWorkItemAssociation] }))
 
     expect(wrapper.text()).toContain('关联对话')
     expect(wrapper.text()).toContain('团队责任链')
@@ -126,7 +142,7 @@ describe('WorkItemDetailDrawer', () => {
     const details = structuredClone(fixtureWorkItemDetails)
     details.workItem.createdByPrincipalId = '00000000-0000-0000-0000-000000000201'
     details.comments[0]!.authorPrincipalId = '00000000-0000-0000-0000-000000000101'
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ details }) })
+    const wrapper = mountDrawer(props({ details }))
 
     expect(wrapper.get('.facts-section').text()).toContain('Coding Agent')
     expect(wrapper.get('.comments-section').text()).toContain('张凯旋')
@@ -134,9 +150,7 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('embeds the WorkItem Activity projection after its business timeline', () => {
-    const wrapper = mount(WorkItemDetailDrawer, {
-      global,
-      props: props(),
+    const wrapper = mountDrawer(props(), {
       slots: {
         activity: '<div data-testid="work-item-activity">WorkItem Activity projection</div>',
       },
@@ -151,17 +165,14 @@ describe('WorkItemDetailDrawer', () => {
 
   it('offers the real parallel Task list when several Tasks run and none is chosen', async () => {
     const onOpenTask = vi.fn()
-    const wrapper = mount(WorkItemDetailDrawer, {
-      global,
-      props: props({
-        taskSelectionRequired: true,
-        parallelTasks: [
-          { id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' },
-          { id: 'task-b', objective: '编写集成测试', status: 'WAITING' },
-        ],
-        onOpenTask,
-      }),
-    })
+    const wrapper = mountDrawer(props({
+      taskSelectionRequired: true,
+      parallelTasks: [
+        { id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' },
+        { id: 'task-b', objective: '编写集成测试', status: 'WAITING' },
+      ],
+      onOpenTask,
+    }))
 
     expect(wrapper.get('.parallel-tasks').attributes('role')).toBe('status')
     expect(wrapper.get('.parallel-tasks').text()).toContain('2 个 Task 并行，先选择目标')
@@ -169,10 +180,7 @@ describe('WorkItemDetailDrawer', () => {
     await wrapper.findAll('.parallel-tasks button').find(button => button.text().includes('编写集成测试'))!.trigger('click')
     expect(onOpenTask).toHaveBeenCalledWith('task-b')
 
-    const silent = mount(WorkItemDetailDrawer, {
-      global,
-      props: props({ taskSelectionRequired: false, parallelTasks: [{ id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' }] }),
-    })
+    const silent = mountDrawer(props({ taskSelectionRequired: false, parallelTasks: [{ id: 'task-a', objective: '搭建登录页', status: 'ACTIVE' }] }))
     expect(silent.find('.parallel-tasks').exists()).toBe(false)
     silent.unmount()
     wrapper.unmount()
@@ -182,7 +190,7 @@ describe('WorkItemDetailDrawer', () => {
     const onTransition = vi.fn().mockRejectedValue(new Error('conflict'))
     const onAddComment = vi.fn().mockRejectedValue(new Error('comment failed'))
     const onLinkResource = vi.fn().mockRejectedValue(new Error('resource failed'))
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({ onTransition, onAddComment, onLinkResource }) })
+    const wrapper = mountDrawer(props({ onTransition, onAddComment, onLinkResource }))
 
     await wrapper.get('.transition-control button').trigger('click')
     await wrapper.get('.comment-form').trigger('submit')
@@ -203,12 +211,12 @@ describe('WorkItemDetailDrawer', () => {
   })
 
   it('renders loading, error, conflict, terminal and external-source states', async () => {
-    const loading = mount(WorkItemDetailDrawer, { global, props: props({ phase: 'loading', details: null }) })
+    const loading = mountDrawer(props({ phase: 'loading', details: null }))
     expect(loading.text()).toContain('正在加载')
     loading.unmount()
 
     const onRetry = vi.fn()
-    const failed = mount(WorkItemDetailDrawer, { global, props: props({ phase: 'error', details: null, errorMessage: '读取失败', onRetry }) })
+    const failed = mountDrawer(props({ phase: 'error', details: null, errorMessage: '读取失败', onRetry }))
     expect(failed.text()).toContain('读取失败')
     await failed.get('button:not([aria-label="关闭工作项详情"])').trigger('click')
     expect(onRetry).toHaveBeenCalled()
@@ -219,7 +227,7 @@ describe('WorkItemDetailDrawer', () => {
     externalDetails.workItem.status = 'BLOCKED'
     externalDetails.resourceLinks.push({ id: 'safe', workItemId: externalDetails.workItem.id, resourceType: 'EXTERNAL_URL', resourceReference: 'https://example.com/path', label: null, createdAt: '2026-08-08T04:00:00Z', createdByPrincipalId: null })
     externalDetails.resourceLinks.push({ id: 'unsafe', workItemId: externalDetails.workItem.id, resourceType: 'EXTERNAL_URL', resourceReference: 'javascript:alert(1)', label: '危险引用', createdAt: '2026-08-08T04:00:00Z', createdByPrincipalId: null })
-    const external = mount(WorkItemDetailDrawer, { global, props: props({
+    const external = mountDrawer(props({
       details: externalDetails,
       availableTransitions: [transition({
         actionId: 'resume-work',
@@ -233,7 +241,7 @@ describe('WorkItemDetailDrawer', () => {
       })],
       versionConflict: { attemptedVersion: 1, currentVersion: null },
       commandErrorMessage: '发生冲突',
-    }) })
+    }))
     expect(external.text()).toContain('此工作项由外部 Provider 管理')
     expect(external.get('.transition-reason a').text()).toBe('查看集成设置')
     expect(external.get('.transition-action button').attributes('disabled')).toBeDefined()
@@ -246,14 +254,14 @@ describe('WorkItemDetailDrawer', () => {
     archivedDetails.workItem.status = 'ARCHIVED'
     archivedDetails.comments = []
     archivedDetails.resourceLinks = []
-    const archived = mount(WorkItemDetailDrawer, { global, props: props({ details: archivedDetails, availableTransitions: [] }) })
+    const archived = mountDrawer(props({ details: archivedDetails, availableTransitions: [] }))
     expect(archived.text()).toContain('当前状态没有后续动作')
     expect(archived.find('.comment-form').exists()).toBe(false)
     archived.unmount()
   })
   it('never widens the action list beyond the server verdict and never submits a blocked action', async () => {
     const onTransition = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+    const wrapper = mountDrawer(props({
       onTransition,
       availableTransitions: [transition({
         actionId: 'request-review', targetStatus: 'IN_REVIEW', label: '提交评审', reversible: true,
@@ -262,7 +270,7 @@ describe('WorkItemDetailDrawer', () => {
         reason: 'REVIEWER_REQUIRED', reasonMessage: '需要先指派 Reviewer',
         remedyLabel: '指派 Reviewer', remedyRoute: '/work?panel=responsibility',
       })],
-    }) })
+    }))
 
     // The generated state machine also allows BLOCKED and CANCELLED from IN_PROGRESS; neither is
     // offered here, because the server did not return them.
@@ -284,12 +292,12 @@ describe('WorkItemDetailDrawer', () => {
 
   it('asks twice before an irreversible action, which has no reverse edge to undo', async () => {
     const onTransition = vi.fn().mockResolvedValue(undefined)
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+    const wrapper = mountDrawer(props({
       onTransition,
       availableTransitions: [transition({
         actionId: 'cancel', targetStatus: 'CANCELLED', label: '取消工作项', strength: 'DANGER',
       })],
-    }) })
+    }))
 
     await wrapper.get('.transition-action button').trigger('click')
     await flushPromises()
@@ -304,12 +312,12 @@ describe('WorkItemDetailDrawer', () => {
 
   it('offers a retry instead of a guessed action list when availability fails', async () => {
     const onRetryAvailability = vi.fn()
-    const wrapper = mount(WorkItemDetailDrawer, { global, props: props({
+    const wrapper = mountDrawer(props({
       availabilityPhase: 'error',
       availabilityErrorMessage: '暂时无法加载可执行动作',
       availableTransitions: [],
       onRetryAvailability,
-    }) })
+    }))
 
     expect(wrapper.find('.transition-control').exists()).toBe(false)
     await wrapper.get('.transition-section button').trigger('click')
@@ -328,9 +336,8 @@ describe('WorkItemDetailDrawer', () => {
       organizationId: '00000000-0000-0000-0000-000000000001', organization: 'CrewScope',
       permissions: new Set<string>(),
     }
-    const mounted = () => mount(WorkItemDetailDrawer, {
-      global: { ...global, provide: { [AUTH_PRINCIPAL as symbol]: principal } },
-      props: props({ onAddComment }),
+    const mounted = () => mountDrawer(props({ onAddComment }), {
+      provide: { [AUTH_PRINCIPAL as symbol]: principal },
     })
 
     const first = mounted()
@@ -355,9 +362,8 @@ describe('WorkItemDetailDrawer', () => {
   it('turns remote work-item changes into a banner while editing and a silent re-read otherwise', async () => {
     const { store, gateway } = createScriptedCollaborationStore()
     const onRetry = vi.fn()
-    const wrapper = mount(WorkItemDetailDrawer, {
-      global: { ...global, provide: { [COLLABORATION_STORE as symbol]: store } },
-      props: props({ onRetry }),
+    const wrapper = mountDrawer(props({ onRetry }), {
+      provide: { [COLLABORATION_STORE as symbol]: store },
     })
     await flushPromises()
 
@@ -418,8 +424,14 @@ function transition(overrides: Partial<WorkItemAvailableTransition>): WorkItemAv
   }
 }
 
+/**
+ * Builds the drawer's three faces from one flat fixture (M12b-F05): raw work-item/agent/link state
+ * lands in faked stores, the store-owned commands land on the work-item store, and page-owned
+ * verdicts stay props. Overrides keep the historical flat prop names, so the cases read as before
+ * the migration.
+ */
 function props(overrides: Record<string, unknown> = {}) {
-  return {
+  const flat = {
     scope: { organizationId: '00000000-0000-0000-0000-000000000001', teamId: '00000000-0000-0000-0000-000000000201' },
     phase: 'ready' as const,
     details: structuredClone(fixtureWorkItemDetails),
@@ -477,6 +489,82 @@ function props(overrides: Record<string, unknown> = {}) {
     onLoadTimelineMore: vi.fn().mockResolvedValue(undefined),
     onRetryAssociations: vi.fn(),
     onOpenTask: vi.fn(),
+    parallelTasks: undefined as Array<{ id: string, objective: string, status: TaskStatus }> | undefined,
+    taskSelectionRequired: undefined as boolean | undefined,
     ...overrides,
+  }
+
+  // Raw state faces: the stores are readonly from the outside, so the fixture builds the exact
+  // slice the drawer subscribes to as plain reactives, with the store-owned commands attached.
+  const workItemStore = {
+    state: reactive({
+      detailPhase: flat.phase,
+      detail: flat.details,
+      detailErrorMessage: flat.errorMessage,
+      detailCommandPending: flat.commandPending,
+      detailCommandErrorMessage: flat.commandErrorMessage,
+      versionConflict: flat.versionConflict,
+      availabilityPhase: flat.availabilityPhase,
+      availableTransitions: flat.availableTransitions,
+      availabilityErrorMessage: flat.availabilityErrorMessage,
+      responsibilityPhase: flat.responsibilityPhase,
+      responsibilities: flat.responsibilities,
+      responsibilityErrorMessage: flat.responsibilityErrorMessage,
+      responsibilityCommandPending: flat.responsibilityCommandPending,
+      responsibilityCommandErrorMessage: flat.responsibilityCommandErrorMessage,
+      timelinePhase: flat.timelinePhase,
+      timeline: flat.timeline,
+      timelineNextCursor: flat.timelineNextCursor,
+      timelineLoadingMore: flat.timelineLoadingMore,
+      timelineErrorMessage: flat.timelineErrorMessage,
+    }),
+    addComment: flat.onAddComment,
+    linkResource: flat.onLinkResource,
+    replaceOwner: flat.onReplaceOwner,
+    assignExecutor: flat.onAssignExecutor,
+    assignGateReviewer: flat.onAssignGateReviewer,
+    assignAdvisoryReviewer: flat.onAssignAdvisoryReviewer,
+    releaseResponsibility: flat.onReleaseResponsibility,
+    loadTimelineMore: flat.onLoadTimelineMore,
+  } as unknown as WorkItemStore
+  const agentStore = {
+    state: reactive({
+      agents: {
+        phase: flat.responsibilityAgentPhase,
+        errorMessage: flat.responsibilityAgentErrorMessage,
+        loadingMore: flat.responsibilityAgentLoadingMore,
+        nextOffset: flat.responsibilityAgentHasMore ? 'offset-1' : null,
+      },
+    }),
+  } as unknown as AgentStore
+  const linkStore = {
+    state: reactive({
+      phase: flat.associationPhase,
+      associations: flat.associations,
+      errorMessage: flat.associationErrorMessage,
+    }),
+  } as unknown as ConversationWorkItemLinkStore
+
+  return {
+    workItemStore,
+    agentStore,
+    linkStore,
+    drawerProps: {
+      scope: flat.scope,
+      canParticipate: flat.canParticipate,
+      canDelegate: flat.canDelegate,
+      canManageResponsibility: flat.canManageResponsibility,
+      responsibilityCandidates: flat.responsibilityCandidates,
+      responsibilityAgentCandidates: flat.responsibilityAgentCandidates,
+      onRetry: flat.onRetry,
+      onTransition: flat.onTransition,
+      onRetryAvailability: flat.onRetryAvailability,
+      onRetryResponsibilityAgents: flat.onRetryResponsibilityAgents,
+      onLoadMoreResponsibilityAgents: flat.onLoadMoreResponsibilityAgents,
+      onRetryAssociations: flat.onRetryAssociations,
+      parallelTasks: flat.parallelTasks,
+      taskSelectionRequired: flat.taskSelectionRequired,
+      onOpenTask: flat.onOpenTask,
+    },
   }
 }

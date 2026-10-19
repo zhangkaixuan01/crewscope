@@ -6,6 +6,7 @@ import {
   type InjectionKey,
 } from 'vue'
 import { AUTH_PRINCIPAL, type AuthenticatedPrincipal } from '../../app/auth'
+import { createRequestScope } from '../../api/requestScope'
 import { activateF05Identity, clearF05UserData, purgeF05LegacyKeys } from '../../app/f05Storage'
 import { CrewScopeApiError } from '../../api/client'
 import type { IdentityGateway } from './gateway'
@@ -83,7 +84,9 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
   const channelFactory = options.channelFactory ?? browserChannel
   let channel: AuthBroadcastChannel | null = null
   let started = false
-  let generation = 0
+  // Restore-session invalidation epoch (M12b-F05): stop()/clearSession() invalidate,
+  // a running restore holds a capture; pending dedupes concurrent restores.
+  const restoreRequests = createRequestScope(() => 'identity-session')
   let pending: Promise<void> | null = null
 
   const receiveBroadcast = (event: MessageEvent<AuthBroadcastMessage>) => {
@@ -101,7 +104,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
   function stop(): void {
     if (!started) return
     started = false
-    generation += 1
+    restoreRequests.invalidate()
     pending = null
     if (principal.id) clearF05UserData()
     channel?.removeEventListener('message', receiveBroadcast)
@@ -132,13 +135,13 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
 
   async function restore(blocking: boolean): Promise<void> {
     if (pending) return pending
-    const requestGeneration = ++generation
+    const owner = restoreRequests.capture()
     if (blocking) state.phase = 'restoring'
     state.errorCode = null
     state.errorMessage = null
     const request = timedSession(gateway, sessionTimeoutMs)
       .then(session => {
-        if (requestGeneration !== generation) return
+        if (!owner.isCurrent()) return
         state.session = session
         if (session.authenticated) applyPrincipal(session)
         else clearPrincipal()
@@ -146,7 +149,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
         notify(state.phase, 'restored')
       })
       .catch(error => {
-        if (requestGeneration !== generation) return
+        if (!owner.isCurrent()) return
         clearPrincipal()
         state.session = null
         state.phase = 'error'
@@ -160,7 +163,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
           : '会话服务暂时不可用，请稍后重新检查。'
       })
       .finally(() => {
-        if (requestGeneration === generation) pending = null
+        if (owner.isCurrent()) pending = null
       })
     pending = request
     return request
@@ -187,7 +190,7 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
   }
 
   function clearSession(reason: AuthTransitionReason, broadcast: boolean): void {
-    generation += 1
+    restoreRequests.invalidate()
     pending = null
     state.session = null
     state.phase = 'anonymous'

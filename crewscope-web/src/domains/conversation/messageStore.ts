@@ -3,6 +3,7 @@ import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { ConversationMessageGateway } from './messageGateway'
 import type { ConversationMessage, ConversationMessageScope } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
 
 export type MessageHistoryPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type PendingMessageStatus = 'sending' | 'failed'
@@ -308,14 +309,5 @@ function markFailed(pending: PendingConversationMessage, message: string): void 
   pending.errorMessage = message
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}

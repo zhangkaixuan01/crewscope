@@ -27,8 +27,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
-import { useCollaborationStore } from '../domains/collaboration/store'
-import { collaborationScopeKey, type CollaborationScope } from '../domains/collaboration/types'
+import { type CollaborationScope } from '../domains/collaboration/types'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
@@ -45,36 +44,16 @@ import {
   readWorkItemSortKey,
   type WorkItemSortKey,
 } from '../domains/workitem/list'
-import {
-  captureFilters,
-  listViews,
-  resolveEntryView,
-  viewQuery,
-  workFilterKeys,
-  type SavedViewFilters,
-  type SavedViewOwner,
-} from '../domains/views/savedViews'
-import type { F05SavedView } from '../app/f05Storage'
 import { useTaskStore } from '../domains/task/store'
 import { clearTaskDelegationDraft } from '../domains/task/delegationDraft'
-import { parseExecutionSelection, resolveExecutionSelection } from '../domains/task/executionSelection'
-import { resolveWorkspaceAction } from '../domains/task/workspaceAction'
-import type { WorkspaceAction } from '../domains/task/workspaceAction'
 import type { ResultReference } from '../domains/workitem/outcome'
-import { quotaAdmissionProblem } from '../domains/quota/presentation'
 import { clearCodingTargetDraft } from '../domains/coding/draft'
 import {
-  codingRouteMatchesScope,
-  codingRouteSelection,
-  isRestorableCodingRoute,
-  withCodingRoute,
   withoutCodingRoute,
 } from '../domains/coding/route'
-import { useCodingStore } from '../domains/coding/store'
-import { reviewAttemptKey, reviewDetailKey, useReviewStore } from '../domains/review/store'
-import type { ReviewDecisionInput } from '../domains/review/types'
-import { deliveryAttemptKey, deliveryBundleKey, useDeliveryStore } from '../domains/delivery/store'
-import { useInjectionStore, viewKey } from '../domains/injection/store'
+import { useReviewStore } from '../domains/review/store'
+import { useDeliveryStore } from '../domains/delivery/store'
+import { useInjectionStore } from '../domains/injection/store'
 import { useTeamOpsStore, workItemActivityCacheKey } from '../domains/teamops/store'
 import type { WorkItemActivityRoute } from '../domains/teamops/types'
 import type { CodingScope } from '../domains/coding/types'
@@ -82,7 +61,6 @@ import type { PrincipalScope } from '../domains/principal/types'
 import {
   taskStatuses,
   type CreateTaskInput,
-  type MemberTaskCommandOperation,
   type TaskStatus,
   type TaskSummary,
 } from '../domains/task/types'
@@ -100,6 +78,9 @@ import {
   type WorkItemType,
 } from '../domains/workitem/types'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
+import { useCollaborationPresence } from '../composables/useCollaborationPresence'
+import { useWorkSavedViews } from '../composables/useWorkSavedViews'
+import { useWorkTaskWorkbench } from '../composables/useWorkTaskWorkbench'
 
 /** M11-F02: the third view is the blocking graph — same route, same scope, its own shell. */
 type WorkView = 'list' | 'board' | 'graph'
@@ -144,7 +125,6 @@ const {
 } = useTransitionConfirm(() => workStore.state.detailCommandPending === 'transition')
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
-const codingStore = useCodingStore()
 const reviewStore = useReviewStore()
 const deliveryStore = useDeliveryStore()
 const injectionStore = useInjectionStore()
@@ -199,45 +179,6 @@ const view = computed<WorkView>(() => oneOf(route.query.view, ['list', 'board', 
 const collectionView = computed<'list' | 'board'>(() => (view.value === 'graph' ? 'list' : view.value))
 
 // --- R41 saved views: the member's own filter definitions for this list, on this machine --
-
-const savedViewsOwner = computed<SavedViewOwner | null>(() => {
-  const teamId = scopeStore.state.selectedTeamId
-  return principal && principal.accountId && teamId
-    ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId }
-    : null
-})
-const committedWorkFilters = computed<SavedViewFilters>(() => captureFilters(route.query, workFilterKeys))
-/** Applies a saved definition (or the 「默认」 reset) by rewriting the list's filter keys. */
-function applySavedView(target: F05SavedView | null): void {
-  void router.replace({ query: viewQuery(route.query, target, workFilterKeys) })
-}
-let entryViewHandled = false
-let entryViewTeam: string | null = null
-/** The canonical values the watch below writes; at these a query key says the same as no key. */
-const workEntryDefaults: Record<string, string> = { view: 'list', status: 'all', type: 'all', priority: 'all', sort: readWorkItemSortKey(undefined) }
-/**
- * The stored default applies once on entry, only while the URL carries no filter key of its own
- * (契约 §4.6). It runs before the canonicalization below so both rewrites compose into one query.
- * Canonical default values in the URL do not count as explicit — otherwise a reload would strand
- * the stored default behind the defaults the watch just wrote.
- */
-function applyEntryViewOnce(): boolean {
-  const ownerTeam = savedViewsOwner.value?.teamId ?? null
-  if (entryViewTeam !== ownerTeam) {
-    // Switching Team reuses this component instance; each Team's namespace deserves its own
-    // entry pass, so the once-guard resets with the owner's Team instead of shielding it.
-    entryViewTeam = ownerTeam
-    entryViewHandled = false
-  }
-  if (entryViewHandled) return false
-  entryViewHandled = true
-  const owner = savedViewsOwner.value
-  const target = owner ? resolveEntryView(route.query, workFilterKeys, listViews(owner, 'work'), workEntryDefaults) : null
-  if (!target) return false
-  void router.replace({ query: viewQuery(route.query, target, workFilterKeys) })
-  return true
-}
-
 const statusFilter = computed<FilterValue<WorkItemStatus>>(() => oneOf(route.query.status, ['all', ...workItemStatuses] as const, 'all'))
 const typeFilter = computed<FilterValue<WorkItemType>>(() => oneOf(route.query.type, ['all', ...workItemTypes] as const, 'all'))
 const priorityFilter = computed<FilterValue<WorkItemPriority>>(() => oneOf(route.query.priority, ['all', ...workItemPriorities] as const, 'all'))
@@ -270,7 +211,6 @@ const principalScope = computed<PrincipalScope | null>(() => principal && team.v
   : null)
 // M11-F01: board presence rides the project scope of the collaboration channel. The
 // subscription follows the board view itself — the list view costs no signal traffic.
-const collaborationStore = useCollaborationStore()
 const boardCollabScope = computed<CollaborationScope | null>(() => {
   if (view.value !== 'board' || !principal || !team.value || !project.value) return null
   return {
@@ -280,24 +220,7 @@ const boardCollabScope = computed<CollaborationScope | null>(() => {
     resourceId: project.value.id,
   }
 })
-const boardCollabKey = computed(() => {
-  const scope = boardCollabScope.value
-  return scope ? collaborationScopeKey(scope) : null
-})
-const boardPresence = computed(() => {
-  const key = boardCollabKey.value
-  return key ? collaborationStore.state.presenceByScope[key] ?? [] : []
-})
-const collaborationDegraded = computed(() => collaborationStore.state.phase === 'degraded')
-watch(boardCollabScope, (next, previous) => {
-  const changed = !previous || !next || collaborationScopeKey(previous) !== collaborationScopeKey(next)
-  if (previous && changed) collaborationStore.release(previous)
-  if (next && changed) collaborationStore.acquire(next)
-}, { immediate: true })
-onUnmounted(() => {
-  const scope = boardCollabScope.value
-  if (scope) collaborationStore.release(scope)
-})
+const { presence: boardPresence, degraded: collaborationDegraded } = useCollaborationPresence(boardCollabScope)
 const showCreate = ref(false)
 useCreationEntry('work', () => canCreate.value && scopeStore.state.phase === 'ready'
   ? project.value?.id ?? null : null, openCreate)
@@ -311,14 +234,6 @@ watch(() => [scopeStore.state.selectedTeamId, scopeStore.state.selectedProjectId
 watch(() => route.query.workItem, () => { showDelegate.value = false; resetTransition() }, { flush: 'sync' })
 let detailTriggerId: string | null = null
 let taskDetailTriggerId: string | null = null
-const selectedTaskExecutionId = ref<string | null>(null)
-/** `taskExecution=` and `attempt=` name different executions: both spellings present, neither chosen. */
-const executionConflict = computed(() => {
-  const parse = parseExecutionSelection(route.query)
-  return parse.conflict && parse.unified && parse.alias
-    ? { unified: parse.unified, alias: parse.alias }
-    : null
-})
 const selectedWorkItemActivityRoute = computed<WorkItemActivityRoute | null>(() => {
   const projectId = scopeStore.state.selectedProjectId
   const workItemId = workStore.state.detail?.workItem.id
@@ -328,145 +243,6 @@ const selectedWorkItemActivity = computed(() => {
   const coordinates = selectedWorkItemActivityRoute.value
   return coordinates ? teamOpsStore.state.workItemActivity[workItemActivityCacheKey(coordinates)] ?? null : null
 })
-
-const selectedRuntimeResource = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = selectedTaskExecutionId.value
-  return taskId && executionId ? taskStore.state.runtimeFacts[`${taskId}:${executionId}`] ?? null : null
-})
-const selectedCodingAttemptResource = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.attempts[`${taskId}:${executionId}`] ?? null : null
-})
-const selectedCodingCommandsResource = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.commands[`${taskId}:${executionId}`] ?? null : null
-})
-const selectedCodingTestsResource = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.testEvidence[`${taskId}:${executionId}`] ?? null : null
-})
-const selectedCodingPatchResource = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.patches[`${taskId}:${executionId}`] ?? null : null
-})
-const selectedReviewCoordinates = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? { taskId, executionId } : null
-})
-const selectedReviewListResource = computed(() => {
-  const coordinates = selectedReviewCoordinates.value
-  return coordinates ? reviewStore.state.lists[reviewAttemptKey(coordinates)] ?? null : null
-})
-const selectedReviewDetailResource = computed(() => {
-  const coordinates = selectedReviewCoordinates.value
-  const reviewRequestId = reviewStore.state.selectedReviewRequestId
-  return coordinates && reviewRequestId
-    ? reviewStore.state.details[reviewDetailKey(coordinates, reviewRequestId)] ?? null
-    : null
-})
-const selectedReviewCommentsResource = computed(() => {
-  const coordinates = selectedReviewCoordinates.value
-  const reviewRequestId = reviewStore.state.selectedReviewRequestId
-  return coordinates && reviewRequestId
-    ? reviewStore.state.comments[reviewDetailKey(coordinates, reviewRequestId)] ?? null
-    : null
-})
-const selectedDeliveryListResource = computed(() => {
-  const coordinates = selectedReviewCoordinates.value
-  return coordinates ? deliveryStore.state.bundles[deliveryAttemptKey(coordinates)] ?? null : null
-})
-const selectedDeliveryDetailResource = computed(() => {
-  const coordinates = selectedReviewCoordinates.value
-  const bundleId = deliveryStore.state.selectedBundleId
-  return coordinates && bundleId
-    ? deliveryStore.state.bundleDetails[deliveryBundleKey(coordinates, bundleId)] ?? null
-    : null
-})
-const codingRouteInvalid = computed(() => {
-  if (!queryValue(route.query.task) || !codingScope.value) return false
-  const selection = codingRouteSelection(route.query)
-  return !isRestorableCodingRoute(selection) || !codingRouteMatchesScope(selection, codingScope.value)
-})
-const codingStudioPhase = computed(() => {
-  if (codingRouteInvalid.value || codingStore.state.routePhase === 'error') return 'error'
-  return selectedCodingAttemptResource.value?.phase ?? codingStore.state.routePhase
-})
-const codingStudioErrorMessage = computed(() => (codingRouteInvalid.value
-  ? 'Coding 深链接的 Team、WorkProject、Task、attempt 或 Workspace 坐标不完整'
-  : codingStore.state.routeErrorMessage)
-  ?? selectedCodingAttemptResource.value?.errorMessage
-  ?? null)
-const runtimeHealthResource = computed(() => taskStore.state.runtimeHealth.default ?? null)
-const taskAssociationResource = computed(() => taskStore.state.selectedTaskId
-  ? taskStore.state.taskAssociations[taskStore.state.selectedTaskId] ?? null
-  : null)
-const taskEventResource = computed(() => taskStore.state.selectedTaskId
-  ? taskStore.state.events[taskStore.state.selectedTaskId] ?? null
-  : null)
-const taskLiveState = computed(() => taskStore.state.selectedTaskId
-  ? taskStore.state.liveTasks[taskStore.state.selectedTaskId] ?? null
-  : null)
-const selectedCodingArtifactErrorStatuses = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (!taskId || !executionId) return []
-  const prefix = `${taskId}:${executionId}:`
-  // Artifact caches survive drawer navigation for fast replay; permission routing must only
-  // observe resources that belong to the currently selected Task attempt.
-  return [codingStore.state.commandLogs, codingStore.state.testReports]
-    .flatMap(cache => Object.entries(cache))
-    .filter(([key]) => key.startsWith(prefix))
-    .map(([, resource]) => resource.errorStatus)
-})
-const selectedInjectionErrorStatus = computed(() => {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (!taskId || !executionId) return null
-  return injectionStore.state.views[viewKey(taskId, executionId)]?.errorStatus ?? null
-})
-/** A quota admission denial (403 policy_denied with a known admission action) is a business
- *  answer shown inside the delegation dialog, not a revoked permission — it must not eject
- *  the whole page to access-denied (M12-F02). */
-const quotaAdjustedCreateErrorStatus = computed(() => {
-  const status = taskStore.state.createErrorStatus
-  if (status !== 403) return status
-  return taskStore.state.createErrorCode === 'policy_denied'
-    && quotaAdmissionProblem(taskStore.state.createErrorDetails.action) !== null
-    ? null
-    : status
-})
-const taskForbidden = computed(() => [
-  taskStore.state.errorStatus,
-  taskStore.state.detailErrorStatus,
-  quotaAdjustedCreateErrorStatus.value,
-  taskStore.state.commandErrorStatus,
-  selectedRuntimeResource.value?.errorStatus,
-  runtimeHealthResource.value?.errorStatus,
-  taskAssociationResource.value?.errorStatus,
-  taskEventResource.value?.errorStatus,
-  codingStore.state.routeErrorStatus,
-  selectedCodingAttemptResource.value?.errorStatus,
-  selectedCodingCommandsResource.value?.errorStatus,
-  selectedCodingTestsResource.value?.errorStatus,
-  selectedCodingPatchResource.value?.errorStatus,
-  selectedReviewListResource.value?.errorStatus,
-  selectedReviewDetailResource.value?.errorStatus,
-  reviewStore.state.command.errorStatus,
-  deliveryStore.state.connections.errorStatus,
-  selectedDeliveryListResource.value?.errorStatus,
-  selectedDeliveryDetailResource.value?.errorStatus,
-  deliveryStore.state.command.errorStatus,
-  selectedInjectionErrorStatus.value,
-  ...selectedCodingArtifactErrorStatuses.value,
-  ...Object.values(taskStore.state.associationPages).map(resource => resource.errorStatus),
-].some(status => status === 403))
-let liveFactRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
  * The rows the server returned for the applied filter and ordering.
@@ -544,43 +320,12 @@ const canConfirmDelivery = computed(() => Boolean(
     && assignment.actorPrincipalId === principal.id,
   ),
 ))
-/**
- * The nine-level primary action (contract §4.7), assembled from authoritative store facts only —
- * the anchored execution is the explicit selection when it is still live, otherwise the server's
- * current one; review and delivery verdicts come from the same resources the panels render.
- */
-const workspaceTaskAction = computed<WorkspaceAction>(() => {
-  if (executionConflict.value) {
-    return {
-      state: 'FORBIDDEN',
-      headline: '执行坐标冲突',
-      detail: 'taskExecution 与 attempt 指向不同执行，写动作已禁止；在执行选择区择一后恢复。',
-      operation: null,
-      anchor: null,
-    }
-  }
-  const attempts = taskStore.state.attempts
-  const anchored = attempts.find(item => item.id === selectedTaskExecutionId.value)
-    ?? attempts.find(item => item.id === taskStore.state.details?.currentExecutionId)
-    ?? null
-  const reviews = selectedReviewListResource.value?.value ?? null
-  const bundles = selectedDeliveryListResource.value?.value ?? null
-  return resolveWorkspaceAction({
-    canControl: canControlTask.value,
-    historyView: Boolean(selectedTaskExecutionId.value
-      && !attempts.some(item => item.id === selectedTaskExecutionId.value)),
-    commandPending: taskStore.state.commandPending !== null,
-    versionConflict: taskStore.state.commandVersionConflict !== null,
-    selectionRequired: false,
-    configurationMissing: false,
-    executionStatus: anchored?.status ?? null,
-    waitingReason: anchored?.waiting?.reason ?? null,
-    reviewAwaited: Boolean(reviews?.some(review => review.status === 'OPEN' || review.status === 'IN_PROGRESS')),
-    deliveryAwaited: Boolean(bundles?.some(bundle => bundle.actions.some(action =>
-      action.dispatch && ['UNKNOWN', 'RECONCILING', 'MANUAL_REVIEW'].includes(action.dispatch.status)))),
-    taskStatus: taskStore.state.details?.status ?? null,
-  })
-})
+// Everything anchored on `route.query.task` — the selected-execution state machine, the resource
+// projections, the three synchronizers and their watches, and the command wrappers around the
+// task/coding/review/delivery stores — lives in one composable (M12b-F05). The drawer subscribes
+// to this object directly; only its page-level entry points (close path, unmount cleanup) are
+// reached through the `taskWorkbench` handle below.
+const taskWorkbench = useWorkTaskWorkbench({ route, router, pageRequests, principal, team, codingScope, canControlTask })
 /**
  * The WorkItem-level §4.7 level-5 feed: the real parallel Task list, offered only while the member
  * has not opened a Task — the summary's selectionRequired flag says the server refuses to guess too.
@@ -593,163 +338,13 @@ const workItemTaskSelectionRequired = computed(() => Boolean(
   workStore.state.detail?.workItem.summary?.selectionRequired && !queryValue(route.query.task),
 ))
 
-watch(
-  () => [scopeStore.state.phase, route.query.view, route.query.status, route.query.type, route.query.priority, route.query.sort, route.query.direction],
-  () => {
-    // Avoid changing the route while AppShell is still restoring a Team/Project deep link.
-    if (scopeStore.state.phase !== 'ready') return
-    // A stored default view rewrote the query this tick; the watch replays on the applied keys.
-    if (applyEntryViewOnce()) return
-    const canonical: LocationQuery = {
-      ...route.query,
-      view: view.value,
-      status: statusFilter.value,
-      type: typeFilter.value,
-      priority: priorityFilter.value,
-      sort: sortKey.value,
-    }
-    // Links minted before the server sorts carried a direction the server contract now owns; the
-    // canonical URL drops it so the query says only what the list actually reads.
-    delete canonical.direction
-    if (
-      route.query.view !== canonical.view
-      || route.query.status !== canonical.status
-      || route.query.type !== canonical.type
-      || route.query.priority !== canonical.priority
-      || route.query.sort !== canonical.sort
-      // A link carrying only the retired direction still needs the cleanup rewrite above.
-      || route.query.direction !== undefined
-    ) void router.replace({ query: canonical })
-  },
-  { immediate: true },
-)
-
-watch(
-  taskForbidden,
-  forbidden => {
-    if (forbidden) void router.replace({ name: 'access-denied', query: { from: route.fullPath } })
-  },
-)
-
-watch(
-  () => taskStore.state.selectedTaskId,
-  async taskId => {
-    const pageOwner = pageRequests.capture()
-    taskStore.stopLiveTasks()
-    if (!taskId) return
-    await taskStore.loadEvents(taskId)
-    if (!pageOwner.isCurrent()) return
-    if (pageOwner.isCurrent() && taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
-  },
-)
-
-watch(
-  () => taskStore.state.liveRefreshVersion,
-  () => {
-    const taskId = taskStore.state.liveUpdatedTaskId
-    if (!taskId || taskId !== taskStore.state.selectedTaskId || !principal || !team.value) return
-    if (liveFactRefreshTimer) clearTimeout(liveFactRefreshTimer)
-    // Bursty Agent events update the Timeline immediately. Task and Runtime projections are
-    // coalesced into one authoritative re-read so event timing can never roll status backwards.
-    // The authoritative re-read is page-scoped, not selection-scoped: the selection coordinate
-    // includes route.fullPath, and query canonicalization written right after a live event (for
-    // example the workspace coordinate) cancelled this coalesced refresh mid-flight, which then
-    // skipped the terminal stopLiveTasks and left the stream reconnecting forever. Task identity
-    // is guarded explicitly by the selectedTaskId checks below.
-    const pageOwner = pageRequests.capture()
-    liveFactRefreshTimer = setTimeout(async () => {
-      if (!pageOwner.isCurrent()) return
-      liveFactRefreshTimer = null
-      if (taskStore.state.selectedTaskId !== taskId || !principal || !team.value) return
-      await taskStore.select({ organizationId: principal.organizationId, teamId: team.value.id }, taskId, true)
-      if (!pageOwner.isCurrent() || taskStore.state.selectedTaskId !== taskId) return
-      const executionId = selectedTaskExecutionId.value
-      if (executionId) await taskStore.loadRuntimeFacts(taskId, executionId, true)
-      if (!pageOwner.isCurrent()) return
-      if (codingScope.value) await synchronizeCodingStudio(true)
-      if (!pageOwner.isCurrent()) return
-      await synchronizeReviewWorkbench(true)
-      if (!pageOwner.isCurrent()) return
-      await synchronizeDeliveryWorkbench(true)
-      if (!pageOwner.isCurrent()) return
-      if (taskStore.state.details && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(taskStore.state.details.status)) {
-        taskStore.stopLiveTasks()
-      }
-    }, 350)
-  },
-)
-
-watch(
-  () => [
-    taskStore.state.details?.id,
-    taskStore.state.details?.currentExecutionId,
-    taskStore.state.attempts.map(item => item.id).join(','),
-    route.query.taskExecution,
-    route.query.attempt,
-  ] as const,
-  ([taskId, currentExecutionId]) => {
-    if (!taskId) {
-      selectedTaskExecutionId.value = null
-      return
-    }
-    // Contract §4.1: the URL and the server facts resolve through the four-state selection — a
-    // conflict chooses nothing (writes stay blocked until the member picks one), and an explicit
-    // execution the Task no longer has stays in view as history instead of silently swapping.
-    const resolution = resolveExecutionSelection(
-      parseExecutionSelection(route.query),
-      taskStore.state.attempts,
-      { selectedId: selectedTaskExecutionId.value, currentExecutionId: currentExecutionId ?? null },
-    )
-    selectedTaskExecutionId.value = resolution.state === 'CONFLICT' || resolution.state === 'NO_EXECUTION'
-      ? null
-      : resolution.executionId
-    if (selectedTaskExecutionId.value) {
-      void taskStore.loadRuntimeFacts(taskId, selectedTaskExecutionId.value)
-    }
-    void taskStore.loadAssociations(taskId)
-    // Refresh this no-store server projection whenever a Task detail is opened.
-    void taskStore.loadRuntimeHealth(true)
-  },
-)
-
-watch(
-  () => [
-    codingScope.value?.organizationId,
-    codingScope.value?.teamId,
-    taskStore.state.selectedTaskId,
-    codingStore.state.selectedExecutionId,
-    codingStore.state.routePhase,
-    route.query.review,
-  ] as const,
-  () => { void synchronizeReviewWorkbench() },
-  { immediate: true },
-)
-
-watch(
-  () => [
-    codingScope.value?.organizationId,
-    codingScope.value?.teamId,
-    taskStore.state.selectedTaskId,
-    codingStore.state.selectedExecutionId,
-    codingStore.state.routePhase,
-  ] as const,
-  () => { void synchronizeDeliveryWorkbench() },
-  { immediate: true },
-)
-
-watch(
-  () => [
-    codingScope.value?.organizationId,
-    codingScope.value?.teamId,
-    codingScope.value?.projectId,
-    taskStore.state.details?.id,
-    route.query.task,
-    route.query.attempt,
-    route.query.workspace,
-  ] as const,
-  () => { void synchronizeCodingStudio() },
-  { immediate: true },
-)
+// R41 saved views and the URL canonicalization pass that keeps filter links shareable live in
+// one composable: the stored default applies once on entry, then every read key is written back
+// canonically (or dropped when it equals the default spelling).
+const { savedViewsOwner, committedWorkFilters, applySavedView } = useWorkSavedViews({
+  route, router, principal, scopeStore,
+  view, statusFilter, typeFilter, priorityFilter, sortKey,
+})
 
 watch(
   () => [scopeStore.state.phase, route.query.taskStatus, route.query.taskOwner],
@@ -909,7 +504,7 @@ onUnmounted(() => {
   taskStore.stopLiveTasks()
   reviewStore.reset()
   deliveryStore.reset()
-  if (liveFactRefreshTimer) clearTimeout(liveFactRefreshTimer)
+  taskWorkbench.cancelLiveFactRefresh()
 })
 
 function updateQuery(name: 'view' | 'status' | 'type' | 'priority', value: string): void {
@@ -1237,47 +832,9 @@ function selectTask(task: TaskSummary): void {
 }
 
 /**
- * Resolves a `taskExecution`/`attempt` coordinate conflict with one explicit choice.
- *
- * The picked execution becomes the unified parameter and the other spelling leaves with it; the
- * workspace and review coordinates also reset, because they belong to the conflicting selection.
+ * Resolves the drawer's close path: routing first, then the workbench's own selection clear
+ * (one call for the task/coding/review/delivery stores), then focus restoration.
  */
-function resolveExecutionConflict(executionId: string): void {
-  const taskId = queryValue(route.query.task)
-  const teamId = queryValue(route.query.team)
-  const projectId = queryValue(route.query.project)
-  if (!taskId || !teamId || !projectId) return
-  const query = withCodingRoute(route.query, {
-    teamId,
-    projectId,
-    workItemId: queryValue(route.query.workItem),
-    taskId,
-    executionId,
-    workspaceId: null,
-  })
-  delete query.review
-  void router.replace({ query })
-}
-
-function selectTaskAttempt(executionId: string): void {
-  const taskId = taskStore.state.selectedTaskId
-  if (!taskId || selectedTaskExecutionId.value === executionId) return
-  selectedTaskExecutionId.value = executionId
-  void taskStore.loadRuntimeFacts(taskId, executionId)
-  if (!codingScope.value || !project.value) return
-  const cached = codingStore.state.attempts[`${taskId}:${executionId}`]?.value
-  const query = withCodingRoute(route.query, {
-    teamId: codingScope.value.teamId,
-    projectId: codingScope.value.projectId,
-    workItemId: taskStore.state.details?.workItemId,
-    taskId,
-    executionId,
-    workspaceId: cached?.coding ? cached.details?.workspace.id : null,
-  })
-  delete query.review
-  void router.replace({ query })
-}
-
 async function closeTaskDetails(): Promise<void> {
   const pageOwner = pageRequests.capture()
   taskStore.stopLiveTasks()
@@ -1289,11 +846,7 @@ async function closeTaskDetails(): Promise<void> {
   delete query.review
   await router.replace({ query })
   if (!pageOwner.isCurrent()) return
-  taskStore.clearSelection()
-  codingStore.clearSelection()
-  reviewStore.clearSelection()
-  deliveryStore.clearSelection()
-  selectedTaskExecutionId.value = null
+  taskWorkbench.clearTaskSelection()
   await nextTick()
   if (!pageOwner.isCurrent()) return
   const remainingModals = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')
@@ -1310,290 +863,6 @@ async function closeTaskDetails(): Promise<void> {
     })
   }
   taskDetailTriggerId = null
-}
-
-function retryTaskDetails(): void {
-  if (!principal || !team.value || !taskStore.state.selectedTaskId) return
-  void taskStore.select(
-    { organizationId: principal.organizationId, teamId: team.value.id },
-    taskStore.state.selectedTaskId,
-    true,
-  )
-}
-
-function retryTaskRuntime(): void {
-  if (!taskStore.state.selectedTaskId || !selectedTaskExecutionId.value) return
-  void taskStore.loadRuntimeFacts(taskStore.state.selectedTaskId, selectedTaskExecutionId.value, true)
-}
-
-async function synchronizeCodingStudio(force = false): Promise<void> {
-  const pageOwner = pageRequests.captureSelection()
-  const scope = codingScope.value
-  const taskId = taskStore.state.details?.id
-  const selection = codingRouteSelection(route.query)
-  // A conflicting coordinate pair is not restorable: choosing one side silently is exactly what the
-  // contract forbids, so the studio stays closed until the conflict is resolved.
-  if (!scope || !taskId || selection.taskId !== taskId || selection.executionConflict) {
-    codingStore.clearSelection()
-    return
-  }
-  if (!isRestorableCodingRoute(selection) || !codingRouteMatchesScope(selection, scope)) {
-    codingStore.clearSelection()
-    return
-  }
-  if (force) codingStore.invalidateTask(taskId)
-  await codingStore.synchronize(scope, {
-    taskId,
-    executionId: selection.executionId,
-    workspaceId: selection.workspaceId,
-  })
-  if (!pageOwner.isCurrent()) return
-  if (taskStore.state.details?.id !== taskId || codingStore.state.selectedTaskId !== taskId) return
-  const executionId = codingStore.state.selectedExecutionId
-  if (!executionId) return
-  if (taskStore.state.attempts.some(attempt => attempt.id === executionId)) {
-    selectedTaskExecutionId.value = executionId
-    void taskStore.loadRuntimeFacts(taskId, executionId)
-  }
-  if (codingStore.state.routePhase !== 'ready') return
-  void codingStore.loadCommands(taskId, executionId)
-  void codingStore.loadTestEvidence(taskId, executionId)
-  const workspaceId = codingStore.state.selectedWorkspaceId
-  // The unified parameter is canonicalized here too: a restored legacy `attempt=` link rewrites to
-  // `taskExecution=` once its execution is live, so the alias can never resurface as a conflict.
-  if (route.query.taskExecution !== executionId || route.query.attempt || route.query.workspace !== workspaceId) {
-    await router.replace({ query: withCodingRoute(route.query, {
-      teamId: scope.teamId,
-      projectId: scope.projectId,
-      workItemId: taskStore.state.details?.workItemId,
-      taskId,
-      executionId,
-      workspaceId,
-    }) })
-    if (!pageOwner.isCurrent()) return
-  }
-}
-
-async function synchronizeReviewWorkbench(force = false): Promise<void> {
-  const pageOwner = pageRequests.captureSelection()
-  const scope = codingScope.value
-  const coordinates = selectedReviewCoordinates.value
-  if (!scope || !coordinates) {
-    reviewStore.clearSelection()
-    return
-  }
-  // Coding restoration can briefly re-enter loading when canonical attempt/workspace query
-  // coordinates are written. Preserve the same Review request instead of aborting it; the ready
-  // transition below will synchronize against the authoritative Coding attempt.
-  if (codingStore.state.routePhase !== 'ready') return
-  if (force) reviewStore.invalidateAttempt(coordinates)
-  await reviewStore.synchronize(
-    { organizationId: scope.organizationId, teamId: scope.teamId },
-    coordinates,
-    queryValue(route.query.review),
-  )
-  if (!pageOwner.isCurrent()) return
-  if (!selectedReviewCoordinates.value
-    || reviewAttemptKey(selectedReviewCoordinates.value) !== reviewAttemptKey(coordinates)) return
-  const selected = reviewStore.state.selectedReviewRequestId
-  if (selected && route.query.review !== selected) {
-    await router.replace({ query: { ...route.query, review: selected } })
-    if (!pageOwner.isCurrent()) return
-  } else if (!selected && route.query.review) {
-    const query = { ...route.query }
-    delete query.review
-    await router.replace({ query })
-    if (!pageOwner.isCurrent()) return
-  }
-}
-
-async function synchronizeDeliveryWorkbench(force = false): Promise<void> {
-  const pageOwner = pageRequests.captureSelection()
-  const scope = codingScope.value
-  const coordinates = selectedReviewCoordinates.value
-  if (!scope || !coordinates) {
-    deliveryStore.clearSelection()
-    return
-  }
-  // ActionBundle is closed over the same authoritative Coding attempt as Review.
-  if (codingStore.state.routePhase !== 'ready') return
-  if (force) {
-    await deliveryStore.synchronize(
-      { organizationId: scope.organizationId, teamId: scope.teamId }, coordinates,
-    )
-    if (!pageOwner.isCurrent()) return
-    await deliveryStore.refresh()
-    if (!pageOwner.isCurrent()) return
-    return
-  }
-  await deliveryStore.synchronize(
-    { organizationId: scope.organizationId, teamId: scope.teamId }, coordinates,
-  )
-  if (!pageOwner.isCurrent()) return
-}
-
-function selectReview(reviewRequestId: string): void {
-  const coordinates = selectedReviewCoordinates.value
-  if (!coordinates) return
-  void router.replace({ query: { ...route.query, review: reviewRequestId } })
-}
-
-function retryReviews(): void {
-  void synchronizeReviewWorkbench(true)
-}
-
-function retryReviewDetail(): void {
-  const coordinates = selectedReviewCoordinates.value
-  const id = reviewStore.state.selectedReviewRequestId
-  if (coordinates && id) void reviewStore.select(coordinates, id, true)
-}
-
-function addReviewComment(input: { filePath: string; side: 'OLD' | 'NEW'; lineNumber: number; hunkHeader: string; lineContentHash: string; diffGeneration: number; content: string }) {
-  return reviewStore.addComment(input)
-}
-
-/** The review gate opens once the coding attempt delivered its diff and exact test evidence. */
-const canCreateReview = computed(() => {
-  const attempt = selectedCodingAttemptResource.value?.value ?? null
-  if (!attempt?.coding || !attempt.details) return false
-  const delivered = attempt.executionStatus === 'COMPLETED'
-  const evidenced = Boolean(attempt.details.diffManifest)
-    && attempt.details.testEvidenceCount > 0
-  const hasReview = (selectedReviewListResource.value?.value ?? []).length > 0
-  return delivered && evidenced && !hasReview
-})
-
-function createReview(): Promise<boolean> {
-  return reviewStore.createReview()
-}
-
-function executeReviewer(): Promise<boolean> {
-  return reviewStore.execute()
-}
-
-function decideReview(input: ReviewDecisionInput): Promise<boolean> {
-  return reviewStore.decide(input)
-}
-
-function requestReviewChanges(rationale: string): Promise<boolean> {
-  return reviewStore.requestChanges(rationale)
-}
-
-function retryReviewCommand(): Promise<boolean> {
-  return reviewStore.retryCommand()
-}
-
-function retryCodingStudio(): void {
-  void synchronizeCodingStudio(true)
-}
-
-function loadCodingPatch(): void {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (taskId && executionId) void codingStore.loadPatch(taskId, executionId, selectedCodingPatchResource.value?.phase === 'error')
-}
-
-function loadCodingCommandsMore(): void {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (taskId && executionId) void codingStore.loadCommands(taskId, executionId, Boolean(selectedCodingCommandsResource.value?.value))
-}
-
-function loadCodingTestsMore(): void {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (taskId && executionId) void codingStore.loadTestEvidence(taskId, executionId, Boolean(selectedCodingTestsResource.value?.value))
-}
-
-function codingCommandLog(evidenceId: string) {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.commandLogs[`${taskId}:${executionId}:${evidenceId}`] ?? null : null
-}
-
-function codingTestReport(evidenceId: string) {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  return taskId && executionId ? codingStore.state.testReports[`${taskId}:${executionId}:${evidenceId}`] ?? null : null
-}
-
-function loadCodingCommandLog(evidenceId: string, more = false): void {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (taskId && executionId) void codingStore.loadCommandLog(taskId, executionId, evidenceId, more)
-}
-
-function loadCodingTestReport(evidenceId: string, more = false): void {
-  const taskId = taskStore.state.selectedTaskId
-  const executionId = codingStore.state.selectedExecutionId
-  if (taskId && executionId) void codingStore.loadTestReport(taskId, executionId, evidenceId, more)
-}
-
-function retryRuntimeHealth(): void {
-  void taskStore.loadRuntimeHealth(true)
-}
-
-function retryTaskAssociations(): void {
-  if (!taskStore.state.selectedTaskId) return
-  taskStore.invalidateAssociations(taskStore.state.selectedTaskId)
-  void taskStore.loadAssociations(taskStore.state.selectedTaskId)
-}
-
-function loadTaskEventsMore(): void {
-  if (taskStore.state.selectedTaskId) void taskStore.loadEvents(taskStore.state.selectedTaskId, true)
-}
-
-function retryTaskEvents(): void {
-  const pageOwner = pageRequests.captureSelection()
-  const taskId = taskStore.state.selectedTaskId
-  if (!taskId) return
-  void taskStore.loadEvents(taskId).then(() => {
-    if (taskStore.state.selectedTaskId === taskId) taskStore.synchronizeLiveTasks([taskId])
-  })
-}
-
-async function commandTask(
-  operation: MemberTaskCommandOperation,
-  reason?: string,
-  agentConfigurationRevision?: number,
-): Promise<void> {
-  const pageOwner = pageRequests.captureSelection()
-  // While the execution coordinates conflict, no write action may run against a guessed target.
-  if (executionConflict.value) return
-  const details = taskStore.state.details
-  const attempt = taskStore.state.attempts.find(item => item.id === details?.currentExecutionId)
-  if (!principal || !team.value || !details || !attempt) return
-  await taskStore.commandTask({
-    scope: { organizationId: principal.organizationId, teamId: team.value.id },
-    taskId: details.id,
-    executionId: attempt.id,
-    expectedVersion: attempt.version,
-    operation,
-    reason,
-    agentConfigurationRevision,
-  })
-  if (!pageOwner.isCurrent()) return
-  await synchronizeCodingStudio(true)
-  if (!pageOwner.isCurrent()) return
-  focusCurrentTaskAttempt()
-}
-
-async function retryTaskCommand(): Promise<void> {
-  const pageOwner = pageRequests.captureSelection()
-  if (executionConflict.value) return
-  await taskStore.retryTaskCommand()
-  if (!pageOwner.isCurrent()) return
-  await synchronizeCodingStudio(true)
-  if (!pageOwner.isCurrent()) return
-  focusCurrentTaskAttempt()
-}
-
-function focusCurrentTaskAttempt(): void {
-  const taskId = taskStore.state.details?.id
-  const executionId = taskStore.state.details?.currentExecutionId
-  if (!taskId || !executionId || selectedTaskExecutionId.value === executionId) return
-  selectTaskAttempt(executionId)
-  void taskStore.loadRuntimeFacts(taskId, executionId, true)
 }
 
 function openTaskConversation(conversationId: string): void {
@@ -1897,55 +1166,24 @@ function retry(): void {
       @close="closeDelegate"
     />
 
+    <!-- M12b-F05: the drawer subscribes to the work-item/agent/link stores itself and calls the
+         work-item store commands directly; only page-owned verdicts and page retry/load
+         orchestration stay as props. -->
     <WorkItemDetailDrawer
       v-if="queryValue(route.query.workItem) && !queryValue(route.query.task)"
       :key="String(route.query.workItem ?? '')"
       :scope="principalScope"
-      :phase="workStore.state.detailPhase"
-      :details="workStore.state.detail"
-      :error-message="workStore.state.detailErrorMessage"
-      :command-pending="workStore.state.detailCommandPending"
-      :command-error-message="workStore.state.detailCommandErrorMessage"
-      :version-conflict="workStore.state.versionConflict"
-      :availability-phase="workStore.state.availabilityPhase"
-      :available-transitions="workStore.state.availableTransitions"
-      :availability-error-message="workStore.state.availabilityErrorMessage"
       :can-participate="canParticipate"
       :can-delegate="canDelegate"
       :can-manage-responsibility="canManageResponsibility"
-      :responsibility-phase="workStore.state.responsibilityPhase"
-      :responsibilities="workStore.state.responsibilities"
       :responsibility-candidates="responsibilityCandidates"
       :responsibility-agent-candidates="responsibilityAgentCandidates"
-      :responsibility-agent-phase="agentStore.state.agents.phase"
-      :responsibility-agent-error-message="agentStore.state.agents.errorMessage"
-      :responsibility-agent-loading-more="agentStore.state.agents.loadingMore"
-      :responsibility-agent-has-more="agentStore.state.agents.nextOffset !== null"
-      :responsibility-error-message="workStore.state.responsibilityErrorMessage"
-      :responsibility-command-pending="workStore.state.responsibilityCommandPending"
-      :responsibility-command-error-message="workStore.state.responsibilityCommandErrorMessage"
-      :timeline-phase="workStore.state.timelinePhase"
-      :timeline="workStore.state.timeline"
-      :timeline-next-cursor="workStore.state.timelineNextCursor"
-      :timeline-loading-more="workStore.state.timelineLoadingMore"
-      :timeline-error-message="workStore.state.timelineErrorMessage"
-      :association-phase="linkStore.state.phase"
-      :associations="linkStore.state.associations"
-      :association-error-message="linkStore.state.errorMessage"
       :on-retry="retryDetails"
       :on-content-saved="() => { retryDetails(); retry() }"
       :on-retry-availability="retryDetails"
       :on-transition="transitionWorkItem"
-      :on-add-comment="workStore.addComment"
-      :on-link-resource="workStore.linkResource"
-      :on-replace-owner="workStore.replaceOwner"
-      :on-assign-executor="workStore.assignExecutor"
-      :on-assign-gate-reviewer="workStore.assignGateReviewer"
-      :on-assign-advisory-reviewer="workStore.assignAdvisoryReviewer"
-      :on-release-responsibility="workStore.releaseResponsibility"
       :on-retry-responsibility-agents="() => loadResponsibilityAgents(true)"
       :on-load-more-responsibility-agents="() => loadResponsibilityAgents(false, true)"
-      :on-load-timeline-more="workStore.loadTimelineMore"
       :on-retry-associations="retryLinks"
       :parallel-tasks="workItemParallelTasks"
       :task-selection-required="workItemTaskSelectionRequired"
@@ -1975,90 +1213,16 @@ function retry(): void {
       </template>
     </WorkItemDetailDrawer>
 
+    <!-- M12b-F05: the drawer subscribes to the workbench object and the task/review stores itself;
+         only page-owned verdicts (permissions, candidate roster, outcome handoff) stay as props. -->
     <TaskDetailDrawer
       v-if="queryValue(route.query.task)"
-      :phase="taskStore.state.detailPhase"
-      :details="taskStore.state.details"
-      :attempts="taskStore.state.attempts"
-      :selected-execution-id="selectedTaskExecutionId"
-      :error-message="taskStore.state.detailErrorMessage"
-      :runtime-phase="selectedRuntimeResource?.phase ?? 'idle'"
-      :runtime-facts="selectedRuntimeResource?.value ?? null"
-      :runtime-error-message="selectedRuntimeResource?.errorMessage ?? null"
-      :coding-phase="codingStudioPhase"
-      :coding-attempt="selectedCodingAttemptResource?.value ?? null"
-      :coding-error-message="codingStudioErrorMessage"
-      :coding-commands-phase="selectedCodingCommandsResource?.phase ?? 'idle'"
-      :coding-commands="selectedCodingCommandsResource?.value ?? null"
-      :coding-commands-error-message="selectedCodingCommandsResource?.errorMessage ?? null"
-      :coding-tests-phase="selectedCodingTestsResource?.phase ?? 'idle'"
-      :coding-tests="selectedCodingTestsResource?.value ?? null"
-      :coding-tests-error-message="selectedCodingTestsResource?.errorMessage ?? null"
-      :coding-command-log="codingCommandLog"
-      :coding-test-report="codingTestReport"
-      :coding-patch-phase="selectedCodingPatchResource?.phase ?? 'idle'"
-      :coding-patch="selectedCodingPatchResource?.value ?? null"
-      :coding-patch-error-message="selectedCodingPatchResource?.errorMessage ?? null"
-      :fleet-phase="runtimeHealthResource?.phase ?? 'idle'"
-      :fleet="runtimeHealthResource?.value ?? null"
-      :fleet-error-message="runtimeHealthResource?.errorMessage ?? null"
-      :association-phase="taskAssociationResource?.phase ?? 'idle'"
-      :associations="taskAssociationResource?.value ?? null"
-      :association-error-message="taskAssociationResource?.errorMessage ?? null"
-      :event-phase="taskEventResource?.phase ?? 'idle'"
-      :event-page="taskEventResource?.value ?? null"
-      :event-error-message="taskEventResource?.errorMessage ?? null"
-      :live-state="taskLiveState"
-      :review-list-phase="selectedReviewListResource?.phase ?? 'idle'"
-      :reviews="selectedReviewListResource?.value ?? null"
-      :delivery-actions="(selectedDeliveryListResource?.value ?? []).flatMap(bundle => bundle.actions ?? [])"
-      :selected-review-request-id="reviewStore.state.selectedReviewRequestId"
-      :review-detail-phase="selectedReviewDetailResource?.phase ?? 'idle'"
-      :review="selectedReviewDetailResource?.value ?? null"
-      :review-list-error-message="selectedReviewListResource?.errorMessage ?? null"
-      :review-detail-error-message="selectedReviewDetailResource?.errorMessage ?? null"
-      :review-comments="selectedReviewCommentsResource?.value ?? []"
-      :on-add-review-comment="addReviewComment"
-      :review-command="reviewStore.state.command"
+      :workbench="taskWorkbench"
       :can-gate-review="canGateReview"
       :can-confirm-delivery="canConfirmDelivery"
       :principals="[...responsibilityCandidates, ...responsibilityAgentCandidates]"
       :can-control="canControlTask"
-      :online="isOnline"
-      :command-pending="taskStore.state.commandPending"
-      :command-error-message="taskStore.state.commandErrorMessage"
-      :command-retryable="taskStore.state.commandRetryable"
-      :command-version-conflict="taskStore.state.commandVersionConflict"
-      :workspace-action="workspaceTaskAction"
-      :execution-conflict="executionConflict"
       :pinned-result-reference="taskOutcomeHandoff"
-      :on-resolve-execution-conflict="resolveExecutionConflict"
-      :on-select-attempt="selectTaskAttempt"
-      :on-retry="retryTaskDetails"
-      :on-retry-runtime="retryTaskRuntime"
-      :on-retry-coding="retryCodingStudio"
-      :on-load-coding-patch="loadCodingPatch"
-      :on-load-coding-commands-more="loadCodingCommandsMore"
-      :on-load-coding-tests-more="loadCodingTestsMore"
-      :on-load-coding-command-log="loadCodingCommandLog"
-      :on-load-coding-test-report="loadCodingTestReport"
-      :on-retry-fleet="retryRuntimeHealth"
-      :on-retry-associations="retryTaskAssociations"
-      :on-load-events-more="loadTaskEventsMore"
-      :on-retry-events="retryTaskEvents"
-      :on-select-review="selectReview"
-      :on-retry-reviews="retryReviews"
-      :on-retry-review-detail="retryReviewDetail"
-      :can-create-review="canCreateReview"
-      :on-create-review="createReview"
-      :on-execute-reviewer="executeReviewer"
-      :on-decide-review="decideReview"
-      :on-request-review-changes="requestReviewChanges"
-      :on-retry-review-command="retryReviewCommand"
-      :on-clear-review-command="reviewStore.clearCommand"
-      :on-command="commandTask"
-      :on-retry-command="retryTaskCommand"
-      :on-clear-command="taskStore.clearTaskCommand"
       @close="closeTaskDetails"
       @open-work-item="showTaskWorkItem"
       @open-conversation="openTaskConversation"

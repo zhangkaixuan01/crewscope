@@ -35,7 +35,9 @@ import ConversationParticipantsPanel from '../components/domain/ConversationPart
 import PresenceAvatarGroup from '../components/domain/PresenceAvatarGroup.vue'
 import TypingIndicator from '../components/domain/TypingIndicator.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
-import { useScopedUserState } from '../composables/useScopedUserState'
+import { useCollaborationPresence } from '../composables/useCollaborationPresence'
+import { useConversationParticipants } from '../composables/useConversationParticipants'
+import { useConversationReadingPosition } from '../composables/useConversationReadingPosition'
 import { useResizablePane } from '../composables/useResizablePane'
 import { useVirtualList } from '../composables/useVirtualList'
 import StatePanel from '../components/feedback/StatePanel.vue'
@@ -56,9 +58,8 @@ import type {
 } from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
 import { useCollaborationStore } from '../domains/collaboration/store'
-import { collaborationScopeKey, type CollaborationScope } from '../domains/collaboration/types'
+import { type CollaborationScope } from '../domains/collaboration/types'
 import { presenceLabels } from '../domains/collaboration/labels'
-import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
 import type { TeamObserverScope } from '../domains/teamobserver/types'
@@ -101,25 +102,6 @@ const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
 const rightPaneRatio = rightPane.ratio
 const rightPaneCollapsed = rightPane.collapsed
-// Reading marks live under the scoped `reading` kind, never in device-level keys, so they
-// cannot cross accounts or Teams (M9b-F05).
-const readingScope = () => (principal && principal.accountId && scopeStore.state.selectedTeamId
-  ? {
-      accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId,
-      teamId: scopeStore.state.selectedTeamId, projectId: null, objectId: null,
-    }
-  : null)
-// Reading position persistence (R19): the anchor is "first visible message + offset", which survives
-// measured-height virtualisation; the legacy scrollTop numbers are not migrated because an absolute
-// pixel offset means nothing once heights are measured instead of estimated.
-interface StoredConversationAnchor {
-  messageId: string
-  offsetWithin: number
-  sequence: number
-  savedAt: string
-}
-const conversationAnchors = useScopedUserState<Record<string, StoredConversationAnchor>>({ scope: readingScope, name: 'conversation-anchor', fallback: {}, validate: isConversationAnchorRecord })
-const readSequences = useScopedUserState<Record<string, number>>({ scope: readingScope, name: 'conversation-read-sequences', fallback: {}, validate: isNumberRecord })
 const persistedMessages = computed(() => messageStore.state.items)
 const virtualList = useVirtualList(persistedMessages, { keyOf: message => message.id, estimate: 108, overscan: 8, rowGap: 16 })
 const visibleMessages = virtualList.visibleItems
@@ -156,32 +138,11 @@ const conversationCollabScope = computed<CollaborationScope | null>(() => {
     resourceId: conversation.id,
   }
 })
-const conversationCollabKey = computed(() => {
-  const scope = conversationCollabScope.value
-  return scope ? collaborationScopeKey(scope) : null
-})
-const conversationPresence = computed(() => {
-  const key = conversationCollabKey.value
-  return key ? collaborationStore.state.presenceByScope[key] ?? [] : []
-})
-const conversationTypers = computed(() => {
-  const key = conversationCollabKey.value
-  return key ? collaborationStore.state.typingByScope[key] ?? [] : []
-})
-const conversationDegraded = computed(() => collaborationStore.state.phase === 'degraded')
+const { presence: conversationPresence, typers: conversationTypers, degraded: conversationDegraded } = useCollaborationPresence(conversationCollabScope)
 // REST participant ids are bare UUIDs while the signal channel prefixes `account:`.
 const presentParticipantIds = computed(
   () => new Set(conversationPresence.value.map(entry => entry.principalId.replace(/^account:/, ''))))
-watch(conversationCollabScope, (next, previous) => {
-  const changed = !previous || !next || collaborationScopeKey(previous) !== collaborationScopeKey(next)
-  if (previous && changed) collaborationStore.release(previous)
-  if (next && changed) collaborationStore.acquire(next)
-}, { immediate: true })
-onUnmounted(() => {
-  const scope = conversationCollabScope.value
-  if (scope) collaborationStore.release(scope)
-})
-const principalNames = computed(() => principalNameDirectory(scopeStore.state.members))
+const { principalNames, participantName, participantRole, participantKind, messageAuthor, isOwnMessage } = useConversationParticipants({ principal, selected, activeParticipants, scopeStore })
 // Subject pickers search the Team directory, so they need the Team scope without the conversation.
 const principalScope = computed<PrincipalScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -300,19 +261,6 @@ const canConfigureConfirmedCoding = computed(() => Boolean(
     ? taskIntentStore.state.intent.proposal.owner.principalId === principal.id
     : selected.value?.ownerPrincipalId === principal.id),
 ))
-const unreadCount = computed(() => {
-  const selectedId = selected.value?.id
-  if (!selectedId) return 0
-  const readSequence = readSequences.value.value[selectedId] ?? newestMessageSequence()
-  return messageStore.state.items.filter(message => message.sequence > readSequence).length
-})
-const firstUnreadSequence = computed(() => {
-  const selectedId = selected.value?.id
-  if (!selectedId) return null
-  const readSequence = readSequences.value.value[selectedId] ?? newestMessageSequence()
-  return messageStore.state.items.find(message => message.sequence > readSequence)?.sequence ?? null
-})
-
 watch(
   () => [realtimeStore.state.invocationPhase, Boolean(realtimeStore.state.clarification)] as const,
   async ([phase, hasClarification]) => {
@@ -341,39 +289,17 @@ function setMessageListElement(element: unknown): void {
   virtualList.listElement.value = element instanceof HTMLElement ? element : null
 }
 
-let restoredForConversation: string | null = null
+// Reading position, unread bookkeeping, and the restore chain live in the composable (M12b-F05);
+// its watches keep this page's registration order. The folded pre-message card reset stays here:
+// it is TaskIntent presentation, not reading state (R19).
+const { unreadCount, firstUnreadSequence, handleHistoryScroll, jumpToLatest, newestMessageSequence } = useConversationReadingPosition({
+  principal, scopeStore, messageStore, realtimeStore,
+  selectedId: computed(() => selected.value?.id ?? null),
+  virtualList, messageHistory, pageRequests,
+})
 
 watch(() => selected.value?.id, conversationId => {
-  if (!conversationId) return
-  // A switched-to conversation restarts the list: foreign measurements go, the folded pre-message
-  // card returns, and the reading position is decided by the restore chain once history is ready.
-  virtualList.reset()
-  taskIntentExpanded.value = false
-  restoredForConversation = null
-})
-
-// Once a conversation's history is ready, put the member back where reading was: the persisted
-// anchor first, then the first unread message, and only then the latest (R19 fallback order).
-watch(() => [selected.value?.id, messageStore.state.phase, messageStore.state.items.length] as const, async ([conversationId, phase]) => {
-  const pageOwner = pageRequests.capture()
-  if (!conversationId || phase !== 'ready' || messageStore.state.items.length === 0) return
-  await nextTick()
-  if (!pageOwner.isCurrent() || restoredForConversation === conversationId) return
-  restoredForConversation = conversationId
-  restoreReadingAnchor(conversationId)
-})
-
-watch(() => [selected.value?.id, messageStore.state.phase] as const, ([conversationId, phase]) => {
-  if (!conversationId || phase !== 'ready' || readSequences.value.value[conversationId] !== undefined) return
-  // The initial history is considered read; subsequent realtime facts become the unread boundary.
-  readSequences.value.value = { ...readSequences.value.value, [conversationId]: newestMessageSequence() }
-})
-
-watch(() => realtimeStore.state.streamedContent.length, async () => {
-  const pageOwner = pageRequests.capture()
-  await nextTick()
-  if (!pageOwner.isCurrent()) return
-  if (isFollowing.value && messageHistory.value) jumpToLatest()
+  if (conversationId) taskIntentExpanded.value = false
 })
 
 watch(
@@ -803,10 +729,6 @@ function openTaskWorkItem(association: TaskAssociationSummary): void {
   })
 }
 
-function newestMessageSequence(): number {
-  return messageStore.state.items.reduce((latest, message) => Math.max(latest, message.sequence), 0)
-}
-
 function latestTaskSourceMessageId(): string | undefined {
   return [...messageStore.state.items]
     .sort((left, right) => right.sequence - left.sequence)
@@ -822,56 +744,6 @@ function currentMessageScope(): ConversationMessageScope | null {
   const scope = currentScope()
   const conversationId = selected.value?.id
   return scope && conversationId ? { ...scope, conversationId } : null
-}
-
-function participantName(participant: ConversationParticipant): string {
-  return participant.displayName?.trim()
-    || principalDisplayName(
-      principalNames.value,
-      participant.principalId,
-      participant.role === 'AGENT' ? 'Agent' : '成员',
-    )
-}
-
-function participantRole(participant: ConversationParticipant): string {
-  if (participant.role === 'OWNER') return '对话创建者 · OWNER'
-  if (participant.role === 'MEMBER') return '团队参与者 · MEMBER'
-  if (participant.principalType === 'PERSONAL_AGENT') {
-    const ownerName = participant.ownerDisplayName?.trim()
-      || (participant.ownerPrincipalId
-        ? principalDisplayName(principalNames.value, participant.ownerPrincipalId)
-        : null)
-    return ownerName ? `${ownerName}的 Personal Agent · AGENT` : 'Personal Agent · AGENT'
-  }
-  if (participant.principalType === 'TEAM_AGENT') return '团队 Agent · AGENT'
-  return '执行 Agent · AGENT'
-}
-
-function participantKind(participant: ConversationParticipant): string {
-  if (participant.role !== 'AGENT') return '团队成员'
-  return ({
-    PERSONAL_AGENT: '个人 Agent',
-    TEAM_AGENT: '团队 Agent',
-    SPECIALIST_AGENT: '专项 Agent',
-    USER: '执行主体',
-    SERVICE: '服务主体',
-  })[participant.principalType]
-}
-
-function messageAuthor(message: ConversationMessage): string {
-  if (message.type === 'SYSTEM_NOTICE') return 'CrewScope'
-  if (message.authorPrincipalId === principal?.id) return '你'
-  if (message.authorPrincipalId === selected.value?.personalAgentPrincipalId) return 'Personal Agent'
-  const participant = activeParticipants.value.find(item => item.principalId === message.authorPrincipalId)
-  return participant
-    ? participantName(participant)
-    : message.authorPrincipalId
-      ? principalDisplayName(principalNames.value, message.authorPrincipalId)
-      : '未知成员'
-}
-
-function isOwnMessage(message: ConversationMessage): boolean {
-  return message.type === 'USER_MESSAGE' && message.authorPrincipalId === principal?.id
 }
 
 function formatDate(value: string): string {
@@ -892,68 +764,6 @@ function isForbidden(): boolean {
 
 async function redirectIfForbidden(): Promise<void> {
   if (isForbidden()) await router.replace({ name: 'access-denied', query: { from: route.fullPath } })
-}
-
-function isNumberRecord(value: unknown): value is Record<string, number> {
-  return Boolean(value && typeof value === 'object' && Object.values(value).every(item => typeof item === 'number' && Number.isFinite(item)))
-}
-
-function isConversationAnchorRecord(value: unknown): value is Record<string, StoredConversationAnchor> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(item =>
-    Boolean(item && typeof item === 'object'
-      && typeof item.messageId === 'string'
-      && typeof item.offsetWithin === 'number' && Number.isFinite(item.offsetWithin)
-      && typeof item.sequence === 'number' && Number.isFinite(item.sequence)
-      && typeof item.savedAt === 'string')))
-}
-
-function handleHistoryScroll(): void {
-  virtualList.onScroll()
-  const conversation = selected.value
-  if (!conversation) return
-  const anchor = virtualList.currentAnchor()
-  if (anchor) {
-    conversationAnchors.value.value = { ...conversationAnchors.value.value, [conversation.id]: {
-      messageId: anchor.key,
-      offsetWithin: Math.round(anchor.offsetWithin),
-      sequence: sequenceOfMessage(anchor.key),
-      savedAt: new Date().toISOString(),
-    } }
-  }
-  if (isFollowing.value) {
-    readSequences.value.value = { ...readSequences.value.value, [conversation.id]: newestMessageSequence() }
-  }
-}
-
-/** Restore chain (R19): persisted anchor → first unread message → latest. */
-function restoreReadingAnchor(conversationId: string): void {
-  if (!messageHistory.value) return
-  const stored = conversationAnchors.value.value[conversationId]
-  if (stored && virtualList.scrollToAnchor({ key: stored.messageId, offsetWithin: stored.offsetWithin })) return
-  const firstUnread = messageStore.state.items.find(message => message.sequence === firstUnreadSequence.value)
-  if (firstUnread && virtualList.scrollToAnchor({ key: firstUnread.id, offsetWithin: 0 })) return
-  // Restoring a reading position is not a user-driven scroll: an animated jump leaves a window
-  // where the mid-flight offset flips isFollowing off and the jump pill flashes on load.
-  jumpToLatest('auto')
-}
-
-function sequenceOfMessage(messageId: string): number {
-  return messageStore.state.items.find(message => message.id === messageId)?.sequence ?? 0
-}
-
-function jumpToLatest(behavior: ScrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth'): void {
-  const history = messageHistory.value
-  if (!history) return
-  // The follow state flips immediately so the jump affordance disappears with the click, not a
-  // smooth-scroll later; the scroll events that follow re-derive it either way.
-  isFollowing.value = true
-  if (typeof history.scrollTo === 'function') history.scrollTo({ top: history.scrollHeight, behavior })
-  else history.scrollTop = history.scrollHeight
-  if (selected.value) readSequences.value.value = { ...readSequences.value.value, [selected.value.id]: newestMessageSequence() }
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 </script>
 

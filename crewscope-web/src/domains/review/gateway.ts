@@ -14,6 +14,7 @@ import type {
   ReviewCommentSide,
   ReviewLineComment,
 } from './types'
+import { segment, pick } from '../../api/gatewayUtils'
 
 export interface ReviewGateway {
   create?(scope: ReviewScope, coordinates: ReviewCoordinates, idempotencyKey: string, reviewerPolicySnapshotId?: string): Promise<CommandReceipt>
@@ -138,9 +139,6 @@ function root(scope: ReviewScope, coordinates: ReviewCoordinates): string {
     + `/tasks/${segment(coordinates.taskId)}/attempts/${segment(coordinates.executionId)}/reviews`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapSummary(value: ReviewSummary): ReviewSummary {
   return { ...pick(value, [
@@ -196,6 +194,3 @@ function mapReceipt(value: CommandReceipt): CommandReceipt {
   return { ...pick(value, ['commandId', 'domainEventId', 'committedVersion', 'correlationId']) }
 }
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

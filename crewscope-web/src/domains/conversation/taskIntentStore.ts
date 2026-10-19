@@ -8,6 +8,7 @@ import type {
   TaskIntent,
   TaskIntentRevisionInput,
 } from './types'
+import { statusOf, presentError } from '../../api/errors'
 
 export type TaskIntentPhase = 'idle' | 'loading' | 'ready' | 'error'
 export type TaskIntentCommand = 'revise' | 'reject' | 'confirm'
@@ -254,10 +255,4 @@ function sameResponsibility(
       && left.teamMemberId === right.teamMemberId
 }
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}

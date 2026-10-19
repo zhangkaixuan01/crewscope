@@ -15,6 +15,7 @@ import type {
   GitHubRepository,
   PlanActionBundleInput,
 } from './types'
+import { segment, pick } from '../../api/gatewayUtils'
 
 export interface DeliveryGateway {
   listConnections(scope: DeliveryScope, ownerType: GitHubConnectionOwnerType, signal?: AbortSignal): Promise<GitHubConnection[]>
@@ -222,7 +223,6 @@ function actionRoot(scope: DeliveryScope, coordinates: DeliveryCoordinates): str
     + `/tasks/${segment(coordinates.taskId)}/attempts/${segment(coordinates.executionId)}/actions`
 }
 
-function segment(value: string): string { return encodeURIComponent(value) }
 
 function importRoot(scope: DeliveryScope, projectId: string): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/work-projects/${segment(projectId)}/github-imports`
@@ -302,9 +302,6 @@ function mapReceipt(value: CommandReceipt): CommandReceipt {
   return { ...pick(value, ['commandId', 'domainEventId', 'committedVersion', 'correlationId']) }
 }
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}
 
 /** Only explicitly trusted HTTPS links may become clickable when a future DTO exposes one. */
 export function safeExternalHref(value: string | null | undefined): string | null {

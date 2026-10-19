@@ -11,6 +11,7 @@ import type {
   ModelProviderSummary,
   RotateModelCredentialInput,
 } from './types'
+import { segment, pick, etagVersion } from '../../api/gatewayUtils'
 
 export interface ModelGateway {
   listProviders(organizationId: string, offset?: number, limit?: number, signal?: AbortSignal): Promise<OffsetPage<ModelProviderSummary>>
@@ -135,7 +136,7 @@ export class HttpModelGateway implements ModelGateway {
     const value = await this.client.post<ModelConnectionCommandReceipt>(
       `${connectionRoot(organizationId)}/${segment(connectionId)}/rotate`,
       { credentialVersion: input.credentialVersion, apiKey: input.apiKey },
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Model'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -159,7 +160,7 @@ export class HttpModelGateway implements ModelGateway {
     const value = await this.client.post<ModelConnectionCommandReceipt>(
       `${connectionRoot(organizationId)}/${segment(connection.id)}/revoke`,
       { credentialVersion: connection.credentialVersion, reason },
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Model'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -174,7 +175,7 @@ export class HttpModelGateway implements ModelGateway {
     const value = await this.client.post<ModelConnectionCommandReceipt>(
       `${connectionRoot(organizationId)}/${segment(connection.id)}/${operation}`,
       { credentialVersion: connection.credentialVersion },
-      { expectedVersion: etagVersion(etag), idempotencyKey },
+      { expectedVersion: etagVersion(etag, 'Model'), idempotencyKey },
     )
     return mapReceipt(value)
   }
@@ -196,9 +197,6 @@ function offsetPage<T>(items: T[], offset: number, limit: number): OffsetPage<T>
   return { items, nextOffset: items.length === limit ? offset + items.length : null }
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function mapProvider(value: ModelProviderSummary): ModelProviderSummary {
   return {
@@ -259,13 +257,4 @@ function requireStrongEtag(response: Response): string {
   return etag
 }
 
-function etagVersion(etag: string): number {
-  if (!/^"\d+"$/.test(etag)) throw new TypeError('Model response ETag is invalid')
-  const version = Number(etag.slice(1, -1))
-  if (!Number.isSafeInteger(version)) throw new TypeError('Model response ETag is invalid')
-  return version
-}
 
-function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
-  return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>
-}

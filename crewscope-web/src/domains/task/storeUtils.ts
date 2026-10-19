@@ -49,7 +49,4 @@ export function isEmpty(value: unknown): boolean {
   if (value && typeof value === 'object' && 'items' in value) return Array.isArray((value as { items: unknown }).items) && (value as { items: unknown[] }).items.length === 0
   return false
 }
-export function isAbort(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError' }
-export function statusOf(error: unknown): number | null { return error instanceof CrewScopeApiError ? error.status : null }
 export function isTaskCommandConflict(error: unknown): error is CrewScopeApiError { return error instanceof CrewScopeApiError && (error.status === 409 || error.status === 412) }
-export function presentError(error: unknown, fallback: string): string { return error instanceof CrewScopeApiError ? error.envelope.message : fallback }

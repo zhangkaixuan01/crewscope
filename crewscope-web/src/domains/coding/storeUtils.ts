@@ -16,11 +16,8 @@ export function isEmpty(value: unknown): boolean {
   if (value && typeof value === 'object' && 'items' in value) return Array.isArray((value as { items: unknown }).items) && (value as { items: unknown[] }).items.length === 0
   return false
 }
-export function isAbort(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError' }
-export function statusOf(error: unknown): number | null { return error instanceof CrewScopeApiError ? error.status : null }
 export async function sha256(bytes: Uint8Array): Promise<string> {
   // Evidence descriptors are verified against server digests, so this must also work without
   // WebCrypto (plain-HTTP deployments) instead of throwing on every content check.
   return sha256Digest(bytes)
 }
-export function presentError(error: unknown, fallback: string): string { return error instanceof CrewScopeApiError ? error.envelope.message : fallback }

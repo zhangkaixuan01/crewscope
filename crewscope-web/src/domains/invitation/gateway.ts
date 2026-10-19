@@ -12,6 +12,7 @@ import type {
   TeamInvitationPage,
   TeamInvitationSummary,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface InvitationGateway {
   list(organizationId: string, teamId: string, after?: string | null, signal?: AbortSignal): Promise<TeamInvitationPage>
@@ -189,9 +190,6 @@ function managementPath(organizationId: string, teamId: string): string {
   return `/organizations/${segment(organizationId)}/teams/${segment(teamId)}/invitations`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function record(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('Invitation object is invalid')

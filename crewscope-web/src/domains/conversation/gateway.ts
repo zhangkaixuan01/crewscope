@@ -8,6 +8,7 @@ import type {
   ConversationScope,
   CreateConversationInput,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface ConversationGateway {
   listConversations(query: ConversationListQuery, signal?: AbortSignal): Promise<ConversationPage>
@@ -56,6 +57,3 @@ function root(scope: ConversationScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/conversations`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

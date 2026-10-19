@@ -15,8 +15,19 @@ import type {
   WorkItemRelations,
 } from './types'
 import { GRAPH_NODE_LIMIT } from './layout'
+import { isAbort, presentError as sharedPresentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type WorkGraphPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
+
+/** Relation-specific codes carry actionable copy (409 duplicate et al.); other API errors
+ * fall through to the shared presenter. */
+function presentError(error: unknown, fallback: string): string {
+  if (error instanceof CrewScopeApiError) {
+    return workItemRelationErrorLabels[error.envelope.code] ?? sharedPresentError(error, fallback)
+  }
+  return fallback
+}
 
 /** One page per request, at most ten pages: past 1000 rows the graph is unusable anyway. */
 const MAX_PAGES = 10
@@ -107,10 +118,10 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
   })
   let blockedScope: WorkItemRelationCommandScope | null = null
   let blockedProjectFilter: string | undefined
-  let blockedController: AbortController | null = null
-  let blockedVersion = 0
-  let anchorController: AbortController | null = null
-  let anchorVersion = 0
+  // One channel per face (M12b-F05): the blocked aggregate and the anchor adjacency each
+  // supersede their own kind — the controller + version pairs this replaces.
+  const blockedRequests = createRequestScope(() => 'workgraph-blocked')
+  const anchorRequests = createRequestScope(() => 'workgraph-anchor')
 
   async function loadBlockedGraph(
     scope: WorkItemRelationCommandScope,
@@ -121,10 +132,7 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
       || scope.teamId !== blockedScope?.teamId
       || projectId !== blockedProjectFilter
     if (!force && !scopeChanged && ['ready', 'empty'].includes(state.blocked.phase)) return
-    blockedController?.abort()
-    blockedController = new AbortController()
-    const currentController = blockedController
-    const version = ++blockedVersion
+    const request = blockedRequests.begin('blocked')
     blockedScope = scope
     blockedProjectFilter = projectId
     state.blocked.phase = 'loading'
@@ -139,8 +147,8 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
     try {
       let after: string | undefined
       do {
-        const page = await gateway.listBlockedWorkItems(scope, projectId, after, PAGE_LIMIT, currentController.signal)
-        if (version !== blockedVersion) return
+        const page = await gateway.listBlockedWorkItems(scope, projectId, after, PAGE_LIMIT, request.signal)
+        if (!request.isCurrent()) return
         for (const row of page.items) mergeBlockedRow(row)
         state.blocked.pagesLoaded += 1
         after = page.nextCursor ?? undefined
@@ -149,13 +157,15 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
           break
         }
       } while (after)
-      if (version !== blockedVersion) return
+      if (!request.isCurrent()) return
       state.blocked.phase = state.nodes.size === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (version !== blockedVersion || currentController.signal.aborted) return
+      if (!request.isCurrent() || isAbort(error)) return
       state.blocked.phase = 'error'
       state.blocked.errorMessage = presentError(error, '暂时无法加载阻塞关系')
       state.blocked.errorStatus = error instanceof CrewScopeApiError ? error.status : null
+    } finally {
+      request.finish()
     }
   }
 
@@ -165,10 +175,7 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
       || scope.projectId !== state.anchor.scope?.projectId
       || workItemId !== state.anchor.workItemId
     if (!force && !anchorChanged && ['ready', 'empty'].includes(state.anchor.phase)) return
-    anchorController?.abort()
-    anchorController = new AbortController()
-    const currentController = anchorController
-    const version = ++anchorVersion
+    const request = anchorRequests.begin('anchor')
     state.anchor.scope = scope
     state.anchor.workItemId = workItemId
     state.anchor.phase = 'loading'
@@ -178,28 +185,32 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
     state.anchor.relations = null
     state.anchor.chain = null
     try {
-      const relations = await gateway.listRelations(scope, workItemId, currentController.signal)
-      if (version !== anchorVersion) return
+      const relations = await gateway.listRelations(scope, workItemId, request.signal)
+      if (!request.isCurrent()) return
       state.anchor.relations = relations
       state.anchor.phase = relations.edges.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (version !== anchorVersion || currentController.signal.aborted) return
+      if (!request.isCurrent() || isAbort(error)) return
       state.anchor.phase = 'error'
       state.anchor.errorMessage = presentError(error, '暂时无法加载工作项关系')
       state.anchor.errorStatus = error instanceof CrewScopeApiError ? error.status : null
+    } finally {
+      request.finish()
     }
   }
 
   async function loadBlockingChain(scope: WorkGraphQueryScope, workItemId: string, force = false): Promise<void> {
     await loadRelations(scope, workItemId, force)
     if (state.anchor.phase !== 'ready' && state.anchor.phase !== 'empty') return
-    const version = anchorVersion
+    // The chain rides the anchor's epoch: a new anchor load voids this capture, so a stale
+    // chain can never land on top of fresh adjacency facts.
+    const owner = anchorRequests.capture()
     try {
-      const chain = await gateway.listBlockingChain(scope, workItemId, anchorController?.signal)
-      if (version !== anchorVersion) return
+      const chain = await gateway.listBlockingChain(scope, workItemId, undefined)
+      if (!owner.isCurrent()) return
       state.anchor.chain = chain
     } catch (error) {
-      if (version !== anchorVersion || anchorController?.signal.aborted) return
+      if (!owner.isCurrent() || isAbort(error)) return
       // The chain is exploratory depth on top of the adjacency facts: failing it degrades the
       // detail panel to "chain unavailable" and never blanks the relations already rendered.
       state.anchor.chain = null
@@ -299,12 +310,8 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
 
   function reset(): void {
     commandIntents.clear()
-    blockedController?.abort()
-    blockedController = null
-    anchorController?.abort()
-    anchorController = null
-    blockedVersion += 1
-    anchorVersion += 1
+    blockedRequests.invalidate()
+    anchorRequests.invalidate()
     blockedScope = null
     blockedProjectFilter = undefined
     state.blocked.phase = 'idle'
@@ -352,9 +359,3 @@ export function useWorkGraphStore(): WorkGraphStore {
   return store
 }
 
-function presentError(error: unknown, fallback: string): string {
-  if (error instanceof CrewScopeApiError) {
-    return workItemRelationErrorLabels[error.envelope.code] ?? error.envelope.message
-  }
-  return fallback
-}

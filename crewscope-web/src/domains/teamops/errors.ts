@@ -37,14 +37,6 @@ export function teamOpsError(error: unknown, fallback: string): TeamOpsErrorStat
   }
 }
 
-export function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
-
-export function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
-
 export function currentVersionOf(error: unknown): number | null {
   return error instanceof CrewScopeApiError ? error.envelope.currentVersion : null
 }

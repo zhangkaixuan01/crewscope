@@ -10,6 +10,7 @@ import type {
   SetupReadinessView,
   SetupStatus,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 /*
  * The health and search projections are optional on the interface: readiness is the only call every
@@ -147,7 +148,6 @@ function mapSearchHit(input: unknown): ConfigurationSearchHit {
   }
 }
 
-function segment(value: string): string { return encodeURIComponent(value) }
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Invalid Setup Readiness response')
   return value as Record<string, unknown>

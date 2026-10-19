@@ -6,6 +6,7 @@ import type {
   VersionedTaskIntent,
   VersionedTaskIntentConfirmationPreview,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface TaskIntentGateway {
   get(scope: ConversationMessageScope, taskIntentId: string, signal?: AbortSignal): Promise<VersionedTaskIntent>
@@ -106,9 +107,6 @@ function path(scope: ConversationMessageScope, taskIntentId: string): string {
     + `/conversations/${segment(scope.conversationId)}/task-intents/${segment(taskIntentId)}`
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}
 
 function requireStrongEtag(response: Response, version: number): string {
   const etag = response.headers.get('ETag')

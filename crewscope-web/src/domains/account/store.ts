@@ -8,6 +8,8 @@ import type {
   AccountProfileUpdateInput,
   AccountSessionRevocationInput,
 } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type AccountPhase = 'idle' | 'loading' | 'ready' | 'error'
 export type AccountOperation = 'profile' | 'password' | 'sessions'
@@ -46,28 +48,29 @@ export function createAccountStore(gateway: AccountGateway, options: AccountStor
     commandPhase: 'idle', operation: null, commandProblem: null, commandGeneration: 0,
   })
   const timeoutMs = options.timeoutMs ?? 15_000
-  let generation = 0
-  let controller: AbortController | null = null
+  // One channel per operation family (M12b-F05): loads and commands supersede their own
+  // kind; the shared timed() wrapper links the upstream request signal to its timeout.
+  const requests = createRequestScope(() => 'account')
 
   async function load(force = false): Promise<boolean> {
     if (!force && state.phase === 'ready' && state.profile) return true
-    const requestGeneration = begin()
+    const request = requests.begin('load')
     state.phase = 'loading'
     state.problem = null
     try {
-      const response = await timed(signal => gateway.current(signal))
-      if (requestGeneration !== generation) return false
+      const response = await timed(signal => gateway.current(signal), request.signal)
+      if (!request.isCurrent()) return false
       state.profile = response.value
       state.etag = response.etag
       state.phase = 'ready'
       return true
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       state.problem = presentAccountProblem(error)
       state.phase = 'error'
       return false
     } finally {
-      finish(requestGeneration)
+      request.finish()
     }
   }
 
@@ -100,55 +103,45 @@ export function createAccountStore(gateway: AccountGateway, options: AccountStor
   ): Promise<boolean> {
     if (state.etag === null) return false
     const expectedVersion = state.etag
-    const requestGeneration = begin()
+    const request = requests.begin('command')
     state.commandPhase = 'pending'
     state.operation = operation
     state.commandProblem = null
     try {
-      const result = await timed(signal => action(expectedVersion, signal))
-      if (requestGeneration !== generation) return false
+      const result = await timed(signal => action(expectedVersion, signal), request.signal)
+      if (!request.isCurrent()) return false
       apply?.(result)
       state.commandPhase = 'success'
       state.commandGeneration += 1
       return true
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       state.commandProblem = presentAccountProblem(error)
       state.commandPhase = 'error'
       state.commandGeneration += 1
       return false
     } finally {
-      finish(requestGeneration)
+      request.finish()
     }
   }
 
-  function begin(): number {
-    generation += 1
-    controller?.abort()
-    controller = new AbortController()
-    return generation
-  }
-
-  async function timed<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const activeController = controller ?? new AbortController()
-    controller = activeController
+  /** Times an operation out, distinguishing timeout from upstream cancellation. */
+  async function timed<T>(operation: (signal: AbortSignal) => Promise<T>, upstream: AbortSignal): Promise<T> {
+    const linked = new AbortController()
     let timedOut = false
-    const timeout = window.setTimeout(() => {
-      timedOut = true
-      activeController.abort()
-    }, timeoutMs)
+    const timeout = window.setTimeout(() => { timedOut = true; linked.abort() }, timeoutMs)
+    const linkUpstream = () => linked.abort()
+    if (upstream.aborted) linked.abort()
+    else upstream.addEventListener('abort', linkUpstream, { once: true })
     try {
-      return await operation(activeController.signal)
+      return await operation(linked.signal)
     } catch (error) {
       if (timedOut) throw new AccountRequestTimeoutError()
       throw error
     } finally {
       window.clearTimeout(timeout)
+      upstream.removeEventListener('abort', linkUpstream)
     }
-  }
-
-  function finish(requestGeneration: number): void {
-    if (requestGeneration === generation) controller = null
   }
 
   function clearCommand(): void {
@@ -158,9 +151,7 @@ export function createAccountStore(gateway: AccountGateway, options: AccountStor
   }
 
   function reset(): void {
-    generation += 1
-    controller?.abort()
-    controller = null
+    requests.invalidate()
     state.phase = 'idle'
     state.profile = null
     state.etag = null
@@ -186,6 +177,3 @@ export function useAccountStore(): AccountStore {
   return store
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

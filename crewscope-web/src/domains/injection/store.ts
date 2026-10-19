@@ -3,6 +3,8 @@ import { CrewScopeApiError } from '../../api/client'
 import type { SettingsScope } from '../settings/types'
 import type { InjectionGateway } from './gateway'
 import type { InjectionFeedbackInput, InjectionReference, InjectionReferences } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type InjectionPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -50,28 +52,21 @@ export function viewKey(taskId: string, executionId: string): string {
   return `${taskId}:${executionId}`
 }
 
-interface ViewRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Execution-keyed I02c evidence views with generation checks in addition to AbortSignal cancellation. */
 export function createInjectionStore(gateway: InjectionGateway): InjectionStore {
   const state = reactive<InjectionStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, ViewRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -80,11 +75,11 @@ export function createInjectionStore(gateway: InjectionGateway): InjectionStore 
     const view = viewKey(taskId, executionId)
     const current = resource(view)
     if (['ready', 'empty'].includes(current.phase)) return
-    const request = beginRequest(view)
+    const request = requests.begin(view)
     state.views[view] = { phase: 'loading', value: null, errorMessage: null, errorStatus: null }
     try {
-      const value = await gateway.list(scope, taskId, executionId, request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await gateway.list(scope, taskId, executionId, request.signal)
+      if (!request.isCurrent()) return
       state.views[view] = {
         phase: value.attempts.length === 0 ? 'empty' : 'ready',
         value,
@@ -92,17 +87,17 @@ export function createInjectionStore(gateway: InjectionGateway): InjectionStore 
         errorStatus: null,
       }
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) {
+      if (!isAbort(error) && request.isCurrent()) {
         state.views[view] = { phase: 'error', value: null, errorMessage: presentError(error, '暂时无法加载注入与引用证据'), errorStatus: statusOf(error) }
       }
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
   async function submitFeedback(taskId: string, executionId: string, reference: InjectionFeedbackInput): Promise<boolean> {
     const scope = requireScope()
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.feedback.phase === 'pending') return false
     state.feedback = {
       phase: 'pending', key: viewKey(taskId, executionId), reference,
@@ -111,13 +106,13 @@ export function createInjectionStore(gateway: InjectionGateway): InjectionStore 
     const pending = state.feedback
     try {
       await gateway.submitFeedback(scope, taskId, executionId, reference)
-      if (commandGeneration !== generation || state.feedback !== pending) return false
+      if (!commandOwner.isCurrent() || state.feedback !== pending) return false
       patchNotApplicable(viewKey(taskId, executionId), reference)
       state.feedback.phase = 'success'
       state.feedback.message = '已标记为不适用'
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.feedback !== pending) return false
+      if (!commandOwner.isCurrent() || state.feedback !== pending) return false
       state.feedback.phase = 'error'
       state.feedback.errorMessage = feedbackError(error)
       state.feedback.errorCode = error instanceof CrewScopeApiError ? error.envelope.code : null
@@ -157,8 +152,7 @@ export function createInjectionStore(gateway: InjectionGateway): InjectionStore 
   function reset(): void {
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -169,28 +163,6 @@ export function createInjectionStore(gateway: InjectionGateway): InjectionStore 
 
   function resource(view: string): InjectionViewResource {
     return state.views[view] ?? viewResource()
-  }
-
-  function beginRequest(key: string): ViewRequest {
-    requests.get(key)?.controller.abort()
-    const request: ViewRequest = { key, version: generation, controller: new AbortController(), scopeKey: activeScopeKey }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: ViewRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: ViewRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: InjectionStoreState): void {
@@ -243,17 +215,8 @@ function feedbackError(error: unknown): string {
   return '标记不适用失败'
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
 
 function scopeKey(scope: SettingsScope): string {
   return `${scope.organizationId}:${scope.teamId}`

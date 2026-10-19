@@ -18,6 +18,8 @@ import type {
   CurrentAgentConfiguration,
   SelectableAgentModel,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type AgentResourcePhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -79,13 +81,6 @@ export const AGENT_STORE: InjectionKey<AgentStore> = Symbol('crewscope-agent-sto
 
 const PAGE_SIZE = 50
 
-interface AgentRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Team-scoped Agent cache with generation checks in addition to AbortSignal cancellation. */
 export function createAgentStore(gateway: AgentGateway): AgentStore {
   const commandIntents = createCommandGateway(gateway, { createAgent: 2, transitionAgent: 4, appendConfiguration: 4, refreshConversationConfiguration: 3 })
@@ -93,16 +88,16 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
   const state = reactive<AgentStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, AgentRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -245,10 +240,10 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     idempotencyKey: string,
   ): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
+    const owner = requests.capture()
     const previous = state.command
     if (state.agentDetails[profileId]?.phase !== 'ready') await loadAgent(profileId)
-    if (started !== generation || state.command !== previous) return false
+    if (!owner.isCurrent() || state.command !== previous) return false
     const detail = state.agentDetails[profileId]?.value
     if (!detail) return false
     return runCommand(
@@ -283,12 +278,12 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     idempotencyKey: string,
   ): Promise<boolean> {
     const scope = requireScope()
-    const started = generation
+    const owner = requests.capture()
     const previous = state.command
     if (state.conversationConfigurations[conversationId]?.phase !== 'ready') {
       await loadConversationConfiguration(conversationId)
     }
-    if (started !== generation || state.command !== previous) return false
+    if (!owner.isCurrent() || state.command !== previous) return false
     const detail = state.conversationConfigurations[conversationId]?.value
     if (!detail) return false
     return runCommand(
@@ -305,7 +300,7 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     action: () => Promise<AgentCommandReceipt>,
     onSuccess?: () => void,
   ): Promise<boolean> {
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, resourceId, receipt: null,
@@ -314,13 +309,13 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     const pending = state.command
     try {
       const receipt = await action()
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       state.command.phase = conflict(error) ? 'conflict' : 'error'
       state.command.errorMessage = presentError(error, 'Agent 设置命令执行失败')
       state.command.errorStatus = statusOf(error)
@@ -341,7 +336,7 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     if (more && (resource.nextOffset === null || resource.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(resource.phase)) return
     const offset = more ? resource.nextOffset ?? 0 : 0
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     if (more) resource.loadingMore = true
     else {
       resource.phase = 'loading'
@@ -350,17 +345,17 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
       if (force) resource.value = null
     }
     try {
-      const page = await load(offset, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await load(offset, request.signal)
+      if (!request.isCurrent()) return
       validate?.(page)
       resource.value = more ? merge(resource.value ?? [], page.items, identity) : page.items
       resource.nextOffset = page.nextOffset
       resource.phase = resource.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载 Agent 设置')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载 Agent 设置')
     } finally {
-      if (isCurrent(request)) resource.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) resource.loadingMore = false
+      request.finish()
     }
   }
 
@@ -378,20 +373,20 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     if (!existing) target[resourceKey] = resourceState<T>()
     // Vue wraps Record entries on read; mutating the original raw object after await would not trigger rendering.
     const resource = target[resourceKey]!
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     try {
-      const value = await load(request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await load(request.signal)
+      if (!request.isCurrent()) return
       validate?.(value)
       resource.value = value
       resource.phase = Array.isArray(value) && value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, fallback)
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, fallback)
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
@@ -428,41 +423,13 @@ export function createAgentStore(gateway: AgentGateway): AgentStore {
     commandIntents.clear()
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): SettingsScope {
     if (!activeScope) throw new Error('Agent Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): AgentRequest {
-    requests.get(key)?.controller.abort()
-    const request: AgentRequest = {
-      key,
-      version: generation,
-      controller: new AbortController(),
-      scopeKey: activeScopeKey,
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: AgentRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: AgentRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: AgentStoreState): void {
@@ -585,18 +552,9 @@ function setError(resource: AgentResource<unknown>, error: unknown, fallback: st
   resource.errorStatus = statusOf(error)
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
 function conflict(error: unknown): boolean {
   return error instanceof CrewScopeApiError && (error.status === 409 || error.status === 412)
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

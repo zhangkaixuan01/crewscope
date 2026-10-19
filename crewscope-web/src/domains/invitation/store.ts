@@ -17,6 +17,8 @@ import type {
   InvitationPreview,
   TeamInvitationSummary,
 } from './types'
+import { isAbort } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type InvitationManagementPhase = 'idle' | 'loading' | 'ready' | 'error'
 export type InvitationPublicPhase = 'idle' | 'previewing' | 'available' | 'expired' | 'unavailable' | 'accepting' | 'accepted' | 'error'
@@ -86,37 +88,37 @@ export function createInvitationStore(
   })
   const queryTimeoutMs = options.queryTimeoutMs ?? 10_000
   const commandTimeoutMs = options.commandTimeoutMs ?? 20_000
-  let managementGeneration = 0
-  let managementController: AbortController | null = null
-  let publicGeneration = 0
-  let publicController: AbortController | null = null
+  // One channel per face (M12b-F05): any management request supersedes the previous one —
+  // the single generation counter each pair replaced; the public preview/accept face likewise.
+  const managementRequests = createRequestScope(() => 'invitation-management')
+  const publicRequests = createRequestScope(() => 'invitation-public')
   let proof: string | null = null
   const createIntents = createCommandIntents<InvitationCreationInput, InvitationCreationResult>()
   const revokeKeys = new Map<string, string>()
   let acceptKey: string | null = null
 
   async function loadManagement(organizationId: string, teamId: string, append = false): Promise<boolean> {
-    const requestGeneration = beginManagement()
+    const request = managementRequests.begin('management')
     state.managementPhase = 'loading'
     state.managementProblem = null
     const cursor = append ? state.nextCursor : null
     try {
-      const page = await timed(managementController!, signal => gateway.list(
+      const page = await timed(signal => gateway.list(
         organizationId, teamId, cursor, signal,
-      ), queryTimeoutMs)
-      if (requestGeneration !== managementGeneration) return false
+      ), request.signal, queryTimeoutMs)
+      if (!request.isCurrent()) return false
       state.items = append ? merge(state.items, page.items) : page.items
       state.nextCursor = page.nextCursor
       state.managementPhase = 'ready'
       return true
     } catch (error) {
-      if (requestGeneration !== managementGeneration || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       state.managementProblem = presentInvitationProblem(error)
       state.managementErrorGeneration += 1
       state.managementPhase = 'error'
       return false
     } finally {
-      finishManagement(requestGeneration)
+      request.finish()
     }
   }
 
@@ -127,25 +129,24 @@ export function createInvitationStore(
     csrf: AuthCsrfCoordinate,
   ): Promise<InvitationCreationResult | null> {
     if (state.commandPhase === 'pending') return null
-    const requestGeneration = beginManagement()
-    const controller = managementController!
+    const request = managementRequests.begin('management')
     beginCommand('create')
     try {
       const result = await createIntents.execute({ organizationId, teamId }, input, (snapshot, key) =>
-        timed(controller, signal => gateway.create(
+        timed(signal => gateway.create(
           organizationId, teamId, snapshot, { csrf, idempotencyKey: key }, signal,
-        ), commandTimeoutMs))
-      if (requestGeneration !== managementGeneration) return null
+        ), request.signal, commandTimeoutMs))
+      if (!request.isCurrent()) return null
       if (result.invitation) state.items = merge([result.invitation], state.items)
       commandSuccess()
       state.managementPhase = 'ready'
       return result
     } catch (error) {
-      if (requestGeneration !== managementGeneration || isAbort(error)) return null
+      if (!request.isCurrent() || isAbort(error)) return null
       commandFailure(error)
       return null
     } finally {
-      finishManagement(requestGeneration)
+      request.finish()
     }
   }
 
@@ -163,24 +164,24 @@ export function createInvitationStore(
     }
     const key = revokeKeys.get(coordinate) ?? secureId()
     revokeKeys.set(coordinate, key)
-    const requestGeneration = beginManagement()
+    const request = managementRequests.begin('management')
     beginCommand('revoke')
     try {
-      await timed(managementController!, signal => gateway.revoke(
+      await timed(signal => gateway.revoke(
         organizationId, teamId, invitationId, { csrf, idempotencyKey: key }, signal,
-      ), commandTimeoutMs)
-      if (requestGeneration !== managementGeneration) return false
+      ), request.signal, commandTimeoutMs)
+      if (!request.isCurrent()) return false
       revokeKeys.delete(coordinate)
       state.items = state.items.map(item => item.id === invitationId ? { ...item, status: 'REVOKED' } : item)
       commandSuccess()
       state.managementPhase = 'ready'
       return true
     } catch (error) {
-      if (requestGeneration !== managementGeneration || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       commandFailure(error)
       return false
     } finally {
-      finishManagement(requestGeneration)
+      request.finish()
     }
   }
 
@@ -201,25 +202,25 @@ export function createInvitationStore(
       state.preview = unavailablePreview()
       return false
     }
-    const requestGeneration = beginPublic()
+    const request = publicRequests.begin('public')
     state.publicPhase = 'previewing'
     state.publicProblem = null
     try {
-      const preview = await timed(publicController!, signal => gateway.preview(proof!, signal), queryTimeoutMs)
-      if (requestGeneration !== publicGeneration) return false
+      const preview = await timed(signal => gateway.preview(proof!, signal), request.signal, queryTimeoutMs)
+      if (!request.isCurrent()) return false
       state.preview = preview
       state.publicPhase = preview.state === 'AVAILABLE'
         ? 'available'
         : preview.state === 'EXPIRED' ? 'expired' : 'unavailable'
       return preview.state === 'AVAILABLE'
     } catch (error) {
-      if (requestGeneration !== publicGeneration || isAbort(error)) return false
+      if (!request.isCurrent() || isAbort(error)) return false
       state.publicProblem = presentInvitationProblem(error)
       state.publicErrorGeneration += 1
       state.publicPhase = 'error'
       return false
     } finally {
-      finishPublic(requestGeneration)
+      request.finish()
     }
   }
 
@@ -234,27 +235,27 @@ export function createInvitationStore(
   async function acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null> {
     if (!proof || state.publicPhase === 'accepting') return null
     acceptKey ??= secureId()
-    const requestGeneration = beginPublic()
+    const request = publicRequests.begin('public')
     state.publicPhase = 'accepting'
     state.publicProblem = null
     try {
-      const result = await timed(publicController!, signal => gateway.accept(
+      const result = await timed(signal => gateway.accept(
         proof!, { csrf, idempotencyKey: acceptKey! }, signal,
-      ), commandTimeoutMs)
-      if (requestGeneration !== publicGeneration) return null
+      ), request.signal, commandTimeoutMs)
+      if (!request.isCurrent()) return null
       proof = null
       acceptKey = null
       state.acceptance = result.acceptance
       state.publicPhase = 'accepted'
       return result
     } catch (error) {
-      if (requestGeneration !== publicGeneration || isAbort(error)) return null
+      if (!request.isCurrent() || isAbort(error)) return null
       state.publicProblem = presentInvitationProblem(error)
       state.publicErrorGeneration += 1
       state.publicPhase = 'error'
       return null
     } finally {
-      finishPublic(requestGeneration)
+      request.finish()
     }
   }
 
@@ -263,28 +264,6 @@ export function createInvitationStore(
     // The accept already committed; 'accepted' keeps the session-pending affordance available
     // when the refreshed session still lacks the joined Team.
     state.publicPhase = 'accepted'
-  }
-
-  function beginManagement(): number {
-    managementGeneration += 1
-    managementController?.abort()
-    managementController = new AbortController()
-    return managementGeneration
-  }
-
-  function finishManagement(requestGeneration: number): void {
-    if (requestGeneration === managementGeneration) managementController = null
-  }
-
-  function beginPublic(): number {
-    publicGeneration += 1
-    publicController?.abort()
-    publicController = new AbortController()
-    return publicGeneration
-  }
-
-  function finishPublic(requestGeneration: number): void {
-    if (requestGeneration === publicGeneration) publicController = null
   }
 
   function beginCommand(kind: 'create' | 'revoke'): void {
@@ -311,9 +290,7 @@ export function createInvitationStore(
   }
 
   function pausePublic(): void {
-    publicGeneration += 1
-    publicController?.abort()
-    publicController = null
+    publicRequests.invalidate()
   }
 
   function clearProof(): void {
@@ -328,9 +305,7 @@ export function createInvitationStore(
   }
 
   function resetManagement(): void {
-    managementGeneration += 1
-    managementController?.abort()
-    managementController = null
+    managementRequests.invalidate()
     createIntents.clear()
     revokeKeys.clear()
     state.managementPhase = 'idle'
@@ -370,23 +345,26 @@ export function useOptionalInvitationStore(): InvitationStore | null {
   return inject(INVITATION_STORE, null)
 }
 
+/** Times an operation out, distinguishing timeout from upstream cancellation. */
 async function timed<T>(
-  controller: AbortController,
   operation: (signal: AbortSignal) => Promise<T>,
+  upstream: AbortSignal,
   timeoutMs: number,
 ): Promise<T> {
+  const linked = new AbortController()
   let timedOut = false
-  const timeout = window.setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, timeoutMs)
+  const timeout = window.setTimeout(() => { timedOut = true; linked.abort() }, timeoutMs)
+  const linkUpstream = () => linked.abort()
+  if (upstream.aborted) linked.abort()
+  else upstream.addEventListener('abort', linkUpstream, { once: true })
   try {
-    return await operation(controller.signal)
+    return await operation(linked.signal)
   } catch (error) {
     if (timedOut) throw new InvitationRequestTimeoutError()
     throw error
   } finally {
     window.clearTimeout(timeout)
+    upstream.removeEventListener('abort', linkUpstream)
   }
 }
 
@@ -402,6 +380,3 @@ function unavailablePreview(): InvitationPreview {
   }
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

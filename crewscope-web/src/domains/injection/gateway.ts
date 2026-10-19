@@ -9,6 +9,7 @@ import type {
   InjectionReferences,
   InjectionScope,
 } from './types'
+import { segment } from '../../api/gatewayUtils'
 
 export interface InjectionGateway {
   list(scope: InjectionScope, taskId: string, executionId: string, signal?: AbortSignal): Promise<InjectionReferences>
@@ -101,6 +102,3 @@ function referenceStage(value: string): InjectionReferenceStage {
   throw new TypeError('Injection reference stage is invalid')
 }
 
-function segment(value: string): string {
-  return encodeURIComponent(value)
-}

@@ -13,6 +13,8 @@ import type {
   KnowledgeVersion,
   UpdateKnowledgeDraftInput,
 } from './types'
+import { isAbort, statusOf, presentError } from '../../api/errors'
+import { createRequestScope } from '../../api/requestScope'
 
 export type KnowledgeResourcePhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -80,13 +82,6 @@ export const KNOWLEDGE_STORE: InjectionKey<KnowledgeStore> = Symbol('crewscope-k
 
 const PAGE_SIZE = 50
 
-interface KnowledgeRequest {
-  key: string
-  version: number
-  controller: AbortController
-  scopeKey: string | null
-}
-
 /** Team-scoped knowledge cache with generation checks in addition to AbortSignal cancellation. */
 export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore {
   const commandIntents = createCommandGateway(gateway, {
@@ -96,16 +91,16 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
   const state = reactive<KnowledgeStoreState>(initialState())
   let activeScope: SettingsScope | null = null
   let activeScopeKey: string | null = null
-  let generation = 0
-  const requests = new Map<string, KnowledgeRequest>()
+  // Scope switches advance the epoch (voiding captures) and change the coordinate (voiding
+  // stragglers that miss the abort) — the generation + scopeKey pair this replaces.
+  const requests = createRequestScope(() => activeScopeKey ?? '')
 
   function activateScope(scope: SettingsScope): void {
     const nextKey = scopeKey(scope)
     if (nextKey === activeScopeKey) return
     activeScope = { ...scope }
     activeScopeKey = nextKey
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
@@ -114,7 +109,7 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     if (more && (state.entries.nextAfter === null || state.entries.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(state.entries.phase)) return
     const after = more ? state.entries.nextAfter : null
-    const request = beginRequest('entries')
+    const request = requests.begin('entries')
     if (more) state.entries.loadingMore = true
     else {
       state.entries.phase = 'loading'
@@ -123,18 +118,18 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
       if (force) state.entries.value = null
     }
     try {
-      const page = await gateway.listEntries(scope, filter, after, PAGE_SIZE, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await gateway.listEntries(scope, filter, after, PAGE_SIZE, request.signal)
+      if (!request.isCurrent()) return
       state.entries.value = more
         ? mergeEntries(state.entries.value ?? [], page.items)
         : page.items
       state.entries.nextAfter = page.nextAfter
       state.entries.phase = state.entries.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(state.entries, error, '暂时无法加载知识条目')
+      if (!isAbort(error) && request.isCurrent()) setError(state.entries, error, '暂时无法加载知识条目')
     } finally {
-      if (isCurrent(request)) state.entries.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) state.entries.loadingMore = false
+      request.finish()
     }
   }
 
@@ -158,7 +153,7 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     if (more && (resource.nextAfter === null || resource.loadingMore)) return
     if (!more && !force && ['ready', 'empty'].includes(resource.phase)) return
     const after = more ? resource.nextAfter : null
-    const request = beginRequest(`versions:${entryId}`)
+    const request = requests.begin(`versions:${entryId}`)
     if (more) resource.loadingMore = true
     else {
       resource.phase = 'loading'
@@ -167,8 +162,8 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
       if (force) resource.value = null
     }
     try {
-      const page = await gateway.listVersions(scope, entryId, after, PAGE_SIZE, request.controller.signal)
-      if (!isCurrent(request)) return
+      const page = await gateway.listVersions(scope, entryId, after, PAGE_SIZE, request.signal)
+      if (!request.isCurrent()) return
       for (const version of page.items) {
         if (version.entryId !== entryId || version.revision < 1) {
           throw new Error('Knowledge version history is outside the requested entry')
@@ -178,10 +173,10 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
       resource.nextAfter = page.nextAfter
       resource.phase = resource.value.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载版本历史')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载版本历史')
     } finally {
-      if (isCurrent(request)) resource.loadingMore = false
-      finishRequest(request)
+      if (request.isCurrent()) resource.loadingMore = false
+      request.finish()
     }
   }
 
@@ -209,20 +204,20 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     if (!force && existing?.phase === 'ready') return
     if (!existing) state.effectiveVersions[entryId] = resourceState()
     const resource = state.effectiveVersions[entryId]!
-    const request = beginRequest(`effective:${entryId}`)
+    const request = requests.begin(`effective:${entryId}`)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     try {
-      const value = await gateway.getEffectiveVersion(scope, entryId, request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await gateway.getEffectiveVersion(scope, entryId, request.signal)
+      if (!request.isCurrent()) return
       // Null is a resolved answer — "no effective version" (DRAFT/RETIRED/DELETED) — not an error.
       resource.value = value
       resource.phase = value === null ? 'empty' : 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, '暂时无法加载生效版本')
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, '暂时无法加载生效版本')
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
@@ -308,10 +303,10 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
 
   /** Ensures the head detail is ready and returns its ETag, or null when the continuation went stale. */
   async function requireHeadEtag(entryId: string): Promise<string | null> {
-    const started = generation
+    const owner = requests.capture()
     const previous = state.command
     if (state.entryDetails[entryId]?.phase !== 'ready') await loadEntry(entryId)
-    if (started !== generation || state.command !== previous) return null
+    if (!owner.isCurrent() || state.command !== previous) return null
     return state.entryDetails[entryId]?.value?.etag ?? null
   }
 
@@ -321,7 +316,7 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     action: () => Promise<KnowledgeCommandReceipt>,
     onSuccess?: () => void,
   ): Promise<boolean> {
-    const commandGeneration = generation
+    const commandOwner = requests.capture()
     if (state.command.phase === 'pending') return false
     state.command = {
       phase: 'pending', operation, resourceId, receipt: null,
@@ -330,13 +325,13 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     const pending = state.command
     try {
       const receipt = await action()
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       onSuccess?.()
       state.command.phase = 'success'
       state.command.receipt = receipt
       return true
     } catch (error) {
-      if (commandGeneration !== generation || state.command !== pending) return false
+      if (!commandOwner.isCurrent() || state.command !== pending) return false
       state.command.phase = conflict(error) ? 'conflict' : 'error'
       state.command.errorMessage = presentError(error, '知识库命令执行失败')
       state.command.errorStatus = statusOf(error)
@@ -362,20 +357,20 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     if (!existing) target[resourceKey] = resourceState<T>()
     // Vue wraps Record entries on read; mutating the original raw object after await would not trigger rendering.
     const resource = target[resourceKey]!
-    const request = beginRequest(requestKey)
+    const request = requests.begin(requestKey)
     resource.phase = 'loading'
     resource.errorMessage = null
     resource.errorStatus = null
     try {
-      const value = await load(request.controller.signal)
-      if (!isCurrent(request)) return
+      const value = await load(request.signal)
+      if (!request.isCurrent()) return
       validate?.(value)
       resource.value = value
       resource.phase = 'ready'
     } catch (error) {
-      if (!isAbort(error) && isCurrent(request)) setError(resource, error, fallback)
+      if (!isAbort(error) && request.isCurrent()) setError(resource, error, fallback)
     } finally {
-      finishRequest(request)
+      request.finish()
     }
   }
 
@@ -400,41 +395,13 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     commandIntents.clear()
     activeScope = null
     activeScopeKey = null
-    generation += 1
-    abortRequests()
+    requests.invalidate()
     replaceState(initialState())
   }
 
   function requireScope(): SettingsScope {
     if (!activeScope) throw new Error('Knowledge Store Scope is not active')
     return { ...activeScope }
-  }
-
-  function beginRequest(key: string): KnowledgeRequest {
-    requests.get(key)?.controller.abort()
-    const request: KnowledgeRequest = {
-      key,
-      version: generation,
-      controller: new AbortController(),
-      scopeKey: activeScopeKey,
-    }
-    requests.set(key, request)
-    return request
-  }
-
-  function isCurrent(request: KnowledgeRequest): boolean {
-    return generation === request.version
-      && activeScopeKey === request.scopeKey
-      && requests.get(request.key) === request
-  }
-
-  function finishRequest(request: KnowledgeRequest): void {
-    if (requests.get(request.key) === request) requests.delete(request.key)
-  }
-
-  function abortRequests(): void {
-    for (const request of requests.values()) request.controller.abort()
-    requests.clear()
   }
 
   function replaceState(next: KnowledgeStoreState): void {
@@ -532,18 +499,9 @@ function setError(resource: KnowledgeResource<unknown>, error: unknown, fallback
   resource.errorStatus = statusOf(error)
 }
 
-function presentError(error: unknown, fallback: string): string {
-  return error instanceof CrewScopeApiError ? error.envelope.message : fallback
-}
 
-function statusOf(error: unknown): number | null {
-  return error instanceof CrewScopeApiError ? error.status : null
-}
 
 function conflict(error: unknown): boolean {
   return error instanceof CrewScopeApiError && (error.status === 409 || error.status === 412)
 }
 
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}

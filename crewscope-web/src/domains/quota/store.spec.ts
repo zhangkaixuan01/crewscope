@@ -194,6 +194,51 @@ describe('QuotaStore', () => {
     expect(store.state.command.phase).toBe('idle')
     expect(store.state.usage).toMatchObject({ phase: 'bootstrap', anchorMonth: null, windowMonths: [] })
   })
+
+  it('drops the superseded configuration load: a late resolve never writes the older value', async () => {
+    const gateway = fakeGateway()
+    let resolveFirst!: (value: { monthlyTaskIntakeLimit: number | null, monthlyTokenBudget: number | null, version: number }) => void
+    gateway.quota
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockResolvedValueOnce({ monthlyTaskIntakeLimit: 9, monthlyTokenBudget: null, version: 2 })
+    const store = createQuotaStore(gateway)
+    const superseded = store.loadConfiguration(organizationId, true)
+    const current = store.loadConfiguration(organizationId, true)
+    await current
+    expect(store.state.configuration.value).toMatchObject({ monthlyTaskIntakeLimit: 9, version: 2 })
+
+    resolveFirst({ monthlyTaskIntakeLimit: 1, monthlyTokenBudget: null, version: 1 })
+    await superseded
+
+    // The aborted first request resolves after the second one won the channel.
+    expect(store.state.configuration.value).toMatchObject({ monthlyTaskIntakeLimit: 9, version: 2 })
+  })
+
+  it('drops an in-flight month when the window reloads: the stale month never lands', async () => {
+    const gateway = fakeGateway()
+    gateway.usage.mockImplementationOnce(async () => usage(ANCHOR))
+    const store = createQuotaStore(gateway)
+    await store.loadUsageWindow(organizationId)
+
+    let resolveMonth!: (value: QuotaUsageView) => void
+    gateway.usage.mockImplementationOnce((_org: string, month: string | null) =>
+      month === '2026-03' ? new Promise(resolve => { resolveMonth = resolve }) : Promise.resolve(usage(month ?? ANCHOR)))
+    const stale = store.loadUsageMonth(organizationId, '2026-03')
+    expect(store.state.usage.months['2026-03'].phase).toBe('loading')
+
+    // Window reload voids the in-flight month before it resolves.
+    gateway.usage.mockImplementationOnce(async () => usage('2026-04'))
+    await store.loadUsageWindow(organizationId, true)
+    expect(store.state.usage.anchorMonth).toBe('2026-04')
+    // 2026-03 is inside the new window too; the reload's fan-out owns its entry now.
+    expect(store.state.usage.months['2026-03'].phase).toBe('ready')
+
+    const staleValue = usage('2026-03')
+    staleValue.monthlyTokenBudget.reservedTokens = 999
+    resolveMonth(staleValue)
+    await stale
+    expect(store.state.usage.months['2026-03'].value?.monthlyTokenBudget.reservedTokens).toBe(0)
+  })
 })
 
 function fakeGateway(): QuotaGateway & {

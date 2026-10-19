@@ -14,6 +14,7 @@ import type {
   OrganizationRoleGrant,
   OrganizationSettings,
 } from './types'
+import { createRequestScope } from '../../api/requestScope'
 
 /**
  * M12-F01 organization store. Resources are org-grain (no Team scope): the page passes the
@@ -131,58 +132,53 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
   })
   gateway = commandIntents.gateway
   const state = reactive<OrganizationStoreState>(initialState())
-  // One generation counter per resource: the page loads profile for every member but settings
-  // only for audit-read holders, and the two mounts race — a shared counter would let the
-  // profile load void the in-flight settings response (or vice versa) and strand it loading.
-  let profileGeneration = 0
-  let settingsGeneration = 0
-  let roleGrantsGeneration = 0
-  let precheckGeneration = 0
-  let profileController: AbortController | null = null
-  let settingsController: AbortController | null = null
-  let roleGrantsController: AbortController | null = null
-  let precheckController: AbortController | null = null
+  // One request scope per resource (M12b-F05): the page loads profile for every member but
+  // settings only for audit-read holders, and the two mounts race — a shared scope would let
+  // the profile load void the in-flight settings response (or vice versa) and strand it loading.
+  const profileRequests = createRequestScope(() => 'organization-profile')
+  const settingsRequests = createRequestScope(() => 'organization-settings')
+  const roleGrantsRequests = createRequestScope(() => 'organization-role-grants')
+  const precheckRequests = createRequestScope(() => 'organization-deletion-precheck')
 
   async function loadProfile(organizationId: string, force = false): Promise<void> {
     if (!force && state.profile.phase === 'ready') return
-    const current = ++profileGeneration
-    profileController?.abort()
-    const controller = new AbortController()
-    profileController = controller
+    const request = profileRequests.begin('profile')
     state.profile.phase = 'loading'
     state.profile.errorMessage = null
     try {
-      const value = await gateway.profile(organizationId, controller.signal)
-      if (current !== profileGeneration || controller.signal.aborted) return
+      const value = await gateway.profile(organizationId, request.signal)
+      if (!request.isCurrent()) return
       state.profile.phase = 'ready'
       state.profile.value = value
     } catch (error) {
-      if (current !== profileGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.profile.phase = phaseOf(error)
       state.profile.errorMessage = messageOf(error)
+    } finally {
+      request.finish()
     }
   }
 
   async function loadSettings(organizationId: string, force = false): Promise<void> {
-    await loadSettingsResource(organizationId, force, ++settingsGeneration)
+    await loadSettingsResource(organizationId, force)
   }
 
-  async function loadSettingsResource(organizationId: string, force: boolean, current: number): Promise<void> {
+  async function loadSettingsResource(organizationId: string, force: boolean): Promise<void> {
     if (!force && state.settings.phase === 'ready') return
-    settingsController?.abort()
-    const controller = new AbortController()
-    settingsController = controller
+    const request = settingsRequests.begin('settings')
     state.settings.phase = 'loading'
     state.settings.errorMessage = null
     try {
-      const value = await gateway.settings(organizationId, controller.signal)
-      if (current !== settingsGeneration || controller.signal.aborted) return
+      const value = await gateway.settings(organizationId, request.signal)
+      if (!request.isCurrent()) return
       state.settings.phase = 'ready'
       state.settings.value = value
     } catch (error) {
-      if (current !== settingsGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.settings.phase = phaseOf(error)
       state.settings.errorMessage = messageOf(error)
+    } finally {
+      request.finish()
     }
   }
 
@@ -203,12 +199,12 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
       state.settingsCommand.receipt = receipt
       // A 202 receipt means the command was accepted, not that the read model moved —
       // re-read the settings so the next edit starts from the persisted version.
-      await loadSettingsResource(organizationId, true, ++settingsGeneration)
+      await loadSettingsResource(organizationId, true)
       return true
     } catch (error) {
       recordCommandFailure(state.settingsCommand, error)
       if (error instanceof CrewScopeApiError && error.status === 409) {
-        await loadSettingsResource(organizationId, true, ++settingsGeneration)
+        await loadSettingsResource(organizationId, true)
       }
       return false
     }
@@ -216,21 +212,20 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
 
   async function loadRoleGrants(organizationId: string, force = false): Promise<void> {
     if (!force && state.roleGrants.phase === 'ready') return
-    const current = ++roleGrantsGeneration
-    roleGrantsController?.abort()
-    const controller = new AbortController()
-    roleGrantsController = controller
+    const request = roleGrantsRequests.begin('role-grants')
     state.roleGrants.phase = 'loading'
     state.roleGrants.errorMessage = null
     try {
-      const value = await gateway.roleGrants(organizationId, controller.signal)
-      if (current !== roleGrantsGeneration || controller.signal.aborted) return
+      const value = await gateway.roleGrants(organizationId, request.signal)
+      if (!request.isCurrent()) return
       state.roleGrants.phase = 'ready'
       state.roleGrants.value = value
     } catch (error) {
-      if (current !== roleGrantsGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.roleGrants.phase = phaseOf(error)
       state.roleGrants.errorMessage = messageOf(error)
+    } finally {
+      request.finish()
     }
   }
 
@@ -311,21 +306,20 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
   async function precheckDeletion(organizationId: string, accountId: string, force = false): Promise<void> {
     if (!force && state.deletionPrecheck.phase === 'ready'
       && state.deletionPrecheck.value?.accountId === accountId) return
-    const current = ++precheckGeneration
-    precheckController?.abort()
-    const controller = new AbortController()
-    precheckController = controller
+    const request = precheckRequests.begin('deletion-precheck')
     state.deletionPrecheck.phase = 'loading'
     state.deletionPrecheck.errorMessage = null
     try {
-      const value = await gateway.deletionPrecheck(organizationId, accountId, controller.signal)
-      if (current !== precheckGeneration || controller.signal.aborted) return
+      const value = await gateway.deletionPrecheck(organizationId, accountId, request.signal)
+      if (!request.isCurrent()) return
       state.deletionPrecheck.phase = 'ready'
       state.deletionPrecheck.value = value
     } catch (error) {
-      if (current !== precheckGeneration || controller.signal.aborted) return
+      if (!request.isCurrent()) return
       state.deletionPrecheck.phase = phaseOf(error)
       state.deletionPrecheck.errorMessage = messageOf(error)
+    } finally {
+      request.finish()
     }
   }
 
@@ -498,14 +492,10 @@ export function createOrganizationStore(gateway: OrganizationGateway): Organizat
   }
 
   function reset(): void {
-    profileGeneration += 1
-    settingsGeneration += 1
-    roleGrantsGeneration += 1
-    precheckGeneration += 1
-    profileController?.abort()
-    settingsController?.abort()
-    roleGrantsController?.abort()
-    precheckController?.abort()
+    profileRequests.invalidate()
+    settingsRequests.invalidate()
+    roleGrantsRequests.invalidate()
+    precheckRequests.invalidate()
     commandIntents.clear()
     Object.assign(state, initialState())
   }

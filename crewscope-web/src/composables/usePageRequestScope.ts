@@ -32,5 +32,7 @@ export function usePageRequestScope(selection?: () => unknown, routeSelection?: 
   watch(identityCoordinate, identity.invalidate, { flush: 'sync' })
   watch(selectionCoordinate, selected.invalidate, { flush: 'sync' })
   onBeforeUnmount(() => { requests.dispose(); selected.dispose(); identity.dispose() })
-  return { ...requests, captureSelection: selected.capture, captureIdentity: identity.capture }
+  // `coordinate` (identity + team/project + selection) is exposed so pages can watch the
+  // same expression the scope invalidates on — one coordinate definition, not two copies.
+  return { ...requests, coordinate, captureSelection: selected.capture, captureIdentity: identity.capture }
 }
