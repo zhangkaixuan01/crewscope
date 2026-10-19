@@ -14,6 +14,7 @@ import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
+import io.crewscope.agentscope.distiller.DistillerUsageAccumulator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
@@ -26,9 +27,9 @@ class KnowledgeDistillerUsageMiddlewareTest {
 
     @Test
     void recordsOneFactPerTerminatedAttemptWithTheRuntimeModelName() {
-        KnowledgeDistillerUsageAccumulator collector = new KnowledgeDistillerUsageAccumulator();
+        DistillerUsageAccumulator collector = new DistillerUsageAccumulator();
         RuntimeContext context = RuntimeContext.builder()
-                .put(KnowledgeDistillerUsageAccumulator.class, collector)
+                .put(DistillerUsageAccumulator.class, collector)
                 .build();
 
         apply(context, Flux.just(event(usage(1200, 80, 900)))).blockLast();
@@ -53,9 +54,9 @@ class KnowledgeDistillerUsageMiddlewareTest {
 
     @Test
     void degradesInconsistentProviderCountersToUnreportedInsteadOfFailingTheCall() {
-        KnowledgeDistillerUsageAccumulator collector = new KnowledgeDistillerUsageAccumulator();
+        DistillerUsageAccumulator collector = new DistillerUsageAccumulator();
         RuntimeContext context = RuntimeContext.builder()
-                .put(KnowledgeDistillerUsageAccumulator.class, collector)
+                .put(DistillerUsageAccumulator.class, collector)
                 .build();
 
         // cached > input: the Provider lied; the fact survives as "not reported".

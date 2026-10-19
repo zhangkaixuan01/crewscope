@@ -1,21 +1,12 @@
 package io.crewscope.agentscope.knowledge;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.tool.Toolkit;
-import io.agentscope.core.util.JsonUtils;
-import io.agentscope.harness.agent.HarnessAgent;
-import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
-import io.crewscope.agentscope.StructuredDeliveryCall;
-import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.agentscope.distiller.DistillerCallPipeline;
 import io.crewscope.agentscope.distiller.DistillerPromptRenderer;
-import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
-import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
-import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
 import io.crewscope.application.knowledge.KnowledgeDistillationPort;
 import io.crewscope.application.knowledge.output.DistilledDraftV1;
 import io.crewscope.application.knowledge.output.KnowledgeDistillerStructuredOutputSpecs;
@@ -24,13 +15,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.TimeoutException;
 import reactor.core.publisher.Mono;
 
 /**
  * Executes the tool-less `knowledge-distiller@1` single-turn structured-output call
- * (M10-A02b). One UserMessage carries the sanitized transcript; the frozen schema is the
- * only accepted answer shape, and every real Provider attempt appends one usage fact.
+ * (M10-A02b). One UserMessage carries the sanitized transcript; the frozen schema is
+ * the only accepted answer shape, and every real Provider attempt appends one usage
+ * fact. The call pipeline itself is shared with the Skill Distiller (M13-C03); this
+ * class supplies the knowledge-specific recovery instruction, schema and decoder.
  */
 public final class KnowledgeDistillerRuntime {
 
@@ -58,15 +50,8 @@ public final class KnowledgeDistillerRuntime {
         }
     }
 
-    private final KnowledgeDistillerAgentProvider agents;
-    private final DistillerTemplateRuntimeRegistry templates;
+    private final DistillerCallPipeline<DistilledDraftV1> pipeline;
     private final DistillerPromptRenderer prompts = new DistillerPromptRenderer();
-    private final StructuredDeliveryCall<DistilledDraftV1> delivery =
-            StructuredDeliveryCall.of(
-                    "Knowledge Distiller",
-                    STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION,
-                    KnowledgeDistillerRuntime::decode);
-    private final Duration timeout;
 
     public KnowledgeDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
@@ -76,59 +61,34 @@ public final class KnowledgeDistillerRuntime {
     }
 
     KnowledgeDistillerRuntime(
-            KnowledgeDistillerAgentProvider agents,
+            DistillerCallPipeline.AgentProvider agents,
             DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
-        this.agents = Objects.requireNonNull(agents, "agents");
-        this.templates = Objects.requireNonNull(templates, "templates");
-        this.timeout = Objects.requireNonNull(timeout, "timeout");
-        if (timeout.isZero() || timeout.isNegative()
-                || timeout.compareTo(Duration.ofMinutes(10)) > 0) {
-            throw new IllegalArgumentException(
-                    "Knowledge Distiller timeout must be between zero and 10 minutes");
-        }
+        this.pipeline = new DistillerCallPipeline<>(
+                "Knowledge Distiller",
+                STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION,
+                KnowledgeDistillerTemplate::outputSchema,
+                KnowledgeDistillerRuntime::decode,
+                agents,
+                templates,
+                timeout);
     }
 
     public Mono<Observation> distill(KnowledgeDistillerRuntimeRequest request) {
         KnowledgeDistillerRuntimeRequest required = Objects.requireNonNull(request, "request");
-        return Mono.defer(() -> distillAuthorized(required));
-    }
-
-    private Mono<Observation> distillAuthorized(KnowledgeDistillerRuntimeRequest required) {
-        templates.requireRuntime(required.definition());
-        TemplateAgentBuildRequest build = new TemplateAgentBuildRequest(
-                required.definition(),
-                TemplateAgentSessionIdentity.distiller(required.session()),
-                new Toolkit());
-        KnowledgeDistillerUsageAccumulator usage = new KnowledgeDistillerUsageAccumulator();
-        RuntimeContext context = RuntimeContext.builder()
-                .userId(required.session().agentScopeKey().userId())
-                .sessionId(required.session().agentScopeKey().sessionId())
-                .put(DistillerRuntimeSession.class, required.session())
-                .put(KnowledgeDistillerUsageAccumulator.class, usage)
-                .build();
-        JsonNode schema = JsonUtils.getJsonCodec().fromJson(
-                KnowledgeDistillerTemplate.outputSchema(), JsonNode.class);
-        String prompt = prompts.renderKnowledge(
-                required.sanitizedSourceText(), required.requestedCategoryHint());
-
-        return Mono.using(
-                        () -> agents.create(build),
-                        agent -> call(agent, prompt, schema, context),
-                        HarnessAgent::close,
-                        true)
-                .timeout(timeout)
-                .onErrorMap(TimeoutException.class, SafeModelFailures::sanitize)
-                .map(output -> new Observation(
+        return Mono.defer(() -> pipeline.distill(
+                        required.definition(),
+                        required.session(),
+                        prompts.renderKnowledge(
+                                required.sanitizedSourceText(),
+                                required.requestedCategoryHint()))
+                .map(outcome -> new Observation(
                         new KnowledgeDistillationPort.DistilledDraft(
-                                output.title(), output.content(), output.suggestedCategory()),
-                        usage.attempts(),
-                        usage.observedModelName()));
-    }
-
-    private Mono<DistilledDraftV1> call(
-            HarnessAgent agent, String prompt, JsonNode schema, RuntimeContext context) {
-        return delivery.execute(agent, prompt, schema, context);
+                                outcome.draft().title(),
+                                outcome.draft().content(),
+                                outcome.draft().suggestedCategory()),
+                        outcome.attempts(),
+                        outcome.observedModelName())));
     }
 
     private static DistilledDraftV1 decode(Msg message) {
@@ -137,9 +97,4 @@ public final class KnowledgeDistillerRuntime {
                         Objects.requireNonNull(message, "message").getStructuredData(false),
                         KnowledgeDistillerStructuredOutputSpecs.DISTILLED_DRAFT));
     }
-}
-
-@FunctionalInterface
-interface KnowledgeDistillerAgentProvider {
-    HarnessAgent create(TemplateAgentBuildRequest request);
 }

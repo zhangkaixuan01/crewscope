@@ -1,21 +1,12 @@
 package io.crewscope.agentscope.skill;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.tool.Toolkit;
-import io.agentscope.core.util.JsonUtils;
-import io.agentscope.harness.agent.HarnessAgent;
-import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
-import io.crewscope.agentscope.StructuredDeliveryCall;
-import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.agentscope.distiller.DistillerCallPipeline;
 import io.crewscope.agentscope.distiller.DistillerPromptRenderer;
-import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
-import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
-import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
 import io.crewscope.application.skill.SkillDistillationPort;
 import io.crewscope.application.skill.output.DistilledSkillDraftV1;
 import io.crewscope.application.skill.output.SkillDistillerStructuredOutputSpecs;
@@ -24,14 +15,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.TimeoutException;
 import reactor.core.publisher.Mono;
 
 /**
  * Executes the tool-less `skill-distiller@1` single-turn structured-output call
  * (M10-A03b). One UserMessage carries the sanitized transcript; the frozen schema is
  * the only accepted answer shape, and every real Provider attempt appends one usage
- * fact.
+ * fact. The call pipeline itself is shared with the Knowledge Distiller (M13-C03); this
+ * class supplies the skill-specific recovery instruction, schema and decoder.
  */
 public final class SkillDistillerRuntime {
 
@@ -60,15 +51,8 @@ public final class SkillDistillerRuntime {
         }
     }
 
-    private final SkillDistillerAgentProvider agents;
-    private final DistillerTemplateRuntimeRegistry templates;
+    private final DistillerCallPipeline<DistilledSkillDraftV1> pipeline;
     private final DistillerPromptRenderer prompts = new DistillerPromptRenderer();
-    private final StructuredDeliveryCall<DistilledSkillDraftV1> delivery =
-            StructuredDeliveryCall.of(
-                    "Skill Distiller",
-                    STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION,
-                    SkillDistillerRuntime::decode);
-    private final Duration timeout;
 
     public SkillDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
@@ -78,59 +62,33 @@ public final class SkillDistillerRuntime {
     }
 
     SkillDistillerRuntime(
-            SkillDistillerAgentProvider agents,
+            DistillerCallPipeline.AgentProvider agents,
             DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
-        this.agents = Objects.requireNonNull(agents, "agents");
-        this.templates = Objects.requireNonNull(templates, "templates");
-        this.timeout = Objects.requireNonNull(timeout, "timeout");
-        if (timeout.isZero() || timeout.isNegative()
-                || timeout.compareTo(Duration.ofMinutes(10)) > 0) {
-            throw new IllegalArgumentException(
-                    "Skill Distiller timeout must be between zero and 10 minutes");
-        }
+        this.pipeline = new DistillerCallPipeline<>(
+                "Skill Distiller",
+                STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION,
+                SkillDistillerTemplate::outputSchema,
+                SkillDistillerRuntime::decode,
+                agents,
+                templates,
+                timeout);
     }
 
     public Mono<Observation> distill(SkillDistillerRuntimeRequest request) {
         SkillDistillerRuntimeRequest required = Objects.requireNonNull(request, "request");
-        return Mono.defer(() -> distillAuthorized(required));
-    }
-
-    private Mono<Observation> distillAuthorized(SkillDistillerRuntimeRequest required) {
-        templates.requireRuntime(required.definition());
-        TemplateAgentBuildRequest build = new TemplateAgentBuildRequest(
-                required.definition(),
-                TemplateAgentSessionIdentity.distiller(required.session()),
-                new Toolkit());
-        SkillDistillerUsageAccumulator usage = new SkillDistillerUsageAccumulator();
-        RuntimeContext context = RuntimeContext.builder()
-                .userId(required.session().agentScopeKey().userId())
-                .sessionId(required.session().agentScopeKey().sessionId())
-                .put(DistillerRuntimeSession.class, required.session())
-                .put(SkillDistillerUsageAccumulator.class, usage)
-                .build();
-        JsonNode schema = JsonUtils.getJsonCodec().fromJson(
-                SkillDistillerTemplate.outputSchema(), JsonNode.class);
-        String prompt = prompts.renderSkill(
-                required.sanitizedSourceText(), required.skillKey());
-
-        return Mono.using(
-                        () -> agents.create(build),
-                        agent -> call(agent, prompt, schema, context),
-                        HarnessAgent::close,
-                        true)
-                .timeout(timeout)
-                .onErrorMap(TimeoutException.class, SafeModelFailures::sanitize)
-                .map(output -> new Observation(
+        return Mono.defer(() -> pipeline.distill(
+                        required.definition(),
+                        required.session(),
+                        prompts.renderSkill(
+                                required.sanitizedSourceText(),
+                                required.skillKey()))
+                .map(outcome -> new Observation(
                         new SkillDistillationPort.DistilledSkillDraft(
-                                output.description(), output.body()),
-                        usage.attempts(),
-                        usage.observedModelName()));
-    }
-
-    private Mono<DistilledSkillDraftV1> call(
-            HarnessAgent agent, String prompt, JsonNode schema, RuntimeContext context) {
-        return delivery.execute(agent, prompt, schema, context);
+                                outcome.draft().description(),
+                                outcome.draft().body()),
+                        outcome.attempts(),
+                        outcome.observedModelName())));
     }
 
     private static DistilledSkillDraftV1 decode(Msg message) {
@@ -139,9 +97,4 @@ public final class SkillDistillerRuntime {
                         Objects.requireNonNull(message, "message").getStructuredData(false),
                         SkillDistillerStructuredOutputSpecs.DISTILLED_SKILL));
     }
-}
-
-@FunctionalInterface
-interface SkillDistillerAgentProvider {
-    HarnessAgent create(TemplateAgentBuildRequest request);
 }

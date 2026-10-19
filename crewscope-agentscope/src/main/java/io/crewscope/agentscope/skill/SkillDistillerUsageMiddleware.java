@@ -7,6 +7,7 @@ import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.middleware.ModelCallInput;
 import io.agentscope.core.model.ChatUsage;
+import io.crewscope.agentscope.distiller.DistillerUsageAccumulator;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import reactor.core.publisher.Flux;
@@ -25,7 +26,7 @@ public final class SkillDistillerUsageMiddleware implements MiddlewareBase {
             RuntimeContext runtimeContext,
             ModelCallInput input,
             Function<ModelCallInput, Flux<AgentEvent>> next) {
-        SkillDistillerUsageAccumulator collector = collector(runtimeContext);
+        DistillerUsageAccumulator collector = collector(runtimeContext);
         if (collector == null) {
             return next.apply(input);
         }
@@ -34,7 +35,7 @@ public final class SkillDistillerUsageMiddleware implements MiddlewareBase {
 
     private static Flux<AgentEvent> observed(
             Flux<AgentEvent> events,
-            SkillDistillerUsageAccumulator collector,
+            DistillerUsageAccumulator collector,
             String modelName) {
         AtomicReference<ChatUsage> usage = new AtomicReference<>();
         // A terminated attempt (complete, failed or cancelled) still consumed Provider
@@ -54,7 +55,7 @@ public final class SkillDistillerUsageMiddleware implements MiddlewareBase {
                 .doOnCancel(() -> collector.record(usage.get(), modelName));
     }
 
-    private static SkillDistillerUsageAccumulator collector(RuntimeContext context) {
-        return context == null ? null : context.get(SkillDistillerUsageAccumulator.class);
+    private static DistillerUsageAccumulator collector(RuntimeContext context) {
+        return context == null ? null : context.get(DistillerUsageAccumulator.class);
     }
 }

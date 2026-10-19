@@ -1,4 +1,4 @@
-package io.crewscope.agentscope.knowledge;
+package io.crewscope.agentscope.distiller;
 
 import io.agentscope.core.model.ChatUsage;
 import io.crewscope.application.distiller.DistillationAttemptUsage;
@@ -16,15 +16,14 @@ import java.util.Optional;
  * fact. Invalid counters degrade to {@link ModelTokenUsage#unreported()} rather than
  * failing a distillation whose model call already succeeded.
  */
-public final class KnowledgeDistillerUsageAccumulator {
+public final class DistillerUsageAccumulator {
 
     private final List<DistillationAttemptUsage> attempts = new ArrayList<>();
     private String observedModelName;
 
     /** Appends one attempt fact; attempts are numbered from one in observation order. */
     public synchronized void record(ChatUsage usage, String modelName) {
-        attempts.add(new DistillationAttemptUsage(
-                attempts.size() + 1, sanitize(usage)));
+        attempts.add(new DistillationAttemptUsage(attempts.size() + 1, sanitize(usage)));
         if (modelName != null && !modelName.isBlank()) {
             observedModelName = modelName;
         }
@@ -57,7 +56,7 @@ public final class KnowledgeDistillerUsageAccumulator {
 
     @Override
     public synchronized String toString() {
-        return "KnowledgeDistillerUsageAccumulator[attempts=" + attempts.size()
+        return "DistillerUsageAccumulator[attempts=" + attempts.size()
                 + ", model=" + Objects.toString(observedModelName, "unknown") + "]";
     }
 }
