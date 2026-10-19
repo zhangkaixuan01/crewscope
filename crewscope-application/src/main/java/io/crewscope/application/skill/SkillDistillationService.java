@@ -7,9 +7,9 @@ import io.crewscope.application.command.CommandRequestHash;
 import io.crewscope.application.command.CommandReservation;
 import io.crewscope.application.command.CommandReservationRequest;
 import io.crewscope.application.command.CommandResult;
+import io.crewscope.application.distiller.DistillationCommandSupport;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
-import io.crewscope.application.event.PendingOutboxEvent;
 import io.crewscope.application.knowledge.KnowledgeDistillationSourceAssembler;
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.task.TaskRepository;
@@ -18,23 +18,9 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
-import io.crewscope.application.distiller.DistillationAttemptUsage;
-import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.domain.identity.Principal;
-import io.crewscope.domain.identity.PrincipalType;
-import io.crewscope.domain.model.ModelUsageFactId;
-import io.crewscope.domain.model.ModelUsageRole;
-import io.crewscope.domain.model.event.ModelUsageFactRecorded;
-import io.crewscope.domain.shared.DomainEvent;
-import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
-import io.crewscope.domain.shared.event.AggregateReference;
-import io.crewscope.domain.shared.event.DomainEventEnvelope;
-import io.crewscope.domain.shared.event.EventActor;
-import io.crewscope.domain.shared.event.EventActorType;
-import io.crewscope.domain.shared.event.EventType;
-import io.crewscope.domain.shared.event.SchemaVersion;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.TimeProvider;
@@ -46,11 +32,9 @@ import io.crewscope.domain.skill.TeamSkillOrigin;
 import io.crewscope.domain.skill.event.TeamSkillCreated;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
-import io.crewscope.domain.task.TaskExecutionStatus;
 import io.crewscope.domain.team.Team;
 import io.crewscope.domain.team.TeamMember;
 import io.crewscope.domain.team.TeamScope;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -79,9 +63,6 @@ public final class SkillDistillationService {
 
     private static final String DISTILL = "DISTILL_TEAM_SKILL";
     private static final String AGGREGATE_TYPE = "TEAM_SKILL";
-    private static final String USAGE_AGGREGATE_TYPE = "MODEL_USAGE_FACT";
-    private static final String CALL_ID_NAMESPACE = "io.crewscope/model-usage/";
-    private static final String USAGE_EVENT_ID_NAMESPACE = "io.crewscope/model-usage/event/";
 
     private final TeamSkillRepository repository;
     private final TeamRepository teams;
@@ -91,13 +72,12 @@ public final class SkillDistillationService {
     private final KnowledgeDistillationSourceAssembler sourceAssembler;
     private final SkillDistillerReadiness distillerReadiness;
     private final SkillDistillationPort port;
-    private final DomainEventStore events;
-    private final OutboxRepository outbox;
     private final CommandReceiptStore receipts;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
     private final Executor persistenceExecutor;
     private final boolean skillEnabled;
+    private final DistillationCommandSupport commands;
 
     public SkillDistillationService(
             TeamSkillRepository repository,
@@ -121,17 +101,16 @@ public final class SkillDistillationService {
         this.tasks = Objects.requireNonNull(tasks, "tasks");
         this.executions = Objects.requireNonNull(executions, "executions");
         this.sourceAssembler = Objects.requireNonNull(sourceAssembler, "sourceAssembler");
-        this.distillerReadiness =
-                Objects.requireNonNull(distillerReadiness, "distillerReadiness");
+        this.distillerReadiness = Objects.requireNonNull(distillerReadiness, "distillerReadiness");
         this.port = Objects.requireNonNull(port, "port");
-        this.events = Objects.requireNonNull(events, "events");
-        this.outbox = Objects.requireNonNull(outbox, "outbox");
         this.receipts = Objects.requireNonNull(receipts, "receipts");
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.persistenceExecutor =
                 Objects.requireNonNull(persistenceExecutor, "persistenceExecutor");
         this.skillEnabled = skillEnabled;
+        this.commands = new DistillationCommandSupport(
+                teams, memberships, tasks, executions, events, outbox, receipts, timeProvider);
     }
 
     /** Distills one completed current execution attempt into a new DRAFT Team Skill. */
@@ -142,7 +121,7 @@ public final class SkillDistillationService {
         TeamId team = Objects.requireNonNull(teamId, "teamId");
         OrganizationId organizationId = trusted.access().actor().scope().organizationId();
         CommandRequestHash requestHash =
-                requestHash(
+                commands.requestHash(
                         trusted,
                         DISTILL,
                         team.toString(),
@@ -172,8 +151,8 @@ public final class SkillDistillationService {
                     // Tokens are already spent: usage facts commit independently of the skill.
                     // Both stages run blocking JPA transactions, so they must leave the
                     // Provider client's completion thread for the persistence executor.
-                    transactions.required(() ->
-                            recordUsageFacts(trusted, team, commandId, distilled.attribution()));
+                    transactions.required(() -> commands.recordUsageFacts(
+                            trusted, team, commandId, distilled.attribution()));
                     return transactions.required(() ->
                             commitSkill(trusted, preparation, required, requestHash,
                                     commandId, distilled.draft()));
@@ -189,20 +168,15 @@ public final class SkillDistillationService {
             DistillTeamSkillCommand command,
             CommandRequestHash requestHash) {
         UtcTimestamp now = timeProvider.now();
-        Principal actor = requireOrganizationUser(context.access(), organizationId);
-        Team team = requireTeam(organizationId, teamId);
-        TeamMember member = requireActiveMember(actor, team);
-        TaskExecution execution = requireSourceExecution(organizationId, teamId, command);
-        Task task = tasks.findById(organizationId, execution.taskId())
-                .filter(value -> value.scope().equals(execution.scope()))
-                .orElseThrow(() -> new AggregateNotFoundException(
-                        "Task", execution.taskId()));
+        Principal actor = commands.requireOrganizationUser(context.access(), organizationId);
+        Team team = commands.requireTeam(organizationId, teamId);
+        TeamMember member =
+                commands.requireActiveMember(actor, team, "access this Team's skills");
+        TaskExecution execution = commands.requireSourceExecution(
+                organizationId, teamId, command.taskExecutionId());
+        Task task = commands.requireTask(organizationId, execution);
         requireOwnExecution(context.access(), task, member);
-        if (task.currentExecutionId().filter(execution.id()::equals).isEmpty()) {
-            throw new DomainValidationException(
-                    "distillation.taskExecutionId",
-                    "must be the Task's current execution attempt");
-        }
+        commands.requireCurrentExecution(task, execution);
         requireSkillEnabled();
         Optional<CommandReceipt> completed =
                 receipts.findCompleted(organizationId, context.idempotencyKey(),
@@ -236,73 +210,6 @@ public final class SkillDistillationService {
         }
     }
 
-    /** Cross-Team or missing executions are 404; non-terminal attempts are rejected. */
-    private TaskExecution requireSourceExecution(
-            OrganizationId organizationId, TeamId teamId, DistillTeamSkillCommand command) {
-        TaskExecution execution = executions
-                .findById(organizationId, command.taskExecutionId())
-                .filter(value -> value.scope().teamId().equals(teamId))
-                .orElseThrow(() -> new AggregateNotFoundException(
-                        "TaskExecution", command.taskExecutionId()));
-        if (execution.status() != TaskExecutionStatus.COMPLETED) {
-            throw new DomainValidationException(
-                    "distillation.taskExecutionStatus",
-                    "must be COMPLETED before distillation");
-        }
-        return execution;
-    }
-
-    // ---------------------------------------------------------------- stage 3: usage facts
-
-    private Void recordUsageFacts(
-            TeamCommandContext context,
-            TeamId teamId,
-            UUID commandId,
-            DistillationCallAttribution attribution) {
-        OrganizationId organizationId = context.access().actor().scope().organizationId();
-        UtcTimestamp now = timeProvider.now();
-        for (DistillationAttemptUsage attemptUsage : attribution.attempts()) {
-            ModelUsageFactId callId = stableCallId(commandId, attemptUsage.attempt());
-            ModelUsageFactRecorded payload =
-                    new ModelUsageFactRecorded(
-                            callId,
-                            ModelUsageRole.DISTILLATION,
-                            attemptUsage.attempt(),
-                            attribution.providerKey(),
-                            attribution.modelId(),
-                            attribution.connectionId(),
-                            attribution.connectionVersion(),
-                            attemptUsage.usage(),
-                            now);
-            DomainEventEnvelope<DomainEvent> event =
-                    new DomainEventEnvelope<>(
-                            stableUsageEventId(callId.value()),
-                            EventType.from("MODEL_USAGE_FACT_RECORDED"),
-                            SchemaVersion.V1,
-                            organizationId,
-                            Optional.of(teamId),
-                            Optional.empty(),
-                            AggregateReference.of(USAGE_AGGREGATE_TYPE, callId),
-                            attemptUsage.attempt(),
-                            EventActor.principal(
-                                    EventActorType.USER, context.access().actor().id()),
-                            context.correlationId(),
-                            context.causationId(),
-                            // One command legitimately appends one usage fact per provider
-                            // attempt, so the store's one-event-per-key contract needs the
-                            // attempt suffix — the command key alone collides on the second
-                            // attempt (M10-Q02 real-stack finding; '#' cannot appear in a
-                            // client command key).
-                            Optional.of(context.idempotencyKey().value()
-                                    + "#usage-" + attemptUsage.attempt()),
-                            now,
-                            payload);
-            events.append(event);
-            outbox.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
-        }
-        return null;
-    }
-
     // ---------------------------------------------------------------- stage 4: skill commit
 
     private CommandExecution<TeamSkill> commitSkill(
@@ -317,18 +224,13 @@ public final class SkillDistillationService {
         UtcTimestamp now = timeProvider.now();
         // The LLM call window spans seconds to minutes: re-assert the cheap guards at
         // commit time so a revocation or Team suspension landing mid-call cannot commit.
-        Team team = requireTeam(organizationId, teamId);
-        TeamMember member = requireActiveMember(preparation.actor(), team);
-        Task task = tasks.findById(organizationId, preparation.execution().taskId())
-                .filter(value -> value.scope().equals(preparation.execution().scope()))
-                .orElseThrow(() -> new AggregateNotFoundException(
-                        "Task", preparation.execution().taskId()));
+        Team team = commands.requireTeam(organizationId, teamId);
+        TeamMember member =
+                commands.requireActiveMember(
+                        preparation.actor(), team, "access this Team's skills");
+        Task task = commands.requireTask(organizationId, preparation.execution());
         requireOwnExecution(context.access(), task, member);
-        if (task.currentExecutionId().filter(preparation.execution().id()::equals).isEmpty()) {
-            throw new DomainValidationException(
-                    "distillation.taskExecutionId",
-                    "must be the Task's current execution attempt");
-        }
+        commands.requireCurrentExecution(task, preparation.execution());
         CommandReservation reservation = receipts.reserve(new CommandReservationRequest(
                 organizationId,
                 context.idempotencyKey(),
@@ -356,7 +258,18 @@ public final class SkillDistillationService {
                 now);
         TeamSkill committed = repository.create(created);
         CommandExecution<TeamSkill> execution =
-                completed(context, commandId, committed, now);
+                commands.appendCreated(
+                        context,
+                        commandId,
+                        committed,
+                        organizationId,
+                        teamId,
+                        committed.id(),
+                        committed.version(),
+                        AGGREGATE_TYPE,
+                        "TEAM_SKILL_CREATED",
+                        TeamSkillCreated.from(committed),
+                        now);
         receipts.saveResult(new CommandResult(
                 organizationId,
                 context.idempotencyKey(),
@@ -390,39 +303,6 @@ public final class SkillDistillationService {
                 + "\n---\n\n" + draft.body().stripTrailing() + "\n";
     }
 
-    private CommandExecution<TeamSkill> completed(
-            TeamCommandContext context,
-            UUID commandId,
-            TeamSkill skill,
-            UtcTimestamp occurredAt) {
-        UUID eventId = UUID.randomUUID();
-        DomainEventEnvelope<DomainEvent> event =
-                new DomainEventEnvelope<>(
-                        eventId,
-                        EventType.from("TEAM_SKILL_CREATED"),
-                        SchemaVersion.V1,
-                        skill.scope().organizationId(),
-                        Optional.of(skill.scope().teamId()),
-                        Optional.empty(),
-                        AggregateReference.of(AGGREGATE_TYPE, skill.id()),
-                        // The head's optimistic-lock version is the aggregate version.
-                        skill.version(),
-                        EventActor.principal(EventActorType.USER, context.access().actor().id()),
-                        context.correlationId(),
-                        context.causationId(),
-                        Optional.of(context.idempotencyKey().value()),
-                        occurredAt,
-                        TeamSkillCreated.from(skill));
-        events.append(event);
-        outbox.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
-        CommandReceipt receipt =
-                new CommandReceipt(commandId, eventId, skill.version(),
-                        context.correlationId());
-        receipts.complete(
-                skill.scope().organizationId(), context.idempotencyKey(), receipt, occurredAt);
-        return CommandExecution.completed(skill, receipt);
-    }
-
     // ---------------------------------------------------------------- shared guards
 
     /** Write-side switch; the distillation entry point is part of the write surface. */
@@ -430,59 +310,6 @@ public final class SkillDistillationService {
         if (!skillEnabled) {
             throw new TeamSkillDisabledException();
         }
-    }
-
-    private Team requireTeam(OrganizationId organizationId, TeamId teamId) {
-        if (teams.findUninitializedById(organizationId, teamId).isPresent()) {
-            throw new DomainValidationException("team.initializationStatus", "must be READY");
-        }
-        Team team = teams.findById(organizationId, teamId)
-                .orElseThrow(() -> new AggregateNotFoundException("Team", teamId));
-        if (!team.isActive()) {
-            throw new DomainValidationException("team.status", "must be ACTIVE");
-        }
-        return team;
-    }
-
-    private TeamMember requireActiveMember(Principal actor, Team team) {
-        return memberships.findByTeam(team.organizationId(), team.id()).stream()
-                .filter(member -> member.userPrincipalId().equals(actor.id()))
-                .filter(TeamMember::canParticipate)
-                .findFirst()
-                .orElseThrow(() -> new PolicyDeniedException("access this Team's skills"));
-    }
-
-    private static Principal requireOrganizationUser(
-            TeamAccessContext context, OrganizationId organizationId) {
-        Principal actor = Objects.requireNonNull(context, "context").actor();
-        if (actor.type() != PrincipalType.USER
-                || !actor.canAct()
-                || !actor.scope().organizationId().equals(organizationId)) {
-            throw new PolicyDeniedException("act in this Organization");
-        }
-        return actor;
-    }
-
-    private static CommandRequestHash requestHash(
-            TeamCommandContext context, String commandType, String... semanticFields) {
-        String[] fields = new String[semanticFields.length + 2];
-        fields[0] = context.access().actor().id().toString();
-        fields[1] = context.causationId().map(UUID::toString).orElse("");
-        System.arraycopy(semanticFields, 0, fields, 2, semanticFields.length);
-        return CommandRequestHash.sha256(commandType, fields);
-    }
-
-    /** One usage fact per real attempt, addressable deterministically from the command (D5). */
-    private static ModelUsageFactId stableCallId(UUID commandId, int attempt) {
-        String source = CALL_ID_NAMESPACE + commandId + '/' + attempt;
-        return new ModelUsageFactId(
-                UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8)));
-    }
-
-    private static UUID stableUsageEventId(UUID callId) {
-        return UUID.nameUUIDFromBytes(
-                (USAGE_EVENT_ID_NAMESPACE + callId)
-                        .getBytes(StandardCharsets.UTF_8));
     }
 
     private record Preparation(
