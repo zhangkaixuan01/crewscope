@@ -293,7 +293,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 
 <style scoped>
 .operations-workspace { display: grid; gap: var(--cs-space-16); max-width: 1420px; margin: 0 auto; color: var(--cs-text); }
-.eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }
+.eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
 .health-hero, .evidence-panel, .admin-panel { border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
 .health-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); background: linear-gradient(120deg, var(--cs-surface-accent), var(--cs-surface)); }
 .health-hero h2, .evidence-panel h2, .admin-panel h2 { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-md); }
