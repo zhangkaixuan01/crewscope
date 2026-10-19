@@ -31,6 +31,8 @@ import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -296,15 +298,15 @@ final class KnowledgeDistillationServiceTest {
         // store enforces one event per (organization, idempotency key), so a command-keyed
         // event dies on the second attempt (M10-Q02 real-stack finding, skill twin).
         port.nextResult = draft("Deploy lessons", "Drain the pool first.", "RUNBOOK");
-        port.nextAttribution = new KnowledgeDistillationPort.CallAttribution(
+        port.nextAttribution = new DistillationCallAttribution(
                 new ModelProviderKey("openai"),
                 new ModelId("gpt-5"),
                 ModelConnectionId.generate(),
                 3,
                 List.of(
-                        new KnowledgeDistillationPort.AttemptUsage(
+                        new DistillationAttemptUsage(
                                 1, new ModelTokenUsage(1200, 80, 900, 1280)),
-                        new KnowledgeDistillationPort.AttemptUsage(
+                        new DistillationAttemptUsage(
                                 2, new ModelTokenUsage(1332, 2279, 128, 3611))));
 
         service.distill(context("distill-two-attempts"), teamId, command(Optional.empty()))
@@ -398,13 +400,13 @@ final class KnowledgeDistillationServiceTest {
         return new KnowledgeDistillationPort.DistilledDraft(title, content, suggestedCategory);
     }
 
-    private static KnowledgeDistillationPort.CallAttribution fixedAttribution() {
-        return new KnowledgeDistillationPort.CallAttribution(
+    private static DistillationCallAttribution fixedAttribution() {
+        return new DistillationCallAttribution(
                 new ModelProviderKey("openai"),
                 new ModelId("gpt-5"),
                 ModelConnectionId.generate(),
                 3,
-                List.of(new KnowledgeDistillationPort.AttemptUsage(
+                List.of(new DistillationAttemptUsage(
                         1, new ModelTokenUsage(1200, 80, 900, 1280))));
     }
 
@@ -437,7 +439,7 @@ final class KnowledgeDistillationServiceTest {
         Optional<KnowledgeDistillationPort.KnowledgeDistillationRequest> lastRequest =
                 Optional.empty();
         KnowledgeDistillationPort.DistilledDraft nextResult;
-        KnowledgeDistillationPort.CallAttribution nextAttribution = fixedAttribution();
+        DistillationCallAttribution nextAttribution = fixedAttribution();
         RuntimeException nextFailure;
 
         @Override

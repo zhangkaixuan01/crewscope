@@ -14,6 +14,7 @@ import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.agent.ResolveAgentExecutionConfigurationRequest;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.model.ModelConnectionRepository;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.application.skill.SkillDistillationPort;
 import io.crewscope.application.team.AgentProfileRepository;
 import io.crewscope.application.team.TeamRepository;
@@ -162,7 +163,7 @@ final class AgentScopeSkillDistillationAdapter implements SkillDistillationPort 
                         required.sanitizedSourceText()))
                 .map(observation -> new SkillDistillationResult(
                         observation.draft(),
-                        new CallAttribution(
+                        new DistillationCallAttribution(
                                 selection.providerKey(),
                                 observation.observedModelName()
                                         .map(ModelId::new)

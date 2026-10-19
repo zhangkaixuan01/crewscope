@@ -19,6 +19,8 @@ import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.knowledge.KnowledgeCategory;
@@ -252,10 +254,10 @@ public final class KnowledgeDistillationService {
             TeamCommandContext context,
             TeamId teamId,
             UUID commandId,
-            KnowledgeDistillationPort.CallAttribution attribution) {
+            DistillationCallAttribution attribution) {
         OrganizationId organizationId = context.access().actor().scope().organizationId();
         UtcTimestamp now = timeProvider.now();
-        for (KnowledgeDistillationPort.AttemptUsage attemptUsage : attribution.attempts()) {
+        for (DistillationAttemptUsage attemptUsage : attribution.attempts()) {
             ModelUsageFactId callId = stableCallId(commandId, attemptUsage.attempt());
             ModelUsageFactRecorded payload =
                     new ModelUsageFactRecorded(

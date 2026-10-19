@@ -13,6 +13,7 @@ import io.crewscope.application.agent.AgentModelGovernance;
 import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.agent.ResolveAgentExecutionConfigurationRequest;
 import io.crewscope.application.identity.PrincipalRepository;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.application.knowledge.KnowledgeDistillationPort;
 import io.crewscope.application.model.ModelConnectionRepository;
 import io.crewscope.application.team.AgentProfileRepository;
@@ -165,7 +166,7 @@ final class AgentScopeKnowledgeDistillationAdapter implements KnowledgeDistillat
                                 .orElse(KnowledgeDistillerRuntimeRequest.MODEL_SUGGESTED_CATEGORY)))
                 .map(observation -> new KnowledgeDistillationResult(
                         observation.draft(),
-                        new CallAttribution(
+                        new DistillationCallAttribution(
                                 selection.providerKey(),
                                 observation.observedModelName()
                                         .map(ModelId::new)

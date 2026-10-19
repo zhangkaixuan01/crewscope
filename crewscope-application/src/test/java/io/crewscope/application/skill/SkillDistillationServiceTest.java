@@ -30,6 +30,8 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
@@ -277,15 +279,15 @@ final class SkillDistillationServiceTest {
         // event dies on the second attempt (the first real multi-attempt distillation hit
         // exactly that — M10-Q02 real-stack finding).
         port.nextResult = draft("Description", "Body");
-        port.nextAttribution = new SkillDistillationPort.CallAttribution(
+        port.nextAttribution = new DistillationCallAttribution(
                 new ModelProviderKey("openai"),
                 new ModelId("gpt-5"),
                 ModelConnectionId.generate(),
                 3,
                 List.of(
-                        new SkillDistillationPort.AttemptUsage(
+                        new DistillationAttemptUsage(
                                 1, new ModelTokenUsage(1200, 80, 900, 1280)),
-                        new SkillDistillationPort.AttemptUsage(
+                        new DistillationAttemptUsage(
                                 2, new ModelTokenUsage(1332, 2279, 128, 3611))));
 
         service.distill(context("distill-two-attempts"), teamId, command())
@@ -443,13 +445,13 @@ final class SkillDistillationServiceTest {
         return new SkillDistillationPort.DistilledSkillDraft(description, body);
     }
 
-    private static SkillDistillationPort.CallAttribution fixedAttribution() {
-        return new SkillDistillationPort.CallAttribution(
+    private static DistillationCallAttribution fixedAttribution() {
+        return new DistillationCallAttribution(
                 new ModelProviderKey("openai"),
                 new ModelId("gpt-5"),
                 ModelConnectionId.generate(),
                 3,
-                List.of(new SkillDistillationPort.AttemptUsage(
+                List.of(new DistillationAttemptUsage(
                         1, new ModelTokenUsage(1200, 80, 900, 1280))));
     }
 
@@ -479,7 +481,7 @@ final class SkillDistillationServiceTest {
         Optional<SkillDistillationPort.SkillDistillationRequest> lastRequest =
                 Optional.empty();
         SkillDistillationPort.DistilledSkillDraft nextResult;
-        SkillDistillationPort.CallAttribution nextAttribution = fixedAttribution();
+        DistillationCallAttribution nextAttribution = fixedAttribution();
         RuntimeException nextFailure;
 
         @Override

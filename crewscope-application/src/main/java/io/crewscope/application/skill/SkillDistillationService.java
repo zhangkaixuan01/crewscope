@@ -18,6 +18,8 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
+import io.crewscope.application.distiller.DistillationCallAttribution;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.model.ModelUsageFactId;
@@ -256,10 +258,10 @@ public final class SkillDistillationService {
             TeamCommandContext context,
             TeamId teamId,
             UUID commandId,
-            SkillDistillationPort.CallAttribution attribution) {
+            DistillationCallAttribution attribution) {
         OrganizationId organizationId = context.access().actor().scope().organizationId();
         UtcTimestamp now = timeProvider.now();
-        for (SkillDistillationPort.AttemptUsage attemptUsage : attribution.attempts()) {
+        for (DistillationAttemptUsage attemptUsage : attribution.attempts()) {
             ModelUsageFactId callId = stableCallId(commandId, attemptUsage.attempt());
             ModelUsageFactRecorded payload =
                     new ModelUsageFactRecorded(

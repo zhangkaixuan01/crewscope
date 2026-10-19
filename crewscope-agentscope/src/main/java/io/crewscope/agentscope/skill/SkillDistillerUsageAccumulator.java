@@ -1,7 +1,7 @@
 package io.crewscope.agentscope.skill;
 
 import io.agentscope.core.model.ChatUsage;
-import io.crewscope.application.skill.SkillDistillationPort;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
 import io.crewscope.domain.model.ModelTokenUsage;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,12 +18,12 @@ import java.util.Optional;
  */
 public final class SkillDistillerUsageAccumulator {
 
-    private final List<SkillDistillationPort.AttemptUsage> attempts = new ArrayList<>();
+    private final List<DistillationAttemptUsage> attempts = new ArrayList<>();
     private String observedModelName;
 
     /** Appends one attempt fact; attempts are numbered from one in observation order. */
     public synchronized void record(ChatUsage usage, String modelName) {
-        attempts.add(new SkillDistillationPort.AttemptUsage(
+        attempts.add(new DistillationAttemptUsage(
                 attempts.size() + 1, sanitize(usage)));
         if (modelName != null && !modelName.isBlank()) {
             observedModelName = modelName;
@@ -31,7 +31,7 @@ public final class SkillDistillerUsageAccumulator {
     }
 
     /** Snapshot of the recorded attempts, never empty once the call reached a Provider. */
-    public synchronized List<SkillDistillationPort.AttemptUsage> attempts() {
+    public synchronized List<DistillationAttemptUsage> attempts() {
         return List.copyOf(attempts);
     }
 

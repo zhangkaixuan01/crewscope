@@ -9,6 +9,7 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
 import io.crewscope.agentscope.StructuredDeliveryCall;
+import io.crewscope.application.distiller.DistillationAttemptUsage;
 import io.crewscope.agentscope.distiller.DistillerPromptRenderer;
 import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
@@ -47,7 +48,7 @@ public final class KnowledgeDistillerRuntime {
     /** Draft plus the runtime observation the server adapter turns into the Port result. */
     public record Observation(
             KnowledgeDistillationPort.DistilledDraft draft,
-            List<KnowledgeDistillationPort.AttemptUsage> attempts,
+            List<DistillationAttemptUsage> attempts,
             Optional<String> observedModelName) {
 
         public Observation {
