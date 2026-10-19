@@ -63,7 +63,7 @@ infrastructure → domain, application
 server → domain, application, agentscope, integration, infrastructure
 ```
 
-平行三模块（agentscope/integration/infrastructure）互不依赖，server 唯一聚合——分层纪律与前端 check-front-boundaries 门禁约束下的 web 侧对齐。（后端目前无等价自动门禁，见 §8 路线图。）
+平行三模块（agentscope/integration/infrastructure）互不依赖，server 唯一聚合——分层纪律与前端 check-front-boundaries 门禁约束下的 web 侧对齐。（评审时点仅 import 级门禁存在且缺 infrastructure 规则、无 pom 依赖声明级断言；M13-S01 已补齐两层，见 [完成记录](../testing/M13-S01-分层依赖门禁完成.md)。）
 
 ### 2.3 巨型类 Top10（行数实测）
 

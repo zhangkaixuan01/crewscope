@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readdir, readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
@@ -23,7 +24,24 @@ const rules = [
     module: 'crewscope-integration',
     forbidden: [/^io\.crewscope\.(agentscope|infrastructure|server)\./],
   },
+  {
+    module: 'crewscope-infrastructure',
+    forbidden: [/^io\.crewscope\.(agentscope|integration|server)\./],
+  },
 ]
+
+// Onion matrix enforced at the pom dependency-declaration level (M13-S01): a module may
+// only declare the internal dependencies listed here. Drift in either direction
+// (unexpected dependency, or a missing one after an intentional matrix change) fails
+// the gate until this matrix and the review docs are updated together.
+const internalDependencyMatrix = {
+  'crewscope-domain': [],
+  'crewscope-application': ['crewscope-domain'],
+  'crewscope-agentscope': ['crewscope-domain', 'crewscope-application'],
+  'crewscope-integration': ['crewscope-domain', 'crewscope-application'],
+  'crewscope-infrastructure': ['crewscope-domain', 'crewscope-application'],
+  'crewscope-server': ['crewscope-domain', 'crewscope-application', 'crewscope-agentscope', 'crewscope-integration', 'crewscope-infrastructure'],
+}
 
 async function javaFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -50,6 +68,45 @@ for (const rule of rules) {
         violations.push(`${file.replace(`${root}/`, '')}: ${match[1]}`)
       }
     }
+  }
+}
+
+async function declaredInternalDependencies(pomPath) {
+  const xml = await readFile(pomPath, 'utf8')
+  const declared = new Set()
+  for (const block of xml.matchAll(/<dependency>[\s\S]*?<\/dependency>/g)) {
+    const groupId = block[0].match(/<groupId>([^<]+)<\/groupId>/)?.[1]
+    const artifactId = block[0].match(/<artifactId>([^<]+)<\/artifactId>/)?.[1]
+    if (groupId === 'io.crewscope' && artifactId?.startsWith('crewscope-')) declared.add(artifactId)
+  }
+  return declared
+}
+
+for (const [module, expected] of Object.entries(internalDependencyMatrix)) {
+  const pomPath = join(root, module, 'pom.xml')
+  if (!existsSync(pomPath)) {
+    violations.push(`${module}: matrix expects this module but ${module}/pom.xml is missing`)
+    continue
+  }
+  const declared = await declaredInternalDependencies(pomPath)
+  for (const artifactId of declared) {
+    if (!expected.includes(artifactId)) {
+      violations.push(`${module}/pom.xml: unexpected internal dependency ${artifactId} (allowed: ${expected.length > 0 ? expected.join(', ') : 'none'})`)
+    }
+  }
+  for (const artifactId of expected) {
+    if (!declared.has(artifactId)) {
+      violations.push(`${module}/pom.xml: expected internal dependency ${artifactId} is not declared`)
+    }
+  }
+}
+
+const rootEntries = await readdir(root, { withFileTypes: true })
+for (const entry of rootEntries) {
+  if (!entry.isDirectory() || !entry.name.startsWith('crewscope-')) continue
+  if (!existsSync(join(root, entry.name, 'pom.xml'))) continue // e.g. the frontend workspace
+  if (!(entry.name in internalDependencyMatrix)) {
+    violations.push(`${entry.name}: module pom exists but is not registered in internalDependencyMatrix`)
   }
 }
 
