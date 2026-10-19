@@ -120,13 +120,7 @@ export function handoverCounts(job: HandoverJobView): { done: number, conflict: 
   return { done, conflict, denied, pending }
 }
 
-export interface CommandReceipt {
-  /** Client-only, resolved through the authorized result endpoint; not legacy POST fields. */
-  creation?: import('../../api/creationRecovery').CreationResult
-  createdResource?: unknown
-  recoveryKey?: string
-  commandId: string
-  domainEventId: string
-  committedVersion: number
-  correlationId: string
-}
+// M12b-Q01: CommandReceipt moved down to api/creationRecovery.ts (transport contract; its old
+// home here made the api layer import upwards and closed the app's only dependency cycle).
+// Re-exported so every domain module keeps importing it from '../scope/types'.
+export type { CommandReceipt } from '../../api/creationRecovery'

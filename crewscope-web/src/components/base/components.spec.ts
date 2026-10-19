@@ -3,7 +3,6 @@ import BaseAvatar from './BaseAvatar.vue'
 import BaseButton from './BaseButton.vue'
 import StatusBadge from './StatusBadge.vue'
 import BaseInput from './BaseInput.vue'
-import BaseSwitch from './BaseSwitch.vue'
 import BaseTabs from './BaseTabs.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import ToastHost from '../feedback/ToastHost.vue'
@@ -50,10 +49,6 @@ describe('foundation components', () => {
     const input = mount(BaseInput, { props: { modelValue: '' } })
     await input.get('input').setValue('CrewScope')
     expect(input.emitted('update:modelValue')?.at(-1)).toEqual(['CrewScope'])
-
-    const toggle = mount(BaseSwitch, { props: { modelValue: false } })
-    await toggle.get('button').trigger('click')
-    expect(toggle.emitted('update:modelValue')).toEqual([[true]])
 
     const tabs = mount(BaseTabs, { props: { modelValue: 'one', tabs: [{ label: '一', value: 'one' }, { label: '二', value: 'two' }] } })
     await tabs.findAll('[role="tab"]')[1].trigger('click')

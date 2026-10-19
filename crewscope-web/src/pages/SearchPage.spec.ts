@@ -16,7 +16,9 @@ class RecordingSearchGateway implements SearchGateway {
   private pending: Array<(page: SearchResultPage) => void> = []
 
   async search(_scope: never, filter: SearchFilter): Promise<SearchResultPage> {
-    this.filters.push(structuredClone(filter))
+    // JSON round-trip, not structuredClone: the page hands reactive arrays through, which
+    // structuredClone rejects with DataCloneError (discovered by the M12b-Q01 burst test).
+    this.filters.push(JSON.parse(JSON.stringify(filter)) as SearchFilter)
     const next = this.queue.shift()
     if (next instanceof Error) throw next
     if (next) return structuredClone(next)
@@ -120,6 +122,26 @@ describe('SearchPage', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('结果 fresh')
     expect(wrapper.text()).not.toContain('结果 one')
+    wrapper.unmount()
+  })
+
+  it('collapses a burst of type-filter toggles into one committed search (M12b-Q01)', async () => {
+    const { wrapper, router, gateway } = await harness()
+    gateway.resolvePending(page(['one']))
+    await flushPromises()
+    expect(gateway.filters.length).toBe(1)
+
+    // Three quick chip toggles fire three debounced submits — only one search may result.
+    const chips = wrapper.findAll('.type-filter__options button')
+    expect(chips.length).toBeGreaterThanOrEqual(3)
+    for (const chip of chips.slice(0, 3)) await chip.trigger('click')
+    expect(gateway.filters.length).toBe(1) // still inside the 250ms debounce window
+    await new Promise(resolve => setTimeout(resolve, 320))
+    await flushPromises()
+
+    expect(gateway.filters.length).toBe(2)
+    expect(gateway.filters.at(-1)?.types?.length).toBe(3)
+    expect(wrapper.findAll('.type-filter__options button.selected').length).toBe(3)
     wrapper.unmount()
   })
 

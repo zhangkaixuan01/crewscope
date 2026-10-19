@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 const props = withDefaults(defineProps<{ text: string; placement?: 'top' | 'bottom' }>(), { placement: 'top' })
 const visible = ref(false)
-const id = `cs-tooltip-${Math.random().toString(36).slice(2, 9)}`
+const id = `cs-tooltip-${useId()}`
 const describedBy = computed(() => visible.value ? id : undefined)
 </script>
 <template><span class="base-tooltip" @mouseenter="visible = true" @mouseleave="visible = false" @focusin="visible = true" @focusout="visible = false"><span :aria-describedby="describedBy"><slot /></span><span v-if="visible" :id="id" class="base-tooltip__content" role="tooltip" :class="`base-tooltip__content--${placement}`">{{ props.text }}</span></span></template>

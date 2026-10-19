@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowRight, Check, Search as SearchIcon, SlidersHorizontal } from '@lucide/vue'
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -79,16 +79,30 @@ function submit(): void {
   void router.replace({ query })
 }
 
+// M12b-Q01: filter chips fire in bursts — four quick toggles used to issue four searches
+// (Review §4.5). One committed query per burst; the form submit stays immediate.
+let submitTimer: ReturnType<typeof setTimeout> | null = null
+function submitDebounced(): void {
+  if (submitTimer !== null) clearTimeout(submitTimer)
+  submitTimer = setTimeout(() => {
+    submitTimer = null
+    submit()
+  }, 250)
+}
+onUnmounted(() => {
+  if (submitTimer !== null) clearTimeout(submitTimer)
+})
+
 function toggleType(type: SearchObjectType): void {
   selectedTypes.value = selectedTypes.value.includes(type)
     ? selectedTypes.value.filter(value => value !== type)
     : [...selectedTypes.value, type]
-  submit()
+  submitDebounced()
 }
 
 function clearTypes(): void {
   selectedTypes.value = []
-  submit()
+  submitDebounced()
 }
 
 /** Retries the committed conditions — the query string, never the draft still in the input (R20). */

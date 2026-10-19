@@ -116,6 +116,22 @@ h3 {
 }
 
 /*
+ * 加载旋转的单源（M12b-Q01）。此前 `.spin`/`@keyframes spin` 在六个组件里逐字重复；
+ * 现全局一份，组件 scoped 块里的 `animation: spin …` 按名字解析到这里（Vue 只重写
+ * 组件自己定义的 keyframes 名）。`animation: none` 而非时长归零：infinite 动画
+ * 时长置 0ms 仍会空转，彻底停才符合 reduced-motion 语义。
+ */
+.spin {
+  animation: spin var(--cs-motion-spin) linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+}
+
+/*
  * 状态徽章本体。定义放在这里而不是 SFC 的 scoped 块里，因为它现在有两个渲染者：
  * `StatusBadge`（只读）与 `StatusTransitionMenu`（可执行的动作入口）。scoped 样式只作用于
  * 自己的模板，若两边各写一份，两边迟早会长得不一样——而徽章是产品里出现最多的控件。

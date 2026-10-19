@@ -84,15 +84,19 @@ watch(
 
 watch(online, value => realtime.setOnline(value), { immediate: true })
 watch(selectedEventId, eventId => { if (eventId && scope.value) void store.loadActivityDetail(eventId) })
+// M12b-Q01: the sort direction flows one way — query → state. The toggle below writes the
+// query directly and the watch replays it into the composable; a second state→query watch
+// had to guard against its own echo and would drift the moment a second sort key appears.
 watch(() => route.query.sortDirection, value => {
   if (value === 'asc' || value === 'desc') activitySort.setSort('occurredAt', value)
 }, { immediate: true })
-watch(() => activitySort.direction.value, direction => {
+function cycleSortQuery(): void {
+  const next = activitySort.direction.value === 'asc' ? 'desc' : 'asc'
   const query = { ...route.query }
-  if (direction === 'desc') delete query.sortDirection
-  else query.sortDirection = direction
-  if (query.sortDirection !== route.query.sortDirection) void router.replace({ query })
-})
+  if (next === 'desc') delete query.sortDirection
+  else query.sortDirection = next
+  void router.replace({ query })
+}
 onUnmounted(() => realtime.stop())
 
 async function reload(): Promise<void> {
@@ -151,7 +155,7 @@ function actorName(principalId: string | null, type: string): string {
         <label>Category<BaseSelect :model-value="selectedCategory" @update:model-value="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></BaseSelect></label>
         <label>Actor<BaseSelect :model-value="selectedActor" aria-label="按成员筛选" @update:model-value="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></BaseSelect></label>
         <span>{{ filteredItems.length }} 条当前结果</span>
-        <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="activitySort.toggleSort('occurredAt')">{{ activitySortLabel }}</BaseButton>
+        <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="cycleSortQuery">{{ activitySortLabel }}</BaseButton>
       </section>
 
       <div class="activity-workspace" :class="{ 'has-detail': selectedEventId }">

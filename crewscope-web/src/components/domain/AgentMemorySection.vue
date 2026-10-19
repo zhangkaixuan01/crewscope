@@ -144,6 +144,6 @@ function clearMemory(): void {
 .memory-section__clear { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8) var(--cs-space-12); }
 .memory-banner { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-xs); }
 .memory-banner--error { border-color: var(--cs-danger); color: var(--cs-danger); }
-.mono { font-family: var(--cs-font-mono, ui-monospace, monospace); }
+/* .mono is the global utility in design/base.css (M12b-Q01). */
 @media (max-width: 600px) { .memory-section__value { max-width: none; } .memory-section__clear { flex-direction: column; align-items: stretch; } }
 </style>

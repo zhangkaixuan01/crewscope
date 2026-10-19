@@ -1,7 +1,6 @@
 import { reactive } from 'vue'
 import { apiClient, CrewScopeApiError, type CrewScopeApiClient } from './client'
 import { commandFailure } from './commandIntent'
-import type { CommandReceipt } from '../domains/scope/types'
 
 export type CreationType = 'WORK_PROJECT' | 'WORK_ITEM' | 'CONVERSATION'
 export interface CreationScope { organizationId: string; teamId: string; projectId?: string }
@@ -11,6 +10,22 @@ export interface CreationResult extends Omit<CreationScope, 'projectId'> {
   resourceId: string
   committedVersion: number
   stage: 'COMMITTED'
+}
+/**
+ * The wire shape every command returns once committed. Lives in the api layer (M12b-Q01):
+ * it is a transport contract, and defining it in `domains/scope/types.ts` forced the api
+ * layer to import upwards and closed the only dependency cycle in the app. Domain modules
+ * still import it from `domains/scope/types`, which re-exports it unchanged.
+ */
+export interface CommandReceipt {
+  /** Client-only, resolved through the authorized result endpoint; not legacy POST fields. */
+  creation?: CreationResult
+  createdResource?: unknown
+  recoveryKey?: string
+  commandId: string
+  domainEventId: string
+  committedVersion: number
+  correlationId: string
 }
 export interface RecoveryEntry extends CreationScope {
   key: string

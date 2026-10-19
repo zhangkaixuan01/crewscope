@@ -257,9 +257,12 @@ function patchQuery(values: Record<string, string | null>): Promise<unknown> {
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'lark-settings-scope-reason'" @click="loadAll(true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
     <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
+    <!-- M12b-Q01: no remount key. The admin's connectionCoordinate watch already resets the
+         open-id, revoke draft and credential dialog on connection change; coordinate() also
+         carries the selected connection, so a key here remounted the whole panel on every
+         connection switch, dropping tab scroll state and in-progress mapping input. -->
     <LarkNotificationAdmin
       v-else
-      :key="pageRequests.coordinate()"
       :phase="store.state.larkConnections.phase" :error="store.state.larkConnections.error" :connections="connections"
       :selected-connection="selectedConnection" :health="health" :mappings="store.state.larkMappings.value ?? []"
       :mapping-phase="store.state.larkMappings.phase" :mapping-error="store.state.larkMappings.error"

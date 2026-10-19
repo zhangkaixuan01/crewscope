@@ -443,15 +443,17 @@ function bindingLabel(binding: BindingView): string {
         </ul>
       </section>
 
-      <button
+      <!-- M12b-Q01: the bare button becomes BaseButton so loading state is the shared spinner
+           contract instead of a local disabled-text swap. -->
+      <BaseButton
         v-if="agentStore.state.agents.nextOffset !== null"
         class="load-more"
-        type="button"
-        :disabled="agentStore.state.agents.loadingMore"
+        variant="secondary"
+        :loading="agentStore.state.agents.loadingMore"
         @click="loadAgentsAndConfigurations(false, true)"
       >
-        {{ agentStore.state.agents.loadingMore ? '正在加载…' : '加载更多 Agent' }}
-      </button>
+        加载更多 Agent
+      </BaseButton>
 
       <section class="projection-note" aria-label="任务与成本数据说明">
         <ShieldCheck :size="18" aria-hidden="true" />
@@ -471,7 +473,7 @@ function bindingLabel(binding: BindingView): string {
 .agent-card__heading { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-12); }.agent-avatar { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.agent-card__heading h3 { overflow: hidden; margin-bottom: var(--cs-space-2); font-size: var(--cs-text-base); text-overflow: ellipsis; white-space: nowrap; }.agent-card__heading p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .agent-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--cs-space-8); margin: 0; }.agent-facts div { min-width: 0; padding: var(--cs-space-8); border-radius: 8px; background: var(--cs-surface-subtle); }.agent-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }.agent-facts dd { overflow: hidden; margin-top: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
 .binding-list { display: grid; gap: var(--cs-space-8); }.binding-list p { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: var(--cs-space-8); margin: 0; }.binding-list span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; }.binding-list strong { overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.agent-card footer { display: flex; justify-content: space-between; padding-top: var(--cs-space-12); border-top: 1px solid var(--cs-border); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
-.load-more { justify-self: center; min-height: 34px; padding: 0 var(--cs-space-16); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }.load-more:disabled { cursor: wait; opacity: .6; }
+.load-more { justify-self: center; }
 .projection-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.projection-note > svg { flex: 0 0 auto; color: var(--cs-text-brand); }.projection-note strong, .projection-note span { display: block; }.projection-note strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.projection-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }
 @media (max-width: 980px) { .agent-overview { grid-template-columns: 1fr; }.agent-totals { width: 100%; }.agent-entry-grid { grid-template-columns: 1fr; }.agent-grid { grid-template-columns: 1fr; } }
 @media (max-width: 767px) { .entry-create { display: inline-flex; }.team-agent-actions > a { white-space: nowrap; }.agent-group-empty { grid-template-columns: 38px minmax(0, 1fr); }.agent-group-empty > button { grid-column: 2; justify-self: start; } }

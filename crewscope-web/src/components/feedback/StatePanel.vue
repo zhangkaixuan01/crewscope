@@ -69,8 +69,8 @@ const retryWired = computed(() => {
 .state-panel.compact h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-xs); }
 .state-panel.compact p { margin: 0; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .state-panel.compact > svg { width: var(--cs-space-16); height: var(--cs-space-16); }
+/* spin keyframes live once in design/base.css (M12b-Q01); the scoped name resolves there. */
 .spinning { animation: spin var(--cs-motion-spin) linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 @media (max-width: 640px) { .state-panel.compact { grid-template-columns: auto minmax(0, 1fr); }.state-panel.compact > :last-child:not(div, svg) { grid-column: 1 / -1; } }
 </style>

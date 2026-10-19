@@ -8,7 +8,6 @@ import BaseInput from './base/BaseInput.vue'
 import BaseTextarea from './base/BaseTextarea.vue'
 import BaseSelect from './base/BaseSelect.vue'
 import BaseCheckbox from './base/BaseCheckbox.vue'
-import BaseSwitch from './base/BaseSwitch.vue'
 import BaseTabs from './base/BaseTabs.vue'
 import BaseSkeleton from './base/BaseSkeleton.vue'
 import ResponsibilityChain from './domain/ResponsibilityChain.vue'
@@ -24,7 +23,7 @@ import { demoResponsibilities } from '../domains/demo/fixtures'
       <div class="story-controls" data-density="comfortable">
         <div class="story-controls__row"><BaseInput placeholder="输入工作项名称" /><BaseSelect :options="[{ label: '选择状态', value: '' }, { label: '待处理', value: 'BACKLOG' }]" /><BaseButton>保存</BaseButton></div>
         <BaseTextarea :rows="3" placeholder="补充说明" />
-        <div class="story-controls__row"><BaseCheckbox>订阅动态</BaseCheckbox><BaseSwitch label="实时更新" /><BaseBadge tone="success">健康</BaseBadge></div>
+        <div class="story-controls__row"><BaseCheckbox>订阅动态</BaseCheckbox><BaseBadge tone="success">健康</BaseBadge></div>
         <BaseTabs model-value="overview" :tabs="[{ label: '概览', value: 'overview' }, { label: '历史', value: 'history' }]" />
         <BaseSkeleton height="20px" /><BaseSkeleton width="55%" height="14px" />
       </div>

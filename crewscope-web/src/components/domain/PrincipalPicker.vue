@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Bot, Check, User, X } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { isAbort } from '../../api/errors'
 import { createRequestScope } from '../../api/requestScope'
 import { principalDirectoryGateway, type PrincipalDirectoryGateway } from '../../domains/principal/gateway'
@@ -42,7 +42,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
 
-const domId = `principal-picker-${Math.random().toString(36).slice(2, 9)}`
+const domId = `principal-picker-${useId()}`
 const query = ref('')
 const open = ref(false)
 /** A chosen subject stays as the chip while the member searches for a replacement (R21). */

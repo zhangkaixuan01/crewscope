@@ -175,6 +175,6 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
 .attempt-block__hash { flex: 0 0 auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .attempt-block__marked { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .attempt-block__empty, .attempt-block__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.mono { font-family: var(--cs-font-mono, ui-monospace, monospace); }
+/* .mono is the global utility in design/base.css (M12b-Q01). */
 @media (max-width: 767px) { .attempt-block__references li { align-items: flex-start; } }
 </style>

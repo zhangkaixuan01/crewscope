@@ -53,7 +53,7 @@ withDefaults(defineProps<{
 .base-button--ghost { background: transparent; color: var(--cs-text-secondary); }
 .base-button--danger { background: var(--cs-danger); color: var(--cs-text-on-semantic); }
 .base-button:disabled { cursor: not-allowed; opacity: .55; }
+/* spin keyframes live once in design/base.css (M12b-Q01); the scoped name resolves there. */
 .base-button__spinner { animation: spin var(--cs-motion-base) linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .base-button__spinner { animation: none; } }
 </style>
