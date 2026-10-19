@@ -15,7 +15,7 @@
 | 领域建模与聚合质量 | A- | 最大聚合根 1,124 行无怪物；乐观锁/幂等/事件信封全链一致；扣分：1,233 行投影器与 1,161 行 JDBC 适配的内聚性未逐行审（§9 盲区） |
 | 可靠性与恢复语义 | A | Outbox/Lease/Fencing/Dead Letter 底座沿用并经 M11 实时/M12 多租户扩展；receipt 配对零缺陷（§5.1）；模型调用有界恢复语义统一（§4.1） |
 | 安全与治理边界 | A | 强 ETag、Idempotency-Key、签名 Cursor、多租户 138 表绊线（M12-D01）、配额门禁、账号删除全链（M12-Q02 真实栈实证） |
-| **复用与重复控制** | **C+** | distiller 垂直链 ~2,900 行冗余为全仓最大单笔（§3.1）；CursorCodec 四胞胎（§3.2）；command 样板跨文件零共享（§5.2）——三族合计约 4,000+ 行可收敛，且税已缴三次 |
+| **复用与重复控制** | **A-**（M13 后复评 2026-10-20；原评 C+） | distiller 垂直链与 CursorCodec 两族已收敛为单一逻辑源（C01–C05），ModelSubject 合一（C06），command 样板经量化裁定登记留后续（C07）；残留=Repository 对、五个小 record 对、command 骨架，净删行数指标未达成（见 §1.4 与 [M13-Q01 收口验收](../testing/M13-Q01-跨包收口验收.md)） |
 | 工程与测试治理 | A- | 246,087 测试行、mock 双轨健康（§6.2）、domain 薄而无真空（§6.3）；扣分：IT 命名错位（§6.1）、后端契约断言与前端指纹门禁不对称（§6.4） |
 | 可观测性与运维面 | A | 观测端口模式一致、SLI 六指标固定序、模型调用观测链完整（§7） |
 
@@ -33,6 +33,18 @@
 | 工程与发布治理 A-（579 测试类） | A-（871 测试文件/24.6 万测试行，CI 门禁族持续加密） | 量级增长，扣分项同类 |
 | Agent 能力纵深 C+（memory/rag/skills 全未接入） | （本次未单列）M10 已接入 memory/rag/蒸馏/skills 闭环 | 结构性进步 |
 | （M8 后不存在此项） | **复用与重复控制 C+（新列）** | M10 引入 distiller 双链是唯一新增架构级债务 |
+
+### 1.4 M13 收口复评：复用与重复控制（2026-10-20）
+
+M13 以零行为变化铁律完成三族定点收敛后，本维度由 **C+ 复评为 A-**。复评依据（详细证据见 [M13-Q01 收口验收](../testing/M13-Q01-跨包收口验收.md)）：
+
+- **distiller 垂直链**：四层 21 对镜像中的 Renderer/Session/Registry（C02）、CallPipeline/UsageAccumulator（C03）、Template/Initialization（C03）、命令信封（C03）、Provisioning（C03）与 server 两 Adapter（C04）不再有并行实现；Review §4.1 的恢复/消毒/usage 三件套收敛为 `StructuredDeliveryCall` 单组件（C01）。Repository 对与五个冻结 API 小 record 对经勘察登记不收敛（理由入 C03 文档）。
+- **CursorCodec**：四份手写 framing/HMAC 收敛为一个 `CursorCodec<T>` 基类 + 三份字段序声明（C05）。
+- **ModelSubject**：双胞胎 record 合一（C06）。
+- **command 样板**：Review §5.2 命题经双透镜量化（精确窗口重复 0.5%，归一化重复最大一对为已收敛的 Knowledge↔TeamSkill）后裁定「登记留后续」，附重估触发条件（C07）——不盲动慎动批。
+- **防回潮**：分层依赖由 pom 级门禁挂 CI（S01），依赖矩阵漂移即红。
+
+未给 A 的事实：Repository 对、五个小 record 对与 command 骨架仍为登记项；计划原估「净删 ≥2,000 行」未达成（C02–C05 实际净删 33 行，原因如实入 Q01 文档 §3）。本维度衡量的是「复制代替抽象」，行数只是代理指标——两族双份实现消失有结构证据，故上行；但 command 族与残留对未清零，故不给 A。
 
 ## 2. 架构与依赖
 

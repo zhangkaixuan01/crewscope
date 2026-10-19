@@ -120,7 +120,7 @@ evidence    Test、PR、Artifact、ADR 和演示链接
   - [S01 实时协作与 WorkGraph 合同冻结](../spikes/M11-S01-实时协作与WorkGraph合同冻结.md)：2026-10-09 已完成；ADR-032/033/038 增补与薄登记 ADR-034/040/041 交付，ws-probe 八场景 + cycle-race 三场景 + CTE 基准实测全过，十项开放项主线六项闭合，不代表功能实现。
 - [M12：企业化与多租户治理](M12-企业化与多租户治理.md)
 - [M12b：前端体验与债务收口](M12b-前端体验与债务收口.md)：2026-10-19 已完成（Q01 收官）。由 [M12 后前端整体架构与实现 Review](../reviews/M12后-前端整体架构与实现Review.md)（三轮：架构/复用/交互、设计与灵动、配色专项）导出的纯前端收口主线——模态/下拉/查询工具/双胞胎收敛、hover 与按压反馈补齐、键盘缺陷清零、P1–P4 净删 ≥4000 行、check-front-boundaries 门禁固化；零 Java、零迁移、零 API 变更，不阻塞也不依赖 M12 四项扩展与 M11 三项可选的独立立项。
-- [M13：后端结构收敛](M13-后端结构收敛.md)：2026-10-19 计划冻结，待执行。由 [M12 后后端整体架构与实现 Review](../reviews/M12后-后端整体架构与实现Review.md) 导出的纯后端结构收敛主线——分层依赖门禁自动化（check-module-boundaries）、StructuredDeliveryCall 组件抽取、distiller 垂直链四层收敛（净删 ≥2000 行）、CursorCodec 基类、ModelSubject 合一、CommandTemplate 评估裁定；零行为/零契约/零迁移变更，断言语义冻结 + m10-q02 gate 复跑兜底，Q01 顺带清偿债务周 D 整仓索引重跑。
+- [M13：后端结构收敛](M13-后端结构收敛.md)：**已完成（2026-10-20 收口）**。由 [M12 后后端整体架构与实现 Review](../reviews/M12后-后端整体架构与实现Review.md) 导出的纯后端结构收敛主线——分层依赖门禁自动化（check-module-boundaries）、StructuredDeliveryCall 组件抽取、distiller 垂直链四层收敛、CursorCodec 基类、ModelSubject 合一、CommandTemplate 评估裁定；零行为/零契约/零迁移变更，Q01 全 reactor 4,697 用例与 e2e 681 维持、复评「复用与重复控制」C+→A-；净删目标未达成如实入档，m10-q02 真实栈补证待凭据（[收口报告](../testing/M13-Q01-跨包收口验收.md)）。
 
 M9–M12 由 [M8 后全面架构与产品体验 Review](../reviews/M8后-全面架构与产品体验Review.md) 导出。M9 保留既有执行基线；M10 为知识闭环主线，多 Agent 可选；M11 为 Web 协作主线，生态/语言/桌面分别选入；M12 默认单机企业能力，托管/K8s 分别选入。各 S01 负责冻结主线及选入扩展，远期方向不直接作为可领取清单。
 
