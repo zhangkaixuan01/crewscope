@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -60,6 +62,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -103,7 +106,35 @@ class KnowledgeDistillerRuntimeTest {
     }
 
     @Test
-    void failsWhenTheModelReturnsNoStructuredData() {
+    void recoversOnceWhenTheFirstDeliveryLacksStructuredOutput() {
+        // Defect 7 homologue (M10-Q02): a 200 answer with plain text instead of the structured
+        // tool call never reaches the transport retry, so the runtime itself must re-ask once
+        // and succeed on the second, structured delivery.
+        Fixture fixture = new Fixture();
+        Msg bare = mock(Msg.class);
+        when(bare.hasStructuredData()).thenReturn(false);
+        when(fixture.agent.call(anyList(), any(JsonNode.class), any(RuntimeContext.class)))
+                .thenReturn(Mono.just(bare))
+                .thenReturn(Mono.just(fixture.message));
+        KnowledgeDistillerRuntime runtime = fixture.runtime();
+
+        KnowledgeDistillerRuntime.Observation observed =
+                runtime.distill(fixture.request()).block();
+
+        assertEquals("Postmortem: cache eviction storms", observed.draft().title());
+        assertEquals("Increase eviction jitter and add a soak window.",
+                observed.draft().content());
+        ArgumentCaptor<List<Msg>> prompts = ArgumentCaptor.forClass(List.class);
+        verify(fixture.agent, times(2)).call(
+                prompts.capture(), any(JsonNode.class), any(RuntimeContext.class));
+        assertTrue(prompts.getAllValues().get(1).get(0).getTextContent()
+                .contains("Call generate_response exactly once"));
+    }
+
+    @Test
+    void sanitizesWhenStructuredOutputNeverArrives() {
+        // Both the call and its bounded recovery stay unstructured: a terminal model failure
+        // with a bounded code, not a raw IllegalArgumentException.
         Fixture fixture = new Fixture();
         Msg bare = mock(Msg.class);
         when(bare.hasStructuredData()).thenReturn(false);
@@ -111,23 +142,31 @@ class KnowledgeDistillerRuntimeTest {
                 .thenReturn(Mono.just(bare));
         KnowledgeDistillerRuntime runtime = fixture.runtime();
 
-        IllegalArgumentException failure = assertThrows(
-                IllegalArgumentException.class, () -> runtime.distill(fixture.request()).block());
+        SafeModelExecutionException failure = assertThrows(
+                SafeModelExecutionException.class, () -> runtime.distill(fixture.request()).block());
 
-        assertTrue(failure.getMessage().contains("structured output"), failure.getMessage());
+        assertEquals("MODEL_EXECUTION_FAILED", failure.safeCode());
+        verify(fixture.agent, times(2)).call(
+                anyList(), any(JsonNode.class), any(RuntimeContext.class));
     }
 
     @Test
-    void rejectsStructuredOutputThatDriftsFromTheFrozenSchema() {
+    void sanitizesWhenStructuredOutputKeepsDriftingFromTheFrozenSchema() {
+        // A delivery that decodes against the frozen schema on neither attempt is the same
+        // terminal model failure as no structured data at all.
         Fixture fixture = new Fixture();
         Map<String, Object> drift = new LinkedHashMap<>();
         drift.put("title", "Missing the required content and category");
         when(fixture.message.getStructuredData(false)).thenReturn(drift);
         KnowledgeDistillerRuntime runtime = fixture.runtime();
 
-        assertThrows(
-                IllegalArgumentException.class,
+        SafeModelExecutionException failure = assertThrows(
+                SafeModelExecutionException.class,
                 () -> runtime.distill(fixture.request()).block());
+
+        assertEquals("MODEL_EXECUTION_FAILED", failure.safeCode());
+        verify(fixture.agent, times(2)).call(
+                anyList(), any(JsonNode.class), any(RuntimeContext.class));
     }
 
     @Test

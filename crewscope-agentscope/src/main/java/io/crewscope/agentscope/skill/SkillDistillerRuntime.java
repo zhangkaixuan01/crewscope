@@ -33,6 +33,18 @@ import reactor.core.publisher.Mono;
  */
 public final class SkillDistillerRuntime {
 
+    private static final String STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION = """
+            The previous skill distillation answer arrived as plain text instead of the required
+            structured output. Produce the Skill draft now. Call generate_response exactly once;
+            do not answer with text.
+
+            Distill one Team Skill draft for the requested skill key from the sanitized
+            execution transcript below.
+            %s
+
+            Return exactly description and body.
+            """;
+
     /** Draft plus the runtime observation the server adapter turns into the Port result. */
     public record Observation(
             SkillDistillationPort.DistilledSkillDraft draft,
@@ -97,9 +109,7 @@ public final class SkillDistillerRuntime {
 
         return Mono.using(
                         () -> agents.create(build),
-                        agent -> agent.call(List.of(new UserMessage(prompt)), schema, context)
-                                .onErrorMap(SkillDistillerRuntime::sanitizeModelFailure)
-                                .map(SkillDistillerRuntime::decode),
+                        agent -> call(agent, prompt, schema, context),
                         HarnessAgent::close,
                         true)
                 .timeout(timeout)
@@ -111,19 +121,67 @@ public final class SkillDistillerRuntime {
                         usage.observedModelName()));
     }
 
-    private static DistilledSkillDraftV1 decode(Msg message) {
-        Msg required = Objects.requireNonNull(message, "message");
-        if (!required.hasStructuredData()) {
-            throw new IllegalArgumentException(
-                    "Skill Distiller model did not return structured output");
+    private Mono<DistilledSkillDraftV1> call(
+            HarnessAgent agent, String prompt, JsonNode schema, RuntimeContext context) {
+        // Same shape as the Reviewer (M10-Q02 defect 7): the model occasionally answers with
+        // plain text instead of the structured tool call even on HTTP 200 — the transport
+        // retry never sees it. Re-ask the same agent once with an explicit structured-output
+        // instruction, and treat a still-invalid delivery as a sanitized terminal model
+        // failure instead of a bare IllegalArgumentException.
+        return agent.call(List.of(new UserMessage(prompt)), schema, context)
+                .flatMap(message -> validStructuredDelivery(message)
+                        ? Mono.just(message)
+                        : recoverStructuredDelivery(agent, prompt, schema, context))
+                .map(SkillDistillerRuntime::decode)
+                .onErrorMap(SkillDistillerRuntime::sanitizeModelFailure);
+    }
+
+    private Mono<Msg> recoverStructuredDelivery(
+            HarnessAgent agent, String prompt, JsonNode schema, RuntimeContext context) {
+        return agent.call(
+                        List.of(new UserMessage(
+                                STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION.formatted(prompt))),
+                        schema,
+                        context)
+                .flatMap(recovered -> validStructuredDelivery(recovered)
+                        ? Mono.just(recovered)
+                        : Mono.error(new StructuredDeliveryException()));
+    }
+
+    private static boolean validStructuredDelivery(Msg message) {
+        if (!message.hasStructuredData()) {
+            return false;
         }
+        try {
+            SkillDistillerStructuredOutputSpecs.DISTILLED_SKILL.requireValue(
+                    StrictStructuredOutputDecoder.decode(
+                            message.getStructuredData(false),
+                            SkillDistillerStructuredOutputSpecs.DISTILLED_SKILL));
+            return true;
+        } catch (RuntimeException invalidDelivery) {
+            // Provider output is untrusted: keep its content out of logs and take the bounded
+            // recovery path instead of failing the distillation outright.
+            return false;
+        }
+    }
+
+    private static DistilledSkillDraftV1 decode(Msg message) {
         return SkillDistillerStructuredOutputSpecs.DISTILLED_SKILL.requireValue(
                 StrictStructuredOutputDecoder.decode(
-                        required.getStructuredData(false),
+                        Objects.requireNonNull(message, "message").getStructuredData(false),
                         SkillDistillerStructuredOutputSpecs.DISTILLED_SKILL));
     }
 
     private static Throwable sanitizeModelFailure(Throwable failure) {
+        if (failure instanceof StructuredDeliveryException) {
+            // Both the call and its bounded recovery delivered an unusable shape — a terminal
+            // model failure, not a programming error: sanitize like any provider failure so
+            // the bounded code (MODEL_EXECUTION_FAILED) reaches the caller instead of a raw
+            // IllegalArgumentException.
+            org.slf4j.LoggerFactory.getLogger(SkillDistillerRuntime.class).warn(
+                    "Skill Distiller model never returned structured output after one recovery attempt");
+            return SafeModelFailures.sanitize(failure);
+        }
         if (failure instanceof DomainValidationException
                 || failure instanceof IllegalArgumentException
                 || failure instanceof PlatformExecutionSecurityException) {
@@ -138,6 +196,14 @@ public final class SkillDistillerRuntime {
                 failure.getClass().getName(),
                 failure.getCause() == null ? "none" : failure.getCause().getClass().getName());
         return SafeModelFailures.sanitize(failure);
+    }
+
+    /** Internal marker for a delivery that stayed unparseable through one bounded recovery. */
+    private static final class StructuredDeliveryException extends RuntimeException {
+
+        private StructuredDeliveryException() {
+            super("Skill Distiller model did not produce a valid structured delivery");
+        }
     }
 }
 

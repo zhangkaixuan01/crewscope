@@ -30,6 +30,7 @@ import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.PlatformExecutionSecurityException;
+import io.crewscope.agentscope.SafeModelExecutionException;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
@@ -220,15 +221,67 @@ class TeamObserverRuntimeM6I07Test {
     }
 
     @Test
+    void recoversOnceWhenTheFirstDeliveryLacksStructuredOutput() {
+        // Defect 7 homologue (M10-Q02): a 200 answer with plain text instead of the structured
+        // tool call never reaches the transport retry, so the runtime itself must re-ask once
+        // and succeed on the second, structured delivery.
+        Fixture fixture = new Fixture();
+        TeamObserverRuntime runtime = fixture.runtime(
+                fixture::readActivityAndReturnAgent, validOutput(fixture.progress));
+        Msg bare = mock(Msg.class);
+        when(bare.hasStructuredData()).thenReturn(false);
+        Msg structured = mock(Msg.class);
+        when(structured.hasStructuredData()).thenReturn(true);
+        when(structured.getStructuredData(false)).thenReturn(validOutput(fixture.progress));
+        when(fixture.agent.call(anyList(), any(JsonNode.class), any(RuntimeContext.class)))
+                .thenReturn(Mono.just(bare))
+                .thenReturn(Mono.just(structured));
+
+        TeamSummaryResult result = runtime.summarize(fixture.request("Summarize")).block();
+
+        assertEquals(List.of(fixture.progress), result.progress());
+        ArgumentCaptor<List<Msg>> prompts = ArgumentCaptor.forClass(List.class);
+        verify(fixture.agent, times(2)).call(
+                prompts.capture(), any(JsonNode.class), any(RuntimeContext.class));
+        assertTrue(prompts.getAllValues().get(1).get(0).getTextContent()
+                .contains("Call generate_response exactly once"));
+    }
+
+    @Test
+    void sanitizesWhenStructuredOutputNeverArrives() {
+        // Both the call and its bounded recovery stay unstructured: a terminal model failure
+        // with a bounded code, not a raw IllegalArgumentException.
+        Fixture fixture = new Fixture();
+        TeamObserverRuntime runtime = fixture.runtime(
+                fixture::readActivityAndReturnAgent, validOutput(fixture.progress));
+        Msg bare = mock(Msg.class);
+        when(bare.hasStructuredData()).thenReturn(false);
+        when(fixture.agent.call(anyList(), any(JsonNode.class), any(RuntimeContext.class)))
+                .thenReturn(Mono.just(bare));
+
+        SafeModelExecutionException failure = assertThrows(
+                SafeModelExecutionException.class,
+                () -> runtime.summarize(fixture.request("Summarize")).block());
+
+        assertEquals("MODEL_EXECUTION_FAILED", failure.safeCode());
+        verify(fixture.agent, times(2)).call(
+                anyList(), any(JsonNode.class), any(RuntimeContext.class));
+    }
+
+    @Test
     void rejectsStructuredOutputWithUnknownFieldsOrDuplicateSelections() {
         Fixture fixture = new Fixture();
         Map<String, Object> unknown = validOutput(fixture.progress);
         unknown.put("writeAction", Map.of("type", "task.create"));
         TeamObserverRuntime unknownRuntime = fixture.runtime(
                 fixture::readActivityAndReturnAgent, unknown);
-        assertThrows(
-                IllegalArgumentException.class,
+        SafeModelExecutionException sanitized = assertThrows(
+                SafeModelExecutionException.class,
                 () -> unknownRuntime.summarize(fixture.request("Summarize")).block());
+
+        assertEquals("MODEL_EXECUTION_FAILED", sanitized.safeCode());
+        verify(fixture.agent, times(2)).call(
+                anyList(), any(JsonNode.class), any(RuntimeContext.class));
 
         Map<String, Object> duplicate = output(
                 List.of(item(fixture.progress), item(fixture.progress)),
