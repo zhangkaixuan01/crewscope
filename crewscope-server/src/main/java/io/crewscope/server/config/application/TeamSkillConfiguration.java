@@ -2,7 +2,7 @@ package io.crewscope.server.config.application;
 
 import io.crewscope.agentscope.coding.CodingSpecialistSkillBundle;
 import io.crewscope.agentscope.skill.SkillDistillerRuntime;
-import io.crewscope.agentscope.skill.SkillDistillerTemplateRuntimeRegistry;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.application.agent.AgentConfigurationApplicationService;
@@ -97,8 +97,8 @@ public class TeamSkillConfiguration {
     }
 
     @Bean
-    SkillDistillerTemplateRuntimeRegistry skillDistillerTemplateRuntimeRegistry() {
-        return new SkillDistillerTemplateRuntimeRegistry();
+    DistillerTemplateRuntimeRegistry skillDistillerTemplateRuntimeRegistry() {
+        return DistillerTemplateRuntimeRegistry.skill();
     }
 
     @Bean
@@ -159,7 +159,7 @@ public class TeamSkillConfiguration {
     @Bean
     SkillDistillerRuntime skillDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            SkillDistillerTemplateRuntimeRegistry templates) {
+            DistillerTemplateRuntimeRegistry templates) {
         return new SkillDistillerRuntime(agents, templates, Duration.ofMinutes(10));
     }
 
@@ -174,7 +174,7 @@ public class TeamSkillConfiguration {
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            SkillDistillerTemplateRuntimeRegistry registry,
+            DistillerTemplateRuntimeRegistry registry,
             SkillDistillerRuntime runtime,
             TimeProvider timeProvider) {
         return new AgentScopeSkillDistillationAdapter(

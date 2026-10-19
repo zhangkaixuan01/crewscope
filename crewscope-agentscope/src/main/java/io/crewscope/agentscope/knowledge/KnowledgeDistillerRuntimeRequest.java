@@ -1,5 +1,6 @@
 package io.crewscope.agentscope.knowledge;
 
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
 import io.crewscope.domain.task.TaskExecutionId;
 import java.util.Objects;
@@ -11,7 +12,7 @@ import java.util.Objects;
  */
 public record KnowledgeDistillerRuntimeRequest(
         AgentTemplateRuntimeDefinition definition,
-        KnowledgeDistillerRuntimeSession session,
+        DistillerRuntimeSession session,
         TaskExecutionId taskExecutionId,
         int executionAttempt,
         String sanitizedSourceText,

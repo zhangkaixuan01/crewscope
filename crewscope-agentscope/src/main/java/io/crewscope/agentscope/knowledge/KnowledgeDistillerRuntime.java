@@ -9,6 +9,9 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
 import io.crewscope.agentscope.StructuredDeliveryCall;
+import io.crewscope.agentscope.distiller.DistillerPromptRenderer;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
 import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
@@ -55,8 +58,8 @@ public final class KnowledgeDistillerRuntime {
     }
 
     private final KnowledgeDistillerAgentProvider agents;
-    private final KnowledgeDistillerTemplateRuntimeRegistry templates;
-    private final KnowledgeDistillerPromptRenderer prompts = new KnowledgeDistillerPromptRenderer();
+    private final DistillerTemplateRuntimeRegistry templates;
+    private final DistillerPromptRenderer prompts = new DistillerPromptRenderer();
     private final StructuredDeliveryCall<DistilledDraftV1> delivery =
             StructuredDeliveryCall.of(
                     "Knowledge Distiller",
@@ -66,14 +69,14 @@ public final class KnowledgeDistillerRuntime {
 
     public KnowledgeDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            KnowledgeDistillerTemplateRuntimeRegistry templates,
+            DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
         this(Objects.requireNonNull(agents, "agents")::create, templates, timeout);
     }
 
     KnowledgeDistillerRuntime(
             KnowledgeDistillerAgentProvider agents,
-            KnowledgeDistillerTemplateRuntimeRegistry templates,
+            DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
         this.agents = Objects.requireNonNull(agents, "agents");
         this.templates = Objects.requireNonNull(templates, "templates");
@@ -100,12 +103,12 @@ public final class KnowledgeDistillerRuntime {
         RuntimeContext context = RuntimeContext.builder()
                 .userId(required.session().agentScopeKey().userId())
                 .sessionId(required.session().agentScopeKey().sessionId())
-                .put(KnowledgeDistillerRuntimeSession.class, required.session())
+                .put(DistillerRuntimeSession.class, required.session())
                 .put(KnowledgeDistillerUsageAccumulator.class, usage)
                 .build();
         JsonNode schema = JsonUtils.getJsonCodec().fromJson(
                 KnowledgeDistillerTemplate.outputSchema(), JsonNode.class);
-        String prompt = prompts.render(
+        String prompt = prompts.renderKnowledge(
                 required.sanitizedSourceText(), required.requestedCategoryHint());
 
         return Mono.using(

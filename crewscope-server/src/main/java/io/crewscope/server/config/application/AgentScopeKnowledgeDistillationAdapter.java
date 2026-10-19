@@ -1,9 +1,10 @@
 package io.crewscope.server.config.application;
 
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntime;
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeRequest;
-import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeSession;
-import io.crewscope.agentscope.knowledge.KnowledgeDistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
 import io.crewscope.application.agent.AgentConfigurationRepository;
@@ -59,7 +60,7 @@ final class AgentScopeKnowledgeDistillationAdapter implements KnowledgeDistillat
     private final AgentModelGovernance governance;
     private final AgentExecutionConfigurationService resolver;
     private final AgentTemplateRuntimeAssembler assembler;
-    private final KnowledgeDistillerTemplateRuntimeRegistry registry;
+    private final DistillerTemplateRuntimeRegistry registry;
     private final KnowledgeDistillerRuntime runtime;
     private final TimeProvider timeProvider;
 
@@ -73,7 +74,7 @@ final class AgentScopeKnowledgeDistillationAdapter implements KnowledgeDistillat
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            KnowledgeDistillerTemplateRuntimeRegistry registry,
+            DistillerTemplateRuntimeRegistry registry,
             KnowledgeDistillerRuntime runtime,
             TimeProvider timeProvider) {
         this.teams = Objects.requireNonNull(teams, "teams");
@@ -143,7 +144,8 @@ final class AgentScopeKnowledgeDistillationAdapter implements KnowledgeDistillat
         AgentTemplateRuntimeDefinition definition = assembler.assemble(
                 profile, template, configuration, resolved,
                 actor.id(), required.correlationId());
-        KnowledgeDistillerRuntimeSession session = new KnowledgeDistillerRuntimeSession(
+        DistillerRuntimeSession session = new DistillerRuntimeSession(
+                DistillerKind.KNOWLEDGE,
                 required.organizationId(),
                 required.teamId(),
                 required.initiatedBy(),

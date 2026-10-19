@@ -6,7 +6,8 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.crewscope.agentscope.PlatformExecutionSecurityException;
-import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerInitialization;
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import java.util.Objects;
 import java.util.function.Function;
 import reactor.core.publisher.Flux;
@@ -15,8 +16,8 @@ import reactor.core.publisher.Flux;
  * Validates the Team/member-bound Distiller session before the tool-less Agent reasons.
  *
  * <p>The Distiller owns no Conversation, tools or personal provider binding. Its trusted
- * execution boundary is the server-created {@link KnowledgeDistillerRuntimeSession} plus
- * the exact AgentScope user/session coordinates derived from that immutable session.
+ * execution boundary is the server-created {@link DistillerRuntimeSession} plus the exact
+ * AgentScope user/session coordinates derived from that immutable session.
  */
 public final class KnowledgeDistillerRuntimeContextMiddleware implements MiddlewareBase {
 
@@ -33,11 +34,9 @@ public final class KnowledgeDistillerRuntimeContextMiddleware implements Middlew
     }
 
     /** Returns the verified session for later Distiller-specific interception points. */
-    public static KnowledgeDistillerRuntimeSession requireTrustedContext(
-            RuntimeContext runtimeContext) {
+    public static DistillerRuntimeSession requireTrustedContext(RuntimeContext runtimeContext) {
         RuntimeContext requiredRuntime = Objects.requireNonNull(runtimeContext, "runtimeContext");
-        KnowledgeDistillerRuntimeSession session =
-                requiredRuntime.get(KnowledgeDistillerRuntimeSession.class);
+        DistillerRuntimeSession session = requiredRuntime.get(DistillerRuntimeSession.class);
         if (session == null) {
             throw denied("KNOWLEDGE_DISTILLER_CONTEXT_MISSING");
         }
@@ -46,9 +45,11 @@ public final class KnowledgeDistillerRuntimeContextMiddleware implements Middlew
             throw denied("KNOWLEDGE_DISTILLER_SESSION_CONTEXT_MISMATCH");
         }
         if (!session.distillerPrincipalId().equals(
-                        KnowledgeDistillerInitialization.stablePrincipalId(session.teamId()))
+                        DistillerRuntimeSession.stablePrincipalId(DistillerKind.KNOWLEDGE,
+                                session.teamId()))
                 || !session.distillerProfileId().equals(
-                        KnowledgeDistillerInitialization.stableProfileId(session.teamId()))) {
+                        DistillerRuntimeSession.stableProfileId(DistillerKind.KNOWLEDGE,
+                                session.teamId()))) {
             throw denied("KNOWLEDGE_DISTILLER_IDENTITY_INVALID");
         }
         return session;

@@ -25,6 +25,9 @@ import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformAgentMiddlewareSet;
 import io.crewscope.agentscope.SafeModelExecutionException;
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.RestrictedTemplateAgentBuilder;
@@ -246,9 +249,9 @@ class KnowledgeDistillerRuntimeTest {
                 mock(ResolvedAgentExecutionConfiguration.class);
         private final AgentTemplateRuntimeDefinition definition =
                 mock(AgentTemplateRuntimeDefinition.class);
-        private final KnowledgeDistillerTemplateRuntimeRegistry templates =
-                new KnowledgeDistillerTemplateRuntimeRegistry();
-        private final KnowledgeDistillerRuntimeSession session;
+        private final DistillerTemplateRuntimeRegistry templates =
+                DistillerTemplateRuntimeRegistry.knowledge();
+        private final DistillerRuntimeSession session;
         private final HarnessAgent agent = mock(HarnessAgent.class);
         private final Msg message = mock(Msg.class);
 
@@ -283,7 +286,8 @@ class KnowledgeDistillerRuntimeTest {
                     owner.id(),
                     NOW);
             distiller = disabled.activate(configuration, owner.id(), NOW);
-            session = new KnowledgeDistillerRuntimeSession(
+            session = new DistillerRuntimeSession(
+                    DistillerKind.KNOWLEDGE,
                     organizationId,
                     team.team().id(),
                     owner.id(),

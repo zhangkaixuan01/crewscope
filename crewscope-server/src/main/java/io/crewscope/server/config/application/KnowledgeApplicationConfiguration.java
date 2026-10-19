@@ -1,7 +1,7 @@
 package io.crewscope.server.config.application;
 
 import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntime;
-import io.crewscope.agentscope.knowledge.KnowledgeDistillerTemplateRuntimeRegistry;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.application.agent.AgentConfigurationApplicationService;
@@ -82,8 +82,8 @@ public class KnowledgeApplicationConfiguration {
     }
 
     @Bean
-    KnowledgeDistillerTemplateRuntimeRegistry knowledgeDistillerTemplateRuntimeRegistry() {
-        return new KnowledgeDistillerTemplateRuntimeRegistry();
+    DistillerTemplateRuntimeRegistry knowledgeDistillerTemplateRuntimeRegistry() {
+        return DistillerTemplateRuntimeRegistry.knowledge();
     }
 
     @Bean
@@ -148,7 +148,7 @@ public class KnowledgeApplicationConfiguration {
     @Bean
     KnowledgeDistillerRuntime knowledgeDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            KnowledgeDistillerTemplateRuntimeRegistry templates) {
+            DistillerTemplateRuntimeRegistry templates) {
         return new KnowledgeDistillerRuntime(agents, templates, Duration.ofMinutes(2));
     }
 
@@ -163,7 +163,7 @@ public class KnowledgeApplicationConfiguration {
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            KnowledgeDistillerTemplateRuntimeRegistry registry,
+            DistillerTemplateRuntimeRegistry registry,
             KnowledgeDistillerRuntime runtime,
             TimeProvider timeProvider) {
         return new AgentScopeKnowledgeDistillationAdapter(

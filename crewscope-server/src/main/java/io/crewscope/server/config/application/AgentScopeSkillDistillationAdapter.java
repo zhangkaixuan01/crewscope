@@ -1,9 +1,10 @@
 package io.crewscope.server.config.application;
 
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.skill.SkillDistillerRuntime;
 import io.crewscope.agentscope.skill.SkillDistillerRuntimeRequest;
-import io.crewscope.agentscope.skill.SkillDistillerRuntimeSession;
-import io.crewscope.agentscope.skill.SkillDistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeAssembler;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeDefinition;
 import io.crewscope.application.agent.AgentConfigurationRepository;
@@ -59,7 +60,7 @@ final class AgentScopeSkillDistillationAdapter implements SkillDistillationPort 
     private final AgentModelGovernance governance;
     private final AgentExecutionConfigurationService resolver;
     private final AgentTemplateRuntimeAssembler assembler;
-    private final SkillDistillerTemplateRuntimeRegistry registry;
+    private final DistillerTemplateRuntimeRegistry registry;
     private final SkillDistillerRuntime runtime;
     private final TimeProvider timeProvider;
 
@@ -73,7 +74,7 @@ final class AgentScopeSkillDistillationAdapter implements SkillDistillationPort 
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            SkillDistillerTemplateRuntimeRegistry registry,
+            DistillerTemplateRuntimeRegistry registry,
             SkillDistillerRuntime runtime,
             TimeProvider timeProvider) {
         this.teams = Objects.requireNonNull(teams, "teams");
@@ -142,7 +143,8 @@ final class AgentScopeSkillDistillationAdapter implements SkillDistillationPort 
         AgentTemplateRuntimeDefinition definition = assembler.assemble(
                 profile, template, configuration, resolved,
                 actor.id(), required.correlationId());
-        SkillDistillerRuntimeSession session = new SkillDistillerRuntimeSession(
+        DistillerRuntimeSession session = new DistillerRuntimeSession(
+                DistillerKind.SKILL,
                 required.organizationId(),
                 required.teamId(),
                 required.initiatedBy(),

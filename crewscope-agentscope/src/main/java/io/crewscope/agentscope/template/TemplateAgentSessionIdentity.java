@@ -1,7 +1,7 @@
 package io.crewscope.agentscope.template;
 
-import io.crewscope.agentscope.knowledge.KnowledgeDistillerRuntimeSession;
-import io.crewscope.agentscope.skill.SkillDistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.agentscope.teamobserver.TeamObserverRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeSession;
 import io.crewscope.domain.conversation.AgentRuntimeStateReference;
@@ -122,28 +122,15 @@ public final class TemplateAgentSessionIdentity {
     }
 
     /**
-     * The built-in Knowledge Distiller's own trusted kind: like TEAM_OBSERVER it owns a
-     * conversation-less, tool-less boundary, so it selects its own security chain rather
-     * than the conversation-semantics platform chain.
+     * The built-in Distillers' own trusted kind: like TEAM_OBSERVER they own a
+     * conversation-less, tool-less boundary, so each selects its own security chain rather
+     * than the conversation-semantics platform chain. The {@link DistillerKind} on the
+     * session selects between the Knowledge and Skill chains.
      */
-    public static TemplateAgentSessionIdentity distiller(KnowledgeDistillerRuntimeSession session) {
-        KnowledgeDistillerRuntimeSession required = Objects.requireNonNull(session, "session");
+    public static TemplateAgentSessionIdentity distiller(DistillerRuntimeSession session) {
+        DistillerRuntimeSession required = Objects.requireNonNull(session, "session");
         return new TemplateAgentSessionIdentity(
-                Kind.DISTILLER,
-                required.distillerPrincipalId(),
-                required.distillerProfileId(),
-                required.distillerProfileVersion(),
-                required.agentScopeKey(),
-                required.stateReference(),
-                Optional.empty());
-    }
-
-    /** The built-in Skill Distiller's own trusted kind, same rationale as DISTILLER. */
-    public static TemplateAgentSessionIdentity skillDistiller(
-            SkillDistillerRuntimeSession session) {
-        SkillDistillerRuntimeSession required = Objects.requireNonNull(session, "session");
-        return new TemplateAgentSessionIdentity(
-                Kind.SKILL_DISTILLER,
+                required.kind() == DistillerKind.KNOWLEDGE ? Kind.DISTILLER : Kind.SKILL_DISTILLER,
                 required.distillerPrincipalId(),
                 required.distillerProfileId(),
                 required.distillerProfileVersion(),

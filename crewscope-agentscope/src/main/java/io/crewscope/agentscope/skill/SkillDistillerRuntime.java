@@ -9,6 +9,9 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
 import io.crewscope.agentscope.StructuredDeliveryCall;
+import io.crewscope.agentscope.distiller.DistillerPromptRenderer;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
+import io.crewscope.agentscope.distiller.DistillerTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
 import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
@@ -57,8 +60,8 @@ public final class SkillDistillerRuntime {
     }
 
     private final SkillDistillerAgentProvider agents;
-    private final SkillDistillerTemplateRuntimeRegistry templates;
-    private final SkillDistillerPromptRenderer prompts = new SkillDistillerPromptRenderer();
+    private final DistillerTemplateRuntimeRegistry templates;
+    private final DistillerPromptRenderer prompts = new DistillerPromptRenderer();
     private final StructuredDeliveryCall<DistilledSkillDraftV1> delivery =
             StructuredDeliveryCall.of(
                     "Skill Distiller",
@@ -68,14 +71,14 @@ public final class SkillDistillerRuntime {
 
     public SkillDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            SkillDistillerTemplateRuntimeRegistry templates,
+            DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
         this(Objects.requireNonNull(agents, "agents")::create, templates, timeout);
     }
 
     SkillDistillerRuntime(
             SkillDistillerAgentProvider agents,
-            SkillDistillerTemplateRuntimeRegistry templates,
+            DistillerTemplateRuntimeRegistry templates,
             Duration timeout) {
         this.agents = Objects.requireNonNull(agents, "agents");
         this.templates = Objects.requireNonNull(templates, "templates");
@@ -96,18 +99,18 @@ public final class SkillDistillerRuntime {
         templates.requireRuntime(required.definition());
         TemplateAgentBuildRequest build = new TemplateAgentBuildRequest(
                 required.definition(),
-                TemplateAgentSessionIdentity.skillDistiller(required.session()),
+                TemplateAgentSessionIdentity.distiller(required.session()),
                 new Toolkit());
         SkillDistillerUsageAccumulator usage = new SkillDistillerUsageAccumulator();
         RuntimeContext context = RuntimeContext.builder()
                 .userId(required.session().agentScopeKey().userId())
                 .sessionId(required.session().agentScopeKey().sessionId())
-                .put(SkillDistillerRuntimeSession.class, required.session())
+                .put(DistillerRuntimeSession.class, required.session())
                 .put(SkillDistillerUsageAccumulator.class, usage)
                 .build();
         JsonNode schema = JsonUtils.getJsonCodec().fromJson(
                 SkillDistillerTemplate.outputSchema(), JsonNode.class);
-        String prompt = prompts.render(
+        String prompt = prompts.renderSkill(
                 required.sanitizedSourceText(), required.skillKey());
 
         return Mono.using(

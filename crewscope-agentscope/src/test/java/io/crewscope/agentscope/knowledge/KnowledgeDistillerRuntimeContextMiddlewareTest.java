@@ -10,6 +10,8 @@ import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.middleware.AgentInput;
 import io.crewscope.agentscope.PlatformExecutionSecurityException;
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import io.crewscope.domain.knowledge.distiller.KnowledgeDistillerInitialization;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -27,7 +29,7 @@ class KnowledgeDistillerRuntimeContextMiddlewareTest {
 
     @Test
     void passesTheSessionThroughWhenTheContextMatchesExactly() {
-        KnowledgeDistillerRuntimeSession session = session(TeamId.generate());
+        DistillerRuntimeSession session = session(TeamId.generate());
 
         RuntimeContext context = context(
                 session.agentScopeKey().userId(), session.agentScopeKey().sessionId(), session);
@@ -39,7 +41,7 @@ class KnowledgeDistillerRuntimeContextMiddlewareTest {
 
     @Test
     void deniesMissingSessionsAndMismatchedAgentScopeCoordinates() {
-        KnowledgeDistillerRuntimeSession session = session(TeamId.generate());
+        DistillerRuntimeSession session = session(TeamId.generate());
         RuntimeContext empty = RuntimeContext.builder()
                 .userId(session.agentScopeKey().userId())
                 .sessionId(session.agentScopeKey().sessionId())
@@ -67,10 +69,11 @@ class KnowledgeDistillerRuntimeContextMiddlewareTest {
     @Test
     void sessionIdentityBindsToTheTeamsDeterministicDistillerPair() {
         TeamId teamId = TeamId.generate();
-        KnowledgeDistillerRuntimeSession session = session(teamId);
+        DistillerRuntimeSession session = session(teamId);
 
         // Another Team's stable Profile id: the deterministic pair binding must reject it.
-        assertThrows(IllegalArgumentException.class, () -> new KnowledgeDistillerRuntimeSession(
+        assertThrows(IllegalArgumentException.class, () -> new DistillerRuntimeSession(
+                DistillerKind.KNOWLEDGE,
                 session.organizationId(),
                 session.teamId(),
                 session.initiatedBy(),
@@ -79,7 +82,8 @@ class KnowledgeDistillerRuntimeContextMiddlewareTest {
                 session.distillerProfileVersion(),
                 UUID.randomUUID()));
 
-        KnowledgeDistillerRuntimeSession replay = new KnowledgeDistillerRuntimeSession(
+        DistillerRuntimeSession replay = new DistillerRuntimeSession(
+                DistillerKind.KNOWLEDGE,
                 session.organizationId(),
                 session.teamId(),
                 session.initiatedBy(),
@@ -102,16 +106,17 @@ class KnowledgeDistillerRuntimeContextMiddlewareTest {
     }
 
     private static RuntimeContext context(
-            String userId, String sessionId, KnowledgeDistillerRuntimeSession slot) {
+            String userId, String sessionId, DistillerRuntimeSession slot) {
         return RuntimeContext.builder()
                 .userId(userId)
                 .sessionId(sessionId)
-                .put(KnowledgeDistillerRuntimeSession.class, slot)
+                .put(DistillerRuntimeSession.class, slot)
                 .build();
     }
 
-    private static KnowledgeDistillerRuntimeSession session(TeamId teamId) {
-        return new KnowledgeDistillerRuntimeSession(
+    private static DistillerRuntimeSession session(TeamId teamId) {
+        return new DistillerRuntimeSession(
+                DistillerKind.KNOWLEDGE,
                 OrganizationId.generate(),
                 teamId,
                 PrincipalId.generate(),

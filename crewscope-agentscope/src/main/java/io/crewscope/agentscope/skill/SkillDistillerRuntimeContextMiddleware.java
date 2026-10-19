@@ -6,7 +6,8 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.crewscope.agentscope.PlatformExecutionSecurityException;
-import io.crewscope.domain.skill.distiller.SkillDistillerInitialization;
+import io.crewscope.agentscope.distiller.DistillerKind;
+import io.crewscope.agentscope.distiller.DistillerRuntimeSession;
 import java.util.Objects;
 import java.util.function.Function;
 import reactor.core.publisher.Flux;
@@ -16,8 +17,8 @@ import reactor.core.publisher.Flux;
  * reasons (M10-A03b).
  *
  * <p>The Distiller owns no Conversation, tools or personal provider binding. Its trusted
- * execution boundary is the server-created {@link SkillDistillerRuntimeSession} plus the
- * exact AgentScope user/session coordinates derived from that immutable session.
+ * execution boundary is the server-created {@link DistillerRuntimeSession} plus the exact
+ * AgentScope user/session coordinates derived from that immutable session.
  */
 public final class SkillDistillerRuntimeContextMiddleware implements MiddlewareBase {
 
@@ -34,11 +35,9 @@ public final class SkillDistillerRuntimeContextMiddleware implements MiddlewareB
     }
 
     /** Returns the verified session for later Distiller-specific interception points. */
-    public static SkillDistillerRuntimeSession requireTrustedContext(
-            RuntimeContext runtimeContext) {
+    public static DistillerRuntimeSession requireTrustedContext(RuntimeContext runtimeContext) {
         RuntimeContext requiredRuntime = Objects.requireNonNull(runtimeContext, "runtimeContext");
-        SkillDistillerRuntimeSession session =
-                requiredRuntime.get(SkillDistillerRuntimeSession.class);
+        DistillerRuntimeSession session = requiredRuntime.get(DistillerRuntimeSession.class);
         if (session == null) {
             throw denied("SKILL_DISTILLER_CONTEXT_MISSING");
         }
@@ -47,9 +46,11 @@ public final class SkillDistillerRuntimeContextMiddleware implements MiddlewareB
             throw denied("SKILL_DISTILLER_SESSION_CONTEXT_MISMATCH");
         }
         if (!session.distillerPrincipalId().equals(
-                        SkillDistillerInitialization.stablePrincipalId(session.teamId()))
+                        DistillerRuntimeSession.stablePrincipalId(DistillerKind.SKILL,
+                                session.teamId()))
                 || !session.distillerProfileId().equals(
-                        SkillDistillerInitialization.stableProfileId(session.teamId()))) {
+                        DistillerRuntimeSession.stableProfileId(DistillerKind.SKILL,
+                                session.teamId()))) {
             throw denied("SKILL_DISTILLER_IDENTITY_INVALID");
         }
         return session;
