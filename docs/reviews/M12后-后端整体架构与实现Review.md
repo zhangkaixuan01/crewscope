@@ -131,11 +131,13 @@ WorkItem↔WorkItemQuery（同域读写分离，预期形态）、RepositoryBind
 
 | Runtime | StructuredDeliveryException | PlatformExecutionSecurityException | IllegalArgumentException | DomainValidationException | 专属分支 |
 | --- | --- | --- | --- | --- | --- |
-| ReviewerSpecialist（M5 母本） | ✓ | ✓ | ✓ | ✓ | — |
+| ReviewerSpecialist（M5 母本） | ✓ | **—（旧形状缺此豁免，C01 已统一补齐）** | ✓ | ✓ | — |
 | KnowledgeDistiller（债务周 B） | ✓ | ✓ | ✓ | ✓ | — |
 | SkillDistiller（债务周 B） | ✓ | ✓ | ✓ | ✓ | — |
 | TeamObserver（债务周 B） | ✓ | ✓ | ✓ | ✓ | — |
 | AgentScopeNativeRuntime（coding） | （第 5 消费者，形态略异） | ✓ | ✓ | ✓ | CodingSpecialistExecutionException ×2 |
+
+> 评审数据修正（2026-10-19，C01 勘察发现）：本表初版记 Reviewer 豁免集与三个新 runtime「4/4 一致」有误——Reviewer 实缺 PlatformExecutionSecurityException 豁免（M5 旧形状），四份手写漂移的直接后果；C01 组件化时经用户裁定统一豁免集，详见 [C01 完成记录](../testing/M13-C01-StructuredDeliveryCall组件完成.md) §3。
 
 - **语义面一致**：四个非 coding runtime 债务周 B 后已统一母本形状（无结构化投递→恢复一次→仍无效→`SafeModelExecutionException(MODEL_EXECUTION_FAILED)`）；TeamObserver telemetry 语义变化（OUTPUT_INVALID→UNAVAILABLE）已在债务周 B 文档入档。
 - **实现面仍 5 份手写**：豁免集逐字相同却零共享——`sanitize`/恢复链/usage 累积三件套正是 §3.1 建议 `StructuredDeliveryCall` 组件的抽取面。这是「语义已收敛、代码未收敛」的典型态，抽组件不改变任何行为。
@@ -213,7 +215,7 @@ e2e 全量 681+7 skipped（mock 栈，含 m12-f01/f02/f03 三企业域 spec）�
 | 批 | 内容 | 规模 | 验证面 | 备注 |
 | --- | --- | --- | --- | --- |
 | **P0 分层门禁自动化** | 新增 `scripts/check-module-boundaries.mjs`（解析六个 pom 的内部依赖，断言 §2.2 洋葱矩阵），挂 CI quality job | ~1 天 | 门禁脚本自测+CI 绿 | 防新增劣化的最低成本闸门，前端 check-front-boundaries 先例；**先于一切收敛动作落地**，保证后续重构期间依赖纪律不破 |
-| **P1a StructuredDeliveryCall 组件** | agentscope 层抽恢复/消毒/usage 三件套组件，四 runtime（Reviewer/Knowledge/Skill/TeamObserver）改挂组件 | ~150 新行，净删 ~200 | 债务周 B 的 25 个定向用例不改断言全绿 | 最小步：母本形状已被债务周 B 证明五要素稳定，抽组件是纯机械上提 |
+| **P1a StructuredDeliveryCall 组件** | agentscope 层抽恢复/消毒/usage 三件套组件，四 runtime（Reviewer/Knowledge/Skill/TeamObserver）改挂组件 | ~150 新行，净删 ~200 | 债务周 B 的 25 个定向用例不改断言全绿 | 最小步：母本形状已被债务周 B 证明五要素稳定，抽组件是纯机械上提。**已完成（2026-10-19，M13-C01）**：定向 29/29 断言零修改、agentscope verify 249/0/0；偏差一项（统一豁免集）经裁定入档 |
 | **P1b distiller 垂直链收敛** | domain/application 两层 distiller 参数化单实现+两薄壳（差异点：schema spec/category hint vs skill key/catalog ceiling）；server 两 Adapter 同法 | ~2,900 冗余行→预计净删 ~2,000 | 全 reactor+M10-Q02 复跑入口 | M13 候选主线；建议 P1a 先行（组件是 Runtime 收敛的前置件） |
 | **P2 CursorCodec 基类** | `CursorCodec<T>` 基类，三个 Codec 只声明字段序与类型 | ~870 行→~500 | server 模块定向测试 | 独立小案，可穿插 |
 | **P3 CommandTemplate 评估** | 先量化（滑动窗口指纹锁定跨文件重复全集）再裁定抽共享骨架 or 留惯例；若抽，以 `mutatingCommand`+`completed` 已有 helper 为蓝本 | 评估 ~2 天，实施 1-2 周 | 9 个 CommandService 全量定向+receipt replay 用例 | **慎动批**：涉及全部写命令面，须在 P1b 经验之后 |

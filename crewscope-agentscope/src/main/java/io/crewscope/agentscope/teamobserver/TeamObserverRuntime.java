@@ -3,13 +3,13 @@ package io.crewscope.agentscope.teamobserver;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.PlatformExecutionSecurityException;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
+import io.crewscope.agentscope.StructuredDeliveryCall;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.agentscope.template.TemplateAgentBuildRequest;
 import io.crewscope.agentscope.template.TemplateAgentSessionIdentity;
@@ -23,7 +23,6 @@ import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.teamobserver.TeamSummaryResult;
 import io.crewscope.domain.teamobserver.TeamSummarySection;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 import reactor.core.publisher.Mono;
@@ -49,6 +48,11 @@ public final class TeamObserverRuntime {
     private final TeamObserverToolkitFactory toolkits;
     private final TimeProvider timeProvider;
     private final TeamObserverPromptRenderer prompts = new TeamObserverPromptRenderer();
+    private final StructuredDeliveryCall<TeamSummaryOutputV1> delivery =
+            StructuredDeliveryCall.of(
+                    "Team Observer",
+                    STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION,
+                    TeamObserverRuntime::decode);
     private final Duration timeout;
     private final OperationalTelemetry telemetry;
 
@@ -147,47 +151,7 @@ public final class TeamObserverRuntime {
             TeamObserverRuntimeRequest request,
             JsonNode schema,
             RuntimeContext context) {
-        // Same shape as the Reviewer (M10-Q02 defect 7): the model occasionally answers with
-        // plain text instead of the structured tool call even on HTTP 200 — the transport
-        // retry never sees it. Re-ask the same agent once with an explicit structured-output
-        // instruction, and treat a still-invalid delivery as a sanitized terminal model
-        // failure instead of a bare IllegalArgumentException.
-        String prompt = prompts.render(request.instruction());
-        return agent.call(List.of(new UserMessage(prompt)), schema, context)
-                .flatMap(message -> validStructuredDelivery(message)
-                        ? Mono.just(message)
-                        : recoverStructuredDelivery(agent, prompt, schema, context))
-                .map(TeamObserverRuntime::decode)
-                .onErrorMap(TeamObserverRuntime::sanitizeModelFailure);
-    }
-
-    private Mono<Msg> recoverStructuredDelivery(
-            HarnessAgent agent, String prompt, JsonNode schema, RuntimeContext context) {
-        return agent.call(
-                        List.of(new UserMessage(
-                                STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION.formatted(prompt))),
-                        schema,
-                        context)
-                .flatMap(recovered -> validStructuredDelivery(recovered)
-                        ? Mono.just(recovered)
-                        : Mono.error(new StructuredDeliveryException()));
-    }
-
-    private static boolean validStructuredDelivery(Msg message) {
-        if (!message.hasStructuredData()) {
-            return false;
-        }
-        try {
-            TeamObserverStructuredOutputSpecs.TEAM_SUMMARY.requireValue(
-                    StrictStructuredOutputDecoder.decode(
-                            message.getStructuredData(false),
-                            TeamObserverStructuredOutputSpecs.TEAM_SUMMARY));
-            return true;
-        } catch (RuntimeException invalidDelivery) {
-            // Provider output is untrusted: keep its content out of logs and take the bounded
-            // recovery path instead of failing the summary outright.
-            return false;
-        }
+        return delivery.execute(agent, prompts.render(request.instruction()), schema, context);
     }
 
     private TeamSummaryResult createResult(
@@ -219,24 +183,6 @@ public final class TeamObserverRuntime {
                         TeamObserverStructuredOutputSpecs.TEAM_SUMMARY));
     }
 
-    private static Throwable sanitizeModelFailure(Throwable failure) {
-        if (failure instanceof StructuredDeliveryException) {
-            // Both the call and its bounded recovery delivered an unusable shape — a terminal
-            // model failure, not a programming error: sanitize like any provider failure so
-            // the bounded code (MODEL_EXECUTION_FAILED) reaches the caller instead of a raw
-            // IllegalArgumentException.
-            org.slf4j.LoggerFactory.getLogger(TeamObserverRuntime.class).warn(
-                    "Team Observer model never returned structured output after one recovery attempt");
-            return SafeModelFailures.sanitize(failure);
-        }
-        if (failure instanceof DomainValidationException
-                || failure instanceof IllegalArgumentException
-                || failure instanceof PlatformExecutionSecurityException) {
-            return failure;
-        }
-        return SafeModelFailures.sanitize(failure);
-    }
-
     private static OperationalTelemetry.ErrorCode telemetryError(Throwable failure) {
         Throwable required = Objects.requireNonNull(failure, "failure");
         if (required instanceof PlatformExecutionSecurityException) {
@@ -256,14 +202,6 @@ public final class TeamObserverRuntime {
             case "MODEL_REQUEST_REJECTED" -> OperationalTelemetry.ErrorCode.INVALID_RESPONSE;
             default -> OperationalTelemetry.ErrorCode.UNAVAILABLE;
         };
-    }
-
-    /** Internal marker for a delivery that stayed unparseable through one bounded recovery. */
-    private static final class StructuredDeliveryException extends RuntimeException {
-
-        private StructuredDeliveryException() {
-            super("Team Observer model did not produce a valid structured delivery");
-        }
     }
 }
 

@@ -3,17 +3,16 @@ package io.crewscope.agentscope.review;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
-import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.util.JsonUtils;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.crewscope.agentscope.SafeModelFailures;
 import io.crewscope.agentscope.StrictStructuredOutputDecoder;
+import io.crewscope.agentscope.StructuredDeliveryCall;
 import io.crewscope.agentscope.template.AgentTemplateRuntimeRegistry;
 import io.crewscope.application.review.ReviewFindingBatchRecorder;
 import io.crewscope.application.review.ReviewFindingBatchResult;
 import io.crewscope.application.review.output.ReviewFindingListV1;
 import io.crewscope.application.review.output.ReviewerStructuredOutputSpecs;
-import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.review.ReviewFindingCandidate;
 import io.crewscope.domain.task.TaskAgentRuntimeSession;
 import java.time.Duration;
@@ -39,6 +38,9 @@ public final class ReviewerSpecialistRuntime {
     private final ReviewerAgentProvider agents;
     private final ReviewFindingBatchRecorder recorder;
     private final ReviewerContextPromptRenderer prompts = new ReviewerContextPromptRenderer();
+    private final StructuredDeliveryCall<ReviewFindingListV1> delivery =
+            StructuredDeliveryCall.of(
+                    "Reviewer", STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION, ReviewerSpecialistRuntime::decode);
     private final Duration timeout;
 
     public ReviewerSpecialistRuntime(
@@ -99,51 +101,9 @@ public final class ReviewerSpecialistRuntime {
             ReviewerSpecialistRequest request,
             JsonNode schema,
             RuntimeContext runtimeContext) {
-        // Defect 7 (M10-Q02): DeepSeek occasionally answers with plain text instead of the
-        // structured tool call even on HTTP 200 — the transport retry never sees it. Take the
-        // same bounded native recovery the Coding runtime uses: re-ask the same agent once
-        // with an explicit structured-output instruction, and treat a still-invalid delivery
-        // as a sanitized terminal model failure instead of a bare IllegalArgumentException.
-        return agent.call(
-                        List.of(new UserMessage(prompts.render(request.contextPackage()))),
-                        schema,
-                        runtimeContext)
-                .flatMap(message -> validStructuredDelivery(message)
-                        ? Mono.just(message)
-                        : recoverStructuredDelivery(agent, request, schema, runtimeContext))
-                .map(message -> decode(message).toCandidates())
-                .onErrorMap(ReviewerSpecialistRuntime::sanitizeModelFailure);
-    }
-
-    private Mono<Msg> recoverStructuredDelivery(
-            HarnessAgent agent,
-            ReviewerSpecialistRequest request,
-            JsonNode schema,
-            RuntimeContext runtimeContext) {
-        return agent.call(
-                        List.of(new UserMessage(STRUCTURED_OUTPUT_RECOVERY_INSTRUCTION.formatted(
-                                prompts.render(request.contextPackage())))),
-                        schema,
-                        runtimeContext)
-                .flatMap(recovered -> validStructuredDelivery(recovered)
-                        ? Mono.just(recovered)
-                        : Mono.error(new StructuredDeliveryException()));
-    }
-
-    private static boolean validStructuredDelivery(Msg result) {
-        if (!result.hasStructuredData()) {
-            return false;
-        }
-        try {
-            StrictStructuredOutputDecoder.decode(
-                    result.getStructuredData(false),
-                    ReviewerStructuredOutputSpecs.REVIEW_FINDING_LIST);
-            return true;
-        } catch (RuntimeException invalidDelivery) {
-            // Provider output is untrusted: keep its content out of logs and take the bounded
-            // recovery path instead of failing the review outright.
-            return false;
-        }
+        return delivery
+                .execute(agent, prompts.render(request.contextPackage()), schema, runtimeContext)
+                .map(ReviewFindingListV1::toCandidates);
     }
 
     private static ReviewFindingListV1 decode(Msg message) {
@@ -159,40 +119,6 @@ public final class ReviewerSpecialistRuntime {
                         .strictJsonSchema()
                         .orElseThrow());
         return JsonUtils.getJsonCodec().fromJson(json, JsonNode.class);
-    }
-
-    private static Throwable sanitizeModelFailure(Throwable failure) {
-        if (failure instanceof StructuredDeliveryException) {
-            // Both the call and its bounded recovery delivered an unusable shape — a terminal
-            // model failure, not a programming error: sanitize like any provider failure so
-            // the bounded code (MODEL_EXECUTION_FAILED) reaches the caller instead of a raw
-            // IllegalArgumentException.
-            org.slf4j.LoggerFactory.getLogger(ReviewerSpecialistRuntime.class).warn(
-                    "Reviewer model never returned structured output after one recovery attempt");
-            return SafeModelFailures.sanitize(failure);
-        }
-        if (failure instanceof DomainValidationException
-                || failure instanceof IllegalArgumentException) {
-            return failure;
-        }
-        // Defect 20 observation (M9b-Q02): the reviewer call fails in ~49ms with no model
-        // request on the wire — the wrapping below erased both the code and the originating
-        // class. Keep the sanitization contract (no provider text) but record the bounded
-        // code and the exception class name.
-        org.slf4j.LoggerFactory.getLogger(ReviewerSpecialistRuntime.class).warn(
-                "Reviewer model call failed [code={}, cause={}, root={}]",
-                SafeModelFailures.safeCode(failure),
-                failure.getClass().getName(),
-                failure.getCause() == null ? "none" : failure.getCause().getClass().getName());
-        return SafeModelFailures.sanitize(failure);
-    }
-
-    /** Internal marker for a delivery that stayed unparseable through one bounded recovery. */
-    private static final class StructuredDeliveryException extends RuntimeException {
-
-        private StructuredDeliveryException() {
-            super("Reviewer model did not produce a valid structured delivery");
-        }
     }
 }
 
