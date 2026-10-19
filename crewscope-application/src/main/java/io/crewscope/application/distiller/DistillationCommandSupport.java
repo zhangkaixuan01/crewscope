@@ -1,9 +1,9 @@
 package io.crewscope.application.distiller;
 
 import io.crewscope.application.command.CommandExecution;
-import io.crewscope.application.command.CommandReceipt;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.command.CommandRequestHash;
+import io.crewscope.application.command.TeamCommandSupport;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.event.PendingOutboxEvent;
@@ -14,14 +14,12 @@ import io.crewscope.application.team.TeamCommandContext;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
 import io.crewscope.domain.identity.Principal;
-import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.model.ModelUsageFactId;
 import io.crewscope.domain.model.ModelUsageRole;
 import io.crewscope.domain.model.event.ModelUsageFactRecorded;
 import io.crewscope.domain.shared.DomainEvent;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.DomainValidationException;
-import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.event.AggregateReference;
 import io.crewscope.domain.shared.event.DomainEventEnvelope;
 import io.crewscope.domain.shared.event.EventActor;
@@ -56,13 +54,11 @@ public final class DistillationCommandSupport {
     private static final String CALL_ID_NAMESPACE = "io.crewscope/model-usage/";
     private static final String USAGE_EVENT_ID_NAMESPACE = "io.crewscope/model-usage/event/";
 
-    private final TeamRepository teams;
-    private final TeamMembershipQuery memberships;
     private final TaskRepository tasks;
     private final TaskExecutionRepository executions;
     private final DomainEventStore events;
     private final OutboxRepository outbox;
-    private final CommandReceiptStore receipts;
+    private final TeamCommandSupport support;
     private final TimeProvider timeProvider;
 
     public DistillationCommandSupport(
@@ -74,45 +70,29 @@ public final class DistillationCommandSupport {
             OutboxRepository outbox,
             CommandReceiptStore receipts,
             TimeProvider timeProvider) {
-        this.teams = Objects.requireNonNull(teams, "teams");
-        this.memberships = Objects.requireNonNull(memberships, "memberships");
+        TeamRepository requiredTeams = Objects.requireNonNull(teams, "teams");
+        TeamMembershipQuery requiredMemberships = Objects.requireNonNull(memberships, "memberships");
         this.tasks = Objects.requireNonNull(tasks, "tasks");
         this.executions = Objects.requireNonNull(executions, "executions");
         this.events = Objects.requireNonNull(events, "events");
         this.outbox = Objects.requireNonNull(outbox, "outbox");
-        this.receipts = Objects.requireNonNull(receipts, "receipts");
+        CommandReceiptStore requiredReceipts = Objects.requireNonNull(receipts, "receipts");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
+        this.support = new TeamCommandSupport(
+                requiredTeams, requiredMemberships, events, outbox, requiredReceipts, timeProvider);
     }
 
     public Principal requireOrganizationUser(
             TeamAccessContext context, OrganizationId organizationId) {
-        Principal actor = Objects.requireNonNull(context, "context").actor();
-        if (actor.type() != PrincipalType.USER
-                || !actor.canAct()
-                || !actor.scope().organizationId().equals(organizationId)) {
-            throw new PolicyDeniedException("act in this Organization");
-        }
-        return actor;
+        return support.requireOrganizationUser(context, organizationId);
     }
 
     public Team requireTeam(OrganizationId organizationId, TeamId teamId) {
-        if (teams.findUninitializedById(organizationId, teamId).isPresent()) {
-            throw new DomainValidationException("team.initializationStatus", "must be READY");
-        }
-        Team team = teams.findById(organizationId, teamId)
-                .orElseThrow(() -> new AggregateNotFoundException("Team", teamId));
-        if (!team.isActive()) {
-            throw new DomainValidationException("team.status", "must be ACTIVE");
-        }
-        return team;
+        return support.requireTeam(organizationId, teamId);
     }
 
     public TeamMember requireActiveMember(Principal actor, Team team, String denialMessage) {
-        return memberships.findByTeam(team.organizationId(), team.id()).stream()
-                .filter(member -> member.userPrincipalId().equals(actor.id()))
-                .filter(TeamMember::canParticipate)
-                .findFirst()
-                .orElseThrow(() -> new PolicyDeniedException(denialMessage));
+        return support.requireActiveMember(actor, team, denialMessage);
     }
 
     /** Cross-Team or missing executions are 404; non-terminal attempts are rejected. */
@@ -150,11 +130,7 @@ public final class DistillationCommandSupport {
 
     public CommandRequestHash requestHash(
             TeamCommandContext context, String commandType, String... semanticFields) {
-        String[] fields = new String[semanticFields.length + 2];
-        fields[0] = context.access().actor().id().toString();
-        fields[1] = context.causationId().map(UUID::toString).orElse("");
-        System.arraycopy(semanticFields, 0, fields, 2, semanticFields.length);
-        return CommandRequestHash.sha256(commandType, fields);
+        return support.requestHash(context, commandType, semanticFields);
     }
 
     /** Commits one usage fact per real attempt, independent of the aggregate commit. */
@@ -220,31 +196,18 @@ public final class DistillationCommandSupport {
             String eventType,
             DomainEvent payload,
             UtcTimestamp occurredAt) {
-        UUID eventId = UUID.randomUUID();
-        DomainEventEnvelope<DomainEvent> event =
-                new DomainEventEnvelope<>(
-                        eventId,
-                        EventType.from(eventType),
-                        SchemaVersion.V1,
-                        organizationId,
-                        Optional.of(teamId),
-                        Optional.empty(),
-                        AggregateReference.of(aggregateType, aggregateId),
-                        aggregateVersion,
-                        EventActor.principal(EventActorType.USER, context.access().actor().id()),
-                        context.correlationId(),
-                        context.causationId(),
-                        Optional.of(context.idempotencyKey().value()),
-                        occurredAt,
-                        payload);
-        events.append(event);
-        outbox.enqueue(PendingOutboxEvent.fromDomain(UUID.randomUUID(), event));
-        CommandReceipt receipt =
-                new CommandReceipt(commandId, eventId, aggregateVersion,
-                        context.correlationId());
-        receipts.complete(
-                organizationId, context.idempotencyKey(), receipt, occurredAt);
-        return CommandExecution.completed(aggregate, receipt);
+        return support.appendCreated(
+                context,
+                commandId,
+                aggregate,
+                organizationId,
+                teamId,
+                aggregateType,
+                aggregateId,
+                aggregateVersion,
+                eventType,
+                payload,
+                occurredAt);
     }
 
     /** One usage fact per real attempt, addressable deterministically from the command. */
