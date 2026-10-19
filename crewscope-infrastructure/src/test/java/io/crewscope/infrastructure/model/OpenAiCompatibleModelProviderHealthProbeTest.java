@@ -12,13 +12,12 @@ import io.crewscope.application.model.ModelProviderHealthProbe;
 import io.crewscope.application.model.ProviderCredentialHandle;
 import io.crewscope.application.model.ProviderCredentialOperation;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionHealthFailureCode;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -189,9 +188,9 @@ class OpenAiCompatibleModelProviderHealthProbeTest {
                 region,
                 new ModelCredentialBinding(
                         CredentialId.generate(),
-                        ModelCredentialSubject.organization(organizationId),
+                        ModelSubject.organization(organizationId),
                         new ModelCredentialVersion(0)),
-                ModelBillingSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 actor,
                 now);
         return new Fixture(provider, connection);

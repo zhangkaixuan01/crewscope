@@ -43,7 +43,7 @@ import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
@@ -51,7 +51,6 @@ import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -508,9 +507,9 @@ class M5I01ModelAgentPersistenceIntegrationTest
                 new ModelEndpoint("https://gateway.example.com/forged"), GLOBAL,
                 new ModelCredentialBinding(
                         graph.connection().credentialBinding().credentialId(),
-                        ModelCredentialSubject.team(second.organizationId(), second.teamId()),
+                        ModelSubject.team(second.organizationId(), second.teamId()),
                         new ModelCredentialVersion(0)),
-                ModelBillingSubject.team(second.organizationId(), second.teamId()),
+                ModelSubject.team(second.organizationId(), second.teamId()),
                 second.actorId(), CREATED);
 
         // V23 defers the credential FK so atomic secret rotation can update both sides in one
@@ -566,9 +565,9 @@ class M5I01ModelAgentPersistenceIntegrationTest
                 new ModelEndpoint("https://gateway.example.com/" + fixture.key()), GLOBAL,
                 new ModelCredentialBinding(
                         fixture.credentialId(),
-                        ModelCredentialSubject.team(fixture.organizationId(), fixture.teamId()),
+                        ModelSubject.team(fixture.organizationId(), fixture.teamId()),
                         new ModelCredentialVersion(0)),
-                ModelBillingSubject.team(fixture.organizationId(), fixture.teamId()),
+                ModelSubject.team(fixture.organizationId(), fixture.teamId()),
                 fixture.actorId(), CREATED);
         ModelConnection registered = connections.register(opened);
         ModelConnection connection = connections.update(registered.recordVerificationSuccess(

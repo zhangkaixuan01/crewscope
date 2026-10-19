@@ -14,12 +14,11 @@ import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -71,9 +70,9 @@ class ModelManagementControllerM5A01Test {
             new ModelRegion("global"),
             new ModelCredentialBinding(
                     CredentialId.generate(),
-                    ModelCredentialSubject.principal(organizationId, actor.id()),
+                    ModelSubject.principal(organizationId, actor.id()),
                     new ModelCredentialVersion(0)),
-            ModelBillingSubject.principal(organizationId, actor.id()),
+            ModelSubject.principal(organizationId, actor.id()),
             actor.id(),
             NOW);
 

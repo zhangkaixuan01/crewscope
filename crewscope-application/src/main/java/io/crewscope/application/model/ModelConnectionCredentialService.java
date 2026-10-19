@@ -20,7 +20,7 @@ import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionHealthFailureCode;
 import io.crewscope.domain.model.ModelConnectionStatus;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.model.ModelRegistryStatus;
@@ -690,16 +690,16 @@ public final class ModelConnectionCredentialService {
         return eventId;
     }
 
-    private static ModelCredentialSubject toModelSubject(CredentialSubject subject) {
+    private static ModelSubject toModelSubject(CredentialSubject subject) {
         return switch (subject.type()) {
-            case ORGANIZATION -> ModelCredentialSubject.organization(subject.organizationId());
-            case TEAM -> ModelCredentialSubject.team(subject.organizationId(), subject.teamId().orElseThrow());
-            case PRINCIPAL -> ModelCredentialSubject.principal(
+            case ORGANIZATION -> ModelSubject.organization(subject.organizationId());
+            case TEAM -> ModelSubject.team(subject.organizationId(), subject.teamId().orElseThrow());
+            case PRINCIPAL -> ModelSubject.principal(
                     subject.organizationId(), subject.principalId().orElseThrow());
         };
     }
 
-    private static CredentialSubject toCredentialSubject(ModelCredentialSubject subject) {
+    private static CredentialSubject toCredentialSubject(ModelSubject subject) {
         return switch (subject.type()) {
             case ORGANIZATION -> CredentialSubject.organization(subject.organizationId());
             case TEAM -> CredentialSubject.team(subject.organizationId(), subject.teamId().orElseThrow());

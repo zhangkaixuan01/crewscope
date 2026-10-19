@@ -16,7 +16,7 @@ import io.crewscope.domain.model.ModelConnectionHealthStatus;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionStatus;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelProviderKey;
 import io.crewscope.domain.shared.id.CredentialId;
@@ -99,7 +99,7 @@ class CachedModelConnectionAvailabilityVerifierTest {
         ModelCredentialVersion credentialVersion = new ModelCredentialVersion(3);
         ModelCredentialBinding binding = new ModelCredentialBinding(
                 credentialId,
-                ModelCredentialSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 credentialVersion);
         ModelConnectionHealth health = mock(ModelConnectionHealth.class);
         when(health.status()).thenReturn(ModelConnectionHealthStatus.HEALTHY);

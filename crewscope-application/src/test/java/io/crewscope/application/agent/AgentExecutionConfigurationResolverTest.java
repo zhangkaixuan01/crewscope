@@ -40,7 +40,7 @@ import io.crewscope.domain.agent.AgentToolKey;
 import io.crewscope.domain.agent.ResolvedAgentExecutionConfiguration;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
@@ -49,7 +49,6 @@ import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -554,15 +553,15 @@ class AgentExecutionConfigurationResolverTest {
                     Optional.empty());
             case ORGANIZATION -> ModelConnectionOwner.organization(ORGANIZATION_ID);
         };
-        ModelCredentialSubject credentialSubject = switch (ownerType) {
-            case USER -> ModelCredentialSubject.principal(ORGANIZATION_ID, OWNER_ID);
-            case TEAM -> ModelCredentialSubject.team(ORGANIZATION_ID, TEAM_ID);
-            case ORGANIZATION -> ModelCredentialSubject.organization(ORGANIZATION_ID);
+        ModelSubject credentialSubject = switch (ownerType) {
+            case USER -> ModelSubject.principal(ORGANIZATION_ID, OWNER_ID);
+            case TEAM -> ModelSubject.team(ORGANIZATION_ID, TEAM_ID);
+            case ORGANIZATION -> ModelSubject.organization(ORGANIZATION_ID);
         };
-        ModelBillingSubject billingSubject = switch (ownerType) {
-            case USER -> ModelBillingSubject.principal(ORGANIZATION_ID, OWNER_ID);
-            case TEAM -> ModelBillingSubject.team(ORGANIZATION_ID, TEAM_ID);
-            case ORGANIZATION -> ModelBillingSubject.organization(ORGANIZATION_ID);
+        ModelSubject billingSubject = switch (ownerType) {
+            case USER -> ModelSubject.principal(ORGANIZATION_ID, OWNER_ID);
+            case TEAM -> ModelSubject.team(ORGANIZATION_ID, TEAM_ID);
+            case ORGANIZATION -> ModelSubject.organization(ORGANIZATION_ID);
         };
         ModelConnection connection = ModelConnection.open(
                         provider,

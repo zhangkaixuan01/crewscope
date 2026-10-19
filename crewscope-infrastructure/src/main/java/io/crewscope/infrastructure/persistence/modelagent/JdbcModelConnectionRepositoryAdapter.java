@@ -1,11 +1,10 @@
 package io.crewscope.infrastructure.persistence.modelagent;
 
 import io.crewscope.application.model.ModelConnectionRepository;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.model.ModelProviderKey;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
@@ -232,8 +231,8 @@ public class JdbcModelConnectionRepositoryAdapter implements ModelConnectionRepo
 
     private static MapSqlParameterSource parameters(ModelConnection value) {
         ModelConnectionOwner owner = value.owner();
-        ModelCredentialSubject credential = value.credentialBinding().subject();
-        ModelBillingSubject billing = value.billingSubject();
+        ModelSubject credential = value.credentialBinding().subject();
+        ModelSubject billing = value.billingSubject();
         PrincipalId createdBy = value.audit().createdBy().orElseThrow();
         PrincipalId updatedBy = value.audit().updatedBy().orElseThrow();
         return new MapSqlParameterSource()

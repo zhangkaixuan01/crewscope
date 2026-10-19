@@ -25,7 +25,7 @@ import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionStatus;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -76,7 +76,7 @@ class SelectableModelCatalogServiceM5I04Test {
         when(health.isHealthyFor(credentialVersion)).thenReturn(true);
         when(connection.credentialBinding()).thenReturn(new ModelCredentialBinding(
                 CredentialId.generate(),
-                ModelCredentialSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 credentialVersion));
 
         ModelProviderDefinition provider = mock(ModelProviderDefinition.class);

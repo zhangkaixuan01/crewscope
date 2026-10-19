@@ -33,7 +33,7 @@ import io.crewscope.domain.agent.AgentTemplateVersion;
 import io.crewscope.domain.agent.AgentToolKey;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogCoordinate;
 import io.crewscope.domain.model.ModelCatalogEntry;
@@ -49,7 +49,6 @@ import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelConnectionRevocationReason;
 import io.crewscope.domain.model.ModelConnectionStatus;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -176,11 +175,11 @@ public final class ModelAgentPersistenceMapper {
                 row.getObject("owner_id", UUID.class),
                 row.getObject("owner_team_id", UUID.class),
                 row.getObject("owner_user_principal_id", UUID.class));
-        ModelCredentialSubject credentialSubject = subject(
+        ModelSubject credentialSubject = subject(
                 organizationId,
                 row.getString("credential_subject_type"),
                 row.getObject("credential_subject_id", UUID.class));
-        ModelBillingSubject billingSubject = billingSubject(
+        ModelSubject billingSubject = billingSubject(
                 organizationId,
                 row.getString("billing_subject_type"),
                 row.getObject("billing_subject_id", UUID.class));
@@ -408,10 +407,10 @@ public final class ModelAgentPersistenceMapper {
                 Optional.ofNullable(principalId).map(PrincipalId::new));
     }
 
-    private static ModelCredentialSubject subject(
+    private static ModelSubject subject(
             OrganizationId organizationId, String type, UUID subjectId) {
         ModelSubjectType subjectType = ModelSubjectType.valueOf(type);
-        return new ModelCredentialSubject(
+        return new ModelSubject(
                 organizationId,
                 subjectType,
                 subjectId,
@@ -423,10 +422,10 @@ public final class ModelAgentPersistenceMapper {
                         : Optional.empty());
     }
 
-    private static ModelBillingSubject billingSubject(
+    private static ModelSubject billingSubject(
             OrganizationId organizationId, String type, UUID subjectId) {
         ModelSubjectType subjectType = ModelSubjectType.valueOf(type);
-        return new ModelBillingSubject(
+        return new ModelSubject(
                 organizationId,
                 subjectType,
                 subjectId,

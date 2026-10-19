@@ -17,7 +17,7 @@ import io.crewscope.application.team.TeamRepository;
 import io.crewscope.application.team.TeamRoleRepository;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
@@ -487,13 +487,13 @@ public final class ModelConnectionApplicationService {
         return switch (owner.type()) {
             case USER -> new SubjectFacts(
                     CredentialSubject.principal(owner.organizationId(), actor.id()),
-                    ModelBillingSubject.principal(owner.organizationId(), actor.id()));
+                    ModelSubject.principal(owner.organizationId(), actor.id()));
             case TEAM -> new SubjectFacts(
                     CredentialSubject.team(owner.organizationId(), owner.teamId().orElseThrow()),
-                    ModelBillingSubject.team(owner.organizationId(), owner.teamId().orElseThrow()));
+                    ModelSubject.team(owner.organizationId(), owner.teamId().orElseThrow()));
             case ORGANIZATION -> new SubjectFacts(
                     CredentialSubject.organization(owner.organizationId()),
-                    ModelBillingSubject.organization(owner.organizationId()));
+                    ModelSubject.organization(owner.organizationId()));
         };
     }
 
@@ -533,5 +533,5 @@ public final class ModelConnectionApplicationService {
         };
     }
 
-    private record SubjectFacts(CredentialSubject credential, ModelBillingSubject billing) {}
+    private record SubjectFacts(CredentialSubject credential, ModelSubject billing) {}
 }

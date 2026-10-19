@@ -1,7 +1,7 @@
 package io.crewscope.domain.agent;
 
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
@@ -10,7 +10,6 @@ import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -177,19 +176,19 @@ final class AgentConfigurationTestFixture {
                 Set.of(new ModelRegion("global")),
                 ACTOR,
                 CREATED_AT);
-        ModelCredentialSubject credentialSubject = switch (owner.type()) {
-            case USER -> ModelCredentialSubject.principal(
+        ModelSubject credentialSubject = switch (owner.type()) {
+            case USER -> ModelSubject.principal(
                     ORGANIZATION_ID, owner.userPrincipalId().orElseThrow());
-            case TEAM -> ModelCredentialSubject.team(
+            case TEAM -> ModelSubject.team(
                     ORGANIZATION_ID, owner.teamId().orElseThrow());
-            case ORGANIZATION -> ModelCredentialSubject.organization(ORGANIZATION_ID);
+            case ORGANIZATION -> ModelSubject.organization(ORGANIZATION_ID);
         };
-        ModelBillingSubject billingSubject = switch (owner.type()) {
-            case USER -> ModelBillingSubject.principal(
+        ModelSubject billingSubject = switch (owner.type()) {
+            case USER -> ModelSubject.principal(
                     ORGANIZATION_ID, owner.userPrincipalId().orElseThrow());
-            case TEAM -> ModelBillingSubject.team(
+            case TEAM -> ModelSubject.team(
                     ORGANIZATION_ID, owner.teamId().orElseThrow());
-            case ORGANIZATION -> ModelBillingSubject.organization(ORGANIZATION_ID);
+            case ORGANIZATION -> ModelSubject.organization(ORGANIZATION_ID);
         };
         ModelConnection connection = ModelConnection.open(
                         provider,

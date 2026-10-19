@@ -21,7 +21,7 @@ public final class ModelConnection {
     private final ModelEndpoint endpoint;
     private final ModelRegion region;
     private final ModelCredentialBinding credentialBinding;
-    private final ModelBillingSubject billingSubject;
+    private final ModelSubject billingSubject;
     private final ModelConnectionStatus status;
     private final ModelConnectionHealth health;
     private final Optional<ModelConnectionRevocationReason> revocationReason;
@@ -37,7 +37,7 @@ public final class ModelConnection {
             ModelEndpoint endpoint,
             ModelRegion region,
             ModelCredentialBinding credentialBinding,
-            ModelBillingSubject billingSubject,
+            ModelSubject billingSubject,
             ModelConnectionStatus status,
             ModelConnectionHealth health,
             Optional<ModelConnectionRevocationReason> revocationReason,
@@ -99,7 +99,7 @@ public final class ModelConnection {
             ModelEndpoint endpoint,
             ModelRegion region,
             ModelCredentialBinding credentialBinding,
-            ModelBillingSubject billingSubject,
+            ModelSubject billingSubject,
             PrincipalId actor,
             UtcTimestamp occurredAt) {
         ModelProviderDefinition requiredProvider = Objects.requireNonNull(provider, "provider");
@@ -134,7 +134,7 @@ public final class ModelConnection {
             ModelEndpoint endpoint,
             ModelRegion region,
             ModelCredentialBinding credentialBinding,
-            ModelBillingSubject billingSubject,
+            ModelSubject billingSubject,
             ModelConnectionStatus status,
             ModelConnectionHealth health,
             Optional<ModelConnectionRevocationReason> revocationReason,
@@ -377,9 +377,9 @@ public final class ModelConnection {
         return required;
     }
 
-    private static ModelBillingSubject requireBillingSubject(
-            ModelConnectionOwner owner, ModelBillingSubject subject) {
-        ModelBillingSubject required = Objects.requireNonNull(subject, "billingSubject");
+    private static ModelSubject requireBillingSubject(
+            ModelConnectionOwner owner, ModelSubject subject) {
+        ModelSubject required = Objects.requireNonNull(subject, "billingSubject");
         if (!required.isAllowedFor(owner)) {
             throw new DomainValidationException(
                     "modelConnection.billingSubject",
@@ -452,7 +452,7 @@ public final class ModelConnection {
         return credentialBinding;
     }
 
-    public ModelBillingSubject billingSubject() {
+    public ModelSubject billingSubject() {
         return billingSubject;
     }
 

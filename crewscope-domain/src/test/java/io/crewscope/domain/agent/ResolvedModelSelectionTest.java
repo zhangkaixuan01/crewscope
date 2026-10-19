@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
@@ -14,7 +14,6 @@ import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -374,9 +373,9 @@ class ResolvedModelSelectionTest {
                         GLOBAL,
                         new ModelCredentialBinding(
                                 CredentialId.generate(),
-                                ModelCredentialSubject.principal(ORGANIZATION_ID, OWNER_ID),
+                                ModelSubject.principal(ORGANIZATION_ID, OWNER_ID),
                                 new ModelCredentialVersion(0)),
-                        ModelBillingSubject.principal(ORGANIZATION_ID, OWNER_ID),
+                        ModelSubject.principal(ORGANIZATION_ID, OWNER_ID),
                         ACTOR,
                         CREATED_AT)
                 .recordVerificationSuccess(

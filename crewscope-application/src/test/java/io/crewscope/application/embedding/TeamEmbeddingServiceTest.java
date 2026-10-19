@@ -41,9 +41,8 @@ import io.crewscope.domain.model.ModelConnectionHealthFailureCode;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
-import io.crewscope.domain.model.ModelBillingSubject;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -190,8 +189,8 @@ final class TeamEmbeddingServiceTest {
         registerConnection(
                 dashscopeProvider,
                 ModelConnectionOwner.team(initialization.team()),
-                ModelCredentialSubject.team(organizationId, teamId),
-                ModelBillingSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
                 CredentialSubject.team(organizationId, teamId));
     }
 
@@ -235,8 +234,8 @@ final class TeamEmbeddingServiceTest {
         ModelConnection orgConnection = registerConnection(
                 dashscopeProvider,
                 ModelConnectionOwner.organization(organizationId),
-                ModelCredentialSubject.organization(organizationId),
-                ModelBillingSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 CredentialSubject.organization(organizationId));
 
         EmbeddingBatchResult teamScoped = service.embed(command(UUID.randomUUID(), List.of("x")));
@@ -332,16 +331,16 @@ final class TeamEmbeddingServiceTest {
         registerConnection(
                 dashscopeProvider,
                 ModelConnectionOwner.organization(organizationId),
-                ModelCredentialSubject.organization(organizationId),
-                ModelBillingSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 CredentialSubject.organization(organizationId));
         connections.values.entrySet().removeIf(
                 entry -> entry.getValue().owner().teamId().isPresent());
         registerConnection(
                 trainingAllowed,
                 ModelConnectionOwner.team(initialization.team()),
-                ModelCredentialSubject.team(organizationId, teamId),
-                ModelBillingSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
                 CredentialSubject.team(organizationId, teamId));
         ModelConnection orgFallback = connections.values.values().stream()
                 .filter(value -> value.owner().teamId().isEmpty())
@@ -452,8 +451,8 @@ final class TeamEmbeddingServiceTest {
         ModelConnection connection = registerConnection(
                 chatOnly,
                 ModelConnectionOwner.team(initialization.team()),
-                ModelCredentialSubject.team(organizationId, teamId),
-                ModelBillingSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
                 CredentialSubject.team(organizationId, teamId));
 
         Optional<EmbeddingCapabilityProbe.Outcome> outcome;
@@ -472,8 +471,8 @@ final class TeamEmbeddingServiceTest {
         ModelConnection orgConnection = registerConnection(
                 dashscopeProvider,
                 ModelConnectionOwner.organization(organizationId),
-                ModelCredentialSubject.organization(organizationId),
-                ModelBillingSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 CredentialSubject.organization(organizationId));
 
         Optional<EmbeddingCapabilityProbe.Outcome> first;
@@ -546,8 +545,8 @@ final class TeamEmbeddingServiceTest {
     private ModelConnection registerConnection(
             ModelProviderDefinition provider,
             ModelConnectionOwner owner,
-            ModelCredentialSubject bindingSubject,
-            ModelBillingSubject billingSubject,
+            ModelSubject bindingSubject,
+            ModelSubject billingSubject,
             CredentialSubject storeSubject) {
         ModelConnectionId connectionId = ModelConnectionId.generate();
         CredentialId credentialId = CredentialId.generate();
@@ -623,8 +622,8 @@ final class TeamEmbeddingServiceTest {
         registerConnection(
                 dashscopeProvider,
                 ModelConnectionOwner.organization(organizationId),
-                ModelCredentialSubject.organization(organizationId),
-                ModelBillingSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
+                ModelSubject.organization(organizationId),
                 CredentialSubject.organization(organizationId));
 
         EmbeddingModelRevision model = service.resolveModel(organizationId, teamId);
@@ -682,8 +681,8 @@ final class TeamEmbeddingServiceTest {
         registerConnection(
                 trainingAllowed,
                 ModelConnectionOwner.team(initialization.team()),
-                ModelCredentialSubject.team(organizationId, teamId),
-                ModelBillingSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
+                ModelSubject.team(organizationId, teamId),
                 CredentialSubject.team(organizationId, teamId));
 
         DomainValidationException policy = assertThrows(

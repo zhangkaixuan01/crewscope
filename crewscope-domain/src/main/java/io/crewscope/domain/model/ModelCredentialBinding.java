@@ -7,7 +7,7 @@ import java.util.Objects;
 /** Non-secret CredentialStore reference and exact version bound to one model connection. */
 public record ModelCredentialBinding(
         CredentialId credentialId,
-        ModelCredentialSubject subject,
+        ModelSubject subject,
         ModelCredentialVersion credentialVersion) {
 
     public ModelCredentialBinding {

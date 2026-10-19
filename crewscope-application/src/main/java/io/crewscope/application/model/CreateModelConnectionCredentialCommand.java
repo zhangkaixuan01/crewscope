@@ -1,7 +1,7 @@
 package io.crewscope.application.model;
 
 import io.crewscope.application.credential.CredentialSubject;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -22,7 +22,7 @@ public record CreateModelConnectionCredentialCommand(
         ModelConnectionOwner owner,
         ModelEndpoint endpoint,
         ModelRegion region,
-        ModelBillingSubject billingSubject,
+        ModelSubject billingSubject,
         CredentialId credentialId,
         CredentialSubject credentialSubject,
         String credentialKey,

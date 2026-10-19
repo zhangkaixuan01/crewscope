@@ -26,13 +26,12 @@ import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.identity.PrincipalVisibility;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelEndpoint;
@@ -270,9 +269,9 @@ class ModelConnectionApplicationServiceM5A01Test {
                 region,
                 new ModelCredentialBinding(
                         CredentialId.generate(),
-                        ModelCredentialSubject.principal(organizationId, owner.id()),
+                        ModelSubject.principal(organizationId, owner.id()),
                         new ModelCredentialVersion(0)),
-                ModelBillingSubject.principal(organizationId, owner.id()),
+                ModelSubject.principal(organizationId, owner.id()),
                 owner.id(),
                 NOW);
     }

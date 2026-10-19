@@ -8,15 +8,21 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Exact CredentialStore subject authorized for a model connection. */
-public record ModelCredentialSubject(
+/**
+ * Exact principal, team or organization a model connection is scoped to — either as the subject
+ * credentials are bound for or as the subject usage is billed to (M13-C06).
+ *
+ * <p>The two positions share one shape by construction; the connection field that carries this
+ * value names the position, so a single type keeps both sides from drifting apart.
+ */
+public record ModelSubject(
         OrganizationId organizationId,
         ModelSubjectType type,
         UUID subjectId,
         Optional<TeamId> teamId,
         Optional<PrincipalId> principalId) {
 
-    public ModelCredentialSubject {
+    public ModelSubject {
         organizationId = Objects.requireNonNull(organizationId, "organizationId");
         type = Objects.requireNonNull(type, "type");
         subjectId = Objects.requireNonNull(subjectId, "subjectId");
@@ -25,9 +31,9 @@ public record ModelCredentialSubject(
         requireValidShape(organizationId, type, subjectId, teamId, principalId);
     }
 
-    public static ModelCredentialSubject organization(OrganizationId organizationId) {
+    public static ModelSubject organization(OrganizationId organizationId) {
         OrganizationId required = Objects.requireNonNull(organizationId, "organizationId");
-        return new ModelCredentialSubject(
+        return new ModelSubject(
                 required,
                 ModelSubjectType.ORGANIZATION,
                 required.value(),
@@ -35,9 +41,9 @@ public record ModelCredentialSubject(
                 Optional.empty());
     }
 
-    public static ModelCredentialSubject team(OrganizationId organizationId, TeamId teamId) {
+    public static ModelSubject team(OrganizationId organizationId, TeamId teamId) {
         TeamId requiredTeam = Objects.requireNonNull(teamId, "teamId");
-        return new ModelCredentialSubject(
+        return new ModelSubject(
                 organizationId,
                 ModelSubjectType.TEAM,
                 requiredTeam.value(),
@@ -45,10 +51,10 @@ public record ModelCredentialSubject(
                 Optional.empty());
     }
 
-    public static ModelCredentialSubject principal(
+    public static ModelSubject principal(
             OrganizationId organizationId, PrincipalId principalId) {
         PrincipalId requiredPrincipal = Objects.requireNonNull(principalId, "principalId");
-        return new ModelCredentialSubject(
+        return new ModelSubject(
                 organizationId,
                 ModelSubjectType.PRINCIPAL,
                 requiredPrincipal.value(),
@@ -90,7 +96,7 @@ public record ModelCredentialSubject(
         };
         if (!valid) {
             throw new DomainValidationException(
-                    "modelConnection.credentialSubject", "has an invalid subject shape");
+                    "modelConnection.subject", "has an invalid subject shape");
         }
     }
 }

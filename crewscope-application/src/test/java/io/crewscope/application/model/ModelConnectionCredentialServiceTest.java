@@ -23,7 +23,7 @@ import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionHealthFailureCode;
 import io.crewscope.domain.model.ModelConnectionHealthStatus;
@@ -412,7 +412,7 @@ class ModelConnectionCredentialServiceTest {
                 ModelConnectionOwner.organization(ORGANIZATION_ID),
                 provider.defaultEndpoint(),
                 REGION,
-                ModelBillingSubject.organization(ORGANIZATION_ID),
+                ModelSubject.organization(ORGANIZATION_ID),
                 credentialId,
                 CredentialSubject.organization(ORGANIZATION_ID),
                 "deepseek-" + connectionId,

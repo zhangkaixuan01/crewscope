@@ -45,8 +45,8 @@ class ModelConnectionTest {
                 open(
                                 provider,
                                 userOwner,
-                                ModelCredentialSubject.principal(ORGANIZATION_ID, USER_ID),
-                                ModelBillingSubject.principal(ORGANIZATION_ID, USER_ID))
+                                ModelSubject.principal(ORGANIZATION_ID, USER_ID),
+                                ModelSubject.principal(ORGANIZATION_ID, USER_ID))
                         .owner()
                         .type());
         assertEquals(
@@ -54,8 +54,8 @@ class ModelConnectionTest {
                 open(
                                 provider,
                                 teamOwner,
-                                ModelCredentialSubject.organization(ORGANIZATION_ID),
-                                ModelBillingSubject.organization(ORGANIZATION_ID))
+                                ModelSubject.organization(ORGANIZATION_ID),
+                                ModelSubject.organization(ORGANIZATION_ID))
                         .credentialBinding()
                         .subject()
                         .type());
@@ -64,8 +64,8 @@ class ModelConnectionTest {
                 open(
                                 provider,
                                 organizationOwner,
-                                ModelCredentialSubject.organization(ORGANIZATION_ID),
-                                ModelBillingSubject.organization(ORGANIZATION_ID))
+                                ModelSubject.organization(ORGANIZATION_ID),
+                                ModelSubject.organization(ORGANIZATION_ID))
                         .owner()
                         .type());
 
@@ -74,22 +74,22 @@ class ModelConnectionTest {
                 () -> open(
                         provider,
                         userOwner,
-                        ModelCredentialSubject.organization(ORGANIZATION_ID),
-                        ModelBillingSubject.principal(ORGANIZATION_ID, USER_ID)));
+                        ModelSubject.organization(ORGANIZATION_ID),
+                        ModelSubject.principal(ORGANIZATION_ID, USER_ID)));
         assertThrows(
                 DomainValidationException.class,
                 () -> open(
                         provider,
                         teamOwner,
-                        ModelCredentialSubject.team(ORGANIZATION_ID, TeamId.generate()),
-                        ModelBillingSubject.team(ORGANIZATION_ID, TEAM_ID)));
+                        ModelSubject.team(ORGANIZATION_ID, TeamId.generate()),
+                        ModelSubject.team(ORGANIZATION_ID, TEAM_ID)));
         assertThrows(
                 DomainValidationException.class,
                 () -> open(
                         provider,
                         organizationOwner,
-                        ModelCredentialSubject.organization(ORGANIZATION_ID),
-                        ModelBillingSubject.team(ORGANIZATION_ID, TEAM_ID)));
+                        ModelSubject.organization(ORGANIZATION_ID),
+                        ModelSubject.team(ORGANIZATION_ID, TEAM_ID)));
     }
 
     @Test
@@ -102,8 +102,8 @@ class ModelConnectionTest {
                 () -> open(
                         provider,
                         userOwner(USER_ID),
-                        ModelCredentialSubject.principal(otherOrganization, USER_ID),
-                        ModelBillingSubject.principal(ORGANIZATION_ID, USER_ID)));
+                        ModelSubject.principal(otherOrganization, USER_ID),
+                        ModelSubject.principal(ORGANIZATION_ID, USER_ID)));
         assertThrows(
                 DomainValidationException.class,
                 () -> ModelConnection.open(
@@ -112,8 +112,8 @@ class ModelConnectionTest {
                         userOwner(USER_ID),
                         new ModelEndpoint("https://gateway.example.com/v1"),
                         new ModelRegion("eu"),
-                        credential(ModelCredentialSubject.principal(ORGANIZATION_ID, USER_ID)),
-                        ModelBillingSubject.principal(ORGANIZATION_ID, USER_ID),
+                        credential(ModelSubject.principal(ORGANIZATION_ID, USER_ID)),
+                        ModelSubject.principal(ORGANIZATION_ID, USER_ID),
                         ACTOR,
                         CREATED_AT));
     }
@@ -351,15 +351,15 @@ class ModelConnectionTest {
         return open(
                 provider,
                 userOwner(USER_ID),
-                ModelCredentialSubject.principal(ORGANIZATION_ID, USER_ID),
-                ModelBillingSubject.principal(ORGANIZATION_ID, USER_ID));
+                ModelSubject.principal(ORGANIZATION_ID, USER_ID),
+                ModelSubject.principal(ORGANIZATION_ID, USER_ID));
     }
 
     private static ModelConnection open(
             ModelProviderDefinition provider,
             ModelConnectionOwner owner,
-            ModelCredentialSubject credentialSubject,
-            ModelBillingSubject billingSubject) {
+            ModelSubject credentialSubject,
+            ModelSubject billingSubject) {
         return ModelConnection.open(
                 provider,
                 ModelConnectionId.generate(),
@@ -372,7 +372,7 @@ class ModelConnectionTest {
                 CREATED_AT);
     }
 
-    private static ModelCredentialBinding credential(ModelCredentialSubject subject) {
+    private static ModelCredentialBinding credential(ModelSubject subject) {
         return new ModelCredentialBinding(
                 CredentialId.generate(), subject, new ModelCredentialVersion(0));
     }

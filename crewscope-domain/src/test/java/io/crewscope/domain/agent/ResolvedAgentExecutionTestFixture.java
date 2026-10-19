@@ -1,14 +1,13 @@
 package io.crewscope.domain.agent;
 
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -101,11 +100,11 @@ public final class ResolvedAgentExecutionTestFixture {
                         region,
                         new ModelCredentialBinding(
                                 CredentialId.generate(),
-                                ModelCredentialSubject.principal(
+                                ModelSubject.principal(
                                         AgentConfigurationTestFixture.ORGANIZATION_ID,
                                         AgentConfigurationTestFixture.OWNER_USER_ID),
                                 new ModelCredentialVersion(0)),
-                        ModelBillingSubject.principal(
+                        ModelSubject.principal(
                                 AgentConfigurationTestFixture.ORGANIZATION_ID,
                                 AgentConfigurationTestFixture.OWNER_USER_ID),
                         AgentConfigurationTestFixture.ACTOR,

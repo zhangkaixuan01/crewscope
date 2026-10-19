@@ -24,7 +24,7 @@ import io.crewscope.domain.agent.ResolvedModelRole;
 import io.crewscope.domain.agent.ResolvedModelSelection;
 import io.crewscope.domain.agent.SafeModelGenerateOptions;
 import io.crewscope.domain.model.ModelAdapterKey;
-import io.crewscope.domain.model.ModelBillingSubject;
+import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
@@ -33,7 +33,6 @@ import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
 import io.crewscope.domain.model.ModelConnectionOwnerType;
 import io.crewscope.domain.model.ModelCredentialBinding;
-import io.crewscope.domain.model.ModelCredentialSubject;
 import io.crewscope.domain.model.ModelCredentialVersion;
 import io.crewscope.domain.model.ModelDataPolicy;
 import io.crewscope.domain.model.ModelDataRetentionMode;
@@ -145,9 +144,9 @@ final class M5ResolvedExecutionPersistenceFixture {
                         region,
                         new ModelCredentialBinding(
                                 CredentialId.generate(),
-                                ModelCredentialSubject.team(organizationId, teamId),
+                                ModelSubject.team(organizationId, teamId),
                                 new ModelCredentialVersion(0)),
-                        ModelBillingSubject.team(organizationId, teamId),
+                        ModelSubject.team(organizationId, teamId),
                         actor,
                         createdAt)
                 .recordVerificationSuccess(
