@@ -159,7 +159,8 @@ public class TeamSkillConfiguration {
     @Bean
     SkillDistillerRuntime skillDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            DistillerTemplateRuntimeRegistry templates) {
+            @Qualifier("skillDistillerTemplateRuntimeRegistry")
+                    DistillerTemplateRuntimeRegistry templates) {
         return new SkillDistillerRuntime(agents, templates, Duration.ofMinutes(10));
     }
 
@@ -174,7 +175,8 @@ public class TeamSkillConfiguration {
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            DistillerTemplateRuntimeRegistry registry,
+            @Qualifier("skillDistillerTemplateRuntimeRegistry")
+                    DistillerTemplateRuntimeRegistry registry,
             SkillDistillerRuntime runtime,
             TimeProvider timeProvider) {
         return new AgentScopeSkillDistillationAdapter(

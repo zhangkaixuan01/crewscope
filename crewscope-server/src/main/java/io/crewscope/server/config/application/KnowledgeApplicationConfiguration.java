@@ -148,7 +148,8 @@ public class KnowledgeApplicationConfiguration {
     @Bean
     KnowledgeDistillerRuntime knowledgeDistillerRuntime(
             AgentTemplateRuntimeRegistry agents,
-            DistillerTemplateRuntimeRegistry templates) {
+            @Qualifier("knowledgeDistillerTemplateRuntimeRegistry")
+                    DistillerTemplateRuntimeRegistry templates) {
         return new KnowledgeDistillerRuntime(agents, templates, Duration.ofMinutes(2));
     }
 
@@ -163,7 +164,8 @@ public class KnowledgeApplicationConfiguration {
             AgentModelGovernance governance,
             AgentExecutionConfigurationService resolver,
             AgentTemplateRuntimeAssembler assembler,
-            DistillerTemplateRuntimeRegistry registry,
+            @Qualifier("knowledgeDistillerTemplateRuntimeRegistry")
+                    DistillerTemplateRuntimeRegistry registry,
             KnowledgeDistillerRuntime runtime,
             TimeProvider timeProvider) {
         return new AgentScopeKnowledgeDistillationAdapter(
