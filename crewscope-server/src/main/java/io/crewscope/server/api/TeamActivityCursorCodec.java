@@ -15,35 +15,22 @@ import io.crewscope.domain.shared.id.TeamId;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.regex.Pattern;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.http.HttpStatus;
 
 /** Versioned HMAC-SHA256 codec binding a Team position to route, Generation and filter. */
-public final class TeamActivityCursorCodec {
+public final class TeamActivityCursorCodec extends CursorCodec<TeamActivityCursor> {
 
   private static final byte VERSION = 1;
-  private static final int SIGNATURE_BYTES = 32;
   private static final int FINGERPRINT_BYTES = 32;
   private static final int MAX_TOKEN_LENGTH = 768;
-  private static final Pattern TOKEN_FORMAT = Pattern.compile("[A-Za-z0-9_-]+");
 
-  private final TeamActivityCursorKeyRing keyRing;
-  private final Clock clock;
-  private final Duration maximumAge;
   private final Duration futureSkew;
 
   public TeamActivityCursorCodec(
@@ -51,21 +38,8 @@ public final class TeamActivityCursorCodec {
       Clock clock,
       Duration maximumAge,
       Duration futureSkew) {
-    this.keyRing = Objects.requireNonNull(keyRing, "keyRing");
-    this.clock = Objects.requireNonNull(clock, "clock");
-    this.maximumAge = requireDuration(maximumAge, "maximumAge", Duration.ofDays(30));
-    this.futureSkew = requireDuration(futureSkew, "futureSkew", Duration.ofMinutes(5));
-  }
-
-  public String encode(TeamActivityCursor cursor) {
-    TeamActivityCursor source = Objects.requireNonNull(cursor, "cursor");
-    Instant issuedAt = clock.instant();
-    Instant expiresAt = issuedAt.plus(maximumAge);
-    byte[] body = encodeBody(source, keyRing.currentKeyId(), issuedAt, expiresAt);
-    byte[] signature = sign(body, keyRing.currentKey());
-    ByteBuffer token = ByteBuffer.allocate(body.length + signature.length);
-    token.put(body).put(signature);
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(token.array());
+    super(keyRing, clock, maximumAge, MAX_TOKEN_LENGTH);
+    this.futureSkew = requireFutureSkew(futureSkew);
   }
 
   public TeamActivityCursor decode(
@@ -74,20 +48,8 @@ public final class TeamActivityCursorCodec {
       TeamId expectedTeamId,
       ProjectionName expectedProjectionName,
       ActivityFilter expectedFilter) {
-    byte[] encoded = decodeCanonicalToken(token);
-    if (encoded.length <= SIGNATURE_BYTES) {
-      throw invalidCursor();
-    }
-    byte[] body = Arrays.copyOf(encoded, encoded.length - SIGNATURE_BYTES);
-    byte[] signature = Arrays.copyOfRange(encoded, body.length, encoded.length);
-    String keyId = readKeyId(body);
-    byte[] key = keyRing.key(keyId);
-    if (key == null || !MessageDigest.isEqual(signature, sign(body, key))) {
-      throw invalidCursor();
-    }
-    Decoded decoded = parseVerified(body);
-    validateTime(decoded.issuedAt(), decoded.expiresAt());
-    ActivityCursorScope scope = decoded.cursor().scope();
+    TeamActivityCursor cursor = decodeVerified(token);
+    ActivityCursorScope scope = cursor.scope();
     ActivityFilter filter = Objects.requireNonNull(expectedFilter, "expectedFilter");
     if (!scope.organizationId().equals(Objects.requireNonNull(
             expectedOrganizationId, "expectedOrganizationId"))
@@ -97,16 +59,40 @@ public final class TeamActivityCursorCodec {
         || !scope.filterFingerprint().equals(filter.fingerprint())) {
       throw invalidCursor();
     }
-    return decoded.cursor();
+    return cursor;
   }
 
-  private byte[] encodeBody(
-      TeamActivityCursor cursor, String keyId, Instant issuedAt, Instant expiresAt) {
+  @Override
+  protected byte version() {
+    return VERSION;
+  }
+
+  /** The v1 wire format has no signing-domain prefix; the version byte separates surfaces. */
+  @Override
+  protected byte[] signingDomain() {
+    return null;
+  }
+
+  @Override
+  protected Duration requireMaximumAge(Duration maximumAge) {
+    Duration required = Objects.requireNonNull(maximumAge, "maximumAge");
+    if (required.compareTo(Duration.ofSeconds(1)) < 0
+        || required.compareTo(Duration.ofDays(30)) > 0) {
+      throw new IllegalArgumentException(
+          "maximumAge must be at least one second and at most " + Duration.ofDays(30));
+    }
+    return required;
+  }
+
+  @Override
+  protected byte[] encodeBody(
+      TeamActivityCursor cursor, String keyId, Instant issuedAt) {
     byte[] keyIdBytes = keyId.getBytes(StandardCharsets.UTF_8);
     byte[] projectionBytes =
         cursor.scope().projectionName().value().getBytes(StandardCharsets.UTF_8);
     byte[] fingerprint =
         HexFormat.of().parseHex(cursor.scope().filterFingerprint().value());
+    Instant expiresAt = issuedAt.plus(maximumAge());
     int size =
         1
             + 1
@@ -134,52 +120,56 @@ public final class TeamActivityCursorCodec {
     return buffer.array();
   }
 
-  private Decoded parseVerified(byte[] body) {
+  @Override
+  protected TeamActivityCursor parseVerified(byte[] body) {
+    ByteBuffer buffer = ByteBuffer.wrap(body);
+    if (buffer.get() != VERSION) {
+      throw invalidCursor();
+    }
+    // The key id was already resolved and checked while verifying the signature.
+    readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
+    String projectionName = readText(buffer, Short.toUnsignedInt(buffer.getShort()), 180);
+    buffer.getLong();
+    buffer.getLong();
+    OrganizationId organizationId = new OrganizationId(readUuid(buffer));
+    TeamId teamId = new TeamId(readUuid(buffer));
+    ProjectionGeneration generation = new ProjectionGeneration(buffer.getLong());
+    SchemaVersion schemaVersion = new SchemaVersion(buffer.getInt());
+    byte[] fingerprintBytes = new byte[FINGERPRINT_BYTES];
+    buffer.get(fingerprintBytes);
+    ActivityFilterFingerprint fingerprint =
+        new ActivityFilterFingerprint(HexFormat.of().formatHex(fingerprintBytes));
+    TeamSequence sequence = new TeamSequence(buffer.getLong());
+    ActivityEventId eventId = new ActivityEventId(readUuid(buffer));
+    if (buffer.hasRemaining()) {
+      throw invalidCursor();
+    }
+    ActivityCursorScope scope =
+        new ActivityCursorScope(
+            organizationId,
+            teamId,
+            new ProjectionName(projectionName),
+            generation,
+            schemaVersion,
+            fingerprint);
+    return new TeamActivityCursor(scope, sequence, eventId);
+  }
+
+  @Override
+  protected void validateTime(TeamActivityCursor cursor, byte[] body) {
+    Times times;
     try {
-      ByteBuffer buffer = ByteBuffer.wrap(body);
-      if (buffer.get() != VERSION) {
-        throw invalidCursor();
-      }
-      String keyId = readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
-      if (!keyId.equals(keyRing.currentKeyId()) && keyRing.key(keyId) == null) {
-        throw invalidCursor();
-      }
-      String projectionName = readText(buffer, Short.toUnsignedInt(buffer.getShort()), 180);
-      Instant issuedAt = Instant.ofEpochSecond(buffer.getLong());
-      Instant expiresAt = Instant.ofEpochSecond(buffer.getLong());
-      OrganizationId organizationId = new OrganizationId(readUuid(buffer));
-      TeamId teamId = new TeamId(readUuid(buffer));
-      ProjectionGeneration generation = new ProjectionGeneration(buffer.getLong());
-      SchemaVersion schemaVersion = new SchemaVersion(buffer.getInt());
-      byte[] fingerprintBytes = new byte[FINGERPRINT_BYTES];
-      buffer.get(fingerprintBytes);
-      ActivityFilterFingerprint fingerprint =
-          new ActivityFilterFingerprint(HexFormat.of().formatHex(fingerprintBytes));
-      TeamSequence sequence = new TeamSequence(buffer.getLong());
-      ActivityEventId eventId = new ActivityEventId(readUuid(buffer));
-      if (buffer.hasRemaining()) {
-        throw invalidCursor();
-      }
-      ActivityCursorScope scope =
-          new ActivityCursorScope(
-              organizationId,
-              teamId,
-              new ProjectionName(projectionName),
-              generation,
-              schemaVersion,
-              fingerprint);
-      return new Decoded(new TeamActivityCursor(scope, sequence, eventId), issuedAt, expiresAt);
-    } catch (ApiRequestException failure) {
-      throw failure;
+      times = readTimes(body);
     } catch (BufferUnderflowException | DateTimeException | IllegalArgumentException failure) {
       throw invalidCursor();
     }
+    validateTime(times.issuedAt(), times.expiresAt());
   }
 
   private void validateTime(Instant issuedAt, Instant expiresAt) {
-    Instant now = clock.instant();
+    Instant now = clock().instant();
     if (!expiresAt.isAfter(issuedAt)
-        || Duration.between(issuedAt, expiresAt).compareTo(maximumAge) > 0
+        || Duration.between(issuedAt, expiresAt).compareTo(maximumAge()) > 0
         || issuedAt.isAfter(now.plus(futureSkew))) {
       throw invalidCursor();
     }
@@ -188,78 +178,28 @@ public final class TeamActivityCursorCodec {
     }
   }
 
-  private static byte[] decodeCanonicalToken(String token) {
-    if (token == null
-        || token.isBlank()
-        || token.length() > MAX_TOKEN_LENGTH
-        || !TOKEN_FORMAT.matcher(token).matches()) {
-      throw invalidCursor();
-    }
-    try {
-      byte[] decoded = Base64.getUrlDecoder().decode(token);
-      if (!Base64.getUrlEncoder().withoutPadding().encodeToString(decoded).equals(token)) {
-        throw invalidCursor();
-      }
-      return decoded;
-    } catch (IllegalArgumentException failure) {
-      throw invalidCursor();
-    }
+  /** Reads back both timestamps; the signature has already been verified by the caller. */
+  private static Times readTimes(byte[] body) {
+    ByteBuffer buffer = ByteBuffer.wrap(body);
+    buffer.get();
+    buffer.position(buffer.position() + 1 + Byte.toUnsignedInt(buffer.get()));
+    buffer.position(buffer.position() + Short.BYTES + Short.toUnsignedInt(buffer.getShort()));
+    return new Times(
+        Instant.ofEpochSecond(buffer.getLong()), Instant.ofEpochSecond(buffer.getLong()));
   }
 
-  private static String readKeyId(byte[] body) {
-    try {
-      ByteBuffer buffer = ByteBuffer.wrap(body);
-      if (buffer.get() != VERSION) {
-        throw invalidCursor();
-      }
-      return readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
-    } catch (BufferUnderflowException | IllegalArgumentException failure) {
-      throw invalidCursor();
-    }
-  }
-
-  private static String readText(ByteBuffer buffer, int length, int maximumLength) {
-    if (length < 1 || length > maximumLength || buffer.remaining() < length) {
-      throw invalidCursor();
-    }
-    byte[] value = new byte[length];
-    buffer.get(value);
-    String decoded = new String(value, StandardCharsets.UTF_8);
-    if (!Arrays.equals(value, decoded.getBytes(StandardCharsets.UTF_8))) {
-      throw invalidCursor();
-    }
-    return decoded;
-  }
-
-  private static void putUuid(ByteBuffer buffer, UUID value) {
-    buffer.putLong(value.getMostSignificantBits()).putLong(value.getLeastSignificantBits());
-  }
-
-  private static UUID readUuid(ByteBuffer buffer) {
-    return new UUID(buffer.getLong(), buffer.getLong());
-  }
-
-  private static byte[] sign(byte[] body, byte[] key) {
-    try {
-      Mac mac = Mac.getInstance("HmacSHA256");
-      mac.init(new SecretKeySpec(key, "HmacSHA256"));
-      return mac.doFinal(body);
-    } catch (GeneralSecurityException failure) {
-      throw new IllegalStateException("HmacSHA256 is unavailable", failure);
-    }
-  }
-
-  private static Duration requireDuration(
-      Duration value, String name, Duration maximum) {
-    Duration required = Objects.requireNonNull(value, name);
-    if (required.compareTo(Duration.ofSeconds(1)) < 0 || required.compareTo(maximum) > 0) {
+  private static Duration requireFutureSkew(Duration futureSkew) {
+    Duration required = Objects.requireNonNull(futureSkew, "futureSkew");
+    if (required.compareTo(Duration.ofSeconds(1)) < 0
+        || required.compareTo(Duration.ofMinutes(5)) > 0) {
       throw new IllegalArgumentException(
-          name + " must be at least one second and at most " + maximum);
+          "futureSkew must be at least one second and at most " + Duration.ofMinutes(5));
     }
     return required;
   }
 
-  private static ApiRequestException invalidCursor() {
+  @Override
+  protected ApiRequestException invalidCursor() {
     return new ApiRequestException(
         HttpStatus.BAD_REQUEST,
         "invalid_cursor",
@@ -267,6 +207,5 @@ public final class TeamActivityCursorCodec {
         Map.of("parameter", "after"));
   }
 
-  private record Decoded(
-      TeamActivityCursor cursor, Instant issuedAt, Instant expiresAt) {}
+  private record Times(Instant issuedAt, Instant expiresAt) {}
 }

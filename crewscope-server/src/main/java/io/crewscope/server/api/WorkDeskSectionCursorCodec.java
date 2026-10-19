@@ -10,23 +10,14 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.UUID;
-import java.util.regex.Pattern;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -39,28 +30,20 @@ import org.springframework.http.HttpStatus;
  * expired so the client restarts the section from its first screen. The Inbox-shaped position
  * carries the same four keys the Inbox's own cursor does, so both surfaces walk one ordering.
  */
-public final class WorkDeskSectionCursorCodec {
+public final class WorkDeskSectionCursorCodec extends CursorCodec<WorkDeskSectionCursorCodec.WorkDeskSectionCursor> {
 
     private static final byte VERSION = 1;
     private static final byte[] SIGNING_DOMAIN =
             "crewscope:work-desk-section-cursor:v1".getBytes(StandardCharsets.UTF_8);
-    private static final int SIGNATURE_BYTES = 32;
     private static final int FINGERPRINT_BYTES = 32;
     private static final int MAX_TOKEN_LENGTH = 512;
     private static final int MAX_SECTION_KEY_BYTES = 24;
     /** Issued-at timestamps further in the future than this are rejected as invalid. */
     private static final Duration FUTURE_SKEW = Duration.ofSeconds(30);
-    private static final Pattern TOKEN_FORMAT = Pattern.compile("[A-Za-z0-9_-]+");
-
-    private final TeamActivityCursorKeyRing keyRing;
-    private final Clock clock;
-    private final Duration maximumAge;
 
     public WorkDeskSectionCursorCodec(
             TeamActivityCursorKeyRing keyRing, Clock clock, Duration maximumAge) {
-        this.keyRing = Objects.requireNonNull(keyRing, "keyRing");
-        this.clock = Objects.requireNonNull(clock, "clock");
-        this.maximumAge = requireDuration(maximumAge, "maximumAge", Duration.ofMinutes(1));
+        super(keyRing, clock, maximumAge, MAX_TOKEN_LENGTH);
     }
 
     /**
@@ -98,37 +81,26 @@ public final class WorkDeskSectionCursorCodec {
         }
     }
 
-    public String encode(WorkDeskSectionCursor cursor) {
-        WorkDeskSectionCursor source = Objects.requireNonNull(cursor, "cursor");
-        byte[] body = encodeBody(source, keyRing.currentKeyId(), clock.instant());
-        byte[] signature = sign(body, keyRing.currentKey());
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(
-                ByteBuffer.allocate(body.length + signature.length)
-                        .put(body)
-                        .put(signature)
-                        .array());
-    }
-
     public WorkDeskSectionCursor decode(String token, WorkDeskSectionCursorScope expectedScope) {
-        byte[] encoded = decodeCanonical(token);
-        if (encoded.length <= SIGNATURE_BYTES) {
-            throw invalidCursor();
-        }
-        byte[] body = Arrays.copyOf(encoded, encoded.length - SIGNATURE_BYTES);
-        byte[] signature = Arrays.copyOfRange(encoded, body.length, encoded.length);
-        byte[] key = keyRing.key(readKeyId(body));
-        if (key == null || !MessageDigest.isEqual(signature, sign(body, key))) {
-            throw invalidCursor();
-        }
-        WorkDeskSectionCursor cursor = parseVerified(body);
-        validateTime(parseIssuedAt(body));
+        WorkDeskSectionCursor cursor = decodeVerified(token);
         if (!cursor.scope().equals(Objects.requireNonNull(expectedScope, "expectedScope"))) {
             throw invalidCursor();
         }
         return cursor;
     }
 
-    private static byte[] encodeBody(
+    @Override
+    protected byte version() {
+        return VERSION;
+    }
+
+    @Override
+    protected byte[] signingDomain() {
+        return SIGNING_DOMAIN;
+    }
+
+    @Override
+    protected byte[] encodeBody(
             WorkDeskSectionCursor cursor, String keyId, Instant issuedAt) {
         byte[] keyIdBytes = keyId.getBytes(StandardCharsets.UTF_8);
         byte[] sectionKeyBytes = cursor.scope().sectionKey().getBytes(StandardCharsets.UTF_8);
@@ -145,73 +117,61 @@ public final class WorkDeskSectionCursorCodec {
         putUuid(body, cursor.scope().teamId().value());
         putUuid(body, cursor.scope().viewerPrincipalId().value());
         body.put((byte) sectionKeyBytes.length).put(sectionKeyBytes).put(fingerprint);
-        body.putLong(issuedAt.getEpochSecond()).putInt(issuedAt.getNano());
-        if (hasRank) {
-            body.put((byte) 1).putInt(position.primaryRank().orElseThrow());
-        } else {
-            body.put((byte) 0);
-        }
-        if (hasDeadline) {
-            Instant deadline = position.deadline().orElseThrow().value();
-            body.put((byte) 1).putLong(deadline.getEpochSecond()).putInt(deadline.getNano());
-        } else {
-            body.put((byte) 0);
-        }
-        Instant sortTime = position.sortTime().value();
-        body.putLong(sortTime.getEpochSecond()).putInt(sortTime.getNano());
+        putInstant(body, issuedAt);
+        putOptionalInt(body, position.primaryRank());
+        putOptionalInstant(body, position.deadline().map(UtcTimestamp::value));
+        putInstant(body, position.sortTime().value());
         putUuid(body, position.sortId());
         return body.array();
     }
 
-    private WorkDeskSectionCursor parseVerified(byte[] body) {
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(body);
-            if (buffer.get() != VERSION) {
-                throw invalidCursor();
-            }
-            String keyId = readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
-            if (keyRing.key(keyId) == null) {
-                throw invalidCursor();
-            }
-            OrganizationId organizationId = new OrganizationId(readUuid(buffer));
-            TeamId teamId = new TeamId(readUuid(buffer));
-            PrincipalId viewerPrincipalId = new PrincipalId(readUuid(buffer));
-            String sectionKey = readText(
-                    buffer, Byte.toUnsignedInt(buffer.get()), MAX_SECTION_KEY_BYTES);
-            byte[] fingerprint = new byte[FINGERPRINT_BYTES];
-            buffer.get(fingerprint);
-            buffer.getLong();
-            buffer.getInt();
-            OptionalInt primaryRank = OptionalInt.empty();
-            if (buffer.get() != 0) {
-                primaryRank = OptionalInt.of(buffer.getInt());
-            }
-            Optional<UtcTimestamp> deadline = Optional.empty();
-            if (buffer.get() != 0) {
-                deadline = Optional.of(
-                        UtcTimestamp.from(Instant.ofEpochSecond(buffer.getLong(), buffer.getInt())));
-            }
-            UtcTimestamp sortTime =
-                    UtcTimestamp.from(Instant.ofEpochSecond(buffer.getLong(), buffer.getInt()));
-            UUID sortId = readUuid(buffer);
-            if (buffer.hasRemaining()) {
-                throw invalidCursor();
-            }
-            WorkDeskSectionCursorScope scope = new WorkDeskSectionCursorScope(
-                    organizationId, teamId, viewerPrincipalId, sectionKey,
-                    new WorkItemFilterFingerprint(HexFormat.of().formatHex(fingerprint)));
-            return new WorkDeskSectionCursor(
-                    scope,
-                    new WorkDeskSectionPosition(sectionKey, primaryRank, deadline, sortTime, sortId));
-        } catch (ApiRequestException failure) {
-            throw failure;
-        } catch (BufferUnderflowException | DateTimeException | IllegalArgumentException failure) {
+    @Override
+    protected WorkDeskSectionCursor parseVerified(byte[] body) {
+        ByteBuffer buffer = ByteBuffer.wrap(body);
+        if (buffer.get() != VERSION) {
             throw invalidCursor();
+        }
+        // The key id was already resolved and checked while verifying the signature.
+        readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
+        OrganizationId organizationId = new OrganizationId(readUuid(buffer));
+        TeamId teamId = new TeamId(readUuid(buffer));
+        PrincipalId viewerPrincipalId = new PrincipalId(readUuid(buffer));
+        String sectionKey = readText(
+                buffer, Byte.toUnsignedInt(buffer.get()), MAX_SECTION_KEY_BYTES);
+        byte[] fingerprint = new byte[FINGERPRINT_BYTES];
+        buffer.get(fingerprint);
+        buffer.getLong();
+        buffer.getInt();
+        OptionalInt primaryRank = readOptionalInt(buffer);
+        Optional<UtcTimestamp> deadline = readOptionalInstant(buffer).map(UtcTimestamp::from);
+        UtcTimestamp sortTime = UtcTimestamp.from(readInstant(buffer));
+        WorkDeskSectionCursorScope scope = new WorkDeskSectionCursorScope(
+                organizationId, teamId, viewerPrincipalId, sectionKey,
+                new WorkItemFilterFingerprint(HexFormat.of().formatHex(fingerprint)));
+        WorkDeskSectionCursor cursor = new WorkDeskSectionCursor(
+                scope,
+                new WorkDeskSectionPosition(sectionKey, primaryRank, deadline, sortTime,
+                        readUuid(buffer)));
+        if (buffer.hasRemaining()) {
+            throw invalidCursor();
+        }
+        return cursor;
+    }
+
+    @Override
+    protected void validateTime(WorkDeskSectionCursor cursor, byte[] body) {
+        Instant issuedAt = parseIssuedAt(body);
+        Instant now = clock().instant();
+        if (issuedAt.isAfter(now.plus(FUTURE_SKEW))) {
+            throw invalidCursor();
+        }
+        if (issuedAt.plus(maximumAge()).isBefore(now)) {
+            throw new WorkDeskCursorExpiredException();
         }
     }
 
     /** Reads back only the issue time; the signature has already been verified by the caller. */
-    private static Instant parseIssuedAt(byte[] body) {
+    private Instant parseIssuedAt(byte[] body) {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(body);
             buffer.get();
@@ -225,87 +185,8 @@ public final class WorkDeskSectionCursorCodec {
         }
     }
 
-    private void validateTime(Instant issuedAt) {
-        Instant now = clock.instant();
-        if (issuedAt.isAfter(now.plus(FUTURE_SKEW))) {
-            throw invalidCursor();
-        }
-        if (issuedAt.plus(maximumAge).isBefore(now)) {
-            throw new WorkDeskCursorExpiredException();
-        }
-    }
-
-    private static byte[] decodeCanonical(String token) {
-        if (token == null
-                || token.isBlank()
-                || token.length() > MAX_TOKEN_LENGTH
-                || !TOKEN_FORMAT.matcher(token).matches()) {
-            throw invalidCursor();
-        }
-        try {
-            byte[] decoded = Base64.getUrlDecoder().decode(token);
-            if (!Base64.getUrlEncoder().withoutPadding().encodeToString(decoded).equals(token)) {
-                throw invalidCursor();
-            }
-            return decoded;
-        } catch (IllegalArgumentException failure) {
-            throw invalidCursor();
-        }
-    }
-
-    private static String readKeyId(byte[] body) {
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(body);
-            if (buffer.get() != VERSION) {
-                throw invalidCursor();
-            }
-            return readText(buffer, Byte.toUnsignedInt(buffer.get()), 32);
-        } catch (BufferUnderflowException | IllegalArgumentException failure) {
-            throw invalidCursor();
-        }
-    }
-
-    private static String readText(ByteBuffer buffer, int length, int maximumLength) {
-        if (length < 1 || length > maximumLength || buffer.remaining() < length) {
-            throw invalidCursor();
-        }
-        byte[] bytes = new byte[length];
-        buffer.get(bytes);
-        String value = new String(bytes, StandardCharsets.UTF_8);
-        if (!Arrays.equals(bytes, value.getBytes(StandardCharsets.UTF_8))) {
-            throw invalidCursor();
-        }
-        return value;
-    }
-
-    private static Duration requireDuration(Duration value, String name, Duration minimum) {
-        if (value == null || value.compareTo(minimum) < 0) {
-            throw new IllegalArgumentException(
-                    "WorkDeskSectionCursorCodec " + name + " must be at least " + minimum);
-        }
-        return value;
-    }
-
-    private static byte[] sign(byte[] body, byte[] key) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            mac.update(SIGNING_DOMAIN);
-            return mac.doFinal(body);
-        } catch (GeneralSecurityException failure) {
-            throw new IllegalStateException("HmacSHA256 is unavailable", failure);
-        }
-    }
-
-    private static void putUuid(ByteBuffer buffer, UUID value) {
-        buffer.putLong(value.getMostSignificantBits()).putLong(value.getLeastSignificantBits());
-    }
-
-    private static UUID readUuid(ByteBuffer buffer) {
-        return new UUID(buffer.getLong(), buffer.getLong());
-    }
-
-    private static ApiRequestException invalidCursor() {
+    @Override
+    protected ApiRequestException invalidCursor() {
         return new ApiRequestException(
                 HttpStatus.BAD_REQUEST,
                 "invalid_cursor",
