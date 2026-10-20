@@ -13,6 +13,8 @@ import io.crewscope.application.retrieval.KnowledgeIndexWorker;
 import io.crewscope.application.retrieval.RepositoryChunkVectorStore;
 import io.crewscope.application.retrieval.RepositoryContentPort;
 import io.crewscope.application.retrieval.RepositoryGenerationStore;
+import io.crewscope.application.retrieval.KnowledgeSwitchBoard;
+import io.crewscope.application.retrieval.KnowledgeSwitchQueryService;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
 import io.crewscope.application.team.TeamRepository;
@@ -49,7 +51,14 @@ import tools.jackson.databind.ObjectMapper;
  * jobs and reports {@code DOWN} through {@link KnowledgeIndexHealthIndicator}.
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(KnowledgeIndexProperties.class)
+// The switch board also reads the injection/skill switches, so this configuration re-registers
+// those property beans (idempotent with TeamSkillConfiguration) and stays self-contained for
+// sliced context tests instead of depending on another configuration class.
+@EnableConfigurationProperties({
+    KnowledgeIndexProperties.class,
+    InjectionBudgetProperties.class,
+    SkillProperties.class
+})
 public class KnowledgeIndexConfiguration {
 
     @Bean
@@ -96,6 +105,38 @@ public class KnowledgeIndexConfiguration {
                 grants,
                 transactions,
                 timeProvider);
+    }
+
+    /**
+     * M13b-A03: the member-facing switch board is a pure configuration projection — the six
+     * switches come from this class's {@link KnowledgeIndexProperties}, the always-registered
+     * {@code SkillProperties}/{@code InjectionBudgetProperties} beans, and the two {@code @Value}
+     * flags (vector/retrieval). No knowledge table is read; the endpoint exists on every
+     * deployment so the closed-capability copy has a single source of truth.
+     */
+    @Bean
+    KnowledgeSwitchBoard knowledgeSwitchBoard(
+            KnowledgeIndexProperties index,
+            InjectionBudgetProperties injection,
+            SkillProperties skill,
+            @Value("${crewscope.knowledge.vector.enabled:false}") boolean vectorEnabled,
+            @Value("${crewscope.knowledge.retrieval.enabled:false}") boolean retrievalEnabled) {
+        return new KnowledgeSwitchBoard(
+                vectorEnabled,
+                index.isEnabled(),
+                index.getWorker().isEnabled(),
+                retrievalEnabled,
+                injection.isEnabled(),
+                skill.isEnabled());
+    }
+
+    @Bean
+    KnowledgeSwitchQueryService knowledgeSwitchQueryService(
+            TeamRepository teams,
+            TeamMembershipQuery memberships,
+            TransactionExecutor transactions,
+            KnowledgeSwitchBoard board) {
+        return new KnowledgeSwitchQueryService(teams, memberships, transactions, board);
     }
 
     @Bean

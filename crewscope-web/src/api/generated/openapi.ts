@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 31e4a8918557a98930c02272ace3844a81facb16506d0cdae48fff408ff1f619
+// Controller source SHA-256: e9565dafab53e6ac9412b195150ad0a7b631fc47c40f427f504b13f7ff8bfaeb
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1056,6 +1056,14 @@ export const openApiDocument = {
         "operationId": "TeamInvitationController_revoke",
         "tags": [
           "TeamInvitationController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/config": {
+      "get": {
+        "operationId": "KnowledgeConfigController_config",
+        "tags": [
+          "KnowledgeConfigController"
         ]
       }
     },
@@ -3200,6 +3208,12 @@ export const openApiOperations = [
     "controller": "TeamInvitationController"
   },
   {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/config",
+    "operationId": "KnowledgeConfigController_config",
+    "controller": "KnowledgeConfigController"
+  },
+  {
     "method": "post",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/distillations",
     "operationId": "KnowledgeDistillationController_distill",
@@ -4238,4 +4252,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 307 as const
+export const openApiOperationCount = 308 as const
