@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -56,7 +56,7 @@ import org.springframework.web.util.UriComponentsBuilder;
         classes = io.crewscope.server.CrewScopeApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OidcProtocolAttackM12I01IntegrationTest
-        extends AbstractPostgresRedisContainerIntegrationTest {
+        extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     private static final String ORGANIZATION_ID = "0198a475-0831-7000-8000-000000000001";
     private static final String PROVIDER_KEY = "oidc/company";

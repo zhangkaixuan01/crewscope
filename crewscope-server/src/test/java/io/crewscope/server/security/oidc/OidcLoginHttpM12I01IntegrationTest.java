@@ -8,7 +8,7 @@ import io.crewscope.application.identity.AuthenticationFlow;
 import io.crewscope.application.identity.LoginDefense;
 import io.crewscope.domain.identity.LoginAttemptPolicy;
 import io.crewscope.domain.identity.RegistrationMode;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,7 +56,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
         classes = io.crewscope.server.CrewScopeApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OidcLoginHttpM12I01IntegrationTest
-        extends AbstractPostgresRedisContainerIntegrationTest {
+        extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     private static final String ORGANIZATION_ID = "0198a475-0831-7000-8000-000000000001";
     private static final String PROVIDER_KEY = "oidc/company";

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import io.crewscope.server.security.session.BrowserSessionProperties;
 import java.net.URI;
 import java.nio.file.Files;
@@ -51,7 +51,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
         classes = io.crewscope.server.CrewScopeApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OidcRevocationDelayM12I01IntegrationTest
-        extends AbstractPostgresRedisContainerIntegrationTest {
+        extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     private static final String ORGANIZATION_ID = "0198a475-0831-7000-8000-000000000001";
     private static final String SESSION_COOKIE = "CREWSCOPE_SESSION";

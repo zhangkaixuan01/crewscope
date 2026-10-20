@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.crewscope.infrastructure.persistence.workitem.A06QueryScaleFixtures;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -58,7 +58,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 @ActiveProfiles("team-beta")
 @TypeExcludeFilters(WorkQueryScaleHttpIntegrationTest.ExcludeTestClasspathConfigurations.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class WorkQueryScaleHttpIntegrationTest extends AbstractPostgresRedisContainerIntegrationTest {
+class WorkQueryScaleHttpIntegrationTest extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     private static final String SESSION_COOKIE = "CREWSCOPE_SESSION";
     private static final String CSRF_COOKIE = "XSRF-TOKEN";

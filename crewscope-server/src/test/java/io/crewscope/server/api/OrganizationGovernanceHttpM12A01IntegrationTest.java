@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.crewscope.application.organization.governance.OrganizationAuditRetentionSweeper;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -57,7 +57,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 @TypeExcludeFilters(OrganizationGovernanceHttpM12A01IntegrationTest.ExcludeTestClasspathConfigurations.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OrganizationGovernanceHttpM12A01IntegrationTest
-        extends AbstractPostgresRedisContainerIntegrationTest {
+        extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     /** team-beta provisions exactly this organization and its bootstrap operator. */
     private static final String ORGANIZATION_ID = "0198a475-0831-7000-8000-000000000001";

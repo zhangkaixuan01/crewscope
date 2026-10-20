@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.testcontainers;
 
 import java.time.Duration;
+import java.util.UUID;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -59,5 +60,12 @@ public abstract class AbstractPostgresRedisContainerIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", REDIS::getFirstMappedPort);
+        // Distinct cached contexts share this one Redis, and the single-active-execution guard
+        // keeps renewing its lease for as long as its context stays cached (the whole JVM), so a
+        // later context would collide on the default scope and fail to start. One scope per
+        // context keeps the lease keys disjoint; the production mutual-exclusion semantics stay
+        // covered by RedisAgentStateM2I05IntegrationTest, which drives the guard directly.
+        registry.add("crewscope.runtime.redis.ownership-scope",
+                () -> "it-" + UUID.randomUUID().toString().substring(0, 8));
     }
 }
