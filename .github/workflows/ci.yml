@@ -93,7 +93,10 @@ jobs:
             sleep $((attempt * 5))
           done
       - name: Verify backend
-        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+        # No `clean` (the CI runner starts from a fresh checkout, so there is nothing to clean)
+        # and `-T 1C` so the container-free modules build in parallel with infrastructure; the
+        # infrastructure -> server dependency chain still serializes the two heavy modules.
+        run: ./mvnw --batch-mode --no-transfer-progress -T 1C verify
       - name: Verify Spring configuration metadata
         run: |
           test -s crewscope-infrastructure/target/classes/META-INF/spring-configuration-metadata.json
@@ -131,8 +134,8 @@ jobs:
   frontend:
     if: needs.changes.outputs.frontend == 'true'
     needs: changes
-    # Visual baselines are authored on macOS; keep one stable rasterization environment in CI.
-    runs-on: macos-14
+    name: Frontend unit, build and workbench
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: crewscope-web
@@ -156,19 +159,51 @@ jobs:
         run: node ../scripts/check-web-bundle-budget.mjs
       - name: Build component workbench
         run: pnpm story:build
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install chromium
-      - name: Run browser and visual tests
-        run: pnpm test:e2e
-      - name: Upload frontend evidence
+      - name: Upload frontend build evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-release-evidence
+          name: frontend-build-evidence
           path: |
             crewscope-web/coverage/
             crewscope-web/dist/
             crewscope-web/.histoire/dist/
+          if-no-files-found: warn
+          retention-days: 14
+
+  frontend_e2e:
+    if: needs.changes.outputs.frontend == 'true'
+    needs: changes
+    name: Frontend browser and visual tests
+    # Visual baselines are authored on macOS; keep one stable rasterization environment in CI.
+    # Split from the unit/build job so the two run in parallel instead of serially on one
+    # low-core macOS runner — the wall clock becomes max(unit+build, e2e) instead of a sum.
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: crewscope-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: crewscope-web/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install chromium
+      - name: Run browser and visual tests
+        run: pnpm test:e2e
+      - name: Upload frontend e2e evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-evidence
+          path: |
             crewscope-web/playwright-report/
             crewscope-web/test-results/
           if-no-files-found: warn
@@ -327,7 +362,7 @@ jobs:
 
   release-gate:
     if: always()
-    needs: [changes, backend, frontend, quality, dependency_security_osv, dependency_security_web, image_security]
+    needs: [changes, backend, frontend, frontend_e2e, quality, dependency_security_osv, dependency_security_web, image_security]
     runs-on: ubuntu-latest
     steps:
       - name: Enforce the M7 release gate
@@ -335,6 +370,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          FRONTEND_E2E_RESULT: ${{ needs.frontend_e2e.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           DEPENDENCY_OSV_RESULT: ${{ needs.dependency_security_osv.result }}
           DEPENDENCY_WEB_RESULT: ${{ needs.dependency_security_web.result }}
@@ -357,6 +393,7 @@ jobs:
           }
           check_result "$BACKEND_NEEDED" "$BACKEND_RESULT"
           check_result "$FRONTEND_NEEDED" "$FRONTEND_RESULT"
+          check_result "$FRONTEND_NEEDED" "$FRONTEND_E2E_RESULT"
           check_result "$QUALITY_NEEDED" "$QUALITY_RESULT"
           check_result "$DEPENDENCIES_NEEDED" "$DEPENDENCY_OSV_RESULT"
           check_result "$DEPENDENCIES_NEEDED" "$DEPENDENCY_WEB_RESULT"
