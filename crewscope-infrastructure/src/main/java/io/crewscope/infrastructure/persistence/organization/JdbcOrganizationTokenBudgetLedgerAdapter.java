@@ -54,7 +54,7 @@ public class JdbcOrganizationTokenBudgetLedgerAdapter implements OrganizationTok
                        SET reserved_tokens = :newReserved,
                            reservation_sequence = :newSequence,
                            version = version + 1,
-                           updated_at = CURRENT_TIMESTAMP,
+                           updated_at = GREATEST(CURRENT_TIMESTAMP, updated_at),
                            updated_by_principal_id = :actor
                      WHERE organization_id = :organizationId
                        AND usage_month = :usageMonth
