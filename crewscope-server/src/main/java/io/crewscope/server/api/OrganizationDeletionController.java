@@ -285,6 +285,8 @@ public final class OrganizationDeletionController {
 
     public record DeletionPrecheckResponse(
             String accountId,
+            String username,
+            String displayName,
             long inFlightTaskExecutions,
             long activeResponsibilities,
             Long openReservations) {
@@ -293,6 +295,8 @@ public final class OrganizationDeletionController {
                 OrganizationAccountDeletionApplicationService.DeletionPrecheckView view) {
             return new DeletionPrecheckResponse(
                     view.accountId().toString(),
+                    view.username(),
+                    view.displayName(),
                     view.inFlightTaskExecutions(),
                     view.activeResponsibilities(),
                     view.openReservations());

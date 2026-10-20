@@ -293,6 +293,9 @@ class OrganizationGovernanceHttpM12A01IntegrationTest
         assertThat(precheck.path("inFlightTaskExecutions").asLong()).isZero();
         assertThat(precheck.path("activeResponsibilities").asLong()).isZero();
         assertThat(absent(precheck, "openReservations")).isTrue();
+        assertThat(precheck.path("username").asText()).isEqualTo(targetUsername);
+        assertThat(precheck.path("displayName").asText())
+                .isEqualTo("M12A01 Governance Actor");
 
         JsonNode created = bodyOf(
                 postJson(base + "/account-deletions", operator)

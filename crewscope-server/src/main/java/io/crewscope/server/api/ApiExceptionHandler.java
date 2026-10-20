@@ -19,6 +19,7 @@ import io.crewscope.application.identity.LoginDefenseUnavailableException;
 import io.crewscope.application.identity.PasswordHashCapacityException;
 import io.crewscope.application.model.ModelConnectionCredentialException;
 import io.crewscope.application.runtime.CodingRuntimeOperationsUnavailableException;
+import io.crewscope.application.organization.OrganizationMemberDirectoryCursorExpiredException;
 import io.crewscope.application.principal.PrincipalDirectoryCursorExpiredException;
 import io.crewscope.application.retrieval.ClaimedReferenceOutsideManifestException;
 import io.crewscope.application.retrieval.FeedbackReferenceOutsideManifestException;
@@ -297,6 +298,18 @@ public class ApiExceptionHandler {
                     HttpStatus.GONE,
                     "cursor_expired",
                     "The principal directory cursor has expired; restart the directory from its first page",
+                    false,
+                    null,
+                    Map.of(),
+                    correlationId,
+                    exchange);
+        }
+        if (failure instanceof OrganizationMemberDirectoryCursorExpiredException) {
+            return response(
+                    HttpStatus.GONE,
+                    "cursor_expired",
+                    "The organization member directory cursor has expired; restart the directory"
+                            + " from its first page",
                     false,
                     null,
                     Map.of(),

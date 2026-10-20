@@ -8,6 +8,8 @@ import io.crewscope.application.identity.InitialOrganizationOwnerProvisioner;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.identity.UserAccountRepository;
 import io.crewscope.application.organization.OrganizationAuthorization;
+import io.crewscope.application.organization.OrganizationMemberDirectoryQueryService;
+import io.crewscope.application.organization.OrganizationMemberDirectoryRepository;
 import io.crewscope.application.organization.OrganizationRoleApplicationService;
 import io.crewscope.application.organization.OrganizationRoleGrantRepository;
 import io.crewscope.application.organization.OrganizationSettingApplicationService;
@@ -25,6 +27,10 @@ import io.crewscope.application.responsibility.ResponsibilityAssignmentRepositor
 import io.crewscope.application.task.TaskExecutionRepository;
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.domain.shared.time.TimeProvider;
+import io.crewscope.server.api.OrganizationMemberCursorCodec;
+import io.crewscope.server.api.TeamActivityCursorKeyRing;
+import java.time.Clock;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -34,12 +40,29 @@ import org.springframework.context.annotation.Configuration;
  * track; the V68 migration backfill covers databases that already hold accounts.
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(OrganizationMemberDirectoryQueryProperties.class)
 public class OrganizationApplicationConfiguration {
 
   @Bean
   OrganizationAuthorization organizationAuthorization(
       OrganizationRoleGrantRepository organizationRoleGrants) {
     return new OrganizationAuthorization(organizationRoleGrants);
+  }
+
+  @Bean
+  OrganizationMemberDirectoryQueryService organizationMemberDirectoryQueryService(
+      OrganizationAuthorization organizationAuthorization,
+      OrganizationMemberDirectoryRepository organizationMemberDirectory,
+      TransactionExecutor transactionExecutor) {
+    return new OrganizationMemberDirectoryQueryService(
+        organizationAuthorization, organizationMemberDirectory, transactionExecutor);
+  }
+
+  @Bean
+  OrganizationMemberCursorCodec organizationMemberCursorCodec(
+      TeamActivityCursorKeyRing keyRing, OrganizationMemberDirectoryQueryProperties properties) {
+    return new OrganizationMemberCursorCodec(
+        keyRing, Clock.systemUTC(), properties.getCursorMaximumAge());
   }
 
   @Bean

@@ -134,7 +134,13 @@ public final class OrganizationAccountDeletionApplicationService {
                     organizationId, List.of(target.principalId()));
             long active = responsibilities.countActiveByPrincipal(
                     organizationId, target.principalId());
-            return new DeletionPrecheckView(accountId, inFlight, active, null);
+            return new DeletionPrecheckView(
+                    accountId,
+                    target.username(),
+                    target.displayName(),
+                    inFlight,
+                    active,
+                    null);
         });
     }
 
@@ -379,7 +385,10 @@ public final class OrganizationAccountDeletionApplicationService {
         }
         UserAccount account = userAccounts.findById(accountId)
                 .orElseThrow(() -> new AggregateNotFoundException("USER_ACCOUNT", accountId));
-        return new AccountDeletionTarget(binding.principalId(), account.username().displayValue());
+        return new AccountDeletionTarget(
+                binding.principalId(),
+                account.username().displayValue(),
+                account.displayName());
     }
 
     /**
@@ -594,14 +603,20 @@ public final class OrganizationAccountDeletionApplicationService {
         }
     }
 
-    /** The precondition report of the read-side precheck face. */
+    /**
+     * The precondition report of the read-side precheck face; the username and display name echo
+     * lets the operator confirm the picked account without a second lookup (M13b-A01).
+     */
     public record DeletionPrecheckView(
             UserAccountId accountId,
+            String username,
+            String displayName,
             long inFlightTaskExecutions,
             long activeResponsibilities,
             Long openReservations) {
     }
 
-    private record AccountDeletionTarget(PrincipalId principalId, String username) {
+    private record AccountDeletionTarget(
+            PrincipalId principalId, String username, String displayName) {
     }
 }

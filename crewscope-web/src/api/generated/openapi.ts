@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 18a3e80c1ad86e882b33e5b71f0e8270bf0505c47e989a10adcaa6bf195ac550
+// Controller source SHA-256: 31e4a8918557a98930c02272ace3844a81facb16506d0cdae48fff408ff1f619
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -366,6 +366,14 @@ export const openApiDocument = {
         "operationId": "GitHubConnectionController_verify",
         "tags": [
           "GitHubConnectionController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/members": {
+      "get": {
+        "operationId": "OrganizationMemberDirectoryController_search",
+        "tags": [
+          "OrganizationMemberDirectoryController"
         ]
       }
     },
@@ -2653,6 +2661,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/members",
+    "operationId": "OrganizationMemberDirectoryController_search",
+    "controller": "OrganizationMemberDirectoryController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/model-connections",
     "operationId": "ModelConnectionController_list",
     "controller": "ModelConnectionController"
@@ -4224,4 +4238,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 306 as const
+export const openApiOperationCount = 307 as const

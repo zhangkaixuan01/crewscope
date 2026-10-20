@@ -183,6 +183,8 @@ class OrganizationAccountDeletionApplicationServiceTest {
         var view = service.precheck(access(), organizationId, accountId);
 
         assertEquals(accountId, view.accountId());
+        assertEquals("operator-echo", view.username());
+        assertEquals("Echo", view.displayName());
         assertEquals(3L, view.inFlightTaskExecutions());
         assertEquals(2L, view.activeResponsibilities());
         assertNull(view.openReservations());
