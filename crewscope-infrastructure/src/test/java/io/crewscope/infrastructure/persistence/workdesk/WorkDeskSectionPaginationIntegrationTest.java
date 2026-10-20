@@ -83,6 +83,10 @@ class WorkDeskSectionPaginationIntegrationTest
     @BeforeEach
     void seedScope() {
         jdbc.execute("TRUNCATE TABLE crewscope.organization CASCADE");
+        // projection_definition is a global dictionary without an organization foreign key, so
+        // the CASCADE above never reaches it — with the shared singleton container another
+        // class's row would collide with this class's seed.
+        jdbc.execute("TRUNCATE TABLE crewscope.projection_definition CASCADE");
         organizationId = OrganizationId.generate();
         teamId = TeamId.generate();
         workspaceId = UUID.randomUUID();

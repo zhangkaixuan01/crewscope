@@ -13,14 +13,16 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * Shared harness for the presence component tests: one disposable Redis per test class, a
- * manually built Lettuce factory (no Spring context, mirroring RedisLoginDefenseM7I04), and
- * a mutable clock so TTL scores are deterministic instead of wall-clock dependent.
+ * Shared harness for the presence component tests: one Redis per test JVM (singleton pattern —
+ * started in a static initializer, reclaimed by Ryuk when the JVM exits; {@code flushall} in
+ * {@code setUpRedis} keeps every method isolated, so sharing across classes only removes the
+ * per-class container start/stop), a manually built Lettuce factory (no Spring context,
+ * mirroring RedisLoginDefenseM7I04), and a mutable clock so TTL scores are deterministic
+ * instead of wall-clock dependent.
  */
 @Testcontainers(disabledWithoutDocker = true)
 abstract class AbstractCollaborationPresenceRedisTest {
@@ -30,13 +32,16 @@ abstract class AbstractCollaborationPresenceRedisTest {
   protected static final Duration PRESENCE_TTL = Duration.ofSeconds(45);
   protected static final Duration REDIS_TIMEOUT = Duration.ofSeconds(5);
 
-  @Container
   private static final GenericContainer<?> REDIS =
       new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
           .withExposedPorts(REDIS_PORT)
           .withCommand("redis-server", "--save", "", "--appendonly", "no")
           .waitingFor(Wait.forListeningPort())
           .withStartupTimeout(Duration.ofMinutes(2));
+
+  static {
+    REDIS.start();
+  }
 
   protected MutableClock clock;
   private LettuceConnectionFactory connections;

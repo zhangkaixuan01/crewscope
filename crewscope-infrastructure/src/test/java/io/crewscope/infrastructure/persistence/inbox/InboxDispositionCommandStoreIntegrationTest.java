@@ -115,6 +115,9 @@ class InboxDispositionCommandStoreIntegrationTest
     @BeforeEach
     void seedScope() {
         jdbc.execute("TRUNCATE TABLE crewscope.organization CASCADE");
+        // Global dictionary without an organization foreign key — the CASCADE above never
+        // reaches it, and the shared singleton container keeps other classes' rows alive.
+        jdbc.execute("TRUNCATE TABLE crewscope.projection_definition CASCADE");
         organizationId = OrganizationId.generate();
         teamId = TeamId.generate();
         PrincipalId principalId = PrincipalId.generate();

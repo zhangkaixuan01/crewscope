@@ -89,6 +89,9 @@ class GenerationAwareProjectionRuntimeM6E01IntegrationTest
     void resetData() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS crewscope.m6_e01_projection_row");
         jdbcTemplate.execute("TRUNCATE TABLE crewscope.organization CASCADE");
+        // Global dictionary without an organization foreign key — the CASCADE above never
+        // reaches it, and the shared singleton container keeps other classes' rows alive.
+        jdbcTemplate.execute("TRUNCATE TABLE crewscope.projection_definition CASCADE");
         jdbcTemplate.update(
                 "DELETE FROM crewscope.projection_definition WHERE projection_name = ?",
                 PROJECTION_NAME.value());

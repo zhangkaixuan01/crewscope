@@ -94,6 +94,9 @@ class JdbcNotificationPlanRepositoryM6I01IntegrationTest
     @BeforeEach
     void setUp() {
         jdbc.execute("TRUNCATE TABLE crewscope.organization CASCADE");
+        // Global dictionary without an organization foreign key — the CASCADE above never
+        // reaches it, and the shared singleton container keeps other classes' rows alive.
+        jdbc.execute("TRUNCATE TABLE crewscope.projection_definition CASCADE");
         jdbc.update(
                 "DELETE FROM crewscope.projection_definition WHERE projection_name = ?",
                 InboxEventProjector.PROJECTION_NAME.value());

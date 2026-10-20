@@ -2,7 +2,6 @@ package io.crewscope.infrastructure.testcontainers;
 
 import java.time.Duration;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
@@ -13,17 +12,27 @@ import org.testcontainers.utility.DockerImageName;
  * chain can {@code CREATE EXTENSION} as the container's superuser. Tests stay pure
  * JUnit — no Spring context — and drive Flyway explicitly like
  * {@code JdbcCommandResultIntegrationTest}.
+ *
+ * <p>Singleton container pattern (started once per test JVM in a static initializer, stopped by
+ * Ryuk on JVM exit) — subclasses reset their own schema before use, so sharing one instance
+ * across classes changes nothing but the wall clock.
  */
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class AbstractPgVectorContainerIntegrationTest {
 
     protected static final String PGVECTOR_IMAGE = "pgvector/pgvector:pg17";
 
-    @Container
     protected static final PostgreSQLContainer<?> PGVECTOR =
             new PostgreSQLContainer<>(DockerImageName.parse(PGVECTOR_IMAGE))
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
+                    // Singleton instance shared by every subclass; raised from the default 100
+                    // so concurrent cached pools cannot exhaust the ceiling.
+                    .withCommand("postgres", "-c", "max_connections=500")
                     .withStartupTimeout(Duration.ofMinutes(2));
+
+    static {
+        PGVECTOR.start();
+    }
 }
