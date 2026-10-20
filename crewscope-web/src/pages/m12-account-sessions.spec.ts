@@ -21,9 +21,10 @@ describe('AccountPage session management (M12-F03)', () => {
 
     const rows = wrapper.findAll('[data-testid^="session-row-"]')
     expect(rows).toHaveLength(2)
-    expect(wrapper.get('[data-testid="session-row-current"]').text()).toContain('当前设备')
+    // Each row names its device via the server-derived summary; only the current row is badged.
+    expect(wrapper.get('[data-testid="session-row-current"]').text()).toContain('Chrome · macOS')
     expect(wrapper.get('[data-testid="session-row-current"]').text()).toContain('本机')
-    expect(wrapper.get('[data-testid="session-row-other"]').text()).toContain('其他设备')
+    expect(wrapper.get('[data-testid="session-row-other"]').text()).toContain('Safari · iOS')
     // Login identities render through the localized labels, never the raw enum.
     expect(wrapper.get('[data-testid="login-identity-local"]').text()).toContain('账号密码')
     expect(wrapper.get('[data-testid="login-identity-local"]').text()).toContain('可用')
@@ -112,8 +113,8 @@ describe('AccountPage session management (M12-F03)', () => {
 
 function twoSessions(): BrowserSessionSummary[] {
   return [
-    { sessionId: 'session-current', createdAt: '2026-10-15T08:00:00Z', lastAccessedAt: '2026-10-15T09:30:00Z', current: true },
-    { sessionId: 'session-other', createdAt: '2026-10-14T08:00:00Z', lastAccessedAt: '2026-10-14T20:00:00Z', current: false },
+    { sessionId: 'session-current', createdAt: '2026-10-15T08:00:00Z', lastAccessedAt: '2026-10-15T09:30:00Z', device: 'Chrome · macOS', current: true },
+    { sessionId: 'session-other', createdAt: '2026-10-14T08:00:00Z', lastAccessedAt: '2026-10-14T20:00:00Z', device: 'Safari · iOS', current: false },
   ]
 }
 

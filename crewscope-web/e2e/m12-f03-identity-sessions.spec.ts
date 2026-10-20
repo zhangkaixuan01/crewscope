@@ -27,6 +27,8 @@ interface SessionFact {
   sessionId: string
   createdAt: string
   lastAccessedAt: string
+  /** Mirrors the API's derived "browser · OS" summary (M13b-A02); absent rows render 未知设备. */
+  device?: string
   current: boolean
 }
 
@@ -113,9 +115,11 @@ test('lists browser sessions and login identities through localized labels', asy
   await installIdentityApi(page, { policy: 'coexist', authenticated: true, sessions: twoSessions() })
 
   await page.goto('/account#sessions')
-  await expect(page.getByRole('table').filter({ hasText: '当前设备' })).toBeVisible()
+  // Rows carry the server-derived device summary; the gateway's fallback maps a row without
+  // one onto the unknown-device label.
+  await expect(page.getByRole('table').filter({ hasText: 'Chrome · macOS' })).toBeVisible()
   await expect(page.getByTestId('session-row-current')).toContainText('本机')
-  await expect(page.getByTestId('session-row-other')).toContainText('其他设备')
+  await expect(page.getByTestId('session-row-other')).toContainText('未知设备')
   // Login identities render localized provider and status labels — the raw enum never leaks.
   await expect(page.getByTestId('login-identity-local')).toContainText('账号密码')
   await expect(page.getByTestId('login-identity-local')).toContainText('可用')
@@ -191,9 +195,10 @@ test('folds a vanished session 404 into a refreshed notice', async ({ page }) =>
   expect(sessionReads).toBe(2)
 })
 
+/** The other-device row deliberately lacks `device` — pre-M13b-A02 rows render the fallback. */
 function twoSessions(): SessionFact[] {
   return [
-    { sessionId: 'session-current', createdAt: '2026-10-15T08:00:00Z', lastAccessedAt: '2026-10-15T09:30:00Z', current: true },
+    { sessionId: 'session-current', createdAt: '2026-10-15T08:00:00Z', lastAccessedAt: '2026-10-15T09:30:00Z', device: 'Chrome · macOS', current: true },
     { sessionId: 'session-other', createdAt: '2026-10-14T08:00:00Z', lastAccessedAt: '2026-10-14T20:00:00Z', current: false },
   ]
 }

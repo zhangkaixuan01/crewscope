@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -46,7 +46,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 @TypeExcludeFilters(AuthenticationSessionApiM12I01IntegrationTest.ExcludeTestClasspathConfigurations.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class AuthenticationSessionApiM12I01IntegrationTest
-        extends AbstractPostgresRedisContainerIntegrationTest {
+        extends AbstractTeamBetaPostgresRedisContainerIntegrationTest {
 
     /** team-beta provisions exactly this organization and its bootstrap operator. */
     private static final String ORGANIZATION_ID = "0198a475-0831-7000-8000-000000000001";
@@ -162,6 +162,35 @@ class AuthenticationSessionApiM12I01IntegrationTest
         JsonNode firstListing = getJson(SESSIONS_URI, first);
         assertThat(sessionIdOfCurrentMarker(firstListing.path("sessions")))
                 .isNotEqualTo(secondSessionId);
+    }
+
+    @Test
+    void deviceSummariesFollowEachLoginUserAgent() {
+        SeededAccount account = seedAccount();
+        String chromeAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+        String safariAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+                + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+        CookieJar chrome = login(account, chromeAgent);
+        CookieJar safari = login(account, safariAgent);
+
+        JsonNode chromeListing = getJson(SESSIONS_URI, chrome).path("sessions");
+        JsonNode safariListing = getJson(SESSIONS_URI, safari).path("sessions");
+        assertThat(deviceOf(chromeListing, chromeListing)).isEqualTo("Chrome · Windows");
+        assertThat(deviceOf(safariListing, safariListing)).isEqualTo("Safari · iOS");
+        // The other device carries its own summary — each row describes its own Session only.
+        assertThat(deviceOf(safariListing, chromeListing)).isEqualTo("Chrome · Windows");
+    }
+
+    /** Finds the row of the current device's Session and returns its stored device summary. */
+    private static String deviceOf(JsonNode sessions, JsonNode currentDeviceListing) {
+        String currentSessionId = sessionIdOfCurrentMarker(currentDeviceListing);
+        for (JsonNode session : sessions) {
+            if (session.path("sessionId").asText().equals(currentSessionId)) {
+                return session.path("device").asText();
+            }
+        }
+        throw new AssertionError("current device's session row missing from the listing");
     }
 
     @Test
@@ -327,6 +356,11 @@ class AuthenticationSessionApiM12I01IntegrationTest
     }
 
     private CookieJar login(SeededAccount account) {
+        return login(account, null);
+    }
+
+    /** Logs in with an explicit User-Agent so the derived device summary is deterministic. */
+    private CookieJar login(SeededAccount account, String userAgent) {
         CookieJar jar = new CookieJar();
         jar.clear();
         WebTestClient.RequestHeadersSpec<?> sessionRequest = client.get().uri("/api/v1/auth/session");
@@ -341,6 +375,9 @@ class AuthenticationSessionApiM12I01IntegrationTest
                 .header(CSRF_HEADER, jar.required(CSRF_COOKIE))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("identifier", account.username(), "password", PASSWORD));
+        if (userAgent != null) {
+            loginRequest.header("User-Agent", userAgent);
+        }
         jar.apply(loginRequest);
         loginRequest
                 .exchange()

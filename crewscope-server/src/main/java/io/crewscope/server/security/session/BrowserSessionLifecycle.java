@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -32,6 +33,12 @@ public final class BrowserSessionLifecycle {
 
     private static final Pattern AUTHORITY = Pattern.compile("ROLE_[A-Z][A-Z0-9_]{0,62}");
     private static final int MAXIMUM_AUTHORITIES = 16;
+
+    /**
+     * Session attribute holding the derived {@code "browser · OS"} device summary (M13b-A02).
+     * Absent on Sessions established before the field existed; readers treat that as unknown.
+     */
+    public static final String DEVICE_ATTRIBUTE = "crewscope.device";
 
     private final WebSessionServerSecurityContextRepository securityContexts;
     private final ReactiveSessionRegistry sessionRegistry;
@@ -90,6 +97,10 @@ public final class BrowserSessionLifecycle {
                             filterExchange, authentication))
                     .then(sessionRegistration.onAuthenticationSuccess(
                             filterExchange, authentication))
+                    // Store only the derived device summary — the raw User-Agent never persists.
+                    .then(Mono.fromRunnable(() -> storeDeviceSummary(
+                            session, requiredExchange.getRequest()
+                                    .getHeaders().getFirst(HttpHeaders.USER_AGENT))))
                     .then(securityContexts.save(
                             requiredExchange, new SecurityContextImpl(authentication)));
         });
@@ -112,7 +123,8 @@ public final class BrowserSessionLifecycle {
                         .map(session -> new BrowserSessionSnapshot(
                                 session.getId(),
                                 session.getCreationTime(),
-                                session.getLastAccessedTime())))
+                                session.getLastAccessedTime(),
+                                deviceSummary(session))))
                 .sort(BrowserSessionSnapshot.byMostRecentAccess());
     }
 
@@ -154,6 +166,20 @@ public final class BrowserSessionLifecycle {
                 .getAllSessions(principalName)
                 .flatMap(information -> information.invalidate())
                 .then();
+    }
+
+    /** Derives and stores the device summary; an unrecognizable header stores nothing. */
+    private static void storeDeviceSummary(WebSession session, String userAgent) {
+        String summary = UserAgentDeviceSummary.summarize(userAgent);
+        if (summary != null) {
+            session.getAttributes().put(DEVICE_ATTRIBUTE, summary);
+        }
+    }
+
+    /** Reads the stored device summary; {@code null} marks Sessions without one (M13b-A02). */
+    private static String deviceSummary(Session session) {
+        Object value = session.getAttribute(DEVICE_ATTRIBUTE);
+        return value instanceof String summary ? summary : null;
     }
 
     private static Authentication authentication(

@@ -1,5 +1,6 @@
 import { inject, type App, type InjectionKey } from 'vue'
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
+import { unknownDeviceLabel } from './labels'
 import { identityPolicies, loginIdentityStatuses, organizationRoleNames, registrationModes } from './types'
 import type {
   AuthCsrfCoordinate,
@@ -184,6 +185,11 @@ function mapSessionSummary(input: unknown): BrowserSessionSummary {
     sessionId: nonEmptyString(value.sessionId),
     createdAt: nonEmptyString(value.createdAt),
     lastAccessedAt: nonEmptyString(value.lastAccessedAt),
+    // Sessions without a stored summary (pre-M13b-A02 or unrecognizable agent) render
+    // the unknown-device label; the fallback is the single home of that copy.
+    device: value.device === undefined || value.device === null
+      ? unknownDeviceLabel
+      : nonEmptyString(value.device),
     current: boolean(value.current),
   }
 }

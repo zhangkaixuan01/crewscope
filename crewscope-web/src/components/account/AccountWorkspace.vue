@@ -285,7 +285,7 @@ function confirmSignOut(): void {
             <thead><tr><th scope="col">设备</th><th scope="col">最近活动</th><th scope="col">登录时间</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
             <tbody>
               <tr v-for="session in sessions" :key="session.sessionId" :data-testid="`session-row-${session.current ? 'current' : 'other'}`">
-                <th scope="row"><span class="session-device"><MonitorSmartphone :size="15" aria-hidden="true" />{{ session.current ? '当前设备' : '其他设备' }}</span><span v-if="session.current" class="session-badge">本机</span></th>
+                <th scope="row"><span class="session-device"><MonitorSmartphone :size="15" aria-hidden="true" />{{ session.device }}</span><span v-if="session.current" class="session-badge">本机</span></th>
                 <td>{{ formatDateTime(session.lastAccessedAt) }}</td>
                 <td>{{ formatDateTime(session.createdAt) }}</td>
                 <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession(session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>

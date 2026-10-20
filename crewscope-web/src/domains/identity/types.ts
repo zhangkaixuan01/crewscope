@@ -105,10 +105,13 @@ export interface RegistrationResult {
  * One browser session of the signed-in account (GET /auth/sessions), newest activity first.
  * This is the owner-facing session-management projection (M12-I01 §2) — the id is the handle
  * for per-device revocation, not part of the anonymous-safe AuthSession projection above.
+ * `device` is the server-derived "browser · OS" summary (M13b-A02); the gateway substitutes
+ * the unknown-device label when the API row carries none, so the field is always present.
  */
 export interface BrowserSessionSummary {
   sessionId: string
   createdAt: string
   lastAccessedAt: string
+  device: string
   current: boolean
 }

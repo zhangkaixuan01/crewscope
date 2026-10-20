@@ -17,3 +17,9 @@ export function loginIdentityProviderLabel(provider: string): string {
   if (provider.startsWith('oidc/')) return '企业单点登录'
   return provider
 }
+
+/**
+ * Session rows without a stored device summary (M13b-A02: pre-upgrade Sessions or an
+ * unrecognizable User-Agent) render this label; the raw header is never persisted.
+ */
+export const unknownDeviceLabel = '未知设备'

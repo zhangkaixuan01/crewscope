@@ -81,6 +81,7 @@ public class AuthenticationSessionController {
         snapshot.sessionId(),
         snapshot.createdAt(),
         snapshot.lastAccessedAt(),
+        snapshot.device(),
         snapshot.sessionId().equals(currentSessionId));
   }
 
@@ -122,9 +123,17 @@ public class AuthenticationSessionController {
         Map.of());
   }
 
-  /** Owner-visible projection of one browser Session; no principal or account data leaks. */
+  /**
+   * Owner-visible projection of one browser Session; no principal or account data leaks.
+   * {@code device} is the derived "browser · OS" summary and may be null when the Session has
+   * none (M13b-A02); clients render their unknown-device fallback for null.
+   */
   public record SessionView(
-      String sessionId, Instant createdAt, Instant lastAccessedAt, boolean current) {}
+      String sessionId,
+      Instant createdAt,
+      Instant lastAccessedAt,
+      String device,
+      boolean current) {}
 
   public record SessionsResponse(List<SessionView> sessions) {}
 }
