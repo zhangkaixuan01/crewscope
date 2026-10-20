@@ -12,10 +12,11 @@ export default defineConfig({
   // Keep reviewed baselines per OS instead of weakening the visual regression threshold.
   snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-${snapshotPlatform}{ext}`,
   fullyParallel: true,
-  // The mock-tier webServer is a plain Vite dev server (no Docker in the loop anymore — the
-  // e2e job no longer runs after the backend integration suite), so four workers fit both a
-  // laptop and the 3-vCPU macOS CI runner without browser launch starvation.
-  workers: 4,
+  // The mock-tier webServer is a plain Vite dev server. Laptops run four workers fine, but the
+  // 3-vCPU/7GB macOS CI runner starves the dev server at four — both runs of the split CI
+  // showed ECONNREFUSED health probes and cascading timeouts on heavy fixtures — so CI keeps
+  // the proven two.
+  workers: process.env.CI ? 2 : 4,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
