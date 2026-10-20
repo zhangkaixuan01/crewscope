@@ -12,10 +12,10 @@ export default defineConfig({
   // Keep reviewed baselines per OS instead of weakening the visual regression threshold.
   snapshotPathTemplate: `{testDir}/{testFilePath}-snapshots/{arg}-${snapshotPlatform}{ext}`,
   fullyParallel: true,
-  // The mock-tier webServer is a plain Vite dev server. Laptops run four workers fine, but the
-  // 3-vCPU/7GB macOS CI runner starves the dev server at four — both runs of the split CI
-  // showed ECONNREFUSED health probes and cascading timeouts on heavy fixtures — so CI keeps
-  // the proven two.
+  // The mock-tier webServer is a plain Vite dev server. Laptops run four workers fine; the
+  // 3-vCPU/7GB macOS CI runner keeps the conservative two. (Note: the split-CI failure burst
+  // that once looked like worker starvation — ECONNREFUSED/ERR_FAILED — was actually the e2e
+  // job missing `vite build`, see ci.yml; workers 4 vs 2 failed identically at ~290 tests.)
   workers: process.env.CI ? 2 : 4,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

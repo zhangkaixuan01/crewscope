@@ -196,6 +196,14 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Playwright Chromium
         run: pnpm exec playwright install chromium
+      - name: Build application bundle
+        # The m9b-a05/f05/f02 mock worlds serve the SPA document from dist/ through
+        # page.route (their fixtures resolve('dist')), so the browser matrix needs the
+        # production bundle present or every goto to those origins aborts with
+        # ERR_FAILED. Only the bundle is rebuilt here: the unit/build job already ran
+        # the full vue-tsc type check, and re-checking the whole app on a 3-vCPU
+        # runner would buy nothing.
+        run: pnpm exec vite build
       - name: Run browser and visual tests
         run: pnpm test:e2e
       - name: Upload frontend e2e evidence
