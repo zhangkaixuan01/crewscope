@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -14,7 +15,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,16 +29,23 @@ class V70OrganizationQuotaMigrationIntegrationTest
     private static final String SCHEMA = "crewscope";
     private static final String EARLY = "'2026-01-10T00:00:00Z'::timestamptz";
 
-    @BeforeEach
-    void resetSchema() throws SQLException {
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsTheQuotaTablesConstraintsAndIntakeIndexWithoutSeedRows() throws SQLException {
+        // The setup migrates without a target, i.e. to the default chain's tip; TIP is
+        // that tier (a numeric tier is impossible here: the chain skips V71, so the
+        // history row count never equals the tip's version number).
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway().migrate();
 
         Set<String> configurationConstraints = queryStrings(
@@ -84,6 +92,7 @@ class V70OrganizationQuotaMigrationIntegrationTest
 
     @Test
     void limitsEnforceTheLowerBoundWhileNullStaysUnconfigured() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway().migrate();
         UUID organization = insertOrganization();
         UUID principal = insertPrincipal(organization);
@@ -108,6 +117,7 @@ class V70OrganizationQuotaMigrationIntegrationTest
 
     @Test
     void ledgerMonthsMustMatchTheRollupMonthShape() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway().migrate();
         UUID organization = insertOrganization();
         UUID principal = insertPrincipal(organization);
@@ -128,6 +138,7 @@ class V70OrganizationQuotaMigrationIntegrationTest
 
     @Test
     void ownershipColumnsRestrictAgainstMissingRows() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway().migrate();
 
         assertThrows(
@@ -189,7 +200,7 @@ class V70OrganizationQuotaMigrationIntegrationTest
 
     private static Flyway flyway() {
         FluentConfiguration configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas(SCHEMA)
                 .defaultSchema(SCHEMA)
@@ -200,7 +211,7 @@ class V70OrganizationQuotaMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int execute(String sql) throws SQLException {

@@ -5,16 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,19 +46,27 @@ class V61TeamSkillMigrationIntegrationTest
     private UUID teamId;
     private UUID principalId;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-        }
+    void resetDatabase() {
         organizationId = UUID.randomUUID();
         teamId = UUID.randomUUID();
         principalId = UUID.randomUUID();
     }
 
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
+    }
+
     @Test
     void migratesAnEmptySchemaToV61OnPlainPostgreSQL() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
         Flyway target = flyway(VERSION_61);
 
         assertTrue(target.migrate().migrationsExecuted >= 61);
@@ -73,6 +82,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     @Test
     void backfillsSkillManageOntoTeamAdminOnly() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("60");
         flyway(VERSION_60).migrate();
         seedBaseFacts();
         // Rows as V52 left them: the owner already carries both M10 permissions, the
@@ -98,6 +108,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     @Test
     void enforcesHeadShapeChecks() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("61");
         flyway(VERSION_61).migrate();
         seedBaseFacts();
 
@@ -150,6 +161,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     @Test
     void enforcesVersionChainAndAcceptsRollbackDigests() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("61");
         flyway(VERSION_61).migrate();
         seedBaseFacts();
         UUID skillId = UUID.randomUUID();
@@ -185,6 +197,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     @Test
     void rejectsCrossTenantVersionRows() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("61");
         flyway(VERSION_61).migrate();
         seedBaseFacts();
         UUID skillId = UUID.randomUUID();
@@ -203,6 +216,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     @Test
     void effectivePartialIndexServesTheLoadingGate() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("61");
         flyway(VERSION_61).migrate();
         seedBaseFacts();
         execute(headInsert(), row("draft-key", "DRAFT", null, 0L, DOCUMENT, null, null, null)
@@ -391,7 +405,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -409,7 +423,7 @@ class V61TeamSkillMigrationIntegrationTest
     }
 
     private static int execute(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);
@@ -435,7 +449,7 @@ class V61TeamSkillMigrationIntegrationTest
 
     /** EXPLAIN text with sequential scans disabled, so the assertion pins the index choice. */
     private static String explainText(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement disable = connection.prepareStatement("SET enable_seqscan = off");
                 PreparedStatement statement = connection.prepareStatement(
                         "EXPLAIN (COSTS OFF) " + sql)) {
@@ -454,7 +468,7 @@ class V61TeamSkillMigrationIntegrationTest
     }
 
     private static String queryString(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);

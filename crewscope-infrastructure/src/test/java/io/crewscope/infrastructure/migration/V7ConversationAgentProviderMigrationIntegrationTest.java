@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import io.crewscope.application.execution.RealtimeStreamEventIds;
 import io.crewscope.application.provider.BuiltInProviderRegistration;
 import io.crewscope.domain.provider.ProviderCapabilities;
@@ -24,7 +25,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V7 Conversation, Agent runtime session and Provider binding database contract. */
@@ -37,20 +38,22 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     private static final MigrationVersion VERSION_9 = MigrationVersion.fromVersion("9");
     private static final String ALTERNATE_SCHEMA = "v7_probe";
 
-    @BeforeEach
-    void resetSchemas() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS v7_probe CASCADE");
-            statement.execute("CREATE SCHEMA v7_probe");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsAllM2TablesAuditColumnsConstraintsAndIndexesFromEmptyDatabase()
             throws SQLException {
-        Flyway flyway = flyway(POSTGRES.getJdbcUrl(), VERSION_7);
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        Flyway flyway = flyway(currentLease.jdbcUrl(), VERSION_7);
         flyway.migrate();
 
         assertEquals("7", flyway.info().current().getVersion().getVersion());
@@ -139,12 +142,13 @@ class V7ConversationAgentProviderMigrationIntegrationTest
 
     @Test
     void upgradesPopulatedV6DatabaseWithoutChangingExistingFacts() throws SQLException {
-        Flyway versionSix = flyway(POSTGRES.getJdbcUrl(), VERSION_6);
+        currentLease = SchemaTemplates.forPostgres().lease("6");
+        Flyway versionSix = flyway(currentLease.jdbcUrl(), VERSION_6);
         versionSix.migrate();
         Fixture fixture = seedFixture("UPG");
         insertCredential(fixture, UUID.randomUUID(), "upgrade-token");
 
-        Flyway versionSeven = flyway(POSTGRES.getJdbcUrl(), VERSION_7);
+        Flyway versionSeven = flyway(currentLease.jdbcUrl(), VERSION_7);
         assertEquals(1, versionSeven.migrate().migrationsExecuted);
 
         assertEquals("7", versionSeven.info().current().getVersion().getVersion());
@@ -162,7 +166,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
 
     @Test
     void backfillsOneStableConnectionlessNativeBindingForEveryReadyTeam() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_8).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("8");
+        flyway(currentLease.jdbcUrl(), VERSION_8).migrate();
         Fixture ready = seedFixture("NAT");
         Fixture incomplete = seedFixture("INC");
         execute(
@@ -171,7 +176,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 ready.workspaceId(),
                 ready.teamId());
 
-        Flyway versionNine = flyway(POSTGRES.getJdbcUrl(), VERSION_9);
+        Flyway versionNine = flyway(currentLease.jdbcUrl(), VERSION_9);
         assertEquals(1, versionNine.migrate().migrationsExecuted);
 
         BuiltInProviderRegistration registration = nativeRegistration();
@@ -224,7 +229,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
 
     @Test
     void upgradesV7ConversationFactsIntoStableOrderedEventStreams() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("7");
+        flyway(currentLease.jdbcUrl(), VERSION_7).migrate();
         Fixture fixture = seedFixture("EVT");
         UUID conversationId = insertConversation(fixture);
         UUID directEventId = UUID.randomUUID();
@@ -248,7 +254,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
                 "2026-08-10T08:01:00Z",
                 "{\"conversationId\":\"" + conversationId + "\"}");
 
-        Flyway versionEight = flyway(POSTGRES.getJdbcUrl(), VERSION_8);
+        Flyway versionEight = flyway(currentLease.jdbcUrl(), VERSION_8);
         assertEquals(1, versionEight.migrate().migrationsExecuted);
 
         assertEquals(2, queryInt("SELECT COUNT(*) FROM crewscope.conversation_event"));
@@ -266,9 +272,9 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     @Test
     void migratesV7IntoCrewscopeWhenConnectionUsesNonDefaultSearchPath()
             throws SQLException {
-        String jdbcUrl = POSTGRES.getJdbcUrl()
-                + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?")
-                + "currentSchema=" + ALTERNATE_SCHEMA;
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
+        String jdbcUrl = currentLease.jdbcUrl("currentSchema=" + ALTERNATE_SCHEMA);
         assertEquals(ALTERNATE_SCHEMA, queryString(jdbcUrl, "SELECT current_schema()"));
 
         Flyway flyway = flyway(jdbcUrl, VERSION_7);
@@ -283,7 +289,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     @Test
     void enforcesConversationScopeActiveParticipantAndMessageIdempotency()
             throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("7");
+        flyway(currentLease.jdbcUrl(), VERSION_7).migrate();
         Fixture fixture = seedFixture("CON");
         UUID conversationId = insertConversation(fixture);
         UUID ownerParticipantId = insertParticipant(
@@ -374,7 +381,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     @Test
     void enforcesAgentRuntimeSessionProfileSnapshotAndSingleActiveBinding()
             throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("7");
+        flyway(currentLease.jdbcUrl(), VERSION_7).migrate();
         Fixture fixture = seedFixture("SES");
         UUID conversationId = insertConversation(fixture);
         insertRuntimeSession(fixture, conversationId, UUID.randomUUID(), 0);
@@ -438,7 +446,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     @Test
     void enforcesTaskIntentDecisionScopeAndSingleConfirmedWorkItem()
             throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("7");
+        flyway(currentLease.jdbcUrl(), VERSION_7).migrate();
         Fixture fixture = seedFixture("INT");
         UUID conversationId = insertConversation(fixture);
 
@@ -470,7 +479,8 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     @Test
     void enforcesProviderOwnerGrantBindingScopeAndDefaultUniqueness()
             throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_7).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("7");
+        flyway(currentLease.jdbcUrl(), VERSION_7).migrate();
         Fixture fixture = seedFixture("PRV");
         UUID credentialId = UUID.randomUUID();
         UUID definitionId = UUID.randomUUID();
@@ -1198,7 +1208,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     }
 
     private static int execute(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, values);
             return statement.executeUpdate();
@@ -1237,7 +1247,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     }
 
     private static int queryInt(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, values);
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -1257,7 +1267,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
     }
 
     private static UUID queryUuid(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, values);
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -1269,7 +1279,7 @@ class V7ConversationAgentProviderMigrationIntegrationTest
 
     private static Set<String> queryStrings(String sql) throws SQLException {
         Set<String> values = new HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql);
                 ResultSet resultSet = statement.executeQuery()) {
             while (resultSet.next()) {

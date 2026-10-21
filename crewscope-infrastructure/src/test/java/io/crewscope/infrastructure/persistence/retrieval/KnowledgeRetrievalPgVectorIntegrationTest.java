@@ -70,6 +70,7 @@ import io.crewscope.domain.team.UninitializedTeam;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.persistence.knowledge.PgVectorKnowledgeEmbeddingStore;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -78,6 +79,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -133,10 +135,17 @@ class KnowledgeRetrievalPgVectorIntegrationTest extends AbstractPgVectorContaine
     private final Map<KnowledgeEntryId, KnowledgeEntryVersion> versions = new LinkedHashMap<>();
     private KnowledgeRetrievalService service;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
     void freshDatabase() {
+        // The lease is a physical clone of the default chain's tip; the vector chain
+        // (which the seed never carries) replays for real on every lease — its three
+        // steps, CREATE EXTENSION included, are cheap.
+        currentLease = SchemaTemplates.forPgVector().lease(SchemaTemplates.TIP);
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
+                currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         jobs = new JdbcKnowledgeIndexJobRepositoryAdapter(
                 new NamedParameterJdbcTemplate(dataSource));
@@ -147,7 +156,7 @@ class KnowledgeRetrievalPgVectorIntegrationTest extends AbstractPgVectorContaine
         chunkVectors = new PgVectorRepositoryChunkStore(jdbc);
         generations = new JdbcGenerationCatalogAdapter(jdbc);
         guards = new GuardStore(initialization);
-        jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+        // No-op defense: the clone carries no vector extension.
         jdbc.execute("DROP EXTENSION IF EXISTS vector CASCADE");
         migrateDefaultChain();
         migrateVectorChain();
@@ -163,6 +172,14 @@ class KnowledgeRetrievalPgVectorIntegrationTest extends AbstractPgVectorContaine
                 guards,
                 ChunkingPolicy.defaults(),
                 true);
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
@@ -446,7 +463,7 @@ class KnowledgeRetrievalPgVectorIntegrationTest extends AbstractPgVectorContaine
 
     private void migrateDefaultChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -456,7 +473,7 @@ class KnowledgeRetrievalPgVectorIntegrationTest extends AbstractPgVectorContaine
 
     private void migrateVectorChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration-vector")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")

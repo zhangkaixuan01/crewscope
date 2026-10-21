@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -18,7 +19,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V10 durable Task Runtime schema and its database-level safety verdicts. */
@@ -36,19 +37,21 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
     private static final String HASH_C = "c".repeat(64);
     private static final String HASH_D = "d".repeat(64);
 
-    @BeforeEach
-    void resetSchemas() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS v10_probe CASCADE");
-            statement.execute("CREATE SCHEMA v10_probe");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsDurableRuntimeTablesAuditColumnsConstraintsAndIndexes() throws SQLException {
-        Flyway flyway = flyway(POSTGRES.getJdbcUrl(), VERSION_10);
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        Flyway flyway = flyway(currentLease.jdbcUrl(), VERSION_10);
         flyway.migrate();
 
         assertEquals("10", flyway.info().current().getVersion().getVersion());
@@ -131,11 +134,12 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void upgradesPopulatedV9AndPreservesPersonalSessionFacts() throws SQLException {
-        Flyway versionNine = flyway(POSTGRES.getJdbcUrl(), VERSION_9);
+        currentLease = SchemaTemplates.forPostgres().lease("9");
+        Flyway versionNine = flyway(currentLease.jdbcUrl(), VERSION_9);
         versionNine.migrate();
         Fixture fixture = seedFixture("UPG", true);
 
-        Flyway versionTen = flyway(POSTGRES.getJdbcUrl(), VERSION_10);
+        Flyway versionTen = flyway(currentLease.jdbcUrl(), VERSION_10);
         assertEquals(1, versionTen.migrate().migrationsExecuted);
 
         assertEquals("10", versionTen.info().current().getVersion().getVersion());
@@ -157,7 +161,8 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void upgradesPopulatedV10AndBackfillsImmutableTaskBriefs() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("10");
+        flyway(currentLease.jdbcUrl(), VERSION_10).migrate();
         Fixture fixture = seedFixture("BRF", false);
         execute(
                 "UPDATE crewscope.work_item SET title = ?, description = ? WHERE id = ?",
@@ -166,7 +171,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
                 fixture.workItemId());
         TaskFacts facts = seedTaskFacts(fixture);
 
-        Flyway versionEleven = flyway(POSTGRES.getJdbcUrl(), VERSION_11);
+        Flyway versionEleven = flyway(currentLease.jdbcUrl(), VERSION_11);
         assertEquals(1, versionEleven.migrate().migrationsExecuted);
 
         assertEquals("11", versionEleven.info().current().getVersion().getVersion());
@@ -188,9 +193,10 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void upgradesV11WithTheCompleteBoundedTaskQueryIndexSet() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_11).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("11");
+        flyway(currentLease.jdbcUrl(), VERSION_11).migrate();
 
-        Flyway versionTwelve = flyway(POSTGRES.getJdbcUrl(), VERSION_12);
+        Flyway versionTwelve = flyway(currentLease.jdbcUrl(), VERSION_12);
         assertEquals(1, versionTwelve.migrate().migrationsExecuted);
 
         assertEquals("12", versionTwelve.info().current().getVersion().getVersion());
@@ -208,10 +214,11 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void upgradesV12WithTaskEventStreamAndBackfillsOnlyKnownTaskFacts() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("10");
+        flyway(currentLease.jdbcUrl(), VERSION_10).migrate();
         Fixture fixture = seedFixture("EVT", false);
         TaskFacts facts = seedTaskFacts(fixture);
-        flyway(POSTGRES.getJdbcUrl(), VERSION_12).migrate();
+        flyway(currentLease.jdbcUrl(), VERSION_12).migrate();
 
         UUID taskEventId = UUID.randomUUID();
         insertDomainEvent(
@@ -236,7 +243,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
                 0,
                 "{\"taskId\":\"" + facts.taskId() + "\"}");
 
-        Flyway versionThirteen = flyway(POSTGRES.getJdbcUrl(), VERSION_13);
+        Flyway versionThirteen = flyway(currentLease.jdbcUrl(), VERSION_13);
         assertEquals(1, versionThirteen.migrate().migrationsExecuted);
 
         assertEquals("13", versionThirteen.info().current().getVersion().getVersion());
@@ -257,9 +264,9 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void migratesV10IntoCrewscopeWithNonDefaultSearchPath() throws SQLException {
-        String jdbcUrl = POSTGRES.getJdbcUrl()
-                + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?")
-                + "currentSchema=" + ALTERNATE_SCHEMA;
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
+        String jdbcUrl = currentLease.jdbcUrl("currentSchema=" + ALTERNATE_SCHEMA);
 
         flyway(jdbcUrl, VERSION_10).migrate();
 
@@ -277,7 +284,8 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void enforcesTaskScopeAttemptStateAndPlanPolicyParentLineage() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("10");
+        flyway(currentLease.jdbcUrl(), VERSION_10).migrate();
         Fixture fixture = seedFixture("ONE", false);
         TaskFacts facts = seedTaskFacts(fixture);
         Fixture foreign = seedFixture("TWO", false);
@@ -336,7 +344,8 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void enforcesRuntimeLeaseCredentialAndSessionVerdicts() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("10");
+        flyway(currentLease.jdbcUrl(), VERSION_10).migrate();
         Fixture fixture = seedFixture("RUN", false);
         TaskFacts facts = seedTaskFacts(fixture);
         RuntimeFacts runtime = seedRuntimeFacts(fixture, facts);
@@ -372,7 +381,8 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     @Test
     void enforcesRunSegmentInterruptAndSnapshotPartialUniqueness() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_10).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("10");
+        flyway(currentLease.jdbcUrl(), VERSION_10).migrate();
         Fixture fixture = seedFixture("AGT", false);
         TaskFacts facts = seedTaskFacts(fixture);
         UUID sessionId = insertTaskSession(fixture, facts, "TASK", null);
@@ -1182,7 +1192,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
     }
 
     private static int execute(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);
@@ -1202,7 +1212,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
     }
 
     private static int queryInt(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);
@@ -1216,7 +1226,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     private static Set<String> queryStrings(String sql) throws SQLException {
         Set<String> result = new HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 Statement statement = connection.createStatement();
                 ResultSet resultSet = statement.executeQuery(sql)) {
             while (resultSet.next()) {
@@ -1228,7 +1238,7 @@ class V10DurableTaskRuntimeMigrationIntegrationTest
 
     private static Set<String> columns(String table) throws SQLException {
         Set<String> result = new HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(
                         """
                         SELECT column_name FROM information_schema.columns

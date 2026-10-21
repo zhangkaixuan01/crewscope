@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -18,7 +19,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V20 model catalog, Agent template/configuration and compatibility upgrade. */
@@ -40,14 +41,21 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
             "agent_configuration_model_binding",
             "agent_model_default");
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        resetSchemas();
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
     void createsCompleteV20SchemaWithMutableRootsAndAppendOnlyFacts() throws SQLException {
-        Flyway flyway = flyway(POSTGRES.getJdbcUrl(), VERSION_20);
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        Flyway flyway = flyway(currentLease.jdbcUrl(), VERSION_20);
         flyway.migrate();
 
         assertEquals("20", flyway.info().current().getVersion().getVersion());
@@ -80,11 +88,12 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void upgradesV19ToV20AndValidatesFlywayHistory() {
-        Flyway source = flyway(POSTGRES.getJdbcUrl(), VERSION_19);
+        currentLease = SchemaTemplates.forPostgres().lease("19");
+        Flyway source = flyway(currentLease.jdbcUrl(), VERSION_19);
         source.migrate();
         assertEquals("19", source.info().current().getVersion().getVersion());
 
-        Flyway target = flyway(POSTGRES.getJdbcUrl(), VERSION_20);
+        Flyway target = flyway(currentLease.jdbcUrl(), VERSION_20);
         assertEquals(1, target.migrate().migrationsExecuted);
         assertEquals("20", target.info().current().getVersion().getVersion());
         target.validate();
@@ -92,6 +101,8 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void migratesIntoCrewscopeWithNonDefaultSearchPath() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
         String jdbcUrl = jdbcUrlWithCurrentSchema(ALTERNATE_SCHEMA);
         assertEquals(ALTERNATE_SCHEMA, currentSchema(jdbcUrl));
 
@@ -105,11 +116,12 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void backfillsLegacyProfileSessionAndPolicyWithoutChangingStableFacts() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_19).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("19");
+        flyway(currentLease.jdbcUrl(), VERSION_19).migrate();
         LegacyFixture fixture = seedLegacyPersonalAgent();
         UUID policyId = insertLegacyPolicyFixture(fixture);
 
-        flyway(POSTGRES.getJdbcUrl(), VERSION_20).migrate();
+        flyway(currentLease.jdbcUrl(), VERSION_20).migrate();
 
         assertRow(
                 """
@@ -143,7 +155,8 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void createsScopeRevisionConflictKeysAndQueryIndexes() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_20).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("20");
+        flyway(currentLease.jdbcUrl(), VERSION_20).migrate();
 
         Set<String> constraints = queryStrings(
                 """
@@ -182,7 +195,8 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void rejectsDuplicateCatalogAndPriceRevisionsAndInvalidConnectionScope() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_20).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("20");
+        flyway(currentLease.jdbcUrl(), VERSION_20).migrate();
         ModelFixture fixture = seedModelFixture();
 
         insertCatalogEntry(fixture, UUID.randomUUID(), 1, null);
@@ -207,7 +221,8 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     @Test
     void rejectsForgedProfilePolicyAndPartialSessionUpgradeShapes() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_20).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("20");
+        flyway(currentLease.jdbcUrl(), VERSION_20).migrate();
         LegacyFixture fixture = seedCurrentScope();
 
         assertSqlState("23514", () -> execute(
@@ -528,15 +543,6 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
                 """;
     }
 
-    private static void resetSchemas() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS " + ALTERNATE_SCHEMA + " CASCADE");
-            statement.execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
-        }
-    }
-
     private static Flyway flyway(String jdbcUrl, MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
                 .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -561,7 +567,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
         String sql = "SELECT table_name FROM information_schema.tables "
                 + "WHERE table_schema = ? AND table_name IN (" + placeholders + ")";
         Set<String> values = new HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, schema);
             int index = 2;
@@ -578,7 +584,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
     }
 
     private static int tableCount(String schema, String table) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(
                         "SELECT COUNT(*) FROM information_schema.tables "
                                 + "WHERE table_schema = ? AND table_name = ?")) {
@@ -593,7 +599,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
 
     private static Set<String> queryStrings(String sql) throws SQLException {
         Set<String> values = new HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 Statement statement = connection.createStatement();
                 ResultSet result = statement.executeQuery(sql)) {
             while (result.next()) {
@@ -604,7 +610,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
     }
 
     private static void assertRow(String sql, UUID id, String... expected) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, id);
             try (ResultSet result = statement.executeQuery()) {
@@ -618,7 +624,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
     }
 
     private static void execute(String sql, Object... parameters) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < parameters.length; index++) {
                 statement.setObject(index + 1, parameters[index]);
@@ -638,8 +644,7 @@ class V20ModelCatalogAgentConfigurationMigrationIntegrationTest
     }
 
     private static String jdbcUrlWithCurrentSchema(String schema) {
-        String separator = POSTGRES.getJdbcUrl().contains("?") ? "&" : "?";
-        return POSTGRES.getJdbcUrl() + separator + "currentSchema=" + schema;
+        return currentLease.jdbcUrl("currentSchema=" + schema);
     }
 
     private static String currentSchema(String jdbcUrl) throws SQLException {

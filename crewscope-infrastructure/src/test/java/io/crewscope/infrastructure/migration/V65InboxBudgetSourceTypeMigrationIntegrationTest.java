@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -14,6 +15,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -36,18 +38,27 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
     private UUID teamId;
     private UUID memberId;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-        }
+    void resetDatabase() {
         organizationId = UUID.randomUUID();
         teamId = UUID.randomUUID();
         memberId = UUID.randomUUID();
     }
 
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
+    }
+
     @Test
     void migratesToTheChainTip() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
         Flyway target = flyway(VERSION_TIP);
 
         assertTrue(target.migrate().migrationsExecuted >= 64);
@@ -58,6 +69,7 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
     @Test
     void theBudgetLaneAdmitsExceptionBudgetAndStillRejectsEveryOtherCombination()
             throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("66");
         flyway(VERSION_TIP).migrate();
         seedTenant();
         seedProjectionGeneration();
@@ -80,6 +92,7 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
 
     @Test
     void seedsExactlyOnePublishedBudgetTemplateWithFiveTextVariables() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("66");
         flyway(VERSION_TIP).migrate();
 
         assertEquals(1L, longScalar("""
@@ -177,7 +190,7 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -189,7 +202,7 @@ class V65InboxBudgetSourceTypeMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

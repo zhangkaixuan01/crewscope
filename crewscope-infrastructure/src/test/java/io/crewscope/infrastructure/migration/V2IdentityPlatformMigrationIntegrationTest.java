@@ -7,12 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashSet;
@@ -22,7 +22,7 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.flywaydb.core.api.output.MigrateResult;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V2 identity, authorization, audit, projection and credential database contract. */
@@ -133,19 +133,21 @@ class V2IdentityPlatformMigrationIntegrationTest
                     "fk_credential_secret_created_by_principal",
                     "fk_credential_secret_updated_by_principal");
 
-    @BeforeEach
-    void resetSchemas() throws SQLException {
-        // Schema reset keeps all cases independent without restarting the class-level container.
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS migration_probe CASCADE");
-            statement.execute("CREATE SCHEMA migration_probe");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsV2ObjectsOnlyInCrewscopeSchema() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("2");
+        execute("CREATE SCHEMA migration_probe");
         Flyway flyway = versionTwoFlyway();
         MigrateResult result = flyway.migrate();
 
@@ -200,6 +202,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void createsValidatedForeignKeysAndRequiredIndexes() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("2");
         versionTwoFlyway().migrate();
 
         Set<String> indexes =
@@ -252,6 +255,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void bootstrapsOrganizationAndItsFirstPrincipalInOneTransaction() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("2");
         versionTwoFlyway().migrate();
         UUID organizationId = UUID.randomUUID();
         UUID principalId = UUID.randomUUID();
@@ -294,6 +298,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void enforcesTenantIdentityRoleAuditAndCredentialInvariants() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("2");
         versionTwoFlyway().migrate();
         BaselineIds ids = seedIdentityGraph();
 
@@ -610,6 +615,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     @Test
     void upgradesSeededVersionOneDatabaseWithoutChangingBusinessRows() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("1");
         Flyway versionOne = flyway(VERSION_1);
         versionOne.migrate();
         UUID organizationId = UUID.randomUUID();
@@ -793,7 +799,7 @@ class V2IdentityPlatformMigrationIntegrationTest
         FluentConfiguration configuration =
                 Flyway.configure()
                         .dataSource(
-                                POSTGRES.getJdbcUrl(),
+                                currentLease.jdbcUrl(),
                                 POSTGRES.getUsername(),
                                 POSTGRES.getPassword())
                         .locations("classpath:db/migration")
@@ -809,7 +815,7 @@ class V2IdentityPlatformMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int execute(String sql, Object... parameters) throws SQLException {

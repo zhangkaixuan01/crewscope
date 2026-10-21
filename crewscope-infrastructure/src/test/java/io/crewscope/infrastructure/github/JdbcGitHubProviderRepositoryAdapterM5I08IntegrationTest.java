@@ -23,17 +23,18 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -51,13 +52,15 @@ class JdbcGitHubProviderRepositoryAdapterM5I08IntegrationTest
     private ConnectionId connectionId;
     private UtcTimestamp now;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
     void setUp() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-        }
+        // A physical clone of the chain tip; the replayed migrate() is a no-op check.
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -65,7 +68,7 @@ class JdbcGitHubProviderRepositoryAdapterM5I08IntegrationTest
                 .load()
                 .migrate();
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         repository = new JdbcGitHubProviderRepositoryAdapter(
                 new JdbcTemplate(dataSource), new ObjectMapper());
         organizationId = new OrganizationId(UUID.randomUUID());
@@ -77,6 +80,14 @@ class JdbcGitHubProviderRepositoryAdapterM5I08IntegrationTest
         connectionId = new ConnectionId(UUID.randomUUID());
         now = UtcTimestamp.from(Instant.parse("2026-08-23T12:00:00Z"));
         seedAuthority();
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
@@ -192,6 +203,6 @@ class JdbcGitHubProviderRepositoryAdapterM5I08IntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 }

@@ -28,6 +28,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
 import io.crewscope.infrastructure.workspace.git.GitCommandExecutor;
 import io.crewscope.infrastructure.workspace.git.GitCommandPolicy;
@@ -42,6 +43,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -87,10 +89,17 @@ class RepositoryIndexGenerationLifecycleIntegrationTest
     private DriftingEmbeddings embeddings;
     private KnowledgeIndexJobService service;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
     void freshDatabase() throws Exception {
+        // The lease is a physical clone of the default chain's tip; the vector chain
+        // (which the seed never carries) replays for real on every lease — its three
+        // steps, CREATE EXTENSION included, are cheap.
+        currentLease = SchemaTemplates.forPgVector().lease(SchemaTemplates.TIP);
         dataSource = new DriverManagerDataSource(
-                PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
+                currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         jobs = new JdbcKnowledgeIndexJobRepositoryAdapter(
                 new NamedParameterJdbcTemplate(dataSource));
@@ -102,11 +111,19 @@ class RepositoryIndexGenerationLifecycleIntegrationTest
         embeddings = new DriftingEmbeddings();
         service = new KnowledgeIndexJobService(
                 jobs, embeddings, mock(KnowledgeRepository.class), () -> NOW, true);
-        jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+        // No-op defense: the clone carries no vector extension.
         jdbc.execute("DROP EXTENSION IF EXISTS vector CASCADE");
         migrateDefaultChain();
         migrateVectorChain();
         seedTenantAndBinding();
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
@@ -295,7 +312,7 @@ class RepositoryIndexGenerationLifecycleIntegrationTest
 
     private void migrateDefaultChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -305,7 +322,7 @@ class RepositoryIndexGenerationLifecycleIntegrationTest
 
     private void migrateVectorChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration-vector")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")

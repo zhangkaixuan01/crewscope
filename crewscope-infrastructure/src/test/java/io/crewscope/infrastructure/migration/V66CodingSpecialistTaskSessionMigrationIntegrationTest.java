@@ -5,17 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -30,16 +30,20 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
     private static final MigrationVersion VERSION_66 = MigrationVersion.fromVersion("66");
     private static final String HASH_A = "a".repeat(64);
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesAnEmptySchemaToV66() {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
         Flyway target = flyway(VERSION_66);
 
         assertTrue(target.migrate().migrationsExecuted >= 66);
@@ -49,6 +53,7 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
 
     @Test
     void admitsACodingSpecialistTaskSessionBesideTheTeamExecutorShape() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("66");
         flyway(VERSION_66).migrate();
         Facts facts = seedFacts();
 
@@ -67,6 +72,7 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
 
     @Test
     void rejectsMismatchedTaskIdentityPairs() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("66");
         flyway(VERSION_66).migrate();
         Facts facts = seedFacts();
 
@@ -312,7 +318,7 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -330,7 +336,7 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
     }
 
     private static int execute(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);
@@ -345,7 +351,7 @@ class V66CodingSpecialistTaskSessionMigrationIntegrationTest
     }
 
     private static int queryInt(String sql, Object... values) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < values.length; index++) {
                 statement.setObject(index + 1, values[index]);

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -14,7 +15,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Locks down the V27 generation, Activity, Inbox, notification and Audit persistence contract. */
@@ -26,18 +27,22 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
     private static final String NOW = "TIMESTAMPTZ '2026-08-25 12:00:00+00'";
     private static final String LATER = "TIMESTAMPTZ '2026-08-25 12:01:00+00'";
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS v27_probe CASCADE");
-            statement.execute("CREATE SCHEMA v27_probe");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesEmptyAndNonDefaultSchemaToV27() throws SQLException {
-        String url = POSTGRES.getJdbcUrl() + "&currentSchema=v27_probe";
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA v27_probe");
+        String url = currentLease.jdbcUrl("currentSchema=v27_probe");
         Flyway target = flyway(url, VERSION_27);
 
         assertEquals(27, target.migrate().migrationsExecuted);
@@ -51,7 +56,8 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void upgradesV26CheckpointIntoActiveGenerationAndPointer() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_26).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("26");
+        flyway(currentLease.jdbcUrl(), VERSION_26).migrate();
         Scope scope = seedScope();
         UUID eventId = seedDomainEvent(scope, 0);
         execute("""
@@ -66,7 +72,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
                 """.formatted(
                 scope.organizationId(), UUID.randomUUID(), eventId, eventId, NOW, NOW, LATER));
 
-        Flyway target = flyway(POSTGRES.getJdbcUrl(), VERSION_27);
+        Flyway target = flyway(currentLease.jdbcUrl(), VERSION_27);
         assertEquals(1, target.migrate().migrationsExecuted);
         target.validate();
 
@@ -92,6 +98,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void enforcesSingleActiveSingleShadowAndCommittedPointerInvariant() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("27");
         migrateLatest();
         Scope scope = seedScope();
         bootstrapProjection(scope, "team-activity");
@@ -156,6 +163,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void rejectsStaleLeaseAndCrossTenantProjectionWrites() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("27");
         migrateLatest();
         Scope first = seedScope();
         Scope second = seedScope();
@@ -195,6 +203,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void preservesDispositionWhenRetiredInboxGenerationIsCleaned() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("27");
         migrateLatest();
         Scope scope = seedScope();
         bootstrapProjection(scope, "member-inbox");
@@ -278,6 +287,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void enforcesNotificationTemplateIntentAndDeliveryReceiptContracts() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("27");
         migrateLatest();
         Scope scope = seedScope();
         bootstrapProjection(scope, "notification-intent");
@@ -356,6 +366,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     @Test
     void addsAuditKeysetIndexesAndMakesAuditHistoryAppendOnly() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("27");
         migrateLatest();
         Scope scope = seedScope();
         UUID eventId = seedDomainEvent(scope, 0);
@@ -386,7 +397,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
     }
 
     private static void migrateLatest() {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_27).migrate();
+        flyway(currentLease.jdbcUrl(), VERSION_27).migrate();
     }
 
     private static Scope seedScope() throws SQLException {
@@ -564,7 +575,7 @@ class V27ActivityInboxNotificationMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

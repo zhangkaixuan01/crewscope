@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -17,7 +18,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V14 Coding workspace, policy, artifact, evidence and checkpoint schema. */
@@ -41,14 +42,21 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
             "test_acceptance_evidence",
             "coding_checkpoint");
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        resetSchemas();
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
     void createsCompleteCodingSchemaWithLayeredAuditAndNoHostPaths() throws SQLException {
-        Flyway flyway = flyway(POSTGRES.getJdbcUrl(), VERSION_14);
+        currentLease = SchemaTemplates.forPostgres().lease("14");
+        Flyway flyway = flyway(currentLease.jdbcUrl(), VERSION_14);
         flyway.migrate();
 
         assertEquals("14", flyway.info().current().getVersion().getVersion());
@@ -93,7 +101,8 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
 
     @Test
     void createsScopeConstraintsConflictKeysAndQueryIndexes() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_14).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("14");
+        flyway(currentLease.jdbcUrl(), VERSION_14).migrate();
 
         Set<String> constraints = queryStrings(
                 """
@@ -146,14 +155,19 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
     @Test
     void upgradesV9V10AndV13ToV14() throws SQLException {
         for (int sourceVersion : new int[] {9, 10, 13}) {
-            resetSchemas();
+            // One private database per baseline: the loop replays three independent
+            // upgrade scenarios, so each iteration leases a fresh clone of that baseline.
+            if (currentLease != null) {
+                currentLease.close();
+            }
+            currentLease = SchemaTemplates.forPostgres().lease(Integer.toString(sourceVersion));
             Flyway source = flyway(
-                    POSTGRES.getJdbcUrl(), MigrationVersion.fromVersion(Integer.toString(sourceVersion)));
+                    currentLease.jdbcUrl(), MigrationVersion.fromVersion(Integer.toString(sourceVersion)));
             source.migrate();
             assertEquals(Integer.toString(sourceVersion),
                     source.info().current().getVersion().getVersion());
 
-            Flyway target = flyway(POSTGRES.getJdbcUrl(), VERSION_14);
+            Flyway target = flyway(currentLease.jdbcUrl(), VERSION_14);
             assertEquals(14 - sourceVersion, target.migrate().migrationsExecuted);
             assertEquals("14", target.info().current().getVersion().getVersion());
             target.validate();
@@ -163,6 +177,8 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
 
     @Test
     void migratesV14IntoCrewscopeWithNonDefaultSearchPath() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("14");
+        execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
         String jdbcUrl = jdbcUrlWithCurrentSchema(ALTERNATE_SCHEMA);
         assertEquals(ALTERNATE_SCHEMA, currentSchema(jdbcUrl));
 
@@ -177,7 +193,8 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
 
     @Test
     void rejectsDuplicateRepositoryKeyInvalidStateAndCrossScopeProject() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_14).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("14");
+        flyway(currentLease.jdbcUrl(), VERSION_14).migrate();
         ScopeFixture fixture = seedScope();
 
         insertRepositoryBinding(fixture, UUID.randomUUID(), "platform", "ACTIVE");
@@ -244,15 +261,6 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
                 fixture.projectId(), repositoryKey, status, fixture.actorId(), fixture.actorId());
     }
 
-    private static void resetSchemas() throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS " + ALTERNATE_SCHEMA + " CASCADE");
-            statement.execute("CREATE SCHEMA " + ALTERNATE_SCHEMA);
-        }
-    }
-
     private static Flyway flyway(String jdbcUrl, MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
                 .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -275,7 +283,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
         String placeholders = String.join(",", V14_TABLES.stream().map(value -> "?").toList());
         String sql = "SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = ? AND table_name IN (" + placeholders + ")";
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, schema);
             int index = 2;
@@ -290,7 +298,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
     }
 
     private static int tableCount(String schema, String table) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(
                         "SELECT COUNT(*) FROM information_schema.tables "
                                 + "WHERE table_schema = ? AND table_name = ?")) {
@@ -305,7 +313,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
 
     private static Set<String> queryStrings(String sql) throws SQLException {
         Set<String> values = new java.util.HashSet<>();
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 Statement statement = connection.createStatement();
                 ResultSet result = statement.executeQuery(sql)) {
             while (result.next()) {
@@ -316,7 +324,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
     }
 
     private static String queryString(String sql) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 Statement statement = connection.createStatement();
                 ResultSet result = statement.executeQuery(sql)) {
             assertTrue(result.next());
@@ -325,7 +333,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
     }
 
     private static void execute(String sql, Object... parameters) throws SQLException {
-        try (Connection connection = openConnection(POSTGRES.getJdbcUrl());
+        try (Connection connection = openConnection(currentLease.jdbcUrl());
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             for (int index = 0; index < parameters.length; index++) {
                 statement.setObject(index + 1, parameters[index]);
@@ -345,8 +353,7 @@ class V14ExecutionWorkspaceArtifactsMigrationIntegrationTest
     }
 
     private static String jdbcUrlWithCurrentSchema(String schema) {
-        String separator = POSTGRES.getJdbcUrl().contains("?") ? "&" : "?";
-        return POSTGRES.getJdbcUrl() + separator + "currentSchema=" + schema;
+        return currentLease.jdbcUrl("currentSchema=" + schema);
     }
 
     private static String currentSchema(String jdbcUrl) throws SQLException {

@@ -5,18 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V5 tenant-qualified reservation, completion and forward-upgrade contract. */
@@ -26,16 +26,20 @@ class V5CommandReceiptMigrationIntegrationTest
     private static final MigrationVersion VERSION_4 = MigrationVersion.fromVersion("4");
     private static final MigrationVersion VERSION_5 = MigrationVersion.fromVersion("5");
 
-    @BeforeEach
-    void resetSchema() throws SQLException {
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void addsTheCommandReceiptShapeConstraintsAndIndexes() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("5");
         Flyway flyway = flyway(VERSION_5);
         flyway.migrate();
 
@@ -84,6 +88,7 @@ class V5CommandReceiptMigrationIntegrationTest
 
     @Test
     void upgradesV4AndEnforcesTenantKeyAndCompletionShape() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("4");
         Flyway versionFour = flyway(VERSION_4);
         versionFour.migrate();
         UUID organizationId = UUID.randomUUID();
@@ -136,7 +141,7 @@ class V5CommandReceiptMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -150,7 +155,7 @@ class V5CommandReceiptMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int execute(String sql, Object... values) throws SQLException {

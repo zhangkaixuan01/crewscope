@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -23,6 +24,7 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -36,21 +38,38 @@ class V32TeamInvitationMigrationIntegrationTest
     private static final String RESOLVED = "TIMESTAMPTZ '2026-08-28 10:10:00+00'";
     private static final String EXPIRES = "TIMESTAMPTZ '2026-08-28 11:00:00+00'";
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    /**
+     * Roles are cluster-level and outlive any leased database, so the guard runs on
+     * the container's own database before each method. Schema resets are gone: each
+     * method works on a fresh leased database (a verified seed clone or a blank one).
+     */
     @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS v32_probe CASCADE");
+    void resetClusterGuards() throws SQLException {
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                Statement statement = connection.createStatement()) {
             statement.execute("DROP ROLE IF EXISTS v32_metadata_reader");
-            statement.execute("CREATE SCHEMA v32_probe");
+        }
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesEmptyDatabaseWithNonDefaultSearchPathAndConvergesAtV32()
             throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA v32_probe");
         Flyway target = flyway(
-                POSTGRES.getJdbcUrl() + "&currentSchema=v32_probe", VERSION_32);
+                currentLease.jdbcUrl("currentSchema=v32_probe"), VERSION_32);
 
         assertEquals(32, target.migrate().migrationsExecuted);
         target.validate();
@@ -63,8 +82,14 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void upgradesV31WithoutChangingIdentityTeamOrAppendOnlyEventFacts() throws SQLException {
-        Flyway source = flyway(POSTGRES.getJdbcUrl(), VERSION_31);
-        assertEquals(31, source.migrate().migrationsExecuted);
+        currentLease = SchemaTemplates.forPostgres().lease("31");
+        // The lease is a physical clone of a verified V31 seed, so the replayed-step
+        // assertion becomes the equivalent history-row invariant (versioned rows only;
+        // SchemaTemplates pins the same count while building the seed).
+        Flyway source = flyway(currentLease.jdbcUrl(), VERSION_31);
+        source.migrate();
+        assertEquals(31, scalar(
+                "SELECT COUNT(*) FROM crewscope.flyway_schema_history WHERE version IS NOT NULL"));
         UUID organizationId = insertOrganization("Existing Organization");
         UUID teamId = insertTeam(organizationId, "Existing Team");
         UUID principalId = insertPrincipal(organizationId, "USER", null, "ACTIVE");
@@ -72,7 +97,7 @@ class V32TeamInvitationMigrationIntegrationTest
         insertBinding(accountId, organizationId, principalId);
         insertDomainEvent(organizationId, teamId, principalId);
 
-        Flyway target = flyway(POSTGRES.getJdbcUrl(), VERSION_32);
+        Flyway target = flyway(currentLease.jdbcUrl(), VERSION_32);
         assertEquals(1, target.migrate().migrationsExecuted);
         target.validate();
 
@@ -85,6 +110,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void enforcesDigestRoleIssueScopeAndTerminalShape() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("32");
         migrateLatest();
         UUID organizationId = insertOrganization("Primary Organization");
         UUID teamId = insertTeam(organizationId, "Primary Team");
@@ -142,6 +168,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void concurrentAcceptanceProducesExactlyOneTerminalCommit() throws Exception {
+        currentLease = SchemaTemplates.forPostgres().lease("32");
         migrateLatest();
         UUID organizationId = insertOrganization("Primary Organization");
         UUID teamId = insertTeam(organizationId, "Primary Team");
@@ -179,6 +206,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void acceptanceRequiresActiveAccountMatchingTargetAndActiveTeam() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("32");
         migrateLatest();
         UUID organizationId = insertOrganization("Primary Organization");
         UUID teamId = insertTeam(organizationId, "Primary Team");
@@ -237,6 +265,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void acceptanceHoldsStatusLocksAgainstConcurrentBindingDisable() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("32");
         migrateLatest();
         UUID organizationId = insertOrganization("Primary Organization");
         UUID teamId = insertTeam(organizationId, "Primary Team");
@@ -270,6 +299,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     @Test
     void supportsBoundedExpiryScanAndHidesDigestFromGenericReaders() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("32");
         migrateLatest();
         UUID organizationId = insertOrganization("Primary Organization");
         UUID teamId = insertTeam(organizationId, "Primary Team");
@@ -334,12 +364,12 @@ class V32TeamInvitationMigrationIntegrationTest
     @Test
     void rollsBackWholeMigrationWhenReservedInvitationRelationConflicts()
             throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_31).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("31");
         execute("CREATE TABLE crewscope.team_invitation (collision INTEGER PRIMARY KEY)");
 
         assertThrows(
                 FlywayException.class,
-                () -> flyway(POSTGRES.getJdbcUrl(), VERSION_32).migrate());
+                () -> flyway(currentLease.jdbcUrl(), VERSION_32).migrate());
 
         assertEquals(1, relationCount("crewscope", "team_invitation"));
         assertEquals(0, relationCount("crewscope", "team_invitation_metadata"));
@@ -348,7 +378,7 @@ class V32TeamInvitationMigrationIntegrationTest
                 WHERE table_schema = 'crewscope' AND table_name = 'team_invitation'
                   AND column_name = 'collision'
                 """));
-        assertEquals("31", flyway(POSTGRES.getJdbcUrl(), VERSION_32)
+        assertEquals("31", flyway(currentLease.jdbcUrl(), VERSION_32)
                 .info().current().getVersion().getVersion());
     }
 
@@ -565,8 +595,9 @@ class V32TeamInvitationMigrationIntegrationTest
         return String.valueOf(value).repeat(64);
     }
 
+    /** A validation no-op on a tier-matched V32 lease; the real replay on a BLANK one. */
     private static void migrateLatest() {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_32).migrate();
+        flyway(currentLease.jdbcUrl(), VERSION_32).migrate();
     }
 
     private static Flyway flyway(String jdbcUrl, MigrationVersion target) {
@@ -585,7 +616,7 @@ class V32TeamInvitationMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

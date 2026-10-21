@@ -89,6 +89,7 @@ import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.model.OpenAiCompatibleEmbeddingClient;
 import io.crewscope.infrastructure.persistence.knowledge.PgVectorKnowledgeEmbeddingStore;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,6 +110,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -174,6 +176,17 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
     private PgVectorKnowledgeEmbeddingStore knowledgeVectors;
     private PgVectorRepositoryChunkStore chunkVectors;
     private final ObjectMapper json = new ObjectMapper();
+
+    /** Private per-method database: the gate method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
+    }
 
     @Test
     void theFrozenThresholdsHoldOverTheProductRetrievalPath() throws Exception {
@@ -682,22 +695,26 @@ class KnowledgeRetrievalQualityGateTest extends AbstractPgVectorContainerIntegra
     // ------------------------------------------------------------------ database
 
     private void freshDatabase() {
+        // The lease is a physical clone of the default chain's tip; the vector chain
+        // (which the seed never carries) replays for real on every lease — its three
+        // steps, CREATE EXTENSION included, are cheap.
+        currentLease = SchemaTemplates.forPgVector().lease(SchemaTemplates.TIP);
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
+                currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         knowledgeVectors = new PgVectorKnowledgeEmbeddingStore(jdbc);
         chunkVectors = new PgVectorRepositoryChunkStore(jdbc);
-        jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+        // No-op defense: the clone carries no vector extension.
         jdbc.execute("DROP EXTENSION IF EXISTS vector CASCADE");
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
                 .load()
                 .migrate();
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration-vector")
                 .schemas("crewscope")
                 .table("flyway_vector_history")

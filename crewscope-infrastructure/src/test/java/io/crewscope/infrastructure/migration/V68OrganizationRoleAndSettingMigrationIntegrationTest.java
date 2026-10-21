@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -17,7 +18,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -33,16 +34,21 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
     private static final String EARLY = "'2026-01-10T00:00:00Z'::timestamptz";
     private static final String LATE = "'2026-03-20T00:00:00Z'::timestamptz";
 
-    @BeforeEach
-    void resetSchema() throws SQLException {
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsTheRoleAndSettingTablesWithTheirBackstops() throws SQLException {
+        // flyway(null) targets the chain tip, so the lease is the TIP clone.
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway(null).migrate();
 
         Set<String> grantConstraints = queryStrings(
@@ -80,6 +86,7 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     @Test
     void backfillsTheEarliestActiveBindingAsTheSoleOwnerPerOrganization() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("67");
         flyway(VERSION_67).migrate();
         UUID firstOrganization = UUID.randomUUID();
         UUID secondOrganization = UUID.randomUUID();
@@ -123,6 +130,7 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     @Test
     void leavesOrganizationsWithoutActiveBindingsEmpty() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("67");
         flyway(VERSION_67).migrate();
         UUID organization = UUID.randomUUID();
         insertOrganization(organization);
@@ -149,6 +157,8 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     @Test
     void partialUniqueIndexAllowsRevokedHistoryButBlocksASecondActive() throws SQLException {
+        // flyway(null) targets the chain tip, so the lease is the TIP clone.
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway(null).migrate();
         UUID organization = insertOrganization(UUID.randomUUID());
         UUID principal = insertPrincipal(organization, "Grant Holder");
@@ -182,6 +192,8 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     @Test
     void retentionCheckEnforcesTheThirtyDayFloorAndForeverDefault() throws SQLException {
+        // flyway(null) targets the chain tip, so the lease is the TIP clone.
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.TIP);
         flyway(null).migrate();
         UUID organization = insertOrganization(UUID.randomUUID());
         UUID principal = insertPrincipal(organization, "Setting Writer");
@@ -281,7 +293,7 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas(SCHEMA)
                 .defaultSchema(SCHEMA)
@@ -295,7 +307,7 @@ class V68OrganizationRoleAndSettingMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int execute(String sql) throws SQLException {

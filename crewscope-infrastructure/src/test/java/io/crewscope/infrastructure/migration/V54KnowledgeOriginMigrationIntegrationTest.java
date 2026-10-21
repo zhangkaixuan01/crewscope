@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -14,7 +15,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -30,15 +31,20 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     private record Scope(UUID organizationId, UUID teamId, UUID principalId) {}
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesAnEmptySchemaToV54() {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
         Flyway target = flyway(MigrationVersion.fromVersion("54"));
 
         assertTrue(target.migrate().migrationsExecuted >= 54);
@@ -48,6 +54,7 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     @Test
     void upgradesV53RowsToANullOriginAndKeepsAcceptingFullPairs() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("53");
         flyway(VERSION_53).migrate();
         Scope scope = seedScope();
         UUID legacy = UUID.randomUUID();
@@ -71,6 +78,7 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     @Test
     void rejectsHalfPairsAndNonPositiveAttempts() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("54");
         flyway(MigrationVersion.fromVersion("54")).migrate();
         Scope scope = seedScope();
         UUID executionId = UUID.randomUUID();
@@ -96,6 +104,7 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     @Test
     void createsTheExecutionLookupAsAPartialIndex() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("54");
         flyway(MigrationVersion.fromVersion("54")).migrate();
 
         String definition = textScalar("""
@@ -177,7 +186,7 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -189,7 +198,7 @@ class V54KnowledgeOriginMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

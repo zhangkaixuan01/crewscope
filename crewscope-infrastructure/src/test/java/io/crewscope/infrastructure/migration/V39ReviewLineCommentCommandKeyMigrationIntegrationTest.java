@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -17,7 +18,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies that V39 gives a comment its own update-command slot without touching existing rows. */
@@ -27,16 +28,20 @@ class V39ReviewLineCommentCommandKeyMigrationIntegrationTest
     private static final MigrationVersion VERSION_38 = MigrationVersion.fromVersion("38");
     private static final MigrationVersion VERSION_39 = MigrationVersion.fromVersion("39");
 
-    @BeforeEach
-    void resetSchema() throws SQLException {
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void addsTheUpdateCommandSlotWithoutMovingExistingCreateKeys() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("38");
         flyway(VERSION_38).migrate();
         UUID organizationId = UUID.randomUUID();
         UUID commentId = UUID.randomUUID();
@@ -54,6 +59,7 @@ class V39ReviewLineCommentCommandKeyMigrationIntegrationTest
 
     @Test
     void scopesTheUpdateCommandSlotPerOrganizationAndRejectsAFreeUpdate() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("39");
         flyway(VERSION_39).migrate();
         UUID organizationId = UUID.randomUUID();
         UUID editedComment = UUID.randomUUID();
@@ -91,6 +97,7 @@ class V39ReviewLineCommentCommandKeyMigrationIntegrationTest
 
     @Test
     void publishesTheColumnConstraintAndPartialIndex() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("39");
         flyway(VERSION_39).migrate();
 
         assertTrue(queryStrings(
@@ -150,7 +157,7 @@ class V39ReviewLineCommentCommandKeyMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         var configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -164,7 +171,7 @@ class V39ReviewLineCommentCommandKeyMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int executeUpdate(String sql, Object... values) throws SQLException {

@@ -6,18 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Verifies the V3 aggregate ordering coordinate and durable Outbox routing constraints. */
@@ -28,16 +28,20 @@ class V3DomainEventMigrationIntegrationTest
     private static final MigrationVersion VERSION_2 = MigrationVersion.fromVersion("2");
     private static final MigrationVersion VERSION_3 = MigrationVersion.fromVersion("3");
 
-    @BeforeEach
-    void resetSchema() throws SQLException {
-        try (Connection connection = openConnection();
-                Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void createsARequiredExplicitAggregateVersionAndRoutingChecks() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("3");
         Flyway flyway = flyway(VERSION_3);
         flyway.migrate();
 
@@ -83,6 +87,7 @@ class V3DomainEventMigrationIntegrationTest
 
     @Test
     void upgradesAnExistingV2FactToVersionZeroAndRejectsRegression() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("2");
         Flyway versionTwo = flyway(VERSION_2);
         versionTwo.migrate();
         UUID organizationId = UUID.randomUUID();
@@ -140,7 +145,7 @@ class V3DomainEventMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         FluentConfiguration configuration = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas(SCHEMA)
                 .defaultSchema(SCHEMA)
@@ -154,7 +159,7 @@ class V3DomainEventMigrationIntegrationTest
 
     private static Connection openConnection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static int execute(String sql, Object... values) throws SQLException {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -13,7 +14,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** V22-to-V23 proof for independent envelope and plaintext credential revisions. */
@@ -24,15 +25,20 @@ class V23CredentialSecretBusinessVersionMigrationIntegrationTest
     private static final MigrationVersion VERSION_23 = MigrationVersion.fromVersion("23");
     private static final String PROVIDER_HASH = "a".repeat(64);
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = connection(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void upgradesExistingBindingsAndDefersAtomicSecretRotationForeignKey() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("22");
         flyway(VERSION_22).migrate();
         Fixture fixture = seedV22Connection();
 
@@ -148,7 +154,7 @@ class V23CredentialSecretBusinessVersionMigrationIntegrationTest
 
     private Flyway flyway(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
                 .createSchemas(true)
@@ -193,7 +199,7 @@ class V23CredentialSecretBusinessVersionMigrationIntegrationTest
 
     private Connection connection() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private record Fixture(UUID credentialId, UUID connectionId) {}

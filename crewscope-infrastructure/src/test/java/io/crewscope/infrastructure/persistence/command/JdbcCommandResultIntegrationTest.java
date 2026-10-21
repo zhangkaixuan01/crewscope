@@ -8,6 +8,7 @@ import io.crewscope.domain.shared.error.IdempotencyConflictException;
 import io.crewscope.domain.shared.id.*;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkProjectId;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
@@ -45,12 +47,15 @@ class JdbcCommandResultIntegrationTest {
   private TransactionTemplate tx;
   private CommandReceiptStore store;
 
+  /** Private per-method database: every test method leases and releases its own. */
+  private static SchemaTemplates.Lease currentLease;
+
   @BeforeEach void initializeV39() {
+    currentLease = SchemaTemplates.forContainer(POSTGRES).lease("39");
     dataSource = new DriverManagerDataSource(
-        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     jdbc = new JdbcTemplate(dataSource);
-    // This schema exists only inside this class's fresh, unshared Testcontainer.
-    jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    // No-op verification on the leased V39 clone; per-test migrate("40"/"62") stays real.
     migrate("39");
     jdbc.update("INSERT INTO crewscope.organization (id,name,status) VALUES (?,'Org','ACTIVE')", org.value());
     jdbc.update("INSERT INTO crewscope.team (id,organization_id,name,status) VALUES (?,?,'Team','ACTIVE')",
@@ -70,12 +75,19 @@ class JdbcCommandResultIntegrationTest {
     store = (CommandReceiptStore) proxy.getProxy();
   }
 
+  @AfterEach void releaseLease() {
+    if (currentLease != null) {
+      currentLease.close();
+      currentLease = null;
+    }
+  }
+
   @Test void durableReadSurvivesNewAdapterAndConnectionsAndReplayHasOneResult() {
     migrate("40");
     var request = request("durable");
     var original = tx.execute(status -> create(request, actor, true));
     var reader = new JdbcCommandReceiptStore(new JdbcTemplate(new DriverManagerDataSource(
-        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())));
+        currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())));
     assertEquals(original, reader.findResult(org, request.idempotencyKey(), actor).orElseThrow().receipt());
     assertTrue(reader.findResult(org, request.idempotencyKey(), PrincipalId.generate()).isEmpty());
     assertTrue(reader.findResult(OrganizationId.generate(), request.idempotencyKey(), actor).isEmpty());

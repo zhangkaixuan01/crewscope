@@ -35,6 +35,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.persistence.knowledge.PgVectorKnowledgeEmbeddingStore;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -46,6 +47,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -83,10 +85,17 @@ class KnowledgeIndexJobRestartIntegrationTest extends AbstractPgVectorContainerI
     private RecordingEmbeddings embeddings;
     private KnowledgeRepository knowledge;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     @BeforeEach
     void freshDatabase() {
+        // The lease is a physical clone of the default chain's tip; the vector chain
+        // (which the seed never carries) replays for real on every lease — its three
+        // steps, CREATE EXTENSION included, are cheap.
+        currentLease = SchemaTemplates.forPgVector().lease(SchemaTemplates.TIP);
         dataSource = new DriverManagerDataSource(
-                PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
+                currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         jobs = new JdbcKnowledgeIndexJobRepositoryAdapter(
                 new NamedParameterJdbcTemplate(dataSource));
@@ -97,11 +106,19 @@ class KnowledgeIndexJobRestartIntegrationTest extends AbstractPgVectorContainerI
         knowledgeVectors = new PgVectorKnowledgeEmbeddingStore(jdbc);
         embeddings = new RecordingEmbeddings();
         knowledge = mock(KnowledgeRepository.class);
-        jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+        // No-op defense: the clone carries no vector extension.
         jdbc.execute("DROP EXTENSION IF EXISTS vector CASCADE");
         migrateDefaultChain();
         migrateVectorChain();
         seedTenant();
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
@@ -322,7 +339,7 @@ class KnowledgeIndexJobRestartIntegrationTest extends AbstractPgVectorContainerI
 
     private void migrateDefaultChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -332,7 +349,7 @@ class KnowledgeIndexJobRestartIntegrationTest extends AbstractPgVectorContainerI
 
     private void migrateVectorChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration-vector")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")

@@ -14,6 +14,7 @@ import io.crewscope.domain.teamobserver.TeamObserverInitialization;
 import io.crewscope.domain.teamobserver.TeamObserverTemplate;
 import io.crewscope.domain.collaboration.LarkExternalTenantId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -23,7 +24,7 @@ import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /** Locks down exact Lark member identity and deterministic Team Observer V28 persistence. */
@@ -35,18 +36,22 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
     private static final String NOW = "TIMESTAMPTZ '2026-08-25 12:00:00+00'";
     private static final String LATER = "TIMESTAMPTZ '2026-08-25 12:01:00+00'";
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
-            statement.execute("DROP SCHEMA IF EXISTS v28_probe CASCADE");
-            statement.execute("CREATE SCHEMA v28_probe");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesEmptyAndNonDefaultSchemaAndConvergesAtV28() throws SQLException {
-        String url = POSTGRES.getJdbcUrl() + "&currentSchema=v28_probe";
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
+        execute("CREATE SCHEMA v28_probe");
+        String url = currentLease.jdbcUrl("currentSchema=v28_probe");
         Flyway target = flyway(url, VERSION_28);
 
         assertEquals(28, target.migrate().migrationsExecuted);
@@ -61,13 +66,14 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
 
     @Test
     void upgradesOnlyCompleteTeamsWithJavaExactIdsHashesAndDisabledPair() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_27).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("27");
+        flyway(currentLease.jdbcUrl(), VERSION_27).migrate();
         Scope ready = seedReadyScope();
         UUID partialTeam = seedPartialTeam(ready.organizationId());
         int modelConnections = scalar("SELECT COUNT(*) FROM crewscope.model_connection");
         int configurations = scalar("SELECT COUNT(*) FROM crewscope.agent_configuration_version");
 
-        Flyway target = flyway(POSTGRES.getJdbcUrl(), VERSION_28);
+        Flyway target = flyway(currentLease.jdbcUrl(), VERSION_28);
         assertEquals(1, target.migrate().migrationsExecuted);
         target.validate();
 
@@ -142,6 +148,7 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
 
     @Test
     void enforcesLarkScopeIdentityUniquenessAndTerminalHistory() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("28");
         migrateLatest();
         Scope scope = seedReadyScope();
         LarkGraph graph = seedLarkGraph(scope);
@@ -213,7 +220,8 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
 
     @Test
     void rollsBackV28WhenDeterministicPrincipalCollides() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_27).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("27");
+        flyway(currentLease.jdbcUrl(), VERSION_27).migrate();
         Scope scope = seedReadyScope();
         UUID collision = TeamObserverInitialization
                 .stablePrincipalId(new TeamId(scope.teamId())).value();
@@ -224,15 +232,16 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
                 """.formatted(collision, scope.organizationId()));
 
         assertThrows(FlywayException.class,
-                () -> flyway(POSTGRES.getJdbcUrl(), VERSION_28).migrate());
+                () -> flyway(currentLease.jdbcUrl(), VERSION_28).migrate());
         assertEquals(0, tableCount("crewscope", "lark_member_mapping"));
-        assertEquals("27", flyway(POSTGRES.getJdbcUrl(), VERSION_28)
+        assertEquals("27", flyway(currentLease.jdbcUrl(), VERSION_28)
                 .info().current().getVersion().getVersion());
     }
 
     @Test
     void rollsBackWhenReservedTemplateConflictsWithoutAnEligibleTeam() throws SQLException {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_27).migrate();
+        currentLease = SchemaTemplates.forPostgres().lease("27");
+        flyway(currentLease.jdbcUrl(), VERSION_27).migrate();
         UUID organizationId = UUID.randomUUID();
         UUID principalId = UUID.randomUUID();
         transaction(statement -> {
@@ -271,14 +280,14 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
 
         assertEquals(0, scalar("SELECT COUNT(*) FROM crewscope.team"));
         assertThrows(FlywayException.class,
-                () -> flyway(POSTGRES.getJdbcUrl(), VERSION_28).migrate());
+                () -> flyway(currentLease.jdbcUrl(), VERSION_28).migrate());
         assertEquals(0, tableCount("crewscope", "lark_member_mapping"));
-        assertEquals("27", flyway(POSTGRES.getJdbcUrl(), VERSION_28)
+        assertEquals("27", flyway(currentLease.jdbcUrl(), VERSION_28)
                 .info().current().getVersion().getVersion());
     }
 
     private static void migrateLatest() {
-        flyway(POSTGRES.getJdbcUrl(), VERSION_28).migrate();
+        flyway(currentLease.jdbcUrl(), VERSION_28).migrate();
     }
 
     private static Scope seedReadyScope() throws SQLException {
@@ -516,7 +525,7 @@ class V28LarkMappingTeamObserverMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

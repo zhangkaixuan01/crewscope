@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -13,7 +14,7 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -34,15 +35,20 @@ class V60InjectionReferenceMigrationIntegrationTest
             UUID organizationId, UUID teamId, UUID workspaceId, UUID projectId,
             UUID taskId, UUID executionId) {}
 
-    @BeforeEach
-    void resetDatabase() throws SQLException {
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
-            statement.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
         }
     }
 
     @Test
     void migratesAnEmptySchemaToV60WithoutAnyExtension() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease(SchemaTemplates.BLANK);
         Flyway target = flyway(VERSION_60);
 
         assertTrue(target.migrate().migrationsExecuted >= 60);
@@ -55,6 +61,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     @Test
     void locksTheFrozenRowContract() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("60");
         flyway(VERSION_60).migrate();
         Scope scope = seedScope();
 
@@ -90,6 +97,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     @Test
     void feedbackKeyIsTheStructuralIdempotencyBoundary() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("60");
         flyway(VERSION_60).migrate();
         Scope scope = seedScope();
         UUID member = UUID.randomUUID();
@@ -113,6 +121,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     @Test
     void claimedReceiptsAreUniquePerExecutionAttempt() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("60");
         flyway(VERSION_60).migrate();
         Scope scope = seedScope();
         execute(claimedInsert(scope, 1, CLAIMED));
@@ -129,6 +138,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     @Test
     void foreignKeysRestrictCleanupUntilTheEvidenceIsGone() throws SQLException {
+        currentLease = SchemaTemplates.forPostgres().lease("60");
         flyway(VERSION_60).migrate();
         Scope scope = seedScope();
         execute(feedbackInsert(scope, "KNOWLEDGE_ENTRY", "entry-1", 3,
@@ -291,7 +301,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     private static Flyway flyway(MigrationVersion target) {
         return Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -303,7 +313,7 @@ class V60InjectionReferenceMigrationIntegrationTest
 
     private static Connection open() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                currentLease.jdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static void execute(String sql) throws SQLException {

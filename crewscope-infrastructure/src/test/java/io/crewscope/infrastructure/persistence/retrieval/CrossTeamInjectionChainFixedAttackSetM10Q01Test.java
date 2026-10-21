@@ -102,6 +102,7 @@ import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.persistence.knowledge.PgVectorKnowledgeEmbeddingStore;
 import io.crewscope.infrastructure.persistence.memory.JdbcAgentMemoryRepositoryAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPgVectorContainerIntegrationTest;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -112,6 +113,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -181,6 +183,9 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
     private AgentMemoryService memory;
     private PromptInjectionService injection;
 
+    /** Private per-method database: every test method leases and releases its own. */
+    private static SchemaTemplates.Lease currentLease;
+
     private final Set<UUID> alphaEntries = new LinkedHashSet<>();
     private final Set<String> alphaMemoryKeys = new LinkedHashSet<>();
     private final Set<UUID> betaEntries = new LinkedHashSet<>();
@@ -188,8 +193,12 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
 
     @BeforeEach
     void freshDatabase() {
+        // The lease is a physical clone of the default chain's tip; the vector chain
+        // (which the seed never carries) replays for real on every lease — its three
+        // steps, CREATE EXTENSION included, are cheap.
+        currentLease = SchemaTemplates.forPgVector().lease(SchemaTemplates.TIP);
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
-                PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
+                currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         jobs = new JdbcKnowledgeIndexJobRepositoryAdapter(
                 new NamedParameterJdbcTemplate(dataSource));
@@ -199,7 +208,7 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
         knowledgeVectors = new PgVectorKnowledgeEmbeddingStore(jdbc);
         chunkVectors = new PgVectorRepositoryChunkStore(jdbc);
         memoryAdapter = new JdbcAgentMemoryRepositoryAdapter(jdbc);
-        jdbc.execute("DROP SCHEMA IF EXISTS crewscope CASCADE");
+        // No-op defense: the clone carries no vector extension.
         jdbc.execute("DROP EXTENSION IF EXISTS vector CASCADE");
         migrateDefaultChain();
         migrateVectorChain();
@@ -252,6 +261,14 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
         seedMemory(ownerKey(teamBeta, profileBeta, betaOwner),
                 "beta-reply-language", "Deutsch", "beta-code-style", "spaces",
                 betaMemoryKeys);
+    }
+
+    @AfterEach
+    void releaseLease() {
+        if (currentLease != null) {
+            currentLease.close();
+            currentLease = null;
+        }
     }
 
     @Test
@@ -911,7 +928,7 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
 
     private void migrateDefaultChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration")
                 .schemas("crewscope")
                 .defaultSchema("crewscope")
@@ -921,7 +938,7 @@ class CrossTeamInjectionChainFixedAttackSetM10Q01Test extends AbstractPgVectorCo
 
     private void migrateVectorChain() {
         Flyway.configure()
-                .dataSource(PGVECTOR.getJdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
+                .dataSource(currentLease.jdbcUrl(), PGVECTOR.getUsername(), PGVECTOR.getPassword())
                 .locations("classpath:db/migration-vector")
                 .schemas("crewscope")
                 .table("flyway_vector_history")
