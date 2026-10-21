@@ -74,11 +74,16 @@ export default defineConfig({
       // specs (m4-diff-stream-spike / m7-identity-experience-spike), so the preview
       // server must serve them from the bundle just as the dev pipeline serves them
       // from source. Output paths follow the input filenames, keeping the URLs stable.
-      input: {
-        main: 'index.html',
-        m4Spike: 'm4-s03-fixture.html',
-        m7Spike: 'm7-s04-fixture.html',
-      },
+      // Histoire builds its own virtual entries from this config and cannot digest
+      // an input object, and its CLI sets HISTOIRE=true before loading the config —
+      // the extra pages therefore apply to the application build only.
+      ...(process.env.HISTOIRE ? {} : {
+        input: {
+          main: 'index.html',
+          m4Spike: 'm4-s03-fixture.html',
+          m7Spike: 'm7-s04-fixture.html',
+        },
+      }),
       output: {
         // The framework runtime (vue + vue-router) is a stable, always-loaded slice of
         // the initial payload. Splitting it into its own chunk keeps the app chunk
