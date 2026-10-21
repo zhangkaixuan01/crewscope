@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 71b6aa8c59d86d5e71d9bcc668dd022cb2cf26542cdb34e17b53c132bd6d4db4
+// Controller source SHA-256: 3c58450a3f79cde7b68100188c308a4b2f3f6b386fa14aca49c60f183f675ff5
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1112,6 +1112,14 @@ export const openApiDocument = {
     "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/effective-version": {
       "get": {
         "operationId": "KnowledgeEntryController_effectiveVersion",
+        "tags": [
+          "KnowledgeEntryController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/index-refresh": {
+      "post": {
+        "operationId": "KnowledgeEntryController_refreshIndex",
         "tags": [
           "KnowledgeEntryController"
         ]
@@ -3257,6 +3265,12 @@ export const openApiOperations = [
   },
   {
     "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/index-refresh",
+    "operationId": "KnowledgeEntryController_refreshIndex",
+    "controller": "KnowledgeEntryController"
+  },
+  {
+    "method": "post",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/knowledge/entries/{entryId}/publish",
     "operationId": "KnowledgeEntryController_publish",
     "controller": "KnowledgeEntryController"
@@ -4252,4 +4266,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 308 as const
+export const openApiOperationCount = 309 as const

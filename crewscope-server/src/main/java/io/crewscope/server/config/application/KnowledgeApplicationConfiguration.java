@@ -13,6 +13,7 @@ import io.crewscope.application.agent.AgentTemplateRepository;
 import io.crewscope.application.command.CommandReceiptStore;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
+import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.identity.PrincipalRepository;
 import io.crewscope.application.knowledge.KnowledgeCommandService;
 import io.crewscope.application.knowledge.KnowledgeDistillationPort;
@@ -61,7 +62,8 @@ public class KnowledgeApplicationConfiguration {
             OutboxRepository outbox,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider,
+            KnowledgeIndexJobService indexJobs) {
         return new KnowledgeCommandService(
                 knowledgeRepository,
                 teams,
@@ -72,7 +74,8 @@ public class KnowledgeApplicationConfiguration {
                 outbox,
                 receipts,
                 transactions,
-                timeProvider);
+                timeProvider,
+                indexJobs);
     }
 
     @Bean

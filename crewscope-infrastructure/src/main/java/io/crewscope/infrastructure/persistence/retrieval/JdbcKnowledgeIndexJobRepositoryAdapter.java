@@ -159,6 +159,12 @@ public class JdbcKnowledgeIndexJobRepositoryAdapter
             predicates.append("  AND status = :status\n");
             parameters.addValue("status", filter.status().orElseThrow().name());
         }
+        if (filter.entryId().isPresent()) {
+            // Repository builds carry no entry, so an entry filter selects that entry's
+            // jobs and excludes them by construction — no source coupling needed.
+            predicates.append("  AND entry_id = :entryId\n");
+            parameters.addValue("entryId", filter.entryId().orElseThrow().value());
+        }
         // Keyset on the plain job id: the subquery resolves the cursor's (created_at, id)
         // pair within the same Team, so a foreign or stale id simply yields no rows and
         // callers reject it through their own findById gate.

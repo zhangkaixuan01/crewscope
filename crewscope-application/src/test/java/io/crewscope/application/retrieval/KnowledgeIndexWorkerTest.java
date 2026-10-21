@@ -758,6 +758,9 @@ final class KnowledgeIndexWorkerTest {
             List<KnowledgeIndexJob> candidates = ordered.subList(start, ordered.size()).stream()
                     .filter(job -> filter.source().map(job.source()::equals).orElse(true))
                     .filter(job -> filter.status().map(job.status()::equals).orElse(true))
+                    .filter(job -> filter.entryId()
+                            .map(entry -> job.entryId().equals(Optional.of(entry)))
+                            .orElse(true))
                     .limit(pageRequest.limit() + 1L)
                     .toList();
             if (candidates.size() <= pageRequest.limit()) {

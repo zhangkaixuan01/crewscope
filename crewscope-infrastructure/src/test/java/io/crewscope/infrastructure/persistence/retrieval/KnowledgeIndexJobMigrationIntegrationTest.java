@@ -323,15 +323,24 @@ class KnowledgeIndexJobMigrationIntegrationTest extends AbstractPgVectorContaine
         KnowledgeIndexJobPage repositoryOnly = jobs.findByTeam(
                 organizationId, teamId,
                 new KnowledgeIndexJobFilter(
-                        Optional.of(KnowledgeIndexJobSource.REPOSITORY), Optional.empty()),
+                        Optional.of(KnowledgeIndexJobSource.REPOSITORY), Optional.empty(), Optional.empty()),
                 new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
         assertEquals(List.of(build.id()), ids(repositoryOnly));
         KnowledgeIndexJobPage queuedOnly = jobs.findByTeam(
                 organizationId, teamId,
                 new KnowledgeIndexJobFilter(
-                        Optional.empty(), Optional.of(KnowledgeIndexJobStatus.QUEUED)),
+                        Optional.empty(), Optional.of(KnowledgeIndexJobStatus.QUEUED), Optional.empty()),
                 new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
         assertEquals(3, queuedOnly.items().size(), "every seeded job is still QUEUED");
+
+        // M13b-A04: the entry filter selects one entry's jobs only — the other entry's
+        // job and the repository build never leak in.
+        KnowledgeIndexJobPage entryOnly = jobs.findByTeam(
+                organizationId, teamId,
+                new KnowledgeIndexJobFilter(
+                        Optional.empty(), Optional.empty(), Optional.of(entryId)),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
+        assertEquals(List.of(first.id()), ids(entryOnly));
 
         // Tenant isolation: the stranger's job never leaks into this Team's pages, and
         // a cursor foreign to the querying Team resolves to nothing (callers reject it

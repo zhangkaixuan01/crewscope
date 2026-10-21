@@ -143,6 +143,37 @@ class KnowledgeEntryControllerTest {
   }
 
   @Test
+  void refreshIndexAnswersTheAcceptedReceiptWithoutAnIfMatch() {
+    CommandReceipt receipt =
+        new CommandReceipt(UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID());
+    AtomicReference<KnowledgeEntryId> addressed = new AtomicReference<>();
+    when(service.refreshEntryIndex(any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              addressed.set(invocation.getArgument(2, KnowledgeEntryId.class));
+              return CommandExecution.completed(entry, receipt);
+            });
+
+    client
+        .post()
+        .uri(root() + "/" + entry.id() + "/index-refresh")
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "refresh-index-http-1")
+        .exchange()
+        .expectStatus()
+        .isAccepted()
+        .expectBody()
+        .jsonPath("$.commandId")
+        .isEqualTo(receipt.commandId().toString())
+        .jsonPath("$.committedVersion")
+        .isEqualTo(0);
+
+    assertEquals(entry.id(), addressed.get());
+    // The idempotency key stays mandatory: a bare retry without it never reaches the service.
+    client.post().uri(root() + "/" + entry.id() + "/index-refresh").exchange()
+        .expectStatus().isBadRequest();
+  }
+
+  @Test
   void createsAnEntryThroughTheAcceptedReceiptContract() {
     AtomicReference<CreateKnowledgeEntryCommand> parsed = new AtomicReference<>();
     CommandReceipt receipt =

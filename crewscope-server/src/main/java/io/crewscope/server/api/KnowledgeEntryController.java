@@ -229,6 +229,27 @@ public final class KnowledgeEntryController {
                         service.retire(context, team, entry, expectedVersion));
     }
 
+    /**
+     * Per-entry index retry (M13b-A04/R16). No {@code If-Match}: the head aggregate is
+     * untouched, so there is no optimistic-lock version to check — the 202 receipt is
+     * the reply, and the outcome shows up on the entry-filtered job listing.
+     */
+    @PostMapping("/{entryId}/index-refresh")
+    public Mono<ResponseEntity<CommandReceiptResponse>> refreshIndex(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String entryId,
+            @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        return command(
+                authentication,
+                organizationId(organizationId),
+                ApiHeaders.requireIdempotencyKey(key),
+                exchange,
+                context -> service.refreshEntryIndex(context, teamId(teamId), entryId(entryId)));
+    }
+
     @DeleteMapping("/{entryId}")
     public Mono<ResponseEntity<CommandReceiptResponse>> delete(
             @PathVariable String organizationId,

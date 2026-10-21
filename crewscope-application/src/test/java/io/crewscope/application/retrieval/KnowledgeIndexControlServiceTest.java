@@ -323,10 +323,20 @@ final class KnowledgeIndexControlServiceTest {
         KnowledgeIndexJobPage repositoryOnly = service.list(
                 access(), organizationId, teamId,
                 new KnowledgeIndexJobFilter(
-                        Optional.of(KnowledgeIndexJobSource.REPOSITORY), Optional.empty()),
+                        Optional.of(KnowledgeIndexJobSource.REPOSITORY), Optional.empty(), Optional.empty()),
                 new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
         assertEquals(List.of(build.id()),
                 repositoryOnly.items().stream().map(KnowledgeIndexJob::id).toList());
+
+        // M13b-A04: the entry filter answers "where did my publication land" — it selects
+        // only that entry's jobs and excludes repository builds by construction.
+        KnowledgeIndexJobPage entryOnly = service.list(
+                access(), organizationId, teamId,
+                new KnowledgeIndexJobFilter(
+                        Optional.empty(), Optional.empty(), Optional.of(first.entryId().orElseThrow())),
+                new KnowledgeIndexJobPageRequest(Optional.empty(), 10));
+        assertEquals(List.of(first.id()),
+                entryOnly.items().stream().map(KnowledgeIndexJob::id).toList());
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.list(access(), organizationId, teamId,
@@ -663,6 +673,9 @@ final class KnowledgeIndexControlServiceTest {
             List<KnowledgeIndexJob> candidates = ordered.subList(start, ordered.size()).stream()
                     .filter(job -> filter.source().map(job.source()::equals).orElse(true))
                     .filter(job -> filter.status().map(job.status()::equals).orElse(true))
+                    .filter(job -> filter.entryId()
+                            .map(entry -> job.entryId().equals(Optional.of(entry)))
+                            .orElse(true))
                     .limit(pageRequest.limit() + 1L)
                     .toList();
             if (candidates.size() <= pageRequest.limit()) {

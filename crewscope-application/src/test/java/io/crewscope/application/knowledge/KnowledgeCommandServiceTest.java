@@ -2,6 +2,7 @@ package io.crewscope.application.knowledge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,6 +17,15 @@ import io.crewscope.application.command.IdempotencyKey;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
 import io.crewscope.application.event.PendingOutboxEvent;
+import io.crewscope.application.retrieval.KnowledgeEmbeddingExecutor;
+import io.crewscope.application.retrieval.KnowledgeIndexJob;
+import io.crewscope.application.retrieval.KnowledgeIndexJobFilter;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPage;
+import io.crewscope.application.retrieval.KnowledgeIndexJobPageRequest;
+import io.crewscope.application.retrieval.KnowledgeIndexJobRepository;
+import io.crewscope.application.retrieval.KnowledgeIndexJobService;
+import io.crewscope.application.embedding.EmbeddingBatchResult;
+import io.crewscope.application.embedding.TeamEmbeddingCommand;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
@@ -35,6 +45,7 @@ import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryOrigin;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryStatus;
+import io.crewscope.domain.retrieval.EmbeddingModelRevision;
 import io.crewscope.domain.knowledge.event.KnowledgeEntryCreated;
 import io.crewscope.domain.knowledge.KnowledgeDisclosureViolationException;
 import io.crewscope.domain.knowledge.event.KnowledgeEntryDeleted;
@@ -80,6 +91,19 @@ final class KnowledgeCommandServiceTest {
     private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-09-30T08:00:00Z");
     private static final KnowledgeEntryKey ENTRY_KEY = new KnowledgeEntryKey("oncall-runbook");
 
+    /** The refresh path never touches embeddings; any reach fails loudly. */
+    private static final KnowledgeEmbeddingExecutor NO_EMBEDDINGS = new KnowledgeEmbeddingExecutor() {
+        @Override
+        public EmbeddingModelRevision resolveModel(OrganizationId organizationId, TeamId teamId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public EmbeddingBatchResult embed(TeamEmbeddingCommand command) {
+            throw new UnsupportedOperationException();
+        }
+    };
+
     private final OrganizationId organizationId = OrganizationId.generate();
     private final Principal actor =
             Principal.create(
@@ -95,6 +119,7 @@ final class KnowledgeCommandServiceTest {
     private final TeamId teamId = initialization.team().id();
     private final InMemoryKnowledgeRepository repository = new InMemoryKnowledgeRepository();
     private final Store store = new Store(initialization, actor);
+    private final RecordingIndexJobRepository indexJobs = new RecordingIndexJobRepository();
     private final KnowledgeCommandService service =
             new KnowledgeCommandService(
                     repository,
@@ -106,7 +131,13 @@ final class KnowledgeCommandServiceTest {
                     store,
                     store,
                     new DirectTransactionExecutor(),
-                    () -> NOW);
+                    () -> NOW,
+                    new KnowledgeIndexJobService(
+                            indexJobs,
+                            NO_EMBEDDINGS,
+                            repository,
+                            () -> NOW,
+                            true));
 
 
     // ------------------------------------------------------------------ lifecycle facts
@@ -397,6 +428,81 @@ final class KnowledgeCommandServiceTest {
                 .findById(organizationId, teamId, created.id()).orElseThrow().status());
     }
 
+    // ------------------------------------------------------------------ index refresh (M13b-A04)
+
+    @Test
+    void refreshEntryIndexEnqueuesOneJobWithoutTouchingTheEntry() {
+        KnowledgeEntry created = createEntry("refresh-seed-1", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        long versionBefore = created.version();
+
+        CommandExecution<KnowledgeEntry> execution =
+                service.refreshEntryIndex(context("refresh-1"), teamId, created.id());
+
+        assertFalse(execution.replayed());
+        assertEquals(1, indexJobs.created.size(), "exactly one job leaves the command");
+        assertEquals(created.id(), indexJobs.created.get(0).entryId().orElseThrow());
+        assertEquals(actor.id(), indexJobs.created.get(0).createdBy());
+        // No aggregate change and no domain event: the receipt anchors on the command id.
+        assertEquals(versionBefore, execution.result().orElseThrow().version());
+        assertEquals(1, store.events.size());
+    }
+
+    @Test
+    void refreshEntryIndexReplaysItsReceiptAndAddsNoSecondJob() {
+        KnowledgeEntry created = createEntry("refresh-replay-seed-1", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        TeamCommandContext context = context("refresh-replay-1");
+        CommandExecution<KnowledgeEntry> first =
+                service.refreshEntryIndex(context, teamId, created.id());
+
+        CommandExecution<KnowledgeEntry> second =
+                service.refreshEntryIndex(context, teamId, created.id());
+
+        assertTrue(second.replayed());
+        assertEquals(first.receipt(), second.receipt());
+        assertEquals(1, indexJobs.created.size());
+    }
+
+    @Test
+    void refreshEntryIndexStillCompletesWhenTheGateIsClosed() {
+        KnowledgeIndexJobService closedGate =
+                new KnowledgeIndexJobService(
+                        indexJobs,
+                        NO_EMBEDDINGS,
+                        repository,
+                        () -> NOW,
+                        false);
+        KnowledgeCommandService gated = new KnowledgeCommandService(
+                repository, store, store, store.rolesView(), store, store, store, store,
+                new DirectTransactionExecutor(), () -> NOW, closedGate);
+        KnowledgeEntry created = createEntry("refresh-gated-seed-1", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+
+        CommandExecution<KnowledgeEntry> execution =
+                gated.refreshEntryIndex(context("refresh-gated-1"), teamId, created.id());
+
+        // A closed gate is a skip, not an error: the receipt lands and no job appears.
+        assertFalse(execution.replayed());
+        assertEquals(0, indexJobs.created.size());
+    }
+
+    @Test
+    void refreshEntryIndexRequiresKnowledgeManageAndAKnownEntry() {
+        AggregateNotFoundException missing = assertThrows(
+                AggregateNotFoundException.class,
+                () -> service.refreshEntryIndex(
+                        context("refresh-missing-1"), teamId, KnowledgeEntryId.generate()));
+        assertEquals("KnowledgeEntry", missing.error().details().get("aggregateType"));
+
+        store.revokeGrants();
+        PolicyDeniedException denied = assertThrows(
+                PolicyDeniedException.class,
+                () -> service.refreshEntryIndex(
+                        context("refresh-denied-1"), teamId, KnowledgeEntryId.generate()));
+        assertEquals("manage this Team's knowledge", denied.error().details().get("action"));
+    }
+
     // ------------------------------------------------------------------ permissions
 
     @Test
@@ -642,6 +748,82 @@ final class KnowledgeCommandServiceTest {
         @Override
         public <T> T required(Supplier<T> operation) {
             return operation.get();
+        }
+    }
+
+    /**
+     * Records refresh enqueues for the index-refresh command; every other repository
+     * operation is out of this command face's scope and fails loudly if reached.
+     */
+    private static final class RecordingIndexJobRepository implements KnowledgeIndexJobRepository {
+        private final List<KnowledgeIndexJob> created = new ArrayList<>();
+
+        @Override
+        public KnowledgeIndexJob create(KnowledgeIndexJob job) {
+            created.add(job);
+            return job;
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> findLiveByEntry(
+                OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> findById(
+                OrganizationId organizationId, TeamId teamId, UUID jobId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> findLiveByIndexKey(
+                io.crewscope.domain.retrieval.RepositoryIndexKey indexKey) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> findLatestByEntry(
+                OrganizationId organizationId, TeamId teamId, KnowledgeEntryId entryId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public KnowledgeIndexJobPage findByTeam(
+                OrganizationId organizationId,
+                TeamId teamId,
+                KnowledgeIndexJobFilter filter,
+                KnowledgeIndexJobPageRequest pageRequest) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> claimNext(
+                String owner, UtcTimestamp now, java.time.Duration leaseDuration) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> updateClaimed(
+                KnowledgeIndexJob job, String owner,
+                UtcTimestamp now, java.time.Duration leaseDuration) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean insertCheckpoint(UUID jobId, long claimToken, int chunkSeq, int chunkCount) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int maxCheckpointSeq(UUID jobId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<KnowledgeIndexJob> cancelQueued(
+                KnowledgeIndexJob job, UtcTimestamp cancelledAt) {
+            throw new UnsupportedOperationException();
         }
     }
 }

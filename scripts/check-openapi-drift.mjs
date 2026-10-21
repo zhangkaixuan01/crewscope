@@ -43,8 +43,9 @@ const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1
 // + 2 session routes (M12-I01: GET/DELETE browser sessions)
 // + 1 SLI route (M12-I03: GET organization sli)
 // + 1 member directory route (M13b-A01: GET organization members)
-// + 1 knowledge switch route (M13b-A03: GET team knowledge config).
-if (operationCount !== 308) {
+// + 1 knowledge switch route (M13b-A03: GET team knowledge config)
+// + 1 entry index-refresh route (M13b-A04: POST entry index-refresh).
+if (operationCount !== 309) {
   console.error(`OpenAPI operation baseline changed: expected 308, found ${operationCount}`)
   process.exit(1)
 }

@@ -12,6 +12,7 @@ import io.crewscope.application.command.TeamCommandSupport.AggregateProfile;
 import io.crewscope.application.command.TeamCommandSupport.Mutation;
 import io.crewscope.application.event.DomainEventStore;
 import io.crewscope.application.event.OutboxRepository;
+import io.crewscope.application.retrieval.KnowledgeIndexJobService;
 import io.crewscope.application.team.MemberRoleRepository;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.team.TeamCommandContext;
@@ -61,6 +62,7 @@ public final class KnowledgeCommandService {
     private static final String PUBLISH = "PUBLISH_KNOWLEDGE_VERSION";
     private static final String RETIRE = "RETIRE_KNOWLEDGE_VERSION";
     private static final String DELETE = "DELETE_KNOWLEDGE_ENTRY";
+    private static final String REFRESH_INDEX = "REFRESH_KNOWLEDGE_INDEX";
     private static final String AGGREGATE_TYPE = "KNOWLEDGE_ENTRY";
     private static final String READ_DENIAL = "access this Team's knowledge";
     private static final String MANAGE_DENIAL = "manage this Team's knowledge";
@@ -75,6 +77,7 @@ public final class KnowledgeCommandService {
     private final CommandReceiptStore receipts;
     private final TransactionExecutor transactions;
     private final TimeProvider timeProvider;
+    private final KnowledgeIndexJobService indexJobs;
     private final TeamCommandSupport support;
 
     public KnowledgeCommandService(
@@ -87,7 +90,8 @@ public final class KnowledgeCommandService {
             OutboxRepository outbox,
             CommandReceiptStore receipts,
             TransactionExecutor transactions,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider,
+            KnowledgeIndexJobService indexJobs) {
         this.repository = Objects.requireNonNull(repository, "repository");
         TeamRepository requiredTeams = Objects.requireNonNull(teams, "teams");
         TeamMembershipQuery requiredMemberships = Objects.requireNonNull(memberships, "memberships");
@@ -99,6 +103,7 @@ public final class KnowledgeCommandService {
         this.transactions = Objects.requireNonNull(transactions, "transactions");
         TimeProvider requiredTimeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.timeProvider = requiredTimeProvider;
+        this.indexJobs = Objects.requireNonNull(indexJobs, "indexJobs");
         this.support = new TeamCommandSupport(
                 requiredTeams, requiredMemberships, requiredEvents, requiredOutbox,
                 receipts, requiredTimeProvider);
@@ -417,6 +422,54 @@ public final class KnowledgeCommandService {
                             committed.lastEffectiveRevision()
                                     .map(KnowledgeEntryRevision::value)
                                     .orElse(0L)));
+        });
+    }
+
+    /**
+     * Re-indexes one entry on demand (M13b-A04/R16: the promised per-entry retry). Emits
+     * no domain event and takes no {@code If-Match}: the head aggregate is untouched, so
+     * the receipt anchors on the command id like the draft update. An empty enqueue
+     * result (refresh gate closed, or a live job already draining this entry) still
+     * completes — the command's outcome is observable on the entry-filtered job listing.
+     */
+    public CommandExecution<KnowledgeEntry> refreshEntryIndex(
+            TeamCommandContext context,
+            TeamId teamId,
+            KnowledgeEntryId entryId) {
+        TeamCommandContext trusted = Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(entryId, "entryId");
+        OrganizationId organizationId = trusted.access().actor().scope().organizationId();
+        CommandRequestHash requestHash = support.requestHash(
+                trusted, REFRESH_INDEX, teamId.toString(), entryId.toString());
+        return transactions.required(() -> {
+            UtcTimestamp now = timeProvider.now();
+            Principal actor = support.requireOrganizationUser(trusted.access(), organizationId);
+            Team team = support.requireTeam(organizationId, teamId);
+            TeamMember member = support.requireActiveMember(actor, team, READ_DENIAL);
+            requireKnowledgeManage(trusted.access(), team, member, now);
+            Optional<CommandReceipt> completed =
+                    receipts.findCompleted(organizationId, trusted.idempotencyKey(),
+                            REFRESH_INDEX, requestHash);
+            if (completed.isPresent()) {
+                return CommandExecution.replayed(completed.orElseThrow());
+            }
+            KnowledgeEntry current = requireEntry(organizationId, teamId, entryId);
+            UUID commandId = UUID.randomUUID();
+            CommandReservation reservation = receipts.reserve(new CommandReservationRequest(
+                    organizationId,
+                    trusted.idempotencyKey(),
+                    REFRESH_INDEX,
+                    requestHash,
+                    commandId,
+                    trusted.correlationId(),
+                    now));
+            if (!reservation.acquired()) {
+                return CommandExecution.replayed(reservation.receipt().orElseThrow());
+            }
+            indexJobs.enqueueEntryRefresh(organizationId, teamId, entryId, actor.id());
+            // No domain event by design; the receipt anchors on the command id.
+            return support.completeWithoutEvent(
+                    trusted, commandId, current, current.version(), now);
         });
     }
 

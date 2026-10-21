@@ -184,7 +184,10 @@ class KnowledgeIndexControllerTest {
         .thenReturn(new KnowledgeIndexJobPage(List.of(first), Optional.of(first.id())));
 
     UUID after = UUID.randomUUID();
-    client.get().uri(root() + "/jobs?source=REPOSITORY&status=QUEUED&after=" + after + "&limit=2")
+    KnowledgeEntryId entryId = KnowledgeEntryId.generate();
+    client.get()
+        .uri(root() + "/jobs?source=REPOSITORY&status=QUEUED&entryId=" + entryId
+            + "&after=" + after + "&limit=2")
         .exchange()
         .expectStatus().isOk()
         .expectHeader().cacheControl(org.springframework.http.CacheControl.noStore())
@@ -203,12 +206,14 @@ class KnowledgeIndexControllerTest {
     assertEquals(Optional.of(io.crewscope.application.retrieval.KnowledgeIndexJobSource.REPOSITORY),
         filter.getValue().source());
     assertEquals(Optional.of(KnowledgeIndexJobStatus.QUEUED), filter.getValue().status());
+    assertEquals(Optional.of(entryId), filter.getValue().entryId());
     assertEquals(after, page.getValue().afterJobId().orElseThrow());
     assertEquals(2, page.getValue().limit());
 
     client.get().uri(root() + "/jobs?after=not-a-uuid").exchange().expectStatus().isBadRequest();
     client.get().uri(root() + "/jobs?source=MYSTERY").exchange().expectStatus().isBadRequest();
     client.get().uri(root() + "/jobs?limit=101").exchange().expectStatus().isBadRequest();
+    client.get().uri(root() + "/jobs?entryId=not-a-uuid").exchange().expectStatus().isBadRequest();
   }
 
   @Test

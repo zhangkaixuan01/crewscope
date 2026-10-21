@@ -10,6 +10,7 @@ import io.crewscope.application.retrieval.KnowledgeIndexJobStatus;
 import io.crewscope.application.retrieval.RepositoryBuildEnqueueResult;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.coding.RepositoryBindingId;
+import io.crewscope.domain.knowledge.KnowledgeEntryId;
 import io.crewscope.domain.retrieval.RepositoryIndexKey;
 import io.crewscope.domain.retrieval.SourceCommit;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -113,13 +114,14 @@ public final class KnowledgeIndexController {
             @PathVariable String teamId,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String entryId,
             @RequestParam(required = false) String after,
             @RequestParam(required = false) Integer limit,
             Authentication authentication,
             ServerWebExchange exchange) {
         OrganizationId organization = organizationId(organizationId);
         TeamId team = teamId(teamId);
-        KnowledgeIndexJobFilter filter = filter(source, status);
+        KnowledgeIndexJobFilter filter = filter(source, status, entryId);
         KnowledgeIndexJobPageRequest pageRequest = new KnowledgeIndexJobPageRequest(
                 afterJobId(after), ApiPagination.limit(limit));
         return query(
@@ -186,13 +188,24 @@ public final class KnowledgeIndexController {
         return Mono.fromCallable(action).subscribeOn(Schedulers.boundedElastic());
     }
 
-    private static KnowledgeIndexJobFilter filter(String source, String status) {
+    private static KnowledgeIndexJobFilter filter(String source, String status, String entryId) {
         KnowledgeIndexJobSource parsedSource =
                 source == null ? null : parseEnum(source, KnowledgeIndexJobSource::valueOf, "source");
         KnowledgeIndexJobStatus parsedStatus =
                 status == null ? null : parseEnum(status, KnowledgeIndexJobStatus::valueOf, "status");
+        KnowledgeEntryId parsedEntryId = entryId == null ? null : entryIdOf(entryId);
         return new KnowledgeIndexJobFilter(
-                Optional.ofNullable(parsedSource), Optional.ofNullable(parsedStatus));
+                Optional.ofNullable(parsedSource),
+                Optional.ofNullable(parsedStatus),
+                Optional.ofNullable(parsedEntryId));
+    }
+
+    private static KnowledgeEntryId entryIdOf(String value) {
+        try {
+            return KnowledgeEntryId.from(value);
+        } catch (RuntimeException failure) {
+            throw invalidField("entryId");
+        }
     }
 
     private static Optional<UUID> afterJobId(String after) {
