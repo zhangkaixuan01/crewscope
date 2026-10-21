@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiClient } from '../../api/client'
 import { HttpWorkDeskGateway, safeRoute } from './gateway'
 

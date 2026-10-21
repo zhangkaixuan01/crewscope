@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { collaborationWebSocketUrl, createCollaborationGateway, type CollaborationGatewayHandlers, type RawCollaborationSocket } from './gateway'
 
 function blankSocket(): RawCollaborationSocket {

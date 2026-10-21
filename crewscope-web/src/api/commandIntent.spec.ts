@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from './client'
 import { canonicalCommandInput, commandFailure, createCommandIntents } from './commandIntent'
 

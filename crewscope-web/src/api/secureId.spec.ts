@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { secureId } from './secureId'

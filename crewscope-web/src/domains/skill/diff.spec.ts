@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { diffLines } from './diff'
 
 describe('diffLines', () => {

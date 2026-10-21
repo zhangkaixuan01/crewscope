@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createMemoryHistory } from 'vue-router'
 import { bootstrapPrincipal, fixtureAuthStore } from '../../test/authFixtures'
 import { createCrewScopeRouter } from '../../app/router'

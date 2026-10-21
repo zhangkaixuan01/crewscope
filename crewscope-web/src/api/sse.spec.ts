@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { parseServerSentEvents } from './sse'
 
 describe('SSE parser', () => {

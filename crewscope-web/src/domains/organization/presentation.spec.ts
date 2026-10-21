@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import { organizationProblem, organizationProblemText } from './presentation'
 

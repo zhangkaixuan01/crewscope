@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createRequestScope } from './requestScope'
 
 describe('request scope', () => {

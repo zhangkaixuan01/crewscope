@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { LocationQuery } from 'vue-router'
 import { fixtureIds } from '../../test/scopeFixtures'
 import {

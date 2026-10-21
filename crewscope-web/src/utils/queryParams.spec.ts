@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { enumQuery, localDateQuery, normalizeQuery, oneOf, queryValue, revisionQuery, uuidQuery } from './queryParams'
 

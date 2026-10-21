@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import { fixtureIds } from '../../test/scopeFixtures'
 import type { CodingGateway, RepositoryTransition } from './gateway'

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ObservabilityGateway } from './gateway'
 import { createObservabilityStore } from './store'
 import type {

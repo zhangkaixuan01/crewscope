@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import { createSetupStore } from './store'
 import type { SetupGateway } from './gateway'

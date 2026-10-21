@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fixtureIds } from '../../test/scopeFixtures'
 import { nextTick, watch } from 'vue'
 import type { Etagged, OffsetPage, SettingsScope } from '../settings/types'

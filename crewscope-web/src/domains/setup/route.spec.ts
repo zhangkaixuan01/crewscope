@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { configurationSearchTarget } from './route'
 
 describe('Configuration search deep-link target', () => {

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { GraphEdge, GraphNode } from './types'
 import { focusSubgraph, hierarchyGroups, layoutWorkGraph, FOCUS_NODE_LIMIT, GRAPH_NODE_LIMIT } from './layout'
 

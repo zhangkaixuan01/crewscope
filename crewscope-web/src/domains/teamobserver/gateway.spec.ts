@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiClient } from '../../api/client'
 import { evidenceNavigationPath, HttpTeamObserverGateway, safeInternalPath } from './gateway'
 

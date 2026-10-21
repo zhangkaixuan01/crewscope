@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { bootstrapPrincipal } from '../../test/authFixtures'
 import { FixtureScopeGateway, fixtureIds, fixtureMembers } from '../../test/scopeFixtures'
 import { createScopeStore } from './store'

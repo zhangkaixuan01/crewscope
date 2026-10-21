@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { LocationQuery } from 'vue-router'
 import { taskIds } from '../../test/taskFixtures'
 import { parseExecutionSelection, resolveExecutionSelection } from './executionSelection'

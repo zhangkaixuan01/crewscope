@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { CrewScopeApiError } from '../../api/client'
 import type { AuthCsrfCoordinate } from '../identity/types'
 import type { OnboardingGateway } from './gateway'

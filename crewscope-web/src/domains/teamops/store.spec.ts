@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import type { CreateLarkConnectionInput, TeamOpsGateway } from './gateway'
 import { createTeamOpsStore } from './store'

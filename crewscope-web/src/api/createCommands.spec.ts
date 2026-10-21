@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from './client'
 import type { WorkItemGateway } from '../domains/workitem/gateway'
 import type { ConversationGateway } from '../domains/conversation/gateway'

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { exclusionReason, type WorkItemBulkRow } from './bulk'
 import {
   bulkTransitionTargets,

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { CrewScopeApiError } from '../../api/client'
 import type { AccountGateway } from './gateway'
 import { createAccountStore } from './store'

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiClient } from '../../api/client'
 import { fixtureIds } from '../../test/scopeFixtures'
 import { fixtureResponsibilities, fixtureTimeline, fixtureWorkItemDetails, fixtureWorkItems, responsibilityIds, workItemIds } from '../../test/workItemFixtures'

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { CrewScopeApiError } from '../../api/client'
 import type { InvitationGateway } from './gateway'
 import { createInvitationStore } from './store'

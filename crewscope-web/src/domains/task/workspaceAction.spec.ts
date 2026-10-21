@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { resolveWorkspaceAction, taskControlOperations, type WorkspaceActionInput } from './workspaceAction'
 
 function input(overrides: Partial<WorkspaceActionInput> = {}): WorkspaceActionInput {

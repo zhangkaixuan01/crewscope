@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fixtureIds } from '../../test/scopeFixtures'
 import type { Etagged, OffsetPage, SettingsScope } from '../settings/types'
 import type { AgentGateway } from './gateway'

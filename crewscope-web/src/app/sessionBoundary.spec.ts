@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { subscribeSessionBoundary } from './sessionBoundary'
 import { createAuthStore } from '../domains/identity/store'
 import type { AuthSession } from '../domains/identity/types'

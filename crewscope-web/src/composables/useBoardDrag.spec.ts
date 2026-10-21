@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { ref } from 'vue'
 import { useBoardDrag } from './useBoardDrag'
 

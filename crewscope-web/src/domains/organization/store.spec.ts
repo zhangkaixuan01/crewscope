@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import type { OrganizationGateway } from './gateway'
 import type { CreationResult, DeletionJob, DeletionJobStatus, ExportJob, ExportJobStatus, OrganizationRoleGrant } from './types'

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { evidenceNavigationPath, safeInternalPath } from './gateway'
 
 const organizationId = '00000000-0000-4000-8000-000000000001'

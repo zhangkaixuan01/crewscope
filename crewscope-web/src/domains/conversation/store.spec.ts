@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ConversationGateway } from './gateway'
 import { createConversationStore } from './store'
 import { conversationIds, FixtureConversationGateway } from '../../test/conversationFixtures'

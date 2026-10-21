@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { intakeTrendChart, quotaAdmissionProblem, quotaProblem, tokenCompositionChart, tokenTrendChart } from './presentation'
 import type { OrganizationQuotaConfiguration, QuotaUsageView } from './types'
 

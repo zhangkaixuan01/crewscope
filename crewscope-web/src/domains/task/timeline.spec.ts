@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { TaskEventItem } from './types'
 import { latestTaskProgress, taskTimeline } from './timeline'
 

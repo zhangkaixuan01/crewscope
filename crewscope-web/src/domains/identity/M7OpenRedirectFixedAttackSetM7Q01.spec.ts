@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { LocationQuery } from 'vue-router'
 import { createMemoryHistory } from 'vue-router'
 import { createCrewScopeRouter } from '../../app/router'

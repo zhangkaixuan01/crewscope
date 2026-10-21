@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fixtureIds } from '../../test/scopeFixtures'
 import { FixtureWorkItemGateway, workItemIds } from '../../test/workItemFixtures'
 import { createWorkItemStore, WORK_ITEM_UNDO_WINDOW_MS } from './store'

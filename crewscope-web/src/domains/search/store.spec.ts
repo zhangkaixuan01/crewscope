@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createApp } from 'vue'
 import { createSearchStore, installPaletteSearchStore, installSearchStore, PALETTE_SEARCH_STORE, SEARCH_STORE, useSearchStore } from './store'
 import type { SearchGateway } from './gateway'

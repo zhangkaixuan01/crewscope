@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { CrewScopeApiError } from '../../api/client'
 import type { QuotaGateway } from './gateway'
 import type { QuotaUsageView } from './types'

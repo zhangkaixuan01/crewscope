@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { flattenDiffTree, patchForFile, projectWorkspaceDiff } from './diff'
 import type { DiffFileSummary, DiffManifestSummary } from './types'
 import type { TaskEventItem } from '../task/types'

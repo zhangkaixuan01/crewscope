@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { flushPromises } from '@vue/test-utils'
 import { createWorkDeskStore } from './store'
 import type { WorkDeskGateway } from './gateway'

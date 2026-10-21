@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fixtureMembers, fixtureIds } from '../../test/scopeFixtures'
 import { principalDisplayName, principalNameDirectory } from './memberDirectory'
 

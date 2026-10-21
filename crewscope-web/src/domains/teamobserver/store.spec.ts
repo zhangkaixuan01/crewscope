@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { TeamObserverConnection, TeamObserverGateway } from './gateway'
 import { createTeamObserverStore } from './store'
 import type { TeamObserverCancelResponse, TeamObserverEvidence, TeamObserverEvent, TeamObserverScope, TeamSummary } from './types'

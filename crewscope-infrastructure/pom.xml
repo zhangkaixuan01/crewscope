@@ -122,6 +122,20 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <!-- Parallel IT forks (build-speed pass 3). The module is dominated by
+                     per-class fixed costs: every fork gets its own singleton container pair
+                     (random host ports, own max_connections=500), and every test method
+                     already re-DROPs the schema, so cross-fork coupling is impossible by
+                     construction. Three forks fit both this 16GB host (3 JVM + 3 PG/Redis
+                     pairs) and the 4-vCPU CI runner without memory pressure. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>3</forkCount>
+                    <reuseForks>true</reuseForks>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

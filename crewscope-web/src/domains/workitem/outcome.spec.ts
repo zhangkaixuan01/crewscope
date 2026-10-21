@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { parseResultReference, referenceMatchesManifest, resolveReferenceTask, resolveWorkItemOutcome } from './outcome'
 import type { DiffManifestSummary } from '../coding/types'
 import type { WorkItemExecutionSummary } from './types'
