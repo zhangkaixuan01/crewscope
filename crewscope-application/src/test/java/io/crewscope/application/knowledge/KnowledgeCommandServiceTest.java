@@ -43,8 +43,10 @@ import io.crewscope.domain.knowledge.KnowledgeEntryId;
 import io.crewscope.domain.knowledge.KnowledgeEntryKey;
 import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryOrigin;
+import io.crewscope.domain.knowledge.KnowledgeEntryPublication;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryStatus;
+import io.crewscope.domain.knowledge.KnowledgeVersionUnchangedException;
 import io.crewscope.domain.retrieval.EmbeddingModelRevision;
 import io.crewscope.domain.knowledge.event.KnowledgeEntryCreated;
 import io.crewscope.domain.knowledge.KnowledgeDisclosureViolationException;
@@ -341,6 +343,147 @@ final class KnowledgeCommandServiceTest {
                         .orElseThrow().contentHash().value(),
                 payload.contentHash());
         assertEquals(2, envelope.aggregateVersion());
+    }
+
+    @Test
+    void rollbackActivatesHistoricalContentAsANewRevision() {
+        KnowledgeEntry created = createEntry("rollback-1", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        service.publish(context("rollback-1-pub1"), teamId, created.id(), 0);
+        service.updateDraft(
+                context("rollback-1-edit"), teamId, created.id(), 1,
+                new UpdateKnowledgeDraftCommand(
+                        "On-call runbook", "Step two: page the deputy.", Optional.empty()));
+        service.publish(context("rollback-1-pub2"), teamId, created.id(), 2);
+
+        CommandExecution<KnowledgeEntry> execution = service.rollback(
+                context("rollback-1-go"), teamId, created.id(), 3, 1);
+
+        KnowledgeEntry committed = execution.result().orElseThrow();
+        assertEquals(KnowledgeEntryStatus.PUBLISHED, committed.status());
+        assertEquals(Optional.of(new KnowledgeEntryRevision(3)), committed.effectiveRevision());
+        assertEquals(3, committed.latestRevision());
+        assertEquals(4, committed.version());
+        assertTrue(committed.draft().isEmpty());
+
+        assertEquals(4, store.events.size());
+        DomainEventEnvelope<? extends DomainEvent> envelope = store.events.get(3);
+        assertEquals("KNOWLEDGE_VERSION_PUBLISHED", envelope.eventType().value());
+        KnowledgeVersionPublished payload = assertInstanceOf(KnowledgeVersionPublished.class, envelope.payload());
+        assertEquals(3, payload.revision());
+        assertEquals(
+                repository.findVersion(organizationId, teamId, created.id(), new KnowledgeEntryRevision(1))
+                        .orElseThrow().contentHash().value(),
+                payload.contentHash());
+        assertEquals(
+                repository.findVersion(organizationId, teamId, created.id(), new KnowledgeEntryRevision(3))
+                        .orElseThrow().contentHash().value(),
+                payload.contentHash());
+        assertEquals(4, envelope.aggregateVersion());
+    }
+
+    @Test
+    void rollbackOntoTheCurrentlyEffectiveRevisionIsRefused() {
+        KnowledgeEntry created = createEntry("rollback-2", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        service.publish(context("rollback-2-pub1"), teamId, created.id(), 0);
+        service.updateDraft(
+                context("rollback-2-edit"), teamId, created.id(), 1,
+                new UpdateKnowledgeDraftCommand(
+                        "On-call runbook", "Step two: page the deputy.", Optional.empty()));
+        service.publish(context("rollback-2-pub2"), teamId, created.id(), 2);
+
+        KnowledgeVersionUnchangedException refused = assertThrows(
+                KnowledgeVersionUnchangedException.class,
+                () -> service.rollback(context("rollback-2-go"), teamId, created.id(), 3, 2));
+
+        assertEquals("knowledge_version_unchanged", refused.error().code().value());
+        assertEquals(3, store.events.size());
+        assertEquals(Optional.of(new KnowledgeEntryRevision(2)), repository
+                .findById(organizationId, teamId, created.id())
+                .orElseThrow().effectiveRevision());
+    }
+
+    @Test
+    void sameKeyRollbackWithADifferentTargetIsRejectedAsAConflict() {
+        KnowledgeEntry created = createEntry("rollback-3", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        service.publish(context("rollback-3-pub1"), teamId, created.id(), 0);
+        service.updateDraft(
+                context("rollback-3-edit"), teamId, created.id(), 1,
+                new UpdateKnowledgeDraftCommand(
+                        "On-call runbook", "Step two: page the deputy.", Optional.empty()));
+        service.publish(context("rollback-3-pub2"), teamId, created.id(), 2);
+        TeamCommandContext context = context("rollback-3-go");
+        service.rollback(context, teamId, created.id(), 3, 1);
+
+        // The reused key carries a different target; the fresh head version keeps the
+        // optimistic-lock gate green so the conflict is attributed to idempotency.
+        IdempotencyConflictException conflict = assertThrows(
+                IdempotencyConflictException.class,
+                () -> service.rollback(context, teamId, created.id(), 4, 2));
+
+        assertEquals("rollback-3-go", conflict.error().details().get("idempotencyKey"));
+    }
+
+    @Test
+    void rollbackReRunsTheDisclosureGateOnTheHistoricalBytes() {
+        // A distilled entry whose revision 2 predates the A02b gate: the version table
+        // still holds credential-shaped bytes, injected here at the domain layer because
+        // the publish command would refuse them today. Rolling back re-exposes those
+        // bytes to the wider audience, so the same gate must refuse the rollback.
+        KnowledgeEntry distilled = repository.create(KnowledgeEntry.createDistilled(
+                new TeamScope(organizationId, teamId),
+                ENTRY_KEY,
+                KnowledgeCategory.RUNBOOK,
+                "Deploy lessons",
+                "Rotate the token through the vault.",
+                new KnowledgeEntryOrigin(TaskExecutionId.generate().value(), 1),
+                actor.id(),
+                NOW));
+        KnowledgeEntryPublication first = distilled.publish(actor.id(), NOW);
+        repository.save(first.entry(), Optional.of(first.version()));
+        KnowledgeEntry rearmed = repository.save(
+                first.entry().updateDraft(
+                        "Deploy lessons",
+                        "Token was ghp_" + "c".repeat(40),
+                        Optional.empty(),
+                        actor.id(),
+                        NOW),
+                Optional.empty());
+        KnowledgeEntryPublication second = rearmed.publish(actor.id(), NOW);
+        repository.save(second.entry(), Optional.of(second.version()));
+        KnowledgeEntry curated = repository.save(
+                second.entry().updateDraft(
+                        "Deploy lessons",
+                        "Token rotated; incident closed.",
+                        Optional.empty(),
+                        actor.id(),
+                        NOW),
+                Optional.empty());
+        KnowledgeEntryPublication third = curated.publish(actor.id(), NOW);
+        repository.save(third.entry(), Optional.of(third.version()));
+
+        KnowledgeDisclosureViolationException denied = assertThrows(
+                KnowledgeDisclosureViolationException.class,
+                () -> service.rollback(
+                        context("rollback-secret"), teamId, distilled.id(), 5, 2));
+
+        assertEquals("github_token", denied.error().details().get("patternFamily"));
+        assertEquals(Optional.of(new KnowledgeEntryRevision(3)), repository
+                .findById(organizationId, teamId, distilled.id())
+                .orElseThrow().effectiveRevision());
+    }
+
+    @Test
+    void rollbackOfAnUnknownTargetRevisionIsAggregateNotFound() {
+        KnowledgeEntry created = createEntry("rollback-4", KnowledgeCategory.RUNBOOK)
+                .result().orElseThrow();
+        service.publish(context("rollback-4-pub"), teamId, created.id(), 0);
+
+        assertThrows(
+                AggregateNotFoundException.class,
+                () -> service.rollback(context("rollback-4-go"), teamId, created.id(), 1, 9));
     }
 
     @Test

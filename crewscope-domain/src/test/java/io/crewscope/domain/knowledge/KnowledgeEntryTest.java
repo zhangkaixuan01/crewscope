@@ -87,6 +87,89 @@ class KnowledgeEntryTest {
     }
 
     @Test
+    void rollsBackToHistoricalContentAsANewRevisionWithAnEqualDigest() {
+        KnowledgeEntryPublication first = draft().publish(ACTOR, T1);
+        KnowledgeEntryPublication second = first.entry()
+                .updateDraft("Deploy Runbook v2", "Step one: drain, then verify.",
+                        Optional.empty(), ACTOR, T2)
+                .publish(ACTOR, T2);
+
+        KnowledgeEntryPublication rollback =
+                second.entry().rollback(first.version(), ACTOR, T2);
+
+        assertEquals(new KnowledgeEntryRevision(3L), rollback.version().revision());
+        assertEquals(
+                new KnowledgeEntryRevision(2L),
+                rollback.version().previousRevision().orElseThrow());
+        assertEquals(first.version().title(), rollback.version().title());
+        assertEquals(first.version().content(), rollback.version().content());
+        assertEquals(first.version().contentHash(), rollback.version().contentHash());
+        assertEquals(new KnowledgeEntryRevision(3L), rollback.entry().effectiveRevision().orElseThrow());
+        assertTrue(rollback.entry().effectivelyPublished());
+        assertTrue(rollback.entry().draft().isEmpty());
+        assertEquals(2L, second.entry().latestRevision());
+    }
+
+    @Test
+    void refusesToRollBackOntoTheCurrentlyEffectiveRevision() {
+        KnowledgeEntryPublication first = draft().publish(ACTOR, T1);
+        KnowledgeEntryPublication second = first.entry()
+                .updateDraft("Deploy Runbook v2", "Step one: drain, then verify.",
+                        Optional.empty(), ACTOR, T2)
+                .publish(ACTOR, T2);
+
+        KnowledgeVersionUnchangedException failure = assertThrows(
+                KnowledgeVersionUnchangedException.class,
+                () -> second.entry().rollback(second.version(), ACTOR, T2));
+
+        assertEquals(
+                Long.toString(second.version().revision().value()),
+                failure.error().details().get("revision"));
+    }
+
+    @Test
+    void refusesToRollBackAVersionOfAnotherAggregate() {
+        KnowledgeEntryPublication first = draft().publish(ACTOR, T1);
+        KnowledgeEntryPublication stranger = KnowledgeEntry.create(
+                        SCOPE, KnowledgeEntryKey.parse("other-runbook"), KnowledgeCategory.RUNBOOK,
+                        "Other Runbook", "Unrelated content.", ACTOR, T1)
+                .publish(ACTOR, T1);
+
+        DomainValidationException failure = assertThrows(
+                DomainValidationException.class,
+                () -> first.entry().rollback(stranger.version(), ACTOR, T2));
+
+        assertEquals("knowledgeEntry.rollback", failure.error().details().get("field"));
+    }
+
+    @Test
+    void revivesARetiredEntryByRollingBack() {
+        KnowledgeEntryPublication first = draft().publish(ACTOR, T1);
+        KnowledgeEntry retired = first.entry()
+                .updateDraft("Deploy Runbook v2", "Step one: drain, then verify.",
+                        Optional.empty(), ACTOR, T2)
+                .publish(ACTOR, T2)
+                .entry()
+                .retire(ACTOR, T2);
+
+        KnowledgeEntryPublication rollback =
+                retired.rollback(first.version(), ACTOR, T2);
+
+        assertTrue(rollback.entry().effectivelyPublished());
+        assertEquals(new KnowledgeEntryRevision(3L), rollback.entry().effectiveRevision().orElseThrow());
+    }
+
+    @Test
+    void deletedTombstoneCanNeverBeRolledBack() {
+        KnowledgeEntryPublication first = draft().publish(ACTOR, T1);
+        KnowledgeEntry tombstone = first.entry().delete(ACTOR, T2);
+
+        assertThrows(
+                InvalidStateTransitionException.class,
+                () -> tombstone.rollback(first.version(), ACTOR, T2));
+    }
+
+    @Test
     void retireStopsRetrievalButRetainsLastEffectiveRevision() {
         KnowledgeEntry retired = draft().publish(ACTOR, T1).entry().retire(ACTOR, T2);
 

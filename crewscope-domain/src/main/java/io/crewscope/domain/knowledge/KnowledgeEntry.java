@@ -178,6 +178,36 @@ public final class KnowledgeEntry {
         return new KnowledgeEntryPublication(updated, appended);
     }
 
+    /**
+     * Re-activates a historical version's verbatim content as the next immutable
+     * revision (M13b-A05): the target is copied, never moved — intermediate revisions
+     * stay for attribution. Allowed from DRAFT, PUBLISHED and RETIRED like publish (a
+     * retired entry revives); a DELETED tombstone can never come back. Rolling back
+     * onto the currently effective revision is refused: that would mint a no-op copy.
+     */
+    public KnowledgeEntryPublication rollback(
+            KnowledgeEntryVersion target, PrincipalId actor, UtcTimestamp occurredAt) {
+        Objects.requireNonNull(target, "target");
+        if (!target.entryId().equals(id) || !target.scope().equals(scope)) {
+            throw new DomainValidationException(
+                    "knowledgeEntry.rollback", "target version belongs to another aggregate");
+        }
+        requireTransition(KnowledgeEntryStatus.PUBLISHED);
+        long effective = effectiveRevision.map(KnowledgeEntryRevision::value).orElse(0L);
+        if (effective == target.revision().value()) {
+            throw new KnowledgeVersionUnchangedException(id, target.revision().value());
+        }
+        KnowledgeEntryRevision revision = new KnowledgeEntryRevision(latestRevision + 1);
+        KnowledgeEntryVersion appended = KnowledgeEntryVersion.create(
+                id, scope, revision, previousRevision(),
+                target.title(), target.content(), actor, occurredAt);
+        KnowledgeEntry updated = new KnowledgeEntry(
+                id, scope, entryKey, category, origin, KnowledgeEntryStatus.PUBLISHED,
+                Optional.of(revision), revision.value(), Optional.empty(),
+                version + 1, audit.modifiedBy(actor, occurredAt));
+        return new KnowledgeEntryPublication(updated, appended);
+    }
+
     /** Retires the current effective version; the last effective revision is retained. */
     public KnowledgeEntry retire(PrincipalId actor, UtcTimestamp occurredAt) {
         requireTransition(KnowledgeEntryStatus.RETIRED);

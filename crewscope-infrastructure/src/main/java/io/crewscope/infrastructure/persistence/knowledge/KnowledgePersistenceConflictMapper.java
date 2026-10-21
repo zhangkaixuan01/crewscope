@@ -1,11 +1,9 @@
 package io.crewscope.infrastructure.persistence.knowledge;
 
-import io.crewscope.domain.knowledge.KnowledgeContentHash;
 import io.crewscope.domain.knowledge.KnowledgeEntryId;
 import io.crewscope.domain.knowledge.KnowledgeEntryKey;
 import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
-import io.crewscope.domain.knowledge.KnowledgeVersionContentConflictException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.team.TeamScope;
 import java.sql.SQLException;
@@ -14,9 +12,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * Converts Knowledge uniqueness boundaries into stable domain failures without leaking
- * SQL details: the tenant key maps to a key conflict, the per-entry content hash to a
- * content conflict, and a version primary-key collision to an optimistic-lock conflict
- * (the head UPDATE already excludes concurrent writers, so that branch is defensive).
+ * SQL details: the tenant key maps to a key conflict, and a version primary-key
+ * collision to an optimistic-lock conflict (the head UPDATE already excludes
+ * concurrent writers, so that branch is defensive). Content digests carry no
+ * uniqueness since V72 — a rollback re-appends a historical hash by design.
  */
 final class KnowledgePersistenceConflictMapper {
 
@@ -33,11 +32,7 @@ final class KnowledgePersistenceConflictMapper {
     static RuntimeException version(
             DataIntegrityViolationException failure,
             KnowledgeEntryId entryId,
-            KnowledgeEntryRevision revision,
-            KnowledgeContentHash contentHash) {
-        if (hasConstraint(failure, "uk_knowledge_entry_version_content")) {
-            return new KnowledgeVersionContentConflictException(entryId, revision, contentHash);
-        }
+            KnowledgeEntryRevision revision) {
         if (hasConstraint(failure, "knowledge_entry_version_pkey")) {
             return new OptimisticLockConflictException(
                     "KnowledgeEntryVersion", entryId, revision.value(), revision.value());

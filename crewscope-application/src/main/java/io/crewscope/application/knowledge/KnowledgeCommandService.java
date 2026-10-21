@@ -29,11 +29,13 @@ import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryPublication;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryVersion;
+import io.crewscope.domain.knowledge.KnowledgeVersionUnchangedException;
 import io.crewscope.domain.knowledge.event.KnowledgeEntryCreated;
 import io.crewscope.domain.knowledge.event.KnowledgeEntryDeleted;
 import io.crewscope.domain.knowledge.event.KnowledgeVersionPublished;
 import io.crewscope.domain.knowledge.event.KnowledgeVersionRetired;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
+import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.event.EventType;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -60,6 +62,7 @@ public final class KnowledgeCommandService {
     private static final String CREATE = "CREATE_KNOWLEDGE_ENTRY";
     private static final String UPDATE_DRAFT = "UPDATE_KNOWLEDGE_DRAFT";
     private static final String PUBLISH = "PUBLISH_KNOWLEDGE_VERSION";
+    private static final String ROLLBACK = "ROLLBACK_KNOWLEDGE_VERSION";
     private static final String RETIRE = "RETIRE_KNOWLEDGE_VERSION";
     private static final String DELETE = "DELETE_KNOWLEDGE_ENTRY";
     private static final String REFRESH_INDEX = "REFRESH_KNOWLEDGE_INDEX";
@@ -354,7 +357,8 @@ public final class KnowledgeCommandService {
             TeamId teamId,
             KnowledgeEntryId entryId,
             long expectedVersion) {
-        return mutatingCommand(context, teamId, entryId, expectedVersion, PUBLISH, facts -> {
+        return mutatingCommand(
+                context, teamId, entryId, expectedVersion, PUBLISH, new String[] {}, facts -> {
             // Command-level disclosure gate (A02b, S01 §3.5): distilled content carries
             // private-source material, so it is scanned before the wider audience sees it.
             // Attribution metadata never contains free text, only the draft is scanned.
@@ -362,8 +366,72 @@ public final class KnowledgeCommandService {
                     facts.aggregate().draft().ifPresent(draft ->
                             KnowledgeDisclosurePolicy.requireDisclosable(
                                     draft.title(), draft.content())));
+            // A no-change publish is refused here, not in the domain: the head cannot
+            // see the effective row's digest (that knowledge lives in the version
+            // table). Equal digests are otherwise legal since V72 — a rollback
+            // re-appends one by design, so only this command face guards against it.
+            if (facts.aggregate().effectiveRevision().isPresent()) {
+                KnowledgeEntryVersion effective = repository
+                        .findVersion(
+                                facts.organizationId(),
+                                teamId,
+                                facts.aggregate().id(),
+                                facts.aggregate().effectiveRevision().orElseThrow())
+                        .orElseThrow(() -> new AggregateNotFoundException(
+                                "KnowledgeEntryVersion", facts.aggregate().id()));
+                facts.aggregate().draft().ifPresent(draft -> {
+                    if (effective.contentHash().equals(draft.contentHash())) {
+                        throw new KnowledgeVersionUnchangedException(
+                                facts.aggregate().id(), effective.revision().value());
+                    }
+                });
+            }
             KnowledgeEntryPublication publication =
                     facts.aggregate().publish(facts.actor().id(), facts.now());
+            KnowledgeEntry committed = repository.save(
+                    publication.entry(), Optional.of(publication.version()));
+            return new TeamCommandSupport.Emitted<>(
+                    committed,
+                    EventType.from("KNOWLEDGE_VERSION_PUBLISHED"),
+                    KnowledgeVersionPublished.from(
+                            committed.entryKey(), publication.version()));
+        });
+    }
+
+    /**
+     * Activates historical content as a new revision (M13b-A05): the appended version
+     * carries the target's title and content verbatim and history itself never changes.
+     * The disclosure gate re-runs on the target's bytes — a rollback re-exposes
+     * distilled material to the wider audience exactly like a publish, so the same
+     * A02b scan applies even though those bytes already passed it once.
+     */
+    public CommandExecution<KnowledgeEntry> rollback(
+            TeamCommandContext context,
+            TeamId teamId,
+            KnowledgeEntryId entryId,
+            long expectedVersion,
+            long toRevision) {
+        if (toRevision < 1) {
+            throw new DomainValidationException(
+                    "knowledgeEntry.rollback", "toRevision must be positive");
+        }
+        return mutatingCommand(
+                context, teamId, entryId, expectedVersion, ROLLBACK,
+                new String[] {Long.toString(toRevision)},
+                facts -> {
+            KnowledgeEntryVersion target = repository
+                    .findVersion(
+                            facts.organizationId(),
+                            teamId,
+                            facts.aggregate().id(),
+                            new KnowledgeEntryRevision(toRevision))
+                    .orElseThrow(() -> new AggregateNotFoundException(
+                            "KnowledgeEntryVersion", facts.aggregate().id()));
+            facts.aggregate().origin().ifPresent(ignored ->
+                    KnowledgeDisclosurePolicy.requireDisclosable(
+                            target.title(), target.content()));
+            KnowledgeEntryPublication publication =
+                    facts.aggregate().rollback(target, facts.actor().id(), facts.now());
             KnowledgeEntry committed = repository.save(
                     publication.entry(), Optional.of(publication.version()));
             return new TeamCommandSupport.Emitted<>(
@@ -380,7 +448,8 @@ public final class KnowledgeCommandService {
             TeamId teamId,
             KnowledgeEntryId entryId,
             long expectedVersion) {
-        return mutatingCommand(context, teamId, entryId, expectedVersion, RETIRE, facts -> {
+        return mutatingCommand(
+                context, teamId, entryId, expectedVersion, RETIRE, new String[] {}, facts -> {
             KnowledgeEntry retired =
                     facts.aggregate().retire(facts.actor().id(), facts.now());
             KnowledgeEntryVersion lastEffective = repository
@@ -409,7 +478,8 @@ public final class KnowledgeCommandService {
             TeamId teamId,
             KnowledgeEntryId entryId,
             long expectedVersion) {
-        return mutatingCommand(context, teamId, entryId, expectedVersion, DELETE, facts -> {
+        return mutatingCommand(
+                context, teamId, entryId, expectedVersion, DELETE, new String[] {}, facts -> {
             KnowledgeEntry deleted =
                     facts.aggregate().delete(facts.actor().id(), facts.now());
             KnowledgeEntry committed = repository.save(deleted, Optional.empty());
@@ -475,23 +545,30 @@ public final class KnowledgeCommandService {
 
     // ---------------------------------------------------------------- internals
 
-    /** Shared skeleton for the three pointer-moving commands that all emit one event. */
+    /**
+     * Shared skeleton for the pointer-moving commands that all emit one event. The
+     * trailing command facts carry each command's body semantics (rollback target)
+     * so a reused Idempotency-Key with a different body reports idempotency_conflict
+     * instead of silently replaying the first receipt.
+     */
     private CommandExecution<KnowledgeEntry> mutatingCommand(
             TeamCommandContext context,
             TeamId teamId,
             KnowledgeEntryId entryId,
             long expectedVersion,
             String commandType,
+            String[] commandFacts,
             Mutation<KnowledgeEntry> action) {
         TeamCommandContext trusted = Objects.requireNonNull(context, "context");
         Objects.requireNonNull(entryId, "entryId");
         TeamCommandSupport.requireNonNegativeVersion(expectedVersion);
+        String[] semanticFields = new String[commandFacts.length + 3];
+        semanticFields[0] = teamId.toString();
+        semanticFields[1] = entryId.toString();
+        semanticFields[2] = Long.toString(expectedVersion);
+        System.arraycopy(commandFacts, 0, semanticFields, 3, commandFacts.length);
         CommandRequestHash requestHash = support.requestHash(
-                trusted,
-                commandType,
-                teamId.toString(),
-                entryId.toString(),
-                Long.toString(expectedVersion));
+                trusted, commandType, semanticFields);
         return support.executeMutation(
                 transactions,
                 trusted,

@@ -6,7 +6,6 @@ import io.crewscope.domain.knowledge.KnowledgeEntryKey;
 import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryVersion;
-import io.crewscope.domain.knowledge.KnowledgeVersionContentConflictException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
@@ -68,13 +67,8 @@ class InMemoryKnowledgeRepository implements KnowledgeRepository {
                                 version.revision().value(),
                                 existing.revision().value());
                     });
-            versions.getOrDefault(entry.id(), List.of()).stream()
-                    .filter(existing -> existing.contentHash().equals(version.contentHash()))
-                    .findFirst()
-                    .ifPresent(existing -> {
-                        throw new KnowledgeVersionContentConflictException(
-                                entry.id(), version.revision(), version.contentHash());
-                    });
+            // Equal digests across revisions are legal since V72 (rollback re-appends
+            // a historical hash by design), so no content check mirrors the schema.
         });
         entries.put(entry.id(), entry);
         appendedVersion.ifPresent(version -> versions.get(entry.id()).add(version));

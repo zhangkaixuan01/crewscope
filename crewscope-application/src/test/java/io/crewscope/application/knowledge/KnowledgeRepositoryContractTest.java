@@ -12,7 +12,6 @@ import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryStatus;
 import io.crewscope.domain.knowledge.KnowledgeEntryVersion;
-import io.crewscope.domain.knowledge.KnowledgeVersionContentConflictException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -113,7 +112,7 @@ class KnowledgeRepositoryContractTest {
     }
 
     @Test
-    void republishingUnchangedContentIsAnExplicitConflict() {
+    void appendingADuplicateDigestIsLegalForRollbacks() {
         InMemoryKnowledgeRepository repository = new InMemoryKnowledgeRepository();
         KnowledgeEntry created = repository.create(entry("deploy-runbook"));
         var first = created.publish(PrincipalId.generate(), NOW);
@@ -129,13 +128,19 @@ class KnowledgeRepositoryContractTest {
                 PrincipalId.generate(),
                 NOW);
 
-        assertThrows(
-                KnowledgeVersionContentConflictException.class,
-                () -> repository.save(
-                        first.entry().updateDraft(
-                                "Deploy Runbook", "Step one: drain the pool.",
-                                Optional.empty(), PrincipalId.generate(), NOW),
-                        Optional.of(duplicate)));
+        // V72 dropped the per-entry digest uniqueness: a rollback re-appends a
+        // historical hash verbatim, so the repository must accept equal digests.
+        repository.save(
+                first.entry().updateDraft(
+                        "Deploy Runbook", "Step one: drain the pool.",
+                        Optional.empty(), PrincipalId.generate(), NOW),
+                Optional.of(duplicate));
+
+        assertEquals(
+                duplicate.contentHash(),
+                repository.findVersion(
+                        ORGANIZATION_ID, TEAM_ID, created.id(), new KnowledgeEntryRevision(2L))
+                        .orElseThrow().contentHash());
     }
 
     @Test

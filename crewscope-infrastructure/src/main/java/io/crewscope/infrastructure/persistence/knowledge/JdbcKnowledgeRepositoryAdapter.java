@@ -280,7 +280,7 @@ public class JdbcKnowledgeRepositoryAdapter implements KnowledgeRepository {
                     time(version.audit().createdAt()), creator(version.audit()));
         } catch (DataIntegrityViolationException failure) {
             throw KnowledgePersistenceConflictMapper.version(
-                    failure, version.entryId(), version.revision(), version.contentHash());
+                    failure, version.entryId(), version.revision());
         }
     }
 

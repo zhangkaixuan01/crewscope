@@ -35,8 +35,8 @@ import io.crewscope.domain.knowledge.KnowledgeEntryKeyConflictException;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryStatus;
 import io.crewscope.domain.knowledge.KnowledgeEntryVersion;
+import io.crewscope.domain.knowledge.KnowledgeVersionUnchangedException;
 import io.crewscope.domain.task.TaskExecutionId;
-import io.crewscope.domain.knowledge.KnowledgeVersionContentConflictException;
 import io.crewscope.domain.shared.error.AggregateNotFoundException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.error.PolicyDeniedException;
@@ -417,6 +417,60 @@ class KnowledgeEntryControllerTest {
   }
 
   @Test
+  void rollbackAnswersTheAcceptedReceiptAndForwardsTheTargetRevision() {
+    CommandReceipt receipt =
+        new CommandReceipt(UUID.randomUUID(), UUID.randomUUID(), 1, UUID.randomUUID());
+    AtomicReference<Long> forwardedTarget = new AtomicReference<>();
+    when(service.rollback(any(), any(), any(), anyLong(), anyLong()))
+        .thenAnswer(
+            invocation -> {
+              forwardedTarget.set(invocation.getArgument(4, Long.class));
+              return CommandExecution.completed(entry, receipt);
+            });
+
+    client
+        .post()
+        .uri(root() + "/" + entry.id() + "/rollback")
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "rollback-http-1")
+        .header(ApiHeaders.IF_MATCH, "\"0\"")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"toRevision\":1}")
+        .exchange()
+        .expectStatus()
+        .isAccepted();
+    assertEquals(1L, forwardedTarget.get());
+
+    client
+        .post()
+        .uri(root() + "/" + entry.id() + "/rollback")
+        .header(ApiHeaders.IF_MATCH, "\"0\"")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"toRevision\":1}")
+        .exchange()
+        .expectStatus()
+        .isBadRequest();
+    client
+        .post()
+        .uri(root() + "/" + entry.id() + "/rollback")
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "rollback-http-2")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"toRevision\":1}")
+        .exchange()
+        .expectStatus()
+        .isEqualTo(428);
+    client
+        .post()
+        .uri(root() + "/" + entry.id() + "/rollback")
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "rollback-http-3")
+        .header(ApiHeaders.IF_MATCH, "\"0\"")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue("{\"toRevision\":0}")
+        .exchange()
+        .expectStatus()
+        .isBadRequest();
+  }
+
+  @Test
   void immutableVersionsCarryTheContentHashEtag() {
     when(service.versionHistory(any(), any(), any(), any(), any()))
         .thenReturn(new KnowledgeEntryVersionPage(
@@ -579,14 +633,14 @@ class KnowledgeEntryControllerTest {
         .exchange().expectStatus().isEqualTo(409)
         .expectBody().jsonPath("$.code").isEqualTo("knowledge_entry_key_conflict");
 
-    doThrow(new KnowledgeVersionContentConflictException(
-            entry.id(), new KnowledgeEntryRevision(2), version.contentHash()))
+    doThrow(new KnowledgeVersionUnchangedException(
+            entry.id(), 1))
         .when(service).publish(any(), any(), any(), anyLong());
     client.post().uri(root() + "/" + entry.id() + "/publish")
         .header(ApiHeaders.IDEMPOTENCY_KEY, "content-conflict-http-1")
         .header(ApiHeaders.IF_MATCH, "\"1\"")
-        .exchange().expectStatus().isEqualTo(409)
-        .expectBody().jsonPath("$.code").isEqualTo("knowledge_version_content_conflict");
+        .exchange().expectStatus().isEqualTo(422)
+        .expectBody().jsonPath("$.code").isEqualTo("knowledge_version_unchanged");
   }
 
   @Test

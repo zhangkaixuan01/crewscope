@@ -42,8 +42,7 @@ public enum DomainErrorCode {
   WORK_ITEM_RELATION_SPLIT_SOURCE_CONFLICT(
       "work_item_relation_split_source_conflict", DomainErrorCategory.CONFLICT),
   KNOWLEDGE_ENTRY_KEY_CONFLICT("knowledge_entry_key_conflict", DomainErrorCategory.CONFLICT),
-  KNOWLEDGE_VERSION_CONTENT_CONFLICT(
-      "knowledge_version_content_conflict", DomainErrorCategory.CONFLICT),
+  KNOWLEDGE_VERSION_UNCHANGED("knowledge_version_unchanged", DomainErrorCategory.VALIDATION),
   KNOWLEDGE_DISCLOSURE_DENIED("knowledge_disclosure_denied", DomainErrorCategory.POLICY),
   SKILL_KEY_CONFLICT("skill_key_conflict", DomainErrorCategory.CONFLICT),
   SKILL_VERSION_UNCHANGED("skill_version_unchanged", DomainErrorCategory.VALIDATION),

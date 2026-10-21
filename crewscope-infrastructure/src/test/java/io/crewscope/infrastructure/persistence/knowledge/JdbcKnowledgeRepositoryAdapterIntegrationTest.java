@@ -18,7 +18,6 @@ import io.crewscope.domain.knowledge.KnowledgeEntryOrigin;
 import io.crewscope.domain.knowledge.KnowledgeEntryRevision;
 import io.crewscope.domain.knowledge.KnowledgeEntryStatus;
 import io.crewscope.domain.knowledge.KnowledgeEntryVersion;
-import io.crewscope.domain.knowledge.KnowledgeVersionContentConflictException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
@@ -265,20 +264,26 @@ class JdbcKnowledgeRepositoryAdapterIntegrationTest
     }
 
     @Test
-    void republishingUnchangedContentTranslatesToAContentConflict() {
+    void appendingADuplicateDigestIsLegalForRollbacks() {
         KnowledgeEntry created = knowledge.create(entry("same-content", KnowledgeCategory.RUNBOOK));
         var publication = created.publish(actor, NOW);
         knowledge.save(publication.entry(), Optional.of(publication.version()));
 
-        // Restore the identical draft and publish again: same hash must be rejected.
+        // V72 dropped the per-entry digest uniqueness: restoring the identical draft
+        // and publishing again must persist a second row with the same hash — that is
+        // exactly the shape a rollback command appends.
         KnowledgeEntry published = knowledge.findById(organizationId, teamId, created.id()).orElseThrow();
         KnowledgeEntry rearmed = knowledge.save(
                 published.updateDraft("On-call runbook", "Step one", Optional.empty(), actor, NOW),
                 Optional.empty());
-        assertThrows(
-                KnowledgeVersionContentConflictException.class,
-                () -> knowledge.save(rearmed.publish(actor, NOW).entry(),
-                        Optional.of(rearmed.publish(actor, NOW).version())));
+        var second = rearmed.publish(actor, NOW);
+        KnowledgeEntry saved = knowledge.save(second.entry(), Optional.of(second.version()));
+
+        assertEquals(Optional.of(new KnowledgeEntryRevision(2)), saved.effectiveRevision());
+        assertEquals(
+                publication.version().contentHash(),
+                knowledge.findVersion(organizationId, teamId, created.id(), new KnowledgeEntryRevision(2))
+                        .orElseThrow().contentHash());
     }
 
     @Test

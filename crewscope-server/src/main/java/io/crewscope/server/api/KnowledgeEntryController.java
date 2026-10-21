@@ -25,6 +25,8 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
@@ -206,6 +208,38 @@ public final class KnowledgeEntryController {
                 exchange,
                 (context, team, entry, expectedVersion) ->
                         service.publish(context, team, entry, expectedVersion));
+    }
+
+    /**
+     * Rolls the entry back onto a historical revision (M13b-A05): the target's verbatim
+     * content is minted as the next immutable revision and the effective pointer moves,
+     * so {@code If-Match} guards the head like any publish. {@code toRevision} rides the
+     * command's request hash — a reused Idempotency-Key with a different target reports
+     * idempotency_conflict instead of replaying the first receipt.
+     */
+    @PostMapping("/{entryId}/rollback")
+    public Mono<ResponseEntity<CommandReceiptResponse>> rollback(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            @PathVariable String entryId,
+            @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+            @RequestHeader(name = ApiHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody RollbackBody request,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        OrganizationId organization = organizationId(organizationId);
+        TeamId team = teamId(teamId);
+        KnowledgeEntryId entry = entryId(entryId);
+        long expectedVersion = ApiHeaders.requireIfMatch(ifMatch);
+        IdempotencyKey idempotencyKey = ApiHeaders.requireIdempotencyKey(key);
+        long toRevision = requireToRevision(request.toRevision());
+        return command(
+                authentication,
+                organization,
+                idempotencyKey,
+                exchange,
+                context -> service.rollback(
+                        context, team, entry, expectedVersion, toRevision));
     }
 
     @PostMapping("/{entryId}/retire")
@@ -585,6 +619,13 @@ public final class KnowledgeEntryController {
         return "\"" + value.contentHash().value() + "\"";
     }
 
+    private static long requireToRevision(Long value) {
+        if (value == null || value < 1) {
+            throw invalidField("toRevision");
+        }
+        return value;
+    }
+
     private static ApiRequestException invalidField(String field) {
         return new ApiRequestException(
                 HttpStatus.BAD_REQUEST,
@@ -603,6 +644,8 @@ public final class KnowledgeEntryController {
             @NotBlank @Size(max = 200) String title,
             @NotBlank @Size(max = 65536) String content,
             String category) {}
+
+    public record RollbackBody(@NotNull @Positive Long toRevision) {}
 
     public record EntryListResponse(List<EntryResponse> items, String nextAfter) {
         static EntryListResponse from(
