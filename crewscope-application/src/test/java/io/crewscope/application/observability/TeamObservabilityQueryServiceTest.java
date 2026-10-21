@@ -1,7 +1,9 @@
 package io.crewscope.application.observability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -33,6 +35,7 @@ import io.crewscope.domain.team.TeamScope;
 import java.math.BigDecimal;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +43,8 @@ import org.junit.jupiter.api.Test;
 /**
  * M10-F03 query service: source folding (chat roles → EXECUTION), unpriced 'XXX' handling,
  * month paging with an exclusive cursor, the member guard with the platform administrator
- * bypass, and month validation against the reporting zone.
+ * bypass, and month validation against the reporting zone. The budget read face (M13b-A06)
+ * follows the same guard and the current reporting month.
  */
 class TeamObservabilityQueryServiceTest {
 
@@ -54,6 +58,10 @@ class TeamObservabilityQueryServiceTest {
             mock(TaskQualityStatisticsRepository.class);
     private final TeamRepository teams = mock(TeamRepository.class);
     private final TeamMembershipQuery memberships = mock(TeamMembershipQuery.class);
+    private final TeamBudgetQueryRepository budgetQueries =
+            mock(TeamBudgetQueryRepository.class);
+    private final TeamBudgetAlertSettings budgetSettings = new TeamBudgetAlertSettings(
+            true, 1_000_000L, new BigDecimal("0.8"), Map.of("CNY", new BigDecimal("500")));
 
     private TeamObservabilityQueryService service;
     private Principal actor;
@@ -80,7 +88,8 @@ class TeamObservabilityQueryServiceTest {
         // Fixed authoritative time inside October 2026 in the reporting zone.
         service = new TeamObservabilityQueryService(
                 rollups, quality, teams, memberships,
-                () -> UtcTimestamp.parse("2026-10-05T12:00:00Z"), SHANGHAI);
+                () -> UtcTimestamp.parse("2026-10-05T12:00:00Z"), SHANGHAI,
+                budgetQueries, budgetSettings);
     }
 
     @Test
@@ -205,6 +214,45 @@ class TeamObservabilityQueryServiceTest {
                 eq(ORGANIZATION), eq(TEAM),
                 eq(java.time.Instant.parse("2026-09-30T16:00:00Z")),
                 eq(java.time.Instant.parse("2026-10-31T16:00:00Z")));
+    }
+
+    @Test
+    void budgetReadsTheCurrentReportingMonthFromTheAlertScanSource() {
+        when(budgetQueries.findMonthlyUsage(ORGANIZATION, TEAM, "2026-10"))
+                .thenReturn(Optional.of(new TeamBudgetQueryRepository.TeamMonthlyUsage(
+                        123_456L, Map.of("CNY", bd("87.50")))));
+
+        TeamObservabilityQueryService.TeamBudgetView view = service.budget(
+                new TeamAccessContext(actor, false), ORGANIZATION, TEAM);
+
+        assertEquals("2026-10", view.usageMonth());
+        assertSame(budgetSettings, view.settings());
+        assertEquals(123_456L, view.usage().totalTokens());
+        assertEquals(bd("87.50"), view.usage().costsByCurrency().get("CNY"));
+    }
+
+    @Test
+    void budgetWithoutFactsThisMonthReadsAsZeroUsageNotAnError() {
+        when(budgetQueries.findMonthlyUsage(ORGANIZATION, TEAM, "2026-10"))
+                .thenReturn(Optional.empty());
+
+        TeamObservabilityQueryService.TeamBudgetView view = service.budget(
+                new TeamAccessContext(actor, false), ORGANIZATION, TEAM);
+
+        assertEquals(0L, view.usage().totalTokens());
+        assertTrue(view.usage().costsByCurrency().isEmpty());
+        // The configuration is present even with no usage: budgets are an operator
+        // choice that exists before the first fact.
+        assertSame(budgetSettings, view.settings());
+    }
+
+    @Test
+    void budgetFollowsTheMemberGuard() {
+        TeamMember removed = member(false);
+        when(memberships.findByTeam(ORGANIZATION, TEAM)).thenReturn(List.of(removed));
+
+        assertThrows(PolicyDeniedException.class, () -> service.budget(
+                new TeamAccessContext(actor, false), ORGANIZATION, TEAM));
     }
 
     private TeamMember member(boolean participatable) {

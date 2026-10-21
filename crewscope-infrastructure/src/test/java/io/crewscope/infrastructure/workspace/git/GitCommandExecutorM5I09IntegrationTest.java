@@ -91,7 +91,9 @@ class GitCommandExecutorM5I09IntegrationTest {
                 printf '%s\\n' 'remote: token-value protected branch hook declined'
                 exit 1
                 """);
-        GitCommandExecutor rejecting = executor(Duration.ofSeconds(2), rejected.toString());
+        // The rejection is instant; the timeout here is only a guard, so keep it loose
+        // enough that a loaded runner forking the shim never reclassifies it as TIMEOUT.
+        GitCommandExecutor rejecting = executor(Duration.ofSeconds(10), rejected.toString());
         GitCommandException protectedBranch = assertThrows(
                 GitCommandException.class,
                 () -> rejecting.pushBranch(

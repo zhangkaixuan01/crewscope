@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 25ffb25f024fa00d722e04b52718c7af1f52474fb61baf2f2d8e109241d434da
+// Controller source SHA-256: 1c177d2160942531d15af7c0ecf1408aa7933cf766480aeeb0ba9bea05deb18c
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -1424,6 +1424,14 @@ export const openApiDocument = {
         "operationId": "MemberSelfNotificationPreferenceController_updatePreference",
         "tags": [
           "MemberSelfNotificationPreferenceController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/budget": {
+      "get": {
+        "operationId": "TeamObservabilityController_budget",
+        "tags": [
+          "TeamObservabilityController"
         ]
       }
     },
@@ -3513,6 +3521,12 @@ export const openApiOperations = [
   },
   {
     "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/budget",
+    "operationId": "TeamObservabilityController_budget",
+    "controller": "TeamObservabilityController"
+  },
+  {
+    "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/observability/cost/months",
     "operationId": "TeamObservabilityController_costMonths",
     "controller": "TeamObservabilityController"
@@ -4280,4 +4294,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 310 as const
+export const openApiOperationCount = 311 as const

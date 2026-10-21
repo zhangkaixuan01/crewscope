@@ -88,7 +88,12 @@ class GitHubPushProtocolM5I09IntegrationTest {
         GitCommandExecutor git = new GitCommandExecutor(
                 new GitCommandPolicy(
                         temporaryDirectory.resolve("timeout-home"),
-                        Duration.ofMillis(1500),
+                        // Generous for the exec-passthrough setup commands (a loaded
+                        // runner can take over a second to even spawn git), while the
+                        // wrapper's post-push `sleep 5` still lands this executor's
+                        // push squarely past the line: completed remotely, timed out
+                        // locally.
+                        Duration.ofSeconds(4),
                         64 * 1024),
                 wrapper);
         fixture.executor(Duration.ofSeconds(10))

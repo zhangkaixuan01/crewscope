@@ -2,11 +2,14 @@ package io.crewscope.server.api;
 
 import io.crewscope.application.observability.ModelUsageMonthDetailRow;
 import io.crewscope.application.observability.TaskQualityStatistics;
+import io.crewscope.application.observability.TeamBudgetAlertSettings;
+import io.crewscope.application.observability.TeamBudgetQueryRepository;
 import io.crewscope.application.observability.TeamObservabilityQueryService;
 import io.crewscope.application.observability.TeamObservabilityQueryService.CostSource;
 import io.crewscope.application.observability.TeamObservabilityQueryService.ModelUsageCurrencySubtotal;
 import io.crewscope.application.observability.TeamObservabilityQueryService.ModelUsageMonthSummary;
 import io.crewscope.application.observability.TeamObservabilityQueryService.ModelUsageRoleSubtotal;
+import io.crewscope.application.observability.TeamObservabilityQueryService.TeamBudgetView;
 import io.crewscope.application.observability.TeamObservabilityQueryService.TeamCostMonthsPage;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.shared.id.OrganizationId;
@@ -35,11 +38,11 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * Team usage-cost and quality reads (M10-F03). Reads are member-scoped with the platform
- * administrator bypass inside the service, so this controller only owns transport concerns:
- * month and page validation, no-store caching, and the API DTO shapes frozen in the
- * observability contract. Amounts serialize per currency via toPlainString — the contract
- * never converts or rounds across currencies.
+ * Team usage-cost, budget, and quality reads (M10-F03; budget face M13b-A06). Reads are
+ * member-scoped with the platform administrator bypass inside the service, so this
+ * controller only owns transport concerns: month and page validation, no-store caching,
+ * and the API DTO shapes frozen in the observability contract. Amounts serialize per
+ * currency via toPlainString — the contract never converts or rounds across currencies.
  */
 @RestController
 @RequestMapping("/api/v1/organizations/{organizationId}/teams/{teamId}/observability")
@@ -130,6 +133,24 @@ public final class TeamObservabilityController {
                         .body(QualityMonthResponse.from(usageMonth, statistics)));
     }
 
+    @GetMapping("/budget")
+    public Mono<ResponseEntity<BudgetResponse>> budget(
+            @PathVariable String organizationId,
+            @PathVariable String teamId,
+            Authentication authentication,
+            ServerWebExchange exchange) {
+        OrganizationId organization = organizationId(organizationId);
+        TeamId team = teamId(teamId);
+        return query(
+                        authentication,
+                        organization,
+                        exchange,
+                        access -> service.budget(access, organization, team))
+                .map(view -> ResponseEntity.ok()
+                        .cacheControl(CacheControl.noStore())
+                        .body(BudgetResponse.from(view)));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private <T> Mono<T> query(
@@ -191,6 +212,50 @@ public final class TeamObservabilityController {
     }
 
     // ------------------------------------------------------------------ DTOs
+
+    /**
+     * Budget read face (M13b-A06): the configured budgets and thresholds exactly as the
+     * alert scan interprets them, next to the current month's usage from the same source.
+     * Amounts serialize per currency via toPlainString like every other cost payload.
+     */
+    record BudgetResponse(String usageMonth, BudgetConfigResponse config, BudgetUsageResponse usage) {
+
+        static BudgetResponse from(TeamBudgetView view) {
+            return new BudgetResponse(
+                    view.usageMonth(),
+                    BudgetConfigResponse.from(view.settings()),
+                    BudgetUsageResponse.from(view.usage()));
+        }
+    }
+
+    record BudgetConfigResponse(
+            boolean alertsEnabled,
+            long monthlyTokenBudget,
+            long tokenWarningThreshold,
+            BigDecimal warningRatio,
+            Map<String, String> monthlyAmountBudgets) {
+
+        static BudgetConfigResponse from(TeamBudgetAlertSettings settings) {
+            Map<String, String> budgets = new LinkedHashMap<>();
+            settings.monthlyAmountBudgets().forEach((currency, budget) ->
+                    budgets.put(currency, amount(budget)));
+            return new BudgetConfigResponse(
+                    settings.enabled(),
+                    settings.monthlyTokenBudget(),
+                    settings.tokenWarningThreshold().longValueExact(),
+                    settings.warningRatio(),
+                    budgets);
+        }
+    }
+
+    record BudgetUsageResponse(long totalTokens, Map<String, String> costsByCurrency) {
+
+        static BudgetUsageResponse from(TeamBudgetQueryRepository.TeamMonthlyUsage usage) {
+            Map<String, String> costs = new LinkedHashMap<>();
+            usage.costsByCurrency().forEach((currency, cost) -> costs.put(currency, amount(cost)));
+            return new BudgetUsageResponse(usage.totalTokens(), costs);
+        }
+    }
 
     record CostMonthsResponse(List<CostMonthResponse> months, String nextAfter) {
 

@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import io.crewscope.application.observability.ModelUsageMonthDetailRow;
 import io.crewscope.application.observability.TaskQualityStatistics;
+import io.crewscope.application.observability.TeamBudgetAlertSettings;
+import io.crewscope.application.observability.TeamBudgetQueryRepository;
 import io.crewscope.application.observability.TeamObservabilityQueryService;
 import io.crewscope.application.observability.TeamObservabilityQueryService.CostSource;
 import io.crewscope.application.observability.TeamObservabilityQueryService.ModelUsageCurrencySubtotal;
@@ -57,6 +59,55 @@ class TeamObservabilityControllerTest {
                         service, identityResolver))
                 .controllerAdvice(new ApiExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void budgetServesTheFrozenShapeWithNoStore() {
+        TeamBudgetAlertSettings settings = new TeamBudgetAlertSettings(
+                true, 1_000_000L, new BigDecimal("0.8"),
+                Map.of("CNY", new BigDecimal("500.00")));
+        when(service.budget(any(), any(), any())).thenReturn(
+                new TeamObservabilityQueryService.TeamBudgetView(
+                        "2026-10", settings,
+                        new TeamBudgetQueryRepository.TeamMonthlyUsage(
+                                123_456L, Map.of("CNY", new BigDecimal("87.5")))));
+
+        client.get().uri("/api/v1/organizations/{org}/teams/{team}/observability/budget",
+                        ORGANIZATION, TEAM)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().cacheControl(CacheControl.noStore())
+                .expectBody()
+                .jsonPath("$.usageMonth").isEqualTo("2026-10")
+                .jsonPath("$.config.alertsEnabled").isEqualTo(true)
+                .jsonPath("$.config.monthlyTokenBudget").isEqualTo(1000000)
+                // The warning line the alert scan would fire on: ceil(1,000,000 × 0.8).
+                .jsonPath("$.config.tokenWarningThreshold").isEqualTo(800000)
+                .jsonPath("$.config.warningRatio").isEqualTo(0.8)
+                .jsonPath("$.config.monthlyAmountBudgets.CNY").isEqualTo("500.00")
+                .jsonPath("$.usage.totalTokens").isEqualTo(123456)
+                .jsonPath("$.usage.costsByCurrency.CNY").isEqualTo("87.5");
+    }
+
+    @Test
+    void budgetWithNoUsageStillCarriesTheConfiguration() {
+        TeamBudgetAlertSettings settings = new TeamBudgetAlertSettings(
+                false, 0L, new BigDecimal("0.8"), Map.of());
+        when(service.budget(any(), any(), any())).thenReturn(
+                new TeamObservabilityQueryService.TeamBudgetView(
+                        "2026-10", settings,
+                        TeamBudgetQueryRepository.TeamMonthlyUsage.empty()));
+
+        client.get().uri("/api/v1/organizations/{org}/teams/{team}/observability/budget",
+                        ORGANIZATION, TEAM)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.config.alertsEnabled").isEqualTo(false)
+                .jsonPath("$.config.monthlyTokenBudget").isEqualTo(0)
+                .jsonPath("$.config.monthlyAmountBudgets").isEmpty()
+                .jsonPath("$.usage.totalTokens").isEqualTo(0)
+                .jsonPath("$.usage.costsByCurrency").isEmpty();
     }
 
     @Test

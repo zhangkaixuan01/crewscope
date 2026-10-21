@@ -113,10 +113,15 @@ public class ObservabilityConfiguration {
             TeamRepository teams,
             TeamMembershipQuery memberships,
             TimeProvider timeProvider,
-            @Value("${crewscope.observability.reporting-zone:UTC}") String reportingZone) {
+            @Value("${crewscope.observability.reporting-zone:UTC}") String reportingZone,
+            TeamBudgetQueryRepository budgetQueries,
+            TeamBudgetAlertProperties budgetProperties) {
+        // The read face shows budgets exactly as the alert scan interprets them, so both
+        // derive from one settings snapshot of the same properties.
         return new TeamObservabilityQueryService(
                 rollupQueries, quality, teams, memberships,
-                timeProvider, ZoneId.of(reportingZone));
+                timeProvider, ZoneId.of(reportingZone),
+                budgetQueries, budgetProperties.toSettings());
     }
 
     /** The soft budget scan: one pass, one transaction per first crossing. */

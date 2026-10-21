@@ -25,11 +25,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Team-scoped usage-cost and quality reads over the rollup projection and the durable task
- * fact tables (M10-F03). Guards follow the Knowledge read shape — organization USER, Team
- * exists and is ACTIVE, then an active Team member — with the platform administrator bypass
- * applied to the membership check only: administrators still get a 404 for Teams that do
- * not exist in their own Organization.
+ * Team-scoped usage-cost, budget, and quality reads over the rollup projection and the durable
+ * task fact tables (M10-F03; budget face M13b-A06). Guards follow the Knowledge read shape —
+ * organization USER, Team exists and is ACTIVE, then an active Team member — with the platform
+ * administrator bypass applied to the membership check only: administrators still get a 404 for
+ * Teams that do not exist in their own Organization.
  *
  * <p>Source subtotals deliberately speak the contract's three-source language: EXECUTION
  * folds the chat roles (CHAT_PRIMARY, CHAT_FALLBACK, COMPACTION) so the cost page can
@@ -63,6 +63,8 @@ public final class TeamObservabilityQueryService {
     private final TeamMembershipQuery memberships;
     private final TimeProvider timeProvider;
     private final ZoneId reportingZone;
+    private final TeamBudgetQueryRepository budgetQueries;
+    private final TeamBudgetAlertSettings budgetSettings;
 
     public TeamObservabilityQueryService(
             ModelUsageRollupQueryRepository rollups,
@@ -70,13 +72,17 @@ public final class TeamObservabilityQueryService {
             TeamRepository teams,
             TeamMembershipQuery memberships,
             TimeProvider timeProvider,
-            ZoneId reportingZone) {
+            ZoneId reportingZone,
+            TeamBudgetQueryRepository budgetQueries,
+            TeamBudgetAlertSettings budgetSettings) {
         this.rollups = Objects.requireNonNull(rollups, "rollups");
         this.quality = Objects.requireNonNull(quality, "quality");
         this.teams = Objects.requireNonNull(teams, "teams");
         this.memberships = Objects.requireNonNull(memberships, "memberships");
         this.timeProvider = Objects.requireNonNull(timeProvider, "timeProvider");
         this.reportingZone = Objects.requireNonNull(reportingZone, "reportingZone");
+        this.budgetQueries = Objects.requireNonNull(budgetQueries, "budgetQueries");
+        this.budgetSettings = Objects.requireNonNull(budgetSettings, "budgetSettings");
     }
 
     /**
@@ -139,6 +145,23 @@ public final class TeamObservabilityQueryService {
         Instant windowStart = firstDay.atStartOfDay(reportingZone).toInstant();
         Instant windowEnd = firstDay.plusMonths(1).atStartOfDay(reportingZone).toInstant();
         return quality.findForWindow(organizationId, teamId, windowStart, windowEnd);
+    }
+
+    /**
+     * The budget read face (M13b-A06): configured budgets plus the current month's usage.
+     * The month is the server's current reporting month — never a request parameter — and
+     * a month without usage facts reads as zero usage rather than an error.
+     */
+    public TeamBudgetView budget(
+            TeamAccessContext context,
+            OrganizationId organizationId,
+            TeamId teamId) {
+        read(context, organizationId, teamId);
+        String usageMonth = ModelUsageMonthKey.of(timeProvider.now(), reportingZone).value();
+        TeamBudgetQueryRepository.TeamMonthlyUsage usage = budgetQueries
+                .findMonthlyUsage(organizationId, teamId, usageMonth)
+                .orElseGet(TeamBudgetQueryRepository.TeamMonthlyUsage::empty);
+        return new TeamBudgetView(usageMonth, budgetSettings, usage);
     }
 
     private List<ModelUsageMonthSummary> summarize(
@@ -253,6 +276,17 @@ public final class TeamObservabilityQueryService {
     }
 
     // ------------------------------------------------------------------ results
+
+    /**
+     * The budget read face (M13b-A06, first-round R21): the configured budgets next to
+     * the current month's usage from the same repository the alert scan reads — one
+     * source, so the page can never disagree with an emitted alert.
+     */
+    public record TeamBudgetView(
+            String usageMonth,
+            TeamBudgetAlertSettings settings,
+            TeamBudgetQueryRepository.TeamMonthlyUsage usage) {
+    }
 
     /** One page of month summaries plus the exclusive cursor when older months remain. */
     public record TeamCostMonthsPage(
