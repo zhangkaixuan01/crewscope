@@ -45,12 +45,18 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev --host 127.0.0.1 --port 4173',
+    // Preview serves the prebuilt dist bundle: every page load costs a static sendfile
+    // instead of an on-the-fly module transform, which matters on the 3-vCPU CI runner.
+    // Build first (`pnpm build`) — CI does this in its own step, and the m9b fixtures
+    // resolve('dist') from the same bundle. Locally an already-running server on the
+    // port is reused as before.
+    command: 'pnpm preview --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
-    // Marks the mock-tier dev server so vite.config.ts swaps the collaboration WS
-    // proxy for the inert handshake channel (M11-F01): page.route cannot mock a
-    // WebSocket upgrade, and a failing one would degrade the store mid-screenshot.
-    env: { CREWSCOPE_E2E_DEV: '1' },
+    // Marks the mock-tier server so vite.config.ts serves the inert collaboration
+    // handshake channel (M11-F01) on both the dev pipeline and the preview server:
+    // page.route cannot mock a WebSocket upgrade, and a failing one would degrade the
+    // store mid-screenshot.
+    env: { CREWSCOPE_E2E: '1' },
   },
 })
