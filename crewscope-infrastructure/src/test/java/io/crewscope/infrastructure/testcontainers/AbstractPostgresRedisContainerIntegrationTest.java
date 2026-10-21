@@ -26,18 +26,37 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class AbstractPostgresRedisContainerIntegrationTest {
 
     protected static final String POSTGRES_IMAGE = "postgres:17-alpine";
+
+    /**
+     * Non-durable PostgreSQL tuning for throwaway test containers: the official
+     * recommended combination when durability does not matter (no fsync, no synchronous
+     * commit, no full-page writes). A crash merely fails the run — the container is
+     * discarded minutes later — while every Flyway migration transaction committed
+     * inside the Docker VM saves an fsync round trip, and the JDBC ITs replay the
+     * whole migration chain per test method.
+     */
+    public static final String[] NON_DURABLE_POSTGRES_COMMAND = {
+        "postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"
+    };
+
+    /** {@link #NON_DURABLE_POSTGRES_COMMAND} plus the raised connection ceiling shared
+     * singleton containers need (see the comment on {@link #POSTGRES}). */
+    public static final String[] SHARED_POSTGRES_COMMAND = {
+        "postgres", "-c", "max_connections=500",
+        "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"
+    };
     protected static final String REDIS_IMAGE = "redis:7.4-alpine";
     protected static final int REDIS_PORT = 6379;
 
+    /** One shared instance serves every cached Spring context of the module run; the default
+     * 100-connection ceiling is exhausted by ~64 contexts x Hikari pools alone, long before
+     * any test connection — hence {@link #SHARED_POSTGRES_COMMAND}'s raised ceiling. */
     protected static final PostgreSQLContainer POSTGRES =
             new PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE))
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
-                    // One shared instance serves every cached Spring context of the module run;
-                    // the default 100-connection ceiling is exhausted by ~64 contexts x Hikari
-                    // pools alone, long before any test connection.
-                    .withCommand("postgres", "-c", "max_connections=500")
+                    .withCommand(SHARED_POSTGRES_COMMAND)
                     .withStartupTimeout(Duration.ofMinutes(2));
 
     protected static final GenericContainer<?> REDIS =

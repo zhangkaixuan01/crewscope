@@ -1,5 +1,7 @@
 package io.crewscope.infrastructure.testcontainers;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.SHARED_POSTGRES_COMMAND;
+
 import java.time.Duration;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -27,9 +29,9 @@ public abstract class AbstractPgVectorContainerIntegrationTest {
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
-                    // Singleton instance shared by every subclass; raised from the default 100
-                    // so concurrent cached pools cannot exhaust the ceiling.
-                    .withCommand("postgres", "-c", "max_connections=500")
+                    // Singleton instance shared by every subclass: raised connection ceiling
+                    // plus non-durable tuning (see SHARED_POSTGRES_COMMAND).
+                    .withCommand(SHARED_POSTGRES_COMMAND)
                     .withStartupTimeout(Duration.ofMinutes(2));
 
     static {

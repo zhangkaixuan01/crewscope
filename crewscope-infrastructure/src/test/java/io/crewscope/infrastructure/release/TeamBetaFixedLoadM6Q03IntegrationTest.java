@@ -1,5 +1,6 @@
 package io.crewscope.infrastructure.release;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -76,6 +77,7 @@ class TeamBetaFixedLoadM6Q03IntegrationTest {
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
+                    .withCommand(NON_DURABLE_POSTGRES_COMMAND)
                     .withStartupTimeout(Duration.ofMinutes(2));
 
     @BeforeAll

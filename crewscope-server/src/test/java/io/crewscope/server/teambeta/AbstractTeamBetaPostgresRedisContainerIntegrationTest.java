@@ -1,5 +1,7 @@
 package io.crewscope.server.teambeta;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
+
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
 import java.time.Duration;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -31,6 +33,7 @@ public abstract class AbstractTeamBetaPostgresRedisContainerIntegrationTest {
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
+                    .withCommand(NON_DURABLE_POSTGRES_COMMAND)
                     .withStartupTimeout(Duration.ofMinutes(2));
 
     @Container

@@ -1,5 +1,6 @@
 package io.crewscope.server.a01;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
 import static org.junit.jupiter.api.Assertions.*;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -16,7 +17,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Testcontainers
 @EnabledIfSystemProperty(named = "a01.browser", matches = "true")
 class A01BrowserIntegrationTest {
-  @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+  @Container static final PostgreSQLContainer POSTGRES =
+      new PostgreSQLContainer("postgres:17-alpine").withCommand(NON_DURABLE_POSTGRES_COMMAND);
   @Test void realBrowserLostResponseReloadAndProcessRestart() throws Exception {
     var dataSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").schemas("crewscope").load().migrate();

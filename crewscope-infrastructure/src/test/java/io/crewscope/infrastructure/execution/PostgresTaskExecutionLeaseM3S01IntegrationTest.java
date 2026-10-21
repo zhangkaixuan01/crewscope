@@ -1,5 +1,6 @@
 package io.crewscope.infrastructure.execution;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -58,6 +59,7 @@ class PostgresTaskExecutionLeaseM3S01IntegrationTest {
                     .withDatabaseName("crewscope")
                     .withUsername("crewscope")
                     .withPassword("crewscope-test")
+                    .withCommand(NON_DURABLE_POSTGRES_COMMAND)
                     .withStartupTimeout(Duration.ofMinutes(2));
 
     private final LeaseHarness harness = new LeaseHarness();

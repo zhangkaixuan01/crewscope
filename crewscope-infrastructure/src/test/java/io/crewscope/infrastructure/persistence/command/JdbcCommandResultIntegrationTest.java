@@ -1,5 +1,6 @@
 package io.crewscope.infrastructure.persistence.command;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.crewscope.application.command.*;
@@ -32,7 +33,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /** Disposable database only: never reads deployment configuration or connects to product services. */
 @Testcontainers(disabledWithoutDocker = true)
 class JdbcCommandResultIntegrationTest {
-  @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
+  @Container static final PostgreSQLContainer POSTGRES =
+      new PostgreSQLContainer("postgres:17-alpine").withCommand(NON_DURABLE_POSTGRES_COMMAND);
   private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-09-22T00:00:00Z");
   private final OrganizationId org = OrganizationId.generate();
   private final PrincipalId actor = PrincipalId.generate();

@@ -1,5 +1,6 @@
 package io.crewscope.infrastructure.persistence.knowledge;
 
+import static io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest.NON_DURABLE_POSTGRES_COMMAND;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,7 +29,8 @@ class DefaultMigrationChainStaysVectorFreeTest {
     // extension binary this migration would fail right here.
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:17-alpine");
+            new PostgreSQLContainer<>("postgres:17-alpine")
+                    .withCommand(NON_DURABLE_POSTGRES_COMMAND);
 
     private JdbcTemplate jdbc;
 
