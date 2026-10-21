@@ -217,6 +217,16 @@ Backend CI 还会运行 `dependency:analyze`，并用
 [`config/maven-dependency-analyze.allowlist`](config/maven-dependency-analyze.allowlist)
 阻断未审阅的新依赖诊断。
 
+### 测试的两档
+
+后端测试时间 95% 集中在 172 个容器/Spring 上下文集成类（约 47 分钟执行量），670 个纯单测类不足 3 分钟。开发迭代用 `-Pfast` 跳过 `*IntegrationTest`、`*IT`、`*FixedAttackSet*` 命名族，全链约 1 分钟出反馈：
+
+```bash
+./mvnw -pl crewscope-server -am verify -Pfast
+```
+
+提交与 CI 门槛仍使用不带 profile 的全量 `verify`（含全部集成与攻击面测试），`-Pfast` 不改变任何测试语义，只是本地内环的快速档。
+
 后端健康与系统信息：
 
 ```text

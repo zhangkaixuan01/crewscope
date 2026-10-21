@@ -151,4 +151,33 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Development iteration tier: 172 container/Spring-context integration classes
+          carry 94.6% of the suite's wall clock (47 of 50 minutes), while the 670 pure
+          unit classes finish in under three. -Pfast skips the integration naming
+          families (*IntegrationTest, *IT, *FixedAttackSet*) so inner-loop feedback
+          stays minutes without touching any test semantics — the full untiered verify
+          remains the pre-push/pre-merge gate and nothing is skipped there.
+        -->
+        <profile>
+            <id>fast</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/*IntegrationTest.java</exclude>
+                                <exclude>**/*IT.java</exclude>
+                                <exclude>**/*FixedAttackSet*Test.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
