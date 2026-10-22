@@ -99,7 +99,9 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
 
 <template>
   <section class="observer-workspace" :class="`observer-workspace--${variant}`" aria-labelledby="team-observer-heading">
-    <section class="summary-strip panel" aria-labelledby="team-observer-heading">
+    <!-- M13b-F09：无名 section 不构成 landmark——外层 workspace 已由 team-observer-heading 命名，
+         摘要条再引用同一 heading 会造出同名 region（axe landmark-unique）。 -->
+    <section class="summary-strip panel">
       <h2 id="team-observer-heading">Team Observer</h2>
       <p class="summary-strip__note">读取 {{ teamName }} 的团队事实，生成面向成员的可核验摘要</p>
       <div class="observer-guardrail">

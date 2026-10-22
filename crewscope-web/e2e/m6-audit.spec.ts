@@ -30,6 +30,9 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
   await page.getByRole('button', { name: '加载更多' }).click()
   await expect(page.getByRole('button', { name: '查看详情' })).toHaveCount(2)
 
+  // M13b-F09：高级筛选收进 BaseMenu 弹层（trigger「高级筛选」）——Category/Outcome 草稿在弹层里改，
+  // 收起后由 toolbar side 的主提交按钮提交整个表单（草稿漂移后导出行也有 inline「应用筛选」入口）。
+  await page.getByRole('button', { name: '高级筛选' }).click()
   const category = page.getByLabel('Category')
   const outcome = page.getByLabel('Outcome')
   await category.selectOption('SECURITY')
@@ -37,9 +40,8 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
   await outcome.selectOption('DENIED')
   await expect(category).toHaveValue('SECURITY')
   await expect(outcome).toHaveValue('DENIED')
-  // After the draft edit the export control also shows its inline "应用筛选" entry, so the
-  // footer primary submit button is the scoped locator for committing the form.
-  const apply = page.locator('.audit-filter > footer > div > button[type="submit"]')
+  await page.keyboard.press('Escape')
+  const apply = page.locator('.scan-toolbar__side button[type="submit"]')
   await expect(apply).toHaveAttribute('type', 'submit')
   await apply.click()
   await expect(page).toHaveURL(/category=SECURITY/)

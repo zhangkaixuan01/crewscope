@@ -248,7 +248,7 @@ test.describe('reading anchors', () => {
   })
 
   test('resizing the window does not move the reading position', async ({ page }) => {
-    test.skip(test.info().project.name !== 'desktop-chromium', '宽→窄跨断点缩放只在 desktop 视口起步的才有跨度')
+    test.skip(test.info().project.name !== 'desktop-chromium', '宽→窄缩放只在 desktop 视口起步的才有跨度')
     await openReading(page)
     await page.getByRole('button', { name: '加载更早消息' }).click()
     await expect(page.locator('.message-list .virtual-spacer').first()).toBeVisible()
@@ -259,12 +259,11 @@ test.describe('reading anchors', () => {
     // A viewport shrink re-wraps every row (heights grow as widths narrow) and the container
     // resizes — the anchor compensation must absorb both instead of letting the reading
     // position drift. Direction note (M13b-F09): the resize runs wide→narrow from the desktop
-    // project's 1440 viewport. The narrow→wide direction exercises the same contract but its
-    // restore chain has a pre-existing useVirtualList defect: after the resize tug-of-war the
-    // last restore can land on mixed-price offsets (stale measured heights for rows outside the
-    // window + new ones inside) and strand the anchor ~88px off with nothing left to correct it.
-    // That defect is queued as its own fix; this spec covers the contract on the direction the
-    // layout machinery already keeps honest.
+    // project's 1440 viewport. Narrow→wide back to 1281 swaps the whole workspace layout
+    // (stacked → five-column grid, a five-figure pixel move) — that reflow belongs to the
+    // responsive-layout work, not to the reading-anchor contract under test here. The
+    // mixed-price resize defect that used to strand this direction 88–264px is fixed in
+    // useVirtualList (resize reprices the measured table + one post-flush alignment pass).
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForTimeout(400)
     const after = await topEdge(page, 105)

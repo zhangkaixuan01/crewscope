@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type ComputedRef, type Ref } from 'vue'
 
 /** Distance (px) from the bottom within which appended rows keep the list glued to the end (§4.4). */
 const FOLLOW_THRESHOLD = 80
@@ -317,7 +317,10 @@ export function useVirtualList<T>(
       const element = container.value
       if (element) element.scrollTop = element.scrollHeight
     } else {
+      // Pane drags resize rows exactly like window resizes do — same reprice + one-shot alignment.
+      repriceForResize()
       restoreAnchor()
+      schedulePostFlushAlignment()
     }
   }) : null
 
@@ -418,10 +421,64 @@ export function useVirtualList<T>(
     if (element && containerObserver) containerObserver.observe(element)
   })
 
+  /**
+   * A resize changes the row width, which changes every row's height — the whole `measured` table
+   * is suddenly priced in the old width while the layout reflows into the new one. Restoring on
+   * that mixed-price table (the model path for anchors outside the window) lands with the stale
+   * rows' error baked in, and the row observer then reports the *new* heights of window rows as
+   * "already measured" — changed=false, the drift is never corrected. Repricing fixes the table's
+   * coordinate system: drop every stale price, then synchronously re-measure the rendered rows so
+   * the window carries real new-width prices and unmeasured rows fall back to the new median.
+   */
+  function repriceForResize(): void {
+    measured.clear()
+    const list = listElement.value
+    if (!list) return
+    for (const row of list.querySelectorAll<HTMLElement>('[data-virtual-key]')) {
+      const key = row.dataset.virtualKey
+      if (!key) continue
+      const height = measureRow(row)
+      if (height > 0) measured.set(key, height)
+    }
+  }
+
+  /**
+   * One-shot post-flush alignment for the resize chain. Even on a uniformly priced table the
+   * top spacer is rebuilt from estimated offsets, so after the flush shifts the anchor row its
+   * real rect can drift from the restored position by the estimate error of everything above.
+   * This corrects that residue once, from the row's real rect — and crucially does NOT schedule
+   * itself again (earlier attempts at tail re-alignment ping-ponged forever): one correction,
+   * then the chain is done. Guard: only writes when the drift exceeds half a pixel.
+   */
+  let postFlushAlignPending = false
+  function schedulePostFlushAlignment(): void {
+    if (postFlushAlignPending) return
+    postFlushAlignPending = true
+    void nextTick(() => {
+      postFlushAlignPending = false
+      const anchor = pendingAnchor
+      const element = container.value
+      const list = listElement.value
+      if (!anchor || !element || !list) return
+      const row = [...list.querySelectorAll<HTMLElement>('[data-virtual-key]')]
+        .find(item => item.dataset.virtualKey === anchor.key)
+      if (!row) return
+      const rect = row.getBoundingClientRect()
+      if (rect.height <= 0) return
+      const drift = rect.top - element.getBoundingClientRect().top - anchor.offsetWithin
+      if (Math.abs(drift) <= 0.5) return
+      element.scrollTop += drift
+      onScroll()
+    })
+  }
+
   // Same rule as containerObserver: a window resize restores the reading anchor, never re-derives.
   const onWindowResize = (): void => {
     readMetrics()
-    if (!isFollowing.value) restoreAnchor()
+    if (isFollowing.value) return
+    repriceForResize()
+    restoreAnchor()
+    schedulePostFlushAlignment()
   }
 
   onMounted(() => {
